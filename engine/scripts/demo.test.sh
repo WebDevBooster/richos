@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# demo.test.sh — smoke check for scripts/demo.sh. No CI runner in this kit
-# (no `.github/workflows/` yet — that's roadmap item B3), so this is the
-# at-minimum check: syntax-clean, and a real unattended invocation exits 0
-# with all 7 beats reporting PASSED, and the kit repo is untouched by the run.
+# demo.test.sh — smoke check for scripts/demo.sh. Runnable anywhere, with or
+# without a CI runner (the engine also ships
+# `.github/workflows/engine-self-verify.yml`, which invokes this suite): the
+# at-minimum check is syntax-clean, and a real unattended invocation exits 0
+# with all 7 beats reporting PASSED, and the engine repo is untouched by the run.
 #
 # Run directly: scripts/demo.test.sh
 # Exit 0 = pass; exit 1 = at least one failure.
@@ -35,7 +36,7 @@ else
     ok "demo.sh: executable"
 fi
 
-# --- snapshot the kit repo's git status before running the demo ---
+# --- snapshot the engine repo's git status before running the demo ---
 BEFORE_STATUS="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
 
 # --- a real, unattended invocation ---
@@ -71,16 +72,16 @@ else
     bad "demo.sh: missing one of the REAL/SIMULATED labels"
 fi
 
-# --- kit repo must be untouched by the run ---
+# --- engine repo must be untouched by the run ---
 AFTER_STATUS="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
 if [ "$BEFORE_STATUS" = "$AFTER_STATUS" ]; then
-    ok "demo.sh: kit repo git status unchanged by the run"
+    ok "demo.sh: engine repo git status unchanged by the run"
 else
-    bad "demo.sh: kit repo git status changed by the run (before != after)"
+    bad "demo.sh: engine repo git status changed by the run (before != after)"
 fi
 
 # --- no leftover temp dirs from this run ---
-LEFTOVER="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'orchestration-kit-demo.*' 2>/dev/null || true)"
+LEFTOVER="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'richos-engine-demo.*' 2>/dev/null || true)"
 if [ -z "$LEFTOVER" ]; then
     ok "demo.sh: no leftover temp directories after exit"
 else

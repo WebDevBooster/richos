@@ -98,7 +98,7 @@
 #
 # Layer K is a HARD gate (not warn-only) for the same reason as B/C: a missing
 # or gutted secrets scanner is a genuine security regression, not a cosmetic
-# drift — an adopter relying on "the kit blocks leaked credentials" deserves a
+# drift — an adopter relying on "the engine blocks leaked credentials" deserves a
 # probe that actually verifies it's still true. It is checked independently of
 # Layer B: the Write|Edit matcher now wires TWO hooks (guard-main-checkout-
 # writes.sh first, scan-secrets.sh second), and Layer K scans the FULL list of
@@ -159,19 +159,20 @@ emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; }
 emit_fail() { printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; FAIL=$((FAIL+1)); }
 emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
 
-# --- Kit version banner (informational — NEVER gates) ---
+# --- Engine version banner (informational — NEVER gates) ---
 #
-# The kit's semantic version lives in the top-level `VERSION` file (kit-owned;
-# see VERSIONING.md). Print it so every integrity check is self-identifying:
-# an adopter reading a probe run — or a support/onboarding operator — can see at
-# a glance which kit version they are verifying. This is a pure banner: a
-# missing/unreadable VERSION never increments FAIL and never blocks a layer (an
-# adopter who deleted VERSION has a cosmetic gap, not a broken guard).
-KIT_VERSION="$(awk 'NR==1 {gsub(/[[:space:]]/,""); print; exit}' "$REPO_ROOT/VERSION" 2>/dev/null || true)"
-if [ -n "$KIT_VERSION" ]; then
-    printf 'orchestration-kit v%s — contract integrity probe\n' "$KIT_VERSION" >&2
+# The engine's semantic version lives in the top-level `VERSION` file
+# (engine-owned; see VERSIONING.md). Print it so every integrity check is
+# self-identifying: an adopter reading a probe run — or a support/onboarding
+# operator — can see at a glance which engine version they are verifying. This
+# is a pure banner: a missing/unreadable VERSION never increments FAIL and never
+# blocks a layer (an adopter who deleted VERSION has a cosmetic gap, not a
+# broken guard).
+ENGINE_VERSION="$(awk 'NR==1 {gsub(/[[:space:]]/,""); print; exit}' "$REPO_ROOT/VERSION" 2>/dev/null || true)"
+if [ -n "$ENGINE_VERSION" ]; then
+    printf 'richos-engine v%s — contract integrity probe\n' "$ENGINE_VERSION" >&2
 else
-    printf 'orchestration-kit (VERSION file absent) — contract integrity probe\n' >&2
+    printf 'richos-engine (VERSION file absent) — contract integrity probe\n' >&2
 fi
 
 # --- Layer A — canonical settings.local.json exists ---
@@ -1115,7 +1116,7 @@ fi
 # header carries the full four-gate contract.
 #
 # WHY A HARD GATE, AND WHY BOTH HALVES: this is the ONLY hook-reachable code in
-# the kit that DELETES things — `git worktree remove` + `git branch -d`, run
+# the engine that DELETES things — `git worktree remove` + `git branch -d`, run
 # with --execute on every single session start. Its failure modes are asymmetric
 # and both invisible: gutted, worktrees silently accumulate again (the exact
 # regression the hook exists to prevent, and nothing ever reports it); over-

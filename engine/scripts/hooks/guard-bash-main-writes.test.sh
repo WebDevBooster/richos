@@ -118,7 +118,7 @@ run_case "positive-shape: scratchpad->protected flips to BLOCK" 2 \
     "$(json_cmd "mkdir -p /tmp/x && echo hi > $ROOT/$FIRST_PROTECTED/y" "$ROOT")"
 
 # --- PROTECTED_PATHS empty -> guard INACTIVE (allow + loud note) ----------
-# The generic kit's sensible-failure contract: unconfigured -> visible no-op.
+# The generic engine's sensible-failure contract: unconfigured -> visible no-op.
 EMPTY_ROOT="$(mktemp -d -t guard-bash-empty.XXXXXX)"
 mkdir -p "$EMPTY_ROOT/scripts/hooks" "$EMPTY_ROOT/scripts/lib"
 cp "$SRC_HOOK" "$EMPTY_ROOT/scripts/hooks/guard-bash-main-writes.sh"

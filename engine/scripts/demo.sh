@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # demo.sh — the 60-second proof-of-life. One command, unattended, that shows
-# a CEO the kit's enforcement machinery actually working, before they trust it
-# with a real repo.
+# a CEO the engine's enforcement machinery actually working, before they trust
+# it with a real repo.
 #
 # WHAT THIS IS: value-roadmap.md §B2 ("test-drive mode") plus the missing
 # "one-command demo button" Frank's hostile-buyer review flagged as the
@@ -16,11 +16,11 @@
 # DESIGN DECISION — sample project is synthesized at runtime, not shipped:
 # the "sample company repo" this script drives is built fresh in a temp dir
 # on every run (git init, hooks copied in, a two-file toy product written out)
-# rather than a persistent `demo/sample-project/` checked into the kit. This
-# keeps the kit repo free of orphan demo data to maintain, guarantees the
+# rather than a persistent `demo/sample-project/` checked into the engine. This
+# keeps the engine tree free of orphan demo data to maintain, guarantees the
 # demo can never drift out of sync with the current hooks (it always copies
-# THIS commit's hook files), and makes "re-runnable" and "kit repo untouched"
-# trivially true by construction — there is nothing in the kit for the demo
+# THIS commit's hook files), and makes "re-runnable" and "engine repo untouched"
+# trivially true by construction — there is nothing in the engine for the demo
 # to touch in the first place.
 #
 # HONEST LABELING (Frank's truth-in-labeling lesson applies to the demo
@@ -37,7 +37,7 @@
 #                             explicitly, every time, never presented as a
 #                             live agent transcript.
 #
-# PREREQUISITES (same as the kit's own, nothing extra): bash, git, python3,
+# PREREQUISITES (same as the engine's own, nothing extra): bash, git, python3,
 # standard coreutils. No Claude API key. No live agents. No network access.
 # Deterministic and unattended — safe for a buyer to run sight-unseen.
 #
@@ -111,7 +111,7 @@ beat_fail() {
 # straight to the CEO — e.g. "...demo.XXXXXX.k3ryLSxK9V"); GNU substitutes
 # the X's directly. This form gives byte-for-byte identical, clean output on
 # both platforms. (See docs/ci-portability-notes.md.)
-SAMPLE_ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/orchestration-kit-demo.XXXXXX")" && pwd -P)"
+SAMPLE_ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-demo.XXXXXX")" && pwd -P)"
 
 cleanup() {
     rm -rf "$SAMPLE_ROOT" 2>/dev/null || true
@@ -120,7 +120,7 @@ trap cleanup EXIT
 
 heading "Setting up a throwaway sample company (temp dir, deleted on exit)"
 narrate "Building a tiny sample repo at $SAMPLE_ROOT — this is NOT your repo and"
-narrate "is deleted when this script exits. Wiring in the kit's real, unmodified"
+narrate "is deleted when this script exits. Wiring in the engine's real, unmodified"
 narrate "enforcement hooks from this checkout — the same files that would protect"
 narrate "your own repo."
 

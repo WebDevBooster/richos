@@ -9,7 +9,7 @@
 # Isolation" section of your CLAUDE.md). The orchestrator is supposed to remove
 # each one at land time (collect-worktree-artifacts.sh + `git worktree remove`
 # + `git branch -d`), but across restarts, dropped handoffs, and interrupted
-# sessions these pile up. In the upstream production project this kit was
+# sessions these pile up. In the upstream production project this engine was
 # extracted from, 43 stale worktrees were found to have silently accumulated
 # before anyone noticed. This script is the safety net: a conservative sweep
 # that removes ONLY worktrees provably safe to discard, DRY-RUN by default.

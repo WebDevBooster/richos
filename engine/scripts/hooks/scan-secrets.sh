@@ -10,7 +10,7 @@
 # the same "catch it at the moment of the write" posture as
 # guard-main-checkout-writes.sh; it is wired as a SECOND hook under that same
 # PreToolUse[Write|Edit|MultiEdit|NotebookEdit] matcher (see
-# .claude/settings.local.json), not a separate git pre-commit hook — the kit
+# .claude/settings.local.json), not a separate git pre-commit hook — the engine
 # has zero git-hook infrastructure today, and this slots into the existing
 # Claude-Code-hook framework with no new installation mechanism, per the
 # roadmap's own "no new infrastructure" constraint.

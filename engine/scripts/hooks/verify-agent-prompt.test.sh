@@ -6,7 +6,7 @@
 #
 # The hook resolves REPO_ROOT (agent-def lookup + config load) from its own
 # location; VERIFY_REPO_ROOT_OVERRIDE points it at a hermetic sandbox so the
-# suite never depends on the kit's real agent definitions or config. The
+# suite never depends on the engine's real agent definitions or config. The
 # qa-install-fresh gate is OFF by default, so those cases flip it on per-run
 # with VERIFY_QA_GATE_OVERRIDE=1 (and one case proves it stays silent when OFF).
 #

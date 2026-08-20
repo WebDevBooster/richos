@@ -4,9 +4,9 @@
 # scripts/reap-stale-worktrees.sh in `--execute --unlock-stale` mode so
 # landed-but-never-removed teammate worktrees under .claude/worktrees/agent-*
 # get swept automatically at the start of every session, instead of quietly
-# accumulating across restarts. In the upstream production project this kit was
-# extracted from, 43 stale worktrees had piled up before anyone noticed — this
-# hook exists to keep that from recurring anywhere the kit is adopted.
+# accumulating across restarts. In the upstream production project this engine
+# was extracted from, 43 stale worktrees had piled up before anyone noticed —
+# this hook exists to keep that from recurring anywhere the engine is adopted.
 #
 # LOG-ONLY / NEVER BLOCKS: mirrors teammate-idle-handoff.sh's fail-open
 # contract. Any failure (missing script, git error, unexpected exception,

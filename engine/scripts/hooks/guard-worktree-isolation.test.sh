@@ -24,7 +24,7 @@
 # override normalized to its alias, and undeterminable model (no live def /
 # model:"inherit") accepts a valid alias while still enforcing the 2a floor.
 #
-# NOTE: the truthfulness cases resolve against the kit's REAL live agent defs
+# NOTE: the truthfulness cases resolve against the engine's REAL live agent defs
 # (frank=opus); if that frontmatter default changes, update the expected tokens.
 #
 # Run directly: scripts/hooks/guard-worktree-isolation.test.sh
@@ -184,7 +184,7 @@ run_case_msg "malformed-name message present" 'missing/malformed name' \
 # The <model> token (middle segment of <role>-<model>-<identifier>) must be a
 # real alias AND match the model the instance boots on: an explicit
 # tool_input.model override wins, else the model: frontmatter of the LIVE agent
-# def .claude/agents/<subagent_type>.md (kit live defs: frank=opus). Generic
+# def .claude/agents/<subagent_type>.md (engine live defs: frank=opus). Generic
 # roles here (dev, worker, ...) have NO live def -> undeterminable -> a valid
 # alias token is accepted.
 #

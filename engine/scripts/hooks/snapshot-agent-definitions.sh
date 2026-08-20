@@ -12,12 +12,12 @@
 #   therefore NEVER reaches a newly spawned agent's BOOTED system prompt: the
 #   harness boots that agent on the definition it read at session start, while
 #   the file on disk (and everyone's mental model) says otherwise. In the
-#   upstream production project this kit was extracted from, that cost 25
+#   upstream production project this engine was extracted from, that cost 25
 #   rejected deliverables on 2026-08-06: a teammate's definition was upgraded
 #   (v2.0 -> v2.1) and the work was dispatched in the SAME session, so three of
 #   four batches silently drafted under the stale v2.0 contract and every one
 #   had to be thrown away. That project's incident write-up does not ship with
-#   this kit — the lesson does, and this pair is the lesson made structural.
+#   this engine — the lesson does, and this pair is the lesson made structural.
 #   Doctrine (the "How to Delegate" section of your CLAUDE.md) is advisory and
 #   degrades silently. This hook pair makes the drift STRUCTURALLY visible at
 #   the spawn boundary instead.

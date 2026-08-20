@@ -4,7 +4,7 @@
 # worktree-reaper wrapper (scripts/hooks/session-start-reap-worktrees.sh).
 #
 # The wrapper is thin, but it is the trigger for the only hook-reachable code in
-# this kit that DELETES things (scripts/reap-stale-worktrees.sh runs with
+# this engine that DELETES things (scripts/reap-stale-worktrees.sh runs with
 # --execute --unlock-stale on every session start). Two properties matter, and
 # they pull in opposite directions:
 #   1. It must actually sweep — a gutted wrapper silently re-creates the

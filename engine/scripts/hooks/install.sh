@@ -8,7 +8,7 @@
 # .gitignore). It carries every hook stanza using `$CLAUDE_PROJECT_DIR` as the
 # repo-root placeholder, which Claude Code expands when it runs the hook
 # command — so the committed file wires enforcement on a fresh clone with ZERO
-# install step. (This kit keeps the `.sha256` manifest sidecars gitignored and
+# install step. (The engine keeps the `.sha256` manifest sidecars gitignored and
 # regenerated here, so a fresh clone still runs install.sh once to mint the
 # sidecars the integrity probe's Layer B/C/K hashing needs.)
 #
@@ -200,7 +200,7 @@ esac
 #
 # One entry is NOT under scripts/hooks/: scripts/reap-stale-worktrees.sh. The
 # SessionStart wrapper is a thin shim, but the reaper it invokes with --execute
-# is the only hook-reachable code in the kit that DELETES things (worktrees and
+# is the only hook-reachable code in the engine that DELETES things (worktrees and
 # branches). Hashing only the wrapper would be integrity theatre, so the reaper
 # gets a sidecar too and probe Layer Q verifies BOTH.
 HOOK_FILES=(

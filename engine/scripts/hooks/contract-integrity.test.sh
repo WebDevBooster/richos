@@ -92,7 +92,7 @@ CFG
 
 # gen_sidecars <root> — write a committed-style <hook>.sha256 next to each hook,
 # so the sandbox faithfully mirrors the state after install.sh has minted the
-# sidecars (this kit keeps them gitignored + regenerated, so a fresh clone runs
+# sidecars (the engine keeps them gitignored + regenerated, so a fresh clone runs
 # install.sh once — the sandbox seeds them directly).
 gen_sidecars() {
     local root="$1" f
@@ -615,7 +615,7 @@ make_git_main() {
     # Gitignore the generated settings.json + nested worktrees so a linked
     # worktree does NOT receive its own settings.json — mirroring the real repo,
     # where a probe run from a worktree reaches back to the MAIN checkout. The
-    # .sha256 sidecars are gitignored per kit convention; the probe reads MAIN's
+    # .sha256 sidecars are gitignored per engine convention; the probe reads MAIN's
     # ON-DISK sidecars (minted by gen_sidecars) regardless of git tracking.
     cat >"$root/.gitignore" <<'GI'
 /.claude/settings.json

@@ -11,12 +11,12 @@
 #   changes — but a teammate spawned later in that SAME session still boots on
 #   the STALE definition the harness read at session start. Nothing in the
 #   spawn payload, the tool result, or the agent's own transcript says so. In
-#   the upstream production project this kit was extracted from, a teammate's
+#   the upstream production project this engine was extracted from, a teammate's
 #   definition was upgraded (v2.0 -> v2.1) and the work dispatched in the very
 #   same session: batch 1 happened to notice its booted prompt was v2.0-shaped
 #   and self-corrected; batches 2-4 did not, drafted 25 outputs under the stale
 #   v2.0 contract, and every one had to be thrown away. That project's incident
-#   write-up does not ship with this kit — the lesson does.
+#   write-up does not ship with this engine — the lesson does.
 #   The "How to Delegate" section of your CLAUDE.md states the rule; this guard
 #   is the structure that makes forgetting it impossible.
 #
