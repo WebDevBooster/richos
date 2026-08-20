@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+#
+# session-start-reap-worktrees.sh — SessionStart hook. Runs
+# scripts/reap-stale-worktrees.sh in `--execute --unlock-stale` mode so
+# landed-but-never-removed teammate worktrees under .claude/worktrees/agent-*
+# get swept automatically at the start of every session, instead of quietly
+# accumulating across restarts. In the upstream production project this kit was
+# extracted from, 43 stale worktrees had piled up before anyone noticed — this
+# hook exists to keep that from recurring anywhere the kit is adopted.
+#
+# LOG-ONLY / NEVER BLOCKS: mirrors teammate-idle-handoff.sh's fail-open
+# contract. Any failure (missing script, git error, unexpected exception,
+# missing python3) is swallowed — this hook ALWAYS exits 0 and NEVER holds
+# up a session start. The reaper itself is the real safety boundary (four
+# gates — not-locked-or-provably-stale, merged, clean, no-live-process —
+# plus `git worktree remove`/`git branch -d`, never --force/-D); this hook
+# only decides WHEN to invoke it. See scripts/reap-stale-worktrees.sh for the
+# full contract and README.md ("What ships") for the shipped description.
+#
+# FAST WHEN NOTHING TO REAP: each candidate costs a handful of cheap git
+# plumbing calls (status --porcelain, merge-base --is-ancestor, pgrep).
+# Measured upstream against a real 45-worktree registration (43 candidates):
+# ~2.1s wall time in DRY-RUN. Once this hook has run once and the backlog is
+# cleared, the steady state (0-3 new worktrees per session) completes in well
+# under 2s. Working through a large backlog on first adoption naturally takes
+# longer — an acceptable one-time cost, not the steady-state case this timing
+# target describes.
+#
+# Never touches unlanded work: delegates entirely to
+# reap-stale-worktrees.sh, which is DRY-RUN by default and only mutates
+# under --execute with every removal gated (see that script's header).
+#
+# Repo-agnostic: resolves the main checkout via
+# scripts/lib/resolve-main-checkout.sh (tolerates its absence, falling back
+# to plain current-checkout resolution) exactly like the reaper itself, so
+# this hook is copy-paste portable to any repo adopting the same
+# .claude/worktrees/agent-<hex> convention.
+#
+# TEST OVERRIDE: REAP_WORKTREES_ROOT retargets the SWEEP at another repo root
+# (test-only; never set in a real session — the sibling hooks use the same
+# convention, cf. DEFINITION_DRIFT_ROOT). Only the sweep TARGET changes: the
+# reaper script itself is still resolved from THIS script's own location, so a
+# sandbox sweep still exercises the canonical, sidecar-hashed reaper rather than
+# a copy of it. Used by scripts/hooks/session-start-reap-worktrees.test.sh and
+# by contract-integrity-probe.sh Layer Q so neither ever mutates a real worktree.
+#
+# NOTE: hooks are snapshotted per session, so this hook takes effect from the
+# NEXT session. It assumes nothing about being live in the session that adds it.
+
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_FALLBACK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+_RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
+if [ -f "$_RMC_LIB" ]; then
+    # shellcheck source=../lib/resolve-main-checkout.sh
+    . "$_RMC_LIB" 2>/dev/null || true
+fi
+if command -v resolve_main_checkout >/dev/null 2>&1; then
+    REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$_FALLBACK_ROOT" 2>/dev/null || echo "$_FALLBACK_ROOT")"
+else
+    REPO_ROOT="$_FALLBACK_ROOT"
+fi
+
+REAPER="$REPO_ROOT/scripts/reap-stale-worktrees.sh"
+SWEEP_ROOT="${REAP_WORKTREES_ROOT:-$REPO_ROOT}"
+
+if [ -x "$REAPER" ]; then
+    RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale 2>&1)" || true
+    SUMMARY_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== summary' || true)"
+    if [ -n "$SUMMARY_LINE" ]; then
+        SUMMARY="session-start worktree reap: ${SUMMARY_LINE#=== }"
+    else
+        SUMMARY="session-start worktree reap: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
+    fi
+else
+    SUMMARY="session-start worktree reap: skipped (reap-stale-worktrees.sh not found or not executable at $REAPER)"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+    SUMMARY="$SUMMARY" python3 - <<'PY' 2>/dev/null || true
+import json
+import os
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": os.environ.get("SUMMARY", ""),
+    }
+}))
+PY
+else
+    # No python3 — degrade to a minimal hand-escaped JSON line rather than
+    # emitting nothing.
+    ESCAPED="${SUMMARY//\\/\\\\}"
+    ESCAPED="${ESCAPED//\"/\\\"}"
+    printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESCAPED"
+fi
+
+exit 0

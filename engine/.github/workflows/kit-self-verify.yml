@@ -1,0 +1,99 @@
+name: kit-self-verify
+
+# Roadmap item B3 — the kit self-verifies inside the adopter's own repo.
+# Every push/PR re-proves the enforcement machinery is wired and un-tampered,
+# so drift (a deleted settings key, a modified hook, a broken probe) surfaces
+# immediately in CI instead of as a silent total failure at some future
+# session start — exactly the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS incident
+# the README warns about. This workflow is ready to commit as-is; it assumes
+# nothing repo-specific beyond the kit's own layout.
+#
+# What it checks, in order:
+#   1. bash -n on every shipped shell script (fast fail on a syntax error).
+#   2. Every scripts/hooks/*.test.sh suite (each is self-contained).
+#   3. install.sh + contract-integrity-probe.sh against the repo's own
+#      committed, filled orchestration.config / settings.local.json — the
+#      same command an adopter runs after cloning.
+#   4. scripts/demo.sh — deterministic, unattended, ~2s — asserting it
+#      reports all 7 beats passed.
+#   5. scripts/demo.test.sh — the demo's own regression suite.
+#
+# Prerequisites: bash, git, python3 (pinned below), and standard GNU
+# coreutils — the same set documented in README's "Prerequisites" section.
+# No Claude API key, no live agents, no network access beyond checkout/setup.
+#
+# Portability note (see docs/ci-portability-notes.md for the full reasoning):
+# this workflow runs on ubuntu-latest. The kit was developed on macOS; every
+# hook already uses the shasum -> sha256sum -> python3 hashlib fallback chain
+# and contains no BSD-only constructs (no sed -i, no date -v/-j, no stat -f,
+# no pbcopy/osascript) — confirmed by grep audit, not assumption. One
+# genuine (cosmetic, non-breaking) macOS/Linux difference exists in `mktemp
+# -t` usage — documented, and fixed in the core (non-test) scripts where it's
+# trivially portable.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Report tool versions
+        run: |
+          bash --version | head -1
+          git --version
+          python3 --version
+
+      - name: bash -n every shipped shell script
+        run: |
+          set -eo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            if ! bash -n "$f"; then
+              echo "SYNTAX ERROR: $f"
+              fail=1
+            fi
+          done < <(find scripts reference -name '*.sh' -print0 2>/dev/null)
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more scripts failed bash -n" >&2
+            exit 1
+          fi
+          echo "bash -n: all scripts OK"
+
+      - name: Hook self-test suites (scripts/hooks/*.test.sh)
+        run: |
+          set -eo pipefail
+          for t in scripts/hooks/*.test.sh; do
+            echo "== $t =="
+            bash "$t"
+          done
+
+      - name: Mint sidecars + migrate any stale settings.json (install.sh)
+        run: scripts/hooks/install.sh
+
+      - name: Integrity probe (contract-integrity-probe.sh)
+        run: scripts/hooks/contract-integrity-probe.sh
+
+      - name: 60-second proof (scripts/demo.sh) — assert 7/7 beats
+        run: |
+          set -euo pipefail
+          scripts/demo.sh | tee /tmp/demo-output.log
+          if ! grep -qE '7/7 beats passed' /tmp/demo-output.log; then
+            echo "demo.sh did not report 7/7 beats passed" >&2
+            exit 1
+          fi
+
+      - name: Demo's own smoke check (scripts/demo.test.sh)
+        run: scripts/demo.test.sh

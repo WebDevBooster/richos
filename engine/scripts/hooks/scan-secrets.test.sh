@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+#
+# scan-secrets.test.sh — regression tests for scripts/hooks/scan-secrets.sh.
+#
+# Covers: (a) positive cases — every vendor-prefix pattern (AWS, GitHub incl.
+# fine-grained PAT, Anthropic, OpenAI incl. project keys, Stripe LIVE keys,
+# PEM private key) and the generic high-entropy key=value literal class, each
+# across Write/Edit/MultiEdit/NotebookEdit tool shapes; (b) negative cases —
+# clean content, non-Write/Edit tools, malformed JSON (fail-open, matching
+# guard-main-checkout-writes.sh's sibling convention); (c) placeholder-must-
+# NOT-false-positive cases — repeated-char placeholders (incl. the exact
+# `re_xxxxxxxxx` shape cited in the roadmap), known placeholder words,
+# environment-variable-reference syntax, Stripe TEST-mode keys, and a
+# SECRET_SCAN_ALLOWLIST config entry; (d) the python3-missing fail-closed
+# case, mirroring the rest of the hook family.
+#
+# Run directly: scripts/hooks/scan-secrets.test.sh
+# Exit 0 = all cases pass; exit 1 = at least one failure.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOK="$SCRIPT_DIR/scan-secrets.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+PASS=0
+FAIL=0
+
+# run_case <name> <expected-exit> <json>
+run_case() {
+    local name="$1" expected="$2" json="$3"
+    local actual
+    printf '%s' "$json" | "$HOOK" >/dev/null 2>&1
+    actual=$?
+    if [ "$actual" -eq "$expected" ]; then
+        printf '  PASS  %s\n' "$name"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s (expected exit %s, got %s)\n' "$name" "$expected" "$actual"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# run_case_msg <name> <expected-substring> <json> — asserts stderr mentions it
+run_case_msg() {
+    local name="$1" needle="$2" json="$3"
+    local out
+    out="$(printf '%s' "$json" | "$HOOK" 2>&1 >/dev/null)"
+    if printf '%s' "$out" | grep -qF "$needle"; then
+        printf '  PASS  %s\n' "$name"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s (stderr did not mention "%s")\n' "$name" "$needle"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# json_write <tool> <content-field-name> <value> [file_path]
+json_write() {
+    python3 -c "
+import json, sys
+tool, field, value, fp = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+ti = {'file_path': fp}
+ti[field] = value
+print(json.dumps({'tool_name': tool, 'tool_input': ti}))
+" "$1" "$2" "$3" "${4:-/tmp/x.txt}"
+}
+
+# json_multiedit <new_string_1> [new_string_2 ...]
+json_multiedit() {
+    python3 -c "
+import json, sys
+edits = [{'old_string': 'x', 'new_string': v} for v in sys.argv[1:]]
+print(json.dumps({'tool_name': 'MultiEdit', 'tool_input': {'file_path': '/tmp/x.txt', 'edits': edits}}))
+" "$@"
+}
+
+# make_fakebin_no_python3 — mirrors the rest of the hook family's own repro.
+make_fakebin_no_python3() {
+    local dir
+    dir="$(mktemp -d -t fakebin-no-python3.XXXXXX)"
+    local tools="cat grep sed cut tr date mkdir git mktemp basename dirname rm ln awk sort uniq wc head tail shasum sha256sum env"
+    local t p
+    for t in $tools; do
+        p="$(command -v "$t" 2>/dev/null || true)"
+        [ -n "$p" ] && ln -sf "$p" "$dir/$t"
+    done
+    echo "$dir"
+}
+BASH_BIN="$(command -v bash)"
+
+echo "=== scan-secrets tests ==="
+
+# --- pass-through: non-Write/Edit tool, missing content, malformed JSON ---
+run_case "non-Write tool (Bash) passes"      0 '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+run_case "Write with no content field passes" 0 '{"tool_name":"Write","tool_input":{"file_path":"/tmp/x.txt"}}'
+run_case "malformed JSON fails OPEN (sibling convention)" 0 'this is not json'
+run_case "clean Write content passes"        0 "$(json_write Write content 'hello world, nothing secret here')"
+
+# --- (a) POSITIVE — vendor-prefix patterns, one per vendor ---
+run_case "AWS access key (Write)" 2 \
+    "$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"
+run_case "GitHub personal token (Edit)" 2 \
+    "$(json_write Edit new_string 'TOKEN = "ghp_ABCDEFGHIJ1234567890abcdefghij123456"')"
+run_case "GitHub fine-grained PAT" 2 \
+    "$(json_write Write content 'github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')"
+run_case "Anthropic API key" 2 \
+    "$(json_write Write content 'key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP"')"
+run_case "OpenAI project API key" 2 \
+    "$(json_write Write content 'key = "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP1234"')"
+run_case "OpenAI classic API key" 2 \
+    "$(json_write Write content 'key = "sk-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL"')"
+run_case "Stripe LIVE secret key" 2 \
+    "$(json_write Write content 'const key = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";')"
+run_case "Stripe LIVE publishable key" 2 \
+    "$(json_write Write content 'const key = "pk_live_4eC39HqLyjWDarjtT1zdp7dc";')"
+run_case "PEM private key block" 2 \
+    "$(json_write Write content $'-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----')"
+
+# --- (a) POSITIVE — generic key=value, high entropy ---
+run_case "password= literal, high entropy" 2 \
+    "$(json_write Write content 'password = "Xk9\$mQp2zR7vLw4Tn8Bq"')"
+run_case "api_key= literal, high entropy" 2 \
+    "$(json_write Write content 'api_key: "aB3xQ9zM2kP7wR5vN8tL"')"
+run_case "secret= literal, high entropy" 2 \
+    "$(json_write Write content 'secret=zK4pQ8mX2vB7nR9wL3tY')"
+
+# --- (a) POSITIVE — MultiEdit and NotebookEdit tool shapes ---
+run_case "MultiEdit: secret in one of several edits" 2 \
+    "$(json_multiedit 'harmless change' 'AWS_KEY=AKIAABCDEFGHIJKLMNOP' 'another harmless change')"
+run_case "NotebookEdit: secret in new_source" 2 \
+    "$(python3 -c 'import json; print(json.dumps({"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/tmp/x.ipynb","new_source":"key = \"sk-ant-api03-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP\""}}))')"
+
+run_case_msg "block message never echoes the full secret" 'redacted' \
+    "$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"
+run_case_msg "block message points at SECRET_SCAN_ALLOWLIST" 'SECRET_SCAN_ALLOWLIST' \
+    "$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"
+
+# --- (c) PLACEHOLDER — must NOT false-positive ---
+run_case "placeholder re_xxxxxxxxx (roadmap's cited example)" 0 \
+    "$(json_write Write content 'api_key = "re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"')"
+run_case "repeated-char placeholder (all zeros)" 0 \
+    "$(json_write Write content 'token = "00000000000000000000"')"
+run_case "known placeholder word (changeme)" 0 \
+    "$(json_write Write content 'password = "changeme_please_1234567890"')"
+run_case "known placeholder word (placeholder)" 0 \
+    "$(json_write Write content 'api_key = "placeholder_value_never_real"')"
+run_case "env-var reference \${VAR} syntax" 0 \
+    "$(json_write Write content 'api_key = "\${OPENAI_API_KEY}"')"
+run_case "env-var reference os.environ" 0 \
+    "$(json_write Write content 'api_key = os.environ["API_KEY"]')"
+run_case "env-var reference process.env" 0 \
+    "$(json_write Write content 'const apiKey = process.env.OPENAI_API_KEY;')"
+run_case "Stripe TEST-mode key is not flagged" 0 \
+    "$(json_write Write content 'const key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc";')"
+run_case "short generic value under MIN_LENGTH passes" 0 \
+    "$(json_write Write content 'pwd=abc123')"
+
+# --- (c) config-driven allowlist ---
+ALLOW_CONFIG_ROOT="$(mktemp -d -t scan-secrets-allowlist.XXXXXX)"
+mkdir -p "$ALLOW_CONFIG_ROOT/scripts/hooks"
+cp "$HOOK" "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh"
+chmod +x "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh"
+cat >"$ALLOW_CONFIG_ROOT/orchestration.config" <<'CFG'
+SECRET_SCAN_ALLOWLIST="AKIAABCDEFGHIJKLMNOP"
+CFG
+ALLOWLIST_JSON="$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"
+printf '%s' "$ALLOWLIST_JSON" | "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh" >/dev/null 2>&1
+ALLOWLIST_RC=$?
+if [ "$ALLOWLIST_RC" -eq 0 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  orchestration.config SECRET_SCAN_ALLOWLIST suppresses a real match\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  orchestration.config SECRET_SCAN_ALLOWLIST suppresses a real match (rc=%s)\n' "$ALLOWLIST_RC"
+fi
+rm -rf "$ALLOW_CONFIG_ROOT"
+
+# --- python3 missing from PATH -> BLOCKS (fail-closed), loud stderr ---
+FAKEBIN="$(make_fakebin_no_python3)"
+NOPY_JSON="$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"
+NOPY_OUT="$(printf '%s' "$NOPY_JSON" | PATH="$FAKEBIN" "$BASH_BIN" "$HOOK" 2>&1 1>/dev/null)"
+NOPY_RC=$?
+if [ "$NOPY_RC" -ne 0 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  python3 missing from PATH -> BLOCKS (exit %s)\n' "$NOPY_RC"
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  python3 missing from PATH -> expected non-zero exit, got 0 (FAIL-OPEN)\n'
+fi
+if printf '%s' "$NOPY_OUT" | grep -qF 'python3'; then
+    PASS=$((PASS + 1)); printf '  PASS  python3-missing stderr names the missing interpreter\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  python3-missing stderr did not mention python3 (%s)\n' "$NOPY_OUT"
+fi
+rm -rf "$FAKEBIN"
+
+echo ""
+if [ "$FAIL" -gt 0 ]; then
+    echo "=== scan-secrets tests: $FAIL FAILED, $PASS passed ==="
+    exit 1
+else
+    echo "=== scan-secrets tests: all $PASS passed ==="
+    exit 0
+fi

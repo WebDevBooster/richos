@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+#
+# snapshot-agent-definitions.sh — SessionStart hook. Records the sha256 of
+# every `.claude/agents/*.md` teammate definition AS OF SESSION START, so the
+# PreToolUse[Agent] partner guard (guard-definition-drift.sh) can prove, at
+# spawn time, whether a definition has been installed/updated since the
+# harness took its own snapshot.
+#
+# THE FAILURE MODE THIS PAIR EXISTS TO CLOSE (proven upstream, 2026-08-06):
+#   Subagent definitions in `.claude/agents/*.md` are loaded ONCE, at SESSION
+#   START — exactly like hooks. A definition installed or updated MID-SESSION
+#   therefore NEVER reaches a newly spawned agent's BOOTED system prompt: the
+#   harness boots that agent on the definition it read at session start, while
+#   the file on disk (and everyone's mental model) says otherwise. In the
+#   upstream production project this kit was extracted from, that cost 25
+#   rejected deliverables on 2026-08-06: a teammate's definition was upgraded
+#   (v2.0 -> v2.1) and the work was dispatched in the SAME session, so three of
+#   four batches silently drafted under the stale v2.0 contract and every one
+#   had to be thrown away. That project's incident write-up does not ship with
+#   this kit — the lesson does, and this pair is the lesson made structural.
+#   Doctrine (the "How to Delegate" section of your CLAUDE.md) is advisory and
+#   degrades silently. This hook pair makes the drift STRUCTURALLY visible at
+#   the spawn boundary instead.
+#
+# WHAT THIS HOOK WRITES
+#   .claude/state/agent-definitions-<session8>.snapshot   (session-scoped)
+#   .claude/state/agent-definitions-latest.snapshot       (symlink -> newest)
+#
+#   Format — one record per definition file, `shasum -a 256`-shaped, plus two
+#   leading `#` comment lines that any consumer skips:
+#     # agent-definition snapshot — written by scripts/hooks/snapshot-agent-definitions.sh
+#     # session=<id|unknown> generated=<iso8601Z> root=<abs> count=<n>
+#     <sha256>  .claude/agents/ace.md
+#     <sha256>  .claude/agents/andy.md
+#     ...
+#   Paths are REPO-RELATIVE so a snapshot is comparable across checkouts.
+#
+# WHERE IT READS FROM: the TRUE main checkout, resolved via
+# scripts/lib/resolve-main-checkout.sh (the same helper the sibling hooks
+# use), so a copy of this script running from a linked worktree
+# still snapshots — and the partner guard still compares against — the ONE
+# shared `.claude/agents/` the harness actually boots teammates from.
+#
+# SESSION ID RESOLUTION (first hit wins):
+#   1. --session <id>            (explicit, used by tests)
+#   2. $CLAUDE_SESSION_ID        (if the harness exports it)
+#   3. session_id in the SessionStart JSON payload on stdin
+#   4. none -> a timestamped filename; the `latest` symlink is the only handle
+#   Only the first 8 characters are used, matching the session-<first8>
+#   convention the team dir and the sibling guards already use.
+#
+# LOG-ONLY / NEVER BLOCKS: like every other SessionStart hook. Every
+# failure mode (no `.claude/agents/` dir, unwritable state dir, missing
+# python3, absent stdin) is swallowed — this hook ALWAYS exits 0 and NEVER
+# holds up a session start. A missing snapshot is handled by the partner
+# guard as "cannot prove drift -> allow + warn", never as a block.
+#
+# RETENTION: the newest SNAPSHOT_RETAIN (20) snapshot files are kept; older
+# ones are pruned so .claude/state/ doesn't grow one file per session forever.
+# The `latest` symlink target is never pruned.
+#
+# TEST OVERRIDE: DEFINITION_DRIFT_ROOT forces the root directory (test-only;
+# never set in a real session). The partner guard honours the same variable.
+#
+# NOTE: hooks are snapshotted per session, so this hook takes effect from the
+# NEXT session. It assumes nothing about being live in the session that adds it.
+
+set -o pipefail
+
+SNAPSHOT_RETAIN=20
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_FALLBACK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# --- explicit session override (tests) -----------------------------------
+SESSION_ID=""
+if [ "${1:-}" = "--session" ] && [ -n "${2:-}" ]; then
+    SESSION_ID="$2"
+fi
+
+# --- root resolution -----------------------------------------------------
+if [ -n "${DEFINITION_DRIFT_ROOT:-}" ]; then
+    REPO_ROOT="$DEFINITION_DRIFT_ROOT"
+else
+    _RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
+    if [ -f "$_RMC_LIB" ]; then
+        # shellcheck source=../lib/resolve-main-checkout.sh
+        . "$_RMC_LIB" 2>/dev/null || true
+    fi
+    if command -v resolve_main_checkout >/dev/null 2>&1; then
+        REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$_FALLBACK_ROOT" 2>/dev/null || echo "$_FALLBACK_ROOT")"
+    else
+        REPO_ROOT="$_FALLBACK_ROOT"
+    fi
+fi
+
+AGENTS_DIR="$REPO_ROOT/.claude/agents"
+STATE_DIR="$REPO_ROOT/.claude/state"
+
+# --- session id ----------------------------------------------------------
+if [ -z "$SESSION_ID" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
+    SESSION_ID="$CLAUDE_SESSION_ID"
+fi
+if [ -z "$SESSION_ID" ] && [ ! -t 0 ]; then
+    # SessionStart payload on stdin: {"session_id":"...","hook_event_name":...}
+    # `cat` returns at EOF; a TTY stdin (manual run) is skipped above so this
+    # can never sit waiting for a human to type.
+    STDIN_JSON="$(cat 2>/dev/null || true)"
+    if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
+        SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(str(d.get("session_id", "") or "") if isinstance(d, dict) else "")
+except Exception:
+    print("")
+' 2>/dev/null || true)"
+    fi
+    if [ -z "$SESSION_ID" ] && [ -n "$STDIN_JSON" ]; then
+        # python3-free fallback: first "session_id":"..." occurrence.
+        SESSION_ID="$(printf '%s' "$STDIN_JSON" | tr '\n' ' ' \
+            | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' \
+            | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    fi
+fi
+
+SESSION_SHORT="$(printf '%s' "$SESSION_ID" | tr -cd '[:alnum:]-' | cut -c1-8)"
+
+# --- sha256 helper (same precedence as install.sh) -----------------------
+sha256_of() {
+    local p="$1"
+    [ -f "$p" ] || { echo ""; return; }
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$p" 2>/dev/null | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$p" 2>/dev/null | awk '{print $1}'
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$p" 2>/dev/null
+    else
+        echo ""
+    fi
+}
+
+emit_context() { # <summary>
+    local summary="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        SUMMARY="$summary" python3 - <<'PY' 2>/dev/null || true
+import json, os
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": os.environ.get("SUMMARY", ""),
+    }
+}))
+PY
+    else
+        local escaped="${summary//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$escaped"
+    fi
+}
+
+# --- nothing to snapshot -------------------------------------------------
+if [ ! -d "$AGENTS_DIR" ]; then
+    emit_context "agent-definition snapshot: skipped — no $AGENTS_DIR directory (definition-drift guard will fail open)"
+    exit 0
+fi
+
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+if [ ! -d "$STATE_DIR" ]; then
+    emit_context "agent-definition snapshot: skipped — could not create $STATE_DIR (definition-drift guard will fail open)"
+    exit 0
+fi
+
+# --- build the snapshot --------------------------------------------------
+if [ -n "$SESSION_SHORT" ]; then
+    SNAP_NAME="agent-definitions-${SESSION_SHORT}.snapshot"
+else
+    SNAP_NAME="agent-definitions-$(date -u +%Y%m%dT%H%M%SZ).snapshot"
+fi
+SNAP_PATH="$STATE_DIR/$SNAP_NAME"
+TMP_PATH="$SNAP_PATH.tmp.$$"
+
+COUNT=0
+{
+    printf '# agent-definition snapshot — written by scripts/hooks/snapshot-agent-definitions.sh\n'
+    printf '# session=%s generated=%s root=%s\n' \
+        "${SESSION_ID:-unknown}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REPO_ROOT"
+} >"$TMP_PATH" 2>/dev/null || true
+
+if [ -f "$TMP_PATH" ]; then
+    # Sorted, deterministic ordering so two snapshots of identical content are
+    # byte-identical (makes an eyeball diff meaningful).
+    while IFS= read -r def; do
+        [ -n "$def" ] || continue
+        h="$(sha256_of "$def")"
+        [ -n "$h" ] || continue
+        rel="${def#"$REPO_ROOT"/}"
+        printf '%s  %s\n' "$h" "$rel" >>"$TMP_PATH" 2>/dev/null || true
+        COUNT=$((COUNT + 1))
+    done < <(find "$AGENTS_DIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null | LC_ALL=C sort)
+
+    mv -f "$TMP_PATH" "$SNAP_PATH" 2>/dev/null || rm -f "$TMP_PATH" 2>/dev/null || true
+fi
+
+if [ ! -f "$SNAP_PATH" ]; then
+    emit_context "agent-definition snapshot: FAILED to write $SNAP_PATH (definition-drift guard will fail open)"
+    exit 0
+fi
+
+# --- refresh the `latest` handle -----------------------------------------
+# Relative symlink so the state dir stays relocatable. Falls back to a plain
+# copy on a filesystem that refuses symlinks.
+LATEST="$STATE_DIR/agent-definitions-latest.snapshot"
+rm -f "$LATEST" 2>/dev/null || true
+ln -s "$SNAP_NAME" "$LATEST" 2>/dev/null || cp -f "$SNAP_PATH" "$LATEST" 2>/dev/null || true
+
+# --- retention -----------------------------------------------------------
+# Keep the newest $SNAPSHOT_RETAIN real snapshot files; never touch the
+# `latest` handle or the file it points at.
+if command -v ls >/dev/null 2>&1; then
+    OLD="$(ls -t "$STATE_DIR"/agent-definitions-*.snapshot 2>/dev/null \
+        | grep -v '/agent-definitions-latest\.snapshot$' \
+        | tail -n +$((SNAPSHOT_RETAIN + 1)) || true)"
+    if [ -n "$OLD" ]; then
+        while IFS= read -r stale; do
+            [ -n "$stale" ] || continue
+            [ "$stale" = "$SNAP_PATH" ] && continue
+            rm -f "$stale" 2>/dev/null || true
+        done <<<"$OLD"
+    fi
+fi
+
+emit_context "agent-definition snapshot: recorded $COUNT definition(s) at session start -> .claude/state/$SNAP_NAME (guard-definition-drift.sh blocks a spawn whose definition changed since)"
+exit 0

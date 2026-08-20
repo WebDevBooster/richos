@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# guard-main-checkout-writes.sh — PreToolUse guard (Write|Edit|MultiEdit|NotebookEdit).
+#
+# Blocks edits to SOURCE in the MAIN checkout. All implementation work must
+# happen in an isolated git worktree (native Agent `isolation: "worktree"`, or
+# a manual worktree under .claude/worktrees/); the orchestrator only ever
+# MERGES source into main via git and edits docs/config there. So a Write/Edit
+# targeting one of the protected source trees in the main checkout is almost
+# always an agent that drifted into the shared checkout by mistake — the #1
+# isolation failure class this hook exists to catch AT THE MOMENT of the write.
+#
+# The protected trees are project-specific and read from orchestration.config
+# (PROTECTED_PATHS). ALLOWED (exit 0): anything under a worktree
+# (…/.claude/worktrees/…), plus docs/config in main (CLAUDE.md, .claude/**,
+# scripts/**, docs/**, team/**, skills/** …). BLOCKED (exit 2): writes to
+# "<main>/<protected-prefix>/**".
+#
+# REPO_ROOT is resolved from THIS script's own location, and settings.json
+# wires the hook by absolute path to the MAIN checkout's copy — so REPO_ROOT is
+# always the main checkout, regardless of which session triggered the write.
+
+set -eo pipefail
+
+# Fail-closed, not fail-open: TOOL_NAME and FILE_PATH below are both extracted
+# via `python3 ... || true`. If python3 is missing, that swallowed failure
+# yields an empty TOOL_NAME/FILE_PATH, which every downstream check below reads
+# as "not a guardable write" — i.e. this guard would let EVERY write through,
+# including one targeting a protected source tree. Refuse outright instead.
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-main-checkout-writes.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Load project-specific config (protected source trees).
+CONFIG="$REPO_ROOT/orchestration.config"
+[ -f "$CONFIG" ] && . "$CONFIG"
+: "${PROTECTED_PATHS:=}"
+
+INPUT="$(cat)"
+
+TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
+case "$TOOL_NAME" in
+  Write|Edit|MultiEdit|NotebookEdit) ;;
+  *) exit 0 ;;
+esac
+
+FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); ti=d.get("tool_input",{}) or {}; print(ti.get("file_path") or ti.get("notebook_path") or "")' 2>/dev/null || true)"
+[ -n "$FILE_PATH" ] || exit 0
+
+# Only absolute paths are guardable (the file tools require absolute paths anyway).
+case "$FILE_PATH" in
+  /*) ;;
+  *) exit 0 ;;
+esac
+
+# A worktree edit is always fine (manual worktrees live under .claude/worktrees/;
+# native isolation worktrees are a separate checkout path entirely). Allow explicitly.
+case "$FILE_PATH" in
+  */.claude/worktrees/*) exit 0 ;;
+esac
+
+# Sensible failure: with no protected paths configured, the guard cannot know
+# what to protect. Surface it loudly (never silently) and allow the write.
+if [ -z "${PROTECTED_PATHS// /}" ]; then
+  echo "(hook: guard-main-checkout-writes.sh) NOTE: PROTECTED_PATHS is unset in orchestration.config — write-guard is INACTIVE. Fill PROTECTED_PATHS to enable main-checkout write protection." >&2
+  exit 0
+fi
+
+# Block source writes to any protected tree in the MAIN checkout.
+for p in $PROTECTED_PATHS; do
+  case "$FILE_PATH" in
+    "$REPO_ROOT/$p"/*)
+      echo "=== Main-checkout write BLOCKED ===" >&2
+      echo "  Refusing to write '$FILE_PATH'." >&2
+      echo "  This is the SHARED main checkout ($REPO_ROOT). All source (protected trees:" >&2
+      echo "  $PROTECTED_PATHS) must be edited in your own git worktree, never in the main" >&2
+      echo "  checkout — concurrent edits here corrupt other agents' work and block landing." >&2
+      echo "  Re-issue the edit against your worktree path (…/.claude/worktrees/<your-worktree>/…)." >&2
+      echo "  (If you are the orchestrator: land source via git merge, or make source changes in a worktree.)" >&2
+      echo "(hook: scripts/hooks/guard-main-checkout-writes.sh)" >&2
+      exit 2
+      ;;
+  esac
+done
+
+exit 0

@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+#
+# verify-agent-prompt.sh — PreToolUse gate on Agent spawns.
+#
+# Four always-on checks plus one OPT-IN check (the QA install-fresh gate,
+# toggled by ENABLE_QA_INSTALL_FRESH_GATE in orchestration.config — OFF by
+# default):
+#
+#   1. duplicate-teammate        — reject spawning a name that already exists
+#                                  (not shutdown) in the session team. The
+#                                  session team is derived from the hook
+#                                  input's session_id when team_name is absent.
+#   2. agent-not-found           — every in-repo `.claude/agents/<name>.md`
+#                                  referenced in the prompt must exist. Skipped
+#                                  for the creator meta-role (CREATOR_TEAMMATE,
+#                                  whose job is to create the file);
+#                                  out-of-repo absolute references are never
+#                                  evaluated.
+#   3. subagent-as-spawner       — reject prompts that ask a subagent to spawn
+#                                  or dispatch agents; only the orchestrator
+#                                  spawns.
+#   4. missing-worktree-isolation— prompt claims native isolation created the
+#                                  worktree but the call didn't set
+#                                  isolation:"worktree".
+#   5. qa-install-fresh (OPT-IN) — prompts that test/audit/render/capture the
+#                                  local app must cite an install-fresh script
+#                                  as a precondition, or carry an auditable
+#                                  `data-contract-bypass:` line. Part of the
+#                                  advanced "identity-or-refuse" tier; enable
+#                                  only if you adopt a device/install-fresh
+#                                  pipeline (see reference/advanced-tier/).
+
+set -eo pipefail
+
+# Fail-closed, not fail-open: every check below (duplicate-teammate,
+# agent-not-found, subagent-as-spawner, missing-worktree-isolation, the
+# opt-in qa-install-fresh gate) reads PROMPT/SUBAGENT_TYPE/ISOLATION/etc via
+# `python3 ... || true`. If python3 is missing, those swallowed failures yield
+# empty values, and `[ -n "$PROMPT" ]`-guarded checks below would then just
+# skip — i.e. every content check in this gate would silently no-op. Refuse
+# outright instead.
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: verify-agent-prompt.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Test affordance: point REPO_ROOT (agent-def lookup + config load) at a
+# sandbox. Unset in normal operation.
+[ -n "${VERIFY_REPO_ROOT_OVERRIDE:-}" ] && REPO_ROOT="$VERIFY_REPO_ROOT_OVERRIDE"
+
+CONFIG="$REPO_ROOT/orchestration.config"
+# shellcheck disable=SC1090
+[ -f "$CONFIG" ] && . "$CONFIG"
+: "${CREATOR_TEAMMATE:=dean}"
+: "${ENABLE_QA_INSTALL_FRESH_GATE:=0}"
+: "${INSTALL_FRESH_SCRIPTS:=android-install-fresh.sh ios-install-fresh.sh}"
+: "${QA_TRIGGER_RE:=(\btest\b|\baudit\b|\bverify\b|\bQA\b|\brender\b|\bscreenshot\b|install-fresh)}"
+: "${LOCAL_APP_CONTEXT_RE:=(install-fresh|emulator|simulator|the app|local app|BUILD_SHA)}"
+# Test/per-invocation override for the opt-in gate toggle.
+[ -n "${VERIFY_QA_GATE_OVERRIDE:-}" ] && ENABLE_QA_INSTALL_FRESH_GATE="$VERIFY_QA_GATE_OVERRIDE"
+
+INPUT="$(cat)"
+
+TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
+[ "$TOOL_NAME" = "Agent" ] || exit 0
+
+PROMPT="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_input",{}).get("prompt",""))' 2>/dev/null || true)"
+SUBAGENT_TYPE="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_input",{}).get("subagent_type",""))' 2>/dev/null || true)"
+ISOLATION="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_input",{}).get("isolation",""))' 2>/dev/null || true)"
+AGENT_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_input",{}).get("name",""))' 2>/dev/null || true)"
+TEAM_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_input",{}).get("team_name",""))' 2>/dev/null || true)"
+SESSION_ID="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)"
+
+FAIL=0
+FAIL_REASONS=()
+
+# ---------------------------------------------------------------------------
+# 1. duplicate-teammate
+# ---------------------------------------------------------------------------
+# team_name is accepted-but-ignored by the harness (one implicit session
+# team), so derive the team dir from session_id when it's absent:
+# ~/.claude/teams/session-<first8-of-session-id>/config.json.
+if [ -z "$TEAM_NAME" ] && [ -n "$SESSION_ID" ]; then
+  TEAM_NAME="session-$(printf '%s' "$SESSION_ID" | cut -c1-8)"
+fi
+
+if [ -n "$TEAM_NAME" ] && [ -n "$AGENT_NAME" ]; then
+  TEAM_CONFIG="$HOME/.claude/teams/$TEAM_NAME/config.json"
+  # Override lets the test harness point at a sandbox teams/ directory.
+  if [ -n "${V8_TEAMS_DIR_OVERRIDE:-}" ]; then
+    TEAM_CONFIG="$V8_TEAMS_DIR_OVERRIDE/$TEAM_NAME/config.json"
+  fi
+
+  if [ -f "$TEAM_CONFIG" ]; then
+    V8_RESULT="$(AGENT_NAME_ARG="$AGENT_NAME" python3 - "$TEAM_CONFIG" <<'PY'
+import json
+import os
+import sys
+
+name = os.environ.get("AGENT_NAME_ARG", "")
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print("NONE")
+    raise SystemExit
+
+for member in data.get("members", []) or []:
+    if member.get("name") == name:
+        status = (member.get("status") or "").lower()
+        if status == "shutdown":
+            print("SHUTDOWN")
+        else:
+            print("MATCH|%s|%s" % (member.get("agentId", ""), status or "present"))
+        raise SystemExit
+print("NONE")
+PY
+)"
+    case "$V8_RESULT" in
+      MATCH\|*)
+        REST="${V8_RESULT#MATCH|}"
+        DUP_AGENT_ID="${REST%%|*}"
+        DUP_STATUS="${REST#*|}"
+        FAIL=1
+        FAIL_REASONS+=("duplicate-teammate: ${AGENT_NAME} already exists in ${TEAM_NAME} (agent_id: ${DUP_AGENT_ID}, status: ${DUP_STATUS}). Resume it with SendMessage, or explicitly shut it down and wait for the shutdown confirmation before spawning a replacement — under a NEW name, never a reused one.")
+        ;;
+    esac
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 2–4. prompt-content checks
+# ---------------------------------------------------------------------------
+if [ -n "$PROMPT" ]; then
+  # 2. agent-not-found
+  #
+  # Skip entirely for the creator meta-role: its job IS to create the
+  # definition file a hiring brief references, so "read
+  # .claude/agents/<new-role>.md" in its prompt is a to-be-created target, not
+  # a broken reference.
+  #
+  # For everyone else, only evaluate references that resolve INSIDE this repo.
+  # An absolute path like /some/other/repo/.claude/agents/foo.md is a
+  # sibling-repo reference model — the trailing ".claude/agents/foo.md"
+  # substring looks like an in-repo reference but isn't one, so we must not
+  # stat it against $REPO_ROOT.
+  if [ "$SUBAGENT_TYPE" != "$CREATOR_TEAMMATE" ]; then
+    CANDIDATE_REFS=()
+    while IFS= read -r line; do
+      [ -n "$line" ] && CANDIDATE_REFS+=("$line")
+    done < <(
+      printf '%s' "$PROMPT" \
+        | grep -oE '[^[:space:]]*\.claude/agents/[a-z-]+\.md' \
+        | sort -u || true
+    )
+
+    for full_ref in "${CANDIDATE_REFS[@]}"; do
+      if [[ "$full_ref" == /* ]] && [[ "$full_ref" != "$REPO_ROOT"/* ]]; then
+        continue  # absolute path outside this repo — not our reference to check
+      fi
+      agent="${full_ref##*.claude/agents/}"
+      agent="${agent%.md}"
+      if [ ! -e "$REPO_ROOT/.claude/agents/$agent.md" ]; then
+        FAIL=1
+        FAIL_REASONS+=("agent-not-found: .claude/agents/${agent}.md")
+      fi
+    done
+  fi
+
+  # 3. subagent-as-spawner
+  #
+  # Split into a case-insensitive keyword pass and a case-SENSITIVE TitleCase
+  # pass, deliberately:
+  #   - The "Agent tool" phrase is boundary-guarded: `(^|[^A-Za-z-])Agent`
+  #     requires a word-start immediately before it, so a hyphen-prefixed
+  #     compound like "non-Agent tool" no longer matches, while a genuine
+  #     standalone reference ("Use the Agent tool...") still does.
+  #   - The launch-verb alternative runs as a SEPARATE, case-sensitive grep so
+  #     `[A-Z]` means what it says — only a genuinely capitalized token
+  #     following the verb (a real teammate name) fires it.
+  if [ -n "$SUBAGENT_TYPE" ]; then
+    SPAWNER_CI_RE='(^|[^A-Za-z-])Agent[[:space:]]+tool|(spawn|dispatch)[[:space:]]+(agents?|teammates?|subagents?)\b|dispatch[[:space:]]+(these|the[[:space:]]+following)\b|TeamCreate'
+    SPAWNER_CS_RE='\b(spawn|dispatch)[[:space:]]+[A-Z][a-z]+\b'
+    if printf '%s' "$PROMPT" | grep -qiE "$SPAWNER_CI_RE" \
+       || printf '%s' "$PROMPT" | grep -qE "$SPAWNER_CS_RE"; then
+      FAIL=1
+      FAIL_REASONS+=("subagent-as-spawner: prompt appears to ask subagent '${SUBAGENT_TYPE}' to spawn or dispatch agents. Only the orchestrator makes Agent tool calls — keep briefs to plain build instructions and don't narrate the orchestration around them.")
+    fi
+  fi
+
+  # 4. missing-worktree-isolation: the prompt tells the teammate that native
+  # isolation ALREADY created its worktree, but the Agent call didn't set
+  # isolation:"worktree". That contradiction means the flag was forgotten and
+  # the teammate will actually land in the MAIN checkout. Fail fast at the
+  # spawn.
+  if [ "$ISOLATION" != "worktree" ]; then
+    if printf '%s' "$PROMPT" | grep -qiE 'native isolation (has )?already|(isolation|worktree) (has )?already (given|created|placed|put)|already (given|placed|dropped) you (a|an|one|in)( native)?[[:space:]]*(claude code )?worktree'; then
+      FAIL=1
+      FAIL_REASONS+=("missing-worktree-isolation: the prompt tells the subagent that native isolation already created its worktree, but this Agent call set isolation='${ISOLATION:-unset}' (not \"worktree\"). Add isolation:\"worktree\" to the spawn. If you are deliberately hand-rolling a worktree, remove the 'native isolation already' wording and give the explicit worktree path instead.")
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. qa-install-fresh precondition (OPT-IN — advanced identity-or-refuse tier)
+# ---------------------------------------------------------------------------
+# Any spawn that tests / audits / renders / captures the LOCAL APP must either
+# (a) cite an install-fresh script as a precondition or (b) opt out with an
+# auditable `data-contract-bypass:` line. Runs ONLY when the gate is enabled.
+if [ "$ENABLE_QA_INSTALL_FRESH_GATE" = "1" ] && [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
+  if printf '%s' "$PROMPT" | grep -qiE "$QA_TRIGGER_RE" \
+     && printf '%s' "$PROMPT" | grep -qE "$LOCAL_APP_CONTEXT_RE"; then
+
+    # Bypass detection runs against a SANITIZED copy of the prompt: fenced
+    # code, HTML comments, blockquotes, and indented code blocks are stripped
+    # first, so a forged bypass inside any of those never activates the opt-out.
+    BYPASS_LINE=""
+    BYPASS_STRIPPER_PY="$(mktemp -t verify-agent-prompt-strip.XXXXXX.py)"
+    cat >"$BYPASS_STRIPPER_PY" <<'STRIP_PY'
+import re, sys, unicodedata
+text = sys.stdin.read()
+# Strip HTML comments (multi-line, greedy across lines — not per-line).
+text = re.sub(r'<!--[\s\S]*?-->', '', text)
+
+_WS_CATEGORIES = ('Zs', 'Cf', 'Zl', 'Zp')
+def _normalize_leading_ws(line):
+    """Replace each leading Unicode-whitespace char with an ASCII space,
+    leaving the rest of the line untouched. Stops at the first
+    non-whitespace character."""
+    i = 0
+    n = len(line)
+    out = []
+    while i < n:
+        ch = line[i]
+        if ch == ' ' or ch == '\t':
+            out.append(ch)
+            i += 1
+            continue
+        cat = unicodedata.category(ch)
+        if cat in _WS_CATEGORIES:
+            out.append(' ')
+            i += 1
+            continue
+        break
+    out.append(line[i:])
+    return ''.join(out)
+
+fence_re = re.compile(r'^[ \t]{0,3}(`{3,}|~{3,})([^\n]*)$')
+out_lines = []
+in_fence = False
+fence_marker = None   # '`' or '~'
+fence_len = 0         # marker-char run length at opening
+for raw_line in text.split('\n'):
+    line = _normalize_leading_ws(raw_line)
+    m = fence_re.match(line)
+    if m:
+        marker_run = m.group(1)
+        marker_char = marker_run[0]
+        info = (m.group(2) or '').strip()
+        if not in_fence:
+            in_fence = True
+            fence_marker = marker_char
+            fence_len = len(marker_run)
+            continue
+        # In fence: only close on same marker char, length >= opener,
+        # AND no info string (markdown spec for code fences).
+        if (marker_char == fence_marker and
+            len(marker_run) >= fence_len and
+            info == ''):
+            in_fence = False
+            fence_marker = None
+            fence_len = 0
+        # Either way, drop the marker line.
+        continue
+    if in_fence:
+        continue
+    stripped = line.lstrip()
+    if stripped.startswith('>'):
+        continue
+    if line.startswith('    ') or line.startswith('\t'):
+        continue
+    out_lines.append(raw_line)
+# If the prompt ended mid-fence, everything after the last open fence was
+# dropped — safe direction (bypass lines inside unterminated fences remain
+# stripped, not leaked).
+print('\n'.join(out_lines))
+STRIP_PY
+    PROMPT_FOR_BYPASS="$(printf '%s' "$PROMPT" | python3 "$BYPASS_STRIPPER_PY" 2>/dev/null || printf '%s' "$PROMPT")"
+    rm -f "$BYPASS_STRIPPER_PY"
+    if printf '%s' "$PROMPT_FOR_BYPASS" | grep -qE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+'; then
+      BYPASS_LINE="$(printf '%s' "$PROMPT_FOR_BYPASS" | grep -oE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
+    fi
+
+    if [ -n "$BYPASS_LINE" ]; then
+      # Audit log under .claude/state/. Best-effort — never fail the spawn
+      # because logging failed; the bypass itself is the audit.
+      BYPASS_LOG_DIR="$REPO_ROOT/.claude/state"
+      mkdir -p "$BYPASS_LOG_DIR" 2>/dev/null || true
+      {
+        printf '%s\tagent=%s\t%s\n' \
+          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          "$SUBAGENT_TYPE" \
+          "$BYPASS_LINE"
+      } >>"$BYPASS_LOG_DIR/data-contract-bypasses.log" 2>/dev/null || true
+      # Allow the spawn.
+    else
+      CITES_INSTALL_FRESH=0
+      for s in $INSTALL_FRESH_SCRIPTS; do
+        if printf '%s' "$PROMPT" | grep -qF "$s"; then
+          CITES_INSTALL_FRESH=1
+          break
+        fi
+      done
+      if [ "$CITES_INSTALL_FRESH" -eq 0 ]; then
+        FAIL=1
+        FAIL_REASONS+=("qa-install-fresh-precondition-missing: prompt assigns a task to agent \`${SUBAGENT_TYPE}\` that tests / audits / renders / captures the local app but does NOT cite an install-fresh script (${INSTALL_FRESH_SCRIPTS}) as a precondition. Every testing operation against the local app MUST start from a fresh install that passes the data-render contract — otherwise the result is meaningless. Either add 'Precondition: <install-fresh script> <sha> exits 0.' to the prompt, or — if the task is genuinely app-free — add a live-prose line starting with 'data-contract-bypass:' and the reason (logged to .claude/state/data-contract-bypasses.log).")
+      fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Emit result
+# ---------------------------------------------------------------------------
+if [ "$FAIL" -eq 1 ]; then
+  echo "=== Agent prompt verification FAILED ===" >&2
+  for reason in "${FAIL_REASONS[@]}"; do
+    echo "  - $reason" >&2
+  done
+  echo "(hook: scripts/hooks/verify-agent-prompt.sh)" >&2
+  exit 2
+fi
+
+exit 0
