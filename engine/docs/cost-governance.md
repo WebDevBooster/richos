@@ -3,7 +3,7 @@
 Roadmap item C3. This document exists because "a company that runs itself"
 that never mentions its own run-rate is a fiduciary risk, not a feature — a
 CEO's first surprise invoice is a churn event. Everything below is grounded
-in the kit's own shipped doctrine and role-template mix (cited by section, so
+in the engine's own shipped doctrine and role-template mix (cited by section, so
 the references survive line-number drift), **not invented numbers.** Where an actual dollar figure would matter, this
 doc tells you to check current provider pricing instead of baking one in —
 token pricing moves, and a stale number is worse than an honest "go check."

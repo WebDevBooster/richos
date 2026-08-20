@@ -1,6 +1,6 @@
 ---
 name: bootstrap-interview
-description: First-session orchestrator skill — interviews the CEO conversationally to fill CLAUDE.md and orchestration.config, staff the initial domain roster via Dean, and seed the first ceo-wiki/ pages, in one guided ~20-minute session. Use on first session with a fresh, un-adopted copy of this kit, or whenever CLAUDE.md/orchestration.config still carry unfilled sample content.
+description: First-session orchestrator skill — interviews the CEO conversationally to fill CLAUDE.md and orchestration.config, staff the initial domain roster via Dean, and seed the first ceo-wiki/ pages, in one guided ~20-minute session. Use on first session with a fresh, un-adopted copy of this engine, or whenever CLAUDE.md/orchestration.config still carry unfilled sample content.
 ---
 
 # Bootstrap Interview
@@ -8,7 +8,7 @@ description: First-session orchestrator skill — interviews the CEO conversatio
 **Audience: the orchestrator, running this in its own session** (not a
 spawned subagent — this is the orchestrator's own bounded self-configuration
 work; see "Why the orchestrator does this directly," below). Run this the
-first time you're operating in a freshly copied/cloned kit, before you do
+first time you're operating in a freshly copied/cloned engine, before you do
 anything else — or any time you detect `CLAUDE.md` or `orchestration.config`
 still carry unfilled sample content (Stage 0 tells you how to check).
 
@@ -40,13 +40,13 @@ than it is. A confidently-wrong `CLAUDE.md` is worse than an honest TODO.
 ## Prefer voice?
 
 Answering by typing isn't required. Built-in OS dictation works today, needs
-nothing from this kit, and turns this into a spoken conversation: **macOS**
+nothing from this engine, and turns this into a spoken conversation: **macOS**
 Dictation (press the mic key, or Edit menu → Start Dictation) or **Windows**
 voice typing (`Win+H`). Either dictates straight into the chat with the
 orchestrator, so the live interview below just becomes a spoken one.
 
 Prefer to do the whole thing away from a terminal entirely — on your phone, in
-a voice assistant, before you've even opened this kit's repo? See "Transcript
+a voice assistant, before you've even opened this engine's repo? See "Transcript
 mode" next: `skills/bootstrap-interview/references/portable-interview-prompt.md`
 runs this same interview in any chat/voice assistant and hands you back a
 transcript to drop in `ceo-inbox/for-wiki/`.
@@ -65,13 +65,13 @@ Dean (Stage G3) — staffing has always been Dean's job, interview or not.
 ## Resumability — record progress, never guess at prior state
 
 Keep a running progress note at `.claude/state/bootstrap-interview-progress.md`
-(already gitignored by the kit's own `.gitignore` — machine-local, never
+(already gitignored by the engine's own `.gitignore` — machine-local, never
 committed). After each stage, append what was covered and the raw answers
 (not yet distilled prose — just enough for a resumed session to pick up
 context without re-asking). This file is **advisory, not authoritative** —
 if it's ever missing or you're unsure of real state, re-derive from ground
 truth per Stage 0 below, the same durable-substrate-over-message discipline
-the rest of this kit's doctrine follows. Delete or archive the progress file
+the rest of this engine's doctrine follows. Delete or archive the progress file
 once bootstrapping is complete (Stage G5's checklist passes) — it has no job
 after that point.
 
@@ -116,7 +116,7 @@ self-contained prompt the CEO can paste into any voice or chat assistant
 by voice if they prefer (macOS Dictation, Windows `Win+H`, or a voice-mode
 assistant), then export the transcript and drop it in
 `ceo-inbox/for-wiki/`. See "Prefer voice?" further down for the two OS
-dictation options — those work today, need nothing from this kit, and are
+dictation options — those work today, need nothing from this engine, and are
 worth mentioning to the CEO even outside the portable-prompt path.
 
 When Stage 0 finds a transcript (its content contains the literal marker

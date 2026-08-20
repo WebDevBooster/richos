@@ -21,10 +21,10 @@ set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_HOOK="$SRC_DIR/guard-bash-main-writes.sh"
-KIT_ROOT="$(cd "$SRC_DIR/../.." && pwd)"
+ENGINE_ROOT="$(cd "$SRC_DIR/../.." && pwd)"
 
 # Read the adopter's protected trees from the real config.
-CONFIG="$KIT_ROOT/orchestration.config"
+CONFIG="$ENGINE_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${PROTECTED_PATHS:=}"

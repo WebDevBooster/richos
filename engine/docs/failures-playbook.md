@@ -2,7 +2,7 @@
 
 This is a playbook of failure modes a multi-agent orchestration setup runs
 into in practice, not in theory — each rule below already has a home
-somewhere in this kit's own shipped doctrine (`CLAUDE.md.template`); this
+somewhere in this engine's own shipped doctrine (`CLAUDE.md.template`); this
 document is the consolidated, teachable version, generic only. No product
 specifics — every entry is a pattern class, not an incident report.
 
@@ -198,7 +198,7 @@ sounds plausible and is accepted without an independent check.
 for a verified one, especially from a source that's usually right.
 
 **The rule:** if a verifier exists, run it — don't reason your way to "this
-looks correct" as a substitute. This kit's own convention: prefer a script's
+looks correct" as a substitute. This engine's own convention: prefer a script's
 real exit code over a narrated conclusion, every time one is available.
 
 **How to recover:** before repeating or acting on a claim, ask "is there a
@@ -301,7 +301,7 @@ teammate to "just tweak one thing," stop and spawn a fresh one instead. If two
 instances share a name, treat it as a tangle (#4): shut both down, spawn one
 clean replacement under a new name. If a delete already raced a commit, recover
 the work from the branch (the commit is the durable handoff, #6) rather than
-trusting the notification's timing. This kit enforces the first two structurally
+trusting the notification's timing. This engine enforces the first two structurally
 — `scripts/hooks/guard-resume-isolation.sh` (PreToolUse[SendMessage]) blocks the
 unsafe resume, and `scripts/hooks/guard-worktree-isolation.sh` blocks name reuse
 (union of a self-maintained ledger + the roster + the idle/task event logs).
@@ -348,7 +348,7 @@ leaves the *process* running to re-create them.
 are harmless once it is gone), then remove the residue directory, then re-verify
 `git worktree list` shows only live worktrees. If a build seal or render snapshot
 was minted into a ghost path, treat it as untrusted — re-run the verification
-foreground from a registered location. This kit's advanced tier demonstrates the
+foreground from a registered location. This engine's advanced tier demonstrates the
 state-writer refusal inline in `reference/advanced-tier/{android,ios}-install-fresh.sh`;
 the mechanical layer's `scripts/hooks/detect-nonnative-worktree.sh` auto-reaps
 unregistered residue directories and reports orphaned PIDs with a kill command.

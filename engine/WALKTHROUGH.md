@@ -1,7 +1,7 @@
 # Walkthrough — one feature, the whole machine
 
 **What this is:** an illustrative, narrated trace of one realistic feature
-through this kit's *actual* doctrine and mechanics — every step cites the
+through this engine's *actual* doctrine and mechanics — every step cites the
 real file/hook/doctrine section that governs it, and the hook messages quoted
 below are the real ones these hooks actually print.
 
@@ -206,7 +206,7 @@ probe" rule — the permission-denied test is paired with a positive
 authorized-success test, not left as a negative-only check. Audit committed
 to `qa-audits/`.
 
-**This time nothing fails.** `qa-audits/EXAMPLE_AUDIT.md` — the kit's worked
+**This time nothing fails.** `qa-audits/EXAMPLE_AUDIT.md` — the engine's worked
 model for this exact fictional feature — shows the shape this step takes
 *when it does find something* (a FIX-FIRST bounce, a defect list, a
 re-verification pass to 10/10): read it for what a real automation-QA

@@ -2,7 +2,7 @@
 #
 # ============================================================================
 # REFERENCE EXAMPLE — advanced "identity-or-refuse" tier. NOT wired into the
-# kit's mechanical layer. This script came from a real Convex + native-mobile
+# engine's mechanical layer. This script came from a real Convex + native-mobile
 # project; product identifiers were genericized to placeholders (example /
 # legacyapp) and any test credential replaced with <TEST_PASSWORD>. It is
 # illustrative, not runnable as-is — adapt it to your own deploy/device

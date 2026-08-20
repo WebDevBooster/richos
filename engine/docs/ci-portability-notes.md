@@ -1,6 +1,6 @@
 # CI portability notes — macOS (dev) vs. Linux (CI/adopter)
 
-The kit is developed on macOS. `.github/workflows/kit-self-verify.yml` runs on
+The engine is developed on macOS. `.github/workflows/engine-self-verify.yml` runs on
 `ubuntu-latest`, and an adopter may run any of these scripts on Linux too.
 This doc records the actual reasoning behind that portability claim — every
 item below was checked by reading the shipped scripts and testing the
@@ -12,10 +12,10 @@ Grepped every shipped script (`scripts/`, `reference/`) for the classic
 BSD-vs-GNU trip-wires:
 
 - **`sed -i`** — zero occurrences. (BSD `sed -i` requires a backup-suffix
-  argument, even if empty (`-i ''`); GNU `sed -i` doesn't. This kit never
+  argument, even if empty (`-i ''`); GNU `sed -i` doesn't. This engine never
   uses in-place `sed` editing at all, so the incompatibility doesn't arise.)
 - **`date -v` / `date -j` (BSD-only) / `gdate`** — zero occurrences. Every
-  timestamp in the kit is produced by `date -u +%Y-%m-%dT%H:%M:%SZ}` (POSIX)
+  timestamp in the engine is produced by `date -u +%Y-%m-%dT%H:%M:%SZ}` (POSIX)
   or Python's `datetime`, both identical on any platform.
 - **`stat -f` (BSD) vs. `stat -c` (GNU)** — zero occurrences of the `stat`
   command at all (the one grep hit was the English word "stat" inside a
@@ -62,11 +62,11 @@ Both behaviors are **functionally correct and unique on their own platform**
 place: `scripts/demo.sh`'s `SAMPLE_ROOT`, whose value is narrated straight to
 the CEO running the demo ("Building a tiny sample repo at ..."). On macOS,
 the un-fixed form produced an ugly double-suffixed path like
-`.../orchestration-kit-demo.XXXXXX.k3ryLSxK9V`. **Fixed** (trivially
-portable, one line): swapped `mktemp -d -t orchestration-kit-demo.XXXXXX` for
-`mktemp -d "${TMPDIR:-/tmp}/orchestration-kit-demo.XXXXXX"` — dropping `-t`
+`.../richos-engine-demo.XXXXXX.k3ryLSxK9V`. **Fixed** (trivially
+portable, one line): swapped `mktemp -d -t richos-engine-demo.XXXXXX` for
+`mktemp -d "${TMPDIR:-/tmp}/richos-engine-demo.XXXXXX"` — dropping `-t`
 and giving an explicit path template. Verified this produces a clean,
-X-substituted, non-double-suffixed path on macOS (`.../orchestration-kit-
+X-substituted, non-double-suffixed path on macOS (`.../richos-engine-
 demo.KdeiiJ`), and by the documented GNU semantics above, produces an
 equally clean result on Linux.
 
@@ -94,7 +94,7 @@ record.
 
 `scripts/demo.sh` is the one place worth a portability polish, applied. Every
 other hook and script was already portable by construction (mostly because
-the kit's own `python3`-fallback discipline for anything hash- or JSON-shaped
+the engine's own `python3`-fallback discipline for anything hash- or JSON-shaped
 sidesteps the entire BSD/GNU shell-tool divide) — Frank's hostile-buyer
 review's claim ("Linux is fine") holds up under a full read, not just a
 plausibility check.

@@ -11,8 +11,8 @@
 
 **Date:** YYYY-MM-DD
 **Subject:** `<your-repo>` @ `<12-char-sha>` (`main`)
-**Feature:** Bulk CSV export button on a fictional "Orders" list screen — used here purely to illustrate audit shape, not a real feature in this kit.
-**Method:** Automated + scripted verification (this role's lane) — no UX judgment claimed; boundary respected per this kit's QA doctrine (automation QA is not UX authority).
+**Feature:** Bulk CSV export button on a fictional "Orders" list screen — used here purely to illustrate audit shape, not a real feature in this engine.
+**Method:** Automated + scripted verification (this role's lane) — no UX judgment claimed; boundary respected per this engine's QA doctrine (automation QA is not UX authority).
 **Tester:** automation QA role (replace with your real teammate's name)
 
 ---
@@ -107,7 +107,7 @@ orders-export-2026-07-20T14-40-11.csv   (distinct file names, no collision)
 | 1,2,4,5,7,8,9,10 | (unchanged) | PASS | PASS (no regressions) |
 
 **Final score: 10/10 — verdict: SHIP.** No open defects. This is the shape a
-loop back to step 1 (per this kit's QA Pipeline) should take: FAIL closes the
+loop back to step 1 (per this engine's QA Pipeline) should take: FAIL closes the
 loop to the engineer, the engineer fixes and commits, and this same audit role
 re-verifies against the new commit before SHIP is reported — never against
 the original failing commit, and never taking the engineer's word for it.
@@ -115,5 +115,5 @@ the original failing commit, and never taking the engineer's word for it.
 ---
 
 *This audit is automation-QA-lane verification — no design/UX judgment is
-claimed here; that authority belongs to the design gatekeeper, per this kit's
+claimed here; that authority belongs to the design gatekeeper, per this engine's
 QA-pipeline boundary rules.*

@@ -7,7 +7,7 @@ description: TODO — senior UI/UX design skill for your product. Use when the u
      instantiated this exact same base skill for its own product, swapping its
      own product name in everywhere the original source named its product —
      direct, empirical proof that the Product Context section below is meant to
-     be filled per-project, not a generic body like most of this kit's other
+     be filled per-project, not a generic body like most of this engine's other
      skills. The engine (Operating Principles, Quality Bar framing, Senior
      Judgment Mode, Workflow, Output Standards, Anti-Patterns, Definition of
      Done) is portable and kept intact; only the product-specific slots below

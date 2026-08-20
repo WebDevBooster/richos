@@ -66,7 +66,7 @@ to any product** — "Vince does front-end design" transfers to any codebase —
 **keep this roster wholesale** or **invent their own under the floor + mnemonic principles
 above**. Either is correct.
 
-### Meta-roles (ship with the kit)
+### Meta-roles (ship with the engine)
 
 | Name | Role | Mnemonic |
 |------|------|----------|

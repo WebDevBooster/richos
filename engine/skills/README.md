@@ -2,18 +2,18 @@
 
 Skills are self-contained knowledge packages (`SKILL.md` + optional reference
 files) that a teammate loads for a specific kind of work. This directory is the
-kit's **installed** skill set — see `docs/briefs/` conventions and Dean's Skill
+engine's **installed** skill set — see `docs/briefs/` conventions and Dean's Skill
 Assignment Workflow (`.claude/agents/dean.md`) for how new skills get added over
 time via `hr-inbox/team-skills/`.
 
 Exported per the skill-export manifest (2026-07-14)
 in the source project — every skill below was read in full and classified as
 one of: **as-is** (zero project content, ship unmodified), **scrubbed** (had
-project literals, mapped to kit config/role-template conventions), or
+project literals, mapped to engine config/role-template conventions), or
 **template** (the body is inherently per-project; ships as a structured TODO
 slot). Two skills from the source project's library were excluded outright and
-are not part of this kit at all: a product-domain skill with no portable core,
-and a banned version-control (`jj`) workflow skill that contradicts this kit's
+are not part of this engine at all: a product-domain skill with no portable core,
+and a banned version-control (`jj`) workflow skill that contradicts this engine's
 Git-only doctrine.
 
 **2026-07-14 correction (hostile-buyer review):** the original export pass
@@ -31,7 +31,7 @@ claim that must be verified by grep, not by memory of the export pass.
 |---|---|---|
 | `using-git-worktrees` | as-is | The teammate worktree workflow — isolation, atomic commits, commit-is-the-handoff, courtesy summaries. Read this before writing your first file. |
 | `rich-lander` | as-is | The orchestrator's per-handoff land sequence — single-writer-to-main, durable-signal detection, serialized landing. Orchestrator-only. |
-| `bootstrap-interview` | as-is (kit-authored) | First-session orchestrator skill — interviews the CEO, fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages. Orchestrator-only, run once per adoption. |
+| `bootstrap-interview` | as-is (engine-authored) | First-session orchestrator skill — interviews the CEO, fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages. Orchestrator-only, run once per adoption. |
 
 ## Ship-as-is (14) — zero project content, proven byte-identical to an independent instantiation
 
@@ -52,7 +52,7 @@ claim that must be verified by grep, not by memory of the export pass.
 | `svelte-core-bestpractices` | Official upstream Svelte 5 documentation and best-practice references. |
 | `use-railway` | Railway operations skill — projects, services, object storage, deploys, environments, domains, feature flags, MCP-based agent tooling, and unattended/device-code sign-in. |
 
-## Ship-scrubbed (7) — native/mobile-QA cluster, project literals mapped to kit conventions
+## Ship-scrubbed (7) — native/mobile-QA cluster, project literals mapped to engine conventions
 
 | Skill | Purpose | What was scrubbed |
 |---|---|---|
@@ -73,7 +73,7 @@ claim that must be verified by grep, not by memory of the export pass.
 ## Not exported
 
 - A product-domain coaching-habit skill with no portable core once its product and named-persona dependencies are removed.
-- A `jj` (Jujutsu) version-control workflow skill — this kit is Git-only; `jj` commands are out of scope entirely and must never ship in any form.
+- A `jj` (Jujutsu) version-control workflow skill — this engine is Git-only; `jj` commands are out of scope entirely and must never ship in any form.
 
 ## Using a skill
 

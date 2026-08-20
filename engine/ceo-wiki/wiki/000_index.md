@@ -2,7 +2,7 @@
 
 **Summary**: Table of contents for this wiki.
 
-**Sources**: All pages in `wiki/`, drawn from `raw/` ingestion and CEO↔orchestrator conversations.
+**Sources**: All pages in `wiki/`, drawn from `raw/` ingestion and CEO↔Rich conversations.
 
 **Last updated**: `` <!-- fill in with `date "+%Y-%m-%dT%H:%M"` the first time you edit this file -->
 
@@ -11,7 +11,7 @@
 <!-- This file sorts first alphabetically ("000_") in any plain directory
      listing — that's deliberate, so "start here" is always at the top of
      `wiki/` with zero tooling required. See AGENTS.md for the full doctrine;
-     the orchestrator keeps this file current every time page coverage
+     Rich keeps this file current every time page coverage
      changes, per the Ingest and Conversation workflows there. -->
 
 ## Start here

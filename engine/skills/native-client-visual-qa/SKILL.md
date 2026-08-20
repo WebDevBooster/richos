@@ -38,7 +38,7 @@ Only then should the device QA role move to physical devices for platform behavi
 1. Read your canonical surface/topology doc, if your product has more than one client surface (native vs. web/PWA, or multiple apps sharing a backend).
    <!-- TODO (adopter): name that doc here, if one exists. -->
 2. Get the expected commit SHA from the orchestrator.
-3. For Android, run or require a successful fresh-install verification before trusting the emulator. If you've adopted the kit's advanced "identity-or-refuse" tier, `reference/advanced-tier/android-install-fresh.sh` (gated by `ENABLE_QA_INSTALL_FRESH_GATE` in `orchestration.config`) IS this step — use it. Otherwise, define and cite your own equivalent fresh-install-and-verify procedure here.
+3. For Android, run or require a successful fresh-install verification before trusting the emulator. If you've adopted the engine's advanced "identity-or-refuse" tier, `reference/advanced-tier/android-install-fresh.sh` (gated by `ENABLE_QA_INSTALL_FRESH_GATE` in `orchestration.config`) IS this step — use it. Otherwise, define and cite your own equivalent fresh-install-and-verify procedure here.
 4. For iOS, same pattern using `reference/advanced-tier/ios-install-fresh.sh` if adopted, or your own equivalent otherwise.
 5. Use your project's scripted login helper(s) for test-account login. Do not hand-type credentials.
    <!-- TODO (adopter): name your login script(s) here, if any exist. -->

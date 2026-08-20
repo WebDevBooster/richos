@@ -1,6 +1,6 @@
 # Advanced tier — the "identity-or-refuse" pattern (REFERENCE ONLY)
 
-Everything in this directory is a **reference example**, not part of the kit's
+Everything in this directory is a **reference example**, not part of the engine's
 mechanical layer. Nothing here is wired into any hook or `settings.json`, and
 nothing here is expected to run as-is. These files were lifted from a real
 project (a Convex backend + native Android/iOS apps + Railway staging) and
@@ -68,7 +68,7 @@ minted on first use, never committed**:
   ```
 
 The secret is **instance-specific by design** — it must never leave the machine
-that minted it, and no secret value ships with this kit. Threat model (from the
+that minted it, and no secret value ships with this engine. Threat model (from the
 original): the HMAC does not defend against an adversary who can already read
 `.claude/state/`; it closes the "a naive agent hand-writes a plausible-looking
 seal JSON" forgery class. Adopt the *mint-on-first-use, never-commit* pattern

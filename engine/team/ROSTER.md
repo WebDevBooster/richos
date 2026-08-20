@@ -5,7 +5,7 @@ directory (that copy is the orchestrator's runtime routing reference; this one i
 the HR record). Do NOT duplicate the roster inside any individual agent's own
 definition — reference this file by pointer instead.
 
-## Working meta-roles (ship with the kit, spawnable out of the box)
+## Working meta-roles (ship with the engine, spawnable out of the box)
 
 | Name | Role | Slug | Model |
 |---|---|---|---|

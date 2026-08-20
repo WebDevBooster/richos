@@ -1,25 +1,25 @@
 # Wiki — Maintenance Doctrine
 
-The evolving knowledge base maintained by the orchestrator. Based on Andrej
+The evolving knowledge base maintained by Rich. Based on Andrej
 Karpathy's LLM Wiki pattern (see `README.md`).
 
 ## Purpose
 
 This wiki is a structured, interlinked knowledge base of the CEO's judgment —
-decisions, preferences, precedents, positions (see `README.md`). The
-orchestrator maintains the wiki. The CEO curates sources, asks questions, and
+decisions, preferences, precedents, positions (see `README.md`). Rich
+maintains the wiki. The CEO curates sources, asks questions, and
 guides the analysis.
 
 This wiki is meant to be used as the source of authoritative information and
 guiding judgment for how this project's operational and product decisions get
-made — it is the second brain the orchestrator consults before ever
+made — it is the second brain Rich consults before ever
 interrupting the CEO with a question the record can already answer.
 
 ## Folder structure
 
 ```
 raw/              -- source documents (immutable -- never modify these)
-wiki/             -- markdown pages maintained by the orchestrator
+wiki/             -- markdown pages maintained by Rich
 wiki/000_index.md -- table of contents for the entire wiki
 wiki/zzz_log.md   -- append-only record of all operations
 ```
@@ -73,8 +73,8 @@ no trace of where it came from.
 
 `raw/` is **not** the only path into this wiki, and for a wiki that's been
 running for a while, it usually **isn't the main one**. Much durable
-knowledge is created live — in a working conversation between the CEO and the
-orchestrator — and never lands in `raw/` as a document at all. A reasoning
+knowledge is created live — in a working conversation between the CEO and
+Rich — and never lands in `raw/` as a document at all. A reasoning
 the CEO hadn't spelled out before, a decision made mid-discussion, a
 clarification, or a synthesized answer the CEO confirms is worth keeping: all
 of these are valid, first-class wiki material. **Expect conversation-derived
@@ -104,13 +104,13 @@ save it, confirms an offer to save it, or makes a decision):
 `raw/`-derived knowledge once confirmed** — it is not a second-tier source.
 `raw/` remains immutable; this workflow never modifies it.
 
-### Write-back rule (ties into the orchestrator's escalation ladder)
+### Write-back rule (ties into Rich's escalation ladder)
 
-Every escalation outcome, every correction the CEO makes to something the
-orchestrator assumed, and every preference expressed in conversation gets
+Every escalation outcome, every correction the CEO makes to something Rich
+assumed, and every preference expressed in conversation gets
 distilled back into this wiki via the workflow above — not just answered and
 forgotten. This is how the same question class stops needing to be asked
-twice, and how the orchestrator's escalations shrink over time as this second
+twice, and how Rich's escalations shrink over time as this second
 brain grows. See the parent repo's `CLAUDE.md` → COO doctrine for the full
 escalation ladder this feeds.
 
@@ -180,7 +180,7 @@ file, and `PAGE-TYPES.md` for the shapes different kinds of pages tend to take.
 
 ## Question answering
 
-When the CEO — or the orchestrator, on the CEO's behalf, per the escalation
+When the CEO — or Rich, on the CEO's behalf, per the escalation
 ladder — asks a question this wiki might answer:
 
 1. Read `wiki/000_index.md` first to find relevant pages.
@@ -215,7 +215,7 @@ On request, audit the wiki:
 - Keep page names lowercase with hyphens (e.g. `pricing-model.md`).
 - Write in clear, plain language.
 - When uncertain how to categorize something, ask the CEO rather than guess.
-- **One writer.** The orchestrator is the only one who edits this wiki.
+- **One writer.** Rich is the only one who edits this wiki.
   Teammates propose corrections in their own task handoffs; they never edit
   `wiki/` or `raw/` directly.
 - **The wiki carries the CURRENT spec only — never a changelog of itself.**

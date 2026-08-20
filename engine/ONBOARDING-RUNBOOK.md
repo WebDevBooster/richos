@@ -1,7 +1,7 @@
 # Onboarding Runbook — the white-glove setup session
 
 **Audience: the operator** (the technical person helping a CEO adopt this
-kit) — not the CEO. If you're the CEO reading this yourself, the
+engine) — not the CEO. If you're the CEO reading this yourself, the
 [README's Adopter flow](./README.md#adopter-flow) and
 `skills/bootstrap-interview/SKILL.md` are what you actually need; this
 document is the script for someone sitting with you (or on a call with you)
@@ -29,7 +29,7 @@ the session itself isn't spent waiting on installs:
   prompt — don't just confirm it's downloaded).
 - [ ] **git installed** (`git --version` prints something).
 - [ ] **A repo to adopt into** — either an existing project repo, or
-  confirmation they want to start with just this kit cloned standalone.
+  confirmation they want to start with just this engine cloned standalone.
 - [ ] **~90 minutes set aside**, ideally with no other calls butting up
   against the end (bootstrap interviews run long when the CEO has a lot to
   say — that's a good sign, not a problem, but plan for it).
@@ -49,7 +49,7 @@ lose time on setup during the call:
    it and it responds when you type something, you're set. If not, no
    problem — just let me know and we'll do that first on the call.)
 3. Is there an existing project repo you want to set this up in, or are we
-   starting fresh with just the kit?
+   starting fresh with just the engine?
 
 That's it — see you [date/time]. Budget ~90 minutes; it usually runs a bit
 under that, but we won't rush the interview part.
@@ -74,7 +74,7 @@ generated `.claude/settings.json` — a second copy would make every hook fire
 TWICE, the double-fire Layer M now guards). `install.sh` no longer wires hooks;
 it mints the gitignored `.sha256` integrity sidecars the probe's hashing needs,
 and migrates away any stale hook-duplicating `settings.json` left by an older
-kit.
+install.
 
 ```bash
 scripts/hooks/install.sh
@@ -85,7 +85,7 @@ scripts/hooks/install.sh
 ✓ no settings.json to migrate — settings.local.json is the sole settings file
 ✓ refreshed hook sha256 manifests
 ```
-(If an older kit left a hook-duplicating `settings.json`, the first line reads
+(If an older install left a hook-duplicating `settings.json`, the first line reads
 `✓ migrated: removed stale hook-duplicating .claude/settings.json …` instead —
 that is the de-duplication migration, and re-running converges to the line
 above.)
@@ -101,7 +101,7 @@ scripts/hooks/contract-integrity-probe.sh
 
 **Expected green** (all seventeen, `A` through `Q`):
 ```
-orchestration-kit v1.0.0 — contract integrity probe
+richos-engine v1.0.0 — contract integrity probe
   ✓ A. .claude/settings.local.json present (canonical hook source)
   ✓ B. write-guard -> guard-main-checkout-writes.sh (path-confined, manifest-matched)
   ✓ C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, reader-teammate-hint.sh, verify-agent-prompt.sh (path-confined, manifest-matched, in order)
@@ -121,7 +121,7 @@ orchestration-kit v1.0.0 — contract integrity probe
   ✓ Q. worktree-reaper chain wired exactly once (SessionStart wrapper + reap-stale-worktrees.sh) + reaps a merged/clean tree (reaped=1) + REFUSES a dirty one (skipped=1) — path-confined, manifest-matched
 ```
 
-(Layer N is the git-tracked check. If the CEO copied the kit in but hasn't
+(Layer N is the git-tracked check. If the CEO copied the engine in but hasn't
 committed yet, N may read `⚠ … not yet git-tracked` — a warning, not a failure;
 it becomes a green `✓` once the file is committed. A hard `✗ N.` means the
 global-gitignore trap — see "Common stalls" below.)
@@ -199,17 +199,17 @@ check it first if anything in Steps 1-3 looks wrong.
 
 ### Claude Code responds strangely, or the bootstrap interview never starts
 
-Usually **Claude Code isn't authenticated**, not a kit problem — this should
+Usually **Claude Code isn't authenticated**, not an engine problem — this should
 have been caught in preflight, but if it wasn't: have the CEO open Claude
 Code standalone (outside this session) and confirm it responds to a plain
-prompt before touching any kit commands.
+prompt before touching any engine commands.
 
 ### Probe fails on Layer I specifically
 
 ```
 ✗ I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS missing or not "1" in .claude/settings.local.json (got: '<unset>'). SYMPTOM: the orchestrator will see/spawn ZERO teammates at the NEXT session start, with NO error shown — this has happened before.
 ```
-This is the kit's single most consequential settings key — see README's
+This is the engine's single most consequential settings key — see README's
 "Critical configuration — never remove." **Fix:** restore
 `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }` in
 `.claude/settings.local.json`, then re-run `install.sh`. (Layer J is the
@@ -222,7 +222,7 @@ key.)
 ✗ M. .claude/settings.json registers N hook(s) — Claude Code MERGES it with settings.local.json, so every duplicated hook fires TWICE.
 ```
 Hooks register in exactly ONE file, the committed `.claude/settings.local.json`.
-A stale, hook-duplicating `.claude/settings.json` (left by an older kit that
+A stale, hook-duplicating `.claude/settings.json` (left by an older install that
 generated one) is being merged alongside it, so every duplicated hook fires
 twice. **Fix:** run `scripts/hooks/install.sh` — it removes the pure-duplicate
 `settings.json` (or strips just its hooks if it carries machine-specific
@@ -234,7 +234,7 @@ confirm Layer M is green.
 ```
 ✗ N. .claude/settings.local.json exists on disk but is NOT git-tracked AND is matched by a gitignore rule ... Fix: git add -f .claude/settings.local.json
 ```
-The kit's single most load-bearing file (the sole hook-registration source plus
+The engine's single most load-bearing file (the sole hook-registration source plus
 the two critical keys) is **committed by design**, but a global-gitignore
 convention — `**/.claude/settings.local.json` in `~/.config/git/ignore` (git's
 default `core.excludesFile`, the way vanilla Claude Code treats that file) —

@@ -3,8 +3,8 @@
 **What this is:** a self-contained prompt you (the CEO) can paste into
 **any** chat or voice assistant — Claude, ChatGPT, a phone voice app, any
 of them — to have the bootstrap interview conversation *before* you've even
-opened this kit's repo, or away from a keyboard entirely by voice. You don't
-need the orchestrator, this kit, or a terminal to start; you only need them
+opened your repo, or away from a keyboard entirely by voice. You don't
+need Rich, the engine, or a terminal to start; you only need them
 at the end, to hand off what you said.
 
 **How to use this file:**
@@ -18,13 +18,13 @@ at the end, to hand off what you said.
 3. When the assistant tells you it's done, **export the transcript**:
    - **Claude.ai:** use its own conversation export/share feature, or simply
      copy the full conversation text.
-   - **ChatGPT:** use this kit's bundled **GPT Exporter** Chrome extension —
-     load it unpacked from `tools/gpt-exporter/` in this kit's repo (Chrome →
+   - **ChatGPT:** use the engine's bundled **GPT Exporter** Chrome extension —
+     load it unpacked from `tools/gpt-exporter/` in your repo (Chrome →
      Extensions → Developer mode → Load unpacked → select that folder), then
      export this conversation as a clean `.md` file.
    - Anything else: copy/paste the full conversation text into a `.md` file.
-4. Drop the exported file into `ceo-inbox/for-wiki/` in this kit's repo.
-5. Tell your orchestrator (in this kit's repo) to run the bootstrap
+4. Drop the exported file into `ceo-inbox/for-wiki/` in your repo.
+5. Tell Rich (in your repo) to run the bootstrap
    interview: `skills/bootstrap-interview/SKILL.md`. It will detect the
    transcript automatically (its "Transcript mode") and continue from
    there — extracting your answers, filling `CLAUDE.md` and
@@ -86,8 +86,8 @@ STAGE 7 — Wrap up. Summarize everything you captured, organized clearly by
 stage 1 through 6, with explicit "UNANSWERED" markers for anything I never
 gave a real answer to (never fill those in with a guess). Then tell me,
 plainly, to export this conversation and drop it into the `ceo-inbox/for-wiki/`
-folder of my "claude-orchestration-kit" repo, and to then tell my
-orchestrator there to run the bootstrap interview skill so it can pick up
+folder of my RichOS repo, and to then tell Rich
+there to run the bootstrap interview skill so he can pick up
 from this transcript.
 
 At the very end of your final message, on its own line, output exactly this

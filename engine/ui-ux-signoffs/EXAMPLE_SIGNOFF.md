@@ -119,4 +119,4 @@ feature over a polish item.
 
 *QA can propose a fix for either follow-up above; only the design gatekeeper
 (or the CEO) decides whether and when to act on it — QA does not have
-authority to require a UX change, per this kit's QA doctrine.*
+authority to require a UX change, per this engine's QA doctrine.*
