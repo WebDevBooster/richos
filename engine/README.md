@@ -1,17 +1,28 @@
-# Claude Orchestration Starter-kit
+# The RichOS Engine
 
-A drop-in starter-kit for running a **team of AI agents** under a single
-orchestrator, with the coordination discipline that keeps a multi-agent team
-from stepping on itself: worktree-per-agent isolation, a single writer to `main`,
-durable "the commit is the handoff" semantics, model tiering, and a mandatory
-QA pipeline. Copy it into your repo, point it at your project, and have the
-built-in HR agent staff your domain team.
+This is the machinery behind Rich.
+
+RichOS is an **AI Operating System for CEOs**: the CEO talks to one AI executive
+— **Rich Hand**, AI Chief of Staff & Business Operations Lead — who owns the
+work, delegates it to a team of AI workers, supervises them, and comes back with
+results and decisions. The engine in this directory is what makes that
+survivable in a real repository: worktree-per-worker isolation, a single writer
+to `main`, durable "the commit is the handoff" semantics, model tiering, and a
+mandatory QA pipeline. Drop it into a repo, point it at the project, and have
+the built-in HR worker staff the domain team.
 
 The flagship piece is `ceo-wiki/` — the CEO's second brain, ready to use from
-the first commit. It turns the orchestrator into a genuine COO: a decision,
-preference, or precedent recorded once in the wiki never has to be re-asked,
-and escalations to the CEO shrink over time as the second brain grows. See
-"The Orchestrator as COO" and "Repository Conventions" in `CLAUDE.md.template`.
+the first commit. It is what turns Rich from a router into a genuine Chief of
+Staff: a decision, preference, or precedent recorded once in the wiki never has
+to be re-asked, and escalations to the CEO shrink over time as the second brain
+grows. See "The Orchestrator as COO" and "Repository Conventions" in
+`CLAUDE.md.template`.
+
+**A note on vocabulary.** RichOS's product voice says *Rich* and *AI workers*.
+This directory is the engine's own technical documentation, so it also uses the
+Claude Code mechanics terms — *orchestrator*, *agent*, *subagent*, *teammate*,
+*spawn* — wherever precision demands them. They name the same things: the
+orchestrator is Rich; the agents are his AI workers.
 
 ## 60-second proof — watch it work before you set anything up
 
@@ -21,7 +32,7 @@ Don't take the rest of this README on faith. Run one command:
 scripts/demo.sh
 ```
 
-It builds a throwaway sample repo in a temp dir, wires in this kit's actual,
+It builds a throwaway sample repo in a temp dir, wires in this engine's actual,
 unmodified enforcement hooks via the real `install.sh`, and drives seven
 narrated beats end-to-end — no Claude API key, no live agents, no network,
 nothing left behind:
@@ -42,9 +53,9 @@ It ends with a plain verdict: **"Your team's enforcement machinery works.
 non-zero — the demo doubles as an integrity check of your own install. Beats
 1, 2, 3, 4, and 7 are **real enforcement** (the actual hook binaries and git
 mechanics, unmodified); beats 5 and 6 are **narrated simulation** — there's no
-live QA agent in a one-command demo script, so the git/exit-code mechanics are
+live QA worker in a one-command demo script, so the git/exit-code mechanics are
 real but the "QA verdict" is a scripted stand-in, labeled as such every time.
-Runs in a couple of seconds; your own repo, your real config, and this kit's
+Runs in a couple of seconds; your own repo, your real config, and this engine's
 own checkout are all completely untouched by it.
 
 ## Then read the walkthrough
@@ -57,7 +68,7 @@ a design-gatekeeper signoff with a documented gap — only after which the CEO
 sees the work. It's an illustrative narrative (clearly labeled as such), not
 a captured transcript — `scripts/demo.sh` above is the runnable counterpart
 of its enforcement beats. Read it once, end to end, before you set anything
-up; it's the fastest way to understand what this kit actually does.
+up; it's the fastest way to understand what this engine actually does.
 
 **Helping someone else set up?** If you're the technical operator running a
 live setup session for a non-technical CEO, use
@@ -93,7 +104,7 @@ external tools it shells out to. All of the following must be resolvable on
   check `command -v python3` up front and refuse (non-zero exit, loud stderr) if
   it is missing — they do NOT silently pass every spawn/write through. If your
   environment might not have `python3` on `$PATH` by default (some minimal
-  containers, some CI images), install it before relying on the kit's
+  containers, some CI images), install it before relying on the engine's
   enforcement.
 - **Standard coreutils** — `grep`, `sed`, `awk`, `cut`, `tr`, `date`, `mkdir`,
   `mktemp`, `basename`, `dirname`. Present by default on macOS and virtually
@@ -125,11 +136,10 @@ incident:
 
 - **`env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"`** — this key was once
   accidentally deleted from `settings.local.json` during an edit. **The
-  symptom did not show up until the NEXT session start**: the orchestrator
-  could not see or spawn ANY teammates — a silent total failure, with no
-  error shown anywhere. If your teammates suddenly seem to have vanished (no
-  roster, spawns behave as if the team feature doesn't exist), check this key
-  FIRST.
+  symptom did not show up until the NEXT session start**: Rich could not see
+  or spawn ANY teammates — a silent total failure, with no error shown
+  anywhere. If your workers suddenly seem to have vanished (no roster, spawns
+  behave as if the team feature doesn't exist), check this key FIRST.
 - **`worktree.baseRef: "head"`** — the worktree-isolation doctrine
   (`CLAUDE.md.template`, `skills/using-git-worktrees/`, `skills/rich-lander/`)
   assumes every native isolation worktree branches from local HEAD. Without
@@ -137,7 +147,7 @@ incident:
   merge-base verification goes wrong in ways that are hard to diagnose after
   the fact.
 
-The kit also ships `env.CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: "2000"` in the
+The engine also ships `env.CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: "2000"` in the
 same `env` block. It is not probe-gated: a long session (a full QA pipeline, a
 multi-batch pass, a fresh spawn per follow-up because resuming a landed teammate
 is banned) burns spawns fast, and the default ceiling stops the session partway
@@ -161,10 +171,10 @@ common global-gitignore entry — `**/.claude/settings.local.json` in
 `~/.config/git/ignore` (git's default `core.excludesFile`) — makes `git add -A`
 **quietly skip it**. The file stays on disk, so `install.sh`, the probe, and the
 demo all pass locally; the failure only surfaces at the **next clone/session**,
-where the file was never committed and the orchestrator wakes with no teammates
-and no error (the same "ghost team" symptom as a deleted `AGENT_TEAMS` key,
-arriving by a different door). This kit **force-adds** the file past that rule;
-you must do the same in your repo. After adoption, verify and fix:
+where the file was never committed and Rich wakes with no team and no error
+(the same "ghost team" symptom as a deleted `AGENT_TEAMS` key, arriving by a
+different door). This engine **force-adds** the file past that rule; you must do
+the same in your repo. After adoption, verify and fix:
 
 ```bash
 git ls-files .claude/settings.local.json          # must print the path
@@ -178,14 +188,15 @@ when the file is simply not committed yet, and skips cleanly outside a git repo.
 
 ## The two-layer model
 
-This kit is the **generic framework** (Layer A) extracted from a real production
-setup. The project-specific instantiation (Layer B) — one product's stack,
-surfaces, roster, deploy machinery, and canonical data — is deliberately left
-behind. What ships here is only what transfers to any project:
+The engine is the **generic framework** (Layer A), extracted from a real
+production setup. The project-specific instantiation (Layer B) — one product's
+stack, surfaces, roster, deploy machinery, and canonical data — is deliberately
+left out. What ships here is only what transfers to any project:
 
-- **Layer A (this kit):** the mechanical orchestration layer (hooks + config),
-  the meta-roles (HR, researcher, reader, devil's advocate), the reusable role
-  templates, the worktree/handoff/land doctrine, and model tiering.
+- **Layer A (this engine):** the mechanical orchestration layer (hooks +
+  config), the meta-roles (HR, researcher, reader, devil's advocate), the
+  reusable role templates, the worktree/handoff/land doctrine, and model
+  tiering.
 - **Layer B (you supply):** your product's surfaces, protected source trees,
   team roster, deploy targets, and any domain-specific hard rules — filled into
   the clearly-marked `<!-- TODO -->` blocks and `orchestration.config`.
@@ -196,34 +207,34 @@ behind. What ships here is only what transfers to any project:
 |---|---|---|
 | Mechanical hooks | `scripts/hooks/` | Worktree-isolation guard (incl. structural no-name-reuse), resume-isolation guard, definition-drift guard pair, SessionStart worktree reaper, spawn-content verifier, reader/creator hints, secrets scanner, durable idle/task handoff loggers, contract-integrity probe + self-test suites, `install.sh` generator |
 | Resume-isolation guard | `scripts/hooks/guard-resume-isolation.sh` | Blocks a `SendMessage` that would RESUME a completed/removed teammate (the spawn-side guard never fires on a resume) — a file-bearing follow-up must spawn fresh in a new isolated worktree; a `resume-ack:` line is the audited escape hatch for a safe pure-question resume. Pairs with the spawn guard's structural no-name-reuse to kill live-vs-ghost ambiguity |
-| Secrets scanner | `scripts/hooks/scan-secrets.sh` | Blocks a Write/Edit/MultiEdit/NotebookEdit whose content looks like a live secret (AWS/GitHub/Anthropic/OpenAI/Stripe key patterns, PEM private keys, high-entropy password=/api_key=/secret=/token= literals) — closes the "will these agents leak my keys" objection structurally, not by promise. Config-driven allowlist so placeholders (e.g. `re_xxxxxxxxx`) never false-positive |
-| Definition-drift guard pair | `scripts/hooks/snapshot-agent-definitions.sh` (SessionStart) + `scripts/hooks/guard-definition-drift.sh` (PreToolUse[Agent]) | Teammate definitions in `.claude/agents/*.md` load ONCE, at session start — exactly like hooks — so a definition installed or updated mid-session never reaches a newly spawned agent's BOOTED prompt, silently. The snapshotter records every definition's sha256 at session start; the guard BLOCKS a spawn whose definition changed since, naming both hashes and the two sanctioned paths (restart into a fresh session, or a live `definition-drift-ack: <current sha256>` line plus an explicit order to read the on-disk definition). Blocks only on PROVEN drift — no snapshot means no evidence, so it warns rather than halting the team |
-| Worktree reaper chain | `scripts/hooks/session-start-reap-worktrees.sh` (SessionStart) + `scripts/reap-stale-worktrees.sh` | Every file-writing teammate spawn creates a linked git worktree; the orchestrator is supposed to remove each one at land time, but across restarts, dropped handoffs and interrupted sessions they pile up silently (43 of them upstream before anyone noticed). The wrapper sweeps on every session start — log-only, fail-open, never blocks a start. The reaper it calls is DRY-RUN by default and removes a tree ONLY if all four gates pass: not locked (or provably stale — no live process AND lock file >2h old), branch merged into whatever branch `HEAD` is on, working tree clean (tracked AND untracked), no live process referencing the path. `git worktree remove` + `git branch -d` — never `--force`, never `-D`. Repo-agnostic; residue git doesn't own is reported, never deleted. This is the only hook-reachable code in the kit that DELETES anything, so probe **Layer Q** hashes BOTH halves and runs paired sandbox canaries: a merged/clean tree must be reaped, a dirty one must survive |
-| Raw-Bash main-write guard | `scripts/hooks/guard-bash-main-writes.sh` | Blocks a raw `Bash` command that writes into a protected source tree in the shared MAIN checkout (a compound `cd <root> && mkdir/cp/rm <tree>/…` or an absolute-path write) — the cwd-default drift vector the Write/Edit guard never sees, which otherwise surfaces as an interactive permission prompt to the human operator. Auto-denies with worktree guidance so the agent self-corrects. Protected trees from `PROTECTED_PATHS`; main-root resolved via `resolve-main-checkout.sh` (no hardcoded paths) |
+| Secrets scanner | `scripts/hooks/scan-secrets.sh` | Blocks a Write/Edit/MultiEdit/NotebookEdit whose content looks like a live secret (AWS/GitHub/Anthropic/OpenAI/Stripe key patterns, PEM private keys, high-entropy assignment literals for `password`, `api_key`, `secret` and `token`) — closes the "will these AI workers leak my keys" objection structurally, not by promise. Config-driven allowlist so placeholders (e.g. `re_xxxxxxxxx`) never false-positive |
+| Definition-drift guard pair | `scripts/hooks/snapshot-agent-definitions.sh` (SessionStart) + `scripts/hooks/guard-definition-drift.sh` (PreToolUse[Agent]) | Teammate definitions in `.claude/agents/*.md` load ONCE, at session start — exactly like hooks — so a definition installed or updated mid-session never reaches a newly spawned worker's BOOTED prompt, silently. The snapshotter records every definition's sha256 at session start; the guard BLOCKS a spawn whose definition changed since, naming both hashes and the two sanctioned paths (restart into a fresh session, or a live `definition-drift-ack: <current sha256>` line plus an explicit order to read the on-disk definition). Blocks only on PROVEN drift — no snapshot means no evidence, so it warns rather than halting the team |
+| Worktree reaper chain | `scripts/hooks/session-start-reap-worktrees.sh` (SessionStart) + `scripts/reap-stale-worktrees.sh` | Every file-writing spawn creates a linked git worktree; Rich is supposed to remove each one at land time, but across restarts, dropped handoffs and interrupted sessions they pile up silently (43 of them upstream before anyone noticed). The wrapper sweeps on every session start — log-only, fail-open, never blocks a start. The reaper it calls is DRY-RUN by default and removes a tree ONLY if all four gates pass: not locked (or provably stale — no live process AND lock file >2h old), branch merged into whatever branch `HEAD` is on, working tree clean (tracked AND untracked), no live process referencing the path. `git worktree remove` + `git branch -d` — never `--force`, never `-D`. Repo-agnostic; residue git doesn't own is reported, never deleted. This is the only hook-reachable code in the engine that DELETES anything, so probe **Layer Q** hashes BOTH halves and runs paired sandbox canaries: a merged/clean tree must be reaped, a dirty one must survive |
+| Raw-Bash main-write guard | `scripts/hooks/guard-bash-main-writes.sh` | Blocks a raw `Bash` command that writes into a protected source tree in the shared MAIN checkout (a compound `cd <root> && mkdir/cp/rm <tree>/…` or an absolute-path write) — the cwd-default drift vector the Write/Edit guard never sees, which otherwise surfaces as an interactive permission prompt to the human operator. Auto-denies with worktree guidance so the worker self-corrects. Protected trees from `PROTECTED_PATHS`; main-root resolved via `resolve-main-checkout.sh` (no hardcoded paths) |
 | 60-second proof | `scripts/demo.sh` (+ `scripts/demo.test.sh`) | One-command, unattended demo that drives the real hooks + real git mechanics through block → build → reject → fix → land, ending in a pass/fail verdict — see "60-second proof" above |
-| CI self-verification | `.github/workflows/kit-self-verify.yml` | Ready-to-commit GitHub Actions workflow — runs every suite + the probe + the demo on every push/PR, turning kit integrity into a standing guarantee. See "CI" below + `docs/ci-portability-notes.md` |
+| CI self-verification | `.github/workflows/engine-self-verify.yml` | Ready-to-commit GitHub Actions workflow — runs every suite + the probe + the demo on every push/PR, turning engine integrity into a standing guarantee. See "CI" below + `docs/ci-portability-notes.md` |
 | Full walkthrough | `WALKTHROUGH.md` | One feature traced through the complete lifecycle — wiki consult, real spawn, commit-is-the-handoff, single-writer land, the full 4-step QA pipeline with a genuine FIX-FIRST bounce, gatekeeper signoff — illustrative narrative, not a captured transcript; `scripts/demo.sh` is its runnable counterpart |
 | White-glove onboarding | `ONBOARDING-RUNBOOK.md` | The operator's timed script for a live setup session with a non-technical CEO — preflight checklist/email template, exact commands + expected-green output per step, realistic ~60-90 min timings, the common-stall playbook, and a machine-checkable definition of done |
 | Guided setup | `skills/bootstrap-interview/SKILL.md` | First-session orchestrator skill: interviews the CEO (~20 min, resumable), then fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages from the interview itself — the recommended path through "Adopter flow" below |
 | Config | `orchestration.config` | The ONE file you edit to point the hooks at your repo (protected paths, allowlists, meta-role names, artifact dirs, optional QA gate) |
-| Cost governance | `docs/cost-governance.md` | What a sprint costs in practice (order-of-magnitude reasoning, not invented pricing), why judgment roles get the Opus tier and mechanical roles don't, the per-spawn override, and the levers that keep spend proportional to stakes — grounded in the kit's own role-template mix and QA-pipeline doctrine |
-| Failures playbook | `docs/failures-playbook.md` | 12 generic, product-independent operational failure modes distilled from this kit's own doctrine — symptom → why it happens → the rule → how to recover. Seeds orchestrator memory (below); a memory lesson that generalizes graduates back into this playbook |
-| Orchestrator memory | `docs/orchestrator-memory.md` | The orchestrator's own persistent operational-memory convention (one file per lesson + an index) — and, front and center, the boundary table distinguishing it from `ceo-wiki/` (CEO's product/business judgment) so the two substrates never get conflated |
-| Versioning & upgrade path | `VERSION`, `VERSIONING.md`, `CHANGELOG.md`, `UPGRADING.md` | The packaging that lets the kit be versioned and safely upgraded: the semver scheme for a doctrine + hooks product (what counts as MAJOR/MINOR/PATCH), the kit-owned `VERSION` file the probe prints on every run, a CHANGELOG reconstructed from the real build waves, and the upgrade mechanic — which files are yours after adoption vs. kit-owned and safe to overwrite, with the golden rule "re-run install.sh + probe + demo; green = safe" |
+| Cost governance | `docs/cost-governance.md` | What a sprint costs in practice (order-of-magnitude reasoning, not invented pricing), why judgment roles get the Opus tier and mechanical roles don't, the per-spawn override, and the levers that keep spend proportional to stakes — grounded in the engine's own role-template mix and QA-pipeline doctrine |
+| Failures playbook | `docs/failures-playbook.md` | 12 generic, product-independent operational failure modes distilled from this engine's own doctrine — symptom → why it happens → the rule → how to recover. Seeds orchestrator memory (below); a memory lesson that generalizes graduates back into this playbook |
+| Orchestrator memory | `docs/orchestrator-memory.md` | Rich's own persistent operational-memory convention (one file per lesson + an index) — and, front and center, the boundary table distinguishing it from `ceo-wiki/` (CEO's product/business judgment) so the two substrates never get conflated |
+| Versioning & upgrade path | `VERSION`, `VERSIONING.md`, `CHANGELOG.md`, `UPGRADING.md` | The packaging that lets the engine be versioned and safely upgraded: the semver scheme for a doctrine + hooks product (what counts as MAJOR/MINOR/PATCH), the engine-owned `VERSION` file the probe prints on every run, the CHANGELOG, and the upgrade mechanic — which files are yours after adoption vs. engine-owned and safe to overwrite, with the golden rule "re-run install.sh + probe + demo; green = safe" |
 | Land/worktree helpers | `scripts/lib/`, `scripts/collect-worktree-artifacts.sh` | Main-checkout resolver + gitignored-evidence collector |
-| Working meta-agents | `.claude/agents/{dean,clark,reed,frank}.md` | Spawnable out of the box — Dean (HR), Clark (research), Reed (source reading), Frank (devil's advocate) |
+| Working meta-workers | `.claude/agents/{dean,clark,reed,frank}.md` | Spawnable out of the box — Dean (HR), Clark (research), Reed (source reading), Frank (devil's advocate) |
 | Role templates | `.claude/agents/templates/` | 16 non-live skeletons (architect, CTO, engineers, QA, designer/gatekeeper, copywriter, marketing, advisors, domain expert) Dean turns into real teammates |
 | HR records | `team/` | Plain-markdown profiles for the meta-roles + a profile skeleton + starter `ROSTER.md` + the `NAMING.md` teammate-naming convention |
-| Doctrine | `CLAUDE.md.template` | The orchestrator's operating manual — generic rules intact, product sections stubbed |
-| **The CEO's second brain (flagship)** | `ceo-wiki/` | Ready to use, not optional-adoption reference: the CEO's externalized judgment — decisions, preferences, precedents. One writer (the orchestrator), everyone reads. Grows primarily from distilled daily conversation; `raw/`-ingestion is the bootstrap path. See `ceo-wiki/README.md` + `ceo-wiki/AGENTS.md` |
-| Visibility without meetings | `ceo-briefings/` | Committed sprint/milestone briefs — shipped, in-flight, blocked, escalation-ladder decisions (with wiki citations), wiki updates, open CEO decisions. Orchestrator-written only, like `ceo-wiki/`. Ships with a worked model, `ceo-briefings/EXAMPLE_BRIEFING.md` |
+| Doctrine | `CLAUDE.md.template` | Rich's operating manual — generic rules intact, product sections stubbed |
+| **The CEO's second brain (flagship)** | `ceo-wiki/` | Ready to use, not optional-adoption reference: the CEO's externalized judgment — decisions, preferences, precedents. One writer (Rich), everyone reads. Grows primarily from distilled daily conversation; `raw/`-ingestion is the bootstrap path. See `ceo-wiki/README.md` + `ceo-wiki/AGENTS.md` |
+| Visibility without meetings | `ceo-briefings/` | Committed sprint/milestone briefs — shipped, in-flight, blocked, escalation-ladder decisions (with wiki citations), wiki updates, open CEO decisions. Rich-written only, like `ceo-wiki/`. Ships with a worked model, `ceo-briefings/EXAMPLE_BRIEFING.md` |
 | Skill library | `skills/` (index: `skills/README.md`) | 25 skills total: 3 meta-role doctrine skills (worktree workflow, land sequence, bootstrap interview) + 22 domain skills (14 ship-as-is, 7 scrubbed, 1 template-only) covering QA/testing, native mobile, marketing, copywriting, Svelte, and vendor integrations |
 | Advanced tier (reference) | `reference/advanced-tier/` | The optional "identity-or-refuse" freshness / data-render pattern — reference only, not wired in |
-| Ingestion tooling | `tools/gpt-exporter/` | GPT Exporter — a Chrome extension that exports ChatGPT threads as clean, Obsidian-compatible `.md` files (with frontmatter), for dropping into `ceo-inbox/for-wiki/` for orchestrator ingestion into `ceo-wiki/` — see `tools/gpt-exporter/README.md` |
+| Ingestion tooling | `tools/gpt-exporter/` | GPT Exporter — a Chrome extension that exports ChatGPT threads as clean, Obsidian-compatible `.md` files (with frontmatter), for dropping into `ceo-inbox/for-wiki/` for ingestion into `ceo-wiki/` — see `tools/gpt-exporter/README.md` |
 
 ## Repository structure
 
-Beyond the mechanical layer and doctrine files above, the kit ships a set of
+Beyond the mechanical layer and doctrine files above, the engine ships a set of
 pre-scaffolded directories (each tracked via `.gitkeep` where empty) so an
 adopter's first spawn already has somewhere correct to write. Every one of these
 is referenced by name from the doctrine or a role definition — there are no
@@ -232,9 +243,9 @@ orphan folders:
 ```
 .
 ├── .claude/
-│   ├── agents/                 — spawnable meta-role agents (dean/clark/reed/frank)
+│   ├── agents/                 — spawnable meta-role workers (dean/clark/reed/frank)
 │   │   └── templates/          — 16 non-live role-template skeletons
-│   └── worktrees/               — native per-agent worktree landing zone
+│   └── worktrees/               — native per-worker worktree landing zone
 │                                  (tracked via .gitkeep; CONTENTS gitignored —
 │                                  each is a live worktree created/removed at
 │                                  spawn/land time). The one scaffold dir that is
@@ -242,30 +253,30 @@ orphan folders:
 │                                  layer, not something to rename per domain.
 ├── .github/
 │   └── workflows/
-│       └── kit-self-verify.yml  — ready-to-commit CI: suites + probe + demo
+│       └── engine-self-verify.yml — ready-to-commit CI: suites + probe + demo
 │                                  on every push/PR (see "CI" below)
 ├── assets/                      — vendored static assets (fonts, logos, sounds,
 │                                  images) — local-only by convention
 ├── ceo-briefings/                — committed sprint/milestone briefs (shipped,
 │                                  in-flight, blocked, escalation-ladder
 │                                  decisions, wiki updates, open CEO decisions);
-│                                  orchestrator-written only, like ceo-wiki/;
+│                                  Rich-written only, like ceo-wiki/;
 │                                  ships with EXAMPLE_BRIEFING.md, a worked
 │                                  model (delete after your first real one)
-├── ceo-inbox/                    — CEO's private channel to the orchestrator
+├── ceo-inbox/                    — CEO's private channel to Rich
 │                                  ONLY (teammates never read it); transient —
 │                                  a processed inbox is an EMPTY inbox
-│   ├── for-wiki/                 — material destined for ceo-wiki/: the
-│   │                              orchestrator moves it into ceo-wiki/raw/ and
+│   ├── for-wiki/                 — material destined for ceo-wiki/: Rich
+│   │                              moves it into ceo-wiki/raw/ and
 │   │                              distills it, no per-item instructions needed
 │   │                              (incl. exported .md threads — see
 │   │                              tools/gpt-exporter/)
-│   └── general/                  — everything else for the orchestrator (work
+│   └── general/                  — everything else for Rich (work
 │                                  requests, task context, one-off directives);
 │                                  processed case-by-case
 ├── ceo-wiki/                     — the CEO's second brain (flagship) — decisions,
 │                                  preferences, precedents, not documentation.
-│                                  One writer (the orchestrator), everyone reads.
+│                                  One writer (Rich), everyone reads.
 │   ├── README.md                 — what this is + the intake pipeline + access rules
 │   ├── AGENTS.md                 — the maintenance doctrine (read before editing)
 │   ├── CLAUDE.md                 — single-line `@AGENTS.md` import
@@ -290,7 +301,7 @@ orphan folders:
 │   ├── failures-playbook.md     — generic, product-independent operational
 │   │                              failure modes (symptom -> why -> rule ->
 │   │                              recovery); seeds orchestrator-memory.md
-│   ├── orchestrator-memory.md   — the orchestrator's own persistent operational
+│   ├── orchestrator-memory.md   — Rich's own persistent operational
 │   │                              memory convention, and its boundary vs. ceo-wiki/
 │   └── plans/                   — architecture/migration/rollout/sprint plans
 ├── hr-inbox/
@@ -320,21 +331,20 @@ orphan folders:
 ├── ui-ux-signoffs/               — committed design-gatekeeper signoff files;
 │                                  ships with EXAMPLE_SIGNOFF.md, a worked model
 │                                  (delete after your first real signoff)
-├── CHANGELOG.md                  — per-version contents, reconstructed from the
-│                                   real build waves (see VERSIONING.md)
+├── CHANGELOG.md                  — per-version contents (see VERSIONING.md)
 ├── CLAUDE.md.template
 ├── ONBOARDING-RUNBOOK.md         — the operator's timed white-glove setup-
 │                                   session script (preflight, agenda,
 │                                   common stalls, definition of done)
 ├── orchestration.config
 ├── README.md
-├── UPGRADING.md                  — how an adopter pulls future kit updates
+├── UPGRADING.md                  — how an adopter pulls future engine updates
 │                                   without clobbering their filled config,
-│                                   staffed agents, and grown wiki
-├── VERSION                       — the kit's semantic version (kit-owned, one
-│                                   line; the probe prints it on every run)
+│                                   staffed workers, and grown wiki
+├── VERSION                       — the engine's semantic version (engine-owned,
+│                                   one line; the probe prints it on every run)
 ├── VERSIONING.md                 — the semver scheme for a doctrine + hooks
-│                                   kit + the release ritual
+│                                   engine + the release ritual
 └── WALKTHROUGH.md               — one feature traced through the full
                                    lifecycle (illustrative narrative, not a
                                    captured transcript; scripts/demo.sh is
@@ -349,7 +359,7 @@ scaffold.
 
 ### Recommended: clone → hooks → the bootstrap interview
 
-1. **Clone** this kit, or copy **its entire contents except this kit's own
+1. **Clone** this engine, or copy **its entire contents except its own
    `.git/`** into your existing repo's root — everything, not a hand-picked
    subset: `scripts/`, `.claude/` (**including the committed
    `.claude/settings.local.json`** — see the load-bearing warning just below),
@@ -372,11 +382,11 @@ scaffold.
    every hook fire twice — the double-fire the probe's Layer M guards). Run
    `scripts/hooks/install.sh` once to regenerate the gitignored hook `.sha256`
    integrity sidecars from the current hook bytes (and to migrate away any stale
-   hook-duplicating `.claude/settings.json` left by an older kit). One sidecar
-   lands outside `scripts/hooks/` — `scripts/reap-stale-worktrees.sh.sha256`,
+   hook-duplicating `.claude/settings.json` left by an older install). One
+   sidecar lands outside `scripts/hooks/` — `scripts/reap-stale-worktrees.sh.sha256`,
    for the half of the worktree-reaper chain that actually removes worktrees;
    both are gitignored and both are hashed by the probe's Layer Q.
-3. **Tell the orchestrator to run the bootstrap interview:**
+3. **Tell Rich to run the bootstrap interview:**
    `skills/bootstrap-interview/SKILL.md`. It interviews you conversationally
    (~20 minutes, structured stages, resumable if you need to stop partway),
    then does the rest of this section's old manual work FOR you: fills
@@ -397,15 +407,15 @@ scaffold.
    deploy/device pipeline, adapt `reference/advanced-tier/` and flip
    `ENABLE_QA_INSTALL_FRESH_GATE=1` in `orchestration.config`. Skip it otherwise —
    the mechanical layer stands alone.
-5. **Commit `.github/workflows/kit-self-verify.yml`** (already in the repo,
+5. **Commit `.github/workflows/engine-self-verify.yml`** (already in the repo,
    ready as-is) so the same checks keep running on every future push/PR —
-   see "CI — the kit keeps guarding itself" below.
-6. **Stay current.** The kit is versioned (see `VERSION` / `VERSIONING.md`);
+   see "CI — the engine keeps guarding itself" below.
+6. **Stay current.** The engine is versioned (see `VERSION` / `VERSIONING.md`);
    when a new release ships a hook hardening, a new skill, or a fix, pull it
    with [`UPGRADING.md`](./UPGRADING.md) — it spells out which files are yours
    after adoption (your filled `CLAUDE.md`, `orchestration.config`, staffed
-   agents, and grown `ceo-wiki/`) versus kit-owned and safe to overwrite, and
-   the golden rule: after any update, re-run `install.sh` + the probe + the
+   workers, and grown `ceo-wiki/`) versus engine-owned and safe to overwrite,
+   and the golden rule: after any update, re-run `install.sh` + the probe + the
    demo — all green means the upgrade is safe.
 
 ### Fallback: manual setup (no interview)
@@ -424,10 +434,10 @@ the interview is doing on your behalf:
    product hard rules). Keep all the generic doctrine intact, including "The
    Orchestrator as COO" section.
 3. **Start using `ceo-wiki/`:** it's ready as-is — no setup required. Either
-   drop your first source into `ceo-inbox/for-wiki/` and have the orchestrator
-   ingest it, or just start talking; the orchestrator distills durable
+   drop your first source into `ceo-inbox/for-wiki/` and have Rich
+   ingest it, or just start talking; Rich distills durable
    decisions/preferences into the wiki continuously from there. `ceo-inbox/general/`
-   is for everything else you hand the orchestrator.
+   is for everything else you hand Rich.
 4. **Staff your domain team via Dean:** for each role you need, have Dean read
    the matching template in `.claude/agents/templates/` (asking Clark to research
    the role for your domain when depth helps), copy it to
@@ -436,7 +446,7 @@ the interview is doing on your behalf:
    in `CLAUDE.md` + `team/ROSTER.md`. Never spawn a template directly — instantiate
    a real named copy first.
 
-## Verify the kit works before you rely on it
+## Verify the engine works before you rely on it
 
 The fastest check is the [60-second proof](#60-second-proof--watch-it-work-before-you-set-anything-up)
 above (`scripts/demo.sh`) — it exercises the real hooks end-to-end against a
@@ -460,20 +470,20 @@ containing an obvious API-key-shaped string and confirm `scan-secrets.sh`
 blocks it (`scripts/hooks/scan-secrets.test.sh` covers this exhaustively —
 every vendor pattern, every placeholder-must-not-false-positive case).
 
-## CI — the kit keeps guarding itself
+## CI — the engine keeps guarding itself
 
-`.github/workflows/kit-self-verify.yml` ships ready to commit as-is — no
+`.github/workflows/engine-self-verify.yml` ships ready to commit as-is — no
 edits needed, nothing repo-specific to fill in. It runs on every push/PR
-(`ubuntu-latest`) and repeats exactly what "Verify the kit works" above does
+(`ubuntu-latest`) and repeats exactly what "Verify the engine works" above does
 by hand: `bash -n` on every shipped script, every hook `*.test.sh` suite,
 `install.sh` + `contract-integrity-probe.sh` against your committed config,
-and `scripts/demo.sh` (asserting 7/7 beats). This converts the kit's
+and `scripts/demo.sh` (asserting 7/7 beats). This converts the engine's
 integrity from a one-time manual check into a **standing guarantee inside
 your own repo** — a deleted settings key, a modified hook, or a broken probe
 surfaces immediately in CI on the very next push, instead of as a silent
 total failure at some future session start (exactly the
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` incident this README warns about
-above). The kit was developed on macOS; this workflow runs on Linux, and
+above). The engine was developed on macOS; this workflow runs on Linux, and
 `docs/ci-portability-notes.md` records exactly what was checked (and the one
 cosmetic-only fix applied) to back up that claim rather than assume it.
 
@@ -488,6 +498,7 @@ cosmetic-only fix applied) to back up that claim rather than assume it.
 - **Frank** (`frank`, devil's advocate, opus) — brutally honest stress-testing of
   plans and decisions.
 
-The orchestrator itself is named **Rich** by default in the doctrine — rename it
-if you like; the "orchestrator only delegates, never does the work" role is what
-matters, not the name.
+The orchestrator is **Rich** — Rich Hand, the AI executive the CEO actually
+talks to. In RichOS that name is the product; if you adopt this engine into
+another context you can rename him, but the "Rich only delegates, never does the
+work" role is what matters, not the name.

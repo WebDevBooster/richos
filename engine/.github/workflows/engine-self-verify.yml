@@ -1,12 +1,12 @@
-name: kit-self-verify
+name: engine-self-verify
 
-# Roadmap item B3 — the kit self-verifies inside the adopter's own repo.
+# The RichOS engine self-verifies inside the adopter's own repo.
 # Every push/PR re-proves the enforcement machinery is wired and un-tampered,
 # so drift (a deleted settings key, a modified hook, a broken probe) surfaces
 # immediately in CI instead of as a silent total failure at some future
 # session start — exactly the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS incident
 # the README warns about. This workflow is ready to commit as-is; it assumes
-# nothing repo-specific beyond the kit's own layout.
+# nothing repo-specific beyond the engine's own layout.
 #
 # What it checks, in order:
 #   1. bash -n on every shipped shell script (fast fail on a syntax error).
@@ -23,7 +23,7 @@ name: kit-self-verify
 # No Claude API key, no live agents, no network access beyond checkout/setup.
 #
 # Portability note (see docs/ci-portability-notes.md for the full reasoning):
-# this workflow runs on ubuntu-latest. The kit was developed on macOS; every
+# this workflow runs on ubuntu-latest. The engine was developed on macOS; every
 # hook already uses the shasum -> sha256sum -> python3 hashlib fallback chain
 # and contains no BSD-only constructs (no sed -i, no date -v/-j, no stat -f,
 # no pbcopy/osascript) — confirmed by grep audit, not assumption. One
