@@ -7,11 +7,12 @@
  * recorder that wrote it.
  */
 
-import { KEYS, PRODUCT } from '../../core/constants.js';
+import { KEYS, PRODUCT, DB } from '../../core/constants.js';
 import { getModuleSettings } from '../../core/settings.js';
 import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from '../../core/offscreen-host.js';
 import { writeText, writeUrl, dropPath, setDownloadUi } from '../../core/output.js';
 import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine } from '../../core/alerts.js';
+import { put, getAll, deleteBySession } from '../../core/idb.js';
 import { MODULE_ID, CAPTURE_DEFAULTS, SETTINGS_SCHEMA, THRESHOLDS, ACTIONS, SESSION_STATUS, FILES } from './constants.js';
 import { detectPlatform, shouldAutoArm, isCallTab } from './platforms.js';
 import { newCaptureState, applyHeartbeat, evaluateHealth, badgeTextFor } from './health.js';
@@ -101,14 +102,42 @@ async function mintStreamId(tabId) {
 }
 
 /**
- * Arm capture on a tab.
+ * Serialise all arm attempts. Captions can arrive faster than a session can be created, and each
+ * one may trigger an auto-start; without this, two concurrent starts would race and double-build
+ * the recorder. Every entry point (scan, popup, shortcut, caption) goes through this chain.
+ * @type {Promise<any>}
+ */
+let armChain = Promise.resolve();
+
+/**
+ * Arm capture on a tab. Hybrid model:
+ *   · toolbar/shortcut/popup trigger (a real invocation) → Chrome hands over tab audio → FULL
+ *     capture (tab + mic), or UPGRADES a running mic+captions session to full.
+ *   · auto trigger with no invocation yet → start MIC + CAPTIONS immediately (zero gesture), and
+ *     raise the red ARM prompt for the one click that adds tab-audio ground truth.
  * @param {number} tabId
  * @param {string} trigger 'auto' | 'popup' | 'shortcut' | 'recovery'
- * @returns {Promise<{ok: boolean, error?: string, needsInvocation?: boolean, sessionId?: string}>}
+ * @returns {Promise<{ok: boolean, error?: string, needsInvocation?: boolean, sessionId?: string, mode?: string}>}
  */
-export async function armTab(tabId, trigger = 'auto') {
+export function armTab(tabId, trigger = 'auto') {
+  const next = armChain.then(() => armTabImpl(tabId, trigger));
+  armChain = next.catch(() => {});
+  return next;
+}
+
+/**
+ * @param {number} tabId
+ * @param {string} trigger
+ */
+async function armTabImpl(tabId, trigger = 'auto') {
   const settings = await getModuleSettings(MODULE_ID);
   if (!settings.enabled) return { ok: false, error: 'call capture is disabled in settings' };
+
+  // Upgrade path: a mic+captions (or captions-only) session is already running for this tab and
+  // the CEO has now invoked the extension — add the ground-truth tab audio to it.
+  if (active && active.tabId === tabId && active.awaitingTabAudio) {
+    return upgradeToFullAudio(tabId, trigger);
+  }
   if (active) {
     if (active.tabId === tabId) return { ok: true, sessionId: active.record.sessionId };
     await raiseAlert({
@@ -135,20 +164,35 @@ export async function armTab(tabId, trigger = 'auto') {
   };
 
   const minted = await mintStreamId(tabId);
-  if (!minted.ok) {
-    if (minted.needsInvocation) {
-      await raiseAlert({
-        code: 'needs-invocation',
-        level: 'red',
-        title: 'RichOS: click to start capturing this call',
-        message:
-          'Chrome will not release this tab\'s audio until you invoke the extension for it. Click the RichOS icon (or press the shortcut) on the call tab now — nothing is being recorded.',
-      });
-      await setHealth({ level: 'red', text: 'ARM', title: 'RichOS: call tab NOT being captured — click to arm' });
-    }
-    return { ok: false, error: minted.error, needsInvocation: minted.needsInvocation };
+  if (minted.ok) {
+    return beginSession({ tabId, tab, platform, settings, trigger, streamId: minted.streamId, mode: 'full' });
   }
 
+  // Chrome will not release tab audio without an invocation.
+  if (minted.needsInvocation && settings.autoStartMicCaptions !== false && trigger === 'auto') {
+    // The hybrid guarantee: never leave a detected call fully uncaptured. Start mic + captions
+    // now with zero gesture; the click will upgrade to full tab audio.
+    return beginSession({ tabId, tab, platform, settings, trigger, streamId: null, mode: 'mic+captions' });
+  }
+  if (minted.needsInvocation) {
+    await raiseAlert({
+      code: 'needs-invocation',
+      level: 'red',
+      title: 'RichOS: click to start capturing this call',
+      message:
+        'Chrome will not release this tab\'s audio until you invoke the extension for it. Click the RichOS icon (or press the shortcut) on the call tab now.',
+    });
+    await setHealth({ level: 'red', text: 'ARM', title: 'RichOS: call tab NOT being captured — click to arm' });
+  }
+  return { ok: false, error: minted.error, needsInvocation: minted.needsInvocation };
+}
+
+/**
+ * Create and start a session in the given mode.
+ * @param {{tabId: number, tab: any, platform: any, settings: any, trigger: string,
+ *          streamId: string|null, mode: 'full'|'mic+captions'}} init
+ */
+async function beginSession({ tabId, tab, platform, settings, trigger, streamId, mode }) {
   const startedAt = Date.now();
   const record = newSessionRecord({
     startedAt,
@@ -159,33 +203,52 @@ export async function armTab(tabId, trigger = 'auto') {
     extensionVersion: chrome.runtime.getManifest?.().version || PRODUCT.version,
     settings,
   });
-  record.notes.push(`armed via ${trigger}`);
+  record.mode = mode;
+  record.notes.push(`armed via ${trigger} (mode: ${mode})`);
 
   resetAlertThrottle();
+  const micEnabled = settings.captureMic !== false;
+  const tabEnabled = mode === 'full';
   active = {
     record,
-    state: newCaptureState({ sessionId: record.sessionId, startedAt, micEnabled: settings.captureMic !== false }),
+    state: newCaptureState({ sessionId: record.sessionId, startedAt, micEnabled, tabEnabled, awaitingTabAudio: mode !== 'full' }),
     tabId,
     lastEval: null,
     attempts: {},
     lastDiskWrite: 0,
     finalizing: false,
+    awaitingTabAudio: mode !== 'full',
+    audioActive: false,
+    captions: { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, degraded: false },
   };
 
   // 1) The record of the call's existence goes to disk BEFORE any audio does.
   await writeSessionFile(record);
   await persistActive();
 
-  // 2) Start the recorder.
+  // 2) Start the recorder. `expectTab: false` in hybrid mode means "no tab yet, by design".
   await ensureOffscreen();
   const started = await callOffscreen({
     type: 'cc:start',
     sessionId: record.sessionId,
-    streamId: minted.streamId,
+    streamId,
     settings,
+    expectTab: tabEnabled,
   });
 
   if (!started?.ok) {
+    // No audio source at all. In hybrid mode (mic permission absent, tab not armed) this is NOT
+    // fatal — keep the session so captions are still collected, go red ARM, never silent.
+    if (mode !== 'full' && settings.captureCaptions !== false) {
+      active.audioActive = false;
+      active.record.mode = 'captions-only';
+      active.record.notes.push(`no audio source yet: ${started?.error || 'unknown'} — captions-only until armed`);
+      unarmedSince = null;
+      startWatchdog();
+      await raiseTabAudioArmAlert(platform, true);
+      await persistActive();
+      return { ok: true, sessionId: record.sessionId, mode: 'captions-only' };
+    }
     record.notes.push(`recorder failed to start: ${started?.error || 'unknown'}`);
     await raiseAlert({
       code: 'recorder-start-failed',
@@ -198,7 +261,9 @@ export async function armTab(tabId, trigger = 'auto') {
     await finalize('start-failed');
     return { ok: false, error: started?.error || 'recorder-start-failed' };
   }
-  if (started.micOnlyFailover || !started.hasMic) {
+
+  active.audioActive = true;
+  if (mode === 'full' && (started.micOnlyFailover || !started.hasMic)) {
     for (const problem of started.problems || []) record.notes.push(problem);
     await raiseAlert({
       code: 'partial-start',
@@ -209,16 +274,114 @@ export async function armTab(tabId, trigger = 'auto') {
       force: true,
     });
   }
+  if (mode !== 'full' && !started.hasMic) {
+    // Tab was never expected here; if the mic also failed we are effectively captions-only.
+    active.record.mode = 'captions-only';
+    for (const problem of started.problems || []) record.notes.push(problem);
+  }
 
   unarmedSince = null;
   await maybeShowDisclosure(tabId, settings);
   startWatchdog();
-  await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS: recording ${platform.label}` });
-  await notifyRoutine({
-    title: 'RichOS: capture started',
-    message: `${platform.label} — saving to ${await dropRoot()}/${record.dir}`,
+
+  if (mode === 'full') {
+    await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS: recording ${platform.label}` });
+    await notifyRoutine({
+      title: 'RichOS: capture started',
+      message: `${platform.label} — saving to ${await dropRoot()}/${record.dir}`,
+    });
+  } else {
+    // Mic + captions are live; the red ARM prompt drives the one click that adds tab audio.
+    await raiseTabAudioArmAlert(platform, false);
+  }
+  return { ok: true, sessionId: record.sessionId, mode: active.record.mode };
+}
+
+/**
+ * The CEO invoked the extension on a tab that already has a mic+captions (or captions-only)
+ * session — add the ground-truth tab audio.
+ * @param {number} tabId
+ * @param {string} trigger
+ */
+async function upgradeToFullAudio(tabId, trigger) {
+  const settings = await getModuleSettings(MODULE_ID);
+  const minted = await mintStreamId(tabId);
+  if (!minted.ok) {
+    // Still refused: stay in the current mode and keep the ARM prompt up.
+    return { ok: false, error: minted.error, needsInvocation: minted.needsInvocation, sessionId: active.record.sessionId };
+  }
+  active.record.notes.push(`tab audio armed via ${trigger} — upgrading to full capture`);
+
+  if (!active.audioActive) {
+    // captions-only → start the recorder fresh with tab (and retry the mic).
+    await ensureOffscreen();
+    const started = await callOffscreen({
+      type: 'cc:start',
+      sessionId: active.record.sessionId,
+      streamId: minted.streamId,
+      settings,
+      expectTab: true,
+    });
+    if (!started?.ok) {
+      await raiseAlert({
+        code: 'recorder-start-failed',
+        level: 'red',
+        title: 'RichOS: audio capture did NOT start',
+        message: `Captions are still being collected, but audio could not start: ${started?.error || 'unknown'}`,
+        sessionId: active.record.sessionId,
+        force: true,
+      });
+      return { ok: false, error: started?.error || 'recorder-start-failed', sessionId: active.record.sessionId };
+    }
+    active.audioActive = true;
+  } else {
+    // mic+captions running → attach the tab source to the live recorder (new part).
+    const result = await callOffscreen({ type: 'cc:reattach-tab', streamId: minted.streamId });
+    if (!result?.ok) {
+      await raiseAlert({
+        code: 'tab-arm-failed',
+        level: 'red',
+        title: 'RichOS: could not add tab audio',
+        message: `Your microphone and captions are still being captured. Tab audio failed: ${result?.error || 'unknown'}`,
+        sessionId: active.record.sessionId,
+      });
+      return { ok: false, error: result?.error || 'reattach-failed', sessionId: active.record.sessionId };
+    }
+  }
+
+  active.awaitingTabAudio = false;
+  active.state.awaitingTabAudio = false;
+  active.state.tabEnabled = true;
+  active.record.mode = 'full';
+  active.attempts = {};
+  await setHealth({ level: 'green', text: badgeTextFor('green'), title: `RichOS: recording ${active.record.platform.label} (full)` });
+  await persistActive();
+  return { ok: true, sessionId: active.record.sessionId, mode: 'full', upgraded: true };
+}
+
+/**
+ * Red ARM prompt for the one click that adds tab-audio ground truth. Fires even while mic +
+ * captions are running, because tab audio is the recoverable ground truth — the click is still
+ * strongly prompted, but the CEO is told plainly that the call is NOT going uncaptured.
+ * @param {any} platform
+ * @param {boolean} captionsOnly
+ */
+async function raiseTabAudioArmAlert(platform, captionsOnly) {
+  await setHealth({
+    level: 'red',
+    text: 'ARM',
+    title: captionsOnly
+      ? `RichOS: ${platform.label} — collecting captions only, click to record audio`
+      : `RichOS: ${platform.label} — recording mic + captions, click to add tab audio`,
   });
-  return { ok: true, sessionId: record.sessionId };
+  await raiseAlert({
+    code: 'needs-invocation',
+    level: 'red',
+    title: 'RichOS: click to capture the full call',
+    message: captionsOnly
+      ? 'Captions are being collected, but there is NO audio yet (microphone unavailable and tab audio not armed). Click the RichOS icon on the call tab, or press Alt+Shift+L, to start recording.'
+      : 'Your microphone and the live captions are being captured now. Click the RichOS icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio — the ground-truth recording.',
+  });
 }
 
 /** Arm whatever tab is currently active (toolbar/keyboard path — a real invocation). */
@@ -282,15 +445,58 @@ async function tick() {
   const now = Date.now();
   const settings = await getModuleSettings(MODULE_ID);
 
+  const maxMs = (settings.maxSessionMinutes || CAPTURE_DEFAULTS.maxSessionMinutes) * 60000;
+  if (now - active.record.startedAt > maxMs) {
+    active.record.notes.push('stopped: maximum session length reached');
+    await finalize('max-duration');
+    return;
+  }
+
+  // Captions-only: no recorder to evaluate. Stay loud about the missing audio (never silent),
+  // while the caption channel keeps collecting via cc:caption messages.
+  if (!active.audioActive) {
+    accrueHealth(active.record, { level: 'red' });
+    await setHealth({ level: 'red', text: 'ARM', title: 'RichOS: captions only — click to record audio' });
+    await raiseAlert({
+      code: 'needs-invocation',
+      level: 'red',
+      title: 'RichOS: click to capture the full call',
+      message: `Captions are being collected (${active.captions.count}), but there is NO audio yet. Click the RichOS icon on the call tab, or press Alt+Shift+L.`,
+      sessionId: active.record.sessionId,
+    });
+    if (now - active.record.startedAt > 60000 && now - active.lastDiskWrite > 60000) {
+      active.lastDiskWrite = now;
+      await writeSessionFile(active.record);
+    }
+    if (now % 10000 < THRESHOLDS.heartbeatMs) await persistActive();
+    return;
+  }
+
   const evaluation = evaluateHealth(active.state, now);
   active.lastEval = { ...evaluation, at: now };
   accrueHealth(active.record, evaluation);
 
-  await setHealth({
-    level: evaluation.level,
-    text: badgeTextFor(evaluation.level),
-    title: healthTitle(evaluation),
-  });
+  if (active.awaitingTabAudio) {
+    // Mic + captions are live, but tab-audio ground truth is not armed: keep the red ARM prompt.
+    await setHealth({
+      level: 'red',
+      text: 'ARM',
+      title: `RichOS: recording mic + captions (${active.captions.count} captions) — click to add tab audio`,
+    });
+    await raiseAlert({
+      code: 'needs-invocation',
+      level: 'red',
+      title: 'RichOS: click to add tab audio (ground truth)',
+      message: 'Your microphone and the live captions are being captured. Click the RichOS icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio.',
+      sessionId: active.record.sessionId,
+    });
+  } else {
+    await setHealth({
+      level: evaluation.level,
+      text: badgeTextFor(evaluation.level),
+      title: healthTitle(evaluation),
+    });
+  }
 
   if (evaluation.level === 'red') {
     for (const reason of evaluation.reasons.filter((r) => r.level === 'red')) {
@@ -313,12 +519,6 @@ async function tick() {
 
   for (const action of evaluation.actions) await runRecovery(action, now);
 
-  const maxMs = (settings.maxSessionMinutes || CAPTURE_DEFAULTS.maxSessionMinutes) * 60000;
-  if (now - active.record.startedAt > maxMs) {
-    active.record.notes.push('stopped: maximum session length reached');
-    await finalize('max-duration');
-    return;
-  }
   if (now % 10000 < THRESHOLDS.heartbeatMs) await persistActive();
 }
 
@@ -554,6 +754,9 @@ async function runFinalize(record, reason) {
   // exportSession returns the audio accounting itself — reading `.audio` off it threw
   // mid-finalise and left the session `open` on disk (caught by the live harness).
   record.audio = await exportSession(record);
+  // The secondary caption channel is written on its own durable file, and its count comes from
+  // the same records — captions never inflate or vanish relative to what is on disk.
+  await exportCaptions(record);
 
   const verdict = verifySession(record);
   record.verification = verdict;
@@ -571,6 +774,12 @@ async function runFinalize(record, reason) {
   }
   if (verdict.ok && !settings.keepChunksAfterExport) {
     await callOffscreen({ type: 'cc:purge', sessionId: record.sessionId });
+    // Captions are persisted by the service worker (not the offscreen recorder), so purge them here.
+    try {
+      await deleteBySession(DB.stores.captions, record.sessionId);
+    } catch {
+      /* leaving caption rows behind is harmless; never let cleanup break finalisation */
+    }
   }
 
   await indexSession(record, verdict);
@@ -634,6 +843,51 @@ async function exportSession(record) {
   return audio;
 }
 
+/**
+ * Write the captions channel to `captions.ndjson`. The record's caption count is set from the
+ * SAME rows that are written — the one authoritative count (collector-path parity).
+ * @param {any} record
+ * @returns {Promise<number>} caption rows written
+ */
+async function exportCaptions(record) {
+  let rows = [];
+  try {
+    rows = await getAll(DB.stores.captions, 'bySession', IDBKeyRange.only(record.sessionId));
+  } catch (err) {
+    record.notes.push(`caption read failed at finalise: ${String((err && err.message) || err)}`);
+    return 0;
+  }
+  rows.sort((a, b) => a.seq - b.seq);
+  if (rows.length) {
+    const text = rows
+      .map((r) =>
+        JSON.stringify({
+          speaker: r.speaker,
+          text: r.text,
+          t: r.t,
+          firstT: r.firstT,
+          revision: r.revision,
+          id: r.id,
+          language: r.language,
+          adapter: r.adapter,
+        }),
+      )
+      .join('\n');
+    const written = await writeText(dropPath(await dropRoot(), record.dir, FILES.captions), text, {
+      mime: 'application/x-ndjson',
+      overwrite: true,
+    });
+    if (!written.ok) record.notes.push(`captions.ndjson write failed: ${written.error || 'unknown'}`);
+  }
+  // Authoritative: the count is the number of records actually written.
+  record.captions.count = rows.length;
+  record.captions.available = record.captions.available || rows.length > 0;
+  if (!record.captions.speakers?.length) {
+    record.captions.speakers = [...new Set(rows.map((r) => r.speaker).filter(Boolean))];
+  }
+  return rows.length;
+}
+
 /** @returns {Promise<string>} */
 async function dropRoot() {
   const core = await getModuleSettings('core');
@@ -686,6 +940,9 @@ async function persistActive() {
       record: active.record,
       tabId: active.tabId,
       state: active.state,
+      awaitingTabAudio: active.awaitingTabAudio,
+      audioActive: active.audioActive,
+      captions: active.captions,
       savedAt: Date.now(),
     },
   });
@@ -714,6 +971,9 @@ export async function recoverAfterRestart() {
         attempts: {},
         lastDiskWrite: 0,
         finalizing: false,
+        awaitingTabAudio: Boolean(saved.awaitingTabAudio),
+        audioActive: saved.audioActive !== false,
+        captions: saved.captions || { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, degraded: false },
       };
       active.record.notes.push('service worker restarted mid-session; recorder was still alive');
       startWatchdog();
@@ -727,6 +987,9 @@ export async function recoverAfterRestart() {
         attempts: {},
         lastDiskWrite: 0,
         finalizing: false,
+        awaitingTabAudio: Boolean(saved.awaitingTabAudio),
+        audioActive: saved.audioActive !== false,
+        captions: saved.captions || { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, degraded: false },
       };
       active.record.status = SESSION_STATUS.interrupted;
       active.record.notes.push('recovered after an interruption (tab crash, extension reload or browser restart)');
@@ -777,12 +1040,18 @@ async function recoverOrphans() {
       health: { heartbeats: 0, greenSeconds: 0, amberSeconds: 0, redSeconds: 0, worstLevel: 'green' },
       alerts: [],
       recovery: [{ t: Date.now(), action: 'orphan-recovery' }],
-      captions: { available: false, adapter: null, count: 0 },
+      captions: { available: false, adapter: null, adapterVersion: null, count: 0, speakers: [], degraded: false },
       notes: ['recovered from orphaned chunks with no live session record'],
     };
     record.audio = await exportSession(record);
+    await exportCaptions(record);
     await writeSessionFile(record, { overwrite: true });
     await callOffscreen({ type: 'cc:purge', sessionId });
+    try {
+      await deleteBySession(DB.stores.captions, sessionId);
+    } catch {
+      /* harmless */
+    }
     await raiseAlert({
       code: 'orphan-recovered',
       level: 'amber',
@@ -792,7 +1061,63 @@ async function recoverOrphans() {
       force: true,
     });
   }
+
+  // Captions-only orphans: caption rows with no chunks and no live session — a call that
+  // produced captions but never any audio (never armed, or browser died before finalise). These
+  // must NOT be silently lost; recover them as flagged captions-only sessions.
+  await recoverCaptionOnlyOrphans(new Set([...ids, busySessionId, active?.record.sessionId].filter(Boolean)));
+
   if (!active && !ids.length) await closeOffscreen();
+}
+
+/**
+ * @param {Set<string>} handled session ids already dealt with this boot
+ */
+async function recoverCaptionOnlyOrphans(handled) {
+  let captionRows = [];
+  try {
+    captionRows = await getAll(DB.stores.captions);
+  } catch {
+    return;
+  }
+  const ids = [...new Set(captionRows.map((r) => r.sessionId))].filter((id) => id && !handled.has(id));
+  for (const sessionId of ids) {
+    const record = {
+      schemaVersion: 1,
+      sessionId,
+      dir: sessionId,
+      status: SESSION_STATUS.recovered,
+      mode: 'captions-only',
+      producer: { product: 'RichOS extension', module: 'call-capture', extensionVersion: chrome.runtime.getManifest?.().version },
+      platform: { id: 'unknown', label: 'recovered', slug: 'recovered' },
+      tab: {},
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+      capture: {},
+      audio: { parts: [], bytesTotal: 0, chunkCount: 0 },
+      health: { heartbeats: 0, greenSeconds: 0, amberSeconds: 0, redSeconds: 0, worstLevel: 'green' },
+      alerts: [],
+      recovery: [{ t: Date.now(), action: 'caption-only-orphan-recovery' }],
+      captions: { available: true, adapter: null, adapterVersion: null, count: 0, speakers: [], degraded: false },
+      notes: ['recovered captions with NO audio — the call was not fully captured'],
+    };
+    const count = await exportCaptions(record);
+    record.verification = verifySession(record);
+    await writeSessionFile(record, { overwrite: true });
+    try {
+      await deleteBySession(DB.stores.captions, sessionId);
+    } catch {
+      /* harmless */
+    }
+    await raiseAlert({
+      code: 'captions-only-recovered',
+      level: 'red',
+      title: 'RichOS: a call was captured as captions only — NO audio',
+      message: `${sessionId}: ${count} captions but no audio. The call was not fully captured; investigate.`,
+      sessionId,
+      force: true,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -801,8 +1126,9 @@ async function recoverOrphans() {
 
 /**
  * @param {any} msg
+ * @param {chrome.runtime.MessageSender} [sender]
  */
-async function onMessage(msg) {
+async function onMessage(msg, sender) {
   switch (msg.type) {
     case 'cc:heartbeat': {
       if (!active || msg.sessionId !== active.record.sessionId) return { ok: true, ignored: true };
@@ -840,6 +1166,14 @@ async function onMessage(msg) {
       if (active) active.record.notes.push(`${msg.which} track ended`);
       await tick();
       return { ok: true };
+    case 'cc:captions-attached':
+      return handleCaptionsAttached(msg, sender);
+    case 'cc:caption':
+      return handleCaption(msg, sender);
+    case 'cc:captions-degraded':
+      return handleCaptionsDegraded(msg);
+    case 'cc:captions-detached':
+      return { ok: true };
     case 'cc:arm-active-tab':
       return armActiveTab(msg.trigger || 'popup');
     case 'cc:arm-tab':
@@ -854,6 +1188,100 @@ async function onMessage(msg) {
     default:
       return undefined;
   }
+}
+
+// ---------------------------------------------------------------------------------------
+// Captions — the secondary failsafe + enrichment channel
+// ---------------------------------------------------------------------------------------
+
+/**
+ * A caption content script attached in a call tab. Mark the channel available and, if no
+ * session is capturing that tab yet, kick an auto-start so captions are never dropped.
+ * @param {any} msg
+ * @param {chrome.runtime.MessageSender} [sender]
+ */
+async function handleCaptionsAttached(msg, sender) {
+  const settings = await getModuleSettings(MODULE_ID);
+  if (settings.captureCaptions === false) return { ok: true, ignored: 'captions-disabled' };
+  const tabId = sender?.tab?.id;
+  if (tabId != null && !active) await scanTabs();
+  if (active && (tabId == null || active.tabId === tabId)) {
+    active.captions.available = true;
+    active.captions.adapter = msg.adapter || active.captions.adapter;
+    active.captions.adapterVersion = msg.adapterVersion || active.captions.adapterVersion;
+    active.record.captions.available = true;
+    active.record.captions.adapter = msg.adapter || active.record.captions.adapter;
+    active.record.captions.adapterVersion = msg.adapterVersion || active.record.captions.adapterVersion;
+  }
+  return { ok: true };
+}
+
+/**
+ * Persist one deduped caption revision. The COUNT is incremented only on a successful write, so
+ * the number shown anywhere is exactly the number of records that will be in `captions.ndjson`
+ * (one collector path, never a second heuristic).
+ * @param {any} msg
+ * @param {chrome.runtime.MessageSender} [sender]
+ */
+async function handleCaption(msg, sender) {
+  const settings = await getModuleSettings(MODULE_ID);
+  if (settings.captureCaptions === false) return { ok: true, ignored: 'captions-disabled' };
+  const tabId = sender?.tab?.id;
+  const event = msg.event;
+  if (!event || !event.text) return { ok: true };
+
+  // Captions must be captured even before audio is armed. If nothing is capturing this call tab
+  // yet, auto-start a session so the caption lands somewhere durable.
+  if (!active && tabId != null) await armTab(tabId, 'auto');
+  if (!active || (tabId != null && active.tabId !== tabId)) return { ok: true, ignored: 'no-matching-session' };
+
+  active.captions.seq = (active.captions.seq || 0) + 1;
+  const seq = active.captions.seq;
+  try {
+    await put(DB.stores.captions, {
+      sessionId: active.record.sessionId,
+      seq,
+      speaker: event.speaker || 'unknown',
+      text: event.text,
+      t: event.t || Date.now(),
+      firstT: event.firstT || event.t || Date.now(),
+      revision: event.revision || 1,
+      id: event.id != null ? String(event.id) : null,
+      language: event.language || null,
+      adapter: msg.adapter || active.captions.adapter,
+    });
+  } catch (err) {
+    active.captions.degraded = true;
+    active.record.captions.degraded = true;
+    active.record.notes.push(`caption persist failed: ${String((err && err.message) || err)}`);
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+
+  // Success: count == rows persisted. Mirror onto the record for the popup and session.json.
+  active.captions.count += 1;
+  active.captions.available = true;
+  active.record.captions.available = true;
+  active.record.captions.count = active.captions.count;
+  active.record.captions.adapter = msg.adapter || active.record.captions.adapter;
+  active.record.captions.adapterVersion = msg.adapterVersion || active.record.captions.adapterVersion;
+  if (event.speaker && !active.record.captions.speakers.includes(event.speaker)) {
+    active.record.captions.speakers.push(event.speaker);
+  }
+  return { ok: true, count: active.captions.count };
+}
+
+/**
+ * The caption adapter broke (Meet DOM/protocol change). Fail SOFT: record a degraded-captions
+ * state, never touch the audio path, never a hard alarm — audio is the guarantee.
+ * @param {any} msg
+ */
+async function handleCaptionsDegraded(msg) {
+  if (active) {
+    active.captions.degraded = true;
+    active.record.captions.degraded = true;
+    active.record.notes.push(`captions degraded (${msg.adapter || 'unknown'}): ${msg.detail || 'adapter error'}`);
+  }
+  return { ok: true };
 }
 
 /** Popup card data. Numbers come from the recorder's own accounting, never a second count. */
@@ -886,6 +1314,9 @@ async function getStatus() {
     armMode: settings.armMode,
     sessionId: active.record.sessionId,
     platform: active.record.platform.label,
+    mode: active.record.mode,
+    awaitingTabAudio: active.awaitingTabAudio,
+    audioActive: active.audioActive,
     dropFolder: root,
     saveLocation: `Downloads/${root}/${active.record.dir}/`,
     lastSession: index.length ? index[index.length - 1] : null,
@@ -894,6 +1325,14 @@ async function getStatus() {
     chunkCount: active.state.chunkCount,
     part: active.state.part,
     micOnlyFailover: active.state.micOnlyFailover,
+    // Caption channel: count comes from the same collector path that persists captions.ndjson.
+    captions: {
+      available: active.captions.available,
+      count: active.captions.count,
+      adapter: active.captions.adapter,
+      speakers: active.record.captions.speakers || [],
+      degraded: active.captions.degraded,
+    },
     level: evaluation.level,
     signals: evaluation.signals,
     reasons: evaluation.reasons,

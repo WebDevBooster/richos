@@ -352,6 +352,10 @@ export async function start(msg) {
   }
 
   const problems = [];
+  // `expectTab === false` means the caller INTENTIONALLY started without tab audio (the hybrid
+  // zero-gesture mic+captions start; the ground-truth tab audio is armed later by a click). That
+  // is not a failover and must not be alarmed or flagged as one.
+  const expectTab = msg.expectTab !== false;
 
   if (msg.streamId) {
     try {
@@ -368,10 +372,11 @@ export async function start(msg) {
       problems.push(`tab-audio: ${String((err && err.message) || err)}`);
       session.micOnlyFailover = true;
     }
-  } else {
+  } else if (expectTab) {
     problems.push('tab-audio: no stream id was provided');
     session.micOnlyFailover = true;
   }
+  // else: intentional no-tab start — awaiting the arm click, not a failover.
 
   if (settings.captureMic !== false) {
     try {
