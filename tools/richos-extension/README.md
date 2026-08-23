@@ -18,8 +18,21 @@ is no OS-specific code anywhere in it.
 
 The invariant underneath it: **never lose the audio.** Audio is ground truth. If the raw audio
 exists, no transcription problem is ever fatal — the worst case is running the transcriber
-again on a file you already have. That is why v0 captures audio first and treats platform
-captions as a later convenience layer, not a foundation.
+again on a file you already have. That is why RichOS captures audio first and treats platform
+captions as a strictly secondary layer, not a foundation.
+
+**Three independent capture channels, so a detected call is never fully uncaptured:**
+
+1. **Microphone (you)** and **2. platform captions** start *automatically, with zero clicks* the
+   moment a call tab is detected. Captions are secondary (enrichment + failsafe), but they cover
+   the seconds before audio is armed and the worst case where audio never arms at all.
+3. **Tab audio (everyone else)** is the recoverable ground truth. Chrome will not release it
+   without one invocation per tab, so it still takes a single click (or `Alt+Shift+L`) — and that
+   click merely *upgrades* an already-running mic + captions session to full capture.
+
+If a channel fails, the others carry on and you are told within seconds. Captions breaking loses
+only enrichment — the opposite of a caption-only tool, for which captions breaking loses the whole
+meeting.
 
 Three design choices carry that guarantee:
 
@@ -48,6 +61,8 @@ A pure MV3 extension can protect a lot, but not everything. This table is delibe
 | Microphone device switches (Bluetooth handoff) | **Yes** | Device re-acquired, new part started, alarm if it fails | ≤ a few seconds of your side |
 | Tab audio stream ends | **Yes** | Re-attach attempted; otherwise microphone-only failover + red alarm | Other party's audio until recovered |
 | Audio stops flowing while everything "looks fine" | **Yes** | Chunk-arrival, byte-growth, audio-graph-state and per-channel level signals all alarm | 0 (alarmed in ≤15 s) |
+| Caption feature breaks (Meet DOM/protocol change) | **Yes (soft)** | Captions degrade; the audio path is untouched and no hard alarm fires | Enrichment only — never the call |
+| Call captured captions but never any audio | **Flagged** | A specific anomaly at finalise and at sync (captions prove a call happened) | You are told; the captions are still saved |
 | Digital silence (wrong input, muted at OS level) | **Yes** | Red alarm in ≤20 s | You are told *during* the call |
 | Disk full / storage write fails | **Yes** | Chunk write error alarms immediately | Alarmed at once |
 | Browser is quit or killed mid-call | **Partly** | Everything already committed is recovered and exported on next launch, with an alarm | ≤ one chunk, plus the rest of the call is not captured until you re-arm |
@@ -79,21 +94,26 @@ That is the whole setup. Identical on macOS, Windows and Linux.
 ### Arming — one thing you should know
 
 Chrome will not hand a tab's audio to any extension until the extension has been *invoked* for
-that tab. This is a browser security boundary, and RichOS does not try to work around it. The
-exact refusal, measured on this machine, is:
+that tab. This is a browser security boundary, and RichOS does not try to work around it — but
+it no longer means "nothing is recorded until you click". The exact refusal, measured on this
+machine, is:
 
 ```
 Extension has not been invoked for the current page (see activeTab permission).
 ```
 
-So the automatic flow is:
+So the hybrid automatic flow is:
 
 - RichOS recognises a call tab (Meet, Zoom web, Teams web, Whereby, Slack/Discord/Webex when
-  audible) and immediately tries to arm.
-- If Chrome refuses, **the badge turns red (`ARM`) and you get one alert**: click the RichOS
-  icon on the call tab, or press **Alt+Shift+L**. That is the invocation, and capture starts.
-- If a call tab is open and *nothing* is capturing, RichOS keeps telling you. Forgetting is
-  the failure mode this design refuses to allow.
+  audible) and **immediately starts recording your microphone and collecting captions — no
+  click.** Your microphone needs a one-time permission grant (below); after that, mic + captions
+  start on every call with zero gesture.
+- It also tries to arm tab audio. Chrome refuses without an invocation, so **the badge turns red
+  (`ARM`) and you get one alert within ~10 s**: click the RichOS icon on the call tab, or press
+  **Alt+Shift+L**. That click *upgrades* the running mic + captions session to full tab-audio
+  ground truth — it does not start capture from scratch, because capture is already running.
+- If the microphone permission is missing, RichOS degrades to **captions only** and stays loud
+  (red `ARM`) about the missing audio — it is never silent.
 
 The grant lasts for the life of that tab, so it is one keystroke per call, not per minute — and
 you can do it the moment the tab opens, before anyone joins.
@@ -108,7 +128,11 @@ other party or appear in a screenshare.
 | grey / empty | idle |
 | green `REC` | capturing, all channels healthy |
 | amber `...` | degraded (warming up, quiet, or microphone-only failover) |
-| red `!` / `ARM` | something is wrong, or a call is open and not being captured |
+| red `!` / `ARM` | something is wrong, OR mic + captions are running and one click will add tab-audio ground truth |
+
+`ARM` no longer means "nothing is recorded" — in the hybrid flow your microphone and the captions
+are already being captured; the click adds the other side's tab audio. Click the icon for the
+exact state (including live caption count and speaker labels).
 
 Click the icon for detail: elapsed time, MB and chunks written, per-channel health
 (microphone / tab audio / levels / audio graph), where the session is being saved, and the
@@ -120,7 +144,8 @@ result of the last call.
 |---|---|---|
 | Ambient status (badge + popup) | **Always on** | Toolbar only. Never participant-facing. |
 | Routine "capture started/stopped" desktop notifications | **OFF** | Toggle in Settings. |
-| Participant disclosure banner in the meeting page | **OFF** | Toggle in Settings; requires page access. For all-party-consent jurisdictions. |
+| Participant disclosure banner in the meeting page | **OFF** | Toggle in Settings; requires page access. For all-party-consent jurisdictions. The ONLY thing RichOS ever renders into a meeting page. |
+| Caption content script on `meet.google.com` | **On** (read-only) | Reads the captions Meet renders and forwards them to the extension. Renders **nothing** in the page. |
 | **Failure alerts** | **ON** | CEO-only, independent of the routine setting. Red badge always; desktop notification on by default; chime off by default (an open microphone would pick it up). |
 
 ### Settings
@@ -145,6 +170,9 @@ Downloads/richos-capture/2026-08-23T14-05-02Z--meet--abc-defg-hij/
   session.json          written at call START (status "open"), rewritten at close
   audio-part-00.webm    2-channel Opus: LEFT = your microphone, RIGHT = everyone else
   health.ndjson         one JSON record per second: levels, chunk counts, track states
+  captions.ndjson       secondary channel: one JSON record per caption revision
+                        ({speaker, text, t, firstT, revision, id, adapter}) — present only
+                        when the platform produced captions
 ```
 
 Two channels rather than a mix means free "me vs them" speaker separation for transcription,
@@ -165,9 +193,11 @@ node sync/richos-sync.mjs --to ~/richos/wiki/raw/meetings --dry-run --purge-afte
 ```
 
 The helper moves finished sessions and **refuses to quietly move anomalies** — a session still
-marked `open`, one with no audio, or one whose own verification failed is reported, left in
-place, and the script exits non-zero. That is the "a call happened and we may not have it"
-tripwire.
+marked `open`, one with no audio, one whose own verification failed, or one that captured
+**captions but no audio** is reported, left in place, and the script exits non-zero. That last
+case is the caption-failsafe reconciliation: captions prove a call happened, so missing audio is
+a flagged failure, never silent success and never silent loss. (Shared logic:
+`sync/reconcile.js`, unit-tested and exercised against the real CLI by `tests/sync-reconcile.mjs`.)
 
 ---
 
@@ -188,24 +218,36 @@ Why not write straight into the repo? Because that needs a native-messaging host
 [ARCHITECTURE.md](ARCHITECTURE.md). It is a genuine future increment, not a workaround, and the
 Downloads path costs one command in the meantime.
 
-Captions (live speaker names from the platform's own caption feature) are deliberately **not**
-in v0. The interface they will implement is fixed in `modules/call-capture/captions/adapter.js`,
-and `session.json` already carries a `captions` block so ingest never has to change shape.
+### Captions as the enrichment seam
+
+Captions are collected as a **secondary** channel (`captions.ndjson`) alongside the audio. At
+loro-ingest they enable two things the audio alone cannot: (a) merging the platform's
+**per-remote-speaker names** into the Whisper transcript (audio gives "you vs. them"; captions add
+*which* of them), and (b) a **caption-vs-transcript agreement score** that turns accuracy into a
+measured number. The extension does not compute the score — it just lands the caption data with
+enough structure (`speaker`, `text`, `t`, `revision`, `id`) to make it possible post-call. Meet is
+the first adapter (`modules/call-capture/captions/meet.js`) behind a generic, cross-platform seam
+(`captions/adapter.js`); other platforms are future adapters. There is no OS-conditional code
+anywhere in the framework.
 
 ---
 
 ## Testing
 
 ```
-node tests/run.js            # pure logic: 30 tests, no browser, fake clock
-node tests/live-capture.mjs  # real Chrome, real audio, real files on disk
+node tests/run.js             # pure logic: 47 tests, no browser, fake clock
+node tests/sync-reconcile.mjs # the real sync CLI vs synthetic sessions on disk
+node tests/live-capture.mjs   # real Chrome, real audio, real captions, real files on disk
 ```
 
-The live harness launches a throwaway Chrome profile with the extension loaded, serves a
-tone-playing page as `https://meet.google.com/...` so real platform detection runs, records,
-restarts the service worker mid-session, closes the call tab, and then verifies the exported
-files — including decoding the audio and measuring that it contains actual sound. It also
-collects everything the extension logs or throws.
+The live harness launches a throwaway Chrome profile with the extension loaded, serves a page as
+`https://meet.google.com/...` that plays a real tone **and emits Meet-shaped captions** so both
+the real platform detection and the real caption content script run. It verifies that mic +
+captions auto-start with no gesture, that captions land with speaker labels + timestamps through
+the same collector path that persists them, that breaking the caption feature never touches the
+audio, restarts the service worker mid-session, closes the call tab, and then verifies the
+exported files — including decoding the audio and measuring that it contains actual sound. It also
+collects everything the extension logs or throws. (Last run on this Mac: 37/37 checks passed.)
 
 Branded Google Chrome refuses `--load-extension`, so the harness uses a Chrome for Testing /
 Chromium build if one is cached locally (`CHROME_PATH` overrides). Loading the extension by
@@ -239,9 +281,15 @@ modules/
     platforms.js         pure platform detection (unit-tested)
     session.js           pure session record + naming (unit-tested)
     constants.js         defaults, thresholds, settings schema
-    captions/adapter.js  the deliberate, unimplemented caption seam
+    captions/            the secondary caption channel (failsafe + enrichment)
+      adapter.js         generic cross-platform seam (types + registry)
+      caption-dedup.js   pure revision aggregation; the caption COUNT lives here (unit-tested)
+      meet.js            Google Meet DOM adapter, read-only (both renderers)
+      content-meet.js    tiny read-only content script injected on meet.google.com
   chatgpt-export/        module 2 seam — the GPT Exporter port lands here later
 options/ popup/ icons/   shared UI shell
-sync/richos-sync.mjs     drop zone → loro, with anomaly reporting
-tests/                   pure harness + live browser harness
+sync/
+  richos-sync.mjs        drop zone → loro, with anomaly reporting
+  reconcile.js           pure "does this hold the call?" logic (shared by CLI + tests)
+tests/                   pure harness + sync-reconcile harness + live browser harness
 ```
