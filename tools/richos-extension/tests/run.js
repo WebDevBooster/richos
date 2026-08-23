@@ -22,6 +22,9 @@ import {
 } from '../modules/call-capture/session.js';
 import { safeName, dropPath } from '../core/output.js';
 import { CORE_DEFAULTS } from '../core/constants.js';
+import { CaptionAggregator } from '../modules/call-capture/captions/caption-dedup.js';
+import { analyzeSession } from '../sync/reconcile.js';
+import { extractCaptionRows } from '../modules/call-capture/captions/meet.js';
 
 let passed = 0;
 const failures = [];
@@ -347,6 +350,248 @@ test('capture defaults bias towards never missing a call', () => {
   assert.equal(CAPTURE_DEFAULTS.armMode, 'auto');
   assert.equal(CAPTURE_DEFAULTS.captureMic, true);
   assert.ok(CAPTURE_DEFAULTS.chunkMs <= 5000, 'a crash must never cost more than a few seconds');
+});
+
+// ---------------------------------------------------------------------------------------
+group('captions — the secondary channel dedups, and the COUNT is the collector path');
+
+test('a caption row emits once on appearance and once per meaningful change; no-ops are dropped', () => {
+  const agg = new CaptionAggregator();
+  assert.equal(agg.observe({ key: 'r1', speaker: 'Ada', text: 'hello', t: T0 }).length, 1);
+  // Identical re-report of the same line (Meet does this constantly) → nothing.
+  assert.equal(agg.observe({ key: 'r1', speaker: 'Ada', text: 'hello', t: T0 + 100 }).length, 0);
+  // The line grows → a new revision.
+  const grown = agg.observe({ key: 'r1', speaker: 'Ada', text: 'hello there', t: T0 + 200 });
+  assert.equal(grown.length, 1);
+  assert.equal(grown[0].revision, 2);
+  assert.equal(grown[0].firstT, T0, 'firstT is preserved across revisions');
+});
+
+test('the caption count equals exactly the number of events emitted (no second heuristic)', () => {
+  const agg = new CaptionAggregator();
+  let emitted = 0;
+  const feed = [
+    { key: 'r1', speaker: 'Ada', text: 'a' },
+    { key: 'r1', speaker: 'Ada', text: 'a' }, // no-op
+    { key: 'r1', speaker: 'Ada', text: 'ab' }, // revision
+    { key: 'r2', speaker: 'Bob', text: 'hi' }, // new row
+    { key: 'r2', speaker: 'Bob', text: '' }, // empty → dropped
+  ];
+  for (const raw of feed) emitted += agg.observe({ ...raw, t: T0 }).length;
+  assert.equal(emitted, 3);
+  assert.equal(agg.count, 3, 'aggregator.count must match what was actually emitted');
+  assert.deepEqual(agg.speakerList(), ['Ada', 'Bob']);
+});
+
+test('blank / keyless observations never produce a caption', () => {
+  const agg = new CaptionAggregator();
+  assert.equal(agg.observe({ key: 'r1', speaker: 'Ada', text: '   ', t: T0 }).length, 0);
+  assert.equal(agg.observe({ speaker: 'Ada', text: 'orphan', t: T0 }).length, 0);
+  assert.equal(agg.count, 0);
+});
+
+test('a missing speaker label degrades to "unknown", never crashes the row', () => {
+  const agg = new CaptionAggregator();
+  const [event] = agg.observe({ key: 'r1', speaker: '', text: 'anonymous line', t: T0 });
+  assert.equal(event.speaker, 'unknown');
+});
+
+group('captions-only reconciliation — a call with captions but no audio is a FLAGGED anomaly');
+
+/** @returns {any} */
+function recordWith({ audioBytes = 0, parts = 0, captionCount = 0, status = 'closed', degraded = false }) {
+  return {
+    status,
+    audio: { parts: Array.from({ length: parts }, (_, i) => ({ part: i, bytes: audioBytes })), bytesTotal: audioBytes },
+    captions: { count: captionCount, degraded },
+    health: { redSeconds: 0 },
+  };
+}
+
+test('verifySession flags captions-present + audio-absent as a specific anomaly', () => {
+  const record = newSessionRecord({
+    startedAt: T0,
+    platform: { id: 'meet', label: 'Google Meet', slug: 'x' },
+    tabId: 1,
+    extensionVersion: '0.2.0',
+    settings: CAPTURE_DEFAULTS,
+  });
+  record.status = 'closed';
+  record.endedAt = T0 + 600000;
+  record.captions.count = 42;
+  const verdict = verifySession(record);
+  assert.equal(verdict.ok, false);
+  assert.ok(verdict.problems.some((p) => /captions were captured .* but NO audio/.test(p)), verdict.problems.join('; '));
+});
+
+test('the sync reconciler refuses to treat a captions-only session as complete', () => {
+  const result = analyzeSession({ record: recordWith({ captionCount: 30 }), audioBytesOnDisk: 0 });
+  assert.equal(result.captionsOnly, true);
+  assert.equal(result.complete, false);
+  assert.ok(result.problems.some((p) => /NO audio/.test(p)));
+});
+
+test('the sync reconciler passes a clean audio session (with or without captions)', () => {
+  const ok = analyzeSession({ record: recordWith({ audioBytes: 21000000, parts: 1, captionCount: 120 }), audioBytesOnDisk: 21000000 });
+  assert.equal(ok.captionsOnly, false);
+  assert.equal(ok.complete, true, ok.problems.join('; '));
+});
+
+test('degraded captions on an otherwise-complete audio session are noted, not a blocking loss', () => {
+  const result = analyzeSession({
+    record: recordWith({ audioBytes: 21000000, parts: 1, captionCount: 5, degraded: true }),
+    audioBytesOnDisk: 21000000,
+  });
+  assert.equal(result.captionsOnly, false);
+  assert.ok(result.problems.some((p) => /degraded/.test(p)));
+});
+
+test('an unreadable session.json is still an anomaly (never silently skipped)', () => {
+  const result = analyzeSession({ record: null });
+  assert.equal(result.complete, false);
+  assert.ok(result.problems.some((p) => /no readable session\.json/.test(p)));
+});
+
+group('Meet caption extraction — BOTH renderers (classic markup + server-driven), deterministic');
+
+// A tiny DOM shim: enough of querySelector/querySelectorAll/children/textContent to exercise
+// extractCaptionRows against known markup shapes, with no browser. It supports exactly the
+// selector forms the adapter uses: `.class` and `[attr]`.
+function el(tag, opts = {}) {
+  const cls = new Set(opts.cls || []);
+  const attrs = opts.attrs || {};
+  const children = opts.children || [];
+  const ownText = opts.text ?? null;
+  const node = {
+    tagName: String(tag).toUpperCase(),
+    children,
+    _cls: cls,
+    _attrs: attrs,
+    get textContent() {
+      if (ownText != null) return ownText;
+      return children.map((c) => c.textContent).join('\n');
+    },
+    matchesToken(sel) {
+      if (sel[0] === '.') return cls.has(sel.slice(1));
+      if (sel[0] === '[') return Object.prototype.hasOwnProperty.call(attrs, sel.slice(1, -1));
+      return false;
+    },
+    querySelector(sel) {
+      return descendants(node).find((n) => n.matchesToken(sel)) || null;
+    },
+    querySelectorAll(sel) {
+      return descendants(node).filter((n) => n.matchesToken(sel));
+    },
+  };
+  return node;
+}
+function descendants(node) {
+  const out = [];
+  for (const child of node.children || []) {
+    out.push(child, ...descendants(child));
+  }
+  return out;
+}
+
+test('classic Meet caption markup (obfuscated classes) extracts speaker + text per row', () => {
+  const region = el('div', {
+    cls: ['a4cQT'],
+    children: [
+      el('div', {
+        cls: ['nMcdL'],
+        children: [el('span', { cls: ['KcIKyf'], text: 'Ada Lovelace' }), el('span', { cls: ['bh44bd'], text: 'the analytical engine' })],
+      }),
+      el('div', {
+        cls: ['nMcdL'],
+        children: [el('span', { cls: ['KcIKyf'], text: 'Charles Babbage' }), el('span', { cls: ['bh44bd'], text: 'quite so' })],
+      }),
+    ],
+  });
+  const rows = extractCaptionRows(region);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.speaker), ['Ada Lovelace', 'Charles Babbage']);
+  assert.equal(rows[0].text, 'the analytical engine');
+});
+
+test('server-driven (SDUI) caption markup extracts the same shape via data-attribute anchors', () => {
+  const region = el('div', {
+    attrs: { 'data-richos-caption-region': '' },
+    children: [
+      el('div', {
+        attrs: { 'data-richos-caption-row': '' },
+        children: [
+          el('div', { attrs: { 'data-richos-caption-speaker': '' }, text: 'Grace Hopper' }),
+          el('div', { attrs: { 'data-richos-caption-text': '' }, text: 'a nanosecond is about a foot' }),
+        ],
+      }),
+    ],
+  });
+  const rows = extractCaptionRows(region);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].speaker, 'Grace Hopper');
+  assert.equal(rows[0].text, 'a nanosecond is about a foot');
+});
+
+test('structural fallback: an unrecognised row still yields text (name inferred from the first line)', () => {
+  // No known speaker/text classes at all — the adapter must still recover the caption rather
+  // than degrade to zero (fail soft), losing only precise attribution.
+  const region = el('div', {
+    attrs: { 'data-richos-caption-region': '' },
+    children: [el('div', { attrs: { 'data-richos-caption-row': '' }, text: 'Mystery Speaker\nhello from an unknown layout' })],
+  });
+  const rows = extractCaptionRows(region);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].speaker, 'Mystery Speaker');
+  assert.equal(rows[0].text, 'hello from an unknown layout');
+});
+
+test('empty caption rows are dropped by extraction', () => {
+  const region = el('div', {
+    attrs: { 'data-richos-caption-region': '' },
+    children: [el('div', { attrs: { 'data-richos-caption-row': '' }, children: [el('div', { attrs: { 'data-richos-caption-text': '' }, text: '   ' })] })],
+  });
+  assert.equal(extractCaptionRows(region).length, 0);
+});
+
+group('hybrid capture — mic + captions run while tab audio is awaited');
+
+test('awaiting-tab-audio is amber (partial capture), never red, and never a recovery action', () => {
+  const state = healthyState();
+  state.awaitingTabAudio = true;
+  state.tabEnabled = false; // tab audio is not part of the session yet
+  const result = evaluateHealth(state, T0);
+  assert.equal(result.level, 'amber');
+  assert.ok(result.reasons.some((r) => r.code === 'awaiting-tab-audio'));
+  assert.deepEqual(result.actions, [], 'the controller drives the ARM prompt; health asks for no recovery');
+});
+
+test('with tab audio disabled, a missing tab channel does not raise a tab-silence red', () => {
+  const state = healthyState();
+  state.awaitingTabAudio = true;
+  state.tabEnabled = false;
+  state.tabNonZeroAt = T0 - 60000; // long silent, but tab is not expected
+  const result = evaluateHealth(state, T0);
+  assert.ok(!result.reasons.some((r) => r.code === 'tab-digital-silence'));
+});
+
+test('the session record carries a caption block and a capture mode from birth', () => {
+  const record = newSessionRecord({
+    startedAt: T0,
+    platform: { id: 'meet', label: 'Google Meet', slug: 'x' },
+    tabId: 1,
+    extensionVersion: '0.2.0',
+    settings: CAPTURE_DEFAULTS,
+  });
+  assert.equal(record.captions.available, false);
+  assert.equal(record.captions.count, 0);
+  assert.deepEqual(record.captions.speakers, []);
+  assert.equal(record.captions.degraded, false);
+  assert.equal(record.mode, 'full');
+});
+
+test('hybrid auto-start is ON by default and captions collection is ON by default', () => {
+  assert.equal(CAPTURE_DEFAULTS.autoStartMicCaptions, true);
+  assert.equal(CAPTURE_DEFAULTS.captureCaptions, true);
 });
 
 // ---------------------------------------------------------------------------------------

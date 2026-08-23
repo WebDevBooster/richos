@@ -184,6 +184,11 @@ const TONE_PAGE = `<!doctype html>
 <body style="font:14px system-ui;padding:24px">
 <h1>RichOS live-capture fixture</h1>
 <p id="s">starting audio…</p>
+
+<!-- A caption region shaped like Google Meet's classic caption overlay (obfuscated classes),
+     so the real Meet content script + adapter observe genuine caption-shaped DOM. Rows grow in
+     place (as Meet's do) and new speakers are appended over time. -->
+<div class="a4cQT" role="region" aria-label="Captions" id="capregion"></div>
 <script>
   const ctx = new AudioContext();
   const osc = ctx.createOscillator();
@@ -200,6 +205,39 @@ const TONE_PAGE = `<!doctype html>
   osc.start(); lfo.start();
   document.getElementById('s').textContent = 'audio running, state=' + ctx.state;
   ctx.resume().then(() => { document.getElementById('s').textContent = 'audio running, state=' + ctx.state; });
+
+  // Emit captions the way Meet does: a speaker's line appears, grows word-by-word, then a new
+  // speaker's line appears. Distinct speaker labels prove the per-remote-speaker enrichment.
+  const script = [
+    ['Ada Lovelace', 'the analytical engine weaves algebraic patterns'],
+    ['Charles Babbage', 'as the jacquard loom weaves flowers and leaves'],
+    ['Grace Hopper', 'a nanosecond is about eleven point eight inches'],
+  ];
+  const region = document.getElementById('capregion');
+  let line = 0;
+  function addLine() {
+    if (line >= script.length) return;
+    const [speaker, full] = script[line];
+    const row = document.createElement('div');
+    row.className = 'nMcdL';
+    const name = document.createElement('span');
+    name.className = 'KcIKyf';
+    name.textContent = speaker;
+    const text = document.createElement('span');
+    text.className = 'bh44bd';
+    row.appendChild(name); row.appendChild(text);
+    region.appendChild(row);
+    const words = full.split(' ');
+    let w = 0;
+    const grow = setInterval(() => {
+      w += 1;
+      text.textContent = words.slice(0, w).join(' ');   // grows the SAME node in place
+      if (w >= words.length) { clearInterval(grow); line += 1; setTimeout(addLine, 500); }
+    }, 220);
+  }
+  setTimeout(addLine, 800);
+  // Expose a way for the harness to simulate the caption feature breaking (region removed).
+  window.__richosBreakCaptions = () => { region.remove(); };
 </script>
 </body></html>`;
 
@@ -345,6 +383,17 @@ async function main() {
   const parsedManifest = JSON.parse(manifest);
   check('manifest parsed by Chrome, name is RichOS', parsedManifest.name === 'RichOS', `v${parsedManifest.version}`);
 
+  // Set fast capture settings BEFORE the call tab ages into auto-arm range (armDelayMs, 3s), so
+  // that whoever starts the session first — the extension's own auto-scan or the harness — uses
+  // them. autoStartMicCaptions + captureCaptions are ON by default; set explicitly for clarity.
+  await evaluate(
+    cdp,
+    swSession,
+    `(async () => { await chrome.storage.local.set({'richos.settings': {
+        callCapture: { micProcessing: false, chunkMs: 1000, maxSessionMinutes: 10,
+                       autoStartMicCaptions: true, captureCaptions: true } } }); return 'ok'; })()`,
+  );
+
   // 4. Open the call tab.
   const { targetId: tabTargetId } = await cdp.send('Target.createTarget', { url: CALL_URL });
   const { sessionId: tabSession } = await cdp.send('Target.attachToTarget', { targetId: tabTargetId, flatten: true });
@@ -398,81 +447,49 @@ async function main() {
   );
   note('independent microphone probe in the page', JSON.stringify(micProbe));
 
-  // Speed the session up and stop the browser DSP from flattening the fake device's tone.
-  await evaluate(
-    cdp,
-    swSession,
-    `(async () => { await chrome.storage.local.set({'richos.settings': {
-        callCapture: { micProcessing: false, chunkMs: 1000, maxSessionMinutes: 10 } } }); return 'ok'; })()`,
-  );
-
-  // 5. Arming. This is where Chrome's "the extension must be invoked for this tab" rule bites.
-  const armAttempts = [];
-  const tryArm = async (label) => {
+  const getStatusExpr = `(async () => { try { return JSON.stringify(await globalThis.__richos.callCapture.getStatus()); }
+                    catch (e) { return JSON.stringify({ statusError: String(e && e.stack || e) }); } })()`;
+  const armTabWith = async (trigger) => {
     const raw = await evaluate(
       cdp,
       swSession,
-      `(async () => { try { return JSON.stringify(await globalThis.__richos.callCapture.armTab(${callTabId}, 'harness')); }
+      `(async () => { try { return JSON.stringify(await globalThis.__richos.callCapture.armTab(${callTabId}, '${trigger}')); }
                       catch (e) { return JSON.stringify({ ok: false, error: String(e && e.message || e) }); } })()`,
     );
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : { ok: false, error: String(raw?.__error || raw) };
-    armAttempts.push({ label, ...parsed });
-    return parsed;
+    return typeof raw === 'string' ? JSON.parse(raw) : { ok: false, error: String(raw?.__error || raw) };
   };
 
-  let armed = await tryArm('automatic');
-  if (armed.ok) {
-    check('automatic arming succeeded with no human interaction', true, armed.sessionId);
-  } else {
-    note('automatic arming refused by Chrome (expected, documented)', armed.error);
-
-    // (a) keyboard shortcut — browser-level, so a CDP-injected key may not reach it
-    await cdp.send('Target.activateTarget', { targetId: tabTargetId });
-    for (const type of ['keyDown', 'keyUp']) {
-      await cdp.send(
-        'Input.dispatchKeyEvent',
-        { type, modifiers: 1 | 8, key: 'L', code: 'KeyL', windowsVirtualKeyCode: 76, nativeVirtualKeyCode: 76 },
-        tabSession,
-      );
-    }
-    await sleep(1200);
-    armed = await tryArm('after keyboard shortcut');
-    if (!armed.ok) note('keyboard-shortcut arming via CDP', 'no grant (browser shortcuts are not injectable)');
-
-    // (b) opening the action popup counts as invoking the extension for the active tab
-    if (!armed.ok) {
-      const popup = await evaluate(
-        cdp,
-        swSession,
-        `(async () => { try { await chrome.action.openPopup(); return 'opened'; }
-                        catch (e) { return 'failed: ' + String(e && e.message || e); } })()`,
-      );
-      await sleep(1200);
-      armed = await tryArm('after action popup');
-      note('action-popup arming via CDP', `${popup} → ${armed.ok ? 'armed' : armed.error}`);
-    }
+  // 5. HYBRID AUTO-START. Chrome refuses tab audio without an invocation, but the microphone and
+  //    captions must start with ZERO gesture so a detected call is never fully uncaptured. The
+  //    extension's own auto-scan may already have started it; if not, an 'auto' trigger does. We
+  //    assert the RESULTING STATE either way — that is the guarantee that matters. No click, no
+  //    keyboard event, no popup was ever issued in this run.
+  let hybridStatus = await evalJson(cdp, swSession, getStatusExpr);
+  if (!hybridStatus.active) {
+    await armTabWith('auto');
+    hybridStatus = await waitFor(
+      'the hybrid session to auto-start',
+      async () => {
+        const s = await evalJson(cdp, swSession, getStatusExpr);
+        return s.active ? s : null;
+      },
+      { timeout: 8000, interval: 400 },
+    ).catch(() => hybridStatus);
   }
-
-  // (c) last resort for an unattended run: stub the browser call that needs a human, so the
-  //     rest of the controller path (session record, watchdog, recovery, export) is still
-  //     exercised end to end. The recorder then runs in its real microphone-only failover.
-  let pipelineMode = armed.ok ? 'tab+mic' : 'mic-only (tab grant stubbed)';
-  if (!armed.ok) {
-    await evaluate(
-      cdp,
-      swSession,
-      `(() => { chrome.tabCapture.getMediaStreamId = async () => 'harness-stub-stream-id'; return 'stubbed'; })()`,
-    );
-    armed = await tryArm('with stubbed tab grant');
-    check('controller arms and starts a session (microphone-only failover path)', armed.ok === true, JSON.stringify(armed));
-  }
-
-  const status = await evalJson(
-    cdp,
-    swSession,
-    `(async () => { try { return JSON.stringify(await globalThis.__richos.callCapture.getStatus()); }
-                    catch (e) { return JSON.stringify({ statusError: String(e && e.stack || e) }); } })()`,
+  check(
+    'hybrid: a detected Meet tab is capturing with NO user gesture (auto-started)',
+    hybridStatus.active === true && hybridStatus.awaitingTabAudio === true,
+    JSON.stringify({ mode: hybridStatus.mode, awaitingTabAudio: hybridStatus.awaitingTabAudio, audioActive: hybridStatus.audioActive }),
   );
+  check(
+    'the microphone auto-acquired with no gesture (mic + captions, not captions-only)',
+    hybridStatus.audioActive === true && hybridStatus.mode === 'mic+captions',
+    `mode=${hybridStatus.mode} audioActive=${hybridStatus.audioActive}`,
+  );
+  let armed = { ok: hybridStatus.active === true, sessionId: hybridStatus.sessionId };
+  let pipelineMode = `${hybridStatus.mode} (tab audio needs a human click; mic runs the pipeline)`;
+
+  const status = await evalJson(cdp, swSession, getStatusExpr);
   check('getStatus() runs without throwing and reports an active session', status.active === true, JSON.stringify(status).slice(0, 220));
 
   // The session record must be on disk BEFORE any audio is — that is the whole anomaly design.
@@ -600,6 +617,82 @@ async function main() {
   );
   note('health snapshot', JSON.stringify({ active: health.active, level: health.level, signals: health.signals }));
 
+  // 8a. CAPTIONS. The Meet content script (auto-injected on the fixture, which is served as
+  //     meet.google.com) observes the caption region and forwards deduped revisions to the SW.
+  //     Prove the whole path: text + speaker + timestamps reach IndexedDB via the collector path.
+  const captionStatus = await waitFor(
+    'captions to be captured',
+    async () => {
+      const s = await evalJson(cdp, swSession, getStatusExpr);
+      return s.captions && s.captions.count > 0 ? s : null;
+    },
+    { timeout: 20000, interval: 500 },
+  ).catch(() => null);
+  check(
+    'live captions are captured with speaker labels (the enrichment audio cannot give)',
+    Boolean(captionStatus) && captionStatus.captions.count > 0 && (captionStatus.captions.speakers || []).length > 0,
+    captionStatus ? `count=${captionStatus.captions.count} speakers=${JSON.stringify(captionStatus.captions.speakers)}` : 'no captions captured',
+  );
+
+  const capIdb = await evalJson(
+    cdp,
+    swSession,
+    `(async () => {
+       const rows = await globalThis.__richos.core.idb.getAll('captions');
+       return JSON.stringify({
+         n: rows.length,
+         withText: rows.filter(r => r.text && r.text.length).length,
+         withSpeaker: rows.filter(r => r.speaker && r.speaker !== 'unknown').length,
+         withTs: rows.filter(r => typeof r.t === 'number').length,
+         sample: rows.slice(0, 2).map(r => ({ speaker: r.speaker, text: (r.text||'').slice(0,24), t: r.t })),
+       });
+     })()`,
+  );
+  check(
+    'each persisted caption carries text, a speaker label and a timestamp (loro-ingest ready)',
+    capIdb.n > 0 && capIdb.withText === capIdb.n && capIdb.withSpeaker > 0 && capIdb.withTs === capIdb.n,
+    JSON.stringify(capIdb),
+  );
+  check(
+    'the caption count shown === the caption records persisted (one collector path, no drift)',
+    Boolean(captionStatus) && captionStatus.captions.count === capIdb.n,
+    `shown=${captionStatus?.captions.count} persisted=${capIdb.n}`,
+  );
+
+  // 8a-soft. Caption adapter failure must FAIL SOFT: break the caption feature in the page and
+  //          prove the audio path is entirely unaffected (lose enrichment, never the call).
+  const chunksBeforeBreak = (await evalJson(cdp, swSession,
+    `(async () => JSON.stringify(await globalThis.__richos.core.callOffscreen({ type: 'cc:status' })))()`)).chunkCount;
+  await evaluate(cdp, tabSession, `(() => { try { window.__richosBreakCaptions(); return 'broken'; } catch (e) { return String(e); } })()`);
+  await sleep(4000);
+  const afterBreak = await evalJson(cdp, swSession,
+    `(async () => JSON.stringify(await globalThis.__richos.core.callOffscreen({ type: 'cc:status' })))()`);
+  const afterBreakStatus = await evalJson(cdp, swSession, getStatusExpr);
+  check(
+    'breaking the caption feature does NOT stop the audio (audio kept being written)',
+    afterBreak.chunkCount > chunksBeforeBreak,
+    `${chunksBeforeBreak} → ${afterBreak.chunkCount} chunks`,
+  );
+  check(
+    'a broken caption adapter never raises an audio red alarm (captions fail soft, audio is the guarantee)',
+    afterBreakStatus.level !== 'red' || !(afterBreakStatus.reasons || []).some((r) => /caption/i.test(r.code)),
+    `level=${afterBreakStatus.level} reasons=${(afterBreakStatus.reasons || []).map((r) => r.code).join(',')}`,
+  );
+
+  // 8a-upgrade. The arm click's control flow: it must never DROP the running mic+captions
+  //             session. Real tab audio cannot be minted without a human, so we stub the grant
+  //             gate to exercise the controller path (the recorder still cannot obtain a fake tab
+  //             stream, which is itself the honest mic-only outcome).
+  await evaluate(cdp, swSession, `(() => { chrome.tabCapture.getMediaStreamId = async () => 'harness-stub-stream-id'; return 'stubbed'; })()`);
+  const upgrade = await armTabWith('popup');
+  note('upgrade-to-full attempt (real tab audio needs a human click on a live Meet call)', JSON.stringify(upgrade));
+  const afterUpgrade = await evalJson(cdp, swSession, getStatusExpr);
+  check(
+    'the arm click never drops the already-running capture session',
+    afterUpgrade.active === true,
+    `active=${afterUpgrade.active} mode=${afterUpgrade.mode}`,
+  );
+
   // 8b. Negative test (opt-in): with a silent capture device, the digital-silence alarm must
   //     actually fire in-call. Run with RICHOS_FAKE_AUDIO_FILE=1 RICHOS_SILENCE_TEST=1.
   if (process.env.RICHOS_SILENCE_TEST) {
@@ -678,9 +771,24 @@ async function main() {
   const audioFiles = found.filter((f) => f.file.endsWith('.webm')).sort((a, b) => b.bytes - a.bytes);
   const sessionFiles = found.filter((f) => f.file.endsWith('session.json'));
   const healthFiles = found.filter((f) => /health\.(ndjson|jsonl)$/.test(f.file));
+  const captionFiles = found.filter((f) => /captions\.ndjson$/.test(f.file));
   check('audio was exported to the drop zone', audioFiles.length > 0 && audioFiles[0].bytes > 1000, JSON.stringify(audioFiles));
   check('a session record exists on disk', sessionFiles.length > 0, JSON.stringify(sessionFiles));
   check('per-second health records were exported alongside the audio', healthFiles.length > 0, JSON.stringify(healthFiles));
+  check(
+    'captions were exported to captions.ndjson on the drop zone (secondary durable channel)',
+    captionFiles.length > 0 && captionFiles[0].bytes > 0,
+    JSON.stringify(captionFiles),
+  );
+  if (captionFiles.length) {
+    const capText = fs.readFileSync(path.join(downloadDir, captionFiles[0].file), 'utf8').trim();
+    const capLines = capText ? capText.split('\n').map((l) => JSON.parse(l)) : [];
+    check(
+      'captions.ndjson holds one JSON record per revision with speaker + text + timestamp',
+      capLines.length > 0 && capLines.every((c) => c.text && typeof c.t === 'number' && 'speaker' in c),
+      `${capLines.length} lines; speakers=${JSON.stringify([...new Set(capLines.map((c) => c.speaker))])}`,
+    );
+  }
   check(
     'artifacts land in <dropFolder>/<session>/ with the documented filenames',
     audioFiles.some((f) => /^richos-capture\/[^/]+\/audio-part-\d+\.webm$/.test(f.file)) &&
@@ -699,6 +807,15 @@ async function main() {
       'the recorded directory name matches the folder the files actually landed in',
       sessionFiles[0].file.startsWith(`richos-capture/${record.dir}/`),
       `${record.dir} vs ${sessionFiles[0].file}`,
+    );
+    const capFileForSession = captionFiles.find((f) => f.file.startsWith(`richos-capture/${record.dir}/`));
+    const capFileLines = capFileForSession
+      ? fs.readFileSync(path.join(downloadDir, capFileForSession.file), 'utf8').trim().split('\n').filter(Boolean).length
+      : 0;
+    check(
+      'session.json caption count === captions.ndjson line count (collector-path parity on disk)',
+      Number(record.captions?.count || 0) === capFileLines && capFileLines > 0,
+      `session.json=${record.captions?.count} file=${capFileLines} speakers=${JSON.stringify(record.captions?.speakers || [])}`,
     );
   }
 
