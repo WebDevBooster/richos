@@ -48,6 +48,8 @@ export function newCaptureState(init) {
     startedAt: init.startedAt,
     micEnabled: init.micEnabled !== false,
     tabEnabled: init.tabEnabled !== false,
+    /** Hybrid mode: mic + captions are running but tab audio has not been armed yet. */
+    awaitingTabAudio: Boolean(init.awaitingTabAudio),
     lastHeartbeatAt: null,
     lastChunkAt: null,
     chunkCount: 0,
@@ -267,6 +269,13 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
   // --- 5. Failover is a permanent amber: half a call is better than none, but it is not OK
   if (state.micOnlyFailover) {
     add('mic-only-failover', 'amber', 'tab audio could not be recovered — recording your microphone only');
+  }
+
+  // Hybrid: mic + captions are running by design, awaiting the one click that adds tab audio.
+  // Amber (partial capture), never red here and never a recovery action — the controller drives
+  // the ARM prompt for the missing ground-truth channel.
+  if (state.awaitingTabAudio) {
+    add('awaiting-tab-audio', 'amber', 'microphone + captions recording; click to add tab audio (ground truth)');
   }
 
   const level = reasons.reduce(

@@ -67,8 +67,15 @@ export function newSessionRecord(init) {
     health: { heartbeats: 0, greenSeconds: 0, amberSeconds: 0, redSeconds: 0, worstLevel: 'green' },
     alerts: [],
     recovery: [],
-    /** Populated by the deferred caption module; present so ingest can rely on the key. */
-    captions: { available: false, adapter: null, count: 0 },
+    /**
+     * The secondary caption channel. `available` flips true once an adapter attaches; `count`
+     * is the number of caption revisions actually persisted (same collector path, never a second
+     * heuristic); `degraded` records that the adapter broke mid-call (enrichment lost, audio
+     * unaffected). Present from birth so ingest can rely on the shape.
+     */
+    captions: { available: false, adapter: null, adapterVersion: null, count: 0, speakers: [], degraded: false },
+    /** Capture mode: 'full' (tab+mic), 'mic+captions' (awaiting the tab-audio click), or 'captions-only'. */
+    mode: 'full',
     notes: [],
   };
 }
@@ -106,9 +113,20 @@ export function accrueHealth(record, evaluation) {
 export function verifySession(record, minSeconds = 30) {
   const problems = [];
   const durationSeconds = Math.round((((record.endedAt || Date.now()) - record.startedAt) / 1000) * 10) / 10;
-  if (!record.audio.parts.length) problems.push('no audio parts were written');
-  if (record.audio.bytesTotal <= 0) problems.push('zero bytes of audio');
-  if (durationSeconds >= minSeconds && record.audio.bytesTotal < 5000) {
+  const captionCount = Number(record.captions?.count || 0);
+  const hasAudio = record.audio.parts.length > 0 && record.audio.bytesTotal > 0;
+
+  // Captions-present + audio-absent is a SPECIFIC anomaly, not just "no audio": captions prove a
+  // call happened, so the missing audio is a flagged failure, never silent success or silent loss.
+  if (!hasAudio && captionCount > 0) {
+    problems.push(
+      `captions were captured (${captionCount}) but NO audio — the call was NOT fully captured (tab audio was never armed?)`,
+    );
+  } else {
+    if (!record.audio.parts.length) problems.push('no audio parts were written');
+    if (record.audio.bytesTotal <= 0) problems.push('zero bytes of audio');
+  }
+  if (durationSeconds >= minSeconds && hasAudio && record.audio.bytesTotal < 5000) {
     problems.push('audio is implausibly small for the session length');
   }
   if (record.health.redSeconds > 0) problems.push(`${record.health.redSeconds}s spent in a red health state`);

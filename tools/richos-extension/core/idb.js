@@ -32,6 +32,10 @@ export function openDb() {
         const store = db.createObjectStore(DB.stores.health, { keyPath: ['sessionId', 't'] });
         store.createIndex('bySession', 'sessionId', { unique: false });
       }
+      if (!db.objectStoreNames.contains(DB.stores.captions)) {
+        const store = db.createObjectStore(DB.stores.captions, { keyPath: ['sessionId', 'seq'] });
+        store.createIndex('bySession', 'sessionId', { unique: false });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

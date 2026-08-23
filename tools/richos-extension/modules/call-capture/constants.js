@@ -17,6 +17,15 @@ export const CAPTURE_DEFAULTS = {
    * 'manual' — only ever arm on the toolbar click or the keyboard shortcut.
    */
   armMode: 'auto',
+  /**
+   * Hybrid auto-start: the moment a call tab is recognised, start MICROPHONE + CAPTION capture
+   * with ZERO user gesture, so a detected call is never fully uncaptured. Only tab-audio (the
+   * ground-truth channel) still needs the one invocation/click. On = the click merely UPGRADES
+   * an already-running mic+captions session to full tab audio.
+   */
+  autoStartMicCaptions: true,
+  /** Collect the platform's own live captions as a secondary failsafe + enrichment channel. */
+  captureCaptions: true,
   /** Also treat ANY audible tab as a call (noisy: video sites count as audible). */
   armUnknownAudible: false,
   /** How long a recognised call URL must stay open before auto-arming. */
@@ -55,6 +64,18 @@ export const SETTINGS_SCHEMA = {
         { value: 'manual', label: 'Manual — only on click / keyboard shortcut' },
       ],
       help: 'Chrome requires one extension invocation per tab before it will hand over tab audio. Automatic mode tries first and alarms loudly if it needs your click.',
+    },
+    {
+      key: 'autoStartMicCaptions',
+      type: 'boolean',
+      label: 'Auto-start microphone + captions with no click',
+      help: 'The moment a call tab is detected, start recording your microphone and collecting captions with zero gesture. Only tab audio (the ground-truth channel) still needs one click; that click then upgrades the running session to full tab audio. A detected call is never fully uncaptured.',
+    },
+    {
+      key: 'captureCaptions',
+      type: 'boolean',
+      label: 'Collect platform captions (secondary channel)',
+      help: 'Read the meeting platform\'s own live captions as a failsafe + enrichment layer (per-speaker names, accuracy cross-check). Secondary to audio: if it breaks you lose enrichment, never the call.',
     },
     { key: 'armUnknownAudible', type: 'boolean', label: 'Also arm on unrecognised audible tabs', help: 'Catches call platforms we do not know yet. Will also catch video sites.' },
     { key: 'captureMic', type: 'boolean', label: 'Record microphone on its own channel', help: 'Left channel = you, right channel = everyone else. Free speaker separation.' },
@@ -131,5 +152,7 @@ export const SESSION_STATUS = {
 export const FILES = {
   session: 'session.json',
   health: 'health.ndjson',
+  /** The secondary caption channel: one JSON record per caption revision. */
+  captions: 'captions.ndjson',
   audioPart: (part) => `audio-part-${String(part).padStart(2, '0')}.webm`,
 };

@@ -13,7 +13,7 @@ export const PRODUCT = {
   name: 'RichOS',
   shortName: 'RichOS',
   /** Bump on every user-visible change (semver habit, same as the other extensions). */
-  version: '0.1.0',
+  version: '0.2.0',
 };
 
 /** Keys in `chrome.storage.local`. Namespaced so future modules never collide. */
@@ -27,7 +27,8 @@ export const KEYS = {
 /** IndexedDB. One database for the whole extension; modules own object stores. */
 export const DB = {
   name: 'richos-extension',
-  version: 1,
+  // v2 adds the `captions` store (the secondary caption/enrichment channel).
+  version: 2,
   stores: {
     /** key: [sessionId, seq] — one persisted audio chunk. */
     chunks: 'chunks',
@@ -35,6 +36,11 @@ export const DB = {
     sessions: 'sessions',
     /** key: [sessionId, t] — one health heartbeat. */
     health: 'health',
+    /**
+     * key: [sessionId, seq] — one persisted caption revision. The SAME records that get
+     * written to `captions.ndjson`, so the caption count never comes from a second heuristic.
+     */
+    captions: 'captions',
   },
 };
 
