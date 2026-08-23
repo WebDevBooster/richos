@@ -11,6 +11,8 @@
 
 import { registerModule, initModules, routeMessage } from './core/registry.js';
 import { callCaptureModule, __testHooks } from './modules/call-capture/controller.js';
+import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from './core/offscreen-host.js';
+import * as idb from './core/idb.js';
 
 registerModule(callCaptureModule);
 
@@ -33,6 +35,10 @@ void initModules();
 /**
  * Local diagnostics seam. Only reachable from this machine's devtools / the CDP test
  * harness — it is not exposed to any web page and grants no capability a devtools console
- * would not already have.
+ * would not already have. (Service workers cannot use dynamic `import()`, so the harness
+ * needs these handles hung off a global rather than importing the modules itself.)
  */
-globalThis.__richos = { callCapture: __testHooks };
+globalThis.__richos = {
+  callCapture: __testHooks,
+  core: { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists, idb },
+};

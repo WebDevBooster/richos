@@ -213,6 +213,15 @@ test('exact digital silence on the microphone is red (device switched / muted at
   assert.ok(result.actions.includes(ACTIONS.reacquireMic));
 });
 
+test('a suspended audio graph is red — it would record perfect silence while looking healthy', () => {
+  const state = healthyState();
+  state.ctxState = 'suspended';
+  const result = evaluateHealth(state, T0);
+  assert.equal(result.level, 'red');
+  assert.ok(result.reasons.some((r) => r.code === 'audio-graph-not-running'));
+  assert.ok(result.actions.includes(ACTIONS.restartRecorder));
+});
+
 test('nobody talking is amber, never red, and never triggers recovery', () => {
   const state = healthyState();
   state.micSpeechAt = T0 - (THRESHOLDS.quietAmberMs + 5000);

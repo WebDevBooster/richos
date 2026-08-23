@@ -514,6 +514,34 @@ export async function finalize(reason) {
   active.finalizing = true;
   stopWatchdog();
   const { record } = active;
+  try {
+    return await runFinalize(record, reason);
+  } catch (err) {
+    // Finalisation must never wedge: a half-finished close would leave the badge stuck and
+    // the next call unable to arm. Alarm loudly and clear the state either way — the audio
+    // itself is still in IndexedDB and gets exported by orphan recovery on the next boot.
+    const detail = String((err && err.stack) || err);
+    record.notes.push(`finalisation failed: ${detail}`);
+    await raiseAlert({
+      code: 'finalise-failed',
+      level: 'red',
+      title: 'RichOS: saving this call did not complete',
+      message: `${record.sessionId}: ${detail.split('\n')[0]}. The audio is still in the browser and will be recovered on restart.`,
+      sessionId: record.sessionId,
+      force: true,
+    });
+    await chrome.storage.local.remove(KEYS.activeSession);
+    active = null;
+    await setHealth({ level: 'red', text: '!', title: 'RichOS: last session did not save cleanly' });
+    return { ok: false, error: detail };
+  }
+}
+
+/**
+ * @param {any} record
+ * @param {string} reason
+ */
+async function runFinalize(record, reason) {
   const settings = await getModuleSettings(MODULE_ID);
 
   const stopped = await callOffscreen({ type: 'cc:stop', reason });
@@ -523,8 +551,9 @@ export async function finalize(reason) {
   if (stopped?.lastError) record.notes.push(`recorder last error: ${stopped.lastError}`);
   if (stopped?.micOnlyFailover) record.notes.push('finished in microphone-only failover');
 
-  const exported = await exportSession(record);
-  record.audio = exported.audio;
+  // exportSession returns the audio accounting itself — reading `.audio` off it threw
+  // mid-finalise and left the session `open` on disk (caught by the live harness).
+  record.audio = await exportSession(record);
 
   const verdict = verifySession(record);
   record.verification = verdict;
@@ -724,7 +753,14 @@ async function recoverOrphans() {
     void orphanCheck;
   }
   const result = await callOffscreen({ type: 'cc:orphans' });
-  const ids = (result?.sessionIds || []).filter((id) => !active || id !== active.record.sessionId);
+  // Never export a session the recorder is still writing to: a WebM part is only playable
+  // when its header chunk travels with its continuation chunks, so exporting half a part
+  // (and purging it) would leave an unreadable fragment behind. Caught by the live harness.
+  const live = await callOffscreen({ type: 'cc:status' });
+  const busySessionId = live?.active ? live.sessionId : null;
+  const ids = (result?.sessionIds || []).filter(
+    (id) => id !== busySessionId && (!active || id !== active.record.sessionId),
+  );
   for (const sessionId of ids) {
     const record = {
       schemaVersion: 1,

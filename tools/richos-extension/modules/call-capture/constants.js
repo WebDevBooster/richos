@@ -84,8 +84,13 @@ export const THRESHOLDS = {
   digitalSilenceRedMs: 20000,
   /** Nothing above the speech floor on BOTH channels. Legitimate (nobody talking) => amber. */
   quietAmberMs: 120000,
-  /** RMS at or below this is digital silence. */
-  rmsZeroEpsilon: 0.0001,
+  /**
+   * RMS at or below this is treated as digital silence (a dead stream), not a quiet room.
+   * Measured on Chrome's fake capture device with the browser's DSP enabled: ~3e-5, so the
+   * threshold sits an order of magnitude below that to avoid crying wolf on a heavily
+   * noise-suppressed but perfectly live microphone.
+   */
+  rmsZeroEpsilon: 0.000001,
   /** RMS above this counts as "someone spoke". */
   rmsSpeechFloor: 0.005,
   /** Heartbeat period emitted by the offscreen recorder. */
@@ -117,9 +122,14 @@ export const SESSION_STATUS = {
   recovered: 'recovered',
 };
 
-/** Filenames inside one session directory in the drop zone. */
+/**
+ * Filenames inside one session directory in the drop zone.
+ * NB: the health file is JSONL, but it is named `.ndjson` because Chrome's downloads API
+ * rewrites the extension to match the MIME type — verified on a live run, where a
+ * `health.jsonl` write landed as `health.ndjson`.
+ */
 export const FILES = {
   session: 'session.json',
-  health: 'health.jsonl',
+  health: 'health.ndjson',
   audioPart: (part) => `audio-part-${String(part).padStart(2, '0')}.webm`,
 };

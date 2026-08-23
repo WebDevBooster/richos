@@ -30,6 +30,7 @@ const LEVEL_ORDER = { green: 0, amber: 1, red: 2 };
  * @property {string} recorderState
  * @property {{readyState: string, muted: boolean}|null} micTrack
  * @property {{readyState: string, muted: boolean}|null} tabTrack
+ * @property {string|null} ctxState AudioContext state: only 'running' records anything
  * @property {number|null} micNonZeroAt
  * @property {number|null} tabNonZeroAt
  * @property {number|null} micSpeechAt
@@ -56,6 +57,7 @@ export function newCaptureState(init) {
     recorderState: 'starting',
     micTrack: null,
     tabTrack: null,
+    ctxState: null,
     micNonZeroAt: null,
     tabNonZeroAt: null,
     micSpeechAt: null,
@@ -78,6 +80,7 @@ export function applyHeartbeat(state, hb, thresholds = THRESHOLDS) {
   state.part = hb.part != null ? hb.part : state.part;
   state.micTrack = hb.micTrack || null;
   state.tabTrack = hb.tabTrack || null;
+  state.ctxState = hb.ctxState || state.ctxState;
   state.micOnlyFailover = Boolean(hb.micOnlyFailover);
 
   if (hb.lastChunkAt) state.lastChunkAt = hb.lastChunkAt;
@@ -184,6 +187,20 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
     add('recorder-inactive', 'red', `MediaRecorder state is "${state.recorderState}"`, ACTIONS.restartRecorder);
   } else {
     signals.recorder = 'green';
+  }
+
+  // A suspended/closed AudioContext records perfect silence while every other signal looks
+  // healthy. The recorder tries to resume it; if it is still not running, that is red.
+  if (state.ctxState && state.ctxState !== 'running') {
+    signals.audioGraph = 'red';
+    add(
+      'audio-graph-not-running',
+      'red',
+      `the audio graph is "${state.ctxState}" — the recording would be silent`,
+      ACTIONS.restartRecorder,
+    );
+  } else if (state.ctxState) {
+    signals.audioGraph = 'green';
   }
 
   if (state.tabEnabled) {

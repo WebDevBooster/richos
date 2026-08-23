@@ -47,6 +47,13 @@ async function toWorker(message) {
 }
 
 /**
+ * Instantaneous RMS over one analyser window (~43 ms at fftSize 2048).
+ *
+ * NEVER report this directly as "the level for this second": one 43 ms sample per second
+ * looks at 4% of the audio and aliases badly against periodic sound — measured live, a
+ * once-per-second sample of a beeping test device read exactly 0.000 every time while the
+ * recording itself was at −20 dB. `sampleLevels()` below integrates instead.
+ *
  * @param {AnalyserNode|null} analyser
  * @returns {number} RMS in 0..1
  */
@@ -99,14 +106,96 @@ async function getMicStream(settings) {
   });
 }
 
-/** Wire a source into merger input `index` and give it an analyser. */
-function connectSource(stream, index) {
+/**
+ * Integrate the level between heartbeats: sampled every LEVEL_SAMPLE_MS, reported as the
+ * peak and mean of that window. This is what the health evaluator actually consumes.
+ */
+const LEVEL_SAMPLE_MS = 100;
+
+/**
+ * Attach an AudioWorklet level meter to a source. Falls back to the polled analyser if the
+ * worklet cannot be loaded (then `sampleLevels` keeps the numbers roughly right).
+ * @param {AudioNode} source
+ * @param {'mic'|'tab'} which
+ */
+async function attachLevelMeter(source, which) {
+  if (!session?.workletReady) return null;
+  try {
+    const node = new AudioWorkletNode(session.ctx, 'richos-level-meter', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      channelCount: 1,
+      channelCountMode: 'explicit',
+    });
+    node.port.onmessage = (event) => {
+      if (!session) return;
+      const { peak, rms: windowRms, frames } = event.data || {};
+      const key = which === 'mic' ? 'mic' : 'tab';
+      session.levels[`${key}Peak`] = Math.max(session.levels[`${key}Peak`], peak || 0);
+      session.levels[`${key}Sum`] += windowRms || 0;
+      session.levels[`${key}Windows`] += 1;
+      session.levels.samples += 1;
+      session.levels[`${key}Frames`] += frames || 0;
+    };
+    source.connect(node);
+    // The worklet must be pulled by the graph, and it must not add sound to the room:
+    // route it through a hard zero gain into the context destination.
+    node.connect(session.silentSink);
+    return node;
+  } catch (err) {
+    session.lastError = `level-meter: ${String((err && err.message) || err)}`;
+    return null;
+  }
+}
+
+/** Fallback sampler (only meaningful when the worklet is unavailable). */
+function sampleLevels() {
+  if (!session || session.workletReady) return;
+  const mic = rms(session.micAnalyser);
+  const tab = rms(session.tabAnalyser);
+  session.levels.micPeak = Math.max(session.levels.micPeak, mic);
+  session.levels.tabPeak = Math.max(session.levels.tabPeak, tab);
+  session.levels.micSum += mic;
+  session.levels.tabSum += tab;
+  session.levels.micWindows += 1;
+  session.levels.tabWindows += 1;
+  session.levels.samples += 1;
+}
+
+/** @returns {{micPeak: number, tabPeak: number, micSum: number, tabSum: number, micWindows: number, tabWindows: number, samples: number, micFrames: number, tabFrames: number}} */
+function emptyLevels() {
+  return { micPeak: 0, tabPeak: 0, micSum: 0, tabSum: 0, micWindows: 0, tabWindows: 0, samples: 0, micFrames: 0, tabFrames: 0 };
+}
+
+/** Read and reset the level window. */
+function takeLevels() {
+  const { micPeak, tabPeak, micSum, tabSum, micWindows, tabWindows, samples, micFrames, tabFrames } = session.levels;
+  session.levels = emptyLevels();
+  return {
+    micRms: micPeak,
+    tabRms: tabPeak,
+    micRmsMean: micWindows ? micSum / micWindows : 0,
+    tabRmsMean: tabWindows ? tabSum / tabWindows : 0,
+    levelSamples: samples,
+    micFrames,
+    tabFrames,
+  };
+}
+
+/**
+ * Wire a source into merger input `index`, and tap it for level monitoring.
+ * @param {MediaStream} stream
+ * @param {number} index 0 = microphone (left), 1 = tab (right)
+ * @param {'mic'|'tab'} which
+ */
+async function connectSource(stream, index, which) {
   const source = session.ctx.createMediaStreamSource(stream);
   const analyser = session.ctx.createAnalyser();
   analyser.fftSize = 2048;
   source.connect(analyser);
   source.connect(session.merger, 0, index);
-  return { source, analyser };
+  const meter = await attachLevelMeter(source, which);
+  return { source, analyser, meter };
 }
 
 /** Persist one chunk. Awaited before we acknowledge — this is the durability boundary. */
@@ -167,11 +256,16 @@ function buildRecorder() {
 /** One heartbeat: the only source of truth the health evaluator ever sees. */
 async function heartbeat() {
   if (!session) return;
+  const levels = takeLevels();
   const record = {
     sessionId: session.sessionId,
     t: Date.now(),
-    micRms: Number(rms(session.micAnalyser).toFixed(6)),
-    tabRms: Number(rms(session.tabAnalyser).toFixed(6)),
+    // Peak and mean over the whole window, not a single instantaneous sample.
+    micRms: Number(levels.micRms.toFixed(6)),
+    tabRms: Number(levels.tabRms.toFixed(6)),
+    micRmsMean: Number(levels.micRmsMean.toFixed(6)),
+    tabRmsMean: Number(levels.tabRmsMean.toFixed(6)),
+    levelSamples: levels.levelSamples,
     recorderState: session.recorder ? session.recorder.state : 'inactive',
     part: session.part,
     chunkCount: session.chunkCount,
@@ -180,8 +274,18 @@ async function heartbeat() {
     micTrack: trackInfo(session.micStream),
     tabTrack: trackInfo(session.tabStream),
     micOnlyFailover: session.micOnlyFailover,
+    // A suspended AudioContext records perfect silence while everything else looks healthy —
+    // one of the nastiest silent-failure shapes, so it is a first-class signal.
+    ctxState: session.ctx ? session.ctx.state : 'closed',
     lastError: session.lastError,
   };
+  if (record.ctxState === 'suspended') {
+    try {
+      await session.ctx.resume();
+    } catch {
+      /* reported through the heartbeat either way */
+    }
+  }
   session.healthBuffer.push(record);
   if (session.healthBuffer.length >= 5) {
     const batch = session.healthBuffer.splice(0, session.healthBuffer.length);
@@ -221,6 +325,10 @@ export async function start(msg) {
     lastChunkAt: null,
     micOnlyFailover: false,
     heartbeatTimer: null,
+    levelTimer: null,
+    levels: emptyLevels(),
+    workletReady: false,
+    silentSink: null,
     healthBuffer: [],
     stopping: false,
     startedAt: Date.now(),
@@ -230,12 +338,25 @@ export async function start(msg) {
   session.dest = session.ctx.createMediaStreamDestination();
   session.merger.connect(session.dest);
 
+  // Hard-zero gain into the speakers: gives the level-meter worklets something to be pulled
+  // by, without ever putting a sample into the room (which would echo into the call).
+  session.silentSink = session.ctx.createGain();
+  session.silentSink.gain.value = 0;
+  session.silentSink.connect(session.ctx.destination);
+  try {
+    await session.ctx.audioWorklet.addModule(chrome.runtime.getURL('modules/call-capture/level-meter-worklet.js'));
+    session.workletReady = true;
+  } catch (err) {
+    session.workletReady = false;
+    session.lastError = `level-meter-worklet: ${String((err && err.message) || err)}`;
+  }
+
   const problems = [];
 
   if (msg.streamId) {
     try {
       session.tabStream = await getTabStream(msg.streamId);
-      const wired = connectSource(session.tabStream, 1);
+      const wired = await connectSource(session.tabStream, 1, 'tab');
       session.tabSource = wired.source;
       session.tabAnalyser = wired.analyser;
       // TRAP 1: tabCapture mutes the tab. Give the audio back to the speakers.
@@ -255,7 +376,7 @@ export async function start(msg) {
   if (settings.captureMic !== false) {
     try {
       session.micStream = await getMicStream(settings);
-      const wired = connectSource(session.micStream, 0);
+      const wired = await connectSource(session.micStream, 0, 'mic');
       session.micSource = wired.source;
       session.micAnalyser = wired.analyser;
       // TRAP 2: never connect the mic to ctx.destination — that is an echo loop.
@@ -275,7 +396,9 @@ export async function start(msg) {
   }
 
   const mimeType = buildRecorder();
+  session.levelTimer = setInterval(sampleLevels, LEVEL_SAMPLE_MS);
   session.heartbeatTimer = setInterval(() => void heartbeat(), THRESHOLDS.heartbeatMs);
+  sampleLevels();
   void heartbeat();
 
   return {
@@ -321,7 +444,7 @@ export async function reattachTab(msg) {
     if (session.tabStream) session.tabStream.getTracks().forEach((t) => t.stop());
     if (!msg.streamId) throw new Error('no stream id available (needs an extension invocation on the tab)');
     session.tabStream = await getTabStream(msg.streamId);
-    const wired = connectSource(session.tabStream, 1);
+    const wired = await connectSource(session.tabStream, 1, 'tab');
     session.tabSource = wired.source;
     session.tabAnalyser = wired.analyser;
     session.tabSource.connect(session.ctx.destination);
@@ -345,7 +468,7 @@ export async function reacquireMic() {
     if (session.micSource) session.micSource.disconnect();
     if (session.micStream) session.micStream.getTracks().forEach((t) => t.stop());
     session.micStream = await getMicStream(session.settings);
-    const wired = connectSource(session.micStream, 0);
+    const wired = await connectSource(session.micStream, 0, 'mic');
     session.micSource = wired.source;
     session.micAnalyser = wired.analyser;
     await restartRecorder();
@@ -366,6 +489,7 @@ export async function stop(msg = {}) {
   if (!session) return { ok: true, alreadyStopped: true };
   session.stopping = true;
   clearInterval(session.heartbeatTimer);
+  clearInterval(session.levelTimer);
   try {
     if (session.recorder && session.recorder.state !== 'inactive') {
       const flushed = new Promise((resolve) => {
@@ -424,6 +548,14 @@ export function status() {
     micOnlyFailover: session.micOnlyFailover,
     micTrack: trackInfo(session.micStream),
     tabTrack: trackInfo(session.tabStream),
+    ctxState: session.ctx ? session.ctx.state : 'closed',
+    micPeak: session.levels.micPeak,
+    tabPeak: session.levels.tabPeak,
+    micRmsNow: rms(session.micAnalyser),
+    tabRmsNow: rms(session.tabAnalyser),
+    ctxSampleRate: session.ctx ? session.ctx.sampleRate : null,
+    micSettings: session.micStream ? session.micStream.getAudioTracks()[0]?.getSettings() : null,
+    analysers: { mic: Boolean(session.micAnalyser), tab: Boolean(session.tabAnalyser) },
     lastError: session.lastError,
   };
 }
