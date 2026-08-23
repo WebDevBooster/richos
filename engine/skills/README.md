@@ -70,6 +70,18 @@ claim that must be verified by grep, not by memory of the export pass.
 |---|---|
 | `ui-ux-design` | Senior UI/UX design & audit skill. `SKILL.md`'s Product Context / Quality Bar references / heuristics are TODO-marked slots — proven by an independent sibling project having re-filled the identical scaffold for its own product. The three `references/*.md` engine files (senior judgment, UX heuristics, output formats) ship as-is. |
 
+## Marketing-surface skills (vendored, scope-pinned) — 2026-08-23
+
+| Skill | Status | Purpose |
+|---|---|---|
+| `landing-page-taste` | vendored, scope-pinned | Anti-slop frontend taste skill for landing pages, portfolios, and redesigns — brief inference, design-system selection, pre-flight checks. Vendored verbatim (below a binding scope pin) from `taste-skill`'s `skills/taste-skill/SKILL.md` @ `72e299530e2eb31ed8da06181bc19f6c18a00821` (MIT, `LICENSE` alongside). **Marketing surfaces only — never product UI.** |
+| `landing-page-redesign` | vendored, scope-pinned | Audits an existing marketing site, flags generic-AI patterns, and applies high-end design standards without breaking functionality. Vendored verbatim (below a binding scope pin) from `taste-skill`'s `skills/redesign-skill/SKILL.md` @ `72e299530e2eb31ed8da06181bc19f6c18a00821` (MIT, `LICENSE` alongside). **Marketing surfaces only — never product UI.** |
+
+Unlike the rest of this library, these two ship as unmodified upstream
+third-party content (MIT-licensed) with a prepended scope pin, not
+as-is/scrubbed/template engine exports — see each `SKILL.md`'s pin block
+for the re-vendor procedure and each directory's `LICENSE`.
+
 ## Not exported
 
 - A product-domain coaching-habit skill with no portable core once its product and named-persona dependencies are removed.

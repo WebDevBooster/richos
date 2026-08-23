@@ -10,7 +10,12 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Vendored two marketing-surface skills, `landing-page-taste` and
+  `landing-page-redesign`, from `taste-skill` @ `72e29953` (MIT), each
+  scope-pinned to marketing surfaces only — never product UI. See
+  `engine/skills/README.md`.
 
 ## [1.0.0] — 2026-08-20 — the fork
 
