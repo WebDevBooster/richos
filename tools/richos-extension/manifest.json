@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RichOS",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "RichOS capture. Records call audio locally, health-checks it second by second, and alarms you during the call if anything stops.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -16,7 +16,28 @@
     "notifications",
     "scripting"
   ],
+  "host_permissions": [
+    "https://meet.google.com/*"
+  ],
   "optional_host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["modules/call-capture/captions/content-meet.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "modules/call-capture/captions/meet.js",
+        "modules/call-capture/captions/adapter.js",
+        "modules/call-capture/captions/caption-dedup.js"
+      ],
+      "matches": ["https://meet.google.com/*"]
+    }
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

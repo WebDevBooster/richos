@@ -1,26 +1,31 @@
 /**
- * RichOS — caption adapter seam (NOT implemented in v0, deliberately).
+ * RichOS — caption adapter seam (SECONDARY / failsafe layer; audio remains the guarantee).
  *
- * v0 is audio-first: the audio channel is the guarantee, and captions are a *convenience*
- * layer that adds live speaker attribution. Building captions first is exactly the mistake
- * that produced the failure mode the CEO hit — one channel, someone else's feature, and no
- * copy of the call when it breaks.
+ * Audio-first is unchanged: the audio channel is ground truth and captions are a *secondary*
+ * enrichment + failsafe layer (per-remote-speaker names, a zero-gesture belt-and-suspenders
+ * third channel, and an accuracy cross-check). Captions breaking loses only enrichment, never
+ * the call — the inverse of a caption-harvester, for whom captions breaking is total loss.
  *
- * This file fixes the interface so the caption layer can be added without touching the
- * recorder, the controller or the session format:
+ * This seam keeps the caption layer decoupled from the recorder, the controller and the
+ * session format:
  *
- *   · `session.json` already carries a `captions: {available, adapter, count}` block.
- *   · Captions will be appended to `captions.jsonl` in the same session directory,
- *     one line per revision, never rewritten.
- *   · The health evaluator already has an independent speech signal (audio RMS), which is
- *     what makes "speech was detected but no captions arrived" trustworthy — it does not
- *     depend on any platform DOM.
+ *   · `session.json` carries a `captions: {available, adapter, adapterVersion, count,
+ *     speakers, degraded}` block so the ingest side can rely on the key shape.
+ *   · Captions are appended to `captions.ndjson` in the session directory, one line per
+ *     revision, never rewritten (see `caption-dedup.js`).
+ *   · The health evaluator keeps an independent audio-RMS speech signal, so "speech was
+ *     detected but no captions arrived" stays trustworthy without depending on any platform DOM.
  *
- * Hard rule for whoever implements this (learned on the LinkedIn extension): the caption
- * COUNT shown anywhere must come from the same function that writes `captions.jsonl` —
- * never a separate counting heuristic, or the indicator will show green while nothing is
- * being written. And any adapter must be verified against BOTH renderers a platform ships
- * (classic DOM and its newer server-driven variant), not whichever one happened to be open.
+ * Two hard rules carried from the LinkedIn extension work:
+ *   1. the caption COUNT shown anywhere comes from the SAME collector path that persists the
+ *      captions (`caption-dedup.js` aggregation → the same records written to `captions.ndjson`)
+ *      — never a second counting heuristic;
+ *   2. an adapter must work against BOTH renderers a platform ships (classic markup and its
+ *      newer server-driven variant), not whichever one happened to be open during dev.
+ *
+ * The first adapter is Google Meet (`meet.js`), read-only DOM observation. Other platforms are
+ * future adapters behind this same seam — the framework stays generic and has zero
+ * OS-conditional code.
  */
 
 /**
@@ -46,6 +51,14 @@
 
 /** @type {CaptionAdapter[]} */
 export const ADAPTERS = [];
+
+/**
+ * Register an adapter (called by the content-script bootstrap once per platform).
+ * @param {CaptionAdapter} adapter
+ */
+export function registerAdapter(adapter) {
+  if (adapter && !ADAPTERS.some((a) => a.id === adapter.id)) ADAPTERS.push(adapter);
+}
 
 /**
  * @param {string} url
