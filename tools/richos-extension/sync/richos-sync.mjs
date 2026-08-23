@@ -20,6 +20,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { analyzeSession } from './reconcile.js';
 
 function arg(name, fallback = null) {
   const index = process.argv.indexOf(`--${name}`);
@@ -75,19 +76,12 @@ for (const dir of sessions) {
     continue;
   }
 
-  const problems = [];
-  if (record.status === 'open') problems.push('session is still OPEN — it never closed (browser or machine died mid-call?)');
-  if (record.status === 'interrupted') problems.push('session was interrupted and recovered');
-  if (!record.audio?.parts?.length) problems.push('no audio parts');
-  if (!record.audio?.bytesTotal) problems.push('zero bytes of audio');
-  if (record.verification && record.verification.ok === false) {
-    problems.push(`self-verification failed: ${(record.verification.problems || []).join('; ')}`);
-  }
   const audioOnDisk = fs
     .readdirSync(sourceDir)
     .filter((f) => f.endsWith('.webm'))
     .reduce((sum, f) => sum + fs.statSync(path.join(sourceDir, f)).size, 0);
-  if (audioOnDisk === 0) problems.push('no audio bytes on disk');
+
+  const { problems } = analyzeSession({ record, audioBytesOnDisk: audioOnDisk });
 
   if (problems.length) anomalies.push({ dir, problems });
   if (problems.length && !FORCE) continue;
