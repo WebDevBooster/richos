@@ -12,6 +12,17 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- `gpt-exporter` (`engine/tools/gpt-exporter`, now v2.2.0): a popup checkbox,
+  `Include above "Branched from" content`, positioned above the "JSON
+  Backup" checkbox and unchecked by default. Unchecked (default), the
+  markdown export of a branched ChatGPT conversation drops everything before
+  the `---\n\nBranched from [[...]]\n\n---\n\n` divider, leaving frontmatter
+  + the `# <title>` heading + the divider + the post-branch content — the
+  same shape as the CEO's own manual trims. Checked
+  reproduces today's full export byte-for-byte. Non-branched conversations
+  and the JSON Backup output are unaffected either way. See
+  `export/markdown.js`'s `conversationToMarkdown(conversation, options)` and
+  the fixture test in `export/__tests__/branch-trim.test.mjs`.
 - Vendored two marketing-surface skills, `landing-page-taste` and
   `landing-page-redesign`, from `taste-skill` @ `72e29953` (MIT), each
   scope-pinned to marketing surfaces only — never product UI. See
