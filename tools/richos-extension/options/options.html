@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RichOS settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>RichOS</h1>
+      <p class="lede">
+        Call capture records both sides of every call to local disk and checks, second by second, that
+        the audio is really being written. If a channel stops, you are told <em>during</em> the call.
+      </p>
+
+      <section class="card" id="permissions">
+        <h2>One-time setup</h2>
+        <div class="perm-row">
+          <div>
+            <strong>Microphone access</strong>
+            <p class="muted">
+              Needed to record your side on its own channel. Chrome asks once, for the extension —
+              not per call.
+            </p>
+          </div>
+          <div class="perm-state">
+            <span id="mic-state" class="badge">checking…</span>
+            <button id="mic-grant">Grant</button>
+          </div>
+        </div>
+        <div class="perm-row">
+          <div>
+            <strong>Page access (only for the disclosure banner)</strong>
+            <p class="muted">
+              Not required for recording. Only needed if you turn the participant-facing disclosure
+              banner on.
+            </p>
+          </div>
+          <div class="perm-state">
+            <span id="host-state" class="badge">checking…</span>
+            <button id="host-grant">Grant</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="modules"></div>
+
+      <section class="card">
+        <h2>Recent alerts</h2>
+        <div id="alerts"><p class="muted">None.</p></div>
+      </section>
+
+      <p class="muted footer-note">
+        Everything stays on this machine: audio, health records and session files are written to your
+        Chrome downloads folder and never uploaded anywhere. No account, no cloud, no third-party
+        service.
+      </p>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RichOS</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span id="dot" class="dot idle"></span>
+      <h1>RichOS</h1>
+      <a id="options-link" href="#">Settings</a>
+    </header>
+
+    <section id="status" class="card">
+      <p class="muted">Loading…</p>
+    </section>
+
+    <section id="problems"></section>
+
+    <section id="actions">
+      <button id="arm" class="primary" hidden>Arm capture on this tab</button>
+      <button id="stop" class="danger" hidden>Stop &amp; save</button>
+    </section>
+
+    <section id="recent"></section>
+
+    <footer>
+      <span class="muted" id="hint"></span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

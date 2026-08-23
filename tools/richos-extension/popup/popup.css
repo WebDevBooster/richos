@@ -1,0 +1,153 @@
+:root {
+  --green: #1a7f37;
+  --amber: #bf8700;
+  --red: #c1121f;
+  --idle: #5c5c5c;
+  --ink: #1b1f23;
+  --muted: #6a737d;
+  --line: #e3e6ea;
+}
+
+body {
+  width: 320px;
+  margin: 0;
+  padding: 12px;
+  font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+header h1 {
+  font-size: 14px;
+  margin: 0;
+  flex: 1;
+  letter-spacing: 0.02em;
+}
+
+header a {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--idle);
+  flex: none;
+}
+.dot.green { background: var(--green); }
+.dot.amber { background: var(--amber); }
+.dot.red { background: var(--red); }
+.dot.idle { background: var(--idle); }
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+}
+
+.rows dt {
+  color: var(--muted);
+}
+
+.rows dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.rows dd.path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.pill .dot {
+  width: 8px;
+  height: 8px;
+}
+
+ul.reasons {
+  margin: 10px 0 0;
+  padding-left: 16px;
+}
+
+ul.reasons li.red { color: var(--red); }
+ul.reasons li.amber { color: var(--amber); }
+
+button {
+  width: 100%;
+  padding: 8px;
+  margin-top: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #f6f8fa;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+button.danger {
+  background: #fff;
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+section#recent {
+  margin-top: 10px;
+}
+
+section#recent table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+section#recent td {
+  border-top: 1px solid var(--line);
+  padding: 3px 0;
+}
+
+footer {
+  margin-top: 10px;
+}
