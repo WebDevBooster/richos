@@ -71,21 +71,42 @@ async function refresh() {
   $('dot').className = `dot ${level}`;
 
   if (status.active) {
+    const caps = status.captions || {};
+    const capLine = caps.available
+      ? `${caps.count} caption${caps.count === 1 ? '' : 's'}${
+          (caps.speakers || []).length ? ` · ${caps.speakers.join(', ')}` : ''
+        }${caps.degraded ? ' · degraded (enrichment only)' : ''}`
+      : 'none yet';
+    let channels;
+    if (status.mode === 'captions-only') channels = 'captions only — click to record audio';
+    else if (status.awaitingTabAudio) channels = 'microphone + captions — click to add tab audio';
+    else if (status.micOnlyFailover) channels = 'microphone only (tab audio lost)';
+    else channels = 'microphone + tab audio';
     $('status').innerHTML = `
       <dl class="rows">
         <dt>Recording</dt><dd>${status.platform}</dd>
         <dt>Elapsed</dt><dd>${duration(Date.now() - status.startedAt)}</dd>
         <dt>Audio</dt><dd>${mb(status.bytesTotal)} · ${status.chunkCount} chunks${status.part ? ` · part ${status.part + 1}` : ''}</dd>
-        <dt>Channels</dt><dd>${status.micOnlyFailover ? 'microphone only (tab audio lost)' : 'microphone + tab audio'}</dd>
+        <dt>Channels</dt><dd>${channels}</dd>
+        <dt>Captions</dt><dd>${capLine}</dd>
         <dt>Saving to</dt><dd class="path">${status.saveLocation || ''}</dd>
       </dl>
       <div class="signals">${renderSignals(status.signals)}</div>`;
     $('problems').innerHTML = (status.reasons || []).length
       ? `<ul class="reasons">${status.reasons.map((r) => `<li class="${r.level}">${r.detail}</li>`).join('')}</ul>`
       : '';
-    $('arm').hidden = true;
+    // When mic + captions are already running, the button UPGRADES to full tab audio.
+    if (status.awaitingTabAudio) {
+      $('arm').hidden = false;
+      $('arm').textContent = 'Add tab audio (ground truth)';
+    } else {
+      $('arm').hidden = true;
+      $('arm').textContent = 'Arm capture on this tab';
+    }
     $('stop').hidden = false;
-    $('hint').textContent = 'Audio is written to disk continuously — a crash loses seconds, never the call.';
+    $('hint').textContent = status.awaitingTabAudio
+      ? 'Your mic + captions are already recording. Click above (or Alt+Shift+L) to add the other side\'s audio.'
+      : 'Audio is written to disk continuously — a crash loses seconds, never the call.';
   } else {
     const open = status.callTabsOpen || [];
     const last = status.lastSession;
@@ -106,6 +127,7 @@ async function refresh() {
       lastLine;
     $('problems').innerHTML = '';
     $('arm').hidden = false;
+    $('arm').textContent = 'Arm capture on this tab';
     $('stop').hidden = true;
     $('hint').textContent = 'Shortcut: Alt+Shift+L arms the current tab without opening this popup.';
   }
