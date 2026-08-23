@@ -1,0 +1,11 @@
+{
+  "name": "richos-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RichOS Chrome extension (unified). Module 1: call capture. Node fields exist only so the test harness can import the extension's pure modules directly.",
+  "scripts": {
+    "test": "node tests/run.js",
+    "test:live": "node tests/live-capture.mjs"
+  }
+}

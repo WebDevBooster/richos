@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RichOS offscreen worker</title>
+  </head>
+  <body>
+    <!--
+      Never rendered anywhere. This document exists because MV3 service workers cannot hold
+      media streams, run a MediaRecorder or create blob URLs. Modules register their handlers
+      in offscreen.js.
+    -->
+    <script type="module" src="offscreen.js"></script>
+  </body>
+</html>
