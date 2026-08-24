@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    RichOSCompanionCore (P3, Windows) — PURE, hardware-free logic: the frozen capture->pipeline
+    contract writer, channel mixing, WAV read/write, mix/failover decision, ring buffer, ordered
+    JSON, and the coordination parser. This is the exact peer of the macOS companion's
+    `RichOSCompanionCore` SwiftPM target — no WASAPI, no COM, no Windows-audio API — so it is unit
+    tested deterministically by `dotnet test` and compiles on ANY .NET host (Windows/Linux/macOS),
+    maximising what CI verifies without audio hardware or a permission grant.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>RichOSCompanionCore</AssemblyName>
+    <RootNamespace>RichOSCompanionCore</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+</Project>
