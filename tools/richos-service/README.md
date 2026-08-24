@@ -91,10 +91,11 @@ plus a trivial (≈empty) transcript. Every one flips `pipeline.status="anomaly"
 ## CLI
 
 ```
-node bin/richos-service.js doctor                 # verify ffmpeg / whisper-cli / model resolve
-node bin/richos-service.js watch [--zone dir]     # watcher: pipeline trigger + reconcile net
-node bin/richos-service.js run <sessionId|dir>    # run the pipeline over one session
-node bin/richos-service.js retranscribe <id> [--model large-v3]   # re-run on retained audio
+node bin/richos-service.js doctor                 # verify ffmpeg / whisper-cli / tier model resolve
+node bin/richos-service.js watch [--zone dir] [--tier name]        # watcher: pipeline trigger + reconcile net
+node bin/richos-service.js run <sessionId|dir> [--tier name]       # run the pipeline over one session
+node bin/richos-service.js retranscribe <id> [--tier max]         # re-run on retained audio (P5 tier)
+node bin/richos-service.js tiers                  # list the P5 model tiers (turbo default, max, ...)
 node bin/richos-service.js reconcile [--zone dir] # report-only anomaly sweep (never transcribes)
 
 # coordination (P4) — the shared, surface-agnostic ownership authority (§5.4)
@@ -105,7 +106,8 @@ node bin/richos-service.js mark-superseded --dead <id> --by <id>   # close the f
 ```
 
 Env overrides: `RICHOS_DROP_ZONE`, `RICHOS_WHISPER_MODEL` / `RICHOS_MODEL_DIR`, `RICHOS_WHISPER_BIN`,
-`RICHOS_FFMPEG_BIN`, `RICHOS_WHISPER_LANG`, `RICHOS_TRANSCRIPT_SLA_MS`, `RICHOS_ENTITIES_FILE`.
+`RICHOS_FFMPEG_BIN`, `RICHOS_WHISPER_LANG`, `RICHOS_TRANSCRIPT_SLA_MS`, `RICHOS_ENTITIES_FILE`,
+`RICHOS_DIARIZE` (P5 diarization method, default `none`).
 
 ---
 
@@ -139,6 +141,11 @@ node test/host-e2e.mjs   # REAL: speak Chrome's native-messaging protocol to the
                          #   streamed audio lands byte-exact → pipeline triggered → transcript.md
 node test/coordination-e2e.mjs  # REAL CLI + drop zone: extension owns a call, companion STANDS
                          #   DOWN (one session, no double); browser crash → companion PROMOTES
+node test/accuracy-tier-e2e.mjs # REAL: quantized tier + turbo default + (if installed) guarded
+                         #   large-v3 max tier, each end-to-end to transcript.md
+node test/cross-surface-e2e.mjs # REAL: BOTH surfaces (extension + macOS companion binary) through
+                         #   coordination → pipeline → corrected transcript.md; never-silent holds
+                         #   identically per source; Windows case skipped-but-seamed
 ```
 
 ---
@@ -182,3 +189,41 @@ node test/coordination-e2e.mjs  # REAL CLI + drop zone: extension owns a call, c
 - **Deferred to P5 (unchanged):** `large-v3` opt-in tier + repetition guard; per-remote-speaker
   diarization; the actual per-process tap-exclusion mechanism on the companion (coordination hands
   back the `excludeProcessHint`; the companion currently defers rather than excludes — honest, stated).
+
+---
+
+## P5 update — accuracy & robustness tier (landed)
+
+Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
+
+- **Model tiering (`lib/config.js#MODEL_TIERS` + `resolveTier`), config-driven, select with `--tier`:**
+  - `turbo` (**default**) — `large-v3-turbo`; reliable + fast everywhere on Apple Silicon.
+  - `max` (**opt-in maximum accuracy**) — full `large-v3` **with the repetition-guard decode params**
+    (`-mc 0` no-previous-text-conditioning + temperature fallback + entropy/logprob/no-speech
+    thresholds). **Gated:** bare-default `large-v3` reproducibly looped in the benchmark — `resolveTier`
+    auto-attaches the guard params to any bare large-v3 so it can **never** run through this pipeline
+    unguarded.
+  - `low-resource` — `small.en` for weak / non-Apple-Silicon / low-RAM hosts (clean + fast, no
+    hallucination in the benchmark).
+  - `quantized` — quantized turbo (`large-v3-turbo-q5_0`, ~574 MB vs 1.6 GB; build once with
+    `whisper-quantize`) for low-resource Apple Silicon.
+- **Repetition guard (`lib/repetition-guard.js`, pipeline stage 3.5), model-agnostic:** the post-decode
+  half of the hallucination defence. Collapses looped/garbled spans (the reproduced large-v3 4x loop)
+  to a single line, precision-guarded so short backchannels ("Yeah." "Yeah.") are never eaten. Findings
+  are recorded in `session.json.pipeline.repetitionGuard` + `verification.json`. **Proven** on the exact
+  benchmark sample: bare `large-v3` loops **x4** → decode params alone drop it to **x1** (and run faster)
+  → the post-decode guard collapses any residual to **x1**; `turbo` stays **x1** unchanged.
+- **Diarization seam (`lib/diarize.js`, opt-in via `--`/`RICHOS_DIARIZE`), honest scope:** default
+  `none` (identity — one "Them", no wrong speaker counts). Opt-in `tinydiarize-turns` consumes
+  whisper.cpp's **native** `[SPEAKER_TURN]` markers (local, no extra dependency) to split the far-side
+  channel into per-turn remote speakers for **non-caption** multi-speaker calls. Caption names always
+  win over turn labels. **Stable per-identity attribution** (linking non-adjacent turns to one person)
+  needs speaker-embedding clustering — a heavy, harder-to-test ML dep — so it is **documented as a
+  scoped local follow-up, not forced** (the seam is complete; `identityStable:false` states the honest
+  limit). See the tiering doc for the recommended local approach.
+- **Cross-surface E2E harness (`test/cross-surface-e2e.mjs`):** ONE harness exercising the extension
+  and the real macOS companion binary through coordination → pipeline → corrected `transcript.md`,
+  asserting the chain + never-silent guarantees hold identically per source; Windows plugs in via one
+  producer entry (`RICHOS_WINDOWS_COMPANION`), no rework.
+- **Native-messaging-rewire decision — STILL DEFERRED (unchanged):** the extension→service audio
+  transport swap is untouched by P5; it still awaits its live-browser E2E.
