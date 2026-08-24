@@ -21,6 +21,7 @@ import { normalizeSession, ffmpegVersion, detectSilence, CHANNEL_FILES } from '.
 import { transcribeSession, whisperVersion } from './transcribe.js';
 import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
+import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
 import { DEFAULT_MODEL, MIN_TRANSCRIPT_WORDS } from './config.js';
 import { log } from './log.js';
@@ -151,8 +152,12 @@ export function runPipeline(sessionDir, opts = {}) {
       startedAt: Number(record.startedAt || 0),
     });
 
-    // ---- Stage 5: loro-CORRECTION (P1 seam, identity pass) --------------------------------------
-    const corrected = correct(merged.segments, opts.entityMemory || {});
+    // ---- Stage 5: loro-CORRECTION (P4 real corrector) -------------------------------------------
+    // Load loro entity memory by default (single wiring point) so every trigger path — CLI, watcher,
+    // host-spawned — gets name/jargon correction; a missing entities file yields an empty memory
+    // (identity), never a failure. Tests can inject `opts.entityMemory` for determinism.
+    const entityMemory = opts.entityMemory ?? loadEntityMemory();
+    const corrected = correct(merged.segments, entityMemory);
     const finalMerged = { ...merged, segments: corrected.segments };
     record.pipeline.loroCorrection = {
       applied: corrected.applied,
