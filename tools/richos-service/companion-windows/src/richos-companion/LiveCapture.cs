@@ -22,7 +22,7 @@ namespace RichOSCompanion
             string target = wantProcess ? "process:" + (processName ?? pid!.Value.ToString()) : "system";
 
             var p = Program.MakeParams(startedAt, 48_000, method, target, processHint, supersedes);
-            var writer = new SessionWriter(zone, p, Program.NowMs);
+            using var writer = new SessionWriter(zone, p, Program.NowMs);
             try
             {
                 writer.Start();

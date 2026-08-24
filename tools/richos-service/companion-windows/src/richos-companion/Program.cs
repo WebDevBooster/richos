@@ -150,7 +150,7 @@ namespace RichOSCompanion
 
             var p = MakeParams(startedAt, rate, SessionContract.MethodSystemLoopback, "system", null, null);
             long virtualNow = startedAt;
-            var writer = new SessionWriter(zone, p, () => virtualNow);
+            using var writer = new SessionWriter(zone, p, () => virtualNow);
             writer.Start();
             Console.WriteLine($"session (open) written: {writer.Dir}");
 

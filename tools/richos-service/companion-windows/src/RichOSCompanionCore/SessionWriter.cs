@@ -20,7 +20,7 @@ namespace RichOSCompanionCore
     ///   5. <see cref="Close"/> — flush WAV, rewrite <c>session.json</c> (status "closed", populated).
     ///      The closed status is what triggers P1's pipeline.
     /// </summary>
-    public sealed class SessionWriter
+    public sealed class SessionWriter : IDisposable
     {
         public string Dir { get; }
         public SessionContract.Params Params { get; }
@@ -190,7 +190,27 @@ namespace RichOSCompanionCore
                 : new List<SessionContract.AudioPart>();
             WriteSessionJson("closed", _clock(), parts);
             _healthHandle?.Dispose();
+            _healthHandle = null;
+            _wav = null; // stream already disposed by _wav.Close() above
             Closed = true;
+        }
+
+        /// <summary>
+        /// Deterministically release the WAV + health OS file handles even when <see cref="Close"/> was
+        /// never reached — an abandoned/errored/never-closed session (e.g. capture fails to start after
+        /// <see cref="Start"/>, or a call that captures nothing). Idempotent and safe to call after
+        /// <see cref="Close"/>. Crucially it does NOT rewrite <c>session.json</c>: an un-closed session
+        /// stays in its loud "open" state — the never-silent anomaly the pipeline's reconcile guard flags
+        /// — rather than being silently marked "closed". Without this, on Windows the leaked WAV handle
+        /// leaves <c>audio-part-00.wav</c> locked (a crashed/killed companion could not be cleaned up or
+        /// re-collected); POSIX masked the leak by allowing unlink of an open file.
+        /// </summary>
+        public void Dispose()
+        {
+            _wav?.Dispose();
+            _wav = null;
+            _healthHandle?.Dispose();
+            _healthHandle = null;
         }
 
         private void WriteSessionJson(string status, long? endedAt, IReadOnlyList<SessionContract.AudioPart> parts)

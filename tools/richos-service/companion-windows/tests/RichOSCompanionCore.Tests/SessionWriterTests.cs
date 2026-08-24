@@ -27,7 +27,9 @@ namespace RichOSCompanionCore.Tests
             try
             {
                 long t = 1_700_000_000_000;
-                var w = new SessionWriter(zone, Params(t), () => t);
+                // `using`: an open-but-never-closed session must still release its WAV + health handles,
+                // otherwise Windows refuses the temp-dir delete (POSIX unlink-open masked this leak).
+                using var w = new SessionWriter(zone, Params(t), () => t);
                 w.Start();
                 string sj = Path.Combine(w.Dir, "session.json");
                 Assert.True(File.Exists(sj)); // never-silent: on disk from second zero
@@ -46,7 +48,7 @@ namespace RichOSCompanionCore.Tests
             {
                 long virtualNow = 1_700_000_000_000;
                 var p = Params(virtualNow);
-                var w = new SessionWriter(zone, p, () => virtualNow);
+                using var w = new SessionWriter(zone, p, () => virtualNow);
                 w.Start();
 
                 // 1 second of mic=+0.5 (LEFT) and system=-0.5 (RIGHT).
