@@ -1,0 +1,979 @@
+diff --git a/Sources/OpenWisprLib/AppDelegate.swift b/Sources/OpenWisprLib/AppDelegate.swift
+index 33b809e..74fcb48 100644
+--- a/Sources/OpenWisprLib/AppDelegate.swift
++++ b/Sources/OpenWisprLib/AppDelegate.swift
+@@ -2,6 +2,7 @@ import AppKit
+ 
+ public class AppDelegate: NSObject, NSApplicationDelegate {
+     var statusBar: StatusBarController!
++    var hud: DictationHUDController!
+     var hotkeyManagers: [HotkeyManager] = []
+     var recorder: AudioRecorder!
+     var transcriber: Transcriber!
+@@ -16,6 +17,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+     public func applicationDidFinishLaunching(_ notification: Notification) {
+         statusBar = StatusBarController()
+         recorder = AudioRecorder()
++
++        // Dictation HUD: mirror the menu-bar lifecycle to a small, in-context,
++        // non-activating pill and feed it the real mic input level.
++        hud = DictationHUDController()
++        statusBar.onStateChange = { [weak self] state in
++            self?.hud.setPhase(AppDelegate.hudPhase(for: state))
++        }
++        recorder.onLevel = { [weak self] rms in
++            self?.hud.ingest(rms: rms)
++        }
++
+         registerSleepWakeObservers()
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+@@ -25,6 +37,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+ 
+     public func applicationWillTerminate(_ notification: Notification) {
+         unregisterSleepWakeObservers()
++        hud?.teardown()
++    }
++
++    /// Map the menu-bar lifecycle state to the HUD's three-state model. Only
++    /// dictation-cycle states surface a HUD; startup/menu states stay hidden so
++    /// the overlay only ever appears around an F13 dictation (the design lead's spec).
++    static func hudPhase(for state: StatusBarController.State) -> HUDPhase {
++        switch state {
++        case .recording: return .recording
++        case .transcribing: return .transcribing
++        case .error(let message): return .problem(message)
++        case .waitingForPermission: return .waitingForPermission
++        case .idle, .downloading, .copiedToClipboard: return .idle
++        }
+     }
+ 
+     private func setup() {
+diff --git a/Sources/OpenWisprLib/AudioRecorder.swift b/Sources/OpenWisprLib/AudioRecorder.swift
+index bff4ea2..ec822bd 100644
+--- a/Sources/OpenWisprLib/AudioRecorder.swift
++++ b/Sources/OpenWisprLib/AudioRecorder.swift
+@@ -8,6 +8,13 @@ class AudioRecorder {
+     private var currentOutputURL: URL?
+     var preferredDeviceID: AudioDeviceID?
+ 
++    /// Called (on the main thread) with the raw RMS amplitude (~0...1) of each
++    /// captured audio block, plus a final 0 when recording stops. Drives the
++    /// dictation HUD's live input-level meter — the "it hears me" signal. This
++    /// is the exact same capture path a real dictation uses, so the meter can
++    /// never drift from what actually gets recorded.
++    var onLevel: ((Float) -> Void)?
++
+     func prewarm() {
+         guard audioEngine == nil else { return }
+ 
+@@ -78,7 +85,20 @@ class AudioRecorder {
+         let file = try AVAudioFile(forWriting: outputURL, settings: settings)
+         let converter = AVAudioConverter(from: inputFmt, to: recordingFormat)
+ 
+-        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFmt) { buffer, _ in
++        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFmt) { [weak self] buffer, _ in
++            // Real input-level for the HUD meter, measured on the same buffer
++            // that gets recorded (collector-path parity — never a separate heuristic).
++            if let self = self, let onLevel = self.onLevel,
++               let channel = buffer.floatChannelData?[0] {
++                let frames = Int(buffer.frameLength)
++                if frames > 0 {
++                    var sum: Float = 0
++                    for i in 0..<frames { let s = channel[i]; sum += s * s }
++                    let rms = (sum / Float(frames)).squareRoot()
++                    DispatchQueue.main.async { onLevel(rms) }
++                }
++            }
++
+             guard let converter = converter else { return }
+ 
+             let convertedBuffer = AVAudioPCMBuffer(
+@@ -113,6 +133,11 @@ class AudioRecorder {
+         audioEngine?.inputNode.removeTap(onBus: 0)
+         audioEngine?.stop()
+ 
++        // Settle the HUD meter to zero when capture ends.
++        if let onLevel = onLevel {
++            DispatchQueue.main.async { onLevel(0) }
++        }
++
+         return url
+     }
+ 
+diff --git a/Sources/OpenWisprLib/DictationHUD.swift b/Sources/OpenWisprLib/DictationHUD.swift
+new file mode 100644
+index 0000000..a6dd2c1
+--- /dev/null
++++ b/Sources/OpenWisprLib/DictationHUD.swift
+@@ -0,0 +1,385 @@
++import AppKit
++
++// MARK: - Dictation HUD — AppKit rendering + window management
++//
++// Implements the design lead's endorsed minimal recording-state HUD
++// (the dictation-HUD assessment, 2026-08-24):
++//   * small bottom-center pill, on the screen with keyboard focus
++//   * NON-ACTIVATING (canBecomeKey == false) — LOAD-BEARING: if the HUD could
++//     take key focus the target field would lose focus and paste-at-cursor
++//     would break. The panel is also click-through (ignoresMouseEvents).
++//   * three states only: Recording (mic + live input-level meter + elapsed
++//     timer), Transcribing (quiet spinner), Problem (one plain line).
++//   * NO live transcript / confidence / decorative waveform.
++//   * fades in on record start, auto-dismisses shortly after paste (idle).
++//
++// The pure state/meter logic lives in DictationHUDModel.swift and is unit
++// tested; this file is the thin, hard-to-unit-test AppKit shell.
++
++/// Non-activating floating panel. The two overrides are the load-bearing
++/// guarantee that showing the HUD never steals focus from the field the user
++/// is dictating into.
++final class DictationHUDPanel: NSPanel {
++    override var canBecomeKey: Bool { false }
++    override var canBecomeMain: Bool { false }
++}
++
++/// Draws the pill contents as a pure function of a `HUDDisplay` (+ a spinner
++/// phase for the transcribing animation).
++final class DictationHUDPillView: NSView {
++    var display: HUDDisplay = .hidden { didSet { needsDisplay = true } }
++    var spinnerPhase: CGFloat = 0 { didSet { if case .transcribing = display { needsDisplay = true } } }
++
++    private let segmentCount = 12
++
++    override var isFlipped: Bool { false }
++
++    override func draw(_ dirtyRect: NSRect) {
++        let bounds = self.bounds
++        drawBackground(in: bounds)
++
++        switch display {
++        case .hidden:
++            break
++        case .recording(let level, let elapsed, let noAudioWarning):
++            drawMic(in: bounds, active: !noAudioWarning)
++            if noAudioWarning {
++                drawInlineWarning(HUDPresenter.noAudioMessage, in: bounds)
++            } else {
++                drawMeter(level: level, in: bounds)
++                drawTimer(HUDFormat.elapsed(elapsed), in: bounds)
++            }
++        case .transcribing:
++            drawSpinner(in: bounds)
++            drawLabel("Transcribing…", in: bounds, muted: true)
++        case .problem(let message):
++            drawWarningDot(in: bounds)
++            drawProblem(message, in: bounds)
++        }
++    }
++
++    // MARK: drawing helpers
++
++    private func drawBackground(in bounds: NSRect) {
++        let radius = bounds.height / 2
++        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
++        NSColor(calibratedWhite: 0.11, alpha: 0.88).setFill()
++        path.fill()
++        NSColor(calibratedWhite: 1.0, alpha: 0.06).setStroke()
++        path.lineWidth = 1
++        path.stroke()
++    }
++
++    private var contentInsetX: CGFloat { 16 }
++
++    private func drawMic(in bounds: NSRect, active: Bool) {
++        let color = active
++            ? NSColor(calibratedWhite: 0.95, alpha: 1)
++            : NSColor(calibratedWhite: 0.55, alpha: 1)
++        color.setFill()
++        color.setStroke()
++
++        let cx = contentInsetX + 6
++        let cy = bounds.midY
++        // Capsule mic body
++        let bodyW: CGFloat = 8, bodyH: CGFloat = 14
++        let body = NSRect(x: cx - bodyW / 2, y: cy - bodyH / 2 + 2, width: bodyW, height: bodyH)
++        NSBezierPath(roundedRect: body, xRadius: bodyW / 2, yRadius: bodyW / 2).fill()
++        // Stand arc
++        let arc = NSBezierPath()
++        arc.appendArc(withCenter: NSPoint(x: cx, y: cy + 1),
++                      radius: 7, startAngle: 200, endAngle: 340)
++        arc.lineWidth = 1.6
++        arc.stroke()
++        // Stem + base
++        let stem = NSBezierPath()
++        stem.move(to: NSPoint(x: cx, y: cy - 6))
++        stem.line(to: NSPoint(x: cx, y: cy - 9))
++        stem.lineWidth = 1.6
++        stem.lineCapStyle = .round
++        stem.stroke()
++        let base = NSBezierPath()
++        base.move(to: NSPoint(x: cx - 4, y: cy - 9))
++        base.line(to: NSPoint(x: cx + 4, y: cy - 9))
++        base.lineWidth = 1.6
++        base.lineCapStyle = .round
++        base.stroke()
++    }
++
++    private func drawMeter(level: Float, in bounds: NSRect) {
++        let meterX = contentInsetX + 22
++        let meterW = bounds.width - meterX - 52 // leave room for timer on the right
++        guard meterW > 20 else { return }
++        let gap: CGFloat = 3
++        let segW = (meterW - CGFloat(segmentCount - 1) * gap) / CGFloat(segmentCount)
++        let clamped = CGFloat(max(0, min(1, level)))
++        let litCount = Int((clamped * CGFloat(segmentCount)).rounded(.up))
++        let maxH = bounds.height - 18
++        let midY = bounds.midY
++
++        for i in 0..<segmentCount {
++            let lit = i < litCount
++            // Slight center-weighted height profile so it reads as a meter, not a flat row.
++            let frac = 0.55 + 0.45 * (1 - abs(CGFloat(i) - CGFloat(segmentCount - 1) / 2) / (CGFloat(segmentCount) / 2))
++            let h = maxH * frac
++            let x = meterX + CGFloat(i) * (segW + gap)
++            let rect = NSRect(x: x, y: midY - h / 2, width: segW, height: h)
++            let color: NSColor = lit
++                ? NSColor(calibratedWhite: 0.96, alpha: 1)
++                : NSColor(calibratedWhite: 1.0, alpha: 0.16)
++            color.setFill()
++            NSBezierPath(roundedRect: rect, xRadius: segW / 2, yRadius: segW / 2).fill()
++        }
++    }
++
++    private func drawTimer(_ text: String, in bounds: NSRect) {
++        let attrs: [NSAttributedString.Key: Any] = [
++            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
++            .foregroundColor: NSColor(calibratedWhite: 0.85, alpha: 1),
++        ]
++        let size = (text as NSString).size(withAttributes: attrs)
++        let x = bounds.maxX - contentInsetX - size.width
++        let y = bounds.midY - size.height / 2
++        (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
++    }
++
++    private func drawInlineWarning(_ text: String, in bounds: NSRect) {
++        let attrs: [NSAttributedString.Key: Any] = [
++            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
++            .foregroundColor: NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.34, alpha: 1),
++        ]
++        let x = contentInsetX + 22
++        let size = (text as NSString).size(withAttributes: attrs)
++        let y = bounds.midY - size.height / 2
++        (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
++    }
++
++    private func drawSpinner(in bounds: NSRect) {
++        let cx = contentInsetX + 6
++        let cy = bounds.midY
++        let radius: CGFloat = 7
++        NSGraphicsContext.saveGraphicsState()
++        let arc = NSBezierPath()
++        let start = spinnerPhase
++        arc.appendArc(withCenter: NSPoint(x: cx, y: cy), radius: radius,
++                      startAngle: start, endAngle: start + 270)
++        arc.lineWidth = 2
++        arc.lineCapStyle = .round
++        NSColor(calibratedWhite: 0.9, alpha: 1).setStroke()
++        arc.stroke()
++        NSGraphicsContext.restoreGraphicsState()
++    }
++
++    private func drawLabel(_ text: String, in bounds: NSRect, muted: Bool) {
++        let attrs: [NSAttributedString.Key: Any] = [
++            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
++            .foregroundColor: NSColor(calibratedWhite: muted ? 0.78 : 0.95, alpha: 1),
++        ]
++        let x = contentInsetX + 22
++        let size = (text as NSString).size(withAttributes: attrs)
++        let y = bounds.midY - size.height / 2
++        (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
++    }
++
++    private func drawWarningDot(in bounds: NSRect) {
++        let cx = contentInsetX + 6
++        let cy = bounds.midY
++        NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.34, alpha: 1).setFill()
++        NSBezierPath(ovalIn: NSRect(x: cx - 4, y: cy - 4, width: 8, height: 8)).fill()
++    }
++
++    private func drawProblem(_ text: String, in bounds: NSRect) {
++        let attrs: [NSAttributedString.Key: Any] = [
++            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
++            .foregroundColor: NSColor(calibratedWhite: 0.92, alpha: 1),
++        ]
++        let x = contentInsetX + 20
++        let size = (text as NSString).size(withAttributes: attrs)
++        let y = bounds.midY - size.height / 2
++        (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
++    }
++}
++
++/// Owns the HUD panel and drives it from lifecycle phase changes + live mic
++/// telemetry. All methods are main-thread only.
++final class DictationHUDController {
++    private var panel: DictationHUDPanel?
++    private var pill: DictationHUDPillView?
++    private var renderTimer: Timer?
++    private var hideWorkItem: DispatchWorkItem?
++
++    private var phase: HUDPhase = .idle
++    private var meter = AudioLevelMeter()
++    private var noAudio = NoAudioDetector()
++    private var latestRMS: Float = 0
++    private var recordingStartedAt: Date?
++    private var spinnerPhase: CGFloat = 0
++
++    private let pillSize = NSSize(width: 244, height: 44)
++    private let bottomMargin: CGFloat = 96
++    private let fadeDuration: TimeInterval = 0.18
++    /// Auto-dismiss delay after returning to idle (i.e. shortly after paste).
++    private let autoDismissDelay: TimeInterval = 0.85
++
++    // MARK: public API (called from AppDelegate, main thread)
++
++    /// React to a lifecycle phase change.
++    func setPhase(_ newPhase: HUDPhase) {
++        phase = newPhase
++        switch newPhase {
++        case .recording:
++            cancelPendingHide()
++            meter.reset()
++            noAudio.reset()
++            latestRMS = 0
++            recordingStartedAt = Date()
++            show()
++            startRenderTimer()
++        case .transcribing, .problem, .waitingForPermission:
++            cancelPendingHide()
++            show()
++            startRenderTimer()
++            renderOnce()
++        case .idle:
++            scheduleHide()
++        }
++    }
++
++    /// Feed the latest raw microphone RMS amplitude (linear ~0...1).
++    func ingest(rms: Float) {
++        latestRMS = rms
++    }
++
++    /// Release the panel (app shutdown).
++    func teardown() {
++        stopRenderTimer()
++        cancelPendingHide()
++        panel?.orderOut(nil)
++        panel = nil
++        pill = nil
++    }
++
++    // MARK: rendering
++
++    private func startRenderTimer() {
++        guard renderTimer == nil else { return }
++        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
++            self?.tick()
++        }
++        RunLoop.main.add(timer, forMode: .common)
++        renderTimer = timer
++    }
++
++    private func stopRenderTimer() {
++        renderTimer?.invalidate()
++        renderTimer = nil
++    }
++
++    private func tick() {
++        spinnerPhase = (spinnerPhase + 9).truncatingRemainder(dividingBy: 360)
++        renderOnce()
++    }
++
++    private func renderOnce() {
++        guard let pill = pill else { return }
++        let elapsed = recordingStartedAt.map { -$0.timeIntervalSinceNow } ?? 0
++
++        if case .recording = phase {
++            let level = meter.update(rms: latestRMS)
++            noAudio.observe(level: level)
++        }
++
++        let silent: Bool = {
++            if case .recording = phase {
++                return noAudio.isSilent(elapsed: elapsed)
++            }
++            return false
++        }()
++
++        pill.spinnerPhase = spinnerPhase
++        pill.display = HUDPresenter.display(
++            phase: phase,
++            meterLevel: meter.value,
++            elapsed: elapsed,
++            noAudio: silent
++        )
++    }
++
++    // MARK: window lifecycle
++
++    private func ensurePanel() {
++        guard panel == nil else { return }
++        let panel = DictationHUDPanel(
++            contentRect: NSRect(origin: .zero, size: pillSize),
++            styleMask: [.borderless, .nonactivatingPanel],
++            backing: .buffered,
++            defer: true
++        )
++        panel.isFloatingPanel = true
++        panel.becomesKeyOnlyIfNeeded = true
++        panel.hidesOnDeactivate = false
++        panel.isOpaque = false
++        panel.backgroundColor = .clear
++        panel.hasShadow = true
++        panel.level = .statusBar
++        panel.ignoresMouseEvents = true // click-through; never intercepts the user
++        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
++        panel.alphaValue = 0
++
++        let pill = DictationHUDPillView(frame: NSRect(origin: .zero, size: pillSize))
++        pill.wantsLayer = true
++        panel.contentView = pill
++
++        self.panel = panel
++        self.pill = pill
++    }
++
++    private func positionPanel() {
++        guard let panel = panel else { return }
++        let screen = NSScreen.main ?? NSScreen.screens.first
++        guard let frame = screen?.visibleFrame else { return }
++        let x = frame.midX - pillSize.width / 2
++        let y = frame.minY + bottomMargin
++        panel.setFrame(NSRect(x: x, y: y, width: pillSize.width, height: pillSize.height), display: true)
++    }
++
++    private func show() {
++        ensurePanel()
++        positionPanel()
++        guard let panel = panel else { return }
++        renderOnce()
++        panel.orderFrontRegardless() // show without activating our app
++        NSAnimationContext.runAnimationGroup { ctx in
++            ctx.duration = fadeDuration
++            panel.animator().alphaValue = 1
++        }
++    }
++
++    private func scheduleHide() {
++        cancelPendingHide()
++        let work = DispatchWorkItem { [weak self] in self?.hide() }
++        hideWorkItem = work
++        DispatchQueue.main.asyncAfter(deadline: .now() + autoDismissDelay, execute: work)
++    }
++
++    private func cancelPendingHide() {
++        hideWorkItem?.cancel()
++        hideWorkItem = nil
++    }
++
++    private func hide() {
++        guard let panel = panel else { return }
++        NSAnimationContext.runAnimationGroup({ ctx in
++            ctx.duration = fadeDuration
++            panel.animator().alphaValue = 0
++        }, completionHandler: { [weak self] in
++            guard let self = self else { return }
++            // Only fully hide if we're still idle (a new recording may have started).
++            if case .idle = self.phase {
++                panel.orderOut(nil)
++                self.stopRenderTimer()
++                self.recordingStartedAt = nil
++            }
++        })
++    }
++}
+diff --git a/Sources/OpenWisprLib/DictationHUDModel.swift b/Sources/OpenWisprLib/DictationHUDModel.swift
+new file mode 100644
+index 0000000..ef85918
+--- /dev/null
++++ b/Sources/OpenWisprLib/DictationHUDModel.swift
+@@ -0,0 +1,154 @@
++import Foundation
++
++// MARK: - Dictation HUD — pure, testable model layer
++//
++// This file contains NO AppKit / UI code so its logic can be unit-tested
++// deterministically (see Tests/OpenWisprTests/DictationHUDModelTests.swift).
++// The AppKit rendering + window management lives in DictationHUD.swift.
++//
++// Design target: the design lead's endorsed minimal recording-state HUD
++// (the dictation-HUD assessment, 2026-08-24) — three states only
++// (Recording / Transcribing / Problem), a real audio input-level meter as the
++// highest-value element, no live transcript / confidence / decorative waveform.
++
++/// The dictation lifecycle phases the HUD reacts to. Mirrors the subset of
++/// `StatusBarController.State` that the HUD cares about, kept as a separate,
++/// Equatable, AppKit-free enum so the presenter reducer is unit-testable.
++enum HUDPhase: Equatable {
++    case idle
++    case recording
++    case transcribing
++    case waitingForPermission
++    case problem(String)
++}
++
++/// What the HUD should actually render right now. The view is a pure function
++/// of this value.
++enum HUDDisplay: Equatable {
++    case hidden
++    /// `level` is the smoothed 0...1 meter value; `elapsed` is seconds since
++    /// recording started; `noAudioWarning` is true when the mic appears silent.
++    case recording(level: Float, elapsed: TimeInterval, noAudioWarning: Bool)
++    case transcribing
++    case problem(String)
++}
++
++/// Maps a lifecycle phase (+ live recording telemetry) to the concrete display.
++/// Pure and deterministic.
++enum HUDPresenter {
++    static let noAudioMessage = "No audio — check mic"
++    static let permissionMessage = "Waiting for mic / accessibility permission"
++
++    static func display(
++        phase: HUDPhase,
++        meterLevel: Float,
++        elapsed: TimeInterval,
++        noAudio: Bool
++    ) -> HUDDisplay {
++        switch phase {
++        case .recording:
++            return .recording(
++                level: meterLevel,
++                elapsed: elapsed,
++                noAudioWarning: noAudio
++            )
++        case .transcribing:
++            return .transcribing
++        case .waitingForPermission:
++            return .problem(permissionMessage)
++        case .problem(let message):
++            return .problem(message)
++        case .idle:
++            return .hidden
++        }
++    }
++}
++
++/// Converts raw microphone RMS amplitude into a calm, normalized 0...1 meter
++/// value. Uses a dB window (so quiet speech is still visible) plus asymmetric
++/// attack/decay smoothing (fast to rise so it feels responsive, slower to fall
++/// so it doesn't flicker). Deterministic: same input sequence → same output.
++struct AudioLevelMeter {
++    /// Amplitudes at or below this dB read as 0 on the meter.
++    var floorDb: Float = -55
++    /// Amplitudes at or above this dB read as a full meter.
++    var ceilingDb: Float = -12
++    /// Smoothing factor (0...1) applied when the level is rising.
++    var attack: Float = 0.6
++    /// Smoothing factor (0...1) applied when the level is falling.
++    var decay: Float = 0.18
++
++    private(set) var value: Float = 0
++
++    /// RMS (root-mean-square) amplitude of a block of float PCM samples.
++    static func rms(_ samples: [Float]) -> Float {
++        guard !samples.isEmpty else { return 0 }
++        var sum: Float = 0
++        for s in samples { sum += s * s }
++        return (sum / Float(samples.count)).squareRoot()
++    }
++
++    /// Feed a new raw RMS amplitude (linear, ~0...1). Returns the new smoothed
++    /// meter value.
++    @discardableResult
++    mutating func update(rms: Float) -> Float {
++        let target = normalized(rms: rms)
++        let factor = target > value ? attack : decay
++        value += (target - value) * factor
++        // Guard against tiny FP residue so silence reads as an exact 0.
++        if value < 0.0005 { value = 0 }
++        return value
++    }
++
++    mutating func reset() {
++        value = 0
++    }
++
++    /// Map a raw RMS amplitude to 0...1 across the dB window (no smoothing).
++    func normalized(rms: Float) -> Float {
++        let safe = max(rms, 1e-9)
++        let db = 20 * log10(safe)
++        if db <= floorDb { return 0 }
++        if db >= ceilingDb { return 1 }
++        return (db - floorDb) / (ceilingDb - floorDb)
++    }
++}
++
++/// Detects the "recording but hearing nothing" silent-failure case — the exact
++/// scenario the design lead wants surfaced ("No audio — check mic"). It watches the
++/// meter level over the life of one recording and, after a short grace period
++/// (so a slow start to speak doesn't false-positive), reports silence if the
++/// loudest sample seen so far never crossed a small threshold.
++struct NoAudioDetector {
++    /// Don't warn during this initial window (user may not have started talking).
++    var graceInterval: TimeInterval = 1.4
++    /// Meter values below this count as "silent".
++    var levelThreshold: Float = 0.03
++
++    private var maxLevel: Float = 0
++
++    mutating func observe(level: Float) {
++        if level > maxLevel { maxLevel = level }
++    }
++
++    func isSilent(elapsed: TimeInterval) -> Bool {
++        elapsed >= graceInterval && maxLevel < levelThreshold
++    }
++
++    mutating func reset() {
++        maxLevel = 0
++    }
++}
++
++/// Pure formatting for the elapsed-time counter shown in the Recording state.
++enum HUDFormat {
++    /// Formats seconds as `m:ss` (e.g. 3 → "0:03", 65 → "1:05"). Negative
++    /// inputs clamp to "0:00".
++    static func elapsed(_ seconds: TimeInterval) -> String {
++        let clamped = max(0, seconds)
++        let total = Int(clamped)
++        let minutes = total / 60
++        let secs = total % 60
++        return String(format: "%d:%02d", minutes, secs)
++    }
++}
+diff --git a/Sources/OpenWisprLib/StatusBarController.swift b/Sources/OpenWisprLib/StatusBarController.swift
+index 4c2ff98..e472fb0 100644
+--- a/Sources/OpenWisprLib/StatusBarController.swift
++++ b/Sources/OpenWisprLib/StatusBarController.swift
+@@ -19,6 +19,9 @@ class StatusBarController: NSObject {
+ 
+     var reprocessHandler: ((URL) -> Void)?
+     var onConfigChange: ((Config) -> Void)?
++    /// Fired on every state change so the dictation HUD can mirror the exact
++    /// same lifecycle the menu-bar icon shows (single source of truth).
++    var onStateChange: ((State) -> Void)?
+ 
+     enum State {
+         case idle
+@@ -31,7 +34,10 @@ class StatusBarController: NSObject {
+     }
+ 
+     var state: State = .idle {
+-        didSet { updateIcon() }
++        didSet {
++            updateIcon()
++            onStateChange?(state)
++        }
+     }
+ 
+     override init() {
+diff --git a/Tests/OpenWisprTests/DictationHUDModelTests.swift b/Tests/OpenWisprTests/DictationHUDModelTests.swift
+new file mode 100644
+index 0000000..dcb159b
+--- /dev/null
++++ b/Tests/OpenWisprTests/DictationHUDModelTests.swift
+@@ -0,0 +1,220 @@
++import XCTest
++@testable import OpenWisprLib
++
++final class DictationHUDModelTests: XCTestCase {
++
++    // MARK: - AudioLevelMeter.rms
++
++    func testRMSOfSilenceIsZero() {
++        XCTAssertEqual(AudioLevelMeter.rms([0, 0, 0, 0]), 0)
++    }
++
++    func testRMSOfEmptyIsZero() {
++        XCTAssertEqual(AudioLevelMeter.rms([]), 0)
++    }
++
++    func testRMSOfConstant() {
++        XCTAssertEqual(AudioLevelMeter.rms([0.5, 0.5, 0.5]), 0.5, accuracy: 1e-6)
++    }
++
++    func testRMSOfSymmetricSignal() {
++        // ±0.5 → RMS 0.5 (sign-independent).
++        XCTAssertEqual(AudioLevelMeter.rms([0.5, -0.5, 0.5, -0.5]), 0.5, accuracy: 1e-6)
++    }
++
++    // MARK: - AudioLevelMeter.normalized (dB window mapping)
++
++    func testNormalizedFloorIsZero() {
++        let meter = AudioLevelMeter()
++        // Amplitude well below the floor (-55 dB ≈ 0.00178) reads as 0.
++        XCTAssertEqual(meter.normalized(rms: 0.0001), 0, accuracy: 1e-6)
++    }
++
++    func testNormalizedCeilingIsOne() {
++        let meter = AudioLevelMeter()
++        // Full-scale amplitude reads as a full meter.
++        XCTAssertEqual(meter.normalized(rms: 1.0), 1, accuracy: 1e-6)
++    }
++
++    func testNormalizedIsMonotonic() {
++        let meter = AudioLevelMeter()
++        let a = meter.normalized(rms: 0.01)
++        let b = meter.normalized(rms: 0.05)
++        let c = meter.normalized(rms: 0.2)
++        XCTAssertLessThan(a, b)
++        XCTAssertLessThan(b, c)
++    }
++
++    func testNormalizedStaysInUnitRange() {
++        let meter = AudioLevelMeter()
++        for rms in stride(from: Float(0), through: 2, by: 0.05) {
++            let v = meter.normalized(rms: rms)
++            XCTAssertGreaterThanOrEqual(v, 0)
++            XCTAssertLessThanOrEqual(v, 1)
++        }
++    }
++
++    // MARK: - AudioLevelMeter.update (attack/decay smoothing)
++
++    func testUpdateRisesTowardTargetButNotInstantly() {
++        var meter = AudioLevelMeter()
++        let first = meter.update(rms: 1.0) // target 1.0, attack 0.6 → 0.6
++        XCTAssertEqual(first, 0.6, accuracy: 1e-5)
++        let second = meter.update(rms: 1.0) // 0.6 + (1-0.6)*0.6 = 0.84
++        XCTAssertEqual(second, 0.84, accuracy: 1e-5)
++        XCTAssertGreaterThan(second, first)
++    }
++
++    func testAttackIsFasterThanDecay() {
++        var rising = AudioLevelMeter()
++        let riseStep = rising.update(rms: 1.0) // from 0 → 0.6
++
++        var falling = AudioLevelMeter()
++        _ = falling.update(rms: 1.0)
++        _ = falling.update(rms: 1.0)
++        _ = falling.update(rms: 1.0)
++        let before = falling.value
++        let after = falling.update(rms: 0.0) // decay 0.18
++        let fallStep = before - after
++        // A rise from 0 moves more than an equivalent fall from near-full.
++        XCTAssertGreaterThan(riseStep, fallStep)
++    }
++
++    func testUpdateSettlesToZeroOnSilence() {
++        var meter = AudioLevelMeter()
++        _ = meter.update(rms: 1.0)
++        for _ in 0..<200 { _ = meter.update(rms: 0.0) }
++        XCTAssertEqual(meter.value, 0, accuracy: 1e-6)
++    }
++
++    func testUpdateConvergesToFullOnSustainedLoud() {
++        var meter = AudioLevelMeter()
++        for _ in 0..<50 { _ = meter.update(rms: 1.0) }
++        XCTAssertEqual(meter.value, 1, accuracy: 1e-3)
++    }
++
++    func testResetClearsValue() {
++        var meter = AudioLevelMeter()
++        _ = meter.update(rms: 1.0)
++        meter.reset()
++        XCTAssertEqual(meter.value, 0)
++    }
++
++    func testDeterministicForSameInputSequence() {
++        func run() -> [Float] {
++            var m = AudioLevelMeter()
++            let seq: [Float] = [0.0, 0.3, 0.8, 0.2, 0.0, 0.5]
++            return seq.map { m.update(rms: $0) }
++        }
++        XCTAssertEqual(run(), run())
++    }
++
++    // MARK: - NoAudioDetector
++
++    func testNoWarningBeforeGracePeriod() {
++        var d = NoAudioDetector()
++        // Silent, but still inside grace window → no warning.
++        XCTAssertFalse(d.isSilent(elapsed: 0.5))
++    }
++
++    func testWarnsWhenSilentPastGrace() {
++        var d = NoAudioDetector()
++        d.observe(level: 0.0)
++        d.observe(level: 0.01) // still below threshold
++        XCTAssertTrue(d.isSilent(elapsed: 2.0))
++    }
++
++    func testNoWarningWhenAudioSeen() {
++        var d = NoAudioDetector()
++        d.observe(level: 0.4) // clearly hearing something
++        XCTAssertFalse(d.isSilent(elapsed: 5.0))
++    }
++
++    func testResetClearsMaxLevel() {
++        var d = NoAudioDetector()
++        d.observe(level: 0.9)
++        d.reset()
++        XCTAssertTrue(d.isSilent(elapsed: 5.0))
++    }
++
++    // MARK: - HUDPresenter reducer
++
++    func testRecordingMapsToRecordingDisplay() {
++        let d = HUDPresenter.display(phase: .recording, meterLevel: 0.5, elapsed: 3, noAudio: false)
++        XCTAssertEqual(d, .recording(level: 0.5, elapsed: 3, noAudioWarning: false))
++    }
++
++    func testRecordingCarriesNoAudioWarning() {
++        let d = HUDPresenter.display(phase: .recording, meterLevel: 0, elapsed: 4, noAudio: true)
++        XCTAssertEqual(d, .recording(level: 0, elapsed: 4, noAudioWarning: true))
++    }
++
++    func testTranscribingMapsToTranscribing() {
++        XCTAssertEqual(
++            HUDPresenter.display(phase: .transcribing, meterLevel: 0, elapsed: 0, noAudio: false),
++            .transcribing
++        )
++    }
++
++    func testIdleMapsToHidden() {
++        XCTAssertEqual(
++            HUDPresenter.display(phase: .idle, meterLevel: 0, elapsed: 0, noAudio: false),
++            .hidden
++        )
++    }
++
++    func testProblemMapsToProblem() {
++        XCTAssertEqual(
++            HUDPresenter.display(phase: .problem("boom"), meterLevel: 0, elapsed: 0, noAudio: false),
++            .problem("boom")
++        )
++    }
++
++    func testWaitingForPermissionMapsToProblem() {
++        XCTAssertEqual(
++            HUDPresenter.display(phase: .waitingForPermission, meterLevel: 0, elapsed: 0, noAudio: false),
++            .problem(HUDPresenter.permissionMessage)
++        )
++    }
++
++    // MARK: - AppDelegate.hudPhase (StatusBarController.State → HUDPhase)
++
++    func testStatePhaseMapping() {
++        XCTAssertEqual(AppDelegate.hudPhase(for: .recording), .recording)
++        XCTAssertEqual(AppDelegate.hudPhase(for: .transcribing), .transcribing)
++        XCTAssertEqual(AppDelegate.hudPhase(for: .idle), .idle)
++        XCTAssertEqual(AppDelegate.hudPhase(for: .downloading), .idle)
++        XCTAssertEqual(AppDelegate.hudPhase(for: .copiedToClipboard), .idle)
++        XCTAssertEqual(AppDelegate.hudPhase(for: .waitingForPermission), .waitingForPermission)
++        XCTAssertEqual(AppDelegate.hudPhase(for: .error("disk full")), .problem("disk full"))
++    }
++
++    // MARK: - HUDFormat.elapsed
++
++    func testElapsedFormatting() {
++        XCTAssertEqual(HUDFormat.elapsed(0), "0:00")
++        XCTAssertEqual(HUDFormat.elapsed(3), "0:03")
++        XCTAssertEqual(HUDFormat.elapsed(9), "0:09")
++        XCTAssertEqual(HUDFormat.elapsed(65), "1:05")
++        XCTAssertEqual(HUDFormat.elapsed(600), "10:00")
++    }
++
++    func testElapsedClampsNegative() {
++        XCTAssertEqual(HUDFormat.elapsed(-5), "0:00")
++    }
++
++    // MARK: - Non-activating panel invariant (load-bearing)
++
++    func testHUDPanelNeverBecomesKeyOrMain() {
++        let panel = DictationHUDPanel(
++            contentRect: NSRect(x: 0, y: 0, width: 244, height: 44),
++            styleMask: [.borderless, .nonactivatingPanel],
++            backing: .buffered,
++            defer: true
++        )
++        // The load-bearing guarantee: showing the HUD must never take focus,
++        // or paste-at-cursor breaks.
++        XCTAssertFalse(panel.canBecomeKey)
++        XCTAssertFalse(panel.canBecomeMain)
++    }
++}
+diff --git a/Tests/OpenWisprTests/DictationHUDRenderTests.swift b/Tests/OpenWisprTests/DictationHUDRenderTests.swift
+new file mode 100644
+index 0000000..32f45dd
+--- /dev/null
++++ b/Tests/OpenWisprTests/DictationHUDRenderTests.swift
+@@ -0,0 +1,67 @@
++import XCTest
++import AppKit
++@testable import OpenWisprLib
++
++/// Non-intrusive, offscreen render sanity checks: the pill view draws each
++/// state into an in-memory bitmap (no window is ever ordered on screen), so we
++/// verify the AppKit drawing paths execute without crashing and are actually
++/// state-sensitive. Live visual verification is deferred to the design lead + the CEO.
++final class DictationHUDRenderTests: XCTestCase {
++
++    private func render(_ display: HUDDisplay, spinner: CGFloat = 0) -> NSBitmapImageRep? {
++        let size = NSSize(width: 244, height: 44)
++        let view = DictationHUDPillView(frame: NSRect(origin: .zero, size: size))
++        view.spinnerPhase = spinner
++        view.display = display
++        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
++        view.cacheDisplay(in: view.bounds, to: rep)
++        return rep
++    }
++
++    private func nonEmpty(_ rep: NSBitmapImageRep?) -> Bool {
++        guard let rep = rep else { return false }
++        // Sample the center; the pill background is drawn there for every visible state.
++        let x = rep.pixelsWide / 2
++        let y = rep.pixelsHigh / 2
++        guard let color = rep.colorAt(x: x, y: y) else { return false }
++        return color.alphaComponent > 0
++    }
++
++    func testRecordingRendersNonEmpty() {
++        XCTAssertTrue(nonEmpty(render(.recording(level: 0.7, elapsed: 3, noAudioWarning: false))))
++    }
++
++    func testTranscribingRendersNonEmpty() {
++        XCTAssertTrue(nonEmpty(render(.transcribing, spinner: 90)))
++    }
++
++    func testProblemRendersNonEmpty() {
++        XCTAssertTrue(nonEmpty(render(.problem("No audio — check mic"))))
++    }
++
++    func testNoAudioWarningRendersNonEmpty() {
++        XCTAssertTrue(nonEmpty(render(.recording(level: 0, elapsed: 4, noAudioWarning: true))))
++    }
++
++    func testDifferentLevelsProduceDifferentPixels() {
++        // The meter must actually reflect the input level (not just recording state).
++        let low = render(.recording(level: 0.05, elapsed: 1, noAudioWarning: false))
++        let high = render(.recording(level: 0.95, elapsed: 1, noAudioWarning: false))
++        XCTAssertNotNil(low)
++        XCTAssertNotNil(high)
++        XCTAssertFalse(pixelsEqual(low!, high!), "Meter should render differently for different levels")
++    }
++
++    func testRecordingAndTranscribingDiffer() {
++        let rec = render(.recording(level: 0.5, elapsed: 1, noAudioWarning: false))
++        let trans = render(.transcribing, spinner: 45)
++        XCTAssertNotNil(rec)
++        XCTAssertNotNil(trans)
++        XCTAssertFalse(pixelsEqual(rec!, trans!))
++    }
++
++    private func pixelsEqual(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Bool {
++        guard let da = a.tiffRepresentation, let db = b.tiffRepresentation else { return false }
++        return da == db
++    }
++}
