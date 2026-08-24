@@ -72,7 +72,8 @@ session dir (closed)
  3. TRANSCRIBE        whisper.cpp large-v3-turbo per channel, -oj timestamps (Metal)
  4. MERGE             interleave by time; fold caption speaker NAMES onto far-side segments;
                       compute verification.json
- 5. loro-CORRECTION   P1: identity pass (0 corrections). P4: real corrector, SAME contract.
+ 5. loro-CORRECTION   REAL corrector (P4): curated manglings + guarded fuzzy -> canonical, SAME
+                      contract. Loads loro/entities.json by default; missing file => identity.
  6. EMIT              transcript.md + verification.json; pipeline.status="ready";
                       append _ingest.jsonl (idempotent); RETAIN audio for re-transcription
 ```
@@ -95,10 +96,16 @@ node bin/richos-service.js watch [--zone dir]     # watcher: pipeline trigger + 
 node bin/richos-service.js run <sessionId|dir>    # run the pipeline over one session
 node bin/richos-service.js retranscribe <id> [--model large-v3]   # re-run on retained audio
 node bin/richos-service.js reconcile [--zone dir] # report-only anomaly sweep (never transcribes)
+
+# coordination (P4) — the shared, surface-agnostic ownership authority (§5.4)
+node bin/richos-service.js claim --surface <s> --kind <browser-tab|system|process> \
+     [--process-hint <h>] [--session-id <id>]   # own the call, or stand down (exit 3)? no double-capture
+node bin/richos-service.js failover-scan          # browser-owned calls that went dark -> promotable
+node bin/richos-service.js mark-superseded --dead <id> --by <id>   # close the failover loop
 ```
 
 Env overrides: `RICHOS_DROP_ZONE`, `RICHOS_WHISPER_MODEL` / `RICHOS_MODEL_DIR`, `RICHOS_WHISPER_BIN`,
-`RICHOS_FFMPEG_BIN`, `RICHOS_WHISPER_LANG`, `RICHOS_TRANSCRIPT_SLA_MS`.
+`RICHOS_FFMPEG_BIN`, `RICHOS_WHISPER_LANG`, `RICHOS_TRANSCRIPT_SLA_MS`, `RICHOS_ENTITIES_FILE`.
 
 ---
 
@@ -130,6 +137,8 @@ node test/e2e.mjs        # REAL: build a 2-channel `say` sample → full pipelin
                          #   proves caption fold-in, re-transcribe, captions-only + silent anomalies
 node test/host-e2e.mjs   # REAL: speak Chrome's native-messaging protocol to the host process →
                          #   streamed audio lands byte-exact → pipeline triggered → transcript.md
+node test/coordination-e2e.mjs  # REAL CLI + drop zone: extension owns a call, companion STANDS
+                         #   DOWN (one session, no double); browser crash → companion PROMOTES
 ```
 
 ---
@@ -146,3 +155,30 @@ node test/host-e2e.mjs   # REAL: speak Chrome's native-messaging protocol to the
   on in P1 — it needs live-browser verification and would risk the shipping capture guarantee. The
   Downloads path + `sync/richos-sync.mjs` remain the extension's default until that wiring lands with
   its own browser E2E. The host is fully ready to receive it (proven by `test/host-e2e.mjs`).
+
+---
+
+## P4 update — coordination + real loro-correction (landed)
+
+- **Real loro-correction (in scope, built, measured):** `lib/correct.js` is now the real corrector,
+  not an identity pass. It loads `loro/entities.json` via `lib/entities.js` and fixes mangled
+  names/jargon — curated exact manglings + conservative guarded fuzzy → canonical — at **precision
+  1.0 / recall 1.0** on the planted test set with **zero** false positives on control text
+  (`test/run.js`), and produces a corrected `transcript.md` end-to-end through the real
+  ffmpeg+whisper pipeline (`test/e2e.mjs`). The `correct()` contract shape is unchanged (a body swap).
+  The **loro-memory seam** is `lib/entities.js`: swap the file for a structured queryable loro entity
+  memory there, nothing else changes.
+- **Coordination (in scope, built, proven):** `lib/coordination.js` is the shared, surface-agnostic
+  authority (extension consults it over native messaging via `core/native-host-client.js`; a
+  companion — macOS now, Windows later — consults it via `claim`/`failover-scan` CLI). It guarantees
+  **one session per call** (companion stands down while the extension owns a browser call) and
+  **browser-crash failover** (a dead browser call is marked promotable on disk; a companion
+  supersedes it). Proven by `test/coordination-e2e.mjs` (real CLI + drop zone, no browser/TCC).
+- **Native-messaging-rewire decision — DEFERRED (unchanged from P1):** the extension→service audio
+  transport swap still requires a live-browser E2E to prove safe, which cannot be run here (no live
+  browser on this box). Per the no-half-baked rule it is **NOT flipped on** — the Downloads path
+  remains the extension default, the host + client seam remain fully ready, and P4 adds only the
+  ownership handshake on top of that seam (also fully unit-tested). Flip it on only with its browser E2E.
+- **Deferred to P5 (unchanged):** `large-v3` opt-in tier + repetition guard; per-remote-speaker
+  diarization; the actual per-process tap-exclusion mechanism on the companion (coordination hands
+  back the `excludeProcessHint`; the companion currently defers rather than excludes — honest, stated).

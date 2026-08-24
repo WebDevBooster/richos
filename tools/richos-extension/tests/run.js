@@ -37,6 +37,10 @@ import {
   buildChunkMessage,
   buildCloseMessage,
   chooseSink,
+  SURFACE,
+  CAPTURE_KIND,
+  withBrowserOwnership,
+  buildClaimMessage,
 } from '../core/native-host-client.js';
 
 let passed = 0;
@@ -750,6 +754,31 @@ test('chooseSink falls back to Downloads when the service is unavailable (gracef
   assert.equal(chooseSink({ available: false }), 'downloads');
   assert.equal(chooseSink(null), 'downloads');
   assert.equal(chooseSink({ available: true }), 'native');
+});
+
+// ---------------------------------------------------------------------------------------
+group('coordination handshake seam (P4) — the extension owns browser-tab calls');
+
+test('the extension declares itself the browser-tab surface (matches the service contract enums)', () => {
+  assert.equal(SURFACE, 'chrome-extension');
+  assert.equal(CAPTURE_KIND, 'browser-tab');
+});
+
+test('withBrowserOwnership stamps the ownership handshake block onto a session record', () => {
+  const rec = withBrowserOwnership({ sessionId: 's1', status: 'open' }, { processHint: 'Google Chrome' });
+  assert.equal(rec.sessionId, 's1', 'existing fields are preserved');
+  assert.equal(rec.ownership.ownerSurface, 'chrome-extension');
+  assert.equal(rec.ownership.supersedes, null);
+  assert.equal(rec.ownership.processHint, 'Google Chrome', 'the browser a companion must exclude/defer for');
+});
+
+test('buildClaimMessage asks the shared authority to own a browser-tab call', () => {
+  const msg = buildClaimMessage({ sessionId: 's1', processHint: 'Google Chrome' });
+  assert.equal(msg.type, 'claim');
+  assert.equal(msg.surface, 'chrome-extension');
+  assert.equal(msg.captureKind, 'browser-tab');
+  assert.equal(msg.sessionId, 's1');
+  assert.equal(msg.processHint, 'Google Chrome');
 });
 
 // ---------------------------------------------------------------------------------------

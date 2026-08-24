@@ -17,7 +17,18 @@ import path from 'node:path';
 import { upgradeRecord, CONTRACT_SCHEMA_VERSION, PIPELINE_STATUS, toAbsolute } from '../lib/contract.js';
 import { reconcilePipeline, analyzeSession } from '../lib/reconcile.js';
 import { mergeTranscript, captionSpeakerFor, renderMarkdown, verify, stamp, wordCount } from '../lib/merge.js';
-import { correct } from '../lib/correct.js';
+import { correct, correctText, similarity, levenshtein, normalizeTerm } from '../lib/correct.js';
+import { normalizeEntities, loadEntityMemory } from '../lib/entities.js';
+import {
+  CAPTURE_KIND,
+  preferenceRank,
+  scopesOverlap,
+  decideClaim,
+  findPromotable,
+  buildPromotionOwnership,
+  dedupeOverlapping,
+  sessionDescriptor,
+} from '../lib/coordination.js';
 import { encodeMessage, FrameDecoder } from '../lib/stdio.js';
 import { SessionSink } from '../lib/host-handlers.js';
 import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
@@ -232,6 +243,258 @@ test('correct() does not mutate the caller\'s segments (defensive copy)', () => 
   const out = correct(segs, {});
   out.segments[0].text = 'mutated';
   assert.equal(segs[0].text, 'x');
+});
+
+// ---------------------------------------------------------------------------------------
+group('loro entity memory loader — the correction stage input source (P4)');
+
+test('normalizeEntities keeps valid rows, applies defaults, drops rows with no canonical', () => {
+  const { entities, entitiesVersion } = normalizeEntities({
+    version: 'v1',
+    entities: [
+      { canonical: 'Deepgram', type: 'product', mangled: ['deep graham'] },
+      { canonical: '   ', type: 'product' }, // no real canonical -> dropped
+      { type: 'person' }, // no canonical -> dropped
+      { canonical: 'loro', caseSensitive: true, fuzzy: false },
+    ],
+  });
+  assert.equal(entitiesVersion, 'v1');
+  assert.equal(entities.length, 2);
+  assert.equal(entities[0].fuzzy, true, 'fuzzy defaults true');
+  assert.equal(entities[0].caseSensitive, false, 'caseSensitive defaults false');
+  assert.equal(entities[1].caseSensitive, true);
+  assert.equal(entities[1].fuzzy, false);
+});
+
+test('loadEntityMemory returns an EMPTY memory (never throws) when the file is missing', () => {
+  const mem = loadEntityMemory('/nonexistent/loro/entities.json');
+  assert.deepEqual(mem.entities, []);
+  assert.equal(mem.entitiesVersion, null);
+  assert.equal(mem.source, null);
+});
+
+test('the in-repo loro/entities.json, when present, loads and is well-formed', () => {
+  const mem = loadEntityMemory(); if (mem.source === null) return; // repo default; absent in a clean clone (the missing-file contract is asserted above)
+  assert.ok(typeof mem.entitiesVersion === 'string' && mem.entitiesVersion.length > 0);
+  assert.ok(mem.entities.length >= 5, `expected several curated entities, got ${mem.entities.length}`);
+  assert.ok(mem.entities.every((e) => typeof e.canonical === 'string' && e.canonical.length > 0));
+});
+
+// ---------------------------------------------------------------------------------------
+group('loro-correction (P4 real corrector) — MEASURED precision/recall, no overcorrection');
+
+const CORR_ENTITIES = normalizeEntities({
+  version: 'corrtest-1',
+  entities: [
+    { canonical: 'Deepgram', type: 'product', mangled: ['deep graham'] },
+    { canonical: 'whisper.cpp', type: 'product', mangled: ['whisper c p p'] },
+    { canonical: 'RichOS', type: 'product', mangled: ['rich o s'] },
+    { canonical: 'Rich Hanna', type: 'person', aliases: ['Rich'], mangled: ['rich hand'] },
+    { canonical: 'loro', type: 'product', caseSensitive: true, aliases: ['Loro'], minScore: 0.8 }, // fuzzy target
+    { canonical: 'Karpathy', type: 'person' }, // fuzzy target (no curated mangling)
+  ],
+}).entities;
+
+// Planted manglings + the canonical each MUST become; `method` = the path that should catch it.
+const PLANTED = [
+  { text: 'I tested Deep Graham last week.', expect: 'Deepgram', method: 'curated' },
+  { text: 'We built it on Whisper C P P.', expect: 'whisper.cpp', method: 'curated' },
+  { text: 'The Rich O S dashboard shipped.', expect: 'RichOS', method: 'curated' },
+  { text: 'Rich Hand owns the roadmap.', expect: 'Rich Hanna', method: 'curated' },
+  { text: 'Our memory layer is called Lorow.', expect: 'loro', method: 'fuzzy' }, // NOT curated
+  { text: 'The Karpathi wiki idea seeded it.', expect: 'Karpathy', method: 'fuzzy' }, // NOT curated
+];
+// Controls: ordinary text with words that superficially resemble entities — must NOT change.
+const CONTROLS = [
+  'Take a deep breath before the rich history lesson.',
+  'The ground rules are simple.',
+  'I had granola for breakfast.',
+  'Rich, our CEO, will decide today.',
+  'She went to the room to watch the team.',
+];
+
+test('recall = 1.0 — every planted mangling is corrected to its canonical', () => {
+  let fixed = 0;
+  for (const p of PLANTED) {
+    const r = correctText(p.text, CORR_ENTITIES);
+    const hit = r.corrections.find((c) => c.entity === p.expect);
+    if (hit && r.text.includes(p.expect) && hit.method === p.method) fixed += 1;
+    else console.log(`      recall miss: ${JSON.stringify(p.text)} -> ${JSON.stringify(r.text)}`);
+  }
+  const recall = fixed / PLANTED.length;
+  console.log(`      recall = ${fixed}/${PLANTED.length} = ${recall.toFixed(3)}`);
+  assert.equal(recall, 1, 'all planted manglings corrected by the expected path');
+});
+
+test('precision = 1.0 — zero false positives across planted + control text', () => {
+  let tp = 0;
+  let fp = 0;
+  for (const p of PLANTED) {
+    const r = correctText(p.text, CORR_ENTITIES);
+    for (const c of r.corrections) {
+      if (c.entity === p.expect) tp += 1;
+      else fp += 1;
+    }
+  }
+  for (const text of CONTROLS) {
+    const r = correctText(text, CORR_ENTITIES);
+    fp += r.corrections.length; // ANY correction on control text is a false positive
+    assert.equal(r.text, text, `control text was overcorrected: ${JSON.stringify(text)} -> ${JSON.stringify(r.text)}`);
+  }
+  const precision = tp / (tp + fp || 1);
+  console.log(`      precision = ${tp}/${tp + fp} = ${precision.toFixed(3)} (fp=${fp})`);
+  assert.equal(fp, 0, 'no ordinary word was corrected into an entity');
+  assert.equal(precision, 1);
+});
+
+test('correctText preserves surrounding punctuation on a fuzzy fix (Lorow. -> loro.)', () => {
+  const r = correctText('Our layer is called Lorow.', CORR_ENTITIES);
+  assert.equal(r.text, 'Our layer is called loro.');
+});
+
+test('a caseSensitive entity is not title-cased and an already-correct alias is left alone', () => {
+  const r = correctText('The Loro layer and loro memory are the same.', CORR_ENTITIES);
+  assert.equal(r.text, 'The Loro layer and loro memory are the same.', 'Loro alias + lowercase loro untouched');
+  assert.equal(r.corrections.length, 0);
+});
+
+test('correct() over segments: applied=true, corrections carry segmentIndex, version recorded', () => {
+  const segs = [
+    { startMs: 0, endMs: 2000, text: 'Hi, this is Deep Graham speaking.', speaker: 'others', label: 'Them' },
+    { startMs: 2000, endMs: 4000, text: 'We run on Whisper C P P.', speaker: 'me', label: 'Me' },
+  ];
+  const out = correct(segs, { entities: CORR_ENTITIES, entitiesVersion: 'corrtest-1' });
+  assert.equal(out.applied, true);
+  assert.equal(out.entitiesVersion, 'corrtest-1');
+  assert.equal(out.segments[0].text, 'Hi, this is Deepgram speaking.');
+  assert.equal(out.segments[1].text, 'We run on whisper.cpp.');
+  assert.deepEqual(out.corrections.map((c) => c.segmentIndex).sort(), [0, 1]);
+});
+
+test('applied=true even with zero corrections (the corrector RAN; count says nothing changed)', () => {
+  const segs = [{ startMs: 0, endMs: 1000, text: 'Nothing to fix here at all.', speaker: 'me', label: 'Me' }];
+  const out = correct(segs, { entities: CORR_ENTITIES, entitiesVersion: 'corrtest-1' });
+  assert.equal(out.applied, true);
+  assert.equal(out.corrections.length, 0);
+  assert.equal(out.segments[0].text, 'Nothing to fix here at all.');
+});
+
+test('similarity + levenshtein are sane (fuzzy metric guardrails)', () => {
+  assert.equal(levenshtein('loro', 'loro'), 0);
+  assert.equal(levenshtein('lorow', 'loro'), 1);
+  assert.ok(similarity('deepgramm', 'deepgram') > 0.85);
+  assert.ok(similarity('deep breath', 'deepgram') < 0.7, 'an ordinary phrase is far from the canonical');
+  assert.equal(normalizeTerm('Rich O.S.!'), 'rich o s');
+});
+
+// ---------------------------------------------------------------------------------------
+group('coordination (P4) — one session per call, no double-capture, browser-crash failover');
+
+const T = 2_000_000_000_000;
+function liveExt({ id = 'ext-1', hb = T, hint = 'Google Chrome' } = {}) {
+  return { sessionId: id, surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, processHint: hint, status: 'open', lastHeartbeat: hb };
+}
+
+test('preferenceRank: browser-tab (richest) > process > system (coverage net)', () => {
+  assert.ok(preferenceRank(CAPTURE_KIND.browserTab) > preferenceRank(CAPTURE_KIND.process));
+  assert.ok(preferenceRank(CAPTURE_KIND.process) > preferenceRank(CAPTURE_KIND.system));
+});
+
+test('scopesOverlap: all-system captures everything; a per-app scope only overlaps the same app', () => {
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.system }, { kind: CAPTURE_KIND.browserTab }), true);
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.system }, { kind: CAPTURE_KIND.process, processHint: 'zoom.us' }), true);
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.browserTab, processHint: 'Chrome' }, { kind: CAPTURE_KIND.process, processHint: 'zoom.us' }), false);
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.process, processHint: 'zoom.us' }, { kind: CAPTURE_KIND.process, processHint: 'zoom.us' }), true);
+});
+
+test('THE HANDSHAKE: a companion stands down while the extension owns the browser call (no double)', () => {
+  const decision = decideClaim(
+    { surface: 'desktop-companion-macos', sessionId: 'mac-1', captureKind: CAPTURE_KIND.system },
+    [liveExt()],
+    { now: T + 1000 },
+  );
+  assert.equal(decision.decision, 'stand-down');
+  assert.equal(decision.conflictSessionId, 'ext-1');
+  assert.equal(decision.excludeProcessHint, 'Google Chrome', 'hands back the browser process to exclude');
+});
+
+test('a companion OWNS a desktop-app call the extension is not capturing (no browser session live)', () => {
+  const decision = decideClaim(
+    { surface: 'desktop-companion-macos', sessionId: 'mac-2', captureKind: CAPTURE_KIND.process, processHint: 'zoom.us' },
+    [liveExt()], // extension owns a browser tab — different app, no overlap
+    { now: T + 1000 },
+  );
+  assert.equal(decision.decision, 'own');
+});
+
+test('a STALE extension session is not a live conflict — the companion may own', () => {
+  const decision = decideClaim(
+    { surface: 'desktop-companion-macos', sessionId: 'mac-3', captureKind: CAPTURE_KIND.system },
+    [liveExt({ hb: T })],
+    { now: T + 60000 }, // 60 s later: the extension session is stale
+  );
+  assert.equal(decision.decision, 'own');
+});
+
+test('the richer surface wins if it arrives late: extension supersedes a live all-system companion', () => {
+  const liveMac = { sessionId: 'mac-4', surface: 'desktop-companion-macos', captureKind: CAPTURE_KIND.system, status: 'open', lastHeartbeat: T };
+  const decision = decideClaim(
+    { surface: 'chrome-extension', sessionId: 'ext-late', captureKind: CAPTURE_KIND.browserTab, processHint: 'Chrome' },
+    [liveMac],
+    { now: T + 1000 },
+  );
+  assert.equal(decision.decision, 'own');
+  assert.deepEqual(decision.supersede, ['mac-4']);
+});
+
+test('FAILOVER: an interrupted browser call (crash) is promotable; a fresh one is not', () => {
+  const now = T + 5000;
+  const sessions = [
+    { sessionId: 'ext-dead', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, processHint: 'Chrome', status: 'interrupted', lastHeartbeat: T, hasTranscript: false },
+    { sessionId: 'ext-live', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, status: 'open', lastHeartbeat: now, hasTranscript: false },
+  ];
+  const promotable = findPromotable(sessions, { now });
+  assert.equal(promotable.length, 1);
+  assert.equal(promotable[0].sessionId, 'ext-dead');
+  const ownership = buildPromotionOwnership({ deadSessionId: 'ext-dead', surface: 'desktop-companion-macos', processHint: 'Chrome' });
+  assert.equal(ownership.supersedes, 'ext-dead');
+  assert.equal(ownership.ownerSurface, 'desktop-companion-macos');
+});
+
+test('FAILOVER: a stale-open owner past the promote threshold is promotable; already-superseded is not', () => {
+  const now = T + 20000;
+  const sessions = [
+    { sessionId: 'ext-hung', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, status: 'open', lastHeartbeat: T, hasTranscript: false },
+    { sessionId: 'ext-taken', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, status: 'interrupted', lastHeartbeat: T, hasTranscript: false, supersededBy: 'mac-x' },
+  ];
+  const promotable = findPromotable(sessions, { now, promoteAfterMs: 12000 });
+  assert.deepEqual(promotable.map((p) => p.sessionId), ['ext-hung']);
+});
+
+test('pipeline dedup backstop: two overlapping sessions keep the richer (captions) one', () => {
+  const { keep, shadow } = dedupeOverlapping(
+    [
+      { sessionId: 'ext-rich', captureKind: CAPTURE_KIND.browserTab, captionCount: 12, startedAt: T, endedAt: T + 600000 },
+      { sessionId: 'mac-plain', captureKind: CAPTURE_KIND.system, captionCount: 0, startedAt: T + 1000, endedAt: T + 600000 },
+    ],
+    { minOverlapMs: 30000 },
+  );
+  assert.deepEqual(keep, ['ext-rich']);
+  assert.equal(shadow.length, 1);
+  assert.equal(shadow[0].sessionId, 'mac-plain');
+  assert.equal(shadow[0].preferredSessionId, 'ext-rich');
+});
+
+test('sessionDescriptor maps a companion record to a system-scope descriptor with its heartbeat', () => {
+  const rec = {
+    sessionId: 'mac-9', status: 'open', startedAt: T,
+    capture: { source: 'desktop-companion-macos', captureTarget: 'system' },
+    ownership: { ownerSurface: 'desktop-companion-macos', processHint: null },
+  };
+  const d = sessionDescriptor(rec, { lastHeartbeat: T + 3000, hasTranscript: false });
+  assert.equal(d.captureKind, CAPTURE_KIND.system);
+  assert.equal(d.surface, 'desktop-companion-macos');
+  assert.equal(d.lastHeartbeat, T + 3000);
 });
 
 // ---------------------------------------------------------------------------------------

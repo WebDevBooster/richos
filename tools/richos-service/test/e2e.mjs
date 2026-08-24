@@ -157,8 +157,9 @@ const rec = readRecord(sessionDir);
 check('session.json upgraded to schemaVersion 2', rec.schemaVersion === 2);
 check('pipeline.status = ready in session.json', rec.pipeline.status === 'ready');
 check('modelRuns records the run + model', rec.pipeline.modelRuns.length === 1 && rec.pipeline.model === 'large-v3-turbo');
-check('loro-correction seam ran as identity pass (applied=false, 0 corrections)',
-  rec.pipeline.loroCorrection.applied === false && rec.pipeline.loroCorrection.corrections === 0);
+check('loro-correction (P4) ran with loro entity memory (applied=true, entitiesVersion recorded)',
+  rec.pipeline.loroCorrection.applied === true && typeof rec.pipeline.loroCorrection.entitiesVersion === 'string',
+  `applied=${rec.pipeline.loroCorrection.applied} version=${rec.pipeline.loroCorrection.entitiesVersion}`);
 
 check('ingest ledger has a line for this session', fs.existsSync(ingestLedgerPath(zone)) &&
   fs.readFileSync(ingestLedgerPath(zone), 'utf8').includes(sessionId));
@@ -184,6 +185,34 @@ const ledgerLines = fs.readFileSync(ingestLedgerPath(zone), 'utf8').split(/\n/).
   .map((l) => JSON.parse(l)).filter((r) => r.sessionId === sessionId);
 check('ledger has two run rows for the session (runIndex 0 and 1)',
   ledgerLines.length === 2 && ledgerLines.map((r) => r.runIndex).sort().join(',') === '0,1');
+
+// ---- 3b) loro-correction END-TO-END: a real mangling is fixed in transcript.md ----------------
+// Deterministic regardless of what the ASR produced: pick a real word from the just-produced
+// transcript, declare it a "mangling" of a canonical entity, then re-run the FULL pipeline with that
+// loro entity memory injected — and prove the regenerated transcript.md carries the corrected term.
+if (canSay && md.trim()) {
+  console.log('\n--- loro-correction end-to-end (inject an entity, re-run the real pipeline) ---');
+  // Only mine words from SPOKEN segment lines (`**[mm:ss] Label:** text`), never the header.
+  const spoken = md.split(/\r?\n/).filter((l) => /^\*\*\[\d/.test(l)).map((l) => l.replace(/^\*\*\[[^\]]*\]\s[^:]*:\*\*\s?/, '')).join(' ');
+  const candidates = (spoken.match(/[A-Za-z]{5,}/g) || []);
+  const pick = candidates[0];
+  check('found a transcript word to use as an injected mangling', !!pick, `pick=${pick}`);
+  if (pick) {
+    const CANON = 'Zeta Corrected Term';
+    const entityMemory = { entitiesVersion: 'e2e-inject-1', entities: [{ canonical: CANON, type: 'jargon', aliases: [], mangled: [pick.toLowerCase()], fuzzy: false, caseSensitive: false, minScore: null }] };
+    const cr = runPipeline(sessionDir, { zone, retranscribe: true, entityMemory, now: T0 + 15 * 60 * 1000 });
+    check('injected-entity re-run reached READY', cr.status === 'ready', JSON.stringify(cr.problems || ''));
+    const cmd = fs.readFileSync(transcriptPath, 'utf8');
+    // The canonical must appear in a SPOKEN line (correction rewrites segment text, not speaker labels).
+    const spokenAfter = cmd.split(/\r?\n/).filter((l) => /^\*\*\[\d/.test(l)).join('\n');
+    check(`the mangling "${pick}" was corrected to "${CANON}" in the regenerated transcript.md`, spokenAfter.includes(CANON),
+      `spoken contains canonical=${spokenAfter.includes(CANON)}`);
+    const crec = readRecord(sessionDir);
+    check('session.json records the injected loro-correction (applied + count + version)',
+      crec.pipeline.loroCorrection.applied === true && crec.pipeline.loroCorrection.corrections > 0 && crec.pipeline.loroCorrection.entitiesVersion === 'e2e-inject-1',
+      JSON.stringify(crec.pipeline.loroCorrection));
+  }
+}
 
 // ---- 4) Anomaly A: captured-but-no-audio (captions only) is LOUD, no transcript ---------------
 console.log('\n--- anomaly A: captions-but-no-audio ---');
