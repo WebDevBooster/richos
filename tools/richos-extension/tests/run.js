@@ -31,6 +31,13 @@ import { CORE_DEFAULTS } from '../core/constants.js';
 import { CaptionAggregator } from '../modules/call-capture/captions/caption-dedup.js';
 import { analyzeSession } from '../sync/reconcile.js';
 import { extractCaptionRows } from '../modules/call-capture/captions/meet.js';
+import {
+  NATIVE_HOST_ID,
+  buildStartMessage,
+  buildChunkMessage,
+  buildCloseMessage,
+  chooseSink,
+} from '../core/native-host-client.js';
 
 let passed = 0;
 const failures = [];
@@ -715,6 +722,34 @@ test('evaluateCaptionsOnlyHealth NEVER returns green — amber (degraded) or red
     const level = evaluateCaptionsOnlyHealth(scenario, T0).level;
     assert.ok(level === 'amber' || level === 'red', `unexpected level "${level}" for ${JSON.stringify(scenario)}`);
   }
+});
+
+// ---------------------------------------------------------------------------------------
+group('native-host client seam — the local service transport, with a Downloads fallback');
+
+test('the host id matches the service manifest name (com.richos.host)', () => {
+  assert.equal(NATIVE_HOST_ID, 'com.richos.host');
+});
+
+test('message builders produce the exact shapes the service host-handlers consume', () => {
+  const start = buildStartMessage({ sessionId: 's1', status: 'open' });
+  assert.equal(start.type, 'session-start');
+  assert.equal(start.record.sessionId, 's1');
+  assert.equal(start.audioExt, 'webm');
+
+  const chunk = buildChunkMessage('s1', 0, 'QUJD');
+  assert.deepEqual(chunk, { type: 'audio-chunk', sessionId: 's1', part: 0, ext: 'webm', dataB64: 'QUJD' });
+
+  const close = buildCloseMessage('s1', { endedAt: 123 });
+  assert.equal(close.type, 'session-close');
+  assert.equal(close.sessionId, 's1');
+  assert.equal(close.record.endedAt, 123);
+});
+
+test('chooseSink falls back to Downloads when the service is unavailable (graceful degrade)', () => {
+  assert.equal(chooseSink({ available: false }), 'downloads');
+  assert.equal(chooseSink(null), 'downloads');
+  assert.equal(chooseSink({ available: true }), 'native');
 });
 
 // ---------------------------------------------------------------------------------------
