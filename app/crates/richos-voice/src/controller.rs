@@ -139,15 +139,124 @@ impl Default for VoiceOptions {
 
 /// Messages from the audio callback to the supervisor. Small and allocation-light except for
 /// `Utterance`, which is the whole point and happens once per sentence the CEO speaks.
-enum CapMsg {
+#[derive(Debug)]
+pub enum CapMsg {
     /// The CEO started talking. `tainted` = it began while Rich was audible.
     Started { tainted: bool },
     /// An utterance completed and is worth recognising.
     Utterance(Box<Utterance>),
     /// An utterance completed but was discarded (too short, or tainted echo).
     Discarded { tainted: bool },
-    /// The CEO talked over Rich for the full debounce.
+    /// The CEO talked over Rich for the full debounce, or hit "tap to stop".
     BargeIn,
+}
+
+/// Everything the audio callback decides, in one place, with no I/O and no locks.
+///
+/// The callback is a THIN adapter over this: it hands over a frame plus two booleans and
+/// forwards whatever comes back. That split exists so the barge-in/taint/endpointing
+/// COMPOSITION is unit-testable — testing the monitor and the recorder separately would
+/// leave the wiring between them (which is where the bugs live) untested.
+pub struct CaptureBrain {
+    vad: Vad,
+    recorder: UtteranceRecorder,
+    monitor: BargeInMonitor,
+    was_recording: bool,
+    /// This utterance began while Rich was audible: echo until proven otherwise.
+    tainted: bool,
+    /// A barge-in fired during the current utterance, which proves it is NOT echo.
+    barged: bool,
+}
+
+impl Default for CaptureBrain {
+    fn default() -> Self {
+        CaptureBrain::new()
+    }
+}
+
+impl CaptureBrain {
+    pub fn new() -> Self {
+        CaptureBrain {
+            vad: Vad::default(),
+            recorder: UtteranceRecorder::new(),
+            monitor: BargeInMonitor::default(),
+            was_recording: false,
+            tainted: false,
+            barged: false,
+        }
+    }
+
+    /// Live input level 0..1 for the UI meter.
+    pub fn level(&self) -> f32 {
+        self.vad.level()
+    }
+
+    /// Consecutive speech frames counted toward an interruption — the diagnostic that makes
+    /// "why didn't it barge in" answerable.
+    pub fn barge_run_frames(&self) -> u32 {
+        self.monitor.run_frames()
+    }
+
+    /// One exact VAD frame. `speaking` = Rich currently has audio playing. `forced` = the UI's
+    /// "tap to stop" was pressed since the last frame.
+    pub fn push_frame(&mut self, frame: &[f32], speaking: bool, forced: bool) -> Vec<CapMsg> {
+        let mut out = Vec::new();
+        let is_speech = self.vad.push_frame(frame);
+
+        // The monitor only counts while Rich is audible: speech during his silence is an
+        // ordinary utterance, not an interruption.
+        if speaking != self.monitor.is_armed() {
+            if speaking {
+                self.monitor.arm();
+            } else {
+                self.monitor.disarm();
+            }
+        }
+
+        // "Tap to stop" is AUTHORITATIVE and bypasses the debounce entirely. Routing it
+        // through here (rather than only through the playout queue) is what clears the taint,
+        // so the words the CEO is saying right now become the next turn instead of being
+        // thrown away as echo.
+        if forced {
+            self.monitor.disarm();
+        }
+        if forced || self.monitor.push(is_speech) {
+            self.barged = true;
+            self.tainted = false;
+            out.push(CapMsg::BargeIn);
+        }
+
+        let finished = self.recorder.push_frame(frame, is_speech);
+        let recording = self.recorder.is_recording();
+        let started = recording && !self.was_recording;
+        let stopped = !recording && self.was_recording;
+        self.was_recording = recording;
+
+        if started {
+            self.tainted = speaking && !self.barged;
+            out.push(CapMsg::Started { tainted: self.tainted });
+        }
+
+        if let Some(utterance) = finished {
+            if self.tainted && !self.barged {
+                out.push(CapMsg::Discarded { tainted: true });
+            } else {
+                out.push(CapMsg::Utterance(Box::new(utterance)));
+            }
+            self.tainted = false;
+            self.barged = false;
+        } else if stopped {
+            // Recording ended without an utterance: too short to be a sentence (a cough, a
+            // chair). Never reaches whisper, never reaches the CEO.
+            out.push(CapMsg::Discarded { tainted: self.tainted });
+            self.tainted = false;
+            self.barged = false;
+        } else if !speaking && !recording {
+            // Rich has fallen silent and nothing is in flight: forget the interruption.
+            self.barged = false;
+        }
+        out
+    }
 }
 
 /// A sentence handed to the speaker thread, tagged with the generation it belongs to so a
@@ -226,15 +335,13 @@ impl VoiceController {
         let force_barge = Arc::new(AtomicBool::new(false));
 
         // ---- the audio capture callback ------------------------------------------------
+        // A THIN adapter over CaptureBrain: no locks, no allocation beyond the frame copy the
+        // echo gate needs, and no UI events. All the decisions live in CaptureBrain, which is
+        // unit-tested as a whole (tests/barge_in_composition.rs).
         let cb_shared = shared.clone();
         let cb_gate = gate.clone();
         let cb_force = force_barge.clone();
-        let mut vad = Vad::default();
-        let mut recorder = UtteranceRecorder::new();
-        let mut monitor = BargeInMonitor::default();
-        let mut was_recording = false;
-        let mut tainted = false;
-        let mut barged_this_utterance = false;
+        let mut brain = CaptureBrain::new();
         let mut frame_buf = vec![0.0f32; crate::vad::VAD_FRAME_SAMPLES];
 
         let capture = capture::start(&opts.source, move |frame| {
@@ -245,62 +352,12 @@ impl VoiceController {
                 g.process_capture(&mut frame_buf);
             }
 
-            let is_speech = vad.push_frame(&frame_buf);
-            cb_shared.set_level(vad.level());
-
             let speaking = cb_shared.speaking.load(Ordering::Relaxed);
-            if speaking != monitor.is_armed() {
-                if speaking {
-                    monitor.arm();
-                } else {
-                    monitor.disarm();
-                }
-            }
-            // The UI's "tap to stop" is AUTHORITATIVE and bypasses the monitor entirely.
-            // Routing it through the audio thread (rather than only through the playout
-            // queue) is what clears the taint flag, so the words the CEO is saying right now
-            // become the next turn instead of being discarded as echo.
             let forced = cb_force.swap(false, Ordering::Relaxed);
-            if forced {
-                monitor.disarm();
+            for msg in brain.push_frame(&frame_buf, speaking, forced) {
+                let _ = cap_tx.send(msg);
             }
-            if forced || monitor.push(is_speech) {
-                barged_this_utterance = true;
-                tainted = false;
-                let _ = cap_tx.send(CapMsg::BargeIn);
-            }
-
-            let out = recorder.push_frame(&frame_buf, is_speech);
-            let recording = recorder.is_recording();
-            let started = recording && !was_recording;
-            let stopped = !recording && was_recording;
-            was_recording = recording;
-
-            if started {
-                // An utterance that BEGINS while Rich is audible is echo until proven
-                // otherwise. See the module docs: this is the no-AEC interim.
-                tainted = speaking && !barged_this_utterance;
-                let _ = cap_tx.send(CapMsg::Started { tainted });
-            }
-
-            if let Some(utterance) = out {
-                if tainted && !barged_this_utterance {
-                    let _ = cap_tx.send(CapMsg::Discarded { tainted: true });
-                } else {
-                    let _ = cap_tx.send(CapMsg::Utterance(Box::new(utterance)));
-                }
-                tainted = false;
-                barged_this_utterance = false;
-            } else if stopped {
-                // Recording ended without producing an utterance: too short to be a sentence
-                // (a cough, a chair). Never reaches whisper, never reaches the CEO.
-                let _ = cap_tx.send(CapMsg::Discarded { tainted });
-                tainted = false;
-                barged_this_utterance = false;
-            } else if !speaking && !recording {
-                // Rich has fallen silent and nothing is in flight: forget the interruption.
-                barged_this_utterance = false;
-            }
+            cb_shared.set_level(brain.level());
         })
         .map_err(VoiceStartError::Capture)?;
 
