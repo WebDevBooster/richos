@@ -243,6 +243,25 @@ mod tests {
         assert_eq!(m.state(), VoiceState::Hearing);
     }
 
+    /// INVARIANT: cutting Rich off WITHOUT saying anything returns to Listening. `barge_in`
+    /// optimistically assumes the CEO is mid-sentence (a debounce barge-in always is), so a
+    /// silent "tap to stop" must be followed by `utterance_ended` — otherwise the panel sits
+    /// in Hearing forever with no utterance coming to clear it. Caught by a LIVE barge-in
+    /// run on the real output device, 2026-08-24.
+    #[test]
+    fn tapping_stop_without_saying_anything_returns_to_listening() {
+        let mut m = VoiceStateMachine::new();
+        m.start();
+        m.turn_started();
+        m.playout_started();
+        assert!(m.barge_in());
+        assert_eq!(m.state(), VoiceState::Hearing, "barge_in assumes he is talking");
+        m.utterance_ended(); // …he wasn't.
+        m.turn_ended();
+        m.playout_drained();
+        assert_eq!(m.state(), VoiceState::Listening, "stuck in Hearing with nothing to end it");
+    }
+
     /// INVARIANT: barge-in cannot double-fire, so one interruption can never cut two turns.
     #[test]
     fn barge_in_cannot_double_fire() {

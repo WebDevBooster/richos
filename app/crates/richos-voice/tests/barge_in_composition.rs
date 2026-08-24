@@ -36,7 +36,7 @@ impl Tone {
 }
 
 fn is_barge(m: &CapMsg) -> bool {
-    matches!(m, CapMsg::BargeIn)
+    matches!(m, CapMsg::BargeIn { .. })
 }
 fn is_utterance(m: &CapMsg) -> bool {
     matches!(m, CapMsg::Utterance(_))

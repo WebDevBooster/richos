@@ -147,8 +147,13 @@ pub enum CapMsg {
     Utterance(Box<Utterance>),
     /// An utterance completed but was discarded (too short, or tainted echo).
     Discarded { tainted: bool },
-    /// The CEO talked over Rich for the full debounce, or hit "tap to stop".
-    BargeIn,
+    /// Rich was cut off — either by the full debounce, or by "tap to stop".
+    ///
+    /// `mid_utterance` says whether the CEO is actually talking at that instant. A debounce
+    /// barge-in always is (that is what fired it); a "tap to stop" often is NOT — he can hit
+    /// the button in silence. Without this the state machine would be told "he is talking"
+    /// and, with no utterance to end, would sit in `Hearing` forever.
+    BargeIn { mid_utterance: bool },
 }
 
 /// Everything the audio callback decides, in one place, with no I/O and no locks.
@@ -223,7 +228,7 @@ impl CaptureBrain {
         if forced || self.monitor.push(is_speech) {
             self.barged = true;
             self.tainted = false;
-            out.push(CapMsg::BargeIn);
+            out.push(CapMsg::BargeIn { mid_utterance: self.recorder.is_recording() });
         }
 
         let finished = self.recorder.push_frame(frame, is_speech);
@@ -610,12 +615,17 @@ fn supervise(
                         eprintln!("[richos-voice] discarded audio captured while Rich was speaking (no AEC)");
                     }
                 }
-                Ok(CapMsg::BargeIn) => {
+                Ok(CapMsg::BargeIn { mid_utterance }) => {
                     let dropped = playout.stop_now();
                     shared.generation.fetch_add(1, Ordering::Relaxed);
                     shared.speaking.store(false, Ordering::Relaxed);
                     if let Ok(mut m) = machine.lock() {
                         m.barge_in();
+                        if !mid_utterance {
+                            // He cut Rich off without saying anything — there is no utterance
+                            // to end, so clear `hearing` now or the panel sits in it forever.
+                            m.utterance_ended();
+                        }
                     }
                     eprintln!(
                         "[richos-voice] barge-in: cut Rich, dropped {dropped} samples ({:.3} s of queued speech)",
@@ -744,6 +754,88 @@ mod tests {
         // …the CEO interrupts while `say` is running…
         gen.fetch_add(1, Ordering::Relaxed);
         assert_ne!(queued_at, gen.load(Ordering::Relaxed), "stale audio would have played");
+    }
+
+    /// LIVE (opt-in): a MEASURED barge-in on the real output device. Rich starts talking for
+    /// real, gets cut, and the numbers are checked — dropped audio, an empty queue that stays
+    /// empty, and a stop latency of one device callback period.
+    ///
+    /// Behind RICHOS_VOICE_LIVE_AUDIO=1 because this one is genuinely audible: about a second
+    /// of Rich's voice comes out of the speakers before it is cut.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn live_barge_in_actually_silences_the_real_output_device() {
+        if std::env::var("RICHOS_VOICE_LIVE_AUDIO").as_deref() != Ok("1") {
+            return;
+        }
+        let dir = std::env::temp_dir().join("richos-voice-barge-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A silent "microphone": the capture path runs for real, it just hears nothing, so
+        // this test isolates the INTERRUPTION from the recognition.
+        let quiet = dir.join("quiet.wav");
+        crate::wav::write_pcm16_mono(&quiet, &vec![0.0f32; 16_000], crate::vad::SAMPLE_RATE).unwrap();
+
+        let observer = Arc::new(Recorder::default());
+        let ctl = VoiceController::start(
+            VoiceOptions { source: AudioSource::Wav(quiet), scratch_dir: dir.clone() },
+            observer.clone(),
+            Arc::new(|_t: String| {}),
+        )
+        .expect("voice mode should start");
+
+        // Rich says something long enough to be worth interrupting.
+        ctl.turn_started();
+        ctl.speak_delta(
+            "Three things this morning. Acme came back on the renegotiation and the number is \
+             softer than it looks. Finance found a gap in the Q4 forecast. Partnerships want a \
+             call about the economics before Thursday. ",
+        );
+        ctl.speak_end();
+        ctl.turn_ended();
+
+        // Wait until there is real audio worth interrupting. The FIRST sentence alone is only
+        // ~1.3 s — the queue keeps growing behind it because synthesis outruns playback
+        // (rtf ~0.074), which is the pipelining working, so wait for the depth rather than
+        // for the first sample.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while ctl.queued_speech_secs() <= 2.0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let queued_before = ctl.queued_speech_secs();
+        assert!(queued_before > 2.0, "Rich never got going: {queued_before:.3} s queued");
+
+        // Let him actually be audible for a beat, then cut him.
+        std::thread::sleep(Duration::from_millis(900));
+        let cut_at = Instant::now();
+        let dropped = ctl.force_barge_in();
+        let cut_took = cut_at.elapsed();
+
+        let rate = ctl.diagnostics().output_rate as f32;
+        let dropped_secs = dropped as f32 / rate;
+        let stop_latency = ctl.stop_latency_secs();
+        println!(
+            "barge-in: dropped {} samples = {:.3} s of Rich; call took {:.4} s; device stop latency {:.4} s ({} frames @ {} Hz)",
+            dropped,
+            dropped_secs,
+            cut_took.as_secs_f32(),
+            stop_latency,
+            (stop_latency * rate).round() as u32,
+            rate as u32
+        );
+
+        assert!(dropped_secs > 1.0, "nothing meaningful was cut: {dropped_secs:.3} s");
+        assert!(
+            stop_latency > 0.0 && stop_latency < 0.100,
+            "stop latency implausible: {stop_latency:.4} s"
+        );
+        // The device must genuinely fall silent and STAY silent — a queue that refills would
+        // mean a sentence synthesised across the cut still got through.
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(ctl.queued_speech_secs(), 0.0, "Rich started talking again after being cut");
+        assert_eq!(ctl.state(), VoiceState::Listening, "state did not return to listening");
+
+        drop(ctl);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// LIVE: the full local loop with audio INJECTED at the capture source — real VAD, real
