@@ -41,6 +41,9 @@ app/
     examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
     tests/spine_tests.rs     12 spine invariant tests (no live Claude needed)
     tests/rotation_tests.rs  12 rotation/crash-recovery/proactive-seam tests
+    tests/action_ledger_tests.rs 14 action-ledger WRITER tests (the ledger is non-empty
+                              at runtime; CEO-facing actions cross a rotation; machinery
+                              stays out of every priming prompt)
   crates/richos-voice/       VOICE MODE — mic -> whisper -> the spine -> TTS -> speakers
     src/vad.rs               RMS VAD + THE FRAME MATH (16000 Hz, 256-sample frames = 16.000 ms)
     src/bargein.rs           313-frame (5.008 s) debounce + the EchoGate AEC seam (v1: none)
@@ -72,10 +75,10 @@ dependency, so the shell always builds against the same spine.
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 37/37 green
+cargo test -p richos-core                       # 51/51 green
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 103/103 green
+cargo test -p richos-voice                      # 121/121 green
 RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # + the audible live tests
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 

@@ -18,7 +18,7 @@
 //! while a TURN, not a rotation, is in flight).
 
 use crate::cognition::{Cognition, CognitionError, LeaseFactory};
-use crate::ledger::{AttentionTier, Ledger, LedgerError, Message, Source};
+use crate::ledger::{ActionStatus, ActionVisibility, AttentionTier, Ledger, LedgerError, Message, Source};
 use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
@@ -243,6 +243,25 @@ impl Spine {
         // Durable regardless of tier or turn state — once Rich has "said" something
         // (even if Silent never renders it), it must survive a crash immediately after.
         let turn_id = self.ledger.record_proactive_message(&thread_id, tier, text)?;
+
+        // ACTION LEDGER (continuity §5.4 / §6.1): raising a proactive message is the one
+        // genuinely CEO-FACING thing this app does on its own initiative today — Rich
+        // reached out unprompted. Recording it is what makes the re-prime's
+        // "ground truth for what Rich has done" claim TRUE rather than aspirational:
+        //   - a successor can never deny having flagged something (false attribution), and
+        //   - a successor can never re-raise the same thing (double execution), which for
+        //     Tier 3/Silent is otherwise UNKNOWABLE — a Silent message has no render path
+        //     at all (`messages()` skips it), so outside the action ledger there is no
+        //     surface on which a successor could ever learn it already happened.
+        // Recorded `Completed`, not `Claimed`: the durable, fsync'd ProactiveMessage
+        // event above IS the execution — there is no second phase that could fail.
+        self.ledger.record_action_with(
+            Some(&turn_id),
+            "proactive_message",
+            &format!("[{}] {}", tier.as_str(), text),
+            ActionVisibility::CeoFacing,
+            ActionStatus::Completed,
+        )?;
 
         if tier != AttentionTier::Silent {
             if self.turn_in_progress {
@@ -503,8 +522,28 @@ impl Spine {
     /// in place — it stays in the ledger as the durable crash record) so the CEO sees
     /// ONE clean exchange, not a duplicate.
     fn recover_and_replay(&mut self, failed_turn_id: &str, thread_id: &str, original_text: &str) -> Result<(), SpineError> {
-        let factory = self.lease_factory.as_ref().ok_or(SpineError::NoLeaseFactory)?;
-        let fresh = factory.spawn()?; // honest failure if e.g. Claude isn't signed in
+        if self.lease_factory.is_none() {
+            return Err(SpineError::NoLeaseFactory);
+        }
+        // CLAIM-THEN-EXECUTE (§6.4), Internal visibility: written BEFORE the respawn, so
+        // a crash inside recovery itself leaves a durable `claimed` record instead of
+        // nothing. Internal because crash recovery is machinery the successor is under
+        // standing orders never to reference (§6.2) — see `ledger::ActionVisibility`.
+        let recovery_action = self.ledger.record_action_with(
+            None,
+            "crash_recovery",
+            &format!("replay interrupted turn {failed_turn_id} on a fresh lease; thread={thread_id}"),
+            ActionVisibility::Internal,
+            ActionStatus::Claimed,
+        )?;
+        let spawned = self.lease_factory.as_ref().unwrap().spawn(); // honest failure if e.g. Claude isn't signed in
+        let fresh = match spawned {
+            Ok(f) => f,
+            Err(e) => {
+                self.ledger.update_action(&recovery_action, ActionStatus::Failed)?;
+                return Err(e.into());
+            }
+        };
         let from_session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_else(|| "crashed".to_string());
         let to_session = fresh.session_id().to_string();
 
@@ -518,7 +557,12 @@ impl Spine {
 
         let replay_turn_id = self.ledger.record_prompt_received(thread_id, original_text, Source::Text)?;
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
-        self.deliver(&replay_turn_id, thread_id, original_text, false)
+        let outcome = self.deliver(&replay_turn_id, thread_id, original_text, false);
+        self.ledger.update_action(
+            &recovery_action,
+            if outcome.is_ok() { ActionStatus::Completed } else { ActionStatus::Failed },
+        )?;
+        outcome
     }
 
     /// App-owned CLEAN rotation at a turn boundary (continuity §3.3). Only ever called
@@ -528,6 +572,20 @@ impl Spine {
         if self.lease_factory.is_none() {
             return Err(SpineError::NoLeaseFactory);
         }
+
+        // CLAIM-THEN-EXECUTE (§6.4), Internal visibility. Claimed at the very TOP so the
+        // claim covers the whole operation (handoff-summary ask -> spawn -> re-prime ->
+        // swap); a crash anywhere inside leaves a durable `claimed` rotation rather than
+        // silence, and a rotation that FAILS to spawn is now a recorded fact instead of
+        // an error that vanishes on return. `turn_id: None` — rotation happens AT a turn
+        // boundary, between turns; there is no turn it honestly belongs to.
+        let rotation_action = self.ledger.record_action_with(
+            None,
+            "session_rotation",
+            &format!("reason={reason}; thread={thread_id}"),
+            ActionVisibility::Internal,
+            ActionStatus::Claimed,
+        )?;
 
         // Step 1: ask the OUTGOING session for a self-authored handoff summary — one
         // cheap internal turn, never rendered (§2.4). Best-effort: a failure here is NOT
@@ -544,7 +602,16 @@ impl Spine {
         // Step 4: spawn the fresh child BEFORE tearing down the old one, so a spawn
         // failure leaves the CEO on the still-working outgoing lease instead of
         // stranding the conversation lease-less.
-        let mut fresh = self.lease_factory.as_ref().unwrap().spawn()?;
+        let spawned = self.lease_factory.as_ref().unwrap().spawn();
+        let mut fresh = match spawned {
+            Ok(f) => f,
+            Err(e) => {
+                // The CEO stays on the still-working outgoing lease (see the comment
+                // above); the failed rotation is now durable rather than invisible.
+                self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
+                return Err(e.into());
+            }
+        };
         let from_session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_default();
         let to_session = fresh.session_id().to_string();
 
@@ -560,8 +627,27 @@ impl Spine {
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(thread_id, "[re-prime:rotation]", Source::Internal);
 
-        // Step 5: inject the re-prime payload as an internal priming turn.
-        fresh.reprime(&priming)?;
+        // Step 5: inject the re-prime payload as an internal priming turn — itself a
+        // recorded (Internal) action, because "the successor WAS primed" is the single
+        // fact the whole anti-false-attribution guarantee rests on. `priming_chars` is
+        // measured (`priming.len()`), never asserted.
+        let reprime_action = self.ledger.record_action_with(
+            None,
+            "session_reprime",
+            &format!(
+                "thread={thread_id}; session={to_session}; priming_chars={}; ceo_facing_actions={}",
+                priming.len(),
+                payload.action_ledger_digest.len()
+            ),
+            ActionVisibility::Internal,
+            ActionStatus::Claimed,
+        )?;
+        if let Err(e) = fresh.reprime(&priming) {
+            self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
+            self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
+            return Err(e.into());
+        }
+        self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
 
         // Steps 6/7: swap. The OLD lease (replaced here) is dropped — its `Drop` impl
         // (see `acp::AcpClient`) kills + waits on the child process, so exactly one live
@@ -572,6 +658,7 @@ impl Spine {
         self.context_chars = priming.len(); // reset the watermark baseline to the new payload
 
         self.ledger.record_rotation(&from_session, &to_session, reason)?;
+        self.ledger.update_action(&rotation_action, ActionStatus::Completed)?;
         self.rotation_count += 1;
         self.last_rotation_reason = Some(reason.to_string());
         Ok(())
@@ -626,9 +713,30 @@ impl Spine {
         let priming = payload.to_priming_prompt();
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(thread_id, "[re-prime]", Source::Internal);
-        if let Some(lease) = self.lease.as_mut() {
-            lease.reprime(&priming)?;
+        // ... and as an Internal ACTION, claim-then-execute: this is the first-attach
+        // priming path (boot, or a lease attached with no factory), the counterpart of
+        // the rotation path's own `session_reprime` record.
+        let session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_default();
+        let reprime_action = self.ledger.record_action_with(
+            None,
+            "session_reprime",
+            &format!(
+                "thread={thread_id}; session={session}; priming_chars={}; ceo_facing_actions={}",
+                priming.len(),
+                payload.action_ledger_digest.len()
+            ),
+            ActionVisibility::Internal,
+            ActionStatus::Claimed,
+        )?;
+        let primed = match self.lease.as_mut() {
+            Some(lease) => lease.reprime(&priming),
+            None => Ok(()),
+        };
+        if let Err(e) = primed {
+            self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
+            return Err(e.into());
         }
+        self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
         self.lease_primed = true;
         self.context_chars = priming.len(); // baseline the watermark measurement
         Ok(())

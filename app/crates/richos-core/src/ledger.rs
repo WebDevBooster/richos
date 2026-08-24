@@ -106,6 +106,32 @@ pub enum ActionStatus {
     Failed,
 }
 
+/// Who an action is FOR. Both classes are equally DURABLE — this is a rendering
+/// property, never a knowledge property (precisely the conflation the governance
+/// design named: "clean output was implemented as *drop* rather than *route*").
+///
+/// The distinction is required because the re-prime injects the action digest into a
+/// live session that is under a standing order to never reveal or reference session
+/// rotation (§6.2, `reprime.rs::identity_assertion`). Feeding "I rotated my session"
+/// into a section headed "ground truth for what Rich has done — authoritative" would
+/// manufacture exactly the machinery leak that order forbids. So:
+///
+/// - `CeoFacing` — something Rich did in the CEO's world. Injected into the re-prime's
+///   ACTION LEDGER section as authoritative ground truth.
+/// - `Internal` — app machinery (lease rotation, re-prime injection, crash recovery).
+///   Durably recorded for the audit trail and for app-side idempotency, and
+///   deliberately NOT injected into any priming prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionVisibility {
+    /// Rich acting in the CEO's world. Default, so any on-disk record written before
+    /// this field existed replays with its original meaning.
+    #[default]
+    CeoFacing,
+    /// App machinery. Durable, auditable, never injected into a priming prompt.
+    Internal,
+}
+
 /// One appended, immutable fact. The log is the source of record; the in-memory
 /// projection below is a disposable fold over it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,7 +147,22 @@ pub enum Event {
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
     TurnInterrupted { turn_id: String, reason: String, at: u64 },
     /// Recorded AS the action happens (not at turn-end) so replay can't double-execute (§5.4).
-    ActionRecorded { action_id: String, turn_id: String, kind: String, detail: String, status: ActionStatus, at: u64 },
+    /// `turn_id` is `None` for actions that are not turn-scoped — lease rotation and
+    /// re-prime injection happen AT a turn boundary, BETWEEN turns, and claiming them
+    /// against an arbitrary neighbouring turn would be a fabricated association.
+    /// Both new fields are `#[serde(default)]` so records written before they existed
+    /// still replay (`visibility` defaults to `CeoFacing`, their original meaning).
+    ActionRecorded {
+        action_id: String,
+        #[serde(default)]
+        turn_id: Option<String>,
+        kind: String,
+        detail: String,
+        status: ActionStatus,
+        #[serde(default)]
+        visibility: ActionVisibility,
+        at: u64,
+    },
     ActionUpdated { action_id: String, status: ActionStatus, at: u64 },
     /// A compute-lease swap. The conversation is unbroken; only the backing session changed.
     SessionRotated { from_session: String, to_session: String, reason: String, at: u64 },
@@ -169,10 +210,12 @@ pub struct Turn {
 #[derive(Debug, Clone, Serialize)]
 pub struct Action {
     pub id: String,
-    pub turn_id: String,
+    /// `None` for turn-BOUNDARY (not turn-scoped) actions — see `Event::ActionRecorded`.
+    pub turn_id: Option<String>,
     pub kind: String,
     pub detail: String,
     pub status: ActionStatus,
+    pub visibility: ActionVisibility,
     pub at: u64,
 }
 
@@ -273,8 +316,8 @@ impl Ledger {
                     t.stop_reason = Some(format!("interrupted: {reason}"));
                 }
             }
-            Event::ActionRecorded { action_id, turn_id, kind, detail, status, at } => {
-                self.actions.push(Action { id: action_id, turn_id, kind, detail, status, at });
+            Event::ActionRecorded { action_id, turn_id, kind, detail, status, visibility, at } => {
+                self.actions.push(Action { id: action_id, turn_id, kind, detail, status, visibility, at });
             }
             Event::ActionUpdated { action_id, status, .. } => {
                 if let Some(a) = self.actions.iter_mut().find(|a| a.id == action_id) {
@@ -394,16 +437,39 @@ impl Ledger {
         )
     }
 
-    /// Claim an action BEFORE executing it (claim-then-execute). Returns the action id.
+    /// Claim a CEO-FACING, turn-scoped action BEFORE executing it (claim-then-execute,
+    /// §6.4). Returns the action id; settle it later with `update_action`.
     pub fn record_action(&mut self, turn_id: &str, kind: &str, detail: &str) -> Result<String, LedgerError> {
+        self.record_action_with(Some(turn_id), kind, detail, ActionVisibility::CeoFacing, ActionStatus::Claimed)
+    }
+
+    /// The general form. `turn_id: None` records a turn-BOUNDARY action (rotation,
+    /// re-prime injection, crash recovery) which by construction belongs to no turn.
+    /// `status` lets an atomically-already-done action be recorded in ONE event rather
+    /// than a meaningless claim/complete pair; for a genuinely two-phase action (spawn
+    /// a child, THEN swap it in) pass `Claimed` and follow with `update_action`.
+    ///
+    /// `detail` is truncated to `ACTION_DETAIL_MAX_CHARS` on a CHAR boundary (never a
+    /// byte boundary — splitting a multi-byte codepoint would panic): the CEO-facing
+    /// digest is re-injected verbatim on every rotation and is billed per rotation under
+    /// BYO-Anthropic, so it is budgeted, not dumped (continuity §2.1).
+    pub fn record_action_with(
+        &mut self,
+        turn_id: Option<&str>,
+        kind: &str,
+        detail: &str,
+        visibility: ActionVisibility,
+        status: ActionStatus,
+    ) -> Result<String, LedgerError> {
         let action_id = new_id("act");
         self.append(
             Event::ActionRecorded {
                 action_id: action_id.clone(),
-                turn_id: turn_id.to_string(),
+                turn_id: turn_id.map(|t| t.to_string()),
                 kind: kind.to_string(),
-                detail: detail.to_string(),
-                status: ActionStatus::Claimed,
+                detail: truncate_detail(detail),
+                status,
+                visibility,
                 at: now_millis(),
             },
             true,
@@ -540,4 +606,33 @@ impl Ledger {
     pub fn open_actions(&self) -> Vec<&Action> {
         self.actions.iter().filter(|a| a.status == ActionStatus::Claimed).collect()
     }
+
+    /// CEO-facing actions only — the subset the re-prime digest is allowed to assert as
+    /// "what Rich has done" (see `ActionVisibility`).
+    pub fn ceo_facing_actions(&self) -> Vec<&Action> {
+        self.actions.iter().filter(|a| a.visibility == ActionVisibility::CeoFacing).collect()
+    }
+
+    /// Internal (machinery) actions only — the durable audit trail for rotation,
+    /// re-prime injection and crash recovery. Never injected into a priming prompt.
+    pub fn internal_actions(&self) -> Vec<&Action> {
+        self.actions.iter().filter(|a| a.visibility == ActionVisibility::Internal).collect()
+    }
+}
+
+/// Per-entry cap on `Action.detail`. The CEO-facing digest is re-injected VERBATIM into
+/// every successor's priming prompt, so each entry is bounded. The NUMBER of entries is
+/// deliberately NOT capped: silently dropping a recorded action to save tokens would
+/// reintroduce exactly the false-DENIAL failure this ledger exists to prevent.
+pub const ACTION_DETAIL_MAX_CHARS: usize = 160;
+
+/// Char-boundary-safe truncation. `&detail[..160]` would panic mid-codepoint on any
+/// non-ASCII input (a CEO's em-dash or accented company name is enough).
+fn truncate_detail(detail: &str) -> String {
+    if detail.chars().count() <= ACTION_DETAIL_MAX_CHARS {
+        return detail.to_string();
+    }
+    let mut out: String = detail.chars().take(ACTION_DETAIL_MAX_CHARS).collect();
+    out.push('\u{2026}');
+    out
 }

@@ -122,8 +122,14 @@ impl RePrimePayload {
         };
 
         // Tier B #6 — action ledger digest (anti-false-attribution authority).
+        // CEO-FACING actions only: internal machinery actions (lease rotation, re-prime
+        // injection, crash recovery) are durably recorded in the same ledger but are
+        // NEVER injected here — the identity assertion forbids the successor from ever
+        // revealing or referencing session rotation (§6.2), so handing it a line reading
+        // "[done] session_rotation" under a header that calls the section authoritative
+        // ground truth for "what Rich has done" would manufacture that leak.
         let action_ledger_digest: Vec<ActionView> = ledger
-            .actions()
+            .ceo_facing_actions()
             .iter()
             .map(|a| ActionView {
                 kind: a.kind.clone(),
@@ -173,9 +179,13 @@ impl RePrimePayload {
              earlier turns — that is an implementation detail the CEO never sees and you never mention; \
              never reveal or reference session rotation. \
              NO DENIAL FROM ABSENT MEMORY: you may have no memory of earlier actions because a prior \
-             session performed them. The ACTION LEDGER below is ground truth for what Rich has done or \
-             is doing — consult it and NEVER deny a prior action from absent memory, and never \
-             mis-attribute your own prior actions to anyone else."
+             session performed them. The ACTION LEDGER below is ground truth for the actions it records \
+             — consult it and NEVER deny a recorded prior action from absent memory, and never \
+             mis-attribute your own prior actions to anyone else. \
+             ITS COVERAGE IS PARTIAL AND YOU MUST TREAT IT THAT WAY: it records actions the APP took on \
+             Rich's behalf, not yet the tool calls made inside a session. So an entry PRESENT is proof \
+             the action happened; an entry ABSENT is NOT proof it did not. Where the ledger is silent, \
+             say you are not certain and offer to check — never assert that nothing was done."
         )
     }
 
@@ -207,13 +217,22 @@ impl RePrimePayload {
             }
             s.push('\n');
         }
-        if !self.action_ledger_digest.is_empty() {
-            s.push_str("ACTION LEDGER (ground truth for what Rich has done — authoritative):\n");
+        // ALWAYS rendered, even when empty. The identity assertion above says "the ACTION
+        // LEDGER below" — omitting the section on empty left that sentence pointing at
+        // nothing, which is how a successor ends up inferring "no ledger ⇒ nothing was
+        // done" (false denial) instead of "no ledger entries ⇒ I don't know".
+        s.push_str("ACTION LEDGER (ground truth for the actions it records — authoritative, coverage partial):\n");
+        if self.action_ledger_digest.is_empty() {
+            s.push_str(
+                "  (no actions recorded for this conversation yet — this means NOTHING HAS BEEN \
+                 RECORDED, not that nothing was done)\n",
+            );
+        } else {
             for a in &self.action_ledger_digest {
                 s.push_str(&format!("  - [{}] {}: {}\n", a.status, a.kind, a.detail));
             }
-            s.push('\n');
         }
+        s.push('\n');
         if !self.worker_state.is_empty() {
             s.push_str("LIVE WORKER STATE (from the engine's event logs):\n");
             for w in &self.worker_state {
