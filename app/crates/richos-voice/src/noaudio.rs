@@ -55,7 +55,7 @@
 //! clears one. That is the Schmitt trigger that stops a marginal input (a mic at very low
 //! gain hovering around -77 dBFS) from blinking a warning on and off every three seconds.
 
-use crate::vad::{frames_to_secs, VAD_FRAME_SAMPLES};
+use crate::vad::frames_to_secs;
 
 /// Frames of consecutive dead input before the CEO is told. 188 x 256 / 16000 = 3.008 s.
 ///
@@ -202,7 +202,7 @@ mod tests {
     fn the_no_audio_window_is_exactly_three_point_zero_zero_eight_seconds() {
         assert_eq!(NO_AUDIO_FRAMES, crate::vad::frames_for_secs(3.0));
         assert_eq!(
-            NO_AUDIO_FRAMES as usize * VAD_FRAME_SAMPLES,
+            NO_AUDIO_FRAMES as usize * crate::vad::VAD_FRAME_SAMPLES,
             48_128,
             "188 frames x 256 samples"
         );
