@@ -12,19 +12,26 @@
 //!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
-//!   - `spine`     — ties it together: queue-not-interrupt, turn-boundary, re-prime seam.
+//!   - `spine`     — ties it together: queue-not-interrupt, turn-boundary, re-prime seam,
+//!                   turn-boundary rotation, mid-turn-crash recovery, the proactive seam.
+//!   - `config`    — durable CEO-facing preferences: company name, the assertiveness dial.
+//!   - `worker_status` — the optional AI-worker drill-down, read from the engine's event logs.
 
 pub mod acp;
 pub mod cognition;
+pub mod config;
 pub mod ledger;
 pub mod reprime;
 pub mod spine;
 pub mod stream;
 pub mod thread;
 pub mod util;
+pub mod worker_status;
 
-pub use cognition::{Cognition, CognitionError};
-pub use ledger::{Ledger, Message, Source, TurnState};
+pub use cognition::{Cognition, CognitionError, LeaseFactory};
+pub use config::{Assertiveness, ConfigStore};
+pub use ledger::{AttentionTier, Ledger, Message, Source, TurnState};
 pub use reprime::RePrimePayload;
 pub use spine::{Spine, SpineError};
 pub use stream::{StreamEvent, TurnObserver};
+pub use worker_status::WorkerStatusView;

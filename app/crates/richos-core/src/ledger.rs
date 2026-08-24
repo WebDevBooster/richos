@@ -51,8 +51,30 @@ pub enum TurnState {
 pub enum Source {
     Text,
     Jam,
-    /// A system-authored internal prompt (re-prime / proactive wake) — NEVER rendered to the CEO.
+    /// A system-authored internal prompt (re-prime / handoff-summary request) — NEVER
+    /// rendered to the CEO.
     Internal,
+    /// Rich speaking unprompted (continuity design §9 / UX doc §5 "proactive messages").
+    /// Carries NO user_text — there was no CEO prompt. Render eligibility is gated by
+    /// `Turn::tier` (Tier 3 / Silent never renders — UX §5.1).
+    Proactive,
+}
+
+/// The three-tier assertiveness posture a proactive message is raised at
+/// (UX doc §5.1 / §5.2). Default posture is Quiet (config.rs), independent of a given
+/// message's tier — the dial controls how readily Rich reaches for tier 1, not what a
+/// tier means once chosen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttentionTier {
+    /// Rare: real decisions / genuinely time-sensitive. OS notification + slim accent edge.
+    InterruptNow,
+    /// Most things: a single batched Rich message, delivered at a natural moment.
+    Digest,
+    /// FYI only. Never appears in the conversation, never notifies (UX §5.1 Tier 3) —
+    /// lives in the ledger for a CEO who goes looking (no dedicated activity-view UI yet;
+    /// deliberately deferred past v1 per the UX doc §7).
+    Silent,
 }
 
 /// Status of an action in the action ledger (the double-execution guard, §5.4).
@@ -84,6 +106,14 @@ pub enum Event {
     ActionUpdated { action_id: String, status: ActionStatus, at: u64 },
     /// A compute-lease swap. The conversation is unbroken; only the backing session changed.
     SessionRotated { from_session: String, to_session: String, reason: String, at: u64 },
+    /// Rich reaching out unprompted (continuity §9 / UX §5) — written ATOMICALLY (no
+    /// separate started/delta/completed cycle needed: the app already has the full text
+    /// in hand when it raises this, unlike a live-streamed CEO-turn reply).
+    ProactiveMessage { turn_id: String, thread_id: String, tier: AttentionTier, text: String, at: u64 },
+    /// The self-authored handoff summary an outgoing lease produces before a clean
+    /// rotation (continuity §2.4) — the highest-fidelity rolling-summary source. Keyed
+    /// per thread; the latest one wins (each rotation replaces it, not appends).
+    HandoffSummaryUpdated { thread_id: String, summary: String, at: u64 },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +135,8 @@ pub struct Turn {
     pub assistant_text: String,
     pub stop_reason: Option<String>,
     pub created_at: u64,
+    /// Set only for `Source::Proactive` turns (the tier it was raised at).
+    pub tier: Option<AttentionTier>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -133,6 +165,8 @@ pub struct Ledger {
     threads: Vec<Thread>,
     turns: Vec<Turn>,
     actions: Vec<Action>,
+    /// thread_id -> latest self-authored handoff summary (continuity §2.4).
+    handoff_summaries: std::collections::HashMap<String, String>,
 }
 
 impl Ledger {
@@ -148,6 +182,7 @@ impl Ledger {
             threads: Vec::new(),
             turns: Vec::new(),
             actions: Vec::new(),
+            handoff_summaries: std::collections::HashMap::new(),
         };
         ledger.replay()?;
         Ok(ledger)
@@ -184,6 +219,7 @@ impl Ledger {
                     assistant_text: String::new(),
                     stop_reason: None,
                     created_at: at,
+                    tier: None,
                 });
             }
             Event::TurnStarted { turn_id, session_id, .. } => {
@@ -218,6 +254,26 @@ impl Ledger {
                 }
             }
             Event::SessionRotated { .. } => { /* projection-neutral; kept for audit/replay */ }
+            Event::ProactiveMessage { turn_id, thread_id, tier, text, at } => {
+                // A proactive message is written as a COMPLETE turn in one atomic event —
+                // no started/delta/completed cycle, unlike a live-streamed CEO-turn reply
+                // (the app already holds the full text when it raises this).
+                self.turns.push(Turn {
+                    id: turn_id,
+                    thread_id,
+                    user_text: String::new(),
+                    source: Source::Proactive,
+                    state: TurnState::Completed,
+                    session_id: None,
+                    assistant_text: text,
+                    stop_reason: Some("proactive".to_string()),
+                    created_at: at,
+                    tier: Some(tier),
+                });
+            }
+            Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
+                self.handoff_summaries.insert(thread_id, summary);
+            }
         }
     }
 
@@ -332,6 +388,54 @@ impl Ledger {
         )
     }
 
+    /// Raise a proactive message (the attention seam's persistence half — §9 / UX §5).
+    /// Durable + fsync'd: once Rich has "said" something, whether or not it renders
+    /// (Silent tier never does), it must survive a crash the instant after. Returns the
+    /// new turn id.
+    pub fn record_proactive_message(
+        &mut self,
+        thread_id: &str,
+        tier: AttentionTier,
+        text: &str,
+    ) -> Result<String, LedgerError> {
+        if !self.threads.iter().any(|t| t.id == thread_id) {
+            return Err(LedgerError::UnknownThread(thread_id.to_string()));
+        }
+        let turn_id = new_id("turn");
+        self.append(
+            Event::ProactiveMessage {
+                turn_id: turn_id.clone(),
+                thread_id: thread_id.to_string(),
+                tier,
+                text: text.to_string(),
+                at: now_millis(),
+            },
+            true,
+        )?;
+        Ok(turn_id)
+    }
+
+    /// Record/replace the self-authored handoff summary for a thread (continuity §2.4,
+    /// clean-rotation path). Not crash-critical on its own (the always-on structured
+    /// digest in `reprime.rs` is the crash-safe floor) so no fsync.
+    pub fn record_handoff_summary(&mut self, thread_id: &str, summary: &str) -> Result<(), LedgerError> {
+        self.append(
+            Event::HandoffSummaryUpdated {
+                thread_id: thread_id.to_string(),
+                summary: summary.to_string(),
+                at: now_millis(),
+            },
+            false,
+        )
+    }
+
+    /// The latest self-authored handoff summary for a thread, if a clean rotation has
+    /// ever produced one (continuity §2.4). `None` before the first clean rotation —
+    /// the deterministic structured digest in `reprime.rs` covers that gap.
+    pub fn handoff_summary(&self, thread_id: &str) -> Option<&str> {
+        self.handoff_summaries.get(thread_id).map(|s| s.as_str())
+    }
+
     // ---- read / projection API --------------------------------------------
 
     pub fn threads(&self) -> &[Thread] {
@@ -356,6 +460,19 @@ impl Ledger {
     pub fn messages(&self, thread_id: &str) -> Vec<Message> {
         let mut out = Vec::new();
         for t in self.turns.iter().filter(|t| t.thread_id == thread_id && t.source != Source::Internal) {
+            if t.source == Source::Proactive {
+                // Tier 3 (Silent) never appears in the conversation (UX §5.1) — it has no
+                // render path here at all, matching Internal's treatment above.
+                if t.tier != Some(AttentionTier::Silent) {
+                    out.push(Message {
+                        role: "assistant".into(),
+                        text: t.assistant_text.clone(),
+                        turn_id: t.id.clone(),
+                        at: t.created_at,
+                    });
+                }
+                continue;
+            }
             out.push(Message { role: "user".into(), text: t.user_text.clone(), turn_id: t.id.clone(), at: t.created_at });
             if !t.assistant_text.is_empty() {
                 out.push(Message { role: "assistant".into(), text: t.assistant_text.clone(), turn_id: t.id.clone(), at: t.created_at });
