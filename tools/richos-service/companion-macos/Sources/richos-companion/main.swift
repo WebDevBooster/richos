@@ -125,6 +125,24 @@ func cmdIngest(_ args: [String]) throws {
 func cmdCapture(_ args: [String]) {
     let zone = resolveZone(flag("--zone", args))
     let startedAt = nowMs()
+
+    // COORDINATION (§5.4): before starting an all-system capture, ask the SHARED authority whether a
+    // browser call is already owned by the extension. If so, stand down (the extension's browser-tab
+    // capture is richer) unless explicitly overridden — never double-capture. Best-effort: if the
+    // service is absent the companion proceeds, exactly like the extension's Downloads fallback.
+    let kind = flag("--kind", args) ?? Coordination.defaultCaptureKind
+    let processHint = flag("--process-hint", args)
+    let provisionalId = SessionContract.sessionDirName(startedAt: startedAt, platformId: "system", slug: "call")
+    let force = args.contains("--force")
+    if let decision = CompanionCoordinator.consultClaim(zone: zone, captureKind: kind, processHint: processHint, sessionId: provisionalId) {
+        if decision.decision == .standDown && !force {
+            FileErr.write("stand down: \(decision.reason)\n")
+            if let ex = decision.excludeProcessHint { FileErr.write("  (the extension owns \(ex); it will capture this call with captions/names)\n") }
+            FileErr.write("  pass --force to capture anyway (double-capture; the pipeline dedup backstop keeps the richer one).\n")
+            exit(0)
+        }
+    }
+
     if #available(macOS 14.4, *) {
         runLiveCapture(zone: zone, startedAt: startedAt)
     } else {
