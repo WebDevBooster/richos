@@ -20,6 +20,15 @@ import { mergeTranscript, captionSpeakerFor, renderMarkdown, verify, stamp, word
 import { correct, correctText, similarity, levenshtein, normalizeTerm } from '../lib/correct.js';
 import { normalizeEntities, loadEntityMemory } from '../lib/entities.js';
 import {
+  learnTerm,
+  learnFromEdits,
+  extractTermCorrections,
+  tokenReplaceHunks,
+  looksLikeTerm,
+  bumpVersion,
+  serializeEntitiesDoc,
+} from '../lib/capture.js';
+import {
   CAPTURE_KIND,
   preferenceRank,
   scopesOverlap,
@@ -388,6 +397,197 @@ test('similarity + levenshtein are sane (fuzzy metric guardrails)', () => {
   assert.ok(similarity('deepgramm', 'deepgram') > 0.85);
   assert.ok(similarity('deep breath', 'deepgram') < 0.7, 'an ordinary phrase is far from the canonical');
   assert.equal(normalizeTerm('Rich O.S.!'), 'rich o s');
+});
+
+// ---------------------------------------------------------------------------------------
+group('correction flywheel — EXPLICIT intake (learnTerm): dedup, no-clobber, versioned');
+
+function baseDoc() {
+  return {
+    schemaVersion: 1,
+    version: '2026-08-24',
+    entities: [
+      { canonical: 'Deepgram', type: 'product', aliases: [], mangled: ['deep graham'] },
+      { canonical: 'loro', type: 'product', caseSensitive: true, aliases: ['Loro'], mangled: ['lorro'], fuzzy: true, minScore: 0.8 },
+    ],
+  };
+}
+
+test('learnTerm adds a NEW entity and bumps the version', () => {
+  const before = baseDoc();
+  const res = learnTerm(before, { canonical: 'Segment Anything', mangled: 'segment any thing', type: 'product' }, { today: '2026-08-25' });
+  assert.equal(res.changed, true);
+  assert.equal(res.created, true);
+  assert.equal(res.doc.entities.length, 3);
+  const e = res.doc.entities.find((x) => x.canonical === 'Segment Anything');
+  assert.deepEqual(e.mangled, ['segment any thing']);
+  assert.equal(e.type, 'product');
+  assert.equal(res.doc.version, '2026-08-25', 'cross-day bump = the new date');
+  assert.equal(before.entities.length, 2, 'input doc not mutated');
+});
+
+test('learnTerm MERGES a new mangling into an existing entity without clobbering curated data', () => {
+  const before = baseDoc();
+  const res = learnTerm(before, { canonical: 'Deepgram', mangled: 'deep gramme', type: 'company' });
+  assert.equal(res.created, false);
+  const e = res.doc.entities.find((x) => x.canonical === 'Deepgram');
+  assert.deepEqual(e.mangled, ['deep graham', 'deep gramme'], 'existing mangling preserved, new one appended');
+  assert.equal(e.type, 'product', 'curated type NOT clobbered by the supplied one');
+  assert.equal(before.entities[0].mangled.length, 1, 'input doc not mutated');
+});
+
+test('learnTerm dedups a mangling it already has (no change, no version bump)', () => {
+  const before = baseDoc();
+  const res = learnTerm(before, { canonical: 'Deepgram', mangled: 'Deep Graham' }); // same after normalize
+  assert.equal(res.changed, false);
+  assert.equal(res.added.mangled.length, 0);
+  assert.equal(res.doc.version, '2026-08-24', 'no bump when nothing changed');
+});
+
+test('learnTerm drops a mangling that normalizes to the canonical (correct.js would skip it anyway)', () => {
+  const res = learnTerm(baseDoc(), { canonical: 'Deepgram', mangled: 'DEEPGRAM' }); // casing-only
+  const e = res.doc.entities.find((x) => x.canonical === 'Deepgram');
+  assert.deepEqual(e.mangled, ['deep graham'], 'a casing-only mangling is not stored (curated one kept)');
+  assert.equal(res.changed, false, 'nothing learnable -> no change');
+});
+
+test('learnTerm refuses to steal a mangling already owned by a different canonical (conflict, precision)', () => {
+  const before = baseDoc();
+  const res = learnTerm(before, { canonical: 'Deepgraham Corp', mangled: 'deep graham' });
+  assert.equal(res.conflicts.length, 1);
+  const e = res.doc.entities.find((x) => x.canonical === 'Deepgraham Corp');
+  assert.deepEqual(e.mangled, [], 'the conflicting mangling was skipped');
+  // The original owner keeps it.
+  assert.ok(res.doc.entities.find((x) => x.canonical === 'Deepgram').mangled.includes('deep graham'));
+});
+
+test('learnTerm matches an entity by an existing alias, adds a new alias, dedups aliases', () => {
+  const res = learnTerm(baseDoc(), { canonical: 'Loro', aliases: ['Lauro', 'Loro'] }); // 'Loro' is an existing alias of 'loro'
+  const e = res.doc.entities.find((x) => x.canonical === 'loro');
+  assert.equal(res.created, false, 'matched the existing entity via its alias');
+  assert.deepEqual(e.aliases, ['Loro', 'Lauro'], 'new alias added once; existing (dedup) kept');
+});
+
+test('bumpVersion increments an intra-day revision counter monotonically', () => {
+  assert.equal(bumpVersion('2026-08-24', '2026-08-24'), '2026-08-24.1');
+  assert.equal(bumpVersion('2026-08-24.1', '2026-08-24'), '2026-08-24.2');
+  assert.equal(bumpVersion('2026-08-24', '2026-08-25'), '2026-08-25');
+  assert.equal(bumpVersion('', '2026-08-25'), '2026-08-25');
+});
+
+test('serializeEntitiesDoc round-trips to valid JSON in the curated inline-array style', () => {
+  const doc = baseDoc();
+  const out = serializeEntitiesDoc(doc);
+  assert.deepEqual(JSON.parse(out), doc, 'parses back to an identical object');
+  assert.ok(out.includes('"mangled": ["deep graham"]'), 'string arrays stay inline (minimal git diff)');
+  assert.ok(out.endsWith('}\n'), 'trailing newline');
+});
+
+// ---------------------------------------------------------------------------------------
+group('correction flywheel — TRANSCRIPT-EDIT diff intake: PRECISION over recall');
+
+test('tokenReplaceHunks expands a name fix to the full proper-noun span and ignores pure insertions', () => {
+  // "Hand"->"Hanna" absorbs the adjacent unchanged term token "Rich" so the mangling is the WHOLE
+  // name (safe), never the dangerous lone word "Hand".
+  assert.deepEqual(
+    tokenReplaceHunks('we run on Rich Hand today'.split(' '), 'we run on Rich Hanna today'.split(' ')),
+    [{ from: 'Rich Hand', to: 'Rich Hanna' }],
+  );
+  // a pure insertion (no removed counterpart) yields no replace hunk
+  assert.deepEqual(tokenReplaceHunks('we shipped it'.split(' '), 'we finally shipped it'.split(' ')), []);
+});
+
+test('looksLikeTerm accepts proper nouns / dotted terms and rejects ordinary words', () => {
+  assert.equal(looksLikeTerm('Deepgram'), true);
+  assert.equal(looksLikeTerm('Rich Hanna'), true);
+  assert.equal(looksLikeTerm('whisper.cpp'), true);
+  assert.equal(looksLikeTerm('RichOS'), true);
+  assert.equal(looksLikeTerm('great'), false);
+  assert.equal(looksLikeTerm('shall'), false);
+  assert.equal(looksLikeTerm('the'), false);
+});
+
+// A realistic edited transcript: the CEO fixed ONE name and ONE ordinary word.
+const BASELINE_TRANSCRIPT = [
+  '# Transcript — call',
+  '',
+  '- **Session:** `s-1`',
+  '',
+  '---',
+  '',
+  '**[00:02] Them:** So Rich Hand walked us through the deep graham setup.',
+  '',
+  '**[00:15] Me:** Right, the plan is solid and we ship Monday.',
+  '',
+].join('\n');
+
+const EDITED_TRANSCRIPT = [
+  '# Transcript — call',
+  '',
+  '- **Session:** `s-1`',
+  '',
+  '---',
+  '',
+  '**[00:02] Them:** So Rich Hanna walked us through the Deepgram setup.',
+  '',
+  '**[00:15] Me:** Right, the plan is great and we ship Monday.', // ordinary word edit: solid -> great
+  '',
+].join('\n');
+
+test('extractTermCorrections proposes the NAME + TERM fixes and NOT the ordinary word edit (precision)', () => {
+  const { proposals, rejected } = extractTermCorrections(BASELINE_TRANSCRIPT, EDITED_TRANSCRIPT);
+  const pairs = proposals.map((p) => `${p.from}=>${p.to}`).sort();
+  assert.deepEqual(pairs, ['Rich Hand=>Rich Hanna', 'deep graham=>Deepgram']);
+  // the ordinary-word edit must be rejected, not proposed (false-positive guard)
+  assert.ok(!pairs.some((p) => p.includes('great')), 'solid->great was NOT learned');
+  assert.ok(rejected.some((r) => r.to === 'great'), 'solid->great is explicitly recorded as rejected');
+});
+
+test('extractTermCorrections rejects a wholesale rewrite even when the new side is a proper noun', () => {
+  const base = '**[00:01] Them:** um yeah exactly.';
+  const edited = '**[00:01] Them:** Marcus Whitfield yeah exactly.'; // "um" -> a full name = a rewrite, not a mangling
+  const { proposals } = extractTermCorrections(base, edited);
+  assert.equal(proposals.length, 0, 'low edit-similarity rejects the rewrite');
+});
+
+test('learnFromEdits is PROPOSE-ONLY by default (doc untouched) and applies with apply=true', () => {
+  const before = baseDoc();
+  const dry = learnFromEdits(before, BASELINE_TRANSCRIPT, EDITED_TRANSCRIPT);
+  assert.equal(dry.applied, false);
+  assert.equal(dry.doc, before, 'default run does not touch the doc');
+  assert.equal(dry.proposals.length, 2);
+
+  const wet = learnFromEdits(before, BASELINE_TRANSCRIPT, EDITED_TRANSCRIPT, { apply: true, today: '2026-08-25' });
+  assert.equal(wet.applied, true);
+  const dg = wet.doc.entities.find((x) => x.canonical === 'Deepgram');
+  assert.ok(dg.mangled.includes('deep graham'), 'existing curated mangling kept');
+  const rh = wet.doc.entities.find((x) => x.canonical === 'Rich Hanna');
+  assert.ok(rh && rh.mangled.includes('rich hand'), 'new person entity created from the edit');
+  assert.equal(wet.doc.version, '2026-08-25');
+});
+
+// ---------------------------------------------------------------------------------------
+group('correction flywheel — CLOSED LOOP: capture -> entities.json -> a later transcript is corrected');
+
+test('a captured term fixes a subsequent transcript that mangles it (end-to-end through correct())', () => {
+  // 1. A brand-new term the corrector does NOT yet know.
+  const doc0 = baseDoc();
+  const pre = correct(
+    [{ startMs: 0, endMs: 1000, text: 'We evaluated Segment Any Thing for masks.', speaker: 'me', label: 'Me' }],
+    normalizeEntities(doc0),
+  );
+  assert.equal(pre.segments[0].text, 'We evaluated Segment Any Thing for masks.', 'unknown term is NOT corrected pre-capture');
+
+  // 2. Capture the correction (explicit intake).
+  const { doc: doc1 } = learnTerm(doc0, { canonical: 'Segment Anything', mangled: 'segment any thing', type: 'product' });
+
+  // 3. The SAME mangling now gets fixed — the loop is closed, and entitiesVersion advanced.
+  const post = correct(
+    [{ startMs: 0, endMs: 1000, text: 'We evaluated Segment Any Thing for masks.', speaker: 'me', label: 'Me' }],
+    normalizeEntities(doc1),
+  );
+  assert.equal(post.segments[0].text, 'We evaluated Segment Anything for masks.', 'captured term now corrected');
+  assert.notEqual(post.entitiesVersion, pre.entitiesVersion, 'entitiesVersion bumped by the capture');
 });
 
 // ---------------------------------------------------------------------------------------
