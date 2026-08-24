@@ -462,24 +462,72 @@ slideoverBackdrop.addEventListener("click", closeSlideOver);
 
 // ---------------------------------------------------------------------------------------
 // Voice mode — a mode of the same conversation, never a separate call screen (§4)
+//
+// Wired to the real pipeline in app/crates/richos-voice (2026-08-24). Contract:
+//   INVOKE  start_voice_capture / stop_voice_capture / voice_barge_in
+//           voice_turn_started / voice_speak_delta / voice_speak_end / voice_turn_ended
+//   LISTEN  rich://voice-state      { state, level, bargeInArmed, at }
+//           rich://voice-transcript { text, durationMs, latencyMs, at }
+//           rich://voice-error      { message, at }
+//
+// The panel's state is driven ONLY by rich://voice-state — never optimistically. The UX direction §4.1:
+// "the CEO always knows whether the mic is hot ... the single most important voice-UX
+// requirement" while AEC is missing. So the listening dot appears when the microphone is
+// genuinely open and at no other moment; if the mic fails to open, the toggle stays OFF and
+// Rich says so in his own words.
+//
+// Rich's reply is spoken by relaying the SAME rich:// stream the transcript renders from —
+// additional listeners, registered here, so the render path above is untouched and TTS
+// inherits the clean-output guarantee rather than re-deriving it.
 // ---------------------------------------------------------------------------------------
+const voiceLevelBars = voiceListeningEl ? voiceListeningEl.querySelectorAll(".voice-level i") : [];
+const VOICE_BAR_HEIGHTS = [5, 10, 14, 8, 6]; // the resting profile already in style.css
+
+function renderVoiceLevel(level) {
+  const v = Math.max(0, Math.min(1, Number(level) || 0));
+  for (let i = 0; i < voiceLevelBars.length; i++) {
+    const bar = voiceLevelBars[i];
+    // Real audio drives the meter, so the idle CSS pulse must stop — a meter that moves
+    // when nothing is being said is the same lie as a fake listening dot.
+    bar.style.animation = "none";
+    bar.style.height = Math.round(VOICE_BAR_HEIGHTS[i] * (0.28 + 0.72 * v)) + "px";
+    bar.style.opacity = (0.3 + 0.6 * v).toFixed(2);
+  }
+}
+
+function renderVoiceState(state) {
+  // "hearing" and "thinking" both mean the mic is open and Rich is not talking, so both
+  // render as listening — which is the truth the CEO needs.
+  const speaking = state === "speaking";
+  voiceListeningEl.hidden = speaking;
+  voiceSpeakingEl.hidden = !speaking;
+}
+
+function richVoiceSays(text) {
+  messages.push({ role: "assistant", text, turn_id: "voice_" + Date.now(), at: Date.now() });
+  renderedCount += 1;
+  renderMessages();
+}
+
 async function enterVoiceMode() {
+  try {
+    await Bridge.invoke("start_voice_capture", { threadId: activeThreadId });
+  } catch (e) {
+    // The mic did not open. Do NOT show a listening state — that would be a lie about a hot
+    // mic. Stay in text and let Rich explain in one calm line.
+    richVoiceSays(
+      Bridge.isMock || String(e).startsWith("mock:")
+        ? "Talking out loud needs the desktop app — here in the preview, type to me."
+        : String(e)
+    );
+    return;
+  }
   voiceMode = true;
   talkToggleBtn.setAttribute("aria-pressed", "true");
   composerEl.hidden = true;
   voicePanelEl.hidden = false;
-  voiceListeningEl.hidden = false;
-  voiceSpeakingEl.hidden = true;
-
-  // Stub the capture call (the real pipeline lands later) — wired, best-effort, and
-  // MUST NOT fabricate a transcript if it fails/no-ops. The mic-state UI is authoritative
-  // on its own; it doesn't depend on this call succeeding.
-  try {
-    await Bridge.invoke("start_voice_capture", { threadId: activeThreadId });
-  } catch (_e) {
-    // Expected today — no voice pipeline exists yet. The listening state stays honest:
-    // it shows mode-is-on, not a live level meter claiming real audio data.
-  }
+  renderVoiceState("listening");
+  renderVoiceLevel(0);
 }
 
 async function exitVoiceMode() {
@@ -491,7 +539,7 @@ async function exitVoiceMode() {
   try {
     await Bridge.invoke("stop_voice_capture", { threadId: activeThreadId });
   } catch (_e) {
-    // Same as above — stub, no-ops until the pipeline lands.
+    /* already down */
   }
 }
 
@@ -499,11 +547,57 @@ talkToggleBtn.addEventListener("click", () => {
   if (voiceMode) exitVoiceMode();
   else enterVoiceMode();
 });
+
 bargeInBtn.addEventListener("click", () => {
-  // Barge-in: stop Rich speaking, return to listening. Purely a state flip until the
-  // real audio pipeline lands.
-  voiceSpeakingEl.hidden = true;
-  voiceListeningEl.hidden = false;
+  // The instant override while AEC is interim (the UX direction §4.1). The panel is NOT flipped here —
+  // rich://voice-state reports what actually happened to the audio.
+  Bridge.invoke("voice_barge_in").catch(() => {});
+});
+
+Bridge.listen("rich://voice-state", ({ payload }) => {
+  if (!voiceMode) return;
+  if (payload.state === "off") {
+    // The pipeline stopped on its own (device lost, mode torn down). Never leave a stale
+    // "listening" on screen claiming a hot mic.
+    exitVoiceMode();
+    return;
+  }
+  renderVoiceState(payload.state);
+  renderVoiceLevel(payload.level);
+});
+
+Bridge.listen("rich://voice-transcript", ({ payload }) => {
+  if (!voiceMode) return;
+  // What the CEO said appears in the thread the moment it is recognised — voice and text are
+  // one conversation, so this is an ordinary user turn, not a call artefact. The reconciled
+  // ledger snapshot replaces it when the turn completes.
+  messages.push({ role: "user", text: payload.text, turn_id: "pending", at: payload.at || Date.now() });
+  renderedCount = Math.min(messages.length, renderedCount + 1);
+  renderMessages();
+});
+
+Bridge.listen("rich://voice-error", ({ payload }) => {
+  if (!voiceMode) return;
+  richVoiceSays(payload.message);
+});
+
+// Relay the reply stream to the speaker. Separate listeners so the render path above is
+// untouched; each is a no-op unless voice mode is on.
+Bridge.listen("rich://turn-started", () => {
+  if (voiceMode) Bridge.invoke("voice_turn_started").catch(() => {});
+});
+Bridge.listen("rich://chunk", ({ payload }) => {
+  if (voiceMode) Bridge.invoke("voice_speak_delta", { text: payload.textDelta }).catch(() => {});
+});
+Bridge.listen("rich://turn-completed", () => {
+  if (!voiceMode) return;
+  Bridge.invoke("voice_speak_end").catch(() => {});
+  Bridge.invoke("voice_turn_ended").catch(() => {});
+});
+Bridge.listen("rich://turn-error", () => {
+  if (!voiceMode) return;
+  Bridge.invoke("voice_speak_end").catch(() => {});
+  Bridge.invoke("voice_turn_ended").catch(() => {});
 });
 
 // ---------------------------------------------------------------------------------------

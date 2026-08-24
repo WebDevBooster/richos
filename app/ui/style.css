@@ -487,6 +487,10 @@ button {
 
 .voice-dot--speaking {
   background: var(--ink-soft);
+  /* The UX direction §4.1 wants TWO unmistakable states. A static dot next to a pulsing one reads as
+     "nothing is happening", so Rich speaking gets the same visual grammar at a calmer
+     tempo — the existing keyframe, slower. No new visual language. */
+  animation: soft-pulse 2.4s infinite ease-in-out;
 }
 
 .voice-label {
@@ -506,7 +510,15 @@ button {
   width: 2px;
   background: var(--accent);
   opacity: 0.35;
+  /* The resting pulse is a placeholder for "voice mode is on". The moment REAL input levels
+     arrive (rich://voice-state), main.js sets `animation: none` and drives height/opacity
+     from the measured level — a meter that moves when nothing is being said would be the
+     same lie as a fake listening dot. The transition keeps the 10 Hz event rate from
+     reading as a stutter. */
   animation: level-pulse 1.2s infinite ease-in-out;
+  transition:
+    height 90ms linear,
+    opacity 90ms linear;
 }
 
 .voice-level i:nth-child(1) {
