@@ -16,12 +16,31 @@
 //! audio, not a mock that fabricates transcripts. It is selected explicitly by
 //! `RICHOS_VOICE_INPUT_WAV` and logs loudly on stderr when it is in use.
 //!
-//! **Machine note (2026-08-24, this Mac mini):** `system_profiler SPAudioDataType` lists
+//! **Machine note (2026-08-24 morning, this Mac mini — NOW SUPERSEDED, kept because the
+//! failure signature is worth recognising):** `system_profiler SPAudioDataType` listed
 //! three devices — BenQ GC2870, External Headphones, Mac mini Speakers — and **every one of
-//! them is output-only; there are zero input channels on this host.** cpal's
-//! `default_input_device()` returns a device whose `default_input_config()` fails with
-//! CoreAudio OSStatus 560947818 = `'!obj'` = `kAudioHardwareBadObjectError`. That is a
-//! positive signal, not an inference: there is no microphone to open.
+//! them was output-only; there were zero input channels on this host.** cpal's
+//! `default_input_device()` returned a device whose `default_input_config()` failed with
+//! CoreAudio OSStatus 560947818 = `'!obj'` = `kAudioHardwareBadObjectError`. That was a
+//! positive signal, not an inference: there was no microphone to open.
+//!
+//! **Machine note (2026-08-24 17:0x, same Mac mini):** an Elgato Wave:3 is now connected and
+//! is the default input. Measured directly against CoreAudio:
+//!
+//! ```text
+//! DEFAULT INPUT DEVICE ID: 101
+//! id=79  inCh=0  BenQ GC2870          uid=09D1DE78-0000-0000-261D-0103803E2278
+//! id=101 inCh=1  Elgato Wave:3        uid=AppleUSBAudioEngine:Elgato Systems:Elgato Wave:3:BS46J1A11410:2,1
+//! id=94  inCh=0  External Headphones  uid=BuiltInHeadphoneOutputDevice
+//! id=73  inCh=0  Mac mini Speakers    uid=BuiltInSpeakerDevice
+//! ```
+//!
+//! So this host *can* capture now, and `AudioSource::Device` is exercisable here. Note the
+//! ephemeral-ID hazard the two notes together demonstrate: `id=94` is "External Headphones"
+//! today, but in July it was the Elgato. **`AudioObjectID`s are reused across replugs.** We
+//! never persist one — `start_device` resolves the system default at stream-open time — and
+//! we must keep it that way. See the dictation troubleshooting runbook, 2026-08-24
+//! for the multi-week silent outage a persisted numeric ID contributed to in open-wispr.
 
 use crate::vad::{SAMPLE_RATE, VAD_FRAME_SAMPLES};
 use crate::wav;
