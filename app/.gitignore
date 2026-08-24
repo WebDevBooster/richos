@@ -1,0 +1,10 @@
+# Rust build output
+target/
+Cargo.lock
+
+# ACP protocol probe deps (adapter is installed on demand; probe.js + package.json kept as repro)
+scratch-acp/node_modules/
+
+# Tauri build / node UI deps
+src-tauri/target/
+ui/node_modules/
