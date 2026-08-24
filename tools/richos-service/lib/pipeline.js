@@ -23,7 +23,9 @@ import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
-import { DEFAULT_MODEL, MIN_TRANSCRIPT_WORDS } from './config.js';
+import { MIN_TRANSCRIPT_WORDS, resolveTier } from './config.js';
+import { guardTranscription } from './repetition-guard.js';
+import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
 
 export const ARTIFACTS = { transcript: 'transcript.md', verification: 'verification.json' };
@@ -71,13 +73,16 @@ function writeRecord(sessionDir, record) {
  * Run the pipeline over one session directory.
  *
  * @param {string} sessionDir absolute path
- * @param {{model?: string, retranscribe?: boolean, extraArgs?: string[], now?: number, zone?: string,
- *          entityMemory?: object}} [opts]
+ * @param {{model?: string, tier?: string, retranscribe?: boolean, extraArgs?: string[], now?: number,
+ *          zone?: string, entityMemory?: object}} [opts]
  * @returns {{status: string, transcript?: string, verification?: object, problems?: string[], sessionId: string}}
  */
 export function runPipeline(sessionDir, opts = {}) {
   const now = opts.now || Date.now();
-  const model = opts.model || DEFAULT_MODEL;
+  // P5 tiering: `tier` (turbo|max|low-resource|quantized) or a raw `model` id both resolve here to a
+  // concrete { model, decodeArgs, repetitionGuard }. `model` stays supported for backward compat.
+  const tier = resolveTier(opts.tier || opts.model);
+  const model = tier.model;
   let record = readRecord(sessionDir);
   const sessionId = record?.sessionId || record?.dir || path.basename(sessionDir);
 
@@ -137,17 +142,49 @@ export function runPipeline(sessionDir, opts = {}) {
     }
 
     // ---- Stage 3: TRANSCRIBE --------------------------------------------------------------------
+    // The tier's decode params (e.g. the `max` tier's -mc 0 no-previous-text-conditioning) are the
+    // decode HALF of the hallucination guard; they ride in as extraArgs.
+    const decodeArgs = [...(tier.decodeArgs || []), ...(opts.extraArgs || [])];
+    log.info(`${sessionId} — tier=${tier.name} model=${model}${decodeArgs.length ? ` decode=[${decodeArgs.join(' ')}]` : ''}`);
     const asr = transcribeSession(
       { me: path.join(sessionDir, CHANNEL_FILES.me), others: path.join(sessionDir, CHANNEL_FILES.others) },
-      { model, outDir: sessionDir, extraArgs: opts.extraArgs },
+      { model, outDir: sessionDir, extraArgs: decodeArgs },
     );
     log.info(`${sessionId} — transcribed: me=${asr.me.length} seg, others=${asr.others.length} seg`);
+
+    // ---- Stage 3.5: REPETITION GUARD (P5) -------------------------------------------------------
+    // The post-decode HALF of the hallucination guard, model-agnostic: collapse looped/garbled spans
+    // (the reproduced large-v3 4x repetition) BEFORE they reach the merge/transcript. Runs on every
+    // tier (cheap, precision-guarded); it is the safety net that lets full large-v3 be an opt-in tier.
+    let asrGuarded = { me: asr.me, others: asr.others };
+    let repetitionReport = { removed: 0, detected: false, loops: [], byChannel: { me: {}, others: {} } };
+    if (tier.repetitionGuard !== false) {
+      const guarded = guardTranscription({ me: asr.me, others: asr.others });
+      asrGuarded = { me: guarded.me, others: guarded.others };
+      repetitionReport = guarded.report;
+      if (repetitionReport.detected) {
+        log.alarm(`${sessionId} — repetition loop(s) caught + collapsed by the guard`, {
+          removedSegments: repetitionReport.removed,
+          loops: repetitionReport.loops.map((l) => ({ channel: l.channel, count: l.count, text: l.text.slice(0, 60) })),
+        });
+      }
+    }
+
+    // ---- Stage 3.6: DIARIZATION SEAM (P5, opt-in; default 'none' = today's behavior) ------------
+    // Per-remote-speaker turn attribution for non-caption multi-speaker calls. Default off (no wrong
+    // speaker counts); when opted in, splits the RIGHT channel at whisper.cpp tinydiarize turn markers.
+    // Caption names still win in the merge — diarized turn labels only fill the gap where none exists.
+    const diarizeMethod = opts.diarize || process.env.RICHOS_DIARIZE || 'none';
+    const dia = diarizeOthers(asrGuarded.others, { method: diarizeMethod });
+    if (dia.method !== 'none') {
+      log.info(`${sessionId} — diarization(${dia.method}): ${dia.turns} remote turn(s), identityStable=${dia.identityStable}`);
+    }
 
     // ---- Stage 4: MERGE + caption fold-in -------------------------------------------------------
     const captions = readCaptions(sessionDir);
     const merged = mergeTranscript({
-      me: asr.me,
-      others: asr.others,
+      me: asrGuarded.me,
+      others: dia.segments,
       captions,
       startedAt: Number(record.startedAt || 0),
     });
@@ -167,7 +204,22 @@ export function runPipeline(sessionDir, opts = {}) {
 
     // ---- Verification + trivial-transcript anomaly ----------------------------------------------
     record.pipeline.model = model;
-    const verification = verify(finalMerged, { me: asr.me, others: asr.others }, captions, record);
+    record.pipeline.tier = tier.name;
+    if (decodeArgs.length) record.pipeline.decodeArgs = decodeArgs;
+    record.pipeline.repetitionGuard = {
+      enabled: tier.repetitionGuard !== false,
+      detected: repetitionReport.detected,
+      removedSegments: repetitionReport.removed,
+      loops: repetitionReport.loops,
+    };
+    record.pipeline.diarization = {
+      method: dia.method,
+      remoteTurns: dia.turns,
+      speakerCount: dia.speakerCount,
+      identityStable: dia.identityStable,
+    };
+    const verification = verify(finalMerged, { me: asrGuarded.me, others: asrGuarded.others }, captions, record);
+    verification.repetitionGuard = record.pipeline.repetitionGuard;
     const totalWords = verification.channels.totalWords;
 
     if (totalWords < MIN_TRANSCRIPT_WORDS) {
@@ -196,10 +248,12 @@ export function runPipeline(sessionDir, opts = {}) {
     const runIndex = record.pipeline.modelRuns.length;
     record.pipeline.modelRuns.push({
       model,
+      tier: tier.name,
       at: now,
       words: totalWords,
       coverageRatio: verification.coverage.ratio,
       captionAgreement: verification.captions.agreementRatio,
+      repetitionLoopsCollapsed: repetitionReport.removed,
     });
     delete record.pipeline.problems;
     writeRecord(sessionDir, record);

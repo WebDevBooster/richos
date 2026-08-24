@@ -75,8 +75,10 @@ export function mergeTranscript({ me, others, captions = [], startedAt = 0, meLa
   const speakers = new Set();
   const meSegs = (me || []).map((s) => ({ ...s, label: meLabel }));
   const othersSegs = (others || []).map((s) => {
+    // Attribution priority for a far-side segment: a real caption NAME (best) > a diarized turn label
+    // (P5 opt-in, when captions are absent) > the generic "Them". Diarization only fills the gap.
     const name = captionSpeakerFor(s, startedAt, captions);
-    return { ...s, label: name || othersLabel };
+    return { ...s, label: name || s.diarizedLabel || othersLabel };
   });
   const all = [...meSegs, ...othersSegs].sort((a, b) => a.startMs - b.startMs || (a.speaker === 'me' ? -1 : 1));
   for (const s of all) speakers.add(s.label);

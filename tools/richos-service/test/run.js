@@ -34,6 +34,9 @@ import { SessionSink } from '../lib/host-handlers.js';
 import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
 import { parseChannels, parseVolume, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
+import { resolveTier, MODEL_TIERS, DEFAULT_TIER } from '../lib/config.js';
+import { guardChannel, guardTranscription } from '../lib/repetition-guard.js';
+import { diarizeOthers, readTurn, SPEAKER_TURN_MARKER } from '../lib/diarize.js';
 
 let passed = 0;
 const failures = [];
@@ -630,6 +633,160 @@ test('parseWhisperJson normalizes segments and drops empties', () => {
   assert.equal(segs.length, 2);
   assert.deepEqual(segs[0], { startMs: 0, endMs: 2000, text: 'Hello there.', speaker: 'others' });
   assert.equal(segs[1].text, 'General Kenobi');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 model tiering — turbo default, guarded large-v3 opt-in, quantized/low-resource fallback');
+
+test('the default tier is turbo (the benchmarked reliable model) when nothing is specified', () => {
+  const t = resolveTier(null);
+  assert.equal(t.name, DEFAULT_TIER);
+  assert.equal(t.model, 'large-v3-turbo');
+  assert.deepEqual(t.decodeArgs, []); // turbo needs no repetition-guard decode params
+});
+
+test('the "max" opt-in tier is full large-v3 WITH repetition-guard decode params (never bare)', () => {
+  const t = resolveTier('max');
+  assert.equal(t.model, 'large-v3');
+  // -mc 0 (no previous-text conditioning) is the primary loop fix; temperature fallback stays on.
+  assert.ok(t.decodeArgs.includes('-mc') && t.decodeArgs[t.decodeArgs.indexOf('-mc') + 1] === '0');
+  assert.ok(t.repetitionGuard === true);
+});
+
+test('a raw --model large-v3 auto-attaches the guard decode params (the gate: never unguarded)', () => {
+  const t = resolveTier('large-v3');
+  assert.equal(t.model, 'large-v3');
+  assert.ok(t.decodeArgs.includes('-mc'), 'bare large-v3 must not run without the guard params');
+});
+
+test('a raw --model large-v3-turbo stays clean (no guard decode params forced on the safe model)', () => {
+  const t = resolveTier('large-v3-turbo');
+  assert.deepEqual(t.decodeArgs, []);
+});
+
+test('low-resource + quantized tiers select smaller/quantized models for weak hosts', () => {
+  assert.equal(MODEL_TIERS['low-resource'].model, 'small.en');
+  assert.ok(/q\d/.test(MODEL_TIERS.quantized.model), 'quantized tier names a quantized .bin');
+  assert.equal(resolveTier('quantized').model, 'large-v3-turbo-q5_0');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 repetition guard — the model-agnostic post-decode hallucination net');
+
+// A fixture built from the REAL captured large-v3 hallucination (benchmark §4.2): the line looped 4x.
+const LOOP_LINE = "I'll flag your account for the large V3 turbo batch tier, and it'll apply to you as well.";
+const largeV3Hallucination = [
+  { startMs: 0, endMs: 3000, text: 'Then turbo should serve you well.', speaker: 'others' },
+  { startMs: 3000, endMs: 6000, text: LOOP_LINE, speaker: 'others' },
+  { startMs: 6000, endMs: 9000, text: LOOP_LINE, speaker: 'others' },
+  { startMs: 9000, endMs: 12000, text: LOOP_LINE, speaker: 'others' },
+  { startMs: 12000, endMs: 15000, text: LOOP_LINE, speaker: 'others' },
+  { startMs: 15000, endMs: 18000, text: 'apply starting with tonight\'s run.', speaker: 'others' },
+];
+
+test('the guard collapses the real large-v3 4x repetition loop to a single line', () => {
+  const r = guardChannel(largeV3Hallucination);
+  const loopCount = r.segments.filter((s) => s.text === LOOP_LINE).length;
+  assert.equal(loopCount, 1, 'the 4 looped copies collapse to exactly one');
+  assert.equal(r.removed, 3, 'three duplicate segments removed');
+  assert.equal(r.loops.length, 1);
+  assert.equal(r.loops[0].count, 4);
+});
+
+test('the collapsed loop keeps timing honest (first kept, end extended over the whole run)', () => {
+  const r = guardChannel(largeV3Hallucination);
+  const kept = r.segments.find((s) => s.text === LOOP_LINE);
+  assert.equal(kept.startMs, 3000);
+  assert.equal(kept.endMs, 15000, 'the kept segment spans the full looped interval (4 copies, last ends 15000)');
+});
+
+test('the guard preserves the surrounding legitimate speech byte-for-byte', () => {
+  const r = guardChannel(largeV3Hallucination);
+  assert.equal(r.segments[0].text, 'Then turbo should serve you well.');
+  assert.equal(r.segments[r.segments.length - 1].text, "apply starting with tonight's run.");
+});
+
+test('the guard does NOT collapse short legitimate backchannels ("Yeah." "Yeah.")', () => {
+  const back = [
+    { startMs: 0, endMs: 500, text: 'Yeah.', speaker: 'me' },
+    { startMs: 800, endMs: 1300, text: 'Yeah.', speaker: 'me' },
+    { startMs: 2000, endMs: 2500, text: 'Yeah.', speaker: 'me' },
+  ];
+  const r = guardChannel(back);
+  assert.equal(r.removed, 0, 'three short backchannels are legitimate, not a loop');
+});
+
+test('the guard does not touch a clean transcript (zero false positives on turbo output)', () => {
+  const clean = [
+    { startMs: 0, endMs: 2000, text: 'Hi Marcus, thanks for joining.', speaker: 'me' },
+    { startMs: 2000, endMs: 5000, text: 'Happy to be on. Let us get started.', speaker: 'others' },
+  ];
+  const r = guardTranscription({ me: [clean[0]], others: [clean[1]] });
+  assert.equal(r.report.removed, 0);
+  assert.equal(r.report.detected, false);
+});
+
+test('guardTranscription reports per-channel loop findings for verification.json', () => {
+  const r = guardTranscription({ me: [], others: largeV3Hallucination });
+  assert.equal(r.report.detected, true);
+  assert.equal(r.report.removed, 3);
+  assert.equal(r.report.byChannel.others.loops, 1);
+  assert.equal(r.report.loops[0].channel, 'others');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 diarization seam — honest scope (default off; opt-in tinydiarize turn segmentation)');
+
+test('default method "none" is identity — one "Them", no wrong speaker counts', () => {
+  const segs = [
+    { startMs: 0, endMs: 2000, text: 'first remote line', speaker: 'others' },
+    { startMs: 2000, endMs: 4000, text: 'second remote line', speaker: 'others' },
+  ];
+  const d = diarizeOthers(segs);
+  assert.equal(d.method, 'none');
+  assert.equal(d.speakerCount, 1);
+  assert.ok(d.segments.every((s) => s.diarizedLabel === undefined), 'no per-turn labels when off');
+});
+
+test('readTurn strips the whisper.cpp tinydiarize marker and flags the turn', () => {
+  const r = readTurn({ text: `okay let me hand over ${SPEAKER_TURN_MARKER}`, speaker: 'others' });
+  assert.equal(r.turned, true);
+  assert.ok(!r.text.includes('[SPEAKER'), 'the marker is stripped from the rendered text');
+  assert.equal(r.text, 'okay let me hand over');
+});
+
+test('tinydiarize-turns splits the RIGHT channel at native turn markers into sequential remotes', () => {
+  const segs = [
+    { startMs: 0, endMs: 2000, text: `Alice speaking here ${SPEAKER_TURN_MARKER}`, speaker: 'others' },
+    { startMs: 2000, endMs: 4000, text: 'now Bob replies', speaker: 'others', speakerTurn: true },
+    { startMs: 4000, endMs: 6000, text: 'and a third voice', speaker: 'others' },
+  ];
+  const d = diarizeOthers(segs, { method: 'tinydiarize-turns' });
+  assert.equal(d.method, 'tinydiarize-turns');
+  assert.equal(d.identityStable, false, 'turn segmentation is honestly not stable identity');
+  assert.equal(d.segments[0].diarizedLabel, 'Remote 1');
+  assert.equal(d.segments[1].diarizedLabel, 'Remote 2');
+  assert.equal(d.segments[2].diarizedLabel, 'Remote 3');
+  assert.equal(d.turns, 3);
+});
+
+test('a caption NAME still wins over a diarized turn label in the merge', () => {
+  const others = diarizeOthers(
+    [{ startMs: 2500, endMs: 5500, text: 'hello, thanks for joining', speaker: 'others' }],
+    { method: 'tinydiarize-turns' },
+  ).segments;
+  const merged = mergeTranscript({ me: [], others, captions, startedAt: T0 });
+  assert.ok(merged.speakers.includes('Marcus Whitfield'), 'the real caption name beats "Remote 1"');
+  assert.ok(!merged.speakers.includes('Remote 1'));
+});
+
+test('with no caption, the diarized turn label fills the gap (better than generic "Them")', () => {
+  const others = diarizeOthers(
+    [{ startMs: 0, endMs: 2000, text: 'unnamed remote speaker', speaker: 'others' }],
+    { method: 'tinydiarize-turns' },
+  ).segments;
+  const merged = mergeTranscript({ me: [], others, captions: [], startedAt: T0 });
+  assert.ok(merged.speakers.includes('Remote 1'));
 });
 
 // ---------------------------------------------------------------------------------------
