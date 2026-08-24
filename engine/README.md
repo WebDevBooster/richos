@@ -386,7 +386,19 @@ scaffold.
    sidecar lands outside `scripts/hooks/` — `scripts/reap-stale-worktrees.sh.sha256`,
    for the half of the worktree-reaper chain that actually removes worktrees;
    both are gitignored and both are hashed by the probe's Layer Q.
-3. **Tell Rich to run the bootstrap interview:**
+3. **Provision `CLAUDE.md` so a bare boot IS Rich:** copy
+   `identity.config.example` to `identity.config`, fill in at least
+   `COMPANY_NAME` and `CEO_NAME`, then run
+   `scripts/provision-claude-md.sh`. The engine ships `CLAUDE.md.template`,
+   but Claude Code only auto-loads `CLAUDE.md` — until this runs, a bare boot
+   is **generic Claude**, not Rich. The script fills the template with your
+   actuals, turns every `<!-- TODO (adopter) -->` block into either your value
+   or an explicit "not configured — ask, never invent" note, and stamps the
+   result with the engine version + template hash. It is safe to re-run: an
+   unedited file refreshes, a file **you** edited is never overwritten
+   (`--upgrade` writes `CLAUDE.md.new` beside it to diff). `--check` exits
+   non-zero if the file is missing or stale, so an installer can gate on it.
+4. **Tell Rich to run the bootstrap interview:**
    `skills/bootstrap-interview/SKILL.md`. It interviews you conversationally
    (~20 minutes, structured stages, resumable if you need to stop partway),
    then does the rest of this section's old manual work FOR you: fills
@@ -403,14 +415,14 @@ scaffold.
    `skills/bootstrap-interview/references/portable-interview-prompt.md` and
    drop the resulting transcript in `ceo-inbox/for-wiki/`; the skill detects
    it automatically ("Transcript mode") and skips straight to generation.
-4. **Optionally adopt the advanced tier:** if your project has a comparable
+5. **Optionally adopt the advanced tier:** if your project has a comparable
    deploy/device pipeline, adapt `reference/advanced-tier/` and flip
    `ENABLE_QA_INSTALL_FRESH_GATE=1` in `orchestration.config`. Skip it otherwise —
    the mechanical layer stands alone.
-5. **Commit `.github/workflows/engine-self-verify.yml`** (already in the repo,
+6. **Commit `.github/workflows/engine-self-verify.yml`** (already in the repo,
    ready as-is) so the same checks keep running on every future push/PR —
    see "CI — the engine keeps guarding itself" below.
-6. **Stay current.** The engine is versioned (see `VERSION` / `VERSIONING.md`);
+7. **Stay current.** The engine is versioned (see `VERSION` / `VERSIONING.md`);
    when a new release ships a hook hardening, a new skill, or a fix, pull it
    with [`UPGRADING.md`](./UPGRADING.md) — it spells out which files are yours
    after adoption (your filled `CLAUDE.md`, `orchestration.config`, staffed
@@ -429,10 +441,15 @@ the interview is doing on your behalf:
    `ARTIFACT_REPLACE_DIRS`, and the meta-role names if you renamed them. A
    half-configured hook fails loud, not dangerous — so fill this before relying
    on enforcement.
-2. **Fill `CLAUDE.md.template`:** copy it to `CLAUDE.md` and replace every
-   `<!-- TODO -->` block (surfaces map, team directory + routing, deploy table,
-   product hard rules). Keep all the generic doctrine intact, including "The
-   Orchestrator as COO" section.
+2. **Fill `CLAUDE.md.template`:** the mechanical way is
+   `scripts/provision-claude-md.sh` (fill `identity.config` first) — it does the
+   copy, the actuals, and every `<!-- TODO -->` block for you, and re-running it
+   never overwrites your edits. By hand: copy the template to `CLAUDE.md` and
+   replace every `<!-- TODO -->` block (surfaces map, team directory + routing,
+   deploy table, product hard rules) **and delete the adopter header comment and
+   the sample "No pagination" bullet** — anything left in place reads as your
+   doctrine. Keep all the generic doctrine intact, including "The Orchestrator
+   as COO" section.
 3. **Start using `ceo-wiki/`:** it's ready as-is — no setup required. Either
    drop your first source into `ceo-inbox/for-wiki/` and have Rich
    ingest it, or just start talking; Rich distills durable

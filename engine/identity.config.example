@@ -1,0 +1,48 @@
+# identity.config — the CEO/company ACTUALS a fresh RichOS install needs.
+#
+# Copy to `identity.config` (same directory) and fill it in, then run:
+#
+#     scripts/provision-claude-md.sh
+#
+# That generates a real `CLAUDE.md` from `CLAUDE.md.template`, so a BARE BOOT of
+# Claude Code in this directory comes up as *Rich, working for a named CEO at a
+# named company* instead of generic Claude. Without it the persona only ever gets
+# established by the app's re-prime path — fragile, and a bad first run.
+#
+# FORMAT: plain bash `NAME="value"` assignments, sourced by the provisioner.
+# NEVER put a credential here. `identity.config` is gitignored in this repo
+# precisely because it holds the CEO's own details and RichOS ships open-source.
+#
+# ONLY the first two are REQUIRED. The provisioner REFUSES to write a CLAUDE.md
+# with a blank company or CEO — a doctrine file that says "TODO" where the
+# company name belongs is the generic-Claude problem wearing a costume.
+
+# --- REQUIRED -------------------------------------------------------------
+COMPANY_NAME=""            # e.g. "Meridian Robotics"
+CEO_NAME=""                # e.g. "Nadia Kessler" — how Rich addresses and refers to the CEO
+
+# --- Optional context (blank lines are simply omitted from CLAUDE.md) ------
+COMPANY_DOMAIN=""          # e.g. "meridian-robotics.com"
+COMPANY_ONE_LINER=""       # e.g. "Shop-floor robotics for mid-market manufacturers."
+PRODUCT_NAME=""            # the main product/service, if it differs from the company
+CEO_TIMEZONE=""            # e.g. "Europe/Berlin"
+CEO_NOTES=""               # anything a bare boot must know on turn one (one or two lines)
+
+# --- Optional doctrine fill-ins -------------------------------------------
+# Each replaces one `<!-- TODO (adopter) -->` block in CLAUDE.md.template. Left
+# blank, the block becomes an explicit, HONEST "not configured yet" note telling
+# Rich to ask rather than to assume — never the adopter instructions themselves,
+# and never an invented value.
+VCS_NOTES=""               # version-control history worth recording (migrations, banned commands)
+TEAM_ROSTER=""             # one "- **Name** — Role (owns X). `slug`" line per staffed teammate
+ROUTING_RULES=""           # how work routes from the CEO through Rich to the team
+EXTRA_DIRS=""              # additional repo-root directories your product needs
+PRODUCT_SURFACES=""        # the surfaces map, if the product has more than one
+PRODUCT_HARD_RULES=""      # one "- **Rule.** explanation" line per non-negotiable product rule
+DEPLOY_TARGETS=""          # the tree-aware deploy table (which landed paths -> which script)
+QA_ROLES=""                # which teammate performs each of the four QA-pipeline steps
+
+# --- Company memory (loro) ------------------------------------------------
+# Relative to the repo root that contains this engine. Leave as-is for the
+# standard RichOS layout; blank it to omit the loro section entirely.
+LORO_PATH="../loro"
