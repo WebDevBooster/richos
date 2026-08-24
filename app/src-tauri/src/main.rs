@@ -176,7 +176,16 @@ fn main() {
             get_assertiveness,
             set_assertiveness,
             get_worker_status,
-            raise_proactive_message
+            raise_proactive_message,
+            // --- voice mode (2026-08-24) — appended, never reordered ---
+            start_voice_capture,
+            stop_voice_capture,
+            voice_speak_delta,
+            voice_speak_end,
+            voice_turn_started,
+            voice_turn_ended,
+            voice_barge_in,
+            voice_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -239,4 +248,210 @@ fn raise_proactive_message(
     spine
         .raise_proactive(thread_id.as_deref(), parsed_tier, &text)
         .map_err(|e| e.to_string())
+}
+// =====================================================================================
+// VOICE MODE — appended block (2026-08-24)
+//
+// Voice is a MODE of the one persistent conversation, never a room: a recognised
+// utterance goes through `Spine::submit_prompt` exactly like typed text (only the
+// `Source` differs — `Jam` instead of `Text`), so it lands in the SAME thread, the SAME
+// durable ledger, and streams back through the SAME `rich://` events. There is no second
+// conversation path anywhere in this file.
+//
+// Rich's reply is spoken by feeding the UI's own `rich://chunk` deltas back down through
+// `voice_speak_delta`. That is deliberate: the webview already renders exactly the text
+// the CEO is allowed to see, so TTS inherits the clean-output guarantee instead of
+// re-deriving it, and the spine's single observer slot needs no change.
+//
+// Everything below is APPEND-ONLY — no existing item is reordered or edited — so it
+// merges cleanly alongside parallel work in `spine.rs` / `reprime.rs`.
+// =====================================================================================
+
+use richos_voice::capture::AudioSource;
+use richos_voice::controller::{VoiceController, VoiceOptions};
+use richos_voice::event::{VoiceEvent, VoiceObserver};
+use std::sync::Arc;
+
+/// Live voice mode, or `None` when the `◉` toggle is off. Managed lazily (see
+/// `ensure_voice_state`) so this whole feature stays one appended block.
+#[derive(Default)]
+struct VoiceHandle {
+    controller: Mutex<Option<VoiceController>>,
+}
+
+/// Forwards voice events to the webview. Same shape as `TauriEmitter` above — the voice
+/// crate is UI-agnostic and names its own events; this just relays them verbatim.
+struct TauriVoiceEmitter {
+    app: AppHandle,
+}
+
+impl VoiceObserver for TauriVoiceEmitter {
+    fn on_voice_event(&self, event: &VoiceEvent) {
+        let _ = self.app.emit(event.event_name(), event.payload());
+    }
+}
+
+fn ensure_voice_state(app: &AppHandle) {
+    // `manage` is a no-op if the type is already managed, so this is idempotent.
+    app.manage(VoiceHandle::default());
+}
+
+/// Enter voice mode: open the mic and start listening. Returns the resolved audio
+/// configuration for developer eyes; the CEO-facing UI only renders `rich://voice-state`.
+#[tauri::command]
+fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serde_json::Value, String> {
+    let _ = thread_id; // voice rides the ACTIVE thread — there is no per-thread voice.
+    ensure_voice_state(&app);
+    let handle = app.state::<VoiceHandle>();
+    let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
+    if slot.is_some() {
+        return Ok(serde_json::json!({ "already": true }));
+    }
+
+    let observer: Arc<dyn VoiceObserver> = Arc::new(TauriVoiceEmitter { app: app.clone() });
+
+    // The submit callback: a recognised utterance takes the SAME path typed text takes.
+    let submit_app = app.clone();
+    let submit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |text: String| {
+        let state = submit_app.state::<AppState>();
+        if !state.lease_ready {
+            let _ = submit_app.emit(
+                richos_voice::event::EVENT_VOICE_ERROR,
+                serde_json::json!({
+                    "message": "I'm not connected to my thinking right now — check that the Claude CLI is signed in, then restart me.",
+                    "at": richos_voice::controller::now_millis(),
+                }),
+            );
+            return;
+        }
+        let mut spine = match state.spine.lock() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        // Source::Jam — voice and text are ONE thread and ONE ledger.
+        if let Err(e) = spine.submit_prompt(&text, Source::Jam) {
+            eprintln!("[richos] voice turn failed: {e}");
+        }
+    });
+
+    let scratch_dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("voice-scratch");
+
+    let opts = VoiceOptions { source: AudioSource::from_env(), scratch_dir };
+    match VoiceController::start(opts, observer, submit) {
+        Ok(ctl) => {
+            let d = ctl.diagnostics().clone();
+            *slot = Some(ctl);
+            Ok(serde_json::json!({
+                "inputSource": d.input_source,
+                "inputRate": d.input_rate,
+                "outputDevice": d.output_device,
+                "outputRate": d.output_rate,
+                "sttModel": d.stt_model,
+                "ttsVoice": d.tts_voice,
+                "echoCancellation": d.echo_cancellation,
+                "bargeInFrames": d.barge_in_frames,
+                "bargeInSecs": d.barge_in_secs,
+            }))
+        }
+        Err(e) => {
+            eprintln!("[richos] voice mode failed to start: {e}");
+            Err(e.ceo_message())
+        }
+    }
+}
+
+/// Leave voice mode. Dropping the controller closes the microphone — "off" means the mic
+/// is genuinely closed, not merely ignored.
+#[tauri::command]
+fn stop_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<(), String> {
+    let _ = thread_id;
+    ensure_voice_state(&app);
+    let handle = app.state::<VoiceHandle>();
+    let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
+    slot.take(); // Drop closes the device and joins the threads.
+    Ok(())
+}
+
+/// One `rich://chunk` delta, relayed by the UI while voice mode is on. Completed sentences
+/// are synthesised and queued immediately — this is the gapless pipelining.
+#[tauri::command]
+fn voice_speak_delta(app: AppHandle, text: String) {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                ctl.speak_delta(&text);
+            }
+        }
+    }
+}
+
+/// The turn's terminal event: speak the unterminated tail so Rich never swallows his last
+/// words.
+#[tauri::command]
+fn voice_speak_end(app: AppHandle) {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                ctl.speak_end();
+            }
+        }
+    }
+}
+
+/// `rich://turn-started`, relayed from the UI.
+#[tauri::command]
+fn voice_turn_started(app: AppHandle) {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                ctl.turn_started();
+            }
+        }
+    }
+}
+
+/// `rich://turn-completed` / `rich://turn-error`, relayed from the UI.
+#[tauri::command]
+fn voice_turn_ended(app: AppHandle) {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                ctl.turn_ended();
+            }
+        }
+    }
+}
+
+/// The UI's "tap to stop" — the CEO's instant interrupt while AEC is missing. Returns the
+/// seconds of queued speech dropped and the measured stop latency, so an interruption is
+/// reported in real units rather than as an adjective.
+#[tauri::command]
+fn voice_barge_in(app: AppHandle) -> serde_json::Value {
+    if let Some(handle) = app.try_state::<VoiceHandle>() {
+        if let Ok(slot) = handle.controller.lock() {
+            if let Some(ctl) = slot.as_ref() {
+                let rate = ctl.diagnostics().output_rate.max(1) as f32;
+                let dropped = ctl.force_barge_in();
+                return serde_json::json!({
+                    "droppedSamples": dropped,
+                    "droppedSecs": dropped as f32 / rate,
+                    "stopLatencySecs": ctl.stop_latency_secs(),
+                });
+            }
+        }
+    }
+    serde_json::json!({ "droppedSamples": 0, "droppedSecs": 0.0, "stopLatencySecs": 0.0 })
+}
+
+/// Developer-facing audio facts. Never rendered to the CEO.
+#[tauri::command]
+fn voice_diagnostics(app: AppHandle) -> Option<String> {
+    let handle = app.try_state::<VoiceHandle>()?;
+    let slot = handle.controller.lock().ok()?;
+    let ctl = slot.as_ref()?;
+    Some(ctl.diagnostics().summary())
 }
