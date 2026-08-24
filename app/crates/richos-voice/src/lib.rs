@@ -50,6 +50,9 @@ pub mod state;
 pub mod wav;
 
 pub mod capture;
+pub mod playout;
+pub mod stt;
+pub mod tts;
 pub mod vad;
 
 pub use chunk::{speakable, SentenceChunker};
