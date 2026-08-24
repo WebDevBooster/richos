@@ -122,6 +122,19 @@ export const THRESHOLDS = {
   recoverBackoffMs: 5000,
   /** An unarmed, recognised call tab is an alarm this fast. */
   unarmedAlarmMs: 10000,
+  /**
+   * Captions-only mode (`mode: 'captions-only'`, no audio source exists at all): grace period
+   * after arming before "not one caption has landed either" becomes a hard (red) failure.
+   * Reuses the same shape as `warmupMs` but is named separately so the two can diverge later.
+   */
+  captionsWarmupMs: 20000,
+  /**
+   * Captions-only mode: age of the last landed caption before the channel is treated as having
+   * ALSO gone silent (red — the CEO-decision 2026-08-23 boundary between "degraded but working"
+   * and "true failure: nothing is being captured"). Generous enough to survive a natural pause
+   * in conversation, short enough to catch an adapter that quietly died.
+   */
+  captionsStallRedMs: 45000,
 };
 
 /** Recovery actions the (pure) health evaluator asks the controller to perform. */

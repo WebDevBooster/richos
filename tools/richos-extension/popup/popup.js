@@ -78,8 +78,14 @@ async function refresh() {
         }${caps.degraded ? ' · degraded (enrichment only)' : ''}`
       : 'none yet';
     let channels;
-    if (status.mode === 'captions-only') channels = 'captions only — click to record audio';
-    else if (status.awaitingTabAudio) channels = 'microphone + captions — click to add tab audio';
+    if (status.mode === 'captions-only') {
+      // CEO decision 2026-08-23: amber ("degraded, working") once captions are actually
+      // landing; red only for true failure (no captions either) — mirrors the badge color.
+      channels =
+        status.level === 'amber'
+          ? 'captions-only (degraded) — captions flowing, click to capture audio'
+          : 'captions only, NO audio — click to record audio';
+    } else if (status.awaitingTabAudio) channels = 'microphone + captions — click to add tab audio';
     else if (status.micOnlyFailover) channels = 'microphone only (tab audio lost)';
     else channels = 'microphone + tab audio';
     $('status').innerHTML = `
@@ -104,7 +110,9 @@ async function refresh() {
       $('arm').textContent = 'Arm capture on this tab';
     }
     $('stop').hidden = false;
-    $('hint').textContent = status.awaitingTabAudio
+    $('hint').textContent = status.mode === 'captions-only'
+      ? 'No audio channel yet — only captions are being collected. Click above (or Alt+Shift+L) to start recording audio.'
+      : status.awaitingTabAudio
       ? 'Your mic + captions are already recording. Click above (or Alt+Shift+L) to add the other side\'s audio.'
       : 'Audio is written to disk continuously — a crash loses seconds, never the call.';
   } else {

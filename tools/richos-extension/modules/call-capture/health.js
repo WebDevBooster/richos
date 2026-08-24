@@ -286,6 +286,81 @@ export function evaluateHealth(state, now, thresholds = THRESHOLDS) {
 }
 
 /**
+ * @typedef {object} CaptionsOnlyState
+ * @property {number} startedAt
+ * @property {number|null} lastCaptionAt
+ * @property {boolean} degraded
+ */
+
+/**
+ * Health for a session with NO audio source at all (`mode: 'captions-only'`) — captions are the
+ * only channel running. CEO decision 2026-08-23: this is a distinct, milder state than "nothing
+ * is being captured", and must not share the red badge with true failure:
+ *
+ *   - captions are flowing (or we are still inside the warmup grace period) → AMBER
+ *     ("degraded, but working — get ground truth").
+ *   - the caption adapter itself broke, OR no caption has ever landed past warmup, OR captions
+ *     were flowing and then stopped for too long → RED (true failure: nothing is being
+ *     captured at all).
+ *
+ * Pure and unit-tested for the same reason as `evaluateHealth`: this decides what the CEO sees
+ * on the badge, so every threshold must be provable with a fake clock.
+ * @param {CaptionsOnlyState} state
+ * @param {number} now
+ * @param {typeof THRESHOLDS} [thresholds]
+ * @returns {{level: 'amber'|'red', reasons: {code: string, level: string, detail: string}[]}}
+ */
+export function evaluateCaptionsOnlyHealth(state, now, thresholds = THRESHOLDS) {
+  /** @type {{code: string, level: string, detail: string}[]} */
+  const reasons = [];
+  const age = now - state.startedAt;
+  const warming = age < thresholds.captionsWarmupMs;
+
+  if (state.degraded) {
+    reasons.push({
+      code: 'captions-only-adapter-broken',
+      level: 'red',
+      detail: 'the caption adapter broke and there is no audio either — nothing is being captured',
+    });
+    return { level: 'red', reasons };
+  }
+
+  if (state.lastCaptionAt == null) {
+    if (warming) {
+      reasons.push({
+        code: 'captions-only-warming-up',
+        level: 'amber',
+        detail: 'no audio source yet; waiting for the first caption',
+      });
+      return { level: 'amber', reasons };
+    }
+    reasons.push({
+      code: 'captions-only-nothing-captured',
+      level: 'red',
+      detail: `armed ${Math.round(age / 1000)}s ago with no audio, and not one caption has landed either — nothing is being captured`,
+    });
+    return { level: 'red', reasons };
+  }
+
+  const captionAge = now - state.lastCaptionAt;
+  if (captionAge >= thresholds.captionsStallRedMs) {
+    reasons.push({
+      code: 'captions-only-stalled',
+      level: 'red',
+      detail: `no audio, and no new caption for ${Math.round(captionAge / 1000)}s — the captions channel has gone silent too`,
+    });
+    return { level: 'red', reasons };
+  }
+
+  reasons.push({
+    code: 'captions-only-flowing',
+    level: 'amber',
+    detail: 'captions-only: no audio yet, but captions are flowing — click to add audio (ground truth)',
+  });
+  return { level: 'amber', reasons };
+}
+
+/**
  * Short badge text for a health level — the glanceable indicator.
  * @param {'green'|'amber'|'red'|'idle'} level
  * @returns {string}
