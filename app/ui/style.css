@@ -1,29 +1,636 @@
-/* Minimal placeholder styling — NOT the visual design (the design roles own that later).
-   Just enough structure to use the spine end to end. */
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; font-family: -apple-system, system-ui, sans-serif; }
-#app { display: flex; height: 100vh; }
+/* RichOS v1 — a calm executive instrument. Built to the design lead's direction:
+   the v1 front-end UX direction. Bespoke, custom CSS by design (this is
+   NOT a client product UI — the Bootstrap/no-custom-CSS doctrine does not apply here).
 
-#sidebar { width: 220px; border-right: 1px solid #e3e3e6; display: flex; flex-direction: column; background: #fafafa; }
-#sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #e3e3e6; }
-.brand { font-weight: 700; }
-#new-thread { border: none; background: #eee; border-radius: 6px; width: 26px; height: 26px; cursor: pointer; font-size: 16px; }
-#thread-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
-.thread { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.thread:hover { background: #efefef; }
-.thread.active { background: #e7e9ff; font-weight: 600; }
+   One quiet accent, restrained type, generous whitespace, capped reading width. No
+   gradients, no playful shapes, no emoji-as-UI, no chat-app novelty. */
 
-#conversation { flex: 1; display: flex; flex-direction: column; }
-#messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.msg { max-width: 70%; }
-.msg.user { align-self: flex-end; text-align: right; }
-.msg.rich { align-self: flex-start; }
-.who { font-size: 11px; color: #999; margin-bottom: 3px; }
-.text { display: inline-block; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; line-height: 1.4; }
-.msg.user .text { background: #4b52d6; color: #fff; }
-.msg.rich .text { background: #f0f0f2; color: #111; }
+:root {
+  --paper: #f7f6f2;
+  --paper-rail: #f0efe9;
+  --surface: #ffffff;
+  --ink: #201f1b;
+  --ink-soft: #6c6a61;
+  --ink-faint: #a5a297;
+  --line: #e5e2d9;
+  --accent: #2f3a56;
+  --accent-soft: rgba(47, 58, 86, 0.08);
+  --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  --radius: 10px;
+}
 
-#composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #e3e3e6; }
-#input { flex: 1; resize: none; padding: 10px 12px; border: 1px solid #d5d5d8; border-radius: 8px; font: inherit; }
-#send { padding: 0 18px; border: none; border-radius: 8px; background: #4b52d6; color: #fff; cursor: pointer; font-weight: 600; }
-#send:disabled { opacity: 0.5; cursor: default; }
+* {
+  box-sizing: border-box;
+}
+
+/* Several toggled elements below also declare their own `display` (flex, etc.), which at
+   equal specificity beats the UA stylesheet's `[hidden]{display:none}`. Force it. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Rail — recessive. A quiet index of topics Rich is tracking, never a channel list.
+--------------------------------------------------------------------------------------- */
+#rail {
+  width: 216px;
+  flex-shrink: 0;
+  background: var(--paper-rail);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px 14px;
+  position: relative;
+}
+
+#rail-header {
+  padding: 4px 6px 20px;
+}
+
+.rail-company {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.01em;
+}
+
+#rail-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.rail-thread {
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 7px 10px;
+  border-radius: 4px;
+  font-size: 13.5px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-thread:hover {
+  color: var(--ink-soft);
+  background: rgba(0, 0, 0, 0.025);
+}
+
+.rail-thread.is-active {
+  color: var(--ink);
+  font-weight: 600;
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.rail-quiet-action {
+  align-self: flex-start;
+  margin: 10px 2px 4px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.rail-quiet-action:hover {
+  color: var(--ink-soft);
+}
+
+#rail-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px 2px;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  position: relative;
+}
+
+.rail-settings-btn {
+  order: 1;
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.rail-settings-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--ink-soft);
+}
+
+.rail-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.rail-rich-label {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.popover {
+  position: absolute;
+  bottom: 46px;
+  right: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(20, 19, 16, 0.1);
+  width: 208px;
+  z-index: 20;
+}
+
+.popover-title {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.popover-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Stage — the conversation is the hero.
+--------------------------------------------------------------------------------------- */
+#stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--paper);
+}
+
+#conversation {
+  flex: 1;
+  overflow-y: auto;
+}
+
+#messages {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 56px 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: turn-in 0.18s ease-out;
+}
+
+@keyframes turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.turn--user {
+  align-items: flex-end;
+}
+
+.turn--assistant {
+  align-items: flex-start;
+}
+
+.turn-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.turn--user .turn-meta {
+  flex-direction: row-reverse;
+}
+
+.turn-who {
+  font-weight: 600;
+}
+
+.turn--user .turn-who {
+  font-weight: 400;
+}
+
+.turn-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.turn-whisper {
+  font-style: italic;
+  color: var(--ink-faint);
+}
+
+.turn-text {
+  font-size: 15.5px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.turn--assistant .turn-text {
+  color: var(--ink);
+  max-width: 640px;
+}
+
+.turn--user .turn-text {
+  color: var(--ink-soft);
+  text-align: right;
+  max-width: 460px;
+}
+
+/* Tier-1 proactive: the slim accent edge — the ONLY "this is more urgent" signal. */
+.turn--proactive {
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+  margin-left: -16px;
+}
+
+/* Working state — one quiet line, in Rich's own register. Never a spinner. */
+.turn-text--working {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.turn-text--working.is-streaming {
+  color: var(--ink);
+  font-style: normal;
+}
+
+.working-ellipsis {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+
+.working-ellipsis i {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  animation: soft-pulse 1.5s infinite ease-in-out;
+}
+
+.working-ellipsis i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.working-ellipsis i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes soft-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 0.9;
+  }
+}
+
+.drill-chip {
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.drill-chip:hover {
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------------------------------
+   Composer — spare: text field, talk toggle, send. Nothing else.
+--------------------------------------------------------------------------------------- */
+#composer-zone {
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+#composer-row {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 16px 28px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+#composer {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+#input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--ink);
+  max-height: 112px;
+  overflow-y: auto;
+}
+
+#input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#input::placeholder {
+  color: var(--ink-faint);
+}
+
+#talk-toggle,
+#send {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+#talk-toggle:hover,
+#send:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#talk-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.talk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
+.send-glyph {
+  font-size: 15px;
+  transform: translateX(1px);
+}
+
+/* Voice panel — inline, replaces the text field. Never a separate call screen. Shares the
+   same flex slot in #composer-row that #composer occupies, so the talk-toggle button
+   never moves and is never hidden by the mode switch. */
+#voice-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.voice-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.voice-dot--listening {
+  background: var(--accent);
+  animation: soft-pulse 1.6s infinite ease-in-out;
+}
+
+.voice-dot--speaking {
+  background: var(--ink-soft);
+}
+
+.voice-label {
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+
+.voice-level {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 14px;
+  margin-left: 2px;
+}
+
+.voice-level i {
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+  animation: level-pulse 1.2s infinite ease-in-out;
+}
+
+.voice-level i:nth-child(1) {
+  height: 5px;
+}
+.voice-level i:nth-child(2) {
+  height: 10px;
+  animation-delay: 0.1s;
+}
+.voice-level i:nth-child(3) {
+  height: 14px;
+  animation-delay: 0.2s;
+}
+.voice-level i:nth-child(4) {
+  height: 8px;
+  animation-delay: 0.3s;
+}
+.voice-level i:nth-child(5) {
+  height: 6px;
+  animation-delay: 0.4s;
+}
+
+@keyframes level-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.voice-barge-in {
+  font-size: 12px;
+  color: var(--ink-faint);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.voice-barge-in:hover {
+  color: var(--ink-soft);
+  border-color: var(--ink-soft);
+}
+
+.voice-footnote {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin: 2px 0 0;
+}
+
+.voice-footnote-glyph {
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Slide-over — read-only, summoned, never resident.
+--------------------------------------------------------------------------------------- */
+#slideover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 19, 16, 0.14);
+  z-index: 30;
+}
+
+#slideover {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 320px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 20px;
+  box-shadow: -14px 0 32px rgba(20, 19, 16, 0.08);
+}
+
+.slideover-head {
+  margin-bottom: 16px;
+}
+
+.slideover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+#slideover-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.slide-item {
+  font-size: 13px;
+  color: var(--ink-soft);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.slide-item--needs_you {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.slideover-close {
+  margin-top: 14px;
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.slideover-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
