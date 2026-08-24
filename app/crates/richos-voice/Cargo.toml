@@ -1,0 +1,14 @@
+[package]
+name = "richos-voice"
+version = "0.1.0"
+edition = "2021"
+description = "RichOS voice mode: mic capture -> VAD/barge-in -> local whisper STT -> the spine -> sentence-pipelined TTS out. A MODE of the one persistent conversation, never a room."
+license = "Apache-2.0"
+
+# Native audio lives HERE, not in richos-core: `cargo test -p richos-core` must stay fast
+# and native-dependency-free (app/README.md "Layout"). cpal is the only third-party native
+# dependency; WAV I/O, resampling, VAD, the barge-in monitor, the sentence chunker and the
+# state machine are all hand-rolled so they are pure, unit-testable functions.
+[dependencies]
+cpal = "0.17"
+serde_json = "1"
