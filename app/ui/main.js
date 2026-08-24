@@ -58,12 +58,15 @@ let voiceMode = false;
 let sessionAvatarShown = false; // Rich Hand mark shows on his first message THIS SESSION only
 let renderedCount = 0; // how many of `messages` are currently mounted (virtualized window)
 const RENDER_WINDOW = 40; // initial/incremental render chunk — infinite scroll, no pagination
-let drillItems = []; // populated only if a genuine worker-status source is wired (none today)
+let drillItems = []; // populated from the real `get_worker_status` command (see the
+// rich://turn-started listener below) — honest-empty until the engine has ever
+// completed a task since boot (richos-core's worker_status.rs).
 
 // COMPANY IDENTITY — the rail header per the UX direction §2.1 is "the company/CEO identity, not
-// RichOS." No backend command for this exists yet (no `company_name` Tauri command in
-// main.rs today — that's the architecture's P4 provisioning leg). This is a deliberate, honestly-labeled
-// placeholder wired to be swapped for a real value the moment that command ships.
+// RichOS." Backed by `get_company_name` (main.rs, wired in init() below). This constant
+// is now ONLY the client-side safety fallback if that invoke ever fails/rejects (e.g. the
+// mock harness, which doesn't wire this command) — richos-core's config.rs carries the
+// real, matching default ("My Company") for the live Tauri path, so the two can't drift.
 const COMPANY_LABEL_FALLBACK = "My Company";
 
 // ---------------------------------------------------------------------------------------
@@ -81,11 +84,11 @@ function timeGapMinutes(aMs, bMs) {
 // Rail
 // ---------------------------------------------------------------------------------------
 // The pinned default thread — the earliest-created one, always "Running" per §2.1. The
-// spine (spine.rs:112, `ensure_active_thread`) seeds it with the literal title "General"
-// today (a backend gap — the design lead's default-thread name is "Running"; that's a one-line Rust
-// fix outside app/ui/'s scope, flagged in the handoff, not made here). Cosmetically relabel
-// only the untouched default so the CEO-facing bar is met now without inventing a rename
-// feature: if the CEO or Rich ever actually renames it, its real title takes over.
+// spine (spine.rs `ensure_active_thread`) now seeds it with the real title "Running"
+// directly (the one-line backend fix landed). The relabel below is kept as a DEFENSIVE
+// fallback only — it still catches the mock harness's fixture thread (mock.js seeds a
+// literal "General" title to exercise this exact path) and any pre-fix persisted ledger
+// from before this change, but is dead code against a fresh real backend.
 function pinnedThread() {
   if (!threads.length) return null;
   return threads.reduce((min, t) => (t.created_at < min.created_at ? t : min), threads[0]);
@@ -397,6 +400,7 @@ Bridge.listen("rich://turn-started", ({ payload }) => {
   liveTurnId = payload.turnId;
   liveText = "";
   setWorking(true);
+  pollWorkerStatus();
 });
 
 Bridge.listen("rich://chunk", ({ payload }) => {
@@ -424,14 +428,47 @@ Bridge.listen("rich://turn-error", ({ payload }) => {
   renderMessages();
 });
 
-// Dev-mock-only proactive/drill-down signals (§5, §3.2) — no live backend seam for these
-// yet (no proactive attention seam, no worker-status command in main.rs today). Wired here
-// so the render path is real and testable; production simply never receives these events
-// until the orchestration work ships them.
+// The real proactive-attention seam (§5, architecture §2.3/§4.2): Rich raised a Tier 1/2
+// message via the backend seam (`raise_proactive_message`, spine.rs `raise_proactive`).
+// The event only ever fires for Tier 1/2 (Tier 3/Silent never notifies, per §5.1) — the
+// UI's job is just to reload the reconciled ledger; the "reached out" whisper-cue render
+// (isProactive(), above) already fires correctly because a proactive turn has no paired
+// user message ahead of it.
+Bridge.listen("rich://proactive-message", ({ payload }) => {
+  if (payload.threadId !== activeThreadId) return;
+  loadMessages();
+});
+// The mock harness's manual test hooks (window.__RICHOS_MOCK__.simulateProactiveDigest /
+// simulateProactiveInterrupt) fire this separate event name directly (mock.js predates
+// the real backend seam and isn't wired to `raise_proactive_message`) — kept so design
+// and QA can still exercise both proactive tiers without a live attention-seam trigger.
 Bridge.listen("rich://mock-proactive", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
   loadMessages();
 });
+
+// The real worker-status drill-down (§3.2 / architecture P3.2), backed by
+// `get_worker_status` (main.rs -> richos-core's worker_status.rs, reading the engine's
+// task-events.jsonl). Polled on turn-started (above) rather than continuously — the
+// chip is a courtesy, not a live dashboard, and this is a read-only snapshot pull, not a
+// subscription. Honest-empty (drillItems stays []) when nothing has completed since boot.
+async function pollWorkerStatus() {
+  try {
+    const status = await Bridge.invoke("get_worker_status");
+    drillItems = status.items || [];
+  } catch (_e) {
+    // Unwired (mock harness) or a genuine read failure — never fabricate activity;
+    // just leave the chip absent.
+    drillItems = [];
+  }
+  if (working) renderMessages();
+}
+
+// Dev-mock-only drill-down signal (§3.2) — the mock harness's manual test hook
+// (window.__RICHOS_MOCK__.simulateDrillChip) still uses this event directly, since
+// `get_worker_status` is one of the commands the mock harness deliberately leaves
+// unwired (see mock.js's default-reject comment) so design and QA can drive the
+// drill-down chip's states without a live engine event log to fake.
 Bridge.listen("rich://mock-worker-status", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
   drillItems = payload.items || [];
@@ -507,10 +544,13 @@ bargeInBtn.addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// Assertiveness dial (§5.2) — one plain 3-way preference, default Quiet. No backend
-// persistence command exists yet, so this is local-only (localStorage) pending a real
-// `get/set_assertiveness` seam — the CEO-facing behavior (one small tucked control,
-// default Quiet) is fully honest today even though the value isn't yet read by Rich.
+// Assertiveness dial (§5.2) — one plain 3-way preference, default Quiet. Backed by the
+// real `get_assertiveness`/`set_assertiveness` commands (main.rs -> richos-core's
+// config.rs — durable, survives restart, default Quiet). `localStorage` stays as an
+// INSTANT local cache only (so the popover paints correctly before the async backend
+// round-trip resolves, and so the mock harness — which doesn't wire these commands —
+// still behaves exactly as before): every write goes to both; the backend is the
+// source of truth and wins on the next launch's `syncAssertivenessFromBackend()`.
 // ---------------------------------------------------------------------------------------
 const ASSERTIVENESS_KEY = "richos.assertiveness";
 function getAssertiveness() {
@@ -518,14 +558,31 @@ function getAssertiveness() {
 }
 function setAssertiveness(v) {
   window.localStorage.setItem(ASSERTIVENESS_KEY, v);
+  Bridge.invoke("set_assertiveness", { level: v }).catch(() => {
+    // Unwired (mock harness) or a genuine write failure — the local cache already
+    // reflects the CEO's choice for this session; nothing to show the CEO for this.
+  });
+}
+function checkAssertivenessRadio(value) {
+  for (const input of assertivenessPopover.querySelectorAll('input[name="assertiveness"]')) {
+    input.checked = input.value === value;
+  }
 }
 (function initAssertivenessControl() {
-  const current = getAssertiveness();
+  checkAssertivenessRadio(getAssertiveness());
   for (const input of assertivenessPopover.querySelectorAll('input[name="assertiveness"]')) {
-    input.checked = input.value === current;
     input.addEventListener("change", () => setAssertiveness(input.value));
   }
 })();
+async function syncAssertivenessFromBackend() {
+  try {
+    const backendValue = await Bridge.invoke("get_assertiveness");
+    window.localStorage.setItem(ASSERTIVENESS_KEY, backendValue);
+    checkAssertivenessRadio(backendValue);
+  } catch (_e) {
+    // Unwired (mock harness): the localStorage-only value already painted correctly.
+  }
+}
 settingsBtn.addEventListener("click", () => {
   const open = assertivenessPopover.hidden === false;
   assertivenessPopover.hidden = open;
@@ -542,8 +599,15 @@ document.addEventListener("click", (e) => {
 // Init
 // ---------------------------------------------------------------------------------------
 async function init() {
-  // Company identity header — see COMPANY_LABEL_FALLBACK note above.
-  railCompanyEl.textContent = COMPANY_LABEL_FALLBACK;
+  // Company identity header (UX §2.1) — backed by `get_company_name`; the backend
+  // itself already carries a matching fallback ("My Company"), this catch only covers
+  // an unwired command (the mock harness) or a genuine invoke failure.
+  try {
+    railCompanyEl.textContent = await Bridge.invoke("get_company_name");
+  } catch (_e) {
+    railCompanyEl.textContent = COMPANY_LABEL_FALLBACK;
+  }
+  syncAssertivenessFromBackend();
 
   threads = await Bridge.invoke("list_threads");
   activeThreadId = await Bridge.invoke("active_thread");

@@ -2,12 +2,24 @@
 //!
 //! Ties together: the ledger (durable conversation + action record), the thread data
 //! model (topic views over the shared ledger), the current compute lease (a swappable
-//! `Cognition`), the turn-boundary controller (queue-not-interrupt), and the re-prime
-//! seam (session-continuity foundation). The lease is disposable; THIS is Rich.
+//! `Cognition`), the turn-boundary controller (queue-not-interrupt), the re-prime seam,
+//! **app-owned turn-boundary rotation on a context watermark**, **mid-turn-crash
+//! recovery/replay**, and **the proactive-attention seam**. The lease is disposable;
+//! THIS is Rich.
+//!
+//! ## Concurrency note (why rotation can never race a CEO message)
+//! Every method here takes `&mut self`. The Tauri shell holds the one `Spine` behind a
+//! `Mutex`, so exactly one command (`send_message`, rotation, recovery — all of it) runs
+//! at a time; a message that "arrives during rotation" simply blocks on that mutex until
+//! rotation's synchronous call stack returns, then proceeds normally against the fresh
+//! lease. This is the mechanism that satisfies continuity §3.3's "a message that arrives
+//! during rotation is queued" — no separate queuing code needed for that case (the
+//! `queue: VecDeque<Queued>` field below handles the DIFFERENT case: a message arriving
+//! while a TURN, not a rotation, is in flight).
 
-use crate::cognition::{Cognition, CognitionError};
-use crate::ledger::{Ledger, LedgerError, Message, Source};
-use crate::reprime::{RePrimePayload, DEFAULT_TAIL_TURNS};
+use crate::cognition::{Cognition, CognitionError, LeaseFactory};
+use crate::ledger::{AttentionTier, Ledger, LedgerError, Message, Source};
+use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
 use crate::util::now_millis;
@@ -23,6 +35,8 @@ pub enum SpineError {
     NoActiveThread,
     #[error("no compute lease attached")]
     NoLease,
+    #[error("no lease factory attached — cannot rotate or recover")]
+    NoLeaseFactory,
 }
 
 /// A prompt accepted while a turn was in flight, awaiting delivery at the next turn
@@ -32,6 +46,32 @@ struct Queued {
     thread_id: String,
     text: String,
 }
+
+/// A proactive message (Tier 1/2) raised WHILE a turn was in flight — the ledger write
+/// happens immediately (durable), but the live UI event is deferred to the next turn
+/// boundary so it never visually collides with an in-progress "Rich is working" row.
+struct QueuedProactiveEmit {
+    thread_id: String,
+    turn_id: String,
+    tier: AttentionTier,
+}
+
+/// Rough chars-per-token ESTIMATE — the well-known ~4-chars/token heuristic for English
+/// text under the Claude tokenizer family. Used ONLY as the context-watermark PROXY per
+/// continuity design §3.2, which explicitly permits "ACP usage reporting OR AN ESTIMATE."
+/// `AcpClient::prompt` (acp.rs) currently discards the wire `usage` field entirely — real
+/// per-turn token counts are NOT wired end-to-end today, so this crate measures a
+/// deterministic, testable proxy (cumulative prompt+reply char count since the lease was
+/// last (re)primed) rather than asserting a number it can't prove. Shown as an estimate
+/// everywhere it's surfaced (`context_estimate_tokens`), never presented as exact.
+const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+/// Default context-window budget (Claude's documented context-window class). Overridable
+/// via `set_context_budget` — real per-model limits differ and this is a v1 default, not
+/// a wired model-capability lookup.
+const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 200_000;
+/// continuity design §8 Q2's recommended starting point: "~70% as the starting point,
+/// tuned in dogfood." Overridable via `set_context_budget`.
+const DEFAULT_WATERMARK_RATIO: f64 = 0.70;
 
 pub struct Spine {
     ledger: Ledger,
@@ -47,6 +87,26 @@ pub struct Spine {
     /// The live UI sink (streaming deltas + turn state). Optional so the spine runs
     /// headless (tests, the ACP example) with zero UI attached.
     observer: Option<Box<dyn TurnObserver>>,
+    /// Spawns a fresh, un-primed lease at rotation/recovery time. `None` means the spine
+    /// can prime/run ONE lease (whatever was `attach_lease`d) but can never rotate or
+    /// recover from a crash — an honest degrade for tests/contexts with no respawn story.
+    lease_factory: Option<Box<dyn LeaseFactory>>,
+    /// The optional Tier-C seam (continuity §2.3/§4) — a different engineer's parallel
+    /// work on `loro/`. Absent by default; the re-prime payload degrades gracefully.
+    loro_compiler: Option<Box<dyn LoroContextCompiler>>,
+    /// Cumulative prompt+reply chars sent/received on the CURRENT lease since it was
+    /// last (re)primed — the context-watermark measurement (see `CHARS_PER_TOKEN_ESTIMATE`).
+    context_chars: usize,
+    context_window_tokens: usize,
+    watermark_ratio: f64,
+    /// An explicit rotation request (continuity §3.2 "Explicit (!rotate equivalent)").
+    /// If set while a turn is in flight, honored at the NEXT turn boundary instead of
+    /// firing mid-turn.
+    pending_rotation_reason: Option<String>,
+    /// Proactive-message UI events deferred because a turn was in flight when raised.
+    pending_proactive_emits: VecDeque<QueuedProactiveEmit>,
+    rotation_count: u64,
+    last_rotation_reason: Option<String>,
 }
 
 impl Spine {
@@ -59,6 +119,15 @@ impl Spine {
             queue: VecDeque::new(),
             lease_primed: false,
             observer: None,
+            lease_factory: None,
+            loro_compiler: None,
+            context_chars: 0,
+            context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+            watermark_ratio: DEFAULT_WATERMARK_RATIO,
+            pending_rotation_reason: None,
+            pending_proactive_emits: VecDeque::new(),
+            rotation_count: 0,
+            last_rotation_reason: None,
         }
     }
 
@@ -89,6 +158,111 @@ impl Spine {
         self.lease.is_some()
     }
 
+    /// Attach the rotation/recovery seam. Without one, the spine can still run its
+    /// (single) attached lease indefinitely, but a context watermark, an explicit
+    /// rotation request, or a mid-turn crash all degrade to their pre-P1.4 behavior
+    /// (watermark: never fires since rotation can't proceed; crash: surfaces the error
+    /// honestly instead of silently retrying against nothing).
+    pub fn set_lease_factory(&mut self, factory: Box<dyn LeaseFactory>) {
+        self.lease_factory = Some(factory);
+    }
+
+    pub fn has_lease_factory(&self) -> bool {
+        self.lease_factory.is_some()
+    }
+
+    /// Attach the optional Tier-C seam (continuity §2.3/§4). See `LoroContextCompiler`'s
+    /// doc for the degrade-gracefully contract when this is never called.
+    pub fn set_loro_context_compiler(&mut self, compiler: Box<dyn LoroContextCompiler>) {
+        self.loro_compiler = Some(compiler);
+    }
+
+    /// Override the context-window watermark budget (continuity §8 Q2). `window_tokens`
+    /// is the model's approximate context window; `watermark_ratio` (0.0–1.0) is the
+    /// fraction of it that triggers a scheduled rotation at the next turn boundary.
+    pub fn set_context_budget(&mut self, window_tokens: usize, watermark_ratio: f64) {
+        self.context_window_tokens = window_tokens.max(1);
+        self.watermark_ratio = watermark_ratio.clamp(0.0, 1.0);
+    }
+
+    /// The current lease's ESTIMATED consumed-context in tokens (chars ÷ 4 — see
+    /// `CHARS_PER_TOKEN_ESTIMATE`). An estimate, never presented as an exact measurement.
+    pub fn context_estimate_tokens(&self) -> usize {
+        self.context_chars / CHARS_PER_TOKEN_ESTIMATE
+    }
+
+    pub fn context_window_tokens(&self) -> usize {
+        self.context_window_tokens
+    }
+
+    /// Whether the current lease has crossed the watermark and is due for rotation at
+    /// the next turn boundary (continuity §3.2, primary trigger).
+    pub fn watermark_reached(&self) -> bool {
+        let threshold = (self.context_window_tokens as f64 * self.watermark_ratio) as usize;
+        self.context_estimate_tokens() >= threshold
+    }
+
+    pub fn rotation_count(&self) -> u64 {
+        self.rotation_count
+    }
+
+    pub fn last_rotation_reason(&self) -> Option<&str> {
+        self.last_rotation_reason.as_deref()
+    }
+
+    /// The explicit rotation trigger (continuity §3.2 "Explicit (!rotate equivalent)").
+    /// If a turn is currently in flight, the request is honored at the NEXT turn
+    /// boundary instead — rotation NEVER happens mid-turn (§3.1).
+    pub fn request_rotation(&mut self, reason: &str) -> Result<(), SpineError> {
+        if self.turn_in_progress {
+            self.pending_rotation_reason = Some(reason.to_string());
+            return Ok(());
+        }
+        let thread_id = self.ensure_active_thread()?;
+        self.rotate_lease(&thread_id, reason)
+    }
+
+    /// Raise a proactive message (the attention seam's persistence + UI half — UX §5).
+    /// **Judgment of WHEN to fire is explicitly NOT this method's job** — that is a
+    /// later leg (an attention-seam trigger watching engine event logs / loro / timers,
+    /// per architecture §4.2). This is the SEAM: given a tier + text a caller (a future
+    /// trigger, or a test) has already decided on, persist it durably and — for Tier 1/2
+    /// only, never Tier 3/Silent — surface it to the UI, deferred to the next turn
+    /// boundary if a turn is currently in flight so it never collides with the "Rich is
+    /// working" row. Returns the new turn id.
+    pub fn raise_proactive(
+        &mut self,
+        thread_id: Option<&str>,
+        tier: AttentionTier,
+        text: &str,
+    ) -> Result<String, SpineError> {
+        let thread_id = match thread_id {
+            Some(t) => t.to_string(),
+            None => self.ensure_active_thread()?,
+        };
+        // Durable regardless of tier or turn state — once Rich has "said" something
+        // (even if Silent never renders it), it must survive a crash immediately after.
+        let turn_id = self.ledger.record_proactive_message(&thread_id, tier, text)?;
+
+        if tier != AttentionTier::Silent {
+            if self.turn_in_progress {
+                self.pending_proactive_emits.push_back(QueuedProactiveEmit {
+                    thread_id,
+                    turn_id: turn_id.clone(),
+                    tier,
+                });
+            } else {
+                self.emit(StreamEvent::ProactiveMessage {
+                    thread_id,
+                    turn_id: turn_id.clone(),
+                    tier,
+                    at: now_millis(),
+                });
+            }
+        }
+        Ok(turn_id)
+    }
+
     // ---- threads -----------------------------------------------------------
 
     pub fn create_thread(&mut self, title: &str) -> Result<String, SpineError> {
@@ -109,7 +283,11 @@ impl Spine {
             self.active_thread = Some(id.clone());
             return Ok(id);
         }
-        self.create_thread("General")
+        // "Running" per the UX direction doc §2.1: the pinned default thread's real title, not
+        // a placeholder the UI has to cosmetically relabel. (app/ui/main.js previously
+        // carried a client-side relabel for a literal "General" title — see that file's
+        // `displayTitle`, updated alongside this fix.)
+        self.create_thread("Running")
     }
 
     /// Switch the active topic view. Continuity holds across the switch because every
@@ -154,7 +332,8 @@ impl Spine {
             return Ok(turn_id);
         }
         // (3) otherwise deliver now.
-        self.deliver(&turn_id, &thread_id, text)?;
+        self.deliver(&turn_id, &thread_id, text, true)?;
+        self.after_turn_boundary(&thread_id)?;
         self.drain_queue()?;
         Ok(turn_id)
     }
@@ -164,7 +343,13 @@ impl Spine {
     /// to the UI sink, so the CEO sees Rich's reply render token-by-token. Turn-state
     /// events bracket the turn: `turn-started` (the calm "Rich is working" affordance)
     /// and a terminal `turn-completed` / `turn-error`, all keyed to thread + turn.
-    fn deliver(&mut self, turn_id: &str, thread_id: &str, text: &str) -> Result<(), SpineError> {
+    ///
+    /// `allow_recovery`: when the lease dies mid-turn (a positive signal — `prompt()`
+    /// returned `Err`, never inferred from silence), attempt ONE automatic mid-turn-crash
+    /// recovery + replay (continuity §5.3) if a lease factory is attached. Pass `false`
+    /// from the recovery path itself so a lease that dies immediately on every respawn
+    /// surfaces honestly after one attempt rather than looping forever.
+    fn deliver(&mut self, turn_id: &str, thread_id: &str, text: &str, allow_recovery: bool) -> Result<(), SpineError> {
         // Re-prime the lease on first use (continuity foundation): the successor reads
         // the identity assertion + action ledger + tail before any CEO-visible turn.
         self.prime_lease_if_needed(thread_id)?;
@@ -230,6 +415,12 @@ impl Spine {
             return Err(e.into());
         }
 
+        // Track consumed-context regardless of outcome — a partial reply before a crash
+        // still consumed context (measured, not asserted: MEASURE = len(prompt sent) +
+        // len(whatever the ledger actually holds for this turn's reply so far)).
+        let reply_len = self.ledger.turn(turn_id).map(|t| t.assistant_text.len()).unwrap_or(0);
+        self.context_chars += text.len() + reply_len;
+
         match stop {
             Ok(stop_reason) => {
                 self.ledger.complete_turn(turn_id, &stop_reason)?;
@@ -250,6 +441,13 @@ impl Spine {
                     reason: e.to_string(),
                     at: now_millis(),
                 });
+                // Mid-turn-crash recovery (continuity §5.3): a positive termination
+                // signal (this `Err`) just fired — attempt ONE automatic respawn +
+                // replay if a factory is attached. A genuinely dead recovery path (no
+                // factory, or the fresh spawn ALSO fails) surfaces the error honestly.
+                if allow_recovery && self.lease_factory.is_some() {
+                    return self.recover_and_replay(turn_id, thread_id, text);
+                }
                 Err(e.into())
             }
         }
@@ -259,9 +457,158 @@ impl Spine {
     fn drain_queue(&mut self) -> Result<(), SpineError> {
         while !self.turn_in_progress {
             let Some(next) = self.queue.pop_front() else { break };
-            self.deliver(&next.turn_id, &next.thread_id, &next.text)?;
+            self.deliver(&next.turn_id, &next.thread_id, &next.text, true)?;
+            self.after_turn_boundary(&next.thread_id)?;
         }
         Ok(())
+    }
+
+    /// Everything that happens AT a turn boundary, after delivery and before the next
+    /// prompt is considered (continuity §3.1: the turn-boundary controller's other job,
+    /// alongside queue-not-interrupt). Runs whether the turn came from `submit_prompt`
+    /// directly or from draining the queue — both call sites only reach here once
+    /// `turn_in_progress` is false, so nothing below ever runs mid-turn.
+    fn after_turn_boundary(&mut self, thread_id: &str) -> Result<(), SpineError> {
+        self.flush_pending_proactive_emits();
+        if let Some(reason) = self.pending_rotation_reason.take() {
+            self.rotate_lease(thread_id, &reason)?;
+        } else if self.lease_factory.is_some() && self.watermark_reached() {
+            self.rotate_lease(thread_id, "context-watermark")?;
+        }
+        Ok(())
+    }
+
+    /// Emit any proactive-message UI events that were deferred because a turn was in
+    /// flight when `raise_proactive` was called (they were already durable — this is
+    /// just the live-UI-visibility half, now that it's safe to show without colliding
+    /// with the working row).
+    fn flush_pending_proactive_emits(&mut self) {
+        while let Some(p) = self.pending_proactive_emits.pop_front() {
+            self.emit(StreamEvent::ProactiveMessage {
+                thread_id: p.thread_id,
+                turn_id: p.turn_id,
+                tier: p.tier,
+                at: now_millis(),
+            });
+        }
+    }
+
+    /// Mid-turn-crash recovery + replay (continuity §5.3). The dead lease is dropped;
+    /// a fresh one is spawned and re-primed (`prime_lease_if_needed`, called from the
+    /// nested `deliver`, naturally carries the just-interrupted turn forward — it is
+    /// still `Interrupted` in the ledger at this point, so `reprime.rs`'s
+    /// `pending_decisions` picks it up as "Unfinished: <text>" — plus the full action
+    /// ledger, the anti-double-execution guard). The CEO's original prompt is then
+    /// RE-SERVED as a brand-new turn; the failed turn is marked superseded (never edited
+    /// in place — it stays in the ledger as the durable crash record) so the CEO sees
+    /// ONE clean exchange, not a duplicate.
+    fn recover_and_replay(&mut self, failed_turn_id: &str, thread_id: &str, original_text: &str) -> Result<(), SpineError> {
+        let factory = self.lease_factory.as_ref().ok_or(SpineError::NoLeaseFactory)?;
+        let fresh = factory.spawn()?; // honest failure if e.g. Claude isn't signed in
+        let from_session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_else(|| "crashed".to_string());
+        let to_session = fresh.session_id().to_string();
+
+        self.lease = Some(fresh);
+        self.lease_primed = false; // the nested deliver() below re-primes via the normal path
+        self.context_chars = 0; // fresh lease, fresh budget
+
+        self.ledger.record_rotation(&from_session, &to_session, "mid-turn-crash")?;
+        self.rotation_count += 1;
+        self.last_rotation_reason = Some("mid-turn-crash".to_string());
+
+        let replay_turn_id = self.ledger.record_prompt_received(thread_id, original_text, Source::Text)?;
+        self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
+        self.deliver(&replay_turn_id, thread_id, original_text, false)
+    }
+
+    /// App-owned CLEAN rotation at a turn boundary (continuity §3.3). Only ever called
+    /// from `after_turn_boundary`, which only runs once `turn_in_progress` is false —
+    /// rotation NEVER happens mid-turn (§3.1).
+    fn rotate_lease(&mut self, thread_id: &str, reason: &str) -> Result<(), SpineError> {
+        if self.lease_factory.is_none() {
+            return Err(SpineError::NoLeaseFactory);
+        }
+
+        // Step 1: ask the OUTGOING session for a self-authored handoff summary — one
+        // cheap internal turn, never rendered (§2.4). Best-effort: a failure here is NOT
+        // fatal to rotation (the deterministic structured digest in reprime.rs is the
+        // crash-safe floor either way), so errors are swallowed, not propagated.
+        if self.lease.is_some() {
+            if let Ok(summary) = self.request_handoff_summary(thread_id) {
+                if !summary.trim().is_empty() {
+                    self.ledger.record_handoff_summary(thread_id, &summary)?;
+                }
+            }
+        }
+
+        // Step 4: spawn the fresh child BEFORE tearing down the old one, so a spawn
+        // failure leaves the CEO on the still-working outgoing lease instead of
+        // stranding the conversation lease-less.
+        let mut fresh = self.lease_factory.as_ref().unwrap().spawn()?;
+        let from_session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_default();
+        let to_session = fresh.session_id().to_string();
+
+        // Step 3: assemble the re-prime payload (Tiers A/B from the ledger; Tier C from
+        // the optional loro seam, degrading gracefully when absent).
+        let mut payload = RePrimePayload::assemble(&self.ledger, thread_id, thread_id, DEFAULT_TAIL_TURNS);
+        if let Some(compiler) = self.loro_compiler.as_ref() {
+            if let Ok(slice) = compiler.compile_slice(thread_id) {
+                payload.loro_slice = Some(slice);
+            }
+        }
+        let priming = payload.to_priming_prompt();
+        // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
+        let _ = self.ledger.record_prompt_received(thread_id, "[re-prime:rotation]", Source::Internal);
+
+        // Step 5: inject the re-prime payload as an internal priming turn.
+        fresh.reprime(&priming)?;
+
+        // Steps 6/7: swap. The OLD lease (replaced here) is dropped — its `Drop` impl
+        // (see `acp::AcpClient`) kills + waits on the child process, so exactly one live
+        // session exists at any instant ("serialize" — §3.3 step 6). The CEO's next
+        // prompt (queued or freshly typed) lands on the already-primed successor.
+        self.lease = Some(fresh);
+        self.lease_primed = true; // already primed above — deliver() won't re-prime redundantly
+        self.context_chars = priming.len(); // reset the watermark baseline to the new payload
+
+        self.ledger.record_rotation(&from_session, &to_session, reason)?;
+        self.rotation_count += 1;
+        self.last_rotation_reason = Some(reason.to_string());
+        Ok(())
+    }
+
+    /// Ask the CURRENT (outgoing) lease to summarize the conversation for its successor
+    /// (continuity §2.4) — ONE cheap internal turn, journaled + streamed through the
+    /// SAME durable machinery as a normal turn (so a crash mid-summary is still
+    /// crash-safe) but as `Source::Internal`, so it has NO render path (`messages()`
+    /// excludes it) exactly like re-prime injection.
+    fn request_handoff_summary(&mut self, thread_id: &str) -> Result<String, SpineError> {
+        const HANDOFF_PROMPT: &str = "[INTERNAL — do not mention this message] Before you're \
+            rotated to a successor, summarize this conversation so far in a few sentences: \
+            topics covered, decisions reached, commitments you made to the CEO. Reply with \
+            ONLY the summary, nothing else.";
+        let turn_id = self.ledger.record_prompt_received(thread_id, HANDOFF_PROMPT, Source::Internal)?;
+
+        // Disjoint field borrows — same pattern as `deliver()`.
+        let ledger = &mut self.ledger;
+        let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
+        let result = {
+            let mut on_chunk = |c: &str| {
+                let _ = ledger.append_assistant_delta(&turn_id, c);
+            };
+            lease.prompt(HANDOFF_PROMPT, &mut on_chunk)
+        };
+
+        match result {
+            Ok(stop_reason) => {
+                self.ledger.complete_turn(&turn_id, &stop_reason)?;
+            }
+            Err(e) => {
+                self.ledger.interrupt_turn(&turn_id, &e.to_string())?;
+                return Err(e.into());
+            }
+        }
+        Ok(self.ledger.turn(&turn_id).map(|t| t.assistant_text.clone()).unwrap_or_default())
     }
 
     /// Assemble + inject the re-prime payload once per lease (before its first turn).
@@ -270,7 +617,12 @@ impl Spine {
             return Ok(());
         }
         let conv_id = self.active_thread.clone().unwrap_or_else(|| thread_id.to_string());
-        let payload = RePrimePayload::assemble(&self.ledger, thread_id, &conv_id, DEFAULT_TAIL_TURNS);
+        let mut payload = RePrimePayload::assemble(&self.ledger, thread_id, &conv_id, DEFAULT_TAIL_TURNS);
+        if let Some(compiler) = self.loro_compiler.as_ref() {
+            if let Ok(slice) = compiler.compile_slice(thread_id) {
+                payload.loro_slice = Some(slice);
+            }
+        }
         let priming = payload.to_priming_prompt();
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(thread_id, "[re-prime]", Source::Internal);
@@ -278,6 +630,7 @@ impl Spine {
             lease.reprime(&priming)?;
         }
         self.lease_primed = true;
+        self.context_chars = priming.len(); // baseline the watermark measurement
         Ok(())
     }
 
@@ -287,5 +640,16 @@ impl Spine {
 
     pub fn is_turn_in_progress(&self) -> bool {
         self.turn_in_progress
+    }
+
+    /// TEST-ONLY seam. This spine is fully synchronous and single-threaded (the Tauri
+    /// shell serializes every call behind one `Mutex<Spine>` — see the module doc), so
+    /// genuine "a message arrives WHILE a turn is in flight" concurrency never occurs
+    /// in-process during a test. This lets an integration test force that state
+    /// deterministically to exercise the proactive seam's deferred-emit branch (§ raise_proactive)
+    /// without spinning up real threads. NOT part of the spine's real API contract.
+    #[doc(hidden)]
+    pub fn debug_set_turn_in_progress(&mut self, in_progress: bool) {
+        self.turn_in_progress = in_progress;
     }
 }

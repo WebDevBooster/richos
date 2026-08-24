@@ -14,3 +14,7 @@ thiserror = "1"
 [[example]]
 name = "acp_roundtrip"
 path = "examples/acp_roundtrip.rs"
+
+[[example]]
+name = "rotation_roundtrip"
+path = "examples/rotation_roundtrip.rs"

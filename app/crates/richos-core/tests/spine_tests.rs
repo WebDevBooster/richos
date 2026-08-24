@@ -107,6 +107,21 @@ fn internal_reprime_turn_is_never_rendered() {
 }
 
 #[test]
+fn default_thread_title_is_running_not_general() {
+    // UX doc §2.1 / §6.1: "the empty rail shows only 'Running'" — the pinned default
+    // thread's REAL title, not a client-side relabel of a literal "General" backend
+    // value (that relabel in app/ui/main.js is now dead code, kept only as a defensive
+    // fallback — this test is the backend-side proof the one-liner landed).
+    let (path, ledger) = tmp_ledger("default-title");
+    let mut spine = Spine::new(ledger);
+    let thread_id = spine.ensure_active_thread().unwrap();
+    let summaries = spine.threads();
+    let default = summaries.iter().find(|t| t.id == thread_id).unwrap();
+    assert_eq!(default.title, "Running");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn threads_are_views_over_one_shared_ledger() {
     let (path, ledger) = tmp_ledger("threads");
     let mut spine = Spine::new(ledger);

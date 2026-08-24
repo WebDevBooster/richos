@@ -30,12 +30,17 @@ app/
     src/acp.rs               ACP client (ndjson JSON-RPC to claude-agent-acp; relay dropped)
     src/ledger.rs            append-only conversation + action ledger (crash-safe)
     src/thread.rs            topic threads as VIEWS over the one shared ledger
-    src/reprime.rs           re-prime payload (continuity foundation)
-    src/cognition.rs         the swappable compute-lease trait (+ MockCognition)
-    src/stream.rs            live UI-facing turn events (streaming deltas + turn state)
-    src/spine.rs             queue-not-interrupt + turn-boundary + re-prime seam
-    examples/acp_roundtrip.rs  headless proof of the real ACP round-trip
-    tests/spine_tests.rs     8 spine invariant tests (no live Claude needed)
+    src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
+    src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
+    src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
+    src/spine.rs             queue-not-interrupt + turn-boundary rotation + crash recovery +
+                              the proactive-attention seam
+    src/config.rs            durable CEO preferences: company_name, the assertiveness dial
+    src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
+    examples/acp_roundtrip.rs      headless proof of the real ACP round-trip
+    examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
+    tests/spine_tests.rs     12 spine invariant tests (no live Claude needed)
+    tests/rotation_tests.rs  12 rotation/crash-recovery/proactive-seam tests
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
     tauri.conf.json, capabilities/, icons/
@@ -51,7 +56,7 @@ dependency, so the shell always builds against the same spine.
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 11/11 green
+cargo test -p richos-core                       # 37/37 green
 
 # 2. The desktop shell (from app/src-tauri/):
 cargo build                                     # -> target/debug/richos-tauri (Mach-O)
@@ -85,8 +90,23 @@ crash-safety intact. **The full event contract for the UI is in `app/STREAMING.m
 builds against it without reading Rust). Clean output preserved: only assistant text is
 ever emitted.
 
-**Foundation only / later legs:** turn-boundary rotation on a context watermark,
-self-authored handoff summaries, mid-turn-crash replay wiring, the loro context
-compiler (Tier C degrades to ledger-only + on-demand fetch today), voice/Jam,
-proactive attention seam, packaging (signed/notarized bundles, bundled Node + adapter +
+**P1.4 continuity, landed (2026-08-24):** turn-boundary rotation (context-watermark +
+explicit triggers), self-authored handoff summaries on clean rotation, mid-turn-crash
+recovery/replay (bounded to one attempt, clean-render dedup via superseded turns), and the
+identity/action-ledger re-prime that structurally excludes false attribution — all wired
+in `richos-core::spine` (`LeaseFactory`, `rotate_lease`, `recover_and_replay`) and proven
+both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 12 tests) and live
+against the real ACP adapter (`examples/rotation_roundtrip.rs` — a forced mid-conversation
+rotation swaps the backing Claude session and the successor correctly recalls the prior
+exchange purely via the re-prime payload). Company name, the assertiveness dial, and the
+worker-status drill-down are also wired end-to-end (Tauri commands → `app/ui/main.js`).
+Full detail + the honest gaps (loro Tier-C compiler still a seam contract, not built; no
+attention-seam TRIGGER yet — only the persistence + UI-event seam) are in
+the spine-seams + rotation brief, 2026-08-24.
+
+**Foundation only / later legs:** the loro context compiler (Tier C degrades to
+ledger-only + on-demand fetch today — `LoroContextCompiler` trait is the seam contract for
+the engineer building `loro/`), the attention-seam TRIGGER (timers/log-watchers that
+decide WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment
+is not), voice/Jam, packaging (signed/notarized bundles, bundled Node + adapter +
 whisper). See the feasibility notes in the handoff.
