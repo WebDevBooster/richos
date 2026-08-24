@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { upgradeRecord } from './contract.js';
+import { decideClaimOnDisk, markPromotable, PROMOTE_AFTER_MS } from './coordination.js';
 import { log } from './log.js';
 
 const HEARTBEAT_STALL_MS = 10000;
@@ -42,6 +43,22 @@ export class SessionSink {
     switch (msg?.type) {
       case 'hello':
         return { type: 'ready', product: 'richos-service', zone: this.zone };
+
+      case 'claim': {
+        // Surface-agnostic ownership handshake (§5.4). The drop zone is the authority: a companion
+        // or the extension asks "may I own this call, or must I stand down to avoid a double?".
+        const decision = decideClaimOnDisk(
+          this.zone,
+          {
+            surface: msg.surface,
+            sessionId: msg.sessionId,
+            captureKind: msg.captureKind,
+            processHint: msg.processHint,
+          },
+          { now },
+        );
+        return { type: 'claim-result', sessionId: msg.sessionId, ...decision };
+      }
 
       case 'session-start': {
         const record = upgradeRecord({ ...msg.record });
@@ -129,6 +146,15 @@ export class SessionSink {
         log.alarm(`${sessionId} — the browser stopped heart-beating (${staleMs} ms) — capture may be dead`, {
           staleMs,
         });
+        // Failover promotion (§5.4): past the promote threshold, mark the session promotable ON DISK
+        // (once) so ANY companion can take over the call from the drop zone alone — the browser can't
+        // suppress this because it is written by the outside-the-browser service.
+        if (staleMs > PROMOTE_AFTER_MS && !s.promotableMarked) {
+          if (markPromotable(this.zone, sessionId, now)) {
+            s.promotableMarked = true;
+            log.alarm(`${sessionId} — marked PROMOTABLE — a companion may supersede this call`, { staleMs });
+          }
+        }
       }
     }
     return alarms;
@@ -149,6 +175,11 @@ export class SessionSink {
         record.endedAt = now;
         record.notes = record.notes || [];
         record.notes.push('finalized as interrupted by the native host on pipe EOF (browser closed/crashed mid-call)');
+        // Failover (§5.4): an interrupted browser call may still be ongoing — mark it promotable so a
+        // companion can supersede it and keep capturing through the browser's death.
+        record.ownership = record.ownership || {};
+        record.ownership.promotable = true;
+        record.ownership.staleSince = now;
         fs.writeFileSync(path.join(s.dir, 'session.json'), `${JSON.stringify(record, null, 2)}\n`);
         finalized.push(sessionId);
         log.alarm(`${sessionId} — browser pipe closed while the call was still OPEN — finalized interrupted`);
