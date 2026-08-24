@@ -6,6 +6,9 @@
  *   richos-service run <sessionId|dir>   # run the pipeline over one session
  *   richos-service retranscribe <id> [--model large-v3]   # re-run stages 2-6 on retained audio
  *   richos-service reconcile             # report-only sweep (never transcribes) — the anomaly audit
+ *   richos-service claim ...             # coordination (§5.4): own this call or stand down (no double)
+ *   richos-service failover-scan         # browser-owned calls that went dark -> promotion candidates
+ *   richos-service mark-superseded ...   # record a companion's takeover of a dead browser call
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
  * Common flags: --zone <dir> (override the drop zone), --model <id>.
