@@ -50,12 +50,14 @@ pub mod state;
 pub mod wav;
 
 pub mod capture;
+pub mod controller;
 pub mod playout;
 pub mod stt;
 pub mod tts;
 pub mod vad;
 
 pub use chunk::{speakable, SentenceChunker};
+pub use controller::{VoiceController, VoiceOptions};
 pub use event::{VoiceEvent, VoiceObserver};
 pub use state::{VoiceState, VoiceStateMachine};
 pub use bargein::{barge_in_debounce_secs, BargeInMonitor, EchoGate, NoEchoCancellation, BARGE_IN_DEBOUNCE_FRAMES};
