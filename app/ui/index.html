@@ -62,6 +62,15 @@
                 <span class="voice-label">listening…</span>
                 <span class="voice-level" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
               </div>
+              <!-- The mic is open and healthy but delivering nothing (rich://voice-state
+                   noAudio). Replaces the listening row rather than shouting over it: one
+                   quiet, actionable line, no modal, no alarm colour. -->
+              <div class="voice-state" id="voice-state-no-audio" hidden>
+                <span class="voice-dot voice-dot--attention"></span>
+                <span class="voice-label voice-label--attention"
+                  >I can't hear anything — check your mic isn't muted.</span
+                >
+              </div>
               <div class="voice-state" id="voice-state-speaking" hidden>
                 <span class="voice-dot voice-dot--speaking"></span>
                 <span class="voice-label">Rich is speaking</span>

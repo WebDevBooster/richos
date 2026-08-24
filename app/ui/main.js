@@ -37,6 +37,7 @@ const sendBtn = el("send");
 const talkToggleBtn = el("talk-toggle");
 const voicePanelEl = el("voice-panel");
 const voiceListeningEl = el("voice-state-listening");
+const voiceNoAudioEl = el("voice-state-no-audio");
 const voiceSpeakingEl = el("voice-state-speaking");
 const bargeInBtn = el("voice-barge-in");
 const slideoverEl = el("slideover");
@@ -503,7 +504,7 @@ slideoverBackdrop.addEventListener("click", closeSlideOver);
 // Wired to the real pipeline in app/crates/richos-voice (2026-08-24). Contract:
 //   INVOKE  start_voice_capture / stop_voice_capture / voice_barge_in
 //           voice_turn_started / voice_speak_delta / voice_speak_end / voice_turn_ended
-//   LISTEN  rich://voice-state      { state, level, bargeInArmed, at }
+//   LISTEN  rich://voice-state      { state, level, bargeInArmed, noAudio, at }
 //           rich://voice-transcript { text, durationMs, latencyMs, at }
 //           rich://voice-error      { message, at }
 //
@@ -532,11 +533,17 @@ function renderVoiceLevel(level) {
   }
 }
 
-function renderVoiceState(state) {
+function renderVoiceState(state, noAudio) {
   // "hearing" and "thinking" both mean the mic is open and Rich is not talking, so both
   // render as listening — which is the truth the CEO needs.
   const speaking = state === "speaking";
-  voiceListeningEl.hidden = speaking;
+  // The mic is open and healthy but nothing has arrived for 3.008 s (noaudio.rs). It
+  // REPLACES the listening row: "listening…" next to "I can't hear anything" is two claims
+  // at once, and the level meter it sits beside is pinned at zero by definition. Rich
+  // speaking always wins — he is never interrupted by this.
+  const silent = !speaking && noAudio === true;
+  voiceListeningEl.hidden = speaking || silent;
+  voiceNoAudioEl.hidden = !silent;
   voiceSpeakingEl.hidden = !speaking;
 }
 
@@ -563,7 +570,7 @@ async function enterVoiceMode() {
   talkToggleBtn.setAttribute("aria-pressed", "true");
   composerEl.hidden = true;
   voicePanelEl.hidden = false;
-  renderVoiceState("listening");
+  renderVoiceState("listening", false);
   renderVoiceLevel(0);
 }
 
@@ -599,7 +606,7 @@ Bridge.listen("rich://voice-state", ({ payload }) => {
     exitVoiceMode();
     return;
   }
-  renderVoiceState(payload.state);
+  renderVoiceState(payload.state, payload.noAudio);
   renderVoiceLevel(payload.level);
 });
 

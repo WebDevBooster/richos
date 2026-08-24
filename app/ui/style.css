@@ -15,6 +15,9 @@
   --line: #e5e2d9;
   --accent: #2f3a56;
   --accent-soft: rgba(47, 58, 86, 0.08);
+  /* The ONE non-accent state colour: something needs the CEO's hand. A muted ochre that
+     belongs to the paper palette — deliberately not a red alert. Nothing else uses it. */
+  --attention: #8a6a2f;
   --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
   --radius: 10px;
 }
@@ -485,6 +488,12 @@ button {
   animation: soft-pulse 1.6s infinite ease-in-out;
 }
 
+/* Still, not pulsing. The listening dot pulses to say "alive"; this dot is telling him
+   nothing is arriving, so it holds — an animated warning reads as an alarm. */
+.voice-dot--attention {
+  background: var(--attention);
+}
+
 .voice-dot--speaking {
   background: var(--ink-soft);
   /* The UX direction §4.1 wants TWO unmistakable states. A static dot next to a pulsing one reads as
@@ -496,6 +505,12 @@ button {
 .voice-label {
   font-size: 13.5px;
   color: var(--ink-soft);
+}
+
+/* Silent input on an OPEN mic. Full ink, because it is the one line here he must actually
+   read and act on — the weight comes from contrast, not from size or colour temperature. */
+.voice-label--attention {
+  color: var(--ink);
 }
 
 .voice-level {
