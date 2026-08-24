@@ -77,6 +77,25 @@ pub enum AttentionTier {
     Silent,
 }
 
+impl AttentionTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AttentionTier::InterruptNow => "interrupt_now",
+            AttentionTier::Digest => "digest",
+            AttentionTier::Silent => "silent",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "interrupt_now" | "interrupt-now" => Some(AttentionTier::InterruptNow),
+            "digest" => Some(AttentionTier::Digest),
+            "silent" => Some(AttentionTier::Silent),
+            _ => None,
+        }
+    }
+}
+
 /// Status of an action in the action ledger (the double-execution guard, §5.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -114,6 +133,11 @@ pub enum Event {
     /// rotation (continuity §2.4) — the highest-fidelity rolling-summary source. Keyed
     /// per thread; the latest one wins (each rotation replaces it, not appends).
     HandoffSummaryUpdated { thread_id: String, summary: String, at: u64 },
+    /// Mid-turn-crash recovery (§5.3): `turn_id` was replayed as `by_turn_id` on a fresh
+    /// lease. `turn_id` stays `interrupted` forever (the durable crash record — never
+    /// edited in place) but is EXCLUDED from `messages()`/re-prime once superseded, so
+    /// the CEO sees one clean exchange (the successful replay), not a duplicate.
+    TurnSuperseded { turn_id: String, by_turn_id: String, at: u64 },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,6 +161,9 @@ pub struct Turn {
     pub created_at: u64,
     /// Set only for `Source::Proactive` turns (the tier it was raised at).
     pub tier: Option<AttentionTier>,
+    /// Set once this turn has been superseded by a mid-turn-crash replay (§5.3) — the
+    /// id of the turn that completed the work instead. `messages()`/re-prime skip it.
+    pub superseded_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,6 +247,7 @@ impl Ledger {
                     stop_reason: None,
                     created_at: at,
                     tier: None,
+                    superseded_by: None,
                 });
             }
             Event::TurnStarted { turn_id, session_id, .. } => {
@@ -269,10 +297,16 @@ impl Ledger {
                     stop_reason: Some("proactive".to_string()),
                     created_at: at,
                     tier: Some(tier),
+                    superseded_by: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
                 self.handoff_summaries.insert(thread_id, summary);
+            }
+            Event::TurnSuperseded { turn_id, by_turn_id, .. } => {
+                if let Some(t) = self.turn_mut(&turn_id) {
+                    t.superseded_by = Some(by_turn_id);
+                }
             }
         }
     }
@@ -436,6 +470,16 @@ impl Ledger {
         self.handoff_summaries.get(thread_id).map(|s| s.as_str())
     }
 
+    /// Mark `turn_id` as superseded by `by_turn_id` (mid-turn-crash replay, §5.3). Not
+    /// crash-critical (the interrupted turn's own durable record is already fsync'd);
+    /// this is bookkeeping for the CLEAN-OUTPUT render, so no fsync needed.
+    pub fn mark_turn_superseded(&mut self, turn_id: &str, by_turn_id: &str) -> Result<(), LedgerError> {
+        self.append(
+            Event::TurnSuperseded { turn_id: turn_id.to_string(), by_turn_id: by_turn_id.to_string(), at: now_millis() },
+            false,
+        )
+    }
+
     // ---- read / projection API --------------------------------------------
 
     pub fn threads(&self) -> &[Thread] {
@@ -459,7 +503,13 @@ impl Ledger {
     /// they have no render path at all.
     pub fn messages(&self, thread_id: &str) -> Vec<Message> {
         let mut out = Vec::new();
-        for t in self.turns.iter().filter(|t| t.thread_id == thread_id && t.source != Source::Internal) {
+        // Superseded turns (mid-turn-crash replay, §5.3) are excluded — the CEO sees the
+        // ONE clean exchange (the successful replay), never a duplicated user line.
+        for t in self
+            .turns
+            .iter()
+            .filter(|t| t.thread_id == thread_id && t.source != Source::Internal && t.superseded_by.is_none())
+        {
             if t.source == Source::Proactive {
                 // Tier 3 (Silent) never appears in the conversation (UX §5.1) — it has no
                 // render path here at all, matching Internal's treatment above.

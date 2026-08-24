@@ -31,7 +31,7 @@ pub mod worker_status;
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
 pub use ledger::{AttentionTier, Ledger, Message, Source, TurnState};
-pub use reprime::RePrimePayload;
+pub use reprime::{LoroContextCompiler, RePrimePayload};
 pub use spine::{Spine, SpineError};
 pub use stream::{StreamEvent, TurnObserver};
 pub use worker_status::WorkerStatusView;

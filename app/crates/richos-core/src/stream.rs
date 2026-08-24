@@ -10,13 +10,17 @@
 //! calls, worker chatter, hooks, and machinery have no path here at all.
 //!
 //! Event contract (also documented for the UI in `app/STREAMING.md`):
-//!   `rich://turn-started`   { threadId, turnId, at }
-//!   `rich://chunk`          { threadId, turnId, seq, textDelta, at }
-//!   `rich://turn-completed` { threadId, turnId, stopReason, at }
-//!   `rich://turn-error`     { threadId, turnId, reason, at }
+//!   `rich://turn-started`      { threadId, turnId, at }
+//!   `rich://chunk`             { threadId, turnId, seq, textDelta, at }
+//!   `rich://turn-completed`    { threadId, turnId, stopReason, at }
+//!   `rich://turn-error`        { threadId, turnId, reason, at }
+//!   `rich://proactive-message` { threadId, turnId, tier, at } — Rich spoke unprompted
+//!     (UX doc §5); the UI's job is just to reload messages for the tier 1/2 case (tier
+//!     3 / Silent NEVER fires this event — it never reaches the conversation at all).
 //! `seq` is a per-turn 0-based counter: concatenating `textDelta` in `seq` order
 //! reproduces the full reply that the ledger holds for that turn.
 
+use crate::ledger::AttentionTier;
 use serde_json::{json, Value};
 
 /// Tauri event names. Kept as constants so the Rust emitter and the documented
@@ -25,6 +29,7 @@ pub const EVENT_TURN_STARTED: &str = "rich://turn-started";
 pub const EVENT_CHUNK: &str = "rich://chunk";
 pub const EVENT_TURN_COMPLETED: &str = "rich://turn-completed";
 pub const EVENT_TURN_ERROR: &str = "rich://turn-error";
+pub const EVENT_PROACTIVE_MESSAGE: &str = "rich://proactive-message";
 
 /// One live turn event. Scoped to `thread_id` + `turn_id` so the UI can key live state
 /// to the exact turn (and discard anything for a thread it isn't showing).
@@ -38,6 +43,9 @@ pub enum StreamEvent {
     TurnCompleted { thread_id: String, turn_id: String, stop_reason: String, at: u64 },
     /// Terminal: the turn ended by error/interrupt/crash before turn-end.
     TurnError { thread_id: String, turn_id: String, reason: String, at: u64 },
+    /// Rich raised a Tier 1 (interrupt-now) or Tier 2 (digest) proactive message — the
+    /// UI's job is to reload messages for the thread (Tier 3/Silent never emits this).
+    ProactiveMessage { thread_id: String, turn_id: String, tier: AttentionTier, at: u64 },
 }
 
 impl StreamEvent {
@@ -48,6 +56,7 @@ impl StreamEvent {
             StreamEvent::Chunk { .. } => EVENT_CHUNK,
             StreamEvent::TurnCompleted { .. } => EVENT_TURN_COMPLETED,
             StreamEvent::TurnError { .. } => EVENT_TURN_ERROR,
+            StreamEvent::ProactiveMessage { .. } => EVENT_PROACTIVE_MESSAGE,
         }
     }
 
@@ -66,6 +75,9 @@ impl StreamEvent {
             }
             StreamEvent::TurnError { thread_id, turn_id, reason, at } => {
                 json!({ "threadId": thread_id, "turnId": turn_id, "reason": reason, "at": at })
+            }
+            StreamEvent::ProactiveMessage { thread_id, turn_id, tier, at } => {
+                json!({ "threadId": thread_id, "turnId": turn_id, "tier": tier.as_str(), "at": at })
             }
         }
     }

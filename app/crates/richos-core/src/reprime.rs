@@ -12,6 +12,21 @@
 use crate::ledger::{ActionStatus, Ledger, Source, TurnState};
 use serde::Serialize;
 
+/// The Tier-C SEAM (continuity §2.3/§4, §8 Q4): the loro Context Compiler is
+/// loro-owned, a DIFFERENT engineer's parallel work (see the handoff conflict-discipline
+/// note — richos-core stays out of `loro/`). This trait is the CONTRACT that lets it
+/// plug in later with zero coupling: implement it, call
+/// `Spine::set_loro_context_compiler`, done. Absent (as it is today — `Spine` never sets
+/// one), `RePrimePayload.loro_slice` stays `None` and the payload degrades gracefully to
+/// "ledger-only re-prime + Rich pulls loro on demand via tools," exactly as this module
+/// already documented before rotation existed. Continuity holds either way; grounding is
+/// thinner without it.
+pub trait LoroContextCompiler: Send {
+    /// Compile the small, topical slice for `thread_id` (§2.1 #8: strategy, constraints,
+    /// prior decisions, CEO preferences bearing on the ACTIVE thread — not all of loro).
+    fn compile_slice(&self, thread_id: &str) -> Result<String, String>;
+}
+
 /// How many recent turns carry VERBATIM (Tier A #4). Small by design — the payload
 /// is billed on every rotation under BYO-Anthropic, so it is budgeted, not dumped.
 pub const DEFAULT_TAIL_TURNS: usize = 8;
@@ -54,10 +69,13 @@ impl RePrimePayload {
     /// Continuity holds; grounding is thinner. `worker_state` is likewise a seam for
     /// the engine event-log watcher (later leg).
     pub fn assemble(ledger: &Ledger, thread_id: &str, conv_id: &str, tail_turns: usize) -> Self {
+        // Superseded turns (§5.3 mid-turn-crash replay) are excluded from the working
+        // set entirely — a successfully-replayed turn is no longer "unfinished," and its
+        // dead predecessor shouldn't pollute the verbatim tail either.
         let turns: Vec<_> = ledger
             .turns()
             .iter()
-            .filter(|t| t.thread_id == thread_id && t.source != Source::Internal)
+            .filter(|t| t.thread_id == thread_id && t.source != Source::Internal && t.superseded_by.is_none())
             .collect();
 
         // Tier A #4 — last N verbatim (user + assistant).
@@ -86,16 +104,21 @@ impl RePrimePayload {
             .collect();
 
         // Tier B #5 — rolling summary of everything BEFORE the verbatim tail.
-        // v1 uses a deterministic structured digest (the crash-safe floor); the
-        // self-authored clean-rotation summary is a later upgrade (continuity §2.4).
+        // Continuity §2.4 recommends BOTH: an always-on deterministic structured digest
+        // as the crash-safe floor, UPGRADED to a self-authored handoff summary on clean
+        // rotation (highest fidelity — the session that lived the conversation distills
+        // it). Prefer the handoff summary when one exists for this thread; otherwise fall
+        // back to the structured digest so a thread that has never rotated (or whose
+        // outgoing lease couldn't be asked, e.g. it already crashed) still carries SOME
+        // rolling context.
         let older = turns.len().saturating_sub(tail_turns);
-        let rolling_summary = if older > 0 {
-            Some(format!(
+        let rolling_summary = match ledger.handoff_summary(thread_id) {
+            Some(summary) => Some(summary.to_string()),
+            None if older > 0 => Some(format!(
                 "{older} earlier turn(s) in this thread precede the verbatim tail below; \
                  topics and decisions from them are recorded in the ledger and can be pulled on demand."
-            ))
-        } else {
-            None
+            )),
+            None => None,
         };
 
         // Tier B #6 — action ledger digest (anti-false-attribution authority).
@@ -114,6 +137,18 @@ impl RePrimePayload {
             })
             .collect();
 
+        // Tier B #7 — live worker state, from the engine's durable event logs
+        // (worker_status.rs). Best-effort + honest: today that module can only report
+        // COMPLETED tasks (no "active"/"decision required" signal exists in the current
+        // hook set — see worker_status.rs's module doc), so this list is either empty
+        // (nothing has completed since boot) or a short list of recent completions —
+        // never a fabricated "N active" claim.
+        let worker_state: Vec<String> = crate::worker_status::current_status()
+            .items
+            .into_iter()
+            .map(|i| format!("[{}] {}", i.state, i.label))
+            .collect();
+
         RePrimePayload {
             identity_assertion: Self::identity_assertion(conv_id),
             pending_decisions,
@@ -121,7 +156,7 @@ impl RePrimePayload {
             recent_tail,
             rolling_summary,
             action_ledger_digest,
-            worker_state: Vec::new(),
+            worker_state,
             loro_slice: None,
         }
     }
@@ -176,6 +211,13 @@ impl RePrimePayload {
             s.push_str("ACTION LEDGER (ground truth for what Rich has done — authoritative):\n");
             for a in &self.action_ledger_digest {
                 s.push_str(&format!("  - [{}] {}: {}\n", a.status, a.kind, a.detail));
+            }
+            s.push('\n');
+        }
+        if !self.worker_state.is_empty() {
+            s.push_str("LIVE WORKER STATE (from the engine's event logs):\n");
+            for w in &self.worker_state {
+                s.push_str(&format!("  - {w}\n"));
             }
             s.push('\n');
         }
