@@ -18,7 +18,9 @@
 //! only recognises speech a few frames in and the first consonant lives in those frames. Cut
 //! it and whisper hears "…orning" instead of "morning".
 
-use crate::vad::{frames_for_secs, frames_to_secs, VAD_FRAME_SAMPLES};
+use crate::vad::frames_to_secs;
+#[cfg(test)]
+use crate::vad::{frames_for_secs, VAD_FRAME_SAMPLES};
 use std::collections::VecDeque;
 
 /// Consecutive speech frames that start an utterance. 7 x 256 / 16000 = 0.112 s.

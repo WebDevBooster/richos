@@ -48,6 +48,8 @@ pub mod endpoint;
 pub mod event;
 pub mod state;
 pub mod wav;
+
+pub mod capture;
 pub mod vad;
 
 pub use chunk::{speakable, SentenceChunker};
