@@ -45,16 +45,18 @@ app/
     src/vad.rs               RMS VAD + THE FRAME MATH (16000 Hz, 256-sample frames = 16.000 ms)
     src/bargein.rs           313-frame (5.008 s) debounce + the EchoGate AEC seam (v1: none)
     src/endpoint.rs          utterance start/end, pre-roll ring, cough filter, 30.000 s cut
+    src/noaudio.rs           post-open silent input: 188 frames (3.008 s) under -80.00 dBFS
     src/chunk.rs             streaming sentence chunker + clean output FOR THE EAR
     src/state.rs             the voice-mode state machine (mic state is never a guess)
     src/wav.rs               hand-rolled PCM16 WAV codec + rate conversion
-    src/event.rs             rich://voice-state | voice-transcript | voice-error
+    src/event.rs             rich://voice-state (incl. noAudio) | voice-transcript | voice-error
     src/{capture,playout}.rs cpal in/out; playout is one continuous, interruptible stream
     src/{stt,tts}.rs         local whisper.cpp (small.en) / macOS `say` behind a trait
     src/controller.rs        four threads, CaptureBrain, the half-duplex taint rule
     tests/barge_in_composition.rs  the WIRING: echo defence + real interruptions
     examples/voice_loop.rs   the reproducible end-to-end proof (audio -> Claude -> speakers)
     examples/device_probe.rs what the audio hardware on THIS machine actually reports
+    examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
     tauri.conf.json, capabilities/, icons/
