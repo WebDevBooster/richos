@@ -228,6 +228,46 @@ export function whisperArgs(opts = {}) {
   ];
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Workspace source (the system architecture §2/§4.2) — the CEO-information-perimeter ingest layer.
+// A NEW MODULE inside this same local service (not a second daemon): reuses the drop-zone discipline,
+// the ledger pattern, and — critically — the entities.js/correct.js seam it feeds (§4.5).
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * The Workspace evidence zone (§4.2): the immutable raw-evidence store, one dir per SourceItem version,
+ * laid out `<zone>/<vendor>/<source>/<sourceItemId>/`. Overridable for tests / alternate loro checkouts.
+ * Default lives under loro/, alongside the entity memory it feeds — NOT under a RichOS server (§1).
+ * @returns {string}
+ */
+export function workspaceZone() {
+  return expand(process.env.RICHOS_WORKSPACE_ZONE || path.join(REPO_ROOT, 'loro', 'raw', 'workspace'));
+}
+
+/** The idempotent Workspace ingest ledger (§4.2), one JSON line per (sourceItemId, vendorEtag). */
+export function workspaceLedgerPath(zone = workspaceZone()) {
+  return path.join(zone, '_workspace_ingest.jsonl');
+}
+
+/**
+ * The delta/sync-token store (§4.3): opaque per-(vendor,source) incremental-sync cursors the core
+ * persists so it never re-pulls the world. Kept OUT of the evidence tree (it is operational state).
+ */
+export function workspaceSyncStatePath(zone = workspaceZone()) {
+  return path.join(zone, '_sync_state.json');
+}
+
+/**
+ * Least-privilege READ-ONLY Google scopes (§6.2). Calendar is P1 (smallest privacy surface, temporal
+ * skeleton first); Drive/Gmail are wired in P2/P3. `calendar.events.readonly` is the narrowest that
+ * lists events. NO write scopes — this layer observes, it never modifies the CEO's cloud.
+ */
+export const GOOGLE_SCOPES = {
+  calendar: 'https://www.googleapis.com/auth/calendar.events.readonly',
+  drive: 'https://www.googleapis.com/auth/drive.metadata.readonly', // P2
+  mail: 'https://www.googleapis.com/auth/gmail.metadata', // P3, metadata-first (graduated privacy)
+};
+
 /** How long after a session is marked `closed` before a missing transcript is itself an anomaly. */
 export const TRANSCRIPT_SLA_MS = Number(process.env.RICHOS_TRANSCRIPT_SLA_MS) || 10 * 60 * 1000;
 
