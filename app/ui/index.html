@@ -8,21 +8,83 @@
   </head>
   <body>
     <div id="app">
-      <aside id="sidebar">
-        <div id="sidebar-head">
-          <span class="brand">RichOS</span>
-          <button id="new-thread" title="New thread">+</button>
+      <!-- Recessive thread rail. Quiet index of topics Rich is tracking — never a channel
+           list. See the v1 front-end UX direction §2.1. -->
+      <aside id="rail">
+        <div id="rail-header">
+          <span id="rail-company" class="rail-company"></span>
         </div>
-        <ul id="thread-list"></ul>
+
+        <nav id="rail-threads" aria-label="Threads"></nav>
+
+        <button id="rail-new-thread" class="rail-quiet-action" type="button">+ new thread</button>
+
+        <div id="rail-footer">
+          <button id="rail-settings" class="rail-settings-btn" type="button" aria-haspopup="true" aria-expanded="false" title="How much should Rich interrupt you?">⚙</button>
+          <img id="rail-avatar" class="rail-avatar" src="assets/rich-hand.png" alt="" />
+          <span class="rail-rich-label">Rich</span>
+        </div>
+
+        <div id="assertiveness-popover" class="popover" hidden>
+          <p class="popover-title">How much should Rich interrupt you?</p>
+          <label class="popover-option"><input type="radio" name="assertiveness" value="quiet" /> Quiet</label>
+          <label class="popover-option"><input type="radio" name="assertiveness" value="balanced" /> Balanced</label>
+          <label class="popover-option"><input type="radio" name="assertiveness" value="urgent-only" /> Only when it's urgent</label>
+        </div>
       </aside>
-      <main id="conversation">
-        <div id="messages"></div>
-        <form id="composer">
-          <textarea id="input" rows="1" placeholder="Talk to Rich…" autocomplete="off"></textarea>
-          <button id="send" type="submit">Send</button>
-        </form>
+
+      <!-- The conversation — the hero. Capped reading width, centered. -->
+      <main id="stage">
+        <div id="conversation" role="log" aria-live="polite">
+          <div id="scroll-sentinel-top"></div>
+          <div id="messages"></div>
+        </div>
+
+        <div id="composer-zone">
+          <div id="composer-row">
+            <!-- Persistent across text/voice modes — this is the SAME ◉ the voice
+                 footnote refers to ("tap ◉ to end voice"), so it must never hide. -->
+            <button id="talk-toggle" type="button" title="Talk to Rich" aria-pressed="false">
+              <span class="talk-dot"></span>
+            </button>
+
+            <form id="composer" autocomplete="off">
+              <textarea id="input" rows="1" placeholder="Talk to Rich…"></textarea>
+              <button id="send" type="submit" title="Send">
+                <span class="send-glyph">▷</span>
+              </button>
+            </form>
+
+            <!-- Voice mode replaces the text field inline — never a separate call screen. -->
+            <div id="voice-panel" hidden>
+              <div class="voice-state" id="voice-state-listening">
+                <span class="voice-dot voice-dot--listening"></span>
+                <span class="voice-label">listening…</span>
+                <span class="voice-level" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+              </div>
+              <div class="voice-state" id="voice-state-speaking" hidden>
+                <span class="voice-dot voice-dot--speaking"></span>
+                <span class="voice-label">Rich is speaking</span>
+                <button id="voice-barge-in" type="button" class="voice-barge-in">tap to stop</button>
+              </div>
+              <p class="voice-footnote">headphones recommended · tap <span class="voice-footnote-glyph">◉</span> to end voice</p>
+            </div>
+          </div>
+        </div>
       </main>
+
+      <!-- Optional drill-down — summoned, never resident. -->
+      <div id="slideover-backdrop" hidden></div>
+      <aside id="slideover" hidden aria-label="Under the hood">
+        <div class="slideover-head">
+          <span class="slideover-title">Under the hood</span>
+        </div>
+        <div id="slideover-body"></div>
+        <button id="slideover-close" type="button" class="slideover-close">back to Rich</button>
+      </aside>
     </div>
+
+    <script src="mock.js"></script>
     <script src="main.js"></script>
   </body>
 </html>
