@@ -32,6 +32,7 @@ app/
     src/thread.rs            topic threads as VIEWS over the one shared ledger
     src/reprime.rs           re-prime payload (continuity foundation)
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition)
+    src/stream.rs            live UI-facing turn events (streaming deltas + turn state)
     src/spine.rs             queue-not-interrupt + turn-boundary + re-prime seam
     examples/acp_roundtrip.rs  headless proof of the real ACP round-trip
     tests/spine_tests.rs     8 spine invariant tests (no live Claude needed)
@@ -50,7 +51,7 @@ dependency, so the shell always builds against the same spine.
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 8/8 green
+cargo test -p richos-core                       # 11/11 green
 
 # 2. The desktop shell (from app/src-tauri/):
 cargo build                                     # -> target/debug/richos-tauri (Mach-O)
@@ -74,11 +75,18 @@ RICHOS_ACP_BIN="$PWD/scratch-acp/node_modules/.bin/claude-agent-acp" \
 
 **Proven (live, 2026-08-24):** the ACP round-trip through the full spine — CEO prompt
 persisted crash-safe → re-prime identity injected → real Claude replies **as Rich** →
-clean render. The Tauri shell builds into a real arm64 binary. 8/8 spine tests green.
+clean render. The Tauri shell builds into a real arm64 binary. 11/11 spine tests green.
+
+**Streaming (2026-08-24):** Rich's reply deltas now stream **live** to the UI via Tauri
+events (`rich://turn-started` → `rich://chunk`… → `rich://turn-completed`/`rich://turn-error`),
+so the UI renders token-by-token and shows a calm "Rich is working" state. Each delta is
+appended to the durable ledger FIRST, then emitted — the ledger stays the source of truth,
+crash-safety intact. **The full event contract for the UI is in `app/STREAMING.md`** (the UI
+builds against it without reading Rust). Clean output preserved: only assistant text is
+ever emitted.
 
 **Foundation only / later legs:** turn-boundary rotation on a context watermark,
 self-authored handoff summaries, mid-turn-crash replay wiring, the loro context
 compiler (Tier C degrades to ledger-only + on-demand fetch today), voice/Jam,
-proactive attention seam, streaming deltas to the UI via Tauri events, packaging
-(signed/notarized bundles, bundled Node + adapter + whisper). See the feasibility notes
-in the handoff.
+proactive attention seam, packaging (signed/notarized bundles, bundled Node + adapter +
+whisper). See the feasibility notes in the handoff.
