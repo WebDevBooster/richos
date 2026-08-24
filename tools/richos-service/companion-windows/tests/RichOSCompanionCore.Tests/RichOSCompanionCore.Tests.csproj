@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deterministic unit tests for the PURE core (contract shape, channel L/R mapping, mix/failover,
+    WAV round-trip, full SessionWriter contract-dir write, coordination parsing) — the peer of the
+    macOS companion's `swift test`. No WASAPI, no COM, no audio hardware, no permission grant: runs on
+    any .NET host, so `windows-latest` CI verifies everything the toolchain can without a real capture.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RichOSCompanionCore\RichOSCompanionCore.csproj" />
+  </ItemGroup>
+
+</Project>
