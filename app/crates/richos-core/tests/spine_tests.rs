@@ -3,10 +3,12 @@
 //! they run green with NO live Claude / network (the ACP round-trip itself is proven
 //! separately by examples/acp_roundtrip.rs).
 
-use richos_core::cognition::MockCognition;
+use richos_core::cognition::{Cognition, CognitionError, MockCognition};
 use richos_core::ledger::{Ledger, Source, TurnState};
 use richos_core::reprime::RePrimePayload;
 use richos_core::spine::Spine;
+use richos_core::stream::{StreamEvent, TurnObserver};
+use std::sync::{Arc, Mutex};
 
 fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
     let path = std::env::temp_dir().join(format!(
@@ -185,4 +187,183 @@ fn queue_not_interrupt_orders_prompts_without_dropping() {
     assert_eq!(spine.queue_depth(), 0);
     assert!(!spine.is_turn_in_progress());
     let _ = std::fs::remove_file(&path);
+}
+
+// ---- streaming / turn-state emission -------------------------------------------
+
+/// A recording UI sink: captures every emitted event so tests can assert order, ids,
+/// seq, and payload shape — the exact contract the Tauri UI consumes.
+#[derive(Clone, Default)]
+struct RecordingObserver {
+    events: Arc<Mutex<Vec<StreamEvent>>>,
+}
+impl RecordingObserver {
+    fn events(&self) -> Vec<StreamEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+impl TurnObserver for RecordingObserver {
+    fn on_event(&self, event: &StreamEvent) {
+        self.events.lock().unwrap().push(event.clone());
+    }
+}
+
+/// A cognition that streams one chunk then fails the turn — to exercise the error path.
+struct FailingCognition {
+    session_id: String,
+}
+impl Cognition for FailingCognition {
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+    fn reprime(&mut self, _priming_text: &str) -> Result<(), CognitionError> {
+        Ok(())
+    }
+    fn prompt(&mut self, _text: &str, on_chunk: &mut dyn FnMut(&str)) -> Result<String, CognitionError> {
+        on_chunk("partial before the lease dies");
+        Err(CognitionError::Io("adapter exited mid-turn".into()))
+    }
+}
+
+#[test]
+fn stream_emits_chunks_in_order_and_ledger_holds_full_reply() {
+    // The core streaming guarantee: chunk events arrive in seq order, concatenate to the
+    // full reply, and carry the right thread + turn ids — while the ledger (source of
+    // truth) independently reflects the same full reply.
+    let (path, ledger) = tmp_ledger("stream-order");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("General").unwrap();
+    spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Hello CEO, I am Rich and I am here."])));
+
+    let observer = RecordingObserver::default();
+    spine.set_observer(Box::new(observer.clone()));
+
+    let turn_id = spine.submit_prompt("hi", Source::Text).unwrap();
+
+    let events = observer.events();
+
+    // Chunk events, in arrival order.
+    let chunks: Vec<(u64, String, String, String)> = events
+        .iter()
+        .filter_map(|e| match e {
+            StreamEvent::Chunk { thread_id, turn_id, seq, text_delta, .. } => {
+                Some((*seq, thread_id.clone(), turn_id.clone(), text_delta.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(chunks.len() >= 2, "mock streams multiple chunks");
+
+    // seq is 0-based and strictly increasing in arrival order.
+    for (i, (seq, tid, tur, _)) in chunks.iter().enumerate() {
+        assert_eq!(*seq, i as u64, "seq is 0-based and in order");
+        assert_eq!(tid, &thread, "chunk carries the active thread id");
+        assert_eq!(tur, &turn_id, "chunk carries the current turn id");
+    }
+
+    // Concatenating textDelta in seq order reproduces the full reply...
+    let streamed: String = chunks.iter().map(|(_, _, _, t)| t.clone()).collect();
+    assert_eq!(streamed, "Hello CEO, I am Rich and I am here.");
+    // ...and the ledger independently holds the same full reply.
+    assert_eq!(spine.ledger().turn(&turn_id).unwrap().assistant_text, "Hello CEO, I am Rich and I am here.");
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn turn_state_events_bracket_the_turn() {
+    // turn-started fires first (the "Rich is working" affordance), turn-completed fires
+    // last, both keyed to the same thread + turn; chunks live strictly between them.
+    let (path, ledger) = tmp_ledger("stream-bracket");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("General").unwrap();
+    spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["working then done"])));
+
+    let observer = RecordingObserver::default();
+    spine.set_observer(Box::new(observer.clone()));
+
+    let turn_id = spine.submit_prompt("go", Source::Text).unwrap();
+    let events = observer.events();
+
+    // First event is TurnStarted for this thread + turn.
+    match &events[0] {
+        StreamEvent::TurnStarted { thread_id, turn_id: t, .. } => {
+            assert_eq!(thread_id, &thread);
+            assert_eq!(t, &turn_id);
+        }
+        other => panic!("expected TurnStarted first, got {other:?}"),
+    }
+    // Last event is TurnCompleted for this turn, carrying the stopReason.
+    match events.last().unwrap() {
+        StreamEvent::TurnCompleted { turn_id: t, stop_reason, .. } => {
+            assert_eq!(t, &turn_id);
+            assert_eq!(stop_reason, "end_turn");
+        }
+        other => panic!("expected TurnCompleted last, got {other:?}"),
+    }
+    // Every chunk sits strictly between start and complete.
+    let n = events.len();
+    for (i, e) in events.iter().enumerate() {
+        if matches!(e, StreamEvent::Chunk { .. }) {
+            assert!(i > 0 && i < n - 1, "chunks are bracketed by start/complete");
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn failed_turn_emits_turn_error_and_persists_partial() {
+    // A lease that dies mid-turn: the partial reply is persisted + streamed, and a
+    // terminal turn-error is emitted (never a silent hang, never a leaked stack trace).
+    let (path, ledger) = tmp_ledger("stream-error");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("General").unwrap();
+    spine.attach_lease(Box::new(FailingCognition { session_id: "sess-x".into() }));
+
+    let observer = RecordingObserver::default();
+    spine.set_observer(Box::new(observer.clone()));
+
+    let turn_id = spine.submit_prompt("cause a failure", Source::Text).unwrap_err_turn(&spine);
+    let events = observer.events();
+
+    // A partial chunk streamed before the failure.
+    assert!(events.iter().any(|e| matches!(e, StreamEvent::Chunk { .. })), "partial chunk streamed");
+    // Terminal event is TurnError for this thread + turn.
+    match events.last().unwrap() {
+        StreamEvent::TurnError { thread_id, turn_id: t, reason, .. } => {
+            assert_eq!(thread_id, &thread);
+            assert_eq!(t, &turn_id);
+            assert!(reason.contains("adapter exited"), "carries the failure reason");
+        }
+        other => panic!("expected TurnError last, got {other:?}"),
+    }
+    // The ledger captured the partial reply and marked the turn interrupted.
+    let turn = spine.ledger().turn(&turn_id).unwrap();
+    assert_eq!(turn.state, TurnState::Interrupted);
+    assert_eq!(turn.assistant_text, "partial before the lease dies");
+    // The turn boundary is clear again (queue-not-interrupt invariant intact).
+    assert!(!spine.is_turn_in_progress());
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Small helper: submit_prompt returns the turn id even when delivery fails (the prompt
+/// is always journaled first). This recovers that id from the ledger for the error test.
+trait UnwrapErrTurn {
+    fn unwrap_err_turn(self, spine: &Spine) -> String;
+}
+impl UnwrapErrTurn for Result<String, richos_core::spine::SpineError> {
+    fn unwrap_err_turn(self, spine: &Spine) -> String {
+        match self {
+            Ok(id) => id,
+            Err(_) => spine
+                .ledger()
+                .turns()
+                .iter()
+                .rev()
+                .find(|t| t.source == Source::Text)
+                .expect("a text turn was journaled")
+                .id
+                .clone(),
+        }
+    }
 }
