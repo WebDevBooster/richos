@@ -33,6 +33,7 @@ use crate::capture::{self, AudioSource, Capture};
 use crate::chunk::SentenceChunker;
 use crate::endpoint::{UtteranceRecorder, Utterance};
 use crate::event::{VoiceEvent, VoiceObserver};
+use crate::noaudio::{no_audio_window_secs, NoAudioDetector};
 use crate::playout::Playout;
 use crate::state::{VoiceState, VoiceStateMachine};
 use crate::stt::{self, Recognizer};
@@ -147,6 +148,10 @@ pub enum CapMsg {
     Utterance(Box<Utterance>),
     /// An utterance completed but was discarded (too short, or tainted echo).
     Discarded { tainted: bool },
+    /// The post-open silent-input verdict CHANGED (`noaudio.rs`). `silent` = the stream is
+    /// open and healthy but has delivered nothing above -80.00 dBFS for 3.008 s. Sent once
+    /// per transition, never once per frame.
+    NoAudio { silent: bool },
     /// Rich was cut off — either by the full debounce, or by "tap to stop".
     ///
     /// `mid_utterance` says whether the CEO is actually talking at that instant. A debounce
@@ -166,6 +171,10 @@ pub struct CaptureBrain {
     vad: Vad,
     recorder: UtteranceRecorder,
     monitor: BargeInMonitor,
+    /// Post-open silent-input watch. Fed the RMS of the SAME frame the recorder buffers —
+    /// collector-path parity, so what the CEO is warned about cannot drift from what STT
+    /// would actually have received.
+    noaudio: NoAudioDetector,
     was_recording: bool,
     /// This utterance began while Rich was audible: echo until proven otherwise.
     tainted: bool,
@@ -185,6 +194,7 @@ impl CaptureBrain {
             vad: Vad::default(),
             recorder: UtteranceRecorder::new(),
             monitor: BargeInMonitor::default(),
+            noaudio: NoAudioDetector::default(),
             was_recording: false,
             tainted: false,
             barged: false,
@@ -202,11 +212,31 @@ impl CaptureBrain {
         self.monitor.run_frames()
     }
 
+    /// Is the open stream currently delivering nothing at all?
+    pub fn no_audio(&self) -> bool {
+        self.noaudio.no_audio()
+    }
+
+    /// Consecutive dead frames counted so far — the "why did/didn't it warn" diagnostic.
+    pub fn dead_run_frames(&self) -> u32 {
+        self.noaudio.dead_run_frames()
+    }
+
     /// One exact VAD frame. `speaking` = Rich currently has audio playing. `forced` = the UI's
     /// "tap to stop" was pressed since the last frame.
     pub fn push_frame(&mut self, frame: &[f32], speaking: bool, forced: bool) -> Vec<CapMsg> {
         let mut out = Vec::new();
         let is_speech = self.vad.push_frame(frame);
+
+        // COLLECTOR-PATH PARITY: `self.vad.last_rms()` is the RMS of THIS frame — the very
+        // buffer handed to `self.recorder.push_frame` below and, from there, to whisper. The
+        // silent-input verdict is therefore computed on the recorded audio itself and cannot
+        // drift from what a real capture receives. (The echo gate has already run on it in
+        // the callback, so it also reflects what STT actually gets, not what the device
+        // handed over.) One transition, one message — never one per 16.000 ms frame.
+        if self.noaudio.observe(self.vad.last_rms(), speaking) {
+            out.push(CapMsg::NoAudio { silent: self.noaudio.no_audio() });
+        }
 
         // The monitor only counts while Rich is audible: speech during his silence is an
         // ordinary utterance, not an interruption.
@@ -278,6 +308,9 @@ struct Shared {
     speaking: AtomicBool,
     /// Bumped on every barge-in/stop. Synthesis for an older generation is discarded.
     generation: AtomicU64,
+    /// The open stream is delivering nothing (see `noaudio.rs`). Owned by the supervisor,
+    /// readable by the shell/tests without touching the audio thread.
+    no_audio: AtomicBool,
     running: AtomicBool,
 }
 
@@ -328,6 +361,7 @@ impl VoiceController {
             level: AtomicU32::new(0),
             speaking: AtomicBool::new(false),
             generation: AtomicU64::new(0),
+            no_audio: AtomicBool::new(false),
             running: AtomicBool::new(true),
         });
         let machine = Arc::new(Mutex::new(VoiceStateMachine::new()));
@@ -490,6 +524,13 @@ impl VoiceController {
         &self.diagnostics
     }
 
+    /// The mic is open and healthy but has delivered nothing above -80.00 dBFS for 3.008 s.
+    /// The UI reads this off `rich://voice-state`; this accessor exists for the live
+    /// hardware check and for the shell's diagnostics.
+    pub fn no_audio(&self) -> bool {
+        self.shared.no_audio.load(Ordering::Relaxed)
+    }
+
     /// A `rich://chunk` delta arrived. Accumulate, and hand every completed sentence to the
     /// speaker thread immediately — this is the pipelining.
     pub fn speak_delta(&self, delta: &str) {
@@ -589,6 +630,8 @@ fn supervise(
     let mut last_state = VoiceState::Off;
     let mut last_level_emit = Instant::now() - LEVEL_EMIT_EVERY;
     let mut last_level = -1.0f32;
+    let mut no_audio = false;
+    let mut no_audio_changed = false;
 
     while shared.running.load(Ordering::SeqCst) {
         // 1. Drain the audio thread's messages.
@@ -613,6 +656,20 @@ fn supervise(
                     }
                     if tainted {
                         eprintln!("[richos-voice] discarded audio captured while Rich was speaking (no AEC)");
+                    }
+                }
+                Ok(CapMsg::NoAudio { silent }) => {
+                    shared.no_audio.store(silent, Ordering::Relaxed);
+                    no_audio = silent;
+                    no_audio_changed = true;
+                    if silent {
+                        eprintln!(
+                            "[richos-voice] input silent: nothing above {:.2} dBFS for {:.3} s on an OPEN stream - muted mic, gain at zero, or a denied permission",
+                            crate::noaudio::dbfs(crate::noaudio::SILENCE_RMS),
+                            no_audio_window_secs()
+                        );
+                    } else {
+                        eprintln!("[richos-voice] input is live again");
                     }
                 }
                 Ok(CapMsg::BargeIn { mid_utterance }) => {
@@ -655,16 +712,21 @@ fn supervise(
         let level = if state.mic_is_hot() { shared.level() } else { 0.0 };
         let state_changed = state != last_state;
         let level_due = last_level_emit.elapsed() >= LEVEL_EMIT_EVERY && (level - last_level).abs() > 0.02;
-        if state_changed || level_due {
+        // A dead input holds the level at 0.0 and the state at Listening, so NEITHER of the
+        // two existing emit triggers would ever fire - the warning would be computed and
+        // never delivered. The transition is its own trigger.
+        if state_changed || level_due || no_audio_changed {
             observer.on_voice_event(&VoiceEvent::State {
                 state,
                 level,
                 barge_in_armed: armed,
+                no_audio,
                 at: now_millis(),
             });
             last_state = state;
             last_level = level;
             last_level_emit = Instant::now();
+            no_audio_changed = false;
         }
 
         std::thread::sleep(TICK);
@@ -676,6 +738,7 @@ fn supervise(
         state: VoiceState::Off,
         level: 0.0,
         barge_in_armed: false,
+        no_audio: false,
         at: now_millis(),
     });
 }

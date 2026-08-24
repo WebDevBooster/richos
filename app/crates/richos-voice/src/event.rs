@@ -7,7 +7,7 @@
 //!
 //! | event | when | payload |
 //! |---|---|---|
-//! | `rich://voice-state` | the mic state changed, or a new input level is available | `{ state, level, bargeInArmed, at }` |
+//! | `rich://voice-state` | the mic state changed, a new input level is available, or the input went silent/came back | `{ state, level, bargeInArmed, noAudio, at }` |
 //! | `rich://voice-transcript` | an utterance was recognised and submitted as a turn | `{ text, durationMs, latencyMs, at }` |
 //! | `rich://voice-error` | voice mode could not start or had to stop | `{ message, at }` |
 //!
@@ -23,9 +23,16 @@ pub const EVENT_VOICE_ERROR: &str = "rich://voice-error";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VoiceEvent {
-    /// Mic state and/or live input level. Emitted on every state change, and at the level
-    /// refresh rate while the mic is open so the meter moves with the CEO's voice.
-    State { state: VoiceState, level: f32, barge_in_armed: bool, at: u64 },
+    /// Mic state and/or live input level. Emitted on every state change, at the level
+    /// refresh rate while the mic is open so the meter moves with the CEO's voice, and on
+    /// every `no_audio` transition.
+    ///
+    /// `no_audio` is the post-open silent-input verdict (`noaudio.rs`): the stream is open
+    /// and healthy but has delivered nothing above -80.00 dBFS for 3.008 s. It is a FIELD of
+    /// the state event rather than a `voice-error` on purpose — it is not fatal, it must
+    /// clear by itself the moment audio returns, and it belongs in context next to the mic
+    /// state the CEO is already looking at.
+    State { state: VoiceState, level: f32, barge_in_armed: bool, no_audio: bool, at: u64 },
     /// What the CEO said, as recognised, already submitted to the spine as a turn.
     /// `duration_ms` is the captured audio length; `latency_ms` is end-of-speech to
     /// transcript — both measured, never estimated.
@@ -45,10 +52,11 @@ impl VoiceEvent {
 
     pub fn payload(&self) -> Value {
         match self {
-            VoiceEvent::State { state, level, barge_in_armed, at } => json!({
+            VoiceEvent::State { state, level, barge_in_armed, no_audio, at } => json!({
                 "state": state.as_str(),
                 "level": level,
                 "bargeInArmed": barge_in_armed,
+                "noAudio": no_audio,
                 "at": at,
             }),
             VoiceEvent::Transcript { text, duration_ms, latency_ms, at } => json!({
@@ -81,6 +89,7 @@ mod tests {
             state: VoiceState::Speaking,
             level: 0.42,
             barge_in_armed: true,
+            no_audio: false,
             at: 1_700_000_000_000,
         };
         assert_eq!(e.event_name(), "rich://voice-state");
@@ -89,6 +98,24 @@ mod tests {
         assert_eq!(p["bargeInArmed"], true);
         assert!((p["level"].as_f64().unwrap() - 0.42).abs() < 1e-6);
         assert_eq!(p["at"], 1_700_000_000_000u64);
+    }
+
+    /// INVARIANT: the silent-input verdict reaches the webview as `noAudio`, on the SAME
+    /// event that carries the mic state — so the UI can never render "listening" and the
+    /// no-audio line from two events that arrived out of order.
+    #[test]
+    fn the_silent_input_verdict_rides_the_state_event_as_no_audio() {
+        let e = VoiceEvent::State {
+            state: VoiceState::Listening,
+            level: 0.0,
+            barge_in_armed: false,
+            no_audio: true,
+            at: 7,
+        };
+        let p = e.payload();
+        assert_eq!(p["noAudio"], true);
+        assert_eq!(p["state"], "listening", "the mic IS open — that is the whole point");
+        assert_eq!(e.event_name(), EVENT_VOICE_STATE, "not an error event: it self-clears");
     }
 
     /// INVARIANT: a transcript event carries MEASURED numbers, and they survive the round

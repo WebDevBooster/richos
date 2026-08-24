@@ -285,3 +285,149 @@ fn a_cough_is_not_a_turn_and_does_not_wedge_the_pipeline() {
     }
     assert!(got, "the pipeline wedged after a cough");
 }
+
+// ---------------------------------------------------------------------------------------
+// Post-open silent input — the "stream opened perfectly and delivers nothing" gap.
+//
+// noaudio.rs tests the detector in isolation. These drive the SAME `CaptureBrain` the audio
+// callback runs, because the bug that reaches a CEO lives in the wiring: is the detector fed
+// the frame the recorder actually buffers, does it respect Rich's playout, and does it stay
+// out of the way of the barge-in/taint machinery next to it.
+// ---------------------------------------------------------------------------------------
+
+use richos_voice::noaudio::NO_AUDIO_FRAMES;
+
+/// A muted device: exact digital silence, which is what macOS input volume 0 measurably
+/// delivers on this machine's Elgato Wave:3 (peak 0.000002, rms below the 1e-6 print floor).
+fn dead_frame() -> Vec<f32> {
+    vec![0.0f32; VAD_FRAME_SAMPLES]
+}
+
+fn is_silent_msg(m: &CapMsg) -> bool {
+    matches!(m, CapMsg::NoAudio { silent: true })
+}
+fn is_live_msg(m: &CapMsg) -> bool {
+    matches!(m, CapMsg::NoAudio { silent: false })
+}
+
+/// THE FAILURE THIS EXISTS FOR: the mic is open, healthy, and delivering nothing. The CEO
+/// must be told at 3.008 s — and, because a muted mic produces no utterance, nothing else in
+/// the pipeline would ever have said a word about it.
+#[test]
+fn a_muted_microphone_on_an_open_stream_is_reported_at_3_008_seconds() {
+    let mut brain = CaptureBrain::new();
+    let mut tone = Tone::new();
+    settle(&mut brain, &mut tone);
+    assert!(!brain.no_audio(), "premise: a live quiet room is not a dead mic");
+
+    // He hits mute. Nothing else about the session changes.
+    let mut warned_at = None;
+    let mut turns = 0;
+    for i in 1..=(NO_AUDIO_FRAMES + 60) {
+        for m in brain.push_frame(&dead_frame(), false, false) {
+            if is_silent_msg(&m) && warned_at.is_none() {
+                warned_at = Some(i);
+            }
+            if is_utterance(&m) {
+                turns += 1;
+            }
+        }
+    }
+    let at = warned_at.expect("a muted microphone was never reported");
+    assert_eq!(at, NO_AUDIO_FRAMES, "warned at frame {at}, not {NO_AUDIO_FRAMES}");
+    assert!(
+        (frames_to_secs(at) - 3.008).abs() < 1e-6,
+        "the warning took {:.3} s, not 3.008 s",
+        frames_to_secs(at)
+    );
+    assert_eq!(turns, 0, "a muted mic produced a turn");
+    assert!(brain.no_audio());
+}
+
+/// INVARIANT: the CEO is not warned for being quiet. A live room during a long pause carries
+/// room tone, and room tone is signal — 30 s of it, ten times longer than the window, must
+/// not produce a single warning.
+#[test]
+fn thirty_seconds_of_a_live_room_with_nobody_talking_never_warns() {
+    let mut brain = CaptureBrain::new();
+    let mut tone = Tone::new();
+    settle(&mut brain, &mut tone);
+
+    // 30 s / 16.000 ms = 1875 frames of the same quiet room tone the other scenarios use.
+    for i in 0..1875 {
+        for m in brain.push_frame(&tone.frame(0.0005), false, false) {
+            assert!(!is_silent_msg(&m), "warned on a LIVE microphone at frame {i}");
+        }
+    }
+    assert!(!brain.no_audio());
+    assert_eq!(brain.dead_run_frames(), 0);
+}
+
+/// INVARIANT: no warning while Rich is talking, even into a genuinely dead microphone. This
+/// is the half-duplex taint rule's neighbour: evidence gathered during playout is worthless
+/// (on speakers his own voice proves the mic "live"; on headphones it does not), and a
+/// warning interrupting his sentence is the "annoying" failure the CEO ruled out.
+#[test]
+fn a_dead_microphone_is_not_reported_while_rich_is_speaking() {
+    let mut brain = CaptureBrain::new();
+    let mut tone = Tone::new();
+    settle(&mut brain, &mut tone);
+
+    // Rich talks for 60 s into a muted mic — 12x longer than a barge-in debounce.
+    for i in 0..3_750 {
+        for m in brain.push_frame(&dead_frame(), true, false) {
+            assert!(!is_silent_msg(&m), "warned mid-sentence at frame {i}");
+        }
+    }
+    assert!(!brain.no_audio());
+
+    // He finishes. NOW the window runs honestly, from zero.
+    let mut warned_at = None;
+    for i in 1..=NO_AUDIO_FRAMES {
+        for m in brain.push_frame(&dead_frame(), false, false) {
+            if is_silent_msg(&m) {
+                warned_at = Some(i);
+            }
+        }
+    }
+    assert_eq!(warned_at, Some(NO_AUDIO_FRAMES), "the window did not restart after playout");
+}
+
+/// INVARIANT: mute, unmute, talk — one continuous voice-mode session, no restart. The
+/// warning clears on the first live frame and the CEO's next sentence still becomes a turn,
+/// which is what proves the detector never touched the collector path it reads from.
+#[test]
+fn a_mute_unmute_cycle_clears_the_warning_and_the_next_sentence_still_becomes_a_turn() {
+    let mut brain = CaptureBrain::new();
+    let mut tone = Tone::new();
+    settle(&mut brain, &mut tone);
+
+    for _ in 0..(NO_AUDIO_FRAMES + 10) {
+        brain.push_frame(&dead_frame(), false, false);
+    }
+    assert!(brain.no_audio(), "premise: muted and reported");
+
+    // Unmute. The room comes back.
+    let cleared = brain
+        .push_frame(&tone.frame(0.0005), false, false)
+        .iter()
+        .any(is_live_msg);
+    assert!(cleared, "unmuting did not clear the warning");
+    assert!(!brain.no_audio());
+
+    // …and he says something, which still endpoints into a turn.
+    for _ in 0..120 {
+        brain.push_frame(&tone.frame(0.25), false, false);
+    }
+    let mut got = None;
+    for _ in 0..(SILENCE_HANGOVER_FRAMES + 4) {
+        for m in brain.push_frame(&tone.frame(0.0005), false, false) {
+            if let CapMsg::Utterance(u) = m {
+                got = Some(u);
+            }
+        }
+    }
+    let u = got.expect("the sentence after unmuting was lost");
+    assert!(u.speech_frames >= 120, "speech frames lost: {}", u.speech_frames);
+    assert!(!brain.no_audio(), "the warning came back on a live mic");
+}
