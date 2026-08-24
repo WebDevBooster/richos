@@ -30,7 +30,7 @@ function sessionDirs(zone) {
 
 /**
  * One reconciliation + processing pass over the drop zone.
- * @param {{zone?: string, now?: number, process?: boolean, model?: string}} [opts]
+ * @param {{zone?: string, now?: number, process?: boolean, model?: string, tier?: string}} [opts]
  * @returns {{transcribed: string[], anomalies: {sessionId: string, problems: string[]}[], skipped: string[]}}
  */
 export function scanZone(opts = {}) {
@@ -80,7 +80,7 @@ export function scanZone(opts = {}) {
     }
 
     if (doProcess) {
-      const result = runPipeline(dir, { now, model: opts.model, zone });
+      const result = runPipeline(dir, { now, model: opts.model, tier: opts.tier, zone });
       if (result.status === 'ready') transcribed.push(sessionId);
       else anomalies.push({ sessionId, problems: result.problems || ['pipeline did not produce a transcript'] });
     } else {
@@ -93,7 +93,7 @@ export function scanZone(opts = {}) {
 
 /**
  * Long-running watch: periodic sweep + fs change events.
- * @param {{zone?: string, intervalMs?: number, model?: string}} [opts]
+ * @param {{zone?: string, intervalMs?: number, model?: string, tier?: string}} [opts]
  * @returns {{stop: () => void}}
  */
 export function watch(opts = {}) {
@@ -107,7 +107,7 @@ export function watch(opts = {}) {
     if (busy) return;
     busy = true;
     try {
-      const r = scanZone({ zone, model: opts.model });
+      const r = scanZone({ zone, model: opts.model, tier: opts.tier });
       if (r.transcribed.length) log.info(`transcribed: ${r.transcribed.join(', ')}`);
     } catch (err) {
       log.error(`sweep failed: ${String(err.message || err)}`);

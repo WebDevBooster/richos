@@ -19,7 +19,7 @@ import path from 'node:path';
 import { runPipeline } from '../lib/pipeline.js';
 import { scanZone, watch } from '../lib/watcher.js';
 import { decideClaimOnDisk, findPromotableOnDisk, markSuperseded } from '../lib/coordination.js';
-import { dropZone, ffmpegBin, whisperBin, resolveModel, DEFAULT_MODEL } from '../lib/config.js';
+import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL } from '../lib/config.js';
 import { ffmpegVersion } from '../lib/normalize.js';
 import { log } from '../lib/log.js';
 
@@ -40,10 +40,11 @@ function main() {
   const cmd = process.argv[2];
   const zone = flag('zone') ? path.resolve(String(flag('zone'))) : dropZone();
   const model = flag('model') ? String(flag('model')) : undefined;
+  const tier = flag('tier') ? String(flag('tier')) : undefined;
 
   switch (cmd) {
     case 'watch': {
-      const handle = watch({ zone, model });
+      const handle = watch({ zone, model, tier });
       process.on('SIGINT', () => {
         handle.stop();
         process.exit(0);
@@ -58,7 +59,7 @@ function main() {
     case 'run': {
       const dir = resolveSessionDir(process.argv[3], zone);
       if (!dir || !fs.existsSync(dir)) fail(`run: session directory not found: ${dir}`);
-      const result = runPipeline(dir, { model, zone });
+      const result = runPipeline(dir, { model, tier, zone });
       report(result);
       process.exit(result.status === 'ready' ? 0 : 2);
       break;
@@ -67,9 +68,21 @@ function main() {
     case 'retranscribe': {
       const dir = resolveSessionDir(process.argv[3], zone);
       if (!dir || !fs.existsSync(dir)) fail(`retranscribe: session directory not found: ${dir}`);
-      const result = runPipeline(dir, { model: model || DEFAULT_MODEL, retranscribe: true, zone });
+      // --tier max re-runs the retained audio through the opt-in accuracy tier (guarded large-v3).
+      const result = runPipeline(dir, { model, tier, retranscribe: true, zone });
       report(result);
       process.exit(result.status === 'ready' ? 0 : 2);
+      break;
+    }
+
+    case 'tiers': {
+      // List the P5 model tiers (turbo default, max opt-in, low-resource/quantized fallback).
+      console.log('RichOS model tiers (select with --tier <name>, or a raw --model <id>):\n');
+      for (const [name, t] of Object.entries(MODEL_TIERS)) {
+        const flagName = name === 'turbo' ? `${name} (default)` : name;
+        console.log(`  ${flagName}\n    model: ${t.model}${t.decodeArgs.length ? `  decode: ${t.decodeArgs.join(' ')}` : ''}`);
+        console.log(`    ${t.description}\n`);
+      }
       break;
     }
 
@@ -135,11 +148,18 @@ function main() {
         ok = false;
         console.log(`whisper:    MISSING — ${String(err.message || err)}`);
       }
+      const resolvedTier = resolveTier(tier || model);
       try {
-        console.log(`model:      ${resolveModel(model || DEFAULT_MODEL)}`);
+        console.log(`tier:       ${resolvedTier.name} -> model ${resolvedTier.model}${
+          resolvedTier.decodeArgs.length ? ` (decode: ${resolvedTier.decodeArgs.join(' ')})` : ''
+        }`);
+        console.log(`model:      ${resolveModel(resolvedTier.model)}`);
       } catch (err) {
-        ok = false;
-        console.log(`model:      MISSING — ${String(err.message || err)}`);
+        // A missing tier model is only fatal if that tier was explicitly requested; the default
+        // turbo model must resolve.
+        const fatal = !tier && !model ? true : resolvedTier.name === DEFAULT_TIER;
+        if (fatal) ok = false;
+        console.log(`model:      ${fatal ? 'MISSING' : 'not installed (opt-in tier)'} — ${String(err.message || err)}`);
       }
       console.log(`drop zone:  ${zone}`);
       process.exit(ok ? 0 : 1);
@@ -150,9 +170,10 @@ function main() {
       console.log(
         [
           'usage:',
-          '  richos-service watch [--zone dir] [--model id]',
-          '  richos-service run <sessionId|dir> [--zone dir] [--model id]',
-          '  richos-service retranscribe <sessionId|dir> [--model id]',
+          '  richos-service watch [--zone dir] [--tier turbo|max|low-resource|quantized]',
+          '  richos-service run <sessionId|dir> [--zone dir] [--tier name | --model id]',
+          '  richos-service retranscribe <sessionId|dir> [--tier max | --model id]',
+          '  richos-service tiers',
           '  richos-service reconcile [--zone dir]',
           '  richos-service claim --surface <s> --kind <browser-tab|system|process> [--process-hint h] [--session-id id]',
           '  richos-service failover-scan [--zone dir]',
