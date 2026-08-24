@@ -8,7 +8,9 @@
     "richos-service": "bin/richos-service.js"
   },
   "scripts": {
-    "test": "node test/run.js",
+    "test": "node test/run.js && node test/workspace.js",
+    "test:transcription": "node test/run.js",
+    "test:workspace": "node test/workspace.js",
     "test:e2e": "node test/e2e.mjs"
   }
 }
