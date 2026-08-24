@@ -43,8 +43,10 @@
 //!   a bundled neural voice replaces it without touching the pipeline.
 
 pub mod bargein;
+pub mod chunk;
 pub mod endpoint;
 pub mod vad;
 
+pub use chunk::{speakable, SentenceChunker};
 pub use bargein::{barge_in_debounce_secs, BargeInMonitor, EchoGate, NoEchoCancellation, BARGE_IN_DEBOUNCE_FRAMES};
 pub use vad::{frames_for_secs, frames_to_secs, Vad, SAMPLE_RATE, VAD_FRAME_SAMPLES};
