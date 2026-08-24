@@ -1,0 +1,420 @@
+diff --git a/Sources/OpenWisprLib/AppDelegate.swift b/Sources/OpenWisprLib/AppDelegate.swift
+index 33b809e..fc92e7c 100644
+--- a/Sources/OpenWisprLib/AppDelegate.swift
++++ b/Sources/OpenWisprLib/AppDelegate.swift
+@@ -1,4 +1,5 @@
+ import AppKit
++import CoreAudio
+ 
+ public class AppDelegate: NSObject, NSApplicationDelegate {
+     var statusBar: StatusBarController!
+@@ -10,6 +11,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+     var recordingLifecycle = RecordingLifecycle()
+     var currentRecordingURL: URL?
+     private var sleepWakeObservers: [NSObjectProtocol] = []
++    private var deviceChangeObserver: AudioDeviceChangeObserver?
+     var isReady = false
+     public var lastTranscription: String?
+ 
+@@ -17,6 +19,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+         statusBar = StatusBarController()
+         recorder = AudioRecorder()
+         registerSleepWakeObservers()
++        registerDevicesChangedObserver()
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             self?.setup()
+@@ -25,6 +28,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+ 
+     public func applicationWillTerminate(_ notification: Notification) {
+         unregisterSleepWakeObservers()
++        unregisterDevicesChangedObserver()
+     }
+ 
+     private func setup() {
+@@ -283,10 +287,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+             try recorder.startRecording(to: outputURL)
+             currentRecordingURL = outputURL
+         } catch {
++            // Surfaced rather than silently idled: with no input device there is
++            // no engine to record with, and the user needs to see that.
+             print("Error: \(error.localizedDescription)")
+             recordingLifecycle.recordingStartFailed()
+             currentRecordingURL = nil
+-            statusBar.state = .idle
++            statusBar.state = .error(error.localizedDescription)
++            statusBar.buildMenu()
++            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
++                guard let self = self, case .error = self.statusBar.state else { return }
++                self.statusBar.state = .idle
++                self.statusBar.buildMenu()
++            }
+         }
+     }
+ 
+@@ -359,6 +371,42 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+         recorder.reload()
+     }
+ 
++    /// A microphone was plugged in or unplugged. Resolution is otherwise only
++    /// done at startup, on a config change and on wake, so without this a device
++    /// that appears or disappears mid-session is never picked up and recording
++    /// silently captures nothing until the app is restarted.
++    func handleAudioDevicesChanged() {
++        guard isReady else { return }
++
++        let action = recordingLifecycle.audioDevicesChanged(isReady: isReady)
++        let newDeviceID = AudioDeviceManager.resolveConfiguredDeviceID(
++            uid: config.audioInputDeviceUID,
++            legacyID: config.audioInputDeviceID
++        )
++        recorder.preferredDeviceID = newDeviceID
++        print("Audio devices changed: input=\(newDeviceID.map(String.init) ?? "system default")")
++
++        // While recording, the new device is picked up by the next start rather
++        // than by tearing down the engine mid-recording.
++        guard action == .prepareRecorder else { return }
++        recorder.reload()
++    }
++
++    private func registerDevicesChangedObserver() {
++        guard deviceChangeObserver == nil else { return }
++
++        let observer = AudioDeviceChangeObserver { [weak self] in
++            self?.handleAudioDevicesChanged()
++        }
++        observer.start()
++        deviceChangeObserver = observer
++    }
++
++    private func unregisterDevicesChangedObserver() {
++        deviceChangeObserver?.stop()
++        deviceChangeObserver = nil
++    }
++
+     private func registerSleepWakeObservers() {
+         guard sleepWakeObservers.isEmpty else { return }
+ 
+diff --git a/Sources/OpenWisprLib/AudioDeviceManager.swift b/Sources/OpenWisprLib/AudioDeviceManager.swift
+index 847a439..127e124 100644
+--- a/Sources/OpenWisprLib/AudioDeviceManager.swift
++++ b/Sources/OpenWisprLib/AudioDeviceManager.swift
+@@ -8,6 +8,65 @@ struct AudioInputDevice {
+     let isDefault: Bool
+ }
+ 
++/// Watches for audio devices being added or removed. AudioDeviceIDs are only
++/// valid while the device is present, so anything holding one has to re-resolve
++/// when this fires.
++class AudioDeviceChangeObserver {
++    private let handler: () -> Void
++    private var isObserving = false
++
++    private static var address = AudioObjectPropertyAddress(
++        mSelector: kAudioHardwarePropertyDevices,
++        mScope: kAudioObjectPropertyScopeGlobal,
++        mElement: kAudioObjectPropertyElementMain
++    )
++
++    /// CoreAudio calls this on its own thread; hop to main so the handler runs
++    /// where the rest of the app's state lives.
++    private static let listener: AudioObjectPropertyListenerProc = { _, _, _, context in
++        guard let context = context else { return noErr }
++        let observer = Unmanaged<AudioDeviceChangeObserver>.fromOpaque(context).takeUnretainedValue()
++        DispatchQueue.main.async { observer.handler() }
++        return noErr
++    }
++
++    init(handler: @escaping () -> Void) {
++        self.handler = handler
++    }
++
++    deinit {
++        stop()
++    }
++
++    func start() {
++        guard !isObserving else { return }
++
++        let status = AudioObjectAddPropertyListener(
++            AudioObjectID(kAudioObjectSystemObject),
++            &AudioDeviceChangeObserver.address,
++            AudioDeviceChangeObserver.listener,
++            Unmanaged.passUnretained(self).toOpaque()
++        )
++        if status != noErr {
++            print("Warning: failed to observe audio device changes (status: \(status))")
++            return
++        }
++        isObserving = true
++    }
++
++    func stop() {
++        guard isObserving else { return }
++        isObserving = false
++
++        AudioObjectRemovePropertyListener(
++            AudioObjectID(kAudioObjectSystemObject),
++            &AudioDeviceChangeObserver.address,
++            AudioDeviceChangeObserver.listener,
++            Unmanaged.passUnretained(self).toOpaque()
++        )
++    }
++}
++
+ class AudioDeviceManager {
+     static func listInputDevices() -> [AudioInputDevice] {
+         let defaultID = getDefaultInputDeviceID()
+diff --git a/Sources/OpenWisprLib/AudioRecorder.swift b/Sources/OpenWisprLib/AudioRecorder.swift
+index bff4ea2..2f30f3d 100644
+--- a/Sources/OpenWisprLib/AudioRecorder.swift
++++ b/Sources/OpenWisprLib/AudioRecorder.swift
+@@ -6,21 +6,43 @@ class AudioRecorder {
+     private var audioEngine: AVAudioEngine?
+     private var isRecording = false
+     private var currentOutputURL: URL?
++    /// The input device the cached engine was built for, if any.
++    private var engineDeviceID: AudioDeviceID?
+     var preferredDeviceID: AudioDeviceID?
+ 
++    /// The device capture will actually come from: the configured one when it is
++    /// present, otherwise the system default. `kAudioObjectUnknown` means the
++    /// machine currently has no input device at all.
++    private var activeDeviceID: AudioDeviceID {
++        preferredDeviceID ?? AudioDeviceManager.getDefaultInputDeviceID()
++    }
++
++    /// AVAudioEngine binds its input device when the input node is created, so a
++    /// cached engine is only reusable if it was built for the device we still
++    /// want. An engine built while no input device existed can never record, and
++    /// must not be kept for the lifetime of the process.
++    static func canReuseEngine(builtFor builtDeviceID: AudioDeviceID?, wanted: AudioDeviceID) -> Bool {
++        guard wanted != kAudioObjectUnknown, let builtDeviceID else { return false }
++        return builtDeviceID == wanted
++    }
++
+     func prewarm() {
+-        guard audioEngine == nil else { return }
++        let deviceID = activeDeviceID
++        guard !AudioRecorder.canReuseEngine(builtFor: engineDeviceID, wanted: deviceID) else { return }
++
++        teardown()
++        guard deviceID != kAudioObjectUnknown else { return }
+ 
+         let engine = AVAudioEngine()
+ 
+-        if let deviceID = preferredDeviceID,
+-           deviceID != AudioDeviceManager.getDefaultInputDeviceID() {
++        if deviceID != AudioDeviceManager.getDefaultInputDeviceID() {
+             setInputDevice(deviceID, on: engine)
+         }
+ 
+         _ = engine.inputNode
+         engine.prepare()
+         audioEngine = engine
++        engineDeviceID = deviceID
+     }
+ 
+     /// Stop and release the engine. Call before changing input device or on shutdown.
+@@ -32,6 +54,7 @@ class AudioRecorder {
+         }
+         audioEngine?.stop()
+         audioEngine = nil
++        engineDeviceID = nil
+     }
+ 
+     /// Re-prewarm with the current preferredDeviceID. Use after a config change.
+@@ -43,21 +66,34 @@ class AudioRecorder {
+     func startRecording(to outputURL: URL) throws {
+         guard !isRecording else { return }
+ 
+-        if audioEngine == nil {
+-            prewarm()
+-        }
++        // Rebuilds the engine if the input device changed or the last attempt
++        // left us without one; a no-op when the cached engine is still valid.
++        prewarm()
+ 
+         guard let engine = audioEngine else {
+             throw NSError(
+                 domain: "OpenWispr.AudioRecorder",
+                 code: 1,
+-                userInfo: [NSLocalizedDescriptionKey: "Audio engine is not available"]
++                userInfo: [NSLocalizedDescriptionKey: "No microphone available"]
+             )
+         }
+ 
+-        try engine.start()
++        do {
++            try engine.start()
++        } catch {
++            // Never keep an engine that failed to start, or every later attempt
++            // repeats the same failure against the same dead engine.
++            teardown()
++            throw error
++        }
+ 
+-        let inputFmt = engine.inputNode.outputFormat(forBus: 0)
++        // The tap has to be installed with the input node's real hardware
++        // format. `outputFormat` can lag behind it after an explicit device
++        // selection — measured on an Elgato Wave:3, outputFormat reports
++        // 48000 Hz while the hardware runs at 96000 Hz — and installTap then
++        // raises "format.sampleRate == inputHWFormat.sampleRate", which is an
++        // uncaught exception that takes the whole app down.
++        let inputFmt = engine.inputNode.inputFormat(forBus: 0)
+ 
+         let recordingFormat = AVAudioFormat(
+             commonFormat: .pcmFormatFloat32,
+diff --git a/Sources/OpenWisprLib/RecordingLifecycle.swift b/Sources/OpenWisprLib/RecordingLifecycle.swift
+index ec12f1d..d8d18b5 100644
+--- a/Sources/OpenWisprLib/RecordingLifecycle.swift
++++ b/Sources/OpenWisprLib/RecordingLifecycle.swift
+@@ -42,6 +42,13 @@ struct RecordingLifecycle {
+         isReady ? .prepareRecorder : .none
+     }
+ 
++    /// Audio devices were added or removed. The recorder must not be rebuilt
++    /// under an in-flight recording — that would truncate what the user is
++    /// dictating — so the rebuild is left to the next start.
++    func audioDevicesChanged(isReady: Bool) -> Action {
++        isReady && !isRecording ? .prepareRecorder : .none
++    }
++
+     mutating func recordingStartFailed() {
+         isRecording = false
+     }
+diff --git a/Tests/OpenWisprTests/AudioDeviceObserverTests.swift b/Tests/OpenWisprTests/AudioDeviceObserverTests.swift
+new file mode 100644
+index 0000000..072f6a1
+--- /dev/null
++++ b/Tests/OpenWisprTests/AudioDeviceObserverTests.swift
+@@ -0,0 +1,63 @@
++import CoreAudio
++import XCTest
++@testable import OpenWisprLib
++
++final class AudioDeviceObserverTests: XCTestCase {
++
++    /// Adds and then removes an aggregate device, which is a real change to
++    /// `kAudioHardwarePropertyDevices` — the same notification a microphone
++    /// being plugged in or unplugged produces.
++    private func withTemporaryDevice(_ body: () -> Void) throws {
++        let description: [String: Any] = [
++            kAudioAggregateDeviceUIDKey as String: "open-wispr.tests.devices-changed",
++            kAudioAggregateDeviceNameKey as String: "open-wispr tests",
++            kAudioAggregateDeviceSubDeviceListKey as String: [[String: Any]](),
++            kAudioAggregateDeviceIsPrivateKey as String: 1,
++        ]
++        var deviceID: AudioDeviceID = kAudioObjectUnknown
++        let status = AudioHardwareCreateAggregateDevice(description as CFDictionary, &deviceID)
++        try XCTSkipIf(status != noErr, "cannot create a temporary audio device here (status: \(status))")
++        defer { AudioHardwareDestroyAggregateDevice(deviceID) }
++        body()
++    }
++
++    private func settle(_ seconds: TimeInterval) {
++        let settled = expectation(description: "settled")
++        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { settled.fulfill() }
++        wait(for: [settled], timeout: seconds + 5)
++    }
++
++    func testObserverFiresWhenADeviceAppears() throws {
++        let fired = expectation(description: "devices changed")
++        fired.assertForOverFulfill = false
++        let observer = AudioDeviceChangeObserver { fired.fulfill() }
++        observer.start()
++        defer { observer.stop() }
++
++        try withTemporaryDevice {
++            wait(for: [fired], timeout: 5)
++        }
++    }
++
++    func testStoppedObserverStopsFiring() throws {
++        var calls = 0
++        let observer = AudioDeviceChangeObserver { calls += 1 }
++        observer.start()
++        observer.stop()
++
++        try withTemporaryDevice { settle(1) }
++        XCTAssertEqual(calls, 0, "a removed listener must not keep firing")
++    }
++
++    func testStartIsIdempotentSoTheHandlerRunsOncePerChange() throws {
++        var calls = 0
++        let observer = AudioDeviceChangeObserver { calls += 1 }
++        observer.start()
++        observer.start()
++        defer { observer.stop() }
++
++        try withTemporaryDevice { settle(1) }
++        // One create; the destroy in the teardown lands after the count is read.
++        XCTAssertEqual(calls, 1)
++    }
++}
+diff --git a/Tests/OpenWisprTests/AudioRecorderEngineReuseTests.swift b/Tests/OpenWisprTests/AudioRecorderEngineReuseTests.swift
+new file mode 100644
+index 0000000..347d812
+--- /dev/null
++++ b/Tests/OpenWisprTests/AudioRecorderEngineReuseTests.swift
+@@ -0,0 +1,32 @@
++import CoreAudio
++import XCTest
++@testable import OpenWisprLib
++
++final class AudioRecorderEngineReuseTests: XCTestCase {
++
++    func testEngineIsReusedWhileTheDeviceIsUnchanged() {
++        XCTAssertTrue(AudioRecorder.canReuseEngine(builtFor: 101, wanted: 101))
++    }
++
++    func testEngineIsRebuiltWhenTheInputDeviceChanged() {
++        XCTAssertFalse(AudioRecorder.canReuseEngine(builtFor: 101, wanted: 94))
++    }
++
++    func testEngineBuiltWithoutAnyInputDeviceIsNeverReused() {
++        // The failure this guards: the app starts with the microphone unplugged,
++        // caches an engine that has nothing to record from, and stays silently
++        // broken for the lifetime of the process.
++        XCTAssertFalse(
++            AudioRecorder.canReuseEngine(builtFor: kAudioObjectUnknown, wanted: 101)
++        )
++    }
++
++    func testNoEngineIsBuiltWhileThereIsNoInputDevice() {
++        XCTAssertFalse(AudioRecorder.canReuseEngine(builtFor: 101, wanted: kAudioObjectUnknown))
++        XCTAssertFalse(AudioRecorder.canReuseEngine(builtFor: nil, wanted: kAudioObjectUnknown))
++    }
++
++    func testAbsentEngineIsNeverReusable() {
++        XCTAssertFalse(AudioRecorder.canReuseEngine(builtFor: nil, wanted: 101))
++    }
++}
+diff --git a/Tests/OpenWisprTests/RecordingLifecycleTests.swift b/Tests/OpenWisprTests/RecordingLifecycleTests.swift
+index 686e354..b97f64a 100644
+--- a/Tests/OpenWisprTests/RecordingLifecycleTests.swift
++++ b/Tests/OpenWisprTests/RecordingLifecycleTests.swift
+@@ -37,6 +37,23 @@ final class RecordingLifecycleTests: XCTestCase {
+         XCTAssertEqual(lifecycle.keyUp(toggleMode: false), .stopRecording)
+     }
+ 
++    func testDeviceChangeWhileIdlePreparesTheRecorder() {
++        let lifecycle = RecordingLifecycle()
++
++        XCTAssertEqual(lifecycle.audioDevicesChanged(isReady: true), .prepareRecorder)
++        XCTAssertEqual(lifecycle.audioDevicesChanged(isReady: false), .none)
++    }
++
++    func testDeviceChangeWhileRecordingDefersTheRebuild() {
++        var lifecycle = RecordingLifecycle()
++
++        XCTAssertEqual(lifecycle.keyDown(toggleMode: true), .startRecording)
++        XCTAssertEqual(lifecycle.audioDevicesChanged(isReady: true), .none)
++        XCTAssertTrue(lifecycle.isRecording)
++        XCTAssertEqual(lifecycle.keyDown(toggleMode: true), .stopRecording)
++        XCTAssertEqual(lifecycle.audioDevicesChanged(isReady: true), .prepareRecorder)
++    }
++
+     func testWakePreparesOnlyWhenReady() {
+         let lifecycle = RecordingLifecycle()
+ 
