@@ -93,15 +93,27 @@ to accept both binaries so neither the swap nor the rollback re-prompts.
 
 `launchctl kickstart -k` alone is **not** enough after editing the plist: launchd
 keeps the loaded job definition and restarts the old path. Use bootout + bootstrap.
+This was documented here but **not implemented in the scripts**, which called
+`kickstart` and then exited 0 while the old binary was still running (measured
+2026-08-24: PID 28010 on `~/Applications` after the plist said Homebrew). Fixed in
+`b21aa2d`; `rollback-to-homebrew.sh` now also fails non-zero unless the running
+executable is the intended one and the log reaches `Ready.`
 
 **One manual step remains and cannot be scripted:** Accessibility is keyed to the
 binary and its TCC row lives in the SIP-protected system database (verified
 read-only even with Full Disk Access). After installing:
 
-> **System Settings → Privacy & Security → Accessibility → `OpenWispr`: OFF, then ON.**
+> **System Settings → Privacy & Security → Accessibility → remove any stale
+> `OpenWispr` entry, then `+` and pick `~/Applications/OpenWispr.app` explicitly.**
 
-Off-then-on, because the stale entry still shows as enabled while being bound to the
-previous binary's cdhash. Until then the app blocks at
+**Not off-then-on.** That was the original instruction and it does **not** work:
+a toggle re-affirms the cdhash the row already holds, so it re-grants the *old*
+binary and the new one still reports `Accessibility: not granted` (measured
+2026-08-24 — runbook §10.2). The row must be created against the new bundle.
+And it dies again on that bundle's next rebuild: under ad-hoc signing the
+designated requirement is `cdhash H"..."` and nothing else, so there is no
+click-free, rebuild-durable option. See runbook §11 — this is why RichOS must ship
+Developer ID signed. Until then the app blocks at
 `Waiting for Accessibility permission...` and dictation does not work at all — the
 hotkey is not registered yet. The HUD says so, bottom-centre.
 
@@ -115,12 +127,14 @@ Repoints the LaunchAgent at the untouched Homebrew keg and restarts. No network,
 rebuild. Tested against the live install before the swap: reached `Ready.` with
 microphone and accessibility granted.
 
-Caveat: rollback does **not** restore Accessibility. There is one Accessibility row
-per bundle id, so once it has been re-granted to the HUD build the Homebrew build no
-longer satisfies it and needs the same single toggle again. Microphone is unaffected
-either way.
+Rollback **does** restore Accessibility with zero clicks, as long as the grant was
+never explicitly re-created against the HUD build: the row stays bound to the
+Homebrew cdhash. Verified 2026-08-24 — the rolled-back daemon (PID 28649) logged
+`Microphone: granted` / `Accessibility: granted` / `Ready.`
+(An earlier caveat here claimed the opposite; it was falsified — runbook §10.3.)
 
-Full detail: the dictation troubleshooting runbook, 2026-08-24, §9.
+Full detail: the dictation troubleshooting runbook, 2026-08-24, §9 (build)
+and §10–§11 (the TCC root cause and what it forces on RichOS packaging).
 
 ---
 
