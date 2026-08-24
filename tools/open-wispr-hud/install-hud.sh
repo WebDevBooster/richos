@@ -11,7 +11,7 @@
 #   4. restarts the service and shows the log
 #
 # The Homebrew keg (/opt/homebrew/opt/open-wispr) is left pristine, so
-# `rollback-to-homebrew.sh` is a plist edit + kickstart: no network, no rebuild.
+# `rollback-to-homebrew.sh` is a plist edit + LaunchAgent reload: no network, no rebuild.
 #
 # Accessibility is keyed to the binary and lives in the SIP-protected system TCC
 # database, so it cannot be carried over. Exactly one manual step remains:
@@ -65,7 +65,13 @@ echo "==> Repointing the LaunchAgent at the HUD build"
 /usr/libexec/PlistBuddy -c "Print :ProgramArguments" "$PLIST"
 
 echo "==> Restarting the dictation service"
-launchctl kickstart -k "gui/$(id -u)/homebrew.mxcl.open-wispr"
+# launchctl kickstart -k restarts the job from launchd's IN-MEMORY definition and
+# does NOT re-read the edited plist, so the old binary keeps running (measured
+# 2026-08-24: after the plist said Homebrew, kickstart left PID 28010 on the
+# ~/Applications build). bootout + bootstrap is what actually reloads the plist.
+launchctl bootout "gui/$(id -u)/homebrew.mxcl.open-wispr" 2>/dev/null || true
+sleep 2
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
 sleep 6
 tail -12 "$LOG"
 
