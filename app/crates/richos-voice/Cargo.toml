@@ -25,3 +25,7 @@ path = "examples/voice_loop.rs"
 [[example]]
 name = "device_probe"
 path = "examples/device_probe.rs"
+
+[[example]]
+name = "noaudio_live"
+path = "examples/noaudio_live.rs"
