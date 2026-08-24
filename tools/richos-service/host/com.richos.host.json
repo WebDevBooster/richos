@@ -1,0 +1,9 @@
+{
+  "name": "com.richos.host",
+  "description": "RichOS local transcription service — native-messaging host (drop-zone writer + pipeline trigger + outside-the-browser watchdog).",
+  "path": "__LAUNCHER_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__EXTENSION_ID__/"
+  ]
+}
