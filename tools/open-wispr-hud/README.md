@@ -12,7 +12,8 @@ open-wispr tree itself is NOT vendored here (mirrors how the earlier voice-pilot
 handled). CEO greenlit 2026-08-24 ("go ahead as recommended").
 
 - **Base commit (audited):** `7ab4e62e8f182f3ecc2116e1094a1eb4416a248f`
-- **Patch:** [`dictation-hud.patch`](./dictation-hud.patch)
+- **Patch (what we build/install):** [`dictation-hud.patch`](./dictation-hud.patch)
+- **Patch (upstream-ready, HUD-free):** [`device-change-listener.patch`](./device-change-listener.patch)
 - **Build:** [`build.sh`](./build.sh)
 - **Stack:** native **Swift / SwiftPM / AppKit**, macOS 13+ (17 source files).
   The non-activating window is an `NSPanel` subclass with
@@ -75,40 +76,51 @@ anything.
 Verified: fresh checkout + patch → `swift build` clean, **158/158 tests pass**,
 release build + `OpenWispr.app` bundle succeed.
 
-## Apply (manual — triggers the live gates, do when the CEO is present)
-
-Installing means replacing the running app and restarting the dictation service,
-which re-raises the mic/accessibility permission prompts and is the moment to
-verify F13 + paste-at-cursor. **Do not run this unattended on the CEO's active
-machine.** When ready:
+## Apply (scripted)
 
 ```bash
-# 1. Build (see above); note the printed OpenWispr.app path as $APP
-brew services stop open-wispr
-
-# 2. Swap the app bundle + CLI binary in place
-DEST=/opt/homebrew/opt/open-wispr
-cp -R "$APP" "$DEST/OpenWispr.app.hud" && rm -rf "$DEST/OpenWispr.app" && mv "$DEST/OpenWispr.app.hud" "$DEST/OpenWispr.app"
-cp "$APP/Contents/MacOS/open-wispr" /opt/homebrew/bin/open-wispr
-
-# 3. Restart; macOS may ask to re-grant Accessibility after a binary change
-brew services start open-wispr
+tools/open-wispr-hud/build.sh /tmp/ow            # prints $APP
+tools/open-wispr-hud/install-hud.sh "$APP"
+launchctl bootout   gui/$(id -u)/homebrew.mxcl.open-wispr
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/homebrew.mxcl.open-wispr.plist
+pgrep -fl "open-wispr start"                     # ground truth: which binary is live
 ```
 
-Then live-verify: tap **F13**, watch the pill fade in bottom-center, speak (the
-meter should move), confirm the transcribed text pastes at the cursor in a
-normal app (email/docs/chat composer), and that the pill auto-dismisses.
+`install-hud.sh` installs to `~/Applications/OpenWispr.app` and repoints the
+existing Homebrew LaunchAgent at it — **the Homebrew keg is never modified**, which
+is what makes rollback instant and offline. It also widens the Microphone TCC grant
+to accept both binaries so neither the swap nor the rollback re-prompts.
 
-## Rollback (clean)
+`launchctl kickstart -k` alone is **not** enough after editing the plist: launchd
+keeps the loaded job definition and restarts the old path. Use bootout + bootstrap.
+
+**One manual step remains and cannot be scripted:** Accessibility is keyed to the
+binary and its TCC row lives in the SIP-protected system database (verified
+read-only even with Full Disk Access). After installing:
+
+> **System Settings → Privacy & Security → Accessibility → `OpenWispr`: OFF, then ON.**
+
+Off-then-on, because the stale entry still shows as enabled while being bound to the
+previous binary's cdhash. Until then the app blocks at
+`Waiting for Accessibility permission...` and dictation does not work at all — the
+hotkey is not registered yet. The HUD says so, bottom-centre.
+
+## Rollback (one command, offline, tested)
 
 ```bash
-brew reinstall open-wispr    # restores pristine v0.43.0, removes the HUD
-brew services restart open-wispr
+tools/open-wispr-hud/rollback-to-homebrew.sh
 ```
 
-`brew reinstall` re-fetches/rebuilds the audited v0.43.0 and overwrites our
-swapped files. Because a plain `brew upgrade`/`reinstall` will also silently
-undo the HUD, treat re-applying the patch as part of any open-wispr upgrade.
+Repoints the LaunchAgent at the untouched Homebrew keg and restarts. No network, no
+rebuild. Tested against the live install before the swap: reached `Ready.` with
+microphone and accessibility granted.
+
+Caveat: rollback does **not** restore Accessibility. There is one Accessibility row
+per bundle id, so once it has been re-granted to the HUD build the Homebrew build no
+longer satisfies it and needs the same single toggle again. Microphone is unaffected
+either way.
+
+Full detail: the dictation troubleshooting runbook, 2026-08-24, §9.
 
 ---
 
