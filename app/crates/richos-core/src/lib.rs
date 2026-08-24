@@ -11,6 +11,7 @@
 //!   - `cognition` — the swappable compute-lease seam (+ a test mock).
 //!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
+//!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
 //!   - `spine`     — ties it together: queue-not-interrupt, turn-boundary, re-prime seam.
 
 pub mod acp;
@@ -18,6 +19,7 @@ pub mod cognition;
 pub mod ledger;
 pub mod reprime;
 pub mod spine;
+pub mod stream;
 pub mod thread;
 pub mod util;
 
@@ -25,3 +27,4 @@ pub use cognition::{Cognition, CognitionError};
 pub use ledger::{Ledger, Message, Source, TurnState};
 pub use reprime::RePrimePayload;
 pub use spine::{Spine, SpineError};
+pub use stream::{StreamEvent, TurnObserver};
