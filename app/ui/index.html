@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RichOS</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div id="sidebar-head">
+          <span class="brand">RichOS</span>
+          <button id="new-thread" title="New thread">+</button>
+        </div>
+        <ul id="thread-list"></ul>
+      </aside>
+      <main id="conversation">
+        <div id="messages"></div>
+        <form id="composer">
+          <textarea id="input" rows="1" placeholder="Talk to Rich…" autocomplete="off"></textarea>
+          <button id="send" type="submit">Send</button>
+        </form>
+      </main>
+    </div>
+    <script src="main.js"></script>
+  </body>
+</html>
