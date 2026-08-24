@@ -7,10 +7,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
-use richos_core::ledger::{Ledger, Message, Source};
+use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
+use richos_core::config::{Assertiveness, ConfigStore};
+use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
+use richos_core::worker_status::{self, WorkerStatusView};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -29,6 +32,22 @@ impl TurnObserver for TauriEmitter {
     }
 }
 
+/// The rotation/recovery seam (richos_core::LeaseFactory): spawns a fresh, un-primed ACP
+/// lease exactly like the boot path (`AcpCognition::start`), so the spine can rotate at a
+/// context watermark or recover from a mid-turn crash without knowing anything about
+/// ACP/Node/the adapter binary — richos-core stays IO-agnostic (continuity §3.3 step 4).
+struct EngineLeaseFactory {
+    acp_bin: PathBuf,
+    engine_dir: PathBuf,
+}
+
+impl LeaseFactory for EngineLeaseFactory {
+    fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+        let cog = AcpCognition::start(&self.acp_bin, &self.engine_dir)?;
+        Ok(Box::new(cog))
+    }
+}
+
 /// The durable Rich, guarded for cross-invocation access. `Spine` is `Send` (its
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
@@ -36,6 +55,9 @@ struct AppState {
     /// Set false when no ACP lease could be attached at boot (e.g. Claude not logged in),
     /// so the UI can surface a calm, Rich-voiced "not connected" state instead of a crash.
     lease_ready: bool,
+    /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
+    /// alongside the ledger in the app data dir, same durability posture.
+    config: Mutex<ConfigStore>,
 }
 
 #[tauri::command]
@@ -126,7 +148,20 @@ fn main() {
                 }
             };
 
-            app.manage(AppState { spine: Mutex::new(spine), lease_ready });
+            // Attach the rotation/recovery seam REGARDLESS of initial boot success — even
+            // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
+            // + retry (or a crash recovery attempt) has a real respawn path rather than none.
+            spine.set_lease_factory(Box::new(EngineLeaseFactory { acp_bin, engine_dir: engine }));
+
+            // Durable CEO preferences (company name, assertiveness dial) — same app data
+            // dir as the ledger, same durability posture, survives restart.
+            let config_path = data_dir.join("config.json");
+            // ConfigStore::open never fails on a corrupt/missing file (it degrades to
+            // defaults internally — see config.rs) — expect() here only guards the
+            // genuinely-unexpected io error creating the parent dir.
+            let config = ConfigStore::open(&config_path).expect("open config store");
+
+            app.manage(AppState { spine: Mutex::new(spine), lease_ready, config: Mutex::new(config) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -135,8 +170,73 @@ fn main() {
             create_thread,
             switch_thread,
             get_messages,
-            send_message
+            send_message,
+            get_company_name,
+            set_company_name,
+            get_assertiveness,
+            set_assertiveness,
+            get_worker_status,
+            raise_proactive_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
+}
+
+// ---------------------------------------------------------------------------------------
+// Seam commands (the session-continuity design / the UX direction doc).
+// Appended at the END of the file (and the END of generate_handler! above) so a parallel
+// voice-crate branch appending its own Tauri commands here merges cleanly.
+// ---------------------------------------------------------------------------------------
+
+/// UX §2.1: "Rail header = the company/CEO identity, not RichOS." Configurable,
+/// persisted, sensible fallback when unset — the fallback lives in richos-core's
+/// config.rs so this thin shell layer never has to know the placeholder string.
+#[tauri::command]
+fn get_company_name(state: State<AppState>) -> String {
+    state.config.lock().unwrap().company_name_or_default()
+}
+
+#[tauri::command]
+fn set_company_name(state: State<AppState>, name: String) -> Result<(), String> {
+    state.config.lock().unwrap().set_company_name(&name).map_err(|e| e.to_string())
+}
+
+/// UX §5.2: the CEO's one plain 3-way proactive-attention dial. Default = Quiet,
+/// survives restart (config.rs).
+#[tauri::command]
+fn get_assertiveness(state: State<AppState>) -> String {
+    state.config.lock().unwrap().assertiveness().as_str().to_string()
+}
+
+#[tauri::command]
+fn set_assertiveness(state: State<AppState>, level: String) -> Result<(), String> {
+    let parsed = Assertiveness::parse(&level).ok_or_else(|| format!("unknown assertiveness level: {level}"))?;
+    state.config.lock().unwrap().set_assertiveness(parsed).map_err(|e| e.to_string())
+}
+
+/// UX §3.2 / architecture P3.2: the optional AI-worker drill-down. Stateless (reads the
+/// engine's event logs directly), so no `AppState` lock needed. Honest-zero when nothing
+/// has completed since boot — see richos-core's worker_status.rs for the documented scope
+/// limit (no "active"/"decision required" signal exists in the engine's hook set yet).
+#[tauri::command]
+fn get_worker_status() -> WorkerStatusView {
+    worker_status::current_status()
+}
+
+/// The proactive-attention SEAM (architecture §2.3/§4.2, UX §5): persistence + the live
+/// UI event. Judgment of WHEN to raise one is explicitly NOT here — no timer/log-watcher
+/// trigger is wired yet (a later leg); this command is the seam a future trigger (or, for
+/// now, a manual/test caller) calls once it has already decided to speak.
+#[tauri::command]
+fn raise_proactive_message(
+    state: State<AppState>,
+    thread_id: Option<String>,
+    tier: String,
+    text: String,
+) -> Result<String, String> {
+    let parsed_tier = AttentionTier::parse(&tier).ok_or_else(|| format!("unknown attention tier: {tier}"))?;
+    let mut spine = state.spine.lock().unwrap();
+    spine
+        .raise_proactive(thread_id.as_deref(), parsed_tier, &text)
+        .map_err(|e| e.to_string())
 }
