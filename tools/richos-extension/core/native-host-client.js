@@ -15,6 +15,41 @@
 /** Must equal the `name` in the service's host manifest (host/com.richos.host.json). */
 export const NATIVE_HOST_ID = 'com.richos.host';
 
+/** This surface's identity in the capture->pipeline contract (contract.js CAPTURE_SOURCE.extension). */
+export const SURFACE = 'chrome-extension';
+/** This surface's capture SCOPE for the coordination handshake (coordination.js CAPTURE_KIND). */
+export const CAPTURE_KIND = 'browser-tab';
+
+/**
+ * Stamp the ownership handshake block onto a session record so the SHARED coordination authority
+ * (service lib/coordination.js) knows the extension owns this browser-tab call and a companion must
+ * stand down for it (architecture §5.4). `processHint` is the BROWSER process a system-capturing companion
+ * would otherwise double-capture (e.g. "Google Chrome"), so it can exclude/defer precisely.
+ * @param {Record<string, any>} record
+ * @param {{processHint?: string}} [opts]
+ */
+export function withBrowserOwnership(record, opts = {}) {
+  return {
+    ...record,
+    ownership: { ownerSurface: SURFACE, supersedes: null, processHint: opts.processHint || 'the browser' },
+  };
+}
+
+/**
+ * Ask the service whether this browser-tab call may be owned here (it should always win for browser
+ * calls, but the handshake is symmetric + generic). Pure builder; the method is on the client below.
+ * @param {{sessionId?: string, processHint?: string}} [opts]
+ */
+export function buildClaimMessage(opts = {}) {
+  return {
+    type: 'claim',
+    surface: SURFACE,
+    captureKind: CAPTURE_KIND,
+    sessionId: opts.sessionId || null,
+    processHint: opts.processHint || 'the browser',
+  };
+}
+
 /** @param {Record<string, any>} record the session record written at call START */
 export function buildStartMessage(record) {
   return { type: 'session-start', record, audioExt: 'webm' };
@@ -131,6 +166,11 @@ export class NativeHostClient {
     } catch {
       return false;
     }
+  }
+
+  /** Ownership handshake: resolve to the service's claim decision (or null if the service is absent). */
+  claim(opts = {}) {
+    return this._request(buildClaimMessage(opts), 'claim-result');
   }
 
   startSession(record) {
