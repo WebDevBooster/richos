@@ -146,7 +146,33 @@ probe. This is the "watch it work" moment — don't rush past it. If you have
 time, this is also a natural moment to point at `WALKTHROUGH.md` and say
 "that's the same story, but the full version, if you want to read it later."
 
-### Step 4 — The bootstrap interview (~20-30 min, the bulk of the session)
+### Step 4 — Provision `CLAUDE.md` (~3 min)
+
+The engine ships `CLAUDE.md.template`, and Claude Code only auto-loads
+`CLAUDE.md` — so until this step runs, **a bare boot is generic Claude, not
+Rich.** Copy `identity.config.example` to `identity.config`, fill in at least
+`COMPANY_NAME` and `CEO_NAME` (ask the CEO how they want to be addressed; it
+is the name Rich will use), then:
+
+```bash
+scripts/provision-claude-md.sh
+```
+
+Green looks like one line:
+```
+provisioned: /path/to/engine/CLAUDE.md (engine 1.0.0, template ce051221d1ce1383)
+```
+
+The script refuses rather than guessing: a blank company or CEO name is an
+error, not a `TODO` written into live doctrine. It is safe to re-run at any
+time — unchanged inputs are a no-op, and a `CLAUDE.md` the CEO has since
+edited is **never** overwritten.
+
+Worth saying out loud to the CEO here: every section the interview hasn't
+filled yet now reads *"Not configured for this installation … ask the CEO
+rather than assuming"*. That is deliberate — Rich asks instead of inventing.
+
+### Step 5 — The bootstrap interview (~20-30 min, the bulk of the session)
 
 Have the CEO talk to the orchestrator directly from here — tell it to run
 `skills/bootstrap-interview/SKILL.md`. Your job for this step is mostly to
@@ -161,7 +187,7 @@ Watch for the session ending in a real, printed **G5 verification pass**
 end green) before you consider this step done — a bootstrap interview that
 was interrupted mid-generation is not the same as one that finished.
 
-### Step 5 — Orientation tour (~15-20 min)
+### Step 6 — Orientation tour (~15-20 min)
 
 With a staffed team and a wiki that already has real content, walk the CEO
 through, briefly:
@@ -177,7 +203,7 @@ through, briefly:
   work and watch it route to the right teammate.
 
 **Total realistic session time: ~60-90 minutes**, with the bootstrap
-interview (Step 4) taking the largest and most variable share — a CEO with a
+interview (Step 5) taking the largest and most variable share — a CEO with a
 lot to say about their business will run long there, which is a good sign,
 not a scheduling failure.
 
@@ -263,16 +289,19 @@ one real gap).
 
 ## Definition of done — machine-checkable, not a feeling
 
-The session is done when all three of these are true, not when it "feels"
+The session is done when all four of these are true, not when it "feels"
 finished:
 
 1. `scripts/hooks/contract-integrity-probe.sh` exits `0` (all 17 layers, `A`
    through `Q`, green — Layer N may be a `⚠` warning rather than a `✓` if the
    repo isn't committed yet; that is acceptable, a hard `✗ N` is not).
 2. `scripts/demo.sh` prints `7/7 beats passed` and exits `0`.
-3. The bootstrap interview's own **G5 verification pass** completed green in
+3. `scripts/provision-claude-md.sh --check` exits `0` — a real `CLAUDE.md`
+   exists and matches the current template + identity values, so a bare boot
+   comes up as Rich rather than generic Claude.
+4. The bootstrap interview's own **G5 verification pass** completed green in
    this same session (not a prior, now-stale run).
 
-If all three are true, hand the CEO the `README.md` and
+If all four are true, hand the CEO the `README.md` and
 `WALKTHROUGH.md` pointers for anything they want to read later, and end the
 session — there's nothing else required to call this a completed onboarding.

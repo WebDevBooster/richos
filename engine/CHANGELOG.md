@@ -12,6 +12,27 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **`CLAUDE.md` provisioning** (`scripts/provision-claude-md.sh` +
+  `identity.config.example`) — MINOR by `VERSIONING.md`'s test: purely
+  additive, and an adopter who ignores it experiences no change. The engine
+  ships `CLAUDE.md.template`, but Claude Code only auto-loads `CLAUDE.md`, so
+  until now a **bare boot came up as generic Claude** and the Rich persona was
+  established only by the RichOS app's re-prime path. The provisioner renders
+  the template into a real `CLAUDE.md` using the CEO actuals in
+  `identity.config`: it injects a "Who you work for" section (CEO, company,
+  product, and a pointer to loro's context compiler), strips the adopter-facing
+  header, and replaces every `<!-- TODO (adopter) -->` block with either the
+  configured value or an explicit *"not configured — ask the CEO, never invent
+  a value"* note, so adopter instructions and the sample "No pagination" rule
+  can never be mistaken for live doctrine. Idempotent and no-clobber via a
+  provenance stamp carrying the engine version plus template/values/body
+  sha256s: unchanged inputs are a no-op, changed inputs refresh an unedited
+  file, and a CEO-edited file is never overwritten (`--upgrade` writes
+  `CLAUDE.md.new` beside it so `UPGRADING.md`'s hand-apply step is mechanical;
+  `--force` is the only way past it). `--check` gives installers a gate,
+  `--identity-json` gives other components one source of truth for
+  `company_name`. 28 tests in `scripts/provision-claude-md.test.sh`.
+
 - `gpt-exporter` (`engine/tools/gpt-exporter`, now v2.2.0): a popup checkbox,
   `Include above "Branched from" content`, positioned above the "JSON
   Backup" checkbox and unchecked by default. Unchecked (default), the
