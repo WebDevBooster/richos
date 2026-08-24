@@ -8,7 +8,9 @@
 use crate::cognition::{Cognition, CognitionError};
 use crate::ledger::{Ledger, LedgerError, Message, Source};
 use crate::reprime::{RePrimePayload, DEFAULT_TAIL_TURNS};
+use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
+use crate::util::now_millis;
 use std::collections::VecDeque;
 
 #[derive(Debug, thiserror::Error)]
@@ -42,6 +44,9 @@ pub struct Spine {
     queue: VecDeque<Queued>,
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
+    /// The live UI sink (streaming deltas + turn state). Optional so the spine runs
+    /// headless (tests, the ACP example) with zero UI attached.
+    observer: Option<Box<dyn TurnObserver>>,
 }
 
 impl Spine {
@@ -53,6 +58,22 @@ impl Spine {
             turn_in_progress: false,
             queue: VecDeque::new(),
             lease_primed: false,
+            observer: None,
+        }
+    }
+
+    /// Attach the live UI sink. The spine emits turn-start, per-delta chunk, and
+    /// terminal (completed/error) events to it — keyed to thread + turn — while the
+    /// ledger remains the source of truth. Headless callers simply never set one.
+    pub fn set_observer(&mut self, observer: Box<dyn TurnObserver>) {
+        self.observer = Some(observer);
+    }
+
+    /// Emit one live turn event to the UI sink, if attached. Infallible: a missing or
+    /// non-listening UI never affects the turn (the ledger already holds the truth).
+    fn emit(&self, event: StreamEvent) {
+        if let Some(obs) = self.observer.as_deref() {
+            obs.on_event(&event);
         }
     }
 
@@ -138,43 +159,97 @@ impl Spine {
         Ok(turn_id)
     }
 
-    /// Deliver one already-journaled turn to the current lease, streaming the reply
-    /// into the ledger as deltas (crash-safe partial capture), then completing it.
+    /// Deliver one already-journaled turn to the current lease. Each assistant delta is
+    /// persisted to the ledger FIRST (crash-safe partial capture) and then emitted LIVE
+    /// to the UI sink, so the CEO sees Rich's reply render token-by-token. Turn-state
+    /// events bracket the turn: `turn-started` (the calm "Rich is working" affordance)
+    /// and a terminal `turn-completed` / `turn-error`, all keyed to thread + turn.
     fn deliver(&mut self, turn_id: &str, thread_id: &str, text: &str) -> Result<(), SpineError> {
         // Re-prime the lease on first use (continuity foundation): the successor reads
         // the identity assertion + action ledger + tail before any CEO-visible turn.
         self.prime_lease_if_needed(thread_id)?;
 
-        let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
-        let session_id = lease.session_id().to_string();
+        let session_id = {
+            let lease = self.lease.as_ref().ok_or(SpineError::NoLease)?;
+            lease.session_id().to_string()
+        };
 
         self.turn_in_progress = true;
         self.ledger.mark_turn_started(turn_id, &session_id)?;
 
-        // Collect streamed chunks (the borrow checker won't let the closure touch
-        // &mut self.ledger while `lease` is borrowed, so buffer then persist).
-        let mut chunks: Vec<String> = Vec::new();
+        // Turn start: the UI shows the calm "Rich is working" state now.
+        self.emit(StreamEvent::TurnStarted {
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
+            at: now_millis(),
+        });
+
+        // Disjoint field borrows: the closure appends each delta to the ledger AND emits
+        // it live, while `lease` streams — `ledger`, `lease`, and `observer` are three
+        // distinct fields of *self, so all can be borrowed at once.
+        let ledger = &mut self.ledger;
+        let observer = self.observer.as_deref();
+        let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
+        let mut seq: u64 = 0;
+        let mut persist_err: Option<LedgerError> = None;
+
         let stop = {
-            let mut on_chunk = |c: &str| chunks.push(c.to_string());
+            let mut on_chunk = |c: &str| {
+                // Ledger stays the source of truth: persist the delta BEFORE emitting.
+                if let Err(e) = ledger.append_assistant_delta(turn_id, c) {
+                    persist_err = Some(e);
+                    return;
+                }
+                // Then emit it live (clean output: assistant text only ever reaches here).
+                if let Some(obs) = observer {
+                    obs.on_event(&StreamEvent::Chunk {
+                        thread_id: thread_id.to_string(),
+                        turn_id: turn_id.to_string(),
+                        seq,
+                        text_delta: c.to_string(),
+                        at: now_millis(),
+                    });
+                }
+                seq += 1;
+            };
             lease.prompt(text, &mut on_chunk)
         };
+        // `ledger` / `lease` / `observer` borrows end here.
+
+        self.turn_in_progress = false;
+
+        // A ledger write failing mid-stream is terminal for the turn (durability first).
+        if let Some(e) = persist_err {
+            self.ledger.interrupt_turn(turn_id, &e.to_string())?;
+            self.emit(StreamEvent::TurnError {
+                thread_id: thread_id.to_string(),
+                turn_id: turn_id.to_string(),
+                reason: e.to_string(),
+                at: now_millis(),
+            });
+            return Err(e.into());
+        }
 
         match stop {
             Ok(stop_reason) => {
-                for c in &chunks {
-                    self.ledger.append_assistant_delta(turn_id, c)?;
-                }
                 self.ledger.complete_turn(turn_id, &stop_reason)?;
-                self.turn_in_progress = false;
+                self.emit(StreamEvent::TurnCompleted {
+                    thread_id: thread_id.to_string(),
+                    turn_id: turn_id.to_string(),
+                    stop_reason,
+                    at: now_millis(),
+                });
                 Ok(())
             }
             Err(e) => {
-                // Persist whatever streamed before the failure, then mark interrupted.
-                for c in &chunks {
-                    self.ledger.append_assistant_delta(turn_id, c)?;
-                }
+                // Deltas up to the failure are already persisted + emitted; mark interrupted.
                 self.ledger.interrupt_turn(turn_id, &e.to_string())?;
-                self.turn_in_progress = false;
+                self.emit(StreamEvent::TurnError {
+                    thread_id: thread_id.to_string(),
+                    turn_id: turn_id.to_string(),
+                    reason: e.to_string(),
+                    at: now_millis(),
+                });
                 Err(e.into())
             }
         }
