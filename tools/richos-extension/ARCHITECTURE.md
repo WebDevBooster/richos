@@ -57,13 +57,29 @@ document is core-owned because Chrome permits exactly one per extension.
 │    · mic + captions auto-start with ZERO gesture on detection   │
 │    · session record written at call START                       │
 │    · captions persisted to IndexedDB (same count → captions.ndjson)│
-│    · chrome.downloads ─► Downloads/richos-capture/<session>/     │
+│    · TRANSPORT (chosen at call start, per session):             │
+│      ├─ native (default): connectNative ─► local service ───────┼──► loro wiki/raw/meetings/<session>/
+│      └─ downloads (fallback): chrome.downloads ─► Downloads/richos-capture/<session>/
 └─────────────────────────────────────────────────────────────────┘
-                                │  sync/richos-sync.mjs (reconcile.js)
-                                ▼
+        native transport (default)          downloads fallback │ sync/richos-sync.mjs
+        RichOS local service (tools/richos-service):            ▼
+        host writes the contract dir + runs the pipeline   loro wiki/raw/meetings/<session>/
+                                │                                │
+                                ▼                                ▼
    loro  wiki/raw/meetings/<session>/  ─► whisper + captions ─► transcript.md
      (captions.ndjson → per-speaker names merged in + accuracy cross-check score)
 ```
+
+**Transport (native-messaging streaming, default; Downloads fallback).** At call start the controller
+tries `chrome.runtime.connectNative('com.richos.host')`. If the local service answers, the whole
+session — `session-start`, then every audio chunk, health record and caption revision, then
+`session-close` — is streamed to it over Chrome's length-prefixed native-messaging channel, and the
+host writes the session directory straight into loro and runs the pipeline. If the service is absent,
+or the port dies mid-call, the controller falls back to the Downloads path unchanged. Chunks are
+committed to IndexedDB on **both** transports (the durability backbone), and each chunk streamed to
+the host is read back from that exact IndexedDB record — so the bytes that cross native messaging are
+byte-identical to what the Downloads path would assemble (collector-path parity), and a service that
+vanishes at any point loses no audio (the full session is exported to Downloads at finalise).
 
 ### Load-bearing details
 
@@ -207,26 +223,30 @@ compute a per-call caption-vs-transcript agreement score. Those computations are
 ingest and are deliberately **not** in the extension — the extension's job is only to land the data
 that makes them possible.
 
-## The deferred increment — a native companion (cross-platform, NOT built)
+## The native companion — mostly BUILT (`tools/richos-service/`), the extension now streams to it
 
-The extension cannot survive Chrome itself dying, and cannot hear desktop-app calls. Both need
-a small process outside the browser. When it is built it should be **one codebase with per-OS
-builds** (Windows service/tray binary, macOS launch agent, Linux systemd user unit) — not a
-Windows-only tool — and it should keep the extension exactly as it is, connected over Chrome's
-native-messaging stdio channel (no listening port, starts and dies with the browser).
+The extension cannot survive Chrome itself dying, and cannot hear desktop-app calls. Both need a
+small process outside the browser. It is **one codebase with per-OS builds** and it keeps the
+extension connected over Chrome's native-messaging stdio channel (no listening port, starts and dies
+with the browser). The extension side of that channel is `core/native-host-client.js`, wired into the
+controller as the default transport (above), with the Downloads path as the automatic runtime
+fallback. Scope, in priority order, with status:
 
-Scope, in priority order:
+1. **Outside-the-browser watchdog.** ✅ Built. The host holds its own heartbeat timer; a browser that
+   stops talking becomes an alarm the browser cannot suppress, and open sessions are finalised
+   `interrupted` on pipe EOF (`tools/richos-service/lib/host-handlers.js`).
+2. **Direct writes to the loro repo**, removing the Downloads hop and the sync command. ✅ Built. On
+   the native transport the host writes the contract dir straight into loro; the Downloads hop + sync
+   command remain only as the fallback path.
+3. **Post-call transcription on the spot** (whisper.cpp per channel) + the verification artifact. ✅
+   Built. `session-close` triggers the pipeline (`tools/richos-service/lib/pipeline.js`) →
+   `transcript.md` + `verification.json`.
+4. **System-audio capture** for desktop-app calls (WASAPI loopback on Windows, ScreenCaptureKit on
+   macOS, PipeWire on Linux) — the one hole a browser genuinely cannot close. 🚧 The macOS companion
+   (`tools/richos-service/companion-macos/`) is the in-progress path here.
 
-1. **Outside-the-browser watchdog.** It holds its own timer; "the browser stopped talking to
-   me" becomes an alarm the browser cannot suppress, and a browser crash mid-call is detected in
-   seconds instead of at next launch.
-2. **Direct writes to the loro repo**, removing the Downloads hop and the sync command.
-3. **Post-call transcription on the spot** (whisper.cpp / faster-whisper per channel), plus the
-   verification artifact the brief specifies.
-4. **System-audio capture** for desktop-app calls (WASAPI loopback on Windows, ScreenCaptureKit
-   on macOS, PipeWire on Linux) — the one hole a browser genuinely cannot close.
-
-Until then, item 4 is stated plainly in the README's can/cannot table rather than hidden.
+Item 4 remains stated plainly in the README's can/cannot table rather than hidden. The native
+transport is proven end-to-end by `tests/native-transport-e2e.mjs`.
 
 ## Open questions for the CEO
 

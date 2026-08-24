@@ -629,11 +629,38 @@ export async function orphanSessions() {
   return [...new Set(chunks.map((c) => c.sessionId))];
 }
 
+/**
+ * TEST SEAM (live-capture harness only): inject a decoded WAV as the microphone (left) channel so
+ * the extension's OWN recorder + MediaRecorder produce real speech chunks through the real encode
+ * path — the fake-microphone device Chrome for Testing exposes delivers digital silence on this
+ * host (measured), so this is how the automated E2E proves intelligible audio survives the pipeline.
+ * It only mixes an extra source into the running graph; it never bypasses the recorder.
+ * @param {{b64: string, loop?: boolean}} msg base64 of a PCM WAV
+ */
+export async function testInjectAudio(msg) {
+  if (!session) return { ok: false, error: 'no-session' };
+  try {
+    const bytes = Uint8Array.from(atob(msg.b64), (c) => c.charCodeAt(0));
+    const buffer = await session.ctx.decodeAudioData(bytes.buffer);
+    const src = session.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = Boolean(msg.loop);
+    // Left/mic channel, so it rides the exact encode path a real microphone would.
+    src.connect(session.merger, 0, 0);
+    src.start();
+    return { ok: true, duration: buffer.duration };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
 /** Route a `cc:` message inside the offscreen document. */
 export async function handleMessage(msg) {
   switch (msg.type) {
     case 'cc:start':
       return start(msg);
+    case 'cc:test-inject-audio':
+      return testInjectAudio(msg);
     case 'cc:stop':
       return stop(msg);
     case 'cc:restart-recorder':

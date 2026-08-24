@@ -12,7 +12,14 @@ import { getModuleSettings } from '../../core/settings.js';
 import { ensureOffscreen, closeOffscreen, callOffscreen, offscreenExists } from '../../core/offscreen-host.js';
 import { writeText, writeUrl, dropPath, setDownloadUi } from '../../core/output.js';
 import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine } from '../../core/alerts.js';
-import { put, getAll, deleteBySession } from '../../core/idb.js';
+import { put, get, getAll, deleteBySession } from '../../core/idb.js';
+import {
+  NativeHostClient,
+  withBrowserOwnership,
+  buildHealthMessage,
+  buildCaptionMessage,
+  SURFACE,
+} from '../../core/native-host-client.js';
 import { MODULE_ID, CAPTURE_DEFAULTS, SETTINGS_SCHEMA, THRESHOLDS, ACTIONS, SESSION_STATUS, FILES } from './constants.js';
 import { detectPlatform, shouldAutoArm, isCallTab } from './platforms.js';
 import { newCaptureState, applyHeartbeat, evaluateHealth, evaluateCaptionsOnlyHealth, badgeTextFor } from './health.js';
@@ -220,10 +227,20 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
     awaitingTabAudio: mode !== 'full',
     audioActive: false,
     captions: { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, lastCaptionAt: null, degraded: false },
+    // Transport sink: native-messaging streaming is the DEFAULT; Downloads is the runtime fallback.
+    sink: 'downloads',
+    native: null,
+    nativeChain: Promise.resolve(),
+    streamedBytes: 0,
+    streamedChunks: 0,
   };
 
-  // 1) The record of the call's existence goes to disk BEFORE any audio does.
-  await writeSessionFile(record);
+  // 1) The record of the call's existence reaches disk BEFORE any audio does. Choose the transport
+  //    first: if the local service answers, stream the whole contract dir straight to it (session
+  //    START lands over the wire, host writes session.json immediately); otherwise fall back to the
+  //    Downloads path unchanged. Either way the "session on disk before audio" anomaly guarantee holds.
+  await setupSink(record);
+  if (active.sink === 'downloads') await writeSessionFile(record);
   await persistActive();
 
   // 2) Start the recorder. `expectTab: false` in hybrid mode means "no tab yet, by design".
@@ -462,6 +479,159 @@ async function maybeShowDisclosure(tabId, settings) {
     // Missing host permission is the usual cause; the CEO's default has this off anyway.
     active?.record.notes.push(`disclosure banner failed: ${String((err && err.message) || err)}`);
   }
+}
+
+// ---------------------------------------------------------------------------------------
+// Transport sink — native-messaging streaming (default) with a Downloads runtime fallback
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Decide + open the transport for this session. Native-messaging streaming to the local RichOS
+ * service is the DEFAULT: it removes the Downloads hop entirely (the host writes the contract dir
+ * straight into loro and runs the pipeline). If the service is not installed/reachable, `active.sink`
+ * stays `downloads` and everything works exactly as before — the service is NEVER a dependency for
+ * capture to keep working (architecture §5.1). On success the session record is stamped with the browser
+ * ownership block and streamed as `session-start` before any audio flows.
+ * @param {Record<string, any>} record
+ */
+async function setupSink(record) {
+  if (!active) return;
+  active.sink = 'downloads';
+  active.native = null;
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connectNative) return;
+  const client = new NativeHostClient();
+  let connected = false;
+  try {
+    connected = await client.connect();
+  } catch {
+    connected = false;
+  }
+  if (!connected) {
+    record.notes.push('native host not reachable at start — using the Downloads capture path');
+    return;
+  }
+  try {
+    // Surface-agnostic ownership handshake (§5.4): a browser-tab call always wins, but the extension
+    // announces it so any system-capturing companion stands down. The result is advisory here.
+    await client.claim({ sessionId: record.sessionId, processHint: 'the browser' });
+  } catch {
+    /* claim is advisory for the extension; never let it block capture */
+  }
+  record.capture = record.capture || {};
+  record.capture.source = SURFACE;
+  Object.assign(record, withBrowserOwnership(record, { processHint: 'the browser' }));
+  const started = await client.startSession(record);
+  if (!started) {
+    record.notes.push('native host did not ack session-start — using the Downloads capture path');
+    try {
+      client._port?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  active.native = client;
+  active.sink = 'native';
+  record.notes.push('native-messaging transport ACTIVE: audio streams to the local service (Downloads fallback armed)');
+}
+
+/** Base64-encode an ArrayBuffer in the service worker (no Buffer; chunked to bound the call stack). */
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Stream one just-committed chunk to the host, in `seq` order. The chunk read here is the EXACT
+ * durable record the Downloads path would assemble, so the bytes that cross native messaging are
+ * byte-identical to the fallback (collector-path parity). Any failure demotes to Downloads — the
+ * chunk is still safe in IndexedDB, so nothing is ever lost.
+ * @param {string} sessionId @param {number} seq @param {number} part
+ */
+function streamChunkToHost(sessionId, seq, part) {
+  if (!active || !active.native) return;
+  active.nativeChain = active.nativeChain
+    .then(async () => {
+      if (!active || active.sink !== 'native' || !active.native) return;
+      let chunk;
+      try {
+        chunk = await get(DB.stores.chunks, [sessionId, seq]);
+      } catch (err) {
+        await demoteToDownloads(`chunk read failed: ${String((err && err.message) || err)}`);
+        return;
+      }
+      if (!chunk || !chunk.data) return;
+      const ok = active.native.sendChunk(sessionId, part, arrayBufferToBase64(chunk.data));
+      if (!ok || active.native.available === false) {
+        await demoteToDownloads('native port closed mid-stream');
+        return;
+      }
+      active.streamedChunks += 1;
+      active.streamedBytes += chunk.bytes || 0;
+    })
+    .catch(() => {});
+}
+
+/**
+ * The local service became unreachable mid-call. Flip to the Downloads path so capture continues
+ * with NO lost audio (every chunk is already durable in IndexedDB; the full session is exported to
+ * Downloads at finalise). Write session.json to Downloads now, since native mode had not.
+ * @param {string} reason
+ */
+async function demoteToDownloads(reason) {
+  if (!active || active.sink !== 'native') return;
+  active.sink = 'downloads';
+  const client = active.native;
+  active.native = null;
+  active.record.notes.push(`native transport degraded (${reason}) — switched to Downloads fallback; audio is safe in the browser`);
+  try {
+    client?._port?.disconnect();
+  } catch {
+    /* ignore */
+  }
+  await writeSessionFile(active.record);
+  await raiseAlert({
+    code: 'native-transport-degraded',
+    level: 'amber',
+    title: 'RichOS: switched to the Downloads capture path',
+    message: `The local service became unreachable (${reason}). Capture continues to Downloads — no audio is lost.`,
+    sessionId: active.record.sessionId,
+  });
+}
+
+/**
+ * Build the pipeline's audio accounting (parts/bytes/chunks) from the durable chunks in IndexedDB.
+ * Used for the native `session-close` so `hasUsableAudio` is true and the host runs the pipeline.
+ * @param {string} sessionId
+ * @returns {Promise<{parts: any[], bytesTotal: number, chunkCount: number}>}
+ */
+async function buildStreamedParts(sessionId) {
+  let chunks = [];
+  try {
+    chunks = await getAll(DB.stores.chunks, 'bySession', IDBKeyRange.only(sessionId));
+  } catch {
+    return { parts: [], bytesTotal: 0, chunkCount: 0 };
+  }
+  /** @type {Map<number, any>} */
+  const byPart = new Map();
+  let bytesTotal = 0;
+  for (const c of chunks) {
+    const p = byPart.get(c.part) || { part: c.part, file: FILES.audioPart(c.part), bytes: 0, chunks: 0, written: true };
+    p.bytes += c.bytes;
+    p.chunks += 1;
+    bytesTotal += c.bytes;
+    byPart.set(c.part, p);
+  }
+  return {
+    parts: [...byPart.values()].sort((a, b) => a.part - b.part),
+    bytesTotal,
+    chunkCount: chunks.length,
+  };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -778,10 +948,95 @@ export async function finalize(reason) {
 }
 
 /**
+ * Dispatch finalisation to the transport that captured this session. Native-messaging sessions are
+ * closed over the wire (the host finalises the contract dir + runs the pipeline); Downloads sessions
+ * assemble from IndexedDB as before. A native session that degraded mid-call already flipped
+ * `active.sink` to `downloads`, so it finalises the Downloads way from the same durable chunks.
  * @param {any} record
  * @param {string} reason
  */
 async function runFinalize(record, reason) {
+  if (active && active.sink === 'native' && active.native) return runFinalizeNative(record, reason);
+  return runFinalizeDownloads(record, reason);
+}
+
+/**
+ * Close a native-messaging session: stop the recorder, flush the streamed chunks in order, send the
+ * final accounting as `session-close` (which triggers the host pipeline), then drop the local IDB
+ * copies. If the host vanishes during close, fall back to a full Downloads export from IndexedDB —
+ * nothing is ever lost.
+ * @param {any} record
+ * @param {string} reason
+ */
+async function runFinalizeNative(record, reason) {
+  const settings = await getModuleSettings(MODULE_ID);
+  const native = active.native;
+  const stopped = await callOffscreen({ type: 'cc:stop', reason });
+  // Let every streamed chunk reach the host, in order, before we close.
+  await active.nativeChain.catch(() => {});
+  record.endedAt = Date.now();
+  record.status = reason === 'recovered' ? SESSION_STATUS.recovered : SESSION_STATUS.closed;
+  record.notes.push(`closed: ${reason} (native-messaging transport)`);
+  if (stopped?.lastError) record.notes.push(`recorder last error: ${stopped.lastError}`);
+
+  // The flush may have demoted us (host died) — if so, finish the Downloads way (audio all in IDB).
+  if (active.sink !== 'native' || !active.native) return runFinalizeDownloads(record, reason);
+
+  const audio = await buildStreamedParts(record.sessionId);
+  record.audio = audio;
+
+  const closed = await native.closeSession(record.sessionId, {
+    endedAt: record.endedAt,
+    status: record.status,
+    audio,
+    captions: record.captions,
+    health: record.health,
+    notes: record.notes,
+  });
+  if (!closed) {
+    record.notes.push('native session-close was not acked — exporting to Downloads as a safety net');
+    active.sink = 'downloads';
+    active.native = null;
+    try {
+      native._port?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    return runFinalizeDownloads(record, reason);
+  }
+  try {
+    native._port?.disconnect();
+  } catch {
+    /* ignore */
+  }
+
+  // Chunks are now safe in the loro drop zone via the host; drop the local copies unless asked to keep.
+  if (!settings.keepChunksAfterExport) {
+    await callOffscreen({ type: 'cc:purge', sessionId: record.sessionId });
+    try {
+      await deleteBySession(DB.stores.captions, record.sessionId);
+    } catch {
+      /* harmless */
+    }
+  }
+
+  await indexSession(record, { ok: true, problems: [] });
+  await notifyRoutine({
+    title: 'RichOS: capture streamed to the local service',
+    message: `${(audio.bytesTotal / 1048576).toFixed(1)} MB · ${audio.chunkCount} chunks · native-messaging → loro`,
+  });
+  await chrome.storage.local.remove(KEYS.activeSession);
+  active = null;
+  await setHealth({ level: 'idle', text: '', title: 'RichOS: idle' });
+  if (!(await anyActiveWork())) await closeOffscreen();
+  return { ok: true, sessionId: record.sessionId, transport: 'native', verdict: { ok: true, problems: [] } };
+}
+
+/**
+ * @param {any} record
+ * @param {string} reason
+ */
+async function runFinalizeDownloads(record, reason) {
   const settings = await getModuleSettings(MODULE_ID);
 
   const stopped = await callOffscreen({ type: 'cc:stop', reason });
@@ -983,6 +1238,9 @@ async function persistActive() {
       awaitingTabAudio: active.awaitingTabAudio,
       audioActive: active.audioActive,
       captions: active.captions,
+      // Informational only: a restarted worker cannot restore a native port, so recovery always
+      // finalises via the Downloads fallback from the durable IndexedDB chunks.
+      sink: active.sink,
       savedAt: Date.now(),
     },
   });
@@ -1173,6 +1431,11 @@ async function onMessage(msg, sender) {
     case 'cc:heartbeat': {
       if (!active || msg.sessionId !== active.record.sessionId) return { ok: true, ignored: true };
       applyHeartbeat(active.state, msg);
+      if (active.sink === 'native' && active.native) {
+        // Forward the health record as the outside-the-browser liveness signal + health.ndjson line.
+        const { target, module, type, ...line } = msg;
+        active.native.post(buildHealthMessage(active.record.sessionId, line));
+      }
       await tick();
       return { ok: true };
     }
@@ -1182,6 +1445,8 @@ async function onMessage(msg, sender) {
       active.state.chunkCount += 1;
       if (msg.bytesTotal > active.state.bytesTotal) active.state.bytesGrewAt = msg.t;
       active.state.bytesTotal = msg.bytesTotal;
+      // Native transport: stream this exact durable chunk straight to the local service, in order.
+      if (active.sink === 'native') streamChunkToHost(msg.sessionId, msg.seq, msg.part);
       return { ok: true };
     }
     case 'cc:chunk-error':
@@ -1300,6 +1565,21 @@ async function handleCaption(msg, sender) {
   // Success: count == rows persisted. Mirror onto the record for the popup and session.json.
   active.captions.count += 1;
   active.captions.available = true;
+  // Native transport: forward the SAME persisted revision to the host's captions.ndjson.
+  if (active.sink === 'native' && active.native) {
+    active.native.post(
+      buildCaptionMessage(active.record.sessionId, {
+        speaker: event.speaker || 'unknown',
+        text: event.text,
+        t: event.t || Date.now(),
+        firstT: event.firstT || event.t || Date.now(),
+        revision: event.revision || 1,
+        id: event.id != null ? String(event.id) : null,
+        language: event.language || null,
+        adapter: msg.adapter || active.captions.adapter,
+      }),
+    );
+  }
   // Drives the captions-only amber/red split (evaluateCaptionsOnlyHealth): wall-clock receipt
   // time, not the caption's own (possibly backdated) `event.t` — this is a liveness signal for
   // the channel, not a content timestamp.
@@ -1361,8 +1641,14 @@ async function getStatus() {
     mode: active.record.mode,
     awaitingTabAudio: active.awaitingTabAudio,
     audioActive: active.audioActive,
+    // Which transport this session is using: 'native' streams straight to the local service (loro),
+    // 'downloads' is the fallback path. Streamed accounting is what actually crossed the wire.
+    transport: active.sink || 'downloads',
+    streamedChunks: active.streamedChunks || 0,
+    streamedBytes: active.streamedBytes || 0,
     dropFolder: root,
-    saveLocation: `Downloads/${root}/${active.record.dir}/`,
+    saveLocation:
+      active.sink === 'native' ? `local service → loro (${active.record.dir})` : `Downloads/${root}/${active.record.dir}/`,
     lastSession: index.length ? index[index.length - 1] : null,
     startedAt: active.record.startedAt,
     bytesTotal: active.state.bytesTotal,

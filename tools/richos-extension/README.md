@@ -168,8 +168,11 @@ session length · participant disclosure banner + text · keep raw chunks after 
 
 ## What lands on disk
 
-Chrome extensions may only write inside your downloads folder, so each call becomes a folder
-under `Downloads/richos-capture/`:
+On the **native-messaging transport** the host writes this same session directory straight into the
+loro drop zone (`wiki/raw/meetings/<session>/`). On the **Downloads fallback** — a Chrome extension
+may only write inside the downloads folder — each call becomes a folder under
+`Downloads/richos-capture/` and the sync helper moves it into loro. The directory contract is
+identical either way:
 
 ```
 Downloads/richos-capture/2026-08-23T14-05-02Z--meet--abc-defg-hij/
@@ -191,7 +194,10 @@ trustworthy is stated in the file rather than smoothed over.
 
 Size: roughly **43 MB per hour** at the default 96 kbps.
 
-### Getting it into loro
+### Getting it into loro (Downloads fallback only)
+
+On the native-messaging transport this is automatic — the host already wrote into loro. The sync
+helper is only needed for sessions captured on the Downloads fallback path:
 
 ```
 node sync/richos-sync.mjs --to ~/richos/wiki/raw/meetings
@@ -213,16 +219,26 @@ A pure MV3 extension cannot run Whisper — there is no native binary, no filesy
 to spawn a process. Pretending otherwise would be the dishonest part of this design, so the
 seam is explicit:
 
-**v0:** the extension produces `audio-part-NN.webm` + `session.json` in the drop zone; the sync
-helper moves them into loro's `raw/meetings/`; the loro ingest step runs local whisper.cpp /
-faster-whisper over the two channels and writes `transcript.md` next to the audio. Post-call
-transcription is also the *right* default: transcription is a pure function of the audio, the
-audio is already safe, and running ASR live would heat the machine during the call for no
-reliability gain.
+There are now **two transports**, chosen automatically at call start:
 
-Why not write straight into the repo? Because that needs a native-messaging host — see
-[ARCHITECTURE.md](ARCHITECTURE.md). It is a genuine future increment, not a workaround, and the
-Downloads path costs one command in the meantime.
+- **Native-messaging streaming (default).** When the local RichOS service is installed and reachable,
+  the extension opens a `chrome.runtime.connectNative` port and streams every captured chunk (plus
+  health + captions) straight to the host, which writes the session directory **directly into loro**
+  and runs the transcription pipeline on close — producing `transcript.md` with no Downloads hop and
+  no sync command. The audio the host receives is the *exact* durable chunk the Downloads path would
+  assemble (collector-path parity), so the transport is a delivery change, not a format change.
+- **Downloads (automatic runtime fallback).** If the service is not installed/running — or if the
+  native port dies mid-call — the extension falls back to writing `audio-part-NN.webm` + `session.json`
+  into the drop zone exactly as before, and the sync helper moves finished sessions into loro's
+  `raw/meetings/`. Every chunk is committed to IndexedDB regardless of transport, so a service that
+  disappears at any point **never loses audio** — the full session is exported to Downloads at
+  finalise. This is a belt-and-suspenders cutover: the new path is the default, the old path is the
+  safety net.
+
+Post-call transcription is the *right* default either way: transcription is a pure function of the
+audio, the audio is already safe, and running ASR live would heat the machine during the call for no
+reliability gain. The native host is specified in [ARCHITECTURE.md](ARCHITECTURE.md) and lives in
+`tools/richos-service/`; install it with `tools/richos-service/host/install-host.sh <extension-id>`.
 
 ### Captions as the enrichment seam
 
@@ -241,10 +257,22 @@ anywhere in the framework.
 ## Testing
 
 ```
-node tests/run.js             # pure logic: 47 tests, no browser, fake clock
-node tests/sync-reconcile.mjs # the real sync CLI vs synthetic sessions on disk
-node tests/live-capture.mjs   # real Chrome, real audio, real captions, real files on disk
+node tests/run.js                  # pure logic: no browser, fake clock
+node tests/sync-reconcile.mjs      # the real sync CLI vs synthetic sessions on disk
+node tests/live-capture.mjs        # real Chrome, real audio, real captions, real files on disk (Downloads path)
+node tests/native-transport-e2e.mjs  # real Chrome → real native host → real whisper (the streaming transport)
 ```
+
+`native-transport-e2e.mjs` is the end-to-end proof of the **native-messaging transport** (below):
+it launches real Chrome for Testing with the extension loaded, registers the real local service as
+a native-messaging host, and proves that the extension's own recorder streams captured audio over
+`chrome.runtime.connectNative` → the host → the transcription pipeline → `transcript.md` — asserting
+the transcript contains the spoken words and that **nothing** was written to Downloads. It also
+proves the runtime fallback (no host reachable → Downloads still captures, no audio lost) and
+documents the tab-arming trusted-gesture boundary. Chrome for Testing's fake-microphone *file*
+device delivers digital silence on this host (measured; see the harness header), so the harness
+injects a real spoken WAV into the recorder's own encode path via a test seam — the audio that
+crosses native messaging is genuine browser MediaRecorder Opus.
 
 The live harness launches a throwaway Chrome profile with the extension loaded, serves a page as
 `https://meet.google.com/...` that plays a real tone **and emits Meet-shaped captions** so both

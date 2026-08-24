@@ -13,7 +13,7 @@ export const PRODUCT = {
   name: 'RichOS',
   shortName: 'RichOS',
   /** Bump on every user-visible change (semver habit, same as the other extensions). */
-  version: '0.2.1',
+  version: '0.3.0',
 };
 
 /** Keys in `chrome.storage.local`. Namespaced so future modules never collide. */
