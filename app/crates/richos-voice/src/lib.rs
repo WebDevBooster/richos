@@ -29,7 +29,7 @@
 //!                                                                     back to EchoGate
 //! ```
 //!
-//! Layering, deliberately: `vad`, `bargein`, `endpoint`, `chunk`, `state` and `wav` are
+//! Layering, deliberately: `vad`, `bargein`, `endpoint`, `chunk`, `noaudio`, `state` and `wav` are
 //! **pure and unit-tested** — no devices, no subprocesses, no clock. `capture`, `playout`,
 //! `stt` and `tts` are the thin native edges. `controller` is the glue that owns the threads.
 //!
@@ -46,6 +46,7 @@ pub mod bargein;
 pub mod chunk;
 pub mod endpoint;
 pub mod event;
+pub mod noaudio;
 pub mod state;
 pub mod wav;
 
@@ -61,4 +62,5 @@ pub use controller::{VoiceController, VoiceOptions};
 pub use event::{VoiceEvent, VoiceObserver};
 pub use state::{VoiceState, VoiceStateMachine};
 pub use bargein::{barge_in_debounce_secs, BargeInMonitor, EchoGate, NoEchoCancellation, BARGE_IN_DEBOUNCE_FRAMES};
+pub use noaudio::{no_audio_window_secs, NoAudioDetector, LIVE_RMS, NO_AUDIO_FRAMES, SILENCE_RMS};
 pub use vad::{frames_for_secs, frames_to_secs, Vad, SAMPLE_RATE, VAD_FRAME_SAMPLES};
