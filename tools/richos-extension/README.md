@@ -113,7 +113,10 @@ So the hybrid automatic flow is:
   **Alt+Shift+L**. That click *upgrades* the running mic + captions session to full tab-audio
   ground truth — it does not start capture from scratch, because capture is already running.
 - If the microphone permission is missing, RichOS degrades to **captions only** and stays loud
-  (red `ARM`) about the missing audio — it is never silent.
+  about the missing audio — it is never silent, and the badge tells the two cases apart (CEO
+  decision 2026-08-23): **amber `ARM`** while captions are actually landing ("degraded, but
+  working — get ground truth"), **red `ARM`** if not one caption has landed either (or the
+  caption adapter itself breaks) — the true "nothing is being captured" failure.
 
 The grant lasts for the life of that tab, so it is one keystroke per call, not per minute — and
 you can do it the moment the tab opens, before anyone joins.
@@ -128,11 +131,14 @@ other party or appear in a screenshare.
 | grey / empty | idle |
 | green `REC` | capturing, all channels healthy |
 | amber `...` | degraded (warming up, quiet, or microphone-only failover) |
-| red `!` / `ARM` | something is wrong, OR mic + captions are running and one click will add tab-audio ground truth |
+| amber `ARM` | **captions-only, and captions ARE flowing** — no audio yet, but the call is not going uncaptured; click to add audio (ground truth) |
+| red `!` / `ARM` | true failure — something is wrong, mic + captions ARE running and one click will add tab-audio ground truth, OR captions-only with nothing captured at all (no caption has landed, or the caption adapter broke) |
 
 `ARM` no longer means "nothing is recorded" — in the hybrid flow your microphone and the captions
-are already being captured; the click adds the other side's tab audio. Click the icon for the
-exact state (including live caption count and speaker labels).
+are already being captured; the click adds the other side's tab audio. In captions-only mode, the
+badge colour itself tells you whether captions are actually landing (amber) or whether nothing is
+being captured at all (red). Click the icon for the exact state (including live caption count and
+speaker labels).
 
 Click the icon for detail: elapsed time, MB and chunks written, per-channel health
 (microphone / tab audio / levels / audio graph), where the session is being saved, and the

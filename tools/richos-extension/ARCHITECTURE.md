@@ -133,9 +133,25 @@ and `audioActive` flags are persisted with the active session so a service-worke
 the exact state.
 
 Health treats `awaitingTabAudio` as **amber** (partial capture) and never as red or a recovery
-action — the controller owns the red `ARM` prompt for the missing ground-truth channel. A
-`captions-only` session has no recorder, so `tick()` skips audio evaluation entirely and just keeps
-the red `ARM` prompt alive while captions keep landing.
+action — the controller owns the red `ARM` prompt for the missing ground-truth channel. That red
+stays red even in `mic+captions` mode, because a real audio channel (the microphone) is already
+running; it is not the degraded-but-working state below.
+
+A `captions-only` session has no recorder at all, so `tick()` skips audio evaluation entirely and
+delegates to `evaluateCaptionsOnlyHealth` (`modules/call-capture/health.js`) — the single source of
+truth for the CEO decision of 2026-08-23: this state must not share the red badge with true
+failure. It splits `ARM` into two colours:
+
+- **amber `ARM`** — captions ARE landing (or the session is still inside the warmup grace period),
+  i.e. "degraded, but working — get ground truth". This is the ordinary shape of a captions-only
+  call: no audio yet, the call is not going uncaptured, click to add it.
+- **red `ARM`** — true failure: not one caption has landed past warmup, the caption adapter itself
+  broke (`cc:captions-degraded`), or captions were flowing and then stalled past
+  `THRESHOLDS.captionsStallRedMs` (the amber→red escalation). Nothing is being captured at all.
+
+Both the initial arm (`beginSession`) and every watchdog tick funnel through one shared helper,
+`announceCaptionsOnlyHealth`, so the badge/alert decision can never drift between "just armed" and
+"still running".
 
 ## Captions — the secondary failsafe + enrichment layer
 

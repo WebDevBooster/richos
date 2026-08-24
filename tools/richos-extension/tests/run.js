@@ -11,7 +11,13 @@
 
 import assert from 'node:assert/strict';
 import { detectPlatform, shouldAutoArm, isCallTab } from '../modules/call-capture/platforms.js';
-import { newCaptureState, applyHeartbeat, evaluateHealth, badgeTextFor } from '../modules/call-capture/health.js';
+import {
+  newCaptureState,
+  applyHeartbeat,
+  evaluateHealth,
+  evaluateCaptionsOnlyHealth,
+  badgeTextFor,
+} from '../modules/call-capture/health.js';
 import { THRESHOLDS, ACTIONS, CAPTURE_DEFAULTS } from '../modules/call-capture/constants.js';
 import {
   stampFor,
@@ -592,6 +598,123 @@ test('the session record carries a caption block and a capture mode from birth',
 test('hybrid auto-start is ON by default and captions collection is ON by default', () => {
   assert.equal(CAPTURE_DEFAULTS.autoStartMicCaptions, true);
   assert.equal(CAPTURE_DEFAULTS.captureCaptions, true);
+});
+
+// ---------------------------------------------------------------------------------------
+group('captions-only health — CEO decision 2026-08-23: degraded (amber) vs true failure (red)');
+
+test('captions-only, still inside the warmup grace period with zero captions yet, is amber — not a false alarm', () => {
+  const result = evaluateCaptionsOnlyHealth({ startedAt: T0 - 5000, lastCaptionAt: null, degraded: false }, T0);
+  assert.equal(result.level, 'amber');
+  assert.ok(result.reasons.some((r) => r.code === 'captions-only-warming-up'));
+});
+
+test('captions-only WITH captions flowing is AMBER, never red — the degraded-but-working state', () => {
+  const result = evaluateCaptionsOnlyHealth(
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - 2000, degraded: false },
+    T0,
+  );
+  assert.equal(result.level, 'amber');
+  assert.ok(result.reasons.some((r) => r.code === 'captions-only-flowing'));
+});
+
+test('captions-only with captions flowing right up to the stall threshold is still amber', () => {
+  const result = evaluateCaptionsOnlyHealth(
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - (THRESHOLDS.captionsStallRedMs - 1000), degraded: false },
+    T0,
+  );
+  assert.equal(result.level, 'amber');
+});
+
+test('captions-only past warmup with NOT ONE caption ever captured is RED — nothing is being captured', () => {
+  const result = evaluateCaptionsOnlyHealth(
+    { startedAt: T0 - (THRESHOLDS.captionsWarmupMs + 1000), lastCaptionAt: null, degraded: false },
+    T0,
+  );
+  assert.equal(result.level, 'red');
+  assert.ok(result.reasons.some((r) => r.code === 'captions-only-nothing-captured'));
+});
+
+test('captions-only where the caption adapter itself broke is RED regardless of past captions', () => {
+  const result = evaluateCaptionsOnlyHealth(
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - 1000, degraded: true },
+    T0,
+  );
+  assert.equal(result.level, 'red');
+  assert.ok(result.reasons.some((r) => r.code === 'captions-only-adapter-broken'));
+});
+
+test('amber → red ESCALATION: captions were flowing in captions-only mode, then stalled', () => {
+  const state = { startedAt: T0 - 120000, lastCaptionAt: T0 - 1000, degraded: false };
+  const whileFlowing = evaluateCaptionsOnlyHealth(state, T0);
+  assert.equal(whileFlowing.level, 'amber', 'sanity: was amber while captions were recent');
+
+  // Same session state, later clock read: no NEW caption has landed since (lastCaptionAt frozen),
+  // and enough time has passed to cross the stall threshold.
+  const laterNow = T0 + THRESHOLDS.captionsStallRedMs + 1000;
+  const afterStall = evaluateCaptionsOnlyHealth(state, laterNow);
+  assert.equal(afterStall.level, 'red', 'must escalate to red once captions ALSO stop flowing');
+  assert.ok(afterStall.reasons.some((r) => r.code === 'captions-only-stalled'));
+});
+
+test('captions-only red reasons always carry a human-readable "nothing is being captured" detail', () => {
+  const neverCaptured = evaluateCaptionsOnlyHealth(
+    { startedAt: T0 - (THRESHOLDS.captionsWarmupMs + 1000), lastCaptionAt: null, degraded: false },
+    T0,
+  );
+  const stalled = evaluateCaptionsOnlyHealth(
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - (THRESHOLDS.captionsStallRedMs + 1000), degraded: false },
+    T0,
+  );
+  for (const result of [neverCaptured, stalled]) {
+    assert.equal(result.level, 'red');
+    assert.ok(result.reasons[0].detail.length > 0);
+  }
+});
+
+// ---------------------------------------------------------------------------------------
+group('captions-only vs the UNCHANGED red paths — no existing failure alarm was softened');
+
+test('awaiting-tab-audio (mic + captions ALREADY running, only tab audio missing) is still amber via evaluateHealth — unrelated to, and unchanged by, the captions-only split', () => {
+  // Re-assert the pre-existing invariant (also covered above) so a regression here is caught in
+  // the same file as the new captions-only behaviour, side by side.
+  const state = healthyState();
+  state.awaitingTabAudio = true;
+  state.tabEnabled = false;
+  const result = evaluateHealth(state, T0);
+  assert.equal(result.level, 'amber');
+  assert.ok(result.reasons.some((r) => r.code === 'awaiting-tab-audio'));
+});
+
+test('a hard stall on a FULL audio session is still RED via evaluateHealth — not downgraded by the captions-only amber change', () => {
+  const redState = healthyState();
+  redState.lastChunkAt = T0 - 16000;
+  redState.bytesGrewAt = T0 - 16000;
+  redState.lastHeartbeatAt = T0;
+  const result = evaluateHealth(redState, T0);
+  assert.equal(result.level, 'red');
+  assert.ok(result.reasons.some((r) => r.code === 'audio-stalled'));
+});
+
+test('a silent offscreen recorder (no heartbeat) is still RED via evaluateHealth — the hard alarm is untouched', () => {
+  const state = healthyState();
+  state.lastHeartbeatAt = T0 - 20000;
+  const result = evaluateHealth(state, T0);
+  assert.equal(result.level, 'red');
+});
+
+test('evaluateCaptionsOnlyHealth NEVER returns green — amber (degraded) or red (failure) are the only two states', () => {
+  const scenarios = [
+    { startedAt: T0 - 5000, lastCaptionAt: null, degraded: false },
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - 1000, degraded: false },
+    { startedAt: T0 - (THRESHOLDS.captionsWarmupMs + 1000), lastCaptionAt: null, degraded: false },
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - (THRESHOLDS.captionsStallRedMs + 1000), degraded: false },
+    { startedAt: T0 - 120000, lastCaptionAt: T0 - 1000, degraded: true },
+  ];
+  for (const scenario of scenarios) {
+    const level = evaluateCaptionsOnlyHealth(scenario, T0).level;
+    assert.ok(level === 'amber' || level === 'red', `unexpected level "${level}" for ${JSON.stringify(scenario)}`);
+  }
 });
 
 // ---------------------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import { raiseAlert, setHealth, resetAlertThrottle, notifyRoutine } from '../../
 import { put, getAll, deleteBySession } from '../../core/idb.js';
 import { MODULE_ID, CAPTURE_DEFAULTS, SETTINGS_SCHEMA, THRESHOLDS, ACTIONS, SESSION_STATUS, FILES } from './constants.js';
 import { detectPlatform, shouldAutoArm, isCallTab } from './platforms.js';
-import { newCaptureState, applyHeartbeat, evaluateHealth, badgeTextFor } from './health.js';
+import { newCaptureState, applyHeartbeat, evaluateHealth, evaluateCaptionsOnlyHealth, badgeTextFor } from './health.js';
 import { newSessionRecord, accrueHealth, verifySession, audioFileName } from './session.js';
 
 /** @type {{record: any, state: any, tabId: number, lastEval: any, attempts: Record<string, {n: number, at: number}>,
@@ -219,7 +219,7 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
     finalizing: false,
     awaitingTabAudio: mode !== 'full',
     audioActive: false,
-    captions: { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, degraded: false },
+    captions: { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, lastCaptionAt: null, degraded: false },
   };
 
   // 1) The record of the call's existence goes to disk BEFORE any audio does.
@@ -245,7 +245,9 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
       active.record.notes.push(`no audio source yet: ${started?.error || 'unknown'} — captions-only until armed`);
       unarmedSince = null;
       startWatchdog();
-      await raiseTabAudioArmAlert(platform, true);
+      // Genuinely no audio source exists. Announce via the same amber/red split tick() uses —
+      // at t=0 with zero captions yet this lands amber (warming up), never red on arrival.
+      await announceCaptionsOnlyHealth(startedAt);
       await persistActive();
       return { ok: true, sessionId: record.sessionId, mode: 'captions-only' };
     }
@@ -292,7 +294,7 @@ async function beginSession({ tabId, tab, platform, settings, trigger, streamId,
     });
   } else {
     // Mic + captions are live; the red ARM prompt drives the one click that adds tab audio.
-    await raiseTabAudioArmAlert(platform, false);
+    await raiseTabAudioArmAlert(platform);
   }
   return { ok: true, sessionId: record.sessionId, mode: active.record.mode };
 }
@@ -360,27 +362,71 @@ async function upgradeToFullAudio(tabId, trigger) {
 }
 
 /**
- * Red ARM prompt for the one click that adds tab-audio ground truth. Fires even while mic +
- * captions are running, because tab audio is the recoverable ground truth — the click is still
- * strongly prompted, but the CEO is told plainly that the call is NOT going uncaptured.
+ * Red ARM prompt for the one click that adds tab-audio ground truth. This fires only while mic
+ * audio (a real audio channel) is already running and merely awaiting the tab-audio upgrade —
+ * "audio was expected [and is present via the mic]" stays red, unchanged by the 2026-08-23
+ * captions-only-amber decision below, because this is not the degraded-but-working state; a
+ * real audio channel already exists and the ground-truth channel is simply missing.
  * @param {any} platform
- * @param {boolean} captionsOnly
  */
-async function raiseTabAudioArmAlert(platform, captionsOnly) {
+async function raiseTabAudioArmAlert(platform) {
   await setHealth({
     level: 'red',
     text: 'ARM',
-    title: captionsOnly
-      ? `RichOS: ${platform.label} — collecting captions only, click to record audio`
-      : `RichOS: ${platform.label} — recording mic + captions, click to add tab audio`,
+    title: `RichOS: ${platform.label} — recording mic + captions, click to add tab audio`,
   });
   await raiseAlert({
     code: 'needs-invocation',
     level: 'red',
     title: 'RichOS: click to capture the full call',
-    message: captionsOnly
-      ? 'Captions are being collected, but there is NO audio yet (microphone unavailable and tab audio not armed). Click the RichOS icon on the call tab, or press Alt+Shift+L, to start recording.'
-      : 'Your microphone and the live captions are being captured now. Click the RichOS icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio — the ground-truth recording.',
+    message:
+      'Your microphone and the live captions are being captured now. Click the RichOS icon on the call tab (or press Alt+Shift+L) to add the other side\'s tab audio — the ground-truth recording.',
+  });
+}
+
+/**
+ * Evaluate + announce health for a session with NO audio source at all (`mode: 'captions-only'`,
+ * `active.audioActive === false`) — captions are the only channel running. Shared by the initial
+ * arm (`beginSession`) and every watchdog tick (`tick()`), so the badge/alert decision for this
+ * state lives in exactly one place and can never drift between "just armed" and "still running".
+ *
+ * CEO decision 2026-08-23: a genuine captions-only call that IS capturing captions is AMBER
+ * ("degraded, but working — get ground truth"), never red. Red is reserved for true failure:
+ * the caption adapter breaking, no caption ever landing, or captions themselves stalling out —
+ * see `evaluateCaptionsOnlyHealth`, the single source of truth for this split.
+ * @param {number} [now]
+ */
+async function announceCaptionsOnlyHealth(now = Date.now()) {
+  if (!active) return;
+  const captionsHealth = evaluateCaptionsOnlyHealth(
+    {
+      startedAt: active.record.startedAt,
+      lastCaptionAt: active.captions.lastCaptionAt,
+      degraded: active.captions.degraded,
+    },
+    now,
+  );
+  active.lastEval = { level: captionsHealth.level, reasons: captionsHealth.reasons, actions: [], signals: {}, at: now };
+  accrueHealth(active.record, { level: captionsHealth.level });
+  const detail = captionsHealth.reasons[0]?.detail || '';
+
+  await setHealth({
+    level: captionsHealth.level,
+    text: 'ARM',
+    title:
+      captionsHealth.level === 'amber'
+        ? `RichOS: ${active.record.platform.label} — captions-only (degraded), ${active.captions.count} captions so far, click to add audio`
+        : `RichOS: ${active.record.platform.label} — captions only, NO audio, click to record audio`,
+  });
+  await raiseAlert({
+    code: captionsHealth.level === 'red' ? 'needs-invocation' : 'captions-only-degraded',
+    level: captionsHealth.level,
+    title:
+      captionsHealth.level === 'red'
+        ? 'RichOS: click to capture the full call'
+        : 'RichOS: captions-only — click to add audio (ground truth)',
+    message: `${detail}. Click the RichOS icon on the call tab, or press Alt+Shift+L.`,
+    sessionId: active.record.sessionId,
   });
 }
 
@@ -452,18 +498,12 @@ async function tick() {
     return;
   }
 
-  // Captions-only: no recorder to evaluate. Stay loud about the missing audio (never silent),
-  // while the caption channel keeps collecting via cc:caption messages.
+  // Captions-only: no recorder to evaluate. Stay loud (never silent) about the missing audio,
+  // but distinguish "degraded, still working" (captions flowing → amber) from "true failure,
+  // nothing captured at all" (red) — see announceCaptionsOnlyHealth / evaluateCaptionsOnlyHealth,
+  // the single source of truth for this split (CEO decision 2026-08-23).
   if (!active.audioActive) {
-    accrueHealth(active.record, { level: 'red' });
-    await setHealth({ level: 'red', text: 'ARM', title: 'RichOS: captions only — click to record audio' });
-    await raiseAlert({
-      code: 'needs-invocation',
-      level: 'red',
-      title: 'RichOS: click to capture the full call',
-      message: `Captions are being collected (${active.captions.count}), but there is NO audio yet. Click the RichOS icon on the call tab, or press Alt+Shift+L.`,
-      sessionId: active.record.sessionId,
-    });
+    await announceCaptionsOnlyHealth(now);
     if (now - active.record.startedAt > 60000 && now - active.lastDiskWrite > 60000) {
       active.lastDiskWrite = now;
       await writeSessionFile(active.record);
@@ -973,7 +1013,7 @@ export async function recoverAfterRestart() {
         finalizing: false,
         awaitingTabAudio: Boolean(saved.awaitingTabAudio),
         audioActive: saved.audioActive !== false,
-        captions: saved.captions || { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, degraded: false },
+        captions: saved.captions || { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, lastCaptionAt: null, degraded: false },
       };
       active.record.notes.push('service worker restarted mid-session; recorder was still alive');
       startWatchdog();
@@ -989,7 +1029,7 @@ export async function recoverAfterRestart() {
         finalizing: false,
         awaitingTabAudio: Boolean(saved.awaitingTabAudio),
         audioActive: saved.audioActive !== false,
-        captions: saved.captions || { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, degraded: false },
+        captions: saved.captions || { available: false, adapter: null, adapterVersion: null, count: 0, seq: 0, lastCaptionAt: null, degraded: false },
       };
       active.record.status = SESSION_STATUS.interrupted;
       active.record.notes.push('recovered after an interruption (tab crash, extension reload or browser restart)');
@@ -1260,6 +1300,10 @@ async function handleCaption(msg, sender) {
   // Success: count == rows persisted. Mirror onto the record for the popup and session.json.
   active.captions.count += 1;
   active.captions.available = true;
+  // Drives the captions-only amber/red split (evaluateCaptionsOnlyHealth): wall-clock receipt
+  // time, not the caption's own (possibly backdated) `event.t` — this is a liveness signal for
+  // the channel, not a content timestamp.
+  active.captions.lastCaptionAt = Date.now();
   active.record.captions.available = true;
   active.record.captions.count = active.captions.count;
   active.record.captions.adapter = msg.adapter || active.record.captions.adapter;

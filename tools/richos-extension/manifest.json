@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RichOS",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "RichOS capture. Records call audio locally, health-checks it second by second, and alarms you during the call if anything stops.",
   "minimum_chrome_version": "116",
   "permissions": [
