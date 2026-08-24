@@ -41,7 +41,7 @@ app/
     examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
     tests/spine_tests.rs     12 spine invariant tests (no live Claude needed)
     tests/rotation_tests.rs  12 rotation/crash-recovery/proactive-seam tests
-    tests/action_ledger_tests.rs 14 action-ledger WRITER tests (the ledger is non-empty
+    tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
                               stays out of every priming prompt)
   crates/richos-voice/       VOICE MODE — mic -> whisper -> the spine -> TTS -> speakers
@@ -75,7 +75,7 @@ dependency, so the shell always builds against the same spine.
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 51/51 green
+cargo test -p richos-core                       # 52/52 green
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 121/121 green

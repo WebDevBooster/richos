@@ -331,6 +331,43 @@ fn the_identity_assertion_states_the_ledgers_partial_coverage_rather_than_overcl
     assert!(assertion.contains("is NOT proof it did not"));
 }
 
+#[test]
+fn a_proactive_turn_in_the_verbatim_tail_carries_no_phantom_ceo_line() {
+    // Found while wiring the action ledger, same false-attribution class. A Proactive
+    // turn has `user_text == ""` by construction, and the tail builder used to emit the
+    // user line unconditionally — so the priming prompt contained a literal
+    //     user:
+    //     assistant: <Rich's unprompted message>
+    // A successor reads that as "the CEO said something and Rich answered", attributing
+    // Rich's own initiative to the CEO. Verified against the real rendered prompt text,
+    // not just the payload struct.
+    let (path, ledger) = tmp_ledger("proactive-tail");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("General").unwrap();
+    spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["ok"])));
+    spine.submit_prompt("what's on my plate?", Source::Text).unwrap();
+    spine
+        .raise_proactive(Some(&thread), AttentionTier::Digest, "Acme counter expires at noon.")
+        .unwrap();
+
+    let payload = RePrimePayload::assemble(spine.ledger(), &thread, &thread, 8);
+    assert!(
+        payload.recent_tail.iter().all(|tv| !tv.text.is_empty()),
+        "no empty-text line survives into the tail: {:?}",
+        payload.recent_tail.iter().map(|tv| (&tv.role, &tv.text)).collect::<Vec<_>>()
+    );
+
+    let priming = payload.to_priming_prompt();
+    assert!(!priming.contains("  user: \n"), "no phantom blank CEO line:\n{priming}");
+    assert!(
+        priming.contains("assistant (unprompted): Acme counter expires at noon."),
+        "Rich's unprompted message is labelled as his own initiative:\n{priming}"
+    );
+    // The real CEO turn is untouched.
+    assert!(priming.contains("user: what's on my plate?"));
+    let _ = std::fs::remove_file(&path);
+}
+
 // =============================================================================
 // 3. Durability + record-format invariants
 // =============================================================================

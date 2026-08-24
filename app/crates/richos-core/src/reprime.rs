@@ -81,9 +81,20 @@ impl RePrimePayload {
         // Tier A #4 — last N verbatim (user + assistant).
         let mut recent_tail = Vec::new();
         for t in turns.iter().rev().take(tail_turns).rev() {
-            recent_tail.push(TurnView { role: "user".into(), text: t.user_text.clone() });
+            // A Proactive turn is Rich speaking UNPROMPTED — there was no CEO prompt, and
+            // `user_text` is empty by construction (see `Event::ProactiveMessage` in
+            // ledger.rs). Emitting the user line anyway put a PHANTOM BLANK CEO UTTERANCE
+            // in front of it ("  user: " with nothing after the colon), which reads to a
+            // successor as "the CEO said something and Rich answered" — mis-attributing
+            // Rich's own initiative to the CEO. That is the same false-attribution class
+            // §6 exists to structurally exclude, so the line is omitted and the reply is
+            // labelled for what it was.
+            if t.source != Source::Proactive {
+                recent_tail.push(TurnView { role: "user".into(), text: t.user_text.clone() });
+            }
             if !t.assistant_text.is_empty() {
-                recent_tail.push(TurnView { role: "assistant".into(), text: t.assistant_text.clone() });
+                let role = if t.source == Source::Proactive { "assistant (unprompted)" } else { "assistant" };
+                recent_tail.push(TurnView { role: role.into(), text: t.assistant_text.clone() });
             }
         }
 
