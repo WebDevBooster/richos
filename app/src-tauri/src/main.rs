@@ -9,10 +9,25 @@
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::ledger::{Ledger, Message, Source};
 use richos_core::spine::Spine;
+use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+/// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
+/// This is the ONLY place spine events become UI events — clean output is guaranteed by
+/// the spine (assistant text only), so this layer just relays name + payload verbatim.
+struct TauriEmitter {
+    app: AppHandle,
+}
+
+impl TurnObserver for TauriEmitter {
+    fn on_event(&self, event: &StreamEvent) {
+        // Best-effort: a dropped/absent webview never affects the turn (ledger is truth).
+        let _ = self.app.emit(event.event_name(), event.payload());
+    }
+}
 
 /// The durable Rich, guarded for cross-invocation access. `Spine` is `Send` (its
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
@@ -49,8 +64,12 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Vec<Message> {
     state.spine.lock().unwrap().messages(&thread_id)
 }
 
-/// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn, then
-/// returns the refreshed clean message view for the active thread.
+/// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
+/// turn runs, the spine streams live events to the webview — `rich://turn-started`, a
+/// sequence of `rich://chunk` deltas, then `rich://turn-completed` (or `rich://turn-error`)
+/// — so the UI renders Rich's reply token-by-token and shows the "Rich is working" state.
+/// The returned message view is the final, reconciled snapshot (a UI can rely on either
+/// the stream or this return; both agree because the ledger backs both).
 #[tauri::command]
 fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
     if !state.lease_ready {
@@ -87,6 +106,10 @@ fn main() {
 
             let mut spine = Spine::new(ledger);
             spine.ensure_active_thread().expect("ensure thread");
+
+            // Attach the live UI sink: streamed reply deltas + turn-state events flow to
+            // the webview via Tauri events (see app/STREAMING.md for the contract).
+            spine.set_observer(Box::new(TauriEmitter { app: app.handle().clone() }));
 
             // Attach the compute lease best-effort. A boot with no Claude auth degrades
             // to a calm "not connected" state rather than failing to launch.
