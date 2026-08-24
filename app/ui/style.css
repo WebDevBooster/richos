@@ -1,0 +1,29 @@
+/* Minimal placeholder styling — NOT the visual design (the design roles own that later).
+   Just enough structure to use the spine end to end. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; font-family: -apple-system, system-ui, sans-serif; }
+#app { display: flex; height: 100vh; }
+
+#sidebar { width: 220px; border-right: 1px solid #e3e3e6; display: flex; flex-direction: column; background: #fafafa; }
+#sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #e3e3e6; }
+.brand { font-weight: 700; }
+#new-thread { border: none; background: #eee; border-radius: 6px; width: 26px; height: 26px; cursor: pointer; font-size: 16px; }
+#thread-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.thread { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread:hover { background: #efefef; }
+.thread.active { background: #e7e9ff; font-weight: 600; }
+
+#conversation { flex: 1; display: flex; flex-direction: column; }
+#messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.msg { max-width: 70%; }
+.msg.user { align-self: flex-end; text-align: right; }
+.msg.rich { align-self: flex-start; }
+.who { font-size: 11px; color: #999; margin-bottom: 3px; }
+.text { display: inline-block; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; line-height: 1.4; }
+.msg.user .text { background: #4b52d6; color: #fff; }
+.msg.rich .text { background: #f0f0f2; color: #111; }
+
+#composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #e3e3e6; }
+#input { flex: 1; resize: none; padding: 10px 12px; border: 1px solid #d5d5d8; border-radius: 8px; font: inherit; }
+#send { padding: 0 18px; border: none; border-radius: 8px; background: #4b52d6; color: #fff; cursor: pointer; font-weight: 600; }
+#send:disabled { opacity: 0.5; cursor: default; }

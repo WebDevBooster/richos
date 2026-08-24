@@ -1,0 +1,16 @@
+[package]
+name = "richos-core"
+version = "0.1.0"
+edition = "2021"
+description = "RichOS runtime spine: ACP-client, durable conversation + action ledger, thread data model, and session-continuity foundation. UI-agnostic; no GUI, no relay."
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "1"
+
+[[example]]
+name = "acp_roundtrip"
+path = "examples/acp_roundtrip.rs"
