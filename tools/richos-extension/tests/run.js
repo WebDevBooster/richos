@@ -36,12 +36,18 @@ import {
   buildStartMessage,
   buildChunkMessage,
   buildCloseMessage,
+  buildHealthMessage,
+  buildCaptionMessage,
   chooseSink,
   SURFACE,
   CAPTURE_KIND,
   withBrowserOwnership,
   buildClaimMessage,
 } from '../core/native-host-client.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { PRODUCT } from '../core/constants.js';
 
 let passed = 0;
 const failures = [];
@@ -754,6 +760,26 @@ test('chooseSink falls back to Downloads when the service is unavailable (gracef
   assert.equal(chooseSink({ available: false }), 'downloads');
   assert.equal(chooseSink(null), 'downloads');
   assert.equal(chooseSink({ available: true }), 'native');
+});
+
+test('health + caption stream builders produce the shapes the host appends to *.ndjson', () => {
+  const health = buildHealthMessage('s1', { t: 42, micRms: 0.1, recorderState: 'recording' });
+  assert.equal(health.type, 'health');
+  assert.equal(health.sessionId, 's1');
+  assert.deepEqual(health.line, { t: 42, micRms: 0.1, recorderState: 'recording' });
+
+  const caption = buildCaptionMessage('s1', { speaker: 'Ada', text: 'hello', t: 7, revision: 2 });
+  assert.equal(caption.type, 'caption');
+  assert.equal(caption.sessionId, 's1');
+  assert.equal(caption.line.speaker, 'Ada');
+  assert.equal(caption.line.text, 'hello');
+});
+
+test('the extension declares nativeMessaging so the transport can connect, version synced with PRODUCT', () => {
+  const manifestPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  assert.ok(manifest.permissions.includes('nativeMessaging'), 'nativeMessaging permission is required for chrome.runtime.connectNative');
+  assert.equal(manifest.version, PRODUCT.version, 'manifest.json version must match PRODUCT.version (bumped for the transport cutover)');
 });
 
 // ---------------------------------------------------------------------------------------
