@@ -283,7 +283,11 @@ impl Spine {
             self.active_thread = Some(id.clone());
             return Ok(id);
         }
-        self.create_thread("General")
+        // "Running" per the UX direction doc §2.1: the pinned default thread's real title, not
+        // a placeholder the UI has to cosmetically relabel. (app/ui/main.js previously
+        // carried a client-side relabel for a literal "General" title — see that file's
+        // `displayTitle`, updated alongside this fix.)
+        self.create_thread("Running")
     }
 
     /// Switch the active topic view. Continuity holds across the switch because every
