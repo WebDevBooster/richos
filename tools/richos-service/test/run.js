@@ -19,6 +19,16 @@ import { reconcilePipeline, analyzeSession } from '../lib/reconcile.js';
 import { mergeTranscript, captionSpeakerFor, renderMarkdown, verify, stamp, wordCount } from '../lib/merge.js';
 import { correct, correctText, similarity, levenshtein, normalizeTerm } from '../lib/correct.js';
 import { normalizeEntities, loadEntityMemory } from '../lib/entities.js';
+import {
+  CAPTURE_KIND,
+  preferenceRank,
+  scopesOverlap,
+  decideClaim,
+  findPromotable,
+  buildPromotionOwnership,
+  dedupeOverlapping,
+  sessionDescriptor,
+} from '../lib/coordination.js';
 import { encodeMessage, FrameDecoder } from '../lib/stdio.js';
 import { SessionSink } from '../lib/host-handlers.js';
 import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
@@ -375,6 +385,116 @@ test('similarity + levenshtein are sane (fuzzy metric guardrails)', () => {
   assert.ok(similarity('deepgramm', 'deepgram') > 0.85);
   assert.ok(similarity('deep breath', 'deepgram') < 0.7, 'an ordinary phrase is far from the canonical');
   assert.equal(normalizeTerm('Rich O.S.!'), 'rich o s');
+});
+
+// ---------------------------------------------------------------------------------------
+group('coordination (P4) — one session per call, no double-capture, browser-crash failover');
+
+const T = 2_000_000_000_000;
+function liveExt({ id = 'ext-1', hb = T, hint = 'Google Chrome' } = {}) {
+  return { sessionId: id, surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, processHint: hint, status: 'open', lastHeartbeat: hb };
+}
+
+test('preferenceRank: browser-tab (richest) > process > system (coverage net)', () => {
+  assert.ok(preferenceRank(CAPTURE_KIND.browserTab) > preferenceRank(CAPTURE_KIND.process));
+  assert.ok(preferenceRank(CAPTURE_KIND.process) > preferenceRank(CAPTURE_KIND.system));
+});
+
+test('scopesOverlap: all-system captures everything; a per-app scope only overlaps the same app', () => {
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.system }, { kind: CAPTURE_KIND.browserTab }), true);
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.system }, { kind: CAPTURE_KIND.process, processHint: 'zoom.us' }), true);
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.browserTab, processHint: 'Chrome' }, { kind: CAPTURE_KIND.process, processHint: 'zoom.us' }), false);
+  assert.equal(scopesOverlap({ kind: CAPTURE_KIND.process, processHint: 'zoom.us' }, { kind: CAPTURE_KIND.process, processHint: 'zoom.us' }), true);
+});
+
+test('THE HANDSHAKE: a companion stands down while the extension owns the browser call (no double)', () => {
+  const decision = decideClaim(
+    { surface: 'desktop-companion-macos', sessionId: 'mac-1', captureKind: CAPTURE_KIND.system },
+    [liveExt()],
+    { now: T + 1000 },
+  );
+  assert.equal(decision.decision, 'stand-down');
+  assert.equal(decision.conflictSessionId, 'ext-1');
+  assert.equal(decision.excludeProcessHint, 'Google Chrome', 'hands back the browser process to exclude');
+});
+
+test('a companion OWNS a desktop-app call the extension is not capturing (no browser session live)', () => {
+  const decision = decideClaim(
+    { surface: 'desktop-companion-macos', sessionId: 'mac-2', captureKind: CAPTURE_KIND.process, processHint: 'zoom.us' },
+    [liveExt()], // extension owns a browser tab — different app, no overlap
+    { now: T + 1000 },
+  );
+  assert.equal(decision.decision, 'own');
+});
+
+test('a STALE extension session is not a live conflict — the companion may own', () => {
+  const decision = decideClaim(
+    { surface: 'desktop-companion-macos', sessionId: 'mac-3', captureKind: CAPTURE_KIND.system },
+    [liveExt({ hb: T })],
+    { now: T + 60000 }, // 60 s later: the extension session is stale
+  );
+  assert.equal(decision.decision, 'own');
+});
+
+test('the richer surface wins if it arrives late: extension supersedes a live all-system companion', () => {
+  const liveMac = { sessionId: 'mac-4', surface: 'desktop-companion-macos', captureKind: CAPTURE_KIND.system, status: 'open', lastHeartbeat: T };
+  const decision = decideClaim(
+    { surface: 'chrome-extension', sessionId: 'ext-late', captureKind: CAPTURE_KIND.browserTab, processHint: 'Chrome' },
+    [liveMac],
+    { now: T + 1000 },
+  );
+  assert.equal(decision.decision, 'own');
+  assert.deepEqual(decision.supersede, ['mac-4']);
+});
+
+test('FAILOVER: an interrupted browser call (crash) is promotable; a fresh one is not', () => {
+  const now = T + 5000;
+  const sessions = [
+    { sessionId: 'ext-dead', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, processHint: 'Chrome', status: 'interrupted', lastHeartbeat: T, hasTranscript: false },
+    { sessionId: 'ext-live', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, status: 'open', lastHeartbeat: now, hasTranscript: false },
+  ];
+  const promotable = findPromotable(sessions, { now });
+  assert.equal(promotable.length, 1);
+  assert.equal(promotable[0].sessionId, 'ext-dead');
+  const ownership = buildPromotionOwnership({ deadSessionId: 'ext-dead', surface: 'desktop-companion-macos', processHint: 'Chrome' });
+  assert.equal(ownership.supersedes, 'ext-dead');
+  assert.equal(ownership.ownerSurface, 'desktop-companion-macos');
+});
+
+test('FAILOVER: a stale-open owner past the promote threshold is promotable; already-superseded is not', () => {
+  const now = T + 20000;
+  const sessions = [
+    { sessionId: 'ext-hung', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, status: 'open', lastHeartbeat: T, hasTranscript: false },
+    { sessionId: 'ext-taken', surface: 'chrome-extension', captureKind: CAPTURE_KIND.browserTab, status: 'interrupted', lastHeartbeat: T, hasTranscript: false, supersededBy: 'mac-x' },
+  ];
+  const promotable = findPromotable(sessions, { now, promoteAfterMs: 12000 });
+  assert.deepEqual(promotable.map((p) => p.sessionId), ['ext-hung']);
+});
+
+test('pipeline dedup backstop: two overlapping sessions keep the richer (captions) one', () => {
+  const { keep, shadow } = dedupeOverlapping(
+    [
+      { sessionId: 'ext-rich', captureKind: CAPTURE_KIND.browserTab, captionCount: 12, startedAt: T, endedAt: T + 600000 },
+      { sessionId: 'mac-plain', captureKind: CAPTURE_KIND.system, captionCount: 0, startedAt: T + 1000, endedAt: T + 600000 },
+    ],
+    { minOverlapMs: 30000 },
+  );
+  assert.deepEqual(keep, ['ext-rich']);
+  assert.equal(shadow.length, 1);
+  assert.equal(shadow[0].sessionId, 'mac-plain');
+  assert.equal(shadow[0].preferredSessionId, 'ext-rich');
+});
+
+test('sessionDescriptor maps a companion record to a system-scope descriptor with its heartbeat', () => {
+  const rec = {
+    sessionId: 'mac-9', status: 'open', startedAt: T,
+    capture: { source: 'desktop-companion-macos', captureTarget: 'system' },
+    ownership: { ownerSurface: 'desktop-companion-macos', processHint: null },
+  };
+  const d = sessionDescriptor(rec, { lastHeartbeat: T + 3000, hasTranscript: false });
+  assert.equal(d.captureKind, CAPTURE_KIND.system);
+  assert.equal(d.surface, 'desktop-companion-macos');
+  assert.equal(d.lastHeartbeat, T + 3000);
 });
 
 // ---------------------------------------------------------------------------------------
