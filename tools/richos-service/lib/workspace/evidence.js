@@ -6,8 +6,9 @@
  * memory"): the large normalized body is kept in `content.txt` (cheap to scan) out of the JSON, and
  * attachments are refs — never bulk-downloaded (§4.1 design notes).
  *
- * Layout (§4.2), mirroring `wiki/raw/meetings/` for transcripts — same discipline, different family:
- *   loro/raw/workspace/<vendor>/<source>/<safeId>/
+ * Layout (§4.2), mirroring the call-transcript drop zone — same discipline, different family. Both
+ * now live in the CEO's CORPUS, never in the product repo (`config.js:evidenceRoot`):
+ *   <corpus>/{companies/<id>|person/unfiled}/evidence/workspace/<vendor>/<source>/<safeId>/
  *     item.json      the SourceItem (immutable once written; a new version = a new rev dir)
  *     content.txt    normalized text (out of the JSON for cheap governance scanning)
  *     governance.json the §5.1 metadata record + evidence link

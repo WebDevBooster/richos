@@ -16,18 +16,79 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
+import { assertEvidenceOutsideProductRepo } from './workspace/privacy.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The richos repo root: tools/richos-service/lib -> repo root is three up. */
 export const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
 
 /**
- * The loro drop zone the contract (§3) lives in. Every capture surface writes one session
- * directory here; the pipeline consumes only this. Overridable for tests / alternate loro checkouts.
+ * Where the CEO's corpus lives — the ONE root every piece of his own material hangs off.
+ *
+ * `LORO_CORPUS` is the same variable the context compiler reads (`loro/lib/layout.js`), on purpose:
+ * one corpus, one root, one answer to "where is my stuff". Unset, this falls back to the visible
+ * home-directory location the loro structure notes recommend (CEO decision 4) — NOT to the product
+ * repo, and never to the product repo.
+ *
+ * Note the deliberate asymmetry with the compiler, which has no default at all: reading from an
+ * unconfigured root silently answers out of the wrong company's memory, while refusing to WRITE would
+ * throw away a recording the CEO cannot make again. So the reader refuses and the writer degrades —
+ * visibly, to a path he can open in Finder.
  * @returns {string}
  */
+export function corpusRoot() {
+  return expand(process.env.LORO_CORPUS || DEFAULT_CORPUS_ROOT);
+}
+
+/** The recommended corpus location when none is configured (loro structure notes, decision 4). */
+export const DEFAULT_CORPUS_ROOT = '~/RichOS/corpus';
+
+/** True when the CEO (or the installer) actually said where his corpus is. */
+export function corpusRootConfigured() {
+  return Boolean(process.env.LORO_CORPUS);
+}
+
+/**
+ * The company partition new evidence belongs to — mechanism 2, "the active company"
+ * (the loro structure notes). Unset is legitimate and permanent, not an error.
+ * @returns {string|null}
+ */
+export function activeCompany() {
+  const v = process.env.RICHOS_ACTIVE_COMPANY;
+  return v && v.trim() ? v.trim() : null;
+}
+
+/**
+ * The evidence tree for the active company, or the unfiled one when nothing is bound.
+ *
+ * `companies/<id>/evidence/` is the published layout. The unfiled branch is NOT in that tree and is
+ * mine: the page has no person-level evidence directory, but it also rules that **filing may never
+ * block a write** (mechanism 5), and a call that arrives before the CEO has named a company still has
+ * to land somewhere he can find. Recorded as a deviation in
+ * the loro-corpus defects brief, 2026-08-26.
+ * @returns {string}
+ */
+export function evidenceRoot() {
+  const company = activeCompany();
+  return company
+    ? path.join(corpusRoot(), 'companies', company, 'evidence')
+    : path.join(corpusRoot(), 'person', 'unfiled', 'evidence');
+}
+
+/**
+ * The loro drop zone the contract (§3) lives in. Every capture surface writes one session
+ * directory here; the pipeline consumes only this. Overridable for tests / alternate corpora.
+ *
+ * The default used to be `<repo>/wiki/raw/meetings` — the CEO's call recordings and transcripts,
+ * inside a repo that ships publicly, while the OAuth token that fetches his Calendar was already
+ * refused a repo path. Both halves of that boundary now say the same thing.
+ * @returns {string}
+ * @throws {Error} if the resolved zone is inside the product repo
+ */
 export function dropZone() {
-  return expand(process.env.RICHOS_DROP_ZONE || path.join(REPO_ROOT, 'wiki', 'raw', 'meetings'));
+  const zone = expand(process.env.RICHOS_DROP_ZONE || path.join(evidenceRoot(), 'meetings'));
+  return assertEvidenceOutsideProductRepo(zone, REPO_ROOT, 'call recordings and transcripts');
 }
 
 /** The idempotent ingest ledger, one JSON line per transcribed session. */
@@ -236,12 +297,14 @@ export function whisperArgs(opts = {}) {
 
 /**
  * The Workspace evidence zone (§4.2): the immutable raw-evidence store, one dir per SourceItem version,
- * laid out `<zone>/<vendor>/<source>/<sourceItemId>/`. Overridable for tests / alternate loro checkouts.
- * Default lives under loro/, alongside the entity memory it feeds — NOT under a RichOS server (§1).
+ * laid out `<zone>/<vendor>/<source>/<sourceItemId>/`. Overridable for tests / alternate corpora.
+ * Lives in the CEO's own CORPUS — not under a RichOS server (§1), and not in the product repo.
  * @returns {string}
+ * @throws {Error} if the resolved zone is inside the product repo
  */
 export function workspaceZone() {
-  return expand(process.env.RICHOS_WORKSPACE_ZONE || path.join(REPO_ROOT, 'loro', 'raw', 'workspace'));
+  const zone = expand(process.env.RICHOS_WORKSPACE_ZONE || path.join(evidenceRoot(), 'workspace'));
+  return assertEvidenceOutsideProductRepo(zone, REPO_ROOT, 'Workspace evidence (Calendar/Drive/Gmail)');
 }
 
 /** The idempotent Workspace ingest ledger (§4.2), one JSON line per (sourceItemId, vendorEtag). */

@@ -20,10 +20,28 @@
  *   3. Polling, not webhooks (§4.3): there is deliberately NO listener/server in this layer. The core
  *      polls with delta tokens; adapters expose `listChanges`, never a `watch`/`subscribe` method. A
  *      structural test asserts the adapter surface has no push method.
+ *   4. The harvest gets the same rule as the credential. `assertEvidenceOutsideProductRepo` refuses an
+ *      evidence zone inside the product repo — because guarding the token while the data it fetches
+ *      defaults into a publicly-shipping repo is not a boundary, it is half of one.
  */
 
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * The RichOS product checkout: `lib/workspace` -> four up. Computed here rather than imported from
+ * `config.js`, which imports THIS module — and computed at all because "not in the publicly-shipping
+ * repo" has to be a control, not a comment.
+ */
+export const PRODUCT_REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+
+/** Is `p` inside `root`? */
+function isInside(p, root) {
+  const a = path.resolve(p);
+  const b = path.resolve(root);
+  return Boolean(b) && (a === b || a.startsWith(b + path.sep));
+}
 
 /** Google-owned API hosts the client is allowed to reach directly. Nothing else is permitted. */
 export const ALLOWED_GOOGLE_HOSTS = [
@@ -80,9 +98,52 @@ export function assertLocalTokenLocation(target) {
     if (!p.startsWith(home + path.sep)) {
       throw new Error(`privacy invariant: refusing token file outside the user's home: ${p}`);
     }
+    // The docblock above has always said "never a repo file", but "under home" did not enforce it:
+    // a checkout under the user's home passed. It does not any more — and the evidence rule below
+    // draws the same line, so the credential and the data it fetches obey one boundary, not two.
+    if (isInside(p, PRODUCT_REPO)) {
+      throw new Error(
+        `privacy invariant: refusing token file inside the RichOS product repo: ${p}. ` +
+          'RichOS ships publicly; a credential in the checkout is one commit from being published.',
+      );
+    }
     return true;
   }
   throw new Error(`privacy invariant: unknown token backend "${target.backend}"`);
+}
+
+/**
+ * Throw unless `target` is a legitimate place to put HARVESTED EVIDENCE — the CEO's call recordings,
+ * transcripts, Calendar/Drive/Gmail pulls.
+ *
+ * This closes an incoherence in the boundary above. `assertLocalTokenLocation` treats the OAuth
+ * credential as secret and refuses a repo path for it, while the DATA that credential fetches used to
+ * default straight into the product repo (`config.js:29-30` → `<repo>/wiki/raw/meetings`,
+ * `:243-244` → `<repo>/loro/raw/workspace`). The credential was guarded and the harvest was not —
+ * and RichOS ships publicly, so evidence in the product repo is one
+ * commit from being published. The loro structure notes name this asymmetry directly: *"the
+ * credentials are forbidden from the repo while the data they fetch defaults into it."*
+ *
+ * A `.gitignore` line is a convention; this is the control. Same posture, no permissive fallback.
+ *
+ * @param {string} target the resolved absolute evidence path
+ * @param {string} repoRoot the product checkout to refuse
+ * @param {string} [what] what the path is, for the message
+ * @returns {string} the validated target
+ */
+export function assertEvidenceOutsideProductRepo(target, repoRoot = PRODUCT_REPO, what = 'evidence') {
+  if (!target) throw new Error('privacy invariant: no evidence location given');
+  const p = path.resolve(String(target));
+  if (isInside(p, repoRoot)) {
+    throw new Error(
+      `privacy invariant: refusing to write ${what} inside the RichOS product repo (${p}). ` +
+        'RichOS ships publicly and this is the CEO\'s own material — recordings, transcripts, ' +
+        'Calendar and Gmail pulls. Point it at the corpus (LORO_CORPUS) or an explicit path outside ' +
+        'the checkout. The OAuth token that fetches this data is already refused a repo path; the ' +
+        'data it fetches gets the same rule.',
+    );
+  }
+  return p;
 }
 
 /**

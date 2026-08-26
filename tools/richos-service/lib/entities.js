@@ -14,7 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPO_ROOT, expand } from './config.js';
+import { REPO_ROOT, corpusRoot, corpusRootConfigured, expand } from './config.js';
 
 /**
  * @typedef {{
@@ -23,9 +23,23 @@ import { REPO_ROOT, expand } from './config.js';
  * }} Entity
  */
 
-/** Resolve the entities file: env override first, then the repo's loro/entities.json. */
+/**
+ * Resolve the entities file. Precedence: an explicit override, then the CEO's CORPUS, then the repo.
+ *
+ * The vocabulary is the CEO's network — his people, his customers, his aliases — and this file is
+ * WRITTEN by the capture path (`lib/capture.js:110`, `:415`). On a customer install the old default
+ * wrote his network's names into a clone of a publicly-shipping product repo. With a corpus
+ * configured it now lives in the corpus, where `person/entities.json` is the one vocabulary spanning
+ * every company (the loro structure notes: "the entity lexicon belongs to the person layer").
+ *
+ * The repo path survives ONLY as the in-repo dogfood case: this repository's `loro/entities.json` is
+ * genuinely our own vocabulary. It is a residual, recorded in
+ * the loro-corpus defects brief, 2026-08-26 — closing it fully needs first-run
+ * corpus provisioning, which is a product step, not a library one.
+ */
 export function entitiesFilePath() {
   if (process.env.RICHOS_ENTITIES_FILE) return expand(process.env.RICHOS_ENTITIES_FILE);
+  if (corpusRootConfigured()) return path.join(corpusRoot(), 'person', 'entities.json');
   return path.join(REPO_ROOT, 'loro', 'entities.json');
 }
 

@@ -19,7 +19,9 @@ import path from 'node:path';
 import { buildSourceItem, dedupKey, validateSourceItem, toActor, SOURCE_ITEM_SCHEMA_VERSION } from '../lib/workspace/source-item.js';
 import { ceoIdentity, resolveOrgRelation, resolveActors, classifyScope, deriveAuthority, governanceMetadata } from '../lib/workspace/governance.js';
 import { detectInjection, classifyTrust, promotionGuard, INJECTION_PATTERNS } from '../lib/workspace/immune.js';
-import { assertDirectGoogleEndpoint, assertLocalTokenLocation, assertPollingOnly, ALLOWED_GOOGLE_HOSTS } from '../lib/workspace/privacy.js';
+import { assertDirectGoogleEndpoint, assertEvidenceOutsideProductRepo, assertLocalTokenLocation, assertPollingOnly, ALLOWED_GOOGLE_HOSTS } from '../lib/workspace/privacy.js';
+import { REPO_ROOT, corpusRoot, dropZone, workspaceZone } from '../lib/config.js';
+import { entitiesFilePath } from '../lib/entities.js';
 import { pkcePair, buildAuthUrl, exchangeCode, refreshAccessToken, revokeToken } from '../lib/workspace/oauth.js';
 import { TokenManager, TESTING_REFRESH_TOKEN_TTL_MS, REFRESH_EXPIRY_WARN_MS } from '../lib/workspace/token-manager.js';
 import { memorySecretBackend } from '../lib/workspace/keychain.js';
@@ -300,6 +302,109 @@ test('assertLocalTokenLocation accepts the OS keychain, refuses a token file out
   assert.equal(assertLocalTokenLocation({ backend: 'keychain', service: 'com.richos.x' }), true);
   assert.throws(() => assertLocalTokenLocation({ backend: 'file', filePath: '/etc/tokens.json' }), /outside the user's home/);
   assert.equal(assertLocalTokenLocation({ backend: 'file', filePath: path.join(os.homedir(), '.richos', 't.json') }), true);
+});
+
+// -------------------------------------------------------------------------------------------------
+// DEFECT 3 — the credential was refused a repo path while the DATA it fetches defaulted into the
+// repo (`config.js:29-30` -> `<repo>/wiki/raw/meetings`, `:243-244` -> `<repo>/loro/raw/workspace`).
+// Half a boundary. The loro structure notes: "the credentials are forbidden from the repo while the
+// data they fetch defaults into it."
+// -------------------------------------------------------------------------------------------------
+
+test('privacy: the token rule and the HARVEST rule are the same rule (one coherent boundary)', () => {
+  const inRepo = path.join(REPO_ROOT, 'wiki', 'raw', 'meetings');
+  // The credential has always been refused a repo path...
+  assert.throws(() => assertLocalTokenLocation({ backend: 'file', filePath: inRepo }), /inside the RichOS product repo/);
+  // ...and now so is everything that credential fetches.
+  assert.throws(() => assertEvidenceOutsideProductRepo(inRepo, REPO_ROOT), /inside the RichOS product repo/);
+});
+
+// POSITIVE PROBE: the same evidence path outside the checkout is accepted, so the refusal is about
+// the product repo and not about the function rejecting everything.
+test('privacy: PROBE - the same evidence path outside the product repo is accepted', () => {
+  const outside = path.join(os.tmpdir(), 'richos-evidence-probe');
+  assert.equal(assertEvidenceOutsideProductRepo(outside, REPO_ROOT), path.resolve(outside));
+});
+
+test('privacy: the DEFAULT call-capture drop zone is not inside the product repo', () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.RICHOS_DROP_ZONE;
+    delete process.env.LORO_CORPUS;
+    delete process.env.RICHOS_ACTIVE_COMPANY;
+    const zone = dropZone();
+    assert.ok(!zone.startsWith(REPO_ROOT + path.sep), `drop zone defaulted into the repo: ${zone}`);
+    assert.ok(zone.startsWith(corpusRoot() + path.sep), `drop zone must live in the corpus: ${zone}`);
+  } finally {
+    Object.assign(process.env, saved);
+  }
+});
+
+test('privacy: the DEFAULT Workspace evidence zone is not inside the product repo', () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.RICHOS_WORKSPACE_ZONE;
+    delete process.env.LORO_CORPUS;
+    delete process.env.RICHOS_ACTIVE_COMPANY;
+    const zone = workspaceZone();
+    assert.ok(!zone.startsWith(REPO_ROOT + path.sep), `workspace zone defaulted into the repo: ${zone}`);
+  } finally {
+    Object.assign(process.env, saved);
+  }
+});
+
+// POSITIVE PROBE: the zone functions do resolve a real, honoured path - so the two tests above are
+// not passing because the functions return something useless.
+test('privacy: PROBE - an explicit zone override is honoured verbatim', () => {
+  const saved = { ...process.env };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-zone-'));
+  try {
+    process.env.RICHOS_DROP_ZONE = tmp;
+    process.env.RICHOS_WORKSPACE_ZONE = tmp;
+    assert.equal(dropZone(), path.resolve(tmp));
+    assert.equal(workspaceZone(), path.resolve(tmp));
+  } finally {
+    Object.assign(process.env, saved);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('privacy: evidence follows the CEO corpus and its ACTIVE COMPANY partition', () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.RICHOS_DROP_ZONE;
+    process.env.LORO_CORPUS = path.join(os.tmpdir(), 'ceo-corpus');
+    process.env.RICHOS_ACTIVE_COMPANY = 'northwind';
+    assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'companies', 'northwind', 'evidence', 'meetings'));
+    delete process.env.RICHOS_ACTIVE_COMPANY;
+    // Filing may never BLOCK a write: with no company bound, evidence still lands, unfiled.
+    assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'person', 'unfiled', 'evidence', 'meetings'));
+  } finally {
+    Object.assign(process.env, saved);
+  }
+});
+
+test('privacy: an explicit override INTO the repo is refused - a flag is not permission', () => {
+  const saved = { ...process.env };
+  try {
+    process.env.RICHOS_DROP_ZONE = path.join(REPO_ROOT, 'wiki', 'raw', 'meetings');
+    assert.throws(() => dropZone(), /inside the RichOS product repo/);
+    process.env.RICHOS_WORKSPACE_ZONE = path.join(REPO_ROOT, 'loro', 'raw', 'workspace');
+    assert.throws(() => workspaceZone(), /inside the RichOS product repo/);
+  } finally {
+    Object.assign(process.env, saved);
+  }
+});
+
+test('privacy: the entity vocabulary follows the corpus when one is configured', () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.RICHOS_ENTITIES_FILE;
+    process.env.LORO_CORPUS = path.join(os.tmpdir(), 'ceo-corpus');
+    assert.equal(entitiesFilePath(), path.join(os.tmpdir(), 'ceo-corpus', 'person', 'entities.json'));
+  } finally {
+    Object.assign(process.env, saved);
+  }
 });
 
 test('assertPollingOnly: the Calendar adapter is poll-only (no watch/subscribe = no server)', () => {
