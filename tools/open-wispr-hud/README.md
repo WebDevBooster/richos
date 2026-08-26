@@ -92,6 +92,11 @@ New:
 - `Sources/OpenWisprLib/DictationModels.swift` — **pure, AppKit-free,
   unit-tested**: `DictationMode` (accurate/fast), the model ids, and the
   model-path resolution order.
+- `Tests/OpenWisprTests/DictationModelsTests.swift` — **37 tests**: resolution
+  order and precedence, `~` expansion, a no-hardcoded-home invariant, mode↔model
+  round-trip, mode-follows-`modelSize`, the pre-two-model config migration
+  (adopt-once, idempotent, never re-overrides a later choice, leaves a pinned
+  `modelPath` alone), and config encode/decode round-tripping.
 
 Modified (minimal):
 - `Config.swift` — adds `modelDir`, `accurateModel`, `fastModel`; makes the
@@ -158,8 +163,9 @@ restart anything.
 
 Verified with the HUD patch alone: fresh checkout + patch → `swift build` clean,
 **158/158 tests pass**, release build + `OpenWispr.app` bundle succeed.
-Verified with both patches (2026-08-26): `swift build` clean, the **168
-pre-existing tests still pass**.
+Verified with both patches (2026-08-26): fresh clone at `7ab4e62` → both
+patches apply clean → `swift build` clean → **205/205 tests pass** (168
+pre-existing + 37 new) → release build + `OpenWispr.app` bundle succeed.
 
 ## Apply (scripted)
 

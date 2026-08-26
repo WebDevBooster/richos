@@ -574,3 +574,329 @@ index 765cf57..938da9e 100644
  
          for path in candidates {
              if FileManager.default.fileExists(atPath: path) {
+diff --git a/Tests/OpenWisprTests/DictationModelsTests.swift b/Tests/OpenWisprTests/DictationModelsTests.swift
+new file mode 100644
+index 0000000..56ba1bf
+--- /dev/null
++++ b/Tests/OpenWisprTests/DictationModelsTests.swift
+@@ -0,0 +1,320 @@
++import XCTest
++@testable import OpenWisprLib
++
++/// Two-model dictation: Accurate (`large-v3-turbo-q5_0`) + Fast (`small.en`).
++///
++/// Every test name states the invariant it protects. Nothing here touches the
++/// filesystem, the network, or AppKit — `DictationModels` is pure by design so the
++/// resolution order can be asserted rather than eyeballed.
++final class DictationModelsTests: XCTestCase {
++    private let home = "/Users/testuser"
++
++    // MARK: - The two models
++
++    func testAccurateModelIsQuantizedTurboNotFullTurbo() {
++        // Measured: q5_0 produced byte-identical transcripts to full large-v3-turbo on
++        // 34/36 runs while costing 1.05 GB less disk and 1.13 GB less RAM. Shipping full
++        // turbo for dictation would be paying for nothing.
++        XCTAssertEqual(DictationModels.defaultAccurateModel, "large-v3-turbo-q5_0")
++        XCTAssertNotEqual(DictationModels.defaultAccurateModel, DictationModels.retiredDictationModel)
++    }
++
++    func testFastModelIsSmallEn() {
++        XCTAssertEqual(DictationModels.defaultFastModel, "small.en")
++    }
++
++    func testFullTurboIsRetiredFromTheDictationPath() {
++        XCTAssertEqual(DictationModels.retiredDictationModel, "large-v3-turbo")
++        XCTAssertNil(DictationModels.mode(for: DictationModels.retiredDictationModel))
++    }
++
++    func testBothShippedModelsAreSupportedByTheUpstreamPicker() {
++        // If either id ever fell out of Config.supportedModels, the menu would offer a
++        // mode whose model open-wispr cannot download.
++        XCTAssertTrue(Config.supportedModels.contains(DictationModels.defaultAccurateModel))
++        XCTAssertTrue(Config.supportedModels.contains(DictationModels.defaultFastModel))
++    }
++
++    // MARK: - Mode <-> model, both directions
++
++    func testModeIsDerivedFromTheModelThatActuallyRuns() {
++        XCTAssertEqual(DictationModels.mode(for: "large-v3-turbo-q5_0"), .accurate)
++        XCTAssertEqual(DictationModels.mode(for: "small.en"), .fast)
++    }
++
++    func testModeIsNilForAModelOutsideThePair() {
++        // The upstream Model submenu still works; picking base.en means "neither mode",
++        // not a silently wrong checkmark.
++        XCTAssertNil(DictationModels.mode(for: "base.en"))
++        XCTAssertNil(DictationModels.mode(for: "medium.en"))
++    }
++
++    func testModeRoundTripsThroughModelSizeForEveryMode() {
++        for mode in DictationMode.allCases {
++            let model = DictationModels.modelSize(for: mode)
++            XCTAssertEqual(DictationModels.mode(for: model), mode, "round trip failed for \(mode)")
++        }
++    }
++
++    func testModeHonoursOverriddenModelIds() {
++        XCTAssertEqual(
++            DictationModels.mode(for: "tiny.en", accurate: "medium.en", fast: "tiny.en"),
++            .fast
++        )
++        XCTAssertEqual(
++            DictationModels.modelSize(for: .accurate, accurate: "medium.en", fast: "tiny.en"),
++            "medium.en"
++        )
++    }
++
++    func testModeRawValuesAreStableIdentifiers() {
++        // These are written into config.json in future revisions and read back.
++        XCTAssertEqual(DictationMode.accurate.rawValue, "accurate")
++        XCTAssertEqual(DictationMode.fast.rawValue, "fast")
++        XCTAssertEqual(DictationMode.allCases.count, 2)
++    }
++
++    func testEveryModeHasANonEmptyMenuLabel() {
++        for mode in DictationMode.allCases {
++            XCTAssertFalse(mode.title.isEmpty)
++            XCTAssertFalse(mode.subtitle.isEmpty)
++        }
++    }
++
++    // MARK: - File naming
++
++    func testFileNameIsTheGGMLConvention() {
++        XCTAssertEqual(DictationModels.fileName(for: "small.en"), "ggml-small.en.bin")
++        XCTAssertEqual(
++            DictationModels.fileName(for: "large-v3-turbo-q5_0"),
++            "ggml-large-v3-turbo-q5_0.bin"
++        )
++    }
++
++    // MARK: - Resolution order
++
++    func testSearchOrderPutsEnvOverrideFirstAndConfigDirSecond() {
++        let dirs = DictationModels.searchDirectories(
++            home: home,
++            envValue: "/opt/models",
++            configuredDir: "/srv/models"
++        )
++        XCTAssertEqual(dirs.first, "/opt/models")
++        XCTAssertEqual(dirs[1], "/srv/models")
++    }
++
++    func testEnvOverrideAcceptsAColonSeparatedList() {
++        let dirs = DictationModels.searchDirectories(home: home, envValue: "/a:/b:/c")
++        XCTAssertEqual(Array(dirs.prefix(3)), ["/a", "/b", "/c"])
++    }
++
++    func testEnvOverrideIgnoresEmptySegments() {
++        let dirs = DictationModels.searchDirectories(home: home, envValue: "/a::/b:")
++        XCTAssertEqual(Array(dirs.prefix(2)), ["/a", "/b"])
++        XCTAssertFalse(dirs.contains(""))
++    }
++
++    func testBlankConfiguredDirIsIgnoredRatherThanSearchedAsEmpty() {
++        let dirs = DictationModels.searchDirectories(home: home, configuredDir: "   ")
++        XCTAssertEqual(dirs.first, "\(home)/.config/open-wispr/models")
++    }
++
++    func testDefaultsIncludeBothOpenWisprAndTheSharedRichOSModelDir() {
++        // ~/Models/Whisper is where tools/richos-service and app/crates/richos-voice
++        // already look — one downloaded .bin has to serve all three consumers.
++        let dirs = DictationModels.searchDirectories(home: home)
++        XCTAssertTrue(dirs.contains("\(home)/.config/open-wispr/models"))
++        XCTAssertTrue(dirs.contains("\(home)/Models/Whisper"))
++    }
++
++    func testSearchDirectoriesAreDeduplicatedPreservingOrder() {
++        let dirs = DictationModels.searchDirectories(
++            home: home,
++            envValue: "\(home)/Models/Whisper",
++            configuredDir: "\(home)/Models/Whisper"
++        )
++        XCTAssertEqual(dirs.first, "\(home)/Models/Whisper")
++        XCTAssertEqual(dirs.filter { $0 == "\(home)/Models/Whisper" }.count, 1)
++    }
++
++    func testCandidatePathsAppendTheGGMLFileToEveryDirectory() {
++        let paths = DictationModels.candidatePaths(modelSize: "small.en", home: home)
++        XCTAssertEqual(paths.first, "\(home)/.config/open-wispr/models/ggml-small.en.bin")
++        XCTAssertTrue(paths.allSatisfy { $0.hasSuffix("/ggml-small.en.bin") })
++    }
++
++    func testExplicitModelPathShortCircuitsEveryDirectoryScan() {
++        // If the CEO names a file, that file is what runs. No directory can override it.
++        let paths = DictationModels.candidatePaths(
++            modelSize: "small.en",
++            modelPath: "/pinned/ggml-anything.bin",
++            home: home,
++            envValue: "/opt/models",
++            configuredDir: "/srv/models"
++        )
++        XCTAssertEqual(paths, ["/pinned/ggml-anything.bin"])
++    }
++
++    func testExplicitModelPathExpandsTilde() {
++        let paths = DictationModels.candidatePaths(
++            modelSize: "small.en",
++            modelPath: "~/Models/Whisper/ggml-small.en.bin",
++            home: home
++        )
++        XCTAssertEqual(paths, ["\(home)/Models/Whisper/ggml-small.en.bin"])
++    }
++
++    func testBlankModelPathFallsBackToTheDirectoryScan() {
++        let paths = DictationModels.candidatePaths(modelSize: "small.en", modelPath: "  ", home: home)
++        XCTAssertGreaterThan(paths.count, 1)
++    }
++
++    func testExpandHandlesTildeAloneAbsoluteAndRelativePaths() {
++        XCTAssertEqual(DictationModels.expand("~", home: home), home)
++        XCTAssertEqual(DictationModels.expand("~/x", home: home), "\(home)/x")
++        XCTAssertEqual(DictationModels.expand("/abs/x", home: home), "/abs/x")
++        XCTAssertEqual(DictationModels.expand("  /abs/x  ", home: home), "/abs/x")
++        XCTAssertEqual(DictationModels.expand("rel/x", home: home), "rel/x")
++    }
++
++    func testNoCandidatePathHardcodesADeveloperHome() {
++        // The whole point of injecting `home`: nothing in this file may bake in a user.
++        let paths = DictationModels.candidatePaths(modelSize: "small.en", home: "/Users/somebodyelse")
++        for path in paths {
++            XCTAssertFalse(path.contains("/Users/devhome"), "hardcoded home leaked into \(path)")
++            XCTAssertFalse(path.contains("testuser"), "stale home leaked into \(path)")
++        }
++    }
++
++    // MARK: - Config integration
++
++    func testConfigDefaultShipsTheAccurateModel() {
++        XCTAssertEqual(Config.defaultConfig.modelSize, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(Config.defaultConfig.dictationMode, .accurate)
++    }
++
++    func testConfigModeFollowsModelSizeWithNoSeparateStoredFlag() {
++        var config = Config.defaultConfig
++        XCTAssertEqual(config.dictationMode, .accurate)
++        config.modelSize = DictationModels.defaultFastModel
++        XCTAssertEqual(config.dictationMode, .fast, "mode must track modelSize, not a stored flag")
++        config.modelSize = "base.en"
++        XCTAssertNil(config.dictationMode)
++    }
++
++    func testSettingModeSwitchesTheModelThatWillActuallyRun() {
++        let fast = Config.defaultConfig.settingDictationMode(.fast)
++        XCTAssertEqual(fast.modelSize, DictationModels.defaultFastModel)
++        XCTAssertEqual(fast.dictationMode, .fast)
++
++        let accurate = fast.settingDictationMode(.accurate)
++        XCTAssertEqual(accurate.modelSize, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(accurate.dictationMode, .accurate)
++    }
++
++    func testSettingModeWritesThePairExplicitlySoTheFileIsSelfDescribing() {
++        var config = Config.defaultConfig
++        config.accurateModel = nil
++        config.fastModel = nil
++        let switched = config.settingDictationMode(.fast)
++        XCTAssertEqual(switched.accurateModel, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(switched.fastModel, DictationModels.defaultFastModel)
++    }
++
++    func testSettingModeClearsAnExplicitModelPathThatWouldDefeatTheToggle() {
++        var config = Config.defaultConfig
++        config.modelPath = "/pinned/ggml-anything.bin"
++        XCTAssertNil(config.settingDictationMode(.fast).modelPath)
++    }
++
++    func testEffectiveModelIdsFallBackToTheDefaultsWhenUnsetOrBlank() {
++        var config = Config.defaultConfig
++        config.accurateModel = nil
++        config.fastModel = "   "
++        XCTAssertEqual(config.effectiveAccurateModel, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(config.effectiveFastModel, DictationModels.defaultFastModel)
++    }
++
++    func testEffectiveModelIdsHonourAnOverrideInTheConfigFile() {
++        var config = Config.defaultConfig
++        config.accurateModel = "medium.en"
++        config.modelSize = "medium.en"
++        XCTAssertEqual(config.effectiveAccurateModel, "medium.en")
++        XCTAssertEqual(config.dictationMode, .accurate)
++    }
++
++    // MARK: - Migration of a pre-two-model config
++
++    func testPreTwoModelConfigIsDetectedByTheAbsenceOfTheModelPair() throws {
++        // Byte-for-byte the shape of the CEO's live config.json before this change.
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en"}
++        """
++        let config = try Config.decode(from: Data(json.utf8))
++        XCTAssertTrue(config.predatesTwoModelDictation)
++        XCTAssertEqual(config.modelSize, "small.en")
++    }
++
++    func testMigrationAdoptsTheAccurateDefaultOnceAndRecordsThePair() throws {
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en"}
++        """
++        let migrated = Config.migratedForTwoModelDictation(try Config.decode(from: Data(json.utf8)))
++        XCTAssertTrue(migrated.changed)
++        XCTAssertEqual(migrated.config.modelSize, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(migrated.config.accurateModel, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(migrated.config.fastModel, DictationModels.defaultFastModel)
++    }
++
++    func testMigrationIsIdempotentAndNeverOverridesALaterUserChoice() {
++        // Once accurateModel is present the config is post-migration: choosing Fast and
++        // relaunching must NOT silently put the CEO back on the accurate model.
++        let chosenFast = Config.defaultConfig.settingDictationMode(.fast)
++        let again = Config.migratedForTwoModelDictation(chosenFast)
++        XCTAssertFalse(again.changed)
++        XCTAssertEqual(again.config.modelSize, DictationModels.defaultFastModel)
++    }
++
++    func testMigrationLeavesAnExplicitlyPinnedModelPathAlone() throws {
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en",
++         "modelPath":"/pinned/ggml-small.en.bin"}
++        """
++        let migrated = Config.migratedForTwoModelDictation(try Config.decode(from: Data(json.utf8)))
++        XCTAssertTrue(migrated.changed)
++        XCTAssertEqual(migrated.config.modelSize, "small.en", "a pinned file must win over migration")
++        XCTAssertEqual(migrated.config.modelPath, "/pinned/ggml-small.en.bin")
++    }
++
++    // MARK: - Round-tripping the new fields through config.json
++
++    func testNewFieldsSurviveEncodeDecode() throws {
++        var config = Config.defaultConfig
++        config.modelDir = "~/Models/Whisper"
++        config.accurateModel = "large-v3-turbo-q5_0"
++        config.fastModel = "small.en"
++        let data = try JSONEncoder().encode(config)
++        let decoded = try Config.decode(from: data)
++        XCTAssertEqual(decoded.modelDir, "~/Models/Whisper")
++        XCTAssertEqual(decoded.accurateModel, "large-v3-turbo-q5_0")
++        XCTAssertEqual(decoded.fastModel, "small.en")
++        XCTAssertEqual(decoded.dictationMode, .accurate)
++    }
++
++    func testUnsetOptionalFieldsAreNotWrittenIntoTheConfigFile() throws {
++        var config = Config.defaultConfig
++        config.modelDir = nil
++        let json = String(data: try JSONEncoder().encode(config), encoding: .utf8) ?? ""
++        XCTAssertFalse(json.contains("modelDir"))
++        XCTAssertTrue(json.contains("accurateModel"))
++    }
++
++    func testDecodingAConfigWithUnknownFutureFieldsStillWorks() throws {
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en",
++         "somethingFromTheFuture":true}
++        """
++        let config = try Config.decode(from: Data(json.utf8))
++        XCTAssertEqual(config.modelSize, "small.en")
++    }
++}
