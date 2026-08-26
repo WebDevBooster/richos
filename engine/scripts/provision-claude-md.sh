@@ -113,7 +113,7 @@ export RP_ENGINE_VERSION="$ENGINE_VERSION" RP_TEMPLATE="$TEMPLATE_FILE" RP_OUT="
 export RP_MODE="$MODE" RP_UPGRADE="$UPGRADE" RP_FORCE="$FORCE"
 
 python3 - <<'PY'
-import hashlib, json, os, re, sys
+import hashlib, json, os, posixpath, re, sys
 
 V = {k[3:]: os.environ.get(k, '') for k in os.environ if k.startswith('RP_')}
 MODE, UPGRADE, FORCE = V['MODE'], V['UPGRADE'] == '1', V['FORCE'] == '1'
@@ -198,11 +198,19 @@ def identity_section():
     if V['CEO_TIMEZONE']:
         lines.append('- **CEO time zone:** ' + V['CEO_TIMEZONE'])
     if V['LORO_PATH']:
+        # The corpus root is REQUIRED and explicit — loro has no default root, because a default root
+        # means answering out of the vendor's company memory and exiting 0. `--root <repo>` is the
+        # in-repo case; a CEO with a provisioned corpus outside the repo uses `--corpus <dir>`.
+        loro_root = posixpath.dirname(V['LORO_PATH'].rstrip('/')) or '.'
         lines.append('- **Company memory (loro):** `' + V['LORO_PATH'] + '` — compile the slice that bears on '
                      'the task before answering from general knowledge: '
-                     '`node ' + V['LORO_PATH'] + '/bin/loro-context.mjs compile --topic "<the active thread>"`. '
-                     'A thin slice means loro does not know — ask, never invent. When you hand work to a '
-                     'teammate, compile their slice with `--audience worker`: CEO-private memory is never theirs to see.')
+                     '`node ' + V['LORO_PATH'] + '/bin/loro-context.mjs compile --root ' + loro_root +
+                     ' --topic "<the active thread>"`. '
+                     'A thin slice means loro does not know — ask, never invent. loro REFUSES to run without '
+                     'an explicit corpus root (`--root <repo>`, or `--corpus <dir>` / `LORO_CORPUS` once the '
+                     'CEO\'s corpus lives outside the repo) — that refusal is the guarantee you are reading '
+                     'HIS memory and not somebody else\'s. When you hand work to a teammate, compile their '
+                     'slice with `--audience worker`: CEO-private memory is never theirs to see.')
     if V['CEO_NOTES']:
         lines += ['', V['CEO_NOTES'].strip()]
     lines += ['', 'These are facts about who you serve, not preferences to be re-derived. Everything below is '
