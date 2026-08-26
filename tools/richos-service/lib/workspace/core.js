@@ -20,7 +20,7 @@
  * CEO's own Google cloud, tokens live in the OS keychain, and sync is polling with delta tokens.
  */
 
-import { REPO_ROOT, workspaceZone, workspaceSyncStatePath } from '../config.js';
+import { corpusRoot, workspaceZone, workspaceSyncStatePath } from '../config.js';
 import { resolveActors, classifyScope, governanceMetadata, ceoIdentity } from './governance.js';
 import { classifyTrust } from './immune.js';
 import { evidenceLinkFor, writeEvidence } from './evidence.js';
@@ -34,14 +34,17 @@ import { GoneError } from './google-client.js';
  * injected/mockable), so the whole spine is unit-testable without a live account.
  *
  * @param {{adapter:object, identity:Object, tokenManager?:{health:() => any}, zone?:string,
- *   repoRoot?:string, now?:() => number}} opts
+ *   repoRoot?:string, linkBase?:string, now?:() => number}} opts
  * @returns {Promise<Object>} summary of the pass
  */
 export async function ingestOnce(opts) {
   const adapter = opts.adapter;
   const identity = ceoIdentity(opts.identity || {});
   const zone = opts.zone || workspaceZone();
-  const repoRoot = opts.repoRoot || REPO_ROOT;
+  // The evidence LINK is relative to the corpus, not to the product repo: the evidence itself now
+  // lives in the CEO's corpus (config.js:evidenceRoot), and a link relative to the repo would be a
+  // pile of `../..` segments pointing out of the checkout.
+  const linkBase = opts.repoRoot || opts.linkBase || corpusRoot();
   const now = opts.now || (() => Date.now());
 
   // 1. NEVER-SILENT auth health — if re-consent is required, do not poll; surface the loud prompt.
@@ -91,7 +94,7 @@ export async function ingestOnce(opts) {
     const resolved = resolveActors(normalized, identity);
     const scope = classifyScope(resolved);
     const governed = classifyTrust(resolved, { now: now() });
-    const evidenceLink = evidenceLinkFor(governed, zone, repoRoot);
+    const evidenceLink = evidenceLinkFor(governed, zone, linkBase);
     const metadata = governanceMetadata(governed, scope, evidenceLink);
 
     // --- EVIDENCE ZONE + LEDGER (idempotent, §4.2) ---

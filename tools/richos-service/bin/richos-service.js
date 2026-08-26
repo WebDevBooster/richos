@@ -23,6 +23,7 @@ import { runPipeline } from '../lib/pipeline.js';
 import { scanZone, watch } from '../lib/watcher.js';
 import { decideClaimOnDisk, findPromotableOnDisk, markSuperseded } from '../lib/coordination.js';
 import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
+import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
 import { ffmpegVersion } from '../lib/normalize.js';
 import { entitiesFilePath } from '../lib/entities.js';
 import { learnTerm, learnFromEdits, serializeEntitiesDoc } from '../lib/capture.js';
@@ -55,7 +56,11 @@ function resolveSessionDir(arg, zone) {
 
 function main() {
   const cmd = process.argv[2];
-  const zone = flag('zone') ? path.resolve(String(flag('zone'))) : dropZone();
+  // `--zone` goes through the SAME refusal as the default: an explicit flag is not permission to
+  // write the CEO's recordings into a publicly-shipping product repo.
+  const zone = flag('zone')
+    ? assertEvidenceOutsideProductRepo(path.resolve(String(flag('zone'))), REPO_ROOT, 'call recordings and transcripts')
+    : dropZone();
   const model = flag('model') ? String(flag('model')) : undefined;
   const tier = flag('tier') ? String(flag('tier')) : undefined;
 
