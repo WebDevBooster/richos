@@ -179,8 +179,12 @@ export const MODEL_TIERS = {
     decodeArgs: [],
     repetitionGuard: true,
     description:
-      'DEFAULT. Distilled large-v3; ~3.9 min/call-hour on the M4, ~2 GB RAM, zero hallucination at ' +
-      'defaults (benchmark). The reliable everywhere-on-Apple-Silicon choice.',
+      'DEFAULT. Distilled large-v3; ~3.9 min/call-hour on the M4, ~2 GB RAM. NO hallucination on the ' +
+      '213 s benchmark sample — but NOT hallucination-free in general: on an 11-minute NOISY sample ' +
+      'it fabricated a running list numeral onto 59 of 88 segments (65% of the call), ' +
+      'deterministically in 3/3 runs, and NEITHER repetition-guard.js NOR an n-gram scan detects it ' +
+      '(measured 2026-08-26, the q5 call-transcription brief). q5_0 did ' +
+      'not reproduce it on the same audio.',
   },
   max: {
     model: 'large-v3',
@@ -205,9 +209,14 @@ export const MODEL_TIERS = {
     decodeArgs: [],
     repetitionGuard: true,
     description:
-      'Quantized turbo for low-resource Apple Silicon: ~half the RAM/disk of turbo at a small accuracy ' +
-      'cost. Requires the quantized .bin (build once with `whisper-quantize`, or point ' +
-      'RICHOS_WHISPER_MODEL at it).',
+      'Quantized turbo. 574,041,195 B on disk vs turbo 1,624,555,275 B (-1.05 GB); 1.00 GB peak RSS ' +
+      'vs 2.12 GB (-53%) on an 11-minute call. Accuracy at call length is INDISTINGUISHABLE from full ' +
+      'turbo, not degraded: identical WER (5.79%, 36 errors) on the 213 s sample, +0.5 WER points on ' +
+      'an 11-minute clean sample, -1.8 points on an 11-minute noisy one. Wall time within +/-4%. No ' +
+      'repetition, stutter or drift artifact in 9 call-length runs, where full turbo produced one. ' +
+      'Measured 2026-08-26 (the q5 call-transcription brief); TTS samples ' +
+      'only, no real recorded call yet. Requires the quantized .bin (build once with ' +
+      '`whisper-quantize`, or point RICHOS_WHISPER_MODEL at it).',
   },
 };
 
