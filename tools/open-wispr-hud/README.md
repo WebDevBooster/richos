@@ -5,7 +5,7 @@ from audited source at commit `7ab4e62e` = v0.43.0):
 
 1. **HUD** — a minimal, calm recording-state HUD. It makes silent dictation
    failures visible and gives the "it hears me" signal our menu-bar icon lacks.
-2. **Two-model dictation** — Accurate (`large-v3-turbo-q5_0`, default) / Fast
+2. **Two-model dictation** — More accurate (`large-v3-turbo-q5_0`, default) / Faster
    (`small.en`) with a live menu toggle, plus explicit configurable model-path
    resolution. See [Two-model dictation](#two-model-dictation-accurate--fast) below.
 
@@ -68,7 +68,7 @@ path, and transcription are unchanged.
 
 ---
 
-## Two-model dictation (Accurate / Fast)
+## Two-model dictation (More accurate / Faster)
 
 `dictation-two-model.patch`. RichOS ships **one** app carrying **two** whisper
 models with a user-facing toggle. Full rationale and every measurement:
@@ -77,8 +77,8 @@ the two-model dictation brief, 2026-08-26.
 
 | Mode | Model | Disk | Cold latency (2.8s / 25.1s clip) | Pooled WER |
 |---|---|---|---|---|
-| **Accurate** (default) | `large-v3-turbo-q5_0` | 574,041,195 B | 1.29 s / 1.88 s | 5.6 % |
-| **Fast** (opt-in) | `small.en` | 487,614,201 B | 0.50 s / 1.25 s | 7.7 % |
+| **More accurate** (default) | `large-v3-turbo-q5_0` | 574,041,195 B | 1.29 s / 1.88 s | 5.6 % |
+| **Faster** (opt-in) | `small.en` | 487,614,201 B | 0.50 s / 1.25 s | 7.7 % |
 
 Full `large-v3-turbo` is **dropped from the dictation path**: measured
 byte-identical transcripts to `q5_0` on 34/36 runs while costing 1.05 GB more
@@ -143,7 +143,7 @@ open-wispr's own `ModelDownloader`.
 His `~/.config/open-wispr/config.json` predates the toggle (`modelSize:
 "small.en"`, no `accurateModel`/`fastModel` keys). On first launch of a patched
 build, `Config.load()` records the model pair and adopts the accurate default
-once, printing a line to the service log. Reverting is one menu click (Fast).
+once, printing a line to the service log. Reverting is one menu click (Faster).
 The migration is keyed on the absence of `accurateModel`, so it can never
 re-override a later choice of his.
 

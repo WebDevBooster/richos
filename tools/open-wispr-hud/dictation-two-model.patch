@@ -237,7 +237,7 @@ index 479ffee..c4b9ab3 100644
 +            if migrated.changed {
 +                if migrated.config.modelSize != config.modelSize {
 +                    print("Dictation: adopting the accurate model '\(migrated.config.modelSize)' "
-+                        + "(was '\(config.modelSize)') — switch to Fast from the menu to revert.")
++                        + "(was '\(config.modelSize)') — switch to Faster from the menu to revert.")
 +                }
 +                config = migrated.config
 +                dirty = true
@@ -287,11 +287,11 @@ index 0000000..566afed
 +    case accurate
 +    case fast
 +
-+    /// The menu label. Deliberately plain — the CEO picks a behaviour, not a model file.
++    /// The menu label. COMPARATIVE, never absolute — both models are accurate and both are fast.
 +    public var title: String {
 +        switch self {
-+        case .accurate: return "Accurate"
-+        case .fast: return "Fast"
++        case .accurate: return "More accurate"
++        case .fast: return "Faster"
 +        }
 +    }
 +
