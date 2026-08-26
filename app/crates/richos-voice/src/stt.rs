@@ -19,11 +19,15 @@
 //! Measured on this M4, cold subprocess, a 3.095 s utterance ("Rich, what is the status of
 //! the voice pipeline today?"), three runs: **0.74 s / 0.47 s / 0.47 s**, transcript exact.
 //! The local-dictation notes record the same profile (0.48–1.08 s) and record that
-//! `large-v3-turbo` cuts word error ~34% relative but adds **+0.9–1.2 s absolute**, because
-//! the fixed ~1.4 s model load dominates short clips. Dictation can absorb that; a spoken
-//! conversation cannot — a second of dead air after every sentence is the difference between
-//! talking to Rich and operating him. So the conversational default is `small.en` and the
-//! honest fix for wanting both is a warm daemon, not a bigger model.
+//! turbo-class accuracy costs **+0.63–0.79 s absolute** for −2.1 WER points. That cost is
+//! mostly COMPUTE, not model load: measured 2026-08-26, turbo's fixed per-invocation overhead
+//! is 0.48–0.59 s and `small.en`'s is 0.20–0.23 s, so a warm daemon returns only ~0.3 s of
+//! the gap. An earlier note here claimed a ~1.4 s load tax and that a warm daemon would give
+//! turbo accuracy at `small.en` speed — both are measured FALSE
+//! (the dictation-daemon + q5 brief, 2026-08-26). Dictation can absorb the
+//! remaining cost; a spoken conversation cannot — a second of dead air after every sentence is
+//! the difference between talking to Rich and operating him. So the conversational default
+//! stays `small.en`, and the honest lever is a smaller/quantized model, not a daemon.
 //! `RICHOS_VOICE_WHISPER_MODEL` overrides for anyone who wants turbo anyway.
 
 use crate::vad::SAMPLE_RATE;
