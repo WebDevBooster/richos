@@ -1,0 +1,902 @@
+diff --git a/Sources/OpenWispr/main.swift b/Sources/OpenWispr/main.swift
+index 40d84ec..2effaab 100644
+--- a/Sources/OpenWispr/main.swift
++++ b/Sources/OpenWispr/main.swift
+@@ -134,7 +134,8 @@ func cmdStatus() {
+     print("Config:      \(Config.configFile.path)")
+     print("Hotkey:      \(hotkeyDesc)")
+     print("Model:       \(config.modelSize)")
+-    print("Model ready: \(Transcriber.modelExists(modelSize: config.modelSize) ? "yes" : "no")")
++    print("Dictation:   \(config.dictationMode?.title ?? "custom")")
++    print("Model ready: \(Transcriber.modelExists(modelSize: config.modelSize, modelPath: config.modelPath, modelDir: config.modelDir) ? "yes" : "no")")
+     print("whisper-cpp: \(Transcriber.findWhisperBinary() != nil ? "yes" : "no")")
+     let langName = Config.supportedLanguages.first(where: { $0.code == config.language })?.name ?? config.language
+     print("Language:    \(langName) (\(config.language))")
+diff --git a/Sources/OpenWisprLib/AppDelegate.swift b/Sources/OpenWisprLib/AppDelegate.swift
+index a56e2ca..3e0c59c 100644
+--- a/Sources/OpenWisprLib/AppDelegate.swift
++++ b/Sources/OpenWisprLib/AppDelegate.swift
+@@ -121,7 +121,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+             print("Accessibility: granted")
+         }
+ 
+-        if !Transcriber.modelExists(modelSize: config.modelSize) {
++        if !Transcriber.modelExists(
++            modelSize: config.modelSize,
++            modelPath: config.modelPath,
++            modelDir: config.modelDir
++        ) {
+             DispatchQueue.main.async {
+                 self.statusBar.state = .downloading
+                 self.statusBar.updateDownloadProgress("Downloading \(self.config.modelSize) model...")
+@@ -138,7 +142,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+             }
+         }
+ 
+-        if let modelPath = Transcriber.findModel(modelSize: config.modelSize) {
++        if let modelPath = Transcriber.findModel(
++            modelSize: config.modelSize,
++            modelPath: config.modelPath,
++            modelDir: config.modelDir
++        ) {
+             let modelURL = URL(fileURLWithPath: modelPath)
+             if !ModelDownloader.isValidGGMLFile(at: modelURL) {
+                 let msg = "Model file is corrupted. Re-download with: open-wispr download-model \(config.modelSize)"
+@@ -235,7 +243,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+             hotkeyManagers.append(manager)
+         }
+ 
+-        if !wasDownloading && !Transcriber.modelExists(modelSize: config.modelSize) {
++        if !wasDownloading && !Transcriber.modelExists(
++            modelSize: config.modelSize,
++            modelPath: config.modelPath,
++            modelDir: config.modelDir
++        ) {
+             statusBar.state = .downloading
+             statusBar.updateDownloadProgress("Downloading \(config.modelSize) model...")
+             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+@@ -269,6 +281,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+     private func makeTranscriber(for config: Config) -> Transcriber {
+         let transcriber = Transcriber(
+             modelSize: config.modelSize,
++            modelPath: config.modelPath,
++            modelDir: config.modelDir,
+             language: config.language,
+             whisperPrompt: config.whisperPrompt
+         )
+diff --git a/Sources/OpenWisprLib/Config.swift b/Sources/OpenWisprLib/Config.swift
+index 479ffee..c4b9ab3 100644
+--- a/Sources/OpenWisprLib/Config.swift
++++ b/Sources/OpenWisprLib/Config.swift
+@@ -7,8 +7,18 @@ public struct LanguageOption: Equatable, Sendable {
+ 
+ public struct Config: Codable {
+     public var hotkeys: [HotkeyConfig]
++    /// Explicit path to a `.bin`. When set it wins over every directory scan.
+     public var modelPath: String?
++    /// The model that actually reaches `whisper-cli -m`. Single source of truth:
++    /// the Accurate/Fast mode shown in the menu is DERIVED from this, never stored
++    /// alongside it (see `DictationModels`).
+     public var modelSize: String
++    /// One extra directory to search for model files. `OPENWISPR_MODEL_DIR` wins over it.
++    public var modelDir: String?
++    /// The model the "Accurate" mode selects. Defaults to `large-v3-turbo-q5_0`.
++    public var accurateModel: String?
++    /// The model the "Fast" mode selects. Defaults to `small.en`.
++    public var fastModel: String?
+     public var language: String
+     public var whisperPrompt: String?
+     public var spokenPunctuation: FlexBool?
+@@ -41,6 +51,9 @@ public struct Config: Codable {
+         case hotkeys
+         case modelPath
+         case modelSize
++        case modelDir
++        case accurateModel
++        case fastModel
+         case language
+         case whisperPrompt
+         case spokenPunctuation
+@@ -63,6 +76,9 @@ public struct Config: Codable {
+         }
+         self.modelPath = try c.decodeIfPresent(String.self, forKey: .modelPath)
+         self.modelSize = try c.decode(String.self, forKey: .modelSize)
++        self.modelDir = try c.decodeIfPresent(String.self, forKey: .modelDir)
++        self.accurateModel = try c.decodeIfPresent(String.self, forKey: .accurateModel)
++        self.fastModel = try c.decodeIfPresent(String.self, forKey: .fastModel)
+         self.language = try c.decode(String.self, forKey: .language)
+         self.whisperPrompt = try c.decodeIfPresent(String.self, forKey: .whisperPrompt)
+         self.spokenPunctuation = try c.decodeIfPresent(FlexBool.self, forKey: .spokenPunctuation)
+@@ -78,6 +94,9 @@ public struct Config: Codable {
+         try c.encode(hotkeys[0], forKey: .hotkey)
+         try c.encodeIfPresent(modelPath, forKey: .modelPath)
+         try c.encode(modelSize, forKey: .modelSize)
++        try c.encodeIfPresent(modelDir, forKey: .modelDir)
++        try c.encodeIfPresent(accurateModel, forKey: .accurateModel)
++        try c.encodeIfPresent(fastModel, forKey: .fastModel)
+         try c.encode(language, forKey: .language)
+         try c.encodeIfPresent(whisperPrompt, forKey: .whisperPrompt)
+         try c.encodeIfPresent(spokenPunctuation, forKey: .spokenPunctuation)
+@@ -91,6 +110,9 @@ public struct Config: Codable {
+         hotkeys: [HotkeyConfig],
+         modelPath: String?,
+         modelSize: String,
++        modelDir: String? = nil,
++        accurateModel: String? = nil,
++        fastModel: String? = nil,
+         language: String,
+         whisperPrompt: String? = nil,
+         spokenPunctuation: FlexBool?,
+@@ -104,6 +126,9 @@ public struct Config: Codable {
+             : Config.deduplicateHotkeys(hotkeys)
+         self.modelPath = modelPath
+         self.modelSize = modelSize
++        self.modelDir = modelDir
++        self.accurateModel = accurateModel
++        self.fastModel = fastModel
+         self.language = language
+         self.whisperPrompt = whisperPrompt
+         self.spokenPunctuation = spokenPunctuation
+@@ -241,6 +266,71 @@ public struct Config: Codable {
+         return name.hasSuffix(".en") || name.contains(".en-")
+     }
+ 
++    // MARK: - Two-model dictation (Accurate / Fast)
++
++    /// The model the "Accurate" mode runs. `accurateModel` overrides the built-in default.
++    public var effectiveAccurateModel: String {
++        let v = accurateModel?.trimmingCharacters(in: .whitespaces) ?? ""
++        return v.isEmpty ? DictationModels.defaultAccurateModel : v
++    }
++
++    /// The model the "Fast" mode runs. `fastModel` overrides the built-in default.
++    public var effectiveFastModel: String {
++        let v = fastModel?.trimmingCharacters(in: .whitespaces) ?? ""
++        return v.isEmpty ? DictationModels.defaultFastModel : v
++    }
++
++    /// The mode currently in force, DERIVED from `modelSize` — the value that actually
++    /// reaches whisper. `nil` when the active model is neither of the pair (the full
++    /// Model submenu is still there and still works).
++    public var dictationMode: DictationMode? {
++        DictationModels.mode(
++            for: modelSize,
++            accurate: effectiveAccurateModel,
++            fast: effectiveFastModel
++        )
++    }
++
++    /// A copy of this config switched to `mode`. Switching a mode IS switching
++    /// `modelSize` — there is no second field to fall out of sync.
++    public func settingDictationMode(_ mode: DictationMode) -> Config {
++        var out = self
++        out.modelSize = DictationModels.modelSize(
++            for: mode,
++            accurate: effectiveAccurateModel,
++            fast: effectiveFastModel
++        )
++        // The pair is written out explicitly on first switch so the file is
++        // self-describing rather than relying on compiled-in defaults.
++        out.accurateModel = out.effectiveAccurateModel
++        out.fastModel = out.effectiveFastModel
++        // An explicit modelPath pins ONE file and would defeat the toggle.
++        out.modelPath = nil
++        return out
++    }
++
++    /// A config written before two-model dictation existed carries neither model id.
++    public var predatesTwoModelDictation: Bool {
++        return accurateModel == nil && fastModel == nil
++    }
++
++    /// One-time upgrade of a pre-two-model config: record the pair and adopt the
++    /// accurate default. Deliberately explicit and one-way-per-config — after this
++    /// runs, `accurateModel` is present, so a later user choice is never re-overridden.
++    /// Reverting is one menu click (Fast).
++    public static func migratedForTwoModelDictation(_ input: Config) -> (config: Config, changed: Bool) {
++        guard input.predatesTwoModelDictation else { return (input, false) }
++        var out = input
++        out.accurateModel = DictationModels.defaultAccurateModel
++        out.fastModel = DictationModels.defaultFastModel
++        // Full large-v3-turbo is retired from dictation: it is measured
++        // indistinguishable from q5_0 while costing 1.05 GB of disk and 1.13 GB of RAM.
++        if out.modelPath == nil {
++            out.modelSize = DictationModels.defaultAccurateModel
++        }
++        return (out, true)
++    }
++
+     public static let defaultMaxRecordings = 0
+ 
+     public static func effectiveMaxRecordings(_ value: Int?) -> Int {
+@@ -252,7 +342,11 @@ public struct Config: Codable {
+     public static let defaultConfig = Config(
+         hotkeys: [HotkeyConfig(keyCode: 63, modifiers: [])],
+         modelPath: nil,
+-        modelSize: "base.en",
++        // Default = the ACCURATE model. Measured indistinguishable from full
++        // large-v3-turbo at a third of its size; fast mode is opt-in.
++        modelSize: DictationModels.defaultAccurateModel,
++        accurateModel: DictationModels.defaultAccurateModel,
++        fastModel: DictationModels.defaultFastModel,
+         language: "en",
+         whisperPrompt: nil,
+         spokenPunctuation: FlexBool(false),
+@@ -278,11 +372,22 @@ public struct Config: Codable {
+ 
+         do {
+             var config = try JSONDecoder().decode(Config.self, from: data)
++            var dirty = false
+             let resolved = Config.resolveModelAlias(config.modelSize)
+             if resolved != config.modelSize {
+                 config.modelSize = resolved
+-                try? config.save()
++                dirty = true
++            }
++            let migrated = Config.migratedForTwoModelDictation(config)
++            if migrated.changed {
++                if migrated.config.modelSize != config.modelSize {
++                    print("Dictation: adopting the accurate model '\(migrated.config.modelSize)' "
++                        + "(was '\(config.modelSize)') — switch to Fast from the menu to revert.")
++                }
++                config = migrated.config
++                dirty = true
+             }
++            if dirty { try? config.save() }
+             return config
+         } catch {
+             fputs("Warning: unable to parse \(configFile.path): \(error.localizedDescription)\n", stderr)
+diff --git a/Sources/OpenWisprLib/DictationModels.swift b/Sources/OpenWisprLib/DictationModels.swift
+new file mode 100644
+index 0000000..566afed
+--- /dev/null
++++ b/Sources/OpenWisprLib/DictationModels.swift
+@@ -0,0 +1,166 @@
++import Foundation
++
++// MARK: - Two-model dictation — pure, AppKit-free, unit-tested
++//
++// RichOS ships ONE dictation app carrying TWO whisper models and a user-facing
++// toggle between them:
++//
++//   Accurate (default) — `large-v3-turbo-q5_0`
++//   Fast    (opt-in)   — `small.en`
++//
++// The numbers behind that choice, all measured on the M4 in
++// The dictation-daemon + q5 brief, 2026-08-26:
++// `large-v3-turbo-q5_0` produced byte-identical transcripts to full
++// `large-v3-turbo` on 34 of 36 runs (the two exceptions are a comma inside
++// `$4,200`), at 1.05 GB less on disk, 1.13 GB less resident (0.86 vs 1.99 GB)
++// and 0.20–0.27 s faster cold. Full `large-v3-turbo` is therefore NOT in the
++// dictation path at all. Against `small.en`, the accurate model costs
++// +86.4 MB of disk and ~0.7 s of latency and buys −2.1 WER points pooled
++// (7.7 % → 5.6 %) — small enough that a second "light" build would be silly,
++// large enough that a fast mode is worth a menu item.
++//
++// ## Why the mode is DERIVED, never stored
++//
++// There is deliberately no `dictationMode` field in `Config`. The mode shown in
++// the menu is computed from `Config.modelSize` — the single value that actually
++// reaches `whisper-cli -m`. A stored mode flag is a second source of truth that
++// can silently disagree with the model the app is really running (pick a model
++// from the full Model submenu and a stored flag goes stale instantly). Deriving
++// it means the label can never lie about what a dictation will use.
++
++/// The two dictation modes RichOS exposes. Raw values are stable identifiers.
++public enum DictationMode: String, CaseIterable, Sendable {
++    case accurate
++    case fast
++
++    /// The menu label. Deliberately plain — the CEO picks a behaviour, not a model file.
++    public var title: String {
++        switch self {
++        case .accurate: return "Accurate"
++        case .fast: return "Fast"
++        }
++    }
++
++    /// One line of honest expectation-setting, shown next to the label.
++    public var subtitle: String {
++        switch self {
++        case .accurate: return "best accuracy"
++        case .fast: return "~0.7s quicker"
++        }
++    }
++}
++
++/// Model ids, resolution order, and mode↔model mapping. No I/O beyond `FileManager`
++/// existence checks in the caller — this type only computes candidate paths.
++public enum DictationModels {
++    /// The accurate default. Measured indistinguishable from full `large-v3-turbo`.
++    public static let defaultAccurateModel = "large-v3-turbo-q5_0"
++
++    /// The opt-in fast mode.
++    public static let defaultFastModel = "small.en"
++
++    /// Full `large-v3-turbo` is dropped from the dictation path — it buys nothing
++    /// over `q5_0` and costs 1.05 GB of disk plus 1.13 GB of RAM. It remains the
++    /// default for POST-CALL batch transcription (`tools/richos-service`), which is a
++    /// different workload on different audio and is explicitly out of scope here.
++    public static let retiredDictationModel = "large-v3-turbo"
++
++    /// Which mode a concrete model id corresponds to, or `nil` when the user has
++    /// picked something outside the two-model pair (the full Model submenu still works).
++    public static func mode(
++        for modelSize: String,
++        accurate: String = defaultAccurateModel,
++        fast: String = defaultFastModel
++    ) -> DictationMode? {
++        if modelSize == accurate { return .accurate }
++        if modelSize == fast { return .fast }
++        return nil
++    }
++
++    /// The model id a mode selects.
++    public static func modelSize(
++        for mode: DictationMode,
++        accurate: String = defaultAccurateModel,
++        fast: String = defaultFastModel
++    ) -> String {
++        switch mode {
++        case .accurate: return accurate
++        case .fast: return fast
++        }
++    }
++
++    /// The GGML filename for a model id.
++    public static func fileName(for modelSize: String) -> String {
++        return "ggml-\(modelSize).bin"
++    }
++
++    /// Environment variable holding a `:`-separated list of extra model directories.
++    /// This is the ops-level override: it wins over anything in `config.json` so a
++    /// machine can be repointed without editing the CEO's config.
++    public static let modelDirEnvVar = "OPENWISPR_MODEL_DIR"
++
++    /// Where a model file may live, most-specific first. Every entry is either
++    /// supplied by the caller (env / config) or derived from `home` — there is no
++    /// hardcoded user path anywhere in this list.
++    ///
++    /// - Parameters:
++    ///   - home: the user's home directory (injected so this is testable).
++    ///   - envValue: raw value of `OPENWISPR_MODEL_DIR`, `:`-separated, may be nil.
++    ///   - configuredDir: `config.modelDir`, a single extra directory, may be nil.
++    public static func searchDirectories(
++        home: String,
++        envValue: String? = nil,
++        configuredDir: String? = nil
++    ) -> [String] {
++        var dirs: [String] = []
++
++        for raw in (envValue ?? "").split(separator: ":", omittingEmptySubsequences: true) {
++            let dir = expand(String(raw), home: home)
++            if !dir.isEmpty { dirs.append(dir) }
++        }
++
++        if let configuredDir, !configuredDir.trimmingCharacters(in: .whitespaces).isEmpty {
++            dirs.append(expand(configuredDir, home: home))
++        }
++
++        // open-wispr's own download destination.
++        dirs.append("\(home)/.config/open-wispr/models")
++        // The shared RichOS model directory: `tools/richos-service/lib/config.js`
++        // and `app/crates/richos-voice/src/stt.rs` already resolve here, so one
++        // downloaded .bin serves dictation, the voice loop and call transcription.
++        dirs.append("\(home)/Models/Whisper")
++        // whisper.cpp's own install locations.
++        dirs.append("/opt/homebrew/share/whisper-cpp/models")
++        dirs.append("/usr/local/share/whisper-cpp/models")
++        dirs.append("\(home)/.cache/whisper")
++
++        var seen = Set<String>()
++        return dirs.filter { seen.insert($0).inserted }
++    }
++
++    /// Full candidate paths for a model id, in resolution order. An explicit
++    /// `modelPath` (config `modelPath`) short-circuits everything: if the CEO names
++    /// a file, that file is what runs — no directory scan can override it.
++    public static func candidatePaths(
++        modelSize: String,
++        modelPath: String? = nil,
++        home: String,
++        envValue: String? = nil,
++        configuredDir: String? = nil
++    ) -> [String] {
++        if let modelPath, !modelPath.trimmingCharacters(in: .whitespaces).isEmpty {
++            return [expand(modelPath, home: home)]
++        }
++        let file = fileName(for: modelSize)
++        return searchDirectories(home: home, envValue: envValue, configuredDir: configuredDir)
++            .map { "\($0)/\(file)" }
++    }
++
++    /// Expand a leading `~` against the supplied home. Absolute paths pass through.
++    public static func expand(_ path: String, home: String) -> String {
++        let trimmed = path.trimmingCharacters(in: .whitespaces)
++        if trimmed == "~" { return home }
++        if trimmed.hasPrefix("~/") { return home + String(trimmed.dropFirst(1)) }
++        return trimmed
++    }
++}
+diff --git a/Sources/OpenWisprLib/StatusBarController.swift b/Sources/OpenWisprLib/StatusBarController.swift
+index e472fb0..44c143f 100644
+--- a/Sources/OpenWisprLib/StatusBarController.swift
++++ b/Sources/OpenWisprLib/StatusBarController.swift
+@@ -88,6 +88,57 @@ class StatusBarController: NSObject {
+         return f
+     }()
+ 
++    /// The two-model dictation toggle: Accurate (`large-v3-turbo-q5_0`, the default)
++    /// and Fast (`small.en`). Top level, not buried in the Model submenu, because it
++    /// is the one model decision the CEO actually makes.
++    ///
++    /// Switching is live — writing the config fires `onConfigChange`, which rebuilds
++    /// the `Transcriber`. Transcription is a fresh `whisper-cli` subprocess per
++    /// utterance, so the very next F13 tap uses the new model. No restart, no reload,
++    /// nothing resident to swap.
++    ///
++    /// The checkmark is derived from `config.dictationMode`, i.e. from the same
++    /// `modelSize` that reaches `whisper-cli -m` — it cannot claim a mode the next
++    /// dictation will not actually use.
++    private func addDictationModeItems(to menu: NSMenu, config: Config) {
++        let header = NSMenuItem(title: "Dictation", action: nil, keyEquivalent: "")
++        header.isEnabled = false
++        menu.addItem(header)
++
++        let current = config.dictationMode
++        for mode in DictationMode.allCases {
++            let model = DictationModels.modelSize(
++                for: mode,
++                accurate: config.effectiveAccurateModel,
++                fast: config.effectiveFastModel
++            )
++            let target = MenuItemTarget { [weak self] in
++                var cfg = Config.load()
++                guard cfg.dictationMode != mode else { return }
++                cfg = cfg.settingDictationMode(mode)
++                try? cfg.save()
++                self?.onConfigChange?(cfg)
++            }
++            menuItemTargets.append(target)
++            let item = NSMenuItem(
++                title: "  \(mode.title) — \(mode.subtitle)",
++                action: #selector(MenuItemTarget.invoke),
++                keyEquivalent: ""
++            )
++            item.target = target
++            item.toolTip = model
++            if current == mode { item.state = .on }
++            menu.addItem(item)
++        }
++
++        if current == nil {
++            let custom = NSMenuItem(title: "  Custom — \(config.modelSize)", action: nil, keyEquivalent: "")
++            custom.isEnabled = false
++            custom.state = .on
++            menu.addItem(custom)
++        }
++    }
++
+     func buildMenu() {
+         menuItemTargets = []
+ 
+@@ -134,6 +185,10 @@ class StatusBarController: NSObject {
+ 
+         menu.addItem(NSMenuItem.separator())
+ 
++        addDictationModeItems(to: menu, config: config)
++
++        menu.addItem(NSMenuItem.separator())
++
+         let currentLang = config.language
+         let langName = Config.supportedLanguages.first(where: { $0.code == currentLang })?.name ?? currentLang
+         let langItem = NSMenuItem(title: "Language: \(langName)", action: nil, keyEquivalent: "")
+diff --git a/Sources/OpenWisprLib/Transcriber.swift b/Sources/OpenWisprLib/Transcriber.swift
+index 765cf57..938da9e 100644
+--- a/Sources/OpenWisprLib/Transcriber.swift
++++ b/Sources/OpenWisprLib/Transcriber.swift
+@@ -2,12 +2,22 @@ import Foundation
+ 
+ public class Transcriber {
+     private let modelSize: String
++    private let modelPath: String?
++    private let modelDir: String?
+     private let language: String
+     private let whisperPrompt: String?
+     public var spokenPunctuation: Bool = false
+ 
+-    public init(modelSize: String = "base.en", language: String = "en", whisperPrompt: String? = nil) {
++    public init(
++        modelSize: String = DictationModels.defaultAccurateModel,
++        modelPath: String? = nil,
++        modelDir: String? = nil,
++        language: String = "en",
++        whisperPrompt: String? = nil
++    ) {
+         self.modelSize = modelSize
++        self.modelPath = modelPath
++        self.modelDir = modelDir
+         self.language = language
+         self.whisperPrompt = whisperPrompt
+     }
+@@ -17,7 +27,11 @@ public class Transcriber {
+             throw TranscriberError.whisperNotFound
+         }
+ 
+-        guard let modelPath = Transcriber.findModel(modelSize: modelSize) else {
++        guard let modelPath = Transcriber.findModel(
++            modelSize: modelSize,
++            modelPath: modelPath,
++            modelDir: modelDir
++        ) else {
+             throw TranscriberError.modelNotFound(modelSize)
+         }
+ 
+@@ -145,19 +159,30 @@ public class Transcriber {
+         return nil
+     }
+ 
+-    public static func modelExists(modelSize: String) -> Bool {
+-        return findModel(modelSize: modelSize) != nil
++    public static func modelExists(
++        modelSize: String,
++        modelPath: String? = nil,
++        modelDir: String? = nil
++    ) -> Bool {
++        return findModel(modelSize: modelSize, modelPath: modelPath, modelDir: modelDir) != nil
+     }
+ 
+-    static func findModel(modelSize: String) -> String? {
+-        let modelFileName = "ggml-\(modelSize).bin"
+-
+-        let candidates = [
+-            "\(Config.configDir.path)/models/\(modelFileName)",
+-            "/opt/homebrew/share/whisper-cpp/models/\(modelFileName)",
+-            "/usr/local/share/whisper-cpp/models/\(modelFileName)",
+-            "\(FileManager.default.homeDirectoryForCurrentUser.path)/.cache/whisper/\(modelFileName)",
+-        ]
++    /// Resolve a model file. Order (see `DictationModels.candidatePaths`):
++    /// explicit `modelPath` → `OPENWISPR_MODEL_DIR` → `config.modelDir` →
++    /// `~/.config/open-wispr/models` → `~/Models/Whisper` → whisper.cpp install dirs.
++    /// Every default is derived from the running user's home — no hardcoded user path.
++    static func findModel(
++        modelSize: String,
++        modelPath: String? = nil,
++        modelDir: String? = nil
++    ) -> String? {
++        let candidates = DictationModels.candidatePaths(
++            modelSize: modelSize,
++            modelPath: modelPath,
++            home: FileManager.default.homeDirectoryForCurrentUser.path,
++            envValue: ProcessInfo.processInfo.environment[DictationModels.modelDirEnvVar],
++            configuredDir: modelDir
++        )
+ 
+         for path in candidates {
+             if FileManager.default.fileExists(atPath: path) {
+diff --git a/Tests/OpenWisprTests/DictationModelsTests.swift b/Tests/OpenWisprTests/DictationModelsTests.swift
+new file mode 100644
+index 0000000..56ba1bf
+--- /dev/null
++++ b/Tests/OpenWisprTests/DictationModelsTests.swift
+@@ -0,0 +1,320 @@
++import XCTest
++@testable import OpenWisprLib
++
++/// Two-model dictation: Accurate (`large-v3-turbo-q5_0`) + Fast (`small.en`).
++///
++/// Every test name states the invariant it protects. Nothing here touches the
++/// filesystem, the network, or AppKit — `DictationModels` is pure by design so the
++/// resolution order can be asserted rather than eyeballed.
++final class DictationModelsTests: XCTestCase {
++    private let home = "/Users/testuser"
++
++    // MARK: - The two models
++
++    func testAccurateModelIsQuantizedTurboNotFullTurbo() {
++        // Measured: q5_0 produced byte-identical transcripts to full large-v3-turbo on
++        // 34/36 runs while costing 1.05 GB less disk and 1.13 GB less RAM. Shipping full
++        // turbo for dictation would be paying for nothing.
++        XCTAssertEqual(DictationModels.defaultAccurateModel, "large-v3-turbo-q5_0")
++        XCTAssertNotEqual(DictationModels.defaultAccurateModel, DictationModels.retiredDictationModel)
++    }
++
++    func testFastModelIsSmallEn() {
++        XCTAssertEqual(DictationModels.defaultFastModel, "small.en")
++    }
++
++    func testFullTurboIsRetiredFromTheDictationPath() {
++        XCTAssertEqual(DictationModels.retiredDictationModel, "large-v3-turbo")
++        XCTAssertNil(DictationModels.mode(for: DictationModels.retiredDictationModel))
++    }
++
++    func testBothShippedModelsAreSupportedByTheUpstreamPicker() {
++        // If either id ever fell out of Config.supportedModels, the menu would offer a
++        // mode whose model open-wispr cannot download.
++        XCTAssertTrue(Config.supportedModels.contains(DictationModels.defaultAccurateModel))
++        XCTAssertTrue(Config.supportedModels.contains(DictationModels.defaultFastModel))
++    }
++
++    // MARK: - Mode <-> model, both directions
++
++    func testModeIsDerivedFromTheModelThatActuallyRuns() {
++        XCTAssertEqual(DictationModels.mode(for: "large-v3-turbo-q5_0"), .accurate)
++        XCTAssertEqual(DictationModels.mode(for: "small.en"), .fast)
++    }
++
++    func testModeIsNilForAModelOutsideThePair() {
++        // The upstream Model submenu still works; picking base.en means "neither mode",
++        // not a silently wrong checkmark.
++        XCTAssertNil(DictationModels.mode(for: "base.en"))
++        XCTAssertNil(DictationModels.mode(for: "medium.en"))
++    }
++
++    func testModeRoundTripsThroughModelSizeForEveryMode() {
++        for mode in DictationMode.allCases {
++            let model = DictationModels.modelSize(for: mode)
++            XCTAssertEqual(DictationModels.mode(for: model), mode, "round trip failed for \(mode)")
++        }
++    }
++
++    func testModeHonoursOverriddenModelIds() {
++        XCTAssertEqual(
++            DictationModels.mode(for: "tiny.en", accurate: "medium.en", fast: "tiny.en"),
++            .fast
++        )
++        XCTAssertEqual(
++            DictationModels.modelSize(for: .accurate, accurate: "medium.en", fast: "tiny.en"),
++            "medium.en"
++        )
++    }
++
++    func testModeRawValuesAreStableIdentifiers() {
++        // These are written into config.json in future revisions and read back.
++        XCTAssertEqual(DictationMode.accurate.rawValue, "accurate")
++        XCTAssertEqual(DictationMode.fast.rawValue, "fast")
++        XCTAssertEqual(DictationMode.allCases.count, 2)
++    }
++
++    func testEveryModeHasANonEmptyMenuLabel() {
++        for mode in DictationMode.allCases {
++            XCTAssertFalse(mode.title.isEmpty)
++            XCTAssertFalse(mode.subtitle.isEmpty)
++        }
++    }
++
++    // MARK: - File naming
++
++    func testFileNameIsTheGGMLConvention() {
++        XCTAssertEqual(DictationModels.fileName(for: "small.en"), "ggml-small.en.bin")
++        XCTAssertEqual(
++            DictationModels.fileName(for: "large-v3-turbo-q5_0"),
++            "ggml-large-v3-turbo-q5_0.bin"
++        )
++    }
++
++    // MARK: - Resolution order
++
++    func testSearchOrderPutsEnvOverrideFirstAndConfigDirSecond() {
++        let dirs = DictationModels.searchDirectories(
++            home: home,
++            envValue: "/opt/models",
++            configuredDir: "/srv/models"
++        )
++        XCTAssertEqual(dirs.first, "/opt/models")
++        XCTAssertEqual(dirs[1], "/srv/models")
++    }
++
++    func testEnvOverrideAcceptsAColonSeparatedList() {
++        let dirs = DictationModels.searchDirectories(home: home, envValue: "/a:/b:/c")
++        XCTAssertEqual(Array(dirs.prefix(3)), ["/a", "/b", "/c"])
++    }
++
++    func testEnvOverrideIgnoresEmptySegments() {
++        let dirs = DictationModels.searchDirectories(home: home, envValue: "/a::/b:")
++        XCTAssertEqual(Array(dirs.prefix(2)), ["/a", "/b"])
++        XCTAssertFalse(dirs.contains(""))
++    }
++
++    func testBlankConfiguredDirIsIgnoredRatherThanSearchedAsEmpty() {
++        let dirs = DictationModels.searchDirectories(home: home, configuredDir: "   ")
++        XCTAssertEqual(dirs.first, "\(home)/.config/open-wispr/models")
++    }
++
++    func testDefaultsIncludeBothOpenWisprAndTheSharedRichOSModelDir() {
++        // ~/Models/Whisper is where tools/richos-service and app/crates/richos-voice
++        // already look — one downloaded .bin has to serve all three consumers.
++        let dirs = DictationModels.searchDirectories(home: home)
++        XCTAssertTrue(dirs.contains("\(home)/.config/open-wispr/models"))
++        XCTAssertTrue(dirs.contains("\(home)/Models/Whisper"))
++    }
++
++    func testSearchDirectoriesAreDeduplicatedPreservingOrder() {
++        let dirs = DictationModels.searchDirectories(
++            home: home,
++            envValue: "\(home)/Models/Whisper",
++            configuredDir: "\(home)/Models/Whisper"
++        )
++        XCTAssertEqual(dirs.first, "\(home)/Models/Whisper")
++        XCTAssertEqual(dirs.filter { $0 == "\(home)/Models/Whisper" }.count, 1)
++    }
++
++    func testCandidatePathsAppendTheGGMLFileToEveryDirectory() {
++        let paths = DictationModels.candidatePaths(modelSize: "small.en", home: home)
++        XCTAssertEqual(paths.first, "\(home)/.config/open-wispr/models/ggml-small.en.bin")
++        XCTAssertTrue(paths.allSatisfy { $0.hasSuffix("/ggml-small.en.bin") })
++    }
++
++    func testExplicitModelPathShortCircuitsEveryDirectoryScan() {
++        // If the CEO names a file, that file is what runs. No directory can override it.
++        let paths = DictationModels.candidatePaths(
++            modelSize: "small.en",
++            modelPath: "/pinned/ggml-anything.bin",
++            home: home,
++            envValue: "/opt/models",
++            configuredDir: "/srv/models"
++        )
++        XCTAssertEqual(paths, ["/pinned/ggml-anything.bin"])
++    }
++
++    func testExplicitModelPathExpandsTilde() {
++        let paths = DictationModels.candidatePaths(
++            modelSize: "small.en",
++            modelPath: "~/Models/Whisper/ggml-small.en.bin",
++            home: home
++        )
++        XCTAssertEqual(paths, ["\(home)/Models/Whisper/ggml-small.en.bin"])
++    }
++
++    func testBlankModelPathFallsBackToTheDirectoryScan() {
++        let paths = DictationModels.candidatePaths(modelSize: "small.en", modelPath: "  ", home: home)
++        XCTAssertGreaterThan(paths.count, 1)
++    }
++
++    func testExpandHandlesTildeAloneAbsoluteAndRelativePaths() {
++        XCTAssertEqual(DictationModels.expand("~", home: home), home)
++        XCTAssertEqual(DictationModels.expand("~/x", home: home), "\(home)/x")
++        XCTAssertEqual(DictationModels.expand("/abs/x", home: home), "/abs/x")
++        XCTAssertEqual(DictationModels.expand("  /abs/x  ", home: home), "/abs/x")
++        XCTAssertEqual(DictationModels.expand("rel/x", home: home), "rel/x")
++    }
++
++    func testNoCandidatePathHardcodesADeveloperHome() {
++        // The whole point of injecting `home`: nothing in this file may bake in a user.
++        let paths = DictationModels.candidatePaths(modelSize: "small.en", home: "/Users/somebodyelse")
++        for path in paths {
++            XCTAssertFalse(path.contains("/Users/devhome"), "hardcoded home leaked into \(path)")
++            XCTAssertFalse(path.contains("testuser"), "stale home leaked into \(path)")
++        }
++    }
++
++    // MARK: - Config integration
++
++    func testConfigDefaultShipsTheAccurateModel() {
++        XCTAssertEqual(Config.defaultConfig.modelSize, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(Config.defaultConfig.dictationMode, .accurate)
++    }
++
++    func testConfigModeFollowsModelSizeWithNoSeparateStoredFlag() {
++        var config = Config.defaultConfig
++        XCTAssertEqual(config.dictationMode, .accurate)
++        config.modelSize = DictationModels.defaultFastModel
++        XCTAssertEqual(config.dictationMode, .fast, "mode must track modelSize, not a stored flag")
++        config.modelSize = "base.en"
++        XCTAssertNil(config.dictationMode)
++    }
++
++    func testSettingModeSwitchesTheModelThatWillActuallyRun() {
++        let fast = Config.defaultConfig.settingDictationMode(.fast)
++        XCTAssertEqual(fast.modelSize, DictationModels.defaultFastModel)
++        XCTAssertEqual(fast.dictationMode, .fast)
++
++        let accurate = fast.settingDictationMode(.accurate)
++        XCTAssertEqual(accurate.modelSize, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(accurate.dictationMode, .accurate)
++    }
++
++    func testSettingModeWritesThePairExplicitlySoTheFileIsSelfDescribing() {
++        var config = Config.defaultConfig
++        config.accurateModel = nil
++        config.fastModel = nil
++        let switched = config.settingDictationMode(.fast)
++        XCTAssertEqual(switched.accurateModel, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(switched.fastModel, DictationModels.defaultFastModel)
++    }
++
++    func testSettingModeClearsAnExplicitModelPathThatWouldDefeatTheToggle() {
++        var config = Config.defaultConfig
++        config.modelPath = "/pinned/ggml-anything.bin"
++        XCTAssertNil(config.settingDictationMode(.fast).modelPath)
++    }
++
++    func testEffectiveModelIdsFallBackToTheDefaultsWhenUnsetOrBlank() {
++        var config = Config.defaultConfig
++        config.accurateModel = nil
++        config.fastModel = "   "
++        XCTAssertEqual(config.effectiveAccurateModel, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(config.effectiveFastModel, DictationModels.defaultFastModel)
++    }
++
++    func testEffectiveModelIdsHonourAnOverrideInTheConfigFile() {
++        var config = Config.defaultConfig
++        config.accurateModel = "medium.en"
++        config.modelSize = "medium.en"
++        XCTAssertEqual(config.effectiveAccurateModel, "medium.en")
++        XCTAssertEqual(config.dictationMode, .accurate)
++    }
++
++    // MARK: - Migration of a pre-two-model config
++
++    func testPreTwoModelConfigIsDetectedByTheAbsenceOfTheModelPair() throws {
++        // Byte-for-byte the shape of the CEO's live config.json before this change.
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en"}
++        """
++        let config = try Config.decode(from: Data(json.utf8))
++        XCTAssertTrue(config.predatesTwoModelDictation)
++        XCTAssertEqual(config.modelSize, "small.en")
++    }
++
++    func testMigrationAdoptsTheAccurateDefaultOnceAndRecordsThePair() throws {
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en"}
++        """
++        let migrated = Config.migratedForTwoModelDictation(try Config.decode(from: Data(json.utf8)))
++        XCTAssertTrue(migrated.changed)
++        XCTAssertEqual(migrated.config.modelSize, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(migrated.config.accurateModel, DictationModels.defaultAccurateModel)
++        XCTAssertEqual(migrated.config.fastModel, DictationModels.defaultFastModel)
++    }
++
++    func testMigrationIsIdempotentAndNeverOverridesALaterUserChoice() {
++        // Once accurateModel is present the config is post-migration: choosing Fast and
++        // relaunching must NOT silently put the CEO back on the accurate model.
++        let chosenFast = Config.defaultConfig.settingDictationMode(.fast)
++        let again = Config.migratedForTwoModelDictation(chosenFast)
++        XCTAssertFalse(again.changed)
++        XCTAssertEqual(again.config.modelSize, DictationModels.defaultFastModel)
++    }
++
++    func testMigrationLeavesAnExplicitlyPinnedModelPathAlone() throws {
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en",
++         "modelPath":"/pinned/ggml-small.en.bin"}
++        """
++        let migrated = Config.migratedForTwoModelDictation(try Config.decode(from: Data(json.utf8)))
++        XCTAssertTrue(migrated.changed)
++        XCTAssertEqual(migrated.config.modelSize, "small.en", "a pinned file must win over migration")
++        XCTAssertEqual(migrated.config.modelPath, "/pinned/ggml-small.en.bin")
++    }
++
++    // MARK: - Round-tripping the new fields through config.json
++
++    func testNewFieldsSurviveEncodeDecode() throws {
++        var config = Config.defaultConfig
++        config.modelDir = "~/Models/Whisper"
++        config.accurateModel = "large-v3-turbo-q5_0"
++        config.fastModel = "small.en"
++        let data = try JSONEncoder().encode(config)
++        let decoded = try Config.decode(from: data)
++        XCTAssertEqual(decoded.modelDir, "~/Models/Whisper")
++        XCTAssertEqual(decoded.accurateModel, "large-v3-turbo-q5_0")
++        XCTAssertEqual(decoded.fastModel, "small.en")
++        XCTAssertEqual(decoded.dictationMode, .accurate)
++    }
++
++    func testUnsetOptionalFieldsAreNotWrittenIntoTheConfigFile() throws {
++        var config = Config.defaultConfig
++        config.modelDir = nil
++        let json = String(data: try JSONEncoder().encode(config), encoding: .utf8) ?? ""
++        XCTAssertFalse(json.contains("modelDir"))
++        XCTAssertTrue(json.contains("accurateModel"))
++    }
++
++    func testDecodingAConfigWithUnknownFutureFieldsStillWorks() throws {
++        let json = """
++        {"hotkey":{"keyCode":105,"modifiers":[]},"modelSize":"small.en","language":"en",
++         "somethingFromTheFuture":true}
++        """
++        let config = try Config.decode(from: Data(json.utf8))
++        XCTAssertEqual(config.modelSize, "small.en")
++    }
++}

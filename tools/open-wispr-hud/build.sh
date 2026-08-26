@@ -19,12 +19,16 @@ set -euo pipefail
 AUDITED_COMMIT="7ab4e62e8f182f3ecc2116e1094a1eb4416a248f"
 REPO="https://github.com/human37/open-wispr.git"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PATCH="${SCRIPT_DIR}/dictation-hud.patch"
+HUD_PATCH="${SCRIPT_DIR}/dictation-hud.patch"
+# Applied ON TOP of the HUD patch, in this order. Keep the order stable — the
+# two-model patch is diffed against the HUD-patched tree.
+TWO_MODEL_PATCH="${SCRIPT_DIR}/dictation-two-model.patch"
+PATCHES=("${HUD_PATCH}" "${TWO_MODEL_PATCH}")
 WORKDIR="${1:-$(mktemp -d)}"
 SRC="${WORKDIR}/open-wispr"
 
 echo "==> Work dir:  ${WORKDIR}"
-echo "==> Patch:     ${PATCH}"
+for p in "${PATCHES[@]}"; do echo "==> Patch:     ${p}"; done
 echo "==> Base:      ${AUDITED_COMMIT} (open-wispr v0.43.0, audited)"
 
 # Prefer the local Homebrew source cache if present (identical, offline);
@@ -42,9 +46,11 @@ cd "${SRC}"
 git checkout -q "${AUDITED_COMMIT}"
 echo "==> Checked out $(git rev-parse HEAD)"
 
-echo "==> Applying HUD patch"
-git apply --check "${PATCH}"
-git apply "${PATCH}"
+for p in "${PATCHES[@]}"; do
+  echo "==> Applying $(basename "${p}")"
+  git apply --check "${p}"
+  git apply "${p}"
+done
 
 echo "==> Running tests (must be green before shipping)"
 swift test

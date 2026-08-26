@@ -1,9 +1,13 @@
-# open-wispr Dictation HUD — reproducible patch
+# open-wispr dictation patches — reproducible
 
-A minimal, calm **recording-state HUD** for our on-device dictation
-(**open-wispr**, `human37/open-wispr` MIT, built from audited source at commit
-`7ab4e62e` = v0.43.0). It makes silent dictation failures visible and gives the
-"it hears me" signal our menu-bar icon lacks.
+Our two local patches on top of **open-wispr** (`human37/open-wispr` MIT, built
+from audited source at commit `7ab4e62e` = v0.43.0):
+
+1. **HUD** — a minimal, calm recording-state HUD. It makes silent dictation
+   failures visible and gives the "it hears me" signal our menu-bar icon lacks.
+2. **Two-model dictation** — Accurate (`large-v3-turbo-q5_0`, default) / Fast
+   (`small.en`) with a live menu toggle, plus explicit configurable model-path
+   resolution. See [Two-model dictation](#two-model-dictation-accurate--fast) below.
 
 Built to **the design lead's endorsed spec**
 (the dictation-HUD assessment, 2026-08-24). This directory holds
@@ -12,9 +16,11 @@ open-wispr tree itself is NOT vendored here (mirrors how the earlier voice-pilot
 handled). CEO greenlit 2026-08-24 ("go ahead as recommended").
 
 - **Base commit (audited):** `7ab4e62e8f182f3ecc2116e1094a1eb4416a248f`
-- **Patch (what we build/install):** [`dictation-hud.patch`](./dictation-hud.patch)
+- **Patch 1 (what we build/install):** [`dictation-hud.patch`](./dictation-hud.patch)
+- **Patch 2 (applied ON TOP of patch 1):** [`dictation-two-model.patch`](./dictation-two-model.patch)
 - **Patch (upstream-ready, HUD-free):** [`device-change-listener.patch`](./device-change-listener.patch)
-- **Build:** [`build.sh`](./build.sh)
+- **Build:** [`build.sh`](./build.sh) — applies both patches, in order
+- **Models:** [`fetch-dictation-models.sh`](./fetch-dictation-models.sh)
 - **Stack:** native **Swift / SwiftPM / AppKit**, macOS 13+ (17 source files).
   The non-activating window is an `NSPanel` subclass with
   `canBecomeKey == false` — the native equivalent of murmur's
@@ -62,6 +68,87 @@ path, and transcription are unchanged.
 
 ---
 
+## Two-model dictation (Accurate / Fast)
+
+`dictation-two-model.patch`. RichOS ships **one** app carrying **two** whisper
+models with a user-facing toggle. Full rationale and every measurement:
+the local-dictation notes and
+the two-model dictation brief, 2026-08-26.
+
+| Mode | Model | Disk | Cold latency (2.8s / 25.1s clip) | Pooled WER |
+|---|---|---|---|---|
+| **Accurate** (default) | `large-v3-turbo-q5_0` | 574,041,195 B | 1.29 s / 1.88 s | 5.6 % |
+| **Fast** (opt-in) | `small.en` | 487,614,201 B | 0.50 s / 1.25 s | 7.7 % |
+
+Full `large-v3-turbo` is **dropped from the dictation path**: measured
+byte-identical transcripts to `q5_0` on 34/36 runs while costing 1.05 GB more
+disk, 1.13 GB more RAM and 0.20–0.27 s more latency. It remains the default for
+post-call batch transcription (`tools/richos-service`), which this patch does
+not touch.
+
+### What the patch changes
+
+New:
+- `Sources/OpenWisprLib/DictationModels.swift` — **pure, AppKit-free,
+  unit-tested**: `DictationMode` (accurate/fast), the model ids, and the
+  model-path resolution order.
+- `Tests/OpenWisprTests/DictationModelsTests.swift` — **37 tests**: resolution
+  order and precedence, `~` expansion, a no-hardcoded-home invariant, mode↔model
+  round-trip, mode-follows-`modelSize`, the pre-two-model config migration
+  (adopt-once, idempotent, never re-overrides a later choice, leaves a pinned
+  `modelPath` alone), and config encode/decode round-tripping.
+
+Modified (minimal):
+- `Config.swift` — adds `modelDir`, `accurateModel`, `fastModel`; makes the
+  long-dead `modelPath` field load-bearing; default `modelSize` becomes
+  `large-v3-turbo-q5_0`; one-time migration of a pre-two-model config.
+- `Transcriber.swift` — `findModel` takes an explicit `modelPath`/`modelDir`
+  and consults `DictationModels.candidatePaths`.
+- `StatusBarController.swift` — a top-level **Dictation** radio pair.
+- `AppDelegate.swift`, `main.swift` — pass the new config through.
+
+### Three properties worth stating
+
+1. **Live switching, no restart.** Writing the config fires the existing
+   `onConfigChange`, which rebuilds the `Transcriber`. Transcription is a fresh
+   `whisper-cli` subprocess per utterance, so the very next F13 tap uses the new
+   model. Nothing resident has to be swapped.
+2. **The mode is derived, never stored.** There is deliberately no
+   `dictationMode` field. The menu checkmark is computed from `Config.modelSize`
+   — the exact value passed to `whisper-cli -m` — so the label cannot claim a
+   mode the next dictation will not actually use.
+3. **No hardcoded user paths.** Resolution order is `config.modelPath` (an exact
+   file) → `$OPENWISPR_MODEL_DIR` (`:`-separated) → `config.modelDir` →
+   `~/.config/open-wispr/models` → `~/Models/Whisper` → the whisper.cpp install
+   dirs. Every home-relative default is built from
+   `FileManager.default.homeDirectoryForCurrentUser`, and a unit test asserts no
+   candidate path contains a literal user name.
+
+### Models on disk
+
+```bash
+tools/open-wispr-hud/fetch-dictation-models.sh [dest-dir]
+```
+
+Downloads both `.bin` files into one shared directory (default
+`~/Models/Whisper` — the same directory `tools/richos-service` and
+`app/crates/richos-voice` already resolve, so one copy serves all three whisper
+consumers), verifying exact byte size and GGML magic before installing. Total
+**1,061,655,396 bytes (1.06 GB)** — still 563 MB less than shipping full
+`large-v3-turbo` alone. A missing model is otherwise downloaded on first use by
+open-wispr's own `ModelDownloader`.
+
+### Upgrade behaviour on the CEO's live install
+
+His `~/.config/open-wispr/config.json` predates the toggle (`modelSize:
+"small.en"`, no `accurateModel`/`fastModel` keys). On first launch of a patched
+build, `Config.load()` records the model pair and adopts the accurate default
+once, printing a line to the service log. Reverting is one menu click (Fast).
+The migration is keyed on the absence of `accurateModel`, so it can never
+re-override a later choice of his.
+
+---
+
 ## Build (reproducible, non-installing)
 
 ```bash
@@ -69,12 +156,16 @@ tools/open-wispr-hud/build.sh [workdir]
 ```
 
 Clones open-wispr at `7ab4e62` (from the local Homebrew cache if present, else
-GitHub), applies the patch, **runs the full test suite (must be green)**, builds
-`-c release`, and bundles `OpenWispr.app`. It does **not** install or restart
-anything.
+GitHub), applies **both patches in order** (`dictation-hud.patch`, then
+`dictation-two-model.patch`), **runs the full test suite (must be green)**,
+builds `-c release`, and bundles `OpenWispr.app`. It does **not** install or
+restart anything.
 
-Verified: fresh checkout + patch → `swift build` clean, **158/158 tests pass**,
-release build + `OpenWispr.app` bundle succeed.
+Verified with the HUD patch alone: fresh checkout + patch → `swift build` clean,
+**158/158 tests pass**, release build + `OpenWispr.app` bundle succeed.
+Verified with both patches (2026-08-26): fresh clone at `7ab4e62` → both
+patches apply clean → `swift build` clean → **205/205 tests pass** (168
+pre-existing + 37 new) → release build + `OpenWispr.app` bundle succeed.
 
 ## Apply (scripted)
 
