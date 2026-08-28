@@ -1,3 +1,5 @@
+/.idea/
+
 # Locally generated operator files — never commit them to this public repo.
 #
 # `engine/scripts/provision-claude-md.sh` (the documented install step) reads
