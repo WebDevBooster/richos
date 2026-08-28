@@ -98,6 +98,11 @@ cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav
 
 ## App icon — pipeline exists, source art does not (BLOCKED)
 
+The build warns while the icons are still placeholders and does not fail, so app
+development is never blocked on artwork. Bundling and CI set
+`RICHOS_REQUIRE_REAL_ICONS=1`, which turns the same check fatal — a release must
+not ship a placeholder icon.
+
 `src-tauri/icons/` currently holds four **placeholder** files (`32x32.png`, `128x128.png`,
 `[email protected]`, `icon.png`) — all four are byte-identical, and all four are internally a
 512x512 PNG regardless of what their filename claims. `src-tauri/build.rs` now REFUSES to
