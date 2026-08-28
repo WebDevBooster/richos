@@ -130,20 +130,64 @@ PY
 VERSION="unknown"
 [ -f "$ENGINE_ROOT/VERSION" ] && VERSION="$(awk 'NR==1 {gsub(/[[:space:]]/,""); print; exit}' "$ENGINE_ROOT/VERSION" 2>/dev/null || echo unknown)"
 
-# How many guards are actually on disk and executable? A count is not proof of
-# wiring — contract-integrity-probe.sh owns that — but a count that has fallen
-# is a cheap, visible signal that something is missing.
-GUARD_EXPECTED_LIST="guard-worktree-isolation guard-definition-drift reader-teammate-hint \
-verify-agent-prompt guard-main-checkout-writes scan-secrets \
-guard-resume-isolation guard-bash-main-writes guard-workflow-ban detect-nonnative-worktree \
-session-start-reap-worktrees snapshot-agent-definitions \
-teammate-idle-handoff task-completed-handoff"
-GUARD_COUNT=0
-GUARD_EXPECTED=0
-for g in $GUARD_EXPECTED_LIST; do
-    GUARD_EXPECTED=$((GUARD_EXPECTED + 1))
-    [ -x "$ENGINE_ROOT/scripts/hooks/$g.sh" ] && GUARD_COUNT=$((GUARD_COUNT + 1))
-done
+# --- THE GUARD FRACTION ----------------------------------------------------
+#
+# TWO DIFFERENT QUESTIONS, DELIBERATELY NOT THE SAME QUERY:
+#
+#   denominator  what will the HOST LOAD? -> hooks/hooks.json, the registration
+#                surface. Derived, never typed (scripts/lib/registered-hooks.sh
+#                carries the full history of why).
+#   numerator    of those, how many are actually ON DISK and EXECUTABLE?
+#
+# Collapsing these into one query would produce a fraction that is always full
+# and therefore says nothing. The gap between them IS the signal: a guard the
+# host will register whose file is missing or non-executable shows up here as a
+# SHORTFALL, at session start, in front of the operator.
+#
+# A count is still not proof of wiring — contract-integrity-probe.sh owns that
+# — but a count that has fallen is a cheap, visible signal that something is
+# missing, available a whole probe run earlier.
+#
+# THE ANNOUNCER IS DELIBERATELY NOT COUNTED. This file is registered in
+# hooks.json alongside the guards, and excluding it is a decision, not an
+# oversight:
+#
+#   * it guards nothing — it announces, and the noun in the line below is
+#     "guards";
+#   * its own term in the fraction could never be anything but satisfied. If
+#     engine-status.sh were missing or non-executable there would be no banner
+#     to read the fraction in. Padding a reassurance fraction with a term that
+#     cannot fail is precisely the pathology the two drift incidents produced,
+#     rebuilt on purpose.
+#
+# The exclusion is computed from THIS FILE'S OWN NAME, so it is one line and it
+# cannot go stale — it is not a list of exceptions, which would be the same
+# hand-maintained record walking back in through a different door. Note that
+# the probe's BR2/BR4 count all 16 registered scripts, announcer included;
+# their subject is the registration, not the enforcing set.
+_GI_LIB="$SCRIPT_DIR/../lib/registered-hooks.sh"
+GUARD_COUNT="?"
+GUARD_EXPECTED="?"
+GUARD_NOTE=" WARNING: the guard inventory could NOT be derived from the engine's hooks/hooks.json (missing, unreadable or registering nothing), so the count above is unknown and this engine install is not intact — treat enforcement as unverified until scripts/hooks/contract-integrity-probe.sh says otherwise."
+if [ -f "$_GI_LIB" ]; then
+    # shellcheck source=../lib/registered-hooks.sh
+    . "$_GI_LIB"
+    _GI_SELF="${BASH_SOURCE[0]##*/}"
+    _GI_ROWS="$(registered_hook_scripts "$ENGINE_ROOT/hooks/hooks.json")" || _GI_ROWS=""
+    if [ -n "$_GI_ROWS" ]; then
+        GUARD_COUNT=0
+        GUARD_EXPECTED=0
+        GUARD_NOTE=""
+        while IFS= read -r _gi_g; do
+            [ -n "$_gi_g" ] || continue
+            [ "$_gi_g" = "$_GI_SELF" ] && continue
+            GUARD_EXPECTED=$((GUARD_EXPECTED + 1))
+            [ -x "$ENGINE_ROOT/scripts/hooks/$_gi_g" ] && GUARD_COUNT=$((GUARD_COUNT + 1))
+        done <<GI_EOF
+$_GI_ROWS
+GI_EOF
+    fi
+fi
 
 resolve_entity_root ""
 RC=$?
@@ -151,21 +195,21 @@ RC=$?
 case "$RICHOS_ROOT_STATUS" in
     governed)
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present. Enforcement is ON for this repository." \
-            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/${GUARD_EXPECTED} guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE})."
+            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards). Enforcement is ON for this repository.${GUARD_NOTE}" \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/${GUARD_EXPECTED} guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE}).${GUARD_NOTE}"
         ;;
     engine-self)
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/${GUARD_EXPECTED} guards present. NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else." \
-            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/${GUARD_EXPECTED} guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else."
+            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards).${GUARD_NOTE} NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else." \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/${GUARD_EXPECTED} guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else.${GUARD_NOTE}"
         ;;
     not-adopted)
         # Loud enough to be seen, calm enough not to be noise: this is the
         # normal state in every repository that has not adopted the engine, and
         # the engine loads in all of them.
         emit_context \
-            "RichOS engine ${VERSION} loaded but STOOD DOWN — this repository has NOT adopted it. Engine: ${ENGINE_ROOT}. No orchestration.config was found at any candidate root, so NONE of the ${GUARD_COUNT} guards will enforce anything in this session: no worktree-isolation contract, no main-checkout write protection, no secret scanning, no definition-drift check. This is a stand-down, not a pass. To adopt, commit an orchestration.config at this repository's root." \
-            "RichOS engine ${VERSION}: STOOD DOWN — this repository has not adopted the engine, so NONE of its ${GUARD_COUNT} guards will enforce anything in this session. This is a stand-down, not a pass. To adopt, commit an orchestration.config at the repository root."
+            "RichOS engine ${VERSION} loaded but STOOD DOWN — this repository has NOT adopted it. Engine: ${ENGINE_ROOT}. No orchestration.config was found at any candidate root, so NONE of the ${GUARD_COUNT}/${GUARD_EXPECTED} guards will enforce anything in this session: no worktree-isolation contract, no main-checkout write protection, no secret scanning, no definition-drift check. This is a stand-down, not a pass. To adopt, commit an orchestration.config at this repository's root.${GUARD_NOTE}" \
+            "RichOS engine ${VERSION}: STOOD DOWN — this repository has not adopted the engine, so NONE of its ${GUARD_COUNT}/${GUARD_EXPECTED} guards will enforce anything in this session. This is a stand-down, not a pass. To adopt, commit an orchestration.config at the repository root.${GUARD_NOTE}"
         ;;
     *)
         BANNER="$(root_failure_banner "scripts/hooks/engine-status.sh")"
