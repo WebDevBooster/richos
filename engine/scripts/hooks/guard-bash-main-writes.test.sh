@@ -126,6 +126,9 @@ run_case "read: interpreter with 2>&1 tail"     0 "$(json_cmd "python3 $FIRST_PR
 run_case "read: stderr merge on a cat"          0 "$(json_cmd "cat $FIRST_PROTECTED/x.py 2>&1" "$ROOT")"
 run_case "read: >&2 fd-dup, protected mention"  0 "$(json_cmd "echo checking $FIRST_PROTECTED/x.py >&2" "$ROOT")"
 run_case "unrelated write clause + protected read" 0 "$(json_cmd "mkdir -p /tmp/scratch && cat $FIRST_PROTECTED/x.py" "$ROOT")"
+run_case "read: sed -n on a protected file"     0 "$(json_cmd "sed -n '1,20p' $FIRST_PROTECTED/x.py" "$ROOT")"
+run_case "read: git show a protected blob"      0 "$(json_cmd "git show HEAD:$FIRST_PROTECTED/x.py" "$ROOT")"
+run_case "read: protected grep -> unprotected redirect" 0 "$(json_cmd "grep -rn foo $FIRST_PROTECTED/ > /tmp/guard-results.txt" "$ROOT")"
 
 # --- NEGATIVE ARMS for the five above: the same shapes with a REAL target ---
 # Without these, "the anchoring works" would also be satisfied by a guard that
