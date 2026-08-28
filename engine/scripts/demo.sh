@@ -129,7 +129,7 @@ mkdir -p "$SAMPLE_ROOT/scripts/hooks" "$SAMPLE_ROOT/scripts/lib" "$SAMPLE_ROOT/.
 for f in guard-worktree-isolation.sh guard-definition-drift.sh snapshot-agent-definitions.sh \
          reader-teammate-hint.sh verify-agent-prompt.sh \
          guard-main-checkout-writes.sh guard-bash-main-writes.sh scan-secrets.sh \
-         guard-resume-isolation.sh detect-nonnative-worktree.sh teammate-idle-handoff.sh \
+         guard-resume-isolation.sh guard-workflow-ban.sh detect-nonnative-worktree.sh teammate-idle-handoff.sh \
          task-completed-handoff.sh session-start-reap-worktrees.sh \
          engine-status.sh install.sh contract-integrity-probe.sh; do
     cp "$REPO_ROOT/scripts/hooks/$f" "$SAMPLE_ROOT/scripts/hooks/$f"
@@ -206,6 +206,12 @@ data = {
                 "matcher": "Bash",
                 "hooks": [
                     {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-bash-main-writes.sh", "timeout": 10},
+                ],
+            },
+            {
+                "matcher": "Workflow",
+                "hooks": [
+                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-workflow-ban.sh", "timeout": 10},
                 ],
             },
         ],

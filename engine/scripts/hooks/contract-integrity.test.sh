@@ -67,6 +67,7 @@ ALL_HOOKS=(
     guard-bash-main-writes.sh
     scan-secrets.sh
     guard-resume-isolation.sh
+    guard-workflow-ban.sh
     detect-nonnative-worktree.sh
     teammate-idle-handoff.sh
     task-completed-handoff.sh
@@ -168,6 +169,9 @@ data["hooks"] = {
         ]},
         {"matcher": "Bash", "hooks": [
             {"type": "command", "command": P + "/guard-bash-main-writes.sh", "timeout": 10},
+        ]},
+        {"matcher": "Workflow", "hooks": [
+            {"type": "command", "command": P + "/guard-workflow-ban.sh", "timeout": 10},
         ]},
     ],
     "PostToolUse": [

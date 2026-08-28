@@ -323,7 +323,7 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
-    guard-resume-isolation guard-bash-main-writes detect-nonnative-worktree \
+    guard-resume-isolation guard-bash-main-writes guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
     R_MISSING_SOURCE=""
@@ -484,9 +484,16 @@ guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
+guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted"
+
+    # DERIVED, never hand-maintained. A literal count in the PASS text is a
+    # drift surface of exactly the kind this probe exists to remove: add a
+    # guard, forget the number, and the probe reports a stale inventory while
+    # passing.
+    BR_EXPECTED_COUNT="$(printf '%s\n' "$BR_EXPECTED" | grep -c '|')"
 
     # --- BR1 — plugin manifest present, parseable, named ---
     BR_PLUGIN_NAME=""
@@ -580,7 +587,7 @@ BR_EOF
             fi
 
             if [ "$BR2_OK" -eq 1 ]; then
-                emit_pass "BR2. all 14 managed guards registered exactly once on the right event; PreToolUse[Agent] chain in canonical order"
+                emit_pass "BR2. all $BR_EXPECTED_COUNT managed guards registered exactly once on the right event; PreToolUse[Agent] chain in canonical order"
             fi
         fi
     fi
@@ -671,9 +678,9 @@ BR_EOF3
         emit_warn "BR4. TAMPER CHECK DID NOT RUN for:$BR4_UNHASHED — no .sha256 sidecar at the engine root. Presence and executability were verified; whether the script still contains the guard it shipped with was NOT. Sidecars are minted by the ENGINE maintainer (scripts/hooks/install.sh, run in the engine's own checkout), because a by-reference engine root is read-only to the repository it governs."
     fi
     if [ "$BR4_OK" -eq 1 ] && [ -z "$BR4_UNHASHED" ]; then
-        emit_pass "BR4. all 14 registered guard scripts present, executable and hash-matched to their sidecars"
+        emit_pass "BR4. all $BR_EXPECTED_COUNT registered guard scripts present, executable and hash-matched to their sidecars"
     elif [ "$BR4_OK" -eq 1 ]; then
-        emit_pass "BR4. all 14 registered guard scripts present and executable"
+        emit_pass "BR4. all $BR_EXPECTED_COUNT registered guard scripts present and executable"
     fi
 
     # --- BR5 — the declared meta-roles resolve ---
