@@ -273,6 +273,64 @@ ca_case "dense mixed token still blocked" 2 2 "token = \"$CA_DENSE\""
 ca_case "base64-ish still blocked"        2 2 "secret = \"$CA_B64\""
 ca_case "vendor-prefix key still blocked" 2 2 "$CA_VENDOR"
 
+# --- Real-source shapes, absorbed from a downstream adopter's local rig ------
+#
+# The shapes above are synthetic. These are patterns that actually occur in an
+# adopter's source (a Swift subscript, a Swift call with arguments, a Convex
+# validator, a generic type parameter) and were covered ONLY by that adopter's
+# own suite. Absorbed here before that suite was deleted, so the coverage
+# survives the copy that carried it.
+ca_case "real-source: dotted member in an object literal" 2 0 'token: ctx.jwtClient,'
+ca_case "real-source: Swift subscript"                    2 0 'password = ProcessInfo.processInfo.environment["APP_STAGING_CLIENT_PASSWORD"],'
+ca_case "real-source: Swift call with arguments"          2 0 'password = s.replacingOccurrences(of: "APP_STAGING_CLIENT_PASSWORD=", with: "")'
+# A PIN, not evidence: measured, the STRICT scanner already allows this one
+# (the value is short and carries no entropy), so it says nothing about the
+# reducer. Kept because it is a real, frequent source shape and a regression
+# that started flagging it would be felt immediately — but labelled, because a
+# case that passes under both settings must never be counted as a win for one.
+ca_case "PIN real-source: Convex validator (passes under BOTH)" 0 0 'secret: v.string(),'
+ca_case "real-source: generic type parameter"             2 0 'secret: Array<StringElement>'
+ca_case "real-source: hyphenated descriptive constant"    2 0 'val token = "abc-123-token"'
+
+# THE TWO ARMS THAT MAKE THE REDUCER A FILTER AND NOT A HOLE.
+#
+# Everything above shows the reducer letting something through. On its own that
+# is equally consistent with a reducer that lets EVERYTHING through — which
+# would satisfy every win case above while removing the scanner. These two
+# assert it still blocks, WITH the opt-in on:
+#
+#   - a real secret value that merely happens to be assigned to a dotted-looking
+#     prefix must not inherit the code-reference exemption;
+#   - a descriptive-looking value that carries digits is not descriptive.
+#
+# Both were covered by the adopter's rig and by nothing in the engine.
+CA_DOTTED_REAL="$(printf 'Xk9m%szR7v%s' 'Qp2' 'Lw4Tn8Bq')"
+CA_DIGIT_REAL="$(printf 'aB3x%szM2k%s' 'Q9' 'P7wR5vN8tL')"
+ca_case "HOLE CHECK: a real dotted-prefixed secret value still blocks" 2 2 "password = $CA_DOTTED_REAL"
+ca_case "HOLE CHECK: a digit-bearing generic secret still blocks"      2 2 "password = \"$CA_DIGIT_REAL\""
+
+# --- The inline allowlist, exercised through the config key ------------------
+# An adopter's SECRET_SCAN_ALLOWLIST entries are the only reason deliberately
+# adversarial fixtures in its own security tests do not trip this scanner. The
+# engine had no case proving the allowlist is consulted at all, so a change that
+# dropped it would have passed everything above.
+CA_ROOT_ALLOW="$(ca_mkroot 0)"
+printf 'SECRET_SCAN_ALLOWLIST="tok_en.special~bits"\n' >>"$CA_ROOT_ALLOW/orchestration.config"
+CA_ALLOW_VAL="$(printf 'abc123XYZ-%s' 'tok_en.special~bits')"
+for arm in allowlisted notallowlisted; do
+    if [ "$arm" = allowlisted ]; then val="$CA_ALLOW_VAL"; want=0; label="an allowlisted literal passes"
+    else val="$(printf 'abc123XYZ-%s' 'tok_zz.different~bits')"; want=2; label="a NON-allowlisted sibling still blocks"; fi
+    printf '%s' "$(json_write Write content "const TOKEN = \"$val\";")" \
+      | RICHOS_ENTITY_ROOT="$CA_ROOT_ALLOW" "$CA_ROOT_ALLOW/scripts/hooks/scan-secrets.sh" >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq "$want" ]; then
+        PASS=$((PASS + 1)); printf '  PASS  allowlist: %s (rc=%s)\n' "$label" "$rc"
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  allowlist: %s (want %s got %s)\n' "$label" "$want" "$rc"
+    fi
+done
+rm -rf "$CA_ROOT_ALLOW"
+
 # The default with the key ABSENT altogether must equal the key set to 0 —
 # otherwise "default OFF" would be a claim about a config file rather than
 # about the hook, and an adopter with no such line would get a surprise.
