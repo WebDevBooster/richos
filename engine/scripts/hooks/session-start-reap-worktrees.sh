@@ -72,7 +72,19 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-PAYLOAD="$(cat 2>/dev/null || true)"
+# NOTE ON STDIN — this hook does NOT read the payload.
+#
+# It is a SessionStart hook AND a plain CLI tool, and in the CLI case stdin is
+# an inherited pipe that nobody closes, so an unconditional `cat` hangs forever
+# (`[ ! -t 0 ]` does not help: an inherited pipe is not a TTY). Measured: 92
+# seconds and counting, inside the contract-integrity probe, before this was
+# reverted.
+#
+# It costs nothing, because the payload's `cwd` is a REDUNDANT resolution
+# candidate here: CLAUDE_PROJECT_DIR is measured present and correct in a
+# plugin-loaded hook's environment at SessionStart (probe, 2026-08-28), and it
+# outranks the payload cwd anyway. Paying a hang risk for a candidate that
+# never wins is a bad trade.
 
 # TWO ROOTS. The reaper SCRIPT is an ENGINE asset; the tree it SWEEPS is the
 # ENTITY. The old code took both from one variable, so a plugin-loaded engine
@@ -80,7 +92,7 @@ PAYLOAD="$(cat 2>/dev/null || true)"
 # and reported "skipped (...)" — indistinguishable from a routine no-op.
 REAPER="$ENGINE_ROOT/scripts/reap-stale-worktrees.sh"
 
-if resolve_entity_root "$PAYLOAD"; then
+if resolve_entity_root ""; then
     SWEEP_ROOT="${REAP_WORKTREES_ROOT:-$RICHOS_ENTITY_ROOT_RESOLVED}"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     SWEEP_ROOT="${REAP_WORKTREES_ROOT:-}"

@@ -107,15 +107,27 @@ if [ -n "${DEFINITION_DRIFT_ROOT:-}" ]; then
     RICHOS_ENTITY_ROOT="$DEFINITION_DRIFT_ROOT"
 fi
 
-# The payload is read here rather than later because resolution needs its cwd
-# candidate; the session-id extraction further down reuses the same bytes.
-STDIN_JSON=""
-if [ ! -t 0 ]; then
-    STDIN_JSON="$(cat 2>/dev/null || true)"
-fi
+# NOTE ON STDIN — this hook reads the payload LATE and CONDITIONALLY.
+#
+# It is a SessionStart hook AND a plain CLI tool, and in the CLI case stdin is
+# an inherited pipe that nobody closes, so an unconditional `cat` hangs forever
+# (`[ ! -t 0 ]` does not help: an inherited pipe is not a TTY). Measured: 92
+# seconds and counting, inside the contract-integrity probe, before this was
+# reverted.
+#
+# It costs nothing, because the payload's `cwd` is a REDUNDANT resolution
+# candidate here: CLAUDE_PROJECT_DIR is measured present and correct in a
+# plugin-loaded hook's environment at SessionStart (probe, 2026-08-28), and it
+# outranks the payload cwd anyway. Paying a hang risk for a candidate that
+# never wins is a bad trade.
+#
+# It does still read stdin further down, for the session id — but only under
+# its original condition (no --session was supplied), which is what kept the
+# hazard unreachable before the root work touched it. Root resolution happens
+# first and needs nothing from stdin.
 
 ROOT_FAILURE=""
-if resolve_entity_root "$STDIN_JSON"; then
+if resolve_entity_root ""; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     ENTITY_ROOT=""
@@ -132,14 +144,14 @@ STATE_DIR="$ENTITY_ROOT/.claude/state"
 if [ -z "$SESSION_ID" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
     SESSION_ID="$CLAUDE_SESSION_ID"
 fi
-if [ -z "$SESSION_ID" ] && [ -n "$STDIN_JSON" ]; then
-    # The SessionStart payload ({"session_id":..., "cwd":..., ...}) was already
-    # read once, above, because root resolution needs its `cwd`. Re-reading it
-    # here would hand back an empty string on a drained stdin and the session
-    # id would silently fall back to a timestamped filename — which still
-    # produces a snapshot, so nothing would look wrong while the partner guard
-    # quietly lost its session-scoped baseline.
-    if command -v python3 >/dev/null 2>&1; then
+if [ -z "$SESSION_ID" ] && [ ! -t 0 ]; then
+    # SessionStart payload on stdin: {"session_id":"...","hook_event_name":...}
+    # Reached ONLY when no --session was supplied, i.e. a real SessionStart
+    # firing, where the harness writes the payload and closes. A CLI run with
+    # --session never gets here, which is what keeps an inherited, never-closed
+    # stdin from hanging the hook.
+    STDIN_JSON="$(cat 2>/dev/null || true)"
+    if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
         SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
 import json, sys
 try:

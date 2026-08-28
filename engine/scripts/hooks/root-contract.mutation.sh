@@ -249,6 +249,23 @@ open(p, "w").write(s.replace(old, new, 1))
 PY
 }
 
+# M10. Re-introduce the unconditional stdin read in the snapshotter — the hang
+# I actually shipped and then caught. If case 9c cannot see it, the regression
+# test is decoration.
+m_snapshot_reads_stdin() {
+    local M="$1"
+    python3 - "$M" <<'PYEOF' || return 1
+import sys
+p = sys.argv[1] + "/scripts/hooks/snapshot-agent-definitions.sh"
+s = open(p).read()
+old = 'ROOT_FAILURE=""\nif resolve_entity_root ""; then'
+if old not in s:
+    raise SystemExit(1)
+new = 'STDIN_JSON="$(cat 2>/dev/null || true)"\nROOT_FAILURE=""\nif resolve_entity_root "$STDIN_JSON"; then'
+open(p, "w").write(s.replace(old, new, 1))
+PYEOF
+}
+
 echo "=== mutation harness: is each fix load-bearing? ==="
 echo ""
 
@@ -272,6 +289,8 @@ mutate "M8 an unresolvable namespace is accepted again" \
        "scripts/hooks/root-contract.test.sh" "3e" m_unresolvable_accepted
 mutate "M9 engine-status reports ACTIVE without checking" \
        "scripts/hooks/root-contract.test.sh" "7b" m_status_always_active
+mutate "M10 the snapshotter reads stdin unconditionally again (the 92s hang)" \
+       "scripts/hooks/root-contract.test.sh" "9c" m_snapshot_reads_stdin
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

@@ -54,7 +54,19 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-PAYLOAD="$(cat 2>/dev/null || true)"
+# NOTE ON STDIN — this hook does NOT read the payload.
+#
+# It is a SessionStart hook AND a plain CLI tool, and in the CLI case stdin is
+# an inherited pipe that nobody closes, so an unconditional `cat` hangs forever
+# (`[ ! -t 0 ]` does not help: an inherited pipe is not a TTY). Measured: 92
+# seconds and counting, inside the contract-integrity probe, before this was
+# reverted.
+#
+# It costs nothing, because the payload's `cwd` is a REDUNDANT resolution
+# candidate here: CLAUDE_PROJECT_DIR is measured present and correct in a
+# plugin-loaded hook's environment at SessionStart (probe, 2026-08-28), and it
+# outranks the payload cwd anyway. Paying a hang risk for a candidate that
+# never wins is a bad trade.
 
 emit_context() { # <summary>
     local summary="$1"
@@ -90,7 +102,7 @@ for g in guard-worktree-isolation guard-definition-drift reader-teammate-hint \
     [ -x "$ENGINE_ROOT/scripts/hooks/$g.sh" ] && GUARD_COUNT=$((GUARD_COUNT + 1))
 done
 
-resolve_entity_root "$PAYLOAD"
+resolve_entity_root ""
 RC=$?
 
 case "$RICHOS_ROOT_STATUS" in

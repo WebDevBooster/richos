@@ -341,6 +341,77 @@ else
     bad "8b secret scanner blocked in an unadopted repo (rc=$RC)"
 fi
 
+# ===========================================================================
+# 9. NO SessionStart HOOK MAY BLOCK ON STDIN.
+#
+# These hooks are SessionStart handlers AND plain CLI tools. In the CLI case
+# stdin is an inherited pipe nobody closes, and an unconditional `cat` waits
+# forever — `[ ! -t 0 ]` does not save you, because an inherited pipe is not a
+# TTY. This is not hypothetical: wiring the root contract, I gave all three an
+# unconditional payload read, and the contract-integrity probe sat on the
+# snapshotter for 92 seconds before I killed it. It would have hung a real
+# session start.
+#
+# The check: run each with an OPEN, EMPTY stdin (a background writer that never
+# writes and never closes) and require it to finish anyway.
+# ===========================================================================
+hang_check() { # <hook> [args...]
+    local hook="$1"; shift
+    local fifo out rc
+    fifo="$SANDBOX/fifo.$$"
+    rm -f "$fifo"; mkfifo "$fifo"
+    # Hold the write end open for 20s without writing anything. An unbounded
+    # read on this stdin never returns.
+    ( exec 3>"$fifo"; sleep 20 ) &
+    local holder=$!
+    (
+        cd "$SANDBOX" || exit 99
+        CLAUDE_PROJECT_DIR="$SESSREPO" bash "$HOOKS/$hook" "$@" >/dev/null 2>&1 <"$fifo"
+    ) &
+    local child=$!
+    local n=0
+    while kill -0 "$child" 2>/dev/null && [ "$n" -lt 8 ]; do sleep 1; n=$((n + 1)); done
+    if kill -0 "$child" 2>/dev/null; then
+        kill -9 "$child" 2>/dev/null
+        rc=1
+    else
+        rc=0
+    fi
+    kill -9 "$holder" 2>/dev/null
+    wait "$holder" 2>/dev/null
+    rm -f "$fifo"
+    return $rc
+}
+
+if hang_check engine-status.sh; then
+    ok "9a POSITIVE  engine-status.sh completes with an open, never-closed stdin"
+else
+    bad "9a engine-status.sh BLOCKED on stdin — it would hang a session start"
+fi
+if hang_check session-start-reap-worktrees.sh; then
+    ok "9b POSITIVE  session-start-reap-worktrees.sh completes with an open, never-closed stdin"
+else
+    bad "9b session-start-reap-worktrees.sh BLOCKED on stdin"
+fi
+# The snapshotter with --session must not read stdin at all: that is the exact
+# invocation the contract-integrity probe uses, and the exact one that hung.
+if hang_check snapshot-agent-definitions.sh --session cafe1234-0000; then
+    ok "9c POSITIVE  snapshot-agent-definitions.sh --session completes with an open, never-closed stdin"
+else
+    bad "9c snapshot-agent-definitions.sh --session BLOCKED on stdin (the 92-second hang)"
+fi
+# 9d NEGATIVE — and it must still READ the payload when there is no --session,
+# because that is where the session id comes from. Without this, "does not
+# hang" could be satisfied by never reading stdin at all, and the session-scoped
+# snapshot would silently degrade to a timestamped one.
+rm -rf "$SESSREPO/.claude/state"
+run snapshot-agent-definitions.sh '{"session_id":"beef9999-0000","cwd":"'"$SESSREPO"'","hook_event_name":"SessionStart"}' "CLAUDE_PROJECT_DIR=$SESSREPO"
+if [ -f "$SESSREPO/.claude/state/agent-definitions-beef9999.snapshot" ]; then
+    ok "9d NEGATIVE  without --session it still reads the payload for the session id"
+else
+    bad "9d payload session id no longer read (out=${OUT:0:200})"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== root-contract end-to-end: $FAIL FAILED, $PASS passed ==="
