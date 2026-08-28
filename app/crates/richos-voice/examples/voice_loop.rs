@@ -6,7 +6,7 @@
 //!
 //! ```sh
 //! # 1. the ACP adapter (once):
-//! (cd app/scratch-acp && npm i)
+//! (cd app/acp-adapter && npm i)
 //!
 //! # 2. speak into the real microphone, if the host has one:
 //! cargo run -p richos-voice --example voice_loop
@@ -179,7 +179,7 @@ fn main() {
         }
         Err(e) => {
             eprintln!("FATAL: no compute lease — {e}");
-            eprintln!("       (cd app/scratch-acp && npm i) and make sure `claude` is signed in.");
+            eprintln!("       (cd app/acp-adapter && npm i) and make sure `claude` is signed in.");
             std::process::exit(2);
         }
     }

@@ -64,7 +64,7 @@ app/
     src/main.rs              window + Tauri command bridge to the spine
     tauri.conf.json, capabilities/, icons/
   ui/                        minimal web UI (thread list + messages + composer)
-  scratch-acp/               ACP protocol probe (probe.js) — repro for the wire shape
+  acp-adapter/               hosts the claude-agent-acp adapter + probe.js (wire-shape repro)
 ```
 
 `src-tauri/` is a **deliberately detached** nested workspace so the heavy webview
@@ -85,9 +85,9 @@ cargo run -p richos-voice --example device_probe       # what the audio hardware
 # 2. The desktop shell (from app/src-tauri/):
 cargo build                                     # -> target/debug/richos-tauri (Mach-O)
 
-# 3. The LIVE ACP round-trip (needs `claude` CLI signed in; adapter under scratch-acp/):
-#    installs once:  (cd scratch-acp && npm i @agentclientprotocol/claude-agent-acp)
-RICHOS_ACP_BIN="$PWD/scratch-acp/node_modules/.bin/claude-agent-acp" \
+# 3. The LIVE ACP round-trip (needs `claude` CLI signed in; adapter under acp-adapter/):
+#    installs once:  (cd acp-adapter && npm i @agentclientprotocol/claude-agent-acp)
+RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
   cargo run -p richos-core --example acp_roundtrip -- "$PWD/../engine" "who are you?"
 
 # 4. The WHOLE voice loop (needs the adapter above; a WAV stands in for the mic on a
@@ -95,6 +95,69 @@ RICHOS_ACP_BIN="$PWD/scratch-acp/node_modules/.bin/claude-agent-acp" \
 say -v Samantha -o /tmp/ceo.wav --data-format=LEI16@16000 "Rich, are you there?"
 cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav
 ```
+
+## App icon — pipeline exists, source art does not (BLOCKED)
+
+The build warns while the icons are still placeholders and does not fail, so app
+development is never blocked on artwork. Bundling and CI set
+`RICHOS_REQUIRE_REAL_ICONS=1`, which turns the same check fatal — a release must
+not ship a placeholder icon.
+
+`src-tauri/icons/` currently holds four **placeholder** files (`32x32.png`, `128x128.png`,
+`[email protected]`, `icon.png`) — all four are byte-identical, and all four are internally a
+512x512 PNG regardless of what their filename claims. `src-tauri/build.rs` now REFUSES to
+build `richos-tauri` while that's true (dimension check + cross-file identity check; see
+its doc comment for the exact defect it was written against). This is deliberate: a build
+that "just compiles" over a placeholder icon is not done, and Tauri does not resize a
+bundle icon to fit its declared filename — a mis-sized file ships exactly as supplied.
+
+**What Tauri (v2.11.5 desktop app / tauri-build 2.6.3, pinned `"2"` in `Cargo.toml`)
+actually requires**, per the v2 docs:
+- `tauri.conf.json`'s `bundle.icon` array must list, at minimum, the set `tauri icon`
+  generates: `icons/32x32.png`, `icons/128x128.png`, `[email protected]` (256x256px — the
+  "@2x" of 128), `icons/icon.png` (512x512px), plus `icons/icon.icns` for macOS and
+  `icons/icon.ico` for Windows
+  ([App Icons](https://v2.tauri.app/develop/icons/),
+  [Configuration Files](https://v2.tauri.app/develop/configuration-files/)). This repo's
+  `tauri.conf.json` now lists all six.
+- `icon.ico` (Windows) must contain layers for 16, 24, 32, 48, 64 and 256px
+  ([Tauri v1 Icons guide](https://v1.tauri.app/v1/guides/features/icons/), format
+  unchanged in v2).
+- `icon.icns` (macOS) must contain the 10 named/sized layers in the Tauri repo's
+  `icns.json` (`is32`/16, `ic11`/32, `il32`/32, `ic12`/64, `ic07`/128, `ic13`/256,
+  `ic08`/256, `ic14`/512, `ic09`/512, `ic10`/1024 —
+  [tauri-apps/tauri `helpers/icns.json`](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-cli/src/helpers/icns.json)).
+  The `ic10` layer is 1024x1024px, which is why the source must be at least that large —
+  anything smaller forces an upscale for that one layer.
+- The `tauri icon` CLI subcommand
+  ([CLI reference](https://v2.tauri.app/reference/cli/)) takes "a squared PNG or SVG file
+  with transparency" (default `./app-icon.png`) and generates the whole platform set —
+  desktop PNGs, `icon.icns`, `icon.ico`, plus iOS/Android sets if those targets are ever
+  enabled. The Tauri v1 docs state the source concretely: **"png, 1024x1024px with
+  transparency"** — i.e. exactly the resolution the `icns.json` `ic10` layer needs, with
+  no upscaling.
+
+**Generation step, once a real source image exists** (not run yet — no source art is
+checked into this public repo; verified locally there is no `.svg`/`.icns`/`.ico` anywhere
+under `app/`):
+
+```sh
+cargo install tauri-cli --version "^2" --locked   # once
+cd app/src-tauri
+cargo tauri icon /path/to/a-1024x1024-square-source.png
+```
+
+This overwrites everything under `src-tauri/icons/` with a real, correctly-sized,
+non-placeholder set (including `icon.icns` and `icon.ico`), at which point
+`check_icons_are_not_placeholders()` in `build.rs` passes and `cargo build` proceeds
+normally — verified locally by swapping in real (correctly-sized, distinct) test renders
+and confirming the same build command that fails today succeeds unchanged.
+
+**What the CEO needs to hand over, in one line:** a single square PNG or SVG, **at least
+1024x1024px**, with a **transparent background**, with no baked-in padding/rounding (macOS
+and Windows both apply their own corner/shape treatment at bundle time) — that one file is
+the only missing input; the config, the generation command, and the build-time guard
+against shipping placeholders again are all already in place.
 
 ## Runtime config (env)
 

@@ -1,7 +1,7 @@
 {
-  "name": "scratch-acp",
+  "name": "acp-adapter",
   "version": "1.0.0",
-  "description": "",
+  "description": "Hosts the @agentclientprotocol/claude-agent-acp binary richos-core spawns as its ACP child process, plus probe.js, the JSON-RPC wire-shape verification harness for it.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
