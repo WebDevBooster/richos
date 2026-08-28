@@ -99,6 +99,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-workflow-ban.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [

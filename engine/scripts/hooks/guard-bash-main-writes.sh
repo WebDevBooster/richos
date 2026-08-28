@@ -15,16 +15,42 @@
 # (PROTECTED_PATHS) — the SAME trees guard-main-checkout-writes.sh protects.
 #
 # Policy (conservative, matches the isolation model):
-#   BLOCK a Bash command when BOTH hold:
-#     1. it contains a write-ish operation (mkdir/cp/mv/rm/tee/touch/rsync or
-#        shell redirection) — detection is word-boundary based; AND
-#     2. it references a protected tree in the main checkout — either as an
-#        absolute path NOT inside .claude/worktrees/, or via a compound
-#        `cd <repo-root> ... && <write>` with a relative protected path, or a
-#        relative protected write while the Bash cwd IS the main checkout (the
-#        real drift vector — no cd needed).
+#   BLOCK a Bash command when a write operation's OWN TARGET — never merely
+#   some unrelated text elsewhere on the same command line — is a protected
+#   tree in the main checkout:
+#     1. a write verb (mkdir/cp/mv/rm/tee/touch/rsync): only THAT verb's own
+#        argument list, up to the next `;`/`&`/`|`, is scanned for a protected
+#        target. A write verb in one clause never condemns an unrelated
+#        protected mention in a different clause of the same line; AND/OR
+#     2. a real write-redirection (`>` / `>>`) whose TARGET TOKEN is protected.
+#        fd-duplication (`2>&1`, `>&2`, `N>&M`) is excluded up front: it
+#        duplicates a file descriptor and creates no file at all.
+#   Each target found by (1) or (2) is then classified as before:
+#     - an absolute path under <root>/<protected>/ NOT inside .claude/worktrees/,
+#     - a relative protected target behind a compound `cd <repo-root> ...`, or
+#     - a relative protected target while the Bash cwd IS the main checkout
+#       (the real drift vector — no cd needed).
 #   Everything else passes: git commands, worktree-scoped paths, reads, tests,
 #   scratchpad writes, docs/scripts/config writes.
+#
+# WHY THE TARGET ANCHORING (root-caused 2026-08-19 in a downstream adopter,
+# into the engine 2026-08-28). The earlier rule was pure co-occurrence: "a
+# write-ish token appears ANYWHERE" AND "a protected path appears ANYWHERE".
+# The two facts were never tied to the same operation, so ordinary reads were
+# blocked — measured, on the engine's own shipped guard:
+#     ls <tree>/ && ls *.csv                       -> BLOCKED (a listing)
+#     python3 <tree>/gate.py --check 2>&1 | head   -> BLOCKED (2>&1 matched the
+#                                                     bare redirect regex)
+#     mkdir -p /tmp/scratch && cat <tree>/x.py     -> BLOCKED (unrelated clauses)
+# All three now pass, and every genuine write (relative, redirect, absolute,
+# cd-compound) still blocks — pinned as pairs in guard-bash-main-writes.test.sh.
+#
+# Acknowledged, deliberate limit — this is shell-TEXT analysis, not a shell
+# parser or a sandbox: it does not see through command substitution
+# (`$(mkdir ...)`), and it cannot know whether an interpreter invocation like
+# `python3 <tree>/tool.py` performs file I/O of its own. That was never caught
+# before or after this change; the hook's scope is and always was the Bash-cwd
+# drift vector, not arbitrary-code sandboxing.
 #
 # REPO_ROOT MUST be the TRUE main checkout, never a per-session worktree copy —
 # this guard's cd-compound and cwd-relative branches compare against ROOT
@@ -116,26 +142,70 @@ if not prefixes:
 WT = '/.claude/worktrees/'
 # Protected SOURCE trees (repo-root-relative prefixes) -> regex alternation.
 TREES = r'(?:' + '|'.join(re.escape(p.strip('/')) for p in prefixes) + r')'
-write_re = re.compile(r'(?:^|[;&|]\s*|\s)(mkdir|cp|mv|rm|tee|touch|rsync)\s|>{1,2}\s*\S')
-if not write_re.search(cmd):
-    print('PASS'); raise SystemExit
-# 1) absolute main-checkout source path outside any worktree
-if ROOT:
-    for m in re.finditer(re.escape(ROOT) + r'/' + TREES + r'/\S*', cmd):
-        if WT not in m.group(0):
-            print('BLOCK abs:' + m.group(0)[:120]); raise SystemExit
-# 2) compound cd-to-root + relative protected write
-rel_tree = re.search(r'(?<![\w/])' + TREES + r'/', cmd)
-if ROOT:
-    cd_root = re.search(r'(?:^|[;&|]\s*)cd\s+' + re.escape(ROOT) + r'/?(?:\s|&&|;|\$)', cmd)
-    if cd_root and rel_tree:
-        print('BLOCK cd-compound'); raise SystemExit
-# 3) relative protected write while cwd IS the main checkout
-#    (the real drift vector: agents' Bash cwd defaults to main — no cd needed)
 cwd = (d.get('cwd') or '').rstrip('/')
-in_worktree_cd = re.search(r'cd\s+\S*' + re.escape(WT), cmd)
-if rel_tree and not in_worktree_cd and (cwd == ROOT or not cwd):
-    print('BLOCK cwd-main-relative'); raise SystemExit
+
+def is_abs_protected(tok):
+    # Absolute path under the MAIN checkout's protected tree, outside any worktree.
+    if not ROOT:
+        return False
+    if not re.match(r'^' + re.escape(ROOT) + r'/' + TREES + r'(?:/|\$)', tok):
+        return False
+    return WT not in tok
+
+def is_rel_protected(tok):
+    return bool(re.match(r'^' + TREES + r'(?:/|\$)', tok))
+
+def cd_into_worktree_precedes():
+    return bool(re.search(r'cd\s+\S*' + re.escape(WT), cmd))
+
+def cd_to_root_precedes():
+    if not ROOT:
+        return False
+    return bool(re.search(r'(?:^|[;&|]\s*)cd\s+' + re.escape(ROOT) + r'/?(?:\s|&&|;|\$)', cmd))
+
+def classify_relative_hit():
+    # Branch ORDER and conditions are the pre-anchoring ones, unchanged: branch
+    # 2 has no in-worktree-cd exclusion (deliberately conservative), branch 3
+    # does. Only the ANCHORING to a real write target is new.
+    if cd_to_root_precedes():
+        return 'cd-compound'
+    if not cd_into_worktree_precedes() and (cwd == ROOT or not cwd):
+        return 'cwd-main-relative'
+    return None
+
+def check_targets(tokens):
+    for raw in tokens:
+        tok = raw.strip('\'\"')
+        if not tok:
+            continue
+        if is_abs_protected(tok):
+            return 'abs:' + tok[:120]
+        if is_rel_protected(tok):
+            cat = classify_relative_hit()
+            if cat:
+                return cat
+    return None
+
+# 1) write-verb clauses — only THAT verb's own argument list (up to the next
+#    ; & | control operator) is checked, never the whole command line.
+VERB_CLAUSE = re.compile(r'(?:^|[;&|]\s*|\s)(mkdir|cp|mv|rm|tee|touch|rsync)\b(?P<args>[^;&|]*)')
+for vm in VERB_CLAUSE.finditer(cmd):
+    hit = check_targets(re.findall(r'\S+', vm.group('args')))
+    if hit:
+        print('BLOCK ' + hit); raise SystemExit
+
+# 2) real write-redirection (> / >>) — only the redirect's OWN target token is
+#    checked. fd-duplication (2>&1, >&2, N>&M) creates no file, so it is never
+#    a write no matter what path text sits elsewhere on the line.
+REDIRECT = re.compile(r'>{1,2}\s*(\S+)')
+for rdm in REDIRECT.finditer(cmd):
+    target = rdm.group(1)
+    if target.startswith('&'):
+        continue  # fd duplication, e.g. 2>&1 / >&2 — not a file write
+    hit = check_targets([target])
+    if hit:
+        print('BLOCK ' + hit); raise SystemExit
+
 print('PASS')
 ")"
 

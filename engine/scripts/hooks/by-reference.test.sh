@@ -392,7 +392,7 @@ if layer_warned "BR4" && out_has "TAMPER CHECK DID NOT RUN" && out_has "scan-sec
 else
     bad "4d.BR4-absent-sidecar-is-named-not-waved-through" "no warning naming the unverified script"
 fi
-if printf '%s\n' "$OUT" | grep -q "✓.*BR4\. all 14 registered guard scripts present, executable and hash-matched"; then
+if printf '%s\n' "$OUT" | grep -qE "✓.*BR4\. all [0-9]+ registered guard scripts present, executable and hash-matched"; then
     bad "4e.BR4-absent-sidecar-does-not-claim-hash-matched" "claimed hash-matched with a sidecar missing"
 else
     ok "4e.BR4-absent-sidecar-does-not-claim-hash-matched"

@@ -214,6 +214,7 @@ HOOK_FILES=(
     "$REPO_ROOT/scripts/hooks/guard-bash-main-writes.sh"
     "$REPO_ROOT/scripts/hooks/scan-secrets.sh"
     "$REPO_ROOT/scripts/hooks/guard-resume-isolation.sh"
+    "$REPO_ROOT/scripts/hooks/guard-workflow-ban.sh"
     "$REPO_ROOT/scripts/hooks/detect-nonnative-worktree.sh"
     "$REPO_ROOT/scripts/hooks/teammate-idle-handoff.sh"
     "$REPO_ROOT/scripts/hooks/task-completed-handoff.sh"

@@ -133,12 +133,15 @@ VERSION="unknown"
 # How many guards are actually on disk and executable? A count is not proof of
 # wiring — contract-integrity-probe.sh owns that — but a count that has fallen
 # is a cheap, visible signal that something is missing.
+GUARD_EXPECTED_LIST="guard-worktree-isolation guard-definition-drift reader-teammate-hint \
+verify-agent-prompt guard-main-checkout-writes scan-secrets \
+guard-resume-isolation guard-bash-main-writes guard-workflow-ban detect-nonnative-worktree \
+session-start-reap-worktrees snapshot-agent-definitions \
+teammate-idle-handoff task-completed-handoff"
 GUARD_COUNT=0
-for g in guard-worktree-isolation guard-definition-drift reader-teammate-hint \
-         verify-agent-prompt guard-main-checkout-writes scan-secrets \
-         guard-resume-isolation guard-bash-main-writes detect-nonnative-worktree \
-         session-start-reap-worktrees snapshot-agent-definitions \
-         teammate-idle-handoff task-completed-handoff; do
+GUARD_EXPECTED=0
+for g in $GUARD_EXPECTED_LIST; do
+    GUARD_EXPECTED=$((GUARD_EXPECTED + 1))
     [ -x "$ENGINE_ROOT/scripts/hooks/$g.sh" ] && GUARD_COUNT=$((GUARD_COUNT + 1))
 done
 
@@ -148,13 +151,13 @@ RC=$?
 case "$RICHOS_ROOT_STATUS" in
     governed)
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/13 guards present. Enforcement is ON for this repository." \
-            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/13 guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE})."
+            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/${GUARD_EXPECTED} guards present. Enforcement is ON for this repository." \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/${GUARD_EXPECTED} guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE})."
         ;;
     engine-self)
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/13 guards present. NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else." \
-            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/13 guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else."
+            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/${GUARD_EXPECTED} guards present. NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else." \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/${GUARD_EXPECTED} guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else."
         ;;
     not-adopted)
         # Loud enough to be seen, calm enough not to be noise: this is the

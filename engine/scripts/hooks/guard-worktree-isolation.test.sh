@@ -359,17 +359,39 @@ JSON
 printf '{"event":"TaskCompleted","teammate":"eng-sonnet-done"}\n' >"$REUSE_TEAM_DIR/task-events.jsonl"
 printf '{"event":"TeammateIdle","teammate":"qa-sonnet-gone"}\n' >"$REUSE_TEAM_DIR/idle-events.jsonl"
 
-# (j1) fresh name -> exit 0 AND appended to the ledger
+# (j1) fresh name -> exit 0, and THIS guard must NOT have written the ledger.
+#
+# THE NAME-BURN REGRESSION. This guard runs FIRST in a four-hook
+# PreToolUse[Agent] chain, so anything it records is recorded before the later
+# hooks have had their veto. Recording here burns the name of a spawn that a
+# later hook then blocks — a teammate that never existed, whose corrected retry
+# is refused as "reuse". Observed in production 2026-08-01 and reproduced
+# against this engine 2026-08-28. The append moved to the PostToolUse partner
+# (detect-nonnative-worktree.sh), which fires only for a call that ran.
+#
+# This case therefore asserts the ABSENCE of a write. Its positive counterpart
+# — that the ledger is still WRITTEN, by the partner — is (j2), because
+# "nobody writes it" would satisfy this case and destroy the reuse clause.
 FRESH_JSON="$(json_agent_sess 'dev' 'dev-sonnet-fresh1' 'worktree' 'Do the thing.' "$REUSE_SESSION")"
 printf '%s' "$FRESH_JSON" | "$HOOK" >/dev/null 2>&1
 rc=$?
-if [ "$rc" -eq 0 ] && grep -qxF "dev-sonnet-fresh1" "$REUSE_TEAM_DIR/spawned-names.log" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  reuse: fresh name allowed + recorded to spawned-names.log\n'
+if [ "$rc" -eq 0 ] && ! grep -qxF "dev-sonnet-fresh1" "$REUSE_TEAM_DIR/spawned-names.log" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  reuse: fresh name allowed, and NOT burned into the ledger by this PreToolUse guard\n'
 else
-    FAIL=$((FAIL + 1)); printf '  FAIL  reuse: fresh name allowed + recorded (exit %s)\n' "$rc"
+    FAIL=$((FAIL + 1)); printf '  FAIL  reuse: fresh name allowed + not recorded here (exit %s)\n' "$rc"
 fi
 
-# (j2) same fresh name AGAIN (now in the ledger) -> blocked
+# (j1b) a spawn this guard allowed but a LATER hook blocked must be re-issuable
+# under the SAME name. This is the burn, stated as a behaviour.
+printf '%s' "$FRESH_JSON" | "$HOOK" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 0 ] && { PASS=$((PASS+1)); printf '  PASS  reuse: a name this guard approved but never executed is re-issuable\n'; } \
+                || { FAIL=$((FAIL+1)); printf '  FAIL  reuse: name burned by an approval that never executed (exit %s)\n' "$rc"; }
+
+# (j2) the ledger IS still consulted — write it the way the PostToolUse partner
+# does, and the same name must now be refused. Without this arm, (j1) would
+# also be satisfied by a guard that stopped reading the ledger entirely.
+printf 'dev-sonnet-fresh1\n' >>"$REUSE_TEAM_DIR/spawned-names.log"
 printf '%s' "$FRESH_JSON" | "$HOOK" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 2 ] && { PASS=$((PASS+1)); printf '  PASS  reuse: ledger-recorded name reused -> block\n'; } \

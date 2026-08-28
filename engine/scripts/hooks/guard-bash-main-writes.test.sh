@@ -110,6 +110,33 @@ run_case "read protected (cat, no write token)" 0 "$(json_cmd "cat $FIRST_PROTEC
 run_case "git add protected (no write token)"   0 "$(json_cmd "git add $FIRST_PROTECTED/foo" "$ROOT")"
 run_case "git commit"                           0 "$(json_cmd "git commit -m wip" "$ROOT")"
 
+# --- ALLOWED: the false positives the target-anchoring closed ---
+#
+# These are all READS. Under the old co-occurrence rule (a write-ish token
+# ANYWHERE on the line + a protected path ANYWHERE on the line) four of the
+# five were BLOCKED — measured by reverting this guard to the co-occurrence
+# version and re-running this suite, which turns those four cases red while
+# the three "still blocks" arms below stay green.
+#
+# The FIRST case is the exception and is labelled honestly: `ls … && ls *.csv`
+# passes under BOTH versions, because the old write-token regex never matched
+# `ls`. It is kept as a regression pin, not as evidence of the fix.
+run_case "read: listing + unrelated glob (pin)" 0 "$(json_cmd "ls $FIRST_PROTECTED/ && ls *.csv" "$ROOT")"
+run_case "read: interpreter with 2>&1 tail"     0 "$(json_cmd "python3 $FIRST_PROTECTED/gate.py --check 2>&1 | head -40" "$ROOT")"
+run_case "read: stderr merge on a cat"          0 "$(json_cmd "cat $FIRST_PROTECTED/x.py 2>&1" "$ROOT")"
+run_case "read: >&2 fd-dup, protected mention"  0 "$(json_cmd "echo checking $FIRST_PROTECTED/x.py >&2" "$ROOT")"
+run_case "unrelated write clause + protected read" 0 "$(json_cmd "mkdir -p /tmp/scratch && cat $FIRST_PROTECTED/x.py" "$ROOT")"
+run_case "read: sed -n on a protected file"     0 "$(json_cmd "sed -n '1,20p' $FIRST_PROTECTED/x.py" "$ROOT")"
+run_case "read: git show a protected blob"      0 "$(json_cmd "git show HEAD:$FIRST_PROTECTED/x.py" "$ROOT")"
+run_case "read: protected grep -> unprotected redirect" 0 "$(json_cmd "grep -rn foo $FIRST_PROTECTED/ > /tmp/guard-results.txt" "$ROOT")"
+
+# --- NEGATIVE ARMS for the five above: the same shapes with a REAL target ---
+# Without these, "the anchoring works" would also be satisfied by a guard that
+# stopped blocking anything at all.
+run_case "still blocks: real write after a read"  2 "$(json_cmd "ls $FIRST_PROTECTED/ && mkdir $FIRST_PROTECTED/new" "$ROOT")"
+run_case "still blocks: redirect into protected"  2 "$(json_cmd "python3 gen.py 2>&1 > $FIRST_PROTECTED/out.txt" "$ROOT")"
+run_case "still blocks: unrelated read + real write" 2 "$(json_cmd "cat /tmp/x && touch $FIRST_PROTECTED/y" "$ROOT")"
+
 # --- ALLOWED: scratchpad + non-source writes in main ---
 run_case "scratchpad write"                     0 "$(json_cmd "mkdir -p /tmp/x && echo hi > /tmp/x/y" "$ROOT")"
 run_case "docs write in main (not source)"      0 "$(json_cmd "echo x > $ROOT/docs/foo.md")"

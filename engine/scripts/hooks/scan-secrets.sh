@@ -105,11 +105,12 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 : "${SECRET_SCAN_MIN_LENGTH:=12}"
 : "${SECRET_SCAN_MIN_ENTROPY:=3.0}"
 : "${SECRET_SCAN_ALLOWLIST:=}"
+: "${SECRET_SCAN_CODE_AWARE:=0}"
 # Exported so the python3 subprocess below (a separate process, not a bash
 # child that inherits unexported shell variables) can actually see them —
 # without this, config values loaded from orchestration.config would silently
 # never reach the scanner.
-export SECRET_SCAN_MIN_LENGTH SECRET_SCAN_MIN_ENTROPY SECRET_SCAN_ALLOWLIST
+export SECRET_SCAN_MIN_LENGTH SECRET_SCAN_MIN_ENTROPY SECRET_SCAN_ALLOWLIST SECRET_SCAN_CODE_AWARE
 
 # (payload already read above, before root resolution)
 
@@ -133,6 +134,7 @@ import json, math, os, re, sys
 ALLOWLIST = [a for a in os.environ.get("SECRET_SCAN_ALLOWLIST", "").split() if a]
 MIN_LEN = int(os.environ.get("SECRET_SCAN_MIN_LENGTH", "12") or "12")
 MIN_ENTROPY = float(os.environ.get("SECRET_SCAN_MIN_ENTROPY", "3.0") or "3.0")
+CODE_AWARE = (os.environ.get("SECRET_SCAN_CODE_AWARE", "0") or "0").strip() == "1"
 
 try:
     payload = json.loads(sys.stdin.read())
@@ -201,6 +203,40 @@ def is_placeholder(value):
             return True
     return False
 
+CODE_MEMBER_PATH = re.compile(r'^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)+$')
+
+def is_generic_nonsecret(value):
+    # OPT-IN (SECRET_SCAN_CODE_AWARE=1). Applies to the GENERIC key=value
+    # detector ONLY — the vendor-prefix and PEM patterns never consult it.
+    #
+    # This is a PRECISION setting, and it is not free. It exempts two shapes
+    # that a real secret can also have, so it is off unless a repository asks
+    # for it, and the trade is named here rather than buried:
+    #   * a CODE reference — a value carrying structural code punctuation
+    #     ( ) [ ] < > ? ! { } or shaped as a dotted member path. An expression,
+    #     a type annotation (`token: NSObjectProtocol?`), a generic
+    #     (`Array<String>`), a subscript (`dict[key]`). None of those
+    #     characters appear in a base64/hex/token secret, so this half is
+    #     close to free.
+    #   * a DESCRIPTIVE literal — every '-'/'_'-separated segment is either
+    #     purely alphabetic or purely numeric ("test-password",
+    #     "BEARER_PROTOCOL_FUTURE_TOKEN", "verification-token"). Real generic
+    #     secrets interleave digits and mixed case into dense tokens whose
+    #     segments are neither ("aB3xQ9zM2kP7wR5vN8tL"). This half is where
+    #     test-fixture and doc-example false positives concentrate — and it is
+    #     also where the cost sits: measured, it lets through an all-alpha
+    #     passphrase, an all-alpha random token, an all-digit long value, and
+    #     an alpha-dash-alpha token that the strict scanner catches. Turn it on
+    #     when fixture noise is costing you more than that risk.
+    if CODE_MEMBER_PATH.match(value):
+        return True
+    if any(c in value for c in '()[]<>?!{}'):
+        return True
+    segs = [s for s in re.split(r'[-_]', value) if s]
+    if segs and all(s.isalpha() or s.isdigit() for s in segs):
+        return True
+    return False
+
 def redact(value):
     if len(value) <= 10:
         return value[:2] + "…" + value[-1:] if len(value) > 3 else "…"
@@ -235,6 +271,8 @@ GENERIC_RE = re.compile(
 for m in GENERIC_RE.finditer(blob):
     field, _, value = m.group(1), m.group(2), m.group(3)
     if is_placeholder(value):
+        continue
+    if CODE_AWARE and is_generic_nonsecret(value):
         continue
     if len(value) < MIN_LEN:
         continue
