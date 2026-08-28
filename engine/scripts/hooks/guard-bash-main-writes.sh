@@ -41,22 +41,52 @@ set -eo pipefail
 
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-bash-main-writes.sh: python3 required — refusing (fail-closed)" >&2; exit 2; }
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT_FALLBACK="$(cd "$SCRIPT_DIR/../.." && pwd)"
-# Resolve the TRUE main checkout. Degrade gracefully (never exit non-zero, which
-# a PreToolUse hook would treat as BLOCK) to the current-checkout fallback if the
-# helper is absent.
-_RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
-if [ -f "$_RMC_LIB" ]; then
-    # shellcheck source=../lib/resolve-main-checkout.sh
-    . "$_RMC_LIB"
-    REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$REPO_ROOT_FALLBACK")"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-bash-main-writes.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
+
+INPUT="$(cat)"
+
+# Resolve the governed repository. Three outcomes, three different behaviours —
+# see the contract for why "block everything unresolvable" is NOT the rule.
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # This repository never adopted the engine, so there is no enforcement to
+    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
+    # stand-down into the orchestrator's own context at every session start.
+    exit 0
 else
-    REPO_ROOT="$REPO_ROOT_FALLBACK"
+    # BROKEN: this guard believes it is governing something and cannot. Block.
+    root_failure_banner "scripts/hooks/guard-bash-main-writes.sh" >&2
+    exit 2
 fi
 
-# Load project-specific config (protected source trees).
-CONFIG="$REPO_ROOT/orchestration.config"
+# Load the GOVERNED repository's config. Note what changed: the old code
+# resolved the main checkout from THIS SCRIPT'S OWN LOCATION, which is right
+# only while the engine is the repository. Loaded by reference it returned the
+# engine's enclosing repo, so every path comparison below was made against a
+# repository the session was not editing.
+CONFIG="$ENTITY_ROOT/orchestration.config"
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${PROTECTED_PATHS:=}"
 
@@ -68,9 +98,9 @@ if [ -z "${PROTECTED_PATHS// /}" ]; then
     exit 0
 fi
 
-INPUT="$(cat)"
+# (payload already read above, before root resolution)
 
-RESULT="$(GUARD_PAYLOAD="$INPUT" GUARD_ROOT="$REPO_ROOT" GUARD_TREES="$PROTECTED_PATHS" python3 -c "
+RESULT="$(GUARD_PAYLOAD="$INPUT" GUARD_ROOT="$ENTITY_ROOT" GUARD_TREES="$PROTECTED_PATHS" python3 -c "
 import json, re, os
 try:
     d = json.loads(os.environ.get('GUARD_PAYLOAD') or '{}')
@@ -116,9 +146,9 @@ case "$RESULT" in
     echo "  This Bash command writes into the MAIN checkout's SOURCE tree" >&2
     echo "  (protected trees: $PROTECTED_PATHS) — reason: $RESULT." >&2
     echo "  Source is edited ONLY inside your own worktree:" >&2
-    echo "    $REPO_ROOT/.claude/worktrees/<your-agent-id>/<tree>/..." >&2
+    echo "    $ENTITY_ROOT/.claude/worktrees/<your-agent-id>/<tree>/..." >&2
     echo "  Use ABSOLUTE paths under your worktree for every file operation; never" >&2
-    echo "  'cd $REPO_ROOT' for writes. Main receives source only via git merge." >&2
+    echo "  'cd $ENTITY_ROOT' for writes. Main receives source only via git merge." >&2
     echo "(hook: scripts/hooks/guard-bash-main-writes.sh)" >&2
     exit 2 ;;
   *) exit 0 ;;
