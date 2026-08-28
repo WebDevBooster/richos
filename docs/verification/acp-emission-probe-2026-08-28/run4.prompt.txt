@@ -1,0 +1,2 @@
+Think as hard and as long as you can about this before answering; reason it through step by step.
+A voice pipeline uses 313 frames of 256 samples each at 16000 Hz for its barge-in debounce. Derive the debounce window in seconds from first principles, then explain in three sentences why a millisecond wall-clock timestamp is not a safe ordering key for events streamed inside that window, and what is. Do not use any tools.

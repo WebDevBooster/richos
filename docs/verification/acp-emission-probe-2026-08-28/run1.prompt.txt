@@ -1,0 +1,7 @@
+Do all five of the following yourself, with your tools, right now. Do not ask me anything first, do not delegate, and do not spawn subagents.
+Track the five steps on your todo list as you go.
+1. Read the file VERSION in your current working directory and tell me its contents.
+2. Grep for the string "sessionUpdate" under /Users/alex/ab/richos/app and tell me how many matches you find.
+3. Run the shell command: echo hello-from-acp-probe && uname -s
+4. Write exactly the single line probe-write-ok to the file /tmp/richos-acp-probe-write-target.txt (this path is outside every repo; overwriting it is fine).
+5. Finish with one short sentence summarising what you found.
