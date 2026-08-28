@@ -1,0 +1,19 @@
+# Locally generated operator files — never commit them to this public repo.
+#
+# `engine/scripts/provision-claude-md.sh` (the documented install step) reads
+# `engine/identity.config` — which an adopter creates by copying the committed
+# `engine/identity.config.example` — and renders `engine/CLAUDE.md.template`
+# into a real `engine/CLAUDE.md`. Both files then hold that operator's own
+# company name, personal name, timezone and private notes. Regenerating them
+# is one command, so there is nothing to lose by keeping them out of version
+# control, and everything to lose by committing them here.
+#
+# This rule lives at the repository ROOT and deliberately NOT in
+# `engine/.gitignore`: `engine/UPGRADING.md` treats a filled-in `CLAUDE.md` as
+# an adopter-owned file that an adopter may well want committed in their own
+# repo, so the rule must not travel with a vendored copy of `engine/`. That is
+# the same reasoning the rule carried before this repo stood on its own; only
+# the root it is anchored to has changed.
+/engine/identity.config
+/engine/CLAUDE.md
+/engine/CLAUDE.md.new
