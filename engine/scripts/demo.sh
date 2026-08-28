@@ -131,11 +131,21 @@ for f in guard-worktree-isolation.sh guard-definition-drift.sh snapshot-agent-de
          guard-main-checkout-writes.sh guard-bash-main-writes.sh scan-secrets.sh \
          guard-resume-isolation.sh detect-nonnative-worktree.sh teammate-idle-handoff.sh \
          task-completed-handoff.sh session-start-reap-worktrees.sh \
-         install.sh contract-integrity-probe.sh; do
+         engine-status.sh install.sh contract-integrity-probe.sh; do
     cp "$REPO_ROOT/scripts/hooks/$f" "$SAMPLE_ROOT/scripts/hooks/$f"
 done
 chmod +x "$SAMPLE_ROOT/scripts/hooks/"*.sh
 cp "$REPO_ROOT/scripts/lib/resolve-main-checkout.sh" "$SAMPLE_ROOT/scripts/lib/resolve-main-checkout.sh"
+# The root-resolution contract. Every hook's bootstrap looks for it relative to
+# its own location and REFUSES TO START without it — deliberately, because a
+# guard that cannot tell which repository it governs must not guess.
+cp "$REPO_ROOT/scripts/lib/resolve-roots.sh" "$SAMPLE_ROOT/scripts/lib/resolve-roots.sh"
+
+# The sample repo IS the governed repository for every hook fired below, so say
+# so rather than letting the guards infer it from the demo's own cwd. This is
+# exactly what a real session's CLAUDE_PROJECT_DIR does for a real adopter.
+CLAUDE_PROJECT_DIR="$SAMPLE_ROOT"
+export CLAUDE_PROJECT_DIR
 # The one managed script outside scripts/hooks/ — the half of the SessionStart
 # worktree-reaper chain that actually removes worktrees. install.sh mints its
 # sidecar and probe Layer Q hashes + exercises it, so the sample repo needs it.
@@ -165,6 +175,7 @@ data = {
     "worktree": {"baseRef": "head"},
     "hooks": {
         "SessionStart": [
+            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/engine-status.sh", "timeout": 10}]},
             {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/session-start-reap-worktrees.sh", "timeout": 30}]},
             {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/snapshot-agent-definitions.sh", "timeout": 15}]}
         ],

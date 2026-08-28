@@ -12,10 +12,14 @@
 # hooks.
 scripts/hooks/*.sha256
 
-# Same rule for the ONE managed script that does not live under scripts/hooks/:
+# Same rule for the TWO managed files that do not live under scripts/hooks/:
 # scripts/reap-stale-worktrees.sh (the half of the SessionStart worktree-reaper
-# chain that actually removes worktrees). install.sh mints its sidecar too.
+# chain that actually removes worktrees) and scripts/lib/resolve-roots.sh (the
+# root-resolution contract — every guard refuses to start without it, and every
+# guard's answer to "which repository am I protecting?" comes out of it, so it
+# is hashed for the same reason the reaper is). install.sh mints both sidecars.
 scripts/*.sha256
+scripts/lib/*.sha256
 
 # Native isolation worktrees — CONTENTS ignored (each is a live git worktree,
 # created/removed by the orchestrator's land sequence, never committed here),

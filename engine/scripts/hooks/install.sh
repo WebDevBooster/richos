@@ -198,7 +198,8 @@ esac
 # guard and its SessionStart snapshotter) and the SessionStart worktree-reaper
 # CHAIN.
 #
-# One entry is NOT under scripts/hooks/: scripts/reap-stale-worktrees.sh. The
+# Two entries are NOT under scripts/hooks/: scripts/reap-stale-worktrees.sh and
+# scripts/lib/resolve-roots.sh. The
 # SessionStart wrapper is a thin shim, but the reaper it invokes with --execute
 # is the only hook-reachable code in the engine that DELETES things (worktrees and
 # branches). Hashing only the wrapper would be integrity theatre, so the reaper
@@ -217,7 +218,14 @@ HOOK_FILES=(
     "$REPO_ROOT/scripts/hooks/teammate-idle-handoff.sh"
     "$REPO_ROOT/scripts/hooks/task-completed-handoff.sh"
     "$REPO_ROOT/scripts/hooks/session-start-reap-worktrees.sh"
+    "$REPO_ROOT/scripts/hooks/engine-status.sh"
     "$REPO_ROOT/scripts/reap-stale-worktrees.sh"
+    # Not a hook, and hashed anyway. Every guard's bootstrap refuses to start
+    # without scripts/lib/resolve-roots.sh, and every guard's answer to "which
+    # repository am I protecting?" comes out of it. An unhashed resolver would
+    # make the single most consequential file in the mechanical layer the only
+    # one nobody verifies — the same argument that puts the reaper on this list.
+    "$REPO_ROOT/scripts/lib/resolve-roots.sh"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

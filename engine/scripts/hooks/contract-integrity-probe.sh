@@ -123,19 +123,75 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: contract-integrity-probe.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Resolve the TRUE main checkout, regardless of whether this script's own copy
-# is running from the main checkout or from a linked worktree. Every downstream
-# path in this probe derives from REPO_ROOT.
-_RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
-if [ ! -f "$_RMC_LIB" ]; then
-    echo "FATAL: missing helper $_RMC_LIB — cannot resolve main checkout" >&2
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. Contract: scripts/lib/resolve-roots.sh.
+#
+# This probe reads two different kinds of asset and used to have one variable
+# for both. Seated in the engine's own repository they coincide, which is why
+# the conflation survived; loaded by reference they are different directories
+# and the probe reported the ENTITY's canonical settings file as "missing"
+# while looking in a repository that never had one.
+#
+#   ENGINE_ROOT   VERSION, scripts/hooks/*.sh, scripts/lib/*,
+#                 scripts/reap-stale-worktrees.sh   — what the engine SHIPS
+#   ENTITY_ROOT   .claude/settings*.json, orchestration.config, the
+#                 PROTECTED_PATHS canary            — what the engine GOVERNS
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    echo "FATAL: missing helper $_RR_LIB — cannot resolve the engine and entity roots" >&2
     exit 1
 fi
-# shellcheck source=../lib/resolve-main-checkout.sh
-. "$_RMC_LIB"
-# Fallback root (git unavailable / not a git checkout, e.g. a test sandbox) is
-# the legacy current-checkout resolution: scripts/hooks/../.. == repo root.
-REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$(cd "$SCRIPT_DIR/../.." && pwd)")"
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
+
+if resolve_entity_root ""; then
+    REPO_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+else
+    # A probe whose whole job is to verify enforcement integrity must never
+    # report on a repository it could not identify. Both remaining statuses are
+    # fatal HERE — unlike a live guard, which stands down in an unadopted repo,
+    # because being ASKED to verify a repository that has not adopted the engine
+    # is itself the finding.
+    root_failure_banner "scripts/hooks/contract-integrity-probe.sh" >&2
+    echo "  A probe cannot verify enforcement in a repository it cannot name." >&2
+    echo "  Declare the subject explicitly:  RICHOS_ENTITY_ROOT=<repo> $0" >&2
+    exit 2
+fi
+
+# --- WHICH MODE IS THIS? ---------------------------------------------------
+# Two ways the engine can be installed, and the difference decides whether most
+# of the layers below mean anything at all:
+#
+#   SEATED         ENGINE_ROOT == REPO_ROOT. The engine IS the repository. The
+#                  guards are registered in the entity's own
+#                  .claude/settings.local.json, so Layers A-Q audit that file
+#                  and every "canonical path" is entity-relative — because that
+#                  is what the wiring `$CLAUDE_PROJECT_DIR/scripts/hooks/x.sh`
+#                  resolves to.
+#
+#   BY REFERENCE   ENGINE_ROOT != REPO_ROOT. The engine is a plugin; its guards
+#                  are registered in the PLUGIN's hooks/hooks.json, and the
+#                  entity's settings file legitimately does not mention them.
+#                  Running the settings-wiring layers here would emit a wall of
+#                  "NOT wired" failures that are all false — the exact false
+#                  alarm this probe exists to prevent, pointed at itself.
+#
+# The by-reference wiring needs its own layer set, and that is not yet written.
+# Rather than pretend, the probe SAYS SO and refuses to issue a verdict it
+# cannot support. A tool that reports on a configuration it does not understand
+# is worse than one that admits the gap.
+# The test is "same REPOSITORY?", not "same path". A path comparison alone
+# calls the engine "by reference" when the probe is merely invoked from a
+# LINKED WORKTREE of the engine's own repo — ENGINE_ROOT is then the worktree
+# while REPO_ROOT normalises to the shared main checkout. Same repository, both
+# of them; still seated. So normalise the engine root to ITS main checkout
+# before comparing.
+PROBE_MODE="seated"
+_ENGINE_MAIN="$(resolve_main_checkout "$ENGINE_ROOT" "$ENGINE_ROOT" 2>/dev/null || printf '%s' "$ENGINE_ROOT")"
+if [ "$ENGINE_ROOT" != "$REPO_ROOT" ] && [ "$_ENGINE_MAIN" != "$REPO_ROOT" ]; then
+    PROBE_MODE="by-reference"
+fi
 
 # Load project config (protected trees drive the Layer-D functional canary).
 CONFIG="$REPO_ROOT/orchestration.config"
@@ -155,6 +211,35 @@ SETTINGS_LOCAL="$REPO_ROOT/.claude/settings.local.json"
 # the clean single-source state.
 SETTINGS_JSON="$REPO_ROOT/.claude/settings.json"
 
+# In by-reference mode, stop before Layer A rather than emit a wall of false
+# "NOT wired" failures. Layer R (the root-resolution contract) is the one check
+# that IS mode-independent, so it still runs.
+if [ "$PROBE_MODE" = "by-reference" ]; then
+    {
+        echo ""
+        echo "=== ENGINE LOADED BY REFERENCE — settings-wiring layers DO NOT APPLY ==="
+        echo "  engine : $ENGINE_ROOT"
+        echo "  entity : $REPO_ROOT"
+        echo ""
+        echo "  The engine's guards are registered in the PLUGIN's hooks/hooks.json,"
+        echo "  not in this repository's .claude/settings.local.json. Layers A-Q audit"
+        echo "  the settings file, so running them here would report every engine guard"
+        echo "  as 'NOT wired' — all of it false."
+        echo ""
+        echo "  A by-reference layer set is NOT YET WRITTEN. This probe will not issue a"
+        echo "  verdict it cannot support, so it is reporting the gap instead of a green"
+        echo "  tick. What you CAN check today:"
+        echo "    * the first SessionStart message from engine-status.sh — it states"
+        echo "      whether enforcement is ACTIVE, STOOD DOWN or BROKEN for this repo"
+        echo "    * scripts/hooks/root-contract.test.sh, run from the engine"
+        echo "    * scripts/lib/resolve-roots.test.sh, run from the engine"
+        echo "  To audit the ENGINE's own seated wiring, run this probe from the engine:"
+        echo "    RICHOS_ENTITY_ROOT=$ENGINE_ROOT $ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh"
+        echo "======================================================================="
+    } >&2
+    exit 2
+fi
+
 emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; }
 emit_fail() { printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; FAIL=$((FAIL+1)); }
 emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
@@ -168,7 +253,7 @@ emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
 # is a pure banner: a missing/unreadable VERSION never increments FAIL and never
 # blocks a layer (an adopter who deleted VERSION has a cosmetic gap, not a
 # broken guard).
-ENGINE_VERSION="$(awk 'NR==1 {gsub(/[[:space:]]/,""); print; exit}' "$REPO_ROOT/VERSION" 2>/dev/null || true)"
+ENGINE_VERSION="$(awk 'NR==1 {gsub(/[[:space:]]/,""); print; exit}' "$ENGINE_ROOT/VERSION" 2>/dev/null || true)"
 if [ -n "$ENGINE_VERSION" ]; then
     printf 'richos-engine v%s — contract integrity probe\n' "$ENGINE_VERSION" >&2
 else
@@ -844,13 +929,19 @@ if [ "$M_OK" -eq 1 ] && [ -x "$CANARY_GUARD" ] && command -v mktemp >/dev/null 2
     FIRES="${RESUME_COUNT:-1}"; [ "$FIRES" -ge 1 ] 2>/dev/null || FIRES=1
     CANARY_DIR="$(mktemp -d -t contract-integrity-canary.XXXXXX 2>/dev/null || true)"
     if [ -n "$CANARY_DIR" ]; then
-        mkdir -p "$CANARY_DIR/scripts/hooks" "$CANARY_DIR/.claude" 2>/dev/null || true
+        mkdir -p "$CANARY_DIR/scripts/hooks" "$CANARY_DIR/scripts/lib" "$CANARY_DIR/.claude" 2>/dev/null || true
         cp "$CANARY_GUARD" "$CANARY_DIR/scripts/hooks/guard-resume-isolation.sh" 2>/dev/null || true
+        # The copied guard resolves its library relative to its own location and
+        # refuses to start without it, so the canary sandbox has to be a
+        # complete-enough engine, and has to DECLARE itself as the governed root
+        # (below) rather than letting the guard inherit the probe's own repo.
+        cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$CANARY_DIR/scripts/lib/" 2>/dev/null || true
+        printf 'SESSION_TEAMS_DIR=""\n' >"$CANARY_DIR/orchestration.config" 2>/dev/null || true
         chmod +x "$CANARY_DIR/scripts/hooks/guard-resume-isolation.sh" 2>/dev/null || true
         CANARY_PAYLOAD='{"tool_name":"SendMessage","tool_input":{"to":"canary-done","message":"resume-ack: single-fire probe canary — no writes"}}'
         i=0
         while [ "$i" -lt "$FIRES" ]; do
-            printf '%s' "$CANARY_PAYLOAD" | "$CANARY_DIR/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1 || true
+            printf '%s' "$CANARY_PAYLOAD" | RICHOS_ENTITY_ROOT="$CANARY_DIR" "$CANARY_DIR/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1 || true
             i=$((i+1))
         done
         CANARY_LINES="$(wc -l < "$CANARY_DIR/.claude/state/resume-acks.log" 2>/dev/null | tr -d ' ' || echo 0)"
@@ -862,10 +953,10 @@ if [ "$M_OK" -eq 1 ] && [ -x "$CANARY_GUARD" ] && command -v mktemp >/dev/null 2
         fi
         rm -rf "$CANARY_DIR" 2>/dev/null || true
     else
-        [ "$M_OK" -eq 1 ] && emit_pass "M. registration uniqueness — each canonical hook wired exactly once (canary skipped: no sandbox)"
+        [ "$M_OK" -eq 1 ] && emit_warn "M. registration uniqueness verified, but the SINGLE-FIRE CANARY DID NOT RUN — no sandbox directory could be created. Nothing here proves the resume-guard append path is single-fire; a double-appending guard would not be caught by this run."
     fi
 elif [ "$M_OK" -eq 1 ]; then
-    emit_pass "M. registration uniqueness — each canonical hook wired exactly once (canary skipped)"
+    emit_warn "M. registration uniqueness verified, but the SINGLE-FIRE CANARY DID NOT RUN — the guard is missing/non-executable, mktemp is unavailable, or a prior M check already failed. Wiring is verified; BEHAVIOUR IS NOT."
 fi
 
 # --- Layer N — canonical settings.local.json is GIT-TRACKED --------------
@@ -1074,6 +1165,11 @@ if [ "$P_OK" -eq 1 ] && [ -x "$CANONICAL_DRIFTGUARD_HOOK" ] && [ -x "$CANONICAL_
     P_DIR="$(mktemp -d -t contract-integrity-driftcanary.XXXXXX 2>/dev/null || true)"
     if [ -n "$P_DIR" ]; then
         mkdir -p "$P_DIR/.claude/agents" "$P_DIR/.claude/state" 2>/dev/null || true
+        # DEFINITION_DRIFT_ROOT now feeds the contract's DECLARED-root candidate,
+        # and a declared root must be an adopted one — the resolver refuses to
+        # substitute a different repository for a root somebody named. So the
+        # canary sandbox carries the marker, exactly like a real governed repo.
+        printf 'PROTECTED_PATHS="src"\n' >"$P_DIR/orchestration.config" 2>/dev/null || true
         printf 'canary definition v1\n' >"$P_DIR/.claude/agents/canaryagent.md" 2>/dev/null || true
         printf 'stable definition\n'    >"$P_DIR/.claude/agents/stableagent.md" 2>/dev/null || true
         P_SESSION="cafebabe-0000-4000-8000-000000000000"
@@ -1099,10 +1195,10 @@ if [ "$P_OK" -eq 1 ] && [ -x "$CANONICAL_DRIFTGUARD_HOOK" ] && [ -x "$CANONICAL_
         fi
         rm -rf "$P_DIR" 2>/dev/null || true
     else
-        emit_pass "P. definition-drift pair wired exactly once + present (canaries skipped: no sandbox)"
+        emit_warn "P. definition-drift pair is wired and hashed, but the BLOCK/ALLOW CANARIES DID NOT RUN — no sandbox directory could be created. Nothing here proves the guard actually blocks a drifted definition or allows a clean one; a gutted guard would not be caught by this run."
     fi
 elif [ "$P_OK" -eq 1 ]; then
-    emit_pass "P. definition-drift pair wired exactly once + present (canaries skipped)"
+    emit_warn "P. definition-drift pair is wired and hashed, but the BLOCK/ALLOW CANARIES DID NOT RUN — a half is missing/non-executable, mktemp is unavailable, or a prior P check already failed. Wiring is verified; BEHAVIOUR IS NOT."
 fi
 
 # --- Layer Q: WORKTREE-REAPER CHAIN wired exactly once + path-confined +
@@ -1192,8 +1288,11 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
         Q_SANDBOX_OK=1
         mkdir -p "$Q_REPO/.claude/worktrees" 2>/dev/null || Q_SANDBOX_OK=0
         git -C "$Q_REPO" init -q -b main >/dev/null 2>&1 || Q_SANDBOX_OK=0
-        git -C "$Q_REPO" config user.email "probe@example.com" >/dev/null 2>&1 || true
-        git -C "$Q_REPO" config user.name "contract integrity probe" >/dev/null 2>&1 || true
+        # NO local identity override. This throwaway repo inherits the
+        # operator's real global identity, which is what a machine-wide
+        # pre-commit identity guard requires. With a fake one the seed commit
+        # is REFUSED, Q_SANDBOX_OK flips to 0, and the canary below silently
+        # does not run — which is how a GUTTED reaper passed this layer.
         printf 'seed\n' >"$Q_REPO/seed.txt" 2>/dev/null || Q_SANDBOX_OK=0
         git -C "$Q_REPO" add seed.txt >/dev/null 2>&1 || Q_SANDBOX_OK=0
         git -C "$Q_REPO" commit -q -m "probe sandbox seed" >/dev/null 2>&1 || Q_SANDBOX_OK=0
@@ -1225,14 +1324,110 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
                 emit_pass "Q. worktree-reaper chain wired exactly once (SessionStart wrapper + reap-stale-worktrees.sh) + reaps a merged/clean tree (reaped=1) + REFUSES a dirty one (skipped=1) — path-confined, manifest-matched"
             fi
         else
-            emit_pass "Q. worktree-reaper chain wired exactly once + present (sweep canary skipped: sandbox git repo could not be built)"
+            emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway git sandbox could not be built, so nothing here proves the reaper actually reaps a clean tree or refuses a dirty one. Wiring and hashes are verified; BEHAVIOUR IS NOT. A gutted reaper would not be caught by this run."
         fi
         rm -rf "$Q_DIR" 2>/dev/null || true
     else
-        emit_pass "Q. worktree-reaper chain wired exactly once + present (sweep canary skipped: no sandbox)"
+        emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — no sandbox directory could be created (mktemp). Wiring and hashes are verified; BEHAVIOUR IS NOT."
     fi
 elif [ "$Q_OK" -eq 1 ]; then
-    emit_pass "Q. worktree-reaper chain wired exactly once + present (sweep canary skipped)"
+    emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOUR IS NOT."
+fi
+
+# --- Layer R: THE ROOT-RESOLUTION CONTRACT is wired, uniform and announced ---
+#
+# The guards no longer derive "the repository I protect" from where their own
+# file happens to sit; they resolve it from the SESSION, through
+# scripts/lib/resolve-roots.sh. That makes the resolver the single most
+# consequential file in the mechanical layer — and gives it a failure mode with
+# no external symptom: a hook that quietly reverted to the old
+# `SCRIPT_DIR/../..` resolution looks exactly like a hook that did not, right
+# up until it protects the wrong repository or protects nothing.
+#
+# R1 library present and hashed. R2 every root-resolving hook sources it.
+# R3 the bootstrap block is byte-identical across them — a divergent copy is the
+# original defect in miniature, one hook disagreeing with its siblings about
+# what the root is. R4 engine-status.sh is registered, because it is the only
+# thing in the system that answers "is this defence actually on?".
+R_LIB="$ENGINE_ROOT/scripts/lib/resolve-roots.sh"
+R_OK=1
+
+if [ ! -f "$R_LIB" ]; then
+    emit_fail "R. root-resolution contract MISSING: $R_LIB. Every guard's bootstrap refuses to start without it, so enforcement is off everywhere."
+    R_OK=0
+elif [ ! -f "$R_LIB.sha256" ]; then
+    emit_fail "R. root-resolution contract unhashed: $R_LIB.sha256 missing — run scripts/hooks/install.sh to regenerate."
+    R_OK=0
+else
+    R_LIVE="$(sha256_of "$R_LIB" 2>/dev/null || true)"
+    R_WANT="$(tr -d '[:space:]' < "$R_LIB.sha256" 2>/dev/null || true)"
+    if [ -n "$R_LIVE" ] && [ -n "$R_WANT" ] && [ "$R_LIVE" != "$R_WANT" ]; then
+        emit_fail "R. root-resolution contract MODIFIED since install: $R_LIB (sha256 $R_LIVE != manifest $R_WANT). Every guard's root decision comes from this file — review the change, then re-run scripts/hooks/install.sh."
+        R_OK=0
+    fi
+fi
+
+# R2/R3 — the hooks that resolve a root.
+R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
+reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
+guard-resume-isolation guard-bash-main-writes detect-nonnative-worktree \
+session-start-reap-worktrees snapshot-agent-definitions"
+
+R_MISSING_SOURCE=""
+R_BOOTSTRAP_REF=""
+R_DIVERGENT=""
+for h in $R_ROOTED_HOOKS; do
+    f="$ENGINE_ROOT/scripts/hooks/$h.sh"
+    [ -f "$f" ] || { R_MISSING_SOURCE="$R_MISSING_SOURCE $h(absent)"; continue; }
+    if ! grep -q '\. "\$_RR_LIB"' "$f" 2>/dev/null; then
+        R_MISSING_SOURCE="$R_MISSING_SOURCE $h"
+        continue
+    fi
+    # The bootstrap runs from the '# --- ROOT RESOLUTION' banner to the
+    # resolve_engine_root assignment. Everything in between is fixed text apart
+    # from the hook's own name in the diagnostic and the exit code, so both are
+    # normalised out before comparison — the point is that the MECHANISM is
+    # identical, not that the messages are.
+    blk="$(sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' "$f" 2>/dev/null \
+           | sed -e 's|scripts/hooks/[a-z-]*\.sh|<HOOK>|' -e 's|^    exit [0-9]*$|    exit <RC>|')"
+    if [ -z "$blk" ]; then
+        R_DIVERGENT="$R_DIVERGENT $h(no-bootstrap)"
+        continue
+    fi
+    if [ -z "$R_BOOTSTRAP_REF" ]; then
+        R_BOOTSTRAP_REF="$blk"
+    elif [ "$blk" != "$R_BOOTSTRAP_REF" ]; then
+        R_DIVERGENT="$R_DIVERGENT $h"
+    fi
+done
+
+if [ -n "$R_MISSING_SOURCE" ]; then
+    emit_fail "R. hook(s) do NOT source the root-resolution contract:$R_MISSING_SOURCE. A hook that resolves its root any other way has silently gone back to trusting its own on-disk location."
+    R_OK=0
+fi
+if [ -n "$R_DIVERGENT" ]; then
+    emit_fail "R. root-resolution bootstrap DIVERGED in:$R_DIVERGENT. Every rooted hook must carry the identical bootstrap; a divergent copy is one hook disagreeing with its siblings about which repository is being protected."
+    R_OK=0
+fi
+
+# R4 — the status announcement must be registered, in the seated table AND (when
+# the engine ships as a plugin) in hooks/hooks.json. An unregistered status hook
+# means nobody is ever told whether enforcement is on, which is the failure this
+# layer exists to make impossible.
+if [ -f "$SETTINGS" ]; then
+    if ! grep -q 'engine-status\.sh' "$SETTINGS" 2>/dev/null; then
+        emit_fail "R. engine-status.sh is NOT registered in $SETTINGS. It is the only hook that reports whether enforcement is active, stood down, or broken — without it every other status in this probe is a claim nobody re-checks at session start."
+        R_OK=0
+    fi
+fi
+R_PLUGIN_HOOKS="$ENGINE_ROOT/hooks/hooks.json"
+if [ -f "$R_PLUGIN_HOOKS" ] && ! grep -q 'engine-status\.sh' "$R_PLUGIN_HOOKS" 2>/dev/null; then
+    emit_fail "R. engine-status.sh is registered for a seated session but NOT in $R_PLUGIN_HOOKS — so a plugin-loaded engine would announce nothing. The two registration surfaces must agree; one of them silently missing a hook is exactly the drift this probe exists to catch."
+    R_OK=0
+fi
+
+if [ "$R_OK" -eq 1 ]; then
+    emit_pass "R. root-resolution contract present + hashed + sourced by all 12 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces"
 fi
 
 if [ "$FAIL" -gt 0 ]; then
