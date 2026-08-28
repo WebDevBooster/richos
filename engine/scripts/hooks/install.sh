@@ -212,6 +212,7 @@ HOOK_FILES=(
     "$REPO_ROOT/scripts/hooks/verify-agent-prompt.sh"
     "$REPO_ROOT/scripts/hooks/guard-main-checkout-writes.sh"
     "$REPO_ROOT/scripts/hooks/guard-bash-main-writes.sh"
+    "$REPO_ROOT/scripts/hooks/guard-worktree-removal.sh"
     "$REPO_ROOT/scripts/hooks/scan-secrets.sh"
     "$REPO_ROOT/scripts/hooks/guard-resume-isolation.sh"
     "$REPO_ROOT/scripts/hooks/guard-workflow-ban.sh"
@@ -221,6 +222,12 @@ HOOK_FILES=(
     "$REPO_ROOT/scripts/hooks/session-start-reap-worktrees.sh"
     "$REPO_ROOT/scripts/hooks/engine-status.sh"
     "$REPO_ROOT/scripts/reap-stale-worktrees.sh"
+    # Not a hook either, and hashed for the same reason as the reaper: it is the
+    # OTHER piece of engine code that DELETES worktrees, and it is the escape
+    # route guard-worktree-removal.sh points every blocked operator at. The two
+    # ship as a pair; hashing the guard while leaving its sanctioned helper
+    # unverified would check the lock and ignore the key.
+    "$REPO_ROOT/scripts/remove-agent-worktree.sh"
     # Not a hook, and hashed anyway. Every guard's bootstrap refuses to start
     # without scripts/lib/resolve-roots.sh, and every guard's answer to "which
     # repository am I protecting?" comes out of it. An unhashed resolver would
@@ -239,4 +246,5 @@ for f in "${HOOK_FILES[@]}"; do
     fi
 done
 echo "✓ refreshed hook sha256 manifests"
+
 exit 0
