@@ -19,7 +19,7 @@
 #   ~/Models/Whisper      (the shared RichOS model dir the patched app searches)
 #
 # Usage:
-#   tools/open-wispr-hud/fetch-dictation-models.sh [dest-dir]
+#   tools/richos-hud/fetch-dictation-models.sh [dest-dir]
 #
 set -euo pipefail
 

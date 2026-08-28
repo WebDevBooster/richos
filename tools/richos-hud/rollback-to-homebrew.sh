@@ -8,7 +8,7 @@
 # grant was never revoked, so this needs no clicks at all.
 #
 # Usage:
-#   tools/open-wispr-hud/rollback-to-homebrew.sh
+#   tools/richos-hud/rollback-to-homebrew.sh
 #
 set -euo pipefail
 

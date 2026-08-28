@@ -127,7 +127,7 @@ Modified (minimal):
 ### Models on disk
 
 ```bash
-tools/open-wispr-hud/fetch-dictation-models.sh [dest-dir]
+tools/richos-hud/fetch-dictation-models.sh [dest-dir]
 ```
 
 Downloads both `.bin` files into one shared directory (default
@@ -152,7 +152,7 @@ re-override a later choice of his.
 ## Build (reproducible, non-installing)
 
 ```bash
-tools/open-wispr-hud/build.sh [workdir]
+tools/richos-hud/build.sh [workdir]
 ```
 
 Clones open-wispr at `7ab4e62` (from the local Homebrew cache if present, else
@@ -170,8 +170,8 @@ pre-existing + 37 new) → release build + `OpenWispr.app` bundle succeed.
 ## Apply (scripted)
 
 ```bash
-tools/open-wispr-hud/build.sh /tmp/ow            # prints $APP
-tools/open-wispr-hud/install-hud.sh "$APP"
+tools/richos-hud/build.sh /tmp/ow            # prints $APP
+tools/richos-hud/install-hud.sh "$APP"
 launchctl bootout   gui/$(id -u)/homebrew.mxcl.open-wispr
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/homebrew.mxcl.open-wispr.plist
 pgrep -fl "open-wispr start"                     # ground truth: which binary is live
@@ -211,7 +211,7 @@ hotkey is not registered yet. The HUD says so, bottom-centre.
 ## Rollback (one command, offline, tested)
 
 ```bash
-tools/open-wispr-hud/rollback-to-homebrew.sh
+tools/richos-hud/rollback-to-homebrew.sh
 ```
 
 Repoints the LaunchAgent at the untouched Homebrew keg and restarts. No network, no

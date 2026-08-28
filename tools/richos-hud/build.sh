@@ -3,14 +3,14 @@
 # Reproducible build of our open-wispr dictation HUD patch.
 #
 # Clones open-wispr at the audited commit (7ab4e62 = v0.43.0), applies
-# tools/open-wispr-hud/dictation-hud.patch, runs the test suite, builds a
+# tools/richos-hud/dictation-hud.patch, runs the test suite, builds a
 # release binary, and bundles OpenWispr.app — WITHOUT installing over the
 # CEO's live install or touching the running service. The final swap +
 # service restart is a deliberate manual step (see README.md "Apply"),
 # because it triggers the live permission / paste-at-cursor gates.
 #
 # Usage:
-#   tools/open-wispr-hud/build.sh [workdir]
+#   tools/richos-hud/build.sh [workdir]
 #
 # Output: <workdir>/open-wispr/OpenWispr.app  and  .build/release/open-wispr
 #

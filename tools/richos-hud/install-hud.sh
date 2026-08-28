@@ -18,7 +18,7 @@
 #   System Settings -> Privacy & Security -> Accessibility -> enable OpenWispr
 #
 # Usage:
-#   tools/open-wispr-hud/install-hud.sh <path-to-built-OpenWispr.app>
+#   tools/richos-hud/install-hud.sh <path-to-built-OpenWispr.app>
 #
 set -euo pipefail
 
@@ -81,4 +81,4 @@ pgrep -fl "open-wispr start" || echo "    (not running yet)"
 echo
 echo "    If the log stops at 'Accessibility: not granted', the ONE manual step is:"
 echo "    System Settings -> Privacy & Security -> Accessibility -> enable OpenWispr"
-echo "    Rollback at any time: tools/open-wispr-hud/rollback-to-homebrew.sh"
+echo "    Rollback at any time: tools/richos-hud/rollback-to-homebrew.sh"
