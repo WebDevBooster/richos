@@ -77,7 +77,7 @@
 #      hook with a byte-identical bootstrap, and engine-status.sh is registered
 #      on both registration surfaces. Runs in BOTH modes.
 #
-# BY-REFERENCE MODE runs a different set entirely (BR1-BR9 + R), because the
+# BY-REFERENCE MODE runs a different set entirely (BR1-BR9 + BR6b + R), because the
 # guards are then registered in the plugin's hooks/hooks.json and this
 # repository's settings file legitimately never mentions them. See the
 # "BY-REFERENCE LAYER SET" banner below for what each BR layer asserts.
@@ -423,6 +423,10 @@ run_layer_R() {
 #   BR6  THIS OPERATOR WILL ACTUALLY LOAD THIS ENGINE — the user-scope plugin
 #        registration chain (enabledPlugins -> known marketplace -> marketplace
 #        manifest -> plugin source) resolves to THIS engine root
+#   BR6b the entity-facing engine POINTER (the symlink install.sh mints, which
+#        an entity's OWN scripts follow because they get no $CLAUDE_PLUGIN_ROOT)
+#        agrees with that registration. Absent -> named warning; present and
+#        disagreeing, dangling, or aimed at a non-engine -> failure
 #   BR7  the marketplace manifest is git-TRACKED, so the next clone can register
 #   BR8  engine-status.sh reports ACTIVE for this entity AND emits an
 #        operator-visible systemMessage — paired against an unadopted directory
@@ -439,7 +443,7 @@ run_layer_R() {
 if [ "$PROBE_MODE" = "by-reference" ]; then
     {
         echo ""
-        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR9) ==="
+        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR9 + BR6b) ==="
         echo "  engine : $ENGINE_ROOT"
         echo "  entity : $REPO_ROOT"
         echo ""
@@ -887,6 +891,41 @@ else:
             emit_fail "BR6. could not read this operator's plugin registration: ${BR6_OUT#ERR }. A probe that cannot confirm the host will load the engine cannot claim enforcement is on."
             ;;
     esac
+
+    # --- BR6b — the entity-facing engine POINTER agrees with the registration ---
+    #
+    # scripts/locate-engine.sh gives an entity's OWN scripts (an install-fresh
+    # pipeline, a freshness verifier, a CI step) a way to find the engine, since
+    # they get no $CLAUDE_PLUGIN_ROOT and, by reference, have no relative path to
+    # it. Its last-resort candidate is a symlink minted by install.sh, which is a
+    # CACHE of the registration BR6 just walked.
+    #
+    # A cache nobody checks is how an entity script ends up calling a moved or
+    # deleted engine while every other layer stays green. So: present and
+    # disagreeing is a FAILURE; absent is a NAMED WARNING and never a green tick,
+    # because an adopter cannot mint it (the engine root is read-only to the
+    # repository it governs) and must not be failed for the engine maintainer's
+    # once-per-checkout step.
+    BR6_CFG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    BR6_POINTER="$BR6_CFG_DIR/richos-engine"
+    if [ -L "$BR6_POINTER" ] && [ ! -e "$BR6_POINTER" ]; then
+        # A DANGLING symlink is not the same as an absent one and must not be
+        # reported as if it were: it is the residue of an engine that moved or
+        # was deleted, and it is exactly the state a stale cache leaves behind.
+        emit_fail "BR6b. the engine pointer $BR6_POINTER is a DANGLING symlink -> '$(readlink "$BR6_POINTER" 2>/dev/null)'. The engine it named is gone. Re-run $BR_ENGINE_MAIN/scripts/hooks/install.sh to re-point it, or delete it."
+    elif [ ! -e "$BR6_POINTER" ]; then
+        emit_warn "BR6b. the entity-facing engine pointer is ABSENT ($BR6_POINTER). Hooks are unaffected — they get \$CLAUDE_PLUGIN_ROOT — but an ENTITY's own scripts that call an engine asset will fall back to walking the registration, and will FAIL LOUD if that is unavailable too. Mint it once per engine checkout:  $BR_ENGINE_MAIN/scripts/hooks/install.sh"
+    else
+        BR6_POINTER_REAL="$(realpath_of "$BR6_POINTER")"
+        if [ ! -d "$BR6_POINTER_REAL/scripts/hooks" ] || [ ! -f "$BR6_POINTER_REAL/VERSION" ]; then
+            emit_fail "BR6b. the engine pointer $BR6_POINTER resolves to '$BR6_POINTER_REAL', which is NOT an engine (no scripts/hooks/ + VERSION). An entity script following it would find nothing where it expects the mechanical layer. Re-run $BR_ENGINE_MAIN/scripts/hooks/install.sh."
+        elif [ "$BR6_POINTER_REAL" != "$(realpath_of "$BR_ENGINE_MAIN")" ] \
+             && [ "$BR6_POINTER_REAL" != "$(realpath_of "$BR_ENGINE_TWIN")" ]; then
+            emit_fail "BR6b. the engine pointer DISAGREES with the audited engine: $BR6_POINTER -> $BR6_POINTER_REAL, but this probe audited $BR_ENGINE_MAIN. An entity script would run a different engine's checks than the one verified here — which is the freshness contract's exact failure, one layer out."
+        else
+            emit_pass "BR6b. the entity-facing engine pointer agrees with the audited engine: $BR6_POINTER -> $BR6_POINTER_REAL"
+        fi
+    fi
 
     # --- BR7 — the marketplace manifest reaches the next clone ---
     #

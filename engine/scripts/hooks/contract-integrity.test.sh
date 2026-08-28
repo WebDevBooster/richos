@@ -47,6 +47,17 @@ INSTALL="$SCRIPT_DIR/install.sh"
 PROBE="$SCRIPT_DIR/contract-integrity-probe.sh"
 REAL_REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# SANDBOX THE OPERATOR CONFIG DIR, for the whole suite, before anything runs.
+# install.sh mints the entity-facing engine pointer into
+# ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, and this suite runs it against ~20
+# throwaway sandboxes. Without this line every one of those repoints the REAL
+# operator's pointer at a temp directory that is deleted seconds later, leaving
+# a dangling symlink on the machine. Observed, once, before the variable
+# existed — which is also how BR6b's dangling-pointer branch got written.
+CLAUDE_CONFIG_DIR="$(mktemp -d -t contract-integrity-cfg.XXXXXX)"
+export CLAUDE_CONFIG_DIR
+trap 'rm -rf "$CLAUDE_CONFIG_DIR"' EXIT
+
 if [ ! -x "$INSTALL" ] || [ ! -x "$PROBE" ]; then
     echo "FATAL: install.sh or contract-integrity-probe.sh missing/non-exec" >&2
     exit 1

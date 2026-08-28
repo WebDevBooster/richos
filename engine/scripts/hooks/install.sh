@@ -247,4 +247,40 @@ for f in "${HOOK_FILES[@]}"; do
 done
 echo "✓ refreshed hook sha256 manifests"
 
+# --- Mint the entity-facing engine pointer --------------------------------
+# A HOOK is told where the engine is ($CLAUDE_PLUGIN_ROOT). An ENTITY's own
+# scripts are not, and under a by-reference engine they have no relative path to
+# it either — so an install-fresh pipeline or a CI step that must run the
+# integrity probe has nothing to call. scripts/locate-engine.sh is the full
+# answer; this symlink is the two-line bootstrap an adopter can use before it
+# can source anything.
+#
+# It is a CACHE of the operator registration, never the source of truth: the
+# locator consults the registration FIRST and this only as a fallback, and the
+# probe's BR6 layer asserts the two agree, so a pointer left behind by a moved
+# engine is a probe failure rather than a silent wrong answer.
+#
+# Best-effort by design: a machine with no writable ~/.claude is not a broken
+# install, and this must never be the reason an installer fails.
+#
+# CLAUDE_CONFIG_DIR is honoured (the host's own override for where ~/.claude
+# lives), and it is what lets a test sandbox its HOME properly: without it, a
+# suite that runs this installer against a throwaway engine would repoint the
+# REAL operator's pointer at a temp directory that is deleted seconds later.
+# Observed, in this repo, before the variable was threaded through.
+ENGINE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+ENGINE_POINTER="$ENGINE_CONFIG_DIR/richos-engine"
+if mkdir -p "$ENGINE_CONFIG_DIR" 2>/dev/null; then
+    if [ -L "$ENGINE_POINTER" ] || [ ! -e "$ENGINE_POINTER" ]; then
+        if ln -sfn "$REPO_ROOT" "$ENGINE_POINTER" 2>/dev/null; then
+            echo "✓ engine pointer -> $ENGINE_POINTER -> $REPO_ROOT"
+        else
+            echo "NOTE: could not write the engine pointer at $ENGINE_POINTER — entity scripts that locate the engine will fall back to the operator registration. (install.sh)" >&2
+        fi
+    else
+        echo "NOTE: $ENGINE_POINTER exists and is NOT a symlink — leaving it alone rather than replacing an operator's file. Entity scripts will resolve the engine from the operator registration instead. (install.sh)" >&2
+    fi
+else
+    echo "NOTE: could not create $ENGINE_CONFIG_DIR — engine pointer not minted. (install.sh)" >&2
+fi
 exit 0
