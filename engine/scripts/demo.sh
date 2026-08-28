@@ -262,8 +262,30 @@ print(f"QA PASSED: greeting('World') == {actual!r}")
 PY
 
 git -C "$SAMPLE_ROOT" init -q -b main
-git -C "$SAMPLE_ROOT" config user.email "demo@example.com"
+
+# COMMIT IDENTITY — inherit the operator's, do not invent one.
+#
+# This repo-local override used to be `demo@example.com` unconditionally, and
+# that made the demo UNRUNNABLE on any machine with a commit-identity policy:
+# the operator who wrote this had a machine-wide pre-commit guard requiring a
+# specific author/committer email, so the very first commit was refused, all
+# seven beats died before running, and demo.test.sh was red on the author's own
+# machine. A shipped demo that cannot run where it was written is its own kind
+# of false signal — and "just use --no-verify" would be worse, because the demo
+# would then be teaching adopters to walk around a guard on their first contact
+# with the engine.
+#
+# The sample repository is a throwaway in a temp directory and is never pushed,
+# so its email is cosmetic. The NAME is not — "Sample Company" is what the
+# walkthrough's commit log is supposed to read — so the name is still set and
+# only the email is left alone. The fallback exists for the one machine where
+# leaving it alone does not work: a fresh box with no git identity configured
+# at all, where `git commit` would otherwise stop and ask. Such a machine has
+# no identity policy to violate either.
 git -C "$SAMPLE_ROOT" config user.name "Sample Company"
+if [ -z "$(git -C "$SAMPLE_ROOT" config user.email 2>/dev/null)" ]; then
+    git -C "$SAMPLE_ROOT" config user.email "demo@example.com"
+fi
 git -C "$SAMPLE_ROOT" add -A
 # Force-add the committed-by-design canonical settings file: a common GLOBAL
 # gitignore convention (~/.config/git/ignore '**/.claude/settings.local.json')

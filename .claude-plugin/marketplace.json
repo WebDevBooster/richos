@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "richos-local",
+  "description": "The RichOS engine, served from a local checkout. One copy of the mechanical layer on disk; every adopting repository loads it by reference rather than carrying a hand-ported duplicate.",
+  "owner": {
+    "name": "RichOS"
+  },
+  "plugins": [
+    {
+      "name": "richos-engine",
+      "description": "The RichOS engine as a loadable plugin: the orchestration guards (worktree isolation, resume isolation, main-checkout write protection, secret scanning, definition-drift detection, durable handoff logging), the shipped skills, and the four meta-roles every operator needs regardless of what they build.",
+      "author": {
+        "name": "RichOS"
+      },
+      "category": "orchestration",
+      "source": "./engine"
+    }
+  ]
+}
