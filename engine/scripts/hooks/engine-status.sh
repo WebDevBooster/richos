@@ -15,17 +15,43 @@
 # is that the defence must ALWAYS STATE WHETHER IT IS ON, in a place nobody has
 # to go looking for.
 #
-# So this hook runs at every session start and emits, into the orchestrator's
-# own context via SessionStart additionalContext:
+# So this hook runs at every session start and emits:
 #
 #   * which ENGINE is loaded, and from where
 #   * which REPOSITORY it resolved as the one it governs, and via which candidate
 #   * whether enforcement is ACTIVE, STOOD DOWN, or BROKEN
 #   * the count of guards that will actually run
 #
+# TWO CHANNELS, AND WHY BOTH ARE NEEDED
+# =====================================
+# `hookSpecificOutput.additionalContext` reaches the MODEL. It does not reach
+# the human. That distinction is not academic: on 2026-08-28 an operator ran a
+# real session in an adopted repository, looked at its stdout and stderr, saw no
+# engine banner anywhere, and concluded the engine was not loaded. It was
+# loaded, and enforcement was on — the announcement had gone somewhere only the
+# model could see. "Firing silently" and "not firing" were indistinguishable to
+# the one person who needed to tell them apart, which is the exact failure class
+# this hook exists to remove, reproduced by the hook itself.
+#
+# So every status is now emitted on BOTH channels:
+#
+#   systemMessage                        -> the OPERATOR (Claude Code renders it
+#                                           in the UI; the host's own hook schema
+#                                           documents it as "Display a message to
+#                                           the user (all hooks)")
+#   hookSpecificOutput.additionalContext -> the MODEL
+#
+# The operator line is deliberately emitted for the STOOD-DOWN status too, even
+# though the plugin is enabled at USER scope and therefore loads in every
+# directory on the machine. One short line per session in an unadopted directory
+# is the price of the guarantee, and the guarantee is the whole point: nobody
+# can be unguarded without being told. There is deliberately no quiet switch —
+# a mute for "this repo is not protected" is the silent skip walking back in
+# through the door marked configuration.
+#
 # It never blocks (SessionStart hooks must not), but a BROKEN status is
-# unmissable: it goes to stderr AND into the model's context AND names every
-# candidate that was examined.
+# unmissable: it goes to stderr AND to the operator AND into the model's context
+# AND names every candidate that was examined.
 #
 # LOG-ONLY / NEVER BLOCKS: always exits 0.
 
@@ -68,12 +94,21 @@ ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 # outranks the payload cwd anyway. Paying a hang risk for a candidate that
 # never wins is a bad trade.
 
-emit_context() { # <summary>
+# emit_context <model-summary> <operator-line>
+#
+# ONE call, TWO audiences. The operator line is a short verdict a human reads at
+# a glance; the model summary is the full detail. Both are always emitted — a
+# call site that supplied only one would recreate the invisible-announcement
+# defect for whichever audience it left out, so the operator line is a REQUIRED
+# positional argument rather than an option.
+emit_context() { # <model-summary> <operator-line>
     local summary="$1"
+    local sysmsg="$2"
     if command -v python3 >/dev/null 2>&1; then
-        SUMMARY="$summary" python3 - <<'PY' 2>/dev/null || true
+        SUMMARY="$summary" SYSMSG="$sysmsg" python3 - <<'PY' 2>/dev/null || true
 import json, os
 print(json.dumps({
+    "systemMessage": os.environ.get("SYSMSG", ""),
     "hookSpecificOutput": {
         "hookEventName": "SessionStart",
         "additionalContext": os.environ.get("SUMMARY", ""),
@@ -81,9 +116,14 @@ print(json.dumps({
 }))
 PY
     else
+        # No python3: hand-escape. Both channels still carry a value — the
+        # fallback path is exactly where a quietly-dropped field would never be
+        # noticed.
         local escaped="${summary//\\/\\\\}"
         escaped="${escaped//\"/\\\"}"
-        printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$escaped"
+        local escaped_msg="${sysmsg//\\/\\\\}"
+        escaped_msg="${escaped_msg//\"/\\\"}"
+        printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$escaped_msg" "$escaped"
     fi
 }
 
@@ -107,21 +147,29 @@ RC=$?
 
 case "$RICHOS_ROOT_STATUS" in
     governed)
-        emit_context "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/13 guards present. Enforcement is ON for this repository."
+        emit_context \
+            "RichOS engine ${VERSION} ACTIVE. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED} (resolved via ${RICHOS_ROOT_SOURCE}). ${GUARD_COUNT}/13 guards present. Enforcement is ON for this repository." \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/13 guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE})."
         ;;
     engine-self)
-        emit_context "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/13 guards present. NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else."
+        emit_context \
+            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/13 guards present. NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else." \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/13 guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else."
         ;;
     not-adopted)
         # Loud enough to be seen, calm enough not to be noise: this is the
         # normal state in every repository that has not adopted the engine, and
         # the engine loads in all of them.
-        emit_context "RichOS engine ${VERSION} loaded but STOOD DOWN — this repository has NOT adopted it. Engine: ${ENGINE_ROOT}. No orchestration.config was found at any candidate root, so NONE of the ${GUARD_COUNT} guards will enforce anything in this session: no worktree-isolation contract, no main-checkout write protection, no secret scanning, no definition-drift check. This is a stand-down, not a pass. To adopt, commit an orchestration.config at this repository's root."
+        emit_context \
+            "RichOS engine ${VERSION} loaded but STOOD DOWN — this repository has NOT adopted it. Engine: ${ENGINE_ROOT}. No orchestration.config was found at any candidate root, so NONE of the ${GUARD_COUNT} guards will enforce anything in this session: no worktree-isolation contract, no main-checkout write protection, no secret scanning, no definition-drift check. This is a stand-down, not a pass. To adopt, commit an orchestration.config at this repository's root." \
+            "RichOS engine ${VERSION}: STOOD DOWN — this repository has not adopted the engine, so NONE of its ${GUARD_COUNT} guards will enforce anything in this session. This is a stand-down, not a pass. To adopt, commit an orchestration.config at the repository root."
         ;;
     *)
         BANNER="$(root_failure_banner "scripts/hooks/engine-status.sh")"
         printf '%s\n' "$BANNER" >&2
-        emit_context "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} Every guard in this session will refuse rather than guess. Fix the root declaration before doing any work that depends on enforcement."
+        emit_context \
+            "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} Every guard in this session will refuse rather than guess. Fix the root declaration before doing any work that depends on enforcement." \
+            "RichOS engine ${VERSION}: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. ${RICHOS_ROOT_REASON} Every guard in this session will refuse rather than guess."
         ;;
 esac
 
