@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+#
+# locate-engine.test.sh — the engine locator, positive and negative.
+#
+# Every case runs against a SANDBOXED CLAUDE_CONFIG_DIR, never the operator's
+# real one. That is not tidiness: an earlier draft of install.sh wrote its
+# pointer to the real $HOME/.claude while a suite exercised a throwaway engine,
+# and repointed this machine's live pointer at a temp directory that was deleted
+# seconds later. The variable exists because that happened.
+#
+# Cases:
+#   1a  RICHOS_ENGINE_ROOT wins, and reports its source
+#   1b  RICHOS_ENGINE_ROOT set to a NON-engine FAILS — it must never fall
+#       through to an engine nobody named (the EXCLUSIVE rule)
+#   1c  ...and specifically does not fall through even when a perfectly good
+#       registration is present (the negative arm 1b needs to mean anything)
+#   2a  CLAUDE_PLUGIN_ROOT is used when it looks like an engine
+#   2b  CLAUDE_PLUGIN_ROOT pointing at a NON-engine is skipped, not fatal
+#       (another plugin's root can legitimately be there)
+#   3a  the operator registration resolves, and OUTRANKS the pointer
+#   3b  a registration whose plugin is DISABLED does not resolve
+#   3c  a registration naming a DIFFERENT marketplace does not resolve
+#   4a  the pointer resolves when nothing else does
+#   4b  a STALE pointer (target is no longer an engine) is rejected
+#   5a  nothing available at all -> exit 1 with a NAMED diagnosis, never a
+#       silent empty string a caller could mistake for a path
+#   5b  ...and the diagnosis says what to run
+#   6a  install.sh mints the pointer into CLAUDE_CONFIG_DIR
+#   6b  install.sh does NOT clobber a non-symlink file an operator put there
+
+set -uo pipefail
+
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE_ROOT_REAL="$(cd "$SRC_DIR/.." && pwd)"
+LOCATOR="$SRC_DIR/locate-engine.sh"
+
+TMP="$(mktemp -d -t locate-engine.XXXXXX)"
+trap 'rm -rf "$TMP"' EXIT
+
+# Snapshot the REAL operator pointer BEFORE anything runs, so case 6c can prove
+# the suite left it alone rather than assert that it meant to. The trailing 'x'
+# keeps "absent" and "empty" distinguishable through command substitution.
+REAL_CFG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+REAL_POINTER_BEFORE="$(readlink "$REAL_CFG_DIR/richos-engine" 2>/dev/null; printf 'x')"
+
+PASS=0
+FAIL=0
+
+ok()   { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
+bad()  { printf '  FAIL  %s%s\n' "$1" "${2:+ ($2)}"; FAIL=$((FAIL + 1)); }
+
+# A directory that LOOKS like an engine (the locator's validity test is
+# scripts/hooks/ + VERSION).
+make_fake_engine() { # <dir>
+    mkdir -p "$1/scripts/hooks"
+    printf '9.9.9\n' > "$1/VERSION"
+}
+
+FAKE_A="$TMP/engineA"; make_fake_engine "$FAKE_A"
+FAKE_B="$TMP/engineB"; make_fake_engine "$FAKE_B"
+NOTENGINE="$TMP/not-an-engine"; mkdir -p "$NOTENGINE"
+
+# A sandboxed config dir carrying a complete, working registration for engineA.
+CFG="$TMP/cfg"
+mkdir -p "$CFG/plugins" "$TMP/marketplace/.claude-plugin"
+cat > "$TMP/marketplace/.claude-plugin/marketplace.json" <<JSON
+{"name":"richos-local","plugins":[{"name":"richos-engine","source":"./engineA"}]}
+JSON
+# The manifest's source is relative to the marketplace root, so the engine has
+# to live there. Move engineA under it.
+rm -rf "$TMP/marketplace/engineA"
+cp -R "$FAKE_A" "$TMP/marketplace/engineA"
+REG_ENGINE="$TMP/marketplace/engineA"
+cat > "$CFG/settings.json" <<JSON
+{"extraKnownMarketplaces":{"richos-local":{"source":{"source":"directory","path":"$TMP/marketplace"}}},
+ "enabledPlugins":{"richos-engine@richos-local":true}}
+JSON
+
+# run <expected-exit> <expected-stdout-or-empty> -- <env assignments...>
+locate() { env "$@" bash "$LOCATOR" 2>/dev/null; }
+
+echo "=== locate-engine ==="
+
+# 1a
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG" RICHOS_ENGINE_ROOT="$FAKE_B")"
+[ "$OUT" = "$(cd "$FAKE_B" && pwd -P)" ] && ok "1a RICHOS_ENGINE_ROOT wins" || bad "1a RICHOS_ENGINE_ROOT wins" "got '$OUT'"
+
+# 1b / 1c — EXCLUSIVE: a bad explicit root fails, even with a good registration
+# sitting right there. 1c is what makes 1b evidence rather than a coincidence.
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG" RICHOS_ENGINE_ROOT="$NOTENGINE")"; RC=$?
+[ "$RC" -ne 0 ] && ok "1b a bad RICHOS_ENGINE_ROOT FAILS" || bad "1b a bad RICHOS_ENGINE_ROOT FAILS" "rc=$RC"
+[ -z "$OUT" ] && ok "1c ...and prints nothing (no fall-through to the registration)" || bad "1c ...and prints nothing" "got '$OUT'"
+
+# 2a / 2b
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG" CLAUDE_PLUGIN_ROOT="$FAKE_B")"
+[ "$OUT" = "$(cd "$FAKE_B" && pwd -P)" ] && ok "2a CLAUDE_PLUGIN_ROOT is used" || bad "2a CLAUDE_PLUGIN_ROOT is used" "got '$OUT'"
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG" CLAUDE_PLUGIN_ROOT="$NOTENGINE")"
+[ "$OUT" = "$(cd "$REG_ENGINE" && pwd -P)" ] && ok "2b a non-engine CLAUDE_PLUGIN_ROOT is SKIPPED, not fatal" || bad "2b a non-engine CLAUDE_PLUGIN_ROOT is skipped" "got '$OUT'"
+
+# 3a — registration resolves, and OUTRANKS a pointer aimed elsewhere.
+ln -sfn "$FAKE_B" "$CFG/richos-engine"
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG")"
+[ "$OUT" = "$(cd "$REG_ENGINE" && pwd -P)" ] && ok "3a the registration resolves AND outranks the pointer" || bad "3a registration outranks pointer" "got '$OUT'"
+
+# 3b — plugin present but disabled.
+CFG2="$TMP/cfg-disabled"; mkdir -p "$CFG2"
+sed 's/"richos-engine@richos-local":true/"richos-engine@richos-local":false/' "$CFG/settings.json" > "$CFG2/settings.json"
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG2")"; RC=$?
+[ "$RC" -ne 0 ] && [ -z "$OUT" ] && ok "3b a DISABLED plugin does not resolve" || bad "3b disabled plugin resolves anyway" "rc=$RC out='$OUT'"
+
+# 3c — enabled, but under a marketplace this operator does not know.
+CFG3="$TMP/cfg-othermkt"; mkdir -p "$CFG3"
+sed 's/richos-engine@richos-local/richos-engine@somewhere-else/' "$CFG/settings.json" > "$CFG3/settings.json"
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG3")"; RC=$?
+[ "$RC" -ne 0 ] && ok "3c an unknown marketplace does not resolve" || bad "3c unknown marketplace resolved" "out='$OUT'"
+
+# 4a — pointer only.
+CFG4="$TMP/cfg-pointeronly"; mkdir -p "$CFG4"
+ln -sfn "$FAKE_B" "$CFG4/richos-engine"
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG4")"
+[ "$OUT" = "$(cd "$FAKE_B" && pwd -P)" ] && ok "4a the pointer resolves when nothing else does" || bad "4a pointer resolves" "got '$OUT'"
+
+# 4b — STALE pointer: the target exists but is no longer an engine.
+CFG5="$TMP/cfg-stale"; mkdir -p "$CFG5"
+ln -sfn "$NOTENGINE" "$CFG5/richos-engine"
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG5")"; RC=$?
+[ "$RC" -ne 0 ] && [ -z "$OUT" ] && ok "4b a STALE pointer is REJECTED, not returned" || bad "4b stale pointer returned" "rc=$RC out='$OUT'"
+
+# 5a / 5b — nothing at all.
+CFG6="$TMP/cfg-empty"; mkdir -p "$CFG6"
+ERR="$(env CLAUDE_CONFIG_DIR="$CFG6" bash "$LOCATOR" 2>&1 >/dev/null)"; RC=$?
+OUT="$(locate CLAUDE_CONFIG_DIR="$CFG6")"
+if [ "$RC" -ne 0 ] && [ -z "$OUT" ]; then
+    ok "5a nothing resolvable -> exit 1 and EMPTY stdout"
+else
+    bad "5a nothing resolvable" "rc=$RC out='$OUT'"
+fi
+printf '%s' "$ERR" | grep -qF 'install.sh' && ok "5b ...and the diagnosis names the command to run" || bad "5b diagnosis names install.sh"
+
+echo ""
+echo "=== install.sh: the pointer ==="
+
+# 6a — a real installer run against a throwaway engine COPY, with a sandboxed
+# config dir. A copy, not a stub: a stubbed installer could pass while the
+# shipped one fails.
+INST_ENGINE="$TMP/inst-engine"
+mkdir -p "$INST_ENGINE"
+cp -R "$ENGINE_ROOT_REAL/scripts" "$INST_ENGINE/scripts"
+cp "$ENGINE_ROOT_REAL/VERSION" "$INST_ENGINE/VERSION"
+mkdir -p "$INST_ENGINE/.claude"
+cp "$ENGINE_ROOT_REAL/.claude/settings.local.json" "$INST_ENGINE/.claude/settings.local.json"
+CFG7="$TMP/cfg-install"; mkdir -p "$CFG7"
+env CLAUDE_CONFIG_DIR="$CFG7" bash "$INST_ENGINE/scripts/hooks/install.sh" >/dev/null 2>&1
+if [ -L "$CFG7/richos-engine" ] && [ "$(cd "$CFG7/richos-engine" && pwd -P)" = "$(cd "$INST_ENGINE" && pwd -P)" ]; then
+    ok "6a install.sh mints the pointer into CLAUDE_CONFIG_DIR"
+else
+    bad "6a install.sh mints the pointer" "$(ls -l "$CFG7/richos-engine" 2>&1 | head -1)"
+fi
+
+# 6b — an operator's own regular file at that path is NOT replaced.
+CFG8="$TMP/cfg-occupied"; mkdir -p "$CFG8"
+printf 'operator data\n' > "$CFG8/richos-engine"
+env CLAUDE_CONFIG_DIR="$CFG8" bash "$INST_ENGINE/scripts/hooks/install.sh" >/dev/null 2>&1
+if [ -f "$CFG8/richos-engine" ] && [ ! -L "$CFG8/richos-engine" ] \
+   && grep -qF 'operator data' "$CFG8/richos-engine"; then
+    ok "6b install.sh does NOT clobber a non-symlink file at that path"
+else
+    bad "6b install.sh clobbered an operator file"
+fi
+
+# 6c — the REAL operator config dir was not touched by any case above. This is
+# the assertion the suite exists to be able to make: the leak it guards against
+# actually happened once, and a suite that merely intends to sandbox is not
+# evidence that it did. REAL_POINTER_BEFORE is captured at the top of the file.
+REAL_POINTER_AFTER="$(readlink "$REAL_CFG_DIR/richos-engine" 2>/dev/null; printf 'x')"
+if [ "$REAL_POINTER_AFTER" = "$REAL_POINTER_BEFORE" ]; then
+    ok "6c the REAL $REAL_CFG_DIR/richos-engine is byte-identical before and after"
+else
+    bad "6c THE SUITE MUTATED THE REAL OPERATOR POINTER" "before='${REAL_POINTER_BEFORE%x}' after='${REAL_POINTER_AFTER%x}'"
+fi
+
+echo ""
+if [ "$FAIL" -gt 0 ]; then
+    echo "=== locate-engine tests: $FAIL FAILED, $PASS passed ==="
+    exit 1
+fi
+echo "=== locate-engine tests: all $PASS passed ==="

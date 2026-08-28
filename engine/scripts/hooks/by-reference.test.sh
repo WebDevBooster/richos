@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # by-reference.test.sh — the negative controls for contract-integrity-probe.sh's
-# BY-REFERENCE layer set (BR1..BR9).
+# BY-REFERENCE layer set (BR1..BR10, including BR6b).
 #
 # WHY THIS FILE EXISTS
 # ====================
@@ -84,6 +84,17 @@ CFG
     printf -- '---\nname: mark\nmodel: opus\n---\nentity roster body\n' \
         >"$sb/entity/.claude/agents/mark.md"
 
+    # The entity's OWN settings file. Under a by-reference engine it carries no
+    # guard registrations — the plugin supplies those — but it still carries the
+    # two critical project-scope config keys BR10 audits, and any project-scope
+    # hooks the entity keeps. A sandbox without it would make BR10's baseline red.
+    cat >"$sb/entity/.claude/settings.local.json" <<'ENTCFG'
+{
+  "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" },
+  "worktree": { "baseRef": "head" }
+}
+ENTCFG
+
     cat >"$sb/.claude-plugin/marketplace.json" <<'MKT'
 {
   "name": "sandbox-local",
@@ -113,8 +124,14 @@ JSON
 JSON
 
     # Mint the engine's sidecars, so BR4's tamper check has a baseline to
-    # compare against (and so its "did not run" warning is not the default).
-    RICHOS_ENTITY_ROOT="$sb/engine" "$sb/engine/scripts/hooks/install.sh" >/dev/null 2>&1
+    # compare against (and so its "did not run" warning is not the default) —
+    # and the entity-facing engine pointer BR6b audits, which the same installer
+    # mints. CLAUDE_CONFIG_DIR keeps it inside the sandbox: without it the
+    # installer would repoint the REAL operator's pointer at a temp directory
+    # this function deletes moments later. That leak was observed, once, and it
+    # is why the variable is threaded through the installer and the locator.
+    RICHOS_ENTITY_ROOT="$sb/engine" CLAUDE_CONFIG_DIR="$sb/home/.claude" \
+        "$sb/engine/scripts/hooks/install.sh" >/dev/null 2>&1
 
     # BR7's subject is "does this reach the next clone?", so the sandbox has to
     # be a real repository with a real commit.
@@ -184,7 +201,8 @@ else
     bad "0a.baseline-correct-install-is-green" "exit $RC; output: $(printf '%s' "$OUT" | grep '✗' | head -3)"
 fi
 if layer_passed "BR1" && layer_passed "BR2" && layer_passed "BR3" && layer_passed "BR4" \
-   && layer_passed "BR5" && layer_passed "BR6" && layer_passed "BR8" && layer_passed "BR9"; then
+   && layer_passed "BR5" && layer_passed "BR6" && layer_passed "BR6b" \
+   && layer_passed "BR10" && layer_passed "BR8" && layer_passed "BR9"; then
     ok "0b.baseline-every-BR-layer-actually-ran"
 else
     bad "0b.baseline-every-BR-layer-actually-ran" "a layer neither passed nor was reached: $(printf '%s' "$OUT" | grep -c '✓') ✓ lines"
@@ -488,6 +506,132 @@ json.dump(d, open(p, "w"), indent=2)
 PY
 run_probe "$SB"
 expect_only_layer_failed "6c.BR6-enabled-plugin-resolves-elsewhere" "BR6" "does NOT resolve to this engine"
+rm -rf "$SB"
+
+# ---------------------------------------------------------------------------
+# BR6b — the entity-facing engine POINTER, which an entity's OWN scripts follow
+# ---------------------------------------------------------------------------
+# BR6 answers "will the HOST load this engine?". BR6b answers the other half:
+# "will an ENTITY SCRIPT find it?" — the question that arises the moment an
+# adopter's install-fresh pipeline or CI step calls an engine asset, since
+# neither gets $CLAUDE_PLUGIN_ROOT and neither has a relative path to the engine
+# any more. A pointer nobody audits is how such a script ends up running a moved
+# engine's checks, or none at all, while every other layer stays green.
+SB="$(make_sandbox)"
+ln -sfn "$SB/entity" "$SB/home/.claude/richos-engine"     # exists, but is not an engine
+run_probe "$SB"
+expect_only_layer_failed "6d.BR6b-pointer-resolves-to-a-non-engine" "BR6b" "NOT an engine"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+mkdir -p "$SB/decoy-engine/scripts/hooks"
+printf '0.0.0\n' >"$SB/decoy-engine/VERSION"
+ln -sfn "$SB/decoy-engine" "$SB/home/.claude/richos-engine"
+run_probe "$SB"
+expect_only_layer_failed "6e.BR6b-pointer-disagrees-with-the-audited-engine" "BR6b" "DISAGREES"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+ln -sfn "$SB/engine-that-was-deleted" "$SB/home/.claude/richos-engine"
+run_probe "$SB"
+expect_only_layer_failed "6f.BR6b-dangling-pointer-is-not-reported-as-absent" "BR6b" "DANGLING"
+rm -rf "$SB"
+
+# ...and the positive arm: an ABSENT pointer is a NAMED WARNING, never a
+# failure and never a green tick. An adopter cannot mint it (the engine root is
+# read-only to the repository it governs), so failing them for the engine
+# maintainer's step would be wrong; saying nothing would be the "green tick with
+# the truth in a parenthesis" this probe has already shipped once.
+SB="$(make_sandbox)"
+rm -f "$SB/home/.claude/richos-engine"
+run_probe "$SB"
+if [ "$RC" -eq 0 ] && layer_warned "BR6b" && out_has "pointer is ABSENT"; then
+    ok "6g.BR6b-absent-pointer-is-a-named-warning-not-a-failure"
+else
+    bad "6g.BR6b-absent-pointer-is-a-named-warning-not-a-failure" "rc=$RC; expected exit 0 with a warned BR6b naming it ABSENT"
+fi
+if layer_passed "BR6b"; then
+    bad "6h.BR6b-absent-pointer-does-not-claim-agreement" "an absent pointer emitted a passing BR6b — a green tick for something that was never checked"
+else
+    ok "6h.BR6b-absent-pointer-does-not-claim-agreement"
+fi
+rm -rf "$SB"
+
+# ---------------------------------------------------------------------------
+# BR10 — the ENTITY's own critical config, which the plugin cannot supply
+# ---------------------------------------------------------------------------
+# Every other BR layer audits the ENGINE. These two keys are the entity's own,
+# they work at project scope, and their absence is silent: no error, no banner,
+# just an orchestrator that suddenly sees zero teammates. The seated layer set
+# has checked them since that incident; the by-reference set did not, so an
+# entity gained plugin verification and quietly lost config verification at the
+# exact moment it adopted.
+write_entity_settings() { # <sandbox> <teams-value-or-DELETE> <baseref-value-or-DELETE>
+    python3 - "$1/entity/.claude/settings.local.json" "$2" "$3" <<'PY'
+import json, os, sys
+p, teams, ref = sys.argv[1:4]
+d = {}
+if os.path.exists(p):
+    with open(p) as h:
+        d = json.load(h)
+d.setdefault("env", {})
+d.setdefault("worktree", {})
+if teams == "DELETE":
+    d["env"].pop("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", None)
+else:
+    d["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = teams
+if ref == "DELETE":
+    d["worktree"].pop("baseRef", None)
+else:
+    d["worktree"]["baseRef"] = ref
+os.makedirs(os.path.dirname(p), exist_ok=True)
+with open(p, "w") as h:
+    json.dump(d, h, indent=2)
+PY
+}
+
+SB="$(make_sandbox)"
+write_entity_settings "$SB" DELETE head
+run_probe "$SB"
+expect_only_layer_failed "10a.BR10-AGENT_TEAMS-flag-missing" "BR10" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is None"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 1 DELETE
+run_probe "$SB"
+expect_only_layer_failed "10b.BR10-worktree-baseRef-missing" "BR10" "worktree.baseRef is None"
+rm -rf "$SB"
+
+# Present but WRONG is not the same as missing, and both must fail: "0" is a
+# perfectly valid-looking value that turns the flag off.
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 0 head
+run_probe "$SB"
+expect_only_layer_failed "10c.BR10-AGENT_TEAMS-flag-present-but-off" "BR10" "expected \"1\""
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 1 main
+run_probe "$SB"
+expect_only_layer_failed "10d.BR10-baseRef-pointing-at-the-wrong-ref" "BR10" "expected \"head\""
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+rm -rf "$SB/entity/.claude/settings.local.json"
+run_probe "$SB"
+expect_only_layer_failed "10e.BR10-entity-has-no-settings-file-at-all" "BR10" "no readable .claude/settings.local.json"
+rm -rf "$SB"
+
+# Positive arm, so 10a-10e mean something: a correct entity config PASSES and is
+# not merely un-checked, and 0b asserts BR10 actually ran in the baseline.
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 1 head
+run_probe "$SB"
+if [ "$RC" -eq 0 ] && layer_passed "BR10"; then
+    ok "10f.BR10-a-correct-entity-config-passes"
+else
+    bad "10f.BR10-a-correct-entity-config-passes" "rc=$RC; $(printf '%s' "$OUT" | grep '✗' | head -2)"
+fi
 rm -rf "$SB"
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,17 @@ INSTALL="$SCRIPT_DIR/install.sh"
 PROBE="$SCRIPT_DIR/contract-integrity-probe.sh"
 REAL_REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# SANDBOX THE OPERATOR CONFIG DIR, for the whole suite, before anything runs.
+# install.sh mints the entity-facing engine pointer into
+# ${CLAUDE_CONFIG_DIR:-$HOME/.claude}, and this suite runs it against ~20
+# throwaway sandboxes. Without this line every one of those repoints the REAL
+# operator's pointer at a temp directory that is deleted seconds later, leaving
+# a dangling symlink on the machine. Observed, once, before the variable
+# existed — which is also how BR6b's dangling-pointer branch got written.
+CLAUDE_CONFIG_DIR="$(mktemp -d -t contract-integrity-cfg.XXXXXX)"
+export CLAUDE_CONFIG_DIR
+trap 'rm -rf "$CLAUDE_CONFIG_DIR"' EXIT
+
 if [ ! -x "$INSTALL" ] || [ ! -x "$PROBE" ]; then
     echo "FATAL: install.sh or contract-integrity-probe.sh missing/non-exec" >&2
     exit 1
@@ -65,6 +76,7 @@ ALL_HOOKS=(
     verify-agent-prompt.sh
     guard-main-checkout-writes.sh
     guard-bash-main-writes.sh
+    guard-worktree-removal.sh
     scan-secrets.sh
     guard-resume-isolation.sh
     guard-workflow-ban.sh
@@ -84,6 +96,10 @@ ALL_ROOT_SCRIPTS=(
     # same reason the reaper is: it is not a hook, and it decides something no
     # hook can second-guess — which repository every guard is protecting.
     scripts/lib/resolve-roots.sh
+    # The sanctioned removal helper. guard-worktree-removal.sh blocks every raw
+    # worktree removal and names this as the only way through, so Layer S
+    # verifies both halves and every sandbox must carry both.
+    scripts/remove-agent-worktree.sh
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -169,6 +185,7 @@ data["hooks"] = {
         ]},
         {"matcher": "Bash", "hooks": [
             {"type": "command", "command": P + "/guard-bash-main-writes.sh", "timeout": 10},
+            {"type": "command", "command": P + "/guard-worktree-removal.sh", "timeout": 10},
         ]},
         {"matcher": "Workflow", "hooks": [
             {"type": "command", "command": P + "/guard-workflow-ban.sh", "timeout": 10},
@@ -1254,6 +1271,82 @@ rm -rf "$ROOT"
 # JSON shape, idempotence) passes against the live scripts.
 set +e; "$SCRIPT_DIR/session-start-reap-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "48.reaper-wrapper-suite-passes" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# Layer S — the worktree-removal PAIR (guard + sanctioned helper)
+# ---------------------------------------------------------------------------
+# Four ways the pair can be broken, each of which leaves a live agent's worktree
+# removable by a raw command, or leaves the guard with no escape route. The
+# positive baseline is already covered by cases 1/2 (the committed source and a
+# post-install sandbox both pass, and both now include Layer S).
+
+# S1 — the guard is not wired at all.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/.claude/settings.local.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p) as f: d = json.load(f)
+for entry in d["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        entry["hooks"] = [h for h in entry["hooks"]
+                          if "guard-worktree-removal.sh" not in h.get("command", "")]
+with open(p, "w") as f: json.dump(d, f, indent=2)
+PY
+set +e; S_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "S1.worktree-removal-guard-not-wired-fails" 2 "$rc"
+if printf '%s' "$S_OUT" | grep -q 'S\. PreToolUse\[Bash\] worktree-removal guard'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "S1b.layer-S-is-the-layer-that-caught-it"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("S1b.layer-S-is-the-layer-that-caught-it")
+    printf '  FAIL  %s  (some other layer absorbed it)\n' "S1b.layer-S-is-the-layer-that-caught-it"
+fi
+rm -rf "$ROOT"
+
+# S2 — wired TWICE. Hook sources merge additively, so it fires twice per Bash
+# call and every ack-log line is duplicated.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/.claude/settings.local.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p) as f: d = json.load(f)
+for entry in d["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        dup = [h for h in entry["hooks"] if "guard-worktree-removal.sh" in h.get("command", "")]
+        entry["hooks"].extend(dup)
+with open(p, "w") as f: json.dump(d, f, indent=2)
+PY
+set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
+emit_case "S2.worktree-removal-guard-wired-twice-fails" 2 "$rc"
+rm -rf "$ROOT"
+
+# S3 — the guard is gutted into a no-op. It is still wired, still present, and
+# its hash no longer matches; the canary would also catch it if the hash did not.
+ROOT="$(make_sandbox)"
+cat >"$ROOT/scripts/hooks/guard-worktree-removal.sh" <<'NOOP_SH'
+#!/usr/bin/env bash
+exit 0
+NOOP_SH
+chmod +x "$ROOT/scripts/hooks/guard-worktree-removal.sh"
+set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
+emit_case "S3.gutted-worktree-removal-guard-fails" 2 "$rc"
+rm -rf "$ROOT"
+
+# S4 — THE PAIR SPLIT. The guard is perfect; its sanctioned helper is gone. This
+# is the case the layer exists for and the one a hooks-directory-shaped sweep
+# would miss entirely: the helper is not a hook and does not live in
+# scripts/hooks/. A guard whose only documented way through does not exist stops
+# being a gate and becomes a prompt to reach for the ack override.
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/remove-agent-worktree.sh"
+set +e; S_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "S4.sanctioned-helper-missing-fails" 2 "$rc"
+if printf '%s' "$S_OUT" | grep -q 'sanctioned removal helper is MISSING'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "S4b.layer-S-names-the-missing-helper"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("S4b.layer-S-names-the-missing-helper")
+    printf '  FAIL  %s\n' "S4b.layer-S-names-the-missing-helper"
+fi
+rm -rf "$ROOT"
 
 echo ""
 echo "=== summary ==="

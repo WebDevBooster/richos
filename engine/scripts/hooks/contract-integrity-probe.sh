@@ -77,7 +77,7 @@
 #      hook with a byte-identical bootstrap, and engine-status.sh is registered
 #      on both registration surfaces. Runs in BOTH modes.
 #
-# BY-REFERENCE MODE runs a different set entirely (BR1-BR9 + R), because the
+# BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R), because the
 # guards are then registered in the plugin's hooks/hooks.json and this
 # repository's settings file legitimately never mentions them. See the
 # "BY-REFERENCE LAYER SET" banner below for what each BR layer asserts.
@@ -323,7 +323,7 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
-    guard-resume-isolation guard-bash-main-writes guard-workflow-ban detect-nonnative-worktree \
+    guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
@@ -423,6 +423,15 @@ run_layer_R() {
 #   BR6  THIS OPERATOR WILL ACTUALLY LOAD THIS ENGINE — the user-scope plugin
 #        registration chain (enabledPlugins -> known marketplace -> marketplace
 #        manifest -> plugin source) resolves to THIS engine root
+#   BR6b the entity-facing engine POINTER (the symlink install.sh mints, which
+#        an entity's OWN scripts follow because they get no $CLAUDE_PLUGIN_ROOT)
+#        agrees with that registration. Absent -> named warning; present and
+#        disagreeing, dangling, or aimed at a non-engine -> failure
+#   BR10 the ENTITY's own critical config — env.CLAUDE_CODE_EXPERIMENTAL_AGENT_
+#        TEAMS="1" and worktree.baseRef="head". The plugin cannot supply these:
+#        they are project-scope keys and they are the entity's property. Every
+#        other BR layer audits the ENGINE; without this one an entity gained
+#        plugin verification and silently LOST config verification on adoption
 #   BR7  the marketplace manifest is git-TRACKED, so the next clone can register
 #   BR8  engine-status.sh reports ACTIVE for this entity AND emits an
 #        operator-visible systemMessage — paired against an unadopted directory
@@ -439,7 +448,7 @@ run_layer_R() {
 if [ "$PROBE_MODE" = "by-reference" ]; then
     {
         echo ""
-        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR9) ==="
+        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR10) ==="
         echo "  engine : $ENGINE_ROOT"
         echo "  entity : $REPO_ROOT"
         echo ""
@@ -488,6 +497,7 @@ guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
+guard-worktree-removal.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 teammate-idle-handoff.sh|TeammateIdle
@@ -886,6 +896,107 @@ else:
             emit_fail "BR6. could not read this operator's plugin registration: ${BR6_OUT#ERR }. A probe that cannot confirm the host will load the engine cannot claim enforcement is on."
             ;;
     esac
+
+    # --- BR6b — the entity-facing engine POINTER agrees with the registration ---
+    #
+    # scripts/locate-engine.sh gives an entity's OWN scripts (an install-fresh
+    # pipeline, a freshness verifier, a CI step) a way to find the engine, since
+    # they get no $CLAUDE_PLUGIN_ROOT and, by reference, have no relative path to
+    # it. Its last-resort candidate is a symlink minted by install.sh, which is a
+    # CACHE of the registration BR6 just walked.
+    #
+    # A cache nobody checks is how an entity script ends up calling a moved or
+    # deleted engine while every other layer stays green. So: present and
+    # disagreeing is a FAILURE; absent is a NAMED WARNING and never a green tick,
+    # because an adopter cannot mint it (the engine root is read-only to the
+    # repository it governs) and must not be failed for the engine maintainer's
+    # once-per-checkout step.
+    BR6_CFG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    BR6_POINTER="$BR6_CFG_DIR/richos-engine"
+    if [ -L "$BR6_POINTER" ] && [ ! -e "$BR6_POINTER" ]; then
+        # A DANGLING symlink is not the same as an absent one and must not be
+        # reported as if it were: it is the residue of an engine that moved or
+        # was deleted, and it is exactly the state a stale cache leaves behind.
+        emit_fail "BR6b. the engine pointer $BR6_POINTER is a DANGLING symlink -> '$(readlink "$BR6_POINTER" 2>/dev/null)'. The engine it named is gone. Re-run $BR_ENGINE_MAIN/scripts/hooks/install.sh to re-point it, or delete it."
+    elif [ ! -e "$BR6_POINTER" ]; then
+        emit_warn "BR6b. the entity-facing engine pointer is ABSENT ($BR6_POINTER). Hooks are unaffected — they get \$CLAUDE_PLUGIN_ROOT — but an ENTITY's own scripts that call an engine asset will fall back to walking the registration, and will FAIL LOUD if that is unavailable too. Mint it once per engine checkout:  $BR_ENGINE_MAIN/scripts/hooks/install.sh"
+    else
+        BR6_POINTER_REAL="$(realpath_of "$BR6_POINTER")"
+        if [ ! -d "$BR6_POINTER_REAL/scripts/hooks" ] || [ ! -f "$BR6_POINTER_REAL/VERSION" ]; then
+            emit_fail "BR6b. the engine pointer $BR6_POINTER resolves to '$BR6_POINTER_REAL', which is NOT an engine (no scripts/hooks/ + VERSION). An entity script following it would find nothing where it expects the mechanical layer. Re-run $BR_ENGINE_MAIN/scripts/hooks/install.sh."
+        elif [ "$BR6_POINTER_REAL" != "$(realpath_of "$BR_ENGINE_MAIN")" ] \
+             && [ "$BR6_POINTER_REAL" != "$(realpath_of "$BR_ENGINE_TWIN")" ]; then
+            emit_fail "BR6b. the engine pointer DISAGREES with the audited engine: $BR6_POINTER -> $BR6_POINTER_REAL, but this probe audited $BR_ENGINE_MAIN. An entity script would run a different engine's checks than the one verified here — which is the freshness contract's exact failure, one layer out."
+        else
+            emit_pass "BR6b. the entity-facing engine pointer agrees with the audited engine: $BR6_POINTER -> $BR6_POINTER_REAL"
+        fi
+    fi
+
+    # --- BR10 — the ENTITY's own critical config keys ---
+    #
+    # THE GAP THIS CLOSES. Every layer above audits the ENGINE: its manifest,
+    # its hook table, its scripts, its registration. None of them audits the one
+    # thing the engine cannot supply and the entity must carry itself.
+    #
+    # Two keys in the entity's own .claude/settings.local.json are as
+    # load-bearing as any guard:
+    #
+    #   env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
+    #       without it the orchestrator sees and spawns ZERO teammates at the
+    #       next session start, WITH NO ERROR SHOWN. A recorded incident.
+    #   worktree.baseRef = "head"
+    #       the whole worktree-isolation doctrine assumes a teammate's worktree
+    #       branches from local HEAD rather than from the remote's default.
+    #
+    # Unlike the two plugin keys, these DO work at project scope, so they are
+    # entity property and travel with the clone. The SEATED layer set has
+    # checked them since the incident (Layers I/J); the by-reference set did
+    # not, which meant an entity gained plugin-wiring verification and quietly
+    # LOST config verification at the moment it adopted. That is the exact
+    # shape of drift this whole migration exists to remove, so it is a HARD
+    # failure here rather than a warning.
+    BR10_SETTINGS="$REPO_ROOT/.claude/settings.local.json"
+    if [ ! -r "$BR10_SETTINGS" ]; then
+        emit_fail "BR10. the entity has no readable .claude/settings.local.json ($BR10_SETTINGS). Under a by-reference engine the guards are registered by the plugin, but this file still carries the entity's OWN critical config (env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, worktree.baseRef) and any project-scope hooks it keeps. Its absence is not 'nothing to check'."
+    else
+        BR10_OUT="$(python3 - "$BR10_SETTINGS" <<'PY' 2>/dev/null || echo "ERR unreadable/unparseable"
+import json, sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as h:
+        d = json.load(h)
+except Exception as e:
+    print("ERR %s" % e)
+    raise SystemExit
+
+def get(dotted):
+    cur = d
+    for k in dotted.split("."):
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return None
+    return cur
+
+bad = []
+teams = get("env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS")
+if teams != "1":
+    bad.append('env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is %r, expected "1"' % (teams,))
+ref = get("worktree.baseRef")
+if ref != "head":
+    bad.append('worktree.baseRef is %r, expected "head"' % (ref,))
+print("OK" if not bad else "BAD " + "; ".join(bad))
+PY
+)"
+        case "$BR10_OUT" in
+            OK)
+                emit_pass "BR10. the entity's own critical config is intact: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=\"1\" and worktree.baseRef=\"head\" in $BR10_SETTINGS" ;;
+            BAD\ *)
+                emit_fail "BR10. the entity's critical config is BROKEN: ${BR10_OUT#BAD }. In $BR10_SETTINGS. A missing AGENT_TEAMS flag makes the orchestrator see ZERO teammates at the next session start with no error shown; a wrong baseRef branches every teammate worktree from the wrong commit. The plugin cannot supply either — they are project-scope keys and they are the entity's own." ;;
+            *)
+                emit_fail "BR10. could not read the entity's critical config from $BR10_SETTINGS: ${BR10_OUT#ERR }." ;;
+        esac
+    fi
 
     # --- BR7 — the marketplace manifest reaches the next clone ---
     #
@@ -2097,6 +2208,104 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
     fi
 elif [ "$Q_OK" -eq 1 ]; then
     emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOUR IS NOT."
+fi
+
+# --- Layer S: WORKTREE-REMOVAL guard wired exactly once + path-confined +
+# manifest-matched + functionally blocks a raw removal AND allows a read, AND
+# its sanctioned helper is installed (HARD gate) ---
+#
+# THE PAIR: guard-worktree-removal.sh (PreToolUse[Bash], blocking) and
+#           scripts/remove-agent-worktree.sh (the ONLY blessed removal path).
+# The guard blocks every raw `git worktree remove` / `prune --expire` /
+# `branch -D worktree-*` / `rm -r <worktree>` and points the operator at the
+# helper, which performs the authoritative entity-lock + live-pid liveness check.
+#
+# WHY BOTH HALVES ARE CHECKED HERE: a guard whose sanctioned escape route is not
+# installed is a guard that only blocks, and the first operator who hits it will
+# reach for the ack override — turning a structural gate into a formality. So
+# the helper's presence, executability and hash are part of THIS layer, not a
+# separate one. They ship as a pair and they are verified as a pair.
+#
+# WHY A PAIRED CANARY: "does it block?" is satisfied by a guard gutted to
+# `exit 2`, which would also block `git worktree list` and every other Bash
+# call — useless, and worse than absent, because it gets disabled. Both arms run.
+S_OK=1
+CANONICAL_WTREMOVAL_HOOK="$REPO_ROOT/scripts/hooks/guard-worktree-removal.sh"
+CANONICAL_WTREMOVAL_HELPER="$REPO_ROOT/scripts/remove-agent-worktree.sh"
+
+WTREMOVAL_WIRED_CMD=""
+WTREMOVAL_WIRED_N=0
+for c in "${BASH_CMDS[@]}"; do
+    RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
+    RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
+    WIRED_PATH_C="${RESOLVED_C%% *}"
+    if [ "$(realpath_of "$WIRED_PATH_C")" = "$(realpath_of "$CANONICAL_WTREMOVAL_HOOK")" ]; then
+        WTREMOVAL_WIRED_CMD="$RESOLVED_C"
+        WTREMOVAL_WIRED_N=$((WTREMOVAL_WIRED_N + 1))
+    fi
+done
+
+if [ "$WTREMOVAL_WIRED_N" -eq 0 ]; then
+    emit_fail "S. PreToolUse[Bash] worktree-removal guard (guard-worktree-removal.sh) NOT wired — a raw 'git worktree remove' of a LIVE agent's worktree is unguarded. Run scripts/hooks/install.sh and confirm the Bash matcher stanza carries both Bash guards."
+    S_OK=0
+elif [ "$WTREMOVAL_WIRED_N" -gt 1 ]; then
+    emit_fail "S. worktree-removal guard wired ${WTREMOVAL_WIRED_N}x on PreToolUse[Bash] — hook sources merge additively, so it fires ${WTREMOVAL_WIRED_N} times per Bash call and duplicates every ack-log line."
+    S_OK=0
+else
+    WTREMOVAL_EXE="${WTREMOVAL_WIRED_CMD%% *}"
+    WTREMOVAL_HASH="$(sha256_of "$(realpath_of "$WTREMOVAL_EXE")")"
+    WTREMOVAL_MANIFEST="$(manifest_hash_of "$CANONICAL_WTREMOVAL_HOOK")"
+    if [ ! -x "$WTREMOVAL_EXE" ]; then
+        emit_fail "S. wired worktree-removal guard not found / not executable: $WTREMOVAL_EXE"
+        S_OK=0
+    elif [ -z "$WTREMOVAL_MANIFEST" ]; then
+        emit_fail "S. worktree-removal guard manifest missing or unreadable: $CANONICAL_WTREMOVAL_HOOK.sha256 — run scripts/hooks/install.sh to regenerate."
+        S_OK=0
+    elif [ "$WTREMOVAL_HASH" != "$WTREMOVAL_MANIFEST" ]; then
+        emit_fail "S. worktree-removal guard content hash mismatch — live hook differs from manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
+        S_OK=0
+    fi
+fi
+
+# The sanctioned helper — the other half of the pair.
+if [ "$S_OK" -eq 1 ]; then
+    if [ ! -x "$CANONICAL_WTREMOVAL_HELPER" ]; then
+        emit_fail "S. the sanctioned removal helper is MISSING or not executable: $CANONICAL_WTREMOVAL_HELPER. The guard blocks every raw removal and names this script as the only way through; without it the guard has no escape route but the ack override, which is a one-off, not a workflow."
+        S_OK=0
+    else
+        S_HELPER_HASH="$(sha256_of "$CANONICAL_WTREMOVAL_HELPER")"
+        S_HELPER_MANIFEST="$(manifest_hash_of "$CANONICAL_WTREMOVAL_HELPER")"
+        if [ -z "$S_HELPER_MANIFEST" ]; then
+            emit_fail "S. removal-helper manifest missing or unreadable: $CANONICAL_WTREMOVAL_HELPER.sha256 — run scripts/hooks/install.sh."
+            S_OK=0
+        elif [ "$S_HELPER_HASH" != "$S_HELPER_MANIFEST" ]; then
+            emit_fail "S. removal-helper content hash mismatch — the one script allowed to delete a teammate's worktree differs from its manifest. Run scripts/hooks/install.sh and review the diff."
+            S_OK=0
+        fi
+    fi
+fi
+
+# Paired functional canary: BLOCK a raw removal, ALLOW an ordinary read.
+if [ "$S_OK" -eq 1 ] && command -v python3 >/dev/null 2>&1; then
+    S_BLOCK_PAYLOAD="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"git worktree remove /x/.claude/worktrees/agent-canary"}}))' 2>/dev/null || true)"
+    S_ALLOW_PAYLOAD="$(python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"git worktree list --porcelain"}}))' 2>/dev/null || true)"
+    set +e
+    printf '%s' "$S_BLOCK_PAYLOAD" | RICHOS_ENTITY_ROOT="$REPO_ROOT" "$WTREMOVAL_EXE" >/dev/null 2>&1
+    s_block_rc=$?
+    printf '%s' "$S_ALLOW_PAYLOAD" | RICHOS_ENTITY_ROOT="$REPO_ROOT" "$WTREMOVAL_EXE" >/dev/null 2>&1
+    s_allow_rc=$?
+    set -e
+    if [ "$s_block_rc" -ne 2 ]; then
+        emit_fail "S. wired worktree-removal guard did NOT block a raw 'git worktree remove' (exit=$s_block_rc, expected 2) — the guard is shimmed or gutted."
+        S_OK=0
+    elif [ "$s_allow_rc" -ne 0 ]; then
+        emit_fail "S. wired worktree-removal guard BLOCKED 'git worktree list' (exit=$s_allow_rc, expected 0) — a guard that blocks reads gets disabled, which is worse than no guard."
+        S_OK=0
+    else
+        emit_pass "S. worktree-removal guard wired exactly once + BLOCKS a raw 'git worktree remove' + ALLOWS 'git worktree list'; sanctioned helper (remove-agent-worktree.sh) present, executable and manifest-matched"
+    fi
+elif [ "$S_OK" -eq 1 ]; then
+    emit_warn "S. FUNCTIONAL CANARY DID NOT RUN — python3 unavailable, so nothing here proves the worktree-removal guard still blocks a raw removal or still allows a read. Wiring, the helper and both hashes are verified; BEHAVIOUR IS NOT."
 fi
 
 run_layer_R

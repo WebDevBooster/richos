@@ -38,6 +38,10 @@ fi
 
 # --- snapshot the engine repo's git status before running the demo ---
 BEFORE_STATUS="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
+# Snapshot the operator's engine pointer BEFORE the demo runs, so the assertion
+# below proves the demo left it alone rather than asserting that it meant to.
+# The trailing 'x' keeps "absent" and "empty" distinguishable.
+POINTER_BEFORE="$(readlink "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/richos-engine" 2>/dev/null; printf 'x')"
 
 # --- a real, unattended invocation ---
 DEMO_OUT="$("$DEMO" 2>&1)"
@@ -78,6 +82,21 @@ if [ "$BEFORE_STATUS" = "$AFTER_STATUS" ]; then
     ok "demo.sh: engine repo git status unchanged by the run"
 else
     bad "demo.sh: engine repo git status changed by the run (before != after)"
+fi
+
+# --- the OPERATOR's machine is untouched ---
+# The demo runs the real install.sh, which mints an engine pointer into the
+# operator's config dir. Before CLAUDE_CONFIG_DIR was redirected into the sample
+# repo, the demo repointed a REAL pointer at its own temp directory and then
+# deleted it, leaving a dangling symlink. "engine repo git status unchanged" did
+# not notice, because the damage was outside the repository. A demo a buyer runs
+# sight-unseen must leave nothing behind anywhere.
+REAL_CFG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+POINTER_AFTER="$(readlink "$REAL_CFG_DIR/richos-engine" 2>/dev/null; printf 'x')"
+if [ "$POINTER_AFTER" = "$POINTER_BEFORE" ]; then
+    ok "demo.sh: the operator's engine pointer is unchanged by the run"
+else
+    bad "demo.sh: THE DEMO MUTATED THE OPERATOR'S ENGINE POINTER (before='${POINTER_BEFORE%x}' after='${POINTER_AFTER%x}')"
 fi
 
 # --- no leftover temp dirs from this run ---
