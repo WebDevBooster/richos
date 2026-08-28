@@ -54,9 +54,13 @@
 #
 #   Name-history sources (a UNION, so a past name can't slip through — see the
 #   resolver for why it can't miss):
-#     1. spawned-names.log — THIS guard appends every allowed spawn's name to a
-#        session-scoped ledger, so from the first spawn of a session every used
-#        name is recorded (the can't-miss primary source).
+#     1. spawned-names.log — a session-scoped ledger. CHECKED here (this guard
+#        reads it below), but APPENDED by the PostToolUse[Agent] partner hook,
+#        scripts/hooks/detect-nonnative-worktree.sh, NOT by this PreToolUse
+#        guard — see "BLOCKED-SPAWN NAME BURN" below. From the first spawn of a
+#        session every name that actually EXECUTED is recorded (the can't-miss
+#        primary source for real spawns); a spawn this guard itself blocks is
+#        never recorded, because it never runs.
 #     2. config.json members[] — every roster name, any status (the harness
 #        keeps completed members with a terminal status rather than deleting).
 #     3. idle-events.jsonl / task-events.jsonl teammate fields — durable
@@ -72,6 +76,34 @@
 #   harness-version-coupled (see orchestration.config). The clause fails OPEN on
 #   any resolver error (never invents a collision from an IO glitch), so a schema
 #   drift degrades to "no reuse check", never to a spurious block.
+#
+# BLOCKED-SPAWN NAME BURN.
+#   This guard used to append NAME to spawned-names.log itself, inline, the
+#   moment its own checks passed. But it runs FIRST in a FOUR-hook
+#   PreToolUse[Agent] chain (this guard, then guard-definition-drift.sh,
+#   reader-teammate-hint.sh, verify-agent-prompt.sh — see hooks/hooks.json),
+#   and any LATER hook in that chain can still veto the same call. Result: a
+#   spawn this guard approved but a later hook blocked burned its name anyway
+#   — no teammate was ever created, yet the corrected retry under the same
+#   name was refused as "reuse". Observed in production 2026-08-01, and
+#   reproduced against this engine on 2026-08-28: hook 1 rc=0 and the ledger
+#   gained the name; hook 4 rc=2; the corrected retry rc=2 "name reuse".
+#
+#   A name whose spawn never executed carries ZERO resume/shadowing risk, so
+#   blocking it was pure friction, not safety.
+#
+#   Fix: the append now happens ONLY in the PostToolUse[Agent] partner hook
+#   (scripts/hooks/detect-nonnative-worktree.sh), which — by construction —
+#   never fires for a tool call a PreToolUse hook blocked. This guard still
+#   performs the full CLAUSE 3 CHECK below, unchanged; it just no longer
+#   performs the WRITE.
+#
+#   ACCEPTED RACE: two Agent calls issued in the very same in-flight turn with
+#   an identical name are not caught against each other — neither hook sees
+#   sibling calls still pending in the same batch, and there is no extension
+#   point that inspects a whole in-flight tool-call batch. Narrow (distinct
+#   identifiers are cheap) and self-healing (the second collides normally on
+#   any subsequent attempt, once the first append has landed).
 #
 # ALLOWED (exit 0):
 #   - any non-Agent tool (passthrough)
@@ -458,10 +490,11 @@ PY
     exit 2
   fi
 
-  # Record this allowed spawn's name (best-effort; never fail the spawn if the
-  # append fails — the roster/event-log backstops still cover it).
-  mkdir -p "$GI_TEAM_DIR" 2>/dev/null || true
-  printf '%s\n' "$NAME" >>"$GI_TEAM_DIR/spawned-names.log" 2>/dev/null || true
+  # NOTE: this guard deliberately does NOT append NAME to spawned-names.log.
+  # See "BLOCKED-SPAWN NAME BURN" in this file's header. The append lives in
+  # the PostToolUse[Agent] partner hook (detect-nonnative-worktree.sh), which
+  # only ever fires for a tool call that actually executed. The CHECK above is
+  # unchanged and still runs first, at spawn time.
 fi
 
 exit 0

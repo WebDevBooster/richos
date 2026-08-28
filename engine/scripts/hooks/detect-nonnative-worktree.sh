@@ -2,6 +2,16 @@
 #
 # detect-nonnative-worktree.sh — PostToolUse (Agent) DETECTOR.
 #
+# SECOND JOB — the spawned-names ledger APPEND. This hook is also the ONLY
+# place a spawned teammate's name is written to the session-scoped
+# spawned-names.log that guard-worktree-isolation.sh's name-reuse clause reads.
+# The write used to live inline in that PreToolUse guard, which runs first in a
+# four-hook chain, so a spawn it approved and a later hook vetoed burned its
+# name for a teammate that never existed. PostToolUse fires only for a call
+# that actually ran, which makes "recorded" and "created" the same event. Full
+# rationale: "BLOCKED-SPAWN NAME BURN" in guard-worktree-isolation.sh. The
+# CHECK stays there; only the WRITE lives here. See the block near the end.
+#
 # The companion to guard-worktree-isolation.sh (the PreToolUse PREVENTER).
 # This is the DETECTOR: it answers "how do I know I fucked up if all guards
 # fail?" It runs AFTER an Agent spawn and loudly surfaces the tell —
@@ -97,6 +107,7 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${READONLY_ALLOWLIST:=Explore Plan claude-code-guide statusline-setup}"
+: "${SESSION_TEAMS_DIR:=$HOME/.claude/teams}"
 
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 [ "$TOOL_NAME" = "Agent" ] || exit 0
@@ -108,15 +119,19 @@ try:
     ti = d.get("tool_input", {}) or {}
     st = str(ti.get("subagent_type","") or "")
     iso = str(ti.get("isolation","") or "")
+    nm = str(ti.get("name","") or "")
+    sid = str(d.get("session_id","") or "")
     pr = str(ti.get("prompt","") or "")
     pr = pr.replace("\t", " ").replace("\n", "\x01")
-    print("%s\t%s\t%s" % (st, iso, pr))
+    print("%s\t%s\t%s\t%s\t%s" % (st, iso, nm, sid, pr))
 except Exception:
-    print("\t\t")
-' 2>/dev/null || printf '\t\t')"
+    print("\t\t\t\t")
+' 2>/dev/null || printf '\t\t\t\t')"
 SUBAGENT_TYPE="$(printf '%s' "$PARSED" | cut -f1)"
 ISOLATION="$(printf '%s' "$PARSED" | cut -f2)"
-PROMPT="$(printf '%s' "$PARSED" | cut -f3- | tr '\001' '\n')"
+NAME="$(printf '%s' "$PARSED" | cut -f3)"
+SESSION_ID="$(printf '%s' "$PARSED" | cut -f4)"
+PROMPT="$(printf '%s' "$PARSED" | cut -f5- | tr '\001' '\n')"
 
 # Respect the same "main-checkout-run:" marker guard-worktree-isolation.sh
 # honors — a sanctioned un-isolated run must not be re-flagged here.
@@ -135,6 +150,32 @@ for a in $READONLY_ALLOWLIST; do
 done
 if [ "$is_readonly" -eq 0 ] && [ "$ISOLATION" != "worktree" ] && [ "$ISOLATION" != "remote" ] && [ -z "$MAIN_CHECKOUT_MARKER" ]; then
   WARN+=("this spawn — agent '${SUBAGENT_TYPE:-<unset/general-purpose>}' is file-capable but was spawned WITHOUT native isolation (isolation='${ISOLATION:-unset}') and carries no 'main-checkout-run:' marker. The preventive guard (guard-worktree-isolation.sh) should have blocked this; if you are seeing this, it did not. Shut this teammate down and re-spawn with isolation:\"worktree\" — or, if it genuinely must run un-isolated in the main checkout, add a 'main-checkout-run: <reason>' prompt line.")
+fi
+
+# --- SECOND JOB — the spawned-names ledger APPEND -------------------------
+#
+# This is the ONLY place a spawned teammate name is written to the
+# session-scoped spawned-names.log that guard-worktree-isolation.sh's
+# name-reuse clause CHECKS. The write used to live inline in that guard, but it
+# runs FIRST in a four-hook PreToolUse[Agent] chain and any later hook can veto
+# the same call — burning the name for a spawn that never executed. See
+# "BLOCKED-SPAWN NAME BURN" in guard-worktree-isolation.sh.
+#
+# PostToolUse[Agent] fires ONLY for a tool call that actually ran, so a name is
+# recorded if and only if a teammate was truly created. No re-validation is
+# needed or wanted here: any non-read-only NAME reaching this point already
+# passed the FULL spawn contract upstream. Read-only types (never required a
+# name, never tracked) are skipped, matching the preventer's own early exit.
+#
+# Same directory-resolution rule as the preventer: EXACT session match only,
+# overridable for tests via GUARD_ISOLATION_TEAMS_DIR; inert when no session
+# team dir resolves. Best-effort — never fail this detector, and never block an
+# already-executed spawn, because an append failed.
+if [ "$is_readonly" -eq 0 ] && [ -n "$NAME" ] && [ -n "$SESSION_ID" ]; then
+  GI_TEAMS_DIR="${GUARD_ISOLATION_TEAMS_DIR:-$SESSION_TEAMS_DIR}"
+  GI_TEAM_DIR="$GI_TEAMS_DIR/session-$(printf '%s' "$SESSION_ID" | cut -c1-8)"
+  mkdir -p "$GI_TEAM_DIR" 2>/dev/null || true
+  printf '%s\n' "$NAME" >>"$GI_TEAM_DIR/spawned-names.log" 2>/dev/null || true
 fi
 
 # (b) Any non-native worktree on disk (name != agent-<hex>).

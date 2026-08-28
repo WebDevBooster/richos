@@ -332,6 +332,64 @@ else
 fi
 rm -rf "$FAKEBIN" "$ROOT"
 
+# --- SECOND JOB: the spawned-names ledger append ---------------------------
+#
+# This hook owns the WRITE that guard-worktree-isolation.sh's name-reuse clause
+# READS. Every case below is a pair, because a hook that appends nothing and a
+# hook that appends everything both satisfy a single-sided assertion.
+ROOT="$(make_sandbox)"
+LEDGER_TEAMS="$(mktemp -d -t detect-ledger-teams)"
+SESS="deadbeef-0000-4000-8000-000000000000"
+LEDGER_TEAM_DIR="$LEDGER_TEAMS/session-deadbeef"
+mkdir -p "$LEDGER_TEAM_DIR"
+LEDGER="$LEDGER_TEAM_DIR/spawned-names.log"
+
+ledger_run() { # <json>
+    printf '%s' "$1" | GUARD_ISOLATION_TEAMS_DIR="$LEDGER_TEAMS" \
+        RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1 || true
+}
+
+# (L1) a file-capable spawn that RAN is recorded
+ledger_run "$(json_agent 'dev' 'dev-sonnet-led1' 'worktree' 'Do the thing.')"
+if grep -qxF "dev-sonnet-led1" "$LEDGER" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: an executed spawn is appended to spawned-names.log\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: executed spawn NOT appended (reuse detection would go blind)\n'
+fi
+
+# (L2) NEGATIVE — a read-only type is never tracked, so it is never recorded.
+# Without this arm, L1 is satisfied by a hook that records indiscriminately.
+ledger_run "$(json_agent 'Explore' 'Explore' '' 'Look around.')"
+if ! grep -qxF "Explore" "$LEDGER" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: a read-only type is NOT recorded\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: read-only type was recorded\n'
+fi
+
+# (L3) NEGATIVE — no name means nothing to record.
+ledger_run "$(json_agent 'dev' '' 'worktree' 'Do the thing.')"
+if [ "$(grep -c . "$LEDGER" 2>/dev/null || echo 0)" -eq 1 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: a nameless spawn adds no line\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: a nameless spawn wrote a line (%s lines total)\n' "$(grep -c . "$LEDGER" 2>/dev/null || echo 0)"
+fi
+
+# (L4) the append is best-effort: an unwritable teams dir must not change the
+# hook's verdict for the launch it was actually asked about.
+UNWRITABLE="$(mktemp -d -t detect-ledger-ro)"
+chmod 500 "$UNWRITABLE"
+printf '%s' "$(json_agent 'dev' 'dev-sonnet-led2' 'worktree' 'Do the thing.')" \
+    | GUARD_ISOLATION_TEAMS_DIR="$UNWRITABLE" RICHOS_ENTITY_ROOT="$ROOT" \
+      "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
+rc=$?
+chmod 700 "$UNWRITABLE"; rm -rf "$UNWRITABLE"
+if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: an unwritable ledger does not change the detector verdict\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: unwritable ledger changed the verdict (exit %s)\n' "$rc"
+fi
+rm -rf "$LEDGER_TEAMS" "$ROOT"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== detect-nonnative-worktree tests: $FAIL FAILED, $PASS passed ==="
