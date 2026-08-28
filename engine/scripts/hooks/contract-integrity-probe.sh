@@ -73,6 +73,14 @@
 #      sandbox sweep then proves the reaper still REMOVES a merged/clean/unlocked
 #      agent worktree and still REFUSES one carrying uncommitted work (paired
 #      canaries; real worktrees are never touched).
+#   R. THE ROOT-RESOLUTION CONTRACT is present, hashed, sourced by every rooted
+#      hook with a byte-identical bootstrap, and engine-status.sh is registered
+#      on both registration surfaces. Runs in BOTH modes.
+#
+# BY-REFERENCE MODE runs a different set entirely (BR1-BR9 + R), because the
+# guards are then registered in the plugin's hooks/hooks.json and this
+# repository's settings file legitimately never mentions them. See the
+# "BY-REFERENCE LAYER SET" banner below for what each BR layer asserts.
 #
 # Layer N exists because of a real onboarding trap: .claude/settings.local.json
 # is committed BY DESIGN (it is the SOLE hook-registration source plus the two
@@ -211,35 +219,6 @@ SETTINGS_LOCAL="$REPO_ROOT/.claude/settings.local.json"
 # the clean single-source state.
 SETTINGS_JSON="$REPO_ROOT/.claude/settings.json"
 
-# In by-reference mode, stop before Layer A rather than emit a wall of false
-# "NOT wired" failures. Layer R (the root-resolution contract) is the one check
-# that IS mode-independent, so it still runs.
-if [ "$PROBE_MODE" = "by-reference" ]; then
-    {
-        echo ""
-        echo "=== ENGINE LOADED BY REFERENCE — settings-wiring layers DO NOT APPLY ==="
-        echo "  engine : $ENGINE_ROOT"
-        echo "  entity : $REPO_ROOT"
-        echo ""
-        echo "  The engine's guards are registered in the PLUGIN's hooks/hooks.json,"
-        echo "  not in this repository's .claude/settings.local.json. Layers A-Q audit"
-        echo "  the settings file, so running them here would report every engine guard"
-        echo "  as 'NOT wired' — all of it false."
-        echo ""
-        echo "  A by-reference layer set is NOT YET WRITTEN. This probe will not issue a"
-        echo "  verdict it cannot support, so it is reporting the gap instead of a green"
-        echo "  tick. What you CAN check today:"
-        echo "    * the first SessionStart message from engine-status.sh — it states"
-        echo "      whether enforcement is ACTIVE, STOOD DOWN or BROKEN for this repo"
-        echo "    * scripts/hooks/root-contract.test.sh, run from the engine"
-        echo "    * scripts/lib/resolve-roots.test.sh, run from the engine"
-        echo "  To audit the ENGINE's own seated wiring, run this probe from the engine:"
-        echo "    RICHOS_ENTITY_ROOT=$ENGINE_ROOT $ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh"
-        echo "======================================================================="
-    } >&2
-    exit 2
-fi
-
 emit_pass() { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1" >&2; }
 emit_fail() { printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; FAIL=$((FAIL+1)); }
 emit_warn() { printf '  %s⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2; }
@@ -259,6 +238,819 @@ if [ -n "$ENGINE_VERSION" ]; then
 else
     printf 'richos-engine (VERSION file absent) — contract integrity probe\n' >&2
 fi
+
+realpath_of() {
+    local p="$1"
+    if [ -z "$p" ]; then
+        echo ""
+        return
+    fi
+    python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null || echo "$p"
+}
+
+sha256_of() {
+    local p="$1"
+    if [ ! -f "$p" ]; then
+        echo ""
+        return
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$p" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$p" | awk '{print $1}'
+    else
+        python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$p" 2>/dev/null
+    fi
+}
+
+# Read the expected hash from the committed manifest sidecar
+# ("<hook>.sh.sha256") rather than from the live file itself. The sidecars are
+# written by scripts/hooks/install.sh from canonical source. A manifest file
+# missing or unreadable is itself a hard failure (the probe refuses to pass
+# without a trusted hash source).
+manifest_hash_of() {
+    local f="$1"
+    local mf="$f.sha256"
+    if [ ! -f "$mf" ]; then
+        echo ""
+        return
+    fi
+    awk 'NR==1 {print $1; exit}' "$mf" 2>/dev/null
+}
+
+# run_layer_R — Layer R, as a function.
+#
+# It is the ONE layer that means the same thing in both installation modes:
+# seated or by reference, every guard's decision about WHICH REPOSITORY it is
+# protecting comes from scripts/lib/resolve-roots.sh, and a hook that quietly
+# went back to trusting its own on-disk location looks identical to one that
+# did not until it protects the wrong repository or protects nothing. So both
+# paths call it.
+run_layer_R() {
+    # --- Layer R: THE ROOT-RESOLUTION CONTRACT is wired, uniform and announced ---
+    #
+    # The guards no longer derive "the repository I protect" from where their own
+    # file happens to sit; they resolve it from the SESSION, through
+    # scripts/lib/resolve-roots.sh. That makes the resolver the single most
+    # consequential file in the mechanical layer — and gives it a failure mode with
+    # no external symptom: a hook that quietly reverted to the old
+    # `SCRIPT_DIR/../..` resolution looks exactly like a hook that did not, right
+    # up until it protects the wrong repository or protects nothing.
+    #
+    # R1 library present and hashed. R2 every root-resolving hook sources it.
+    # R3 the bootstrap block is byte-identical across them — a divergent copy is the
+    # original defect in miniature, one hook disagreeing with its siblings about
+    # what the root is. R4 engine-status.sh is registered, because it is the only
+    # thing in the system that answers "is this defence actually on?".
+    R_LIB="$ENGINE_ROOT/scripts/lib/resolve-roots.sh"
+    R_OK=1
+
+    if [ ! -f "$R_LIB" ]; then
+        emit_fail "R. root-resolution contract MISSING: $R_LIB. Every guard's bootstrap refuses to start without it, so enforcement is off everywhere."
+        R_OK=0
+    elif [ ! -f "$R_LIB.sha256" ]; then
+        emit_fail "R. root-resolution contract unhashed: $R_LIB.sha256 missing — run scripts/hooks/install.sh to regenerate."
+        R_OK=0
+    else
+        R_LIVE="$(sha256_of "$R_LIB" 2>/dev/null || true)"
+        R_WANT="$(tr -d '[:space:]' < "$R_LIB.sha256" 2>/dev/null || true)"
+        if [ -n "$R_LIVE" ] && [ -n "$R_WANT" ] && [ "$R_LIVE" != "$R_WANT" ]; then
+            emit_fail "R. root-resolution contract MODIFIED since install: $R_LIB (sha256 $R_LIVE != manifest $R_WANT). Every guard's root decision comes from this file — review the change, then re-run scripts/hooks/install.sh."
+            R_OK=0
+        fi
+    fi
+
+    # R2/R3 — the hooks that resolve a root.
+    R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
+    reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
+    guard-resume-isolation guard-bash-main-writes detect-nonnative-worktree \
+    session-start-reap-worktrees snapshot-agent-definitions"
+
+    R_MISSING_SOURCE=""
+    R_BOOTSTRAP_REF=""
+    R_DIVERGENT=""
+    for h in $R_ROOTED_HOOKS; do
+        f="$ENGINE_ROOT/scripts/hooks/$h.sh"
+        [ -f "$f" ] || { R_MISSING_SOURCE="$R_MISSING_SOURCE $h(absent)"; continue; }
+        if ! grep -q '\. "\$_RR_LIB"' "$f" 2>/dev/null; then
+            R_MISSING_SOURCE="$R_MISSING_SOURCE $h"
+            continue
+        fi
+        # The bootstrap runs from the '# --- ROOT RESOLUTION' banner to the
+        # resolve_engine_root assignment. Everything in between is fixed text apart
+        # from the hook's own name in the diagnostic and the exit code, so both are
+        # normalised out before comparison — the point is that the MECHANISM is
+        # identical, not that the messages are.
+        blk="$(sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' "$f" 2>/dev/null \
+               | sed -e 's|scripts/hooks/[a-z-]*\.sh|<HOOK>|' -e 's|^    exit [0-9]*$|    exit <RC>|')"
+        if [ -z "$blk" ]; then
+            R_DIVERGENT="$R_DIVERGENT $h(no-bootstrap)"
+            continue
+        fi
+        if [ -z "$R_BOOTSTRAP_REF" ]; then
+            R_BOOTSTRAP_REF="$blk"
+        elif [ "$blk" != "$R_BOOTSTRAP_REF" ]; then
+            R_DIVERGENT="$R_DIVERGENT $h"
+        fi
+    done
+
+    if [ -n "$R_MISSING_SOURCE" ]; then
+        emit_fail "R. hook(s) do NOT source the root-resolution contract:$R_MISSING_SOURCE. A hook that resolves its root any other way has silently gone back to trusting its own on-disk location."
+        R_OK=0
+    fi
+    if [ -n "$R_DIVERGENT" ]; then
+        emit_fail "R. root-resolution bootstrap DIVERGED in:$R_DIVERGENT. Every rooted hook must carry the identical bootstrap; a divergent copy is one hook disagreeing with its siblings about which repository is being protected."
+        R_OK=0
+    fi
+
+    # R4 — the status announcement must be registered. WHERE depends on the
+    # installation mode, and conflating the two is the very mistake this probe
+    # was rebuilt to stop making: a SEATED engine registers it in the entity's
+    # .claude/settings.local.json, while a BY-REFERENCE engine registers it in
+    # the plugin's hooks/hooks.json and the entity's settings file correctly
+    # never mentions it. Asserting the seated location in by-reference mode
+    # produced a hard failure whose only cause was the probe looking in the
+    # wrong file. The plugin-surface half below is checked in BOTH modes,
+    # because an engine that ships a hooks.json missing the status hook would
+    # announce nothing to every adopter.
+    if [ "$PROBE_MODE" = "seated" ] && [ -f "$SETTINGS" ]; then
+        if ! grep -q 'engine-status\.sh' "$SETTINGS" 2>/dev/null; then
+            emit_fail "R. engine-status.sh is NOT registered in $SETTINGS. It is the only hook that reports whether enforcement is active, stood down, or broken — without it every other status in this probe is a claim nobody re-checks at session start."
+            R_OK=0
+        fi
+    fi
+    R_PLUGIN_HOOKS="$ENGINE_ROOT/hooks/hooks.json"
+    if [ -f "$R_PLUGIN_HOOKS" ] && ! grep -q 'engine-status\.sh' "$R_PLUGIN_HOOKS" 2>/dev/null; then
+        emit_fail "R. engine-status.sh is registered for a seated session but NOT in $R_PLUGIN_HOOKS — so a plugin-loaded engine would announce nothing. The two registration surfaces must agree; one of them silently missing a hook is exactly the drift this probe exists to catch."
+        R_OK=0
+    fi
+
+    if [ "$R_OK" -eq 1 ]; then
+        emit_pass "R. root-resolution contract present + hashed + sourced by all 12 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces"
+    fi
+}
+
+# ===========================================================================
+# BY-REFERENCE LAYER SET — BR1..BR9
+# ===========================================================================
+#
+# Layers A-Q audit `.claude/settings.local.json`. Under a plugin-loaded engine
+# that file legitimately never mentions a single engine guard, so running them
+# here would emit a wall of "NOT wired" failures, every one of them false.
+#
+# Until 2026-08-28 the probe said exactly that and refused a verdict. Honest,
+# and it left an adopter running by reference with NO automated wiring check at
+# all — which is how a real regression (an adopting repository deleted its 26
+# hand-ported guard copies and did not visibly get them back from the plugin)
+# reached an operator instead of a test. The layers below are that missing
+# check.
+#
+#   BR1  the plugin manifest exists, parses, and names the plugin
+#   BR2  the plugin's hooks/hooks.json registers every managed guard EXACTLY
+#        ONCE, on the right event, with the Agent chain in canonical ORDER
+#   BR3  every registered command is confined to ${CLAUDE_PLUGIN_ROOT} — no
+#        absolute path, no $CLAUDE_PROJECT_DIR, no `..` escape
+#   BR4  every registered script exists, is executable, and matches its sidecar
+#        hash when one is present (absent sidecars are NAMED as unverified,
+#        never waved through: the engine root is read-only by reference, so
+#        minting them is the engine maintainer's job, not the adopter's)
+#   BR5  the manifest's declared agent files resolve, are regular .md files
+#        inside the plugin root, and carry a frontmatter name
+#   BR6  THIS OPERATOR WILL ACTUALLY LOAD THIS ENGINE — the user-scope plugin
+#        registration chain (enabledPlugins -> known marketplace -> marketplace
+#        manifest -> plugin source) resolves to THIS engine root
+#   BR7  the marketplace manifest is git-TRACKED, so the next clone can register
+#   BR8  engine-status.sh reports ACTIVE for this entity AND emits an
+#        operator-visible systemMessage — paired against an unadopted directory
+#        that must report STOOD DOWN, because "always says ACTIVE" satisfies a
+#        one-armed check
+#   BR9  a guard actually BLOCKS what it should and ALLOWS what it should, run
+#        by reference (engine root != entity root), against the entity's own
+#        orchestration.config and roster
+#
+# BR6 is the layer that would have caught the reported regression on its own:
+# every byte of the engine can be correct and every guard present while the
+# operator's registration points somewhere else, or nowhere. Guards on disk are
+# not enforcement; guards the host will load are.
+if [ "$PROBE_MODE" = "by-reference" ]; then
+    {
+        echo ""
+        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR9) ==="
+        echo "  engine : $ENGINE_ROOT"
+        echo "  entity : $REPO_ROOT"
+        echo ""
+        echo "  Layers A-Q audit .claude/settings.local.json and DO NOT APPLY here: the"
+        echo "  guards are registered in the plugin's hooks/hooks.json and this repo's"
+        echo "  settings file legitimately never mentions them."
+        echo ""
+    } >&2
+
+    BR_PLUGIN_MANIFEST="$ENGINE_ROOT/.claude-plugin/plugin.json"
+    BR_PLUGIN_HOOKS="$ENGINE_ROOT/hooks/hooks.json"
+    # The engine may legitimately be audited from a LINKED WORKTREE of its own
+    # repository while the operator's registration points at the shared main
+    # checkout. BR6 needs the main-checkout TWIN of the audited directory —
+    # note twin, not repository root: resolve_main_checkout() answers "which
+    # checkout?", and a nested engine at <repo>/engine normalises to <repo>,
+    # which is not an engine and never resolves against any plugin source.
+    # (First live run named the repository root for an engine that lives one
+    # directory further down. Same conflation as ENGINE_ROOT vs ENTITY_ROOT,
+    # one level in.)
+    BR_ENGINE_TWIN=""
+    if [ "$_ENGINE_MAIN" != "$ENGINE_ROOT" ]; then
+        _br_wt_top="$(git -C "$ENGINE_ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -n "$_br_wt_top" ]; then
+            case "$ENGINE_ROOT" in
+                "$_br_wt_top") BR_ENGINE_TWIN="$_ENGINE_MAIN" ;;
+                "$_br_wt_top"/*) BR_ENGINE_TWIN="$_ENGINE_MAIN/${ENGINE_ROOT#"$_br_wt_top"/}" ;;
+            esac
+        fi
+    fi
+    BR_ENGINE_MAIN="$ENGINE_ROOT"
+
+    # The managed guard set, and the event each one belongs on. This is the
+    # SAME set the seated table wires; the two registration surfaces disagreeing
+    # is itself the drift Layer R's R4 check exists to catch, and BR2 catches
+    # the plugin half of it.
+    BR_EXPECTED="\
+engine-status.sh|SessionStart
+session-start-reap-worktrees.sh|SessionStart
+snapshot-agent-definitions.sh|SessionStart
+guard-worktree-isolation.sh|PreToolUse
+guard-definition-drift.sh|PreToolUse
+reader-teammate-hint.sh|PreToolUse
+verify-agent-prompt.sh|PreToolUse
+guard-main-checkout-writes.sh|PreToolUse
+scan-secrets.sh|PreToolUse
+guard-resume-isolation.sh|PreToolUse
+guard-bash-main-writes.sh|PreToolUse
+detect-nonnative-worktree.sh|PostToolUse
+teammate-idle-handoff.sh|TeammateIdle
+task-completed-handoff.sh|TaskCompleted"
+
+    # --- BR1 — plugin manifest present, parseable, named ---
+    BR_PLUGIN_NAME=""
+    if [ ! -f "$BR_PLUGIN_MANIFEST" ]; then
+        emit_fail "BR1. plugin manifest MISSING: $BR_PLUGIN_MANIFEST. Without it the host has no plugin to load, so none of the guards below can ever run no matter how correct they are."
+    else
+        BR_PLUGIN_NAME="$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+n = d.get("name")
+if isinstance(n, str):
+    print(n.strip())
+' "$BR_PLUGIN_MANIFEST" 2>/dev/null || true)"
+        if [ -z "$BR_PLUGIN_NAME" ]; then
+            emit_fail "BR1. plugin manifest unparseable or has no \"name\": $BR_PLUGIN_MANIFEST. The name IS the namespace every plugin-supplied role and skill is addressed by, so an unnamed plugin supplies nothing addressable."
+        else
+            emit_pass "BR1. plugin manifest present and names the plugin: $BR_PLUGIN_NAME"
+        fi
+    fi
+
+    # --- BR2 — every managed guard registered EXACTLY ONCE, right event, right order ---
+    #
+    # "Exactly once" is not pedantry. Claude Code MERGES hook sources additively,
+    # so a guard registered twice fires twice per matching tool event; Layer M
+    # exists because that has actually happened on the seated surface. The
+    # plugin surface has the same additive property and, until now, no check.
+    BR_HOOKS_ROWS=""
+    if [ ! -f "$BR_PLUGIN_HOOKS" ]; then
+        emit_fail "BR2. plugin hook table MISSING: $BR_PLUGIN_HOOKS. The manifest alone registers nothing — this file is where the guards are wired for a plugin-loaded engine. Every guard would be present on disk and none of them would ever run."
+    else
+        BR_HOOKS_ROWS="$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+hooks = d.get("hooks", {})
+if not isinstance(hooks, dict):
+    sys.exit(1)
+for event, entries in hooks.items():
+    if not isinstance(entries, list):
+        continue
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        matcher = entry.get("matcher", "")
+        for h in entry.get("hooks", []) or []:
+            if not isinstance(h, dict):
+                continue
+            print("\t".join([event, str(matcher), str(h.get("command", ""))]))
+' "$BR_PLUGIN_HOOKS" 2>/dev/null || true)"
+        if [ -z "$BR_HOOKS_ROWS" ]; then
+            emit_fail "BR2. plugin hook table unparseable or registers nothing: $BR_PLUGIN_HOOKS"
+        else
+            BR2_OK=1
+            BR2_PROBLEMS=""
+            while IFS='|' read -r _script _event; do
+                [ -n "$_script" ] || continue
+                _count="$(printf '%s\n' "$BR_HOOKS_ROWS" | grep -c "scripts/hooks/$_script" || true)"
+                _on_event="$(printf '%s\n' "$BR_HOOKS_ROWS" | awk -F'\t' -v s="scripts/hooks/$_script" -v e="$_event" '$1==e && index($3,s)>0' | wc -l | tr -d ' ')"
+                if [ "$_count" -eq 0 ]; then
+                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(NOT registered)"
+                    BR2_OK=0
+                elif [ "$_count" -gt 1 ]; then
+                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered ${_count}x -> fires ${_count}x per event)"
+                    BR2_OK=0
+                elif [ "$_on_event" -ne 1 ]; then
+                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered, but not on $_event)"
+                    BR2_OK=0
+                fi
+            done <<BR_EOF
+$BR_EXPECTED
+BR_EOF
+            if [ "$BR2_OK" -eq 0 ]; then
+                emit_fail "BR2. plugin hook table wiring wrong:$BR2_PROBLEMS. A guard that is absent enforces nothing; a guard registered twice fires twice on every matching event (the additive-merge double-fire Layer M exists for, arriving through the plugin door)."
+            fi
+
+            # The PreToolUse[Agent] chain ORDER is load-bearing: the isolation
+            # guard must refuse a bad spawn before the later hooks reason about
+            # a spawn that should never have been considered.
+            BR_AGENT_ORDER="$(printf '%s\n' "$BR_HOOKS_ROWS" \
+                | awk -F'\t' '$1=="PreToolUse" && $2=="Agent" {print $3}' \
+                | sed -e 's|.*/scripts/hooks/||' -e 's|[[:space:]].*||' | tr '\n' ' ')"
+            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh "
+            if [ "$BR_AGENT_ORDER" != "$BR_AGENT_WANT" ]; then
+                emit_fail "BR2. PreToolUse[Agent] chain ORDER wrong. want: ${BR_AGENT_WANT}got: ${BR_AGENT_ORDER}"
+                BR2_OK=0
+            fi
+
+            if [ "$BR2_OK" -eq 1 ]; then
+                emit_pass "BR2. all 14 managed guards registered exactly once on the right event; PreToolUse[Agent] chain in canonical order"
+            fi
+        fi
+    fi
+
+    # --- BR3 — path confinement inside ${CLAUDE_PLUGIN_ROOT} ---
+    #
+    # The seated layers resolve $CLAUDE_PROJECT_DIR and then realpath-compare,
+    # because there an adversarial shim at another path is the threat. Here the
+    # threat has a different shape and a sharper tell: the plugin root is
+    # supplied by the HOST at run time, so any command that names a path some
+    # other way has stopped being confined to the plugin. An absolute path is
+    # also a portability and privacy defect — this repository is public-bound
+    # and an operator's home directory must never appear in it.
+    if [ -n "$BR_HOOKS_ROWS" ]; then
+        BR3_BAD=""
+        while IFS= read -r _row; do
+            [ -n "$_row" ] || continue
+            _cmd="$(printf '%s' "$_row" | awk -F'\t' '{print $3}')"
+            case "$_cmd" in
+                *scripts/hooks/*) : ;;
+                *) continue ;;   # inline echo hooks carry no path
+            esac
+            case "$_cmd" in
+                *'${CLAUDE_PLUGIN_ROOT}'*|*'$CLAUDE_PLUGIN_ROOT'*) : ;;
+                *) BR3_BAD="$BR3_BAD [no \${CLAUDE_PLUGIN_ROOT}: $_cmd]" ;;
+            esac
+            case "$_cmd" in
+                *'$CLAUDE_PROJECT_DIR'*) BR3_BAD="$BR3_BAD [uses \$CLAUDE_PROJECT_DIR (the ENTITY root) for an ENGINE asset: $_cmd]" ;;
+            esac
+            case "$_cmd" in
+                *'/Users/'*|*'/home/'*|*'/root/'*) BR3_BAD="$BR3_BAD [absolute home path: $_cmd]" ;;
+            esac
+            case "$_cmd" in
+                *..*) BR3_BAD="$BR3_BAD [escapes the plugin root with '..': $_cmd]" ;;
+            esac
+        done <<BR_EOF2
+$BR_HOOKS_ROWS
+BR_EOF2
+        if [ -n "$BR3_BAD" ]; then
+            emit_fail "BR3. plugin hook command(s) NOT confined to \${CLAUDE_PLUGIN_ROOT}:$BR3_BAD"
+        else
+            emit_pass "BR3. every plugin hook command is confined to \${CLAUDE_PLUGIN_ROOT} (no absolute path, no \$CLAUDE_PROJECT_DIR, no '..')"
+        fi
+    fi
+
+    # --- BR4 — registered scripts exist, are executable, hash-match ---
+    BR4_MISSING=""
+    BR4_NOEXEC=""
+    BR4_MISMATCH=""
+    BR4_UNHASHED=""
+    while IFS='|' read -r _script _event; do
+        [ -n "$_script" ] || continue
+        _f="$ENGINE_ROOT/scripts/hooks/$_script"
+        if [ ! -f "$_f" ]; then
+            BR4_MISSING="$BR4_MISSING $_script"
+            continue
+        fi
+        [ -x "$_f" ] || BR4_NOEXEC="$BR4_NOEXEC $_script"
+        _want="$(manifest_hash_of "$_f")"
+        if [ -z "$_want" ]; then
+            BR4_UNHASHED="$BR4_UNHASHED $_script"
+        else
+            _live="$(sha256_of "$_f")"
+            [ "$_live" = "$_want" ] || BR4_MISMATCH="$BR4_MISMATCH $_script"
+        fi
+    done <<BR_EOF3
+$BR_EXPECTED
+BR_EOF3
+    BR4_OK=1
+    if [ -n "$BR4_MISSING" ]; then
+        emit_fail "BR4. registered guard script(s) NOT ON DISK at the plugin root:$BR4_MISSING. The host would register a hook whose command cannot run."
+        BR4_OK=0
+    fi
+    if [ -n "$BR4_NOEXEC" ]; then
+        emit_fail "BR4. registered guard script(s) not executable:$BR4_NOEXEC"
+        BR4_OK=0
+    fi
+    if [ -n "$BR4_MISMATCH" ]; then
+        emit_fail "BR4. registered guard script(s) MODIFIED since install (sha256 != sidecar):$BR4_MISMATCH. Review the change, then re-run the engine's scripts/hooks/install.sh."
+        BR4_OK=0
+    fi
+    if [ -n "$BR4_UNHASHED" ]; then
+        # NOT a green tick with a parenthesis. The sidecars are gitignored,
+        # generated artefacts, and the two-root contract makes the engine root
+        # read-only to an adopter — so an adopter CANNOT mint them and must not
+        # be failed for it. What they get instead is the truth about what is
+        # therefore unverified.
+        emit_warn "BR4. TAMPER CHECK DID NOT RUN for:$BR4_UNHASHED — no .sha256 sidecar at the engine root. Presence and executability were verified; whether the script still contains the guard it shipped with was NOT. Sidecars are minted by the ENGINE maintainer (scripts/hooks/install.sh, run in the engine's own checkout), because a by-reference engine root is read-only to the repository it governs."
+    fi
+    if [ "$BR4_OK" -eq 1 ] && [ -z "$BR4_UNHASHED" ]; then
+        emit_pass "BR4. all 14 registered guard scripts present, executable and hash-matched to their sidecars"
+    elif [ "$BR4_OK" -eq 1 ]; then
+        emit_pass "BR4. all 14 registered guard scripts present and executable"
+    fi
+
+    # --- BR5 — the declared meta-roles resolve ---
+    #
+    # `claude plugin details` reports Agents (0) for a manifest that declares
+    # agent FILE paths, because its inventory helper readdir()s every declared
+    # path and silently drops the ENOTDIR. The roles load correctly — the host's
+    # session loader handles files explicitly — but the operator-facing
+    # inventory says otherwise, and on 2026-08-28 that reading was taken as
+    # proof the roles did not resolve. This layer answers the question the
+    # inventory command gets wrong, from the files themselves.
+    if [ -n "$BR_PLUGIN_NAME" ]; then
+        BR5_OUT="$(python3 -c '
+import json, os, sys
+manifest_path, engine_root = sys.argv[1:3]
+try:
+    d = json.load(open(manifest_path, encoding="utf-8"))
+except Exception:
+    print("ERR unparseable manifest")
+    sys.exit(0)
+decl = d.get("agents")
+if decl is None:
+    print("NONE")
+    sys.exit(0)
+if isinstance(decl, str):
+    decl = [decl]
+if not isinstance(decl, list) or not decl:
+    print("ERR \"agents\" is present but not a non-empty list of paths")
+    sys.exit(0)
+root = os.path.realpath(engine_root)
+names, problems = [], []
+for rel in decl:
+    if not isinstance(rel, str):
+        problems.append("non-string entry %r" % (rel,))
+        continue
+    full = os.path.realpath(os.path.join(engine_root, rel))
+    if not (full == root or full.startswith(root + os.sep)):
+        problems.append("%s ESCAPES the plugin root" % rel)
+        continue
+    if os.path.isdir(full):
+        # The host RECURSES into subdirectories of a declared agent directory
+        # and namespaces what it finds as <plugin>:<subdir>:<name>. A directory
+        # carrying subdirectories therefore ships phantom roles.
+        subs = [e for e in os.listdir(full) if os.path.isdir(os.path.join(full, e))]
+        if subs:
+            problems.append("%s is a directory containing subdirectories (%s) — the host recurses and would register phantom <plugin>:<subdir>:<role> types" % (rel, ",".join(sorted(subs))))
+        for e in sorted(os.listdir(full)):
+            if e.endswith(".md"):
+                names.append(os.path.splitext(e)[0])
+        continue
+    if not os.path.isfile(full):
+        problems.append("%s NOT FOUND at %s" % (rel, full))
+        continue
+    if not full.endswith(".md"):
+        problems.append("%s is not a .md agent definition" % rel)
+        continue
+    head = ""
+    try:
+        with open(full, encoding="utf-8", errors="replace") as f:
+            head = f.read(4096)
+    except Exception as exc:
+        problems.append("%s unreadable (%s)" % (rel, exc))
+        continue
+    if not head.lstrip().startswith("---"):
+        problems.append("%s has no YAML frontmatter — the host cannot name it" % rel)
+        continue
+    name = None
+    for line in head.splitlines()[1:]:
+        if line.strip() in ("---", "..."):
+            break
+        if line.startswith("name:"):
+            name = line.split(":", 1)[1].strip()
+            break
+    if not name:
+        problems.append("%s has no frontmatter name:" % rel)
+        continue
+    names.append(name)
+if problems:
+    print("ERR " + "; ".join(problems))
+else:
+    print("OK " + ",".join(names))
+' "$BR_PLUGIN_MANIFEST" "$ENGINE_ROOT" 2>/dev/null || echo "ERR probe failed")"
+        case "$BR5_OUT" in
+            OK\ *)
+                BR5_NAMES="${BR5_OUT#OK }"
+                BR5_N="$(printf '%s' "$BR5_NAMES" | tr ',' '\n' | grep -c . || true)"
+                emit_pass "BR5. $BR5_N declared meta-role(s) resolve to real definitions, namespaced ${BR_PLUGIN_NAME}: — $BR5_NAMES"
+                ;;
+            NONE)
+                emit_warn "BR5. the plugin manifest declares no \"agents\" — the host will auto-load an agents/ directory at the plugin root instead, if one exists. Nothing is wrong with that; it is simply not verifiable from the manifest, so the shipped role set is UNVERIFIED here."
+                ;;
+            *)
+                emit_fail "BR5. declared meta-role(s) do NOT resolve: ${BR5_OUT#ERR }"
+                ;;
+        esac
+    fi
+
+    # --- BR6 — will this operator actually load THIS engine? ---
+    #
+    # THE LAYER THE 2026-08-28 REGRESSION NEEDED. Everything above can be
+    # perfect while the host loads nothing, because the registration is
+    # operator-local: it lives in ~/.claude, not in any repository. A fresh
+    # clone gets zero enforcement until somebody registers the marketplace and
+    # enables the plugin, and NOTHING in the repository can tell you that has
+    # happened. So the probe follows the whole chain and refuses to assume any
+    # link in it.
+    BR6_OUT="$(python3 -c '
+import json, os, sys
+engine_root = os.path.realpath(sys.argv[1])
+twin_arg = sys.argv[2] if len(sys.argv) > 2 else ""
+engine_twin = os.path.realpath(twin_arg) if twin_arg else None
+home = os.path.expanduser("~")
+settings = os.path.join(home, ".claude", "settings.json")
+known = os.path.join(home, ".claude", "plugins", "known_marketplaces.json")
+
+def load(p):
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+s = load(settings)
+if s is None:
+    print("ERR no readable user-scope settings at " + settings)
+    sys.exit(0)
+enabled = s.get("enabledPlugins") or {}
+extra = s.get("extraKnownMarketplaces") or {}
+k = load(known) or {}
+
+matches = []
+twins = []
+reasons = []
+for key, on in enabled.items():
+    if on is not True or "@" not in key:
+        continue
+    plugin_name, market = key.rsplit("@", 1)
+    loc = None
+    entry = k.get(market)
+    if isinstance(entry, dict):
+        loc = entry.get("installLocation")
+        if not loc:
+            src = entry.get("source") or {}
+            if isinstance(src, dict) and src.get("source") == "directory":
+                loc = src.get("path")
+    if not loc:
+        src = (extra.get(market) or {}).get("source") or {}
+        if isinstance(src, dict) and src.get("source") == "directory":
+            loc = src.get("path")
+    if not loc:
+        continue
+    mpath = os.path.join(loc, ".claude-plugin", "marketplace.json")
+    m = load(mpath)
+    if m is None:
+        reasons.append("%s: marketplace manifest unreadable at %s" % (key, mpath))
+        continue
+    for p in m.get("plugins", []) or []:
+        if not isinstance(p, dict) or p.get("name") != plugin_name:
+            continue
+        src = p.get("source")
+        if not isinstance(src, str):
+            reasons.append("%s: non-directory plugin source, cannot compare to a local engine" % key)
+            continue
+        resolved = os.path.realpath(os.path.join(loc, src))
+        if resolved == engine_root:
+            matches.append(key)
+        elif engine_twin and resolved == engine_twin:
+            twins.append("%s -> %s" % (key, resolved))
+        else:
+            reasons.append("%s resolves to %s" % (key, resolved))
+if matches:
+    print("OK " + ",".join(sorted(matches)))
+elif twins:
+    print("TWIN " + "; ".join(sorted(twins)))
+elif reasons:
+    print("MISS " + "; ".join(reasons))
+else:
+    print("NONE")
+' "$BR_ENGINE_MAIN" "$BR_ENGINE_TWIN" 2>/dev/null || echo "ERR probe failed")"
+    case "$BR6_OUT" in
+        OK\ *)
+            emit_pass "BR6. this operator's user-scope registration resolves to THIS engine: ${BR6_OUT#OK } -> $BR_ENGINE_MAIN"
+            ;;
+        TWIN\ *)
+            # Not a pass and not a failure: the registration points at the
+            # main-checkout twin of the copy under audit. Everything verified
+            # above describes the WORKTREE; what the host loads is the twin.
+            # Saying "green" here would be the freshness contract's exact sin —
+            # attesting to bytes nobody is running.
+            emit_warn "BR6. this operator's registration resolves to the MAIN-CHECKOUT TWIN of the audited engine, not to the audited copy: ${BR6_OUT#TWIN }. Every BR layer above describes $BR_ENGINE_MAIN; the host will load $BR_ENGINE_TWIN. Re-run this probe against the twin after landing to attest to what is actually running."
+            ;;
+        NONE)
+            emit_fail "BR6. NO enabled plugin on this machine resolves to this engine ($BR_ENGINE_MAIN). The engine's bytes are on disk and every guard above may be perfect, but the host will not load any of them, so this repository is UNGUARDED. Register and enable it:  claude plugin marketplace add <marketplace root>  then set \"enabledPlugins\": {\"<plugin>@<marketplace>\": true} in ~/.claude/settings.json (USER scope — project/local scope does not work for these two keys)."
+            ;;
+        MISS\ *)
+            emit_fail "BR6. an enabled plugin was found but it does NOT resolve to this engine: ${BR6_OUT#MISS }. Expected $BR_ENGINE_MAIN. The session is loading a DIFFERENT copy of the engine than the one being audited here, so this probe's verdict does not describe what is running."
+            ;;
+        *)
+            emit_fail "BR6. could not read this operator's plugin registration: ${BR6_OUT#ERR }. A probe that cannot confirm the host will load the engine cannot claim enforcement is on."
+            ;;
+    esac
+
+    # --- BR7 — the marketplace manifest reaches the next clone ---
+    #
+    # Layer N's argument, one level out. The marketplace manifest is what lets
+    # an adopter run `claude plugin marketplace add <repo>` at all. Present on
+    # disk but untracked, everything works for the operator who wrote it and
+    # nobody else ever gets enforcement — and, as with settings.local.json, the
+    # local probe passes the whole way.
+    BR7_MARKET_ROOT=""
+    BR7_DIR="$ENGINE_ROOT"
+    while [ -n "$BR7_DIR" ] && [ "$BR7_DIR" != "/" ]; do
+        if [ -f "$BR7_DIR/.claude-plugin/marketplace.json" ]; then
+            BR7_MARKET_ROOT="$BR7_DIR"
+            break
+        fi
+        BR7_DIR="$(dirname "$BR7_DIR")"
+    done
+    if [ -z "$BR7_MARKET_ROOT" ]; then
+        emit_fail "BR7. no .claude-plugin/marketplace.json at or above the engine ($ENGINE_ROOT). Without one there is no marketplace to add, so the only way to load this engine is an ad-hoc --plugin-dir flag that no adopter will remember and no session records."
+    else
+        BR7_MF="$BR7_MARKET_ROOT/.claude-plugin/marketplace.json"
+        if ! git -C "$BR7_MARKET_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            emit_warn "BR7. marketplace manifest present at $BR7_MF but its directory is not a git work tree — cannot verify it reaches the next clone."
+        elif git -C "$BR7_MARKET_ROOT" ls-files --error-unmatch ".claude-plugin/marketplace.json" >/dev/null 2>&1; then
+            emit_pass "BR7. marketplace manifest is git-tracked at $BR7_MF — a fresh clone can register this engine"
+        elif git -C "$BR7_MARKET_ROOT" check-ignore -q ".claude-plugin/marketplace.json" 2>/dev/null; then
+            emit_fail "BR7. marketplace manifest at $BR7_MF is UNTRACKED and gitignored. It works on this machine and reaches nobody else — every future clone is unguarded with no error anywhere. Force-add it: git add -f .claude-plugin/marketplace.json"
+        else
+            emit_warn "BR7. marketplace manifest at $BR7_MF exists but is NOT YET COMMITTED. Until it is, this engine is loadable only on this machine."
+        fi
+    fi
+
+    # --- BR8 — the announcement, on both channels, with its negative arm ---
+    BR8_ADOPTED="$( { RICHOS_ENTITY_ROOT="$REPO_ROOT" bash "$ENGINE_ROOT/scripts/hooks/engine-status.sh" </dev/null; } 2>/dev/null || true)"
+    BR8_SANDBOX="$(mktemp -d -t br8-notadopted.XXXXXX)"
+    BR8_UNADOPTED="$( { cd "$BR8_SANDBOX" && env -u RICHOS_ENTITY_ROOT -u CLAUDE_PROJECT_DIR bash "$ENGINE_ROOT/scripts/hooks/engine-status.sh" </dev/null; } 2>/dev/null || true)"
+    rm -rf "$BR8_SANDBOX"
+
+    BR8_PROBLEMS=""
+    case "$BR8_ADOPTED" in
+        *'"systemMessage"'*) : ;;
+        *) BR8_PROBLEMS="$BR8_PROBLEMS [no systemMessage — the announcement reaches the model and NOT the operator, which is how 'firing silently' and 'not firing' became indistinguishable]" ;;
+    esac
+    case "$BR8_ADOPTED" in
+        *ENFORCEMENT\ ACTIVE*) : ;;
+        *) BR8_PROBLEMS="$BR8_PROBLEMS [did not report ENFORCEMENT ACTIVE for $REPO_ROOT]" ;;
+    esac
+    case "$BR8_ADOPTED" in
+        *"$REPO_ROOT"*) : ;;
+        *) BR8_PROBLEMS="$BR8_PROBLEMS [did not name the governed repository]" ;;
+    esac
+    # THE NEGATIVE ARM. Without it every assertion above is satisfied by a hook
+    # that hardcodes "ACTIVE" — mutation M9's exact failure, and the reason a
+    # wall of green ticks is evidence of nothing on its own.
+    case "$BR8_UNADOPTED" in
+        *STOOD\ DOWN*) : ;;
+        *) BR8_PROBLEMS="$BR8_PROBLEMS [an UNADOPTED directory did not get STOOD DOWN — the status hook is not actually deciding anything, so its ACTIVE means nothing either]" ;;
+    esac
+    if [ -n "$BR8_PROBLEMS" ]; then
+        emit_fail "BR8. engine-status.sh announcement defective:$BR8_PROBLEMS"
+    else
+        emit_pass "BR8. engine-status.sh reports ENFORCEMENT ACTIVE for $REPO_ROOT on BOTH channels (operator systemMessage + model additionalContext), and reports STOOD DOWN for an unadopted directory"
+    fi
+
+    # --- BR9 — a guard actually blocks, by reference ---
+    #
+    # Paired canaries against a sandbox entity seeded with THIS entity's own
+    # orchestration.config, driving the SHIPPED guard from the real engine root.
+    # A sandbox rather than the live repository on purpose: the spawn guard
+    # appends allowed names to a session name-ledger, and a probe that mutates
+    # the thing it audits is not idempotent and not honest. HOME is redirected
+    # for the same reason.
+    #
+    # Three arms, because two would not be enough:
+    #   good spawn  -> ALLOWED  (a guard that blocks everything is useless)
+    #   bad spawn   -> BLOCKED  (a guard that blocks nothing is absent)
+    #   untruthful model token -> BLOCKED, and it can only know that by having
+    #   read the ENTITY's roster, which is what "by reference" has to prove.
+    #
+    # What this does NOT prove: that the LIVE repository's own roster and config
+    # produce these verdicts. It proves the shipped guard, driven from the real
+    # engine root with an entity root that is not it, still resolves an entity,
+    # reads its roster, and decides. BR8 covers the live root resolution.
+    BR9_SB="$(mktemp -d -t br9-canary.XXXXXX)"
+    mkdir -p "$BR9_SB/entity/.claude/agents" "$BR9_SB/home"
+    printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\nALLOWED_MODELS="opus sonnet haiku"\n' \
+        >"$BR9_SB/entity/orchestration.config"
+    printf -- '---\nname: probeteammate\nmodel: opus\n---\nA sandbox role that exists only for this canary.\n' \
+        >"$BR9_SB/entity/.claude/agents/probeteammate.md"
+
+    br9_spawn() { # <name> <isolation-json-or-empty>
+        printf '{"tool_name":"Agent","cwd":"%s","session_id":"br9-canary-0000","tool_input":{"subagent_type":"probeteammate","name":"%s","prompt":"canary"%s}}' \
+            "$BR9_SB/entity" "$1" "$2"
+    }
+    br9_run() { # <payload> -> sets BR9_RC
+        set +e
+        printf '%s' "$1" | env HOME="$BR9_SB/home" RICHOS_ENTITY_ROOT="$BR9_SB/entity" \
+            bash "$ENGINE_ROOT/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
+        BR9_RC=$?
+        set -e
+    }
+
+    BR9_PROBLEMS=""
+
+    # The entity's OWN config still has to be loadable — every guard sources it,
+    # and a config with a syntax error takes all of them down at once. Checked
+    # here rather than driven into the canary, so a broken config is reported as
+    # a broken config instead of surfacing as a mystifying canary failure.
+    if [ -f "$CONFIG" ]; then
+        set +e
+        ( set -e; . "$CONFIG" ) >/dev/null 2>&1
+        BR9_CFG_RC=$?
+        set -e
+        [ "$BR9_CFG_RC" -eq 0 ] || BR9_PROBLEMS="$BR9_PROBLEMS [this entity's orchestration.config does not load cleanly (rc=$BR9_CFG_RC) — every guard sources it, so all of them are affected]"
+    else
+        BR9_PROBLEMS="$BR9_PROBLEMS [no orchestration.config at $REPO_ROOT — this repository has not adopted the engine, so nothing here is enforcing anything]"
+    fi
+
+    br9_run "$(br9_spawn 'probeteammate-opus-canary' ',"isolation":"worktree"')"
+    [ "$BR9_RC" -eq 0 ] || BR9_PROBLEMS="$BR9_PROBLEMS [a well-formed isolated spawn was REFUSED (rc=$BR9_RC) — a guard that blocks everything blocks nothing usefully]"
+
+    br9_run "$(br9_spawn 'probeteammate-opus-canary2' '')"
+    [ "$BR9_RC" -eq 2 ] || BR9_PROBLEMS="$BR9_PROBLEMS [a spawn with NO isolation was ALLOWED (rc=$BR9_RC) — the worktree-isolation contract is not being enforced]"
+
+    br9_run "$(br9_spawn 'probeteammate-sonnet-canary3' ',"isolation":"worktree"')"
+    [ "$BR9_RC" -eq 2 ] || BR9_PROBLEMS="$BR9_PROBLEMS [an UNTRUTHFUL model token was ALLOWED (rc=$BR9_RC) — the guard did not read the entity's roster, so it is not governing this repository]"
+
+    rm -rf "$BR9_SB"
+    if [ -n "$BR9_PROBLEMS" ]; then
+        emit_fail "BR9. by-reference guard canary FAILED:$BR9_PROBLEMS"
+    else
+        emit_pass "BR9. the shipped spawn guard, run by reference, ALLOWS a well-formed isolated spawn, BLOCKS an unisolated one, and BLOCKS an untruthful model token read from the entity's own roster"
+    fi
+
+    # Layer R is the one mode-independent check: the root-resolution contract
+    # is what makes a by-reference engine possible at all.
+    run_layer_R
+
+    if [ "$FAIL" -gt 0 ]; then
+        cat >&2 <<'BREOF'
+
+By-reference integrity probe FAILED. Most fixes:
+
+  - BR1/BR2 "plugin manifest MISSING" / "hook table MISSING" / "NOT registered"
+       -> the engine's .claude-plugin/plugin.json and hooks/hooks.json are the
+          plugin route's entire wiring. Restore them from the engine checkout.
+  - BR2 "registered Nx"
+       -> a guard is wired twice in hooks/hooks.json and will fire twice per
+          event. Remove the duplicate.
+  - BR3 "NOT confined"
+       -> rewrite the command as bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/<x>.sh
+  - BR4 "MODIFIED since install"
+       -> git diff the named script in the engine checkout; if the change is
+          intended, re-run the engine's scripts/hooks/install.sh to re-mint.
+  - BR5 "declared meta-role(s) do NOT resolve"
+       -> fix the "agents" paths in .claude-plugin/plugin.json. NOTE: `claude
+          plugin details` reports Agents (0) for FILE-declared agents even when
+          they load correctly — do not "fix" a working manifest to satisfy it.
+  - BR6 "NO enabled plugin ... resolves to this engine"
+       -> THIS REPOSITORY IS UNGUARDED RIGHT NOW. Register the marketplace and
+          enable the plugin at USER scope, then start a new session.
+  - BR7 "UNTRACKED and gitignored"
+       -> git add -f .claude-plugin/marketplace.json
+  - BR8 "no systemMessage" / "did not report ENFORCEMENT ACTIVE"
+       -> scripts/hooks/engine-status.sh has stopped announcing. Nothing else
+          in the system tells an operator whether enforcement is on.
+  - BR9 "was ALLOWED"
+       -> the named guard has been gutted into a no-op. git diff it.
+
+BREOF
+        exit 2
+    fi
+    exit 0
+fi
+
+
 
 # --- Layer A — canonical settings.local.json exists ---
 if [ ! -f "$SETTINGS" ]; then
@@ -352,44 +1144,6 @@ CANONICAL_AGENT_CHAIN=(
 RESOLVED_GUARD_CMD="${GUARD_CMD//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
 RESOLVED_GUARD_CMD="${RESOLVED_GUARD_CMD//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
 
-realpath_of() {
-    local p="$1"
-    if [ -z "$p" ]; then
-        echo ""
-        return
-    fi
-    python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$p" 2>/dev/null || echo "$p"
-}
-
-sha256_of() {
-    local p="$1"
-    if [ ! -f "$p" ]; then
-        echo ""
-        return
-    fi
-    if command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$p" | awk '{print $1}'
-    elif command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$p" | awk '{print $1}'
-    else
-        python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$p" 2>/dev/null
-    fi
-}
-
-# Read the expected hash from the committed manifest sidecar
-# ("<hook>.sh.sha256") rather than from the live file itself. The sidecars are
-# written by scripts/hooks/install.sh from canonical source. A manifest file
-# missing or unreadable is itself a hard failure (the probe refuses to pass
-# without a trusted hash source).
-manifest_hash_of() {
-    local f="$1"
-    local mf="$f.sha256"
-    if [ ! -f "$mf" ]; then
-        echo ""
-        return
-    fi
-    awk 'NR==1 {print $1; exit}' "$mf" 2>/dev/null
-}
 
 # read_settings_local_value <dotted.path> — reads a nested string value out of
 # .claude/settings.local.json (e.g. "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
@@ -1334,101 +2088,7 @@ elif [ "$Q_OK" -eq 1 ]; then
     emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOUR IS NOT."
 fi
 
-# --- Layer R: THE ROOT-RESOLUTION CONTRACT is wired, uniform and announced ---
-#
-# The guards no longer derive "the repository I protect" from where their own
-# file happens to sit; they resolve it from the SESSION, through
-# scripts/lib/resolve-roots.sh. That makes the resolver the single most
-# consequential file in the mechanical layer — and gives it a failure mode with
-# no external symptom: a hook that quietly reverted to the old
-# `SCRIPT_DIR/../..` resolution looks exactly like a hook that did not, right
-# up until it protects the wrong repository or protects nothing.
-#
-# R1 library present and hashed. R2 every root-resolving hook sources it.
-# R3 the bootstrap block is byte-identical across them — a divergent copy is the
-# original defect in miniature, one hook disagreeing with its siblings about
-# what the root is. R4 engine-status.sh is registered, because it is the only
-# thing in the system that answers "is this defence actually on?".
-R_LIB="$ENGINE_ROOT/scripts/lib/resolve-roots.sh"
-R_OK=1
-
-if [ ! -f "$R_LIB" ]; then
-    emit_fail "R. root-resolution contract MISSING: $R_LIB. Every guard's bootstrap refuses to start without it, so enforcement is off everywhere."
-    R_OK=0
-elif [ ! -f "$R_LIB.sha256" ]; then
-    emit_fail "R. root-resolution contract unhashed: $R_LIB.sha256 missing — run scripts/hooks/install.sh to regenerate."
-    R_OK=0
-else
-    R_LIVE="$(sha256_of "$R_LIB" 2>/dev/null || true)"
-    R_WANT="$(tr -d '[:space:]' < "$R_LIB.sha256" 2>/dev/null || true)"
-    if [ -n "$R_LIVE" ] && [ -n "$R_WANT" ] && [ "$R_LIVE" != "$R_WANT" ]; then
-        emit_fail "R. root-resolution contract MODIFIED since install: $R_LIB (sha256 $R_LIVE != manifest $R_WANT). Every guard's root decision comes from this file — review the change, then re-run scripts/hooks/install.sh."
-        R_OK=0
-    fi
-fi
-
-# R2/R3 — the hooks that resolve a root.
-R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
-reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
-guard-resume-isolation guard-bash-main-writes detect-nonnative-worktree \
-session-start-reap-worktrees snapshot-agent-definitions"
-
-R_MISSING_SOURCE=""
-R_BOOTSTRAP_REF=""
-R_DIVERGENT=""
-for h in $R_ROOTED_HOOKS; do
-    f="$ENGINE_ROOT/scripts/hooks/$h.sh"
-    [ -f "$f" ] || { R_MISSING_SOURCE="$R_MISSING_SOURCE $h(absent)"; continue; }
-    if ! grep -q '\. "\$_RR_LIB"' "$f" 2>/dev/null; then
-        R_MISSING_SOURCE="$R_MISSING_SOURCE $h"
-        continue
-    fi
-    # The bootstrap runs from the '# --- ROOT RESOLUTION' banner to the
-    # resolve_engine_root assignment. Everything in between is fixed text apart
-    # from the hook's own name in the diagnostic and the exit code, so both are
-    # normalised out before comparison — the point is that the MECHANISM is
-    # identical, not that the messages are.
-    blk="$(sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' "$f" 2>/dev/null \
-           | sed -e 's|scripts/hooks/[a-z-]*\.sh|<HOOK>|' -e 's|^    exit [0-9]*$|    exit <RC>|')"
-    if [ -z "$blk" ]; then
-        R_DIVERGENT="$R_DIVERGENT $h(no-bootstrap)"
-        continue
-    fi
-    if [ -z "$R_BOOTSTRAP_REF" ]; then
-        R_BOOTSTRAP_REF="$blk"
-    elif [ "$blk" != "$R_BOOTSTRAP_REF" ]; then
-        R_DIVERGENT="$R_DIVERGENT $h"
-    fi
-done
-
-if [ -n "$R_MISSING_SOURCE" ]; then
-    emit_fail "R. hook(s) do NOT source the root-resolution contract:$R_MISSING_SOURCE. A hook that resolves its root any other way has silently gone back to trusting its own on-disk location."
-    R_OK=0
-fi
-if [ -n "$R_DIVERGENT" ]; then
-    emit_fail "R. root-resolution bootstrap DIVERGED in:$R_DIVERGENT. Every rooted hook must carry the identical bootstrap; a divergent copy is one hook disagreeing with its siblings about which repository is being protected."
-    R_OK=0
-fi
-
-# R4 — the status announcement must be registered, in the seated table AND (when
-# the engine ships as a plugin) in hooks/hooks.json. An unregistered status hook
-# means nobody is ever told whether enforcement is on, which is the failure this
-# layer exists to make impossible.
-if [ -f "$SETTINGS" ]; then
-    if ! grep -q 'engine-status\.sh' "$SETTINGS" 2>/dev/null; then
-        emit_fail "R. engine-status.sh is NOT registered in $SETTINGS. It is the only hook that reports whether enforcement is active, stood down, or broken — without it every other status in this probe is a claim nobody re-checks at session start."
-        R_OK=0
-    fi
-fi
-R_PLUGIN_HOOKS="$ENGINE_ROOT/hooks/hooks.json"
-if [ -f "$R_PLUGIN_HOOKS" ] && ! grep -q 'engine-status\.sh' "$R_PLUGIN_HOOKS" 2>/dev/null; then
-    emit_fail "R. engine-status.sh is registered for a seated session but NOT in $R_PLUGIN_HOOKS — so a plugin-loaded engine would announce nothing. The two registration surfaces must agree; one of them silently missing a hook is exactly the drift this probe exists to catch."
-    R_OK=0
-fi
-
-if [ "$R_OK" -eq 1 ]; then
-    emit_pass "R. root-resolution contract present + hashed + sourced by all 12 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces"
-fi
+run_layer_R
 
 if [ "$FAIL" -gt 0 ]; then
     cat >&2 <<EOF
