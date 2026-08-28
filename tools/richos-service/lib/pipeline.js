@@ -24,7 +24,7 @@ import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
 import { MIN_TRANSCRIPT_WORDS, resolveTier } from './config.js';
-import { guardTranscription } from './repetition-guard.js';
+import { guardTranscription, guardWarnings } from './repetition-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
 
@@ -152,20 +152,52 @@ export function runPipeline(sessionDir, opts = {}) {
     );
     log.info(`${sessionId} — transcribed: me=${asr.me.length} seg, others=${asr.others.length} seg`);
 
-    // ---- Stage 3.5: REPETITION GUARD (P5) -------------------------------------------------------
-    // The post-decode HALF of the hallucination guard, model-agnostic: collapse looped/garbled spans
-    // (the reproduced large-v3 4x repetition) BEFORE they reach the merge/transcript. Runs on every
-    // tier (cheap, precision-guarded); it is the safety net that lets full large-v3 be an opt-in tier.
+    // ---- Stage 3.5: HALLUCINATION GUARD (P5) ----------------------------------------------------
+    // The post-decode HALF of the hallucination defence, model-agnostic, across three measured
+    // decode-failure classes (see lib/repetition-guard.js): a repetition LOOP and a sliding-overlap
+    // STUTTER are collapsed before they reach the merge/transcript; a persistent ordinal INSERTION
+    // is DETECT-ONLY (removing it would delete real speech) and therefore has to be LOUD instead.
+    // Runs on every tier (cheap, precision-guarded); the safety net that lets large-v3 be opt-in.
     let asrGuarded = { me: asr.me, others: asr.others };
-    let repetitionReport = { removed: 0, detected: false, loops: [], byChannel: { me: {}, others: {} } };
+    let repetitionReport = {
+      removed: 0,
+      detected: false,
+      classes: { repetition: 0, insertion: 0, overlapStutter: 0 },
+      loops: [],
+      insertions: [],
+      stutters: [],
+      byChannel: { me: {}, others: {} },
+    };
     if (tier.repetitionGuard !== false) {
       const guarded = guardTranscription({ me: asr.me, others: asr.others });
       asrGuarded = { me: guarded.me, others: guarded.others };
       repetitionReport = guarded.report;
-      if (repetitionReport.detected) {
+      if (repetitionReport.loops.length) {
         log.alarm(`${sessionId} — repetition loop(s) caught + collapsed by the guard`, {
           removedSegments: repetitionReport.removed,
           loops: repetitionReport.loops.map((l) => ({ channel: l.channel, count: l.count, text: l.text.slice(0, 60) })),
+        });
+      }
+      if (repetitionReport.stutters.length) {
+        log.alarm(`${sessionId} — sliding-overlap stutter caught + de-overlapped by the guard`, {
+          chains: repetitionReport.stutters.map((s) => ({
+            channel: s.channel,
+            segments: s.segments,
+            removed: s.removed,
+            trimmed: s.trimmed,
+          })),
+        });
+      }
+      for (const ins of repetitionReport.insertions) {
+        // NOT repaired, on purpose. The transcript below still contains the fabricated markers.
+        log.alarm(`${sessionId} — FABRICATED TEXT LEFT IN THE TRANSCRIPT (detect-only class)`, {
+          channel: ins.channel,
+          kind: ins.kind,
+          count: ins.count,
+          fromMs: ins.startMs,
+          toMs: ins.endMs,
+          sample: ins.sample,
+          remedy: 're-transcribe with another model (audio is retained); the guard does not rewrite text here',
         });
       }
     }
@@ -210,7 +242,12 @@ export function runPipeline(sessionDir, opts = {}) {
       enabled: tier.repetitionGuard !== false,
       detected: repetitionReport.detected,
       removedSegments: repetitionReport.removed,
+      classes: repetitionReport.classes,
       loops: repetitionReport.loops,
+      stutters: repetitionReport.stutters,
+      // Detect-only: these are still IN the transcript. Never let "enabled: true" imply "clean".
+      insertions: repetitionReport.insertions,
+      unrepaired: repetitionReport.insertions.reduce((n, i) => n + i.count, 0),
     };
     record.pipeline.diarization = {
       method: dia.method,
@@ -220,6 +257,9 @@ export function runPipeline(sessionDir, opts = {}) {
     };
     const verification = verify(finalMerged, { me: asrGuarded.me, others: asrGuarded.others }, captions, record);
     verification.repetitionGuard = record.pipeline.repetitionGuard;
+    // A detect-only class leaves fabricated text in transcript.md. verification.json must say so in
+    // plain English, or "repetitionGuard.enabled: true" reads as "hallucination: handled".
+    verification.warnings = guardWarnings(repetitionReport);
     const totalWords = verification.channels.totalWords;
 
     if (totalWords < MIN_TRANSCRIPT_WORDS) {
