@@ -22,6 +22,7 @@ handled). CEO greenlit 2026-08-24 ("go ahead as recommended").
 - **Patch 2 (applied ON TOP of patch 1):** [`dictation-two-model.patch`](./dictation-two-model.patch)
 - **Patch (upstream-ready, HUD-free):** [`device-change-listener.patch`](./device-change-listener.patch)
 - **Build:** [`build.sh`](./build.sh) — applies both patches, in order
+- **Upstream drift:** [`check-upstream-drift.sh`](./check-upstream-drift.sh) — reports whether open-wispr has moved past the pinned base. The build cannot break from upstream movement (the pin is immutable); what movement means is that staying frozen has started costing something. Run it when you want to know, not on a schedule.
 - **Models:** [`fetch-dictation-models.sh`](./fetch-dictation-models.sh)
 - **Stack:** native **Swift / SwiftPM / AppKit**, macOS 13+ (17 source files).
   The non-activating window is an `NSPanel` subclass with
