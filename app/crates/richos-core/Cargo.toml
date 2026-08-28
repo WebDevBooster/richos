@@ -18,3 +18,7 @@ path = "examples/acp_roundtrip.rs"
 [[example]]
 name = "rotation_roundtrip"
 path = "examples/rotation_roundtrip.rs"
+
+[[example]]
+name = "machinery_roundtrip"
+path = "examples/machinery_roundtrip.rs"
