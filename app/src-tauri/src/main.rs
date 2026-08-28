@@ -9,7 +9,9 @@
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore};
+use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
+use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
@@ -29,6 +31,26 @@ impl TurnObserver for TauriEmitter {
     fn on_event(&self, event: &StreamEvent) {
         // Best-effort: a dropped/absent webview never affects the turn (ledger is truth).
         let _ = self.app.emit(event.event_name(), event.payload());
+    }
+}
+
+/// The MACHINERY sink: forwards each machinery record to the webview on ONE event name,
+/// `rich://machinery` (techy-mode design §1.3 — one name plus a `kind` field, because the
+/// ACP update set is the vendor's and open, so a new kind must not need a new event).
+///
+/// A SEPARATE observer from `TauriEmitter` on purpose. The clean-output invariant is
+/// structural, not a convention: machinery is not a `StreamEvent`, so a webview that
+/// subscribes only to the four calm events cannot receive it. The default conversation
+/// view does not subscribe to this event and must not (§3.3) — see `app/STREAMING.md`.
+struct TauriMachineryEmitter {
+    app: AppHandle,
+}
+
+impl MachineryObserver for TauriMachineryEmitter {
+    fn on_machinery(&self, record: &MachineryRecord) {
+        // Best-effort, and weaker than the ledger by design (§2.2): a webview that is not
+        // listening never stalls or fails a turn, and machinery is not truth.
+        let _ = self.app.emit(EVENT_MACHINERY, record.event_payload());
     }
 }
 
@@ -132,6 +154,30 @@ fn main() {
             // Attach the live UI sink: streamed reply deltas + turn-state events flow to
             // the webview via Tauri events (see app/STREAMING.md for the contract).
             spine.set_observer(Box::new(TauriEmitter { app: app.handle().clone() }));
+
+            // The MACHINERY journal + its live sink (techy-mode design §2.1). Its own
+            // directory beside the ledger and config, per §2.1: NOT loro (it would poison
+            // the context compiler) and NOT the conversation ledger (which replays whole
+            // at every boot, and whose `messages()` is one missing filter away from the
+            // CEO's conversation).
+            //
+            // Retention is attached UNCONDITIONALLY and has no flag gating it (§3.2:
+            // "Routing and retention run ALWAYS"). That is what makes "flip a thread I
+            // already had" possible at all, and it is why this line is here rather than
+            // behind a setting. The accepted cost is ~1-2 MB/day of machinery an owner may
+            // never look at — named as a cost, not hidden.
+            let machinery_root = data_dir.join("machinery");
+            let journal = MachineryJournal::new(&machinery_root);
+            // Tier-B eviction at boot (§2.4): raw payloads older than 14 days, then
+            // oldest-first until under 2 GB. Tier A — the normalized record — is never
+            // touched, so an evicted day still renders its structure, titles, statuses and
+            // paths. Boot is the right moment: it is off the streaming hot path entirely.
+            let evicted = journal.evict_raw(richos_core::util::now_millis(), RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES);
+            if evicted > 0 {
+                eprintln!("[richos] machinery: evicted {evicted} raw shard(s) past the retention window");
+            }
+            spine.set_machinery_journal(journal);
+            spine.set_machinery_observer(Box::new(TauriMachineryEmitter { app: app.handle().clone() }));
 
             // Attach the compute lease best-effort. A boot with no Claude auth degrades
             // to a calm "not connected" state rather than failing to launch.
