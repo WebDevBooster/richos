@@ -311,7 +311,14 @@ git -C "$SAMPLE_ROOT" add -f .claude/settings.local.json
 git -C "$SAMPLE_ROOT" commit -q -m "Initial sample product"
 
 label_real "install.sh — generating .claude/settings.json + hook integrity sidecars"
-INSTALL_OUT="$("$SAMPLE_ROOT/scripts/hooks/install.sh" 2>&1)"
+# CLAUDE_CONFIG_DIR is redirected into the sample repo, and this is not a
+# detail. install.sh mints the entity-facing engine pointer into the operator's
+# config dir; without this line the demo would repoint a REAL operator's pointer
+# at a temp directory it deletes on exit, leaving a dangling symlink behind.
+# Measured — BR6b caught exactly that, on this machine, from this script. A demo
+# a buyer runs sight-unseen must not touch their machine at all.
+mkdir -p "$SAMPLE_ROOT/.claude-config"
+INSTALL_OUT="$(CLAUDE_CONFIG_DIR="$SAMPLE_ROOT/.claude-config" "$SAMPLE_ROOT/scripts/hooks/install.sh" 2>&1)"
 show_output "$INSTALL_OUT"
 narrate "Sample company ready."
 
