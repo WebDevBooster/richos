@@ -326,6 +326,10 @@ run_layer_R() {
     guard-resume-isolation guard-bash-main-writes guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
+    # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
+    # stale inventory waiting to happen.
+    R_ROOTED_COUNT="$(printf '%s\n' $R_ROOTED_HOOKS | grep -c .)"
+
     R_MISSING_SOURCE=""
     R_BOOTSTRAP_REF=""
     R_DIVERGENT=""
@@ -386,7 +390,7 @@ run_layer_R() {
     fi
 
     if [ "$R_OK" -eq 1 ]; then
-        emit_pass "R. root-resolution contract present + hashed + sourced by all 12 rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces"
+        emit_pass "R. root-resolution contract present + hashed + sourced by all $R_ROOTED_COUNT rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces"
     fi
 }
 
