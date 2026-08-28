@@ -10,13 +10,22 @@ name: engine-self-verify
 #
 # What it checks, in order:
 #   1. bash -n on every shipped shell script (fast fail on a syntax error).
-#   2. Every scripts/hooks/*.test.sh suite (each is self-contained).
-#   3. install.sh + contract-integrity-probe.sh against the repo's own
+#   2. Every scripts/lib/*.test.sh suite. These were being skipped: the library
+#      suites cover scripts/lib/resolve-roots.sh, which is the single most
+#      consequential file in the mechanical layer (it decides WHICH REPOSITORY
+#      every guard is protecting) and had no CI coverage at all.
+#   3. Every scripts/hooks/*.test.sh suite (each is self-contained). The glob
+#      picks up by-reference.test.sh, the negative controls for the probe's
+#      plugin-route layers, without needing to be listed.
+#   4. install.sh + contract-integrity-probe.sh against the repo's own
 #      committed, filled orchestration.config / settings.local.json — the
-#      same command an adopter runs after cloning.
-#   4. scripts/demo.sh — deterministic, unattended, ~2s — asserting it
+#      same command an adopter runs after cloning. Note this exercises the
+#      SEATED layer set (the engine is its own repo in CI); the by-reference
+#      layers are covered by by-reference.test.sh in step 3, which builds the
+#      two-root topology CI cannot otherwise reproduce.
+#   5. scripts/demo.sh — deterministic, unattended, ~2s — asserting it
 #      reports all 7 beats passed.
-#   5. scripts/demo.test.sh — the demo's own regression suite.
+#   6. scripts/demo.test.sh — the demo's own regression suite.
 #
 # Prerequisites: bash, git, python3 (pinned below), and standard GNU
 # coreutils — the same set documented in README's "Prerequisites" section.
@@ -71,6 +80,15 @@ jobs:
             exit 1
           fi
           echo "bash -n: all scripts OK"
+
+      - name: Library self-test suites (scripts/lib/*.test.sh)
+        run: |
+          set -eo pipefail
+          for t in scripts/lib/*.test.sh; do
+            [ -f "$t" ] || continue
+            echo "== $t =="
+            bash "$t"
+          done
 
       - name: Hook self-test suites (scripts/hooks/*.test.sh)
         run: |

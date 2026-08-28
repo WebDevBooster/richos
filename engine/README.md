@@ -478,6 +478,11 @@ scripts/demo.test.sh
 
 # The wiring/integrity probe (confirms hooks are installed + chained + unmodified):
 scripts/hooks/contract-integrity-probe.sh
+
+# If you run the engine BY REFERENCE (as a plugin), name the repository it
+# governs — the probe then runs the plugin-route layers instead of the
+# settings-wiring ones:
+RICHOS_ENTITY_ROOT=/path/to/your/repo /path/to/engine/scripts/hooks/contract-integrity-probe.sh
 ```
 
 Green suites + a passing probe mean the framework is correctly wired standalone.
@@ -486,6 +491,80 @@ and confirm the worktree-isolation guard blocks it. Another: try to write a file
 containing an obvious API-key-shaped string and confirm `scan-secrets.sh`
 blocks it (`scripts/hooks/scan-secrets.test.sh` covers this exhaustively —
 every vendor pattern, every placeholder-must-not-false-positive case).
+
+## Running the engine BY REFERENCE (one engine, many repositories)
+
+Everything above describes the engine **seated**: copied into your repository,
+registered through your `.claude/settings.local.json`. That is the right shape
+for one repository. For several, copying the mechanical layer into each of them
+means N copies drifting apart — and a drifted guard still reports that it is on,
+which is worse than not having it.
+
+The alternative is to load the engine **by reference**, as a Claude Code plugin.
+One copy on disk; each repository decides at run time whether it is governed.
+
+**1. Register the marketplace.** The engine ships a marketplace manifest at the
+repository root (`.claude-plugin/marketplace.json`), so:
+
+```bash
+claude plugin marketplace add /path/to/this/repo
+```
+
+Use the CLI rather than hand-editing `known_marketplaces.json`: the command
+reconciles the registry immediately, so the plugin is live in the **next**
+session. Hand-writing the settings key alone leaves the registry unreconciled
+and the plugin inert for a session, with nothing said about it.
+
+**2. Enable it at USER scope.** In `~/.claude/settings.json`:
+
+```json
+{ "enabledPlugins": { "richos-engine@richos-local": true } }
+```
+
+**User scope is not a preference — it is the only scope that works.** The same
+two keys at project or local scope do nothing (measured on 2.1.250), while the
+same file's `env` block IS honoured, so it is a per-key restriction rather than
+a general one. The consequence matters: **the registration is operator-local and
+lives in no repository**, so a fresh clone gets NO enforcement until somebody
+enables the plugin. Nothing in the repository can tell you that has happened.
+
+**3. Adopt, per repository.** A repository is governed **iff `orchestration.config`
+sits at its main-checkout root**. One marker, checked one way. The plugin is
+enabled once and loads in every project on the machine; which repository it
+GOVERNS is decided per session from `CLAUDE_PROJECT_DIR`. Repositories without
+the marker get an explicit stand-down, not silence.
+
+**4. Confirm it, twice.** At every session start `engine-status.sh` states, to
+the operator and to the model, whether enforcement is ACTIVE, STOOD DOWN or
+BROKEN for this repository, which engine it came from, and how it resolved the
+root. For the wiring itself:
+
+```bash
+RICHOS_ENTITY_ROOT=/path/to/your/repo /path/to/engine/scripts/hooks/contract-integrity-probe.sh
+```
+
+That runs the by-reference layer set (BR1–BR9): the plugin manifest, the plugin
+hook table (every guard registered exactly once, on the right event, in the
+right order), path confinement to `${CLAUDE_PLUGIN_ROOT}`, sidecar hashes, the
+declared meta-roles, **whether this operator's registration actually resolves to
+this engine**, whether the marketplace manifest is committed, the announcement
+on both channels, and a live paired canary proving a guard still blocks what it
+should and allows what it should. `scripts/hooks/by-reference.test.sh` is that
+layer set's negative controls — every layer shown failing for its own reason.
+
+> **Do not read `claude plugin details` as an inventory of the roles.** It
+> reports `Agents (0)` for a manifest that declares agent FILE paths, because
+> its inventory helper `readdir()`s each declared path and drops the resulting
+> ENOTDIR. The roles load correctly — the session loader handles files
+> explicitly, and the host's own debug log says `Total plugin agents loaded: 4`.
+> Ask the probe (BR5) or the session's agent list, not `details`.
+
+> **Why file paths and not an `agents/` directory.** The host's agent loader
+> RECURSES into subdirectories and namespaces what it finds as
+> `<plugin>:<subdir>:<name>`. `.claude/agents/` here also carries
+> `templates/` — sixteen non-live role skeletons — so declaring the directory
+> would ship seventeen roles nobody meant to ship. BR5 fails a manifest that
+> declares a directory containing subdirectories, for exactly that reason.
 
 ## CI — the engine keeps guarding itself
 
