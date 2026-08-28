@@ -1,0 +1,23 @@
+{
+  "name": "richos-engine",
+  "displayName": "RichOS Engine",
+  "version": "1.0.0",
+  "description": "The RichOS engine as a loadable plugin: the orchestration guards (worktree isolation, resume isolation, main-checkout write protection, secret scanning, definition-drift detection, durable handoff logging), the shipped skills, and the four meta-roles every operator needs regardless of what they build. Loaded by reference so there is exactly one copy of the mechanical layer on disk.",
+  "author": {
+    "name": "RichOS"
+  },
+  "license": "SEE LICENSE-TODO.md",
+  "keywords": [
+    "orchestration",
+    "hooks",
+    "guards",
+    "worktree-isolation",
+    "agents"
+  ],
+  "agents": [
+    "./.claude/agents/clark.md",
+    "./.claude/agents/dean.md",
+    "./.claude/agents/frank.md",
+    "./.claude/agents/reed.md"
+  ]
+}
