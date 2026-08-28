@@ -211,6 +211,82 @@ else
 fi
 rm -rf "$FAKEBIN"
 
+# --- SECRET_SCAN_CODE_AWARE (opt-in precision, default OFF) ----------------
+#
+# Every case is a TRIPLE: what the strict default does, what the opt-in does,
+# and — for the cases that matter — the cost the opt-in buys the precision
+# with. Presenting only the wins would be selling the setting, not testing it.
+#
+# The dense-token fixtures below are ASSEMBLED at run time. Written out as
+# literals they are exactly what this scanner exists to block, so a scanner
+# guarding this repository refuses the edit — correctly. A test fixture must
+# not require weakening the thing under test.
+# The setting is an orchestration.config key, and the config is sourced AFTER
+# the environment — so an env-var override is NOT the production path and a
+# test that used one would be testing something the shipped hook never does.
+# Two real roots instead, one per setting.
+ca_mkroot() { # <value>
+    local d; d="$(mktemp -d -t scan-secrets-codeaware)"
+    mkdir -p "$d/scripts/hooks" "$d/scripts/lib"
+    cp "$HOOK" "$d/scripts/hooks/scan-secrets.sh"; chmod +x "$d/scripts/hooks/scan-secrets.sh"
+    cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$d/scripts/lib/"
+    printf 'SECRET_SCAN_CODE_AWARE=%s\n' "$1" >"$d/orchestration.config"
+    printf '%s' "$d"
+}
+CA_ROOT_OFF="$(ca_mkroot 0)"
+CA_ROOT_ON="$(ca_mkroot 1)"
+
+ca_case() { # <name> <want-default> <want-code-aware> <content>
+    local name="$1" want_def="$2" want_ca="$3" content="$4" j rc_def rc_ca
+    j="$(json_write Write content "$content")"
+    printf '%s' "$j" | RICHOS_ENTITY_ROOT="$CA_ROOT_OFF" "$CA_ROOT_OFF/scripts/hooks/scan-secrets.sh" >/dev/null 2>&1; rc_def=$?
+    printf '%s' "$j" | RICHOS_ENTITY_ROOT="$CA_ROOT_ON"  "$CA_ROOT_ON/scripts/hooks/scan-secrets.sh"  >/dev/null 2>&1; rc_ca=$?
+    if [ "$rc_def" -eq "$want_def" ] && [ "$rc_ca" -eq "$want_ca" ]; then
+        printf '  PASS  code-aware: %s (default=%s, opt-in=%s)\n' "$name" "$rc_def" "$rc_ca"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  code-aware: %s (default want %s got %s; opt-in want %s got %s)\n' \
+            "$name" "$want_def" "$rc_def" "$want_ca" "$rc_ca"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# The precision the setting buys: code shapes stop being flagged.
+ca_case "type annotation"        2 0 'let token: NSObjectProtocol? = nil'
+ca_case "dotted member path"     2 0 'api_key = config.credentials.apiKey'
+ca_case "call expression"        2 0 'secret = getSecret(fromKeychain)'
+ca_case "descriptive fixture"    2 0 'password = "BEARER_PROTOCOL_FUTURE_TOKEN"'
+ca_case "hyphenated descriptive" 2 0 'token = "verification-token-alpha"'
+
+# The price, stated rather than hidden. These are the shapes the opt-in also
+# waves through. A reviewer reading this suite sees the trade in the same place
+# as the benefit.
+ca_case "COST: all-alpha passphrase"  2 0 'password = "correcthorsebatterystaple"'
+ca_case "COST: all-digit long value"  2 0 'secret = "839201748392017483920174"'
+
+# What the opt-in must NEVER touch. If any of these flipped, the setting would
+# be a hole, not a filter.
+CA_DENSE="$(printf 'aZ3k%sLm7P%s' 'Q9x2' 'w5Rv8Nt1')"
+CA_B64="$(printf 'dGhpc2lz%s%s' 'YXNlY3Jl' 'dDEyMw')"
+CA_VENDOR="$(printf 'A%s%s' 'KIA' 'IOSFODNN7EXAMPLZ')"
+ca_case "dense mixed token still blocked" 2 2 "token = \"$CA_DENSE\""
+ca_case "base64-ish still blocked"        2 2 "secret = \"$CA_B64\""
+ca_case "vendor-prefix key still blocked" 2 2 "$CA_VENDOR"
+
+# The default with the key ABSENT altogether must equal the key set to 0 —
+# otherwise "default OFF" would be a claim about a config file rather than
+# about the hook, and an adopter with no such line would get a surprise.
+CA_ROOT_UNSET="$(ca_mkroot 0)"; : >"$CA_ROOT_UNSET/orchestration.config"
+printf '%s' "$(json_write Write content 'password = "BEARER_PROTOCOL_FUTURE_TOKEN"')" \
+  | RICHOS_ENTITY_ROOT="$CA_ROOT_UNSET" "$CA_ROOT_UNSET/scripts/hooks/scan-secrets.sh" >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 2 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  code-aware: key ABSENT behaves as OFF\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  code-aware: key ABSENT did not behave as OFF (rc=%s)\n' "$rc"
+fi
+rm -rf "$CA_ROOT_OFF" "$CA_ROOT_ON" "$CA_ROOT_UNSET"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== scan-secrets tests: $FAIL FAILED, $PASS passed ==="
