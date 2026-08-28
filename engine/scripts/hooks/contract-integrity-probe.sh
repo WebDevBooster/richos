@@ -485,6 +485,21 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # SAME set the seated table wires; the two registration surfaces disagreeing
     # is itself the drift Layer R's R4 check exists to catch, and BR2 catches
     # the plugin half of it.
+    #
+    # THIS TABLE IS THE SPECIFICATION, NOT AN INVENTORY. It is typed on purpose
+    # and it must stay typed: it is the probe's INDEPENDENT oracle, the only
+    # record of what SHOULD be wired. Deriving it from hooks.json would make
+    # BR2 tautological — the file would be checked against itself and could
+    # never report a missing guard again.
+    #
+    # What must never be typed is a COUNT of it (BR_EXPECTED_COUNT below is
+    # derived) or a second copy of it elsewhere. engine-status.sh used to keep
+    # exactly such a second copy for its session banner; it drifted twice in two
+    # days and now derives from hooks.json instead. The consequence for this
+    # table is that BR2 is checked in BOTH directions — spec -> registration
+    # (a declared guard that is not wired) and registration -> spec (a wired
+    # guard nobody declared). One direction alone is how a real guard ran for
+    # two days uncounted by anything.
     BR_EXPECTED="\
 engine-status.sh|SessionStart
 session-start-reap-worktrees.sh|SessionStart
@@ -600,8 +615,64 @@ BR_EOF
                 BR2_OK=0
             fi
 
+            # --- BR2 REVERSE — nothing wired that the managed set does not name.
+            #
+            # The loop above walks BR_EXPECTED and asks "is it registered?". For
+            # two days nothing asked the other direction, and that is exactly
+            # where the drift lived: guard-worktree-removal.sh was wired at
+            # 79d6958/084eed3, every forward check stayed green, and the engine
+            # carried a guard that no inventory in the system knew about. A
+            # seventeenth guard added tomorrow would repeat it.
+            #
+            # So: every script the plugin table registers must appear in the
+            # managed set. Add a guard and forget to declare it here, and the
+            # probe now goes red with the guard's name in the message.
+            BR2_REGISTERED="$(printf '%s\n' "$BR_HOOKS_ROWS" | awk -F'\t' '{print $3}' \
+                | grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' | sed 's|.*/||' | LC_ALL=C sort -u)"
+            BR2_UNDECLARED=""
+            while IFS= read -r _reg; do
+                [ -n "$_reg" ] || continue
+                printf '%s\n' "$BR_EXPECTED" | cut -d'|' -f1 | grep -qxF "$_reg" \
+                    || BR2_UNDECLARED="$BR2_UNDECLARED $_reg"
+            done <<BR_EOF_REV
+$BR2_REGISTERED
+BR_EOF_REV
+            if [ -n "$BR2_UNDECLARED" ]; then
+                emit_fail "BR2. plugin hook table registers script(s) the managed set above does not name:$BR2_UNDECLARED. The host WILL load them and nothing in this probe knows they exist — so their event, their order, their presence on disk and their sha256 all go unchecked, and every count in this run understates the engine. Add them to BR_EXPECTED."
+                BR2_OK=0
+            fi
+
+            # --- BR2 BANNER — the session banner counts THIS set, or it is wrong.
+            #
+            # engine-status.sh sizes its "N/M guards" fraction from
+            # scripts/lib/registered-hooks.sh, reading the same hooks.json. That
+            # fraction is the FIRST thing an operator reads every session and the
+            # number most likely to be trusted at a glance, and twice now it has
+            # been a full fraction over a stale inventory.
+            #
+            # This check is the reason the library cannot fail quietly. The probe
+            # parses hooks.json its own way, above, into BR2_REGISTERED; the
+            # library parses it independently; if the two disagree the banner is
+            # about to miscount and the probe says so BEFORE an operator reads a
+            # wrong number. A shared parser with a shared bug is the one way the
+            # derivation could still drift, and this is what forecloses it.
+            BR2_INV_LIB="$ENGINE_ROOT/scripts/lib/registered-hooks.sh"
+            if [ ! -f "$BR2_INV_LIB" ]; then
+                emit_fail "BR2. guard-inventory library MISSING: $BR2_INV_LIB. engine-status.sh derives its guard fraction from it, so every session would open with an unknown count instead of a verified one."
+                BR2_OK=0
+            else
+                # Sourced in a SUBSHELL: the probe must borrow the banner's
+                # parser without inheriting its definitions into its own scope.
+                # shellcheck source=../lib/registered-hooks.sh disable=SC1090
+                BR2_LIB_VIEW="$( . "$BR2_INV_LIB" >/dev/null 2>&1 && registered_hook_scripts "$BR_PLUGIN_HOOKS" 2>/dev/null | LC_ALL=C sort -u )"
+                if [ "$BR2_LIB_VIEW" != "$BR2_REGISTERED" ]; then
+                    emit_fail "BR2. the session banner's guard inventory DISAGREES with this probe's reading of $BR_PLUGIN_HOOKS. probe sees: $(printf '%s' "$BR2_REGISTERED" | tr '\n' ' ')| banner sees: $(printf '%s' "$BR2_LIB_VIEW" | tr '\n' ' '). Whichever is right, the fraction an operator reads at session start is not the set that will actually load."
+                    BR2_OK=0
+                fi
+            fi
+
             if [ "$BR2_OK" -eq 1 ]; then
-                emit_pass "BR2. all $BR_EXPECTED_COUNT managed guards registered exactly once on the right event; PreToolUse[Agent] chain in canonical order"
+                emit_pass "BR2. all $BR_EXPECTED_COUNT managed guards registered exactly once on the right event and nothing else registered; PreToolUse[Agent] chain in canonical order; session banner's inventory agrees"
             fi
         fi
     fi

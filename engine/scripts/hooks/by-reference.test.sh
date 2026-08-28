@@ -329,6 +329,71 @@ run_probe "$SB"
 expect_only_layer_failed "2e.BR2-guard-on-the-wrong-event" "BR2" "detect-nonnative-worktree.sh(registered, but not on PostToolUse)"
 rm -rf "$SB"
 
+# THE DRIFT THAT ACTUALLY HAPPENED, in the direction nothing used to look.
+#
+# Cases 2b-2e all walk the managed set and ask "is it wired?". For two days
+# nothing asked the reverse, and the reverse is where the defect lived:
+# guard-worktree-removal.sh was wired at 79d6958/084eed3, every forward check
+# stayed green, and the engine ran a guard that no inventory in the system knew
+# about — uncounted by the probe and uncounted by the session banner. This is
+# that move, replayed with a seventeenth guard.
+SB="$(make_sandbox)"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$SB/engine/scripts/hooks/guard-brand-new.sh"
+chmod +x "$SB/engine/scripts/hooks/guard-brand-new.sh"
+python3 - "$SB/engine/hooks/hooks.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["hooks"]["PreToolUse"].append({
+    "matcher": "Bash",
+    "hooks": [{"type": "command",
+               "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-brand-new.sh",
+               "timeout": 10}],
+})
+json.dump(d, open(p, "w"), indent=2)
+PY
+run_probe "$SB"
+expect_only_layer_failed "2f.BR2-guard-wired-but-not-declared-in-the-managed-set" "BR2" \
+    "the managed set above does not name: guard-brand-new.sh"
+rm -rf "$SB"
+
+# The SESSION BANNER's copy of the inventory. engine-status.sh sizes its
+# "N/M guards" line from scripts/lib/registered-hooks.sh, and that line is the
+# first thing an operator reads every session — twice now it has been a full
+# fraction over a stale inventory. The derivation removed the typed list; this
+# case removes the last way it could still drift, by proving the probe notices
+# when the banner's reading of hooks.json stops matching its own.
+#
+# The mutation is the historical defect itself: a hand-typed inventory, the
+# same fourteen names the banner carried before the fix.
+SB="$(make_sandbox)"
+cat >"$SB/engine/scripts/lib/registered-hooks.sh" <<'STALE'
+#!/usr/bin/env bash
+registered_hook_scripts() {
+    printf '%s\n' \
+        guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh \
+        verify-agent-prompt.sh guard-main-checkout-writes.sh scan-secrets.sh \
+        guard-resume-isolation.sh guard-bash-main-writes.sh guard-workflow-ban.sh \
+        detect-nonnative-worktree.sh session-start-reap-worktrees.sh \
+        snapshot-agent-definitions.sh teammate-idle-handoff.sh task-completed-handoff.sh
+}
+STALE
+run_probe "$SB"
+expect_only_layer_failed "2g.BR2-session-banner-inventory-disagrees-with-the-hook-table" "BR2" \
+    "the session banner's guard inventory DISAGREES"
+rm -rf "$SB"
+
+# And if the library is gone entirely, the banner cannot count at all. An
+# engine that opens every session with an unknown guard count is not a working
+# engine, and "the file was missing" must not be something only the operator
+# discovers.
+SB="$(make_sandbox)"
+rm -f "$SB/engine/scripts/lib/registered-hooks.sh"
+run_probe "$SB"
+expect_only_layer_failed "2h.BR2-guard-inventory-library-missing" "BR2" \
+    "guard-inventory library MISSING"
+rm -rf "$SB"
+
 # ---------------------------------------------------------------------------
 # BR3 — confinement to ${CLAUDE_PLUGIN_ROOT}
 # ---------------------------------------------------------------------------
