@@ -128,7 +128,8 @@ mkdir -p "$SAMPLE_ROOT/scripts/hooks" "$SAMPLE_ROOT/scripts/lib" "$SAMPLE_ROOT/.
 
 for f in guard-worktree-isolation.sh guard-definition-drift.sh snapshot-agent-definitions.sh \
          reader-teammate-hint.sh verify-agent-prompt.sh \
-         guard-main-checkout-writes.sh guard-bash-main-writes.sh scan-secrets.sh \
+         guard-main-checkout-writes.sh guard-bash-main-writes.sh guard-worktree-removal.sh \
+         scan-secrets.sh \
          guard-resume-isolation.sh guard-workflow-ban.sh detect-nonnative-worktree.sh teammate-idle-handoff.sh \
          task-completed-handoff.sh session-start-reap-worktrees.sh \
          engine-status.sh install.sh contract-integrity-probe.sh; do
@@ -151,6 +152,12 @@ export CLAUDE_PROJECT_DIR
 # sidecar and probe Layer Q hashes + exercises it, so the sample repo needs it.
 cp "$REPO_ROOT/scripts/reap-stale-worktrees.sh" "$SAMPLE_ROOT/scripts/reap-stale-worktrees.sh"
 chmod +x "$SAMPLE_ROOT/scripts/reap-stale-worktrees.sh"
+# The sanctioned worktree-removal helper. It ships as a PAIR with
+# guard-worktree-removal.sh — the guard blocks every raw removal and names this
+# as the only way through — so the probe's Layer S verifies both, and the sample
+# repo must carry both or Beat 7 fails for a reason that is not about the demo.
+cp "$REPO_ROOT/scripts/remove-agent-worktree.sh" "$SAMPLE_ROOT/scripts/remove-agent-worktree.sh"
+chmod +x "$SAMPLE_ROOT/scripts/remove-agent-worktree.sh"
 
 cat >"$SAMPLE_ROOT/orchestration.config" <<'CFG'
 # Sample orchestration.config for the demo — mirrors the shape of the real
@@ -206,6 +213,7 @@ data = {
                 "matcher": "Bash",
                 "hooks": [
                     {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-bash-main-writes.sh", "timeout": 10},
+                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-worktree-removal.sh", "timeout": 10},
                 ],
             },
             {
