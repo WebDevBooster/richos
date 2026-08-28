@@ -77,7 +77,7 @@
 #      hook with a byte-identical bootstrap, and engine-status.sh is registered
 #      on both registration surfaces. Runs in BOTH modes.
 #
-# BY-REFERENCE MODE runs a different set entirely (BR1-BR9 + BR6b + R), because the
+# BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R), because the
 # guards are then registered in the plugin's hooks/hooks.json and this
 # repository's settings file legitimately never mentions them. See the
 # "BY-REFERENCE LAYER SET" banner below for what each BR layer asserts.
@@ -427,6 +427,11 @@ run_layer_R() {
 #        an entity's OWN scripts follow because they get no $CLAUDE_PLUGIN_ROOT)
 #        agrees with that registration. Absent -> named warning; present and
 #        disagreeing, dangling, or aimed at a non-engine -> failure
+#   BR10 the ENTITY's own critical config — env.CLAUDE_CODE_EXPERIMENTAL_AGENT_
+#        TEAMS="1" and worktree.baseRef="head". The plugin cannot supply these:
+#        they are project-scope keys and they are the entity's property. Every
+#        other BR layer audits the ENGINE; without this one an entity gained
+#        plugin verification and silently LOST config verification on adoption
 #   BR7  the marketplace manifest is git-TRACKED, so the next clone can register
 #   BR8  engine-status.sh reports ACTIVE for this entity AND emits an
 #        operator-visible systemMessage — paired against an unadopted directory
@@ -443,7 +448,7 @@ run_layer_R() {
 if [ "$PROBE_MODE" = "by-reference" ]; then
     {
         echo ""
-        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR9 + BR6b) ==="
+        echo "=== ENGINE LOADED BY REFERENCE — auditing the PLUGIN route (BR1-BR10) ==="
         echo "  engine : $ENGINE_ROOT"
         echo "  entity : $REPO_ROOT"
         echo ""
@@ -925,6 +930,72 @@ else:
         else
             emit_pass "BR6b. the entity-facing engine pointer agrees with the audited engine: $BR6_POINTER -> $BR6_POINTER_REAL"
         fi
+    fi
+
+    # --- BR10 — the ENTITY's own critical config keys ---
+    #
+    # THE GAP THIS CLOSES. Every layer above audits the ENGINE: its manifest,
+    # its hook table, its scripts, its registration. None of them audits the one
+    # thing the engine cannot supply and the entity must carry itself.
+    #
+    # Two keys in the entity's own .claude/settings.local.json are as
+    # load-bearing as any guard:
+    #
+    #   env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
+    #       without it the orchestrator sees and spawns ZERO teammates at the
+    #       next session start, WITH NO ERROR SHOWN. A recorded incident.
+    #   worktree.baseRef = "head"
+    #       the whole worktree-isolation doctrine assumes a teammate's worktree
+    #       branches from local HEAD rather than from the remote's default.
+    #
+    # Unlike the two plugin keys, these DO work at project scope, so they are
+    # entity property and travel with the clone. The SEATED layer set has
+    # checked them since the incident (Layers I/J); the by-reference set did
+    # not, which meant an entity gained plugin-wiring verification and quietly
+    # LOST config verification at the moment it adopted. That is the exact
+    # shape of drift this whole migration exists to remove, so it is a HARD
+    # failure here rather than a warning.
+    BR10_SETTINGS="$REPO_ROOT/.claude/settings.local.json"
+    if [ ! -r "$BR10_SETTINGS" ]; then
+        emit_fail "BR10. the entity has no readable .claude/settings.local.json ($BR10_SETTINGS). Under a by-reference engine the guards are registered by the plugin, but this file still carries the entity's OWN critical config (env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, worktree.baseRef) and any project-scope hooks it keeps. Its absence is not 'nothing to check'."
+    else
+        BR10_OUT="$(python3 - "$BR10_SETTINGS" <<'PY' 2>/dev/null || echo "ERR unreadable/unparseable"
+import json, sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as h:
+        d = json.load(h)
+except Exception as e:
+    print("ERR %s" % e)
+    raise SystemExit
+
+def get(dotted):
+    cur = d
+    for k in dotted.split("."):
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return None
+    return cur
+
+bad = []
+teams = get("env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS")
+if teams != "1":
+    bad.append('env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is %r, expected "1"' % (teams,))
+ref = get("worktree.baseRef")
+if ref != "head":
+    bad.append('worktree.baseRef is %r, expected "head"' % (ref,))
+print("OK" if not bad else "BAD " + "; ".join(bad))
+PY
+)"
+        case "$BR10_OUT" in
+            OK)
+                emit_pass "BR10. the entity's own critical config is intact: env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=\"1\" and worktree.baseRef=\"head\" in $BR10_SETTINGS" ;;
+            BAD\ *)
+                emit_fail "BR10. the entity's critical config is BROKEN: ${BR10_OUT#BAD }. In $BR10_SETTINGS. A missing AGENT_TEAMS flag makes the orchestrator see ZERO teammates at the next session start with no error shown; a wrong baseRef branches every teammate worktree from the wrong commit. The plugin cannot supply either — they are project-scope keys and they are the entity's own." ;;
+            *)
+                emit_fail "BR10. could not read the entity's critical config from $BR10_SETTINGS: ${BR10_OUT#ERR }." ;;
+        esac
     fi
 
     # --- BR7 — the marketplace manifest reaches the next clone ---

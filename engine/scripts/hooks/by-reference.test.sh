@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # by-reference.test.sh — the negative controls for contract-integrity-probe.sh's
-# BY-REFERENCE layer set (BR1..BR9, including BR6b).
+# BY-REFERENCE layer set (BR1..BR10, including BR6b).
 #
 # WHY THIS FILE EXISTS
 # ====================
@@ -202,7 +202,7 @@ else
 fi
 if layer_passed "BR1" && layer_passed "BR2" && layer_passed "BR3" && layer_passed "BR4" \
    && layer_passed "BR5" && layer_passed "BR6" && layer_passed "BR6b" \
-   && layer_passed "BR8" && layer_passed "BR9"; then
+   && layer_passed "BR10" && layer_passed "BR8" && layer_passed "BR9"; then
     ok "0b.baseline-every-BR-layer-actually-ran"
 else
     bad "0b.baseline-every-BR-layer-actually-ran" "a layer neither passed nor was reached: $(printf '%s' "$OUT" | grep -c '✓') ✓ lines"
@@ -554,6 +554,83 @@ if layer_passed "BR6b"; then
     bad "6h.BR6b-absent-pointer-does-not-claim-agreement" "an absent pointer emitted a passing BR6b — a green tick for something that was never checked"
 else
     ok "6h.BR6b-absent-pointer-does-not-claim-agreement"
+fi
+rm -rf "$SB"
+
+# ---------------------------------------------------------------------------
+# BR10 — the ENTITY's own critical config, which the plugin cannot supply
+# ---------------------------------------------------------------------------
+# Every other BR layer audits the ENGINE. These two keys are the entity's own,
+# they work at project scope, and their absence is silent: no error, no banner,
+# just an orchestrator that suddenly sees zero teammates. The seated layer set
+# has checked them since that incident; the by-reference set did not, so an
+# entity gained plugin verification and quietly lost config verification at the
+# exact moment it adopted.
+write_entity_settings() { # <sandbox> <teams-value-or-DELETE> <baseref-value-or-DELETE>
+    python3 - "$1/entity/.claude/settings.local.json" "$2" "$3" <<'PY'
+import json, os, sys
+p, teams, ref = sys.argv[1:4]
+d = {}
+if os.path.exists(p):
+    with open(p) as h:
+        d = json.load(h)
+d.setdefault("env", {})
+d.setdefault("worktree", {})
+if teams == "DELETE":
+    d["env"].pop("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", None)
+else:
+    d["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = teams
+if ref == "DELETE":
+    d["worktree"].pop("baseRef", None)
+else:
+    d["worktree"]["baseRef"] = ref
+os.makedirs(os.path.dirname(p), exist_ok=True)
+with open(p, "w") as h:
+    json.dump(d, h, indent=2)
+PY
+}
+
+SB="$(make_sandbox)"
+write_entity_settings "$SB" DELETE head
+run_probe "$SB"
+expect_only_layer_failed "10a.BR10-AGENT_TEAMS-flag-missing" "BR10" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is None"
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 1 DELETE
+run_probe "$SB"
+expect_only_layer_failed "10b.BR10-worktree-baseRef-missing" "BR10" "worktree.baseRef is None"
+rm -rf "$SB"
+
+# Present but WRONG is not the same as missing, and both must fail: "0" is a
+# perfectly valid-looking value that turns the flag off.
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 0 head
+run_probe "$SB"
+expect_only_layer_failed "10c.BR10-AGENT_TEAMS-flag-present-but-off" "BR10" "expected \"1\""
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 1 main
+run_probe "$SB"
+expect_only_layer_failed "10d.BR10-baseRef-pointing-at-the-wrong-ref" "BR10" "expected \"head\""
+rm -rf "$SB"
+
+SB="$(make_sandbox)"
+rm -rf "$SB/entity/.claude/settings.local.json"
+run_probe "$SB"
+expect_only_layer_failed "10e.BR10-entity-has-no-settings-file-at-all" "BR10" "no readable .claude/settings.local.json"
+rm -rf "$SB"
+
+# Positive arm, so 10a-10e mean something: a correct entity config PASSES and is
+# not merely un-checked, and 0b asserts BR10 actually ran in the baseline.
+SB="$(make_sandbox)"
+write_entity_settings "$SB" 1 head
+run_probe "$SB"
+if [ "$RC" -eq 0 ] && layer_passed "BR10"; then
+    ok "10f.BR10-a-correct-entity-config-passes"
+else
+    bad "10f.BR10-a-correct-entity-config-passes" "rc=$RC; $(printf '%s' "$OUT" | grep '✗' | head -2)"
 fi
 rm -rf "$SB"
 
