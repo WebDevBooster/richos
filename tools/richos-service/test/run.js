@@ -44,7 +44,22 @@ import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
 import { parseChannels, parseVolume, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
 import { resolveTier, MODEL_TIERS, DEFAULT_TIER } from '../lib/config.js';
-import { guardChannel, guardTranscription } from '../lib/repetition-guard.js';
+import {
+  guardChannel,
+  guardChannelAll,
+  guardInsertions,
+  guardOverlapStutter,
+  guardTranscription,
+  guardWarnings,
+  readEnumerationMarker,
+} from '../lib/repetition-guard.js';
+import {
+  TURBO_NUMERAL_INSERTION,
+  Q5_SAME_AUDIO_CLEAN,
+  GENUINE_SPOKEN_ENUMERATION,
+  LARGE_V3_SLIDING_STUTTER,
+  CLEAN_NO_BOUNDARY_OVERLAP,
+} from './fixtures/captured-hallucinations.js';
 import { diarizeOthers, readTurn, SPEAKER_TURN_MARKER } from '../lib/diarize.js';
 
 let passed = 0;
@@ -932,6 +947,267 @@ test('guardTranscription reports per-channel loop findings for verification.json
   assert.equal(r.report.removed, 3);
   assert.equal(r.report.byChannel.others.loops, 1);
   assert.equal(r.report.loops[0].channel, 'others');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 hallucination guard, class 2 — PERSISTENT INSERTION (the real large-v3-turbo artifact)');
+
+// Every fixture in this group is verbatim captured whisper.cpp output; see
+// test/fixtures/captured-hallucinations.js for the sha256 of each source JSON.
+const flat = (segs) => segs.map((s) => s.text).join('');
+
+test('readEnumerationMarker reads a bare segment-initial ordinal and leaves real numbers alone', () => {
+  assert.equal(readEnumerationMarker(' 12. Two small things.').value, 12);
+  assert.equal(readEnumerationMarker(' 3) The runbook now links the dashboard.').value, 3);
+  assert.equal(readEnumerationMarker(' 3.0.2 shipped last week.'), null, 'a version number is not a marker');
+  assert.equal(readEnumerationMarker(' 9 cents. That tier starts at 25,000.'), null, 'no separator, no marker');
+  assert.equal(readEnumerationMarker(' 21%. Yes.'), null, 'a percentage is not a marker');
+  assert.equal(readEnumerationMarker(' 2.7.4'), null);
+});
+
+test('the guard DETECTS the real 59-marker turbo fabrication the 2026-08-26 benchmark found blind', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION);
+  assert.equal(r.insertions.length, 1, 'the fabricated span is reported as one finding');
+  assert.equal(r.stats.markerSegments, 59, '59 of 88 segments carry a leading ordinal (brief §6.3)');
+  assert.equal(r.stats.channelSegments, 88);
+  assert.ok(r.stats.spanDensity > 0.9, `markers dominate their own span (${r.stats.spanDensity})`);
+  assert.equal(r.stats.maxRepeat, 13, 'the fabricated ordinal stalls on "12." for 13 consecutive segments');
+  assert.equal(r.insertions[0].startMs, 171500);
+  assert.equal(r.insertions[0].endMs, 615140);
+});
+
+test('the fabricated span is bounded by the FIRST well-formedness break, so the real "1." "3." list survives', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION);
+  const f = r.insertions[0];
+  assert.deepEqual(f.genuinePrefix, ['1.', '3.'], 'the speaker really did enumerate two items here');
+  assert.equal(f.count, 57, '57 of the 59 markers are judged fabricated, not all 59');
+  assert.equal(f.firstIndex, 20, 'the fabrication is dated from the first stall, not from the first marker');
+});
+
+test('detection NEVER rewrites the transcript — not one character of the 88 segments moves', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION);
+  assert.equal(flat(r.segments), flat(TURBO_NUMERAL_INSERTION));
+  assert.equal(r.stripped, 0);
+});
+
+// This test exists to DOCUMENT why the remedy is detect-only, not to endorse the opt-in.
+test('opting into stripping would delete a real word: the speaker\'s "Zero." at 205.3 s', () => {
+  const before = TURBO_NUMERAL_INSERTION.find((s) => s.startMs === 205260);
+  assert.ok(before.text.startsWith(' 0. We ran a full checksum comparison'), 'the captured segment');
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { stripInsertions: true });
+  assert.equal(r.stripped, 57);
+  const after = r.segments.find((s) => s.startMs === 205260);
+  assert.ok(!/\b0\b/.test(after.text.slice(0, 6)), 'the marker is gone');
+  // The reference says: "Any data loss?" / "Zero. We ran a full checksum comparison..."
+  assert.ok(after.text.trim().startsWith('We ran a full checksum'), 'and so is the answer the speaker gave');
+});
+
+test('POSITIVE CONTROL for the negatives below: the same detector fires on the artifact', () => {
+  assert.equal(guardInsertions(TURBO_NUMERAL_INSERTION).insertions.length, 1);
+});
+
+test('SILENT on real speech carrying the same surface feature — a genuinely spoken "1. 2. 3." list', () => {
+  // large-v3-turbo on the CLEAN sample B: " 3. We added a synthetic canary job…" is a legitimate
+  // segment-initial ordinal, byte-identical in surface form to the fabricated ones.
+  assert.ok(
+    GENUINE_SPOKEN_ENUMERATION.some((s) => /^\s*3\.\s/.test(s.text)),
+    'the control really does contain the surface feature',
+  );
+  const r = guardInsertions(GENUINE_SPOKEN_ENUMERATION);
+  assert.equal(r.insertions.length, 0);
+  assert.equal(flat(r.segments), flat(GENUINE_SPOKEN_ENUMERATION));
+});
+
+test('SILENT on the q5_0 transcript of the identical audio that produced the artifact', () => {
+  const r = guardInsertions(Q5_SAME_AUDIO_CLEAN);
+  assert.equal(r.insertions.length, 0);
+  assert.equal(r.stats.markerSegments, 0);
+});
+
+test('SILENT on a long, well-formed spoken enumeration — counting up, each number used once', () => {
+  // CONSTRUCTED control (no captured instance exists): a person reading a 12-item numbered agenda,
+  // 100% marker density. Well-formed, so the guard must not touch it however dense it gets.
+  const agenda = Array.from({ length: 12 }, (_, i) => ({
+    startMs: i * 5000,
+    endMs: i * 5000 + 4000,
+    text: ` ${i + 1}. Agenda item number ${i + 1}, which we should cover today.`,
+    speaker: 'me',
+  }));
+  const r = guardInsertions(agenda);
+  assert.equal(r.stats.markerSegments, 12);
+  assert.equal(r.stats.spanDensity, 1, 'maximum possible density');
+  assert.equal(r.insertions.length, 0, 'density alone never fires — well-formedness is the discriminator');
+});
+
+test('SILENT on a spoken enumeration with ONE hiccup (a speaker repeating or going back a number)', () => {
+  // CONSTRUCTED control: real speakers do lose their place once. One violation is not a fabrication.
+  const list = [1, 2, 3, 3, 4, 5, 6, 7, 8, 9].map((v, i) => ({
+    startMs: i * 5000,
+    endMs: i * 5000 + 4000,
+    text: ` ${v}. The next thing on the list that I wanted to raise with you.`,
+    speaker: 'me',
+  }));
+  const r = guardInsertions(list);
+  assert.equal(r.stats.violations, 1);
+  assert.equal(r.insertions.length, 0, 'one stall is a person, thirteen is a decoder');
+});
+
+test('a segment that is ONLY a numeral is a person counting, never a prefix insertion', () => {
+  const counting = Array.from({ length: 10 }, (_, i) => ({
+    startMs: i * 2000,
+    endMs: i * 2000 + 1500,
+    text: ` ${(i % 3) + 1}.`,
+    speaker: 'me',
+  }));
+  const r = guardInsertions(counting);
+  assert.equal(r.stats.markerSegments, 0, 'nothing was prefixed ONTO anything');
+  assert.equal(r.insertions.length, 0);
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 hallucination guard, class 3 — SLIDING-OVERLAP STUTTER (the real large-v3 artifact)');
+
+test('the guard DETECTS the real large-v3 sliding stutter the loop detector could only see 6 of', () => {
+  const r = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER);
+  assert.ok(r.stutters.length >= 1, 'the stutter is reported');
+  const chain = r.stutters[0];
+  assert.ok(chain.links >= 30, `a long chain of overlapping boundaries, not one restart (${chain.links})`);
+  assert.ok(chain.maxOverlapWords >= 7, 'whole phrases re-emitted, not a shared article');
+  assert.equal(chain.kind, 'sliding-overlap');
+});
+
+test('the de-overlap is CONTENT-PRESERVING — every distinct word survives, just once', () => {
+  const r = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER);
+  const words = (segs) =>
+    segs
+      .map((s) => s.text.toLowerCase())
+      .join(' ')
+      .match(/[a-z0-9']+/g) || [];
+  const before = new Set(words(LARGE_V3_SLIDING_STUTTER));
+  const after = new Set(words(r.segments));
+  const lost = [...before].filter((w) => !after.has(w));
+  assert.deepEqual(lost, [], 'no word present in the artifact is missing from the repair');
+  assert.ok(words(r.segments).length < words(LARGE_V3_SLIDING_STUTTER).length * 0.65, 'the doubling is gone');
+});
+
+test('the repaired stream reads once, not two or three times (the captured phrase, verbatim)', () => {
+  const r = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER);
+  const raw = flat(LARGE_V3_SLIDING_STUTTER);
+  const fixed = flat(r.segments);
+  const phrase = 'the cloud vendors sell as a premium';
+  const count = (h, n) => h.split(n).length - 1;
+  assert.equal(count(raw, phrase), 3, 'the artifact emits it three times');
+  assert.equal(count(fixed, phrase), 1, 'the repair emits it once');
+});
+
+test('dropping a re-emitted segment folds its time into the kept one (timing/coverage stay honest)', () => {
+  const r = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER);
+  const inSpan = (segs) => Math.max(...segs.map((s) => s.endMs)) - Math.min(...segs.map((s) => s.startMs));
+  assert.equal(inSpan(r.segments), inSpan(LARGE_V3_SLIDING_STUTTER), 'the channel still spans the same audio');
+});
+
+test('SILENT on real clean speech — 18 captured clean transcripts share ZERO boundary words', () => {
+  const r = guardOverlapStutter(CLEAN_NO_BOUNDARY_OVERLAP);
+  assert.equal(r.stutters.length, 0);
+  assert.equal(r.removed, 0);
+  assert.equal(flat(r.segments), flat(CLEAN_NO_BOUNDARY_OVERLAP));
+});
+
+test('SILENT on a speaker genuinely repeating a phrase across ONE segment boundary', () => {
+  // CONSTRUCTED control (the captured corpus contains no such case): a real restart is one link.
+  const restart = [
+    { startMs: 0, endMs: 3000, text: ' so what I would suggest is we push the migration', speaker: 'me' },
+    { startMs: 3000, endMs: 6000, text: ' we push the migration to the following Tuesday', speaker: 'me' },
+    { startMs: 6000, endMs: 9000, text: ' and tell procurement on the Monday.', speaker: 'me' },
+  ];
+  const r = guardOverlapStutter(restart);
+  assert.equal(r.stutters.length, 0, 'one overlapping boundary is a person, not a decoder');
+  assert.equal(flat(r.segments), flat(restart));
+});
+
+test('SILENT at two consecutive overlapping boundaries — the chain floor is three', () => {
+  // CONSTRUCTED control: the deliberate precision/recall line. A 2-link stutter goes undetected;
+  // that is a stated blind spot, chosen over risking a real speaker's repeated phrase.
+  const two = [
+    { startMs: 0, endMs: 3000, text: ' I said we would send the deck on Thursday', speaker: 'me' },
+    { startMs: 3000, endMs: 6000, text: ' send the deck on Thursday and the tier table', speaker: 'me' },
+    { startMs: 6000, endMs: 9000, text: ' and the tier table with it', speaker: 'me' },
+  ];
+  const r = guardOverlapStutter(two);
+  assert.equal(r.stutters.length, 0);
+  assert.equal(flat(r.segments), flat(two));
+});
+
+test('collapseStutter:false keeps detection while leaving the text untouched', () => {
+  const r = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER, { collapseStutter: false });
+  assert.ok(r.stutters.length >= 1);
+  assert.equal(r.removed, 0);
+  assert.equal(flat(r.segments), flat(LARGE_V3_SLIDING_STUTTER));
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 hallucination guard — all three classes through the one pipeline seam');
+
+test('guardTranscription reports the insertion class from the real turbo artifact', () => {
+  const r = guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION });
+  assert.equal(r.report.detected, true);
+  assert.equal(r.report.classes.insertion, 1);
+  assert.equal(r.report.classes.repetition, 0);
+  assert.equal(r.report.classes.overlapStutter, 0);
+  assert.equal(r.report.byChannel.others.insertions, 1);
+  assert.equal(r.report.insertions[0].channel, 'others');
+  assert.equal(r.report.removed, 0, 'the insertion class removes nothing');
+});
+
+test('guardTranscription reports the stutter class from the real large-v3 artifact', () => {
+  const r = guardTranscription({ me: LARGE_V3_SLIDING_STUTTER, others: [] });
+  assert.equal(r.report.detected, true);
+  assert.ok(r.report.classes.overlapStutter >= 1);
+  assert.ok(r.report.removed > 0);
+  assert.equal(r.report.stutters[0].channel, 'me');
+});
+
+test('the loop class still reports exactly as before (no regression in class 1)', () => {
+  const r = guardTranscription({ me: [], others: largeV3Hallucination });
+  assert.equal(r.report.classes.repetition, 1);
+  assert.equal(r.report.removed, 3);
+  assert.equal(r.report.loops[0].count, 4);
+});
+
+test('all three real captured CLEAN channels stay untouched and undetected', () => {
+  for (const [name, fixture] of [
+    ['q5 on the noisy sample', Q5_SAME_AUDIO_CLEAN],
+    ['turbo on the clean sample, genuine enumeration', GENUINE_SPOKEN_ENUMERATION],
+    ['turbo, mid-call', CLEAN_NO_BOUNDARY_OVERLAP],
+  ]) {
+    const r = guardTranscription({ me: [], others: fixture });
+    assert.equal(r.report.detected, false, `${name} must not trip any class`);
+    assert.equal(r.report.removed, 0, name);
+    assert.equal(flat(r.others), flat(fixture), `${name} is byte-identical after the guard`);
+  }
+});
+
+test('a DETECTED-BUT-UNREPAIRED class becomes a plain-English verification warning (never silent)', () => {
+  const r = guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION });
+  const w = guardWarnings(r.report);
+  assert.equal(w.length, 1);
+  assert.ok(/STILL IN the transcript/.test(w[0]), 'it says the fabricated text was NOT removed');
+  assert.ok(/re-transcribe/.test(w[0]), 'and names the remedy');
+  assert.ok(/57 fabricated/.test(w[0]) && /"others" channel/.test(w[0]));
+});
+
+test('a REPAIRED class produces no warning — the transcript no longer contains it', () => {
+  const loop = guardTranscription({ me: [], others: largeV3Hallucination });
+  assert.deepEqual(guardWarnings(loop.report), []);
+  const stutter = guardTranscription({ me: LARGE_V3_SLIDING_STUTTER, others: [] });
+  assert.deepEqual(guardWarnings(stutter.report), []);
+});
+
+test('guardChannelAll runs loops before insertions before overlap so classes cannot mask each other', () => {
+  const r = guardChannelAll(TURBO_NUMERAL_INSERTION);
+  assert.equal(r.insertions.length, 1);
+  assert.equal(r.loops.length, 0);
+  assert.equal(r.stutters.length, 0, 'a leading marker must not be mistaken for a boundary overlap');
 });
 
 // ---------------------------------------------------------------------------------------

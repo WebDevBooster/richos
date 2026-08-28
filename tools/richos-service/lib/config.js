@@ -182,9 +182,10 @@ export const MODEL_TIERS = {
       'DEFAULT. Distilled large-v3; ~3.9 min/call-hour on the M4, ~2 GB RAM. NO hallucination on the ' +
       '213 s benchmark sample — but NOT hallucination-free in general: on an 11-minute NOISY sample ' +
       'it fabricated a running list numeral onto 59 of 88 segments (65% of the call), ' +
-      'deterministically in 3/3 runs, and NEITHER repetition-guard.js NOR an n-gram scan detects it ' +
-      '(measured 2026-08-26, the q5 call-transcription brief). q5_0 did ' +
-      'not reproduce it on the same audio.',
+      'deterministically in 3/3 runs (measured 2026-08-26, the q5 call-transcription brief). q5_0 did ' +
+      'not reproduce it on the same audio. As of 2026-08-28 repetition-guard.js DETECTS that class ' +
+      'and reports it loudly, but does NOT repair it — the fabricated span contains real speech, so ' +
+      'the markers stay in the transcript and re-transcription is the remedy.',
   },
   max: {
     model: 'large-v3',

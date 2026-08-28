@@ -207,12 +207,27 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
     hallucination in the benchmark).
   - `quantized` — quantized turbo (`large-v3-turbo-q5_0`, ~574 MB vs 1.6 GB; build once with
     `whisper-quantize`) for low-resource Apple Silicon.
-- **Repetition guard (`lib/repetition-guard.js`, pipeline stage 3.5), model-agnostic:** the post-decode
-  half of the hallucination defence. Collapses looped/garbled spans (the reproduced large-v3 4x loop)
-  to a single line, precision-guarded so short backchannels ("Yeah." "Yeah.") are never eaten. Findings
-  are recorded in `session.json.pipeline.repetitionGuard` + `verification.json`. **Proven** on the exact
-  benchmark sample: bare `large-v3` loops **x4** → decode params alone drop it to **x1** (and run faster)
-  → the post-decode guard collapses any residual to **x1**; `turbo` stays **x1** unchanged.
+- **Hallucination guard (`lib/repetition-guard.js`, pipeline stage 3.5), model-agnostic:** the
+  post-decode half of the hallucination defence, over **three measured decode-failure classes**, each
+  with a fixture built from the real captured artifact (`test/fixtures/captured-hallucinations.js`,
+  sha256 of every source JSON baked in). Findings are recorded in
+  `session.json.pipeline.repetitionGuard` + `verification.json`.
+  1. **Repetition loop** — a run of identical segments. **Collapsed** to one line, end extended so
+     timing stays honest; short backchannels ("Yeah." "Yeah.") are never eaten. **Proven** on the exact
+     benchmark sample: bare `large-v3` loops **x4** → decode params alone drop it to **x1** (and run
+     faster) → the post-decode guard collapses any residual to **x1**; `turbo` stays **x1** unchanged.
+  2. **Persistent insertion** — a fabricated ordinal marker prefixed onto many otherwise-distinct
+     segments (`large-v3-turbo`, 59 of 88 segments on 11 min of noisy audio, 3/3 runs). **DETECTED,
+     NOT REPAIRED**, and that is deliberate: the captured fabricated span contains a real spoken
+     "Zero.", so stripping the markers would delete a word the speaker said. Detection is loud —
+     a `log.alarm`, `pipeline.repetitionGuard.unrepaired`, and a plain-English `verification.warnings`
+     line saying the fabricated text is **still in `transcript.md`**. Remedy is re-transcription.
+  3. **Sliding-overlap stutter** — consecutive segments re-emitting the previous tail with shifted
+     boundaries (`large-v3`, 1,979 reference words → 3,999, 110.86 % WER; the loop detector saw only
+     6 of 353 segments). **De-overlapped**, content-preservingly: every word survives exactly once.
+  Precision is the contract and the thresholds are set from measurement, not taste — across the 18
+  clean turbo/`q5_0` transcripts of the 2026-08-26 benchmark the guard changes **nothing**, and the
+  known blind spots are enumerated in the module header rather than papered over.
 - **Diarization seam (`lib/diarize.js`, opt-in via `--`/`RICHOS_DIARIZE`), honest scope:** default
   `none` (identity — one "Them", no wrong speaker counts). Opt-in `tinydiarize-turns` consumes
   whisper.cpp's **native** `[SPEAKER_TURN]` markers (local, no extra dependency) to split the far-side
