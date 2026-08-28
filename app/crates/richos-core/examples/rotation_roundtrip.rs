@@ -18,8 +18,8 @@
 //! so it also exercises the real `session/new` + re-prime injection + the self-authored
 //! handoff-summary request over the actual wire.
 //!
-//! Run (needs `claude` CLI logged in; adapter under app/scratch-acp — `npm i` there once):
-//!   RICHOS_ACP_BIN=$PWD/../../scratch-acp/node_modules/.bin/claude-agent-acp \
+//! Run (needs `claude` CLI logged in; adapter under app/acp-adapter — `npm i` there once):
+//!   RICHOS_ACP_BIN=$PWD/../../acp-adapter/node_modules/.bin/claude-agent-acp \
 //!     cargo run -p richos-core --example rotation_roundtrip -- <engine_dir>
 
 use richos_core::acp::{resolve_acp_bin, AcpCognition};

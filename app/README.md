@@ -64,7 +64,7 @@ app/
     src/main.rs              window + Tauri command bridge to the spine
     tauri.conf.json, capabilities/, icons/
   ui/                        minimal web UI (thread list + messages + composer)
-  scratch-acp/               ACP protocol probe (probe.js) — repro for the wire shape
+  acp-adapter/               hosts the claude-agent-acp adapter + probe.js (wire-shape repro)
 ```
 
 `src-tauri/` is a **deliberately detached** nested workspace so the heavy webview
@@ -85,9 +85,9 @@ cargo run -p richos-voice --example device_probe       # what the audio hardware
 # 2. The desktop shell (from app/src-tauri/):
 cargo build                                     # -> target/debug/richos-tauri (Mach-O)
 
-# 3. The LIVE ACP round-trip (needs `claude` CLI signed in; adapter under scratch-acp/):
-#    installs once:  (cd scratch-acp && npm i @agentclientprotocol/claude-agent-acp)
-RICHOS_ACP_BIN="$PWD/scratch-acp/node_modules/.bin/claude-agent-acp" \
+# 3. The LIVE ACP round-trip (needs `claude` CLI signed in; adapter under acp-adapter/):
+#    installs once:  (cd acp-adapter && npm i @agentclientprotocol/claude-agent-acp)
+RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
   cargo run -p richos-core --example acp_roundtrip -- "$PWD/../engine" "who are you?"
 
 # 4. The WHOLE voice loop (needs the adapter above; a WAV stands in for the mic on a

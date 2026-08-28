@@ -4,7 +4,7 @@
 //! `claude-agent-acp` child process, whose `session/new` `cwd` is the engine repo so
 //! Claude auto-loads the persona/hooks. This is exactly the chain proven in an earlier
 //! voice pilot (`claude-agent-acp → claude-agent-sdk → Claude`), minus its ACP shim and the Nostr
-//! relay. Wire shape verified live 2026-08-24 (app/scratch-acp/probe.js):
+//! relay. Wire shape verified live 2026-08-24 (app/acp-adapter/probe.js):
 //!   initialize {protocolVersion:1} -> {protocolVersion:1, agentCapabilities}
 //!   session/new {cwd, mcpServers:[]} -> {sessionId, modes}
 //!   session/prompt {sessionId, prompt:[{type:"text",text}]}

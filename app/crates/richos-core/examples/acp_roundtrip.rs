@@ -5,8 +5,8 @@
 //! "talk to Rich" loop plus the P1.4 continuity foundation (re-prime identity assertion),
 //! proven with a real `claude-agent-acp` child and the developer's Claude auth.
 //!
-//! Run (needs `claude` CLI logged in; adapter under app/scratch-acp):
-//!   RICHOS_ACP_BIN=$PWD/../../scratch-acp/node_modules/.bin/claude-agent-acp \
+//! Run (needs `claude` CLI logged in; adapter under app/acp-adapter):
+//!   RICHOS_ACP_BIN=$PWD/../../acp-adapter/node_modules/.bin/claude-agent-acp \
 //!     cargo run -p richos-core --example acp_roundtrip -- <engine_dir> "your message"
 
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
