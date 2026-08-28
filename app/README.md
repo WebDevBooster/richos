@@ -105,11 +105,12 @@ not ship a placeholder icon.
 
 `src-tauri/icons/` currently holds four **placeholder** files (`32x32.png`, `128x128.png`,
 `[email protected]`, `icon.png`) — all four are byte-identical, and all four are internally a
-512x512 PNG regardless of what their filename claims. `src-tauri/build.rs` now REFUSES to
-build `richos-tauri` while that's true (dimension check + cross-file identity check; see
-its doc comment for the exact defect it was written against). This is deliberate: a build
-that "just compiles" over a placeholder icon is not done, and Tauri does not resize a
-bundle icon to fit its declared filename — a mis-sized file ships exactly as supplied.
+512x512 PNG regardless of what their filename claims. `src-tauri/build.rs` checks for this on
+every build (dimension check + cross-file identity check; see its doc comment for the exact
+defect it was written against) and WARNS, so compilation is never blocked on artwork. Under
+`RICHOS_REQUIRE_REAL_ICONS=1` — which bundling and CI set — the same check is fatal, because
+a release must not ship a placeholder. Tauri does not resize a bundle icon to fit its
+declared filename: a mis-sized file ships exactly as supplied.
 
 **What Tauri (v2.11.5 desktop app / tauri-build 2.6.3, pinned `"2"` in `Cargo.toml`)
 actually requires**, per the v2 docs:
