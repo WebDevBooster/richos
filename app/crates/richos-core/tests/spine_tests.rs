@@ -3,7 +3,7 @@
 //! they run green with NO live Claude / network (the ACP round-trip itself is proven
 //! separately by examples/acp_roundtrip.rs).
 
-use richos_core::cognition::{Cognition, CognitionError, MockCognition};
+use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition};
 use richos_core::ledger::{Ledger, Source, TurnState};
 use richos_core::reprime::RePrimePayload;
 use richos_core::spine::Spine;
@@ -231,11 +231,11 @@ impl Cognition for FailingCognition {
     fn session_id(&self) -> &str {
         &self.session_id
     }
-    fn reprime(&mut self, _priming_text: &str) -> Result<(), CognitionError> {
+    fn reprime(&mut self, _priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         Ok(())
     }
-    fn prompt(&mut self, _text: &str, on_chunk: &mut dyn FnMut(&str)) -> Result<String, CognitionError> {
-        on_chunk("partial before the lease dies");
+    fn prompt(&mut self, _text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        on_item(TurnItem::Text { seq: 0, text: "partial before the lease dies" });
         Err(CognitionError::Io("adapter exited mid-turn".into()))
     }
 }

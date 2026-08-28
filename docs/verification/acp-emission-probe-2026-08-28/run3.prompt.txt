@@ -1,0 +1,5 @@
+Before you do anything else, call the TodoWrite tool with a todos array containing exactly these three items, all with status pending: "count lines in util.rs", "count lines in stream.rs", "report both counts". Use TodoWrite, by that exact name; if it is not in your available tools, use ToolSearch to find it first.
+Then, marking each todo in_progress and then completed with a TodoWrite call as you go:
+1. Run: wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.rs
+2. Run: wc -l /Users/alex/ab/richos/app/crates/richos-core/src/stream.rs
+3. Report both counts in one sentence.

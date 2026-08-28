@@ -13,7 +13,7 @@
 //! Headless throughout (`MockCognition` / `MockLeaseFactory`): no live Claude, no network.
 //! Test names document the invariant, per this codebase's convention.
 
-use richos_core::cognition::{Cognition, CognitionError, MockCognition, MockLeaseFactory};
+use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition, MockLeaseFactory};
 use richos_core::ledger::{
     ActionStatus, ActionVisibility, AttentionTier, Ledger, Source, ACTION_DETAIL_MAX_CHARS,
 };
@@ -40,11 +40,11 @@ impl Cognition for FailingCognition {
     fn session_id(&self) -> &str {
         &self.session_id
     }
-    fn reprime(&mut self, _priming_text: &str) -> Result<(), CognitionError> {
+    fn reprime(&mut self, _priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         Ok(())
     }
-    fn prompt(&mut self, _text: &str, on_chunk: &mut dyn FnMut(&str)) -> Result<String, CognitionError> {
-        on_chunk("partial before the lease dies");
+    fn prompt(&mut self, _text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        on_item(TurnItem::Text { seq: 0, text: "partial before the lease dies" });
         Err(CognitionError::Io("adapter exited mid-turn".into()))
     }
 }

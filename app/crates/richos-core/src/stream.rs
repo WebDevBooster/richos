@@ -17,8 +17,16 @@
 //!   `rich://proactive-message` { threadId, turnId, tier, at } — Rich spoke unprompted
 //!     (UX doc §5); the UI's job is just to reload messages for the tier 1/2 case (tier
 //!     3 / Silent NEVER fires this event — it never reaches the conversation at all).
-//! `seq` is a per-turn 0-based counter: concatenating `textDelta` in `seq` order
-//! reproduces the full reply that the ledger holds for that turn.
+//! `seq` is a per-turn counter that starts at 0 and STRICTLY INCREASES: concatenating
+//! `textDelta` in `seq` order reproduces the full reply that the ledger holds for that
+//! turn.
+//!
+//! **It is no longer contiguous, on purpose** (techy-mode design §1.4 G1). One counter is
+//! now shared by assistant text and machinery, assigned once at the ACP drain point, so
+//! that *"he said X, then ran Y, then said Z"* is reconstructible — which two independent
+//! counters cannot express. A text-only consumer therefore sees gaps where tool calls
+//! happened. Nothing about clean output changes: machinery travels on `rich://machinery`
+//! (`machinery.rs`), a DIFFERENT event family, and has no path into `StreamEvent` at all.
 
 use crate::ledger::AttentionTier;
 use serde_json::{json, Value};

@@ -1,0 +1,128 @@
+Machinery routing + retention, proved end to end against the REAL claude-agent-acp
+adapter. Captured 2026-08-28 on branch echo/techy-route-retain-2026-08-28.
+
+Reproduce:
+  cd app
+  RICHOS_ACP_BIN=$PWD/acp-adapter/node_modules/.bin/claude-agent-acp \
+    cargo run -p richos-core --example machinery_roundtrip -- \
+      /Users/alex/ab/richos/engine \
+      "Using your tools, do these three things and then answer in one sentence: (1) read \
+       the file VERSION in your current working directory, (2) run the shell command: echo \
+       machinery-roundtrip-ok && uname -s, (3) run: wc -l .../richos-core/src/util.rs"
+
+This is NOT a unit test. It is one real turn, through the real adapter, with real tool
+calls, landing real bytes in the real journal on disk. What it establishes:
+
+  * Section 1 — the CEO's conversation contains ZERO machinery. Same as before this work.
+  * Section 2 — text and machinery share ONE per-turn counter (§1.4 G1). The CEO's turn
+    reports "35 items, positions 0..=34, unique: YES, dense: YES": every position used
+    exactly once, no gaps, across BOTH families. That is the reconstruction two
+    independent counters cannot express.
+  * Section 2 — the re-prime turn's 4 records carry turnId None and internal: true (§1.5),
+    and report dense: NO because the positions missing from them are the priming TEXT,
+    which is discarded unrendered. The gap is the proof it was there and deliberately not
+    kept.
+  * Section 3 — 24 journal lines project to 9 rows: three tool calls, each merged from
+    5-7 wire events by toolCallId (§1.4 G2/G6), each with the REAL title rather than the
+    "Terminal" / "Read File" placeholder the open event carried, each ending "completed",
+    each with a bounded summary and (for the Read) its file path. Plus one
+    permission_requested recorded as an observation — "auto-approved: allow", no control
+    attached — and five usage_update records retained as `unknown` because usage is
+    Phase 2 and a Phase-2 kind must still not be dropped.
+  * Section 4 — the day shard is a PAIR of files: 2026-08-28.jsonl (Tier A, ~10 KB,
+    never evicted) and 2026-08-28.raw.jsonl (Tier B, ~32 KB, unlink-evictable), 24 lines
+    each.
+
+Note on the one absence: session_info_update does NOT appear. It arrives AFTER the prompt
+response, when current_prompt is already None, so it reaches no sink — the between-turn
+route is §1.5's design and §5's PHASE 2. Named as a known hole, not a silent one.
+
+--------------------------------------------------------------------------------
+
+[machinery] adapter   = /Users/alex/ab/richos-wt/echo-techy-route-2026-08-28/app/acp-adapter/node_modules/.bin/claude-agent-acp
+[machinery] engine cwd = /Users/alex/ab/richos/engine
+[machinery] session   = 7900c0b3-5233-41ef-9ca4-bbce0b604914
+
+CEO> Using your tools, do these three things and then answer in one sentence: (1) read the file VERSION in your current working directory, (2) run the shell command: echo machinery-roundtrip-ok && uname -s, (3) run: wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.rs
+
+================ 1. THE CALM VIEW (what the CEO sees) ================
+  user> Using your tools, do these three things and then answer in one sentence: (1) read the file VERSION in your current working directory, (2) run the shell command: echo machinery-roundtrip-ok && uname -s, (3) run: wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.rs
+assistant> I'll do all three.VERSION reads `1.0.0`, the shell round-trip printed `machinery-roundtrip-ok` on `Darwin`, and `/Users/alex/ab/richos/app/crates/richos-core/src/util.rs` is 18 lines.
+
+================ 2. INTERLEAVED, ORDERED BY (turn, seq) — G1 ================
+  rows marked MACHINERY* are `internal: true` (re-prime, turnId None) and are
+  RETAINED but NEVER rendered in a thread view — §1.5.
+  The re-prime turn reports dense: NO on purpose — the positions missing from it
+  are its assistant TEXT, which is discarded unrendered. The gap is the proof
+  that text was there and deliberately not kept, which is exactly what a shared
+  counter buys you. The CEO's turn keeps both families and must be dense.
+
+  --- turn <none: re-prime> ---
+  seq   0  MACHINERY*   unknown              -          available_commands_update
+  seq   1  MACHINERY*   unknown              -          usage_update
+  seq   3  MACHINERY*   unknown              -          usage_update
+  seq   4  MACHINERY*   unknown              -          usage_update
+        -> 4 items, positions 0..=4, unique: YES, dense: NO
+  --- turn turn_299bac1f98ad4adeb4adfb38d87a0bcc ---
+  seq   0  machinery    unknown              -          usage_update
+  seq   1  text         I
+  seq   2  text         'll do
+  seq   3  text          all three.
+  seq   4  machinery    tool_call            pending    Read File
+  seq   5  machinery    tool_call            -          Read VERSION
+  seq   6  machinery    tool_call            pending    Terminal
+  seq   7  machinery    tool_call            -          
+  seq   8  machinery    tool_call            completed  
+  seq   9  machinery    tool_call            -          echo machinery-roundtrip-ok && uname -s
+  seq  10  machinery    tool_call            -          echo machinery-roundtrip-ok && uname -s
+  seq  11  machinery    tool_call            pending    Terminal
+  seq  12  machinery    tool_call            -          wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.
+  seq  13  machinery    tool_call            -          wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.
+  seq  14  machinery    unknown              -          usage_update
+  seq  15  machinery    permission_requested -          wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.
+  seq  16  machinery    tool_call            -          
+  seq  17  machinery    tool_call            -          
+  seq  18  machinery    tool_call            completed  
+  seq  19  machinery    tool_call            completed  
+  seq  20  machinery    unknown              -          usage_update
+  seq  21  text         V
+  seq  22  text         ERSION re
+  seq  23  text         ads `1.0.0`
+  seq  24  text         , the shell round
+  seq  25  text         -trip printed `machin
+  seq  26  text         ery-roundtrip-
+  seq  27  text         ok` on
+  seq  28  text          `Darwin`, and
+  seq  29  text          `/Users/alex/
+  seq  30  text         ab/richos/app/
+  seq  31  text         crates/richos-core/
+  seq  32  text         src/util.rs` is 18 lines.
+  seq  33  machinery    unknown              -          usage_update
+  seq  34  machinery    unknown              -          usage_update
+        -> 35 items, positions 0..=34, unique: YES, dense: YES
+
+================ 3. PROJECTED ROWS (merged by toolCallId) ================
+  24 journal lines  ->  9 rows after the merge
+  seq   0  unknown              -          usage_update
+  seq   4  tool_call            completed  Read VERSION
+           summary: 1	1.0.0
+           paths  : /Users/alex/ab/richos/engine/VERSION
+  seq   6  tool_call            completed  echo machinery-roundtrip-ok && uname -s
+           summary: machinery-roundtrip-ok
+  seq  11  tool_call            completed  wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.rs
+           summary: 18 /Users/alex/ab/richos/app/crates/richos-core/src/util.rs
+  seq  14  unknown              -          usage_update
+  seq  15  permission_requested -          wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.rs
+           summary: auto-approved: allow
+  seq  20  unknown              -          usage_update
+  seq  33  unknown              -          usage_update
+  seq  34  unknown              -          usage_update
+
+================ 4. ON DISK ================
+      10061 bytes    24 lines  /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-machinery-48301/machinery/thr_002a71a7359b46d79f6a3235056ef2b4/2026-08-28.jsonl
+      32022 bytes    24 lines  /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-machinery-48301/machinery/thr_002a71a7359b46d79f6a3235056ef2b4/2026-08-28.raw.jsonl
+  raw payload bytes retained (Tier B, install-wide): 32022
+
+[machinery] turn state = Completed, stop = Some("end_turn")
+[machinery] journal kept at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-machinery-48301
+[machinery] OK

@@ -1,0 +1,692 @@
+{
+ "artifact": "docs/verification/acp-emission-probe-2026-08-28",
+ "probe": "app/acp-adapter/probe-machinery.js",
+ "adapter": "@agentclientprotocol/claude-agent-acp",
+ "adapterInstalledVersion": "0.70.0",
+ "acpProtocolVersionNegotiated": 1,
+ "cwd": "/Users/alex/ab/richos/engine",
+ "runs": {
+  "run1": {
+   "prompt": "Do all five of the following yourself, with your tools, right now. Do not ask me anything first, do not delegate, and do not spawn subagents.\nTrack the five steps on your todo list as you go.\n1. Read the file VERSION in your current working directory and tell me its contents.\n2. Grep for the string \"sessionUpdate\" under /Users/alex/ab/richos/app and tell me how many matches you find.\n3. Run the shell command: echo hello-from-acp-probe && uname -s\n4. Write exactly the single line probe-write-ok to the file /tmp/richos-acp-probe-write-target.txt (this path is outside every repo; overwriting it is fine).\n5. Finish with one short sentence summarising what you found.",
+   "cwd": "/Users/alex/ab/richos/engine",
+   "adapterInstalled": "0.70.0",
+   "stopResult": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 6,
+     "outputTokens": 983,
+     "cachedReadTokens": 61516,
+     "cachedWriteTokens": 31467,
+     "totalTokens": 93972
+    }
+   },
+   "sessionUpdateKindCounts": {
+    "available_commands_update": 2,
+    "usage_update": 8,
+    "agent_message_chunk": 9,
+    "tool_call": 5,
+    "tool_call_update": 20,
+    "session_info_update": 1
+   },
+   "clientDirectedRequestCounts": {
+    "session/request_permission": 3
+   },
+   "machineryRecordsThisTurn": 39,
+   "toolCallsThisTurn": 5
+  },
+  "run2": {
+   "prompt": "Think hard about this before you answer, and show your reasoning process.\nDo these three things yourself, with your tools, right now, without asking me anything.\n1. FIRST use your TodoWrite tool to create a todo list with these three items, then keep it updated as you go.\n2. Use your Read tool (NOT bash, NOT cat) to read the file /Users/alex/ab/richos/app/crates/richos-core/src/util.rs and tell me how many public functions it defines.\n3. Think carefully and tell me, in two sentences, whether a millisecond timestamp is a safe ordering key for streamed events.",
+   "cwd": "/Users/alex/ab/richos/engine",
+   "adapterInstalled": "0.70.0",
+   "stopResult": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 4,
+     "outputTokens": 1734,
+     "cachedReadTokens": 49665,
+     "cachedWriteTokens": 12189,
+     "totalTokens": 63592
+    }
+   },
+   "sessionUpdateKindCounts": {
+    "available_commands_update": 2,
+    "usage_update": 6,
+    "agent_message_chunk": 14,
+    "tool_call": 2,
+    "tool_call_update": 7,
+    "session_info_update": 1
+   },
+   "clientDirectedRequestCounts": {
+    "session/request_permission": 1
+   },
+   "machineryRecordsThisTurn": 19,
+   "toolCallsThisTurn": 2
+  },
+  "run3": {
+   "prompt": "Before you do anything else, call the TodoWrite tool with a todos array containing exactly these three items, all with status pending: \"count lines in util.rs\", \"count lines in stream.rs\", \"report both counts\". Use TodoWrite, by that exact name; if it is not in your available tools, use ToolSearch to find it first.\nThen, marking each todo in_progress and then completed with a TodoWrite call as you go:\n1. Run: wc -l /Users/alex/ab/richos/app/crates/richos-core/src/util.rs\n2. Run: wc -l /Users/alex/ab/richos/app/crates/richos-core/src/stream.rs\n3. Report both counts in one sentence.",
+   "cwd": "/Users/alex/ab/richos/engine",
+   "adapterInstalled": "0.70.0",
+   "stopResult": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 24,
+     "outputTokens": 1966,
+     "cachedReadTokens": 451692,
+     "cachedWriteTokens": 22658,
+     "totalTokens": 476340
+    }
+   },
+   "sessionUpdateKindCounts": {
+    "available_commands_update": 2,
+    "usage_update": 26,
+    "agent_message_chunk": 8,
+    "tool_call": 4,
+    "tool_call_update": 16,
+    "plan": 15,
+    "session_info_update": 1
+   },
+   "clientDirectedRequestCounts": {
+    "session/request_permission": 2
+   },
+   "machineryRecordsThisTurn": 66,
+   "toolCallsThisTurn": 4
+  },
+  "run4": {
+   "prompt": "Think as hard and as long as you can about this before answering; reason it through step by step.\nA voice pipeline uses 313 frames of 256 samples each at 16000 Hz for its barge-in debounce. Derive the debounce window in seconds from first principles, then explain in three sentences why a millisecond wall-clock timestamp is not a safe ordering key for events streamed inside that window, and what is. Do not use any tools.",
+   "cwd": "/Users/alex/ab/richos/engine",
+   "adapterInstalled": "0.70.0",
+   "stopResult": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 2,
+     "outputTokens": 2433,
+     "cachedReadTokens": 19229,
+     "cachedWriteTokens": 11147,
+     "totalTokens": 32811
+    }
+   },
+   "sessionUpdateKindCounts": {
+    "available_commands_update": 2,
+    "usage_update": 4,
+    "agent_message_chunk": 17,
+    "session_info_update": 1
+   },
+   "clientDirectedRequestCounts": {},
+   "machineryRecordsThisTurn": 7,
+   "toolCallsThisTurn": 0
+  },
+  "run5": {
+   "prompt": "Run exactly this shell command, once, with your Bash tool, and then tell me in one sentence what happened. Do not try to fix it, do not retry, do not run anything else:\ncat /Users/alex/no-such-file-richos-probe-xyz.txt",
+   "cwd": "/Users/alex/ab/richos/engine",
+   "adapterInstalled": "0.70.0",
+   "stopResult": {
+    "stopReason": "end_turn",
+    "usage": {
+     "inputTokens": 4,
+     "outputTokens": 173,
+     "cachedReadTokens": 49548,
+     "cachedWriteTokens": 11256,
+     "totalTokens": 60981
+    }
+   },
+   "sessionUpdateKindCounts": {
+    "available_commands_update": 2,
+    "usage_update": 6,
+    "agent_message_chunk": 4,
+    "tool_call": 1,
+    "tool_call_update": 3,
+    "session_info_update": 1
+   },
+   "clientDirectedRequestCounts": {
+    "session/request_permission": 1
+   },
+   "machineryRecordsThisTurn": 14,
+   "toolCallsThisTurn": 1
+  }
+ },
+ "observedSessionUpdateKinds": {
+  "available_commands_update": {
+   "totalObserved": 10,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run4",
+    "run5"
+   ],
+   "phases": {
+    "session_new": 5,
+    "prompt": 5
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 5,
+     "phase": "session_new",
+     "update": {
+      "__truncatedForArtifact": true,
+      "__bytes": 25070,
+      "__head": "{\"sessionUpdate\": \"available_commands_update\", \"availableCommands\": [{\"name\": \"deep-research\", \"description\": \"Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. (dynamic workflow)\", \"input\": null}, {\"name\": \"richos-engine:android-emulator-qa\", \"description\": \"(RichOS Engine) Use when validating Android feature flows in an emulator with adb-driven launch, input, UI-tree inspection, screenshots, and logcat capture.\", \"input\": null}, {\"name\": \"richos-engine:android-native-dev\", \"description\": \"(RichOS Engine) Build and maintain a native Android app in Kotlin and Jetpack Compose. Use this when working on Android app architecture, Gradle setup, Compose UI, Health Connect integration, WorkManager sync, secure storage, FCM, Play Store readiness, or Android-specific debugging and release work.\", \"input\": null}, {\"name\": \"richos-engine:appium-vision-mobile-testing\", \"description\": \"(RichOS Engine) Run native mobile app tests with a strict human-like policy: the agent may only observe screenshots or recordings and may only act through taps, swipes, typing and device controls via Appium. Use this for the target app's iOS and Android black-box testing, especially when validating real user flows without source, locator or accessibility-tree shortcuts.\", \"input\": null}, {\"name\": \"richos-engine:bootstrap-interview\", \"descripti"
+     }
+    },
+    {
+     "run": "run1",
+     "n": 7,
+     "phase": "prompt",
+     "update": {
+      "__truncatedForArtifact": true,
+      "__bytes": 23829,
+      "__head": "{\"sessionUpdate\": \"available_commands_update\", \"availableCommands\": [{\"name\": \"deep-research\", \"description\": \"Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. (dynamic workflow)\", \"input\": null}, {\"name\": \"richos-engine:android-emulator-qa\", \"description\": \"(RichOS Engine) Use when validating Android feature flows in an emulator with adb-driven launch, input, UI-tree inspection, screenshots, and logcat capture.\", \"input\": null}, {\"name\": \"richos-engine:android-native-dev\", \"description\": \"(RichOS Engine) Build and maintain a native Android app in Kotlin and Jetpack Compose. Use this when working on Android app architecture, Gradle setup, Compose UI, Health Connect integration, WorkManager sync, secure storage, FCM, Play Store readiness, or Android-specific debugging and release work.\", \"input\": null}, {\"name\": \"richos-engine:appium-vision-mobile-testing\", \"description\": \"(RichOS Engine) Run native mobile app tests with a strict human-like policy: the agent may only observe screenshots or recordings and may only act through taps, swipes, typing and device controls via Appium. Use this for the target app's iOS and Android black-box testing, especially when validating real user flows without source, locator or accessibility-tree shortcuts.\", \"input\": null}, {\"name\": \"richos-engine:bootstrap-interview\", \"descripti"
+     }
+    },
+    {
+     "run": "run2",
+     "n": 5,
+     "phase": "session_new",
+     "update": {
+      "__truncatedForArtifact": true,
+      "__bytes": 25070,
+      "__head": "{\"sessionUpdate\": \"available_commands_update\", \"availableCommands\": [{\"name\": \"deep-research\", \"description\": \"Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. (dynamic workflow)\", \"input\": null}, {\"name\": \"richos-engine:android-emulator-qa\", \"description\": \"(RichOS Engine) Use when validating Android feature flows in an emulator with adb-driven launch, input, UI-tree inspection, screenshots, and logcat capture.\", \"input\": null}, {\"name\": \"richos-engine:android-native-dev\", \"description\": \"(RichOS Engine) Build and maintain a native Android app in Kotlin and Jetpack Compose. Use this when working on Android app architecture, Gradle setup, Compose UI, Health Connect integration, WorkManager sync, secure storage, FCM, Play Store readiness, or Android-specific debugging and release work.\", \"input\": null}, {\"name\": \"richos-engine:appium-vision-mobile-testing\", \"description\": \"(RichOS Engine) Run native mobile app tests with a strict human-like policy: the agent may only observe screenshots or recordings and may only act through taps, swipes, typing and device controls via Appium. Use this for the target app's iOS and Android black-box testing, especially when validating real user flows without source, locator or accessibility-tree shortcuts.\", \"input\": null}, {\"name\": \"richos-engine:bootstrap-interview\", \"descripti"
+     }
+    }
+   ]
+  },
+  "usage_update": {
+   "totalObserved": 50,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run4",
+    "run5"
+   ],
+   "phases": {
+    "prompt": 50
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 8,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "usage_update",
+      "used": 30477,
+      "size": 1000000
+     }
+    },
+    {
+     "run": "run1",
+     "n": 29,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "usage_update",
+      "used": 30873,
+      "size": 1000000
+     }
+    },
+    {
+     "run": "run1",
+     "n": 30,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "usage_update",
+      "used": 30873,
+      "size": 1000000,
+      "_meta": {
+       "_claude/rateLimit": {
+        "status": "allowed",
+        "resetsAt": 1787958600,
+        "rateLimitType": "five_hour",
+        "overageStatus": "rejected",
+        "overageDisabledReason": "org_level_disabled",
+        "isUsingOverage": false
+       }
+      }
+     }
+    }
+   ]
+  },
+  "agent_message_chunk": {
+   "totalObserved": 52,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run4",
+    "run5"
+   ],
+   "phases": {
+    "prompt": 52
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 9,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "agent_message_chunk",
+      "content": {
+       "type": "text",
+       "text": "I"
+      },
+      "messageId": "msg_011CeVvBE1YhDn6FkMFtbDmJ"
+     }
+    },
+    {
+     "run": "run1",
+     "n": 10,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "agent_message_chunk",
+      "content": {
+       "type": "text",
+       "text": "'ll work through all five steps now."
+      },
+      "messageId": "msg_011CeVvBE1YhDn6FkMFtbDmJ"
+     }
+    },
+    {
+     "run": "run1",
+     "n": 47,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "agent_message_chunk",
+      "content": {
+       "type": "text",
+       "text": "All"
+      },
+      "messageId": "msg_011CeVvBqy1az5N5eYsCcC41"
+     }
+    }
+   ]
+  },
+  "tool_call": {
+   "totalObserved": 12,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run5"
+   ],
+   "phases": {
+    "prompt": 12
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 11,
+     "phase": "prompt",
+     "update": {
+      "_meta": {
+       "claudeCode": {
+        "toolName": "Bash"
+       }
+      },
+      "toolCallId": "toolu_01SRKRbRBtCmsj7MaahdFiTP",
+      "sessionUpdate": "tool_call",
+      "rawInput": {},
+      "status": "pending",
+      "title": "Terminal",
+      "kind": "execute",
+      "content": []
+     }
+    },
+    {
+     "run": "run1",
+     "n": 14,
+     "phase": "prompt",
+     "update": {
+      "_meta": {
+       "claudeCode": {
+        "toolName": "Bash"
+       }
+      },
+      "toolCallId": "toolu_01QWprTpuMzDUzBhaPCHM9Zm",
+      "sessionUpdate": "tool_call",
+      "rawInput": {},
+      "status": "pending",
+      "title": "Terminal",
+      "kind": "execute",
+      "content": []
+     }
+    },
+    {
+     "run": "run1",
+     "n": 19,
+     "phase": "prompt",
+     "update": {
+      "_meta": {
+       "claudeCode": {
+        "toolName": "Bash"
+       }
+      },
+      "toolCallId": "toolu_01TiBQt6X8cw47MkhqwTUjV9",
+      "sessionUpdate": "tool_call",
+      "rawInput": {},
+      "status": "pending",
+      "title": "Terminal",
+      "kind": "execute",
+      "content": []
+     }
+    }
+   ]
+  },
+  "tool_call_update": {
+   "totalObserved": 46,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run5"
+   ],
+   "phases": {
+    "prompt": 46
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 12,
+     "phase": "prompt",
+     "update": {
+      "_meta": {
+       "claudeCode": {
+        "toolName": "Bash"
+       }
+      },
+      "toolCallId": "toolu_01SRKRbRBtCmsj7MaahdFiTP",
+      "sessionUpdate": "tool_call_update",
+      "rawInput": {
+       "command": "cat /Users/alex/ab/richos/engine/VERSION"
+      },
+      "title": "cat /Users/alex/ab/richos/engine/VERSION",
+      "kind": "execute"
+     }
+    },
+    {
+     "run": "run1",
+     "n": 13,
+     "phase": "prompt",
+     "update": {
+      "_meta": {
+       "claudeCode": {
+        "toolName": "Bash",
+        "title": "Read VERSION file"
+       }
+      },
+      "toolCallId": "toolu_01SRKRbRBtCmsj7MaahdFiTP",
+      "sessionUpdate": "tool_call_update",
+      "rawInput": {
+       "command": "cat /Users/alex/ab/richos/engine/VERSION",
+       "description": "Read VERSION file"
+      },
+      "title": "cat /Users/alex/ab/richos/engine/VERSION",
+      "kind": "execute",
+      "content": [
+       {
+        "type": "content",
+        "content": {
+         "type": "text",
+         "text": "Read VERSION file"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "run": "run1",
+     "n": 15,
+     "phase": "prompt",
+     "update": {
+      "_meta": {
+       "claudeCode": {
+        "toolResponse": {
+         "stdout": "1.0.0",
+         "stderr": "",
+         "interrupted": false,
+         "isImage": false,
+         "noOutputExpected": false
+        },
+        "toolName": "Bash"
+       }
+      },
+      "toolCallId": "toolu_01SRKRbRBtCmsj7MaahdFiTP",
+      "sessionUpdate": "tool_call_update"
+     }
+    }
+   ]
+  },
+  "session_info_update": {
+   "totalObserved": 5,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run4",
+    "run5"
+   ],
+   "phases": {
+    "post_stop": 5
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 57,
+     "phase": "post_stop",
+     "update": {
+      "sessionUpdate": "session_info_update",
+      "title": "Do all five of the following yourself, with your tools, right now. Do not ask me anything first, do not delegate, and do not spawn subagents. Track the five steps on your todo list as you go. 1. Read…",
+      "updatedAt": "2026-08-28T22:15:04.220Z"
+     }
+    },
+    {
+     "run": "run2",
+     "n": 40,
+     "phase": "post_stop",
+     "update": {
+      "sessionUpdate": "session_info_update",
+      "title": "Think hard about this before you answer, and show your reasoning process. Do these three things yourself, with your tools, right now, without asking me anything. 1. FIRST use your TodoWrite tool to cr…",
+      "updatedAt": "2026-08-28T22:16:50.700Z"
+     }
+    },
+    {
+     "run": "run3",
+     "n": 82,
+     "phase": "post_stop",
+     "update": {
+      "sessionUpdate": "session_info_update",
+      "title": "Before you do anything else, call the TodoWrite tool with a todos array containing exactly these three items, all with status pending: \"count lines in util.rs\", \"count lines in stream.rs\", \"report bot…",
+      "updatedAt": "2026-08-28T22:18:43.833Z"
+     }
+    }
+   ]
+  },
+  "plan": {
+   "totalObserved": 15,
+   "runsObservedIn": [
+    "run3"
+   ],
+   "phases": {
+    "prompt": 15
+   },
+   "samples": [
+    {
+     "run": "run3",
+     "n": 29,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+       {
+        "content": "count lines in util.rs",
+        "status": "pending",
+        "priority": "medium"
+       }
+      ]
+     }
+    },
+    {
+     "run": "run3",
+     "n": 30,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+       {
+        "content": "count lines in util.rs",
+        "status": "pending",
+        "priority": "medium"
+       }
+      ]
+     }
+    },
+    {
+     "run": "run3",
+     "n": 31,
+     "phase": "prompt",
+     "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+       {
+        "content": "count lines in util.rs",
+        "status": "pending",
+        "priority": "medium"
+       },
+       {
+        "content": "count lines in stream.rs",
+        "status": "pending",
+        "priority": "medium"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ },
+ "observedClientDirectedRequestMethods": {
+  "session/request_permission": {
+   "totalObserved": 7,
+   "runsObservedIn": [
+    "run1",
+    "run2",
+    "run3",
+    "run5"
+   ],
+   "phases": {
+    "prompt": 7
+   },
+   "samples": [
+    {
+     "run": "run1",
+     "n": 20,
+     "phase": "prompt",
+     "params": {
+      "__truncatedForArtifact": true,
+      "__bytes": 1496,
+      "__head": "{\"options\": [{\"kind\": \"reject_once\", \"name\": \"Deny\", \"optionId\": \"reject\"}, {\"kind\": \"allow_once\", \"name\": \"Allow Once\", \"optionId\": \"allow\"}, {\"kind\": \"allow_always\", \"name\": \"Always Allow\", \"optionId\": \"allow_always\", \"_meta\": {\"permission\": {\"version\": 1, \"changes\": [{\"type\": \"policy_rule\", \"operation\": \"add\", \"ruleBehavior\": \"allow\", \"description\": \"Allow Bash calls matching grep -rn \\\"sessionUpdate\\\" /Users/alex/ab/richos/app | wc -l\", \"lifetime\": {\"scope\": \"persistent\", \"storage\": \"project_local\"}, \"targets\": [{\"type\": \"tool\", \"toolName\": \"Bash\", \"matcher\": {\"type\": \"provider_rule\", \"provider\": \"claudeCode\", \"value\": \"grep -rn \\\"sessionUpdate\\\" /Users/alex/ab/richos/app | wc -l\"}}]}, {\"type\": \"policy_rule\", \"operation\": \"add\", \"ruleBehavior\": \"allow\", \"description\": \"Allow Read calls matching //Users/alex/ab/richos/app/**\", \"lifetime\": {\"scope\": \"session\"}, \"targets\": [{\"type\": \"tool\", \"toolName\": \"Read\", \"matcher\": {\"type\": \"provider_rule\", \"provider\": \"claudeCode\", \"value\": \"//Users/alex/ab/richos/app/**\"}}]}]}}}], \"sessionId\": \"55c79b81-ace3-4b07-a5f3-406853ac1a36\", \"toolCall\": {\"toolCallId\": \"toolu_01QWprTpuMzDUzBhaPCHM9Zm\", \"rawInput\": {\"command\": \"grep -rn \\\"sessionUpdate\\\" /Users/alex/ab/richos/app | wc -l\", \"description\": \"Count sessionUpdate matches in app\"}, \"title\": \"grep -rn \\\"sessionUpdate\\\" /Users/alex/ab/richos/app | wc -l\", \"kind\": \"execute\", \"content\": [{"
+     }
+    },
+    {
+     "run": "run1",
+     "n": 33,
+     "phase": "prompt",
+     "params": {
+      "options": [
+       {
+        "kind": "reject_once",
+        "name": "Deny",
+        "optionId": "reject"
+       },
+       {
+        "kind": "allow_once",
+        "name": "Allow Once",
+        "optionId": "allow"
+       },
+       {
+        "kind": "allow_always",
+        "name": "Always Allow",
+        "optionId": "allow_always",
+        "_meta": {
+         "permission": {
+          "version": 1,
+          "changes": [
+           {
+            "type": "permission_mode",
+            "operation": "set",
+            "provider": "claudeCode",
+            "mode": "acceptEdits",
+            "description": "Set Claude Code permission mode to acceptEdits",
+            "lifetime": {
+             "scope": "session"
+            }
+           },
+           {
+            "type": "policy_rule",
+            "operation": "add",
+            "ruleBehavior": "allow",
+            "description": "Allow filesystem access under /tmp, /private/tmp",
+            "lifetime": {
+             "scope": "session"
+            },
+            "targets": [
+             {
+              "type": "filesystem",
+              "matcher": {
+               "type": "directory",
+               "path": "/tmp"
+              }
+             },
+             {
+              "type": "filesystem",
+              "matcher": {
+               "type": "directory",
+               "path": "/private/tmp"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        }
+       }
+      ],
+      "sessionId": "55c79b81-ace3-4b07-a5f3-406853ac1a36",
+      "toolCall": {
+       "toolCallId": "toolu_01XZ3WuAuzvcvsPiPdNu38DV",
+       "rawInput": {
+        "file_path": "/tmp/richos-acp-probe-write-target.txt",
+        "content": "probe-write-ok\n"
+       },
+       "title": "Write /tmp/richos-acp-probe-write-target.txt",
+       "kind": "edit",
+       "content": [
+        {
+         "type": "diff",
+         "path": "/tmp/richos-acp-probe-write-target.txt",
+         "oldText": null,
+         "newText": "probe-write-ok\n"
+        }
+       ],
+       "locations": [
+        {
+         "path": "/tmp/richos-acp-probe-write-target.txt"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ },
+ "tableKindsNotObserved": [
+  "agent_thought_chunk",
+  "current_mode_update",
+  "config_option_update",
+  "user_message_chunk"
+ ],
+ "tableMethodsNotObserved": [
+  "fs/read_text_file",
+  "fs/write_text_file"
+ ],
+ "observedKindsNotInTable": [],
+ "observedMethodsNotInTable": []
+}

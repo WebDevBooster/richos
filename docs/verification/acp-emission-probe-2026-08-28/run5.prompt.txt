@@ -1,0 +1,2 @@
+Run exactly this shell command, once, with your Bash tool, and then tell me in one sentence what happened. Do not try to fix it, do not retry, do not run anything else:
+cat /Users/alex/no-such-file-richos-probe-xyz.txt

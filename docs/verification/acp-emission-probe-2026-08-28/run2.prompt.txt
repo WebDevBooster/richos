@@ -1,0 +1,5 @@
+Think hard about this before you answer, and show your reasoning process.
+Do these three things yourself, with your tools, right now, without asking me anything.
+1. FIRST use your TodoWrite tool to create a todo list with these three items, then keep it updated as you go.
+2. Use your Read tool (NOT bash, NOT cat) to read the file /Users/alex/ab/richos/app/crates/richos-core/src/util.rs and tell me how many public functions it defines.
+3. Think carefully and tell me, in two sentences, whether a millisecond timestamp is a safe ordering key for streamed events.

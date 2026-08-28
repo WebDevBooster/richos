@@ -33,6 +33,10 @@ app/
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
+    src/machinery.rs         the SECOND event family: every non-text ACP update, routed not
+                              dropped, normalized + merged by toolCallId (rich://machinery)
+    src/journal.rs           the machinery JOURNAL — separate store, per-thread, day-sharded,
+                              Tier A never evicted / Tier B a rolling raw window
     src/spine.rs             queue-not-interrupt + turn-boundary rotation + crash recovery +
                               the proactive-attention seam
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
@@ -44,6 +48,11 @@ app/
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
                               stays out of every priming prompt)
+    tests/machinery_tests.rs 14 machinery routing/retention tests, driven by ACP wire
+                              shapes actually measured against the adapter
+    examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
+                              end to end against the real adapter (the run is kept at
+                              docs/verification/machinery-roundtrip-2026-08-28.txt)
   crates/richos-voice/       VOICE MODE — mic -> whisper -> the spine -> TTS -> speakers
     src/vad.rs               RMS VAD + THE FRAME MATH (16000 Hz, 256-sample frames = 16.000 ms)
     src/bargein.rs           313-frame (5.008 s) debounce + the EchoGate AEC seam (v1: none)
@@ -71,11 +80,39 @@ app/
 dependency tree never gates `cargo test -p richos-core`. richos-core is a path
 dependency, so the shell always builds against the same spine.
 
+## Machinery routing (techy mode, Phase 1 — routing + retention only)
+
+Every non-text ACP update is now **routed**, not dropped, into a second event family
+(`rich://machinery`) and retained in a separate per-thread journal at
+`<app-data>/machinery/<thread_id>/<YYYY-MM-DD>.jsonl`. Contract:
+`docs/plans/richos-techy-mode-2026-08-26.md`. UI contract: `app/STREAMING.md`.
+
+**Retention is unconditional and has no setting** — that is what makes it possible to turn
+the technical view on for a conversation that already happened.
+
+Three limits, stated rather than discovered later:
+
+1. **Retroactivity begins at the routing commit.** A thread that ran before it has no
+   machinery at all, and the honest state is *"nothing was recorded for this
+   conversation."* Nothing earlier is recoverable, ever.
+2. **`agent_thought_chunk` produces nothing today.** Measured across five probe runs of
+   `claude-agent-acp` 0.70.0, including one built solely to elicit it: zero. The adapter
+   guards the update on non-empty thinking text, and recent models omit it
+   (`docs/verification/acp-emission-probe-2026-08-28.md` §4.1). The route exists so there
+   is no hole the day that changes; there is no thought data to render right now.
+3. **Between-turn updates are still dropped.** One `available_commands_update` at session
+   start and one `session_info_update` after each turn ends reach no sink, because the
+   client only delivers updates while a prompt is in flight. §1.5 designs the fix; it is
+   Phase 2.
+
+Not built here, deliberately: the per-thread toggle, `techy_default`, any renderer, and any
+control whatsoever. Techy mode is a window, not a cockpit.
+
 ## Build & test
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 52/52 green
+cargo test -p richos-core                       # 97/97 green
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 121/121 green
@@ -89,6 +126,12 @@ cargo build                                     # -> target/debug/richos-tauri (
 #    installs once:  (cd acp-adapter && npm i @agentclientprotocol/claude-agent-acp)
 RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
   cargo run -p richos-core --example acp_roundtrip -- "$PWD/../engine" "who are you?"
+
+# 3b. The LIVE machinery proof — the same chain, but showing that tool calls are ROUTED
+#     and RETAINED: the calm view, the interleaved (turn, seq) stream, the merged rows,
+#     and the journal files on disk. Leaves the journal in place and prints its path.
+RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
+  cargo run -p richos-core --example machinery_roundtrip -- "$PWD/../engine"
 
 # 4. The WHOLE voice loop (needs the adapter above; a WAV stands in for the mic on a
 #    machine with no input device):
@@ -196,6 +239,21 @@ worker-status drill-down are also wired end-to-end (Tauri commands → `app/ui/m
 Full detail + the honest gaps (loro Tier-C compiler still a seam contract, not built; no
 attention-seam TRIGGER yet — only the persistence + UI-event seam) are in
 the spine-seams + rotation brief, 2026-08-24.
+
+**Machinery routing + retention, landed (2026-08-28):** every non-text ACP update is now
+routed into a second event family (`rich://machinery`) and retained in a separate
+per-thread, day-sharded journal, on ONE per-turn `seq` shared with the assistant text so
+"he said X, then ran Y, then said Z" is reconstructible. Proven headless
+(`tests/machinery_tests.rs`, 14 tests, driven by wire shapes measured against the real
+adapter) and live (`examples/machinery_roundtrip.rs` — one real tool-using turn, 24 journal
+lines projecting to 9 rows, positions 0..=34 used exactly once across both families; the run
+is kept at `docs/verification/machinery-roundtrip-2026-08-28.txt`). The emission set the
+routing is built against was measured first, not assumed:
+`docs/verification/acp-emission-probe-2026-08-28.md`. Honest gaps: **retroactivity starts
+here and nothing earlier is recoverable**; `agent_thought_chunk` currently produces no data
+at all on `claude-agent-acp` 0.70.0; between-turn updates are still unrouted (Phase 2); and
+there is no toggle, no renderer and no controls — that is the rest of Phase 1 and it is
+deliberately not in this work.
 
 **Voice mode (2026-08-24):** the `◉` toggle is real. Mic -> VAD -> local whisper.cpp
 (`small.en`) -> the SAME `Spine::submit_prompt` typed text uses (`Source::Jam`, one thread,
