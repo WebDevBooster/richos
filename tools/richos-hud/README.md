@@ -1,7 +1,9 @@
-# open-wispr dictation patches — reproducible
+# RichOS dictation HUD — reproducible
 
-Our two local patches on top of **open-wispr** (`human37/open-wispr` MIT, built
-from audited source at commit `7ab4e62e` = v0.43.0):
+The RichOS recording HUD and two-model dictation, delivered as patches applied to
+**open-wispr** (`human37/open-wispr` MIT, built from audited source at commit
+`7ab4e62e` = v0.43.0). The HUD and the two-model selector are ours; open-wispr is
+the application they patch, and it is deliberately not vendored here.
 
 1. **HUD** — a minimal, calm recording-state HUD. It makes silent dictation
    failures visible and gives the "it hears me" signal our menu-bar icon lacks.
