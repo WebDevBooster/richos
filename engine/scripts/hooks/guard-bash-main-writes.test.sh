@@ -36,9 +36,19 @@ mkdir -p "$TMPROOT/scripts/hooks" "$TMPROOT/scripts/lib"
 cp "$SRC_HOOK" "$TMPROOT/scripts/hooks/guard-bash-main-writes.sh"
 chmod +x "$TMPROOT/scripts/hooks/guard-bash-main-writes.sh"
 cp "$SRC_DIR/../lib/resolve-main-checkout.sh" "$TMPROOT/scripts/lib/" 2>/dev/null || true
+# The hook's bootstrap resolves its library relative to its OWN location, so a
+# sandbox hosting a copy of the hook must host the library too — otherwise the
+# hook correctly refuses to start ("BROKEN INSTALL") and every case below would
+# fail for that reason rather than the one under test.
+cp "$SRC_DIR/../lib/resolve-roots.sh" "$TMPROOT/scripts/lib/"
 printf 'PROTECTED_PATHS="%s"\n' "$PROTECTED_PATHS" > "$TMPROOT/orchestration.config"
 HOOK="$TMPROOT/scripts/hooks/guard-bash-main-writes.sh"
 ROOT="$TMPROOT"
+# Declare the synthetic checkout as the governed root. Without this the hook
+# would resolve the LAUNCHING session's repository, which is not what any case
+# below is about.
+RICHOS_ENTITY_ROOT="$TMPROOT"
+export RICHOS_ENTITY_ROOT
 WT="$ROOT/.claude/worktrees/agent-x"
 
 set -- $PROTECTED_PATHS
@@ -124,8 +134,9 @@ mkdir -p "$EMPTY_ROOT/scripts/hooks" "$EMPTY_ROOT/scripts/lib"
 cp "$SRC_HOOK" "$EMPTY_ROOT/scripts/hooks/guard-bash-main-writes.sh"
 chmod +x "$EMPTY_ROOT/scripts/hooks/guard-bash-main-writes.sh"
 cp "$SRC_DIR/../lib/resolve-main-checkout.sh" "$EMPTY_ROOT/scripts/lib/" 2>/dev/null || true
+cp "$SRC_DIR/../lib/resolve-roots.sh" "$EMPTY_ROOT/scripts/lib/"
 printf 'PROTECTED_PATHS=""\n' > "$EMPTY_ROOT/orchestration.config"
-EMPTY_OUT="$(printf '{"tool_name":"Bash","tool_input":{"command":"cd %s && mkdir src/foo"}}' "$EMPTY_ROOT" | "$EMPTY_ROOT/scripts/hooks/guard-bash-main-writes.sh" 2>&1)"
+EMPTY_OUT="$(printf '{"tool_name":"Bash","tool_input":{"command":"cd %s && mkdir src/foo"}}' "$EMPTY_ROOT" | RICHOS_ENTITY_ROOT="$EMPTY_ROOT" "$EMPTY_ROOT/scripts/hooks/guard-bash-main-writes.sh" 2>&1)"
 EMPTY_RC=$?
 if [ "$EMPTY_RC" -eq 0 ]; then
     PASS=$((PASS + 1)); printf '  PASS  empty PROTECTED_PATHS -> guard inactive (exit 0)\n'

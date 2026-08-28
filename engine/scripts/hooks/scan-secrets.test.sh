@@ -20,6 +20,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 HOOK="$SCRIPT_DIR/scan-secrets.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -161,11 +177,15 @@ ALLOW_CONFIG_ROOT="$(mktemp -d -t scan-secrets-allowlist.XXXXXX)"
 mkdir -p "$ALLOW_CONFIG_ROOT/scripts/hooks"
 cp "$HOOK" "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh"
 chmod +x "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh"
+mkdir -p "$ALLOW_CONFIG_ROOT/scripts/lib"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$ALLOW_CONFIG_ROOT/scripts/lib/"
 cat >"$ALLOW_CONFIG_ROOT/orchestration.config" <<'CFG'
 SECRET_SCAN_ALLOWLIST="AKIAABCDEFGHIJKLMNOP"
 CFG
 ALLOWLIST_JSON="$(json_write Write content 'AWS_KEY=AKIAABCDEFGHIJKLMNOP')"
-printf '%s' "$ALLOWLIST_JSON" | "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh" >/dev/null 2>&1
+# This case is specifically about the config being read from the ROOT UNDER
+# TEST, so it declares that root rather than inheriting the file-level one.
+printf '%s' "$ALLOWLIST_JSON" | RICHOS_ENTITY_ROOT="$ALLOW_CONFIG_ROOT" "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh" >/dev/null 2>&1
 ALLOWLIST_RC=$?
 if [ "$ALLOWLIST_RC" -eq 0 ]; then
     PASS=$((PASS + 1)); printf '  PASS  orchestration.config SECRET_SCAN_ALLOWLIST suppresses a real match\n'

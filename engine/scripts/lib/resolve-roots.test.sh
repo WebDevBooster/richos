@@ -80,12 +80,17 @@ make_engine_in() {
 #   rc <TAB> root <TAB> status <TAB> source
 probe() {
     local lib="$1" payload="${2:-}"
+    # cd to the (marker-free, non-git) sandbox first. $PWD is the last-resort
+    # candidate, and this suite is usually run FROM the engine directory — which
+    # is itself an adopted root. Left alone, every "not adopted anywhere" case
+    # would quietly resolve the engine via $PWD and pass for the wrong reason.
     bash -c '
         set +u
+        cd "$3" || exit 98
         . "$1" || exit 99
         resolve_entity_root "$2"; rc=$?
         printf "%s\t%s\t%s\t%s\n" "$rc" "$RICHOS_ENTITY_ROOT_RESOLVED" "$RICHOS_ROOT_STATUS" "$RICHOS_ROOT_SOURCE"
-    ' _ "$lib" "$payload"
+    ' _ "$lib" "$payload" "$SANDBOX"
 }
 
 f_rc()     { printf '%s' "$1" | cut -f1; }
@@ -165,10 +170,10 @@ fi
 # 2c — payload cwd is used when the host does not export the project dir. The
 # subagent case depends on this, so it is not hypothetical.
 R="$(env -u CLAUDE_PROJECT_DIR bash -c '
-    set +u; . "$1"
+    set +u; cd "$3"; . "$1"
     resolve_entity_root "$2"; rc=$?
     printf "%s\t%s\t%s\t%s\n" "$rc" "$RICHOS_ENTITY_ROOT_RESOLVED" "$RICHOS_ROOT_STATUS" "$RICHOS_ROOT_SOURCE"
-' _ "$ELIB" '{"cwd":"'"$ALT"'"}')"
+' _ "$ELIB" '{"cwd":"'"$ALT"'"}' "$SANDBOX")"
 if [ "$(f_root "$R")" = "$ALT" ] && [ "$(f_source "$R")" = "payload-cwd" ]; then
     ok "2c POSITIVE  payload cwd is used when CLAUDE_PROJECT_DIR is absent"
 else
@@ -207,6 +212,41 @@ else
 fi
 
 # ===========================================================================
+# 3bis. NESTING. A candidate that is a SUBDIRECTORY of a repository stands for
+# ITSELF; a candidate that is the TOP LEVEL of a working tree normalises.
+#
+# Getting this backwards is not a theoretical risk — the first version of this
+# resolver normalised unconditionally, which turned `<repo>/engine` into
+# `<repo>`, threw the nesting away, and made every hook refuse to start with
+# "no orchestration.config at its main checkout". The two shapes look identical
+# ("a path inside a git repo") and behave oppositely, so both are pinned here.
+# ===========================================================================
+R="$(CLAUDE_PROJECT_DIR="$ENGINE" probe "$ELIB" '')"
+if [ "$(f_root "$R")" = "$ENGINE" ]; then
+    ok "3c POSITIVE  a nested adopted directory resolves to ITSELF, not its enclosing repo"
+else
+    bad "3c nested dir collapsed (got $(f_root "$R"), wanted $ENGINE)"
+fi
+# 3d NEGATIVE — specifically not the enclosing repo. Named, because that is the
+# exact wrong answer, and "not equal to the engine" would also be satisfied by
+# garbage.
+if [ "$(f_root "$R")" != "$HOSTREPO" ]; then
+    ok "3d NEGATIVE  the nested case does not collapse to the enclosing repo"
+else
+    bad "3d collapsed to the enclosing repo ($HOSTREPO)"
+fi
+# 3e — the other half: a SUBDIRECTORY of an adopted repo that carries no marker
+# of its own resolves UP to the repo root. Without this, a session opened in a
+# subdirectory would report not-adopted and stand down in a governed repo.
+mkdir -p "$SESSREPO/src/deep/nested"
+R="$(CLAUDE_PROJECT_DIR="$SESSREPO/src/deep/nested" probe "$ELIB" '')"
+if [ "$(f_root "$R")" = "$SESSREPO" ]; then
+    ok "3e POSITIVE  an unmarked subdirectory resolves UP to its adopted repo root"
+else
+    bad "3e subdir did not resolve up (got $(f_root "$R"))"
+fi
+
+# ===========================================================================
 # 4. NOT-ADOPTED — the engine is loaded in a repository that never adopted it.
 # Must stand down (rc 1), and must NOT be reported as governed. This is the
 # case that keeps the machine usable: the plugin is enabled at USER scope, so
@@ -238,8 +278,8 @@ else
 fi
 # 5b — and the banner is loud and greppable.
 BANNER="$(RICHOS_ENTITY_ROOT="$PLAIN" bash -c '
-    set +u; . "$1"; resolve_entity_root ""; root_failure_banner "unit-test"
-' _ "$ELIB")"
+    set +u; cd "$2"; . "$1"; resolve_entity_root ""; root_failure_banner "unit-test"
+' _ "$ELIB" "$SANDBOX")"
 if printf '%s' "$BANNER" | grep -q 'ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE' \
    && printf '%s' "$BANNER" | grep -q 'status : broken' \
    && printf '%s' "$BANNER" | grep -q 'candidates examined'; then
@@ -250,8 +290,8 @@ fi
 # 5c NEGATIVE — a governed resolution emits no banner text at all, so the
 # banner cannot be mistaken for routine noise.
 QUIET="$(CLAUDE_PROJECT_DIR="$SESSREPO" bash -c '
-    set +u; . "$1"; resolve_entity_root "" 2>/dev/null; printf "%s" "${RICHOS_ROOT_REASON:-}"
-' _ "$ELIB")"
+    set +u; cd "$2"; . "$1"; resolve_entity_root "" 2>/dev/null; printf "%s" "${RICHOS_ROOT_REASON:-}"
+' _ "$ELIB" "$SANDBOX")"
 if [ -z "$QUIET" ]; then
     ok "5c NEGATIVE  a governed resolution sets no failure reason"
 else

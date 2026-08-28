@@ -71,6 +71,7 @@ ALL_HOOKS=(
     teammate-idle-handoff.sh
     task-completed-handoff.sh
     session-start-reap-worktrees.sh
+    engine-status.sh
 )
 
 # Managed scripts living OUTSIDE scripts/hooks/, relative to the repo root. The
@@ -78,6 +79,10 @@ ALL_HOOKS=(
 # install.sh mints a sidecar for it, so every sandbox must carry both.
 ALL_ROOT_SCRIPTS=(
     scripts/reap-stale-worktrees.sh
+    # The root-resolution contract is a managed, sidecar-hashed file for the
+    # same reason the reaper is: it is not a hook, and it decides something no
+    # hook can second-guess — which repository every guard is protecting.
+    scripts/lib/resolve-roots.sh
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -143,6 +148,7 @@ if base_ref:
 data["hooks"] = {
     "SessionStart": [
         {"hooks": [{"type": "command", "command": "echo hi", "timeout": 5}]},
+        {"hooks": [{"type": "command", "command": P + "/engine-status.sh", "timeout": 10}]},
         {"hooks": [{"type": "command", "command": P + "/session-start-reap-worktrees.sh", "timeout": 30}]},
         {"hooks": [{"type": "command", "command": P + "/snapshot-agent-definitions.sh", "timeout": 15}]},
     ],
@@ -197,6 +203,8 @@ make_sandbox() {
         cp "$SCRIPT_DIR/$h" "$root/scripts/hooks/"
     done
     cp "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
+    # The sandbox is its own engine root, so it identifies itself like one.
+    cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
     copy_root_scripts "$root"
     chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
     write_sandbox_config "$root"
@@ -223,8 +231,26 @@ with open(f"{root}/.claude/settings.json", "w") as f:
 PY
 }
 
-run_install_in() { "$1/scripts/hooks/install.sh" "$@" 2>&1; }
-run_probe_in()   { "$1/scripts/hooks/contract-integrity-probe.sh" 2>&1; }
+# Both helpers DECLARE the sandbox as the repository under verification.
+#
+# Before the root-resolution contract, running "$ROOT/scripts/hooks/<x>.sh"
+# implicitly meant "verify $ROOT", because the script derived its root from its
+# own location. It no longer does — deliberately — so the intent has to be
+# stated. Without it these cases verified whatever repository the harness
+# happened to be launched from, and every wired path would be compared against
+# the wrong canonical location.
+run_install_in() { RICHOS_ENTITY_ROOT="$1" "$1/scripts/hooks/install.sh" "$@" 2>&1; }
+run_probe_in() {
+    # CI_PROBE_DEBUG=1 echoes the probe's own ✗ lines to stderr. A harness that
+    # reports "expected exit=0 got=2" and nothing else forces whoever is
+    # debugging to rebuild the sandbox by hand — which is how a real finding
+    # gets written off as "the harness is fiddly".
+    if [ -n "${CI_PROBE_DEBUG:-}" ]; then
+        RICHOS_ENTITY_ROOT="$1" "$1/scripts/hooks/contract-integrity-probe.sh" 2>&1 | tee /dev/stderr
+    else
+        RICHOS_ENTITY_ROOT="$1" "$1/scripts/hooks/contract-integrity-probe.sh" 2>&1
+    fi
+}
 
 emit_case() {
     local name="$1" expected="$2" actual="$3"
@@ -607,6 +633,8 @@ make_git_main() {
         cp "$SCRIPT_DIR/$h" "$root/scripts/hooks/"
     done
     cp "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
+    # The sandbox is its own engine root, so it identifies itself like one.
+    cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
     copy_root_scripts "$root"
     chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
     write_sandbox_config "$root"
@@ -624,8 +652,11 @@ scripts/hooks/*.sha256
 scripts/*.sha256
 GI
     git -C "$root" init -q -b main
-    git -C "$root" config user.email test@example.com
-    git -C "$root" config user.name "contract-integrity test"
+    # NO local identity override. These throwaway fixtures inherit the
+    # operator's real global identity, which is what a machine-wide pre-commit
+    # identity guard requires. With a fake identity the seed commit is REFUSED,
+    # the fixture has no branch, `git worktree add` fails, and cases 19-21
+    # report exit 127 (missing path) rather than anything about the probe.
     git -C "$root" add -A
     # Force-add the canonical settings file so Layer N sees it tracked. A GLOBAL
     # gitignore convention ('**/.claude/settings.local.json') on the test
@@ -639,7 +670,7 @@ GI
 # Case 19 — probe passes from the MAIN checkout of a real git repo, and Layer N
 # emits its explicit git-tracked PASS line (positive shape).
 MAIN="$(make_git_main)"
-set +e; PROBE_OUT="$("$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$MAIN" "$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "19.git-main-checkout-passes" 0 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'N. .claude/settings.local.json is git-tracked'; then
     PASS=$((PASS+1)); printf '  PASS  19b.layer-N-tracked-pass-line-present\n'
@@ -651,7 +682,7 @@ fi
 # checkout resolves REPO_ROOT back to MAIN; the worktree has no settings.json).
 WT="$MAIN/.claude/worktrees/agent-test"
 git -C "$MAIN" worktree add -q -b wt-test "$WT" >/dev/null 2>&1
-set +e; "$WT/scripts/hooks/contract-integrity-probe.sh" >/dev/null 2>&1; rc=$?; set -e
+set +e; RICHOS_ENTITY_ROOT="$WT" "$WT/scripts/hooks/contract-integrity-probe.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "20.git-worktree-invocation-passes" 0 "$rc"
 
 # Case 21 — proof the worktree run TRULY targets MAIN's settings: planting a
@@ -659,7 +690,7 @@ emit_case "20.git-worktree-invocation-passes" 0 "$rc"
 # FAIL (exit 2, Layer M), proving it reads MAIN's files, not a worktree-local
 # copy or a stale fallback.
 build_dup_settings_json "$MAIN"
-set +e; "$WT/scripts/hooks/contract-integrity-probe.sh" >/dev/null 2>&1; rc=$?; set -e
+set +e; RICHOS_ENTITY_ROOT="$WT" "$WT/scripts/hooks/contract-integrity-probe.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "21.worktree-probe-targets-main-settings" 2 "$rc"
 
 git -C "$MAIN" worktree remove --force "$WT" >/dev/null 2>&1 || rm -rf "$WT"
@@ -689,7 +720,7 @@ printf '/.claude/settings.local.json\n' >> "$MAIN/.gitignore"
 git -C "$MAIN" add .gitignore
 git -C "$MAIN" commit -q -m "untrack + ignore settings.local.json (simulate the F2 trap)"
 set +e
-PROBE_OUT="$(GIT_CONFIG_GLOBAL="$NOIGNORE_CFG" GIT_CONFIG_SYSTEM=/dev/null "$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"
+PROBE_OUT="$(GIT_CONFIG_GLOBAL="$NOIGNORE_CFG" GIT_CONFIG_SYSTEM=/dev/null RICHOS_ENTITY_ROOT="$MAIN" "$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"
 rc=$?
 set -e
 emit_case "32.git-untracked-ignored-settings-local-fails" 2 "$rc"
@@ -707,7 +738,7 @@ MAIN="$(make_git_main)"
 git -C "$MAIN" rm --cached -q .claude/settings.local.json
 git -C "$MAIN" commit -q -m "untrack settings.local.json, no ignore rule"
 set +e
-PROBE_OUT="$(GIT_CONFIG_GLOBAL="$NOIGNORE_CFG" GIT_CONFIG_SYSTEM=/dev/null "$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"
+PROBE_OUT="$(GIT_CONFIG_GLOBAL="$NOIGNORE_CFG" GIT_CONFIG_SYSTEM=/dev/null RICHOS_ENTITY_ROOT="$MAIN" "$MAIN/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"
 rc=$?
 set -e
 emit_case "33.git-untracked-not-ignored-warns-rc-0" 0 "$rc"
@@ -762,7 +793,7 @@ rm -rf "$FAKEBIN" "$ROOT"
 ROOT="$(make_sandbox)"
 FAKEBIN="$(make_fakebin_no_python3)"
 set +e
-NOPY_OUT="$(PATH="$FAKEBIN" "$BASH_BIN" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"
+NOPY_OUT="$(PATH="$FAKEBIN" RICHOS_ENTITY_ROOT="$ROOT" "$BASH_BIN" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"
 rc=$?
 set -e
 emit_case "23.probe-no-python3-refuses" 2 "$rc"
@@ -824,7 +855,7 @@ d = json.load(open(p))
 del d['env']
 json.dump(d, open(p, 'w'), indent=2)
 "
-set +e; PROBE_OUT="$("$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "26.probe-catches-env-flag-removed-post-install" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'; then
     PASS=$((PASS+1)); printf '  PASS  26b.probe-names-the-missing-env-flag\n'
@@ -844,7 +875,7 @@ d = json.load(open(p))
 del d['worktree']
 json.dump(d, open(p, 'w'), indent=2)
 "
-set +e; PROBE_OUT="$("$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "27.probe-catches-baseref-removed-post-install" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'worktree.baseRef'; then
     PASS=$((PASS+1)); printf '  PASS  27b.probe-names-the-missing-baseref\n'
@@ -857,7 +888,7 @@ rm -rf "$ROOT"
 # PASS line for EACH of Layer I, J, K (not just an overall rc=0).
 ROOT="$(make_sandbox)"
 set +e; "$ROOT/scripts/hooks/install.sh" >/dev/null 2>&1; set -e
-set +e; PROBE_OUT="$("$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "28.both-keys-correct-probe-passes" 0 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present'; then
     PASS=$((PASS+1)); printf '  PASS  28b.layer-I-explicit-pass-line-present\n'
@@ -899,7 +930,7 @@ for entry in d["hooks"]["PreToolUse"]:
         entry["hooks"] = [h for h in entry["hooks"] if "scan-secrets" not in h.get("command", "")]
 with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
-set +e; PROBE_OUT="$("$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "29.secrets-scanner-not-wired-fails" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'K. PreToolUse[Write|Edit|MultiEdit|NotebookEdit] secrets scanner (scan-secrets.sh) NOT wired'; then
     PASS=$((PASS+1)); printf '  PASS  29b.probe-names-the-missing-secrets-scanner\n'
@@ -912,7 +943,7 @@ rm -rf "$ROOT"
 # content-hash-mismatch fails.
 ROOT="$(make_sandbox)"
 printf '\n# tampered\n' >> "$ROOT/scripts/hooks/scan-secrets.sh"
-set +e; PROBE_OUT="$("$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "30.secrets-scanner-tampered-fails" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets-scanner content hash mismatch'; then
     PASS=$((PASS+1)); printf '  PASS  30b.probe-names-the-hash-mismatch\n'
@@ -933,7 +964,7 @@ exit 0
 NOOP_SH
 chmod +x "$ROOT/scripts/hooks/scan-secrets.sh"
 "$ROOT/scripts/hooks/install.sh" >/dev/null
-set +e; PROBE_OUT="$("$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
 emit_case "31.secrets-scanner-broken-then-reinstalled-fails" 2 "$rc"
 if printf '%s' "$PROBE_OUT" | grep -qF 'K. wired secrets scanner did NOT block a known-bad secret'; then
     PASS=$((PASS+1)); printf '  PASS  31b.functional-canary-catches-broken-scanner-despite-matching-hash\n'

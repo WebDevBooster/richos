@@ -54,9 +54,14 @@
 #                                            elsewhere — probe, 2026-08-28)
 #                  3. the hook payload's `cwd`
 #                  4. $PWD
-#                each normalised to its MAIN checkout via resolve_main_checkout
-#                (so a linked worktree resolves to the shared checkout), and
-#                ACCEPTED only if it carries the adoption marker.
+#                A candidate that is the TOP LEVEL of a working tree is
+#                normalised to its MAIN checkout (so a linked worktree resolves
+#                to the shared checkout). A candidate that is a SUBDIRECTORY of
+#                a repository stands for ITSELF first — normalising it would
+#                discard the nesting, which is precisely how an engine at
+#                <repo>/engine ends up governing <repo> — and only falls back to
+#                its enclosing checkout if it carries no marker of its own.
+#                A candidate is ACCEPTED only if it carries the adoption marker.
 #
 #   ADOPTION MARKER  `orchestration.config` at the root. That file is the one
 #                thing an adopter writes to point the engine at their repo, so
@@ -245,20 +250,56 @@ resolve_entity_root() {
     local engine_root
     engine_root="$(resolve_engine_root "$_RR_LIB_DIR")"
 
-    # _rr_try <path> <source-label> — normalise, record, and accept if adopted.
+    # _rr_try <path> <source-label> — record and accept if adopted.
     # Sets RICHOS_ENTITY_ROOT_RESOLVED and returns 0 on acceptance.
+    #
+    # THE SUBTLETY, and it is not optional. "Normalise to the main checkout"
+    # is right for one shape and WRONG for another, and the two are easy to
+    # confuse because both are "a path inside a git repository":
+    #
+    #   C is the TOP LEVEL of a working tree
+    #       -> it is either the main checkout (normalises to itself) or a
+    #          LINKED WORKTREE (normalises to the shared checkout, which is
+    #          what state, the worktree registry and "the shared checkout"
+    #          all have to mean). Normalise.
+    #
+    #   C is a SUBDIRECTORY of a repository
+    #       -> e.g. the engine at <repo>/engine. Normalising walks up to
+    #          <repo> and silently DISCARDS the nesting, which is exactly how
+    #          a nested engine ends up governing its enclosing repository. So
+    #          C stands for itself first; only if C carries no marker do we
+    #          look upward, and then it is the "session cwd was a subdirectory
+    #          of the entity" case, which is a legitimate second chance rather
+    #          than a substitution.
     _rr_try() {
-        local c="$1" s="$2" n
+        local c="$1" s="$2" top abs n
         if [ ! -d "$c" ]; then
             RICHOS_ROOT_TRIED="${RICHOS_ROOT_TRIED}${c} (${s}: not a directory)"$'\t'
             return 1
         fi
-        n="$(resolve_main_checkout "$c" "$c" 2>/dev/null || printf '%s' "$c")"
-        RICHOS_ROOT_TRIED="${RICHOS_ROOT_TRIED}${n} (${s})"$'\t'
-        if [ -f "$n/$RICHOS_ADOPTION_MARKER" ]; then
-            RICHOS_ENTITY_ROOT_RESOLVED="$n"
-            RICHOS_ROOT_SOURCE="$s"
-            return 0
+        abs="$( (cd "$c" && pwd) 2>/dev/null || printf '%s' "$c" )"
+        top="$(git -C "$abs" rev-parse --show-toplevel 2>/dev/null || true)"
+        [ -n "$top" ] && top="$( (cd "$top" && pwd) 2>/dev/null || printf '%s' "$top" )"
+
+        if [ -n "$top" ] && [ "$top" = "$abs" ]; then
+            n="$(resolve_main_checkout "$abs" "$abs" 2>/dev/null || printf '%s' "$abs")"
+            RICHOS_ROOT_TRIED="${RICHOS_ROOT_TRIED}${n} (${s})"$'\t'
+            if [ -f "$n/$RICHOS_ADOPTION_MARKER" ]; then
+                RICHOS_ENTITY_ROOT_RESOLVED="$n"; RICHOS_ROOT_SOURCE="$s"; return 0
+            fi
+            return 1
+        fi
+
+        RICHOS_ROOT_TRIED="${RICHOS_ROOT_TRIED}${abs} (${s})"$'\t'
+        if [ -f "$abs/$RICHOS_ADOPTION_MARKER" ]; then
+            RICHOS_ENTITY_ROOT_RESOLVED="$abs"; RICHOS_ROOT_SOURCE="$s"; return 0
+        fi
+        if [ -n "$top" ]; then
+            n="$(resolve_main_checkout "$top" "$top" 2>/dev/null || printf '%s' "$top")"
+            RICHOS_ROOT_TRIED="${RICHOS_ROOT_TRIED}${n} (${s}: enclosing checkout)"$'\t'
+            if [ -f "$n/$RICHOS_ADOPTION_MARKER" ]; then
+                RICHOS_ENTITY_ROOT_RESOLVED="$n"; RICHOS_ROOT_SOURCE="$s"; return 0
+            fi
         fi
         return 1
     }
