@@ -16,6 +16,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 HOOK="$SCRIPT_DIR/verify-agent-prompt.sh"
 
 PASS=0
@@ -27,6 +43,11 @@ trap 'rm -rf "$SANDBOX"' EXIT
 REPO="$SANDBOX/repo"
 mkdir -p "$REPO/.claude/agents"
 printf -- '---\nname: dev\n---\nbody\n' > "$REPO/.claude/agents/dev.md"
+# VERIFY_REPO_ROOT_OVERRIDE now feeds the contract's DECLARED-root candidate,
+# and a declared root must be an adopted one — the resolver will not quietly
+# substitute a different repository for a root somebody named. So the hermetic
+# sandbox has to carry the marker, exactly as a real governed repo does.
+printf 'CREATOR_TEAMMATE="dean"\nENABLE_QA_INSTALL_FRESH_GATE=0\n' > "$REPO/orchestration.config"
 
 # run_case <name> <expected-exit> <json> [qa_gate]
 run_case() {

@@ -22,6 +22,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 HOOK="$SCRIPT_DIR/session-start-reap-worktrees.sh"
 
 PASS=0
@@ -49,10 +65,15 @@ make_repo() {
     local repo="$SANDBOX/$1"
     mkdir -p "$repo/.claude/worktrees"
     git -C "$repo" init -q -b main
-    git -C "$repo" config user.email "test@example.com"
-    git -C "$repo" config user.name "reap hook test"
+    # NO local identity override: these throwaway fixtures inherit the
+    # operator's real global identity, which is what the machine-wide
+    # pre-commit identity guard requires. With a fake identity the seed commit
+    # is REFUSED, the repo has no `main`, `git worktree add` fails, and every
+    # reap case below silently exercises an empty repository.
     printf 'seed\n' >"$repo/seed.txt"
-    git -C "$repo" add seed.txt
+    # The adoption marker: this fixture stands in for a governed repository.
+    printf 'PROTECTED_PATHS="src"\n' >"$repo/orchestration.config"
+    git -C "$repo" add -A
     git -C "$repo" commit -q -m seed
     printf '%s\n' "$repo"
 }
@@ -174,20 +195,33 @@ else
     bad "scope (rc=$rc external=$([ -d "$SANDBOX/scope-external" ] && echo present || echo GONE))"
 fi
 
-# 8. FAIL-OPEN: reaper script absent -> exit 0 with a 'skipped' summary. A
-#    session start is never held up by a missing safety-net tool.
+# 8. The reaper script is an ENGINE asset. Absent, the wrapper must still exit
+#    0 (a session start is never held up) but must NOT call it a "skip" — that
+#    wording is what let a broken plugin install read as routine for a whole
+#    migration step. The fixture is therefore a stripped copy of the ENGINE,
+#    not of the swept repository.
 FAKE="$SANDBOX/no-reaper"
-mkdir -p "$FAKE/scripts/hooks"
+mkdir -p "$FAKE/scripts/hooks" "$FAKE/scripts/lib"
 cp "$HOOK" "$FAKE/scripts/hooks/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$FAKE/scripts/lib/"
+printf 'PROTECTED_PATHS="src"\n' >"$FAKE/orchestration.config"   # adopted, so we reach the asset check
 set +e
-OUT="$("$FAKE/scripts/hooks/session-start-reap-worktrees.sh" </dev/null 2>/dev/null)"
+OUT="$(RICHOS_ENTITY_ROOT="$FAKE" "$FAKE/scripts/hooks/session-start-reap-worktrees.sh" </dev/null 2>/dev/null)"
 rc=$?
 set -e
 CTX="$(json_context "$OUT")"
-if [ "$rc" -eq 0 ] && printf '%s' "$CTX" | grep -q 'skipped (reap-stale-worktrees.sh not found'; then
-    ok "missing reaper: exits 0 and says so (fail-open, never blocks)"
+if [ "$rc" -eq 0 ] && printf '%s' "$CTX" | grep -q 'ENGINE INSTALL FAILURE'; then
+    ok "missing reaper: exits 0 and calls it an INSTALL FAILURE, not a skip"
 else
     bad "missing reaper (rc=$rc ctx=$CTX)"
+fi
+# 8b NEGATIVE — and it must not be describable as a skip. Asserted separately
+# because "said something" and "said something that cannot be misread" differ,
+# and only the second one closes the incident this change answers.
+if ! printf '%s' "$CTX" | grep -qi 'skipped'; then
+    ok "missing reaper: the word 'skipped' does not appear"
+else
+    bad "missing reaper still reports a 'skipped' (ctx=$CTX)"
 fi
 
 # 9. FAIL-OPEN: a target root that is not a git repo -> the reaper errors, the

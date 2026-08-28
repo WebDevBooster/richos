@@ -30,6 +30,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 HOOK="$SCRIPT_DIR/guard-resume-isolation.sh"
 BASH_BIN="$(command -v bash)"
 
@@ -143,11 +159,18 @@ run_case "resume-ack: on completed recipient -> allow" 0 \
 # REPO_ROOT). Use a copy in a sandbox repo so we assert on a controlled path
 # instead of polluting the real state log.
 ACK_SANDBOX="$(mktemp -d -t guard-resume-ack.XXXXXX)"
-mkdir -p "$ACK_SANDBOX/scripts/hooks" "$ACK_SANDBOX/.claude"
+mkdir -p "$ACK_SANDBOX/scripts/hooks" "$ACK_SANDBOX/scripts/lib" "$ACK_SANDBOX/.claude"
 cp "$HOOK" "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 chmod +x "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
+# The copied hook resolves its library relative to its own location, and its
+# root from the SESSION — so the sandbox needs both the library and an explicit
+# declaration. Without the library it refuses to start; without the declaration
+# it would write the log into the launching session's repository, which is the
+# very behaviour under repair.
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$ACK_SANDBOX/scripts/lib/"
+printf 'SESSION_TEAMS_DIR=""\n' >"$ACK_SANDBOX/orchestration.config"
 RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'dev-done' "$RESUME_ACK_MSG")" \
-    | "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
+    | RICHOS_ENTITY_ROOT="$ACK_SANDBOX" "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
 if [ -f "$ACK_SANDBOX/.claude/state/resume-acks.log" ] \
    && grep -qF "to=dev-done" "$ACK_SANDBOX/.claude/state/resume-acks.log" \
    && grep -qF "resume-ack:" "$ACK_SANDBOX/.claude/state/resume-acks.log"; then
@@ -160,12 +183,14 @@ fi
 # Invoke the SAME resume-ack payload twice back-to-back — the log must hold
 # EXACTLY ONE line, not two byte-identical duplicates.
 DEDUP_SANDBOX="$(mktemp -d -t guard-resume-dedup.XXXXXX)"
-mkdir -p "$DEDUP_SANDBOX/scripts/hooks" "$DEDUP_SANDBOX/.claude"
+mkdir -p "$DEDUP_SANDBOX/scripts/hooks" "$DEDUP_SANDBOX/scripts/lib" "$DEDUP_SANDBOX/.claude"
 cp "$HOOK" "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$DEDUP_SANDBOX/scripts/lib/"
+printf 'SESSION_TEAMS_DIR=""\n' >"$DEDUP_SANDBOX/orchestration.config"
 chmod +x "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 for _ in 1 2; do
     RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'dev-done' "$RESUME_ACK_MSG")" \
-        | "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
+        | RICHOS_ENTITY_ROOT="$DEDUP_SANDBOX" "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
 done
 DEDUP_LINES="$(wc -l < "$DEDUP_SANDBOX/.claude/state/resume-acks.log" 2>/dev/null | tr -d ' ')"
 if [ "${DEDUP_LINES:-0}" = "1" ]; then
@@ -175,7 +200,7 @@ else
 fi
 # A genuinely DIFFERENT resume (different recipient) must still append.
 RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'qa-inproc' "$RESUME_ACK_MSG")" \
-    | "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
+    | RICHOS_ENTITY_ROOT="$DEDUP_SANDBOX" "$DEDUP_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
 DEDUP_LINES2="$(wc -l < "$DEDUP_SANDBOX/.claude/state/resume-acks.log" 2>/dev/null | tr -d ' ')"
 if [ "${DEDUP_LINES2:-0}" = "2" ]; then
     printf '  PASS  a genuinely different resume still appends (dedup not over-eager)\n'; PASS=$((PASS + 1))
@@ -194,12 +219,14 @@ rm -rf "$ACK_SANDBOX"
 # against the old full-line (timestamp-inclusive) equality and PASSES against the
 # recipient+ack key.
 TSRACE_SANDBOX="$(mktemp -d -t guard-resume-tsrace.XXXXXX)"
-mkdir -p "$TSRACE_SANDBOX/scripts/hooks" "$TSRACE_SANDBOX/.claude"
+mkdir -p "$TSRACE_SANDBOX/scripts/hooks" "$TSRACE_SANDBOX/scripts/lib" "$TSRACE_SANDBOX/.claude"
 cp "$HOOK" "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$TSRACE_SANDBOX/scripts/lib/"
+printf 'SESSION_TEAMS_DIR=""\n' >"$TSRACE_SANDBOX/orchestration.config"
 chmod +x "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 TSRACE_LOG="$TSRACE_SANDBOX/.claude/state/resume-acks.log"
 RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'dev-done' "$RESUME_ACK_MSG")" \
-    | "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
+    | RICHOS_ENTITY_ROOT="$TSRACE_SANDBOX" "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
 # Rewrite field 1 (timestamp) of the logged line to a DIFFERENT value, keeping
 # the recipient+ack fields byte-identical — simulating the boundary straddle.
 python3 - "$TSRACE_LOG" <<'PY'
@@ -213,7 +240,7 @@ if lines:
 open(p, "w", encoding="utf-8").write(("\n".join(lines) + "\n") if lines else "")
 PY
 RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'dev-done' "$RESUME_ACK_MSG")" \
-    | "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
+    | RICHOS_ENTITY_ROOT="$TSRACE_SANDBOX" "$TSRACE_SANDBOX/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
 TSRACE_LINES="$(wc -l < "$TSRACE_LOG" 2>/dev/null | tr -d ' ')"
 if [ "${TSRACE_LINES:-0}" = "1" ]; then
     printf '  PASS  dedup ignores timestamp (clock-boundary race) — still 1 line\n'; PASS=$((PASS + 1))

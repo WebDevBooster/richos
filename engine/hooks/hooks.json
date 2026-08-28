@@ -1,7 +1,16 @@
 {
-  "description": "The RichOS engine's orchestration guards, registered exactly as the engine registers them for a session seated in its own repo — same events, same matchers, same order, same timeouts — but invoked through ${CLAUDE_PLUGIN_ROOT} so they run from wherever the engine actually lives.",
+  "description": "The RichOS engine's orchestration guards, registered exactly as the engine registers them for a session seated in its own repo \u2014 same events, same matchers, same order, same timeouts \u2014 but invoked through ${CLAUDE_PLUGIN_ROOT} so they run from wherever the engine actually lives.",
   "hooks": {
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/engine-status.sh",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "hooks": [
           {

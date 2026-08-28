@@ -69,8 +69,28 @@ set -o pipefail
 
 SNAPSHOT_RETAIN=20
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_FALLBACK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/snapshot-agent-definitions.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 0
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
 # --- explicit session override (tests) -----------------------------------
 SESSION_ID=""
@@ -79,23 +99,46 @@ if [ "${1:-}" = "--session" ] && [ -n "${2:-}" ]; then
 fi
 
 # --- root resolution -----------------------------------------------------
+# This hook resolved to the enclosing repository under a plugin load, found no
+# .claude/agents there, and emitted "skipped — ... (definition-drift guard will
+# fail open)". The partner guard then DID fail open, exactly as advertised, and
+# nothing about that chain was visible as a failure. It is now.
 if [ -n "${DEFINITION_DRIFT_ROOT:-}" ]; then
-    REPO_ROOT="$DEFINITION_DRIFT_ROOT"
-else
-    _RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
-    if [ -f "$_RMC_LIB" ]; then
-        # shellcheck source=../lib/resolve-main-checkout.sh
-        . "$_RMC_LIB" 2>/dev/null || true
-    fi
-    if command -v resolve_main_checkout >/dev/null 2>&1; then
-        REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$_FALLBACK_ROOT" 2>/dev/null || echo "$_FALLBACK_ROOT")"
-    else
-        REPO_ROOT="$_FALLBACK_ROOT"
-    fi
+    RICHOS_ENTITY_ROOT="$DEFINITION_DRIFT_ROOT"
 fi
 
-AGENTS_DIR="$REPO_ROOT/.claude/agents"
-STATE_DIR="$REPO_ROOT/.claude/state"
+# NOTE ON STDIN — this hook reads the payload LATE and CONDITIONALLY.
+#
+# It is a SessionStart hook AND a plain CLI tool, and in the CLI case stdin is
+# an inherited pipe that nobody closes, so an unconditional `cat` hangs forever
+# (`[ ! -t 0 ]` does not help: an inherited pipe is not a TTY). Measured: 92
+# seconds and counting, inside the contract-integrity probe, before this was
+# reverted.
+#
+# It costs nothing, because the payload's `cwd` is a REDUNDANT resolution
+# candidate here: CLAUDE_PROJECT_DIR is measured present and correct in a
+# plugin-loaded hook's environment at SessionStart (probe, 2026-08-28), and it
+# outranks the payload cwd anyway. Paying a hang risk for a candidate that
+# never wins is a bad trade.
+#
+# It does still read stdin further down, for the session id — but only under
+# its original condition (no --session was supplied), which is what kept the
+# hazard unreachable before the root work touched it. Root resolution happens
+# first and needs nothing from stdin.
+
+ROOT_FAILURE=""
+if resolve_entity_root ""; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    ENTITY_ROOT=""
+else
+    ENTITY_ROOT=""
+    ROOT_FAILURE="$(root_failure_banner "scripts/hooks/snapshot-agent-definitions.sh")"
+    printf '%s\n' "$ROOT_FAILURE" >&2
+fi
+
+AGENTS_DIR="$ENTITY_ROOT/.claude/agents"
+STATE_DIR="$ENTITY_ROOT/.claude/state"
 
 # --- session id ----------------------------------------------------------
 if [ -z "$SESSION_ID" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
@@ -103,8 +146,10 @@ if [ -z "$SESSION_ID" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
 fi
 if [ -z "$SESSION_ID" ] && [ ! -t 0 ]; then
     # SessionStart payload on stdin: {"session_id":"...","hook_event_name":...}
-    # `cat` returns at EOF; a TTY stdin (manual run) is skipped above so this
-    # can never sit waiting for a human to type.
+    # Reached ONLY when no --session was supplied, i.e. a real SessionStart
+    # firing, where the harness writes the payload and closes. A CLI run with
+    # --session never gets here, which is what keeps an inherited, never-closed
+    # stdin from hanging the hook.
     STDIN_JSON="$(cat 2>/dev/null || true)"
     if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
         SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
@@ -160,15 +205,32 @@ PY
     fi
 }
 
-# --- nothing to snapshot -------------------------------------------------
+# --- nothing to snapshot, and WHY ----------------------------------------
+# The old code collapsed three unrelated situations into the single word
+# "skipped": the root could not be resolved, the repo never adopted the engine,
+# or the repo genuinely has no roster. Only the first is a failure, and it was
+# the one that actually happened — so the one real failure was wearing the
+# wording of a routine no-op. Each now says what it is.
+if [ -n "$ROOT_FAILURE" ]; then
+    emit_context "ROOT RESOLUTION FAILURE — the agent-definition snapshotter could not resolve the repository it governs, so NO baseline was written and guard-definition-drift.sh will fail OPEN for every spawn this session. ${RICHOS_ROOT_REASON}"
+    exit 0
+fi
+if [ -z "$ENTITY_ROOT" ]; then
+    emit_context "agent-definition snapshot: not run — this repository has not adopted the engine (no orchestration.config at its root). No definitions are being tracked here."
+    exit 0
+fi
 if [ ! -d "$AGENTS_DIR" ]; then
-    emit_context "agent-definition snapshot: skipped — no $AGENTS_DIR directory (definition-drift guard will fail open)"
+    # A GOVERNED repository with no roster. Legitimate for a repo that has not
+    # written its agents yet, but it is stated as a live consequence rather
+    # than as a skip, because the partner guard degrades silently on the back
+    # of it.
+    emit_context "agent-definition snapshot: NO BASELINE WRITTEN — $AGENTS_DIR does not exist in the governed repository ($ENTITY_ROOT). guard-definition-drift.sh will fail OPEN for every spawn this session."
     exit 0
 fi
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 if [ ! -d "$STATE_DIR" ]; then
-    emit_context "agent-definition snapshot: skipped — could not create $STATE_DIR (definition-drift guard will fail open)"
+    emit_context "agent-definition snapshot: NO BASELINE WRITTEN — could not create $STATE_DIR in the governed repository ($ENTITY_ROOT). guard-definition-drift.sh will fail OPEN for every spawn this session."
     exit 0
 fi
 
@@ -185,7 +247,7 @@ COUNT=0
 {
     printf '# agent-definition snapshot — written by scripts/hooks/snapshot-agent-definitions.sh\n'
     printf '# session=%s generated=%s root=%s\n' \
-        "${SESSION_ID:-unknown}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REPO_ROOT"
+        "${SESSION_ID:-unknown}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ENTITY_ROOT"
 } >"$TMP_PATH" 2>/dev/null || true
 
 if [ -f "$TMP_PATH" ]; then
@@ -195,7 +257,7 @@ if [ -f "$TMP_PATH" ]; then
         [ -n "$def" ] || continue
         h="$(sha256_of "$def")"
         [ -n "$h" ] || continue
-        rel="${def#"$REPO_ROOT"/}"
+        rel="${def#"$ENTITY_ROOT"/}"
         printf '%s  %s\n' "$h" "$rel" >>"$TMP_PATH" 2>/dev/null || true
         COUNT=$((COUNT + 1))
     done < <(find "$AGENTS_DIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null | LC_ALL=C sort)

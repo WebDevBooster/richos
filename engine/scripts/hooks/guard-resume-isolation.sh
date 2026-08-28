@@ -66,16 +66,51 @@ set -eo pipefail
 # resume.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-resume-isolation.sh: python3 is required for payload parsing — refusing (fail-closed). If this is a deliberate, safe resume, add a 'resume-ack: <where writes land + why safe>' message line." >&2; exit 2; }
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-resume-isolation.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-CONFIG="$REPO_ROOT/orchestration.config"
+INPUT="$(cat)"
+
+# Resolve the governed repository. Three outcomes, three different behaviours —
+# see the contract for why "block everything unresolvable" is NOT the rule.
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # This repository never adopted the engine, so there is no enforcement to
+    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
+    # stand-down into the orchestrator's own context at every session start.
+    exit 0
+else
+    # BROKEN: this guard believes it is governing something and cannot. Block.
+    root_failure_banner "scripts/hooks/guard-resume-isolation.sh" >&2
+    exit 2
+fi
+
+CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 # Default to the platform team-state location when unset/blank in config.
 : "${SESSION_TEAMS_DIR:=$HOME/.claude/teams}"
-
-INPUT="$(cat)"
 
 HOOK_TAG="(hook: scripts/hooks/guard-resume-isolation.sh)"
 
@@ -197,7 +232,7 @@ if printf '%s' "$MESSAGE" | grep -qE '^[[:space:]]*resume-ack:[[:space:]]*.+'; t
   RESUME_ACK="$(printf '%s' "$MESSAGE" | grep -oE '^[[:space:]]*resume-ack:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
 fi
 if [ -n "$RESUME_ACK" ]; then
-  LOG_DIR="$REPO_ROOT/.claude/state"
+  LOG_DIR="$ENTITY_ROOT/.claude/state"
   LOG_FILE="$LOG_DIR/resume-acks.log"
   mkdir -p "$LOG_DIR" 2>/dev/null || true
   # De-dup guard: Claude Code merges hooks from BOTH .claude/settings.json

@@ -29,15 +29,53 @@ set -eo pipefail
 # including one targeting a protected source tree. Refuse outright instead.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-main-checkout-writes.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-# Load project-specific config (protected source trees).
-CONFIG="$REPO_ROOT/orchestration.config"
-[ -f "$CONFIG" ] && . "$CONFIG"
-: "${PROTECTED_PATHS:=}"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-main-checkout-writes.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
 INPUT="$(cat)"
+
+# Resolve the governed repository. Three outcomes, three different behaviours —
+# see the contract for why "block everything unresolvable" is NOT the rule.
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # This repository never adopted the engine, so there is no enforcement to
+    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
+    # stand-down into the orchestrator's own context at every session start.
+    exit 0
+else
+    # BROKEN: this guard believes it is governing something and cannot. Block.
+    root_failure_banner "scripts/hooks/guard-main-checkout-writes.sh" >&2
+    exit 2
+fi
+
+# Load the GOVERNED repository's config — its protected source trees, not the
+# engine's. Under the old resolution this loaded the engine's own config and
+# then guarded the engine's own directories, which is why a plugin-loaded
+# engine protected nothing at all in the repository it was watching.
+CONFIG="$ENTITY_ROOT/orchestration.config"
+[ -f "$CONFIG" ] && . "$CONFIG"
+: "${PROTECTED_PATHS:=}"
 
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 case "$TOOL_NAME" in
@@ -70,10 +108,10 @@ fi
 # Block source writes to any protected tree in the MAIN checkout.
 for p in $PROTECTED_PATHS; do
   case "$FILE_PATH" in
-    "$REPO_ROOT/$p"/*)
+    "$ENTITY_ROOT/$p"/*)
       echo "=== Main-checkout write BLOCKED ===" >&2
       echo "  Refusing to write '$FILE_PATH'." >&2
-      echo "  This is the SHARED main checkout ($REPO_ROOT). All source (protected trees:" >&2
+      echo "  This is the SHARED main checkout ($ENTITY_ROOT). All source (protected trees:" >&2
       echo "  $PROTECTED_PATHS) must be edited in your own git worktree, never in the main" >&2
       echo "  checkout — concurrent edits here corrupt other agents' work and block landing." >&2
       echo "  Re-issue the edit against your worktree path (…/.claude/worktrees/<your-worktree>/…)." >&2

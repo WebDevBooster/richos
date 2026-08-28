@@ -33,6 +33,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/engine-status.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"KNOWLEDGE VERIFICATION REQUIRED: Before trusting any recorded knowledge (ceo-wiki/ pages, docs/, or any other durable record this repo ships), verify it against the current state of the repo. Spot-check anything relevant to the current task. If a recorded fact contradicts what you find in the code or repo state, correct or flag it immediately. Do NOT act on unverified recorded knowledge.\"}}'",
             "timeout": 5
           }

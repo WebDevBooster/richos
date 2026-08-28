@@ -100,8 +100,28 @@ HOOK_TAG="(hook: scripts/hooks/guard-definition-drift.sh)"
 # short-circuits before any filesystem or state work.
 BUILTIN_TYPES="Explore Plan general-purpose claude claude-code-guide statusline-setup"
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_FALLBACK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-definition-drift.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
 INPUT="$(cat 2>/dev/null || true)"
 
@@ -175,21 +195,31 @@ PROMPT="$(printf '%s' "$PARSED" | cut -f5- | tr '\001' '\n')"
 [ "$STATUS" = "NOTAGENT" ] && exit 0
 
 # --- root + state resolution --------------------------------------------
+# THIS is the guard the step-1 audit caught writing .claude/state/ into a
+# repository that merely happened to CONTAIN the engine. It resolved from its
+# own on-disk location, so as a plugin it deposited state wherever it landed.
+# DEFINITION_DRIFT_ROOT is still honoured (the partner snapshotter and the
+# existing suites use it) by feeding the contract's own override.
 if [ -n "${DEFINITION_DRIFT_ROOT:-}" ]; then
-    REPO_ROOT="$DEFINITION_DRIFT_ROOT"
-else
-    _RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
-    if [ -f "$_RMC_LIB" ]; then
-        # shellcheck source=../lib/resolve-main-checkout.sh
-        . "$_RMC_LIB" 2>/dev/null || true
-    fi
-    if command -v resolve_main_checkout >/dev/null 2>&1; then
-        REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$_FALLBACK_ROOT" 2>/dev/null || echo "$_FALLBACK_ROOT")"
-    else
-        REPO_ROOT="$_FALLBACK_ROOT"
-    fi
+    RICHOS_ENTITY_ROOT="$DEFINITION_DRIFT_ROOT"
 fi
-STATE_DIR="$REPO_ROOT/.claude/state"
+
+# Resolve the governed repository. Three outcomes, three different behaviours —
+# see the contract for why "block everything unresolvable" is NOT the rule.
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # This repository never adopted the engine, so there is no enforcement to
+    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
+    # stand-down into the orchestrator's own context at every session start.
+    exit 0
+else
+    # BROKEN: this guard believes it is governing something and cannot. Block.
+    root_failure_banner "scripts/hooks/guard-definition-drift.sh" >&2
+    exit 2
+fi
+
+STATE_DIR="$ENTITY_ROOT/.claude/state"
 
 # An Agent payload we cannot parse: the sibling preventer blocks it; we warn.
 if [ "$STATUS" = "PARSEFAIL" ]; then
@@ -203,8 +233,24 @@ for b in $BUILTIN_TYPES; do
     [ "$SUBAGENT_TYPE" = "$b" ] && exit 0
 done
 
-DEF_REL=".claude/agents/${SUBAGENT_TYPE}.md"
-DEF_PATH="$REPO_ROOT/$DEF_REL"
+# Strip any plugin namespace before the lookup: `richos-engine:clark` can
+# never match `.claude/agents/richos-engine:clark.md`, so the drift check
+# silently compared nothing at all for every plugin-supplied teammate.
+SUBAGENT_BARE="$(strip_agent_namespace "$SUBAGENT_TYPE")"
+DEF_PATH="$(resolve_agent_def "$ENTITY_ROOT" "$ENGINE_ROOT" "$SUBAGENT_TYPE")"
+DEF_RC=$?
+if [ "$DEF_RC" -eq 2 ]; then
+    warn_allow "subagent_type '${SUBAGENT_TYPE}' is namespaced but no definition for it was found under the entity roster, the engine's own roster, or AGENT_NAMESPACE_ROOTS — definition freshness is NOT being checked for this spawn." \
+        "$(printf 'unresolvable-namespace\tagent=%s' "$SUBAGENT_TYPE")"
+fi
+[ -n "$DEF_PATH" ] || DEF_PATH="$ENTITY_ROOT/.claude/agents/${SUBAGENT_BARE}.md"
+# Snapshot paths are recorded repo-relative, so the comparison key has to be
+# repo-relative too — and relative to whichever root the definition came from.
+case "$DEF_PATH" in
+    "$ENTITY_ROOT"/*) DEF_REL="${DEF_PATH#"$ENTITY_ROOT"/}" ;;
+    "$ENGINE_ROOT"/*) DEF_REL="${DEF_PATH#"$ENGINE_ROOT"/}" ;;
+    *)                DEF_REL=".claude/agents/${SUBAGENT_BARE}.md" ;;
+esac
 
 # --- snapshot resolution -------------------------------------------------
 # Session-scoped ONLY when a session id is present: falling back to `latest`

@@ -39,6 +39,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 GUARD="$SCRIPT_DIR/guard-definition-drift.sh"
 SNAPSHOT="$SCRIPT_DIR/snapshot-agent-definitions.sh"
 
@@ -61,6 +77,10 @@ make_root() {
     local root
     root="$(mktemp -d -t guard-definition-drift.XXXXXX)"
     mkdir -p "$root/.claude/agents" "$root/.claude/state"
+    # Adoption is DECLARED, not inferred: a sandbox that stands in for "the
+    # governed repository" has to carry the marker, or the guard correctly
+    # treats it as a repo that never adopted the engine and stands down.
+    printf 'PROTECTED_PATHS="src"\n' >"$root/orchestration.config"
     printf -- '---\nname: dev\nmodel: sonnet\n---\n\ndev v2.0 body.\n' >"$root/.claude/agents/dev.md"
     printf -- '---\nname: arch\nmodel: sonnet\n---\n\narch body.\n' >"$root/.claude/agents/arch.md"
     echo "$root"

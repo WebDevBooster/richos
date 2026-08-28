@@ -33,6 +33,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 HOOK="$SCRIPT_DIR/guard-worktree-isolation.sh"
 
 PASS=0
@@ -257,11 +273,18 @@ run_case "totally invalid JSON body (no Agent tool_name resolvable)" 0 'not json
 
 # --- (i) marker use is best-effort logged to .claude/state/ ---
 SANDBOX="$(mktemp -d -t guard-worktree-isolation-log-test.XXXXXX)"
-mkdir -p "$SANDBOX/scripts/hooks" "$SANDBOX/.claude"
+mkdir -p "$SANDBOX/scripts/hooks" "$SANDBOX/scripts/lib" "$SANDBOX/.claude"
 cp "$HOOK" "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh"
 chmod +x "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh"
+# The copied hook resolves its library relative to its own location, and its
+# root from the SESSION — so the sandbox needs both the library and an explicit
+# declaration. Without the library it refuses to start; without the declaration
+# it would write the log into the launching session's repository, which is the
+# very behaviour under repair.
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SANDBOX/scripts/lib/"
+printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$SANDBOX/orchestration.config"
 printf '%s' "$(json_agent 'worker' 'worker-sonnet-log1' '' $'Do the task.\nmain-checkout-run: needs main checkout for X.')" \
-    | "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
+    | RICHOS_ENTITY_ROOT="$SANDBOX" "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
 if [ -f "$SANDBOX/.claude/state/main-checkout-runs.log" ] \
     && grep -qF "worker-sonnet-log1" "$SANDBOX/.claude/state/main-checkout-runs.log" \
     && grep -qF "main-checkout-run:" "$SANDBOX/.claude/state/main-checkout-runs.log"; then

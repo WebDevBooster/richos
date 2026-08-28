@@ -49,33 +49,83 @@
 
 set -o pipefail
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_FALLBACK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-_RMC_LIB="$SCRIPT_DIR/../lib/resolve-main-checkout.sh"
-if [ -f "$_RMC_LIB" ]; then
-    # shellcheck source=../lib/resolve-main-checkout.sh
-    . "$_RMC_LIB" 2>/dev/null || true
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/session-start-reap-worktrees.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 0
 fi
-if command -v resolve_main_checkout >/dev/null 2>&1; then
-    REPO_ROOT="$(resolve_main_checkout "$SCRIPT_DIR" "$_FALLBACK_ROOT" 2>/dev/null || echo "$_FALLBACK_ROOT")"
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
+
+# NOTE ON STDIN — this hook does NOT read the payload.
+#
+# It is a SessionStart hook AND a plain CLI tool, and in the CLI case stdin is
+# an inherited pipe that nobody closes, so an unconditional `cat` hangs forever
+# (`[ ! -t 0 ]` does not help: an inherited pipe is not a TTY). Measured: 92
+# seconds and counting, inside the contract-integrity probe, before this was
+# reverted.
+#
+# It costs nothing, because the payload's `cwd` is a REDUNDANT resolution
+# candidate here: CLAUDE_PROJECT_DIR is measured present and correct in a
+# plugin-loaded hook's environment at SessionStart (probe, 2026-08-28), and it
+# outranks the payload cwd anyway. Paying a hang risk for a candidate that
+# never wins is a bad trade.
+
+# TWO ROOTS. The reaper SCRIPT is an ENGINE asset; the tree it SWEEPS is the
+# ENTITY. The old code took both from one variable, so a plugin-loaded engine
+# looked for its own script inside the session's repository, did not find it,
+# and reported "skipped (...)" — indistinguishable from a routine no-op.
+REAPER="$ENGINE_ROOT/scripts/reap-stale-worktrees.sh"
+
+if resolve_entity_root ""; then
+    SWEEP_ROOT="${REAP_WORKTREES_ROOT:-$RICHOS_ENTITY_ROOT_RESOLVED}"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    SWEEP_ROOT="${REAP_WORKTREES_ROOT:-}"
 else
-    REPO_ROOT="$_FALLBACK_ROOT"
+    SWEEP_ROOT="${REAP_WORKTREES_ROOT:-}"
 fi
 
-REAPER="$REPO_ROOT/scripts/reap-stale-worktrees.sh"
-SWEEP_ROOT="${REAP_WORKTREES_ROOT:-$REPO_ROOT}"
-
-if [ -x "$REAPER" ]; then
+if [ "$RICHOS_ROOT_STATUS" = "broken" ] && [ -z "${REAP_WORKTREES_ROOT:-}" ]; then
+    # FAIL LOUD. The guard believes it is governing a repository and cannot
+    # resolve it. Both channels, because a SessionStart hook must never block:
+    # stderr for the operator, additionalContext for the orchestrator.
+    BANNER="$(root_failure_banner "scripts/hooks/session-start-reap-worktrees.sh")"
+    printf '%s\n' "$BANNER" >&2
+    SUMMARY="ROOT RESOLUTION FAILURE — the session-start worktree reaper could not resolve the repository it governs, so NO worktrees were swept and none will be. ${RICHOS_ROOT_REASON}"
+elif [ -z "$SWEEP_ROOT" ]; then
+    # not-adopted. Announced once, by engine-status.sh, rather than by every
+    # hook — but stated plainly here too so this hook's own output can never be
+    # read as "swept, nothing found".
+    SUMMARY="session-start worktree reap: not run — this repository has not adopted the engine (no orchestration.config at its root). Nothing was swept."
+elif [ ! -x "$REAPER" ]; then
+    # The ENGINE is broken, not the entity: the reaper is an engine asset and
+    # it is missing from the engine's own tree. That is an install failure and
+    # it gets said as one, not as "skipped".
+    printf '%s\n' "$(require_asset "$REAPER" "scripts/hooks/session-start-reap-worktrees.sh" "the worktree reaper (an ENGINE asset)")" >&2
+    SUMMARY="ENGINE INSTALL FAILURE — scripts/reap-stale-worktrees.sh is missing or not executable at $REAPER. No worktrees were swept. This is a broken engine install, NOT a routine skip."
+else
     RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale 2>&1)" || true
     SUMMARY_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== summary' || true)"
     if [ -n "$SUMMARY_LINE" ]; then
-        SUMMARY="session-start worktree reap: ${SUMMARY_LINE#=== }"
+        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ${SUMMARY_LINE#=== }"
     else
-        SUMMARY="session-start worktree reap: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
+        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
     fi
-else
-    SUMMARY="session-start worktree reap: skipped (reap-stale-worktrees.sh not found or not executable at $REAPER)"
 fi
 
 if command -v python3 >/dev/null 2>&1; then

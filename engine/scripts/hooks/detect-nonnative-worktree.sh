@@ -48,15 +48,55 @@ set -eo pipefail
 # reason. Refuse loudly instead of degrading silently.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: detect-nonnative-worktree.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/detect-nonnative-worktree.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 0
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-CONFIG="$REPO_ROOT/orchestration.config"
+INPUT="$(cat)"
+
+# Resolve the governed repository. A log-only hook must never block a session,
+# so a BROKEN root SCREAMS instead of exiting non-zero — but it screams into
+# both stderr and the hook's own JSON output, so it cannot pass for a skip.
+ROOT_FAILURE=""
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    ENTITY_ROOT=""
+else
+    ENTITY_ROOT=""
+    ROOT_FAILURE="$(root_failure_banner "scripts/hooks/detect-nonnative-worktree.sh")"
+    printf '%s\n' "$ROOT_FAILURE" >&2
+fi
+
+# Nothing to detect against in a repository that never adopted the engine, and
+# nothing this backstop can honestly say when its root is broken — but it has
+# already SCREAMED in the broken case above, which is the difference between
+# this and the silent skip it replaces.
+[ -n "$ENTITY_ROOT" ] || exit 0
+
+CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${READONLY_ALLOWLIST:=Explore Plan claude-code-guide statusline-setup}"
-
-INPUT="$(cat)"
 
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 [ "$TOOL_NAME" = "Agent" ] || exit 0
@@ -105,7 +145,7 @@ while IFS= read -r wt; do
     agent-*) : ;;                       # native isolation worktree — fine
     *) WARN+=("lingering NON-NATIVE worktree: .claude/worktrees/${base} — native isolation always names worktrees 'agent-<hex>', so a readable slug means someone hand-rolled it. TWO possible causes, and this hook cannot tell them apart: (1) the LEAD omitted isolation:\"worktree\" on the spawn; or (2) the SUBAGENT ran 'git worktree add' ITSELF from inside its own correctly-native worktree — spawn flags were fine, the agent went freelance. Check 'git worktree list': if an agent-<hex> worktree for the same agent sits alongside this stray, it is cause (2), so do NOT go auditing spawn flags that were never wrong. Either way: verify + land any work on its branch, then 'git worktree remove' it — or confirm it was a deliberate hand-roll.") ;;
   esac
-done < <(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' | grep "/.claude/worktrees/" || true)
+done < <(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' | grep "/.claude/worktrees/" || true)
 
 # --- new tells: ZOMBIE RESIDUE (dirs + processes) -------------------------
 #
@@ -120,7 +160,7 @@ done < <(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^
 # checkout; its FIRST porcelain 'worktree' line is the main working tree. If the
 # list is empty/unavailable, MAIN_CO is empty and BOTH tells no-op — fail-safe:
 # never reap when registration cannot be proven.
-REGISTERED_WT="$(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' || true)"
+REGISTERED_WT="$(git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' || true)"
 MAIN_CO="$(printf '%s\n' "$REGISTERED_WT" | head -1)"
 
 REAPED=()
@@ -137,7 +177,7 @@ if [ -n "$MAIN_CO" ] && [ -d "$MAIN_CO/.claude/worktrees" ]; then
     if printf '%s\n' "$REGISTERED_WT" | grep -qxF "$dir"; then
       continue
     fi
-    if git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null \
+    if git -C "$ENTITY_ROOT" worktree list --porcelain 2>/dev/null \
          | sed -n 's|^worktree ||p' | grep -qxF "$dir"; then
       continue
     fi

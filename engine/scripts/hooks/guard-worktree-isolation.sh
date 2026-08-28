@@ -95,10 +95,47 @@ set -eo pipefail
 # default-deny" contract documented above, so refuse outright instead.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-worktree-isolation.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-worktree-isolation.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-CONFIG="$REPO_ROOT/orchestration.config"
+INPUT="$(cat)"
+
+# Resolve the governed repository. Three outcomes, three different behaviours —
+# see the contract for why "block everything unresolvable" is NOT the rule.
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # This repository never adopted the engine, so there is no enforcement to
+    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
+    # stand-down into the orchestrator's own context at every session start.
+    exit 0
+else
+    # BROKEN: this guard believes it is governing something and cannot. Block.
+    root_failure_banner "scripts/hooks/guard-worktree-isolation.sh" >&2
+    exit 2
+fi
+
+CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 # Default to Claude Code's built-in read-only agent types if unset.
@@ -108,7 +145,7 @@ CONFIG="$REPO_ROOT/orchestration.config"
 # Default the allowed <model> name-token set to Claude Code's aliases if unset.
 : "${ALLOWED_MODELS:=fable opus sonnet haiku}"
 
-INPUT="$(cat)"
+# (payload already read above, before root resolution)
 
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 [ "$TOOL_NAME" = "Agent" ] || exit 0
@@ -152,8 +189,28 @@ resolve_expected_model() {
     printf '%s' "$lo"   # unknown override: emit as-is (will mismatch -> block)
     return 0
   fi
-  def="$REPO_ROOT/.claude/agents/${subagent}.md"
-  { [ -n "$subagent" ] && [ -f "$def" ]; } || { printf ''; return 0; }
+  # Resolve the LIVE definition through the shared resolver, which strips a
+  # plugin namespace (`richos-engine:clark` -> `clark`) and searches the
+  # entity roster, then the engine's own, then AGENT_NAMESPACE_ROOTS.
+  #
+  # WHAT THIS FIXES: this lookup used to be a bare
+  # "$REPO_ROOT/.claude/agents/${subagent}.md" stat. A plugin-supplied type
+  # carries a namespace, so that path could NEVER exist, the function returned
+  # "undeterminable", and clause 2b — the model-truthfulness check — silently
+  # stopped checking. A guard clause that stops guarding without saying so is
+  # exactly the failure class this contract exists to remove.
+  #
+  # rc 2 means the type is NAMESPACED and its definition could not be found
+  # anywhere. That is NOT the same as "this type legitimately has no
+  # definition" (host built-ins), so it is not laundered into "undeterminable":
+  # it is reported as UNRESOLVABLE and the caller blocks.
+  def="$(resolve_agent_def "$ENTITY_ROOT" "$ENGINE_ROOT" "$subagent")"
+  case $? in
+    0) ;;
+    2) printf 'UNRESOLVABLE'; return 0 ;;
+    *) printf ''; return 0 ;;
+  esac
+  [ -n "$def" ] || { printf ''; return 0; }
   python3 - "$def" 2>/dev/null <<'PY' || true
 import sys
 try:
@@ -241,7 +298,7 @@ case "$ISOLATION" in
     if [ -n "$MAIN_CHECKOUT_MARKER" ]; then
       # Auditable fallback opt-out taken. Best-effort log — never fail the
       # spawn because logging failed; the marker itself is the audit trail.
-      LOG_DIR="$REPO_ROOT/.claude/state"
+      LOG_DIR="$ENTITY_ROOT/.claude/state"
       mkdir -p "$LOG_DIR" 2>/dev/null || true
       {
         printf '%s\tagent=%s\tname=%s\t%s\n' \
@@ -272,7 +329,13 @@ else
     # Clause 2b — TRUTHFULNESS. Resolve the model this spawn boots on and
     # require the name token to match it.
     EXPECTED_MODEL="$(resolve_expected_model "$MODEL_OVERRIDE" "$SUBAGENT_TYPE")"
-    if [ -n "$EXPECTED_MODEL" ] && [ "$NAME_MODEL_TOKEN" != "$EXPECTED_MODEL" ]; then
+    if [ "$EXPECTED_MODEL" = "UNRESOLVABLE" ]; then
+      # FAIL LOUD. A namespaced subagent_type is by construction supplied by a
+      # plugin, so its definition MUST be locatable; if it is not, clause 2b
+      # cannot be evaluated at all. The old code degraded to "accept" here
+      # without a word.
+      PROBLEMS+=("cannot verify the model token — subagent_type '${SUBAGENT_TYPE}' is namespaced, but no definition for it was found under the entity roster (${ENTITY_ROOT}/.claude/agents/), the engine's own roster (${ENGINE_ROOT}/.claude/agents/), or AGENT_NAMESPACE_ROOTS. The model-truthfulness clause cannot be evaluated, so this spawn is refused rather than waved through. Fix: add '<namespace>=<plugin root>' to AGENT_NAMESPACE_ROOTS in orchestration.config, or dispatch the un-namespaced type.")
+    elif [ -n "$EXPECTED_MODEL" ] && [ "$NAME_MODEL_TOKEN" != "$EXPECTED_MODEL" ]; then
       if [ -n "$MODEL_OVERRIDE" ]; then
         MODEL_SRC="explicit model override '${MODEL_OVERRIDE}'"
       else

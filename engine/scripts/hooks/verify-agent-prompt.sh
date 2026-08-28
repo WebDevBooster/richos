@@ -41,13 +41,52 @@ set -eo pipefail
 # outright instead.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: verify-agent-prompt.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
 
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-# Test affordance: point REPO_ROOT (agent-def lookup + config load) at a
-# sandbox. Unset in normal operation.
-[ -n "${VERIFY_REPO_ROOT_OVERRIDE:-}" ] && REPO_ROOT="$VERIFY_REPO_ROOT_OVERRIDE"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/verify-agent-prompt.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-CONFIG="$REPO_ROOT/orchestration.config"
+INPUT="$(cat)"
+
+# Test affordance, preserved: VERIFY_REPO_ROOT_OVERRIDE now feeds the
+# contract's own declared-root candidate rather than assigning a root behind
+# the resolver's back, so a sandbox root is validated like any other.
+[ -n "${VERIFY_REPO_ROOT_OVERRIDE:-}" ] && RICHOS_ENTITY_ROOT="$VERIFY_REPO_ROOT_OVERRIDE"
+
+# Resolve the governed repository. Three outcomes, three different behaviours —
+# see the contract for why "block everything unresolvable" is NOT the rule.
+if resolve_entity_root "$INPUT"; then
+    ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # This repository never adopted the engine, so there is no enforcement to
+    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
+    # stand-down into the orchestrator's own context at every session start.
+    exit 0
+else
+    # BROKEN: this guard believes it is governing something and cannot. Block.
+    root_failure_banner "scripts/hooks/verify-agent-prompt.sh" >&2
+    exit 2
+fi
+
+CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${CREATOR_TEAMMATE:=dean}"
@@ -58,7 +97,7 @@ CONFIG="$REPO_ROOT/orchestration.config"
 # Test/per-invocation override for the opt-in gate toggle.
 [ -n "${VERIFY_QA_GATE_OVERRIDE:-}" ] && ENABLE_QA_INSTALL_FRESH_GATE="$VERIFY_QA_GATE_OVERRIDE"
 
-INPUT="$(cat)"
+# (payload already read above, before root resolution)
 
 TOOL_NAME="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tool_name",""))' 2>/dev/null || true)"
 [ "$TOOL_NAME" = "Agent" ] || exit 0
@@ -142,8 +181,12 @@ if [ -n "$PROMPT" ]; then
   # An absolute path like /some/other/repo/.claude/agents/foo.md is a
   # sibling-repo reference model — the trailing ".claude/agents/foo.md"
   # substring looks like an in-repo reference but isn't one, so we must not
-  # stat it against $REPO_ROOT.
-  if [ "$SUBAGENT_TYPE" != "$CREATOR_TEAMMATE" ]; then
+  # stat it against $ENTITY_ROOT.
+  # Compare on the BARE role: a namespaced `richos-engine:dean` is still dean,
+  # and matching the raw string would have silently re-enabled the
+  # agent-not-found check for the one role whose entire job is to create the
+  # file the check would flag.
+  if [ "$(strip_agent_namespace "$SUBAGENT_TYPE")" != "$CREATOR_TEAMMATE" ]; then
     CANDIDATE_REFS=()
     while IFS= read -r line; do
       [ -n "$line" ] && CANDIDATE_REFS+=("$line")
@@ -154,12 +197,17 @@ if [ -n "$PROMPT" ]; then
     )
 
     for full_ref in "${CANDIDATE_REFS[@]}"; do
-      if [[ "$full_ref" == /* ]] && [[ "$full_ref" != "$REPO_ROOT"/* ]]; then
+      if [[ "$full_ref" == /* ]] && [[ "$full_ref" != "$ENTITY_ROOT"/* ]]; then
         continue  # absolute path outside this repo — not our reference to check
       fi
       agent="${full_ref##*.claude/agents/}"
       agent="${agent%.md}"
-      if [ ! -e "$REPO_ROOT/.claude/agents/$agent.md" ]; then
+      # Search the entity roster first, then the engine's own — a prompt may
+      # legitimately cite a plugin-supplied meta-role's definition, which does
+      # not live in the entity's repository at all. Resolving only against the
+      # entity root would have turned every such citation into a false
+      # "agent-not-found" block the moment the engine became a plugin.
+      if ! resolve_agent_def "$ENTITY_ROOT" "$ENGINE_ROOT" "$agent" >/dev/null 2>&1; then
         FAIL=1
         FAIL_REASONS+=("agent-not-found: .claude/agents/${agent}.md")
       fi
@@ -293,7 +341,7 @@ STRIP_PY
     if [ -n "$BYPASS_LINE" ]; then
       # Audit log under .claude/state/. Best-effort — never fail the spawn
       # because logging failed; the bypass itself is the audit.
-      BYPASS_LOG_DIR="$REPO_ROOT/.claude/state"
+      BYPASS_LOG_DIR="$ENTITY_ROOT/.claude/state"
       mkdir -p "$BYPASS_LOG_DIR" 2>/dev/null || true
       {
         printf '%s\tagent=%s\t%s\n' \

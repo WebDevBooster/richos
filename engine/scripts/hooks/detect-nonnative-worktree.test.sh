@@ -24,6 +24,22 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- declare the root under test -------------------------------------------
+# The hooks now resolve the governed repository from the SESSION (see
+# scripts/lib/resolve-roots.sh), not from their own on-disk location. Run from
+# a session seated in some OTHER repository, they would correctly resolve that
+# repository, find no adoption marker, stand down — and every case below would
+# pass by never running. Declaring the subject makes the suite independent of
+# ambient session state, and exercises the env-override candidate for free.
+RICHOS_ENTITY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export RICHOS_ENTITY_ROOT
+# CLAUDE_PROJECT_DIR is deliberately cleared: leaving the launching session's
+# value in place would leave a second, lower-precedence candidate pointing
+# somewhere irrelevant, and a future precedence change would then alter these
+# results silently.
+unset CLAUDE_PROJECT_DIR
+
 HOOK_SRC="$SCRIPT_DIR/detect-nonnative-worktree.sh"
 
 PASS=0
@@ -34,19 +50,25 @@ if [ ! -x "$HOOK_SRC" ]; then
     exit 1
 fi
 
-# make_sandbox — fresh git repo with the hook copied in at its canonical
-# relative location, so the hook's self-resolved REPO_ROOT is the sandbox root.
+# make_sandbox — a fresh git repo that plays the part of "the repository the
+# session is in": it carries the adoption marker, the engine library the hook's
+# bootstrap needs, and a copy of the hook itself.
+#
+# The hook no longer derives its root from its own location, so the sandbox is
+# DECLARED by each run_case via RICHOS_ENTITY_ROOT. Relying on the old
+# self-resolution would mean these cases quietly ran against whatever repository
+# the test was launched from.
 make_sandbox() {
     local root
     root="$(mktemp -d -t detect-nonnative-worktree.XXXXXX)"
-    mkdir -p "$root/scripts/hooks"
+    mkdir -p "$root/scripts/hooks" "$root/scripts/lib"
     cp "$HOOK_SRC" "$root/scripts/hooks/detect-nonnative-worktree.sh"
+    cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
     chmod +x "$root/scripts/hooks/detect-nonnative-worktree.sh"
+    printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup"\n' >"$root/orchestration.config"
     git init -q "$root"
-    git -C "$root" config user.email "test@example.com"
-    git -C "$root" config user.name "test"
     printf 'seed\n' > "$root/README.md"
-    git -C "$root" add README.md
+    git -C "$root" add -A
     git -C "$root" commit -q -m init
     echo "$root"
 }
@@ -78,7 +100,7 @@ PY
 run_case() {
     local name="$1" expected="$2" repo="$3" json="$4"
     local actual
-    printf '%s' "$json" | "$repo/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
+    printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" "$repo/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
     actual=$?
     if [ "$actual" -eq "$expected" ]; then
         printf '  PASS  %s\n' "$name"
@@ -110,7 +132,7 @@ BASH_BIN="$(command -v bash)"
 run_case_msg() {
     local name="$1" needle="$2" repo="$3" json="$4"
     local out
-    out="$(printf '%s' "$json" | "$repo/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"
+    out="$(printf '%s' "$json" | RICHOS_ENTITY_ROOT="$repo" "$repo/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"
     if printf '%s' "$out" | grep -qF "$needle"; then
         printf '  PASS  %s\n' "$name"
         PASS=$((PASS + 1))
@@ -270,7 +292,7 @@ bash -c 'exec -a "$1" sleep 30' _ "$GHOST_PATH" &
 GHOST_PID=$!
 sleep 0.4
 ZP_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.')" \
-    | "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"; ZP_RC=$?
+    | RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" 2>&1 >/dev/null)"; ZP_RC=$?
 kill "$GHOST_PID" 2>/dev/null || true
 wait "$GHOST_PID" 2>/dev/null || true
 if [ "$ZP_RC" -eq 2 ]; then
