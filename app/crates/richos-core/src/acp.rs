@@ -12,7 +12,8 @@
 //!     --> {stopReason, usage}
 //! Auth = the developer's `claude` CLI keychain OAuth; no ANTHROPIC_API_KEY needed.
 
-use crate::cognition::{Cognition, CognitionError};
+use crate::cognition::{Cognition, CognitionError, TurnItem};
+use crate::machinery::MachineryRecord;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -46,8 +47,21 @@ impl From<AcpError> for CognitionError {
 }
 
 /// Streamed items for the active prompt turn.
+///
+/// Machinery arrives here RAW and un-normalized on purpose. §1.4's feasibility argument
+/// for G1 is that `seq` must be assigned at the mpsc DRAIN point (`prompt`'s loop, which
+/// is single-threaded) and not at `dispatch` (which runs on the reader thread). A
+/// `MachineryRecord` cannot exist without its `seq`, so `dispatch` hands over the wire
+/// JSON and `prompt` normalizes it.
 enum ChunkMsg {
+    /// Assistant-message text — the clean-output path, unchanged.
     Text(String),
+    /// Any other `session/update` payload, verbatim.
+    Update(Value),
+    /// A `session/request_permission` we just auto-approved, with the option we chose.
+    Permission { params: Value, chosen: String },
+    /// An `fs/read_text_file` / `fs/write_text_file` the agent asked the client to do.
+    FsCall { method: String, params: Value },
     Done(Value),
 }
 
@@ -139,21 +153,37 @@ impl AcpClient {
         let is_notification = msg.get("method").is_some() && msg.get("id").is_none();
 
         if is_request {
-            Self::handle_agent_request(&msg, stdin);
+            Self::handle_agent_request(&msg, stdin, current);
             return;
         }
         if is_notification {
             if msg["method"] == "session/update" {
                 if let Some(update) = msg.get("params").and_then(|p| p.get("update")) {
-                    if update.get("sessionUpdate").and_then(|s| s.as_str()) == Some("agent_message_chunk") {
+                    let kind = update.get("sessionUpdate").and_then(|s| s.as_str()).unwrap_or("");
+                    if kind == "agent_message_chunk" {
                         if let Some(text) = update.get("content").and_then(|c| c.get("text")).and_then(|t| t.as_str()) {
                             if let Some((_, sink)) = current.lock().unwrap().as_ref() {
                                 let _ = sink.send(ChunkMsg::Text(text.to_string()));
                             }
                         }
+                    } else if let Some((_, sink)) = current.lock().unwrap().as_ref() {
+                        // ROUTED, not dropped (techy-mode design §1.2). This replaces the
+                        // comment that used to sit here: "Every other update kind
+                        // (tool_call, usage, commands, thought) is MACHINERY and is
+                        // deliberately dropped — no render path at all." Clean output was
+                        // implemented as DROP rather than ROUTE; this is the route.
+                        // Normalization (including the one deliberate `user_message_chunk`
+                        // drop) happens at the drain point, where `seq` lives.
+                        let _ = sink.send(ChunkMsg::Update(update.clone()));
                     }
-                    // Every other update kind (tool_call, usage, commands, thought) is
-                    // MACHINERY and is deliberately dropped — no render path at all.
+                    // NOT ROUTED, named so it is a known hole rather than a silent one: an
+                    // update arriving while `current_prompt` is None — at session start, or
+                    // after the prompt response has already been returned — hits no sink at
+                    // all. Measured 2026-08-28: exactly one `available_commands_update` and
+                    // one `session_info_update` per turn, in 5 of 5 runs
+                    // (docs/verification/acp-emission-probe-2026-08-28.md §4.2). §1.5
+                    // designs the fix (a machinery sink independent of the prompt channel);
+                    // §5 schedules it for PHASE 2, and this commit is Phase 1.
                 }
             }
             return;
@@ -181,9 +211,22 @@ impl AcpClient {
     /// Auto-satisfy the agent's client-directed requests. Permission requests are
     /// auto-approved (in-harness policy, exactly as the pilot); fs helpers answer
     /// minimally. None of this is CEO-visible.
-    fn handle_agent_request(msg: &Value, stdin: &Arc<Mutex<ChildStdin>>) {
+    /// Auto-satisfy the agent's client-directed requests, AND route them as machinery.
+    ///
+    /// The auto-approval behaviour is UNCHANGED — same first-`allow*` option, same
+    /// response bytes. Design §1.2: *"Recording the auto-approval is a fact, not a policy.
+    /// It changes no behaviour."* Gap #1 (this client auto-approving every permission
+    /// request) stays deferred and is only OBSERVED here, never governed: no approve/deny
+    /// control exists, by design — techy mode is a window, not a cockpit (§5, §9).
+    fn handle_agent_request(
+        msg: &Value,
+        stdin: &Arc<Mutex<ChildStdin>>,
+        current: &Arc<Mutex<Option<(i64, Sender<ChunkMsg>)>>>,
+    ) {
         let id = msg["id"].clone();
         let method = msg["method"].as_str().unwrap_or("");
+        let params = msg.get("params").cloned().unwrap_or(Value::Null);
+        let mut machinery: Option<ChunkMsg> = None;
         let result = match method {
             "session/request_permission" => {
                 let opts = msg["params"]["options"].as_array().cloned().unwrap_or_default();
@@ -194,14 +237,28 @@ impl AcpClient {
                     .and_then(|o| o["optionId"].as_str())
                     .unwrap_or("allow")
                     .to_string();
+                machinery = Some(ChunkMsg::Permission { params, chosen: chosen.clone() });
                 json!({ "outcome": { "outcome": "selected", "optionId": chosen } })
             }
-            "fs/read_text_file" => json!({ "content": "" }),
-            "fs/write_text_file" => Value::Null,
+            "fs/read_text_file" => {
+                machinery = Some(ChunkMsg::FsCall { method: method.to_string(), params });
+                json!({ "content": "" })
+            }
+            "fs/write_text_file" => {
+                machinery = Some(ChunkMsg::FsCall { method: method.to_string(), params });
+                Value::Null
+            }
             _ => json!({}),
         };
+        // Answer FIRST — the adapter is blocked on this response, and a machinery record
+        // is never worth a millisecond of the CEO's turn latency.
         let response = json!({ "jsonrpc": "2.0", "id": id, "result": result });
         let _ = Self::write_line(stdin, &response);
+        if let Some(m) = machinery {
+            if let Some((_, sink)) = current.lock().unwrap().as_ref() {
+                let _ = sink.send(m);
+            }
+        }
     }
 
     fn write_line(stdin: &Arc<Mutex<ChildStdin>>, msg: &Value) -> Result<(), AcpError> {
@@ -247,12 +304,22 @@ impl AcpClient {
             .ok_or_else(|| AcpError::Protocol("session/new returned no sessionId".into()))
     }
 
-    /// Run ONE turn, streaming agent-message text to `on_chunk`. Returns stopReason.
+    /// Run ONE turn, streaming text AND machinery to `on_item` in arrival order.
+    ///
+    /// **This loop is where `seq` is assigned (§1.4 G1).** One counter, shared by text and
+    /// machinery, so *"he said X, then ran Y, then said Z"* is reconstructible — you
+    /// cannot rebuild that from two independent counters. `dispatch` runs on the reader
+    /// thread, but every routed item passes through this ONE mpsc channel, drained in
+    /// order right here, so the assignment is single-threaded and sound without a lock.
+    ///
+    /// `seq` is strictly increasing but NOT contiguous within one family: a text-only
+    /// consumer sees gaps where machinery happened. That is the point of a shared counter,
+    /// and `app/STREAMING.md` says so.
     pub fn prompt(
         &self,
         session_id: &str,
         text: &str,
-        on_chunk: &mut dyn FnMut(&str),
+        on_item: &mut dyn FnMut(TurnItem),
     ) -> Result<String, AcpError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx): (Sender<ChunkMsg>, Receiver<ChunkMsg>) = channel();
@@ -264,9 +331,37 @@ impl AcpClient {
         });
         Self::write_line(&self.stdin, &msg)?;
 
+        // THE shared per-turn counter (§1.4 G1). Advanced only when an item is actually
+        // delivered — a dropped `user_message_chunk` consumes no position.
+        let mut seq: u64 = 0;
         loop {
             match rx.recv() {
-                Ok(ChunkMsg::Text(t)) => on_chunk(&t),
+                Ok(ChunkMsg::Text(t)) => {
+                    on_item(TurnItem::Text { seq, text: &t });
+                    seq += 1;
+                }
+                Ok(ChunkMsg::Update(update)) => {
+                    // `from_acp_update` returns None for `user_message_chunk` — the ONE
+                    // deliberate drop (§1.2): the ledger already holds the CEO's words
+                    // verbatim and fsync'd, and a second copy would create two sources of
+                    // truth for the one thing that must have exactly one.
+                    if let Some(record) = MachineryRecord::from_acp_update(&update, session_id, seq) {
+                        on_item(TurnItem::Machinery(record));
+                        seq += 1;
+                    }
+                }
+                Ok(ChunkMsg::Permission { params, chosen }) => {
+                    on_item(TurnItem::Machinery(MachineryRecord::from_permission_request(
+                        &params, &chosen, session_id, seq,
+                    )));
+                    seq += 1;
+                }
+                Ok(ChunkMsg::FsCall { method, params }) => {
+                    on_item(TurnItem::Machinery(MachineryRecord::from_client_fs_call(
+                        &method, &params, session_id, seq,
+                    )));
+                    seq += 1;
+                }
                 Ok(ChunkMsg::Done(result)) => {
                     return Ok(result
                         .get("stopReason")
@@ -324,14 +419,16 @@ impl Cognition for AcpCognition {
         &self.session_id
     }
 
-    fn reprime(&mut self, priming_text: &str) -> Result<(), CognitionError> {
-        // The priming turn runs but its output is discarded (never rendered).
-        let mut sink = |_: &str| {};
-        self.client.prompt(&self.session_id, priming_text, &mut sink)?;
+    fn reprime(&mut self, priming_text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        // The priming turn runs a REAL turn. Its TEXT is still discarded (never rendered);
+        // its MACHINERY now flows to the caller, which stamps it `internal: true` /
+        // `turn_id: None` per §1.5 — retained for debugging, never in a thread render,
+        // honouring the standing order that Rich never reveals session rotation.
+        self.client.prompt(&self.session_id, priming_text, on_item)?;
         Ok(())
     }
 
-    fn prompt(&mut self, text: &str, on_chunk: &mut dyn FnMut(&str)) -> Result<String, CognitionError> {
-        Ok(self.client.prompt(&self.session_id, text, on_chunk)?)
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        Ok(self.client.prompt(&self.session_id, text, on_item)?)
     }
 }

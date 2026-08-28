@@ -7,6 +7,7 @@
 //! ZERO live Claude / network. Structuring the session as a trait object IS the
 //! swappable-lease foundation: a later rotation just drops in a fresh Cognition.
 
+use crate::machinery::MachineryRecord;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -31,6 +32,27 @@ pub trait LeaseFactory: Send {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError>;
 }
 
+/// ONE item leaving a turn's drain loop, in the order it actually happened.
+///
+/// The seam widening the techy-mode design forces (§1.6): machinery cannot travel through
+/// a `&str` callback, so `prompt`'s sink takes a tagged item instead.
+///
+/// **One deviation from §1.6's literal signature, and the reason.** §1.6 writes
+/// `Text(&'a str)`. `seq` is carried on the text arm as well, because §1.4 **G1** — *"the
+/// single most important guarantee in the design"* — requires ONE counter per turn shared
+/// by text and machinery: *"You cannot reconstruct 'he said X, then ran Y, then said Z'
+/// from two independent counters."* With a bare `Text(&str)` the spine would have to
+/// count text items itself, which is two counters again. So the counter is assigned once,
+/// at the drain point (§1.4's feasibility argument: `acp.rs`'s mpsc drain is
+/// single-threaded, so assigning there is sound), and both arms carry it.
+pub enum TurnItem<'a> {
+    /// Assistant-message text. The clean-output path — unchanged in every other respect.
+    Text { seq: u64, text: &'a str },
+    /// Everything else the ACP session emitted, normalized. `thread_id` / `turn_id` /
+    /// `internal` are still unset here; only the caller that knows the turn can stamp them.
+    Machinery(MachineryRecord),
+}
+
 /// A disposable compute lease. One implementation per backing session.
 /// `Send` so the durable `Spine` can be held behind a `Mutex` as Tauri managed state.
 pub trait Cognition: Send {
@@ -39,15 +61,29 @@ pub trait Cognition: Send {
 
     /// Inject the re-prime payload as an INTERNAL, non-rendered priming turn.
     /// Called once when the lease is (re)spawned, before any CEO-visible turn.
-    fn reprime(&mut self, priming_text: &str) -> Result<(), CognitionError>;
+    ///
+    /// It runs a REAL turn, so it produces real machinery — which techy-mode §1.5 says
+    /// must be recorded and never rendered (`internal: true`, `turn_id: None`). That is
+    /// why this now takes a sink at all: before, `AcpCognition::reprime` ran into a
+    /// `|_| {}` and the machinery had nowhere to go. Its assistant TEXT is still
+    /// discarded by every caller — the priming turn is never rendered.
+    fn reprime(
+        &mut self,
+        priming_text: &str,
+        on_item: &mut dyn FnMut(TurnItem),
+    ) -> Result<(), CognitionError>;
 
-    /// Run one CEO turn. Streams assistant text chunks to `on_chunk` as they arrive
-    /// (clean output: ONLY agent message text ever reaches this callback — tool calls,
-    /// shell, hook output have no path here). Returns the ACP stopReason.
+    /// Run one CEO turn. Streams items to `on_item` in the order they actually happened,
+    /// each stamped with the ONE shared per-turn `seq` (§1.4 G1).
+    ///
+    /// CLEAN OUTPUT IS UNCHANGED: only agent-message text is ever `TurnItem::Text`. Tool
+    /// calls, shell and hook output arrive as `TurnItem::Machinery` — a different arm, a
+    /// different event family, and no path into `StreamEvent::Chunk`. Returns the ACP
+    /// stopReason.
     fn prompt(
         &mut self,
         text: &str,
-        on_chunk: &mut dyn FnMut(&str),
+        on_item: &mut dyn FnMut(TurnItem),
     ) -> Result<String, CognitionError>;
 }
 
@@ -90,21 +126,34 @@ impl Cognition for MockCognition {
         &self.session_id
     }
 
-    fn reprime(&mut self, priming_text: &str) -> Result<(), CognitionError> {
+    fn reprime(&mut self, priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         self.reprimes.lock().unwrap().push(priming_text.to_string());
         Ok(())
     }
 
-    fn prompt(&mut self, text: &str, on_chunk: &mut dyn FnMut(&str)) -> Result<String, CognitionError> {
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
         self.prompts.lock().unwrap().push(text.to_string());
         let reply = self.replies.lock().unwrap().pop_front().unwrap_or_else(|| format!("ack: {text}"));
-        // Stream in two chunks to exercise incremental delta persistence.
-        let mid = reply.len() / 2;
+        // Stream in two chunks to exercise incremental delta persistence. `seq` is
+        // assigned HERE, by the lease, exactly as the real client does at its drain
+        // point — so the shared-counter contract is exercised by every spine test.
+        let mut seq = 0u64;
+        let mut emit = |s: &str| {
+            on_item(TurnItem::Text { seq, text: s });
+            seq += 1;
+        };
+        // Split at a CHAR boundary: `&reply[..len/2]` panics mid-codepoint on any
+        // non-ASCII reply, and a test fixture with an em-dash in it is enough.
+        let mid = reply
+            .char_indices()
+            .nth(reply.chars().count() / 2)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
         if mid > 0 {
-            on_chunk(&reply[..mid]);
-            on_chunk(&reply[mid..]);
+            emit(&reply[..mid]);
+            emit(&reply[mid..]);
         } else {
-            on_chunk(&reply);
+            emit(&reply);
         }
         Ok("end_turn".to_string())
     }

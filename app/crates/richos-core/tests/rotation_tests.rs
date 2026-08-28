@@ -5,7 +5,7 @@
 //! Test names document the invariant, per the engineering convention this codebase
 //! already follows (spine_tests.rs).
 
-use richos_core::cognition::{Cognition, CognitionError, MockCognition, MockLeaseFactory};
+use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition, MockLeaseFactory};
 use richos_core::ledger::{AttentionTier, Ledger, Source, TurnState};
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
@@ -47,11 +47,11 @@ impl Cognition for FailingCognition {
     fn session_id(&self) -> &str {
         &self.session_id
     }
-    fn reprime(&mut self, _priming_text: &str) -> Result<(), CognitionError> {
+    fn reprime(&mut self, _priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         Ok(())
     }
-    fn prompt(&mut self, _text: &str, on_chunk: &mut dyn FnMut(&str)) -> Result<String, CognitionError> {
-        on_chunk("partial before the lease dies");
+    fn prompt(&mut self, _text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        on_item(TurnItem::Text { seq: 0, text: "partial before the lease dies" });
         Err(CognitionError::Io("adapter exited mid-turn".into()))
     }
 }

@@ -17,8 +17,10 @@
 //! `queue: VecDeque<Queued>` field below handles the DIFFERENT case: a message arriving
 //! while a TURN, not a rotation, is in flight).
 
-use crate::cognition::{Cognition, CognitionError, LeaseFactory};
+use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem};
+use crate::journal::MachineryJournal;
 use crate::ledger::{ActionStatus, ActionVisibility, AttentionTier, Ledger, LedgerError, Message, Source};
+use crate::machinery::{MachineryObserver, MachineryRecord};
 use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
@@ -107,6 +109,15 @@ pub struct Spine {
     pending_proactive_emits: VecDeque<QueuedProactiveEmit>,
     rotation_count: u64,
     last_rotation_reason: Option<String>,
+    /// The machinery journal (techy-mode design §2.1). `None` means machinery is routed
+    /// and emitted but NOT retained — an honest degrade for tests and headless runs, not
+    /// a supported product state: §3.2's rule is that retention runs ALWAYS, because the
+    /// CEO's requirement is to flip a thread he ALREADY HAD.
+    machinery_journal: Option<MachineryJournal>,
+    /// The live machinery sink. A SEPARATE observer from `TurnObserver` on purpose — two
+    /// families means the default UI's subscription list is the proof that the calm view
+    /// carries no machinery (§3.3).
+    machinery_observer: Option<Box<dyn MachineryObserver>>,
 }
 
 impl Spine {
@@ -128,6 +139,8 @@ impl Spine {
             pending_proactive_emits: VecDeque::new(),
             rotation_count: 0,
             last_rotation_reason: None,
+            machinery_journal: None,
+            machinery_observer: None,
         }
     }
 
@@ -149,6 +162,29 @@ impl Spine {
     /// Attach a fresh compute lease. This is the swappable-lease seam: a later
     /// turn-boundary rotation re-attaches here and the spine re-primes it before the
     /// next turn. Marks the lease un-primed so continuity re-injection happens.
+    /// Attach the machinery journal (§2.1). Retention is unconditional once attached —
+    /// there is no flag gating it, deliberately (§3.2).
+    pub fn set_machinery_journal(&mut self, journal: MachineryJournal) {
+        self.machinery_journal = Some(journal);
+    }
+
+    pub fn has_machinery_journal(&self) -> bool {
+        self.machinery_journal.is_some()
+    }
+
+    /// Read-only access for a UI/command layer that wants to project a thread's machinery
+    /// (`journal.project_thread`). Read-only because nothing outside the spine may write
+    /// to this store.
+    pub fn machinery_journal(&self) -> Option<&MachineryJournal> {
+        self.machinery_journal.as_ref()
+    }
+
+    /// Attach the live `rich://machinery` sink. Optional: the spine runs headless with
+    /// nothing listening, and per §2.2 a UI that isn't listening never stalls a turn.
+    pub fn set_machinery_observer(&mut self, observer: Box<dyn MachineryObserver>) {
+        self.machinery_observer = Some(observer);
+    }
+
     pub fn attach_lease(&mut self, lease: Box<dyn Cognition>) {
         self.lease = Some(lease);
         self.lease_primed = false;
@@ -388,37 +424,52 @@ impl Spine {
             at: now_millis(),
         });
 
+        // A turn the CEO never sees (re-prime injection, the rotation handoff summary)
+        // produces machinery he must never see either — §1.5's `internal` rule, the same
+        // distinction `ActionVisibility::Internal` already draws (`ledger.rs:119-133`),
+        // and the standing order that Rich never reveals or references session rotation.
+        let internal_turn = self.ledger.turn(turn_id).map(|t| t.source == Source::Internal).unwrap_or(false);
+
         // Disjoint field borrows: the closure appends each delta to the ledger AND emits
-        // it live, while `lease` streams — `ledger`, `lease`, and `observer` are three
-        // distinct fields of *self, so all can be borrowed at once.
+        // it live, while `lease` streams — `ledger`, `lease`, `observer`, `machinery_*`
+        // are distinct fields of *self, so all can be borrowed at once.
         let ledger = &mut self.ledger;
         let observer = self.observer.as_deref();
+        let journal = self.machinery_journal.as_ref();
+        let machinery_observer = self.machinery_observer.as_deref();
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
-        let mut seq: u64 = 0;
         let mut persist_err: Option<LedgerError> = None;
 
         let stop = {
-            let mut on_chunk = |c: &str| {
-                // Ledger stays the source of truth: persist the delta BEFORE emitting.
-                if let Err(e) = ledger.append_assistant_delta(turn_id, c) {
-                    persist_err = Some(e);
-                    return;
+            let mut on_item = |item: TurnItem| match item {
+                // `seq` comes from the LEASE now (§1.4 G1): ONE counter per turn, shared
+                // by text and machinery. The spine no longer counts text items itself —
+                // that would be the second counter G1 exists to forbid.
+                TurnItem::Text { seq, text: c } => {
+                    // Ledger stays the source of truth: persist the delta BEFORE emitting.
+                    if let Err(e) = ledger.append_assistant_delta(turn_id, c) {
+                        persist_err = Some(e);
+                        return;
+                    }
+                    // Then emit it live (clean output: assistant text only ever reaches here).
+                    if let Some(obs) = observer {
+                        obs.on_event(&StreamEvent::Chunk {
+                            thread_id: thread_id.to_string(),
+                            turn_id: turn_id.to_string(),
+                            seq,
+                            text_delta: c.to_string(),
+                            at: now_millis(),
+                        });
+                    }
                 }
-                // Then emit it live (clean output: assistant text only ever reaches here).
-                if let Some(obs) = observer {
-                    obs.on_event(&StreamEvent::Chunk {
-                        thread_id: thread_id.to_string(),
-                        turn_id: turn_id.to_string(),
-                        seq,
-                        text_delta: c.to_string(),
-                        at: now_millis(),
-                    });
+                TurnItem::Machinery(record) => {
+                    let record = record.stamp(thread_id, Some(turn_id), internal_turn);
+                    Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
-                seq += 1;
             };
-            lease.prompt(text, &mut on_chunk)
+            lease.prompt(text, &mut on_item)
         };
-        // `ledger` / `lease` / `observer` borrows end here.
+        // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
 
         self.turn_in_progress = false;
 
@@ -469,6 +520,33 @@ impl Spine {
                 }
                 Err(e.into())
             }
+        }
+    }
+
+    /// Retain ONE machinery record, then hand it to the live sink.
+    ///
+    /// **Retention first, rendering second, and retention is unconditional** (§3.2:
+    /// *"Routing and retention run ALWAYS. The toggle controls rendering ONLY"*). Making
+    /// retention conditional would destroy the feature, because the CEO's requirement is
+    /// to flip a thread he ALREADY HAD.
+    ///
+    /// **A machinery write failure NEVER fails a turn** (§2.2's corollary). `deliver`
+    /// makes a LEDGER write failure terminal for the turn — correctly, because the ledger
+    /// is truth. Machinery is not truth: a failed write is logged to stderr and the turn
+    /// continues. Taking a `&` journal (not `&mut`) is what lets this sit inside the
+    /// streaming closure alongside the `&mut Ledger` borrow.
+    fn retain_and_emit_machinery(
+        journal: Option<&MachineryJournal>,
+        observer: Option<&dyn MachineryObserver>,
+        record: MachineryRecord,
+    ) {
+        if let Some(j) = journal {
+            if let Err(e) = j.append(&record) {
+                eprintln!("[richos] machinery journal write failed (turn continues): {e}");
+            }
+        }
+        if let Some(obs) = observer {
+            obs.on_machinery(&record);
         }
     }
 
@@ -642,7 +720,19 @@ impl Spine {
             ActionVisibility::Internal,
             ActionStatus::Claimed,
         )?;
-        if let Err(e) = fresh.reprime(&priming) {
+        // The successor's priming machinery, like the first-attach path's: `internal:
+        // true`, `turn_id: None`, retained for debugging and NEVER rendered (§1.5). A
+        // rotation must stay invisible to the CEO, and that includes its machinery.
+        let journal = self.machinery_journal.as_ref();
+        let machinery_observer = self.machinery_observer.as_deref();
+        let mut on_item = |item: TurnItem| {
+            if let TurnItem::Machinery(record) = item {
+                let record = record.stamp(thread_id, None, true);
+                Self::retain_and_emit_machinery(journal, machinery_observer, record);
+            }
+        };
+        let primed = fresh.reprime(&priming, &mut on_item);
+        if let Err(e) = primed {
             self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
             self.ledger.update_action(&rotation_action, ActionStatus::Failed)?;
             return Err(e.into());
@@ -678,12 +768,22 @@ impl Spine {
 
         // Disjoint field borrows — same pattern as `deliver()`.
         let ledger = &mut self.ledger;
+        let journal = self.machinery_journal.as_ref();
+        let machinery_observer = self.machinery_observer.as_deref();
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
         let result = {
-            let mut on_chunk = |c: &str| {
-                let _ = ledger.append_assistant_delta(&turn_id, c);
+            let mut on_item = |item: TurnItem| match item {
+                TurnItem::Text { text: c, .. } => {
+                    let _ = ledger.append_assistant_delta(&turn_id, c);
+                }
+                // Rotation machinery: retained for debugging, `internal: true`, NEVER in a
+                // thread render (§1.5). The CEO must never see that a rotation happened.
+                TurnItem::Machinery(record) => {
+                    let record = record.stamp(thread_id, Some(&turn_id), true);
+                    Self::retain_and_emit_machinery(journal, machinery_observer, record);
+                }
             };
-            lease.prompt(HANDOFF_PROMPT, &mut on_chunk)
+            lease.prompt(HANDOFF_PROMPT, &mut on_item)
         };
 
         match result {
@@ -728,8 +828,23 @@ impl Spine {
             ActionVisibility::Internal,
             ActionStatus::Claimed,
         )?;
+        // §1.5: re-prime runs a real turn, so its machinery now flows. `internal: true`,
+        // `turn_id: None` — attached to the THREAD, not to a turn, because there is no
+        // CEO turn here to attach it to (§1.4 G4: `turn_id: None` is a first-class state,
+        // not a bug). Retained for debugging; never rendered.
+        let journal = self.machinery_journal.as_ref();
+        let machinery_observer = self.machinery_observer.as_deref();
         let primed = match self.lease.as_mut() {
-            Some(lease) => lease.reprime(&priming),
+            Some(lease) => {
+                let mut on_item = |item: TurnItem| {
+                    if let TurnItem::Machinery(record) = item {
+                        let record = record.stamp(thread_id, None, true);
+                        Self::retain_and_emit_machinery(journal, machinery_observer, record);
+                    }
+                    // Priming TEXT is discarded exactly as before — never rendered.
+                };
+                lease.reprime(&priming, &mut on_item)
+            }
             None => Ok(()),
         };
         if let Err(e) = primed {
