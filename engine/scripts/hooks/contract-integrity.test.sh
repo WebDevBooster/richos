@@ -224,6 +224,15 @@ make_sandbox() {
         cp "$SCRIPT_DIR/$h" "$root/scripts/hooks/"
     done
     cp "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
+    # The guard inventory and the table it derives from. Every real engine
+    # ships hooks/hooks.json — a seated engine registers its guards in
+    # .claude/settings.local.json AND publishes the same set here for adopters
+    # loading it as a plugin, which is exactly the pair Layer R's R4 compares.
+    # A sandbox without it was modelling an engine that cannot exist, and it
+    # went unnoticed only while nothing read the file.
+    mkdir -p "$root/hooks"
+    cp "$SCRIPT_DIR/../../hooks/hooks.json" "$root/hooks/hooks.json"
+    cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
     # The sandbox is its own engine root, so it identifies itself like one.
     cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
     copy_root_scripts "$root"
@@ -654,6 +663,15 @@ make_git_main() {
         cp "$SCRIPT_DIR/$h" "$root/scripts/hooks/"
     done
     cp "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
+    # The guard inventory and the table it derives from. Every real engine
+    # ships hooks/hooks.json — a seated engine registers its guards in
+    # .claude/settings.local.json AND publishes the same set here for adopters
+    # loading it as a plugin, which is exactly the pair Layer R's R4 compares.
+    # A sandbox without it was modelling an engine that cannot exist, and it
+    # went unnoticed only while nothing read the file.
+    mkdir -p "$root/hooks"
+    cp "$SCRIPT_DIR/../../hooks/hooks.json" "$root/hooks/hooks.json"
+    cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
     # The sandbox is its own engine root, so it identifies itself like one.
     cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
     copy_root_scripts "$root"

@@ -191,36 +191,55 @@ esac
 # integrity probe's Layer B/C/K compares the live hook file's sha256 against
 # the value stored in its .sha256 sidecar. Regenerating here (from the current
 # on-disk source) keeps the sidecars in sync whenever the operator runs
-# install.sh. Scope covers every wired hook (the PreToolUse Agent chain, the
-# write-guard, the PreToolUse Bash main-write guard, the secrets scanner, the
-# PreToolUse SendMessage resume-guard, the PostToolUse Agent detector, and the
-# idle/completed loggers), plus the definition-drift PAIR (the PreToolUse[Agent]
-# guard and its SessionStart snapshotter) and the SessionStart worktree-reaper
-# CHAIN.
+# install.sh. Scope is EVERY hook the engine registers — enumerated below from
+# hooks/hooks.json rather than described here, because a prose list of "which
+# hooks" is a stale inventory with extra steps. (This paragraph used to carry
+# such a list, and it had already drifted: it said "two entries are not under
+# scripts/hooks/" while three were.)
 #
-# Two entries are NOT under scripts/hooks/: scripts/reap-stale-worktrees.sh and
-# scripts/lib/resolve-roots.sh. The
-# SessionStart wrapper is a thin shim, but the reaper it invokes with --execute
-# is the only hook-reachable code in the engine that DELETES things (worktrees and
+# Three managed files are NOT hooks and appear in no hook table, so they are
+# named explicitly further down: the worktree reaper, its sanctioned removal
+# helper, and the root-resolution contract. The SessionStart reaper wrapper is
+# a thin shim, but the reaper it invokes with --execute is the only
+# hook-reachable code in the engine that DELETES things (worktrees and
 # branches). Hashing only the wrapper would be integrity theatre, so the reaper
 # gets a sidecar too and probe Layer Q verifies BOTH.
-HOOK_FILES=(
-    "$REPO_ROOT/scripts/hooks/guard-worktree-isolation.sh"
-    "$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
-    "$REPO_ROOT/scripts/hooks/snapshot-agent-definitions.sh"
-    "$REPO_ROOT/scripts/hooks/reader-teammate-hint.sh"
-    "$REPO_ROOT/scripts/hooks/verify-agent-prompt.sh"
-    "$REPO_ROOT/scripts/hooks/guard-main-checkout-writes.sh"
-    "$REPO_ROOT/scripts/hooks/guard-bash-main-writes.sh"
-    "$REPO_ROOT/scripts/hooks/guard-worktree-removal.sh"
-    "$REPO_ROOT/scripts/hooks/scan-secrets.sh"
-    "$REPO_ROOT/scripts/hooks/guard-resume-isolation.sh"
-    "$REPO_ROOT/scripts/hooks/guard-workflow-ban.sh"
-    "$REPO_ROOT/scripts/hooks/detect-nonnative-worktree.sh"
-    "$REPO_ROOT/scripts/hooks/teammate-idle-handoff.sh"
-    "$REPO_ROOT/scripts/hooks/task-completed-handoff.sh"
-    "$REPO_ROOT/scripts/hooks/session-start-reap-worktrees.sh"
-    "$REPO_ROOT/scripts/hooks/engine-status.sh"
+# THE hooks/ HALF OF THIS LIST IS DERIVED, NEVER TYPED.
+#
+# It used to be sixteen hand-written paths, and it was the THIRD copy of "the
+# set of guards" in this engine. The first two both went stale within two days
+# of each other (13/13 and 14/14 in the session banner, over a guard that was
+# wired, present, executable and firing), which is all the evidence needed that
+# a fourth reader maintaining its own copy would eventually skip a guard's
+# sidecar and leave its tamper check silently not running.
+#
+# So it comes from hooks/hooks.json — the same registration surface the session
+# banner and the probe's BR2 derive from — via the one shared parser.
+# Consequence: wiring a seventeenth guard mints its sidecar with no edit here.
+_RH_LIB="$REPO_ROOT/scripts/lib/registered-hooks.sh"
+[ -f "$_RH_LIB" ] || { echo "ERROR: install.sh: $_RH_LIB is missing — cannot determine which hooks to hash, and hashing a guessed subset would leave real guards with no tamper check. Refusing." >&2; exit 2; }
+# shellcheck source=../lib/registered-hooks.sh
+. "$_RH_LIB"
+# Fail loud, never skip: an unreadable hook table here means an unknown guard
+# set, and minting "the sidecars we could work out" is precisely the silent
+# partial success this engine refuses everywhere else.
+if ! _REGISTERED_HOOKS="$(registered_hook_scripts "$REPO_ROOT/hooks/hooks.json")"; then
+    echo "ERROR: install.sh: could not derive the managed hook set from $REPO_ROOT/hooks/hooks.json (missing, unreadable, or registering nothing). Refusing rather than minting an incomplete set of sidecars." >&2
+    exit 2
+fi
+
+HOOK_FILES=()
+while IFS= read -r _h; do
+    [ -n "$_h" ] || continue
+    HOOK_FILES+=("$REPO_ROOT/scripts/hooks/$_h")
+done <<REGISTERED_EOF
+$_REGISTERED_HOOKS
+REGISTERED_EOF
+
+# The managed files that are NOT hooks, and therefore appear in no hook table.
+# These stay explicit because there is no registration surface to derive them
+# from — each is here for a reason stated at its own line.
+HOOK_FILES+=(
     "$REPO_ROOT/scripts/reap-stale-worktrees.sh"
     # Not a hook either, and hashed for the same reason as the reaper: it is the
     # OTHER piece of engine code that DELETES worktrees, and it is the escape
