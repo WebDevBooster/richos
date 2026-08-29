@@ -116,12 +116,63 @@ async function openFixture(browser, viewport) {
 /// Take a screenshot AND prove it is a real render. An all-black or all-white PNG is what a
 /// locked display produces; a genuine WebKit paint has hundreds of distinct pixel values.
 /// A shot that fails this check is reported as evidence of NOTHING, never counted as a pass.
-async function shot(page, name) {
+///
+/// THIS CHECK WAS DOCUMENTED HERE BEFORE IT WAS DONE. Until this commit the function
+/// measured `fs.statSync(...).size` and nothing else — and a byte count is exactly what an
+/// all-black PNG passes: `screencapture` on this machine has been returning a valid,
+/// several-kilobyte, single-colour (0,0,0) 1920x1080 file for three slices running. A file
+/// size is not a render. So the pixels are now counted, in the browser that just painted
+/// them: the PNG is handed back to WebKit, decoded, drawn to a canvas and sampled. No new
+/// dependency, and the decoder is the same engine the CEO's app renders through.
+///
+/// `distinct` is the number of unique RGB values over a bounded grid sample. A locked
+/// display returns 1. A real UI returns dozens to hundreds.
+const SHOT_MIN_DISTINCT = 8;
+
+async function shot(page, name, opts) {
+  opts = opts || {};
   fs.mkdirSync(SHOT_DIR, { recursive: true });
   const file = path.join(SHOT_DIR, name + ".png");
-  await page.screenshot({ path: file, fullPage: true });
+  const buf = await page.screenshot({ path: file, fullPage: opts.fullPage !== false });
   const bytes = fs.statSync(file).size;
-  return { file, bytes };
+
+  const stats = await page.evaluate(async (b64) => {
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = res;
+      img.onerror = () => rej(new Error("the PNG did not decode"));
+      img.src = "data:image/png;base64," + b64;
+    });
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    // A bounded grid — a 120x120 sample is enough to tell a painted UI from a flat fill and
+    // costs nothing on a 2000px-tall full-page shot.
+    const stepX = Math.max(1, Math.floor(c.width / 120));
+    const stepY = Math.max(1, Math.floor(c.height / 120));
+    const seen = new Set();
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    let sampled = 0;
+    for (let y = 0; y < c.height; y += stepY) {
+      for (let x = 0; x < c.width; x += stepX) {
+        const i = (y * c.width + x) * 4;
+        seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+        sampled++;
+      }
+    }
+    return { width: c.width, height: c.height, distinct: seen.size, sampled };
+  }, buf.toString("base64"));
+
+  if (stats.distinct < SHOT_MIN_DISTINCT) {
+    throw new Error(
+      `${name}.png is ${stats.width}x${stats.height} with only ${stats.distinct} distinct ` +
+        `colour(s) across ${stats.sampled} samples — that is a flat fill, not a render. ` +
+        `Evidence of NOTHING (${file}).`
+    );
+  }
+  return Object.assign({ file, bytes }, stats);
 }
 
 // ---------------------------------------------------------------------------------------
