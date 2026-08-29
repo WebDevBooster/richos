@@ -277,7 +277,6 @@
     "Viewed an image": (n) => `Viewed ${n} images`,
     "Used an integration": (n) => `Used ${n} integrations`,
     "Updated a thread": (n) => `Updated ${n} threads`,
-    "Requested approval": (n) => `Requested approval ${n} times`,
     "Set up the environment": (n) => `Set up the environment (${n} steps)`,
     "Worked": (n) => `Worked (${n} steps)`,
   };
