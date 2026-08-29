@@ -41,9 +41,9 @@ import {
 import { encodeMessage, FrameDecoder } from '../lib/stdio.js';
 import { SessionSink } from '../lib/host-handlers.js';
 import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
-import { parseChannels, parseVolume, SILENCE_MAX_DB } from '../lib/normalize.js';
+import { parseChannels, parseVolume, parseSilenceLog, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
-import { resolveTier, MODEL_TIERS, DEFAULT_TIER } from '../lib/config.js';
+import { resolveTier, MODEL_TIERS, DEFAULT_TIER, whisperArgs, MAX_CONTEXT_TOKENS } from '../lib/config.js';
 import {
   guardChannel,
   guardChannelAll,
@@ -52,6 +52,7 @@ import {
   guardTranscription,
   guardWarnings,
   readEnumerationMarker,
+  burstCapacity,
 } from '../lib/repetition-guard.js';
 import {
   TURBO_NUMERAL_INSERTION,
@@ -860,18 +861,52 @@ test('the default tier is turbo (the benchmarked reliable model) when nothing is
   assert.deepEqual(t.decodeArgs, []); // turbo needs no repetition-guard decode params
 });
 
-test('the "max" opt-in tier is full large-v3 WITH repetition-guard decode params (never bare)', () => {
+test('the "max" opt-in tier is full large-v3 and carries NO private decode params', () => {
   const t = resolveTier('max');
   assert.equal(t.model, 'large-v3');
-  // -mc 0 (no previous-text conditioning) is the primary loop fix; temperature fallback stays on.
-  assert.ok(t.decodeArgs.includes('-mc') && t.decodeArgs[t.decodeArgs.indexOf('-mc') + 1] === '0');
   assert.ok(t.repetitionGuard === true);
+  // -mc 0 used to live here and ONLY here, which is how the two shipping tiers ended up decoding
+  // with full context carry-over and destroying up to 44.1% of a 92-minute channel (2026-08-29).
+  // It is now a pipeline-wide invariant in whisperArgs, so this tier needs nothing of its own.
+  assert.deepEqual(t.decodeArgs, []);
 });
 
-test('a raw --model large-v3 auto-attaches the guard decode params (the gate: never unguarded)', () => {
+test('EVERY tier decodes with no previous-text conditioning — the loop fix cannot be tier-local', () => {
+  // The invariant the old per-tier decodeArg failed to hold. It is asserted for every tier that
+  // exists, not just the one that happened to carry the flag.
+  for (const name of [...Object.keys(MODEL_TIERS), 'large-v3', 'large-v3-turbo', 'some-future-model']) {
+    const t = resolveTier(name);
+    const args = whisperArgs({ extraArgs: t.decodeArgs });
+    const i = args.lastIndexOf('-mc');
+    assert.ok(i >= 0, `${name}: -mc must be emitted`);
+    assert.equal(args[i + 1], '0', `${name}: decode context must be 0, got ${args[i + 1]}`);
+  }
+});
+
+test('a raw --model large-v3 is gated by the pipeline-wide cap, not by a per-model special case', () => {
   const t = resolveTier('large-v3');
   assert.equal(t.model, 'large-v3');
-  assert.ok(t.decodeArgs.includes('-mc'), 'bare large-v3 must not run without the guard params');
+  const args = whisperArgs({ extraArgs: t.decodeArgs });
+  assert.equal(args[args.lastIndexOf('-mc') + 1], '0', 'bare large-v3 must not run with context carry-over');
+});
+
+test('MAX_CONTEXT_TOKENS is overridable per call and by env, so an operator is never trapped', () => {
+  assert.equal(whisperArgs({ maxContext: -1 })[whisperArgs({ maxContext: -1 }).lastIndexOf('-mc') + 1], '-1');
+  const prev = process.env.RICHOS_WHISPER_MAX_CONTEXT;
+  process.env.RICHOS_WHISPER_MAX_CONTEXT = '16';
+  try {
+    const a = whisperArgs();
+    assert.equal(a[a.lastIndexOf('-mc') + 1], '16');
+  } finally {
+    if (prev === undefined) delete process.env.RICHOS_WHISPER_MAX_CONTEXT;
+    else process.env.RICHOS_WHISPER_MAX_CONTEXT = prev;
+  }
+});
+
+test('a tier decodeArg still wins over the default (emitted after, whisper-cli takes the last)', () => {
+  const args = whisperArgs({ extraArgs: ['-mc', '224'] });
+  assert.equal(args.lastIndexOf('-mc'), args.length - 2);
+  assert.equal(args[args.length - 1], '224');
 });
 
 test('a raw --model large-v3-turbo stays clean (no guard decode params forced on the safe model)', () => {
@@ -929,6 +964,120 @@ test('the guard does NOT collapse short legitimate backchannels ("Yeah." "Yeah."
   ];
   const r = guardChannel(back);
   assert.equal(r.removed, 0, 'three short backchannels are legitimate, not a loop');
+});
+
+// ---------------------------------------------------------------------------------------
+// THE PHYSICAL VETO. Fixtures are the REAL 2026-08-29 92-minute artifacts, not invented shapes:
+// the retake is what large-v3-turbo actually emitted at 5502-5536 s on the `others` channel, and
+// the bursts are what ffmpeg silencedetect actually measured on that same audio.
+const RETAKE_LINE = 'Because before you commit to a rollout, you need to agree the metrics.';
+const REAL_RETAKE_X3 = [
+  { startMs: 5502400, endMs: 5509500, text: RETAKE_LINE, speaker: 'others' },
+  { startMs: 5512300, endMs: 5517100, text: 'because before you commit to a rollout you need to agree the metrics', speaker: 'others' },
+  { startMs: 5523300, endMs: 5536300, text: 'because before you commit to a rollout you need to agree the metrics', speaker: 'others' },
+];
+// Three separate bursts, each verified in the brief to independently decode to the whole sentence.
+const REAL_RETAKE_BURSTS = [
+  { startMs: 5502498, endMs: 5507510 },
+  { startMs: 5512384, endMs: 5517062 },
+  { startMs: 5523479, endMs: 5528128 },
+];
+
+test('the guard DELETES two genuine deliveries of a real 3x human retake when it is text-only', () => {
+  // This is the defect, pinned. minRun:3 vs a human who delivers the same line three times running.
+  const r = guardChannel(REAL_RETAKE_X3);
+  assert.equal(r.removed, 2, 'text alone cannot tell this from a decoder loop — and it does not');
+  assert.equal(r.loops.length, 1);
+});
+
+test('the physical veto PRESERVES that retake: three bursts, three deliveries, nothing removed', () => {
+  const r = guardChannel(REAL_RETAKE_X3, { speechBursts: REAL_RETAKE_BURSTS });
+  assert.equal(r.removed, 0, 'the audio holds a qualifying burst per repetition, so it is speech');
+  assert.equal(r.loops.length, 0);
+  assert.equal(r.segments.length, 3, 'all three genuine deliveries survive');
+  assert.equal(r.preserved.length, 1);
+  assert.equal(r.preserved[0].burstCapacity, 3);
+});
+
+test('the veto still collapses a fabrication over digital silence (no bursts, no capacity)', () => {
+  // turbo emitted "Thank you." x7 at 4885-4915 s over a window measuring -51.3 dBFS. There is no
+  // burst there at all, so capacity is 0 and the collapse stands.
+  const line = 'Thank you very much indeed.';
+  const overSilence = [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+    startMs: 4885200 + i * 4000, endMs: 4889200 + i * 4000, text: line, speaker: 'me',
+  }));
+  const r = guardChannel(overSilence, { speechBursts: [] });
+  assert.equal(r.segments.filter((s) => s.text === line).length, 1, 'a loop over silence still collapses');
+  assert.equal(r.removed, 6);
+});
+
+test('the veto collapses PARTIALLY when the audio holds some deliveries but not all', () => {
+  // 5 emitted copies over 2 qualifying bursts -> keep 2, drop 3. Neither "delete it all" nor
+  // "keep it all" is right when the audio says the truth is in between.
+  const line = 'and the week later you get an update that sounds reassuring but changes nothing';
+  const segs = [0, 1, 2, 3, 4].map((i) => ({
+    startMs: 2142400 + i * 9600, endMs: 2152000 + i * 9600, text: line, speaker: 'others',
+  }));
+  const bursts = [{ startMs: 2142400, endMs: 2160000 }, { startMs: 2170000, endMs: 2190400 }];
+  const r = guardChannel(segs, { speechBursts: bursts });
+  assert.equal(r.segments.filter((s) => s.text === line).length, 2);
+  assert.equal(r.removed, 3);
+  assert.equal(r.loops[0].kept, 2);
+  assert.equal(r.loops[0].burstCapacity, 2);
+});
+
+test('the veto is inert on short phrases, where a burst ceiling carries no signal', () => {
+  // "Okay." fits in any burst; using capacity there would veto every short collapse. Documented
+  // residual: a short genuine repetition can still be collapsed.
+  const segs = [0, 1, 2, 3, 4, 5].map((i) => ({ startMs: i * 4000, endMs: i * 4000 + 3000, text: 'Okay.', speaker: 'me' }));
+  const bursts = segs.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
+  const withProbe = guardChannel(segs, { speechBursts: bursts });
+  const without = guardChannel(segs);
+  assert.equal(withProbe.removed, without.removed, 'short runs keep the old text-only behaviour');
+});
+
+test('the veto can only REFUSE a collapse, never cause one (strictly more conservative)', () => {
+  // Burst capacity is a ceiling, not proof of delivery, so adding the probe must never remove more.
+  for (const fixture of [largeV3Hallucination, REAL_RETAKE_X3]) {
+    for (const bursts of [[], REAL_RETAKE_BURSTS, [{ startMs: 0, endMs: 60000 }]]) {
+      const withProbe = guardChannel(fixture, { speechBursts: bursts });
+      const without = guardChannel(fixture);
+      assert.ok(withProbe.removed <= without.removed,
+        `probe removed ${withProbe.removed} > text-only ${without.removed}`);
+    }
+  }
+});
+
+test('guardTranscription routes each channel its OWN bursts (never the other channel\'s)', () => {
+  const r = guardTranscription(
+    { me: largeV3Hallucination.map((s) => ({ ...s, speaker: 'me' })), others: REAL_RETAKE_X3 },
+    { speechBursts: { me: [], others: REAL_RETAKE_BURSTS } },
+  );
+  assert.equal(r.others.length, 3, 'the retake survives on `others` (its own bursts back it)');
+  assert.equal(r.me.filter((s) => s.text === LOOP_LINE).length, 1, 'the loop still collapses on `me`');
+  assert.equal(r.report.classes.preservedByAudio, 1);
+});
+
+test('parseSilenceLog turns silencedetect output into speech bursts (the complement)', () => {
+  const log = [
+    '  Duration: 00:00:30.00, start: 0.000000, bitrate: 256 kb/s',
+    '[silencedetect @ 0x1] silence_start: 5',
+    '[silencedetect @ 0x1] silence_end: 10 | silence_duration: 5',
+    '[silencedetect @ 0x1] silence_start: 20',
+  ].join('\n');
+  const r = parseSilenceLog(log);
+  assert.equal(r.durationSec, 30);
+  assert.deepEqual(r.speech, [{ startMs: 0, endMs: 5000 }, { startMs: 10000, endMs: 20000 }]);
+  // a trailing silence_start with no silence_end runs to the end of the file, not to infinity
+  assert.deepEqual(r.silence[r.silence.length - 1], { startMs: 20000, endMs: 30000 });
+});
+
+test('burstCapacity counts only bursts long enough to hold the phrase, clipped to the span', () => {
+  const bursts = [{ startMs: 0, endMs: 5000 }, { startMs: 6000, endMs: 6500 }, { startMs: 8000, endMs: 13000 }];
+  assert.equal(burstCapacity(bursts, 0, 20000, 3, 1), 2, '0.5 s burst cannot hold a 3 s phrase');
+  assert.equal(burstCapacity(bursts, 0, 20000, 10, 1), 0, 'nothing holds a 10 s phrase');
+  assert.equal(burstCapacity(bursts, 0, 5000, 3, 1), 1, 'bursts outside the span do not count');
+  assert.equal(burstCapacity(null, 0, 20000, 1, 1), 0, 'no probe means no capacity, never a veto');
 });
 
 test('the guard does not touch a clean transcript (zero false positives on turbo output)', () => {

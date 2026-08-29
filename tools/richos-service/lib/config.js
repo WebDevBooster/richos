@@ -237,9 +237,14 @@ export const DEFAULT_TIER = 'turbo';
  *
  * - a known tier name -> that tier.
  * - `null`/empty -> the default tier (turbo).
- * - anything else -> a "custom" tier wrapping the raw model id (backward compat with `--model`),
- *   AND if that raw id is bare full large-v3 (not turbo) the repetition-guard decode params are
- *   auto-attached — so full large-v3 can NEVER run through this pipeline unguarded (the gate).
+ * - anything else -> a "custom" tier wrapping the raw model id (backward compat with `--model`).
+ *
+ * THE GATE MOVED, IT DID NOT GO AWAY. This function used to auto-attach `-mc 0` to a raw bare
+ * `large-v3` so full large-v3 could never run unguarded — while leaving every OTHER model, including
+ * the two that actually ship, to run with full context carry-over. That got it exactly backwards:
+ * the failure is a property of long-form decoding, not of one model id. `-mc 0` is now emitted by
+ * `whisperArgs()` for every model and every tier (`MAX_CONTEXT_TOKENS`), so the gate holds for
+ * `large-v3` AND for everything else, and there is nothing left here to forget.
  * @param {string|null|undefined} tier
  * @returns {{name: string, model: string, decodeArgs: string[], repetitionGuard: boolean, description?: string}}
  */
@@ -247,15 +252,12 @@ export function resolveTier(tier) {
   const key = tier == null ? '' : String(tier);
   if (!key) return { name: DEFAULT_TIER, ...MODEL_TIERS[DEFAULT_TIER] };
   if (MODEL_TIERS[key]) return { name: key, ...MODEL_TIERS[key] };
-  const isBareLargeV3 = /^large-v3(?!-turbo)/.test(key);
   return {
     name: 'custom',
     model: key,
-    decodeArgs: isBareLargeV3 ? [...MODEL_TIERS.max.decodeArgs] : [],
+    decodeArgs: [],
     repetitionGuard: true,
-    description: isBareLargeV3
-      ? `custom model "${key}" — full large-v3 detected; repetition-guard decode params auto-applied (gate)`
-      : `custom model "${key}"`,
+    description: `custom model "${key}" — decode context is capped at MAX_CONTEXT_TOKENS for every model`,
   };
 }
 

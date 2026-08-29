@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reconcilePipeline } from './reconcile.js';
 import { upgradeRecord, PIPELINE_STATUS, hasUsableAudio } from './contract.js';
-import { normalizeSession, ffmpegVersion, detectSilence, CHANNEL_FILES } from './normalize.js';
+import { normalizeSession, ffmpegVersion, detectSilence, detectSpeechBursts, CHANNEL_FILES } from './normalize.js';
 import { transcribeSession, whisperVersion } from './transcribe.js';
 import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
@@ -142,8 +142,10 @@ export function runPipeline(sessionDir, opts = {}) {
     }
 
     // ---- Stage 3: TRANSCRIBE --------------------------------------------------------------------
-    // The tier's decode params (e.g. the `max` tier's -mc 0 no-previous-text-conditioning) are the
-    // decode HALF of the hallucination guard; they ride in as extraArgs.
+    // The decode HALF of the hallucination guard is no previous-text conditioning
+    // (`config.js#MAX_CONTEXT_TOKENS`, emitted by whisperArgs on EVERY tier since 2026-08-29 —
+    // it used to be one tier's private decodeArg and the shipping tiers went without it). A tier's
+    // own decodeArgs and the caller's extraArgs still ride in on top and still win.
     const decodeArgs = [...(tier.decodeArgs || []), ...(opts.extraArgs || [])];
     log.info(`${sessionId} — tier=${tier.name} model=${model}${decodeArgs.length ? ` decode=[${decodeArgs.join(' ')}]` : ''}`);
     const asr = transcribeSession(
@@ -162,16 +164,40 @@ export function runPipeline(sessionDir, opts = {}) {
     let repetitionReport = {
       removed: 0,
       detected: false,
-      classes: { repetition: 0, insertion: 0, overlapStutter: 0 },
+      classes: { repetition: 0, insertion: 0, overlapStutter: 0, preservedByAudio: 0 },
       loops: [],
+      preserved: [],
       insertions: [],
       stutters: [],
       byChannel: { me: {}, others: {} },
     };
     if (tier.repetitionGuard !== false) {
-      const guarded = guardTranscription({ me: asr.me, others: asr.others });
+      // The PHYSICAL evidence the loop class needs to tell a decoder loop from a human retake, one
+      // ffmpeg pass per channel (~3% of decode time). Without it the guard is text-only and, on
+      // retake-dense material, deletes real speech — measured, 13 genuine deliveries on 92 minutes
+      // of real audio (repetition-guard.js header). Best-effort: if ffmpeg cannot produce it the
+      // guard falls back to its old text-only behaviour rather than failing the pipeline.
+      let speechBursts = null;
+      try {
+        const b = {
+          me: detectSpeechBursts(channelPaths.me, { peakDb: silence.me.maxDb }).speech,
+          others: detectSpeechBursts(channelPaths.others, { peakDb: silence.others.maxDb }).speech,
+        };
+        speechBursts = b;
+        log.info(`${sessionId} — speech bursts: me=${b.me.length} others=${b.others.length}`);
+      } catch (err) {
+        log.alarm(`${sessionId} — speech-burst probe failed; the repetition guard runs TEXT-ONLY and may delete genuine repeated speech`, {
+          error: String(err && err.message ? err.message : err),
+        });
+      }
+      const guarded = guardTranscription({ me: asr.me, others: asr.others }, speechBursts ? { speechBursts } : {});
       asrGuarded = { me: guarded.me, others: guarded.others };
       repetitionReport = guarded.report;
+      if (repetitionReport.preserved && repetitionReport.preserved.length) {
+        log.info(`${sessionId} — ${repetitionReport.preserved.length} repeated run(s) PRESERVED: the audio contains a speech burst for every repetition`, {
+          preserved: repetitionReport.preserved.map((p) => ({ channel: p.channel, count: p.count, text: p.text.slice(0, 60) })),
+        });
+      }
       if (repetitionReport.loops.length) {
         log.alarm(`${sessionId} — repetition loop(s) caught + collapsed by the guard`, {
           removedSegments: repetitionReport.removed,
