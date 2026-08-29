@@ -333,6 +333,17 @@ struct Inner {
     active: Mutex<Option<ActiveTurn>>,
     stop: Mutex<Option<StopClaim>>,
     cancel: Mutex<Option<Arc<dyn TurnCancel>>>,
+    /// The CURRENT compute lease's session id, published by the spine at the same three
+    /// points as `cancel` (attach, rotation, crash recovery).
+    ///
+    /// Here rather than behind the spine's mutex for the same reason `active` and `cancel`
+    /// are: `send_message` holds that mutex for the whole turn, and `get_worker_status` is
+    /// polled by the UI ON TURN START. Reading the session id through the spine would make
+    /// the worker chip block until Rich finished — so the one datum the worker path needs
+    /// travels the channel that was built to bypass the lock.
+    ///
+    /// A MIRROR, not a second opinion: it is only ever written next to `self.lease`.
+    lease_session: Mutex<Option<String>>,
 }
 
 /// The shared, lock-free-with-respect-to-the-spine control surface for §9.2 and §9.3.
@@ -360,6 +371,7 @@ impl TurnControl {
                 active: Mutex::new(None),
                 stop: Mutex::new(None),
                 cancel: Mutex::new(None),
+                lease_session: Mutex::new(None),
             }),
         })
     }
@@ -375,6 +387,7 @@ impl TurnControl {
                 active: Mutex::new(None),
                 stop: Mutex::new(None),
                 cancel: Mutex::new(None),
+                lease_session: Mutex::new(None),
             }),
         }
     }
@@ -410,10 +423,24 @@ impl TurnControl {
         *self.inner.cancel.lock().unwrap() = cancel;
     }
 
+    /// Publish the current lease's session id. Written by the spine beside `set_cancel`,
+    /// at every point where `self.lease` changes — `None` when there is no lease, so the
+    /// worker path reports "no compute lease is attached" rather than reading a directory
+    /// belonging to a session that ended.
+    pub fn set_lease_session(&self, session_id: Option<String>) {
+        *self.inner.lease_session.lock().unwrap() = session_id;
+    }
+
     // --- read/written by the shell, WITHOUT the spine lock ------------------------------
 
     pub fn active_turn(&self) -> Option<ActiveTurn> {
         self.inner.active.lock().unwrap().clone()
+    }
+
+    /// The session id of the lease the app is serving RIGHT NOW, readable without the
+    /// spine lock. `None` = no lease; the caller must not substitute anything for it.
+    pub fn lease_session(&self) -> Option<String> {
+        self.inner.lease_session.lock().unwrap().clone()
     }
 
     /// §9.3 steps 1 and 2, in that order and never the other way round: persist the stop

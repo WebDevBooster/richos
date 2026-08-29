@@ -311,7 +311,7 @@ fn the_action_ledger_section_is_always_rendered_so_the_assertion_never_points_at
     let thread_holder = {
         let mut l = ledger;
         let t = l.create_thread("General", &femcboost()).unwrap();
-        let payload = RePrimePayload::assemble(&l, &l.thread_binding(&t).unwrap(), 8).unwrap();
+        let payload = RePrimePayload::assemble(&l, &l.thread_binding(&t).unwrap(), 8, None).unwrap();
         assert!(payload.action_ledger_digest.is_empty());
         let priming = payload.to_priming_prompt();
         assert!(priming.contains("ACTION LEDGER"), "the section is present even when empty");
@@ -358,7 +358,7 @@ fn a_proactive_turn_in_the_verbatim_tail_carries_no_phantom_ceo_line() {
         .raise_proactive(Some(&thread), AttentionTier::Digest, "Acme counter expires at noon.")
         .unwrap();
 
-    let payload = RePrimePayload::assemble(spine.ledger(), &spine.ledger().thread_binding(&thread).unwrap(), 8).unwrap();
+    let payload = RePrimePayload::assemble(spine.ledger(), &spine.ledger().thread_binding(&thread).unwrap(), 8, None).unwrap();
     assert!(
         payload.recent_tail.iter().all(|tv| !tv.text.is_empty()),
         "no empty-text line survives into the tail: {:?}",
@@ -444,7 +444,7 @@ fn a_pre_visibility_action_record_replays_as_ceo_facing() {
     // thread record is the authority, so that is not a guess — and the digest resolves.
     let binding = ledger.adopt_unbound_thread("thr_1", &femcboost(), "operator:echo").unwrap();
     assert_eq!(binding.entity_id().as_str(), "femcboost");
-    let payload = RePrimePayload::assemble(&ledger, &binding, 8).unwrap();
+    let payload = RePrimePayload::assemble(&ledger, &binding, 8, None).unwrap();
     assert_eq!(payload.action_ledger_digest.len(), 1);
     assert_eq!(ledger.messages("thr_1").unwrap().len(), 1, "the legacy conversation is readable again");
 

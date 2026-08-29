@@ -100,10 +100,21 @@ fn the_distinction_survives_a_reopen_because_it_is_two_events_not_one_reason_str
 }
 
 #[test]
-fn a_stop_arriving_after_the_turn_already_completed_does_not_rewrite_history() {
-    // The race §9.3 has to survive: the CEO presses stop at the exact moment Rich finishes.
-    // Whoever wins, the log must say what actually happened — and what happened is that the
-    // turn completed.
+fn the_ledger_refuses_to_stop_a_turn_that_already_completed() {
+    // SCOPE, STATED HONESTLY — this proves the LEDGER PRIMITIVE and nothing above it.
+    //
+    // It used to open with "The race §9.3 has to survive: the CEO presses stop at the exact
+    // moment Rich finishes", which read as though the race were covered. It was not. This
+    // calls `complete_turn` then `stop_turn` DIRECTLY, and until 2026-08-29 the spine never
+    // called those two in that order — `deliver()` took the stop branch before reading what
+    // the lease reported, so `complete_turn` was unreachable whenever a stop claim existed
+    // and the guard exercised below could not fire in production. A green test that names a
+    // race it does not run is worse than no test: it stops anyone looking.
+    //
+    // The race itself is now covered at the level where it happens, by
+    // `a_turn_that_completed_is_never_rendered_as_one_the_ceo_stopped` (a real spine, a real
+    // stop request, a lease that finishes anyway). This test keeps its own narrower job:
+    // the projection rule that makes that fix possible.
     let (_p, mut ledger) = tmp_ledger("late-stop");
     let (_t, turn) = started_turn(&mut ledger, "nearly done");
     ledger.complete_turn(&turn, "end_turn").unwrap();
@@ -513,4 +524,229 @@ fn an_ordinary_typed_message_carries_no_intake_id_and_can_never_collide_with_one
     // drain deciding its record was already handled by an unrelated typed message.
     assert!(ledger.turn_for_intake(0).is_none());
     assert!(ledger.turn_for_intake(1).is_none());
+}
+
+// ---------------------------------------------------------------------------------------
+// THE RACE: A STOP THAT DID NOT LAND ON A TURN THAT FINISHED
+// ---------------------------------------------------------------------------------------
+
+/// A lease whose cancel seam WORKS — `cancel()` returns `true`, exactly as
+/// `AcpCancelHandle::cancel` does once `session/cancel` has been written to the child —
+/// and whose `prompt` nevertheless returns a natural `end_turn`.
+///
+/// That is not a contrived mock; it is the real ordering. `cancel()` clones the sink and
+/// appends `ChunkMsg::Cancel` AFTER whatever is already queued, so when the adapter's
+/// `Done` is already in the channel `rx.recv()` returns it first and `prompt` returns
+/// `"end_turn"` (`acp.rs:443-450`). `AcpCancelHandle`'s doc comment addresses `Done`
+/// RACING the wake; this is `Done` ALREADY QUEUED before the wake exists.
+///
+/// It is deterministic here, not timing-dependent: `prompt` blocks until the test says the
+/// stop request has been registered, and only then reports its natural terminal.
+struct FinishesDespiteTheStop {
+    running: Arc<AtomicBool>,
+    stop_registered: Arc<AtomicBool>,
+    cancel: Arc<DeliveredButIgnored>,
+}
+
+/// `cancel()` returns `true` — the signal really was delivered to the child — and changes
+/// nothing about the stream, because the answer was already on its way.
+struct DeliveredButIgnored;
+impl TurnCancel for DeliveredButIgnored {
+    fn cancel(&self) -> bool {
+        true
+    }
+}
+
+impl FinishesDespiteTheStop {
+    fn new() -> Self {
+        FinishesDespiteTheStop {
+            running: Arc::new(AtomicBool::new(false)),
+            stop_registered: Arc::new(AtomicBool::new(false)),
+            cancel: Arc::new(DeliveredButIgnored),
+        }
+    }
+}
+
+impl Cognition for FinishesDespiteTheStop {
+    fn session_id(&self) -> &str {
+        "sess-finishes-anyway"
+    }
+    fn reprime(&mut self, _p: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        Ok(())
+    }
+    fn prompt(&mut self, _text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        on_item(TurnItem::Text { seq: 0, text: "Here is the complete answer you asked for." });
+        self.running.store(true, Ordering::SeqCst);
+        let began = std::time::Instant::now();
+        while !self.stop_registered.load(Ordering::SeqCst) {
+            assert!(began.elapsed() < Duration::from_secs(5), "the stop never registered");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // The whole point: the adapter's `Done` was already in the channel.
+        Ok("end_turn".to_string())
+    }
+    fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
+        Some(Arc::clone(&self.cancel) as Arc<dyn TurnCancel>)
+    }
+}
+
+#[test]
+fn a_turn_that_completed_is_never_rendered_as_one_the_ceo_stopped() {
+    // THE DEFECT, at the surface where it does damage. `deliver()` took the stop branch
+    // before reading what the lease reported, so `complete_turn` was unreachable whenever a
+    // stop claim existed — and `ledger.rs`'s guard for exactly this race
+    // ("a turn that completed before the stop request reached the lease stays completed,
+    // because it did") could never fire on the live path, because the turn was still
+    // `InFlight` when `stop_turn` was called.
+    //
+    // The result: `You stopped after {d}` — the ONE row in `app/ui/timeline.js` that names
+    // the CEO as the cause of anything — rendered above a complete, successful answer. It
+    // fails in the direction where he believes he prevented something he did not.
+    let ledger_path = tmp_path("racecomplete-ledger").with_extension("jsonl");
+    let intake_path = tmp_path("racecomplete-intake").with_extension("jsonl");
+    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    let thread = spine.create_thread("finishes anyway", &femcboost()).unwrap();
+    spine.switch_thread(&thread).unwrap();
+
+    let lease = FinishesDespiteTheStop::new();
+    let running = Arc::clone(&lease.running);
+    let stop_registered = Arc::clone(&lease.stop_registered);
+    spine.attach_lease(Box::new(lease));
+    let control = TurnControl::open(&intake_path).unwrap();
+    spine.set_turn_control(control.clone());
+
+    let spine = Arc::new(Mutex::new(spine));
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || spine.lock().unwrap().submit_prompt("do the thing", Source::Text).unwrap())
+    };
+
+    // Wait for the turn to be genuinely under way and about to finish — observed, never
+    // slept-and-hoped.
+    let began = std::time::Instant::now();
+    while !(running.load(Ordering::SeqCst) && control.active_turn().is_some()) {
+        assert!(began.elapsed() < Duration::from_secs(5), "the turn never started");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    // The CEO presses stop. The signal IS delivered — and the answer was already on its way.
+    let outcome = control.request_stop().unwrap();
+    match outcome {
+        StopOutcome::Requested { reached_lease, .. } => {
+            assert!(reached_lease, "the cancel notification was delivered — that is the race, not a no-op")
+        }
+        other => panic!("expected Requested, got {other:?}"),
+    }
+    stop_registered.store(true, Ordering::SeqCst);
+    let turn_id = runner.join().unwrap();
+
+    let guard = spine.lock().unwrap();
+    let turn = guard.ledger().turn(&turn_id).unwrap();
+
+    // WHAT HAPPENED IS THAT THE TURN COMPLETED.
+    assert_eq!(turn.state, TurnState::Completed, "a turn that ran to the end is completed, because it did");
+    assert_eq!(turn.stop_reason.as_deref(), Some("end_turn"), "the lease's own terminal is kept verbatim");
+    assert_eq!(turn.stop_requested_at, None, "and no CEO attribution is written onto it");
+    assert!(turn.assistant_text.contains("complete answer"), "the full answer is still there");
+
+    // §6.1: `WorkState::Stopped` is what `timeline.js` renders as "You stopped after {d}".
+    // It must not be reachable for this turn.
+    let binding = guard.ledger().thread_binding(&thread).unwrap();
+    let timeline = Timeline::project(guard.ledger(), &binding, &[]).unwrap();
+    let states: Vec<WorkState> = timeline
+        .view(ViewMode::Ceo)
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            TimelineItem::WorkDuration { state, .. } => Some(*state),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !states.contains(&WorkState::Stopped),
+        "\"You stopped after\" over a completed answer: {states:?}"
+    );
+    assert!(states.contains(&WorkState::Completed), "expected a completed duration row: {states:?}");
+
+    // And the wire agrees with the ledger, so a reload cannot disagree with what he saw.
+    let statuses = live.statuses();
+    assert!(statuses.contains(&"completed".to_string()), "{statuses:?}");
+    assert!(!statuses.contains(&"stopped".to_string()), "the wire announced a stop that never landed: {statuses:?}");
+}
+
+#[test]
+fn the_stop_request_is_still_recorded_as_a_fact_that_did_not_land() {
+    // The stop is NOT erased — it is recorded and it did not win. `Ledger::stop_turn` is
+    // called after `complete_turn` precisely so `ledger.rs`'s guard runs on the live path
+    // instead of only in a unit test, and the durable event survives a reopen.
+    let ledger_path = tmp_path("racefact-ledger").with_extension("jsonl");
+    let intake_path = tmp_path("racefact-intake").with_extension("jsonl");
+    let turn_id;
+    {
+        let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+        let thread = spine.create_thread("recorded", &femcboost()).unwrap();
+        spine.switch_thread(&thread).unwrap();
+        let lease = FinishesDespiteTheStop::new();
+        let running = Arc::clone(&lease.running);
+        let stop_registered = Arc::clone(&lease.stop_registered);
+        spine.attach_lease(Box::new(lease));
+        let control = TurnControl::open(&intake_path).unwrap();
+        spine.set_turn_control(control.clone());
+
+        let spine = Arc::new(Mutex::new(spine));
+        let runner = {
+            let spine = Arc::clone(&spine);
+            std::thread::spawn(move || spine.lock().unwrap().submit_prompt("go", Source::Text).unwrap())
+        };
+        while !(running.load(Ordering::SeqCst) && control.active_turn().is_some()) {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        control.request_stop().unwrap();
+        stop_registered.store(true, Ordering::SeqCst);
+        turn_id = runner.join().unwrap();
+
+        // The request is on disk in the intake log — durable before the lease was touched,
+        // which is what makes any later attribution evidence-backed (§9.3 steps 1 and 2).
+        let intake = std::fs::read_to_string(&intake_path).unwrap();
+        assert!(intake.contains("stop"), "the CEO's request must be durable regardless of outcome");
+    }
+
+    // And the ledger's own event stream carries the TurnStopped that the projection
+    // correctly refused to apply.
+    let raw = std::fs::read_to_string(&ledger_path).unwrap();
+    assert!(raw.contains("TurnStopped"), "the stop request must be a recorded fact: {raw}");
+    let reopened = Ledger::open(&ledger_path).unwrap();
+    assert_eq!(
+        reopened.turn(&turn_id).unwrap().state,
+        TurnState::Completed,
+        "and replaying the log must reach the same verdict — completed"
+    );
+    assert_eq!(reopened.turn(&turn_id).unwrap().stop_requested_at, None);
+}
+
+#[test]
+fn a_stop_the_lease_actually_honoured_is_still_a_stop() {
+    // The control that keeps the fix from becoming a mute button: when the lease reports
+    // `cancelled` — its acknowledgement that it honoured `session/cancel`, `acp.rs:32` —
+    // the turn IS stopped and IS attributed to the CEO. `STOP_REASON_CANCELLED` had no
+    // production reader at all before this commit; `deliver` is now that reader, and this
+    // is the assertion that it reads it correctly.
+    let (spine, control, live, _thread) = running_spine("honoured", 60);
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || spine.lock().unwrap().submit_prompt("go", Source::Text).unwrap())
+    };
+    while control.active_turn().is_none() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    control.request_stop().unwrap();
+    let turn_id = runner.join().unwrap();
+
+    let guard = spine.lock().unwrap();
+    let turn = guard.ledger().turn(&turn_id).unwrap();
+    assert_eq!(turn.state, TurnState::Stopped, "the lease said `cancelled`; the CEO stopped it");
+    assert!(turn.stop_requested_at.is_some(), "and the attribution is anchored to his request");
+    assert!(live.statuses().contains(&"stopped".to_string()));
 }

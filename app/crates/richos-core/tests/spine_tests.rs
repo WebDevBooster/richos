@@ -182,7 +182,7 @@ fn reprime_payload_carries_action_ledger_as_ground_truth() {
     let turn = ledger.record_prompt_received(&ledger.thread_binding(&thread).unwrap(), "dispatch a worker", Source::Text).unwrap();
     ledger.record_action(&turn, "dispatch", "spawned worker mark-sonnet-f1").unwrap();
 
-    let payload = RePrimePayload::assemble(&ledger, &ledger.thread_binding(&thread).unwrap(), 8).unwrap();
+    let payload = RePrimePayload::assemble(&ledger, &ledger.thread_binding(&thread).unwrap(), 8, None).unwrap();
     assert_eq!(payload.action_ledger_digest.len(), 1);
     assert_eq!(payload.action_ledger_digest[0].kind, "dispatch");
     let priming = payload.to_priming_prompt();

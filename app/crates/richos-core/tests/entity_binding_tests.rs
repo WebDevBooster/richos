@@ -117,7 +117,7 @@ fn no_event_from_one_entity_renders_in_another_entitys_thread() {
     //     leverage leak in the app: whatever lands in it is asserted to a fresh session
     //     as authoritative ground truth.
     let binding = ledger.thread_binding("thr_fem").unwrap();
-    let priming = RePrimePayload::assemble(&ledger, &binding, 8).unwrap().to_priming_prompt();
+    let priming = RePrimePayload::assemble(&ledger, &binding, 8, None).unwrap().to_priming_prompt();
     assert!(!priming.contains(secret), "CROSS-ENTITY LEAK into the priming prompt:\n{priming}");
     assert!(priming.contains("femcboost"), "the successor is told its scope");
 
@@ -150,11 +150,11 @@ fn a_reprime_digest_for_one_entity_never_carries_another_entitys_actions() {
     ledger.record_action(&fem_turn, "dispatch", "spawned mark-sonnet-f1 on Avelor").unwrap();
     ledger.record_action(&dee_turn, "dispatch", "emailed the deeply partner list").unwrap();
 
-    let fem_digest = RePrimePayload::assemble(&ledger, &fem_binding, 8).unwrap();
+    let fem_digest = RePrimePayload::assemble(&ledger, &fem_binding, 8, None).unwrap();
     let details: Vec<&str> = fem_digest.action_ledger_digest.iter().map(|a| a.detail.as_str()).collect();
     assert_eq!(details, vec!["spawned mark-sonnet-f1 on Avelor"], "femcboost sees only femcboost");
 
-    let dee_digest = RePrimePayload::assemble(&ledger, &dee_binding, 8).unwrap();
+    let dee_digest = RePrimePayload::assemble(&ledger, &dee_binding, 8, None).unwrap();
     let details: Vec<&str> = dee_digest.action_ledger_digest.iter().map(|a| a.detail.as_str()).collect();
     assert_eq!(details, vec!["emailed the deeply partner list"], "deeply sees only deeply");
 

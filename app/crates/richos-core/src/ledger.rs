@@ -635,6 +635,14 @@ impl Ledger {
                     // A stop OVERRIDES nothing that already ended: a turn that completed
                     // before the stop request reached the lease stays completed, because
                     // it did. Only a turn still open is stopped.
+                    //
+                    // REACHABLE FROM THE LIVE PATH SINCE 2026-08-29, and it was not before.
+                    // `Spine::deliver` used to take its stop branch on the existence of a
+                    // stop claim alone, so the turn was still `InFlight` when `stop_turn`
+                    // was called and this clause could only ever fire in a unit test that
+                    // called the ledger directly. `finish_completed_turn_the_stop_missed`
+                    // now calls `complete_turn` first and `stop_turn` second, which is what
+                    // makes the request a recorded fact AND leaves the verdict alone.
                     if matches!(t.state, TurnState::Received | TurnState::InFlight) {
                         t.state = TurnState::Stopped;
                         t.stop_reason = Some("stopped_by_ceo".to_string());

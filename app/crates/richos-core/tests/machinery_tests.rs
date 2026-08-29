@@ -16,6 +16,7 @@ use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
+use richos_core::timeline::ViewMode;
 
 /// The dogfood entity these tests run under. Every thread now has an immutable entity
 /// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
@@ -432,6 +433,49 @@ fn a_permission_request_is_recorded_as_an_observation_with_no_control_attached()
     assert_eq!(perms[0].payload.as_ref().unwrap()["auto"], json!(true));
     assert_eq!(perms[0].payload.as_ref().unwrap()["chosen"], json!("allow"));
     assert_eq!(perms[0].tool_call_id.as_deref(), Some("toolu_A"), "linked to its tool call");
+}
+
+#[test]
+fn no_governance_vocabulary_reaches_the_calm_view() {
+    // R2 BUSINESS-ACTION GOVERNANCE IS DEFERRED TO V2 BY CEO DECISION, for v1 and all 1.x.
+    // Every STRUCTURAL refusal in this family held: `rich://approval-requested` and
+    // `-resolved` are not emitted, and `TimelineItem::Approval` is modelled with no
+    // constructor. The NOUN walked past all of them — `MachineryKind::PermissionRequested`
+    // fell through to `Visibility::Ceo` with the summary "Requested approval", which
+    // `app/ui/timeline.js` rolled up as "Requested approval 7 times" (7 measured across
+    // five short probe runs). A calm view that asserts a governance act nobody performed is
+    // R2 by the back door: it manufactures the demand for the queue that was deferred.
+    //
+    // Checked as a WORD BAN over the whole serialized CEO view, not as an assertion about
+    // one row, because the defect was never in the row that was designed — it was in a
+    // string that reached a surface nobody re-read.
+    let dir = tmp_dir("governance");
+    let (mut spine, _journal) = spine_with_journal(&dir);
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
+    spine.submit_prompt("go", Source::Text).unwrap();
+
+    let timeline = spine.timeline(&thread).unwrap();
+    let ceo = serde_json::to_string(&timeline.view(ViewMode::Ceo)).unwrap().to_lowercase();
+    for word in ["approval", "approve", "approved", "permission", "authoriz", "authoris", "denied", "grant"] {
+        assert!(!ceo.contains(word), "governance vocabulary on the calm surface: `{word}` in {ceo}");
+    }
+
+    // NOT deleted — routed, retained, and visible in technical mode with the honest line.
+    let technical = serde_json::to_string(&timeline.view(ViewMode::Technical)).unwrap();
+    assert!(
+        technical.contains("Answered a permission prompt automatically"),
+        "the permission row must still exist as machinery: {technical}"
+    );
+    // And the words that are wrong are wrong in BOTH views: the client answered, it did not
+    // decide, and there is no one to have approved anything.
+    assert!(!technical.contains("Requested approval"), "the old string must be gone: {technical}");
+    assert!(!technical.contains("Approved"), "no authorisation verb anywhere: {technical}");
+
+    // The work the request belonged to is unaffected — nothing was hidden, only reclassified.
+    assert!(
+        serde_json::to_string(&timeline.view(ViewMode::Ceo)).unwrap().contains("Ran a command"),
+        "the tool call this permission belonged to still renders its own semantic row"
+    );
 }
 
 #[test]

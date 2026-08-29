@@ -465,13 +465,22 @@ fn set_assertiveness(state: State<AppState>, level: String) -> Result<(), String
     state.config.lock().unwrap().set_assertiveness(parsed).map_err(|e| e.to_string())
 }
 
-/// UX §3.2 / architecture P3.2: the optional AI-worker drill-down. Stateless (reads the
-/// engine's event logs directly), so no `AppState` lock needed. Honest-zero when nothing
-/// has completed since boot — see richos-core's worker_status.rs for the documented scope
-/// limit (no "active"/"decision required" signal exists in the engine's hook set yet).
+/// UX §3.2 / architecture P3.2: the optional AI-worker drill-down.
+///
+/// **Attributed, not guessed.** The team-session directory is derived from the session id
+/// of the lease this app is actually serving; when there is no lease, or that session has
+/// no team directory, the answer is an honest zero carrying the reason
+/// (`WorkerStatusView::unattributed`). It is never the most-recently-touched directory
+/// under `~/.claude/teams`, which is what shipped and which counted whoever's session had
+/// been busiest — see richos-core's worker_status.rs, "WHOSE workers these are".
+///
+/// The session id is read from `TurnControl`, NOT from the spine, and that is deliberate:
+/// `send_message` holds the spine mutex for the entire turn, and `app/ui/main.js` polls
+/// this command on TURN START. Taking the spine lock here would make the worker chip block
+/// until Rich finished — the same reason the stop control lives on this handle (§9.3).
 #[tauri::command]
-fn get_worker_status() -> WorkerStatusView {
-    worker_status::current_status()
+fn get_worker_status(state: State<AppState>) -> WorkerStatusView {
+    worker_status::current_status(state.control.lease_session().as_deref())
 }
 
 /// The proactive-attention SEAM (architecture §2.3/§4.2, UX §5): persistence + the live

@@ -764,13 +764,23 @@ pub enum RejectionReason {
     /// exact id, and every one of them was refused by the join's session clause. The row is
     /// correct: `agent_id` is not globally unique and admitting a foreign session's rows is
     /// the leak `no_worker_row_from_another_session_attaches_to_this_sessions_task_call`
-    /// pins. But the two possible causes are worth telling apart, and without this they are
-    /// indistinguishable:
+    /// pins.
     ///
-    ///   1. genuinely another session's worker — correct refusal, nothing to do; or
-    ///   2. the ACP session id and the harness session id are DIFFERENT ID SPACES, in which
-    ///      case the join can never fire in production and §7's whole worker treatment is
-    ///      dead on the wire while every test stays green.
+    /// **It means exactly one thing now: genuinely another session's worker.** This used to
+    /// carry a second candidate cause — *"the ACP session id and the harness session id are
+    /// DIFFERENT ID SPACES, in which case the join can never fire in production and §7's
+    /// whole worker treatment is dead on the wire while every test stays green"* — recorded
+    /// as an open question because no live adapter was available to settle it.
+    ///
+    /// **Closed on 2026-08-29, from artifacts already on this disk.** The ACP session id
+    /// `55c79b81-ace3-4b07-a5f3-406853ac1a36`
+    /// (`docs/verification/acp-emission-probe-2026-08-28/run1.raw.jsonl`) has a Claude Code
+    /// transcript at
+    /// `~/.claude/projects/-Users-alex-ab-richos-engine/55c79b81-ace3-4b07-a5f3-406853ac1a36.jsonl`.
+    /// The adapter's session id IS the harness session id, so the join can fire, and
+    /// `worker_status::resolve_team_dir` now derives the team directory from that same id.
+    /// The hypothesis is deleted rather than left standing: a doubt that outlives its own
+    /// resolution is read by the next engineer as a live risk.
     ///
     /// Reported rather than logged so a caller can see it without a log scrape. It is NOT
     /// leak-class: nothing crossed a boundary — something was correctly kept out.
@@ -1290,6 +1300,30 @@ pub(crate) fn activity_item(
     // it is in machinery.rs: the CEO must never see that a rotation happened.
     let visibility = if row.internal || row.kind == MachineryKind::Thought || internal_turn {
         Visibility::Internal
+    } else if row.kind == MachineryKind::PermissionRequested {
+        // A PERMISSION REQUEST IS MACHINERY, NOT A CEO ROW.
+        //
+        // Corrected 2026-08-29 on Frank's §1.1. This branch did not exist: the row fell
+        // through to `Visibility::Ceo` and rendered as *"Requested approval"*, rolled up by
+        // `app/ui/timeline.js` as *"Requested approval 7 times"* — 7 being the measured
+        // count of `session/request_permission` calls across five short probe runs, so this
+        // was frequent, not an edge case.
+        //
+        // Three things are wrong with that on the calm surface, and the third is the one
+        // that matters. It is duplicate: the tool call this request belongs to already
+        // renders its own semantic row ("Ran a command"), so nothing is lost here. It
+        // implies a decision-maker, when `acp.rs:184-205` auto-approves every request and
+        // nobody was asked. And with `state: completed` beside it, a reasonable CEO reads
+        // it as GRANTED — which manufactures the demand for an approval queue that does not
+        // exist. R2 business-action governance is deferred to V2 by CEO decision for v1 and
+        // all 1.x; a summary string is not the way to un-defer it.
+        //
+        // Every structural refusal in this family held — `rich://approval-requested` and
+        // `-resolved` are deliberately not emitted, and `TimelineItem::Approval` is modelled
+        // with no constructor (below). The noun walked past them. This is the same
+        // correction, made the same way, as `MachineryKind::Unknown` immediately below:
+        // route it, retain it, render it in technical mode, keep it off the calm view.
+        Visibility::Technical
     } else if row.kind == MachineryKind::Unknown {
         // AN UNTYPED VENDOR KIND IS A TECHNICAL ROW, NOT A CEO ROW.
         //
@@ -1424,7 +1458,27 @@ fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> Strin
         ActivityType::Environment => "Set up the environment".to_string(),
         ActivityType::Integration => "Used an integration".to_string(),
         ActivityType::Thread => "Updated a thread".to_string(),
-        ActivityType::Approval => "Requested approval".to_string(),
+        // WHAT ACTUALLY HAPPENED: a tool asked, the client answered by itself, nobody
+        // decided. Every word is checked against that.
+        //
+        // "Answered" states what RichOS did and is not an authorisation verb — unlike
+        // "Approved"/"Allowed"/"Granted", each of which names a governance act and implies
+        // an actor entitled to perform it. "a permission prompt" is the protocol's own
+        // noun (`session/request_permission`), correct in a technical row and free of the
+        // suggestion that a person was consulted. "automatically" is the load-bearing word:
+        // it names the absence of a decision-maker, which is the fact the old string hid.
+        //
+        // Nothing here claims success, failure or breakage — the underlying tool call
+        // reports its own outcome in its own row, and this one must not pre-empt it.
+        // Rejected: "Requested approval" (the request was answered, not left open, and
+        // "approval" names a decision nobody took); "Approved a tool automatically"
+        // (Frank's option 2 — factual, but "Approved" still asserts an authorisation);
+        // "Auto-approved" (same objection, compressed); "Skipped a permission check"
+        // (false — the check ran and was answered).
+        //
+        // This is a TECHNICAL row now (see `activity_row`), so it is written for someone
+        // reading machinery, where the protocol noun is an asset rather than jargon.
+        ActivityType::Approval => "Answered a permission prompt automatically".to_string(),
         ActivityType::Other => "Worked".to_string(),
     }
 }
