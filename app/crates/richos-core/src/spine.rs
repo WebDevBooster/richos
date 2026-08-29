@@ -30,7 +30,9 @@ use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
 use crate::timeline::Timeline;
 use crate::util::now_millis;
+use crate::worker_events::{self, WorkerEventRow};
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SpineError {
@@ -156,6 +158,52 @@ pub struct Spine {
     /// `observer` on purpose — the four `stream.rs` events are unchanged and a UI that
     /// listens only to them is unaffected by anything on this one.
     live: Option<Box<dyn LiveObserver>>,
+    /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
+    /// `Task` tool call can be joined to the worker it spawned (UX §7).
+    ///
+    /// Defaults to [`WorkerEventsSource::Disabled`], which is what shipped before this
+    /// slice: `Timeline::project` supplied an EMPTY stream, so `project_with_workers`
+    /// existed and was reachable only from tests. Nothing in the app ever set it, which
+    /// meant `TimelineItem::WorkerActivity` could not occur on the wire at all.
+    worker_events: WorkerEventsSource,
+}
+
+/// Where a timeline read finds the engine's worker-lifecycle rows.
+///
+/// A source rather than a `Vec` because the stream is APPEND-ONLY and long-lived: a read
+/// must see the rows written since the last one, and the team directory a session writes
+/// to can change without the app relaunching. Both non-disabled variants re-read on every
+/// call for that reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkerEventsSource {
+    /// No stream. Every `Task` call stays an ordinary activity row — the honest degrade
+    /// when the engine's lifecycle hooks are not registered (they snapshot at session
+    /// start, so a freshly installed emitter writes its first row only in the NEXT
+    /// session).
+    Disabled,
+    /// A fixed file. Tests, and an explicit operator override.
+    File(PathBuf),
+    /// Resolve the current team-session directory on EVERY read
+    /// (`worker_status::resolve_team_dir`, honoring `RICHOS_TEAM_DIR`) and read its
+    /// `worker-events.jsonl`. The home fallback (`~/.claude/worker-events.jsonl`) is
+    /// deliberately never resolved — it accumulates across every session that ever missed
+    /// a team dir and cannot be session-scoped (`worker_events.rs`, "Session scope").
+    CurrentTeamDir,
+}
+
+impl WorkerEventsSource {
+    /// Read the rows this source currently holds. A missing/unreadable file is an EMPTY
+    /// stream, never an error: "no worker events" is a true and common state.
+    pub fn read(&self) -> Vec<WorkerEventRow> {
+        match self {
+            WorkerEventsSource::Disabled => Vec::new(),
+            WorkerEventsSource::File(p) => worker_events::read_stream(p),
+            WorkerEventsSource::CurrentTeamDir => match crate::worker_status::resolve_team_dir() {
+                Some(dir) => worker_events::read_stream(&worker_events::worker_events_path(&dir)),
+                None => Vec::new(),
+            },
+        }
+    }
 }
 
 impl Spine {
@@ -181,7 +229,39 @@ impl Spine {
             machinery_journal: None,
             machinery_observer: None,
             live: None,
+            worker_events: WorkerEventsSource::Disabled,
         }
+    }
+
+    /// Point the timeline read path at the engine's worker-lifecycle stream (UX §7).
+    ///
+    /// Without this a `Task` call projects as an ordinary activity row reading *"Worked"*
+    /// — no name, no state, no chip — because there is no identity to join by. With it,
+    /// a `Task` call that carries an extractable `agentId` AND has at least one row in the
+    /// stream **for the same session** becomes a `TimelineItem::WorkerActivity`.
+    ///
+    /// ## The one thing this cannot promise, stated plainly
+    /// The join's session clause compares the MACHINERY record's `session_id` — the ACP
+    /// session id the adapter minted (`Cognition::session_id`) — against the worker row's
+    /// `session_id`, which the engine hook read from the Claude Code harness. Both are
+    /// UUIDs; whether they are the SAME uuid is a property of `claude-agent-acp` that
+    /// could not be measured in this checkout (the adapter is not installed here). If they
+    /// differ, every row is refused by the session clause and every `Task` call stays an
+    /// ordinary activity row — i.e. exactly the behaviour without this call, which is why
+    /// wiring it is safe either way. It is NOT silent: that case is reported as
+    /// `RejectionReason::WorkerSessionMismatch` on the projected timeline, so it can be
+    /// told apart from "the engine emitted nothing".
+    ///
+    /// Loosening the session clause to make the join fire is not an option: `agent_id` is
+    /// not globally unique (the engine's own residue reuses one id across twelve rows) and
+    /// the clause is what stops another session's worker name and authored summary
+    /// rendering inside this entity's thread (timeline.rs `project_with_workers`).
+    pub fn set_worker_events(&mut self, source: WorkerEventsSource) {
+        self.worker_events = source;
+    }
+
+    pub fn worker_events_source(&self) -> &WorkerEventsSource {
+        &self.worker_events
     }
 
     /// Attach the live UI sink. The spine emits turn-start, per-delta chunk, and
@@ -606,11 +686,20 @@ impl Spine {
     /// conversation and no activity rows. That is the honest degrade: machinery retention
     /// is a separate store that may legitimately be absent (`set_machinery_journal` is
     /// optional), and an empty activity lane is not a claim that no tools ran.
+    ///
+    /// The same posture applies to the worker stream: with
+    /// [`WorkerEventsSource::Disabled`] (the default) a `Task` call projects as an
+    /// ordinary activity row, which is what the app did until 2026-08-29. See
+    /// [`Spine::set_worker_events`] for what wiring it can and cannot promise.
     pub fn timeline(&self, thread_id: &str) -> Result<Timeline, SpineError> {
         let binding = self.ledger.thread_binding(thread_id)?;
         let machinery =
             self.machinery_journal.as_ref().map(|j| j.read_thread(thread_id)).unwrap_or_default();
-        Ok(Timeline::project(&self.ledger, &binding, &machinery)?)
+        // The worker stream is read HERE rather than by the caller, for the same reason the
+        // binding and the journal are: every consumer that assembled these itself would be
+        // one more place the scope guard could be forgotten.
+        let workers = self.worker_events.read();
+        Ok(Timeline::project_with_workers(&self.ledger, &binding, &machinery, &workers)?)
     }
 
     pub fn ledger(&self) -> &Ledger {

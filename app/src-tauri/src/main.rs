@@ -15,7 +15,7 @@ use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
-use richos_core::spine::Spine;
+use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
 use richos_core::worker_status::{self, WorkerStatusView};
@@ -283,6 +283,20 @@ fn main() {
             // untouched; `crates/richos-core/tests/live_event_tests.rs` asserts their
             // payloads are byte-identical with and without this line.
             spine.set_live_observer(Box::new(events::TauriLiveEmitter { app: app.handle().clone() }));
+
+            // THE WORKER-LIFECYCLE STREAM (UX §7), 2026-08-29.
+            //
+            // Without this line `Spine::timeline` supplies an EMPTY worker stream and a
+            // delegated `Task` call reaches the CEO as one nameless activity row reading
+            // "Worked" — which is what shipped, and why `TimelineItem::WorkerActivity`
+            // existed, was fully tested, and had never once occurred on the wire.
+            //
+            // `CurrentTeamDir` re-resolves on every read rather than binding a path at boot:
+            // the engine's hooks are snapshotted at SESSION start, so the directory this
+            // machine's current session writes to changes without RichOS relaunching. The
+            // home fallback is deliberately never read — it accumulates across sessions and
+            // cannot be session-scoped (`worker_events.rs`).
+            spine.set_worker_events(WorkerEventsSource::CurrentTeamDir);
 
             // Attach the compute lease best-effort. A boot with no Claude auth degrades
             // to a calm "not connected" state rather than failing to launch.

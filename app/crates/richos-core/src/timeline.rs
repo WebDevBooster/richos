@@ -746,6 +746,24 @@ pub enum RejectionReason {
     /// (§1.5 G4). Excluded because a timeline item requires a turn — not a violation, and
     /// deliberately still excluded, since that traffic is exactly what must never render.
     NotTurnScoped,
+    /// DIAGNOSTIC, not a violation and not an exclusion — the record still rendered, as an
+    /// ordinary activity row.
+    ///
+    /// A `Task` call carried an extractable `agentId`, the worker stream HAS rows for that
+    /// exact id, and every one of them was refused by the join's session clause. The row is
+    /// correct: `agent_id` is not globally unique and admitting a foreign session's rows is
+    /// the leak `no_worker_row_from_another_session_attaches_to_this_sessions_task_call`
+    /// pins. But the two possible causes are worth telling apart, and without this they are
+    /// indistinguishable:
+    ///
+    ///   1. genuinely another session's worker — correct refusal, nothing to do; or
+    ///   2. the ACP session id and the harness session id are DIFFERENT ID SPACES, in which
+    ///      case the join can never fire in production and §7's whole worker treatment is
+    ///      dead on the wire while every test stays green.
+    ///
+    /// Reported rather than logged so a caller can see it without a log scrape. It is NOT
+    /// leak-class: nothing crossed a boundary — something was correctly kept out.
+    WorkerSessionMismatch,
 }
 
 /// One refused record, reported rather than silently dropped — the same posture as
@@ -853,6 +871,11 @@ impl Timeline {
         // is exactly slice 2a's behaviour. The honest degrade when the engine's lifecycle
         // hooks are not registered (they are snapshotted at session start, so a freshly
         // installed emitter produces its first row only in the NEXT session).
+        //
+        // NOTE, 2026-08-29: until this slice this was ALSO what the shipping app did.
+        // `Spine::timeline` called this function, so `project_with_workers` was reachable
+        // only from tests and `TimelineItem::WorkerActivity` could not occur on the wire.
+        // The app now sets `WorkerEventsSource` and calls the other one.
         Timeline::project_with_workers(ledger, binding, machinery, &[])
     }
 
@@ -967,11 +990,21 @@ impl Timeline {
             // A `Task` call joined BY IDENTITY to the lifecycle stream becomes a worker
             // row. No id, or an id with no in-session rows, falls through to the ordinary
             // activity row — the pre-signal behaviour, unchanged.
-            let joined = row
-                .tool_call_id
-                .as_ref()
-                .and_then(|id| agent_ids.get(id))
-                .and_then(|agent_id| worker_activity(agent_id, &row.session_id, worker_events));
+            let delegated = row.tool_call_id.as_ref().and_then(|id| agent_ids.get(id));
+            let joined =
+                delegated.and_then(|agent_id| worker_activity(agent_id, &row.session_id, worker_events));
+            // The join found nothing, but the stream DOES know this agent id — so the only
+            // thing that refused it was the session clause. Say so; see the reason's doc.
+            if let (Some(agent_id), None) = (delegated, joined.as_ref()) {
+                if worker_events.iter().any(|r| &r.agent_id == agent_id) {
+                    rejections.push(TimelineRejection {
+                        record_id: row.machinery_id.clone(),
+                        thread_id: row.thread_id.clone(),
+                        turn_id: row.turn_id.clone(),
+                        reason: RejectionReason::WorkerSessionMismatch,
+                    });
+                }
+            }
             match joined {
                 Some(worker) => buckets[i].push(worker_activity_item(
                     &row,

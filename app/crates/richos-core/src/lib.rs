@@ -59,7 +59,7 @@ pub use live::{
 };
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 pub use reprime::{LoroContextCompiler, RePrimePayload};
-pub use spine::{Spine, SpineError};
+pub use spine::{Spine, SpineError, WorkerEventsSource};
 pub use stream::{StreamEvent, TurnObserver};
 pub use timeline::{
     ActivityState, ActivityType, RichMessagePhase, Timeline, TimelineBase, TimelineItem, TimelineView, ViewMode,
