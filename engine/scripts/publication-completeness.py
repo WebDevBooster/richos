@@ -412,10 +412,22 @@ def check_declarations(tree, exempt, used, explain):
 
     for d in sorted(decls):
         problems = []
-        if not any(by_base.get(n) for n in (d, d + ".example", d + ".template", d + ".sample")):
+        # A DOTFILE'S TEMPLATE IS USUALLY SHIPPED WITHOUT THE DOT, because a
+        # hidden template is a template nobody browsing the tree ever sees.
+        # `.ceo-queue`'s real one shipped as reference/ceo-queue/ceo-queue.example
+        # and this check called it missing — a false positive on a capability
+        # that had just been fixed properly, which is how a checker earns the
+        # reputation that gets it switched off. The dot-stripped form is
+        # accepted only WITH an explicit template suffix, so a coincidentally
+        # named file can never satisfy this arm.
+        stem = d[1:] if d.startswith(".") else d
+        names = [d] + ["%s.%s" % (n, sfx)
+                       for n in ({d, stem} if stem else {d})
+                       for sfx in ("example", "template", "sample")]
+        if not any(by_base.get(n) for n in names):
             problems.append("no copyable instance or template of `%s` is published "
-                            "(looked for %s, %s.example, %s.template, %s.sample "
-                            "anywhere in the tree)" % (d, d, d, d, d))
+                            "(looked for %s anywhere in the tree)"
+                            % (d, ", ".join(sorted(set(names)))))
         if not any(d in (tree.read(p) or "") for p in sorted(onboard)):
             problems.append("`%s` is named in no document an adopter reads "
                             "(README.md, everything README links to, and every "

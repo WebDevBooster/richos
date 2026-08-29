@@ -251,6 +251,27 @@ perl -pi -e 's/copy `\.widget\.example` and edit it\./copy this repo.s own./' "$
 commit_all "$T"
 assert_clean "a real committed instance counts as copyable, not just a .example" "$T"
 
+# A dotfile's template is usually shipped WITHOUT the dot, so a person
+# browsing the tree can see it. The real `.ceo-queue` template shipped as
+# reference/ceo-queue/ceo-queue.example, and this check called it missing.
+T="$(mktree inert_fixed_undotted)"
+rm "$T/.widget.example"
+mkdir -p "$T/reference/widget"
+printf 'WIDGET_RECORD="x"\n' > "$T/reference/widget/widget.example"
+perl -pi -e 's/copy `\.widget\.example` and edit it\./copy reference\/widget\/widget.example./' "$T/README.md"
+commit_all "$T"
+assert_clean "a dot-stripped template (widget.example) counts as copyable" "$T"
+
+# ...but only with an explicit template suffix. A file that merely shares the
+# stem is not a template, and must not satisfy the arm.
+T="$(mktree inert_stem_collision)"
+rm "$T/.widget.example"
+printf 'unrelated\n' > "$T/src/widget"
+perl -pi -e 's/copy `\.widget\.example` and edit it\./write it by hand./' "$T/README.md"
+commit_all "$T"
+assert_finding "a bare stem collision (src/widget) is NOT a template" \
+    "$T" INERT "no copyable instance or template"
+
 T="$(mktree inert_fixed_skill)"
 rm "$T/.widget.example"
 printf 'WIDGET_RECORD="x"\n' > "$T/.widget.template"

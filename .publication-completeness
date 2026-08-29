@@ -56,23 +56,6 @@
 CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/"
 
 # ---------------------------------------------------------------------------
-# DECLARATION_EXEMPT — SELF-CLEARING, AND IN FLIGHT RIGHT NOW.
-#
-# `.ceo-queue` is failure #1, the one that named this whole defect class: the
-# engine ships ceo-queue-lint.sh, guard-ceo-queue-commits.sh and
-# lib/ceo-queue.{sh,py} with no declaration, no template and no word of it in
-# anything an adopter reads. It is being fixed on a parallel branch
-# (zach/ceo-queue-cold-open-2026-08-29), which adds the template and the
-# onboarding mention.
-#
-# This line exists so that landing the CHECK does not have to wait on landing
-# that FIX. It is not a licence and it does not need a reminder to remove: the
-# moment the template and the mention land, this entry suppresses nothing, and
-# the checker FAILS until the line is deleted. A TODO enforced by the machinery
-# it is a TODO about.
-DECLARATION_EXEMPT=".ceo-queue"
-
-# ---------------------------------------------------------------------------
 # INSTANCE_MECHANISMS — executable files in the PRIVATE tree that read a public
 # contract, and are allowed to stay there.
 #
@@ -84,15 +67,5 @@ DECLARATION_EXEMPT=".ceo-queue"
 #                were installed mid-session and had not fired on those commits.
 #                It is a record of a one-off verification, not a mechanism a
 #                customer could use.
-#
-#   render-ceo-queue.mjs  IS NOT INSTANCE-SPECIFIC, and this entry says so on
-#                purpose. It is failure #2 — the engine ships the queue's
-#                enforcement, its lint and its parser, and leaves the RENDERER,
-#                the only thing that turns the record into something a CEO can
-#                look at, in the private repository. It is being moved into the
-#                engine on zach/ceo-queue-cold-open-2026-08-29. This line lets
-#                the CHECK land without waiting on that MOVE, and it deletes
-#                itself the way DECLARATION_EXEMPT's does: once the file is gone
-#                from the private tree, this entry suppresses nothing and the
-#                checker FAILS until it is removed.
-INSTANCE_MECHANISMS="richos-hq/docs/briefs/norm-deletion-detection-2026-08-29-assets/tools/pubcheck.sh richos-hq/scripts/render-ceo-queue.mjs"
+
+INSTANCE_MECHANISMS="richos-hq/docs/briefs/norm-deletion-detection-2026-08-29-assets/tools/pubcheck.sh"
