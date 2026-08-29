@@ -3,7 +3,7 @@
  *
  * The model-agnostic half of the accuracy tier's hallucination defence (the decode-parameter half
  * lives in `config.js#MODEL_TIERS`). Named `repetition-guard` for the first class it caught; it now
- * covers THREE measured decode-failure classes, all of them reproduced from captured artifacts:
+ * covers FOUR measured decode-failure classes, all of them reproduced from captured artifacts:
  *
  *   1. REPETITION LOOP — full `large-v3` at bare whisper.cpp defaults reproducibly emitted the same
  *      sentence 4x (model benchmark 2026-08-24 §4.2) and 7x (q5 call benchmark 2026-08-26 §6.1).
@@ -17,6 +17,44 @@
  *      into re-emitting each phrase 2-3x with shifted segment boundaries, turning 1,979 reference
  *      words into 3,999 (110.86% WER; q5 call benchmark 2026-08-26 §6.4). Consecutive segments are
  *      not identical, so class 1 caught only 6 of 353 segments. REMEDY: de-overlap.
+ *   4. SILENCE FABRICATION — `large-v3-turbo` at `-mc 0` invented 159 of its 353 segments (45%) over
+ *      MEASURED SILENCE on a 126-minute per-speaker track, covering 60.4% of that channel's
+ *      timeline, 143 of them the single phrase "Thank you." (podcast-corpus brief 2026-08-29 §3.3).
+ *      Isolated re-decode confirmed 47 of 48 adjudicated spans across three channels: cut out and
+ *      decoded alone, they return NOTHING. REMEDY: remove — see "WHY THIS ONE IS REPAIRABLE".
+ *
+ *      IT IS A FUNCTION OF CHANNEL SILENCE AND OF NOTHING ELSE, which is why it matters here rather
+ *      than being one more model quirk. Same model, same file, same run, six tracks from two
+ *      independent conversations, Spearman rho between channel silence and fabricated timeline =
+ *      1.0000:
+ *
+ *        001 host   89.3% silence -> 45.0% of segments fabricated, 60.4% of timeline
+ *        003a host  76.5% silence -> 27.7%, 45.9%
+ *        003b host  81.2% silence -> 25.0%, 46.8%
+ *        003a guest 39.9% silence ->  1.8%,  3.7%
+ *        003b guest 36.5% silence ->  0.5%,  2.2%
+ *        001 guest  19.6% silence ->  0.1%,  0.4%
+ *
+ *      Deletion stays flat (0-0.38%) across the same range, so this is specific to fabrication and
+ *      not a general "quiet audio decodes badly" effect. IN A REAL CALL THE `me` CHANNEL IS SILENT
+ *      WHENEVER THE OTHER PERSON IS TALKING, WHICH IS MOST OF A CALL — so the shape that produces
+ *      this defect at its worst is the shape of the channel carrying the CEO's own words.
+ *
+ *      `-mc 0` is NOT implicated and was never going to be: the run that produced these 159 spans
+ *      had it active and produced ZERO loop findings, the class it was introduced for. Class 1 (the
+ *      accumulation class) is local repetition; this is isolated, one occurrence per silent gap,
+ *      spread over two hours. Classes 1-3 caught 29.5% of it by accident, where the filler happened
+ *      to land consecutively, and 146 spans covering 69.4 minutes survived all three.
+ *
+ *      NO DECODE PARAMETER FIXES IT, MEASURED RATHER THAN ASSUMED (2026-08-29). `-nth`
+ *      (no-speech-thold) is the parameter that exists for exactly this, and on a 700 s host slice
+ *      holding 14 fabricated spans it is INERT: the output JSON is BYTE-IDENTICAL at
+ *      -nth 0.01 / 0.1 / 0.2 / 0.4 / 0.6 / 0.9 (sha256
+ *      e8f7998b56d3740ad8d0c662db049b2ba83206a74b305054bbe6c51f18060d16, all six). `-lpt 0.0`, the
+ *      other half of whisper.cpp's no-speech branch, removed ONE of the 14 for +90% wall time
+ *      (24.9 s -> 47.4 s) and changed the real decode too (+8 words). So the fix is post-decode,
+ *      no tier and no `MODEL_TIERS` value moves, and this paragraph exists so nobody re-litigates
+ *      it from first principles.
  *
  * PRECISION IS THE CONTRACT (same doctrine as loro-correction): a guard that eats legitimate speech
  * is worse than none. Conservative by construction, per class:
@@ -98,12 +136,55 @@
  *     boundary is a decoder artifact by construction, not speech. The remedy is content-preserving:
  *     every word survives, just once instead of twice.
  *
+ *   - SILENCE FABRICATION: TWO PHYSICAL CONDITIONS AND ONE LEXICAL ONE, and the lexical one decides
+ *     REMOVE versus REPORT-ONLY rather than merely narrowing the set. The full five-condition rule
+ *     is on `guardSilenceFabrication`. What belongs here is why this class is REPAIRED at all when
+ *     class 2 is not, and it is not a change of doctrine — it is the same doctrine reaching a
+ *     different answer because the evidence is different.
+ *
+ *     WHY THIS ONE IS REPAIRABLE. Class 2 is detect-only because the artifact PROVED removal would
+ *     destroy speech: inside the fabricated ordinal run, one marker is a real spoken "Zero.". There
+ *     is no such word here, and that was verified per span rather than assumed. Every one of the
+ *     189 segments this rule removes from the 2026-08-29 corpus was cut out and decoded ALONE under
+ *     large-v3-turbo AND large-v3-turbo-q5_0; in 189 of 189 the removed words did not come back. A
+ *     span over measured silence has no speech in it to lose; a span of real speech carrying a
+ *     fabricated prefix does.
+ *
+ *     PRECISION, on the corpus that has the power to test it. The three GUEST channels — 28,275
+ *     words of ordinary conversation containing 217 immediate word repeats, 131 bigram repeats and
+ *     23 same-word triples — are the false-positive probe, and the rule touches 3 segments across
+ *     all three, each independently adjudicated as fabrication. The stretched-extent hazard is real
+ *     and is what condition 5 exists for: whisper emits a 0.3 s backchannel as a 30 s segment
+ *     reaching back over silence, and on the 001 host channel alone there are 41 such segments — a
+ *     rule reading extents without word times would have deleted a question the man actually asked.
+ *
  * KNOWN BLIND SPOTS, stated so nobody reads "guard: on" as "hallucination: handled":
  *   - a persistent insertion that is NOT an ordinal marker (a fabricated word, a speaker label, a
  *     bullet) — no ordering signal exists to separate it from speech without semantics;
  *   - a monotone, never-stalling fabricated enumeration — structurally identical to a person reading
  *     a numbered list aloud; deliberately not fired on;
  *   - a 2-segment sliding stutter (below minChainLinks);
+ *   - a fabrication over silence whose words are NOT in the silence vocabulary — detected and
+ *     reported, never removed, because it cannot be told from a quiet real utterance by text;
+ *   - a fabrication over silence shorter than minSilenceSpanSec, or longer than maxSilenceWords;
+ *   - SPEECH BELOW THE BURST FLOOR. The grid is drawn at the channel peak minus
+ *     `normalize.js#SPEECH_FLOOR_BELOW_PEAK_DB`. Genuinely quiet speech under that floor produces no
+ *     burst, so a real "Okay." spoken below it and emitted as a >= 1 s segment WOULD be removed.
+ *     This is the one place class 4 can destroy a real word, it is MEASURED rather than feared —
+ *     two genuine backchannel hums at -35.0 and -34.7 dBFS on the 001 host channel, which is that
+ *     channel's own speech MEDIAN — and `maxSilenceOverlapSec` is set below them for the margin
+ *     (see THE SWEEP). It is bounded to the tiny backchannel vocabulary by condition 6 and it is a
+ *     residual rather than an oversight. The fix, if it is ever worth paying for, is a per-span
+ *     level probe, which this class deliberately does not do because it would put an ffmpeg call
+ *     on every candidate;
+ *   - A FABRICATION WHOSE WORDS ARE NOT IN THE VOCABULARY. Whisper's silence output is wider than
+ *     `deletion-guard.js#NON_LEXICAL`: isolated re-decode of these very spans returned "We'll be
+ *     right back", "We'll see you next time", "and then we'll be back" and "Amen". None of those
+ *     was EMITTED over silence anywhere in this corpus, so widening the vocabulary would have
+ *     bought nothing here — and widening it is not free, because the same list is what
+ *     `deletion-guard.js` uses in the opposite direction, where adding a real sentence would blind
+ *     the deletion detector to a genuine loss. Recorded so the next person meeting one of these
+ *     phrases in a transcript knows what it is;
  *   - anything requiring meaning rather than structure (a fluent fabricated sentence).
  *
  * PURE (no fs) so it is fully node-testable with fixture segments — including fixtures built from
@@ -112,6 +193,11 @@
  */
 
 import { normalizeTerm, similarity } from './correct.js';
+// ONE silence-hallucination vocabulary for both directions. `deletion-guard.js` defined it from the
+// corpus, for the question "do these words prove speech was there?"; class 4 below asks the mirror
+// question, "are these words nothing but what whisper says over dead air?". A second copy that
+// drifted from that one would make the detector and the remover disagree about the same failure.
+import { isSilenceFillerText } from './deletion-guard.js';
 
 /** @typedef {{startMs:number, endMs:number, text:string, speaker:string, label?:string}} Segment */
 
@@ -144,6 +230,17 @@ const DEFAULT_OPTS = {
   minOverlapWords: 3, // 1-2 shared boundary words could be coincidence; 3 was never seen in clean output
   minChainLinks: 3, // a single overlapping pair could be a speaker restarting; a chain cannot
   collapseStutter: true, // the remedy is content-preserving (every word survives once)
+
+  // ---- class 4: SILENCE FABRICATION (see the header) -------------------------------------------
+  // Every threshold below was swept against the six raw per-speaker tracks of the 2026-08-29
+  // podcast corpus and every removal it produces was adjudicated by isolated re-decode. Nothing
+  // here is asserted. Consumes the SAME `speechBursts` the class-1 veto already receives.
+  silenceFabrication: true, // inert anyway without a burst grid; this is the explicit off switch
+  maxSilenceOverlapSec: 0.1, // absolute cap on speech energy inside the segment's own extent
+  maxSilenceOverlapFrac: 0.02, // and as a fraction of that extent — the measurement's own cut
+  maxSilenceWords: 4, // brevity cap: a long span of text is never removed on this evidence
+  minSilenceSpanSec: 1.0, // below a second the extent test has no power; deliberately out of scope
+  burstEdgeToleranceMs: 250, // word-time slack at a burst edge (silencedetect clips them)
 };
 
 /** Enumeration marker at segment start: "12. ", "12) ". Digits then a dot/paren then whitespace. */
@@ -580,24 +677,269 @@ export function guardOverlapStutter(segments, opts = {}) {
 }
 
 /**
- * Run all three classes over one channel, in the order that keeps them from masking each other:
- * loops first (exact duplicates collapse cleanly), then insertion detection (an inserted marker
- * would otherwise hide a boundary overlap), then the sliding-overlap stutter.
+ * How much speech energy does the burst grid put inside [startMs, endMs)?
+ * @param {{startMs:number,endMs:number}[]|null} bursts time-ordered
+ * @param {number} startMs
+ * @param {number} endMs
+ * @returns {number} milliseconds
+ */
+export function burstOverlapMs(bursts, startMs, endMs) {
+  if (!Array.isArray(bursts) || !bursts.length) return 0;
+  let ms = 0;
+  for (const b of bursts) {
+    const from = Number(b.startMs) || 0;
+    if (from >= endMs) break; // time-ordered
+    const to = Number(b.endMs) || 0;
+    const lo = Math.max(from, startMs);
+    const hi = Math.min(to, endMs);
+    if (hi > lo) ms += hi - lo;
+  }
+  return ms;
+}
+
+/** Does any of these word times land inside a speech burst (within `tolMs` of its edges)? */
+function anyWordInBurst(bursts, times, tolMs) {
+  if (!Array.isArray(bursts) || !bursts.length || !Array.isArray(times)) return false;
+  for (const t of times) {
+    const ms = Number(t);
+    if (!Number.isFinite(ms)) continue;
+    for (const b of bursts) {
+      const from = (Number(b.startMs) || 0) - tolMs;
+      if (from > ms) break; // time-ordered
+      if (ms <= (Number(b.endMs) || 0) + tolMs) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Class 4 — SILENCE FABRICATION: text emitted over a stretch of audio that carries no speech.
+ *
+ * The full argument is in the module header. In one line: the class-1 veto asks the burst grid
+ * "could this repetition physically have been spoken?"; this asks the same grid "could ANY of this
+ * have been spoken?" — and when the answer is no and the words are nothing but whisper's silence
+ * vocabulary, they are removed.
+ *
+ * THE RULE, five conditions, ALL of which must hold, and a sixth that decides remove vs report:
+ *
+ *   1. GRID PRESENT   `opts.speechBursts` exists. No physical evidence, no candidate, ever — this
+ *                     class is INERT without the probe, exactly like the class-1 veto. "Nothing
+ *                     removed" and "never looked" are different answers and the report says which.
+ *   2. DURATION       the segment is >= minSilenceSpanSec (1.0 s). Below that the extent is shorter
+ *                     than silencedetect's own edge error and the test has no power. Deliberately
+ *                     out of scope; a sub-second fabrication survives and is stated as a residual.
+ *   3. BREVITY        <= maxSilenceWords (4) words. A fabrication over silence is 1-3 words —
+ *                     measured: 310 words across 159 spans on the 001 host channel, median 2. The
+ *                     cap is not there to catch anything; it is there so that no matter what else
+ *                     goes wrong, this class can never remove a sentence.
+ *   4. EXTENT SILENT  the burst grid puts <= maxSilenceOverlapSec (0.25 s) of speech energy inside
+ *                     the segment's own extent AND <= maxSilenceOverlapFrac (0.02) of it. Both,
+ *                     because either alone fails at one end of the duration range: a fraction
+ *                     alone lets 1.5 s of real speech through a 30 s extent, and an absolute alone
+ *                     condemns a 1.2 s backchannel that is 20% speech. The absolute cap is 0.10 s
+ *                     and it was swept against adjudicated spans, not chosen — see THE SWEEP.
+ *   5. NO WORD IN A BURST   where the segment carries `wordTimesMs`, not one of its word times may
+ *                     land inside a burst (+/- burstEdgeToleranceMs). This is the condition that
+ *                     protects the STRETCHED-EXTENT case, which is real and was measured: whisper
+ *                     routinely emits a 0.3 s backchannel as a 30 s segment reaching back across
+ *                     silence, and judging that on its extent alone would delete a word the person
+ *                     really said. It is also what makes this class provably unable to increase
+ *                     the deletion detector's candidate count — see "TWO GUARDS, ONE GRID" below.
+ *   6. VOCABULARY     `deletion-guard.js#isSilenceFillerText` — every sentence unit of the text is
+ *                     in the observed silence-hallucination vocabulary. TRUE -> REMOVE.
+ *                     FALSE -> REPORT ONLY: the segment stays in the transcript and a warning names
+ *                     it. That split is the whole precision story and it is not a hedge. Over
+ *                     measured silence, "Thank you." is whisper's canonical filler and nothing is
+ *                     lost by deleting it; "That's a tough one." over the same evidence might be a
+ *                     genuinely quiet sentence the burst grid's floor missed, and it is not this
+ *                     module's place to guess. Measured on the corpus: the report-only tier holds
+ *                     4 spans on the host channels and 6 on the guest channels — including
+ *                     "Correct.", "Right." and "That's a tough one." on a guest channel, every one
+ *                     of which a text-blind rule would have destroyed.
+ *
+ * ONE-DIRECTIONAL, like every other use of the burst grid in this file: a segment backed by ANY
+ * qualifying speech energy is left completely alone. The grid can only ever condemn silence, never
+ * justify removing something the audio supports.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * MEASURED, on the six raw per-speaker tracks of the 2026-08-29 podcast corpus, with THIS grid
+ * ---------------------------------------------------------------------------------------------
+ * The corpus measurement drew its speech/silence line with Otsu on a 100 ms envelope. The product
+ * does not have that; it has `normalize.js#detectSpeechBursts` at peak - 34 dB. So the rule was
+ * scored on the grid it will actually run on, not on the one the finding was made with. On the
+ * host channel those two grids disagree by 13% of speech time, and the runtime grid is the harsher
+ * of the two — which is precisely why conditions 5 and 6 exist.
+ *
+ *   channel          segments      words        class 4       fabrication surviving
+ *                                               removed       (spans / seconds)
+ *   001 host      353 ->   213   2333 ->  2060   140 + 4 rep   160/4577.9  ->  24/576.5
+ *   003a host      94 ->    68   1112 ->  1061    26           26/779.5    ->   1/30.0
+ *   003b host      88 ->    68    737 ->   699    20           22/633.7    ->   3/87.1
+ *   001 guest    1564 ->  1563  21911 -> 21909     1 + 4 rep    1/30.0     ->   0/0
+ *   003a guest    218 ->   217   3460 ->  3459     1            4/61.1     ->   3/59.1
+ *   003b guest    208 ->   207   2904 ->  2902     1            1/30.0     ->   0/0
+ *
+ * THE HEADLINE. Across the three host channels the fabrication that survived all three older
+ * classes falls from 146 spans / 69.4 minutes to 28 spans / 11.6 minutes. On the 001 host channel
+ * — 126 minutes, 89.3% silence, the shape of a real call's `me` side — 87.4% of the fabricated
+ * TIMELINE is gone: 4,577.9 s of invented "Thank you." down to 576.5 s.
+ *
+ * THE FALSE-POSITIVE TEST, and it has power. The three guest channels are 28,275 words of ordinary
+ * conversation containing 217 immediate word repeats, 131 immediate bigram repeats and 23
+ * same-word triples. Class 4 removes THREE segments across all three — five words in total. And
+ * every one of the 189 removals on the whole corpus was cut out and decoded ALONE under
+ * large-v3-turbo AND large-v3-turbo-q5_0:
+ *
+ *   removals 189 | adjudicated 189 | CONFIRMED FABRICATION 189 | FALSE POSITIVES 0
+ *
+ * READ THE ADJUDICATION RULE CAREFULLY, because the naive one is wrong here and it was wrong on
+ * this corpus. "The isolated decode returned some text" does NOT mean speech was there. On 12 of
+ * these 189 spans the isolated decode returned a DIFFERENT hallucination — "We'll be right back",
+ * "We'll see you next time", "Amen", "life" — over audio peaking at -44.8 to -63.4 dBFS against a
+ * -0.2 dBFS channel peak, and on 5 of those 12 the two decoders disagreed with each other about
+ * which invented phrase it was. The words being REMOVED never came back. The discriminator is
+ * therefore "does the isolated decode recover the removed words?", and for all 189 it does not.
+ *
+ * AND THE DELETION DETECTOR DOES NOT MOVE. Candidate counts before and after class 4, per channel:
+ * 7->7, 3->3, 1->1, 3->3, 0->0, 1->1. The proof is condition 5; this is the measurement of it.
+ *
+ * COST: 69 ms for the 126-minute PAIR, 9-12 ms for the shorter ones. Pure arithmetic over a grid
+ * the pipeline already has — no second ffmpeg pass, no decode, nothing added to the audio path.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * THE SWEEP THAT SET `maxSilenceOverlapSec`, in ADJUDICATED spans rather than candidates
+ * ---------------------------------------------------------------------------------------------
+ * Every removal at the loosest cap was adjudicated once, then the cap was swept over that scored
+ * set — so the cost of each choice is measured in confirmed fabrication and in real words lost,
+ * not in guesses:
+ *
+ *      cap    removals   confirmed fabrication   REAL WORDS LOST   seconds removed
+ *     0.05 s      186              186                  0              5322.4
+ *     0.10 s      189              189                  0              5412.4   <- shipped
+ *     0.15 s      195              195                  0              5592.3
+ *     0.20 s      200              199                  1              5712.2
+ *     0.25 s      204              202                  2              5803.7
+ *
+ * The two losses at 0.25 s are the SAME defect, twice: a genuine one-word backchannel hum on the
+ * host channel, at -35.0 and -34.7 dBFS — which is the host's own speech MEDIAN (-34.5 dBFS) —
+ * whose energy fell just under the burst floor. Both decoders recovered "Mm-hmm" from those spans
+ * in isolation. That is the "quiet speech near the burst floor" hazard, and it is real.
+ *
+ * 0.10 is chosen over the last clean value 0.15 FOR THE MARGIN, the same reasoning
+ * `config.js#MAX_CONTEXT_TOKENS` used in taking 0 over 16: 0.15 holds, but the highest confirmed
+ * fabrication it admits sits at 0.17 s and the first real word is lost at 0.20 s — 0.03 s of room.
+ * 0.10 s doubles the distance to the first observed loss and costs 6 spans / 179.9 s of fabrication
+ * left in the transcript (3% of what is removed). Fabrication left behind is reported; a deleted
+ * word is gone. The trade is priced in that asymmetry and in nothing else.
+ *
+ * TWO GUARDS, ONE GRID, AND THEY DO NOT FIGHT. `deletion-guard.js` alarms on a >= 1 s speech burst
+ * carrying no emitted word. Condition 5 means every word this class removes was already outside
+ * every burst, so no burst loses coverage when a segment goes — under the word-times unit the
+ * deletion detector's candidate set is provably UNCHANGED by this class. Under the segment-extent
+ * fallback (no `-ojf` token times) that proof does not hold and the interaction is measured
+ * instead; the report says which unit was used.
+ *
+ * @param {Segment[]} segments one channel's segments, time-ordered
+ * @param {Partial<typeof DEFAULT_OPTS>} [opts] `speechBursts` is THIS channel's grid
+ * @returns {{segments: Segment[], fabrications: object[], removed: number, reported: number,
+ *            unit: 'word-times'|'segment-extent'|null, probed: boolean}}
+ */
+export function guardSilenceFabrication(segments, opts = {}) {
+  const o = { ...DEFAULT_OPTS, ...opts };
+  const segs = Array.isArray(segments) ? segments : [];
+  const bursts = Array.isArray(o.speechBursts) ? o.speechBursts : null;
+  // Condition 1. No grid -> this class never ran. Not "found nothing".
+  if (!bursts || o.silenceFabrication === false) {
+    return { segments: segs, fabrications: [], removed: 0, reported: 0, unit: null, probed: false };
+  }
+
+  const out = [];
+  const fabrications = [];
+  let removed = 0;
+  let reported = 0;
+  let sawWordTimes = false;
+
+  for (const seg of segs) {
+    const startMs = Number(seg.startMs) || 0;
+    const endMs = Number(seg.endMs) || 0;
+    const durSec = (endMs - startMs) / 1000;
+    const words = wc(seg.text);
+    const times = Array.isArray(seg.wordTimesMs) && seg.wordTimesMs.length ? seg.wordTimesMs : null;
+    if (times) sawWordTimes = true;
+
+    const overlapSec = burstOverlapMs(bursts, startMs, endMs) / 1000;
+    const silent =
+      durSec >= o.minSilenceSpanSec && // 2
+      words > 0 &&
+      words <= o.maxSilenceWords && // 3
+      overlapSec <= o.maxSilenceOverlapSec && // 4a
+      overlapSec / Math.max(durSec, 1e-6) <= o.maxSilenceOverlapFrac && // 4b
+      !(times && anyWordInBurst(bursts, times, o.burstEdgeToleranceMs)); // 5
+
+    if (!silent) {
+      out.push(seg);
+      continue;
+    }
+    const filler = isSilenceFillerText(seg.text); // 6
+    fabrications.push({
+      startMs,
+      endMs,
+      durationSec: +durSec.toFixed(2),
+      words,
+      text: seg.text,
+      burstOverlapSec: +overlapSec.toFixed(2),
+      unit: times ? 'word-times' : 'segment-extent',
+      action: filler ? 'removed' : 'reported',
+    });
+    if (filler) {
+      removed += 1;
+    } else {
+      reported += 1;
+      out.push(seg);
+    }
+  }
+
+  return {
+    segments: out,
+    fabrications,
+    removed,
+    reported,
+    unit: segs.length ? (sawWordTimes ? 'word-times' : 'segment-extent') : null,
+    probed: true,
+  };
+}
+
+/**
+ * Run all four classes over one channel, in the order that keeps them from masking each other:
+ * SILENCE FABRICATION first (words that were never spoken cannot be allowed to look like a loop,
+ * a list or a stutter to the classes below — 143 copies of "Thank you." over silence are not a
+ * repetition finding, and collapsing them would extend a surviving segment's extent across the
+ * silence and destroy the very evidence this class reads), then loops (exact duplicates collapse
+ * cleanly), then insertion detection (an inserted marker would otherwise hide a boundary overlap),
+ * then the sliding-overlap stutter.
  *
  * @param {Segment[]} segments
  * @param {Partial<typeof DEFAULT_OPTS>} [opts]
  */
 export function guardChannelAll(segments, opts = {}) {
-  const loop = guardChannel(segments, opts);
+  const sil = guardSilenceFabrication(segments, opts);
+  const loop = guardChannel(sil.segments, opts);
   const ins = guardInsertions(loop.segments, opts);
   const stut = guardOverlapStutter(ins.segments, opts);
   return {
+    silenceFabrications: sil.fabrications,
+    silenceRemoved: sil.removed,
+    silenceReported: sil.reported,
+    silenceUnit: sil.unit,
+    silenceProbed: sil.probed,
     segments: stut.segments,
     loops: loop.loops,
     preserved: loop.preserved || [],
     insertions: ins.insertions,
     stutters: stut.stutters,
-    removed: loop.removed + stut.removed,
+    // Every segment this guard took out of the transcript, of any class. Without a burst grid
+    // `sil.removed` is 0 by construction, so no existing caller's number moves.
+    removed: sil.removed + loop.removed + stut.removed,
     loopsRemoved: loop.removed,
     stutterRemoved: stut.removed,
     stutterTrimmed: stut.trimmed,
@@ -623,23 +965,41 @@ export function guardTranscription(channels, opts = {}) {
   const preserved = [...tag(me.preserved, 'me'), ...tag(others.preserved, 'others')];
   const insertions = [...tag(me.insertions, 'me'), ...tag(others.insertions, 'others')];
   const stutters = [...tag(me.stutters, 'me'), ...tag(others.stutters, 'others')];
+  const silenceFabrications = [
+    ...tag(me.silenceFabrications, 'me'),
+    ...tag(others.silenceFabrications, 'others'),
+  ];
+  const silenceReported = silenceFabrications.filter((f) => f.action === 'reported');
 
   return {
     me: me.segments,
     others: others.segments,
     report: {
       removed: me.removed + others.removed,
-      detected: loops.length + insertions.length + stutters.length > 0,
+      detected:
+        loops.length + insertions.length + stutters.length + silenceFabrications.length > 0,
       classes: {
         repetition: loops.length,
         insertion: insertions.length,
         overlapStutter: stutters.length,
+        silenceFabrication: silenceFabrications.length,
         preservedByAudio: preserved.length,
       },
       loops,
       preserved,
       insertions,
       stutters,
+      // Class 4, both tiers in one list, each row carrying its own `action`. Kept whole rather than
+      // split, so a reader can never see the removals without also seeing what was left behind.
+      silenceFabrications,
+      silenceRemoved: me.silenceRemoved + others.silenceRemoved,
+      // Still IN the transcript: over measured silence but NOT in the silence vocabulary, so this
+      // guard refused to guess. Same vocabulary as the insertion class's `unrepaired`.
+      silenceUnrepaired: silenceReported.length,
+      // "Nothing found" and "never looked" are different answers. Class 4 needs the burst grid and
+      // is inert without it, and this is where that is said out loud.
+      silenceProbed: { me: me.silenceProbed, others: others.silenceProbed },
+      silenceUnit: { me: me.silenceUnit, others: others.silenceUnit },
       byChannel: {
         me: {
           removed: me.removed,
@@ -647,6 +1007,8 @@ export function guardTranscription(channels, opts = {}) {
           preserved: me.preserved.length,
           insertions: me.insertions.length,
           stutters: me.stutters.length,
+          silenceRemoved: me.silenceRemoved,
+          silenceReported: me.silenceReported,
         },
         others: {
           removed: others.removed,
@@ -654,6 +1016,8 @@ export function guardTranscription(channels, opts = {}) {
           preserved: others.preserved.length,
           insertions: others.insertions.length,
           stutters: others.stutters.length,
+          silenceRemoved: others.silenceRemoved,
+          silenceReported: others.silenceReported,
         },
       },
     },
@@ -665,21 +1029,36 @@ export function guardTranscription(channels, opts = {}) {
  * NOT repair. This is the never-silent seam: without it, `repetitionGuard.enabled: true` in the
  * record reads as "hallucination: handled" while fabricated text sits in transcript.md.
  *
- * Repaired classes (loop, stutter) produce no warning — the transcript no longer contains them, and
- * the finding is already in `report.loops` / `report.stutters`.
+ * Repaired classes (loop, stutter, and the REMOVED tier of silence fabrication) produce no warning —
+ * the transcript no longer contains them, and the finding is already in `report.loops` /
+ * `report.stutters` / `report.silenceFabrications`.
  *
- * @param {{insertions: object[]}} report the report from guardTranscription
+ * @param {{insertions: object[], silenceFabrications?: object[]}} report from guardTranscription
  * @returns {string[]}
  */
 export function guardWarnings(report) {
   const insertions = (report && report.insertions) || [];
-  return insertions.map(
+  const out = insertions.map(
     (i) =>
       `${i.count} fabricated ${i.kind} insertion(s) on the "${i.channel || 'unknown'}" channel between ` +
       `${Math.round(Number(i.startMs || 0) / 1000)}s and ${Math.round(Number(i.endMs || 0) / 1000)}s are ` +
       'STILL IN the transcript — this class is detected, not repaired (removing it would delete real ' +
       'speech). Audio is retained: re-transcribe with a different model.',
   );
+  // Class 4's report-only tier: over measured silence, but the text is not in the silence
+  // vocabulary, so it was NOT removed. One line per span, because a count is not actionable.
+  for (const f of (report && report.silenceFabrications) || []) {
+    if (f.action !== 'reported') continue;
+    out.push(
+      `${f.durationSec}s on the "${f.channel || 'unknown'}" channel at ` +
+        `${Math.round(Number(f.startMs || 0) / 1000)}s carries text (${f.words} word(s)) over audio the ` +
+        `speech probe measures as SILENT — ${f.burstOverlapSec}s of speech energy in the whole span. ` +
+        'It is probably fabricated, but the words are not in the silence-hallucination vocabulary, so ' +
+        'this guard left them IN the transcript rather than guess against a quiet real utterance. ' +
+        'Audio is retained: check the span, or re-transcribe.',
+    );
+  }
+  return out;
 }
 
 export { DEFAULT_OPTS as REPETITION_GUARD_DEFAULTS };
