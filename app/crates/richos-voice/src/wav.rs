@@ -168,6 +168,166 @@ pub fn resample(input: &[f32], in_rate: u32, out_rate: u32) -> Vec<f32> {
     out
 }
 
+/// A **stateful** sample-rate converter — the streaming counterpart of [`resample`].
+///
+/// ## Why this type has to exist (it is not a tidy-up)
+///
+/// [`resample`] is a whole-signal function: it restarts its phase at zero and computes
+/// `n_out = round(len / ratio)` from scratch every call. Handing it one device callback at a
+/// time — which is exactly what `capture.rs` did — makes the 16 kHz stream DRIFT, because a
+/// callback size is generally not a whole number of output samples.
+///
+/// ```text
+///   48 000 Hz device, 512-frame callback, target 16 000 Hz
+///   exact output per callback = 512 / 3       = 170.667 samples
+///   round(512 / 3)                            = 171     samples
+///   error                                     =  +0.333 samples per callback
+///   callbacks per second      = 48000 / 512   =  93.75
+///   drift                     = 0.333 x 93.75 = +31.25 samples/s
+///                                             = +0.195 % fast
+///                                             = +19.5 ms per 10 s
+/// ```
+///
+/// Two consequences, both real:
+///
+/// 1. **The frame math stops being true.** Everything in this crate is quoted as a frame
+///    count re-derived to seconds (`313 x 256 / 16000 = 5.008 s`). A capture timebase running
+///    0.195 % fast means a "5.008 s" debounce is 4.998 s of wall clock. Small, but the whole
+///    point of the frame-count discipline is that the numbers are exact.
+/// 2. **It makes acoustic echo cancellation impossible.** An adaptive filter can only cancel
+///    an echo path that is time-INVARIANT. A reference that slides ~2 ms per second against
+///    the capture is a path that never stops moving; the filter spends its whole life
+///    re-converging and steady-state ERLE is capped at a few dB. This type is a prerequisite
+///    for `aec.rs`, not a nicety.
+///
+/// The converter keeps the fractional read position and enough input history to apply the
+/// same box pre-filter [`resample`] uses, across block boundaries, so a stream pushed in
+/// irregular chunks is sample-for-sample identical to the same stream pushed in one go.
+#[derive(Debug, Clone)]
+pub struct RateConverter {
+    in_rate: u32,
+    out_rate: u32,
+    /// input samples per output sample
+    ratio: f64,
+    /// Absolute index (in input samples since the stream opened) of `hist[0]`.
+    base: i64,
+    /// Absolute fractional input position of the NEXT output sample.
+    pos: f64,
+    /// Retained input, enough for the pre-filter window plus interpolation.
+    hist: Vec<f32>,
+    /// Box pre-filter width, and how much of it sits before the centre sample.
+    taps: usize,
+    half: usize,
+}
+
+impl RateConverter {
+    pub fn new(in_rate: u32, out_rate: u32) -> RateConverter {
+        let ratio = in_rate.max(1) as f64 / out_rate.max(1) as f64;
+        let taps = if in_rate > out_rate {
+            ((in_rate as f32 / out_rate as f32).round() as usize).max(1)
+        } else {
+            1
+        };
+        RateConverter {
+            in_rate,
+            out_rate,
+            ratio,
+            base: 0,
+            pos: 0.0,
+            hist: Vec::with_capacity(4096),
+            taps,
+            half: taps / 2,
+        }
+    }
+
+    pub fn in_rate(&self) -> u32 {
+        self.in_rate
+    }
+
+    pub fn out_rate(&self) -> u32 {
+        self.out_rate
+    }
+
+    /// Is this a no-op passthrough?
+    pub fn is_identity(&self) -> bool {
+        self.in_rate == self.out_rate
+    }
+
+    /// Forget the stream. Used when a device is reopened, so a stale phase cannot leak into
+    /// a new stream's alignment.
+    pub fn reset(&mut self) {
+        self.base = 0;
+        self.pos = 0.0;
+        self.hist.clear();
+    }
+
+    /// Total output samples produced since the stream opened — the drift diagnostic.
+    pub fn produced(&self) -> u64 {
+        (self.pos / self.ratio).round() as u64
+    }
+
+    /// One input sample by ABSOLUTE index. Anything before the stream opened is silence,
+    /// which is the truth: the microphone was not delivering yet.
+    #[inline]
+    fn at(&self, abs: i64) -> f32 {
+        if abs < self.base {
+            return 0.0;
+        }
+        let i = (abs - self.base) as usize;
+        self.hist.get(i).copied().unwrap_or(0.0)
+    }
+
+    /// Box-filtered input sample at absolute index `i`, matching [`resample`]'s pre-filter.
+    #[inline]
+    fn filtered(&self, i: i64) -> f32 {
+        if self.taps <= 1 {
+            return self.at(i);
+        }
+        let start = i - self.half as i64;
+        let mut acc = 0.0f32;
+        for k in 0..self.taps as i64 {
+            acc += self.at(start + k);
+        }
+        acc / self.taps as f32
+    }
+
+    /// Push one block of input; APPEND every output sample that is now fully determined.
+    /// Samples that need input we have not seen yet are held back until the next call —
+    /// which is precisely what makes the phase continuous.
+    pub fn push(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        if self.is_identity() {
+            out.extend_from_slice(input);
+            return;
+        }
+        self.hist.extend_from_slice(input);
+        let end = self.base + self.hist.len() as i64; // one past the last available sample
+
+        loop {
+            let i0 = self.pos.floor() as i64;
+            // Interpolating between i0 and i0+1 through a `taps`-wide centred window needs
+            // input up to (i0 + 1) + (taps - half - 1).
+            let needed = i0 + 1 + (self.taps - self.half) as i64;
+            if needed >= end {
+                break;
+            }
+            let frac = (self.pos - i0 as f64) as f32;
+            let a = self.filtered(i0);
+            let b = self.filtered(i0 + 1);
+            out.push(a + (b - a) * frac);
+            self.pos += self.ratio;
+        }
+
+        // Drop input that can never be read again: everything before the oldest sample the
+        // next output could touch.
+        let keep_from = (self.pos.floor() as i64) - self.half as i64 - 1;
+        if keep_from > self.base {
+            let drop = ((keep_from - self.base) as usize).min(self.hist.len());
+            self.hist.drain(..drop);
+            self.base += drop as i64;
+        }
+    }
+}
+
 /// Centred moving average of `taps` samples. `taps <= 1` is a no-op.
 fn box_filter(input: &[f32], taps: usize) -> Vec<f32> {
     if taps <= 1 {
@@ -196,6 +356,122 @@ mod tests {
 
     fn rms(x: &[f32]) -> f32 {
         (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt()
+    }
+
+    /// **THE DRIFT, MEASURED.** This is the bug `RateConverter` exists to fix, asserted as a
+    /// property of the whole-signal `resample` so it can never be quietly reintroduced by
+    /// someone calling it per-callback again.
+    ///
+    /// A 48 kHz device with a 512-frame callback should yield 512 / 3 = 170.667 samples at
+    /// 16 kHz. `resample` returns round(170.667) = 171 every time, so the stream gains
+    /// 0.333 samples per callback. At 48000 / 512 = 93.75 callbacks per second that is
+    /// +31.25 samples/s = +0.195 %, i.e. the "16 kHz" stream actually runs at 16 031.25 Hz.
+    #[test]
+    fn resampling_per_callback_drifts_which_is_why_rateconverter_exists() {
+        let cb = 512usize;
+        let per_callback = resample(&vec![0.0f32; cb], 48_000, 16_000).len();
+        assert_eq!(per_callback, 171, "premise changed: round(512/3)");
+
+        let exact = cb as f64 / 3.0;
+        assert!((exact - 170.666_666).abs() < 1e-5);
+        let gain_per_callback = per_callback as f64 - exact;
+        assert!((gain_per_callback - 0.333_333).abs() < 1e-5, "{gain_per_callback}");
+
+        let callbacks_per_sec = 48_000.0 / cb as f64;
+        assert!((callbacks_per_sec - 93.75).abs() < 1e-9);
+        let drift_per_sec = gain_per_callback * callbacks_per_sec;
+        assert!((drift_per_sec - 31.25).abs() < 1e-4, "drift = {drift_per_sec} samples/s");
+
+        // 31.25 / 16000 = 0.1953 % fast -> 19.5 ms of slide per 10 s of conversation, which
+        // is 15 % of the canceller's 128 ms filter tail. An echo path that moves that fast is
+        // not time-invariant and cannot be cancelled.
+        let pct = 100.0 * drift_per_sec / 16_000.0;
+        assert!((pct - 0.195_312_5).abs() < 1e-6, "{pct} %");
+        let ms_per_10s = 10.0 * drift_per_sec / 16.0;
+        assert!((ms_per_10s - 19.531_25).abs() < 1e-4, "{ms_per_10s} ms per 10 s");
+    }
+
+    /// INVARIANT: the streaming converter does NOT drift. 100 callbacks of 512 frames is
+    /// 51 200 input samples = 17 066.67 output samples; the converter must land within a
+    /// couple of samples of that, not 33 samples over.
+    #[test]
+    fn the_rate_converter_holds_its_timebase_over_a_long_stream() {
+        let mut rc = RateConverter::new(48_000, 16_000);
+        let block = sine(300.0, 48_000, 512);
+        let mut out = Vec::new();
+        for _ in 0..100 {
+            rc.push(&block, &mut out);
+        }
+        let exact = 51_200.0 / 3.0; // 17 066.667
+        let err = out.len() as f64 - exact;
+        assert!(err.abs() <= 2.0, "converter drifted: {} vs {exact} ({err:+})", out.len());
+
+        // And the stateless per-callback path, over the same input, runs long by exactly the
+        // drift its sibling test measures — made concrete rather than argued.
+        let mut naive = 0usize;
+        for _ in 0..100 {
+            naive += resample(&block, 48_000, 16_000).len();
+        }
+        assert_eq!(naive, 17_100);
+        assert!(naive as f64 - exact > 30.0, "the naive path stopped drifting - recheck the premise");
+    }
+
+    /// **THE PROPERTY THE AEC DEPENDS ON**: a stream pushed in irregular chunks is
+    /// sample-for-sample identical to the same stream pushed in one go. If block boundaries
+    /// perturbed the output, the reference signal and the captured echo would differ by a
+    /// block-rate artefact that no adaptive filter can model.
+    #[test]
+    fn chunking_the_input_does_not_change_a_single_output_sample() {
+        let src = sine(770.0, 48_000, 9_000);
+
+        let mut one = RateConverter::new(48_000, 16_000);
+        let mut whole = Vec::new();
+        one.push(&src, &mut whole);
+
+        let mut many = RateConverter::new(48_000, 16_000);
+        let mut chunked = Vec::new();
+        let mut i = 0;
+        for block in [7usize, 512, 1, 4096, 33, 970, 2048, 1333] {
+            let end = (i + block).min(src.len());
+            many.push(&src[i..end], &mut chunked);
+            i = end;
+        }
+        many.push(&src[i..], &mut chunked);
+
+        assert_eq!(whole.len(), chunked.len(), "chunking changed the sample count");
+        for (n, (a, b)) in whole.iter().zip(chunked.iter()).enumerate() {
+            assert!((a - b).abs() < 1e-9, "chunking changed sample {n}: {a} vs {b}");
+        }
+    }
+
+    /// INVARIANT: the converter preserves a tone's frequency (not just its sample count) —
+    /// a converter that dropped or repeated samples would still pass a length check.
+    #[test]
+    fn the_rate_converter_preserves_the_signal_not_merely_the_length() {
+        let mut rc = RateConverter::new(48_000, 16_000);
+        let mut out = Vec::new();
+        rc.push(&sine(500.0, 48_000, 48_000), &mut out);
+        assert!((out.len() as i64 - 16_000).abs() <= 2);
+
+        // Zero crossings of a 500 Hz tone over ~1 s: 2 per cycle = ~1000.
+        let mid = &out[800..out.len() - 800];
+        let crossings = mid.windows(2).filter(|w| (w[0] < 0.0) != (w[1] < 0.0)).count();
+        let secs = mid.len() as f32 / 16_000.0;
+        let freq = crossings as f32 / (2.0 * secs);
+        assert!((freq - 500.0).abs() < 5.0, "recovered {freq} Hz, expected 500");
+        assert!(rms(mid) > 0.3, "amplitude collapsed: {}", rms(mid));
+    }
+
+    /// INVARIANT: an identity conversion is a byte-for-byte passthrough with no filtering,
+    /// so a 16 kHz device is never softened by a pre-filter it does not need.
+    #[test]
+    fn an_identity_conversion_is_an_exact_passthrough() {
+        let mut rc = RateConverter::new(16_000, 16_000);
+        assert!(rc.is_identity());
+        let src = sine(1000.0, 16_000, 777);
+        let mut out = Vec::new();
+        rc.push(&src, &mut out);
+        assert_eq!(out, src);
     }
 
     /// INVARIANT: what we write is what whisper reads back — a full round trip within
