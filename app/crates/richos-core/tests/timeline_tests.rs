@@ -26,8 +26,9 @@ use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::timeline::{
     ActivityState, ActivityType, RejectionReason, RichMessagePhase, Timeline, TimelineItem, TimelineSlot, ViewMode,
-    Visibility,
+    Visibility, WorkerState,
 };
+use richos_core::worker_events::{ObservedWorkerState, WorkerEventRow};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
@@ -601,9 +602,17 @@ fn a_delegated_task_never_becomes_a_worker_and_a_status_less_call_never_becomes_
         })
         .collect();
 
+    // CHANGED DELIBERATELY (slice 2a pinned this as an absolute). `spine.timeline` calls
+    // `Timeline::project`, which supplies NO worker stream — and this payload carries no
+    // async-launch acknowledgement anyway — so there is no identity to join by and the Task
+    // call is still just an activity that happened. The joined case is proven in
+    // `a_task_call_joined_by_identity_becomes_a_worker_item`.
     assert!(
-        !timeline.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::Worker { .. })),
-        "a Task tool call is an activity that happened, not a worker lifecycle claim"
+        !timeline
+            .audit_including_internal()
+            .iter()
+            .any(|i| matches!(i, TimelineItem::Worker { .. } | TimelineItem::WorkerActivity { .. })),
+        "with no lifecycle signal to join to, a Task call is an activity, not a worker claim"
     );
     assert!(
         activities.contains(&(&ActivityType::Other, &ActivityState::Queued)),
@@ -652,5 +661,219 @@ fn an_unbound_legacy_thread_refuses_to_produce_a_timeline_at_all() {
     let spine = Spine::new(Ledger::open(&path).unwrap());
     let err = spine.timeline("thr_old").unwrap_err();
     assert!(err.to_string().contains("will not guess"), "the refusal explains itself: {err}");
+    let _ = std::fs::remove_file(&path);
+}
+
+// ---------------------------------------------------------------------------
+// WORKERS — the join, and the leak class it introduces
+// ---------------------------------------------------------------------------
+
+fn wrow(json_text: &str) -> WorkerEventRow {
+    serde_json::from_str(json_text).unwrap()
+}
+
+/// A ledger with one femcboost thread and one deeply thread, plus one completed femcboost
+/// turn. The shared fixture for the two worker tests below.
+fn two_entity_ledger(path: &std::path::Path) {
+    std::fs::write(
+        path,
+        concat!(
+            r#"{"event":"ThreadCreated","thread_id":"thr_fem","title":"Avelor release","at":1,"entity_id":"femcboost","person_id":"ceo-default","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"ThreadCreated","thread_id":"thr_dee","title":"Partner book","at":2,"entity_id":"deeply","person_id":"ceo-default","binding_revision":2}"#,
+            "\n",
+            r#"{"event":"PromptReceived","turn_id":"turn_ok","thread_id":"thr_fem","text":"delegate the audit","source":"text","at":3,"entity_id":"femcboost","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"TurnStarted","turn_id":"turn_ok","session_id":"s1","at":4}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_ok","text":"delegating now","at":5,"seq":0}"#,
+            "\n",
+            r#"{"event":"TurnCompleted","turn_id":"turn_ok","stop_reason":"end_turn","at":6}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+}
+
+/// The Task tool call that spawned `agt_shared`, in session `s1`, in femcboost's thread.
+fn task_record(thread: &str, turn: &str, session: &str) -> MachineryRecord {
+    MachineryRecord::from_acp_update(
+        &json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
+                "sessionUpdate":"tool_call_update","status":"in_progress","title":"Task",
+                "rawOutput":"Async agent launched successfully. agentId: agt_shared"}),
+        session,
+        1,
+    )
+    .unwrap()
+    .stamp(thread, Some(turn), false)
+}
+
+#[test]
+fn a_task_call_joined_by_identity_becomes_a_worker_item() {
+    // The positive half of the changed invariant. Same Task call as slice 2a's test, but
+    // now carrying the harness's async-launch acknowledgement and joined to a real stream.
+    let path = tmp("wjoin", ".jsonl");
+    two_entity_ledger(&path);
+    let ledger = Ledger::open(&path).unwrap();
+    let binding = ledger.thread_binding("thr_fem").unwrap();
+
+    let rows = vec![
+        wrow(r#"{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"created","agent_id":"agt_shared","worker_name":"sage-opus-r3","agent_type":"sage","session_id":"s1"}"#),
+        wrow(r#"{"timestamp":"2026-08-29T04:00:01+00:00","lifecycle_state":"started","agent_id":"agt_shared","agent_type":"sage","session_id":"s1"}"#),
+    ];
+
+    let timeline =
+        Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_fem", "turn_ok", "s1")], &rows).unwrap();
+
+    let workers: Vec<_> = timeline
+        .audit_including_internal()
+        .iter()
+        .filter_map(|i| match i {
+            TimelineItem::WorkerActivity { base, worker, .. } => Some((base, worker)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(workers.len(), 1, "the Task call joined by agent_id is a worker row");
+    let (base, worker) = workers[0];
+    assert_eq!(worker.agent_id, "agt_shared");
+    assert_eq!(worker.worker_name.as_deref(), Some("sage-opus-r3"));
+    assert_eq!(worker.observed_state, ObservedWorkerState::Started);
+    assert_eq!(worker.state, WorkerState::Running);
+
+    // THE FULL ECS FENCE, on the new item type as on every other one.
+    assert_eq!(base.entity_id, femcboost());
+    assert_eq!(base.thread_id, "thr_fem");
+    assert_eq!(base.turn_id, "turn_ok");
+    assert_eq!(base.binding_revision, 1);
+    assert_eq!(base.sequence, Some(1), "one shared per-turn counter, not a second one");
+    assert_eq!(base.slot, TimelineSlot::Stream);
+
+    // And it is NOT the modelled, unsourced §12 variant.
+    assert!(!timeline.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::Worker { .. })));
+
+    // Visibility is a GATE, not a field: technical detail is REMOVED from a CEO view.
+    let ceo = timeline.view(ViewMode::Ceo);
+    let ceo_worker = ceo
+        .items()
+        .iter()
+        .find_map(|i| match i {
+            TimelineItem::WorkerActivity { detail, worker, .. } => Some((detail, worker)),
+            _ => None,
+        })
+        .expect("a worker row is CEO-visible");
+    assert!(ceo_worker.0.is_none(), "the technical half is removed, not flagged");
+    assert_eq!(ceo_worker.1.worker_name.as_deref(), Some("sage-opus-r3"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn no_worker_row_from_another_session_attaches_to_this_sessions_task_call() {
+    // THE NEGATIVE CONTROL FOR THE LEAK CLASS THIS SLICE INTRODUCES.
+    //
+    // `agent_id` is the join key and it is NOT globally unique across sessions — the
+    // engine's own test residue at ~/.claude/worker-events.jsonl reuses a single id
+    // (aTESTWORKER00001) across twelve rows. So a row from another session can collide
+    // with this session's Task call by identity alone.
+    //
+    // If it attaches, its `worker_name` and its authored `summary` are rendered on a row
+    // stamped with THIS binding's entity, thread, turn and revision. It looks perfectly
+    // scoped and is not — the same shape slice 2a found in the toolCallId merge, where
+    // stamping the entity from the binding was what made the leak invisible.
+    let path = tmp("wleak", ".jsonl");
+    let secret = "deeply's Q4 term sheet numbers";
+    two_entity_ledger(&path);
+    let ledger = Ledger::open(&path).unwrap();
+    let binding = ledger.thread_binding("thr_fem").unwrap();
+
+    let rows = vec![
+        wrow(r#"{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"created","agent_id":"agt_shared","worker_name":"sage-opus-r3","agent_type":"sage","session_id":"s1"}"#),
+        wrow(r#"{"timestamp":"2026-08-29T04:00:01+00:00","lifecycle_state":"started","agent_id":"agt_shared","agent_type":"sage","session_id":"s1"}"#),
+        // THE COLLISION. Same agent_id, DIFFERENT session, carrying deeply's content — and
+        // placed LAST so that without the session clause it would win every field:
+        // `observed_state` (it is the last row), `worker_name` and `latest_update` (both
+        // resolved by reverse scan).
+        wrow(r#"{"timestamp":"2026-08-29T04:00:02+00:00","lifecycle_state":"updated","agent_id":"agt_shared","worker_name":"deeply's Q4 term sheet numbers","agent_type":"deeply-analyst","session_id":"s_other","summary":"deeply's Q4 term sheet numbers"}"#),
+    ];
+
+    // (1) POSITIVE PROBE — the input really does contain the foreign content, keyed to the
+    //     very id this thread's Task call joins on. Without this the assertions below
+    //     could pass because nothing foreign was ever there.
+    assert!(
+        rows.iter().any(|r| r.agent_id == "agt_shared" && r.session_id == "s_other" && r.summary == secret),
+        "the fixture must actually cross the boundary, or this test proves nothing"
+    );
+    assert!(
+        rows.iter().filter(|r| r.agent_id == "agt_shared").count() == 3,
+        "the foreign row really does collide on the join key"
+    );
+
+    // (2) THE GUARD. Delete clause 3 (the `in_scope` filter in `worker_activity`) and this
+    //     test fails with deeply's term-sheet line rendered inside a femcboost thread,
+    //     stamped entity_id=femcboost, thread_id=thr_fem, turn_id=turn_ok.
+    let timeline =
+        Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_fem", "turn_ok", "s1")], &rows).unwrap();
+
+    let (base, worker) = timeline
+        .audit_including_internal()
+        .iter()
+        .find_map(|i| match i {
+            TimelineItem::WorkerActivity { base, worker, .. } => Some((base, worker)),
+            _ => None,
+        })
+        .expect("this session's worker still projects");
+
+    assert_eq!(base.entity_id, femcboost());
+    assert_eq!(worker.worker_name.as_deref(), Some("sage-opus-r3"), "the foreign name must not win the reverse scan");
+    assert_eq!(worker.agent_type.as_deref(), Some("sage"));
+    assert_eq!(worker.latest_update, None, "the foreign summary is not an update this session witnessed");
+    assert_eq!(worker.observed_state, ObservedWorkerState::Started, "the foreign row must not become the last state");
+    assert_eq!(worker.events_observed, 2, "two in-session rows, not three");
+
+    // (3) AND THE WHOLE RENDERED SURFACE, in both modes — the assertion that survives a
+    //     future refactor moving where the name is read from.
+    for mode in [ViewMode::Ceo, ViewMode::Technical] {
+        let rendered = serde_json::to_string(&timeline.view(mode)).unwrap();
+        assert!(!rendered.contains(secret), "{mode:?} view leaked the other session's content: {rendered}");
+        assert!(!rendered.contains("s_other"), "{mode:?} view leaked the other session id");
+        assert!(!rendered.contains("deeply-analyst"), "{mode:?} view leaked the other session's agent type");
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn no_worker_item_is_built_from_a_task_call_belonging_to_another_thread() {
+    // The pre-existing machinery guard, re-proven for the NEW item type: a worker row must
+    // not be reachable by routing a foreign Task call through the join. The record names
+    // the deeply thread while claiming a turn femcboost legitimately accepts — so only the
+    // thread clause stands between it and femcboost's screen.
+    let path = tmp("wforeign", ".jsonl");
+    two_entity_ledger(&path);
+    let ledger = Ledger::open(&path).unwrap();
+    let binding = ledger.thread_binding("thr_fem").unwrap();
+
+    let rows = vec![wrow(
+        r#"{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"started","agent_id":"agt_shared","worker_name":"deeply-worker","agent_type":"deeply","session_id":"s1"}"#,
+    )];
+
+    // POSITIVE PROBE: the identical record, stamped to THIS thread, really does produce a
+    // worker item — so the assertion below cannot pass merely because the join is broken.
+    let ok = Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_fem", "turn_ok", "s1")], &rows)
+        .unwrap();
+    assert!(
+        ok.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::WorkerActivity { .. })),
+        "the join works when the record is in-thread — the negative below is meaningful"
+    );
+
+    let timeline =
+        Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_dee", "turn_ok", "s1")], &rows).unwrap();
+    assert!(
+        !timeline.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::WorkerActivity { .. })),
+        "a foreign-thread Task call must not become a worker row in this entity's timeline"
+    );
+    let violations = timeline.scope_violations();
+    assert_eq!(violations.len(), 1, "and the refusal is REPORTED, not silently dropped");
+    assert_eq!(violations[0].reason, RejectionReason::ForeignThread);
+    let rendered = serde_json::to_string(&timeline.view(ViewMode::Technical)).unwrap();
+    assert!(!rendered.contains("deeply-worker"), "leaked: {rendered}");
     let _ = std::fs::remove_file(&path);
 }

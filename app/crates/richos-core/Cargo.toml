@@ -22,3 +22,7 @@ path = "examples/rotation_roundtrip.rs"
 [[example]]
 name = "machinery_roundtrip"
 path = "examples/machinery_roundtrip.rs"
+
+[[example]]
+name = "worker_status_demo"
+path = "examples/worker_status_demo.rs"

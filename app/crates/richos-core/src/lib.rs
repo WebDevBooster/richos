@@ -23,6 +23,8 @@
 //!   - `spine`     — ties it together: queue-not-interrupt, turn-boundary, re-prime seam,
 //!                   turn-boundary rotation, mid-turn-crash recovery, the proactive seam.
 //!   - `config`    — durable CEO-facing preferences: company name, the assertiveness dial.
+//!   - `worker_events` — the CONSUMER of the engine's worker-lifecycle stream: the four
+//!                     states it can witness, and the three it refuses to invent.
 //!   - `worker_status` — the optional AI-worker drill-down, read from the engine's event logs.
 
 pub mod acp;
@@ -39,6 +41,7 @@ pub mod stream;
 pub mod thread;
 pub mod timeline;
 pub mod util;
+pub mod worker_events;
 pub mod worker_status;
 
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
@@ -60,6 +63,7 @@ pub use spine::{Spine, SpineError};
 pub use stream::{StreamEvent, TurnObserver};
 pub use timeline::{
     ActivityState, ActivityType, RichMessagePhase, Timeline, TimelineBase, TimelineItem, TimelineView, ViewMode,
-    Visibility, WorkerRun, WorkerState,
+    Visibility, WorkerActivityItem, WorkerRun, WorkerState, RUN_ENDED_WORKER_STATE,
 };
+pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope, WorkerEventRow};
 pub use worker_status::WorkerStatusView;
