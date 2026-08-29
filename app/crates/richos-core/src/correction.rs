@@ -93,7 +93,10 @@ impl From<std::io::Error> for CorrectionError {
 /// structural decision about the corpus layout, which is exactly what CEO decision 1.6
 /// ("one loro, two homes") is still open on — see `crate::loro::LaneMap`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "kebab-case")]
+// `rename_all` names the VARIANTS (the `op` tag); `rename_all_fields` names the fields.
+// Both matter because this type crosses the Tauri IPC boundary verbatim — the webview
+// sends `{op: "supersede", recordRef: …}` and the rest of that surface is camelCase.
+#[serde(tag = "op", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum ProposedWrite {
     /// A new record. `loro-writer.md`: append REFUSES to overwrite — a belief is superseded,
     /// never silently replaced.

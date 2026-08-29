@@ -626,6 +626,29 @@ impl Spine {
         self.loro_compiler.is_some()
     }
 
+    /// Record ONE completed, CEO-facing action that the app took outside a turn.
+    ///
+    /// The shell needs this because `ledger()` is deliberately `&Ledger`: the ledger is
+    /// append-only evidence and handing out `&mut` would be one more place a caller could
+    /// write an event the spine knows nothing about. The concrete need is a confirmed loro
+    /// correction — "Rich changed what the company believes" is exactly the class of fact
+    /// the action-ledger digest exists to stop a successor denying from absent memory
+    /// (continuity §2.1 #6, `reprime.rs`'s identity assertion: *"an entry PRESENT is proof
+    /// the action happened"*).
+    ///
+    /// `turn_id: None` is first-class here, not a gap: a correction the CEO confirms in a
+    /// side panel belongs to the THREAD, not to any turn, the same way re-prime machinery
+    /// does (§1.4 G4).
+    pub fn record_ceo_action(&mut self, kind: &str, detail: &str) -> Result<String, SpineError> {
+        Ok(self.ledger.record_action_with(
+            None,
+            kind,
+            detail,
+            ActionVisibility::CeoFacing,
+            ActionStatus::Completed,
+        )?)
+    }
+
     /// Fill Tier C of a payload whose Tiers A and B are already assembled.
     ///
     /// **The ordering is forced, not stylistic.** A slice is always topical
