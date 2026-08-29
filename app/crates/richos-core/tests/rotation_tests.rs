@@ -336,8 +336,12 @@ fn a_mid_turn_crossing_of_the_hard_limit_is_recorded_and_settled_at_the_boundary
     // 0.99 configured: an operator ratio that would NOT have rotated at 96%. The critical
     // threshold outranks it, because at 96% measured the policy has been overtaken.
     spine.set_context_budget(1_000_000, 0.99);
+    // A UUID-shaped session id on purpose: Action.detail is capped at
+    // ACTION_DETAIL_MAX_CHARS (160) and real ACP session ids are 36 chars, so a short
+    // fixture id would hide a truncation that production would hit. The load-bearing
+    // clauses must survive the cap with a REAL-LENGTH id in the string.
     spine.attach_lease(Box::new(ReportingCognition::new(
-        "sess-1",
+        "55c79b81-ace3-4b07-a5f3-406853ac1a36",
         vec![(500_000, 1_000_000), (960_000, 1_000_000), (970_000, 1_000_000)],
         "the reply still finished",
     )));
@@ -368,6 +372,11 @@ fn a_mid_turn_crossing_of_the_hard_limit_is_recorded_and_settled_at_the_boundary
         pressure[0].detail
     );
     assert!(pressure[0].detail.contains("size=1000000"), "detail = {}", pressure[0].detail);
+    assert!(
+        pressure[0].detail.starts_with("rotation deferred to this boundary"),
+        "the outcome must lead, so truncation can never eat it: {}",
+        pressure[0].detail
+    );
     let _ = std::fs::remove_file(&path);
 }
 
@@ -392,6 +401,41 @@ fn staying_under_the_critical_ratio_records_no_pressure_and_no_critical_rotation
         .internal_actions()
         .into_iter()
         .all(|a| a.kind != "context_pressure"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn mid_turn_pressure_without_a_lease_factory_records_the_fact_and_does_not_fail_a_turn_that_succeeded() {
+    // The honest degrade, matching the watermark path's existing one. A spine with no
+    // factory cannot rotate, so the crossing is DETECTED and RECORDED and nothing else
+    // happens - in particular `submit_prompt` must still return Ok, because the turn it
+    // describes completed. Returning NoLeaseFactory here would report a failure for work
+    // that succeeded, which is the wrong direction to be wrong in.
+    let (path, ledger) = tmp_ledger("pressure-no-factory");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    spine.attach_lease(Box::new(ReportingCognition::new(
+        "sess-1",
+        vec![(980_000, 1_000_000)],
+        "the reply still finished",
+    )));
+    // Deliberately NO set_lease_factory.
+
+    let result = spine.submit_prompt("hello", Source::Text);
+    assert!(result.is_ok(), "a turn that completed must not report a rotation failure: {result:?}");
+
+    let msgs = spine.messages(&thread).unwrap();
+    assert_eq!(msgs.last().unwrap().text, "the reply still finished");
+    assert_eq!(spine.rotation_count(), 0, "nothing to rotate into");
+
+    let pressure: Vec<_> =
+        spine.ledger().internal_actions().into_iter().filter(|a| a.kind == "context_pressure").collect();
+    assert_eq!(pressure.len(), 1, "the crossing is still written down - detection is the valuable part");
+    assert!(
+        pressure[0].detail.contains("cannot proceed"),
+        "the record must say rotation could not happen, not imply it did: {}",
+        pressure[0].detail
+    );
     let _ = std::fs::remove_file(&path);
 }
 

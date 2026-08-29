@@ -1640,23 +1640,40 @@ impl Spine {
     fn settle_context_pressure(&mut self) -> Result<(), SpineError> {
         let Some((turn_id, usage)) = self.context_pressure.take() else { return Ok(()) };
         let session = self.lease_session_id().unwrap_or("unknown").to_string();
+        // NO FACTORY MEANS NO ROTATION, and the record says so rather than pretending.
+        // This mirrors the watermark path's existing honest degrade (`set_lease_factory`'s
+        // doc: "watermark: never fires since rotation can't proceed"). Setting
+        // `pending_rotation_reason` here without a factory would make `after_turn_boundary`
+        // return `NoLeaseFactory` out of a turn that SUCCEEDED — reporting a failure for
+        // work that completed, which is the wrong direction to be wrong in.
+        let can_rotate = self.lease_factory.is_some();
+        // THE OUTCOME GOES FIRST, and that ordering is load-bearing rather than stylistic:
+        // `Ledger::record_action_with` truncates `detail` at ACTION_DETAIL_MAX_CHARS (160),
+        // and the first version of this line put the outcome LAST — where truncation ate
+        // "rotation cannot proceed" and left a record that read as though rotation had
+        // happened. A record whose most important clause is the one that gets cut is worse
+        // than no record.
+        let outcome = if can_rotate {
+            "rotation deferred to this boundary, never fired mid-turn"
+        } else {
+            "NO lease factory: rotation cannot proceed, detected and recorded only"
+        };
         self.ledger.record_action_with(
             Some(&turn_id),
             "context_pressure",
             &format!(
-                "session={session} crossed {:.0}% of its MEASURED context window during a turn \
-                 (used={} size={} = {:.1}%); rotation deferred to this boundary, never fired mid-turn",
-                CONTEXT_CRITICAL_RATIO * 100.0,
+                "{outcome}; used={} size={} = {:.1}% (over the {:.0}% critical mark) mid-turn on session={session}",
                 usage.used,
                 usage.size,
                 usage.fraction() * 100.0,
+                CONTEXT_CRITICAL_RATIO * 100.0,
             ),
             ActionVisibility::Internal,
             ActionStatus::Completed,
         )?;
         // Does not clobber an explicit request already pending — a CEO-requested rotation
         // and this one do the same thing, and his reason is the more informative one.
-        if self.pending_rotation_reason.is_none() {
+        if can_rotate && self.pending_rotation_reason.is_none() {
             self.pending_rotation_reason = Some("context-critical".to_string());
         }
         Ok(())
