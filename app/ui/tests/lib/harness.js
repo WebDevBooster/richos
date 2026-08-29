@@ -70,10 +70,16 @@ function fixtureHtml() {
         now: 1787950000000,
         expandedMessages: new Set(),
         avatarAlreadyShown: true,
-        isExpanded: function (id) { return window.__model.expanded.has(id); },
+        // THE SHIPPING RULE, NOT A COPY OF IT (harness rule 1). Section 6.4 has two
+        // defaults - expanded while the turn is active, collapsed after it settles - and
+        // the CEO's own choice overrules both. All three live in
+        // RichTimeline.isTurnExpanded / toggleTurn, which is what main.js calls; a
+        // re-implementation here would prove the harness rather than the product.
+        // (No backticks in this comment: it sits inside the fixture page's template
+        // literal, where one would end the string.)
+        isExpanded: function (id) { return window.RichTimeline.isTurnExpanded(window.__model, id); },
         toggle: function (id) {
-          if (window.__model.expanded.has(id)) window.__model.expanded.delete(id);
-          else window.__model.expanded.add(id);
+          window.RichTimeline.toggleTurn(window.__model, id);
           window.__renderOnly();
         },
         rerender: function () { window.__renderOnly(); },
