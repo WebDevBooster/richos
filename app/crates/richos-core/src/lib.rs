@@ -6,6 +6,8 @@
 //! is a thin consumer.
 //!
 //! Pieces:
+//!   - `entity`    — the ENTITY scope/privacy boundary: entity ids, the registry, the
+//!                   immutable thread binding and the fail-closed root resolver (ECS §3.2–3.4).
 //!   - `ledger`    — durable, append-only conversation + action LEDGER (crash-safe).
 //!   - `thread`    — topic threads as VIEWS over the one shared ledger.
 //!   - `cognition` — the swappable compute-lease seam (+ a test mock).
@@ -22,6 +24,7 @@
 pub mod acp;
 pub mod cognition;
 pub mod config;
+pub mod entity;
 pub mod journal;
 pub mod ledger;
 pub mod machinery;
@@ -34,6 +37,10 @@ pub mod worker_status;
 
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
+pub use entity::{
+    Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
+    ThreadBinding, ThreadEntity,
+};
 pub use journal::MachineryJournal;
 pub use ledger::{AttentionTier, Ledger, Message, Source, TurnState};
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
