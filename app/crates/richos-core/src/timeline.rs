@@ -1299,6 +1299,30 @@ pub(crate) fn activity_item(
     // it is in machinery.rs: the CEO must never see that a rotation happened.
     let visibility = if row.internal || row.kind == MachineryKind::Thought || internal_turn {
         Visibility::Internal
+    } else if row.kind == MachineryKind::PermissionRequested {
+        // A PERMISSION REQUEST IS MACHINERY, NOT A CEO ROW.
+        //
+        // Corrected 2026-08-29 on Frank's §1.1. This branch did not exist: the row fell
+        // through to `Visibility::Ceo` and rendered as *"Requested approval"*, rolled up by
+        // `app/ui/timeline.js` as *"Requested approval 7 times"* — 7 being the measured
+        // count of `session/request_permission` calls across five short probe runs, so this
+        // was frequent, not an edge case.
+        //
+        // Three things are wrong with that on the calm surface, and the third is the one
+        // that matters. It is duplicate: the tool call this request belongs to already
+        // renders its own semantic row ("Ran a command"), so nothing is lost here. It
+        // implies a decision-maker, when `acp.rs:184-205` auto-approves every request and
+        // nobody was asked. And with `state: completed` beside it, a reasonable CEO reads
+        // it as GRANTED — which manufactures the demand for an approval queue that does not
+        // exist. R2 business-action governance is deferred to V2 by CEO decision for v1 and
+        // all 1.x; a summary string is not the way to un-defer it.
+        //
+        // Every structural refusal in this family held — `rich://approval-requested` and
+        // `-resolved` are deliberately not emitted, and `TimelineItem::Approval` is modelled
+        // with no constructor (below). The noun walked past them. This is the same
+        // correction, made the same way, as `MachineryKind::Unknown` immediately below:
+        // route it, retain it, render it in technical mode, keep it off the calm view.
+        Visibility::Technical
     } else if row.kind == MachineryKind::Unknown {
         // AN UNTYPED VENDOR KIND IS A TECHNICAL ROW, NOT A CEO ROW.
         //
@@ -1433,7 +1457,27 @@ fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> Strin
         ActivityType::Environment => "Set up the environment".to_string(),
         ActivityType::Integration => "Used an integration".to_string(),
         ActivityType::Thread => "Updated a thread".to_string(),
-        ActivityType::Approval => "Requested approval".to_string(),
+        // WHAT ACTUALLY HAPPENED: a tool asked, the client answered by itself, nobody
+        // decided. Every word is checked against that.
+        //
+        // "Answered" states what RichOS did and is not an authorisation verb — unlike
+        // "Approved"/"Allowed"/"Granted", each of which names a governance act and implies
+        // an actor entitled to perform it. "a permission prompt" is the protocol's own
+        // noun (`session/request_permission`), correct in a technical row and free of the
+        // suggestion that a person was consulted. "automatically" is the load-bearing word:
+        // it names the absence of a decision-maker, which is the fact the old string hid.
+        //
+        // Nothing here claims success, failure or breakage — the underlying tool call
+        // reports its own outcome in its own row, and this one must not pre-empt it.
+        // Rejected: "Requested approval" (the request was answered, not left open, and
+        // "approval" names a decision nobody took); "Approved a tool automatically"
+        // (Frank's option 2 — factual, but "Approved" still asserts an authorisation);
+        // "Auto-approved" (same objection, compressed); "Skipped a permission check"
+        // (false — the check ran and was answered).
+        //
+        // This is a TECHNICAL row now (see `activity_row`), so it is written for someone
+        // reading machinery, where the protocol noun is an asset rather than jargon.
+        ActivityType::Approval => "Answered a permission prompt automatically".to_string(),
         ActivityType::Other => "Worked".to_string(),
     }
 }
