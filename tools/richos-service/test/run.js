@@ -2048,6 +2048,24 @@ test('a casing-only fix asks nothing — a vocabulary cannot hold it', () => {
   assert.match(rejected.map((r) => r.reason).join(' '), /casing/);
 });
 
+test('hunk expansion stops at a full stop — a sentence-initial capital is grammar, not a name', () => {
+  // Before this guard, the 2026-08-29 short-call corpus produced three asks of this shape out of
+  // six captured corrections: Add "Cannery Street. That" to your vocabulary? — which is the kind of
+  // question that gets a feature switched off.
+  const hunks = tokenReplaceHunks(
+    'the Brightmoor Dental on Canary Street. That may be the problem.'.split(' '),
+    'the Brightmoor Dental on Cannery Street. That may be the problem.'.split(' '),
+  );
+  assert.equal(hunks.length, 1);
+  assert.equal(hunks[0].to, 'Cannery Street.', 'the name, and not the next sentence with it');
+  assert.equal(hunks[0].from, 'Canary Street.');
+  const { asks } = askCandidates(
+    'the Brightmoor Dental on Canary Street. That may be the problem.',
+    'the Brightmoor Dental on Cannery Street. That may be the problem.',
+  );
+  assert.equal(asks[0].to, 'Cannery Street.');
+});
+
 test('a name fix asks about the WHOLE name, never the lone word inside it', () => {
   // "Hand" -> "Hanna" as a curated mangling would corrupt the ordinary word "hand" forever.
   const { asks } = askCandidates('I spoke to Rich Hand today.', 'I spoke to Rich Hanna today.');
