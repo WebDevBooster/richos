@@ -16,6 +16,7 @@ use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
+use richos_core::steering::{IntakeRecord, StopOutcome, TurnControl};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
 use richos_core::worker_status::{self, WorkerStatusView};
@@ -105,6 +106,14 @@ struct AppState {
     /// Separate from `config` because it is view state, not a CEO preference about how
     /// Rich behaves — and separate from the ledger because it is not evidence (nav.rs).
     nav: Mutex<nav::NavStore>,
+    /// THE CEO'S TWO MID-TURN CONTROLS (UX §9.2/§9.3), and the one thing here that is
+    /// DELIBERATELY NOT behind `spine`'s mutex.
+    ///
+    /// `send_message` holds that mutex for the entire turn — `Spine::submit_prompt` takes
+    /// `&mut self` and does not return until the lease is finished — so a stop command
+    /// that locked the spine would fire only after the work it meant to interrupt had
+    /// already ended. This is the same `Arc` the spine holds, reached without the lock.
+    control: TurnControl,
 }
 
 #[tauri::command]
@@ -167,7 +176,14 @@ fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json:
 /// — so the UI renders Rich's reply token-by-token and shows the "Rich is working" state.
 /// The returned message view is the final, reconciled snapshot (a UI can rely on either
 /// the stream or this return; both agree because the ledger backs both).
-#[tauri::command]
+/// **`(async)` is load-bearing, not decoration.** A plain `#[tauri::command]` on a
+/// non-async fn is dispatched by the macro as `ExecutionContext::Blocking`, which runs it
+/// inline on the IPC/main thread (`tauri-macros`'s own `kind` string for that arm is
+/// `"sync"`; the `async` attribute on a sync fn makes it `"sync_threadpool"`). A turn can
+/// last hours, so blocking there would freeze the webview AND queue `stop_turn` behind the
+/// very turn it is meant to interrupt — the stop would be structurally impossible no
+/// matter how the rest of the plumbing is written.
+#[tauri::command(async)]
 fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
     if !state.lease_ready {
         return Err(
@@ -331,12 +347,39 @@ fn main() {
             // rather than refusing the launch (nav.rs).
             let nav_store = nav::NavStore::open(data_dir.join("navigation.json"));
 
+            // THE STOP/STEER CONTROL (UX §9.2/§9.3). Its intake log sits beside the
+            // ledger, same app data dir, same durability posture — and deliberately NOT
+            // inside the ledger, because a request that has not been acted on yet is not
+            // evidence of anything that happened.
+            //
+            // A control that cannot be opened degrades to `detached()`, which REFUSES to
+            // stop rather than acting on a request it cannot record. An unrecorded stop is
+            // indistinguishable from a crash on the next boot, and §6.1's "You stopped
+            // after {duration}" would be back to attributing a crash to the CEO.
+            let control = match TurnControl::open(data_dir.join("intake.jsonl")) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[richos] steering intake unavailable, stop will refuse rather than pretend: {e}");
+                    TurnControl::detached()
+                }
+            };
+            spine.set_turn_control(control.clone());
+
+            // Apply any stop request that outlived the process. The window is one line
+            // wide — request fsync'd, process dies, terminal event never written — and
+            // without this the turn is `in_flight` forever and crash-replay would re-run
+            // work the CEO explicitly stopped.
+            if let Err(e) = spine.reconcile_intake() {
+                eprintln!("[richos] intake reconciliation at boot: {e}");
+            }
+
             app.manage(AppState {
                 spine: Mutex::new(spine),
                 lease_ready,
                 config: Mutex::new(config),
                 entity: boot_entity,
                 nav: Mutex::new(nav_store),
+                control,
             });
             Ok(())
         })
@@ -380,7 +423,11 @@ fn main() {
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
             get_timeline,
             // --- Codex-UX slice 7 (2026-08-29): the read-only worker inspector ---
-            set_inspector_width
+            set_inspector_width,
+            // --- Codex-UX slice 6 (2026-08-29): steering and stop (§9.2/§9.3) ---
+            stop_turn,
+            steer_message,
+            running_turn
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -763,6 +810,10 @@ fn turn_state_str(s: TurnState) -> &'static str {
         TurnState::InFlight => "in_flight",
         TurnState::Completed => "completed",
         TurnState::Interrupted => "interrupted",
+        // Distinct from `interrupted` all the way to the rail: §6.1's "You stopped after
+        // {duration}" is an attribution to the CEO, and the sidebar must not describe work
+        // he ended as work that broke.
+        TurnState::Stopped => "stopped",
     }
 }
 
@@ -1312,4 +1363,106 @@ mod navigation_tests {
         assert_eq!(tree.active.as_ref().unwrap().entity_id, "deeply");
         let _ = std::fs::remove_file(&path);
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// STEERING AND STOP (UX §9.2, §9.3) — Codex-UX slice 6, 2026-08-29.
+//
+// Neither of these touches `state.spine`. That is the entire point: while a turn runs, the
+// spine mutex is held for its whole length, so anything that needs it is not a mid-turn
+// control. Both go through `state.control`, the `Arc` the spine shares.
+// ---------------------------------------------------------------------------------------
+
+/// What the webview is told when it asks to stop.
+///
+/// `reachedLease` is reported rather than smoothed over. `false` means the request is
+/// durable and the turn WILL be recorded as stopped, but nothing was there to interrupt —
+/// so the work may still run to its natural end. The UI says so instead of implying an
+/// interrupt that did not happen (§22: status must never claim more than is known).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StopReport {
+    /// `false` when nothing was running. Not an error — the honest answer.
+    stopped: bool,
+    turn_id: Option<String>,
+    /// When the stop request became durable. The UI freezes its timer from this, so the
+    /// number the CEO ends up reading is anchored to the moment he pressed the button.
+    requested_at: Option<u64>,
+    reached_lease: bool,
+}
+
+/// §9.3: persist a stop request, then interrupt the active turn. In that order, enforced
+/// in `steering.rs` rather than here.
+#[tauri::command(async)]
+fn stop_turn(state: State<AppState>) -> Result<StopReport, String> {
+    match state.control.request_stop().map_err(|e| e.to_string())? {
+        StopOutcome::NothingRunning => {
+            Ok(StopReport { stopped: false, turn_id: None, requested_at: None, reached_lease: false })
+        }
+        StopOutcome::Requested { turn_id, requested_at, reached_lease } => Ok(StopReport {
+            stopped: true,
+            turn_id: Some(turn_id),
+            requested_at: Some(requested_at),
+            reached_lease,
+        }),
+    }
+}
+
+/// What the webview gets back when it steers.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SteerReport {
+    /// The intake-log id. Not a turn id — there is no turn yet, and inventing one here
+    /// would be a claim that the message had been accepted as work.
+    intake_id: u64,
+    thread_id: String,
+    /// The turn that was running when he typed it — the evidence behind the
+    /// "Added while Rich was working" cue, rather than a guess made in the renderer.
+    steering_turn_id: String,
+    at: u64,
+}
+
+/// §9.2: the CEO added words while Rich was working.
+///
+/// Durable on return, delivered at the next turn boundary. It does NOT join the running
+/// ACP turn — one `session/prompt` at a time, and the continuity design's turn-boundary
+/// controller is queue-not-interrupt by construction (§3.1) — and the UI says which of
+/// those two things happened rather than letting the CEO assume the other.
+#[tauri::command(async)]
+fn steer_message(state: State<AppState>, text: String) -> Result<SteerReport, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("nothing to add".into());
+    }
+    match state.control.steer(trimmed).map_err(|e| e.to_string())? {
+        IntakeRecord::Steer { id, thread_id, steering_turn_id, at, .. } => {
+            Ok(SteerReport { intake_id: id, thread_id, steering_turn_id, at })
+        }
+        other => Err(format!("unexpected intake record: {other:?}")),
+    }
+}
+
+/// The turn that is running right now, as the CONTROL sees it.
+///
+/// A mirror of the spine's `turn_in_progress`, written at the same durable points, and
+/// readable without the spine lock — so the composer can arm its stop control after a
+/// reload without waiting for a turn to finish first. It is not inferred from event
+/// silence or from a timer (continuity §5.2).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunningTurn {
+    turn_id: String,
+    thread_id: String,
+    entity_id: Option<String>,
+    started_at: Option<u64>,
+}
+
+#[tauri::command]
+fn running_turn(state: State<AppState>) -> Option<RunningTurn> {
+    state.control.active_turn().map(|a| RunningTurn {
+        turn_id: a.turn_id,
+        thread_id: a.thread_id,
+        entity_id: a.entity_id.map(|e| e.as_str().to_string()),
+        started_at: a.started_at,
+    })
 }
