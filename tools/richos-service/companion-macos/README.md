@@ -62,14 +62,18 @@ richos-companion ingest --mic <monoWav> --system <monoWav> [--zone DIR]
     dir the P1 pipeline transcribes. This is the on-Mac proof of the contract + handoff.
 ```
 
-Drop zone resolves to `$RICHOS_DROP_ZONE`, else `<checkout>/wiki/raw/meetings` (mirrors
-`config.js#dropZone`).
+Drop zone resolves exactly as the pipeline's `config.js#dropZone` does — `$RICHOS_DROP_ZONE`, else
+`<$LORO_CORPUS|~/RichOS/corpus>/{companies/$RICHOS_ACTIVE_COMPANY|person/unfiled}/evidence/meetings`
+— and **refuses a zone inside this repository**, which ships publicly. The rule and the 2026-08-29
+finding that made it necessary are documented on `DropZone` in the core target; `doctor` prints the
+resolved path and which rule produced it.
 
 ## Build & test
 
 ```
 swift build
-swift test        # 18 deterministic unit tests: channel mapping, mix/failover, contract shape, WAV
+swift test        # 36 deterministic unit tests: channel mapping, mix/failover, contract shape,
+                  # WAV, coordination parsing, drop-zone resolution + the in-repo refusal
 ```
 
 ## Reliability model (matches the shared guarantees, §6)
@@ -107,9 +111,11 @@ guarantee, and doing it now would break the frozen pipeline.
 
 ## Verification (run on this Mac, 2026-08-24)
 
-- `swift build` + `swift test` → **18/18 pass** (channel L/R mapping, Int16 scaling, downmix,
+- `swift build` + `swift test` → **36/36 pass** (channel L/R mapping, Int16 scaling, downmix,
   mix/failover decisions, contract v2 shape incl. explicit nulls, WAV round-trip, full SessionWriter
-  contract-dir write).
+  contract-dir write, drop-zone resolution + the in-repo refusal). *Re-run 2026-08-29 on macOS 15.6 /
+  Swift 6.1.2. This line previously said 18/18, which had been true when it was written and was not
+  re-derived after tests were added — the same defect class as the drop-zone comment below it.*
 - `ingest` produced a real contract dir from a two-voice `say` sample (mic line + system line as
   separate mono WAVs), then **P1's pipeline (`node bin/richos-service.js run`) transcribed it to a
   speaker-attributed `transcript.md`** — `Me:` = the LEFT/mic line, `Them:` = the RIGHT/system line,
@@ -118,6 +124,10 @@ guarantee, and doing it now would break the frozen pipeline.
 - **The P1 drop-zone watcher** (`scanZone`, process mode) **auto-detected the companion's closed
   session and transcribed it** — the real automatic handoff, unchanged from P1.
 - **Pending the one human grant:** the live OS-level tap + mic capture (see "The permission gate").
+  The step-by-step for closing it — including how to tell a grant that was *given* from one that was
+  merely *prompted for* — is [`MACOS-TEST-PROTOCOL.md`](./MACOS-TEST-PROTOCOL.md), the peer of the
+  Windows companion's `WINDOWS-TEST-PROTOCOL.md`. **Nothing in this README claims the live tap
+  works**; §6 of that protocol lists what a completed run still would not cover.
 
 ## Not in scope here (later phases)
 
