@@ -278,6 +278,15 @@ HOOK_FILES+=(
     # make the single most consequential file in the mechanical layer the only
     # one nobody verifies — the same argument that puts the reaper on this list.
     "$REPO_ROOT/scripts/lib/resolve-roots.sh"
+    # The publication-boundary predicate, in both its halves. Not hooks, and
+    # hashed for the reaper's reason: TWO registered guards
+    # (guard-publication-writes.sh, guard-publication-commits.sh) delegate
+    # their entire decision to these two files. Hashing the guards while
+    # leaving the thing that actually decides unverified would check the lock
+    # and ignore the key — the same sentence that put remove-agent-worktree.sh
+    # on this list.
+    "$REPO_ROOT/scripts/lib/publication-boundary.sh"
+    "$REPO_ROOT/scripts/lib/publication-boundary.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

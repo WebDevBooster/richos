@@ -173,8 +173,13 @@ banner
 expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching hooks.json minus the announcer" \
     "${EXPECT_N}/${EXPECT_N}"
 
-if [ "$REGISTERED_N" -eq 20 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 20 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+# 20 -> 22 on 2026-08-29: guard-publication-writes.sh and
+# guard-publication-commits.sh were wired, making the public/private repo split
+# machinery instead of judgment. This tripwire did its job — it went red on the
+# change and made the new count something a human had to acknowledge rather than
+# absorb.
+if [ "$REGISTERED_N" -eq 22 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 22 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

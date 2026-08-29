@@ -1,0 +1,78 @@
+# THIS REPOSITORY GETS PUBLISHED.
+#
+# The presence of this file is the declaration. It is what switches on
+# guard-publication-writes.sh and guard-publication-commits.sh, the two engine
+# guards that refuse to let private material enter a tree that goes public.
+# Delete it and this repository is unguarded — which is a visible, reviewable
+# diff, and is meant to be.
+#
+# WHY IT EXISTS
+# -------------
+# On 2026-08-29 three measurement briefs and 137 asset files carrying full
+# two-channel transcripts of the CEO's own webinar — a named third-party
+# speaker, real business content, 28 verbatim quotes inside the brief prose —
+# landed here across three consecutive lands. Each land was checked, by a human,
+# against the rule "no media committed". Each check passed. The payload was
+# TEXT.
+#
+#   THE PRIVACY QUESTION IS WHAT THE BYTES SAY, NOT WHAT FORMAT THEY ARE IN.
+#
+# The split used to be enforced by judgment at land time, on every commit,
+# forever. This file is the point where it stops being judgment.
+#
+# RELATIONSHIP TO richos-hq/wiki/open-source-strategy.md
+# -----------------------------------------------------
+# That page is the STRATEGY: why the split exists, what the end state is, what
+# the CEO decided. THIS FILE IS THE ENFORCEABLE RECORD — the only one any
+# machinery reads. The two must not become two copies of one fact.
+#
+# The strategy page's directory table was measured against this tree before this
+# file was written, and it does not survive as a predicate: it lists
+# `docs/briefs/` under "stays private", while two files there are deliberately
+# public today — README-transcription-work.md (added by the removal commit
+# itself) and clark-brief-parakeet-viability-2026-08-29.md, a technology
+# evaluation that quotes nothing. A guard derived from that table would block
+# both, and a guard that blocks legitimate work gets switched off. So the
+# boundary here is drawn on CONTENT, which is what the rule was always about,
+# and on .gitignore, which already answers "will this be published?" per path.
+#
+# THE KEYS
+# --------
+# PRIVATE_RECORD    Named in every refusal, so the author is told where the
+#                   content SHOULD go rather than merely that it may not go here.
+#
+# PRIVATE_SOURCES   Trees that hold private source material. The guard walks
+#                   them and keeps ONLY the files that are themselves recorded
+#                   speech, then blocks any publication-bound write that
+#                   reproduces >= MIN_QUOTE_WORDS of them verbatim. The operator
+#                   declares WHERE private material lives; the machine works out
+#                   WHICH files those are. No dated list of transcript paths to
+#                   go stale.
+#
+#                   An entry INSIDE this repository must be gitignored — a
+#                   "private" source that is itself published is not one, and
+#                   the guard refuses rather than pretending otherwise. An entry
+#                   that is simply not on this machine (a sibling private repo
+#                   nobody cloned) is skipped, and every refusal names what it
+#                   skipped so a block never overstates its own coverage.
+#
+# ALLOWLIST         Repository-relative path prefixes, space separated. The ONLY
+#                   way through, and deliberately a committed one: the failure
+#                   being fixed here was in-the-moment judgment, so there is no
+#                   in-the-moment override token for these two guards.
+
+PRIVATE_RECORD="richos-hq (/Users/alex/ab/richos-hq) — the private HQ repository"
+
+# docs/reference/local/ is the in-repo home for recordings and anything derived
+# from them; it is gitignored, so nothing there is ever published.
+# ../richos-hq is the private record itself: measured at 0.10s to walk in full,
+# from which the shape filter keeps exactly the transcript files.
+PRIVATE_SOURCES="docs/reference/local ../richos-hq"
+
+# Both defaults are measured, not chosen — see scripts/lib/publication-boundary.sh
+# in the engine for the numbers. Stated explicitly here so a reader of this file
+# knows what is being enforced without going to look.
+MIN_SPEECH_LINES=8
+MIN_QUOTE_WORDS=10
+
+ALLOWLIST=""

@@ -323,6 +323,7 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
+    guard-publication-writes guard-publication-commits \
     guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
@@ -510,9 +511,11 @@ reader-teammate-hint.sh|PreToolUse
 verify-agent-prompt.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
+guard-publication-writes.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
+guard-publication-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
