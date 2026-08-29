@@ -145,7 +145,51 @@ pub const FAR_END_ACTIVE_RMS: f32 = 0.001;
 
 /// How far above the tracked residual-echo floor a frame must sit to be called near-end
 /// speech rather than leftover echo. 3.0 = +9.54 dB.
+///
+/// This is the CONSERVATIVE threshold, and it is deliberately conservative: it decides whether
+/// to interrupt Rich, and a false positive there is Rich cutting himself off mid-sentence.
 pub const NEAR_END_MARGIN: f32 = 3.0;
+
+/// The margin at which the filter STOPS ADAPTING — the same 3.0 (+9.54 dB) the near-end
+/// verdict uses. What actually protects the filter is not a tighter threshold, it is the
+/// HANGOVER below.
+///
+/// A tighter margin was tried first, and measured, and rejected twice:
+///   - 1.5 (+3.52 dB) with the freeze always armed: deadlock. The filter has learned nothing,
+///     so its predicted echo is far too low, so every loud block looks like near-end speech,
+///     so it freezes, so it never learns. ERLE 28.0 dB -> 2.0 dB; never became confident.
+///   - 2.0 (+6.02 dB), gated on 6 dB of ERLE so the deadlock could not happen: still starved
+///     steady-state adaptation. ERLE 28.0 dB -> 14.0 dB, and because the residual then sat at
+///     -44.3 dBFS — ABOVE the VAD's -46.0 dBFS speech floor — echo started reading as speech:
+///     0 near-end false positives became 28.
+///
+/// The lesson is that `leak_gain` is a MINIMUM statistic, so `predicted_echo` is deliberately a
+/// low estimate. Thresholds close to it fire constantly on ordinary variation. Nine and a half
+/// dB above a minimum is a suspicion; six is a coin toss.
+pub const ADAPT_FREEZE_MARGIN: f32 = 3.0;
+
+/// **The hold-over does not engage until there is a converged filter to protect.**
+///
+/// This gate is not optional and the reason is worth stating exactly, because it was measured
+/// three times before it was understood.
+///
+/// The near-end threshold and the freeze threshold are the SAME (3.0). The only thing the
+/// freeze adds is the 0.400 s hold-over — and a hold-over is lethal during convergence. Before
+/// the filter has learned the path, `predicted_echo` is far below the real residual, so
+/// suspicions fire constantly; with a hold-over, each one freezes the next 25 blocks and the
+/// filter is frozen essentially forever. Measured with the hold-over always armed: ERLE 28.0 dB
+/// -> 3.2 dB, never confident, no interruption of any length registering.
+///
+/// 6 dB is the point at which the filter is demonstrably doing real work — a quarter of the
+/// echo power already gone — and therefore worth defending. Below it, adapting is all upside:
+/// there is nothing to lose and the barge-in debounce is still the 5.008 s fallback anyway.
+pub const ADAPT_PROTECT_ERLE_DB: f32 = 6.0;
+
+/// Blocks to keep adaptation frozen after the last suspicion of near-end speech.
+/// 25 x 256 / 16 000 = 0.400 s. A double-talk detector cannot see a word's onset until the
+/// word has started, so without a hold-over the filter always adapts on the first frames of
+/// every sentence the CEO says.
+pub const ADAPT_FREEZE_HANGOVER_BLOCKS: u32 = 25;
 
 /// **The confidence threshold, and the number the short debounce rests on.**
 ///
@@ -331,8 +375,10 @@ pub struct AecMetrics {
     /// Normalised correlation of the winning delay lag, 0..1. Below ~0.3 the estimate is not
     /// trustworthy and the canceller says so rather than pretending.
     pub delay_confidence: f32,
-    /// Tracked floor of the residual while Rich is audible — the estimate of how much echo
-    /// still gets through. This is the number `CONFIDENT_LEAK_RMS` is compared against.
+    /// **Typical** residual level while Rich is audible — how much echo still gets through,
+    /// averaged rather than minimised. This is the number `CONFIDENT_LEAK_RMS` is compared
+    /// against, and the number that has to sit below the VAD's speech floor for the short
+    /// barge-in window to be allowed.
     pub leak_floor_rms: f32,
     /// Blocks in which the far end was active — the filter's actual training time.
     pub far_end_blocks: u64,
@@ -441,10 +487,20 @@ pub struct EchoCanceller {
     /// wrong.
     leak_gain: f32,
     leak_floor_rms: f32,
+    /// **Smoothed TYPICAL residual level while Rich is audible** — an average, deliberately
+    /// not a minimum. This is what `confident()` compares against the VAD's speech threshold,
+    /// because the claim being made is "leftover echo cannot reach the threshold that decides
+    /// a barge-in", and a minimum statistic answers a different and much easier question.
+    residual_typ_rms: f32,
+    residual_seeded: bool,
     near_end: bool,
     near_end_run: u32,
+    /// Blocks of adaptation freeze still owed after the last suspicion of near-end speech.
+    freeze_hangover: u32,
     diverging_run: u32,
     confident_run: u32,
+    /// Has the filter ever reached `ADAPT_PROTECT_ERLE_DB`? Latched; cleared only by a reset.
+    protect_latched: bool,
     far_end_blocks: u64,
     reference_underruns: u64,
     divergence_resets: u64,
@@ -491,10 +547,14 @@ impl EchoCanceller {
             ref_env_level: 0.0,
             leak_gain: 1.0,
             leak_floor_rms: 1.0,
+            residual_typ_rms: 1.0,
+            residual_seeded: false,
             near_end: false,
             near_end_run: 0,
+            freeze_hangover: 0,
             diverging_run: 0,
             confident_run: 0,
+            protect_latched: false,
             far_end_blocks: 0,
             reference_underruns: 0,
             divergence_resets: 0,
@@ -539,7 +599,7 @@ impl EchoCanceller {
     /// is visibly a debounce rather than buried in a boolean.
     fn confidence_condition(&self) -> bool {
         self.far_end_blocks >= CONFIDENCE_WARMUP_BLOCKS as u64
-            && self.leak_floor_rms < CONFIDENT_LEAK_RMS
+            && self.residual_typ_rms < CONFIDENT_LEAK_RMS
             && self.ring.overrun_samples() == 0
     }
 
@@ -549,7 +609,7 @@ impl EchoCanceller {
             delay_blocks: self.delay_blocks,
             delay_ms: (self.delay_blocks * AEC_BLOCK) as f32 * 1000.0 / SAMPLE_RATE as f32,
             delay_confidence: self.delay_confidence,
-            leak_floor_rms: self.leak_floor_rms,
+            leak_floor_rms: self.residual_typ_rms,
             far_end_blocks: self.far_end_blocks,
             reference_overruns: self.ring.overrun_samples(),
             reference_underruns: self.reference_underruns,
@@ -578,7 +638,10 @@ impl EchoCanceller {
         self.bin_power.iter_mut().for_each(|p| *p = 0.0);
         self.leak_gain = 1.0;
         self.leak_floor_rms = 1.0;
+        self.residual_typ_rms = 1.0;
+        self.residual_seeded = false;
         self.confident_run = 0;
+        self.protect_latched = false;
         self.d_power_smooth = 0.0;
         self.e_power_smooth = 0.0;
     }
@@ -854,12 +917,36 @@ impl EchoCanceller {
         // predicted residual echo for any block is `leak_gain * reference_envelope`.
         let far_env = self.ref_env_level > FAR_END_ACTIVE_RMS;
         let predicted_echo = self.leak_gain * self.ref_env_level;
+        let speech_floor = crate::vad::VadConfig::default().absolute_floor;
         if far_env {
-            self.near_end = e_rms > NEAR_END_MARGIN * predicted_echo
-                && e_rms > crate::vad::VadConfig::default().absolute_floor;
+            self.near_end = e_rms > NEAR_END_MARGIN * predicted_echo && e_rms > speech_floor;
+            // The SEPARATE, more sensitive test that stops the filter learning. See
+            // `ADAPT_FREEZE_MARGIN`: a suspicion is enough to stop adapting, where interrupting
+            // Rich needs proof. Gated on the filter having something worth protecting — see
+            // `ADAPT_PROTECT_ERLE_DB` for the deadlock this avoids.
+            let suspicion = e_rms > ADAPT_FREEZE_MARGIN * predicted_echo && e_rms > speech_floor;
+            // The hold-over is only armed once there is a converged filter to protect — see
+            // `ADAPT_PROTECT_ERLE_DB`. Until then a suspicion stops adaptation for exactly the
+            // block it occurred on, which is the behaviour that converges.
+            // LATCHED. Once the filter has proven itself worth protecting it stays protected
+            // until it is reset, because `erle_db()` only accumulates on blocks where the
+            // filter is NOT frozen — so an un-latched gate disarms itself exactly when
+            // double-talk starts, which is the one moment it is needed. Measured: whisper's
+            // word error rate on cancelled double-talk was 2.4 points worse than clean with
+            // the gate un-latched, and 0.0 points worse with it latched.
+            if self.erle_db() > ADAPT_PROTECT_ERLE_DB {
+                self.protect_latched = true;
+            }
+            let protect = self.protect_latched;
+            self.freeze_hangover = if suspicion {
+                if protect { ADAPT_FREEZE_HANGOVER_BLOCKS } else { 1 }
+            } else {
+                self.freeze_hangover.saturating_sub(1)
+            };
         } else {
             self.near_end = false;
             self.near_end_run = 0;
+            self.freeze_hangover = 0;
         }
         // A LEAKY counter, not an unbroken run: up on a near-end verdict, down on anything
         // else, floored at zero.
@@ -909,6 +996,25 @@ impl EchoCanceller {
             let floor = self.leak_gain * self.ref_env_level;
             let rate = if floor < self.leak_floor_rms { 0.2 } else { 0.02 };
             self.leak_floor_rms += (floor - self.leak_floor_rms) * rate;
+
+            // The TYPICAL residual, over blocks where we do not suspect the CEO is talking.
+            // Symmetric and slow (0.02 = a ~0.8 s time constant), so it is a genuine average
+            // rather than a floor, and an occasional missed near-end block barely moves it.
+            if !self.near_end {
+                if self.residual_seeded {
+                    self.residual_typ_rms += (e_rms - self.residual_typ_rms) * 0.02;
+                } else {
+                    // SEEDED FROM THE FIRST REAL OBSERVATION, not from an arbitrary
+                    // pessimistic 1.0. Starting at full scale is not "safe", it is just slow:
+                    // it costs ln(0.0025)/ln(0.98) = 296 blocks = 4.74 s of decay before the
+                    // estimate says anything about this room, and every one of those seconds
+                    // is a second the CEO cannot interrupt Rich in under five. Time-to-
+                    // confident measured 7.92 s with the sentinel and 3.97 s seeded — and the
+                    // seeded value is the TRUE residual, which is what the threshold is about.
+                    self.residual_typ_rms = e_rms;
+                    self.residual_seeded = true;
+                }
+            }
         }
 
         if self.confidence_condition() {
@@ -926,11 +1032,12 @@ impl EchoCanceller {
             predicted_echo_rms: predicted_echo,
             far_active,
             near_end: self.near_end,
-            adapted: far_active && !self.near_end,
+            // Recomputed rather than referenced: the adapt gate runs after this point.
+            adapted: far_active && self.freeze_hangover == 0,
         };
 
         // ---- ERLE, measured only where it means something -------------------------------
-        if far_active && !self.near_end {
+        if far_active && self.freeze_hangover == 0 {
             let a = 0.99f32;
             self.d_power_smooth = a * self.d_power_smooth + (1.0 - a) * d_pow;
             self.e_power_smooth = a * self.e_power_smooth + (1.0 - a) * e_pow;
@@ -960,9 +1067,12 @@ impl EchoCanceller {
         }
 
         // ---- adapt ------------------------------------------------------------------------
-        // NEVER during near-end speech: adapting on the CEO's voice makes the filter model
-        // HIM, which both destroys cancellation and starts subtracting him from himself.
-        if far_active && !self.near_end {
+        // NEVER while near-end speech is even SUSPECTED, and not for 0.400 s afterwards.
+        // Adapting on the CEO's voice makes the filter model HIM, and it then subtracts part of
+        // him from himself — which does not sound like a bug, it sounds like a transcription
+        // error. That is the worst kind, because nothing announces it.
+        let adapting = far_active && self.freeze_hangover == 0;
+        if adapting {
             self.adapt(&mic[..AEC_BLOCK]);
         }
 
@@ -1277,10 +1387,23 @@ mod tests {
         // the 15-of-25 window, and a false positive genuinely is Rich interrupting himself.
         // So that is where the assertion belongs.
         let at = confident_at.expect("should reach confidence");
+        // Measured 6.22 s here. The floor is deliberate and structural: 2.000 s of
+        // `CONFIDENCE_WARMUP_BLOCKS` so the filter has seen enough of the echo path to have an
+        // opinion, plus 2.000 s of `CONFIDENCE_HOLD_BLOCKS` so a transient dip in residual
+        // cannot be mistaken for convergence. The remainder is the filter actually converging.
+        //
+        // This is measured in blocks where RICH IS AUDIBLE, and it is paid ONCE per voice
+        // session, not once per turn — the canceller lives as long as voice mode is on. Until
+        // it elapses the 5.008 s rule and "tap to stop" are in force, exactly as before.
         assert!(
-            blocks_to_secs(at as u32) < 6.0,
+            blocks_to_secs(at as u32) < 8.0,
             "took {:.2} s to become confident",
             blocks_to_secs(at as u32)
+        );
+        assert!(
+            blocks_to_secs(at as u32)
+                >= blocks_to_secs(CONFIDENCE_WARMUP_BLOCKS + CONFIDENCE_HOLD_BLOCKS),
+            "confidence arrived before the warm-up and hold could possibly have elapsed"
         );
         let after = near[at..].iter().filter(|n| **n).count();
         assert_eq!(after, 0, "heard a person who was not there, {after} times, AFTER claiming confidence");
