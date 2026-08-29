@@ -977,6 +977,7 @@ impl Timeline {
                     &row,
                     turn,
                     &entity,
+                    binding.thread_id(),
                     binding.binding_revision(),
                     worker,
                 )),
@@ -1460,6 +1461,7 @@ fn worker_activity_item(
     row: &MachineryRecord,
     turn: &Turn,
     entity: &EntityId,
+    thread_id: &str,
     revision: u64,
     worker: WorkerActivityItem,
 ) -> TimelineItem {
@@ -1474,7 +1476,7 @@ fn worker_activity_item(
         base: TimelineBase {
             id: row.machinery_id.clone(),
             entity_id: entity.clone(),
-            thread_id: row.thread_id.clone(),
+            thread_id: thread_id.to_string(),
             turn_id: turn.id.clone(),
             binding_revision: revision,
             created_at: row.at,
