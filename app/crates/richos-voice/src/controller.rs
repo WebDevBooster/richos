@@ -13,22 +13,28 @@
 //! supervisor over a channel plus two atomics. That is deliberate: a `Mutex` on the audio
 //! thread is how a voice pipeline starts clicking.
 //!
-//! ## The half-duplex TAINT rule — the honest consequence of having no AEC
+//! ## The half-duplex TAINT rule — now conditional, and why
 //!
-//! While Rich is audible, the microphone is still open (barge-in needs it) but any utterance
-//! that BEGINS during his playout is marked **tainted** and is discarded unless barge-in
-//! actually fired during it. Without that rule, on speakers Rich hears himself, transcribes
-//! his own sentence and answers it — the pilot's echo failure, one step worse.
+//! While Rich is audible the microphone stays open (barge-in needs it), but any utterance that
+//! BEGINS during his playout used to be marked **tainted** and discarded unless barge-in
+//! actually fired during it. Without that rule, on speakers Rich hears himself, transcribes his
+//! own sentence and answers it — the pilot's echo failure, one step worse.
 //!
-//! What the rule costs, stated plainly: on speakers, the CEO cannot start a NEW thought while
-//! Rich is talking; he must either talk over him for the full 5.008 s debounce or tap "stop".
-//! An utterance that begins even one frame before Rich falls silent is NOT tainted, so
-//! ordinary conversational overlap at the end of a sentence still works.
-//! With headphones — the recommended v1 configuration — the rule almost never fires, because
-//! nothing of Rich's reaches the mic in the first place.
-//! **Real AEC deletes this rule.** It is interim, and it is named as interim.
+//! The rule's cost was stated plainly here: on speakers, the CEO could not start a new thought
+//! while Rich was talking. He had to talk over him for the full 5.008 s debounce or tap "stop".
+//! These docs said **"Real AEC deletes this rule. It is interim, and it is named as interim."**
+//!
+//! It is now deleted, conditionally and honestly. When [`crate::aec::EchoCanceller::confident`]
+//! is true — the canceller has MEASURED its residual echo 6 dB below the VAD's speech floor and
+//! held it there for 2.000 s — Rich's voice is no longer meaningfully present in the frames the
+//! recorder buffers, so an utterance beginning while he speaks is not echo, it is the CEO
+//! starting a sentence. It is kept.
+//!
+//! Whenever the canceller is NOT confident, the taint rule is exactly what it was. That is not
+//! a hedge; it is the same fallback the barge-in debounce uses, driven by the same measurement.
 
-use crate::bargein::{BargeInMonitor, EchoGate, NoEchoCancellation, BARGE_IN_DEBOUNCE_FRAMES};
+use crate::aec::EchoCanceller;
+use crate::bargein::{BargeInMonitor, BargeInMode, BARGE_IN_DEBOUNCE_FRAMES};
 use crate::capture::{self, AudioSource, Capture};
 use crate::chunk::SentenceChunker;
 use crate::endpoint::{UtteranceRecorder, Utterance};
@@ -175,6 +181,11 @@ pub struct CaptureBrain {
     /// collector-path parity, so what the CEO is warned about cannot drift from what STT
     /// would actually have received.
     noaudio: NoAudioDetector,
+    /// The echo canceller, if one could be started. `None` is the honest fallback and puts
+    /// the 5.008 s debounce and the taint rule permanently in force.
+    aec: Option<EchoCanceller>,
+    /// Scratch for the residual. Preallocated: this runs on the audio callback thread.
+    residual: Vec<f32>,
     was_recording: bool,
     /// This utterance began while Rich was audible: echo until proven otherwise.
     tainted: bool,
@@ -189,16 +200,43 @@ impl Default for CaptureBrain {
 }
 
 impl CaptureBrain {
+    /// A brain with NO echo cancellation: the 5.008 s consecutive debounce and the taint rule,
+    /// exactly as they were before `aec.rs` existed.
     pub fn new() -> Self {
         CaptureBrain {
             vad: Vad::default(),
             recorder: UtteranceRecorder::new(),
             monitor: BargeInMonitor::default(),
             noaudio: NoAudioDetector::default(),
+            aec: None,
+            residual: vec![0.0; crate::vad::VAD_FRAME_SAMPLES],
             was_recording: false,
             tainted: false,
             barged: false,
         }
+    }
+
+    /// A brain with a real echo canceller. The canceller lives HERE, owned outright by the
+    /// capture path, so there is no lock on the audio thread — the only thing shared with the
+    /// playout thread is the lock-free reference ring the canceller was built with.
+    pub fn with_aec(aec: EchoCanceller) -> Self {
+        CaptureBrain { aec: Some(aec), ..CaptureBrain::new() }
+    }
+
+    /// The canceller's live figures, for the diagnostics line and the UI.
+    pub fn aec_metrics(&self) -> Option<crate::aec::AecMetrics> {
+        self.aec.as_ref().map(|a| a.metrics())
+    }
+
+    /// Has the canceller measured itself into a position to be believed? This is what
+    /// shortens the barge-in debounce and what relaxes the taint rule — nothing else does.
+    pub fn aec_confident(&self) -> bool {
+        self.aec.as_ref().is_some_and(|a| a.confident())
+    }
+
+    /// Which barge-in rule is in force right now.
+    pub fn barge_in_mode(&self) -> BargeInMode {
+        self.monitor.mode()
     }
 
     /// Live input level 0..1 for the UI meter.
@@ -226,6 +264,42 @@ impl CaptureBrain {
     /// "tap to stop" was pressed since the last frame.
     pub fn push_frame(&mut self, frame: &[f32], speaking: bool, forced: bool) -> Vec<CapMsg> {
         let mut out = Vec::new();
+
+        // ---- ECHO CANCELLATION, first and once ------------------------------------------
+        // Everything downstream — the VAD, the endpointer, the recorder, the silent-input
+        // watch, and therefore whisper — sees the RESIDUAL, not the raw microphone. That is
+        // what "collector-path parity" has to mean once a canceller exists: there is exactly
+        // one version of the audio and it is the one that becomes the transcript.
+        //
+        // While Rich is silent the residual is BIT-IDENTICAL to the raw frame (see
+        // `aec::tests::silence_from_rich_leaves_the_microphone_bit_identical`), so dictation
+        // and call transcription are provably unaffected by this line.
+        let mut buf = std::mem::take(&mut self.residual);
+        buf.clear();
+        buf.extend_from_slice(frame);
+        let near_end = match self.aec.as_mut() {
+            Some(aec) if buf.len() == crate::aec::AEC_BLOCK => Some(aec.process_block(&mut buf)),
+            _ => None,
+        };
+        let confident = self.aec.as_ref().is_some_and(|a| a.confident());
+        let msgs = self.push_residual(&buf, speaking, forced, near_end, confident, &mut out);
+        self.residual = buf;
+        let _ = msgs;
+        out
+    }
+
+    /// The decision half, over the post-cancellation frame. Split out so the borrow of the
+    /// scratch buffer is obvious and so tests can drive it directly.
+    #[allow(clippy::too_many_arguments)]
+    fn push_residual(
+        &mut self,
+        frame: &[f32],
+        speaking: bool,
+        forced: bool,
+        near_end: Option<bool>,
+        confident: bool,
+        out: &mut Vec<CapMsg>,
+    ) {
         let is_speech = self.vad.push_frame(frame);
 
         // COLLECTOR-PATH PARITY: `self.vad.last_rms()` is the RMS of THIS frame — the very
@@ -255,7 +329,22 @@ impl CaptureBrain {
         if forced {
             self.monitor.disarm();
         }
-        if forced || self.monitor.push(is_speech) {
+
+        // WHICH RULE IS IN FORCE. Driven by the canceller's own measurement of its residual
+        // echo and by nothing else — never a setting, never a guess about headphones.
+        self.monitor.set_aec_confident(confident);
+
+        // WHAT COUNTS AS AN INTERRUPTION. With a confident canceller, require BOTH: the VAD
+        // (which knows the room's adaptive noise floor) and the canceller's near-end verdict
+        // (which knows how much residual echo to expect at this reference level). Requiring
+        // both is what lets the debounce drop from 5.008 s to 0.400 s without Rich cutting
+        // himself off. Without a confident canceller this is exactly the old behaviour.
+        let interrupting = match near_end {
+            Some(n) if confident => is_speech && n,
+            _ => is_speech,
+        };
+
+        if forced || self.monitor.push(interrupting) {
             self.barged = true;
             self.tainted = false;
             out.push(CapMsg::BargeIn { mid_utterance: self.recorder.is_recording() });
@@ -268,7 +357,14 @@ impl CaptureBrain {
         self.was_recording = recording;
 
         if started {
-            self.tainted = speaking && !self.barged;
+            // **THE TAINT RULE, now conditional.** With a confident canceller Rich's voice is
+            // no longer meaningfully present in `frame` — it has been subtracted, and the
+            // residual has been MEASURED 6 dB below the VAD's speech floor for 2.000 s. An
+            // utterance beginning while he speaks is therefore the CEO starting a sentence,
+            // not an echo of Rich's, and throwing it away is the bug rather than the fix.
+            //
+            // Whenever the canceller is not confident, this is byte-for-byte the old rule.
+            self.tainted = speaking && !self.barged && !confident;
             out.push(CapMsg::Started { tainted: self.tainted });
         }
 
@@ -290,7 +386,6 @@ impl CaptureBrain {
             // Rich has fallen silent and nothing is in flight: forget the interruption.
             self.barged = false;
         }
-        out
     }
 }
 
@@ -333,6 +428,9 @@ pub struct VoiceController {
     speak_tx: Option<Sender<SpeakMsg>>,
     playout: Arc<Playout>,
     force_barge: Arc<AtomicBool>,
+    /// Bit 0: the echo canceller is confident. Bits 1..: whole-dB ERLE. Written once per
+    /// audio frame by the capture thread.
+    aec_state: Arc<AtomicU32>,
     diagnostics: Diagnostics,
     _capture: Capture,
     threads: Vec<std::thread::JoinHandle<()>>,
@@ -352,9 +450,13 @@ impl VoiceController {
         submit: Arc<dyn Fn(String) + Send + Sync>,
     ) -> Result<VoiceController, VoiceStartError> {
         let recognizer = Recognizer::resolve().map_err(VoiceStartError::Stt)?;
-        let gate: Arc<Mutex<Box<dyn EchoGate>>> =
-            Arc::new(Mutex::new(Box::new(NoEchoCancellation::default())));
-        let playout = Arc::new(Playout::start(Some(gate.clone())).map_err(VoiceStartError::Playout)?);
+
+        // The echo canceller and the lock-free ring that feeds it. The ring goes to the
+        // OUTPUT callback; the canceller itself is owned outright by the capture path (inside
+        // `CaptureBrain`), so neither audio thread ever takes a lock to move the reference.
+        let (aec, reference_ring) = EchoCanceller::new();
+        let playout =
+            Arc::new(Playout::start(Some(reference_ring)).map_err(VoiceStartError::Playout)?);
         let synth: Arc<dyn SpeechSynth> = Arc::new(MacSay::new());
 
         let shared = Arc::new(Shared {
@@ -372,31 +474,36 @@ impl VoiceController {
         let (utt_tx, utt_rx) = channel::<Box<Utterance>>();
         let (submit_tx, submit_rx) = channel::<String>();
         let force_barge = Arc::new(AtomicBool::new(false));
+        // Bit 0: the canceller is confident. Bits 1..: whole-dB ERLE. One relaxed store per
+        // frame from the audio thread, readable by anyone without a lock.
+        let aec_state_for_diagnostics = Arc::new(AtomicU32::new(0));
+        let aec_state_read = aec_state_for_diagnostics.clone();
 
         // ---- the audio capture callback ------------------------------------------------
         // A THIN adapter over CaptureBrain: no locks, no allocation beyond the frame copy the
         // echo gate needs, and no UI events. All the decisions live in CaptureBrain, which is
         // unit-tested as a whole (tests/barge_in_composition.rs).
         let cb_shared = shared.clone();
-        let cb_gate = gate.clone();
         let cb_force = force_barge.clone();
-        let mut brain = CaptureBrain::new();
-        let mut frame_buf = vec![0.0f32; crate::vad::VAD_FRAME_SAMPLES];
+        // The canceller moves INTO the brain, which moves into the callback closure. No locks
+        // on the audio thread, and the echo cancellation, the VAD, the barge-in monitor and
+        // the endpointer are one composed unit that `tests/barge_in_composition.rs` can drive.
+        let mut brain = CaptureBrain::with_aec(aec);
+        let aec_state = aec_state_for_diagnostics.clone();
 
         let capture = capture::start(&opts.source, move |frame| {
-            // The AEC seam, on the capture side. v1's gate modifies nothing.
-            frame_buf.clear();
-            frame_buf.extend_from_slice(frame);
-            if let Ok(mut g) = cb_gate.try_lock() {
-                g.process_capture(&mut frame_buf);
-            }
-
             let speaking = cb_shared.speaking.load(Ordering::Relaxed);
             let forced = cb_force.swap(false, Ordering::Relaxed);
-            for msg in brain.push_frame(&frame_buf, speaking, forced) {
+            for msg in brain.push_frame(frame, speaking, forced) {
                 let _ = cap_tx.send(msg);
             }
             cb_shared.set_level(brain.level());
+            // Publish the canceller's live state for the supervisor and the UI without ever
+            // touching the audio thread from outside it.
+            aec_state.store(
+                (brain.aec_confident() as u32) | ((brain.aec_metrics().map(|m| m.erle_db).unwrap_or(0.0).max(0.0) as u32) << 1),
+                Ordering::Relaxed,
+            );
         })
         .map_err(VoiceStartError::Capture)?;
 
@@ -410,8 +517,15 @@ impl VoiceController {
             stt_model: recognizer.model_id().to_string(),
             stt_binary: recognizer.binary_path().display().to_string(),
             tts_voice: synth.voice_label(),
-            echo_gate: gate.lock().map(|g| g.name().to_string()).unwrap_or_default(),
-            echo_cancellation: gate.lock().map(|g| g.cancels()).unwrap_or(false),
+            echo_gate: format!(
+                "PBFDAF {} taps ({:.0} ms tail)",
+                crate::aec::AEC_TAPS,
+                1000.0 * crate::aec::filter_tail_secs()
+            ),
+            echo_cancellation: true,
+            // The debounce reported here is the one in force AT START — the fallback. It
+            // shortens to 0.400 s only once the canceller earns it, which cannot have happened
+            // yet: `confident()` needs 2.000 s of Rich actually speaking plus a 2.000 s hold.
             barge_in_frames: BARGE_IN_DEBOUNCE_FRAMES,
             barge_in_secs: frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES),
         };
@@ -510,6 +624,7 @@ impl VoiceController {
             speak_tx: Some(speak_tx),
             playout,
             force_barge,
+            aec_state: aec_state_read,
             diagnostics,
             _capture: capture,
             threads,
@@ -522,6 +637,35 @@ impl VoiceController {
 
     pub fn diagnostics(&self) -> &Diagnostics {
         &self.diagnostics
+    }
+
+    /// **Has the echo canceller earned the short barge-in window yet?**
+    ///
+    /// False at start-up and for the first few seconds of Rich actually speaking, because
+    /// `EchoCanceller::confident` requires 2.000 s of far-end audio to learn the path plus a
+    /// 2.000 s hold. While it is false the CEO needs the 5.008 s talk-over or the "tap to
+    /// stop" control, exactly as before; once it is true a 0.400 s interruption registers.
+    ///
+    /// The UI's "headphones recommended" note should follow THIS, not `Diagnostics`.
+    pub fn echo_cancellation_confident(&self) -> bool {
+        self.aec_state.load(Ordering::Relaxed) & 1 == 1
+    }
+
+    /// Live Echo Return Loss Enhancement in whole dB — how much of Rich's own voice the
+    /// canceller is currently removing from the microphone. 0 until it has something to
+    /// report. Measured, never estimated.
+    pub fn echo_return_loss_enhancement_db(&self) -> u32 {
+        self.aec_state.load(Ordering::Relaxed) >> 1
+    }
+
+    /// The barge-in debounce actually in force right now, in seconds: 5.008 while the
+    /// canceller is unconfident, 0.400 once it is.
+    pub fn barge_in_secs_now(&self) -> f32 {
+        if self.echo_cancellation_confident() {
+            crate::bargein::aec_barge_in_window_secs()
+        } else {
+            crate::bargein::barge_in_debounce_secs()
+        }
     }
 
     /// The mic is open and healthy but has delivered nothing above -80.00 dBFS for 3.008 s.

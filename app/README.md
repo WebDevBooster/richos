@@ -93,7 +93,13 @@ app/
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
   crates/richos-voice/       VOICE MODE — mic -> whisper -> the spine -> TTS -> speakers
     src/vad.rs               RMS VAD + THE FRAME MATH (16000 Hz, 256-sample frames = 16.000 ms)
-    src/bargein.rs           313-frame (5.008 s) debounce + the EchoGate AEC seam (v1: none)
+    src/bargein.rs           313-frame (5.008 s) fallback debounce; 15-of-25 (0.400 s) window
+                              once the canceller has EARNED it; the EchoGate seam
+    src/aec.rs               ACOUSTIC ECHO CANCELLATION — 2048-tap PBFDAF (128.0 ms tail),
+                              lock-free reference ring, envelope delay estimator.
+                              28.0 dB ERLE on a linear path; ~5.5 dB is all ANY linear
+                              canceller can reach on this host's speakers+Elgato (measured)
+    src/fft.rs               512-point radix-2 FFT, hand-rolled (licence: no vendored crate)
     src/endpoint.rs          utterance start/end, pre-roll ring, cough filter, 30.000 s cut
     src/noaudio.rs           post-open silent input: 188 frames (3.008 s) under -80.00 dBFS
     src/chunk.rs             streaming sentence chunker + clean output FOR THE EAR
@@ -329,20 +335,45 @@ deliberately not in this work.
 **Voice mode (2026-08-24):** the `◉` toggle is real. Mic -> VAD -> local whisper.cpp
 (`small.en`) -> the SAME `Spine::submit_prompt` typed text uses (`Source::Jam`, one thread,
 one ledger) -> Rich's streamed reply -> sentence-pipelined macOS `say` -> one continuous,
-interruptible cpal stream. Barge-in carries the pilot's 5.008 s debounce (313 frames), plus
-an instant "tap to stop". **Proven live end to end on this Mac** — real whisper, real Claude,
-real speakers — EXCEPT the microphone driver itself: this host has **no input device at all**
-(three output-only devices; CoreAudio `'!obj'`). **No AEC**: the interim is the debounce, a
-half-duplex taint rule, and "headphones recommended"; the `EchoGate` seam is wired and already
-carrying the live reference signal. **No live partial transcript** (whisper-cli has no
-partial-hypothesis stream) — a visible deviation from the UX direction §4.1 sketch. Full measurements,
-gaps and packaging requirements: the voice-pipeline brief, 2026-08-24.
+interruptible cpal stream. **Proven live end to end on this Mac** — real whisper, real Claude,
+real speakers. (An earlier note here said the host had no input device at all; an Elgato Wave:3
+has since been connected and is the default input, so the device capture path is exercisable.)
+**No live partial transcript** (whisper-cli has no partial-hypothesis stream) — a visible
+deviation from the UX direction §4.1 sketch. Full measurements, gaps and packaging
+requirements: the voice-pipeline brief, 2026-08-24.
+
+**Echo cancellation (2026-08-29):** `crates/richos-voice/src/aec.rs` is a real 2048-tap
+partitioned-block frequency-domain adaptive filter, written here rather than vendored (nothing
+to name in the open-source licence audit). It is bit-transparent while Rich is silent — with a
+zero reference the estimate is exactly zero, so dictation and call transcription are provably
+untouched — and it costs 0.355 % of one core.
+
+Barge-in now has two rules. The 5.008 s consecutive debounce is the DEFAULT and the fallback.
+The short rule — 15 near-end frames within a sliding 0.400 s window — is reachable only when
+the canceller has MEASURED its own residual echo 6 dB below the VAD's speech threshold and held
+it there for 2.000 s. On a linear path that gives 28.0 dB ERLE, a **400 ms** shortest
+interruption (down from 5008 ms) and zero self-interruptions.
+
+**On this host's own hardware it does not reach that bar, and says so.** Measured by
+`examples/aec_probe.rs` on the built-in speakers into the Elgato: the echo is real and dominant
+(24.9 dB over the room noise) and its timing is known to the sample, but its ENVELOPE
+correlates at 0.973 while its WAVEFORM correlates at only 0.174 — so magnitude-squared
+coherence caps ANY linear canceller at **5.5 dB** here, WebRTC AEC3 and Apple's
+VoiceProcessingIO included. Clock drift, loudspeaker overdrive and reverb longer than the
+filter were each tested and eliminated. So `confident()` stays false, the 5.008 s rule and the
+half-duplex taint rule stay in force on this desk, and "headphones recommended" is still the
+honest note. Four reproducible rigs carry the evidence: `aec_rig` (offline), `aec_live`,
+`aec_probe`, `aec_transcribe`.
 
 **Foundation only / later legs:** the loro Tier-C WIRING (the compiler itself now exists
 in `loro/` with a versioned `CONTEXT-CONTRACT.md`; `LoroContextCompiler` in `reprime.rs` is
 still an unwired trait seam), the attention-seam TRIGGER (timers/log-watchers that decide
 WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment is not),
-real AEC, a live partial transcript, a warm whisper daemon, a Windows `SpeechSynth`, and
+a magnitude-domain echo DETECTOR for the barge-in decision path (the linear canceller has
+landed; this is what would make barge-in work on hardware whose echo path is not linear —
+prototyped and measured at 0.7 % false positives / 73.6 % detection on a real recording, but
+not shipped: see `aec.rs`), a live partial transcript, a warm whisper daemon, a Windows
+`SpeechSynth`, and
 packaging (signed/notarized bundles, bundled Node + adapter + whisper + models — see the
 voice brief's size table). See the feasibility notes in the handoffs.
 

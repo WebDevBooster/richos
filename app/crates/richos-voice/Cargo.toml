@@ -29,3 +29,19 @@ path = "examples/device_probe.rs"
 [[example]]
 name = "noaudio_live"
 path = "examples/noaudio_live.rs"
+
+[[example]]
+name = "aec_rig"
+path = "examples/aec_rig.rs"
+
+[[example]]
+name = "aec_live"
+path = "examples/aec_live.rs"
+
+[[example]]
+name = "aec_transcribe"
+path = "examples/aec_transcribe.rs"
+
+[[example]]
+name = "aec_probe"
+path = "examples/aec_probe.rs"

@@ -186,6 +186,10 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
     let fmt = supported.sample_format();
 
     let mut slicer = FrameSlicer::new();
+    // ONE converter for the life of the stream. This is what keeps the 16 kHz timebase
+    // honest, which is what makes the echo path time-invariant enough to cancel.
+    let mut rc = wav::RateConverter::new(rate, SAMPLE_RATE);
+    let mut at16: Vec<f32> = Vec::with_capacity(4096);
     let err_fn = |e| eprintln!("[richos-voice] input stream error: {e}");
 
     let stream = match fmt {
@@ -193,7 +197,11 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
             &config,
             move |data: &[f32], _| {
                 let mono = wav::to_mono(data, channels);
-                let at16 = wav::resample(&mono, rate, SAMPLE_RATE);
+                // STREAMING conversion: the phase carries across callbacks. Calling the
+                // whole-signal `wav::resample` here instead adds +0.195 % of drift — see
+                // `wav::RateConverter` and its `resampling_per_callback_drifts` test.
+                at16.clear();
+                rc.push(&mono, &mut at16);
                 slicer.push(&at16, &mut on_frame);
             },
             err_fn,
@@ -204,7 +212,8 @@ fn start_device(mut on_frame: impl FnMut(&[f32]) + Send + 'static) -> Result<Cap
             move |data: &[i16], _| {
                 let f: Vec<f32> = data.iter().map(|s| *s as f32 / 32768.0).collect();
                 let mono = wav::to_mono(&f, channels);
-                let at16 = wav::resample(&mono, rate, SAMPLE_RATE);
+                at16.clear();
+                rc.push(&mono, &mut at16);
                 slicer.push(&at16, &mut on_frame);
             },
             err_fn,
@@ -234,6 +243,8 @@ fn start_wav(
     let rate = pcm.sample_rate;
     let channels = pcm.channels;
     let (mono, r) = pcm.into_mono();
+    // One whole signal in one call: no block boundaries, so no drift. The streaming
+    // converter is only needed where the input arrives a callback at a time.
     let at16 = wav::resample(&mono, r, SAMPLE_RATE);
     eprintln!(
         "[richos-voice] INJECTED INPUT: {} ({} Hz, {} ch, {:.3} s) — this is NOT the microphone",
