@@ -42,6 +42,7 @@
 //! - TTS is macOS `say` with one fixed voice. It is a [`tts::SpeechSynth`] implementation, so
 //!   a bundled neural voice replaces it without touching the pipeline.
 
+pub mod aec;
 pub mod bargein;
 pub mod chunk;
 pub mod fft;
