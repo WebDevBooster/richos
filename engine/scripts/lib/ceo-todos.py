@@ -528,6 +528,30 @@ def main():
                       "the link is dead in a fresh clone and on the web view — so the page "
                       "only works for whoever prepared it."
                       % (len(unreachable), ", ".join(unreachable))))
+    # THE MIGRATION NOTICE. On 2026-08-29 the CEO renamed this mechanism from
+    # "the CEO queue" to "the CEO's TODOs" — the audience is non-technical CEOs
+    # in the US, and "queue" is the British word. The pre-rename declaration
+    # name and key names are still READ and still ENFORCED (scripts/lib/
+    # ceo-todos.sh, "THE LEGACY NAME"), because refusing them would switch a
+    # working guard off silently in every repository that had not migrated yet.
+    # Accepting them quietly would be the same defect one step further out, so
+    # they ride the NOTE channel, which is printed on a CLEAN verdict as well as
+    # on a refusal, on every single run, until somebody renames the file.
+    legacy_decl = job.get("legacy_declaration") or ""
+    if legacy_decl:
+        notes.append(("LEGACY-DECLARATION-NAME",
+                      "this repository still declares its CEO TODOs in `%s`, the name this "
+                      "mechanism used before 2026-08-29. It is being read and enforced — "
+                      "nothing is switched off — but the file no longer matches the words "
+                      "the CEO reads. Rename it: `git mv %s .ceo-todos`. See the engine's "
+                      "UPGRADING.md." % (legacy_decl, legacy_decl)))
+    legacy_keys = job.get("legacy_keys") or []
+    if legacy_keys:
+        notes.append(("LEGACY-DECLARATION-KEYS",
+                      "the declaration still uses the pre-2026-08-29 key name(s) %s. They are "
+                      "accepted and translated (QUEUE_RECORD -> TODO_RECORD, QUEUE_VIEW -> "
+                      "TODO_VIEW); rename them in place to clear this notice."
+                      % ", ".join(legacy_keys)))
     check_entry_point(job, rendered, violations, notes)
     fp = front_door_fingerprint(job.get("todo_view") or "", rendered,
                                 job.get("readme_text") or "")

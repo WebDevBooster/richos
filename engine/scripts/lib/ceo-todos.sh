@@ -181,6 +181,59 @@ _CEO_TODOS_SH_SOURCED=1
 # The declaration marker. One file, one name, checked one way, everywhere.
 : "${CEO_TODOS_DECLARATION:=.ceo-todos}"
 
+# ---------------------------------------------------------------------------
+# THE LEGACY NAME — WHY AN ALIAS AND NOT A CLEAN CUT
+# ---------------------------------------------------------------------------
+# Until 2026-08-29 this mechanism was called the CEO QUEUE, its declaration was
+# `.ceo-queue`, and its two path keys were QUEUE_RECORD and QUEUE_VIEW. The CEO
+# renamed it: the audience is non-technical CEOs in the US, and "queue" is the
+# British word for it.
+#
+# A rename of a STRICT-PARSED declaration has a nasty ordering property, and
+# this engine had already been bitten by the milder half of it that same
+# morning (UPGRADING.md, "Ordering trap"). Spelled out, with the failure of
+# each direction named:
+#
+#   NEW ENGINE + OLD `.ceo-queue`   Without an alias the new engine finds no
+#                                   declaration and STANDS DOWN — silently. The
+#                                   repository looks governed, every commit
+#                                   passes, and nothing anywhere says the guard
+#                                   stopped running.
+#   OLD ENGINE + NEW `.ceo-todos`   The same silent stand-down, and it cannot be
+#                                   fixed from here: that code has already
+#                                   shipped. Only a LAND ORDER fixes it — the
+#                                   engine goes first, always.
+#
+# The first direction is the one an adopter actually meets, because an adopter
+# updates the engine on the engine's schedule and their own repository on
+# theirs. A clean cut would hand every one of them an invisible switch-off, and
+# an invisible switch-off is the precise failure class this whole file exists to
+# remove. So:
+#
+#   THE LEGACY DECLARATION IS STILL READ AND STILL ENFORCED, AND SAYS SO OUT
+#   LOUD ON EVERY SINGLE VERDICT UNTIL IT IS RENAMED.
+#
+# Never silent, never a deadline, never a broken adopter. The notice rides the
+# NOTE channel, which both the lint and the commit guard print on a CLEAN pass
+# as well as on a refusal — the one channel in this design that cannot be
+# reached only by failing.
+#
+# Carrying BOTH files is BROKEN, not "prefer the new one": two declarations are
+# two answers to "what is the record", and picking one quietly is how the wrong
+# one stays live.
+#
+# The variable below is deliberately NOT named `*_DECLARATION`. That convention
+# is what publication-completeness.py greps to derive the set of declarations an
+# adopter must be given a template and an onboarding paragraph for, and a legacy
+# alias is the opposite of something a new adopter should be told to create.
+# Documented here rather than hidden: the exclusion is a decision, not an
+# oversight. The migration is in UPGRADING.md.
+_CT_LEGACY_DECL_FILE=".ceo-queue"
+
+# Old key name -> current key name. Same contract as the file alias: accepted,
+# translated, and named in a NOTE on every verdict.
+_CT_LEGACY_KEY_MAP="QUEUE_RECORD=TODO_RECORD QUEUE_VIEW=TODO_VIEW"
+
 _CT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Every key the declaration may carry. A key outside this set is a typo, and a
@@ -257,16 +310,22 @@ ct_main_checkout() {
 # ---------------------------------------------------------------------------
 # ct_load_declaration <repo_root>
 # ---------------------------------------------------------------------------
-# Strict-parses <repo_root>/.ceo-todos into CT_* variables.
+# Strict-parses <repo_root>/.ceo-todos — or, when that is absent, the legacy
+# <repo_root>/.ceo-queue — into CT_* variables.
 #
 #   rc 0  a well-formed declaration was loaded  -> enforce
 #   rc 1  no declaration                        -> stand down
 #   rc 2  BROKEN: present but malformed         -> caller must BLOCK
 #
+# Also sets, for the migration notice every caller must surface:
+#   CT_DECLARATION_FILE  absolute path of the file actually read
+#   CT_LEGACY_DECL       the legacy file name if that is what was read, else ""
+#   CT_LEGACY_KEYS       space-separated legacy key names that were translated
+#
 # PARSED, never sourced. Sourcing a file to read six settings out of it hands
 # arbitrary code execution to anything that can write a config.
 ct_load_declaration() {
-    local root="${1:-}" f line key val pair
+    local root="${1:-}" f line key val pair legacy_f lk
     CT_TODO_RECORD=""
     CT_CEO_SECTIONS="1 2"
     CT_PREPARER_SECTION="3"
@@ -277,10 +336,24 @@ ct_load_declaration() {
     CT_ROOT_README="README.md"
     CT_COLD_OPEN_DIR=""
     CT_BROKEN_REASON=""
+    CT_DECLARATION_FILE=""
+    CT_LEGACY_DECL=""
+    CT_LEGACY_KEYS=""
 
     [ -n "$root" ] || return 1
     f="$root/$CEO_TODOS_DECLARATION"
-    [ -f "$f" ] || return 1
+    legacy_f="$root/$_CT_LEGACY_DECL_FILE"
+
+    if [ -f "$f" ] && [ -f "$legacy_f" ]; then
+        CT_BROKEN_REASON="this repository carries BOTH $CEO_TODOS_DECLARATION and the legacy $_CT_LEGACY_DECL_FILE. Two declarations are two answers to 'what is the record', and choosing one quietly is how the wrong one stays live. Delete $_CT_LEGACY_DECL_FILE; $CEO_TODOS_DECLARATION supersedes it."
+        return 2
+    fi
+    if [ ! -f "$f" ]; then
+        [ -f "$legacy_f" ] || return 1
+        f="$legacy_f"
+        CT_LEGACY_DECL="$_CT_LEGACY_DECL_FILE"
+    fi
+    CT_DECLARATION_FILE="$f"
 
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
@@ -301,10 +374,21 @@ ct_load_declaration() {
             \'*\') val="${val#\'}"; val="${val%\'}" ;;
             *) val="${val%%#*}"; val="${val%"${val##*[![:space:]]}"}" ;;
         esac
+        # A legacy key name is TRANSLATED, never refused, and never silent —
+        # see "THE LEGACY NAME" at the head of this file. Translation happens
+        # before the strict known-key check, so the check below stays strict
+        # about everything that is neither current nor a named legacy alias.
+        for lk in $_CT_LEGACY_KEY_MAP; do
+            if [ "$key" = "${lk%%=*}" ]; then
+                CT_LEGACY_KEYS="${CT_LEGACY_KEYS:+$CT_LEGACY_KEYS }$key"
+                key="${lk#*=}"
+                break
+            fi
+        done
         case " $_CT_KNOWN_KEYS " in
             *" $key "*) ;;
             *)
-                CT_BROKEN_REASON="unknown key '$key'. Known keys: $_CT_KNOWN_KEYS. A key this guard does not read is a setting that silently does nothing — refusing rather than pretending it took effect."
+                CT_BROKEN_REASON="unknown key '$key'. Known keys: $_CT_KNOWN_KEYS (the pre-2026-08-29 names QUEUE_RECORD and QUEUE_VIEW are also accepted, with a notice). A key this guard does not read is a setting that silently does nothing — refusing rather than pretending it took effect."
                 return 2 ;;
         esac
         case "$val" in
@@ -495,6 +579,7 @@ ct_build_job() {
     CT_J_READY="$CT_READY_STATE" CT_J_BLOCKED="$CT_BLOCKED_STATE" \
     CT_J_VIEW="$CT_TODO_VIEW" CT_J_README="$CT_ROOT_README" CT_J_COLD="$CT_COLD_OPEN_DIR" \
     CT_J_OVR_VIEW="${CT_OVERRIDE_VIEW:-}" CT_J_OVR_README="${CT_OVERRIDE_README:-}" \
+    CT_J_LEGACY_DECL="${CT_LEGACY_DECL:-}" CT_J_LEGACY_KEYS="${CT_LEGACY_KEYS:-}" \
     CT_J_PROMPT_FP="$prompt_fp" CT_J_OUT="$out" python3 -c '
 import json, os
 
@@ -574,6 +659,10 @@ job = {
     "cold_open_dir_present": cold_present,
     "cold_open": transcripts,
     "prompt_fingerprint": os.environ.get("CT_J_PROMPT_FP", ""),
+    # The migration state, carried so the predicate can put it on the NOTE
+    # channel — the one channel printed on a CLEAN verdict as well as a refusal.
+    "legacy_declaration": os.environ.get("CT_J_LEGACY_DECL") or "",
+    "legacy_keys": [k for k in (os.environ.get("CT_J_LEGACY_KEYS") or "").split() if k],
 }
 with open(os.environ["CT_J_OUT"], "w", encoding="utf-8") as fh:
     json.dump(job, fh)
@@ -639,8 +728,8 @@ ct_broken_banner() {
     echo "  reason    : $why"
     echo ""
     echo "  A TODOs declaration that cannot be read is not a TODO list with nothing"
-    echo "  in it. Fix $CEO_TODOS_DECLARATION, or delete it to stand this"
-    echo "  mechanism down deliberately and visibly."
+    echo "  in it. Fix ${CT_DECLARATION_FILE:-$CEO_TODOS_DECLARATION}, or delete it to"
+    echo "  stand this mechanism down deliberately and visibly."
 }
 
 # ---------------------------------------------------------------------------

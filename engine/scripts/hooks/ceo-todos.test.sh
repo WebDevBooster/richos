@@ -529,6 +529,87 @@ ARTIFACT_ROOTS="justaprefix"|<prefix>=<root>' ; do
 done
 
 # ---------------------------------------------------------------------------
+# (k) THE 2026-08-29 RENAME — a legacy declaration is READ, ENFORCED, AND LOUD
+# ---------------------------------------------------------------------------
+# "queue" was the British word and the CEO removed it. The rename's real hazard
+# is not the spelling: `.ceo-queue` was STRICT-PARSED, so a clean cut would make
+# every un-migrated repository's guard stand down SILENTLY — the exact failure
+# class this mechanism exists to remove. So the old name still works, still
+# blocks, and still says so. These cases hold that contract in place; without
+# them the alias is one tidy-up commit away from becoming a silent switch-off.
+LEGACY_DECL='QUEUE_RECORD="wiki/open-items.md"
+QUEUE_VIEW="CEO-TODOs.md"
+ROOT_README="README.md"
+CEO_SECTIONS="1 2"
+PREPARER_SECTION="3"
+ARTIFACT_ROOTS="repo=."'
+
+R="$(mk_repo legacyname "$LEGACY_DECL")"
+mv "$R/.ceo-todos" "$R/.ceo-queue"
+write_record "$R" '### 2.1 READY-FOR-CEO — anything
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 5 minutes
+- **Done:** a ruling is recorded on the decisions page
+- **Unblocks:** the next thing
+'
+run_lint "$R"
+if [ "$LRC" -eq 0 ]; then
+    ok "a pre-rename .ceo-queue is still READ and still enforced — no silent stand-down"
+else
+    bad "a legacy .ceo-queue declaration should still be enforced (rc=$LRC): $LOUT"
+fi
+if printf '%s' "$LOUT" | grep -qF 'LEGACY-DECLARATION-NAME' \
+   && printf '%s' "$LOUT" | grep -qF 'git mv .ceo-queue .ceo-todos'; then
+    ok "...and a CLEAN verdict still names the legacy file and the exact rename command"
+else
+    bad "a clean run over a legacy declaration must still print the migration notice: $LOUT"
+fi
+if printf '%s' "$LOUT" | grep -qF 'LEGACY-DECLARATION-KEYS' \
+   && printf '%s' "$LOUT" | grep -qF 'QUEUE_RECORD'; then
+    ok "...and the legacy KEY names are translated and named, not silently accepted"
+else
+    bad "legacy QUEUE_RECORD/QUEUE_VIEW keys must be reported: $LOUT"
+fi
+run_guard "$R"
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -qF 'LEGACY-DECLARATION-NAME'; then
+    ok "...and the COMMIT GUARD enforces the legacy declaration and prints the notice too"
+else
+    bad "the commit guard must enforce a legacy declaration and say so (rc=$GRC): $GOUT"
+fi
+
+# The same repository, now failing: a legacy declaration must still BLOCK.
+write_record "$R" '### 2.2 READY-FOR-CEO — a row with no fields at all'
+run_guard "$R"
+if [ "$GRC" -eq 2 ]; then
+    ok "...and an unprepared item under the legacy name is still REFUSED, not waved through"
+else
+    bad "a legacy declaration must still block an unprepared item (rc=$GRC): $GOUT"
+fi
+
+# Both files present: two declarations are two answers. Refuse, never guess.
+R="$(mk_repo legacyboth)"
+cp "$R/.ceo-todos" "$R/.ceo-queue"
+write_record "$R" ''
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'BOTH'; then
+    ok "carrying BOTH .ceo-todos and .ceo-queue is BROKEN — the mechanism never picks one quietly"
+else
+    bad "both declarations present should refuse as ambiguous (rc=$GRC): $GOUT"
+fi
+
+# init must not write a second declaration beside a legacy one — that is the
+# ambiguity above, manufactured by the tool that is supposed to help.
+R2="$(mk_repo legacyinit)"
+mv "$R2/.ceo-todos" "$R2/.ceo-queue"
+IOUT="$("$BASH_BIN" "$ENGINE_ROOT/scripts/ceo-todos-init.sh" "$R2" 2>&1)"; IRC=$?
+if [ "$IRC" -eq 2 ] && printf '%s' "$IOUT" | grep -qF 'git -C'; then
+    ok "ceo-todos-init.sh REFUSES a repo that already declares under the old name, and gives the rename"
+else
+    bad "init should refuse beside a legacy declaration and print the rename (rc=$IRC): $IOUT"
+fi
+
+# ---------------------------------------------------------------------------
 # (m) THE ENTRY POINT — prepared is half; reachable is the other half
 # ---------------------------------------------------------------------------
 # The defect these replay: nine PREPARED items, a green lint, a firing guard —

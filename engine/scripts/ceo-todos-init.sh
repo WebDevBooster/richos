@@ -109,9 +109,21 @@ esac
 
 DECL="$REPO/$CEO_TODOS_DECLARATION"
 if [ -f "$DECL" ] && [ "$FORCE" -eq 0 ]; then
-    echo "ERROR: ceo-todos-init.sh: $REPO already declares a CEO TODOs ($CEO_TODOS_DECLARATION)." >&2
+    echo "ERROR: ceo-todos-init.sh: $REPO already declares CEO TODOs ($CEO_TODOS_DECLARATION)." >&2
     echo "       Refusing to overwrite it. Check it with:  scripts/ceo-todos-lint.sh $REPO" >&2
     echo "       Re-install anyway with --force." >&2
+    exit 2
+fi
+# A repository that already ran this under the pre-2026-08-29 name has a live,
+# populated declaration; "init" would write a second one beside it and the
+# predicate would then refuse BOTH as ambiguous. Say so, and give the rename.
+if [ -f "$REPO/$_CT_LEGACY_DECL_FILE" ] && [ "$FORCE" -eq 0 ]; then
+    echo "ERROR: ceo-todos-init.sh: $REPO already declares CEO TODOs under the pre-2026-08-29" >&2
+    echo "       name ($_CT_LEGACY_DECL_FILE). It is still read and still enforced — this is a" >&2
+    echo "       rename, not a re-install:" >&2
+    echo "         git -C $REPO mv $_CT_LEGACY_DECL_FILE $CEO_TODOS_DECLARATION" >&2
+    echo "       then rename QUEUE_RECORD -> TODO_RECORD and QUEUE_VIEW -> TODO_VIEW inside it," >&2
+    echo "       and re-render:  scripts/ceo-todos-render.sh $REPO" >&2
     exit 2
 fi
 
