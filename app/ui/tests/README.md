@@ -42,7 +42,11 @@ it applies to every button in the app, not just the new ones.
 
 **3. No faked screenshots.** `screencapture` on this machine has returned an all-black
 1920x1080 PNG for three slices running (display locked). Every screenshot here comes out of
-WebKit's own compositor, which does not depend on a display server.
+WebKit's own compositor, which does not depend on a display server — and every one is
+decoded and pixel-counted before it counts as evidence. A shot with fewer than 8 distinct
+colours across the sample grid throws; the real app measures 175. That check was documented
+in `lib/harness.js` for one slice before it existed (the function measured file size, which
+is exactly what a valid all-black PNG passes), and now it runs.
 
 ## What these tests do NOT cover
 
