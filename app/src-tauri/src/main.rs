@@ -378,7 +378,9 @@ fn main() {
             set_thread_archived,
             rename_thread,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
-            get_timeline
+            get_timeline,
+            // --- Codex-UX slice 7 (2026-08-29): the read-only worker inspector ---
+            set_inspector_width
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -1086,6 +1088,13 @@ fn nav_state(state: State<AppState>) -> nav::NavState {
 #[tauri::command]
 fn set_sidebar_width(state: State<AppState>, width: f64) -> Result<f64, String> {
     state.nav.lock().unwrap().set_sidebar_width(width).map_err(|e| e.to_string())
+}
+
+/// Returns the width the store ACCEPTED (clamped to nav.rs's 280-520px, whose maximum is
+/// derived from §20's 620px conversation floor). UX §7.2 / §25.
+#[tauri::command]
+fn set_inspector_width(state: State<AppState>, width: f64) -> Result<f64, String> {
+    state.nav.lock().unwrap().set_inspector_width(width).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

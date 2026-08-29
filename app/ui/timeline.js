@@ -7,8 +7,9 @@
 //      item ids: the `get_timeline` snapshot (the reload path) and the six additive
 //      `rich://` events (the live path, app/STREAMING.md "The additive live-work family").
 //   2. THE RENDER — the CEO bubble (§5.1), Rich's prose (§5.2/§5.4), semantic work
-//      activity (§5.3), delegated AI workers and their chips (§7.1), the working-duration
-//      row (§6) and its collapse (§6.4).
+//      activity (§5.3), delegated AI workers and their chips (§7.1), the read-only worker
+//      inspector's BODY (§7.2 — the pane's shell and its divider are main.js's), the
+//      working-duration row (§6) and its collapse (§6.4).
 //
 // It talks to no bridge, listens to no event and invokes no command. `main.js` drives it.
 // That split is deliberate: every rule below is testable in a browser with no Tauri, no
@@ -1169,6 +1170,163 @@
     stopped: "▪",
   };
 
+  // -------------------------------------------------------------------------------------
+  // §7.2 THE WORKER INSPECTOR — read-only, and read-only is the BOUNDARY
+  // -------------------------------------------------------------------------------------
+  //
+  // §7.2 lists seven things a worker detail view shows. THREE of them have a source and
+  // four do not, and this pane shows the three, names the four, and invents nothing:
+  //
+  //   1. identity and role                 REAL — `workerName` from a `created` row,
+  //                                        `agentType` from whichever row carried one.
+  //   2. current state                     REAL — the last state witnessed.
+  //      ...and elapsed time               NO SOURCE. §22 lists "elapsed active time" under
+  //                                        must-not-be-faked, and the wall-clock spread
+  //                                        between two log lines is not active time — a
+  //                                        worker that idled two hours between its first and
+  //                                        last row did not work for two hours. The two
+  //                                        TIMESTAMPS are shown as timestamps; no duration
+  //                                        is computed from them anywhere in this file.
+  //   3. delegated task in Rich's words    NO SOURCE. The `Task` tool call's title in the
+  //                                        measured traffic is the literal string "Task"
+  //                                        (timeline_tests.rs:701), and a CEO view carries
+  //                                        no `detail` at all — `Timeline::view(Ceo)` removed
+  //                                        the bytes rather than hiding them. Surfacing the
+  //                                        delegation prompt needs a CEO-safe objective field
+  //                                        the projection does not have; see the handoff.
+  //   4. latest authored update            REAL — the `summary` a worker actually wrote.
+  //   5. output or response when done      NO SOURCE. `result_ref` has no witness.
+  //   6. artifacts or changed files        NO SOURCE. Phase 5 owns artifacts.
+  //   7. failure reason when failed        NO SOURCE. Nothing in the worker path carries an
+  //                                        outcome, so failure is not detectable at all.
+  //
+  // AND NO CONTROLS. §7.2's forbidden list — model selection, prompt editing, tool
+  // permissions, per-worker resume/stop, raw mailboxes — is a list of BUSINESS ACTIONS, and
+  // R2 business-action governance is deferred to V2 by CEO decision for v1 and all 1.x. So
+  // there is no interrupt, no retry, no approve, and no "ask Sage to..." field. A window,
+  // not a cockpit. `renderWorkerInspector` returns a node containing exactly zero
+  // interactive elements other than the one disclosure below; the pane's Close button lives
+  // in the shell, not here.
+
+  /// An RFC-3339 stamp the emitter wrote, rendered as a TIME. Never differenced.
+  function formatStamp(iso) {
+    if (!iso) return null;
+    const t = Date.parse(iso);
+    if (!isFinite(t)) return iso;
+    return new Date(t).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+
+  /// The §7.4 sentence for a run that ended with nothing recorded about how. It is Rich's
+  /// voice and it is deliberately not a status line: the CEO's real question is "did a
+  /// worker fail?", and the only honest answer is that this build cannot tell him — said
+  /// once, calmly, without a stack trace and without an alarm.
+  //
+  // "was cut short" and not "stopped": §6.1 already spends the word `stopped` on a turn the
+  // CEO stopped himself (`You stopped after {duration}`), so reusing it here would read as
+  // an attribution rather than a possibility.
+  const ENDED_EXPLANATION =
+    "This run has ended. Nothing recorded whether the work finished, was cut short or failed — so I'm not going to call it either way.";
+
+  function renderWorkerInspector(w, opts) {
+    opts = opts || {};
+    const frag = document.createDocumentFragment();
+    const spec = workerStateSpec(w.state);
+
+    // ---- identity and role (§7.2 item 1) ----
+    //
+    // The NAME lives in the pane header, which §7.2 requires it to ("The pane header
+    // includes a back action, the worker name and a close action"), so it is not repeated
+    // here — printing it twice, twenty pixels apart, made the pane read like two panes.
+    // It is still in this fragment's accessible structure via the role line's heading when
+    // the header is absent (the isolated-render case in `tests/workers.js`).
+    const idBlock = elem("div", "insp-identity");
+    idBlock.appendChild(elem("h3", "insp-name sr-only", workerDisplayName(w)));
+    if (w.agentType) idBlock.appendChild(elem("p", "insp-role", w.agentType));
+    if (!workerHasName(w)) {
+      idBlock.appendChild(
+        elem("p", "insp-note", "This run was first seen already underway, so no display name was recorded for it.")
+      );
+    }
+    frag.appendChild(idBlock);
+
+    // ---- state (§7.2 item 2, minus the elapsed time that has no source) ----
+    const stateBlock = elem("div", "insp-block insp-state");
+    stateBlock.dataset.state = spec.tone;
+    const line = elem("p", "insp-state-line");
+    const glyph = elem("span", "insp-state-mark", spec.glyph);
+    glyph.setAttribute("aria-hidden", "true");
+    line.appendChild(glyph);
+    line.appendChild(elem("span", "insp-state-word", spec.label));
+    if (spec.qualifier) line.appendChild(elem("span", "insp-state-qualifier", spec.qualifier));
+    stateBlock.appendChild(line);
+    stateBlock.appendChild(elem("p", "insp-state-note", w.state === "unknown" ? ENDED_EXPLANATION : spec.note));
+    frag.appendChild(stateBlock);
+
+    // ---- the latest thing this worker actually wrote (§7.2 item 4) ----
+    // THE WORKER RESULT, in the only form that exists. §7.2 says the result stays visible
+    // when the activity closes, and that is why this sits ABOVE the disclosure below rather
+    // than inside it.
+    if (w.latestUpdate) {
+      const upd = elem("div", "insp-block insp-update");
+      upd.appendChild(elem("p", "insp-label", "Latest update"));
+      upd.appendChild(elem("p", "insp-update-text", w.latestUpdate));
+      frag.appendChild(upd);
+    }
+
+    // ---- the observed chronology, collapsible INDEPENDENTLY (§7.2) ----
+    const chron = elem("div", "insp-block insp-chron");
+    const open = !!opts.chronologyOpen;
+    const toggle = elem("button", "insp-disclosure");
+    toggle.type = "button";
+    toggle.id = "insp-chron-toggle";
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-controls", "insp-chron-body");
+    const chev = elem("span", "tl-chevron", open ? "⌄" : "›");
+    chev.setAttribute("aria-hidden", "true");
+    toggle.appendChild(chev);
+    toggle.appendChild(elem("span", null, "What I saw"));
+    if (typeof opts.toggleChronology === "function") toggle.addEventListener("click", opts.toggleChronology);
+    chron.appendChild(toggle);
+
+    const body = elem("dl", "insp-facts");
+    body.id = "insp-chron-body";
+    if (!open) body.hidden = true;
+    const fact = (k, v) => {
+      if (v == null) return;
+      body.appendChild(elem("dt", null, k));
+      body.appendChild(elem("dd", null, v));
+    };
+    fact("First seen", formatStamp(w.firstObservedAt));
+    fact("Last seen", formatStamp(w.lastObservedAt));
+    fact(
+      "Lifecycle events",
+      typeof w.eventsObserved === "number" ? String(w.eventsObserved) : null
+    );
+    // The two timestamps above are LABELS. §22 forbids faking elapsed active time and the
+    // spread between them is not it, so the pane says so where the number would have gone.
+    body.appendChild(elem("dt", null, "Time spent working"));
+    body.appendChild(elem("dd", "insp-absent", "not recorded"));
+    chron.appendChild(body);
+    frag.appendChild(chron);
+
+    // ---- what is genuinely not here (§7.2 items 3, 5, 6, 7) ----
+    // Said once, in one sentence, rather than four empty sections. A pane that silently
+    // omitted them would read as broken; a pane that listed four "unavailable" rows would
+    // read as an apology. This states the boundary and moves on.
+    const gap = elem("p", "insp-note insp-gap");
+    gap.textContent =
+      "I don't have this worker's brief, its output or the files it touched — nothing records those yet, and I'd rather say so than show you a blank.";
+    frag.appendChild(gap);
+
+    return frag;
+  }
+
   /// §6 — the working-duration row, and §6.4's disclosure.
   ///
   /// The row IS the disclosure control (§6.4 step 5). What it discloses is the ACTIVITY
@@ -1439,6 +1597,8 @@
     workerStateSpec,
     workerDisplayName,
     joinNames,
+    renderWorkerInspector,
+    ENDED_EXPLANATION,
     render,
     updateProse,
     updateTimers,

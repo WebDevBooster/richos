@@ -38,6 +38,19 @@ pub const SIDEBAR_WIDTH_DEFAULT: f64 = 300.0;
 pub const SIDEBAR_WIDTH_MIN: f64 = 224.0;
 pub const SIDEBAR_WIDTH_MAX: f64 = 420.0;
 
+/// Worker-inspector width bounds (UX §7.2: *"Its divider is draggable and its width is
+/// persisted per window"*; §25: *"Worker-pane width can be changed directly and survives
+/// relaunch"*).
+///
+/// The maximum is not a taste call. §20 requires the conversation to keep at least 620px
+/// between 820px and 1179px, and §7.2 requires both panes to stay readable — so the
+/// inspector is capped where a 1180px window still leaves the reading column its floor:
+/// 1180 - 224 (the rail at its own minimum) - 620 = 336. Clamped in RUST, not only in CSS,
+/// for the same reason the rail is: the UI is free to be wrong; the store is not.
+pub const INSPECTOR_WIDTH_DEFAULT: f64 = 336.0;
+pub const INSPECTOR_WIDTH_MIN: f64 = 280.0;
+pub const INSPECTOR_WIDTH_MAX: f64 = 520.0;
+
 /// A rename override is bounded for the same reason an entity id is: it is CEO-supplied
 /// text that ends up in a durable file and in the accessible name of a control.
 pub const TITLE_MAX_LEN: usize = 200;
@@ -50,6 +63,10 @@ pub struct NavState {
     pub sidebar_width: f64,
     /// Whether the rail is collapsed (§20: collapsible between 820px and 1179px).
     pub sidebar_collapsed: bool,
+    /// Persisted worker-inspector width in CSS pixels (§7.2, §25). Its own field rather
+    /// than a shared one: §2.1 calls these two dividers separately adjustable, and one
+    /// number for both would make dragging the rail move the inspector.
+    pub inspector_width: f64,
     /// Entity ids whose disclosure is closed. Absent = open, so a newly registered entity
     /// appears expanded rather than silently hidden.
     pub collapsed_entities: Vec<String>,
@@ -67,6 +84,7 @@ impl Default for NavState {
         NavState {
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
             sidebar_collapsed: false,
+            inspector_width: INSPECTOR_WIDTH_DEFAULT,
             collapsed_entities: Vec::new(),
             pinned_threads: Vec::new(),
             archived_threads: Vec::new(),
@@ -90,6 +108,7 @@ impl NavStore {
             .and_then(|raw| serde_json::from_str::<NavState>(&raw).ok())
             .map(|mut s| {
                 s.sidebar_width = clamp_width(s.sidebar_width);
+                s.inspector_width = clamp_inspector_width(s.inspector_width);
                 s
             })
             .unwrap_or_default();
@@ -124,6 +143,13 @@ impl NavStore {
         self.state.sidebar_width = clamp_width(width);
         self.persist()?;
         Ok(self.state.sidebar_width)
+    }
+
+    /// Returns the width actually stored — the CLAMPED one, same contract as the rail's.
+    pub fn set_inspector_width(&mut self, width: f64) -> std::io::Result<f64> {
+        self.state.inspector_width = clamp_inspector_width(width);
+        self.persist()?;
+        Ok(self.state.inspector_width)
     }
 
     pub fn set_sidebar_collapsed(&mut self, collapsed: bool) -> std::io::Result<()> {
@@ -164,6 +190,13 @@ fn clamp_width(w: f64) -> f64 {
         return SIDEBAR_WIDTH_DEFAULT;
     }
     w.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+}
+
+fn clamp_inspector_width(w: f64) -> f64 {
+    if !w.is_finite() {
+        return INSPECTOR_WIDTH_DEFAULT;
+    }
+    w.clamp(INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX)
 }
 
 /// Idempotent set membership on a `Vec<String>` used as a small ordered set. Idempotent
@@ -210,6 +243,48 @@ mod tests {
         }
         let reopened = NavStore::open(&path);
         assert_eq!(reopened.state().sidebar_width, 388.0, "§25: width must survive relaunch");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_inspector_width_is_its_own_number_clamped_and_durable() {
+        // §25: "Worker-pane width can be changed directly and survives relaunch." Its own
+        // field, so dragging one divider can never move the other (§2.1).
+        let path = tmp_path("inspector");
+        {
+            let mut store = NavStore::open(&path);
+            assert_eq!(store.state().inspector_width, INSPECTOR_WIDTH_DEFAULT);
+            assert_eq!(store.set_inspector_width(10.0).unwrap(), INSPECTOR_WIDTH_MIN);
+            assert_eq!(store.set_inspector_width(9000.0).unwrap(), INSPECTOR_WIDTH_MAX);
+            assert_eq!(store.set_inspector_width(f64::NAN).unwrap(), INSPECTOR_WIDTH_DEFAULT);
+            assert_eq!(store.set_inspector_width(412.0).unwrap(), 412.0);
+            // The rail is untouched by every one of those.
+            assert_eq!(store.state().sidebar_width, SIDEBAR_WIDTH_DEFAULT);
+            store.set_sidebar_width(388.0).unwrap();
+            assert_eq!(store.state().inspector_width, 412.0, "and the reverse holds too");
+        }
+        let reopened = NavStore::open(&path);
+        assert_eq!(reopened.state().inspector_width, 412.0, "§25: survives relaunch");
+        assert_eq!(reopened.state().sidebar_width, 388.0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_preferences_file_written_before_the_inspector_existed_still_loads() {
+        // The forward-compat case that matters in practice: an owner who has been running
+        // RichOS has a nav.json with no `inspector_width` key. `#[serde(default)]` on the
+        // struct must fill it rather than dropping the whole file to defaults and losing
+        // their rail width, their pins and their renames.
+        let path = tmp_path("legacy");
+        std::fs::write(
+            &path,
+            r#"{"sidebar_width":355.0,"sidebar_collapsed":false,"collapsed_entities":[],"pinned_threads":["thr_a"],"archived_threads":[],"renamed_threads":{}}"#,
+        )
+        .unwrap();
+        let store = NavStore::open(&path);
+        assert_eq!(store.state().sidebar_width, 355.0, "the old file's own values survive");
+        assert_eq!(store.state().pinned_threads, vec!["thr_a".to_string()]);
+        assert_eq!(store.state().inspector_width, INSPECTOR_WIDTH_DEFAULT, "the new field defaults");
         let _ = std::fs::remove_file(&path);
     }
 

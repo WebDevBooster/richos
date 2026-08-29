@@ -1969,3 +1969,254 @@ body.bp-narrow .tl-user-bubble {
     bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ---- §7.2 the worker inspector: a SIBLING PANE, never a modal --------------------------
+   §20 governs the three shapes:
+     1180px and wider  — docked beside the conversation, divider draggable, width durable.
+     820px to 1179px   — overlays from the right, "because two readable columns no longer
+                         fit"; the conversation keeps at least 620px underneath it.
+     below 820px       — a full-height sheet, one visible pane at a time.
+
+   `#app` is a flex row, so the docked case is just a third flex child. The overlay cases
+   take it out of flow entirely rather than squeezing the conversation below its floor. */
+
+:root {
+  --inspector-width: 336px;
+}
+
+#inspector {
+  width: var(--inspector-width, 336px);
+  min-width: 280px;
+  max-width: 520px;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-rail);
+  border-left: 1px solid var(--line);
+  z-index: 20;
+}
+
+#inspector-resizer {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 21;
+  background: transparent;
+}
+
+#inspector-resizer:hover,
+#inspector-resizer:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+#inspector-resizer:focus-visible {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+.inspector-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 4px 8px;
+  padding: 16px 14px 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inspector-eyebrow {
+  grid-column: 1;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.inspector-title {
+  grid-column: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.inspector-head .rail-icon-btn {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.inspector-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.insp-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.insp-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.insp-role {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.insp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.insp-label {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.insp-state-line {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 13.5px;
+}
+
+.insp-state-word {
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.insp-state-qualifier {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.insp-state[data-state="active"] .insp-state-word {
+  color: var(--accent);
+}
+
+/* `Ended` is calm on purpose: nothing failed as far as anyone knows. No danger colour. */
+.insp-state[data-state="ended"] .insp-state-word {
+  color: var(--ink-soft);
+}
+
+.insp-state-note,
+.insp-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.insp-update-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.insp-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.insp-disclosure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.insp-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 2px 0 0;
+  font-size: 12.5px;
+}
+
+.insp-facts dt {
+  color: var(--ink-faint);
+}
+
+.insp-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The place a number would have gone if one existed. Deliberately not styled as an error. */
+.insp-absent {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.insp-gap {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+#inspector-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 31, 27, 0.22);
+  z-index: 19;
+}
+
+/* 820px to 1179px: "inspector overlays from the right because two readable columns no
+   longer fit". The conversation underneath keeps its full width and its scroll position. */
+@media (max-width: 1179px) {
+  #inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(var(--inspector-width, 336px), 92vw);
+    box-shadow: 0 0 40px rgba(20, 19, 16, 0.18);
+  }
+  #inspector-resizer {
+    display: none;
+  }
+}
+
+/* Below 820px: "one visible pane at a time; inspector becomes a full-height sheet". */
+@media (max-width: 819px) {
+  #inspector {
+    width: 100%;
+    max-width: 100%;
+    box-shadow: none;
+  }
+}

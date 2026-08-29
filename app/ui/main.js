@@ -647,6 +647,10 @@ async function openThread(threadId) {
   renderDrillChip();
   closeSlideOver();
   closeThreadMenu();
+  // The pane is about a worker in the thread being LEFT. Carrying it across would put one
+  // entity's worker beside another entity's conversation — the exact shape of leak every
+  // guard in this build exists to stop.
+  closeWorkerInspector();
   if (isNarrow()) setRailOpen(false);
 
   if (!row.entity_id) {
@@ -891,7 +895,13 @@ function flushRender() {
     rerender: scheduleRender,
     copy: copyToClipboard,
     retry: retryTurn,
+    // §7.2: selecting a chip opens the read-only inspector. The renderer only makes the
+    // chip a button when this exists, so a build without the pane never draws a control
+    // that does nothing.
+    openWorker: openWorkerInspector,
   });
+  // The DOM was just rebuilt; re-mark the open worker's chip.
+  markSelectedChip();
   if (turns.some((t) => t.stream.some((i) => i.kind === "rich_message"))) sessionAvatarShown = true;
 
   if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0) renderFirstRun();
@@ -1300,6 +1310,8 @@ Bridge.listen("rich://mock-worker-status", ({ payload }) => {
 // Slide-over — read-only, summoned, never resident (§3.2)
 // ---------------------------------------------------------------------------------------
 function openSlideOver() {
+  // Two panes never own the screen at once (§7.2's pane is a sibling, not a second modal).
+  closeWorkerInspector();
   slideoverBody.innerHTML = "";
   for (const item of drillItems) {
     const row = document.createElement("div");
@@ -1317,6 +1329,144 @@ function closeSlideOver() {
 }
 el("slideover-close").addEventListener("click", closeSlideOver);
 slideoverBackdrop.addEventListener("click", closeSlideOver);
+
+// ---------------------------------------------------------------------------------------
+// THE WORKER INSPECTOR (§7.2) — a sibling pane, read-only, with a durable width
+//
+// It is NOT the "Under the hood" slide-over above. That one is a summoned overlay over the
+// engine's task log; this is a docked pane about ONE delegated worker, opened from a chip in
+// the timeline. They coexist deliberately and never both own the screen: opening either
+// closes the other.
+//
+// READ-ONLY IS THE BOUNDARY. Every control §7.2 forbids is a business action, and R2
+// business-action governance is deferred to V2 by CEO decision for v1 and all 1.x. The only
+// interactive elements in this pane are Close and the one chronology disclosure.
+// ---------------------------------------------------------------------------------------
+
+const inspectorEl = el("inspector");
+const inspectorScrim = el("inspector-scrim");
+const inspectorBody = el("inspector-body");
+const inspectorTitle = el("inspector-title");
+const inspectorResizer = el("inspector-resizer");
+
+let openWorker = null; // the WorkerActivityItem payload currently shown, or null
+let inspectorChronOpen = false;
+let inspectorReturnFocus = null;
+
+const INSPECTOR_MIN = 280;
+const INSPECTOR_MAX = 520;
+const INSPECTOR_DEFAULT = 336;
+let inspectorWidth = INSPECTOR_DEFAULT;
+
+function applyInspectorWidth(px) {
+  inspectorWidth = Math.max(INSPECTOR_MIN, Math.min(INSPECTOR_MAX, Math.round(px)));
+  document.documentElement.style.setProperty("--inspector-width", inspectorWidth + "px");
+  inspectorResizer.setAttribute("aria-valuenow", String(inspectorWidth));
+}
+
+async function persistInspectorWidth() {
+  // The store returns the width it ACCEPTED (clamped in Rust, nav.rs). Render that, so the
+  // pane and the durable file can never disagree — the same contract the rail has.
+  const accepted = await invokeQuiet("set_inspector_width", { width: inspectorWidth });
+  if (typeof accepted === "number") applyInspectorWidth(accepted);
+}
+
+function renderInspector() {
+  inspectorBody.innerHTML = "";
+  if (!openWorker) return;
+  inspectorTitle.textContent = window.RichTimeline.workerDisplayName(openWorker);
+  inspectorBody.appendChild(
+    window.RichTimeline.renderWorkerInspector(openWorker, {
+      chronologyOpen: inspectorChronOpen,
+      toggleChronology: () => {
+        inspectorChronOpen = !inspectorChronOpen;
+        renderInspector();
+        const again = el("insp-chron-toggle");
+        if (again) again.focus({ preventScroll: true });
+      },
+    })
+  );
+}
+
+function openWorkerInspector(worker) {
+  closeSlideOver();
+  // The chip that OWNS this worker, derived from the worker itself rather than read off
+  // `document.activeElement`. Measured, not assumed: clicking a button on macOS/WebKit does
+  // not focus it, so activeElement at this moment is `body` and the id is the empty string —
+  // and Escape would have dropped focus to the top of the document instead of returning it.
+  inspectorReturnFocus = "chip:" + worker.agentId;
+  openWorker = worker;
+  inspectorEl.hidden = false;
+  inspectorScrim.hidden = isWide(); // a scrim only where the pane OVERLAYS (§20)
+  document.body.classList.add("inspector-open");
+  renderInspector();
+  markSelectedChip();
+  // §18: focus moves into the pane so a keyboard user is not left behind the timeline.
+  inspectorBody.focus({ preventScroll: true });
+  announce(
+    window.RichTimeline.workerDisplayName(worker) +
+      " details, " +
+      window.RichTimeline.workerStateSpec(worker.state).label
+  );
+}
+
+function closeWorkerInspector() {
+  if (inspectorEl.hidden) return;
+  openWorker = null;
+  inspectorEl.hidden = true;
+  inspectorScrim.hidden = true;
+  document.body.classList.remove("inspector-open");
+  inspectorBody.innerHTML = "";
+  markSelectedChip();
+  // §18: "Escape closes overlays and inspector detail" — and focus returns where it was.
+  const back = inspectorReturnFocus && messagesEl.querySelector('[id="' + inspectorReturnFocus.replace(/(["\\])/g, "\\$1") + '"]');
+  // The chip may legitimately be gone — a reload, a collapse, a thread switch. Falling back
+  // to the conversation keeps focus inside the reading region rather than at the document
+  // top (§18: "focus remains stable during streaming and collapse transitions").
+  if (back) back.focus({ preventScroll: true });
+  else conversationEl.focus({ preventScroll: true });
+  inspectorReturnFocus = null;
+}
+
+/// The open chip carries `is-selected` — §18 requires the current item be identifiable
+/// without relying on the pane alone.
+function markSelectedChip() {
+  for (const chip of messagesEl.querySelectorAll(".tl-chip")) {
+    const on = !!openWorker && chip.dataset.agentId === openWorker.agentId;
+    chip.classList.toggle("is-selected", on);
+    if (on) chip.setAttribute("aria-current", "true");
+    else chip.removeAttribute("aria-current");
+  }
+}
+
+el("inspector-close").addEventListener("click", closeWorkerInspector);
+inspectorScrim.addEventListener("click", closeWorkerInspector);
+
+// The draggable divider (§7.2, §2.1). Keyboard-operable too — §18 requires every function
+// to work without a pointer, and a divider that only responds to a mouse is a function that
+// does not.
+inspectorResizer.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const startX = e.clientX;
+  const startW = inspectorWidth;
+  const onMove = (ev) => applyInspectorWidth(startW - (ev.clientX - startX));
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    persistInspectorWidth();
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+});
+
+inspectorResizer.addEventListener("keydown", (e) => {
+  const step = e.shiftKey ? 32 : 8;
+  if (e.key === "ArrowLeft") applyInspectorWidth(inspectorWidth + step);
+  else if (e.key === "ArrowRight") applyInspectorWidth(inspectorWidth - step);
+  else return;
+  e.preventDefault();
+  persistInspectorWidth();
+});
 
 // ---------------------------------------------------------------------------------------
 // Voice mode — a mode of the same conversation, never a separate call screen (§4)
@@ -1977,6 +2127,7 @@ document.addEventListener("keydown", (e) => {
     if (!searchOverlayEl.hidden) return closeSearch();
     if (!entityPickerEl.hidden) return closeEntityPicker();
     if (!slideoverEl.hidden) return closeSlideOver();
+    if (!inspectorEl.hidden) return closeWorkerInspector();
     if (isNarrow() && railOpen) return setRailOpen(false);
   }
 });
@@ -1999,8 +2150,19 @@ async function init() {
 
   // Durable rail preferences (nav.rs): width, collapsed entity set, pins, renames.
   navPrefs = await invokeQuiet("nav_state");
-  if (!navPrefs) navPrefs = { sidebar_width: RAIL_DEFAULT, sidebar_collapsed: false, collapsed_entities: [], pinned_threads: [], archived_threads: [], renamed_threads: {} };
+  if (!navPrefs)
+    navPrefs = {
+      sidebar_width: RAIL_DEFAULT,
+      inspector_width: INSPECTOR_DEFAULT,
+      sidebar_collapsed: false,
+      collapsed_entities: [],
+      pinned_threads: [],
+      archived_threads: [],
+      renamed_threads: {},
+    };
   applyRailWidth(navPrefs.sidebar_width || RAIL_DEFAULT);
+  // §25: "Worker-pane width can be changed directly and survives relaunch."
+  applyInspectorWidth(navPrefs.inspector_width || INSPECTOR_DEFAULT);
   applyBreakpoint();
   setRailOpen(isWide() ? true : !navPrefs.sidebar_collapsed);
 
