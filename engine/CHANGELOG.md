@@ -12,6 +12,60 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **The CEO queue, part two: REACHABLE, and READ FROM OUTSIDE**
+  (`scripts/ceo-queue-render.sh`, `scripts/ceo-queue-init.sh`,
+  `scripts/cold-open.sh`, `scripts/lib/cold-open-prompt.md`,
+  `reference/ceo-queue/`) — MINOR, still inert without a `.ceo-queue`.
+
+  The first release of the CEO queue enforced that every item waiting on the
+  CEO was PREPARED, and shipped with nowhere for him to look: the items lived
+  inside a long record mixed with everything else, and the only new artifact was
+  a dotfile. The report read *"the contract is live, 9 prepared items"* — true
+  of the record, false of his experience. The reason the other half fell out
+  silently is the general case and the reason this release exists: **every
+  acceptance criterion in that landing was internal.** Lint exit codes, guard
+  tests, probe layers, git state. A view has no exit code, so it had no test
+  that could fail, so it was never in scope and nothing said so.
+
+  Three things now have exit codes that did not:
+
+  1. **One entry point, enforced.** `QUEUE_VIEW` is a bare top-level, un-dotted
+     file name, generated from the record by `ceo-queue-render.sh` and refused
+     at commit unless it is byte-identical to what the record renders to,
+     singular (no second file carrying the generated marker), and named in the
+     first 40 lines of `ROOT_README`. The renderer moved INTO the engine and
+     shares the predicate's single parse: the previous repo-local generator was
+     a second parser of the same file, the gate would have had to trust code
+     supplied by the repository it was checking, and — worst — adopters received
+     the enforcement without the page.
+  2. **The cold open.** `cold-open.sh` puts the CEO-facing surface in front of a
+     reader with **no context by construction** — a fresh, customisation-free
+     process, or a person via `--record` — and files a transcript stamped with a
+     fingerprint of the front door it describes. Change the front door and the
+     next commit is refused until somebody reads the new one: the freshness
+     contract, identity-or-refuse, applied to a judgment. **The gate enforces
+     that the reading happened and never what it concluded** — a gate that
+     demanded a favourable verdict would get one every time, and the finding is
+     the entire product. Undeclared `COLD_OPEN_DIR` never blocks and is printed
+     as an unchecked limit on every clean verdict.
+  3. **An adopter actually gets one.** `ceo-queue-init.sh` plus
+     `reference/ceo-queue/` install the declaration, a starter record, the
+     entry point and the README pointer in one command, and the onboarding
+     runbook and bootstrap interview name it. For one release the engine shipped
+     the lint, the guard, the predicate and the test suite with **no
+     declaration, no template and no mention anywhere in the adoption path** —
+     so every adopter received enforcement that could never fire, and nothing
+     told them. That is the same defect the mechanism exists to catch, one level
+     out, and it shipped because the landing criterion was "the files are in the
+     tree".
+
+  Also added, from the first real cold reading: a `NOTE` when a prepared
+  artifact exists locally but is git-ignored (correct for private preparation —
+  and the link is dead in a fresh clone and on the web view), and an explicit
+  "in the separate `<x>` repository, not this one" marker on items whose
+  declared root is a sibling. Both were things a green lint could not see and a
+  stranger noticed in ninety seconds.
+
 - **The CEO queue** (`scripts/lib/ceo-queue.sh`, `scripts/lib/ceo-queue.py`,
   `scripts/ceo-queue-lint.sh`, `scripts/hooks/guard-ceo-queue-commits.sh`) —
   MINOR: purely additive, and inert in any repository that does not declare a
@@ -137,6 +191,15 @@ version heading with Added / Changed / Fixed groupings.
   "what does CI do?" has an answer you can execute before you push.
 
 ### Fixed
+
+- **Probe layer BR7 walked up from the POINTER, not the checkout.** When the
+  engine is loaded by reference its root is normally a symlink
+  (`~/.claude/richos-engine` → the checkout), and BR7 climbed from the link
+  path — `~/.claude`, then `~`, then `/` — never reaching the repository that
+  carries `.claude-plugin/marketplace.json`. The manifest was present, committed
+  and correct, and the layer whose whole job is proving a fresh clone can
+  register this engine reported it missing on the machine where the engine loads
+  fine. BR6b resolves the same pointer two layers below; BR7 now does too.
 
 - **The engine's self-verification CI had never executed once.** GitHub Actions
   discovers workflows ONLY in a repository-ROOT `.github/workflows/`; the
