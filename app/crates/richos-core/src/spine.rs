@@ -284,17 +284,22 @@ impl Spine {
     /// a `Task` call that carries an extractable `agentId` AND has at least one row in the
     /// stream **for the same session** becomes a `TimelineItem::WorkerActivity`.
     ///
-    /// ## The one thing this cannot promise, stated plainly
+    /// ## The id spaces match — settled 2026-08-29, no longer a caveat
     /// The join's session clause compares the MACHINERY record's `session_id` — the ACP
     /// session id the adapter minted (`Cognition::session_id`) — against the worker row's
-    /// `session_id`, which the engine hook read from the Claude Code harness. Both are
-    /// UUIDs; whether they are the SAME uuid is a property of `claude-agent-acp` that
-    /// could not be measured in this checkout (the adapter is not installed here). If they
-    /// differ, every row is refused by the session clause and every `Task` call stays an
-    /// ordinary activity row — i.e. exactly the behaviour without this call, which is why
-    /// wiring it is safe either way. It is NOT silent: that case is reported as
-    /// `RejectionReason::WorkerSessionMismatch` on the projected timeline, so it can be
-    /// told apart from "the engine emitted nothing".
+    /// `session_id`, which the engine hook read from the Claude Code harness. This used to
+    /// say the two might be different id spaces and could not be measured in this checkout.
+    /// They are the SAME: the probe's ACP session id
+    /// `55c79b81-ace3-4b07-a5f3-406853ac1a36`
+    /// (`docs/verification/acp-emission-probe-2026-08-28/run1.raw.jsonl`) has a Claude Code
+    /// transcript at `~/.claude/projects/-Users-alex-ab-richos-engine/55c79b81-….jsonl`. So
+    /// the join can fire in production, and `WorkerEventsSource::CurrentTeamDir` derives its
+    /// directory from that same id.
+    ///
+    /// A refusal is still possible and still reported — it now means one thing,
+    /// "genuinely another session's worker", surfaced as
+    /// `RejectionReason::WorkerSessionMismatch` so it can be told apart from "the engine
+    /// emitted nothing".
     ///
     /// Loosening the session clause to make the join fire is not an option: `agent_id` is
     /// not globally unique (the engine's own residue reuses one id across twelve rows) and

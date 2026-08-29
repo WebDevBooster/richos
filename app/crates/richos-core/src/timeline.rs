@@ -764,13 +764,23 @@ pub enum RejectionReason {
     /// exact id, and every one of them was refused by the join's session clause. The row is
     /// correct: `agent_id` is not globally unique and admitting a foreign session's rows is
     /// the leak `no_worker_row_from_another_session_attaches_to_this_sessions_task_call`
-    /// pins. But the two possible causes are worth telling apart, and without this they are
-    /// indistinguishable:
+    /// pins.
     ///
-    ///   1. genuinely another session's worker — correct refusal, nothing to do; or
-    ///   2. the ACP session id and the harness session id are DIFFERENT ID SPACES, in which
-    ///      case the join can never fire in production and §7's whole worker treatment is
-    ///      dead on the wire while every test stays green.
+    /// **It means exactly one thing now: genuinely another session's worker.** This used to
+    /// carry a second candidate cause — *"the ACP session id and the harness session id are
+    /// DIFFERENT ID SPACES, in which case the join can never fire in production and §7's
+    /// whole worker treatment is dead on the wire while every test stays green"* — recorded
+    /// as an open question because no live adapter was available to settle it.
+    ///
+    /// **Closed on 2026-08-29, from artifacts already on this disk.** The ACP session id
+    /// `55c79b81-ace3-4b07-a5f3-406853ac1a36`
+    /// (`docs/verification/acp-emission-probe-2026-08-28/run1.raw.jsonl`) has a Claude Code
+    /// transcript at
+    /// `~/.claude/projects/-Users-alex-ab-richos-engine/55c79b81-ace3-4b07-a5f3-406853ac1a36.jsonl`.
+    /// The adapter's session id IS the harness session id, so the join can fire, and
+    /// `worker_status::resolve_team_dir` now derives the team directory from that same id.
+    /// The hypothesis is deleted rather than left standing: a doubt that outlives its own
+    /// resolution is read by the next engineer as a live risk.
     ///
     /// Reported rather than logged so a caller can see it without a log scrape. It is NOT
     /// leak-class: nothing crossed a boundary — something was correctly kept out.
