@@ -27,6 +27,10 @@
 #   5b  ...and the diagnosis says what to run
 #   6a  install.sh mints the pointer into CLAUDE_CONFIG_DIR
 #   6b  install.sh does NOT clobber a non-symlink file an operator put there
+#   6d  install.sh run from a LINKED GIT WORKTREE leaves an existing pointer
+#       ALONE — and still does everything else it was run for
+#   6e  ...and --force-engine-pointer is the deliberate way through
+#   6f  an unrecognised argument is REFUSED (exit 2), never ignored
 
 set -uo pipefail
 
@@ -176,6 +180,111 @@ if [ -f "$CFG8/richos-engine" ] && [ ! -L "$CFG8/richos-engine" ] \
     ok "6b install.sh does NOT clobber a non-symlink file at that path"
 else
     bad "6b install.sh clobbered an operator file"
+fi
+
+# ---------------------------------------------------------------------------
+# 6d/6e/6f — THE LINKED-WORKTREE POINTER FOOTGUN.
+#
+# install.sh repoints ~/.claude/richos-engine at whatever checkout it runs from.
+# That is right from a real checkout and wrong from a linked worktree: the
+# worktree is removed at land time, and the operator's machine-wide pointer is
+# left dangling — a state BR6b reports as a hard failure to whoever probes next,
+# long after the person who caused it has gone.
+#
+# It happened here. An engineer ran the installer inside his worktree while
+# testing something unrelated and silently repointed this machine's live engine
+# at it; he restored it only because he happened to check afterwards. These
+# cases exist so nobody has to happen to check.
+#
+# The topology is built for real — git clone, then git worktree add — because
+# the detection is git's own (private --git-dir != shared --git-common-dir) and
+# a faked directory layout would not exercise it.
+# ---------------------------------------------------------------------------
+WT_MAIN="$TMP/wt-main"
+git init -q -b main "$WT_MAIN" >/dev/null 2>&1
+mkdir -p "$WT_MAIN/scripts"
+cp -R "$ENGINE_ROOT_REAL/scripts/hooks" "$WT_MAIN/scripts/hooks"
+cp -R "$ENGINE_ROOT_REAL/scripts/lib" "$WT_MAIN/scripts/lib"
+cp "$ENGINE_ROOT_REAL/scripts/reap-stale-worktrees.sh" "$WT_MAIN/scripts/"
+cp "$ENGINE_ROOT_REAL/scripts/remove-agent-worktree.sh" "$WT_MAIN/scripts/"
+cp "$ENGINE_ROOT_REAL/VERSION" "$WT_MAIN/VERSION"
+mkdir -p "$WT_MAIN/hooks" "$WT_MAIN/.claude"
+cp "$ENGINE_ROOT_REAL/hooks/hooks.json" "$WT_MAIN/hooks/hooks.json"
+cp "$ENGINE_ROOT_REAL/.claude/settings.local.json" "$WT_MAIN/.claude/settings.local.json"
+git -C "$WT_MAIN" config user.name "engine tests" >/dev/null 2>&1
+if [ -z "$(git -C "$WT_MAIN" config user.email 2>/dev/null)" ]; then
+    git -C "$WT_MAIN" config user.email "tests@example.com" >/dev/null 2>&1
+fi
+git -C "$WT_MAIN" add -A >/dev/null 2>&1
+git -C "$WT_MAIN" add -f .claude/settings.local.json >/dev/null 2>&1
+git -C "$WT_MAIN" commit -q -m "engine" >/dev/null 2>&1
+git -C "$WT_MAIN" worktree add -q "$TMP/wt-linked" -b linked HEAD >/dev/null 2>&1
+WT_LINKED="$TMP/wt-linked"
+
+if [ ! -d "$WT_LINKED/scripts/hooks" ]; then
+    bad "6d linked-worktree fixture" "git worktree add did not produce $WT_LINKED"
+else
+    CFG9="$TMP/cfg-worktree"; mkdir -p "$CFG9"
+    # Pre-seed a pointer at the MAIN checkout. The assertion is that an existing,
+    # correct pointer SURVIVES — strictly stronger than "no pointer was created",
+    # which an installer that simply crashed would also satisfy.
+    ln -sfn "$WT_MAIN" "$CFG9/richos-engine"
+    WT_OUT="$(env CLAUDE_CONFIG_DIR="$CFG9" bash "$WT_LINKED/scripts/hooks/install.sh" 2>&1)"
+    WT_RC=$?
+    WT_PTR="$(readlink "$CFG9/richos-engine" 2>/dev/null || true)"
+    WT_SIDECARS="$(ls "$WT_LINKED"/scripts/hooks/*.sha256 2>/dev/null | wc -l | tr -d ' ')"
+
+    # Three assertions in one case, because any one alone would pass for the
+    # wrong reason: the pointer survived, the run still SUCCEEDED, and the work
+    # the operator actually ran it for still happened. An installer that refused
+    # outright would satisfy the first and fail the other two — and breaking the
+    # normal path is a worse outcome than the footgun.
+    if [ "$WT_PTR" = "$WT_MAIN" ] && [ "$WT_RC" -eq 0 ] && [ "$WT_SIDECARS" -gt 0 ]; then
+        ok "6d install.sh from a LINKED WORKTREE leaves the pointer alone, exits 0, and still mints $WT_SIDECARS sidecars"
+    else
+        bad "6d install.sh from a linked worktree" "ptr='$WT_PTR' want='$WT_MAIN' rc=$WT_RC sidecars=$WT_SIDECARS"
+    fi
+
+    # The skip must be ANNOUNCED. A silent skip is its own defect: an operator
+    # who meant to repoint would walk away believing they had.
+    if printf '%s' "$WT_OUT" | grep -qF 'LINKED GIT WORKTREE' \
+       && printf '%s' "$WT_OUT" | grep -qF -- '--force-engine-pointer'; then
+        ok "6d' ...and says so, naming the escape hatch"
+    else
+        bad "6d' the worktree skip was silent or unexplained" "$(printf '%s' "$WT_OUT" | tail -3 | tr '\n' ' ')"
+    fi
+
+    # 6e — the deliberate opt-in still works, from the same worktree.
+    env CLAUDE_CONFIG_DIR="$CFG9" bash "$WT_LINKED/scripts/hooks/install.sh" --force-engine-pointer >/dev/null 2>&1
+    FORCED_PTR="$(readlink "$CFG9/richos-engine" 2>/dev/null || true)"
+    if [ "$FORCED_PTR" = "$WT_LINKED" ]; then
+        ok "6e --force-engine-pointer repoints from a worktree anyway (deliberate, auditable)"
+    else
+        bad "6e --force-engine-pointer did not repoint" "ptr='$FORCED_PTR' want='$WT_LINKED'"
+    fi
+
+    # 6f — a typo must not be silently ignored. An installer that swallowed
+    # '--force-enginepointer' would hand back a green run and none of the effect.
+    env CLAUDE_CONFIG_DIR="$CFG9" bash "$WT_LINKED/scripts/hooks/install.sh" --force-enginepointer >/dev/null 2>&1
+    BADARG_RC=$?
+    if [ "$BADARG_RC" -eq 2 ]; then
+        ok "6f an unrecognised argument is refused with exit 2, not ignored"
+    else
+        bad "6f unrecognised argument was not refused" "rc=$BADARG_RC (expected 2)"
+    fi
+
+    # 6g — the POSITIVE control for 6d. Without it, 6d passes on any installer
+    # that stopped minting pointers at all, and the suite would be green over a
+    # feature that no longer exists. The SAME installer, same sandboxed config
+    # dir, run from the MAIN checkout, must still repoint.
+    CFG10="$TMP/cfg-mainckt"; mkdir -p "$CFG10"
+    env CLAUDE_CONFIG_DIR="$CFG10" bash "$WT_MAIN/scripts/hooks/install.sh" >/dev/null 2>&1
+    MAIN_PTR="$(readlink "$CFG10/richos-engine" 2>/dev/null || true)"
+    if [ "$MAIN_PTR" = "$WT_MAIN" ]; then
+        ok "6g POSITIVE CONTROL: the same installer from the MAIN checkout still repoints normally"
+    else
+        bad "6g the normal repoint path is BROKEN" "ptr='$MAIN_PTR' want='$WT_MAIN'"
+    fi
 fi
 
 # 6c — the REAL operator config dir was not touched by any case above. This is
