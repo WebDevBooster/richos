@@ -25,6 +25,7 @@ use crate::machinery::{MachineryObserver, MachineryRecord};
 use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
+use crate::timeline::Timeline;
 use crate::util::now_millis;
 use std::collections::VecDeque;
 
@@ -495,6 +496,25 @@ impl Spine {
         Ok(self.ledger.messages(thread_id)?)
     }
 
+    /// One thread's TYPED TIMELINE (UX brief §12) — the ledger and the machinery journal
+    /// folded into one scoped projection.
+    ///
+    /// The read path, and the only assembly point: without it a consumer would have to
+    /// re-derive the binding and re-read the journal itself, and every consumer that did
+    /// that would be one more place the scope guard could be forgotten. Fails closed on an
+    /// unbound thread exactly like `messages()`.
+    ///
+    /// A spine with no journal attached still returns a timeline — one with the
+    /// conversation and no activity rows. That is the honest degrade: machinery retention
+    /// is a separate store that may legitimately be absent (`set_machinery_journal` is
+    /// optional), and an empty activity lane is not a claim that no tools ran.
+    pub fn timeline(&self, thread_id: &str) -> Result<Timeline, SpineError> {
+        let binding = self.ledger.thread_binding(thread_id)?;
+        let machinery =
+            self.machinery_journal.as_ref().map(|j| j.read_thread(thread_id)).unwrap_or_default();
+        Ok(Timeline::project(&self.ledger, &binding, &machinery)?)
+    }
+
     pub fn ledger(&self) -> &Ledger {
         &self.ledger
     }
@@ -603,8 +623,10 @@ impl Spine {
                 // by text and machinery. The spine no longer counts text items itself —
                 // that would be the second counter G1 exists to forbid.
                 TurnItem::Text { seq, text: c } => {
-                    // Ledger stays the source of truth: persist the delta BEFORE emitting.
-                    if let Err(e) = ledger.append_assistant_delta(turn_id, c) {
+                    // Ledger stays the source of truth: persist the delta BEFORE emitting
+                    // — and persist it AT its shared-sequence position, so the
+                    // interleaving of text and machinery survives the process (§1.4 G1).
+                    if let Err(e) = ledger.append_assistant_delta(turn_id, c, seq) {
                         persist_err = Some(e);
                         return;
                     }
@@ -942,8 +964,8 @@ impl Spine {
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
         let result = {
             let mut on_item = |item: TurnItem| match item {
-                TurnItem::Text { text: c, .. } => {
-                    let _ = ledger.append_assistant_delta(&turn_id, c);
+                TurnItem::Text { seq, text: c } => {
+                    let _ = ledger.append_assistant_delta(&turn_id, c, seq);
                 }
                 // Rotation machinery: retained for debugging, `internal: true`, NEVER in a
                 // thread render (§1.5). The CEO must never see that a rotation happened.

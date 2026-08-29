@@ -16,6 +16,8 @@
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
 //!   - `machinery` — the SECOND event family: every non-text ACP update, routed not dropped.
 //!   - `journal`   — the per-thread, day-sharded machinery journal (separate store; not the ledger).
+//!   - `timeline`  — the TYPED TIMELINE records (UX brief §12): the projection a renderer
+//!                   reads, with entity scope on every item and visibility as a gate.
 //!   - `spine`     — ties it together: queue-not-interrupt, turn-boundary, re-prime seam,
 //!                   turn-boundary rotation, mid-turn-crash recovery, the proactive seam.
 //!   - `config`    — durable CEO-facing preferences: company name, the assertiveness dial.
@@ -32,6 +34,7 @@ pub mod reprime;
 pub mod spine;
 pub mod stream;
 pub mod thread;
+pub mod timeline;
 pub mod util;
 pub mod worker_status;
 
@@ -42,9 +45,13 @@ pub use entity::{
     ThreadBinding, ThreadEntity,
 };
 pub use journal::MachineryJournal;
-pub use ledger::{AttentionTier, Ledger, Message, Source, TurnState};
+pub use ledger::{AttentionTier, Ledger, Message, Source, TextRun, TurnState};
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 pub use reprime::{LoroContextCompiler, RePrimePayload};
 pub use spine::{Spine, SpineError};
 pub use stream::{StreamEvent, TurnObserver};
+pub use timeline::{
+    ActivityState, ActivityType, RichMessagePhase, Timeline, TimelineBase, TimelineItem, TimelineView, ViewMode,
+    Visibility, WorkerRun, WorkerState,
+};
 pub use worker_status::WorkerStatusView;

@@ -35,8 +35,15 @@ app/
     src/ledger.rs            append-only conversation + action ledger (crash-safe), now
                               entity-scoped: every thread has one immutable home entity,
                               every turn carries it, and no event from one entity can render
-                              in another entity's thread
+                              in another entity's thread; each assistant delta now persists
+                              its shared-sequence position, so a turn's text RUNS (and the
+                              tool calls between them) survive a restart
     src/thread.rs            topic threads as VIEWS over the one shared ledger, within an entity
+    src/timeline.rs          the TYPED TIMELINE (UX §12): the TimelineItem union projected from
+                              the ledger + the machinery journal, entity scope on every record,
+                              and visibility as a GATE (Timeline is not Serialize; the only
+                              path to a webview is view(mode), which drops what the mode may
+                              not see and removes the technical detail it may not read)
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
@@ -61,6 +68,11 @@ app/
                               stays out of every priming prompt)
     tests/machinery_tests.rs 14 machinery routing/retention tests, driven by ACP wire
                               shapes actually measured against the adapter
+    tests/timeline_tests.rs  7 typed-timeline tests: the cross-entity machinery NEGATIVE
+                              CONTROL (both clauses proven failing when removed — one leaks
+                              a row, one leaks THROUGH the toolCallId merge), the one shared
+                              per-turn sequence live and after a restart, the visibility
+                              gate, and the items that are never invented
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
