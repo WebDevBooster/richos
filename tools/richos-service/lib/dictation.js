@@ -115,6 +115,26 @@ export const ASK_MIN_ORTHOGRAPHIC = 0.28;
 export const ASK_MIN_PHONETIC = 0.6;
 
 /**
+ * Capitalized words that are NOT names, and never belong in a vocabulary of people, customers and
+ * products. Days and months are capitalized by grammar, and swapping one for another is the
+ * archetypal change of mind — it is the example the wiki uses ("ship Thursday" -> "ship Friday").
+ * The orthographic gate happens to reject that particular pair; "Tuesday" -> "Wednesday" it does
+ * not, and neither does the phonetic leg (0.75 by sound), which is how this list earned its place:
+ * it was found by a negative control over the short-call corpus, not reasoned into existence.
+ *
+ * `richos-service learn-term` remains the override, so a customer genuinely called August is still
+ * teachable — by an explicit instruction, which is the one thing this whole module defers to.
+ */
+const NOT_A_TERM = new Set([
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'mon', 'tue', 'tues', 'wed', 'thu', 'thur', 'thurs', 'fri', 'sat', 'sun',
+  'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august',
+  'september', 'october', 'november', 'december',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+  'today', 'tomorrow', 'yesterday', 'tonight',
+]);
+
+/**
  * A LONE-TOKEN mangled side keeps a HIGHER bar — on EITHER leg — and this is the one place §7's
  * "loosen the filter" does not apply, because it is not a similarity judgement about confidence. A
  * single ordinary word swapped for another single word is the SHAPE of a change of mind, and the
@@ -236,6 +256,13 @@ export function askCandidates(heardText, correctedText) {
   for (const h of tokenReplaceHunks(a, b)) {
     const from = trimEdge(h.from);
     const to = trimEdge(h.to);
+    // THE GATE JUDGES THE CORE; THE VOCABULARY LEARNS THE SPAN. The expansion wraps proper-noun
+    // context around a change so the learned pair is a whole name rather than a lone word — but
+    // that same context is identical on both sides, so scoring the expanded span makes every edit
+    // look like a near-miss. `coreFrom`/`coreTo` are what actually changed, and they are what the
+    // similarity and lone-token rules below are applied to.
+    const coreFrom = trimEdge(h.coreFrom ?? h.from);
+    const coreTo = trimEdge(h.coreTo ?? h.to);
     const key = askKey(from, to);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -246,23 +273,27 @@ export function askCandidates(heardText, correctedText) {
       continue;
     }
     // The CANONICAL side must be term-shaped. This is not a similarity judgement, it is a question of
-    // what a vocabulary is FOR: `loro/entities.json` holds names and terms. An ordinary lowercase
+    // what a vocabulary is FOR: the entity file holds names and terms. An ordinary lowercase
     // word on the canonical side means the edit was prose, and prose is never a vocabulary entry.
     if (!looksLikeTerm(to)) {
       rejected.push({ from, to, reason: 'not a term — the corrected side is ordinary prose' });
       continue;
     }
-    const orth = similarity(normalizeTerm(from), normalizeTerm(to));
-    const phon = phoneticSimilarity(from, to);
-    const loneToken = !/\s/.test(from);
+    if (NOT_A_TERM.has(normalizeTerm(coreTo)) || NOT_A_TERM.has(normalizeTerm(coreFrom))) {
+      rejected.push({ from: coreFrom, to: coreTo, reason: 'a day or month is capitalized by grammar, not because it is a name — a change of mind' });
+      continue;
+    }
+    const orth = similarity(normalizeTerm(coreFrom), normalizeTerm(coreTo));
+    const phon = phoneticSimilarity(coreFrom, coreTo);
+    const loneToken = !/\s/.test(coreFrom);
     const orthFloor = loneToken ? ASK_LONE_TOKEN_MIN : ASK_MIN_ORTHOGRAPHIC;
     const phonFloor = loneToken ? ASK_LONE_TOKEN_MIN : ASK_MIN_PHONETIC;
     const orthOk = orth >= orthFloor;
     const phonOk = phon >= phonFloor;
     if (!orthOk && !phonOk) {
       rejected.push({
-        from,
-        to,
+        from: coreFrom,
+        to: coreTo,
         reason: `neither close in spelling (${orth.toFixed(2)} < ${orthFloor}) nor in sound `
           + `(${phon.toFixed(2)} < ${phonFloor})${loneToken ? ' — one ordinary word swapped for another' : ''}`
           + ' — a change of mind, not a mishearing',

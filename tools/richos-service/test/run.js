@@ -544,9 +544,11 @@ group('correction flywheel — TRANSCRIPT-EDIT diff intake: PRECISION over recal
 test('tokenReplaceHunks expands a name fix to the full proper-noun span and ignores pure insertions', () => {
   // "Hand"->"Hanna" absorbs the adjacent unchanged term token "Rich" so the mangling is the WHOLE
   // name (safe), never the dangerous lone word "Hand".
+  // `coreFrom`/`coreTo` keep the UNEXPANDED delta beside it, because a similarity gate scored on the
+  // expanded span is scored partly on context that is identical by construction.
   assert.deepEqual(
     tokenReplaceHunks('we run on Rich Hand today'.split(' '), 'we run on Rich Hanna today'.split(' ')),
-    [{ from: 'Rich Hand', to: 'Rich Hanna' }],
+    [{ from: 'Rich Hand', to: 'Rich Hanna', coreFrom: 'Hand', coreTo: 'Hanna' }],
   );
   // a pure insertion (no removed counterpart) yields no replace hunk
   assert.deepEqual(tokenReplaceHunks('we shipped it'.split(' '), 'we finally shipped it'.split(' ')), []);
@@ -2034,6 +2036,36 @@ test('"great" -> "Grant" ASKS and is never learned — a false ask is cheap, a w
   const res = answerAsk({}, { ...asks[0] }, 'never');
   assert.equal(res.learn, null, 'and declining to learn it is the whole point');
   assert.equal(applyLedger(asks, res.ledger).prompts.length, 0, 'asked once, then never again');
+});
+
+test('the gate judges the CORE of a change, not the context wrapped around it', () => {
+  // Found by a negative control over the short-call corpus: "Northgate, Tuesday" ->
+  // "Northgate, Wednesday" is 0.9 similar as a phrase, because most of the phrase is identical by
+  // construction. Its core, "Tuesday" -> "Wednesday", is what the question is actually about.
+  const hunks = tokenReplaceHunks(
+    'the review for Northgate, Tuesday night'.split(' '),
+    'the review for Northgate, Wednesday night'.split(' '),
+  );
+  assert.equal(hunks[0].coreFrom, 'Tuesday', 'the delta, unexpanded');
+  const { asks, rejected } = askCandidates(
+    'the review for Northgate, Tuesday night',
+    'the review for Northgate, Wednesday night',
+  );
+  assert.equal(asks.length, 0, 'a change of mind hiding inside a proper-noun phrase is still a change of mind');
+  assert.ok(rejected.length >= 1);
+});
+
+test('a day or a month is capitalized by grammar and is never learned as a name', () => {
+  // "Tuesday" -> "Wednesday" scores 0.75 by SOUND, so the phonetic leg would have asked. The list is
+  // narrow and it was found by measurement, not reasoned into existence.
+  for (const [a, b] of [['Tuesday', 'Wednesday'], ['March', 'April'], ['Thursday', 'Friday']]) {
+    const { asks, rejected } = askCandidates(`we meet ${a} at noon`, `we meet ${b} at noon`);
+    assert.equal(asks.length, 0, `${a} -> ${b} must not be asked`);
+    assert.ok(rejected.some((r) => /change of mind/.test(r.reason)), `${a} -> ${b} says why`);
+  }
+  // and the escape hatch stays open for a customer genuinely called August
+  const doc = learnTerm({ schemaVersion: 1, version: '', entities: [] }, { canonical: 'August', mangled: 'orgust' });
+  assert.equal(doc.changed, true, 'learn-term is an explicit instruction and overrides the list');
 });
 
 test('an ordinary prose edit is not a vocabulary question', () => {

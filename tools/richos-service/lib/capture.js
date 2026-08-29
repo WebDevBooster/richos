@@ -331,6 +331,13 @@ export function tokenReplaceHunks(oldTokens, newTokens) {
       hunks.push({
         from: [...left, ...dels, ...right].join(' '),
         to: [...left, ...inss, ...right].join(' '),
+        // The UNEXPANDED delta — what actually changed, before the proper-noun context was wrapped
+        // around it. The expansion exists to make the LEARNED PAIR safe; it must not be what a
+        // similarity gate judges, because identical context inflates every score. "Northgate,
+        // Tuesday" -> "Northgate, Wednesday" looks like a near-identical phrase and is a change of
+        // mind about a day; its core, "Tuesday" -> "Wednesday", says so plainly.
+        coreFrom: dels.join(' '),
+        coreTo: inss.join(' '),
       });
     } else {
       k += 1;
