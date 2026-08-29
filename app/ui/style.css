@@ -1801,6 +1801,131 @@ body.bp-narrow .tl-user-bubble {
   padding: 0 28px 6px;
 }
 
+
+/* ---- §7.1 delegated AI workers: the group line and its chips ----------------------------
+   The group sits inside the collapsible work lane (§6.4 lists worker lifecycle rows there),
+   so it is styled as a sibling of `.tl-activity` rather than as a card: a delegation is one
+   more thing Rich did, not an announcement.
+
+   Status is glyph + word, never colour alone (§18). The tone attributes below adjust
+   WEIGHT and one muted hue; removing all colour leaves the row fully readable. */
+
+.tl-workers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.tl-workers-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+
+.tl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 22px; /* aligns under the head's text, past its glyph */
+}
+
+.tl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 10px);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.tl-chip[role="group"] {
+  cursor: default;
+}
+
+.tl-chip:hover {
+  background: var(--bg-hover);
+}
+
+.tl-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tl-chip.is-selected {
+  background: var(--bg-selected);
+  border-color: var(--accent);
+}
+
+.tl-chip-name {
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+
+.tl-chip-sep {
+  color: var(--ink-faint);
+}
+
+.tl-chip-role,
+.tl-chip-state,
+.tl-chip-qualifier {
+  white-space: nowrap;
+}
+
+.tl-chip-state {
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+
+/* The honest caveat that rides with `Ended`. Deliberately the same subdued treatment the
+   activity lane gives "outcome not recorded" — one phrase, learned once. */
+.tl-chip-qualifier {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  opacity: 0.85;
+}
+
+/* §7.1's four treatments, for the three states that can occur. */
+.tl-chip[data-state="starting"] .tl-chip-mark {
+  color: var(--ink-faint);
+}
+
+.tl-chip[data-state="active"] {
+  border-color: rgba(47, 58, 86, 0.28);
+}
+
+.tl-chip[data-state="active"] .tl-chip-state {
+  color: var(--accent);
+}
+
+/* `Ended` is NOT a failure and must not borrow the danger colour. It is the calmest
+   treatment on the row: the run is over and nothing is being claimed about it. */
+.tl-chip[data-state="ended"] {
+  opacity: 0.92;
+}
+
+.tl-chip[data-state="unknown"] .tl-chip-state {
+  color: var(--attention);
+}
+
+.tl-chip-pulse {
+  margin-left: 2px;
+}
+
 /* ---- §17.4 / §18 reduced motion -----------------------------------------------------------
    "Respect prefers-reduced-motion. In reduced motion mode, replace pulses with a static
    active mark." The mark stays — it is the status — it simply stops moving. */
@@ -1811,7 +1936,8 @@ body.bp-narrow .tl-user-bubble {
   }
   .tl-chevron,
   .tl-user-actions,
-  .tl-rich-actions {
+  .tl-rich-actions,
+  .tl-chip {
     transition: none;
   }
 }
