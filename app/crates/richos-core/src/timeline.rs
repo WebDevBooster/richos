@@ -692,9 +692,17 @@ impl Timeline {
     /// `tests/timeline_tests.rs::no_machinery_from_one_entity_renders_in_another_entitys_thread`.
     /// Clause 2 is the reported form of a containment that is already structural: `rank`
     /// holds exactly the accepted turns and is also the placement key, so a refused turn
-    /// has no bucket to be placed in. Deleting clause 2 therefore does not leak — it
-    /// costs the REPORT, which is its own failure (§22's posture is refuse AND say so,
-    /// never quietly show less), and the same test fails on that too.
+    /// has no bucket of its OWN to be placed in.
+    ///
+    /// CORRECTED 2026-08-29 by Rich, who disabled the clause and ran the test rather than
+    /// reasoning about it: **deleting clause 2 DOES leak.** Placement-by-bucket is not the
+    /// only path in. A refused record that shares a `toolCallId` with a legitimate call
+    /// MERGES INTO that call's row (§1.4 G2, "four wire events, ONE row"), and the merged
+    /// row is stamped with THIS binding's entity — so it renders as
+    /// `entity_id: femcboost, turn_id: turn_ok` while carrying deeply's title. It looks
+    /// perfectly scoped and is not. Stamping the entity from the binding is not a guard;
+    /// it is what makes this leak invisible. Clause 2 is load-bearing containment, not a
+    /// reporting nicety — do not remove it as redundant.
     pub fn project(
         ledger: &Ledger,
         binding: &ThreadBinding,
