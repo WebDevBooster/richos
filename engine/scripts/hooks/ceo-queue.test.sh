@@ -92,17 +92,31 @@ mk_repo() {
     mkdir -p "$repo/wiki" "$repo/docs"
     git -C "$repo" init -q
     printf 'an artifact that exists on disk\n' > "$repo/docs/prepared.md"
+    # A COMPLETE surface, not just a record: an entry point named at the head of
+    # a README. Every fixture starts REACHABLE so that a case which fails does
+    # so for the reason it is testing — and so the reachability cases below have
+    # something real to break.
+    printf '# A repo\n\nStart at [CEO-QUEUE.md](CEO-QUEUE.md).\n' > "$repo/README.md"
     if [ "$#" -ge 2 ]; then
         printf '%s\n' "$2" > "$repo/.ceo-queue"
     else
         {
             echo 'QUEUE_RECORD="wiki/open-items.md"'
+            echo 'QUEUE_VIEW="CEO-QUEUE.md"'
+            echo 'ROOT_README="README.md"'
             echo 'CEO_SECTIONS="1 2"'
             echo 'PREPARER_SECTION="3"'
             echo 'ARTIFACT_ROOTS="repo=. nowhere=../no-such-sibling-repository"'
         } > "$repo/.ceo-queue"
     fi
     printf '%s' "$repo"
+}
+
+# The view is a PROJECTION. Every fixture regenerates it after writing the
+# record, exactly as a person is expected to — so a stale-view failure in a case
+# that is not about staleness would be the fixture's fault, not the predicate's.
+sync_view() {
+    "$BASH_BIN" "$ENGINE_ROOT/scripts/ceo-queue-render.sh" "$1" >/dev/null 2>&1 || true
 }
 
 # A well-formed section 1 item, used as ballast so no case passes merely
@@ -137,6 +151,7 @@ write_record() {
         printf '%s\n' "$body"
         printf '%s\n' "$SECTION_3"
     } > "$repo/wiki/open-items.md"
+    sync_view "$repo"
 }
 
 commit_payload() {
@@ -514,6 +529,281 @@ ARTIFACT_ROOTS="justaprefix"|<prefix>=<root>' ; do
 done
 
 # ---------------------------------------------------------------------------
+# (m) THE ENTRY POINT — prepared is half; reachable is the other half
+# ---------------------------------------------------------------------------
+# The defect these replay: nine PREPARED items, a green lint, a firing guard —
+# and the CEO could not find any of it, because the only new file was a dotfile
+# and the items were buried in a 173-line record. Every criterion in that
+# landing was internal. These are the criteria that are not.
+RENDER="$ENGINE_ROOT/scripts/ceo-queue-render.sh"
+COLDOPEN="$ENGINE_ROOT/scripts/cold-open.sh"
+INIT="$ENGINE_ROOT/scripts/ceo-queue-init.sh"
+
+DECL_NO_VIEW='QUEUE_RECORD="wiki/open-items.md"
+CEO_SECTIONS="1 2"
+PREPARER_SECTION="3"
+ARTIFACT_ROOTS="repo=."'
+
+R="$(mk_repo noview "$DECL_NO_VIEW")"
+write_record "$R" ''
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'NO-ENTRY-POINT-DECLARED'; then
+    ok "a queue with NO declared entry point is refused — a queue nobody can find is a queue nobody has"
+else
+    bad "a queue with no QUEUE_VIEW should be refused (rc=$GRC)"
+fi
+
+R="$(mk_repo noviewfile)"
+write_record "$R" ''
+rm -f "$R/CEO-QUEUE.md"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-MISSING'; then
+    ok "a declared entry point that is not on disk is refused"
+else
+    bad "a missing entry point should be refused (rc=$GRC)"
+fi
+
+# THE REAL FAILURE, REPLAYED: change the record, forget to regenerate the page.
+# This is the exact gap that was flagged in a commit message and shipped past.
+R="$(mk_repo staleview)"
+write_record "$R" ''
+git -C "$R" add -A >/dev/null 2>&1
+sed -i.bak 's/A decision that is prepared/A decision that is prepared, retitled/' "$R/wiki/open-items.md"
+rm -f "$R/wiki/open-items.md.bak"
+git -C "$R" add wiki/open-items.md >/dev/null 2>&1
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-STALE'; then
+    ok "THE STALENESS GAP: a record edited without regenerating the page is REFUSED at commit"
+else
+    bad "a stale entry point should be refused (rc=$GRC): $GOUT"
+fi
+# ...and the same commit passes the moment the page is regenerated. A gate with
+# no green path is a gate people route around.
+sync_view "$R"
+git -C "$R" add -A >/dev/null 2>&1
+run_guard "$R"
+if [ "$GRC" -eq 0 ]; then
+    ok "regenerating the page clears the refusal — the fix the message names actually works"
+else
+    bad "a regenerated page should pass (rc=$GRC): $GOUT"
+fi
+
+# The STAGED view is judged, not the worktree copy: the bytes that land.
+R="$(mk_repo stagedview)"
+write_record "$R" ''
+git -C "$R" add -A >/dev/null 2>&1
+git -C "$R" -c user.email=t@t -c user.name=t commit -qm base >/dev/null 2>&1
+printf 'hand-edited nonsense\n' > "$R/CEO-QUEUE.md"
+git -C "$R" add CEO-QUEUE.md >/dev/null 2>&1
+sync_view "$R"                     # worktree is fine again; the INDEX is not
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-STALE'; then
+    ok "the STAGED page is judged, not the worktree copy — a fixed worktree cannot smuggle a stale blob"
+else
+    bad "a staged stale view should be refused (rc=$GRC)"
+fi
+
+DECL_DOTFILE='QUEUE_RECORD="wiki/open-items.md"
+QUEUE_VIEW=".ceo-queue.md"
+CEO_SECTIONS="1 2"
+PREPARER_SECTION="3"
+ARTIFACT_ROOTS="repo=."'
+R="$(mk_repo dotview "$DECL_DOTFILE")"
+write_record "$R" ''
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-IS-A-DOTFILE'; then
+    ok "a DOTFILE entry point is refused — the CEO's actual complaint, as a check"
+else
+    bad "a dotfile entry point should be refused (rc=$GRC)"
+fi
+
+R="$(mk_repo notinreadme)"
+write_record "$R" ''
+printf '# A repo\n\nNothing here points anywhere.\n' > "$R/README.md"
+sync_view "$R"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-NOT-DISCOVERABLE'; then
+    ok "an entry point the root README does not name is refused — a search is not an entry point"
+else
+    bad "an undiscoverable entry point should be refused (rc=$GRC)"
+fi
+
+R="$(mk_repo buriedinreadme)"
+write_record "$R" ''
+{ printf '# A repo\n'; for i in $(seq 1 60); do printf 'filler line %s\n' "$i"; done
+  printf 'see CEO-QUEUE.md\n'; } > "$R/README.md"
+sync_view "$R"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-NOT-DISCOVERABLE'; then
+    ok "naming the entry point at README line 61 does not count as naming it"
+else
+    bad "a buried pointer should be refused (rc=$GRC)"
+fi
+
+R="$(mk_repo twoviews)"
+write_record "$R" ''
+cp "$R/CEO-QUEUE.md" "$R/CEO-QUEUE-COPY.md"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'MULTIPLE-ENTRY-POINTS'; then
+    ok "a COPY of the generated page at the top level is refused — one queue, one page"
+else
+    bad "a second generated page should be refused (rc=$GRC)"
+fi
+
+# ---------------------------------------------------------------------------
+# (n) THE COLD OPEN — the machine enforces that it happened, never its verdict
+# ---------------------------------------------------------------------------
+DECL_COLD='QUEUE_RECORD="wiki/open-items.md"
+QUEUE_VIEW="CEO-QUEUE.md"
+CEO_SECTIONS="1 2"
+PREPARER_SECTION="3"
+ARTIFACT_ROOTS="repo=."
+COLD_OPEN_DIR="docs/cold-open"'
+
+# file_transcript <repo> <answer-text> — via the real --record path, so the
+# fingerprints are stamped by the harness and never typed by this suite.
+file_transcript() {
+    local repo="$1" body="$2" ans
+    ans="$(mktemp -t cq-answer.XXXXXX)"
+    printf '%s\n' "$body" > "$ans"
+    "$BASH_BIN" "$COLDOPEN" --record "$repo" --from "$ans" --reader "a stub reader (test)" >/dev/null 2>&1
+    local rc=$?
+    rm -f "$ans"
+    return $rc
+}
+
+LONG_ANSWER='## 1. What is this repository
+I could not tell you what this repository is for. The front page talks about a
+product and never says what I am supposed to do with any of it.
+## 2. Where do I start
+I genuinely could not work it out. I opened the README and it told me nothing
+actionable, so I guessed, and I would probably have given up at this point.
+## 5. What confused me
+All of it. This surface is bad and I would not use it again.'
+
+R="$(mk_repo coldnever "$DECL_COLD")"
+write_record "$R" ''
+mkdir -p "$R/docs/cold-open"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'COLD-OPEN-NEVER-RUN'; then
+    ok "declaring a cold open and never doing one is refused, and says nobody has read it from outside"
+else
+    bad "a never-run cold open should be refused (rc=$GRC)"
+fi
+
+# THE LINE THE MACHINE DOES NOT CROSS. This transcript says the surface is
+# incomprehensible and that the reader would have given up. It satisfies the
+# gate completely. A gate that demanded a favourable verdict would get one every
+# time, and the finding — the only output worth having — would be the one that
+# costs its author a blocked commit.
+if file_transcript "$R" "$LONG_ANSWER"; then
+    run_guard "$R"
+    if [ "$GRC" -eq 0 ]; then
+        ok "a transcript reporting the surface is BAD satisfies the gate — it enforces that a reader was asked, never what he said"
+    else
+        bad "an unfavourable transcript should still satisfy the gate (rc=$GRC): $GOUT"
+    fi
+else
+    bad "--record failed to file a transcript"
+fi
+
+# Change the front door; the same transcript now describes a page that is gone.
+printf '# A repo\n\nA COMPLETELY DIFFERENT front page. Start at [CEO-QUEUE.md](CEO-QUEUE.md).\n' > "$R/README.md"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'COLD-OPEN-STALE'; then
+    ok "changing the front door makes every existing transcript stale — identity or refuse, applied to a judgment"
+else
+    bad "a changed front door should invalidate the transcript (rc=$GRC)"
+fi
+
+R="$(mk_repo coldempty "$DECL_COLD")"
+write_record "$R" ''
+file_transcript "$R" 'nothing' >/dev/null 2>&1
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qE 'COLD-OPEN-(TRANSCRIPT-MALFORMED|NEVER-RUN)'; then
+    ok "an empty transcript does not satisfy the gate — it would prove nobody read anything"
+else
+    bad "an empty transcript should not satisfy the gate (rc=$GRC)"
+fi
+
+R="$(mk_repo coldnotdeclared)"
+write_record "$R" ''
+run_guard "$R"
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -qF 'COLD-OPEN-NOT-DECLARED'; then
+    ok "NOT declaring a cold open never blocks — and every clean pass says out loud that nobody outside has read it"
+else
+    bad "an undeclared cold open should pass while printing the limit (rc=$GRC): $GOUT"
+fi
+
+# ---------------------------------------------------------------------------
+# (o) THE RENDERER — one parse, deterministic, and reachable by an adopter
+# ---------------------------------------------------------------------------
+R="$(mk_repo renderdet)"
+write_record "$R" ''
+A="$("$BASH_BIN" "$RENDER" --stdout "$R" 2>/dev/null)"
+B="$("$BASH_BIN" "$RENDER" --stdout "$R" 2>/dev/null)"
+if [ -n "$A" ] && [ "$A" = "$B" ]; then
+    ok "the render is deterministic — byte-comparison is only a gate if the same input gives the same bytes"
+else
+    bad "the render is not deterministic"
+fi
+
+printf 'hand-edited\n' > "$R/CEO-QUEUE.md"
+"$BASH_BIN" "$RENDER" --check "$R" >/dev/null 2>&1
+if [ "$?" -eq 1 ]; then
+    ok "--check reports a stale page as exit 1 and writes nothing"
+else
+    bad "--check should exit 1 on a stale page"
+fi
+
+# THE FRESH ADOPTER. For one release the engine shipped this whole mechanism
+# with no declaration, no template and no mention in the runbook — so every
+# adopter received enforcement that could never fire, and nothing told them.
+# This is that customer, and the assertion is that one command hands them a
+# working, lint-clean queue with a page on it.
+FRESH="$SCRATCH/freshadopter"
+mkdir -p "$FRESH"
+git -C "$FRESH" init -q
+printf '# Some company\n\nWe do things.\n' > "$FRESH/README.md"
+IOUT="$("$BASH_BIN" "$INIT" "$FRESH" --no-cold-open 2>&1)"; IRC=$?
+if [ "$IRC" -eq 0 ] && [ -f "$FRESH/.ceo-queue" ] && [ -f "$FRESH/CEO-QUEUE.md" ]; then
+    ok "a FRESH ADOPTER gets a working queue from one command — declaration, record and a page"
+else
+    bad "ceo-queue-init.sh should give a fresh repo a working queue (rc=$IRC): $IOUT"
+fi
+if head -40 "$FRESH/README.md" | grep -qF 'CEO-QUEUE.md'; then
+    ok "...and their root README points at it, so the page is reachable and not merely present"
+else
+    bad "init should point the root README at the entry point"
+fi
+if grep -qF 'Nothing is waiting on you' "$FRESH/CEO-QUEUE.md"; then
+    ok "...and an EMPTY queue still renders a real page, so the surface exists from minute one"
+else
+    bad "an empty queue should still render a page"
+fi
+run_lint "$FRESH"
+if [ "$LRC" -eq 0 ]; then
+    ok "...and it is lint-clean immediately — the machinery is live, not inert"
+else
+    bad "a freshly initialised repo should be lint-clean (rc=$LRC): $LOUT"
+fi
+IOUT="$("$BASH_BIN" "$INIT" "$FRESH" --no-cold-open 2>&1)"; IRC=$?
+if [ "$IRC" -eq 2 ] && printf '%s' "$IOUT" | grep -qF 'already declares'; then
+    ok "init REFUSES to overwrite an existing declaration rather than silently replacing it"
+else
+    bad "init should refuse to clobber an existing declaration (rc=$IRC)"
+fi
+
+for f in reference/ceo-queue/ceo-queue.example reference/ceo-queue/open-items.md \
+         reference/ceo-queue/cold-open-README.md scripts/lib/cold-open-prompt.md; do
+    if [ -f "$ENGINE_ROOT/$f" ]; then
+        ok "the engine ships $f — an adopter cannot switch this on without it"
+    else
+        bad "$f is MISSING from the engine — adopters would get enforcement with no way to enable it"
+    fi
+done
+
+# ---------------------------------------------------------------------------
 # (k) FAIL-CLOSED conventions
 # ---------------------------------------------------------------------------
 FAKEBIN="$(mktemp -d -t cqtest-bin.XXXXXX)"
@@ -568,7 +858,7 @@ if grep -q "guard-ceo-queue-commits" "$ENGINE_ROOT/scripts/hooks/contract-integr
 else
     bad "$G NOT listed in Layer R's rooted-hook set — its bootstrap would go unchecked"
 fi
-for lib in scripts/lib/ceo-queue.sh scripts/lib/ceo-queue.py; do
+for lib in scripts/lib/ceo-queue.sh scripts/lib/ceo-queue.py scripts/lib/cold-open-prompt.md; do
     if grep -q "$lib" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null; then
         ok "$lib is sidecar-hashed by install.sh (the guard delegates its whole decision to it)"
     else
