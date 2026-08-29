@@ -43,6 +43,13 @@ turn (and ignore anything for a thread it isn't showing). Timestamps `at` are ep
   then more text" is reconstructible from a single sequence. If Rich runs a tool between
   two sentences you will see `seq` 3 then `seq` 7. **Never treat a gap as a lost chunk, and
   never use `seq` as an array index.** Order by it; do not count with it.
+- **`seq` is now durable, and retroactivity is the same story as machinery's.** Each
+  `rich://chunk`'s position is persisted with its delta (`AssistantDelta.seq`), so the
+  interleaving of text and tool calls can be rebuilt after a restart instead of only being
+  visible live. A delta written before that commit has **no** recorded position: the text
+  is intact, its place in the turn is unknown, and it is reported as unknown (`null`)
+  rather than as position 0. A consumer rebuilding a past turn must expect an unpositioned
+  run and must not assume it came first.
 - `rich://turn-error` may still be preceded by `rich://chunk` events — a partial reply that
   streamed before the failure. Those partials are already durable in the ledger.
 - Events are **best-effort from the spine's view**: the ledger, not the UI, is the source
