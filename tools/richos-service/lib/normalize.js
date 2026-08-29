@@ -248,3 +248,54 @@ export function normalizeSession(sessionDir, opts = {}) {
 
   return { me: mePath, others: othersPath, parts, stereo, ffmpeg: ffmpegVersion() };
 }
+
+/**
+ * Cut one span out of a channel as its own WAV, padded, for an ISOLATED re-decode.
+ *
+ * The deletion detector's adjudicator (`deletion-guard.js`) needs the audio of a suspect span with
+ * no prior context, no chunk seam and no neighbouring repetition — which is a clip, cut here
+ * because ffmpeg lives in this module. Fast-seek (`-ss` before `-i`) so the cost is independent of
+ * how far into a 92-minute file the span sits.
+ *
+ * @param {string} wavPath the channel WAV
+ * @param {{startMs:number, endMs:number}} span
+ * @param {string} outPath where to write the clip
+ * @param {{padSec?: number}} [opts]
+ * @returns {string} outPath
+ */
+export function cutSpan(wavPath, span, outPath, opts = {}) {
+  const pad = opts.padSec != null ? Number(opts.padSec) : 0.3;
+  const from = Math.max(0, (Number(span.startMs) || 0) / 1000 - pad);
+  const to = (Number(span.endMs) || 0) / 1000 + pad;
+  execFileSync(ffmpegBin(), [
+    '-y', '-v', 'error',
+    '-ss', String(from),
+    '-t', Math.max(0.05, to - from).toFixed(3),
+    '-i', wavPath,
+    '-ac', '1', '-ar', String(SAMPLE_RATE),
+    outPath,
+  ]);
+  return outPath;
+}
+
+/**
+ * The physical level of a span of a channel, WITHOUT the padding a decode clip carries.
+ *
+ * Deliberately measured on the span itself: the deletion detector's level condition asks whether
+ * THAT span holds speech-level energy, and padding it with the loud speech either side would
+ * answer a different question, and answer it wrongly every single time.
+ *
+ * @param {string} wavPath
+ * @param {{startMs:number, endMs:number}} span
+ * @returns {{meanDb:number, maxDb:number}}
+ */
+export function measureSpanVolume(wavPath, span) {
+  const from = Math.max(0, (Number(span.startMs) || 0) / 1000);
+  const dur = Math.max(0.01, ((Number(span.endMs) || 0) - (Number(span.startMs) || 0)) / 1000);
+  const res = spawnSync(
+    ffmpegBin(),
+    ['-v', 'info', '-ss', String(from), '-t', dur.toFixed(3), '-i', wavPath, '-af', 'volumedetect', '-f', 'null', '-'],
+    { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+  );
+  return parseVolume(String(res.stderr || ''));
+}

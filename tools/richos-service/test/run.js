@@ -62,6 +62,17 @@ import {
   CLEAN_NO_BOUNDARY_OVERLAP,
 } from './fixtures/captured-hallucinations.js';
 import { diarizeOthers, readTurn, SPEAKER_TURN_MARKER } from '../lib/diarize.js';
+import {
+  findDeletionCandidates,
+  adjudicateCandidate,
+  guardDeletions,
+  deletionWarnings,
+  lexicalText,
+  informativeWords,
+  echoLength,
+  echoRatio,
+  nearbyTranscriptText,
+} from '../lib/deletion-guard.js';
 
 let passed = 0;
 const failures = [];
@@ -1017,7 +1028,15 @@ test('the veto still collapses a fabrication over digital silence (no bursts, no
 test('the veto collapses PARTIALLY when the audio holds some deliveries but not all', () => {
   // 5 emitted copies over 2 qualifying bursts -> keep 2, drop 3. Neither "delete it all" nor
   // "keep it all" is right when the audio says the truth is in between.
-  const line = 'and the week later you get an update that sounds reassuring but changes nothing';
+  // INVENTED, like every other fixture line here. The sentence that used to sit on this line was a
+  // verbatim 14-word run of the CEO's private webinar — the FIFTH instance of the leak the
+  // 2026-08-29 publication boundary was built for, and the second in this file after 2abf5ba fixed
+  // the retake fixture. Found by running `engine/scripts/lib/publication-boundary.py` by hand over
+  // this branch, because the guard's hooks snapshot at session start and this session predates them.
+  // A phrase of the same length and the same "substantial repeated line" shape proves exactly the
+  // same thing about burst capacity: 15 words -> needSec 4.55 s -> a 2.73 s floor per delivery, and
+  // the two bursts below clear it, so capacity is 2.
+  const line = 'the runbook pointed at the wrong dashboard and cost us twenty extra minutes of downtime';
   const segs = [0, 1, 2, 3, 4].map((i) => ({
     startMs: 2142400 + i * 9600, endMs: 2152000 + i * 9600, text: line, speaker: 'others',
   }));
@@ -1415,6 +1434,275 @@ test('with no caption, the diarized turn label fills the gap (better than generi
   ).segments;
   const merged = mergeTranscript({ me: [], others, captions: [], startedAt: T0 });
   assert.ok(merged.speakers.includes('Remote 1'));
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 deletion detector, stage A — COVERAGE: which speech the transcript never claims');
+
+// INVENTED FIXTURES, and that is deliberate. The real corpus this detector was measured on is the
+// CEO's private webinar; reproducing a line of it here would put private speech in the repository
+// that goes public. Invented lines of the same SHAPE prove the same properties, and the shapes are
+// taken from the measurement: a segment whose extent stretches tens of seconds across silence, a
+// burst holding one short clause, laughter at speech level, near-silence with a fabricated
+// "Thank you." over it.
+const SEG = (startMs, endMs, text, wordTimesMs) => ({ startMs, endMs, text, speaker: 'me', ...(wordTimesMs ? { wordTimesMs } : {}) });
+const BURST = (startMs, endMs) => ({ startMs, endMs });
+
+test('a burst the transcript places words inside is NOT a deletion candidate', () => {
+  const segs = [SEG(0, 4000, 'the migration is finished on two of the four workspaces', [200, 900, 1600, 2300, 3000])];
+  const { candidates } = findDeletionCandidates(segs, [BURST(0, 4000)], { channel: 'me' });
+  assert.equal(candidates.length, 0);
+});
+
+test('a burst with ZERO emitted words IS a candidate — the whole class in one assertion', () => {
+  const segs = [SEG(0, 2000, 'the migration is finished', [200, 900, 1600])];
+  const { candidates } = findDeletionCandidates(segs, [BURST(0, 2000), BURST(4000, 6500)], { channel: 'me' });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].startMs, 4000);
+  assert.equal(candidates[0].durationSec, 2.5);
+});
+
+test('a burst shorter than minGapSec is never a candidate — the sub-second band is out of scope', () => {
+  const segs = [SEG(0, 2000, 'the migration is finished', [200, 900, 1600])];
+  const { candidates } = findDeletionCandidates(segs, [BURST(4000, 4800)], { channel: 'me' });
+  assert.equal(candidates.length, 0);
+});
+
+test('word times WIN over segment extents, and coverageUnit says which unit was used', () => {
+  const segs = [SEG(0, 30000, 'we can add nodes', [26000, 26400, 26800, 27200])];
+  const found = findDeletionCandidates(segs, [BURST(4000, 6000), BURST(26000, 27500)], { channel: 'me' });
+  assert.equal(found.coverageUnit, 'word-times');
+  // the 4-6 s burst is uncovered even though the segment's EXTENT spans it
+  assert.equal(found.candidates.length, 1);
+  assert.equal(found.candidates[0].startMs, 4000);
+});
+
+test('without word times the extent fallback spreads words across the extent — and SAYS so', () => {
+  const segs = [SEG(0, 30000, 'we can add nodes')];
+  const found = findDeletionCandidates(segs, [BURST(4000, 6000), BURST(26000, 27500)], { channel: 'me' });
+  assert.equal(found.coverageUnit, 'segment-extent');
+  // the same 4-6 s burst now looks covered: this is the measured weakness, asserted so it cannot
+  // be mistaken for equivalent evidence
+  assert.equal(found.candidates.length, 0);
+});
+
+test('coverage tolerance: a word 0.24 s outside the burst covers it, 0.4 s outside does not', () => {
+  const near = findDeletionCandidates([SEG(0, 9000, 'a b c', [3760])], [BURST(4000, 5200)], {});
+  assert.equal(near.candidates.length, 0);
+  const far = findDeletionCandidates([SEG(0, 9000, 'a b c', [3600])], [BURST(4000, 5200)], {});
+  assert.equal(far.candidates.length, 1);
+});
+
+test('nearbyTranscriptText picks up the CONTAINING segment however long its extent', () => {
+  const segs = [SEG(0, 30000, 'we can add nodes', [200]), SEG(40000, 42000, 'anything for friday', [40100])];
+  const t = nearbyTranscriptText(segs, 26000, 27500, 2);
+  assert.ok(t.includes('we can add nodes'));
+  assert.ok(!t.includes('anything for friday'));
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 deletion detector, stage B — THE PRECISION RULE, one test per condition');
+
+const CAND = (over = {}) => ({ channel: 'me', index: 0, startMs: 10000, endMs: 12500, durationSec: 2.5, nearbyText: '', ...over });
+const PROBE = (over = {}) => ({ tight: '', wide: '', maxDb: -12, meanDb: -30, ...over });
+
+test('lexicalText strips the silence-hallucination vocabulary whisper emits over dead air', () => {
+  for (const s of ['Thank you.', ' you ', 'Shh', '*sniff*', '[BLANK_AUDIO]', '-', 'Ha ha ha ha!', '(laughs)']) {
+    assert.equal(lexicalText(s), '', `expected "${s}" to carry no lexical content`);
+  }
+  assert.equal(lexicalText('  the runbook  pointed  at the wrong dashboard '), 'the runbook pointed at the wrong dashboard');
+});
+
+test('informativeWords counts a laugh once and drops it — the loudest false positive in the corpus', () => {
+  assert.deepEqual(informativeWords('But first, ha, ha, ha, ha, ha, ha.').sort(), ['but', 'first']);
+  assert.equal(informativeWords('yeah yeah okay okay').length, 0);
+  assert.equal(informativeWords('the runbook pointed at the wrong dashboard').length, 6);
+});
+
+test('all five conditions satisfied -> DELETED, with the recovered words carried for the alarm', () => {
+  const v = adjudicateCandidate(
+    CAND(),
+    PROBE({ tight: 'the runbook pointed at the wrong dashboard', wide: 'the runbook pointed at the wrong dashboard entirely', maxDb: -12 }),
+    { peakDb: -1 },
+  );
+  assert.equal(v.verdict, 'deleted');
+  assert.equal(v.text, 'the runbook pointed at the wrong dashboard');
+});
+
+test('condition 2 — a decode of only fillers is NOT-SPEECH, whatever its raw word count', () => {
+  const v = adjudicateCandidate(CAND(), PROBE({ tight: 'But first, ha, ha, ha, ha, ha, ha.', wide: 'But first, ha, ha, ha.' }), { peakDb: -1 });
+  assert.equal(v.verdict, 'not-speech');
+  assert.match(v.reason, /distinct informative word/);
+});
+
+test('condition 3 — near-silence with a fabricated "Thank you." over it is NOT a deletion', () => {
+  // the shape measured at 4885.2 s: max -51.3 dBFS against a -0.9 dBFS peak, whisper emitting text
+  const v = adjudicateCandidate(
+    CAND(),
+    PROBE({ tight: 'the runbook pointed at the wrong dashboard', wide: 'the runbook pointed at the wrong dashboard', maxDb: -51.3 }),
+    { peakDb: -0.9 },
+  );
+  assert.equal(v.verdict, 'not-speech');
+  assert.match(v.reason, /speech floor/);
+});
+
+test('condition 3 is CHANNEL-RELATIVE — the same dBFS passes on a quieter channel', () => {
+  const probe = PROBE({ tight: 'the runbook pointed at the wrong dashboard', wide: 'the runbook pointed at the wrong dashboard', maxDb: -30 });
+  assert.equal(adjudicateCandidate(CAND(), probe, { peakDb: -0.9 }).verdict, 'not-speech');
+  assert.equal(adjudicateCandidate(CAND(), probe, { peakDb: -12 }).verdict, 'deleted');
+});
+
+test('condition 4 — a decode that changes with the padding is a property of the window, not the audio', () => {
+  const v = adjudicateCandidate(
+    CAND(),
+    PROBE({ tight: 'the runbook pointed at the wrong dashboard', wide: 'we can add two nodes there' }),
+    { peakDb: -1 },
+  );
+  assert.equal(v.verdict, 'not-speech');
+  assert.match(v.reason, /share only/);
+});
+
+test('condition 5a — words already in the surrounding transcript are MISTIMED, not missing', () => {
+  const v = adjudicateCandidate(
+    CAND({ nearbyText: 'sorry about that the runbook pointed at the wrong dashboard entirely' }),
+    PROBE({ tight: 'the runbook pointed at the wrong dashboard', wide: 'the runbook pointed at the wrong dashboard' }),
+    { peakDb: -1 },
+  );
+  assert.equal(v.verdict, 'mistimed');
+  assert.match(v.reason, /wrong timestamps/);
+});
+
+test('condition 5b — one inserted word must not defeat the echo test (the measured near-miss)', () => {
+  // the shape measured on real audio: the isolated re-decode returns the same clause plus one extra
+  // connective word, which cuts the longest EXACT run in half while the sentence is plainly present
+  const v = adjudicateCandidate(
+    CAND({ nearbyText: 'we can add nodes here' }),
+    PROBE({ tight: 'We can also add nodes.', wide: 'We can also add nodes.' }),
+    { peakDb: -1 },
+  );
+  assert.equal(v.verdict, 'mistimed');
+  assert.match(v.reason, /in order/);
+});
+
+test('echoLength wants a CONTIGUOUS run; echoRatio tolerates insertions', () => {
+  assert.equal(echoLength('we can also add nodes', 'we can add nodes here'), 2);
+  assert.ok(echoRatio('we can also add nodes', 'we can add nodes here') >= 0.8);
+  assert.equal(echoLength('the frankfurt cluster crossed eighty percent', 'anything else for friday'), 0);
+  assert.equal(echoRatio('the frankfurt cluster crossed eighty percent', 'anything else for friday'), 0);
+});
+
+test('no probe -> UNPROBED, and an unprobed span is never a deletion', () => {
+  const v = adjudicateCandidate(CAND(), null, { peakDb: -1 });
+  assert.equal(v.verdict, 'unprobed');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 deletion detector — the report, and the two answers it must never conflate');
+
+const LOUD = 'the runbook pointed at the wrong dashboard';
+
+test('guardDeletions reports a deletion with the span, the level and the recovered words', () => {
+  const segs = [SEG(0, 2000, 'right lets start with the incident review', [200, 900, 1600])];
+  const { report } = guardDeletions(
+    { me: segs, others: [] },
+    {
+      speechBursts: { me: [BURST(0, 2000), BURST(6000, 9000)], others: [] },
+      peaks: { me: -1, others: -1 },
+      probe: () => [{ tight: LOUD, wide: `${LOUD} entirely`, maxDb: -11, meanDb: -25 }],
+    },
+  );
+  assert.equal(report.detected, true);
+  assert.equal(report.deletedSpans, 1);
+  assert.equal(report.deletedSeconds, 3);
+  assert.equal(report.deletions[0].startMs, 6000);
+  assert.equal(report.deletions[0].recovered, LOUD);
+  assert.equal(report.byChannel.me.candidates, 1);
+});
+
+test('NO BURST GRID is "never looked", not "nothing found" — probeAvailable says so per channel', () => {
+  const { report } = guardDeletions(
+    { me: [SEG(0, 2000, 'a b c', [100])], others: [] },
+    { speechBursts: null, peaks: { me: -1, others: -1 }, probe: () => [] },
+  );
+  assert.equal(report.detected, false);
+  assert.equal(report.candidates, 0);
+  assert.equal(report.byChannel.me.probeAvailable, false);
+});
+
+test('NO PROBE -> every candidate is unprobed and NOTHING is called a deletion', () => {
+  const { report } = guardDeletions(
+    { me: [SEG(0, 2000, 'a b c', [100, 500, 900])], others: [] },
+    { speechBursts: { me: [BURST(0, 2000), BURST(6000, 9000)], others: [] }, peaks: { me: -1, others: -1 } },
+  );
+  assert.equal(report.probeAvailable, false);
+  assert.equal(report.deletedSpans, 0);
+  assert.equal(report.unprobedSpans, 1);
+  assert.equal(report.detected, false);
+});
+
+test('the probe budget is a HARD CAP: longest spans first, the rest reported UNPROBED', () => {
+  const bursts = [BURST(0, 2000)];
+  for (let i = 0; i < 5; i += 1) bursts.push(BURST(10000 + i * 10000, 10000 + i * 10000 + 1500 + i * 500));
+  let asked = 0;
+  const { report } = guardDeletions(
+    { me: [SEG(0, 2000, 'a b c', [100, 500, 900])], others: [] },
+    {
+      speechBursts: { me: bursts, others: [] },
+      peaks: { me: -1, others: -1 },
+      maxProbes: 2,
+      probe: (spans) => {
+        asked = spans.length;
+        return spans.map(() => ({ tight: LOUD, wide: `${LOUD} entirely`, maxDb: -11, meanDb: -25 }));
+      },
+    },
+  );
+  assert.equal(asked, 2, 'exactly the budget was probed');
+  assert.equal(report.deletedSpans, 2);
+  assert.equal(report.unprobedSpans, 3);
+  // the two probed spans are the two LONGEST
+  assert.deepEqual(report.deletions.map((d) => d.durationSec).sort(), [3, 3.5]);
+});
+
+test('deletionWarnings names the span in clock time, quotes what is missing, and says detect-only', () => {
+  const w = deletionWarnings({
+    deletions: [{ channel: 'me', startMs: 4983000, endMs: 4986000, durationSec: 3, recovered: LOUD }],
+    unprobed: [],
+  });
+  assert.equal(w.length, 1);
+  assert.match(w[0], /01:23:03–01:23:06/);
+  assert.match(w[0], /MISSING/);
+  assert.match(w[0], /detected, not repaired/);
+  assert.match(w[0], /re-transcribe/);
+});
+
+test('deletionWarnings never lets an UNADJUDICATED span read as a clean transcript', () => {
+  const w = deletionWarnings({ deletions: [], unprobed: [{ channel: 'me', startMs: 0, endMs: 2000, durationSec: 2 }] });
+  assert.equal(w.length, 1);
+  assert.match(w[0], /not claimed as deletions and they are not cleared either/);
+});
+
+test('SILENCE vs DELETION side by side: silent on the silence, loud on the clause beside it', () => {
+  // one channel, two wordless bursts. The first is genuine silence measured 50 dB under the peak
+  // (nothing was said); the second holds a clause at speech level that the transcript never claims.
+  // If the detector fired on both, or on neither, this test would be worthless — so it asserts both.
+  const segs = [SEG(0, 3000, 'legal wants the addendum signed before the fifteenth', [200, 900, 1600, 2300])];
+  const probes = [
+    { tight: LOUD, wide: `${LOUD} entirely`, maxDb: -11, meanDb: -26 }, // the loud clause (longest, probed first)
+    { tight: 'Thank you.', wide: 'Thank you. Thank you.', maxDb: -51.3, meanDb: -62 }, // the silence
+  ];
+  const { report } = guardDeletions(
+    { me: segs, others: [] },
+    {
+      speechBursts: { me: [BURST(0, 3000), BURST(20000, 22000), BURST(30000, 33000)], others: [] },
+      peaks: { me: -0.9, others: -0.9 },
+      probe: (spans) => spans.map((s) => (s.startMs === 30000 ? probes[0] : probes[1])),
+    },
+  );
+  assert.equal(report.deletedSpans, 1, 'exactly one of the two wordless bursts is a deletion');
+  assert.equal(report.deletions[0].startMs, 30000, 'the clause, not the silence');
+  const silence = report.rejected.find((r) => r.startMs === 20000);
+  assert.ok(silence, 'the silent burst was examined, not skipped');
+  assert.equal(silence.verdict, 'not-speech');
 });
 
 // ---------------------------------------------------------------------------------------
