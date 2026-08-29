@@ -49,7 +49,56 @@
 //! 4. **macOS only, and untestable.** Zero of it would run in `cargo test`.
 //!
 //! It remains the right *second* implementation if the measured figures below are not enough
-//! in the CEO's actual room. The `EchoGate` trait is where it would go.
+//! in the CEO's actual room. The `EchoGate` trait is where it would go — though see the next
+//! section, which is the reason it would not help either.
+//!
+//! ## WHAT THIS ACHIEVES, AND WHERE IT DOES NOT — measured, both
+//!
+//! On a linear echo path (`examples/aec_rig.rs`, 20 s, 50.0 ms bulk delay, 5-tap room,
+//! -54 dBFS room noise):
+//!
+//! ```text
+//!   steady-state ERLE                 28.0 dB   (residual -58.4 dBFS vs VAD floor -46.0 dBFS)
+//!   time to 20 dB ERLE                4 s
+//!   near-end false positives after
+//!     confidence                      0
+//!   shortest interruption registering  400 ms   (was 5008 ms)
+//!   transparency while Rich is silent  bit-identical
+//!   cost                              56.8 us per 16 000 us block = 0.355 % of one core
+//! ```
+//!
+//! On the CEO's ACTUAL hardware — Mac mini built-in speakers out, Elgato Wave:3 USB in —
+//! it achieves 3-7 dB, and so would every other linear canceller in existence.
+//! `examples/aec_probe.rs` establishes why, and the answer is not the algorithm:
+//!
+//! ```text
+//!   echo present and dominant         microphone -42.3 dBFS vs room noise -67.2 dBFS
+//!   round-trip delay                  28-36 ms, ENVELOPE correlation 0.973
+//!   WAVEFORM correlation at the best
+//!     sample-resolution alignment     0.174
+//!   BEST POSSIBLE ERLE FOR ANY
+//!     LINEAR CANCELLER (coherence)    5.5 dB full band, 8.7 dB over 300-3400 Hz
+//! ```
+//!
+//! Magnitude-squared coherence is an upper bound on what ANY linear filter can do, so WebRTC's
+//! AEC3, `speexdsp` and the linear stage of `VoiceProcessingIO` all hit the same wall here.
+//! Clock drift (~1 dB), loudspeaker overdrive (flat across a 20 dB level sweep) and a reverb
+//! tail longer than the filter (ceiling saturates: 4.2/5.5/6.6/7.1/7.5 dB at 32/64/128/256/512
+//! ms of analysis) were each tested and eliminated.
+//!
+//! **The consequence, stated plainly: [`EchoCanceller::confident`] returns false on that
+//! hardware, so the 5.008 s debounce stays in force there.** That is the design working. The
+//! canceller measured its own residual, found it could not support a 0.400 s window, and
+//! declined to shorten it. On headphones — where nothing comes back into the microphone — it
+//! is confident immediately, which is the case where the 5 s wait was pure cost.
+//!
+//! The way forward is in the two correlations: the echo's LOUDNESS is predictable (0.973) even
+//! though its waveform is not (0.174), and barge-in only ever needed one bit per frame. A
+//! magnitude-domain echo-presence DETECTOR — never a suppressor, since suppression is what eats
+//! consonants — measured 0.7 % false positives against 73.6 % detection on the real recording
+//! during this work. It is deliberately NOT in this crate: it also showed an unexplained 64 %
+//! false-positive mode on a synthetic path, and the thing that decides whether Rich cuts himself
+//! off mid-sentence does not ship with an unexplained failure mode.
 //!
 //! ## Structure
 //!

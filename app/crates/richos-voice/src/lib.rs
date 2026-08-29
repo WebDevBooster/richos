@@ -6,7 +6,7 @@
 //! Nothing here is ephemeral.
 //!
 //! ```text
-//!   mic ──► capture ──► resample to 16 kHz ──► EchoGate (v1: passthrough)
+//!   mic ──► capture ──► resample to 16 kHz ──► echo canceller (aec.rs)
 //!                                                  │
 //!                                                  ▼
 //!                        VAD (16.000 ms frames) ──┬──► endpointer ──► utterance
@@ -26,7 +26,7 @@
 //!                                                          └──stop── TTS ──► playout ──► speakers
 //!                                                                              │
 //!                                                                     reference signal
-//!                                                                     back to EchoGate
+//!                                                              back over a lock-free ring
 //! ```
 //!
 //! Layering, deliberately: `vad`, `bargein`, `endpoint`, `chunk`, `noaudio`, `state` and `wav` are
@@ -34,9 +34,14 @@
 //! `stt` and `tts` are the thin native edges. `controller` is the glue that owns the threads.
 //!
 //! **The honest v1 gaps, stated up front** (see the voice-pipeline brief, 2026-08-24):
-//! - No acoustic echo cancellation. The 5.008 s barge-in debounce + "headphones recommended"
-//!   is the whole interim, exactly as the CEO decided. [`bargein::EchoGate`] is the seam and
-//!   it is already carrying the live reference signal.
+//! - **Acoustic echo cancellation now exists** ([`aec`]) and is measured: 28.0 dB ERLE on a
+//!   linear path, bit-transparent while Rich is silent, and it shortens the barge-in debounce
+//!   from 5.008 s to 0.400 s once it has measured its own residual echo 6 dB below the VAD's
+//!   speech threshold. **On the CEO's own hardware it cannot reach that bar**, because the
+//!   loudspeaker-to-microphone path there is only ~5.5 dB linearly predictable (coherence-
+//!   bounded, so no canceller of any kind can do better) — so the 5.008 s rule and "headphones
+//!   recommended" remain in force there. `examples/aec_probe.rs` is the evidence and
+//!   `aec.rs`'s module docs state the whole finding.
 //! - STT is **utterance-endpointed**, not token-streaming: whisper.cpp runs once per finished
 //!   utterance. There is no live partial transcript.
 //! - TTS is macOS `say` with one fixed voice. It is a [`tts::SpeechSynth`] implementation, so
