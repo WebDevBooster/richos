@@ -505,7 +505,10 @@ pub fn project(records: Vec<MachineryRecord>) -> Vec<MachineryRecord> {
 }
 
 /// Last-write-wins per field PRESENT. Absent fields are untouched (§1.4 G2).
-fn merge_into(base: &mut MachineryRecord, incoming: MachineryRecord) {
+///
+/// `pub(crate)` so the LIVE upsert path (`live.rs`) merges by the SAME rule the
+/// batch projection uses, incrementally, rather than re-implementing it.
+pub(crate) fn merge_into(base: &mut MachineryRecord, incoming: MachineryRecord) {
     if !incoming.title.is_empty() {
         base.title = incoming.title;
     }
