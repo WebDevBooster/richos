@@ -1,0 +1,88 @@
+# THIS REPOSITORY OWNS A CEO QUEUE.
+#
+# The presence of this file is the declaration. It switches on
+# guard-ceo-queue-commits.sh — the RichOS engine guard that refuses a commit
+# while the queue is making a claim it cannot back. Delete it and the queue is
+# unguarded, which is a visible, reviewable diff and is meant to be.
+#
+# WHY IT EXISTS
+# -------------
+# The orchestrator writes long, exact briefs for every teammate: paths,
+# commands, constraints, a completion criterion. When the executor is the CEO,
+# the brief collapses to one sentence. The most expensive executor in the
+# system gets the worst brief, and the same 30-minute task reaches him three
+# times with no file, no method and no definition of done.
+#
+# Underneath that is a structural defect, not a manners problem. A record can
+# say an item is "waiting on the CEO" while the thing he is supposed to touch
+# has never been prepared and does not exist. That claim is unfalsifiable by
+# reading: it looks identical to a real one. So it sits, week after week,
+# LOOKING blocked on the most expensive person in the company while it is in
+# fact blocked on unfinished preparation by whoever wrote the row.
+#
+#   AN ITEM MAY NOT CLAIM TO BE WAITING ON THE CEO UNLESS THE THING HE TOUCHES
+#   ALREADY EXISTS ON DISK.
+#
+# THE TWO STATES
+# --------------
+#   READY-FOR-CEO     prepared: the artifact exists, the time cost is stated,
+#                     "done" is written down, and what it unblocks is named.
+#                     Only these may sit in a CEO section.
+#   BLOCKED-ON-RICH   unprepared: belongs in the preparer's own section.
+#
+# Moving an item to BLOCKED-ON-RICH is the system working. The CEO sections are
+# worth something only while "waiting on the CEO" is a PROMISE that everything
+# else is done; one unprepared item sitting there destroys that promise for
+# every other item on the page.
+#
+# PREPARED IS HALF. THE OTHER HALF IS REACHABLE.
+# ----------------------------------------------
+# The first version of this contract enforced preparation and shipped with
+# nowhere to look: the items were buried in a long record and the only new file
+# was a dotfile. So there is also exactly ONE entry point — QUEUE_VIEW — which
+# is top-level, un-dotted, named at the head of the root README, and generated
+# from the record. It is a projection, never a second copy: the guard refuses a
+# view that is not byte-identical to what the record renders to.
+#
+#   Regenerate:  scripts/ceo-queue-render.sh <this repo>
+#   Check:       scripts/ceo-queue-lint.sh   <this repo>
+#   Cold-read:   scripts/cold-open.sh --run  <this repo>
+#
+# (Paths are relative to the RichOS engine. If it is installed by reference,
+# that is typically ~/.claude/richos-engine/.)
+
+# The record. One file. The source of truth; the view is derived from it.
+QUEUE_RECORD="@@QUEUE_RECORD@@"
+
+# The queue's one entry point: a bare TOP-LEVEL file name. Generated — do not
+# edit it by hand.
+QUEUE_VIEW="@@QUEUE_VIEW@@"
+
+# The front door the entry point must be named from, in its first 40 lines.
+ROOT_README="README.md"
+
+# Sections that mean "waiting on the CEO". Section @@PREPARER_SECTION@@ is
+# where unprepared work goes instead.
+CEO_SECTIONS="@@CEO_SECTIONS@@"
+PREPARER_SECTION="@@PREPARER_SECTION@@"
+
+# Every artifact path in the record starts with one of these prefixes, so a
+# reader always knows which repository a path is in and the checker never has
+# to guess between two roots that could both match. Roots are relative to this
+# repository's MAIN checkout. A prefix whose root is not on this machine (a
+# sibling repo nobody cloned) makes its artifacts UNCHECKABLE and is named in
+# every verdict — never a silent pass, and never a block either.
+ARTIFACT_ROOTS="@@ARTIFACT_ROOTS@@"
+
+# Where cold-open transcripts live — a reading of this repository's CEO surface
+# by someone who is not its builder and has no context. Declaring this key
+# switches on the freshness gate: change the front door, and the next commit is
+# refused until a fresh cold reading is on file.
+#
+# The gate checks only that a reading HAPPENED. It has no opinion on what the
+# reader concluded, deliberately — a gate that demanded a favourable verdict
+# would get one every time.
+#
+# Leaving it undeclared is allowed and is never a block; every verdict then
+# prints that this surface has been read by nobody but the people who built it.
+@@COLD_OPEN_DIR@@

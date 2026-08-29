@@ -293,6 +293,11 @@ HOOK_FILES+=(
     # would check the lock and ignore the key.
     "$REPO_ROOT/scripts/lib/ceo-queue.sh"
     "$REPO_ROOT/scripts/lib/ceo-queue.py"
+    # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
+    # and compared by the guard, so this file is not documentation — it is part
+    # of the decision. Edit a question and every transcript on file stops
+    # counting, which is correct: nobody has answered the new question.
+    "$REPO_ROOT/scripts/lib/cold-open-prompt.md"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

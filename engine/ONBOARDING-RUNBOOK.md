@@ -187,7 +187,51 @@ Watch for the session ending in a real, printed **G5 verification pass**
 end green) before you consider this step done — a bootstrap interview that
 was interrupted mid-generation is not the same as one that finished.
 
-### Step 6 — Orientation tour (~15-20 min)
+### Step 6 — The CEO queue (~5 min, and do not skip it)
+
+The engine ships a lint, a commit guard, a predicate and a test suite for the
+CEO queue — **all of which are inert until the repository carries a
+`.ceo-queue` declaration.** For one release there was no template and no step
+here, so adopters received enforcement machinery that could never fire and
+nothing told them. This step is why that cannot happen again.
+
+```bash
+scripts/ceo-queue-init.sh /path/to/their/repo
+```
+
+It writes the declaration, a starter record, renders `CEO-QUEUE.md`, puts a
+pointer at the top of their `README.md`, runs a **cold open** (a reader with no
+context, asked what the repository wants from them), and finishes by running the
+lint so the CEO watches the whole thing pass on their own repository.
+
+**Expected green:** ends with
+
+```
+✓ CEO queue clean: 0 item(s) in section(s) 1 2 are prepared — artifact on disk, time, done, unblocks.
+  entry point: CEO-QUEUE.md — present, singular, named at the head of README.md, byte-current with docs/open-items.md.
+```
+
+Say three things to the CEO out loud here, because they are the whole contract:
+
+1. **`CEO-QUEUE.md` is where their work lives.** One page, repository root,
+   nothing else to remember. It is regenerated from the record — never edited by
+   hand, and the commit guard refuses a copy that has drifted.
+2. **Nothing reaches that page unprepared.** An item may not claim to be waiting
+   on them unless the file they open already exists, the time cost is stated,
+   and "done" is written down. Unprepared work is filed as `BLOCKED-ON-RICH` in
+   section 3 and is Rich's problem, not theirs.
+3. **The page gets read by a stranger, on purpose.** `scripts/cold-open.sh`
+   asks a reader with no context what this repository wants from them; the
+   transcript is committed, and changing the front door invalidates it. The gate
+   checks that the reading happened, never what it concluded — so an unflattering
+   transcript is a finding, not a failure.
+
+If the cold open cannot run (no network, no `claude` on PATH), init leaves
+`COLD_OPEN_DIR` commented out and prints the exact line to uncomment later.
+That is deliberate: declaring it without a transcript on file would refuse every
+commit in the repository from that moment on.
+
+### Step 7 — Orientation tour (~15-20 min)
 
 With a staffed team and a wiki that already has real content, walk the CEO
 through, briefly:
