@@ -1,0 +1,8 @@
+# Playwright is a devDependency of a harness, not of the product. Installing it is one
+# command (see README.md) and it is ~200 MB with its browser engines.
+node_modules/
+package-lock.json
+
+# Screenshot evidence for ONE run. The tests are the artifact; these are the receipt, and a
+# receipt that lands in git turns every UI tweak into a binary diff.
+.shots/
