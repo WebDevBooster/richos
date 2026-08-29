@@ -553,6 +553,10 @@
       turns: new Map(), // turnId -> { status, startedAt, activeMs, live, mergedFrom: [] }
       turnOrder: [], // turnIds, oldest first
       expanded: new Set(), // turnIds whose work transcript the CEO has opened
+      /// turnIds the CEO has explicitly CLOSED. Not the complement of `expanded`: a turn
+      /// in neither set has never been touched, and §6.4 gives an untouched turn two
+      /// different defaults depending on whether it is running. See `isTurnExpanded`.
+      collapsed: new Set(),
       settled: new Set(), // turnIds whose post-completion settle has already run
       announcedWorking: new Set(),
       pendingUser: [], // optimistic CEO bubbles awaiting a turn id
@@ -608,12 +612,23 @@
     return t;
   }
 
+  /// Upsert by id. A repeated id is idempotent (§13), and a later payload for the same id
+  /// wins field by field.
+  ///
+  /// EXCEPT WHEN THE KIND CHANGES, in which case the new item REPLACES the old one rather
+  /// than merging over it. That is a real transition, not a defensive nicety: one machinery
+  /// record is one row, and a delegation whose lifecycle row lands after its tool result
+  /// arrives first as `activity` and is upgraded to `worker_activity` under the SAME id
+  /// (live.rs, "the lifecycle row can arrive after the tool result"). Merging would leave
+  /// the activity row's `summary`, `state` and `activityType` clinging to a worker row —
+  /// fields whose vocabularies are different and whose values would be stale.
   function putItem(model, item) {
     if (!visible(item)) return false;
     const prev = model.items.get(item.id);
-    model.items.set(item.id, prev ? Object.assign({}, prev, item) : item);
+    const merged = prev && prev.kind === item.kind ? Object.assign({}, prev, item) : item;
+    model.items.set(item.id, merged);
     if (item.turnId) turnRecord(model, item.turnId);
-    return !prev; // structural change?
+    return !prev || prev.kind !== item.kind; // structural change?
   }
 
   // ---- the reload path -----------------------------------------------------------------
@@ -634,6 +649,7 @@
     const liveTurns = new Map();
     for (const [id, t] of model.turns) if (t.live) liveTurns.set(id, t);
     const expanded = model.expanded;
+    const collapsed = model.collapsed;
     const settled = model.settled;
     const announced = model.announcedWorking;
 
@@ -641,6 +657,7 @@
     model.turns = new Map();
     model.turnOrder = [];
     model.expanded = expanded;
+    model.collapsed = collapsed;
     model.settled = settled;
     model.announcedWorking = announced;
     model.pendingUser = [];
@@ -756,6 +773,13 @@
       if (item.turnId === turnId) model.items.delete(id);
     }
     model.turns.delete(turnId);
+    // The CEO's disclosure choices belong to an EXCHANGE, and the replacement turn is the
+    // same exchange under a new id. Neither set may keep a dead turn id: a stale entry in
+    // `collapsed` would silently suppress §6.4's live default the next time that id was
+    // reused, and nothing would say why.
+    model.expanded.delete(turnId);
+    model.collapsed.delete(turnId);
+    model.settled.delete(turnId);
     const at = model.turnOrder.indexOf(turnId);
     if (at >= 0) model.turnOrder.splice(at, 1);
     return at;
@@ -828,7 +852,20 @@
     // NEVER `?? 0` and never `now() - startedAt`: `activeDurationMs` is explicitly null
     // until the turn ends, and 0 is a measurement claim (STREAMING.md, §6.3).
     if (typeof p.activeDurationMs === "number") t.activeMs = p.activeDurationMs;
+    const wasLive = t.live;
     t.live = p.status === "queued" || p.status === "working" || p.status === "recovering";
+
+    // §6.4's collapse is a TRANSITION, not an instant. A turn that was open only because it
+    // was running would otherwise snap shut the moment its terminal status arrived, and the
+    // settling collapse `main.js` schedules 180ms later would have nothing left to do.
+    // So the live default is CARRIED FORWARD as an explicit entry, and the settle removes
+    // it — the same two lines that have always performed the collapse.
+    //
+    // Skipped when the CEO has already spoken: `collapsed` means he closed it himself, and
+    // `settled` means he opened it himself. Neither is overruled here.
+    if (wasLive && !t.live && !model.collapsed.has(p.turnId) && !model.settled.has(p.turnId)) {
+      model.expanded.add(p.turnId);
+    }
 
     if (p.status === "queued" || p.status === "working") adoptPendingUserMessage(model, p.turnId);
     if (!t.live && !model.expanded.has(p.turnId)) model.settled.delete(p.turnId);
@@ -915,6 +952,64 @@
     if (p.visibility && p.visibility !== "ceo") return { structural: false, rejected: true };
     const isNew = putItem(model, p);
     return { structural: true, rejected: false, isNew };
+  }
+
+  /// `rich://worker-upserted`. The payload IS the `worker_activity` timeline item a reload
+  /// projects, plus `at` — so this is the same upsert-by-id as an activity row, through the
+  /// same fence and the same visibility gate. One delegated run is ONE row, however many
+  /// lifecycle events it produced.
+  ///
+  /// A separate entry point rather than an alias, because the two events are separate on
+  /// the wire and a renderer's subscription list should be the proof of what it draws.
+  function onWorkerUpserted(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    if (p.visibility && p.visibility !== "ceo") return { structural: false, rejected: true };
+    const isNew = putItem(model, p);
+    return { structural: true, rejected: false, isNew };
+  }
+
+  // ---- §6.4's two defaults -------------------------------------------------------------
+
+  /// Is this turn's work transcript open?
+  ///
+  /// §6.4 opens with *"While active, the work activity beneath the duration row is expanded
+  /// by default"* and goes on to *"collapse the working transcript after a short settling
+  /// transition"*. Two DIFFERENT defaults for the same control, chosen by whether the turn
+  /// is running — which is why this is a function and not a set lookup. Until this commit
+  /// only the second half existed: nothing ever put a live turn into `model.expanded` (that
+  /// set is written by the CEO's own toggle alone), so a running turn started closed and the
+  /// CEO watched a chevron instead of the work.
+  ///
+  /// THE CEO ALWAYS WINS, in both directions, and that is what the second set is for. An
+  /// explicit close (`collapsed`) beats the live default; an explicit open (`expanded`)
+  /// beats the post-completion collapse — `main.js` marks such a turn `settled` so the
+  /// settle timer leaves it alone. A turn in NEITHER set has never been touched, and only
+  /// then does `live` decide.
+  ///
+  /// It does not fight the post-completion collapse: when the turn stops being live this
+  /// falls back to `expanded`, which the settle has already cleared. No timer is cancelled
+  /// and no state is raced.
+  function isTurnExpanded(model, turnId) {
+    if (model.expanded.has(turnId)) return true;
+    if (model.collapsed.has(turnId)) return false;
+    const t = model.turns.get(turnId);
+    return !!(t && t.live);
+  }
+
+  /// The CEO's own toggle. Records the choice EXPLICITLY — in `expanded` or in `collapsed`
+  /// — so it survives the turn ending, and marks the turn `settled` so the post-completion
+  /// collapse does not overrule a deliberate open.
+  function toggleTurn(model, turnId) {
+    const open = isTurnExpanded(model, turnId);
+    if (open) {
+      model.expanded.delete(turnId);
+      model.collapsed.add(turnId);
+    } else {
+      model.collapsed.delete(turnId);
+      model.expanded.add(turnId);
+    }
+    model.settled.add(turnId);
+    return !open;
   }
 
   // ---- ordering ------------------------------------------------------------------------
@@ -1692,6 +1787,9 @@
     onMessageDelta,
     onMessageCompleted,
     onActivityUpserted,
+    onWorkerUpserted,
+    isTurnExpanded,
+    toggleTurn,
     turnsOf,
     formatDuration,
     durationRow,

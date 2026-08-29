@@ -99,7 +99,7 @@ const scrollTops = new Map(); // threadId -> conversation scrollTop (§3.1)
 const liveStatus = new Map();
 // threadId -> "working" | "unseen" | "failed" for the RAIL only (see the live-status block
 // at the bottom of this file). The conversation's own live state moved to the typed timeline
-// model in `timeline.js` — one model, fed by the six §13 events and the `get_timeline`
+// model in `timeline.js` — one model, fed by the seven §13 events and the `get_timeline`
 // snapshot, with `sessionLiveTurns` carrying what is running in threads that are not on
 // screen.
 let activeThreadId = null;
@@ -754,7 +754,7 @@ async function refreshActiveContext() {
 //   1. `get_timeline` — the durable snapshot (§14 step 2). Gated in Rust by
 //      `Timeline::view(ViewMode::Ceo)`, which REMOVES technical items and technical detail
 //      rather than masking them, so this file is never handed a raw command to leak.
-//   2. the six additive `rich://` events (app/STREAMING.md). Every payload carries the ECS
+//   2. the seven additive `rich://` events (app/STREAMING.md). Every payload carries the ECS
 //      fence and a `visibility` that is always `"ceo"` on this family.
 //
 // The four original events (`turn-started` / `chunk` / `turn-completed` / `turn-error`) are
@@ -904,7 +904,10 @@ function flushRender() {
     now: Date.now(),
     expandedMessages,
     avatarAlreadyShown: sessionAvatarShown,
-    isExpanded: (turnId) => timelineModel.expanded.has(turnId),
+    // §6.4 has TWO defaults for this control — expanded while the turn is active,
+    // collapsed after it settles — and the CEO's own choice overrules both. All three
+    // live in `RichTimeline.isTurnExpanded`, never in a set lookup here.
+    isExpanded: (turnId) => window.RichTimeline.isTurnExpanded(timelineModel, turnId),
     toggle: toggleWorkTranscript,
     rerender: scheduleRender,
     copy: copyToClipboard,
@@ -961,10 +964,12 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function toggleWorkTranscript(turnId) {
-  if (timelineModel.expanded.has(turnId)) timelineModel.expanded.delete(turnId);
-  else timelineModel.expanded.add(turnId);
-  // A deliberate open survives the post-completion settle.
-  timelineModel.settled.add(turnId);
+  // Both directions are recorded EXPLICITLY (`expanded` / `collapsed`) rather than as the
+  // presence or absence of one flag, because §6.4's default is different while the turn is
+  // running: without a positive record of "the CEO closed this", a mid-turn collapse would
+  // be re-opened by the live default on the very next render. `toggleTurn` also marks the
+  // turn settled, so a deliberate open survives the post-completion collapse.
+  window.RichTimeline.toggleTurn(timelineModel, turnId);
   scheduleRender();
 }
 
@@ -1267,7 +1272,7 @@ el("nav-search").addEventListener("click", openSearch);
 jumpLatestBtn.addEventListener("click", jumpToLatest);
 
 // ---------------------------------------------------------------------------------------
-// THE ADDITIVE §13 FAMILY — the six events that drive the timeline
+// THE ADDITIVE §13 FAMILY — the seven events that drive the timeline
 // (app/STREAMING.md "The additive live-work family")
 //
 // Every handler returns `{ structural, rejected, textOnly }`; this layer only decides
@@ -1359,6 +1364,20 @@ Bridge.listen("rich://message-completed", ({ payload }) => {
 Bridge.listen("rich://activity-upserted", ({ payload }) => {
   const r = window.RichTimeline.onActivityUpserted(timelineModel, payload);
   if (!r.rejected) scheduleRender();
+});
+
+// §7 — a delegated AI worker, live. Until 2026-08-29 this event was deferred in the emitter
+// and had no listener here, so a delegation reached the screen only through a `get_timeline`
+// snapshot and read as a nameless "Worked" row for the rest of the turn. The payload is the
+// same `worker_activity` item a reload projects, under the same id, so this upsert and the
+// snapshot cannot disagree.
+Bridge.listen("rich://worker-upserted", ({ payload }) => {
+  const r = window.RichTimeline.onWorkerUpserted(timelineModel, payload);
+  if (r.rejected) return;
+  scheduleRender();
+  // §7.2's inspector is open on a worker whose state just moved — repaint it from the row
+  // that just arrived, or it would keep showing the state it was opened at.
+  refreshOpenWorkerInspector(payload);
 });
 
 Bridge.listen("rich://thread-summary-updated", ({ payload }) => {
@@ -1571,6 +1590,19 @@ function renderInspector() {
       },
     })
   );
+}
+
+/// A live `rich://worker-upserted` arrived for the worker whose pane is OPEN — repaint it.
+///
+/// Without this the pane keeps rendering the `WorkerActivityItem` it was opened with, so a
+/// run that ends while the CEO is reading its detail still reads `Working` in the pane and
+/// `Ended` on the chip behind it. Keyed on `agentId`, which is the join key everywhere else
+/// too; a row for any other worker is ignored rather than swapped in.
+function refreshOpenWorkerInspector(payload) {
+  if (!openWorker || !payload || !payload.worker) return;
+  if (payload.worker.agentId !== openWorker.agentId) return;
+  openWorker = payload.worker;
+  renderInspector();
 }
 
 function openWorkerInspector(worker) {
