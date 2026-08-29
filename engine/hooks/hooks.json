@@ -77,6 +77,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/scan-secrets.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-publication-writes.sh",
+            "timeout": 15
           }
         ]
       },
@@ -102,6 +107,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-worktree-removal.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-publication-commits.sh",
+            "timeout": 20
           }
         ]
       },

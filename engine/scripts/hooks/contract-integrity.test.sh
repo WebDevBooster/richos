@@ -78,6 +78,8 @@ ALL_HOOKS=(
     guard-bash-main-writes.sh
     guard-worktree-removal.sh
     scan-secrets.sh
+    guard-publication-writes.sh
+    guard-publication-commits.sh
     guard-resume-isolation.sh
     guard-workflow-ban.sh
     detect-nonnative-worktree.sh
@@ -100,6 +102,10 @@ ALL_ROOT_SCRIPTS=(
     # worktree removal and names this as the only way through, so Layer S
     # verifies both halves and every sandbox must carry both.
     scripts/remove-agent-worktree.sh
+    # The publication-boundary predicate. Two registered guards refuse to start
+    # without it, so a sandbox missing it would model an engine that cannot run.
+    scripts/lib/publication-boundary.sh
+    scripts/lib/publication-boundary.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
