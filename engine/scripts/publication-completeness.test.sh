@@ -286,6 +286,20 @@ EOF
 commit_all "$T"
 assert_clean "a declaration appearing only in a *.test.sh is NOT a shipped capability" "$T"
 
+# A COMMENT quoting the convention is documentation, not a definition. The
+# analyser's own header quotes both real declarations verbatim, and before this
+# rule it registered as a source of one of them.
+T="$(mktree commented_decl)"
+cat > "$T/scripts/hooks/doc-only.sh" <<'EOF'
+#!/usr/bin/env bash
+# Guards in this engine name their own gate, e.g.
+#   : "${DOCUMENTED_DECLARATION:=.documented}"
+# and the checker derives the set from that convention.
+echo "no gate here"
+EOF
+commit_all "$T"
+assert_clean "a declaration quoted only in a COMMENT is documentation, not a capability" "$T"
+
 # ---------------------------------------------------------------------------
 echo "--- (c/d) FIXTURE 4 — A CLAIM WITH NOTHING BEHIND IT, and its neighbours"
 # ---------------------------------------------------------------------------

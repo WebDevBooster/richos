@@ -333,8 +333,17 @@ def derive_declarations(tree):
         text = tree.read(f)
         if text is None:
             continue
+        # A DEFINITION IS CODE. A COMMENT QUOTING THE CONVENTION IS NOT.
+        # This file's own header quotes both real declarations verbatim to
+        # explain the derivation, and that made it register as a THIRD source
+        # of `.ceo-queue` — so a finding named it alongside the guard that
+        # actually implements the gate, and deleting the real guard would have
+        # left the declaration "alive" in a doc comment. Comment lines are
+        # dropped before matching, which is both more accurate and the reason
+        # a header may go on quoting the convention it documents.
+        code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
         for rx in (DECL_BASH, DECL_ASSIGN):
-            for m in rx.finditer(text):
+            for m in rx.finditer(code):
                 decls.setdefault(m.group(2), set()).add(f)
     return decls
 
