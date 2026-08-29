@@ -41,6 +41,18 @@ import {
 import { encodeMessage, FrameDecoder } from '../lib/stdio.js';
 import { SessionSink } from '../lib/host-handlers.js';
 import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
+import {
+  phoneticKey,
+  phoneticSimilarity,
+  askCandidates,
+  askKey,
+  applyLedger,
+  answerAsk,
+  matchHeard,
+  reviewSent,
+  ASK_MIN_PHONETIC,
+  MATCH_WINDOW_MS,
+} from '../lib/dictation.js';
 import { parseChannels, parseVolume, parseSilenceLog, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
 import { resolveTier, MODEL_TIERS, DEFAULT_TIER, whisperArgs, MAX_CONTEXT_TOKENS } from '../lib/config.js';
@@ -1943,6 +1955,199 @@ test('SILENCE vs DELETION side by side: silent on the silence, loud on the claus
   const silence = report.rejected.find((r) => r.startMs === 20000);
   assert.ok(silence, 'the silent burst was examined, not skipped');
   assert.equal(silence.verdict, 'not-speech');
+});
+
+// ---------------------------------------------------------------------------------------
+// The correction flywheel, DICTATION half — "ASK, NEVER INFER" (ceo-decisions.md §7)
+//
+// Two properties are load-bearing and both are asserted below rather than described:
+//   1. NOTHING here learns without a human answer. `reviewSent` produces questions and no route
+//      from it reaches a vocabulary write.
+//   2. The ask stays SILENT on a change of mind, and — the part the shipped orthographic gate got
+//      wrong — it SPEAKS UP on a mis-hearing that sounds close and is spelled far apart.
+// ---------------------------------------------------------------------------------------
+
+test('phoneticKey hears b and p as one sound, which is what an orthographic gate cannot do', () => {
+  assert.equal(phoneticKey('Briella'), phoneticKey('Priella'), 'b/p differ only in spelling');
+  assert.equal(phoneticKey('Everlock'), phoneticKey('EverLock'), 'casing is not sound');
+  assert.equal(phoneticKey('Brightmoor'), phoneticKey('Brightmore'), 'a trailing vowel is not sound');
+  assert.equal(phoneticKey('aeiou'), '', 'a term with no classifiable consonant has no key');
+});
+
+test('the phonetic leg catches the mis-hearing the orthographic gate documents as its own blind spot', () => {
+  // ceo-decisions.md §7: "an orthographic gate stays silent on exactly the worst ASR failures,
+  // where the mis-hearing sounds close but is spelled far apart (Deke Graham -> Deepgram)".
+  const orth = similarity(normalizeTerm('Deke Graham'), normalizeTerm('Deepgram'));
+  const phon = phoneticSimilarity('Deke Graham', 'Deepgram');
+  assert.ok(phon > orth, `sound (${phon.toFixed(2)}) beats spelling (${orth.toFixed(2)}) on this pair`);
+  assert.ok(phon >= ASK_MIN_PHONETIC, 'and it clears the phonetic floor, so the ask happens');
+});
+
+test('"ship Thursday" -> "ship Friday" is a CHANGE OF MIND and produces no ask at all', () => {
+  const { asks, rejected } = askCandidates('We should ship Thursday.', 'We should ship Friday.');
+  assert.equal(asks.length, 0, 'a change of mind is never a vocabulary question');
+  assert.ok(rejected.length >= 1, 'and the silence is explained, not merely empty');
+  assert.match(rejected[0].reason, /change of mind/);
+});
+
+test('a term-shaped mis-hearing DOES ask, and names which leg let it through', () => {
+  const { asks } = askCandidates(
+    'The deep graham integration lands Tuesday.',
+    'The Deepgram integration lands Tuesday.',
+  );
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].to, 'Deepgram');
+  assert.equal(asks[0].from, 'deep graham');
+  assert.ok(['spelling', 'sound', 'both'].includes(asks[0].leg));
+});
+
+test('a lone-token mis-hearing that the LEARN gate rejects is still ASKED — the human is the judge', () => {
+  // capture.js rejects "briella" -> "Priya" for inference (lone token, similarity 0.43 < 0.6). Under
+  // §7 that same pair must reach the CEO as a question: similarity decides whether to ASK, never the
+  // answer, and a missed ask loses the correction outright.
+  const inferred = extractTermCorrections('Call Briella at four.', 'Call Priya at four.');
+  assert.equal(inferred.proposals.length, 0, 'the INFERENCE path still refuses to learn it silently');
+  const { asks } = askCandidates('Call Briella at four.', 'Call Priya at four.');
+  assert.equal(asks.length, 1, 'but the ASK path raises it');
+  assert.equal(asks[0].to, 'Priya');
+});
+
+test('"great" -> "Grant" ASKS and is never learned — a false ask is cheap, a wrong lesson is not', () => {
+  // The single most dangerous pair in the whole flywheel: learn it and every future call transcript
+  // starts rewriting the ordinary word "great" as a person's name. §7's answer is not a cleverer
+  // threshold, it is that a human decides. So the ask happens (0.60 spelling, at the bar), nothing is
+  // learned, and ONE "never" retires the question permanently.
+  const { asks } = askCandidates('That was a great result.', 'That was a Grant result.');
+  assert.equal(asks.length, 1, 'asked, because only he knows whether Grant is a person');
+  const res = answerAsk({}, { ...asks[0] }, 'never');
+  assert.equal(res.learn, null, 'and declining to learn it is the whole point');
+  assert.equal(applyLedger(asks, res.ledger).prompts.length, 0, 'asked once, then never again');
+});
+
+test('an ordinary prose edit is not a vocabulary question', () => {
+  const { asks, rejected } = askCandidates('I think we should wait.', 'I think we must wait.');
+  assert.equal(asks.length, 0);
+  assert.match(rejected.map((r) => r.reason).join(' '), /ordinary prose/);
+});
+
+test('a casing-only fix asks nothing — a vocabulary cannot hold it', () => {
+  const { asks, rejected } = askCandidates('the everlock agent', 'the Everlock agent');
+  assert.equal(asks.length, 0);
+  assert.match(rejected.map((r) => r.reason).join(' '), /casing/);
+});
+
+test('a name fix asks about the WHOLE name, never the lone word inside it', () => {
+  // "Hand" -> "Hanna" as a curated mangling would corrupt the ordinary word "hand" forever.
+  const { asks } = askCandidates('I spoke to Rich Hand today.', 'I spoke to Rich Hanna today.');
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].from, 'Rich Hand');
+  assert.equal(asks[0].to, 'Rich Hanna');
+});
+
+test('a wholesale rewrite asks nothing (neither close in spelling nor in sound)', () => {
+  const { asks } = askCandidates('um', 'Marcus Whitfield');
+  assert.equal(asks.length, 0);
+});
+
+test('matchHeard claims a recent, similar dictation', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
+  const m = matchHeard(journal, 'Send the Deepgram numbers to Marla.', { now });
+  assert.ok(m, 'the sent text is recognisably that dictation, corrected');
+  assert.equal(m.entry.id, 'a');
+});
+
+test('matchHeard REFUSES a typed message — this is how a typed sentence stays silent', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
+  assert.equal(matchHeard(journal, 'Remind me to book the flight on Tuesday.', { now }), null);
+});
+
+test('matchHeard REFUSES a dictation older than the window, and one already reconciled', () => {
+  const now = 1_700_000_000_000;
+  const text = 'Send the deep graham numbers to Marla.';
+  assert.equal(matchHeard([{ id: 'a', at: now - MATCH_WINDOW_MS - 1, text }], text, { now }), null, 'stale');
+  assert.equal(matchHeard([{ id: 'a', at: now - 1000, text, consumed: true }], text, { now }), null, 'already answered');
+});
+
+test('matchHeard breaks a tie toward the more recent dictation — he is looking at the last one', () => {
+  const now = 1_700_000_000_000;
+  const text = 'Send the deep graham numbers to Marla.';
+  const m = matchHeard([{ id: 'old', at: now - 60000, text }, { id: 'new', at: now - 2000, text }], text, { now });
+  assert.equal(m.entry.id, 'new');
+});
+
+test('reviewSent on a TYPED message returns no prompts and says why', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
+  const r = reviewSent(journal, 'Book the flight for Tuesday morning.', {}, { now });
+  assert.equal(r.matched, false);
+  assert.equal(r.prompts.length, 0);
+  assert.match(r.reason, /treated as typed/);
+});
+
+test('reviewSent on an UNCHANGED dictation returns no prompts — nothing was corrected', () => {
+  const now = 1_700_000_000_000;
+  const text = 'Send the Deepgram numbers to Marla.';
+  const r = reviewSent([{ id: 'a', at: now - 5000, text }], text, {}, { now });
+  assert.equal(r.matched, true);
+  assert.equal(r.prompts.length, 0);
+  assert.match(r.reason, /sent unchanged/);
+});
+
+test('reviewSent asks the exact sentence §7 specifies', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'The deep graham contract is signed.' }];
+  const r = reviewSent(journal, 'The Deepgram contract is signed.', {}, { now });
+  assert.equal(r.prompts.length, 1);
+  assert.equal(r.prompts[0].prompt, 'Add "Deepgram" to your vocabulary?');
+  assert.equal(r.prompts[0].askedBefore, false);
+});
+
+test('NO route out of reviewSent carries a learn — the review cannot change what the system believes', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'The deep graham contract is signed.' }];
+  const r = reviewSent(journal, 'The Deepgram contract is signed.', {}, { now });
+  assert.equal(r.learn, undefined, 'the review returns questions, never an instruction');
+  assert.ok(r.prompts.every((p) => p.learn === undefined));
+});
+
+test('a DECLINE is not permanent: the very next repeat asks again, and says it has asked before', () => {
+  const ask = { from: 'deep graham', to: 'Deepgram', key: askKey('deep graham', 'Deepgram') };
+  const first = answerAsk({}, ask, 'decline');
+  assert.equal(first.learn, null, 'a decline learns nothing');
+  const { prompts } = applyLedger([ask], first.ledger);
+  assert.equal(prompts.length, 1, 'asked again on the next repeat — no threshold, no cool-off');
+  assert.equal(prompts[0].askedBefore, true);
+  assert.match(prompts[0].prompt, /you corrected this before/);
+});
+
+test('"don\'t ask for this term again" is permanent, and lands on an INSPECTABLE list', () => {
+  const ask = { from: 'great', to: 'Grant', key: askKey('great', 'Grant') };
+  const res = answerAsk({}, ask, 'never');
+  assert.equal(res.learn, null);
+  assert.deepEqual(res.ledger.suppressed, [askKey('great', 'Grant')], 'readable, not a hash');
+  const after = applyLedger([ask], res.ledger);
+  assert.equal(after.prompts.length, 0, 'never asked again');
+  assert.equal(after.suppressed.length, 1, 'and the suppression is reported, not silent');
+});
+
+test('CONFIRM is the only answer that yields a vocabulary pair', () => {
+  const ask = { from: 'deep graham', to: 'Deepgram', key: askKey('deep graham', 'Deepgram') };
+  assert.deepEqual(answerAsk({}, ask, 'confirm').learn, { canonical: 'Deepgram', mangled: 'deep graham' });
+  assert.equal(answerAsk({}, ask, 'decline').learn, null);
+  assert.equal(answerAsk({}, ask, 'never').learn, null);
+  assert.throws(() => answerAsk({}, ask, 'probably'), /unknown answer/);
+});
+
+test('a confirmed pair goes in by the SAME explicit path learn-term uses, version bump included', () => {
+  const ask = { from: 'deep graham', to: 'Deepgram', key: askKey('deep graham', 'Deepgram') };
+  const { learn } = answerAsk({}, ask, 'confirm');
+  const doc = { schemaVersion: 1, version: '2026-08-01', entities: [] };
+  const res = learnTerm(doc, { canonical: learn.canonical, mangled: learn.mangled }, { today: '2026-08-29' });
+  assert.equal(res.changed, true);
+  assert.equal(res.doc.version, '2026-08-29');
+  assert.deepEqual(res.doc.entities[0].mangled, ['deep graham']);
 });
 
 // ---------------------------------------------------------------------------------------
