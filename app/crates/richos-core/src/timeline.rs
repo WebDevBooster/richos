@@ -1047,6 +1047,28 @@ pub(crate) fn activity_item(
     // it is in machinery.rs: the CEO must never see that a rotation happened.
     let visibility = if row.internal || row.kind == MachineryKind::Thought || internal_turn {
         Visibility::Internal
+    } else if row.kind == MachineryKind::Unknown {
+        // AN UNTYPED VENDOR KIND IS A TECHNICAL ROW, NOT A CEO ROW.
+        //
+        // Corrected 2026-08-29, slice 3, by running a real ACP turn rather than reasoning
+        // about one. `usage_update`, `available_commands_update` and `session_info_update`
+        // all land here (machinery.rs:231), and this branch previously returned `Ceo` —
+        // which the comment on `activity_type_of` already contradicted by calling them
+        // "one dim TECHNICAL row". The measured cost of the contradiction, from
+        // `examples/live_events_roundtrip.rs` against a live session on 2026-08-29: ONE
+        // real command produced SIX CEO-facing rows reading *"Worked"* with
+        // `state: unknown` (shared-sequence positions 0, 1, 5, 8, 12, 13) against ONE
+        // *"Ran a command"* — a 6:1 noise ratio, and the probe measured 50 usage_updates
+        // across five runs, so a longer turn is worse.
+        //
+        // "Worked" is not a thing Rich did; it is an accounting update with no semantic
+        // line available, and §5.3's CEO default is a SEMANTIC row. Nothing is lost: the
+        // record is still routed, still retained, still on `rich://machinery`, and still
+        // rendered in technical mode with its vendor kind in `detail.vendor_kind`.
+        //
+        // A `ToolCall` whose payload merely failed to classify is NOT affected — that is
+        // real work with an unrefined type, and it stays CEO-facing as "Worked".
+        Visibility::Technical
     } else {
         // Everything else is a CEO-visible SEMANTIC row whose technical half (the exact
         // command, the output preview, the paths) is carried in `detail` and removed

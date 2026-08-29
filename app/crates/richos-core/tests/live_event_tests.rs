@@ -684,6 +684,64 @@ fn model_reasoning_and_internal_machinery_never_reach_the_calm_family() {
     let _ = std::fs::remove_file(&path);
 }
 
+#[test]
+fn an_accounting_update_is_not_a_thing_rich_did() {
+    // FOUND BY RUNNING A REAL TURN, not by reading the code
+    // (examples/live_events_roundtrip.rs, live session 2026-08-29): `usage_update`,
+    // `available_commands_update` and `session_info_update` all normalize to
+    // MachineryKind::Unknown, and slice 2a stamped those Visibility::Ceo — so ONE real
+    // command produced SIX CEO rows reading "Worked" (positions 0, 1, 5, 8, 12, 13)
+    // against ONE "Ran a command". A 6:1 noise ratio on the calm timeline, and the ACP
+    // probe measured 50 usage_updates across five runs, so a longer turn is worse.
+    let (path, ledger) = tmp_ledger("accounting");
+    let mut spine = Spine::new(ledger);
+    spine.create_thread("General", &femcboost()).unwrap();
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![
+            Beat::Update(json!({"sessionUpdate": "usage_update", "used": 30477, "size": 1000000})),
+            Beat::Update(tool_open("toolu_A", "Bash", "execute")),
+            Beat::Update(tool_close("toolu_A", "git rev-parse HEAD", "39a0968")),
+            Beat::Update(json!({"sessionUpdate": "available_commands_update", "commands": []})),
+            Beat::Text("It is 39a0968."),
+        ],
+    )));
+    let live = RecordingLive::default();
+    let machinery = RecordingMachinery::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    spine.set_machinery_observer(Box::new(machinery.clone()));
+    spine.submit_prompt("what is HEAD", Source::Text).unwrap();
+
+    let upserts = live.of("rich://activity-upserted");
+    let summaries: Vec<&str> = upserts.iter().map(|p| p["summary"].as_str().unwrap()).collect();
+    assert!(
+        summaries.iter().all(|s| *s == "Ran a command"),
+        "the calm family carries the one real action and no accounting rows: {summaries:?}"
+    );
+    assert!(!summaries.contains(&"Worked"), "\"Worked\" is not a thing Rich did");
+
+    // NOTHING IS LOST. All four records were routed and retained, and the two untyped
+    // ones still render in TECHNICAL mode with their vendor kind intact.
+    assert_eq!(machinery.records.lock().unwrap().len(), 4, "every record is still routed");
+    let records = machinery.records.lock().unwrap().clone();
+    let binding = spine.ledger().thread_binding(spine.active_thread().unwrap()).unwrap();
+    let timeline = Timeline::project(spine.ledger(), &binding, &records).unwrap();
+    let technical: Vec<String> = timeline
+        .view(ViewMode::Technical)
+        .items()
+        .iter()
+        .filter_map(|i| match i {
+            richos_core::timeline::TimelineItem::Activity { detail, .. } => {
+                detail.as_ref().and_then(|d| d.vendor_kind.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(technical, vec!["usage_update", "available_commands_update"], "§1.4 G5's dim technical lines");
+
+    let _ = std::fs::remove_file(&path);
+}
+
 // ===========================================================================
 // 6. THE CROSS-ENTITY NEGATIVE CONTROL
 // ===========================================================================
