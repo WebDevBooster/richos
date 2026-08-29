@@ -213,7 +213,7 @@ left out. What ships here is only what transfers to any project:
 | Raw-Bash main-write guard | `scripts/hooks/guard-bash-main-writes.sh` | Blocks a raw `Bash` command that writes into a protected source tree in the shared MAIN checkout (a compound `cd <root> && mkdir/cp/rm <tree>/…` or an absolute-path write) — the cwd-default drift vector the Write/Edit guard never sees, which otherwise surfaces as an interactive permission prompt to the human operator. Auto-denies with worktree guidance so the worker self-corrects. Protected trees from `PROTECTED_PATHS`; main-root resolved via `resolve-main-checkout.sh` (no hardcoded paths) |
 | 60-second proof | `scripts/demo.sh` (+ `scripts/demo.test.sh`) | One-command, unattended demo that drives the real hooks + real git mechanics through block → build → reject → fix → land, ending in a pass/fail verdict — see "60-second proof" above |
 | Test runner | `scripts/run-all-tests.sh` | Runs EVERY `*.test.sh` suite in the engine, DISCOVERED from disk rather than globbed at one directory, and reports a derived fraction. Exists because `scripts/hooks/*.test.sh` — the loop quoted as "18/18 suites green" at every land — omitted five suites, two of which were red on `main` for a day. Refuses to report green over an empty inventory. `--list` / `--verbose` |
-| CI self-verification | `.github/workflows/engine-self-verify.yml` | Ready-to-commit GitHub Actions workflow — runs `run-all-tests.sh` + the probe + the demo on every push/PR, turning engine integrity into a standing guarantee. **Copy it to YOUR repository root**: Actions only discovers workflows in a root-level `.github/workflows/`, so a copy left under `engine/` never fires. See "CI" below + `docs/ci-portability-notes.md` |
+| CI self-verification | `.github/workflows/engine-self-verify.yml` + `scripts/ci-verify.sh` | Ready-to-commit GitHub Actions workflow — runs `run-all-tests.sh` + `install.sh` + the probe + the demo on every push/PR, turning engine integrity into a standing guarantee. The YAML is a thin caller; **`scripts/ci-verify.sh` is the single place the steps are written down**, so the adopter template and this engine's own root workflow cannot drift (and so "what does CI do?" is one command you can run locally). **The workflow must sit at YOUR repository root**: Actions only discovers workflows in a root-level `.github/workflows/`, so a copy left under `engine/` never fires — the engine's own copy sat there, unreachable, and had never executed once until 2026-08-29. See "CI" below + `docs/ci-portability-notes.md` |
 | Full walkthrough | `WALKTHROUGH.md` | One feature traced through the complete lifecycle — wiki consult, real spawn, commit-is-the-handoff, single-writer land, the full 4-step QA pipeline with a genuine FIX-FIRST bounce, gatekeeper signoff — illustrative narrative, not a captured transcript; `scripts/demo.sh` is its runnable counterpart |
 | White-glove onboarding | `ONBOARDING-RUNBOOK.md` | The operator's timed script for a live setup session with a non-technical CEO — preflight checklist/email template, exact commands + expected-green output per step, realistic ~60-90 min timings, the common-stall playbook, and a machine-checkable definition of done |
 | Guided setup | `skills/bootstrap-interview/SKILL.md` | First-session orchestrator skill: interviews the CEO (~20 min, resumable), then fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages from the interview itself — the recommended path through "Adopter flow" below |
@@ -255,7 +255,9 @@ orphan folders:
 ├── .github/
 │   └── workflows/
 │       └── engine-self-verify.yml — ready-to-commit CI: suites + probe + demo
-│                                  on every push/PR (see "CI" below)
+│                                  on every push/PR. MUST end up at your
+│                                  REPOSITORY ROOT — Actions discovers
+│                                  workflows nowhere else (see "CI" below)
 ├── assets/                      — vendored static assets (fonts, logos, sounds,
 │                                  images) — local-only by convention
 ├── ceo-briefings/                — committed sprint/milestone briefs (shipped,
@@ -420,9 +422,13 @@ scaffold.
    deploy/device pipeline, adapt `reference/advanced-tier/` and flip
    `ENABLE_QA_INSTALL_FRESH_GATE=1` in `orchestration.config`. Skip it otherwise —
    the mechanical layer stands alone.
-6. **Commit `.github/workflows/engine-self-verify.yml`** (already in the repo,
-   ready as-is) so the same checks keep running on every future push/PR —
-   see "CI — the engine keeps guarding itself" below.
+6. **Commit `.github/workflows/engine-self-verify.yml` AT YOUR REPOSITORY
+   ROOT** (already in the repo, ready as-is) so the same checks keep running on
+   every future push/PR — then **check `gh run list` and confirm it actually
+   ran.** GitHub Actions discovers workflows only in a root-level
+   `.github/workflows/`; a copy anywhere else is inert and silent, which is
+   exactly how this engine's own self-verification went months without
+   executing once. See "CI — the engine keeps guarding itself" below.
 7. **Stay current.** The engine is versioned (see `VERSION` / `VERSIONING.md`);
    when a new release ships a hook hardening, a new skill, or a fix, pull it
    with [`UPGRADING.md`](./UPGRADING.md) — it spells out which files are yours
@@ -578,17 +584,38 @@ layer set's negative controls — every layer shown failing for its own reason.
 `.github/workflows/engine-self-verify.yml` ships ready to commit as-is — no
 edits needed, nothing repo-specific to fill in. It runs on every push/PR
 (`ubuntu-latest`) and repeats exactly what "Verify the engine works" above does
-by hand: `bash -n` on every shipped script, every hook `*.test.sh` suite,
-`install.sh` + `contract-integrity-probe.sh` against your committed config,
-and `scripts/demo.sh` (asserting 7/7 beats). This converts the engine's
-integrity from a one-time manual check into a **standing guarantee inside
-your own repo** — a deleted settings key, a modified hook, or a broken probe
-surfaces immediately in CI on the very next push, instead of as a silent
-total failure at some future session start (exactly the
-`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` incident this README warns about
-above). The engine was developed on macOS; this workflow runs on Linux, and
-`docs/ci-portability-notes.md` records exactly what was checked (and the one
-cosmetic-only fix applied) to back up that claim rather than assume it.
+by hand, by calling one script:
+
+```
+scripts/ci-verify.sh
+```
+
+That script — not the YAML — is where the six steps are written down: tool +
+git-identity preconditions, `bash -n` on every shipped script, **every** test
+suite via `run-all-tests.sh` (discovered from disk, never globbed at one
+directory), `install.sh` to mint the gitignored `.sha256` sidecars a fresh clone
+has none of, `contract-integrity-probe.sh`, and `scripts/demo.sh` asserting 7/7
+beats. Run it yourself before you push; CI runs the identical thing.
+
+This converts the engine's integrity from a one-time manual check into a
+**standing guarantee inside your own repo** — a deleted settings key, a modified
+hook, or a broken probe surfaces immediately in CI on the very next push,
+instead of as a silent total failure at some future session start (exactly the
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` incident this README warns about above).
+
+**Put it at your repository root, then confirm it ran.** Actions discovers
+workflows ONLY in a root-level `.github/workflows/`. This engine's own copy
+lived under `engine/` — correct as a template for an adopter who copies the
+engine's contents to their root, and completely inert in the engine's own
+repository, where it had never executed a single time. `gh run list` returned
+nothing. A workflow file is not CI; an executed run is.
+
+The engine is developed on macOS and this runs on Linux. The first execution
+found three real defects the pre-CI portability audit had missed — including one
+in shipped enforcement code, not a test. `docs/ci-portability-notes.md` records
+all three, what was fixed, and the one layer set CI honestly cannot cover
+(BR1-BR10, which need an operator's `~/.claude` registration and are covered
+instead by `scripts/hooks/by-reference.test.sh`).
 
 ## The meta-roles (ship working)
 

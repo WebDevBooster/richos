@@ -75,6 +75,53 @@ version heading with Added / Changed / Fixed groupings.
   `landing-page-redesign`, from `taste-skill` @ `72e29953` (MIT), each
   scope-pinned to marketing surfaces only — never product UI. See
   `engine/skills/README.md`.
+- **`scripts/ci-verify.sh` — the engine's full self-verification as ONE
+  command**, and the single place CI's steps are written down: preconditions
+  (tool versions + a git identity), `bash -n` on every shipped script, every
+  suite via `run-all-tests.sh`, `install.sh`, the integrity probe, and
+  `demo.sh` asserting 7/7 beats. Both GitHub Actions workflows — the adopter
+  template under `.github/` and this repository's own root-level copy — are now
+  thin callers of it, because two YAML files each spelling out the same six
+  steps is a typed inventory in a different costume. Runnable by hand, so
+  "what does CI do?" has an answer you can execute before you push.
+
+### Fixed
+
+- **The engine's self-verification CI had never executed once.** GitHub Actions
+  discovers workflows ONLY in a repository-ROOT `.github/workflows/`; the
+  engine's only copy sat under `engine/`, correct as an adopter template and
+  completely inert in the engine's own repository. `gh run list` returned
+  nothing at all. Not broken — unreachable, and silent about it, while two test
+  suites sat red on `main` for a day. A root-level workflow now runs everything
+  on every push/PR. **This is the enforcement that would have caught every other
+  defect fixed on 2026-08-29**, each of which had the same shape: a correct rule
+  with nothing enforcing it.
+- **`contract-integrity-probe.sh` reported two hard gates as NOT WIRED on any
+  bash >= 4** (i.e. on every Linux host). The array holding the wired
+  PreToolUse[Bash] commands was named `BASH_CMDS` — bash's own **reserved
+  associative** command-hash table since 4.0. `BASH_CMDS=()` does not make it
+  indexed, so every appended element read back as the empty string, and Layers
+  **O** (Bash main-write guard) and **S** (worktree-removal guard) failed on
+  checkouts where both guards were correctly wired. Invisible on macOS, which
+  ships bash 3.2 and has no such variable. Renamed to `BASH_MATCHER_CMDS`.
+  Fail-closed throughout — nothing was ever let through — but a gate that cries
+  wolf on every Linux adopter is a gate people learn to ignore.
+- **`mktemp -t <template-with-no-Xs>` hard-fails on GNU coreutils** (`too few
+  X's in template`) while BSD/macOS accepts it and appends its own suffix. Five
+  such call sites, all converted to the explicit
+  `mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX"` form. One of them was in
+  **`scripts/hooks/guard-workflow-ban.sh` — shipped enforcement code, not a
+  test** — whose self-test and unadopted-repo path were broken on every Linux
+  host; the other four broke 15 assertions across
+  `scan-secrets.test.sh` and `detect-nonnative-worktree.test.sh`. The pre-CI
+  portability audit had examined this exact divergence and classified it
+  "cosmetic, non-breaking"; it had only looked at templates that contained X's.
+- **`docs/ci-portability-notes.md` was an audit presented as a result.** It now
+  leads with what the first real Linux execution found, records the three
+  defects the read-through missed, and names the one layer set CI honestly
+  cannot cover (the by-reference layers BR1-BR10, which need an operator's
+  user-scope `~/.claude` plugin registration and are covered instead by
+  `scripts/hooks/by-reference.test.sh`).
 
 ## [1.0.0] — 2026-08-20 — the fork
 
