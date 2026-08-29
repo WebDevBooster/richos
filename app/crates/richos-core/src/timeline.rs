@@ -575,7 +575,7 @@ impl TimelineItem {
     ///
     /// Applied by [`Timeline::view`] for `ViewMode::Ceo`. The bytes are GONE from the
     /// returned value — a CEO view cannot leak a command it does not contain.
-    fn redacted(mut self) -> Self {
+    pub(crate) fn redacted(mut self) -> Self {
         match &mut self {
             TimelineItem::Activity { detail, .. } => *detail = None,
             TimelineItem::WorkDuration { detail, .. } => *detail = None,
@@ -781,7 +781,20 @@ impl Timeline {
                 continue;
             };
             let turn = turns[i];
-            buckets[i].push(activity_item(&row, turn, &entity, binding.binding_revision(), &types, &last_seen));
+            // The binding's thread id, not the record's — clause 1 above proved they are
+            // equal, and passing the VERIFIED one means the projected item is stamped from
+            // the scope that was checked rather than from the record that was checked.
+            let internal_turn = turn.source == Source::Internal || turn.superseded_by.is_some();
+            buckets[i].push(activity_item(
+                &row,
+                &entity,
+                binding.thread_id(),
+                &turn.id,
+                binding.binding_revision(),
+                internal_turn,
+                &types,
+                &last_seen,
+            ));
         }
 
         let mut items = Vec::new();
@@ -1003,11 +1016,24 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
 // ---------------------------------------------------------------------------
 
 /// One activity row from one merged machinery record.
-fn activity_item(
+///
+/// Takes the SCOPE explicitly rather than a `&Turn`, so the LIVE path (`live.rs`, which
+/// has a fence and a record but no folded `Turn` yet) and the RELOAD path (`project`,
+/// which has both) run the same function over the same rules. That is what makes the
+/// wire and a reload agree by construction instead of by two implementations agreeing to
+/// behave — see `tests/live_event_tests.rs::the_wire_and_the_reload_agree_on_every_field`.
+///
+/// `internal_turn` folds the caller's two whole-turn demotions (an `Internal`-source turn,
+/// a superseded replay) into one flag; the record's own `internal` bit and its kind are
+/// still consulted below.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn activity_item(
     row: &MachineryRecord,
-    turn: &Turn,
     entity: &EntityId,
+    thread_id: &str,
+    turn_id: &str,
     revision: u64,
+    internal_turn: bool,
     types: &HashMap<String, ActivityType>,
     last_seen: &HashMap<String, u64>,
 ) -> TimelineItem {
@@ -1019,12 +1045,30 @@ fn activity_item(
     // `Internal`, so no mode can surface it.
     // An `internal` record (re-prime, rotation, handoff) is internal for the same reason
     // it is in machinery.rs: the CEO must never see that a rotation happened.
-    let visibility = if row.internal
-        || row.kind == MachineryKind::Thought
-        || turn.source == Source::Internal
-        || turn.superseded_by.is_some()
-    {
+    let visibility = if row.internal || row.kind == MachineryKind::Thought || internal_turn {
         Visibility::Internal
+    } else if row.kind == MachineryKind::Unknown {
+        // AN UNTYPED VENDOR KIND IS A TECHNICAL ROW, NOT A CEO ROW.
+        //
+        // Corrected 2026-08-29, slice 3, by running a real ACP turn rather than reasoning
+        // about one. `usage_update`, `available_commands_update` and `session_info_update`
+        // all land here (machinery.rs:231), and this branch previously returned `Ceo` —
+        // which the comment on `activity_type_of` already contradicted by calling them
+        // "one dim TECHNICAL row". The measured cost of the contradiction, from
+        // `examples/live_events_roundtrip.rs` against a live session on 2026-08-29: ONE
+        // real command produced SIX CEO-facing rows reading *"Worked"* with
+        // `state: unknown` (shared-sequence positions 0, 1, 5, 8, 12, 13) against ONE
+        // *"Ran a command"* — a 6:1 noise ratio, and the probe measured 50 usage_updates
+        // across five runs, so a longer turn is worse.
+        //
+        // "Worked" is not a thing Rich did; it is an accounting update with no semantic
+        // line available, and §5.3's CEO default is a SEMANTIC row. Nothing is lost: the
+        // record is still routed, still retained, still on `rich://machinery`, and still
+        // rendered in technical mode with its vendor kind in `detail.vendor_kind`.
+        //
+        // A `ToolCall` whose payload merely failed to classify is NOT affected — that is
+        // real work with an unrefined type, and it stays CEO-facing as "Worked".
+        Visibility::Technical
     } else {
         // Everything else is a CEO-visible SEMANTIC row whose technical half (the exact
         // command, the output preview, the paths) is carried in `detail` and removed
@@ -1042,8 +1086,8 @@ fn activity_item(
             // after restart yields the same item id.
             id: row.machinery_id.clone(),
             entity_id: entity.clone(),
-            thread_id: row.thread_id.clone(),
-            turn_id: turn.id.clone(),
+            thread_id: thread_id.to_string(),
+            turn_id: turn_id.to_string(),
             binding_revision: revision,
             created_at: row.at,
             updated_at: updated,
@@ -1180,7 +1224,7 @@ fn resolve_last_seen(records: &[&MachineryRecord]) -> HashMap<String, u64> {
 /// Classify one raw ACP tool payload. The vendor's real tool name first (it is specific),
 /// then the coarse ACP `kind`. Anything unrecognised returns `None` rather than a guess,
 /// and `None` becomes `Other`.
-fn classify(payload: &Value) -> Option<ActivityType> {
+pub(crate) fn classify(payload: &Value) -> Option<ActivityType> {
     if let Some(name) =
         payload.get("_meta").and_then(|m| m.get("claudeCode")).and_then(|c| c.get("toolName")).and_then(|v| v.as_str())
     {

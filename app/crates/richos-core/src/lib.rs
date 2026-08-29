@@ -14,6 +14,8 @@
 //!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
+//!   - `live`      — the ADDITIVE live-work event family (UX brief §13): typed turn status,
+//!                   message phase, and semantic activity, beside `stream` — never replacing it.
 //!   - `machinery` — the SECOND event family: every non-text ACP update, routed not dropped.
 //!   - `journal`   — the per-thread, day-sharded machinery journal (separate store; not the ledger).
 //!   - `timeline`  — the TYPED TIMELINE records (UX brief §12): the projection a renderer
@@ -29,6 +31,7 @@ pub mod config;
 pub mod entity;
 pub mod journal;
 pub mod ledger;
+pub mod live;
 pub mod machinery;
 pub mod reprime;
 pub mod spine;
@@ -46,6 +49,11 @@ pub use entity::{
 };
 pub use journal::MachineryJournal;
 pub use ledger::{AttentionTier, Ledger, Message, Source, TextRun, TurnState};
+pub use live::{
+    EventFence, LiveEvent, LiveObserver, ThreadStatus, TurnStatus, EVENT_ACTIVITY_UPSERTED,
+    EVENT_MESSAGE_COMPLETED, EVENT_MESSAGE_DELTA, EVENT_MESSAGE_STARTED, EVENT_THREAD_SUMMARY_UPDATED,
+    EVENT_TURN_STATUS, STREAMED_MESSAGE_PHASE,
+};
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 pub use reprime::{LoroContextCompiler, RePrimePayload};
 pub use spine::{Spine, SpineError};
