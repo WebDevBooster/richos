@@ -80,6 +80,7 @@ ALL_HOOKS=(
     scan-secrets.sh
     guard-publication-writes.sh
     guard-publication-commits.sh
+    guard-ceo-queue-commits.sh
     guard-resume-isolation.sh
     guard-workflow-ban.sh
     detect-nonnative-worktree.sh
@@ -106,6 +107,11 @@ ALL_ROOT_SCRIPTS=(
     # without it, so a sandbox missing it would model an engine that cannot run.
     scripts/lib/publication-boundary.sh
     scripts/lib/publication-boundary.py
+    # The CEO-queue predicate. guard-ceo-queue-commits.sh refuses to start
+    # without ceo-queue.sh, so a sandbox missing it would model an engine that
+    # cannot run — the same reason the publication pair is on this list.
+    scripts/lib/ceo-queue.sh
+    scripts/lib/ceo-queue.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
