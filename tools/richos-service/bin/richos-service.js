@@ -11,6 +11,11 @@
  *   richos-service mark-superseded ...   # record a companion's takeover of a dead browser call
  *   richos-service learn-term ...        # correction flywheel: fold an explicit "the term is X" fix into loro entities
  *   richos-service learn-from-edits <id> # correction flywheel: propose (or --apply) term fixes from a CEO-edited transcript
+ *   richos-service correct-text          # correction flywheel: apply the shared vocabulary to DICTATION text
+ *   richos-service dictation-review ...  # correction flywheel: what to ASK about a corrected dictation (learns nothing)
+ *   richos-service dictation-answer ...  # correction flywheel: the CEO's answer — the only way a dictation pair is learned
+ *   richos-service dictation-asks        # the inspectable suppression list
+ *   richos-service dictation-retention   # what persisting dictation costs, and what ages out
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
  * Common flags: --zone <dir> (override the drop zone), --model <id>.
@@ -25,8 +30,16 @@ import { decideClaimOnDisk, findPromotableOnDisk, markSuperseded } from '../lib/
 import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
 import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
 import { ffmpegVersion } from '../lib/normalize.js';
-import { entitiesFilePath } from '../lib/entities.js';
+import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 import { learnTerm, learnFromEdits, serializeEntitiesDoc } from '../lib/capture.js';
+import { correctText } from '../lib/correct.js';
+import { reviewSent, answerAsk, askKey, MATCH_WINDOW_MS } from '../lib/dictation.js';
+import {
+  journalRoot, loadJournal, loadLedger, saveLedger, markReconciled, withConsumed,
+  surveyJournal, sweepRetention, costPerHour,
+  TEXT_RETENTION_DAYS, TEXT_RETENTION_RECORDS, AUDIO_RETENTION_DAYS, AUDIO_RETENTION_BYTES,
+} from '../lib/dictation-store.js';
+import { expand } from '../lib/config.js';
 import { log } from '../lib/log.js';
 
 function flag(name, fallback = null) {
@@ -244,6 +257,162 @@ function main() {
       break;
     }
 
+    case 'correct-text': {
+      // THE DICTATION SIDE OF THE ONE SHARED VOCABULARY — the seam that made `entities.json` a
+      // single-reader database. open-wispr calls this between whisper-cli and the paste, so a term
+      // the CEO taught the system once is spelled right in dictation as well as in call transcripts.
+      //
+      // IT CALLS `correctText()`, THE EXACT FUNCTION THE CALL PIPELINE CALLS (`lib/correct.js`, via
+      // `correct()` at `lib/pipeline.js`). Not a second implementation, not a lookup table built
+      // beside it: one corrector, so dictation cannot drift from what a call transcript would say.
+      //
+      //   richos-service correct-text --text "..."      # or pipe the text on stdin
+      //
+      // FAILURE POSTURE: this sits in the paste path of a dictation. It must NEVER be the reason a
+      // dictation produces nothing, so every failure below echoes the input back unchanged and
+      // reports on stderr. Correction is an accuracy enhancement, never a dependency.
+      const text = flag('text') && flag('text') !== true ? String(flag('text')) : readStdin();
+      try {
+        const file = flag('file') ? path.resolve(String(flag('file'))) : entitiesFilePath();
+        const mem = loadEntityMemory(file);
+        const res = correctText(text, mem.entities);
+        if (flag('json') === true) {
+          console.log(JSON.stringify({
+            text: res.text, corrections: res.corrections,
+            entitiesVersion: mem.entitiesVersion, entitiesSource: mem.source,
+          }, null, 2));
+        } else {
+          process.stdout.write(res.text);
+        }
+      } catch (err) {
+        process.stderr.write(`correct-text: ${String(err.message || err)} — passing the text through unchanged\n`);
+        process.stdout.write(text);
+      }
+      process.exit(0);
+      break;
+    }
+
+    case 'dictation-review': {
+      // ASK, NEVER INFER (ceo-decisions.md §7). Given what the CEO actually sent, find the dictation
+      // it came from and report what is worth ASKING about. It learns NOTHING — there is deliberately
+      // no `--apply` on this command at all. `dictation-answer` is the only way a pair is learned,
+      // and it requires a human answer.
+      //
+      //   richos-service dictation-review --sent "..." [--journal <dir>] [--now <ms>]
+      const sent = flag('sent') && flag('sent') !== true ? String(flag('sent')) : readStdin();
+      if (!sent.trim()) fail('dictation-review requires --sent "<what you sent>" (or the text on stdin)');
+      const root = flag('journal') ? expandPath(String(flag('journal'))) : journalRoot();
+      const now = flag('now') ? Number(flag('now')) : Date.now();
+      const ledger = loadLedger(root);
+      const journal = withConsumed(loadJournal({ root, sinceMs: now - MATCH_WINDOW_MS }), ledger);
+      const res = reviewSent(journal, sent, ledger, { now });
+      console.log(JSON.stringify({
+        journal: root,
+        matched: res.matched,
+        entry: res.entry ? { id: res.entry.id, at: res.entry.at, heard: res.entry.text } : null,
+        similarity: res.similarity ?? null,
+        reason: res.reason,
+        // These are QUESTIONS. Answer one with `dictation-answer --from ... --to ... --confirm`.
+        prompts: res.prompts,
+        suppressed: res.suppressed,
+        // Returned, not discarded: silence that cannot be audited cannot be trusted.
+        rejected: res.rejected,
+      }, null, 2));
+      process.exit(0);
+      break;
+    }
+
+    case 'dictation-answer': {
+      // THE HUMAN STATEMENT. The one place in the dictation flywheel where the system's beliefs
+      // change, and it cannot be reached except by someone answering the question.
+      //
+      //   richos-service dictation-answer --from "deep graham" --to "Deepgram" --confirm
+      //   richos-service dictation-answer --from "..." --to "..." --decline   # ask again next repeat
+      //   richos-service dictation-answer --from "..." --to "..." --never     # permanently suppressed
+      const from = flag('from') && flag('from') !== true ? String(flag('from')) : null;
+      const to = flag('to') && flag('to') !== true ? String(flag('to')) : null;
+      if (!from || !to) fail('dictation-answer requires --from "<what was heard>" --to "<the term>" and one of --confirm | --decline | --never');
+      const answer = flag('confirm') === true ? 'confirm' : flag('never') === true ? 'never' : flag('decline') === true ? 'decline' : null;
+      if (!answer) fail('dictation-answer requires exactly one of --confirm | --decline | --never');
+
+      const root = flag('journal') ? expandPath(String(flag('journal'))) : journalRoot();
+      const ask = { from, to, key: askKey(from, to) };
+      let ledger = loadLedger(root);
+      const res = answerAsk(ledger, ask, answer);
+      ledger = { ...ledger, ...res.ledger };
+      if (flag('entry') && flag('entry') !== true) ledger = markReconciled(ledger, String(flag('entry')));
+      saveLedger(ledger, root);
+
+      let learned = null;
+      if (res.learn) {
+        // A confirmed ask is an EXPLICIT correction, so it goes in by the explicit path — the same
+        // `learnTerm` `richos-service learn-term` uses. One writer of the vocabulary, one set of
+        // conflict rules, one version bump.
+        const file = flag('file') ? path.resolve(String(flag('file'))) : entitiesFilePath();
+        const doc = readEntitiesDoc(file);
+        const r = learnTerm(doc, { canonical: res.learn.canonical, mangled: res.learn.mangled, type: flag('type') ? String(flag('type')) : undefined });
+        if (r.changed) fs.writeFileSync(file, serializeEntitiesDoc(r.doc));
+        learned = { file, changed: r.changed, created: r.created, added: r.added, conflicts: r.conflicts, version: r.doc.version };
+        log.info(`learned "${res.learn.canonical}" from a confirmed dictation correction — version -> ${r.doc.version}`);
+      } else {
+        log.info(`"${to}": ${res.outcome}`);
+      }
+      console.log(JSON.stringify({ ask, answer, outcome: res.outcome, learned }, null, 2));
+      process.exit(0);
+      break;
+    }
+
+    case 'dictation-asks': {
+      // THE SUPPRESSION LIST MUST BE INSPECTABLE (§7) — or a term silently refuses to learn with no
+      // way to see why.
+      const root = flag('journal') ? expandPath(String(flag('journal'))) : journalRoot();
+      const ledger = loadLedger(root);
+      console.log(JSON.stringify({
+        journal: root,
+        suppressed: ledger.suppressed,
+        declined: ledger.declined,
+        reconciledEntries: (ledger.reconciled || []).length,
+        override: 'richos-service learn-term --canonical "<term>" --mangled "<observed>" overrides any suppression',
+      }, null, 2));
+      process.exit(0);
+      break;
+    }
+
+    case 'dictation-retention': {
+      // What persisting dictation actually costs, and what the policy would erase. DRY RUN BY
+      // DEFAULT: the first thing anyone should be able to do with a policy that deletes the CEO's
+      // speech is read it.
+      const root = flag('journal') ? expandPath(String(flag('journal'))) : journalRoot();
+      const apply = flag('apply') === true;
+      const survey = surveyJournal(root);
+      const plan = sweepRetention({ root, dryRun: !apply });
+      const cost = costPerHour(loadJournal({ root }));
+      console.log(JSON.stringify({
+        journal: root,
+        policy: {
+          tierA: `text: ${TEXT_RETENTION_DAYS} days OR ${TEXT_RETENTION_RECORDS} records, whichever binds first`,
+          tierB: `audio: OFF by default; when on, ${AUDIO_RETENTION_DAYS} days OR ${AUDIO_RETENTION_BYTES} bytes, whichever binds first`,
+        },
+        onDisk: {
+          dayFiles: survey.days.length,
+          records: survey.days.reduce((a, d) => a + d.records, 0),
+          textBytes: survey.days.reduce((a, d) => a + d.bytes, 0),
+          audioFiles: survey.audio.length,
+          audioBytes: survey.audio.reduce((a, x) => a + x.bytes, 0),
+        },
+        costPerHourOfDictation: cost,
+        dryRun: plan.dryRun,
+        evict: {
+          dayFiles: plan.evictDays.map((d) => ({ day: d.day, records: d.records, bytes: d.bytes, why: d.why })),
+          records: plan.evictedRecords,
+          audioFiles: plan.evictAudio.length,
+          audioBytes: plan.evictedAudioBytes,
+        },
+      }, null, 2));
+      process.exit(0);
+      break;
+    }
+
     case 'doctor': {
       let ok = true;
       try {
@@ -290,10 +459,33 @@ function main() {
           '  richos-service mark-superseded --dead <sessionId> --by <sessionId>',
           '  richos-service learn-term --canonical "<term>" [--mangled "<observed>" ...] [--type t] [--alias a ...] [--fuzzy false] [--case-sensitive] [--min-score n] [--file f]',
           '  richos-service learn-from-edits <sessionId|path/to/transcript.md> [--apply] [--baseline path] [--file f]',
+          '  richos-service correct-text [--text "..."] [--json] [--file f]      # dictation reads the SAME vocabulary as calls',
+          '  richos-service dictation-review --sent "<what you sent>" [--journal dir]   # ASKS; learns nothing',
+          '  richos-service dictation-answer --from "<heard>" --to "<term>" (--confirm|--decline|--never) [--entry id]',
+          '  richos-service dictation-asks [--journal dir]                      # the inspectable suppression list',
+          '  richos-service dictation-retention [--apply] [--journal dir]       # what it costs, and what ages out',
           '  richos-service doctor',
         ].join('\n'),
       );
       process.exit(cmd ? 1 : 0);
+  }
+}
+
+/** `~`-expanding path resolve, so `--journal ~/...` behaves the way every other path flag does. */
+function expandPath(p) {
+  return path.resolve(expand(p));
+}
+
+/**
+ * Read all of stdin, synchronously. `correct-text` sits in the paste path of a dictation, so a
+ * pipe is the natural interface and blocking is correct: there is nothing else to do until the
+ * sentence has arrived. A closed/absent stdin yields '' rather than throwing.
+ */
+function readStdin() {
+  try {
+    return fs.readFileSync(0, 'utf8');
+  } catch {
+    return '';
   }
 }
 
