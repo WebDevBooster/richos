@@ -269,7 +269,17 @@ PY
 # stated. Without it these cases verified whatever repository the harness
 # happened to be launched from, and every wired path would be compared against
 # the wrong canonical location.
-run_install_in() { RICHOS_ENTITY_ROOT="$1" "$1/scripts/hooks/install.sh" "$@" 2>&1; }
+# The `shift` is load-bearing: without it "$@" still holds $1, so the sandbox
+# ROOT was passed to install.sh as a positional argument on every call. It was
+# harmless only because install.sh ignored arguments entirely — and it stopped
+# being harmless the moment install.sh grew --force-engine-pointer and began
+# REFUSING unrecognised ones, which is exactly what strict argument parsing is
+# for. The forwarding itself is kept, since forwarding extra flags is plainly
+# what this line was reaching for.
+run_install_in() {
+    local _root="$1"; shift
+    RICHOS_ENTITY_ROOT="$_root" "$_root/scripts/hooks/install.sh" "$@" 2>&1
+}
 run_probe_in() {
     # CI_PROBE_DEBUG=1 echoes the probe's own ✗ lines to stderr. A harness that
     # reports "expected exit=0 got=2" and nothing else forces whoever is
