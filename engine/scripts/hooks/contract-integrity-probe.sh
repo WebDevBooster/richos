@@ -1312,9 +1312,24 @@ done < <(printf '%s\n' "$WIRED" | awk -F'\t' '$1=="Agent" {print $2}')
 # writes.sh), which auto-DENIES a raw Bash command that writes into a protected
 # tree in the main checkout — the cwd-default drift vector the Write/Edit guard
 # never sees. Capture every Bash-matcher command for the wiring layer below.
-BASH_CMDS=()
+#
+# THE NAME IS LOAD-BEARING: this array must NOT be called `BASH_CMDS`. That is
+# a RESERVED special variable in bash >= 4.0 — the shell's own command hash
+# table, and an ASSOCIATIVE array. `BASH_CMDS=()` does not convert it to an
+# indexed array, and `BASH_CMDS+=("$line")` therefore appends under an empty
+# key: every element reads back as the empty string. macOS ships bash 3.2,
+# which has no such variable, so the collision was invisible on the machine
+# this engine was developed on and only surfaced the first time CI ran the
+# probe on Linux (bash 5.2, 2026-08-29). The damage was silent and specific:
+# Layers O and S found no Bash-matcher command, and reported the Bash
+# main-write guard and the worktree-removal guard as NOT WIRED on a checkout
+# where both were correctly wired — two hard gates failing for a reason that
+# had nothing to do with the property they exist to prove. Fail-closed, so
+# nothing was let through; but a guard that cries wolf on every Linux adopter
+# is a guard nobody keeps listening to.
+BASH_MATCHER_CMDS=()
 while IFS= read -r line; do
-    [ -n "$line" ] && BASH_CMDS+=("$line")
+    [ -n "$line" ] && BASH_MATCHER_CMDS+=("$line")
 done < <(printf '%s\n' "$WIRED" | awk -F'\t' '$1=="Bash" {print $2}')
 
 # Layer B must NOT rely on filename-substring matching. An adversarial shim
@@ -1955,7 +1970,7 @@ fi
 # "agent scaffolds into the shared checkout" failure class. Layer O searches the
 # full Bash-matcher list so wiring order is irrelevant.
 BASHGUARD_WIRED_CMD=""
-for c in "${BASH_CMDS[@]}"; do
+for c in "${BASH_MATCHER_CMDS[@]}"; do
     RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
     RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
     WIRED_PATH_C="${RESOLVED_C%% *}"
@@ -2322,7 +2337,7 @@ CANONICAL_WTREMOVAL_HELPER="$REPO_ROOT/scripts/remove-agent-worktree.sh"
 
 WTREMOVAL_WIRED_CMD=""
 WTREMOVAL_WIRED_N=0
-for c in "${BASH_CMDS[@]}"; do
+for c in "${BASH_MATCHER_CMDS[@]}"; do
     RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
     RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
     WIRED_PATH_C="${RESOLVED_C%% *}"
