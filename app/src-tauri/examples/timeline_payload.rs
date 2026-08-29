@@ -38,7 +38,7 @@ use richos_core::entity::EntityId;
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::MachineryRecord;
-use richos_core::spine::Spine;
+use richos_core::spine::{Spine, WorkerEventsSource};
 use serde_json::json;
 use timeline_view::timeline_payload;
 
@@ -111,6 +111,24 @@ fn tool_open(id: &str, tool: &str, title: &str, kind: &str, status: Option<&str>
     v
 }
 
+/// A DELEGATED-WORK tool call, carrying the two-part witness `worker-created-handoff.sh`
+/// requires: the vendor tool name `Task` in `_meta.claudeCode.toolName`, and the harness's
+/// async-launch acknowledgement with an extractable `agentId` in the result. Missing either
+/// half and the call stays an ordinary activity row.
+fn task_call(id: &str, agent_id: &str) -> serde_json::Value {
+    json!({
+        "sessionUpdate": "tool_call",
+        "toolCallId": id,
+        // The measured title for a Task call is the literal string "Task" — there is no
+        // delegated objective on this wire, which is why the inspector does not show one.
+        "title": "Task",
+        "kind": "other",
+        "status": "in_progress",
+        "_meta": { "claudeCode": { "toolName": "Task" } },
+        "rawOutput": format!("Async agent launched successfully. agentId: {agent_id}")
+    })
+}
+
 /// The CLOSING update, exactly as measured: no `kind`, no `_meta`, no tool name.
 fn tool_close(id: &str, status: Option<&str>) -> serde_json::Value {
     let mut v = json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "rawOutput": {} });
@@ -128,6 +146,34 @@ fn main() {
     let ledger = Ledger::open(dir.join("ledger.jsonl")).expect("open ledger");
     let mut spine = Spine::new(ledger);
     spine.set_machinery_journal(MachineryJournal::new(dir.join("machinery")));
+
+    // THE ENGINE'S WORKER-LIFECYCLE STREAM, in the emitters' own format
+    // (`engine/docs/worker-lifecycle-events.md`). Three workers, one in each of the three
+    // states the engine can actually witness — `created`, `started`, `run_ended`. There is
+    // no `completed`, `failed`, `interrupted` or `waiting` row here because no emitter can
+    // write one; `parse_stream` would drop it if there were.
+    //
+    // The `session_id` on every row is `sess_payload_1`, the ACP session the Task call was
+    // made in. That is CLAUSE 3 of the join, and it is the whole reason this fixture proves
+    // anything: a row under any other session id is refused.
+    let worker_stream = dir.join("worker-events.jsonl");
+    std::fs::write(
+        &worker_stream,
+        concat!(
+            r#"{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"created","source_hook":"PostToolUse[Agent]","agent_id":"agt_sage","worker_name":"Sage","agent_type":"architecture","session_id":"sess_payload_1","host_pid":4242}"#, "\n",
+            r#"{"timestamp":"2026-08-29T04:00:01+00:00","lifecycle_state":"created","source_hook":"PostToolUse[Agent]","agent_id":"agt_frank","worker_name":"Frank","agent_type":"red team","session_id":"sess_payload_1","host_pid":4242}"#, "\n",
+            r#"{"timestamp":"2026-08-29T04:00:02+00:00","lifecycle_state":"started","source_hook":"SubagentStart","agent_id":"agt_frank","agent_type":"red team","session_id":"sess_payload_1","host_pid":4242}"#, "\n",
+            r#"{"timestamp":"2026-08-29T04:00:03+00:00","lifecycle_state":"created","source_hook":"PostToolUse[Agent]","agent_id":"agt_clark","worker_name":"Clark","agent_type":"research","session_id":"sess_payload_1","host_pid":4242}"#, "\n",
+            r#"{"timestamp":"2026-08-29T04:00:04+00:00","lifecycle_state":"started","source_hook":"SubagentStart","agent_id":"agt_clark","session_id":"sess_payload_1","host_pid":4242}"#, "\n",
+            r#"{"timestamp":"2026-08-29T04:03:40+00:00","lifecycle_state":"updated","source_hook":"PostToolUse[SendMessage]","agent_id":"agt_clark","session_id":"sess_payload_1","summary":"Pulled 14 sources on Claude Code memory","host_pid":4242}"#, "\n",
+            r#"{"timestamp":"2026-08-29T04:07:31+00:00","lifecycle_state":"run_ended","source_hook":"SubagentStop","agent_id":"agt_clark","session_id":"sess_payload_1","host_pid":4242}"#, "\n",
+            // ANOTHER SESSION, reusing agt_sage's id — the engine's own residue does exactly
+            // this. Its name and its authored summary must appear nowhere below.
+            r#"{"timestamp":"2026-08-29T04:00:09+00:00","lifecycle_state":"updated","source_hook":"PostToolUse[SendMessage]","agent_id":"agt_sage","worker_name":"deeply-analyst","agent_type":"deeply","session_id":"some-other-session","summary":"deeply's Q4 term sheet numbers","host_pid":4242}"#, "\n",
+        ),
+    )
+    .expect("worker stream");
+    spine.set_worker_events(WorkerEventsSource::File(worker_stream.clone()));
     let entity = EntityId::parse("richos").expect("entity");
     let thread = spine.create_thread("Timeline payload proof", &entity).expect("thread");
 
@@ -149,6 +195,12 @@ fn main() {
             Step::Machinery(tool_close("tc_c1", None)),
             // And one that IS still open when the turn ends: `pending` => `queued`.
             Step::Machinery(tool_open("tc_c3", "Bash", "wc -l notes.md", "execute", Some("pending"))),
+            // THREE DELEGATIONS. Each must project as a `worker_activity` row carrying the
+            // worker's name, role and last-witnessed state — never as the nameless "Worked"
+            // activity row the app produced before the read path was wired.
+            Step::Machinery(task_call("tc_t1", "agt_sage")),
+            Step::Machinery(task_call("tc_t2", "agt_frank")),
+            Step::Machinery(task_call("tc_t3", "agt_clark")),
             // An accounting update. Untyped vendor kind => TECHNICAL, so it must be ABSENT
             // from the payload below. Slice 3 fixed a live defect where six of these
             // rendered as CEO rows reading "Worked" against one real command.
@@ -197,6 +249,15 @@ fn main() {
             "work_duration" => format!(
                 "state={} startedAt={} activeMs={} detail={}",
                 it["state"], it["startedAt"], it["activeMs"], it["detail"]
+            ),
+            "worker_activity" => format!(
+                "name={} role={} observed={} state={} update={} events={}",
+                it["worker"]["workerName"],
+                it["worker"]["agentType"],
+                it["worker"]["observedState"],
+                it["worker"]["state"],
+                it["worker"]["latestUpdate"],
+                it["worker"]["eventsObserved"]
             ),
             _ => String::new(),
         };
@@ -269,6 +330,46 @@ fn main() {
     say("no duration row leaks the raw stop reason",
         items.iter().filter(|i| i["kind"] == "work_duration").all(|d| d["detail"].is_null() || d.get("detail").is_none()),
         "`WorkDetail.stop_reason` is technical and is removed from a CEO view".into());
+    // ---- UX §7: the delegated workers ------------------------------------------------
+    let workers: Vec<&serde_json::Value> = items.iter().filter(|i| i["kind"] == "worker_activity").collect();
+    say("a delegated Task call is a WORKER row, not a nameless activity row",
+        workers.len() == 3,
+        format!("{} worker rows: {:?}", workers.len(),
+            workers.iter().map(|w| w["worker"]["workerName"].clone()).collect::<Vec<_>>()));
+    say("every worker is NAMED on the CEO wire",
+        workers.iter().all(|w| w["worker"]["workerName"].is_string()),
+        format!("{:?}", workers.iter().map(|w| (w["worker"]["workerName"].clone(), w["worker"]["agentType"].clone())).collect::<Vec<_>>()));
+    // CORRECTED BY RUNNING IT. The first version also asserted the STRING `"state":"completed"`
+    // appeared nowhere in the payload, and failed — on three `Read a file` ACTIVITY rows that
+    // are legitimately completed. An activity's state and a worker's state are different
+    // vocabularies over the same field name, and the claim being made here is only about the
+    // second one. Scoped to the worker objects, where it belongs.
+    say("`run_ended` crosses the wire as `unknown`, NEVER as `completed`",
+        workers.iter().filter(|w| w["worker"]["observedState"] == "run_ended").all(|w| w["worker"]["state"] == "unknown")
+            && !workers.iter().any(|w| w["worker"]["state"] == "completed"),
+        format!("{:?}", workers.iter().map(|w| (w["worker"]["observedState"].clone(), w["worker"]["state"].clone())).collect::<Vec<_>>()));
+    say("only the three witnessable worker states appear",
+        workers.iter().all(|w| ["pending_init", "running", "unknown"].contains(&w["worker"]["state"].as_str().unwrap_or(""))),
+        format!("{:?}", workers.iter().map(|w| w["worker"]["state"].clone()).collect::<Vec<_>>()));
+    say("no worker row carries a duration, a result_ref or a completed_at",
+        workers.iter().all(|w| {
+            let o = w["worker"].as_object().unwrap();
+            !o.contains_key("resultRef") && !o.contains_key("errorRef") && !o.contains_key("completedAt")
+                && !o.contains_key("durationMs") && !o.contains_key("elapsedMs")
+        }),
+        "§22: elapsed active time, output and failure reason have no witness".into());
+    say("a worker row's technical half is REMOVED from the CEO view",
+        workers.iter().all(|w| w.get("detail").is_none()),
+        "the vendor tool title and paths were dropped, not flagged".into());
+    say("CLAUSE 3: another session's row never attaches, name or summary",
+        !serde_json::to_string(&payload).unwrap().contains("deeply-analyst")
+            && !serde_json::to_string(&payload).unwrap().contains("Q4 term sheet"),
+        format!("agt_sage is reused across sessions in the fixture; it projects as {:?}",
+            workers.iter().find(|w| w["worker"]["agentId"] == "agt_sage").map(|w| (w["worker"]["workerName"].clone(), w["worker"]["observedState"].clone()))));
+    say("the worker's own authored update DOES reach the CEO (§7.2 item 4)",
+        workers.iter().any(|w| w["worker"]["latestUpdate"] == "Pulled 14 sources on Claude Code memory"),
+        format!("{:?}", workers.iter().map(|w| w["worker"]["latestUpdate"].clone()).collect::<Vec<_>>()));
+
     say("the partial text that streamed before the failure survived",
         items.iter().any(|i| i["kind"] == "rich_message" && i["text"].as_str().unwrap_or("").contains("carry split")),
         format!("{:?}", items.iter().filter(|i| i["kind"] == "rich_message").map(|i| i["text"].as_str().unwrap_or("")).collect::<Vec<_>>()));
