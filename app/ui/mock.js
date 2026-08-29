@@ -37,6 +37,11 @@
     { id: "partner", title: "Partner book review", entity_id: "deeply", created_at: now() - 1000 * 60 * 60 * 30, message_count: 2, last_activity: now() - 1000 * 60 * 60 * 9, last_turn_state: "interrupted", has_pending_turn: false },
     { id: "ecs", title: "ECS architecture", entity_id: "richos", created_at: now() - 1000 * 60 * 60 * 50, message_count: 0, last_activity: now() - 1000 * 60 * 60 * 12, last_turn_state: "in_flight", has_pending_turn: true },
     { id: "legacy", title: "Notes from before", entity_id: null, created_at: now() - 1000 * 60 * 60 * 24 * 40, message_count: 0, last_activity: now() - 1000 * 60 * 60 * 24 * 40, last_turn_state: null, has_pending_turn: false },
+    // §10.1's thread, EMPTY until the §26 fixture is driven. It exists at load so the
+    // scenario starts from "before send" (§10.1) rather than conjuring a thread as its
+    // first act — the CEO's first observable moment is his own message landing in a thread
+    // that was already there.
+    { id: "memory", title: "Design RichOS memory strategy", entity_id: "femcboost", created_at: now() - 1000 * 60 * 5, message_count: 0, last_activity: now() - 1000 * 60 * 5, last_turn_state: null, has_pending_turn: false },
   ];
   let activeThreadId = "general";
 
@@ -99,6 +104,7 @@
   const partnerTurn1 = uid("t");
   const messagesByThread = {
     general: [],
+    memory: [], // §26's fixture thread — filled only when the scenario is driven.
     acme: [
       { role: "user", text: "what's the status on Acme?", turn_id: acmeTurn1, at: now() - 1000 * 60 * 60 * 20 },
       {
@@ -662,6 +668,16 @@
               "I'm not connected to my thinking right now — check that the Claude CLI is signed in, then restart me."
             );
           }
+          // §26's scenario is started BY THE CEO PRESSING ENTER, not by a side door. The
+          // shell's ordinary send path runs first — the optimistic bubble goes up with a
+          // synthetic id and `onTurnStatus`'s `adoptPendingUserMessage` re-keys it onto
+          // `turn_memory_01:user` when `queued` arrives — so "just after send" is the state
+          // the CEO actually sees, not one the fixture painted.
+          if (activeThreadId === MEMORY_THREAD_ID && args.text === MEMORY_PROMPT) {
+            memoryScenario = memoryStrategy({ anchor: memoryStrategyAnchor });
+            memoryScenario.runTo(2);
+            return messagesByThread[MEMORY_THREAD_ID];
+          }
           simulateTurn(activeThreadId, args.text);
           return messagesByThread[activeThreadId];
         }
@@ -680,8 +696,562 @@
     },
   };
 
+  // =======================================================================================
+  // §26 — THE DETERMINISTIC `memory-strategy` FIXTURE
+  // =======================================================================================
+  //
+  // §26 prescribes sixteen steps and calls the result the acceptance instrument for Phase
+  // 3's exit gate. An acceptance instrument that emits signals the product cannot emit
+  // certifies nothing — it certifies the fixture. So this scenario was built to what the
+  // runtime can ACTUALLY produce, and every step §26 asks for that the runtime cannot
+  // produce is recorded below as unrepresentable, with the file and line that makes it so.
+  //
+  // ---------------------------------------------------------------------------------------
+  // THE THREE THINGS THIS FIXTURE REFUSES TO DO, AND WHY
+  // ---------------------------------------------------------------------------------------
+  //
+  // 1. NO WORKER FAILURE (§26 step 10, §10.6, §7.4).
+  //    `ObservedWorkerState` has exactly four variants — `Created`, `Started`, `Updated`,
+  //    `RunEnded` (worker_events.rs:128-139) — and `RunEnded`'s own doc says "**The reason
+  //    is not observable.** Never `Completed`." (worker_events.rs:137-138).
+  //    `WorkerState::from_observed` maps it to `RUN_ENDED_WORKER_STATE`, a named constant
+  //    equal to `WorkerState::Unknown` (timeline.rs:403, :413-421), and the renderer draws
+  //    that as `Ended · outcome not recorded` (timeline.js:336-360). There is no payload
+  //    anywhere in the worker path that carries an outcome. A fixture that emitted
+  //    `state: "failed"` would light up a renderer branch production can never reach, and a
+  //    green run over it would certify a state that cannot occur.
+  //
+  // 2. NO PLAN (§26 step 13, §8).
+  //    `TimelineItem::Plan` is "MODELLED, NEVER PRODUCED" (timeline.rs:611-617) and the
+  //    module's own source table says "**NO SOURCE.** `plan` updates are Phase-2 machinery"
+  //    (timeline.rs:62). Those updates are retained verbatim as `MachineryKind::Unknown`
+  //    (machinery.rs:556) with their entries living only inside the EVICTABLE raw payload,
+  //    so a plan projected from them empties out after the Tier-B window (timeline.rs:466-469).
+  //    `rich://plan-updated` is DEFERRED in the emitter (live.rs:27). Nothing constructs a
+  //    `PlanItem`. `Step 2 of 5 -> Step 3 of 5` has no source at either end.
+  //
+  // 3. NO FAILURE CLAIM IN RICH'S OWN WORDS EITHER — the subtle half.
+  //    §10.6 scripts Rich saying *"Sage stopped after writing most of the architecture."*
+  //    Prose is the one channel where anything at all can be typed, so faking the failure
+  //    through Rich's mouth would sail past every state check in this file while making
+  //    exactly the claim the data cannot support. Rich's recovery commentary here says only
+  //    what the runtime witnessed: the run ended and no outcome was recorded.
+  //
+  // ---------------------------------------------------------------------------------------
+  // THE PATH — the same one a real turn takes, with ONE named divergence
+  // ---------------------------------------------------------------------------------------
+  //
+  // Prose, activity and turn state go out as the five §13 events the emitter actually emits
+  // (live.rs:107-112) and reach the renderer through `main.js`'s listeners — the real live
+  // path. WORKER ROWS DO NOT, and cannot: `rich://worker-upserted` is DEFERRED in the
+  // emitter (live.rs:26) and has no listener in `main.js`. Their only route to the screen
+  // today is the durable snapshot, so this fixture writes them into the turn record and
+  // they surface on the next `get_timeline` — which is a real path (§13: "missed stream
+  // events recover from the durable snapshot"), just not a live one. Emitting a
+  // `rich://worker-upserted` the backend never sends would have made the fixture a claim
+  // about a wire that does not exist.
+  //
+  // ---------------------------------------------------------------------------------------
+  // THE CLOCK
+  // ---------------------------------------------------------------------------------------
+  //
+  // Injected as `anchor` — the wall-clock instant virtual t=0 maps onto — and every event
+  // timestamp is `anchor + offset`. Nothing sleeps and nothing polls: `runTo(n)` walks the
+  // whole two-hour turn in under a millisecond. This is deliberately NOT a monkey-patched
+  // `Date.now`, because §6.2 requires the display to be DERIVED from persisted timestamps
+  // ("Persist timestamps and derive the display locally"), and driving the fixture through
+  // real timestamps is what proves that derivation instead of bypassing it. A test wanting
+  // `Working for 18s` anchors 18s + the lease handoff in the past and reads the real row.
+  //
+  // THE DURATION, DERIVED RATHER THAN ASSERTED (§26 step 16 = `2h 17m 50s`):
+  //   2h 17m 50s = (2 x 3600) + (17 x 60) + 50 = 7200 + 1020 + 50 = 8270 s = 8_270_000 ms
+  // and back through `RichTimeline.formatDuration(8270000)` (timeline.js:72-86):
+  //   totalSec  = floor(8270000/1000) = 8270 ;  s = 8270 mod 60          = 50
+  //   totalMin  = floor(8270/60)      =  137 ;  m =  137 mod 60          = 17
+  //   totalHour = floor(137/60)       =    2 ;  h =    2 mod 24          =  2
+  //   d = 0, totalHour >= 1           -> "2h 17m 50s"
+  // The measured span is `endedAt - startedAt` (`ledger::Turn::active_ms`), so the fixture
+  // sets `endedAt = startedAt + 8_270_000` and never writes `activeMs` by hand.
+  //
+  // ONE HONEST LIMIT OF ANCHORING RATHER THAN PATCHING. While a turn is LIVE the row is
+  // `Date.now() - startedAt` (timeline.js:151), so mid-scenario it shows the REAL elapsed
+  // time since the anchor — a few hundred milliseconds — not the virtual position. That is
+  // the renderer being right, not the fixture being wrong: a live timer that read from
+  // scripted timestamps would be a fixture-only code path. §26's two duration screenshots
+  // are `Working for 18s` (anchored, live, real) and `Worked for 2h 17m 50s` (measured,
+  // terminal), and both are exact. A live row reading `Working for 1h 6m 0s` would need an
+  // anchor 1h06m in the past — one line in a test, and no step of §26 asks for it.
+  // =======================================================================================
+
+  /// The live scenario, if one has been started, and the wall-clock instant its virtual
+  /// t=0 maps onto. A test sets the anchor BEFORE pressing Enter — that is the whole of
+  /// the clock injection, and it is why a two-hour turn takes under a millisecond.
+  let memoryScenario = null;
+  let memoryStrategyAnchor;
+
+  const MS_ACTIVE = 8270000; // see the arithmetic above
+  const MS_LEASE_HANDOFF = 600; // t=0 accepted -> t=600 a lease has it and the clock starts
+  const MS_TURN_END = MS_LEASE_HANDOFF + MS_ACTIVE;
+  const MEMORY_TURN_ID = "turn_memory_01";
+  const MEMORY_THREAD_ID = "memory";
+
+  const MEMORY_PROMPT = [
+    "Read all the linked material and design a proper replacement for Claude auto memory.",
+    "",
+    "Sources, in the order I want them read:",
+    "",
+    "  /Users/alex/ab/richos/docs/plans/richos-ecs-architecture-2026-08-27.md",
+    "  /Users/alex/ab/richos/wiki/ceo-decisions.md",
+    "  /Users/alex/ab/femcboost/CLAUDE.md",
+    "  /Users/alex/.claude/projects/-Users-alex-ab-femcboost/memory/MEMORY.md",
+    "  https://docs.anthropic.com/en/docs/claude-code/memory",
+    "  https://code.claude.com/docs/en/memory",
+    "",
+    "What I actually want to know:",
+    "",
+    "  - what the Executive Continuity System has to hold, and what it must refuse to hold",
+    "  - whether it is one store or several, and who is allowed to write to it",
+    "  - how a correction reaches it, and what happens to the thing it corrects",
+    "  - how any of it survives a restart, and what is lost when it does not",
+    "  - what the cutover from Claude auto memory looks like on the day it happens",
+    "",
+    "Take the passes in parallel if that is faster. Do not build anything yet.",
+    "Ask me 3 to 5 questions first, and make them the ones you actually cannot answer",
+    "yourself — I would rather answer five hard questions than read five easy ones.",
+  ].join("\n");
+
+  /// §26's sixteen steps, each judged against the runtime rather than against the brief.
+  ///
+  /// `status` is one of:
+  ///   `represented`    — the step is emitted and rendered, in full.
+  ///   `partial`        — what the runtime witnesses is emitted; a named part of §26's
+  ///                      wording has no source and is NOT drawn.
+  ///   `unrepresentable`— nothing is emitted at all. The browser suite asserts these are
+  ///                      ABSENT from the DOM, so "we did not fake it" is a test rather
+  ///                      than a promise.
+  ///
+  /// This table is the deliverable as much as the pixels are. If a signal lands later, the
+  /// negative assertions in `memory-strategy.js` fail loudly and point back at this row.
+  const MEMORY_STRATEGY_STEPS = [
+    { n: 1, spec: "Long CEO prompt with file paths and two URLs", status: "partial",
+      have: "The full prompt renders, over §5.1's 18-line clamp, with Show more/Show less.",
+      gap: "The two URLs are TEXT, not links. §10.2 wants them clickable; the CEO bubble is " +
+           "built with textContent and nothing linkifies it (timeline.js:969).",
+      source: "timeline.js:940,969" },
+    { n: 2, spec: "Turn accepted", status: "represented",
+      have: "rich://turn-status queued at t=0 with startedAt null -> §6.1's bare `Working`, " +
+            "then working at t=600 -> `Working for {d}` once a second has passed.",
+      source: "live.rs:107" },
+    { n: 3, spec: "Rich commentary", status: "partial",
+      have: "The commentary streams as a real message run and stays in the transcript.",
+      gap: "phase is `unknown`, never `commentary`. STREAMED_MESSAGE_PHASE is a named " +
+           "constant equal to RichMessagePhase::Unknown because no signal separates " +
+           "commentary from the final answer on this wire.",
+      source: "live.rs:120, live.rs:42-62" },
+    { n: 4, spec: "Seven file reads grouped into one summary", status: "represented",
+      have: "Seven `Read a file` rows, consecutive, rolled up by the renderer into " +
+            "`Read 7 files` — the grouping §26 asks for, done where it is honest to do it.",
+      source: "timeline.rs:1400-1417, timeline.js:290-308" },
+    { n: 5, spec: "One web search", status: "partial",
+      have: "One search activity row, rendered `Searched`.",
+      gap: "§26/§5.3's `Searched the web for Claude Code memory` cannot be produced: " +
+           "semantic_summary builds the line from the activity TYPE alone and deliberately " +
+           "carries no query text, so the CEO default stays semantic and never leaks syntax.",
+      source: "timeline.rs:1400-1417" },
+    { n: 6, spec: "Sage, Frank and Clark start", status: "partial",
+      have: "Three worker rows, `created` then `started` -> Starting/Working, grouped as " +
+            "`Sage, Frank and Clark started working`.",
+      gap: "NOT LIVE. rich://worker-upserted is deferred in the emitter and unwired in " +
+           "main.js, so worker rows reach the screen only through a get_timeline snapshot.",
+      source: "live.rs:26, worker_events.rs:128-139" },
+    { n: 7, spec: "Clark update", status: "partial",
+      have: "`updated` -> Running, with the summary Clark actually authored.",
+      gap: "Snapshot-only, as step 6.",
+      source: "worker_events.rs:134-136" },
+    { n: 8, spec: "Frank completion", status: "partial",
+      have: "Frank's run ENDS, and the row says so: `Ended · outcome not recorded`.",
+      gap: "`completion` is not witnessed. run_ended is the honest superset of completed, " +
+           "interrupted and failed; §7.1's verb `Frank finished` would claim the one thing " +
+           "nobody observed.",
+      source: "timeline.rs:394-403, worker_events.rs:147-153" },
+    { n: 9, spec: "Sage partial update", status: "partial",
+      have: "`updated` -> Running, with Sage's authored summary.",
+      gap: "Snapshot-only, as step 6.",
+      source: "worker_events.rs:134-136" },
+    { n: 10, spec: "Sage failure", status: "unrepresentable",
+      have: "Sage's run ends and is drawn `Ended · outcome not recorded` — which is what " +
+            "was actually witnessed, and is emitted.",
+      gap: "THE FAILURE ITSELF IS NOT EMITTED AND NOT DRAWN. No payload in the worker path " +
+           "carries an outcome; WorkerState::Failed has no witness anywhere in the hook " +
+           "set. A `failed` chip here would be a green test over a state production cannot " +
+           "produce.",
+      source: "worker_events.rs:137-138, timeline.rs:361, timeline.rs:413-421" },
+    { n: 11, spec: "Rich recovery commentary", status: "partial",
+      have: "Rich posts commentary about the ended run, in his own voice, saying only what " +
+            "the runtime witnessed.",
+      gap: "TWO parts have no source. phase is `unknown`, not `recovery` (live.rs:120) — " +
+           "TimelineItem::Recovery is real but means a mid-turn CRASH REPLAY " +
+           "(TurnSuperseded) and is Internal visibility, a different event entirely. And " +
+           "§10.6's scripted line *\"Sage stopped after writing most of the architecture\"* " +
+           "is a failure claim; putting it in Rich's mouth would fake step 10 through the " +
+           "one channel that accepts any string.",
+      source: "live.rs:120, timeline.rs:652-661" },
+    { n: 12, spec: "Sage replacement start", status: "partial",
+      have: "A SECOND Sage agent id opens a new run — `created` then `started` — in its own " +
+            "group below the commentary, and the parent turn's clock never resets.",
+      gap: "Nothing on the wire links the two runs. `replacement` is a relationship the " +
+           "data model does not carry, so the UI shows two runs, not a retry.",
+      source: "worker_events.rs:128-139" },
+    { n: 13, spec: "Plan update from step 2 of 5 to step 3 of 5", status: "unrepresentable",
+      have: "Nothing. No plan row is emitted at either step count.",
+      gap: "TimelineItem::Plan is modelled and never produced; plan session updates are " +
+           "retained as MachineryKind::Unknown with entries only in the EVICTABLE raw " +
+           "payload, so a projected plan silently empties after the Tier-B window; and " +
+           "rich://plan-updated is deferred in the emitter.",
+      source: "timeline.rs:62, timeline.rs:466-469, timeline.rs:611-617, machinery.rs:556, live.rs:27" },
+    { n: 14, spec: "Final Sage completion", status: "partial",
+      have: "The replacement run ends: `Ended · outcome not recorded`.",
+      gap: "As step 8 — no completion signal exists at worker grain.",
+      source: "timeline.rs:394-403" },
+    { n: 15, spec: "Final Rich response with five questions", status: "partial",
+      have: "The five questions stream as Rich's last message run and sit below the " +
+            "completed-duration divider, where §25 wants the final response.",
+      gap: "It is not LABELLED final (phase `unknown`), so it gets no distinct treatment; " +
+           "and TimelineItem::Question — the answerable card — has no source, because §11's " +
+           "waiting_for_user state does not exist in this runtime.",
+      source: "live.rs:120, timeline.rs:637-647, timeline.js:1416-1421" },
+    { n: 16, spec: "Turn completion at a deterministic active duration of 2h 17m 50s", status: "represented",
+      have: "endedAt - startedAt = 8_270_000ms exactly, measured not asserted, and the row " +
+            "freezes at `Worked for 2h 17m 50s` with the transcript collapsed under it.",
+      source: "timeline.js:72-86, timeline.rs:539-556" },
+  ];
+
+  /// The scenario. Deterministic by construction: fixed ids, fixed offsets, no Math.random,
+  /// no setTimeout, no wall clock except the injected `anchor`.
+  ///
+  ///     const s = window.__RICHOS_MOCK__.memoryStrategy({ anchor: Date.now() - 18600 });
+  ///     s.runTo(5);                      // through "one web search"
+  ///     s.runTo(16);                     // the whole two-hour turn, instantly
+  ///
+  /// Constructing it RESETS the thread, so two runs produce byte-identical output for the
+  /// same anchor.
+  function memoryStrategy(options) {
+    options = options || {};
+    const anchor = typeof options.anchor === "number" ? options.anchor : Date.now();
+    const startedAt = anchor + MS_LEASE_HANDOFF;
+    const at = (offset) => anchor + offset;
+    const fence = fenceOf(MEMORY_THREAD_ID, MEMORY_TURN_ID);
+
+    // Reset — the same construction twice must not stack two turns in one thread.
+    turnsById.delete(MEMORY_TURN_ID);
+    messagesByThread[MEMORY_THREAD_ID] = [];
+
+    const turn = {
+      threadId: MEMORY_THREAD_ID,
+      entityId: "femcboost",
+      userText: MEMORY_PROMPT,
+      runs: [],
+      state: "queued",
+      createdAt: anchor,
+      startedAt: null,
+      endedAt: null,
+      activities: [],
+    };
+    turnsById.set(MEMORY_TURN_ID, turn);
+
+    // ONE dense sequence across prose runs and work rows, exactly as the ledger keeps it
+    // (`text_machinery_and_timeline_records_share_one_dense_per_turn_sequence`), so the
+    // renderer's interleave is the real chronology and not this file's idea of one.
+    let seq = 0;
+    const nextSeq = () => seq++;
+
+    function activityRow(id, offset, activityType, summary, state) {
+      const row = {
+        kind: "activity",
+        id,
+        entityId: fence.entityId,
+        threadId: MEMORY_THREAD_ID,
+        bindingRevision: fence.bindingRevision,
+        createdAt: at(offset),
+        sequence: nextSeq(),
+        slot: "stream",
+        visibility: "ceo",
+        activityType,
+        state,
+        summary,
+      };
+      if (state === "completed") row.completedAt = at(offset);
+      turn.activities.push(row);
+      emit("rich://activity-upserted", Object.assign({ turnId: MEMORY_TURN_ID }, row, { at: at(offset) }));
+      return row;
+    }
+
+    /// A worker row goes into the DURABLE record only. See the path note above: there is no
+    /// live worker event on this wire, so emitting one would be a lie about the contract.
+    function workerRow(id, offset, worker) {
+      const row = {
+        kind: "worker_activity",
+        id,
+        entityId: fence.entityId,
+        threadId: MEMORY_THREAD_ID,
+        bindingRevision: fence.bindingRevision,
+        createdAt: at(offset),
+        sequence: nextSeq(),
+        slot: "stream",
+        visibility: "ceo",
+        detailRef: id,
+        worker,
+      };
+      turn.activities.push(row);
+      return row;
+    }
+
+    /// Update a worker row IN PLACE, by id — one run is one row however many events it
+    /// produces, which is the invariant slice 5 landed and slice 7 tested.
+    function workerUpdate(id, patch) {
+      const row = turn.activities.find((a) => a.id === id);
+      if (row) Object.assign(row.worker, patch);
+      return row;
+    }
+
+    /// One contiguous run of Rich's prose, streamed sentence by sentence through the three
+    /// real message events. The run index is the item id suffix, so the live item and the
+    /// re-projected one are the SAME id and a reload re-states rather than duplicates.
+    function prose(offset, text) {
+      const index = turn.runs.length;
+      const messageId = MEMORY_TURN_ID + ":text:" + index;
+      const startSeq = nextSeq();
+      turn.runs.push({ text, startSeq, at: at(offset) });
+      emit("rich://message-started", Object.assign({}, fence, {
+        messageId, phase: "unknown", seq: startSeq, visibility: "ceo", at: at(offset),
+      }));
+      // Deterministic chunking: split after each newline-terminated block, never randomly.
+      const parts = text.split(/(?<=\n)/);
+      let d = 0;
+      for (const part of parts) {
+        emit("rich://chunk", { threadId: MEMORY_THREAD_ID, turnId: MEMORY_TURN_ID, seq: startSeq, textDelta: part, at: at(offset + d) });
+        emit("rich://message-delta", Object.assign({}, fence, {
+          messageId, seq: startSeq, textDelta: part, visibility: "ceo", at: at(offset + d),
+        }));
+        d += 40;
+      }
+      emit("rich://message-completed", Object.assign({}, fence, {
+        messageId, phase: "unknown", text, visibility: "ceo", at: at(offset + d),
+      }));
+      messagesByThread[MEMORY_THREAD_ID].push({ role: "assistant", text, turn_id: MEMORY_TURN_ID, at: at(offset) });
+      return messageId;
+    }
+
+    // -- the sixteen steps, in order ------------------------------------------------------
+    const actions = {
+      1() {
+        messagesByThread[MEMORY_THREAD_ID].push({ role: "user", text: MEMORY_PROMPT, turn_id: MEMORY_TURN_ID, at: anchor });
+        return "the CEO's prompt, " + MEMORY_PROMPT.split("\n").length + " lines, 2 URLs, 4 file paths";
+      },
+      2() {
+        emit("rich://turn-status", Object.assign({}, fence, {
+          status: "queued", startedAt: null, activeDurationMs: null, visibility: "ceo", at: anchor,
+        }));
+        turn.state = "working";
+        turn.startedAt = startedAt;
+        emit("rich://turn-started", { threadId: MEMORY_THREAD_ID, turnId: MEMORY_TURN_ID, at: startedAt });
+        emit("rich://turn-status", Object.assign({}, fence, {
+          status: "working", startedAt, activeDurationMs: null, visibility: "ceo", at: startedAt,
+        }));
+        return "accepted at t=0 (`Working`), lease at t=" + MS_LEASE_HANDOFF + "ms (clock starts)";
+      },
+      3() {
+        prose(2000,
+          "I'm reading the full source set now — the ECS architecture package, your decisions " +
+          "file, FemcBoost's own record and both vendor memory docs — and tracing where RichOS " +
+          "actually reads and writes memory today rather than where the docs say it does.\n" +
+          "Once I can see the seams I'll split the work so the passes run in parallel."
+        );
+        return "commentary run 0, phase `unknown` (no phase signal exists)";
+      },
+      4() {
+        for (let i = 1; i <= 7; i++) activityRow("mach_ms_read_" + i, 6000 + (i - 1) * 900, "read", "Read a file", "completed");
+        return "7 x `Read a file` -> the renderer rolls up to `Read 7 files`";
+      },
+      5() {
+        activityRow("mach_ms_search_1", 13000, "search", "Searched", "completed");
+        return "1 x `Searched` (the query text has no source — see step 5's gap)";
+      },
+      6() {
+        workerRow("mach_ms_w_sage_1", 22000, {
+          agentId: "agt_ms_sage_1", workerName: "Sage", agentType: "architecture",
+          observedState: "started", state: "running", eventsObserved: 2,
+          firstObservedAt: iso(at(22000)), lastObservedAt: iso(at(22400)),
+        });
+        workerRow("mach_ms_w_frank_1", 22100, {
+          agentId: "agt_ms_frank_1", workerName: "Frank", agentType: "red team",
+          observedState: "started", state: "running", eventsObserved: 2,
+          firstObservedAt: iso(at(22100)), lastObservedAt: iso(at(22500)),
+        });
+        workerRow("mach_ms_w_clark_1", 22200, {
+          agentId: "agt_ms_clark_1", workerName: "Clark", agentType: "research",
+          observedState: "started", state: "running", eventsObserved: 2,
+          firstObservedAt: iso(at(22200)), lastObservedAt: iso(at(22600)),
+        });
+        // All three `started`, which is what makes the group summary read §10.4's sentence
+        // verbatim — `workerGroupSummary` only says "started working" when every member is
+        // running, and says "Delegated to ..." for a mixed group. The `created` -> Starting
+        // state is real and is exercised by the `hiring` fixture above; §26 step 6 asks for
+        // the three-way START, so this is the three-way start.
+        return "3 worker rows in ONE group -> `Sage, Frank and Clark started working`";
+      },
+      7() {
+        workerUpdate("mach_ms_w_clark_1", {
+          observedState: "updated", state: "running", eventsObserved: 4,
+          latestUpdate: "Read both vendor memory docs and the FemcBoost record; three claims in CLAUDE.md contradict what is on disk",
+          lastObservedAt: iso(at(1320000)),
+        });
+        return "Clark `updated` -> Working, with the summary he authored";
+      },
+      8() {
+        workerUpdate("mach_ms_w_frank_1", {
+          observedState: "run_ended", state: "unknown", eventsObserved: 6,
+          latestUpdate: "Red-teamed the retention rules; the correction path is the one that loses data",
+          lastObservedAt: iso(at(2460000)),
+        });
+        return "Frank's RUN ended -> `Ended · outcome not recorded` (not `finished`)";
+      },
+      9() {
+        workerUpdate("mach_ms_w_sage_1", {
+          observedState: "updated", state: "running", eventsObserved: 9,
+          latestUpdate: "Four entities drafted; the write path and the restart proof are still open",
+          lastObservedAt: iso(at(3300000)),
+        });
+        return "Sage `updated` -> Working, with a partial architecture summary";
+      },
+      10() {
+        workerUpdate("mach_ms_w_sage_1", {
+          observedState: "run_ended", state: "unknown", eventsObserved: 11,
+          lastObservedAt: iso(at(3960000)),
+        });
+        // §26 asks for a FAILURE here. Nothing is emitted for it — see the header, and the
+        // `unrepresentable` row for step 10. What IS emitted is the run ending, which is
+        // the entirety of what the runtime witnessed.
+        return "Sage's RUN ended. NO failure signal emitted — step 10 is unrepresentable";
+      },
+      11() {
+        prose(4020000,
+          "Sage's run ended and nothing recorded how — the runtime witnesses that a run " +
+          "stopped, never why, so I'm not going to put a reason on it that I don't have.\n" +
+          "What I can see is the work: four entities drafted, the write path and the restart " +
+          "proof still open. That's intact and worth keeping, so I'm putting a second " +
+          "architecture pass on just those two open pieces rather than starting the whole " +
+          "thing again. Your clock keeps running; nothing resets."
+        );
+        return "recovery commentary — phrased to what was witnessed, no failure claim";
+      },
+      12() {
+        workerRow("mach_ms_w_sage_2", 4140000, {
+          agentId: "agt_ms_sage_2", workerName: "Sage", agentType: "architecture",
+          observedState: "started", state: "running", eventsObserved: 2,
+          firstObservedAt: iso(at(4140000)), lastObservedAt: iso(at(4140400)),
+        });
+        return "a SECOND Sage run opens, in its own group; the parent clock does not reset";
+      },
+      13() {
+        // §26 step 13: "Plan update from step 2 of 5 to step 3 of 5."
+        // NOTHING IS EMITTED. There is no plan at step 2 to update and no source for step 3.
+        return "SKIPPED — no plan row emitted; step 13 is unrepresentable";
+      },
+      14() {
+        workerUpdate("mach_ms_w_sage_2", {
+          observedState: "run_ended", state: "unknown", eventsObserved: 8,
+          latestUpdate: "Closed the write path and the restart proof; the package is on disk",
+          lastObservedAt: iso(at(7920000)),
+        });
+        return "the replacement run ends -> `Ended · outcome not recorded`";
+      },
+      15() {
+        prose(8100000,
+          "I've read the full source set and had Sage, Frank and Clark work the architecture, " +
+          "the threat model and the product research independently. The boundary is clear " +
+          "enough to build against, and five things are genuinely yours to decide.\n" +
+          "\n" +
+          "1. What is the first deliverable — the typed store itself, or the correction path " +
+          "into it? They can't both be first and the second one shapes the first.\n" +
+          "2. One Rich or several? A shared store across sessions and a per-session store are " +
+          "different products, and the answer changes the write path.\n" +
+          "3. How far does Executive Continuity reach — decisions and their reversals only, or " +
+          "the working context around them too?\n" +
+          "4. When you correct me, does the old record stay visible with a supersession link, " +
+          "or does it go? Frank's pass says this is where data gets lost.\n" +
+          "5. On cutover day, does Claude auto memory go read-only, get exported, or stay live " +
+          "beside the new store until you say otherwise?"
+        );
+        return "final run: five questions, below the completed divider";
+      },
+      16() {
+        const endedAt = startedAt + MS_ACTIVE;
+        turn.state = "completed";
+        turn.endedAt = endedAt;
+        emit("rich://turn-completed", { threadId: MEMORY_THREAD_ID, turnId: MEMORY_TURN_ID, stopReason: "end_turn", at: endedAt });
+        emit("rich://turn-status", Object.assign({}, fence, {
+          status: "completed", startedAt, activeDurationMs: endedAt - startedAt, visibility: "ceo", at: endedAt,
+        }));
+        emit("rich://thread-summary-updated", Object.assign({}, fence, {
+          title: "Design RichOS memory strategy",
+          messageCount: messagesByThread[MEMORY_THREAD_ID].length,
+          lastActivity: endedAt, status: "idle", visibility: "ceo", at: endedAt,
+        }));
+        const t = threads.find((x) => x.id === MEMORY_THREAD_ID);
+        if (t) { t.last_turn_state = "completed"; t.last_activity = endedAt; }
+        return "completed; activeMs = " + (endedAt - startedAt) + " -> `Worked for 2h 17m 50s`";
+      },
+    };
+
+    let cursor = 0;
+    const driver = {
+      anchor,
+      startedAt,
+      turnId: MEMORY_TURN_ID,
+      threadId: MEMORY_THREAD_ID,
+      activeMs: MS_ACTIVE,
+      leaseHandoffMs: MS_LEASE_HANDOFF,
+      steps: MEMORY_STRATEGY_STEPS,
+      get cursor() { return cursor; },
+      /// Apply the next step. Returns its manifest row plus what it actually did.
+      step() {
+        if (cursor >= 16) return null;
+        cursor += 1;
+        const did = actions[cursor]();
+        return Object.assign({ did }, MEMORY_STRATEGY_STEPS[cursor - 1]);
+      },
+      /// Apply steps up to and including `n`. Instant — nothing here waits on a clock.
+      runTo(n) {
+        const out = [];
+        while (cursor < n) out.push(driver.step());
+        return out;
+      },
+    };
+    return driver;
+  }
+
+  /// RFC-3339 with a `+00:00` offset — the shape the worker-lifecycle emitter writes and
+  /// `WorkerActivityItem` carries verbatim (timeline.rs:455-461).
+  function iso(ms) {
+    return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
+  }
+
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
+    /// §26's `memory-strategy` scenario. See the block above it for what it refuses to do.
+    memoryStrategy,
+    /// Set the injected clock anchor BEFORE the CEO presses Enter. `Date.now() - 18600`
+    /// puts the turn 18s past its lease handoff, so the row reads `Working for 18s` with
+    /// no waiting and no patched `Date.now` — the renderer derives it from the timestamp,
+    /// which is what §6.2 asks for.
+    setMemoryStrategyAnchor(ms) { memoryStrategyAnchor = ms; },
+    /// The driver for the scenario the CEO's send started, so a test can walk steps 3-16.
+    activeMemoryStrategy() { return memoryScenario; },
+    MEMORY_STRATEGY_STEPS,
+    MEMORY_STRATEGY_ACTIVE_MS: MS_ACTIVE,
+    MEMORY_STRATEGY_LEASE_MS: MS_LEASE_HANDOFF,
+    MEMORY_STRATEGY_PROMPT: MEMORY_PROMPT,
     simulateProactiveDigest(threadId = "general") {
       const turnId = uid("turn");
       const msg = {
