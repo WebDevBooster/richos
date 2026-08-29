@@ -17,13 +17,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reconcilePipeline } from './reconcile.js';
 import { upgradeRecord, PIPELINE_STATUS, hasUsableAudio } from './contract.js';
-import { normalizeSession, ffmpegVersion, detectSilence, CHANNEL_FILES } from './normalize.js';
+import { normalizeSession, ffmpegVersion, detectSilence, detectSpeechBursts, CHANNEL_FILES } from './normalize.js';
 import { transcribeSession, whisperVersion } from './transcribe.js';
 import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
-import { MIN_TRANSCRIPT_WORDS, resolveTier } from './config.js';
+import { MIN_TRANSCRIPT_WORDS, resolveTier, whisperArgs } from './config.js';
 import { guardTranscription, guardWarnings } from './repetition-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
@@ -142,8 +142,10 @@ export function runPipeline(sessionDir, opts = {}) {
     }
 
     // ---- Stage 3: TRANSCRIBE --------------------------------------------------------------------
-    // The tier's decode params (e.g. the `max` tier's -mc 0 no-previous-text-conditioning) are the
-    // decode HALF of the hallucination guard; they ride in as extraArgs.
+    // The decode HALF of the hallucination guard is no previous-text conditioning
+    // (`config.js#MAX_CONTEXT_TOKENS`, emitted by whisperArgs on EVERY tier since 2026-08-29 —
+    // it used to be one tier's private decodeArg and the shipping tiers went without it). A tier's
+    // own decodeArgs and the caller's extraArgs still ride in on top and still win.
     const decodeArgs = [...(tier.decodeArgs || []), ...(opts.extraArgs || [])];
     log.info(`${sessionId} — tier=${tier.name} model=${model}${decodeArgs.length ? ` decode=[${decodeArgs.join(' ')}]` : ''}`);
     const asr = transcribeSession(
@@ -159,19 +161,44 @@ export function runPipeline(sessionDir, opts = {}) {
     // is DETECT-ONLY (removing it would delete real speech) and therefore has to be LOUD instead.
     // Runs on every tier (cheap, precision-guarded); the safety net that lets large-v3 be opt-in.
     let asrGuarded = { me: asr.me, others: asr.others };
+    /** @type {{me: object[], others: object[]}|null} the physical evidence the loop class needs */
+    let speechBursts = null;
     let repetitionReport = {
       removed: 0,
       detected: false,
-      classes: { repetition: 0, insertion: 0, overlapStutter: 0 },
+      classes: { repetition: 0, insertion: 0, overlapStutter: 0, preservedByAudio: 0 },
       loops: [],
+      preserved: [],
       insertions: [],
       stutters: [],
       byChannel: { me: {}, others: {} },
     };
     if (tier.repetitionGuard !== false) {
-      const guarded = guardTranscription({ me: asr.me, others: asr.others });
+      // The PHYSICAL evidence the loop class needs to tell a decoder loop from a human retake, one
+      // ffmpeg pass per channel (~3% of decode time). Without it the guard is text-only and, on
+      // retake-dense material, deletes real speech — measured, 13 genuine deliveries on 92 minutes
+      // of real audio (repetition-guard.js header). Best-effort: if ffmpeg cannot produce it the
+      // guard falls back to its old text-only behaviour rather than failing the pipeline.
+      try {
+        const b = {
+          me: detectSpeechBursts(channelPaths.me, { peakDb: silence.me.maxDb }).speech,
+          others: detectSpeechBursts(channelPaths.others, { peakDb: silence.others.maxDb }).speech,
+        };
+        speechBursts = b;
+        log.info(`${sessionId} — speech bursts: me=${b.me.length} others=${b.others.length}`);
+      } catch (err) {
+        log.alarm(`${sessionId} — speech-burst probe failed; the repetition guard runs TEXT-ONLY and may delete genuine repeated speech`, {
+          error: String(err && err.message ? err.message : err),
+        });
+      }
+      const guarded = guardTranscription({ me: asr.me, others: asr.others }, speechBursts ? { speechBursts } : {});
       asrGuarded = { me: guarded.me, others: guarded.others };
       repetitionReport = guarded.report;
+      if (repetitionReport.preserved && repetitionReport.preserved.length) {
+        log.info(`${sessionId} — ${repetitionReport.preserved.length} repeated run(s) PRESERVED: the audio contains a speech burst for every repetition`, {
+          preserved: repetitionReport.preserved.map((p) => ({ channel: p.channel, count: p.count, text: p.text.slice(0, 60) })),
+        });
+      }
       if (repetitionReport.loops.length) {
         log.alarm(`${sessionId} — repetition loop(s) caught + collapsed by the guard`, {
           removedSegments: repetitionReport.removed,
@@ -238,12 +265,25 @@ export function runPipeline(sessionDir, opts = {}) {
     record.pipeline.model = model;
     record.pipeline.tier = tier.name;
     if (decodeArgs.length) record.pipeline.decodeArgs = decodeArgs;
+    // The EFFECTIVE decode invocation, not just the tier's extras. Since `-mc` moved out of tier
+    // data (2026-08-29) an empty `decodeArgs` no longer means "bare defaults", and a record that
+    // implied it would be lying about the single most load-bearing decode setting we have.
+    record.pipeline.whisperArgs = whisperArgs({ extraArgs: decodeArgs });
+    record.pipeline.maxContextTokens = Number(
+      record.pipeline.whisperArgs[record.pipeline.whisperArgs.lastIndexOf('-mc') + 1],
+    );
     record.pipeline.repetitionGuard = {
       enabled: tier.repetitionGuard !== false,
       detected: repetitionReport.detected,
       removedSegments: repetitionReport.removed,
       classes: repetitionReport.classes,
       loops: repetitionReport.loops,
+      // Runs the guard chose NOT to touch because the audio backs every repetition. A decision, so
+      // it is recorded like one — otherwise "removedSegments: 0" cannot be told from "never looked".
+      preserved: repetitionReport.preserved || [],
+      speechBurstProbe: speechBursts
+        ? { me: speechBursts.me.length, others: speechBursts.others.length }
+        : null,
       stutters: repetitionReport.stutters,
       // Detect-only: these are still IN the transcript. Never let "enabled: true" imply "clean".
       insertions: repetitionReport.insertions,

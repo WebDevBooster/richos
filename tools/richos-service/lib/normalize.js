@@ -83,6 +83,88 @@ export function parseVolume(ffmpegStderr) {
 export const SILENCE_MAX_DB = -60;
 
 /**
+ * How far below a channel's own PEAK the speech/silence boundary sits, in dB. The two capture
+ * setups in the 2026-08-29 real-audio corpus are not level-matched (64 vs 122 kbps, -34.6 vs
+ * -30.5 dBFS mean), so a shared ABSOLUTE threshold is invalid — it must be relative to the channel.
+ * 34 dB down from peak reproduces the -35 dB threshold that brief verified by hand against four
+ * windows on channels peaking at -0.9 / -1.2 dBFS.
+ */
+export const SPEECH_FLOOR_BELOW_PEAK_DB = 34;
+
+/** Minimum gap that counts as a pause between two spoken deliveries, seconds. */
+export const MIN_PAUSE_SEC = 0.4;
+
+/**
+ * Parse `silencedetect` + the input banner into SPEECH intervals (the complement of the silences).
+ * PURE, so the burst structure is unit-testable without ffmpeg.
+ * @param {string} ffmpegStderr
+ * @param {number} [durationSec] falls back to the banner's `Duration:` when omitted
+ * @returns {{speech: {startMs:number, endMs:number}[], silence: {startMs:number, endMs:number}[],
+ *            durationSec: number}}
+ */
+export function parseSilenceLog(ffmpegStderr, durationSec) {
+  const s = String(ffmpegStderr || '');
+  let total = Number(durationSec);
+  if (!Number.isFinite(total) || total <= 0) {
+    const d = s.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+    total = d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0;
+  }
+  const starts = [];
+  const ends = [];
+  for (const line of s.split(/\r?\n/)) {
+    const a = line.match(/silence_start:\s*(-?[\d.]+)/);
+    if (a) starts.push(Math.max(0, Number(a[1])));
+    const b = line.match(/silence_end:\s*(-?[\d.]+)/);
+    if (b) ends.push(Number(b[1]));
+  }
+  const silence = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const from = starts[i];
+    const to = i < ends.length ? ends[i] : total; // a trailing silence has no silence_end
+    if (to > from) silence.push([from, to]);
+  }
+  silence.sort((x, y) => x[0] - y[0]);
+  const speech = [];
+  let cur = 0;
+  for (const [from, to] of silence) {
+    if (from > cur) speech.push([cur, from]);
+    cur = Math.max(cur, to);
+  }
+  if (total > cur) speech.push([cur, total]);
+  const ms = (iv) => iv
+    .filter(([from, to]) => to - from > 0.05)
+    .map(([from, to]) => ({ startMs: Math.round(from * 1000), endMs: Math.round(to * 1000) }));
+  return { speech: ms(speech), silence: ms(silence), durationSec: total };
+}
+
+/**
+ * The channel's PHYSICAL speech-burst structure — where there is energy and where there is not.
+ *
+ * This is the model-free evidence the 2026-08-29 real-audio brief used to decide, one finding at a
+ * time, whether a repeated phrase was a human retake or a decoder loop: saying an N-word phrase K
+ * times requires K SEPARATE bursts each long enough to hold it, and no decoder output can conjure
+ * those. `repetition-guard.js` consumes this as injected data and stays pure.
+ *
+ * @param {string} wavPath
+ * @param {{noiseDb?: number, minPauseSec?: number, peakDb?: number}} [opts]
+ * @returns {{speech: {startMs:number,endMs:number}[], silence: {startMs:number,endMs:number}[],
+ *            durationSec: number, noiseDb: number}}
+ */
+export function detectSpeechBursts(wavPath, opts = {}) {
+  const peak = opts.peakDb != null ? Number(opts.peakDb) : measureVolume(wavPath).maxDb;
+  const noiseDb = opts.noiseDb != null
+    ? Number(opts.noiseDb)
+    : Math.max(-55, Math.min(-25, (Number.isFinite(peak) ? peak : 0) - SPEECH_FLOOR_BELOW_PEAK_DB));
+  const minPause = opts.minPauseSec != null ? Number(opts.minPauseSec) : MIN_PAUSE_SEC;
+  const res = spawnSync(
+    ffmpegBin(),
+    ['-i', wavPath, '-af', `silencedetect=noise=${noiseDb}dB:d=${minPause}`, '-f', 'null', '-'],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  return { ...parseSilenceLog(String(res.stderr || '')), noiseDb };
+}
+
+/**
  * Is a normalized session effectively silent on BOTH channels? That is the honest "captured but
  * nothing recorded" signal, independent of ASR hallucination.
  * @param {{me: string, others: string}} channels

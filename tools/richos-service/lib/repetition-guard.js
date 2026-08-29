@@ -27,6 +27,51 @@
  *     minRunShort; a collapsed run keeps its FIRST segment and extends its end to the run's end
  *     (timing/coverage stay honest — the span still shows as spoken time, just not N copies).
  *
+ *     THE PHYSICAL VETO (added 2026-08-29, and it is why this class is still here at all). Text
+ *     alone cannot tell a decoder loop from a person saying the same sentence three times, and on
+ *     92 minutes of real coaching audio full of retakes these thresholds ate 13 genuine spoken
+ *     deliveries across 8 findings — `minRun: 3` against a human who really does deliver a line
+ *     3x running, a margin of ZERO (the real-audio brief 2026-08-29 §5.1/§5.3). The AUDIO can tell
+ *     them apart and the text cannot: saying an N-word phrase K times requires K SEPARATE speech
+ *     bursts each long enough to hold it. `opts.speechBursts` (injected per channel by the
+ *     pipeline from `normalize.js#detectSpeechBursts`; this module stays PURE) supplies exactly
+ *     that, and a run backed by a qualifying burst per repetition is left ENTIRELY alone and
+ *     reported under `preserved`.
+ *
+ *     The veto runs in ONE direction only. Burst capacity is a CEILING on how many deliveries the
+ *     span could contain, never evidence that they happened — a long enough burst may hold
+ *     completely different speech. So it can only ever refuse a collapse, never justify one, and
+ *     the guard is strictly MORE conservative with the probe than without it. That asymmetry is
+ *     deliberate: it is the same doctrine as the rest of this file (a guard that eats legitimate
+ *     speech is worse than none), applied where the evidence is one-sided.
+ *
+ *     It is also deliberately NOT used on phrases shorter than `minWordsForBurstVeto` words. A
+ *     1-2 word phrase ("Okay." "Yeah." "Thank you.") fits inside any burst, so the ceiling carries
+ *     no signal there and would veto everything; short runs keep the old text-only behaviour and
+ *     the old `minRunShort` protection. A short genuine repetition can therefore still be
+ *     collapsed — that is a KNOWN residual, not an oversight.
+ *
+ *     Both veto parameters were swept against the 72 hand-verified findings rather than asserted
+ *     (`minWordsForBurstVeto` x `burstFitSlack`, genuine deliveries still deleted of the 13 the
+ *     shipped guard destroyed / extra fabricated segments that survive out of 2,376 removed):
+ *
+ *                 slack 0.6      slack 0.8      slack 1.0
+ *       minW 3     1 / 156        2 / 126        4 / 103
+ *       minW 4     2 / 154        3 / 124        5 / 102
+ *       minW 5+    2 / 154        3 / 124        5 / 102     (no 4-5 word finding in the corpus)
+ *
+ *     3 / 0.6 is chosen: the most protective corner. The right-hand cost column is measured in the
+ *     PRE-fix world (`-mc -1`, 2,376 collapsed segments) which is no longer shipped; in the
+ *     post-fix world the same four channels produce two findings total, both genuine retakes, so
+ *     that cost is ~zero and only the protection is left. See
+ *     `docs/briefs/norm-brief-longform-fix-2026-08-29.md` §4.
+ *
+ *     AND NOTE WHAT THE DECODE FIX DID TO THIS CLASS. Since `MAX_CONTEXT_TOKENS = 0`
+ *     (`config.js`, 2026-08-29) the same 92-minute recording produces 0-1 loop findings per
+ *     channel per model instead of 12-31, and the one that survives is a genuine human 3x retake.
+ *     The loop class's job is now almost entirely FALSE positives, which is exactly why the veto
+ *     had to land with the decode fix rather than after it.
+ *
  *   - INSERTION: only ORDINAL enumeration markers ("12. ", "12) ") at segment start are considered,
  *     because only an ordinal carries the well-formedness signal that separates a fabrication from a
  *     real list: a human enumerating uses each numeral ONCE and counts UP, while the captured
@@ -76,6 +121,14 @@ const DEFAULT_OPTS = {
   minRunShort: 5, // short text needs a longer run before we treat it as a loop
   minWords: 4, // "substantial" = at least this many words
   similarityThreshold: 0.92, // near-identical (whisper loops are usually byte-identical)
+
+  // ---- class 1b: the PHYSICAL VETO (see the header) --------------------------------------------
+  // Injected per channel by the pipeline from ffmpeg silencedetect; absent -> the veto is inert and
+  // class 1 behaves exactly as it did before.
+  speechBursts: null, // {startMs,endMs}[] for THIS channel, time-ordered
+  maxWordsPerSecond: 3.3, // 198 wpm — a deliberately GENEROUS ceiling, so `needSec` is a hard floor
+  burstFitSlack: 0.6, // silencedetect clips burst edges; accept a burst at 60% of the floor
+  minWordsForBurstVeto: 3, // a 1-2 word phrase fits in any burst, so the ceiling carries no signal
 
   // ---- class 2: persistent ordinal-marker insertion -------------------------------------------
   // ALL FOUR must hold before the channel is called contaminated. The captured artifact clears each
@@ -153,12 +206,44 @@ export function readEnumerationMarker(text) {
 }
 
 /**
+ * How many times could this phrase PHYSICALLY have been spoken inside this span?
+ *
+ * A K-times re-delivery needs K separate speech bursts each long enough to hold the phrase. This
+ * counts them. It is a CEILING, never a proof: a burst long enough to hold the phrase may contain
+ * completely different speech (that is the fabrication class the guard cannot see). So the caller
+ * uses it in ONE direction only — to refuse to collapse — never to justify collapsing.
+ *
+ * @param {{startMs:number,endMs:number}[]|null} bursts channel speech bursts, time-ordered
+ * @param {number} startMs run start
+ * @param {number} endMs run end
+ * @param {number} needSec seconds the phrase needs at the maximum plausible speech rate
+ * @param {number} slack accept a burst at this fraction of needSec (silencedetect clips edges)
+ * @returns {number}
+ */
+export function burstCapacity(bursts, startMs, endMs, needSec, slack) {
+  if (!Array.isArray(bursts) || !bursts.length) return 0;
+  const floorMs = Math.max(0, needSec * 1000 * (slack == null ? 1 : slack));
+  let n = 0;
+  for (const b of bursts) {
+    const from = Math.max(Number(b.startMs || 0), startMs);
+    const to = Math.min(Number(b.endMs || 0), endMs);
+    if (to - from >= floorMs && to > from) n += 1;
+  }
+  return n;
+}
+
+/**
  * Class 1 — detect + collapse repetition loops in one channel's segments.
+ *
+ * With `opts.speechBursts` supplied the collapse is bounded by what the AUDIO can hold (see
+ * `burstCapacity` and the module header): a run of K identical segments over K qualifying bursts is
+ * left completely alone, and a run over fewer bursts is collapsed to that many rather than to one.
+ * Without it the behaviour is unchanged, so every existing caller and fixture is unaffected.
  *
  * @param {Segment[]} segments time-ordered segments for a single channel
  * @param {Partial<typeof DEFAULT_OPTS>} [opts]
  * @returns {{segments: Segment[], loops: {text:string, count:number, startMs:number, endMs:number,
- *            removed:number}[], removed: number}}
+ *            removed:number}[], preserved: object[], removed: number}}
  */
 export function guardChannel(segments, opts = {}) {
   const o = { ...DEFAULT_OPTS, ...opts };
@@ -166,6 +251,7 @@ export function guardChannel(segments, opts = {}) {
   /** @type {Segment[]} */
   const out = [];
   const loops = [];
+  const preserved = [];
   let removed = 0;
 
   let i = 0;
@@ -178,19 +264,51 @@ export function guardChannel(segments, opts = {}) {
     const needed = words >= o.minWords ? o.minRun : o.minRunShort;
 
     if (runLen >= needed) {
-      // Collapse: keep the first, extend its end to the run's end, drop the rest.
-      const first = { ...segs[i] };
+      const run = segs.slice(i, j);
       const last = segs[j - 1];
-      first.endMs = Math.max(Number(first.endMs || 0), Number(last.endMs || 0));
-      out.push(first);
-      const dropped = runLen - 1;
+      const runStart = Number(segs[i].startMs || 0);
+      const runEnd = Number(last.endMs || 0);
+
+      // ---- the physical veto -------------------------------------------------------------------
+      // Only meaningful for a phrase long enough that "does it fit in this burst?" discriminates.
+      let keep = 1;
+      let capacity = null;
+      if (o.speechBursts && words >= o.minWordsForBurstVeto) {
+        const needSec = words / (o.maxWordsPerSecond || 3.3);
+        capacity = burstCapacity(o.speechBursts, runStart, runEnd, needSec, o.burstFitSlack);
+        keep = Math.max(1, Math.min(runLen, capacity));
+      }
+
+      if (keep >= runLen) {
+        // The audio physically contains this many separate deliveries. It is speech, not a loop.
+        for (const s of run) out.push({ ...s });
+        preserved.push({
+          text: String(segs[i].text || '').trim(),
+          count: runLen,
+          startMs: runStart,
+          endMs: runEnd,
+          burstCapacity: capacity,
+          reason: 'audio contains a qualifying speech burst for every repetition',
+        });
+        i = j;
+        continue;
+      }
+
+      // Collapse, but only down to what the audio can hold (>= 1). Keep the FIRST `keep` segments
+      // and extend the last kept one's end to the run's end, so timing/coverage stay honest.
+      for (let k = 0; k < keep; k += 1) out.push({ ...run[k] });
+      const lastKept = out[out.length - 1];
+      lastKept.endMs = Math.max(Number(lastKept.endMs || 0), runEnd);
+      const dropped = runLen - keep;
       removed += dropped;
       loops.push({
         text: String(segs[i].text || '').trim(),
         count: runLen,
-        startMs: Number(segs[i].startMs || 0),
-        endMs: Number(last.endMs || 0),
+        startMs: runStart,
+        endMs: runEnd,
         removed: dropped,
+        kept: keep,
+        burstCapacity: capacity,
       });
       i = j;
     } else {
@@ -199,7 +317,7 @@ export function guardChannel(segments, opts = {}) {
     }
   }
 
-  return { segments: out, loops, removed };
+  return { segments: out, loops, preserved, removed };
 }
 
 /**
@@ -476,6 +594,7 @@ export function guardChannelAll(segments, opts = {}) {
   return {
     segments: stut.segments,
     loops: loop.loops,
+    preserved: loop.preserved || [],
     insertions: ins.insertions,
     stutters: stut.stutters,
     removed: loop.removed + stut.removed,
@@ -493,11 +612,15 @@ export function guardChannelAll(segments, opts = {}) {
  * @param {Partial<typeof DEFAULT_OPTS>} [opts]
  */
 export function guardTranscription(channels, opts = {}) {
-  const me = guardChannelAll(channels.me || [], opts);
-  const others = guardChannelAll(channels.others || [], opts);
+  // `speechBursts` is PER CHANNEL — passing one channel's bursts to the other would invent evidence.
+  const bursts = opts.speechBursts && !Array.isArray(opts.speechBursts) ? opts.speechBursts : null;
+  const perChannel = (ch) => (bursts ? { ...opts, speechBursts: bursts[ch] || null } : opts);
+  const me = guardChannelAll(channels.me || [], perChannel('me'));
+  const others = guardChannelAll(channels.others || [], perChannel('others'));
 
   const tag = (arr, channel) => arr.map((x) => ({ ...x, channel }));
   const loops = [...tag(me.loops, 'me'), ...tag(others.loops, 'others')];
+  const preserved = [...tag(me.preserved, 'me'), ...tag(others.preserved, 'others')];
   const insertions = [...tag(me.insertions, 'me'), ...tag(others.insertions, 'others')];
   const stutters = [...tag(me.stutters, 'me'), ...tag(others.stutters, 'others')];
 
@@ -511,20 +634,24 @@ export function guardTranscription(channels, opts = {}) {
         repetition: loops.length,
         insertion: insertions.length,
         overlapStutter: stutters.length,
+        preservedByAudio: preserved.length,
       },
       loops,
+      preserved,
       insertions,
       stutters,
       byChannel: {
         me: {
           removed: me.removed,
           loops: me.loops.length,
+          preserved: me.preserved.length,
           insertions: me.insertions.length,
           stutters: me.stutters.length,
         },
         others: {
           removed: others.removed,
           loops: others.loops.length,
+          preserved: others.preserved.length,
           insertions: others.insertions.length,
           stutters: others.stutters.length,
         },

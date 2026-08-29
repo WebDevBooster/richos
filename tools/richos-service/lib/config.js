@@ -156,22 +156,24 @@ export const DEFAULT_MODEL = 'large-v3-turbo';
 
 /**
  * P5 model-tiering (the system architecture §4.1 + §9-P5). Accuracy/robustness is a function of the
- * host: turbo is the reliable default everywhere; full large-v3 is an OPT-IN "maximum accuracy" tier
- * gated behind repetition-guard decode params (it reproducibly looped at bare defaults — see the
- * benchmark); quantized/small models are the fallback on weak / non-Apple-Silicon / low-RAM hosts.
+ * host: turbo is the reliable default everywhere; full large-v3 is an OPT-IN "maximum accuracy" tier;
+ * quantized/small models are the fallback on weak / non-Apple-Silicon / low-RAM hosts.
  *
  * A tier is data — { model, decodeArgs, repetitionGuard } — so re-transcription and the opt-in tier
  * pass different values without touching pipeline code. `decodeArgs` are appended to `whisperArgs`.
  *
- * The repetition-guard decode params for the `max` tier, chosen against the whisper.cpp CLI:
- *   -mc 0    max-context 0 — do NOT condition on previously decoded text (the primary loop fix;
- *            whisper.cpp's equivalent of `condition_on_previous_text=false`). Default is -1 (carry
- *            full context), which is exactly what fed the reproduced 4x repetition loop.
- *   -et 2.4  entropy threshold — a low-entropy (degenerate/repeating) decode fails and falls back.
- *   -lpt -1  logprob threshold — a low-confidence decode fails and falls back.
- *   -nth 0.6 no-speech threshold — silence is dropped rather than hallucinated over.
- * Temperature fallback stays ON (we do NOT pass -nf), so a failed segment is retried hotter. This is
- * the decode half of the guard; `lib/repetition-guard.js` is the model-agnostic post-decode half.
+ * DECODE CONTEXT IS NOW A PIPELINE-WIDE INVARIANT, NOT TIER DATA (`MAX_CONTEXT_TOKENS`, below).
+ * Until 2026-08-29 `-mc 0` lived ONLY in this `max` tier's `decodeArgs`, so the two tiers that
+ * actually ship (`turbo`, `quantized`) ran at whisper.cpp's `-mc -1` — carry ALL previous decoded
+ * text — which is precisely the accumulation that destroyed up to 44.1% of a 92-minute channel
+ * (the real-audio brief 2026-08-29 §0b/§4.3). The fix was written down in this file and withheld
+ * from the tiers that ship. It is now structural so no tier can omit it again.
+ *
+ * The other three params this tier used to carry — `-et 2.4 -lpt -1.0 -nth 0.6` — are whisper-cli's
+ * OWN defaults (verify with `whisper-cli --help`), so they changed nothing. Measured 2026-08-29:
+ * a full 92-minute q5_0 run with `-mc 0` alone and one with `-mc 0 -et 2.4 -lpt -1.0 -nth 0.6`
+ * produced BYTE-IDENTICAL JSON (sha256 07ad0d16b1e94e99bb66da32a6a1588701aed9629c4c2e7653c6791e87ae961b).
+ * They are dropped rather than left in place implying a defence that was never running.
  */
 export const MODEL_TIERS = {
   turbo: {
@@ -185,17 +187,19 @@ export const MODEL_TIERS = {
       'deterministically in 3/3 runs (measured 2026-08-26, the q5 call-transcription brief). q5_0 did ' +
       'not reproduce it on the same audio. As of 2026-08-28 repetition-guard.js DETECTS that class ' +
       'and reports it loudly, but does NOT repair it — the fabricated span contains real speech, so ' +
-      'the markers stay in the transcript and re-transcription is the remedy.',
+      'the markers stay in the transcript and re-transcription is the remedy. On 92 minutes of REAL ' +
+      'audio at the old -mc -1 default it replaced 290 s of real speech with one phrase 203 times; ' +
+      'at MAX_CONTEXT_TOKENS=0 the same file yields ZERO loop findings on both channels (2026-08-29).',
   },
   max: {
     model: 'large-v3',
-    decodeArgs: ['-mc', '0', '-et', '2.4', '-lpt', '-1.0', '-nth', '0.6'],
+    decodeArgs: [],
     repetitionGuard: true,
     description:
-      'OPT-IN maximum accuracy. Full large-v3 with repetition-guard decode params (no previous-text ' +
-      'conditioning + temperature fallback) AND the post-decode repetition detector. Slower (~17.5 ' +
-      'min/call-hour) and GATED: bare-default large-v3 reproducibly hallucinated a 4x repetition loop ' +
-      'in the benchmark. Best-in-class on rare proper nouns when the guard is on.',
+      'OPT-IN maximum accuracy. Full large-v3. Slower (~17.5 min/call-hour). Bare-default large-v3 ' +
+      'reproducibly hallucinated a 4x repetition loop in the 2026-08-24 benchmark; the fix for that ' +
+      '(-mc 0, no previous-text conditioning) is no longer this tier\'s private decodeArg — it is the ' +
+      'pipeline-wide MAX_CONTEXT_TOKENS default every tier gets. Best-in-class on rare proper nouns.',
   },
   'low-resource': {
     model: 'small.en',
@@ -215,9 +219,13 @@ export const MODEL_TIERS = {
       'turbo, not degraded: identical WER (5.79%, 36 errors) on the 213 s sample, +0.5 WER points on ' +
       'an 11-minute clean sample, -1.8 points on an 11-minute noisy one. Wall time within +/-4%. No ' +
       'repetition, stutter or drift artifact in 9 call-length runs, where full turbo produced one. ' +
-      'Measured 2026-08-26 (the q5 call-transcription brief); TTS samples ' +
-      'only, no real recorded call yet. Requires the quantized .bin (build once with ' +
-      '`whisper-quantize`, or point RICHOS_WHISPER_MODEL at it).',
+      'Measured 2026-08-26 (the q5 call-transcription brief); TTS samples only. AT 92 MINUTES OF REAL ' +
+      'AUDIO THE ORDERING INVERTS: at the old -mc -1 default q5_0 destroyed 44.1% of one channel\'s ' +
+      'timeline against turbo\'s 8.6% (2026-08-29). At MAX_CONTEXT_TOKENS=0 both models yield 0-1 ' +
+      'loop findings per 92-minute channel and the ordering question is no longer load-bearing — ' +
+      'CEO decision 1.3 (turbo vs q5_0 as the default) remains OPEN and is NOT decided here. ' +
+      'Requires the quantized .bin (build once with `whisper-quantize`, or point ' +
+      'RICHOS_WHISPER_MODEL at it).',
   },
 };
 
@@ -229,9 +237,14 @@ export const DEFAULT_TIER = 'turbo';
  *
  * - a known tier name -> that tier.
  * - `null`/empty -> the default tier (turbo).
- * - anything else -> a "custom" tier wrapping the raw model id (backward compat with `--model`),
- *   AND if that raw id is bare full large-v3 (not turbo) the repetition-guard decode params are
- *   auto-attached — so full large-v3 can NEVER run through this pipeline unguarded (the gate).
+ * - anything else -> a "custom" tier wrapping the raw model id (backward compat with `--model`).
+ *
+ * THE GATE MOVED, IT DID NOT GO AWAY. This function used to auto-attach `-mc 0` to a raw bare
+ * `large-v3` so full large-v3 could never run unguarded — while leaving every OTHER model, including
+ * the two that actually ship, to run with full context carry-over. That got it exactly backwards:
+ * the failure is a property of long-form decoding, not of one model id. `-mc 0` is now emitted by
+ * `whisperArgs()` for every model and every tier (`MAX_CONTEXT_TOKENS`), so the gate holds for
+ * `large-v3` AND for everything else, and there is nothing left here to forget.
  * @param {string|null|undefined} tier
  * @returns {{name: string, model: string, decodeArgs: string[], repetitionGuard: boolean, description?: string}}
  */
@@ -239,15 +252,12 @@ export function resolveTier(tier) {
   const key = tier == null ? '' : String(tier);
   if (!key) return { name: DEFAULT_TIER, ...MODEL_TIERS[DEFAULT_TIER] };
   if (MODEL_TIERS[key]) return { name: key, ...MODEL_TIERS[key] };
-  const isBareLargeV3 = /^large-v3(?!-turbo)/.test(key);
   return {
     name: 'custom',
     model: key,
-    decodeArgs: isBareLargeV3 ? [...MODEL_TIERS.max.decodeArgs] : [],
+    decodeArgs: [],
     repetitionGuard: true,
-    description: isBareLargeV3
-      ? `custom model "${key}" — full large-v3 detected; repetition-guard decode params auto-applied (gate)`
-      : `custom model "${key}"`,
+    description: `custom model "${key}" — decode context is capped at MAX_CONTEXT_TOKENS for every model`,
   };
 }
 
@@ -279,20 +289,59 @@ export function resolveModel(modelId = DEFAULT_MODEL) {
 }
 
 /**
- * Decode settings per channel. These are the benchmark-validated defaults for `large-v3-turbo`
- * (clean, zero hallucination at defaults on the M4). Kept as data so re-transcription and the
- * `large-v3` opt-in tier (P5) can pass different values without touching pipeline code.
+ * How many previously-decoded text tokens whisper.cpp may condition the next window on (`-mc`).
+ *
+ * ZERO, on every tier and every model, because accumulated decode context is THE long-form failure
+ * mechanism — measured, not inferred (real-audio brief 2026-08-29; the fix run 2026-08-29):
+ *
+ *   large-v3-turbo-q5_0, 92-minute channel `me`, share of the timeline inside a fabricated
+ *   repetition span, as a function of -mc:
+ *     -mc 0    0 loop findings      0.0 s      0.0%      249 s wall
+ *     -mc 16   0 loop findings      0.0 s      0.0%      387 s
+ *     -mc 32   3 loop findings     44.0 s      0.8%      339 s
+ *     -mc 64   3 loop findings     64.0 s      1.2%      462 s
+ *     -mc 128 14 loop findings    358.0 s      6.5%      714 s
+ *     -mc -1  16 loop findings  2,444.0 s     44.1%      469 s   <- the shipped default until today
+ *
+ *   large-v3-turbo on the same channel: -mc 0 -> 0 findings; -mc 32 -> 4 findings / 162.0 s / 2.9%;
+ *   -mc -1 -> 12 findings / 473.8 s / 8.6%, including 290 s of real speech replaced by
+ *   "We're going to take a moment." 203 times.
+ *
+ * So the failure ONSET on this corpus is between 16 and 32 carried tokens, on BOTH models, and it
+ * grows monotonically to catastrophic at full context. 0 is chosen over 16 for the margin: 16 held
+ * but sits one step from the first observed corruption, and it was slower (387 s vs 249 s).
+ *
+ * This is NOT free and the cost is NOT measured: previous-text conditioning is what gives whisper
+ * cross-window consistency of spelling, casing and punctuation, and all of the evidence above is
+ * long-form (92 min) on ONE recording. No measurement exists of what -mc 0 costs on a SHORT (<5 min)
+ * call, and none is claimed. `RICHOS_WHISPER_MAX_CONTEXT` is the escape hatch; set it to -1 to
+ * restore whisper.cpp's own behaviour.
+ */
+export const MAX_CONTEXT_TOKENS = 0;
+
+/**
+ * Decode settings per channel. Kept as data so re-transcription and the `large-v3` opt-in tier (P5)
+ * can pass different values without touching pipeline code.
  *
  * `-l en` matches the benchmark; `-t 4` matches the perf-core count used there; Metal does the
- * heavy lifting regardless. `-oj` emits per-segment timestamps the merge needs.
- * @param {{model?: string, language?: string, threads?: number, extraArgs?: string[]}} [opts]
+ * heavy lifting regardless. `-oj` emits per-segment timestamps the merge needs. `-mc` is emitted
+ * BEFORE `extraArgs` so a tier or a caller can still override it (whisper-cli takes the last value).
+ * @param {{model?: string, language?: string, threads?: number, maxContext?: number,
+ *          extraArgs?: string[]}} [opts]
  */
 export function whisperArgs(opts = {}) {
   const language = opts.language || process.env.RICHOS_WHISPER_LANG || 'en';
   const threads = opts.threads || Number(process.env.RICHOS_WHISPER_THREADS) || 4;
+  const maxContext =
+    opts.maxContext != null
+      ? Number(opts.maxContext)
+      : process.env.RICHOS_WHISPER_MAX_CONTEXT != null && process.env.RICHOS_WHISPER_MAX_CONTEXT !== ''
+        ? Number(process.env.RICHOS_WHISPER_MAX_CONTEXT)
+        : MAX_CONTEXT_TOKENS;
   return [
     '-l', language,
     '-t', String(threads),
+    '-mc', String(Number.isFinite(maxContext) ? maxContext : MAX_CONTEXT_TOKENS),
     '-oj',
     '-np', // no progress prints — keep stdout clean for logging
     ...(opts.extraArgs || []),
