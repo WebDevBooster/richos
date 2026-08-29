@@ -1,0 +1,118 @@
+name: windows-companion-ci
+
+# THE FILE THAT TWO README LINES HAVE BEEN CITING SINCE 2026-08-24.
+#
+# `tools/richos-service/companion-windows/README.md` said, twice, that a GitHub
+# Actions workflow at exactly this path compiles the companion on a real
+# `windows-latest` runner — once as the load-bearing first reason for choosing
+# C#/.NET over C++/WinRT ("when the only correctness gate before the CEO is
+# remote CI, the toolchain with the least CI ceremony wins"), and once as "CI
+# runs exactly this on windows-latest". `WINDOWS-TEST-PROTOCOL.md` opened by
+# telling the CEO that compile and unit tests were "already green in CI".
+#
+# The file did not exist. Not moved, not renamed, not disabled: never written.
+# `git log --all -- .github/workflows/windows-companion-ci.yml` returns nothing,
+# so the companion has never been compiled anywhere, by anyone. The whole
+# Windows half was CI-verified only in the sense that the sentence saying so had
+# been typed.
+#
+# That is the same defect the workflow next to this one was created to fix from
+# the other side — a correct rule with nothing enforcing it — and the same one
+# the engine's own probe exists for. Two ways to close it were available: delete
+# the claim, or make it true. Deleting it would have left the toolchain
+# justification standing on a gate that does not exist. So: the gate.
+#
+# WHAT THIS RUN HAS NEVER DONE, and must not be read as having done.
+# This file has never executed. It was authored on a Mac with no .NET SDK
+# installed (`dotnet` is not on PATH there), so not one line of it has been
+# exercised — not the restore, not the build, not the test discovery. The first
+# push is its first run and may well be red. A red first run is the mechanism
+# working; a green badge asserted in prose was the thing that wasn't.
+#
+# The READMEs have been corrected to say precisely that, and they must not be
+# upgraded to "CI-verified" until a run of THIS workflow is green on a SHA
+# somebody can name.
+#
+# WHAT IT CANNOT COVER, stated rather than discovered later. Everything WASAPI.
+# A GitHub runner has no audio endpoint, no real call and no human to grant the
+# microphone permission, so `capture` is compiled here and never executed. The
+# pure `RichOSCompanionCore` — contract writer, channel L/R mapping, WAV,
+# mix/failover, coordination parsing — is the maximum surface a non-capturing
+# host can test, which is exactly why the companion is split in two. Real
+# capture is closed by the CEO on his own machine per
+# `tools/richos-service/companion-windows/WINDOWS-TEST-PROTOCOL.md`; its macOS
+# peer is `companion-macos/MACOS-TEST-PROTOCOL.md`.
+
+on:
+  push:
+    paths:
+      - "tools/richos-service/companion-windows/**"
+      - ".github/workflows/windows-companion-ci.yml"
+  pull_request:
+    paths:
+      - "tools/richos-service/companion-windows/**"
+      - ".github/workflows/windows-companion-ci.yml"
+  # So the gate can be demanded on a SHA without touching the tree — the first
+  # green run has to be attributable to a commit somebody names.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tools/richos-service/companion-windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # windows-latest preinstalls .NET, but which version is the runner image's
+      # business and not ours. Pinning 8.0.x is the whole reason the csproj files
+      # can stay two-line-simple.
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # There are no NuGet dependencies in the executable and three in the test
+      # project (Test.Sdk, xunit, xunit.runner.visualstudio). Restoring each
+      # project explicitly rather than a solution, because there is no .sln and
+      # adding one purely to satisfy CI would be ceremony for its own sake.
+      - name: Restore
+        run: |
+          dotnet restore src/RichOSCompanionCore/RichOSCompanionCore.csproj
+          dotnet restore src/richos-companion/richos-companion.csproj
+          dotnet restore tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj
+
+      # THE STEP THE README'S TOOLCHAIN ARGUMENT RESTS ON: does the hand-written
+      # WASAPI + process-loopback P/Invoke actually compile against the real
+      # Windows SDK? Nothing on a Mac can answer that. `net8.0-windows`, x64.
+      - name: Build the companion (Release, x64)
+        run: dotnet build src/richos-companion/richos-companion.csproj -c Release --no-restore
+
+      - name: Test the pure core
+        run: dotnet test tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj -c Release --no-restore --verbosity normal
+
+      # Not a smoke test of capture — that needs an audio endpoint. This asserts
+      # only that the produced executable starts, links, and reaches its own
+      # argument parser on a machine that has never seen it before. `doctor` is
+      # the one subcommand that touches no audio device and no permission.
+      - name: Prove the built executable runs
+        run: |
+          # This path is what WINDOWS-TEST-PROTOCOL.md tells the CEO to run, so
+          # if it is wrong the protocol is wrong too. Nobody has ever seen the
+          # real output directory, so a miss prints the whole tree rather than
+          # only "not found" — a first red run should diagnose itself.
+          $exe = "src\richos-companion\bin\Release\net8.0-windows\richos-companion.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "expected executable not found at $exe; what was actually produced:"
+            Get-ChildItem -Recurse src\richos-companion\bin | Select-Object -ExpandProperty FullName
+            throw "build produced no executable at $exe"
+          }
+          & $exe doctor
+          if ($LASTEXITCODE -ne 0) { throw "richos-companion doctor exited $LASTEXITCODE" }
+        shell: pwsh

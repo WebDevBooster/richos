@@ -2,9 +2,14 @@
 
 This is the one verification step that **cannot** be done anywhere but a real Windows machine with a
 real call: proving the WASAPI capture engine actually records a live desktop call into the frozen
-contract, and that every failure mode behaves per the never-silent guarantee. Everything else (compile
-+ portable-logic unit tests) is already green in CI on `windows-latest`; this protocol closes the last
-gap.
+contract, and that every failure mode behaves per the never-silent guarantee.
+
+> **CORRECTED 2026-08-29.** This paragraph used to continue: *"Everything else (compile + portable-logic
+> unit tests) is already green in CI on `windows-latest`."* **That was not true.** The workflow it
+> referred to did not exist, so nothing here had ever been compiled. The workflow now exists and has
+> still never run. **§0 step 4 (`dotnet build`) below is therefore the first time this code will be compiled
+> at all**, on your machine — so a compile error there is a real finding to report, not a broken setup on your
+> side, and it is worth doing that build before booking time with anyone for the live call in §2.
 
 Run it on **your own Windows machine** (the one you take calls on). Expect ~20 minutes. No account, no
 network egress, no cloud — everything stays local.

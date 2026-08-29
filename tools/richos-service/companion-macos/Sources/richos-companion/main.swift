@@ -11,22 +11,39 @@ func flag(_ name: String, _ args: [String]) -> String? {
 }
 func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
-/// Resolve the loro drop zone the pipeline watches (mirrors `config.js#dropZone`): env override, then
-/// walk up from the executable to a checkout containing `wiki/`, else `./wiki/raw/meetings`.
+/// The RichOS checkout this binary is running from, if any. `nil` for a copied-elsewhere binary,
+/// which is not an error — there is then no repository for the zone to be inside of.
+func productRepo() -> String? {
+    let start = URL(fileURLWithPath: CommandLine.arguments[0])
+        .resolvingSymlinksInPath().deletingLastPathComponent().path
+    return DropZone.locateProductRepo(startingAt: start) {
+        FileManager.default.fileExists(atPath: $0)
+    }
+}
+
+/// Resolve the drop zone the pipeline watches. The rule, and why it is a mirror of
+/// `config.js#dropZone` rather than a second opinion, is documented on `DropZone` — including the
+/// 2026-08-29 finding that this function used to default INSIDE the public product repo, into a path
+/// the pipeline refuses to read.
+///
+/// Refusal is fatal here on purpose: the alternative is recording a call the pipeline will never
+/// transcribe, which is precisely the silent absence §6.1 exists to prevent.
 func resolveZone(_ explicit: String?) -> String {
-    if let z = explicit { return (z as NSString).expandingTildeInPath }
-    if let z = ProcessInfo.processInfo.environment["RICHOS_DROP_ZONE"] {
-        return (z as NSString).expandingTildeInPath
+    resolveZoneDetail(explicit).path
+}
+
+func resolveZoneDetail(_ explicit: String?) -> DropZone.Resolution {
+    do {
+        return try DropZone.resolve(
+            explicit: explicit,
+            env: ProcessInfo.processInfo.environment,
+            home: NSHomeDirectory(),
+            productRepo: productRepo()
+        )
+    } catch {
+        FileErr.write("\(error)\n")
+        exit(1)
     }
-    var dir = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
-    for _ in 0..<12 {
-        let candidate = dir.appendingPathComponent("wiki/raw/meetings")
-        if FileManager.default.fileExists(atPath: dir.appendingPathComponent("wiki").path) {
-            return candidate.path
-        }
-        dir.deleteLastPathComponent()
-    }
-    return FileManager.default.currentDirectoryPath + "/wiki/raw/meetings"
 }
 
 func makeParams(startedAt: Int64, sampleRate: Int) -> SessionContract.Params {
@@ -47,7 +64,24 @@ func cmdDoctor() {
     print("macOS: \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)")
     let tapOK = v.majorVersion > 14 || (v.majorVersion == 14 && v.minorVersion >= 4)
     print("Core Audio process tap (>= 14.4): \(tapOK ? "AVAILABLE" : "UNAVAILABLE — needs macOS 14.4+")")
-    print("Drop zone: \(resolveZone(nil))")
+    // Resolved WITHOUT exiting on refusal: `doctor` exists to report a broken environment, so it
+    // must be able to print the refusal rather than die with it.
+    let repo = productRepo()
+    print("Product repo: \(repo ?? "not inside a RichOS checkout")")
+    do {
+        let z = try DropZone.resolve(
+            explicit: nil, env: pi.environment, home: NSHomeDirectory(), productRepo: repo)
+        print("Drop zone: \(z.path)")
+        print("  source: \(z.source.rawValue)\(z.company.map { " (company: \($0))" } ?? "")")
+        if z.source == .corpus {
+            print("  (set RICHOS_DROP_ZONE, or LORO_CORPUS, to put sessions somewhere else)")
+        }
+        if !FileManager.default.fileExists(atPath: z.path) {
+            print("  NOTE: does not exist yet — `capture` creates it on first run.")
+        }
+    } catch {
+        print("Drop zone: REFUSED — \(error)")
+    }
     for bin in ["ffmpeg", "whisper-cli"] {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["which", bin]
