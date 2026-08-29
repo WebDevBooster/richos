@@ -97,7 +97,7 @@ use crate::ledger::{AttentionTier, Ledger, LedgerError, Source, Turn, TurnState}
 use crate::machinery::{MachineryKind, MachineryRecord, ToolStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // VISIBILITY — the gate
@@ -685,10 +685,16 @@ impl Timeline {
     ///   1. the record's `thread_id` must equal this binding's thread; and
     ///   2. the record's `turn_id` must be a turn the scoped view ACCEPTED.
     ///
-    /// Remove either one and machinery attached to a forged cross-entity turn renders in
-    /// this entity's thread — which is what
-    /// `tests/timeline_tests.rs::no_machinery_from_one_entity_renders_in_another_entitys_thread`
-    /// demonstrates by deleting them.
+    /// The two are not equivalent, and the difference is worth stating because it decides
+    /// what each is FOR. Delete clause 1 and a record stamped with another thread but a
+    /// turn id belonging to THIS thread — a mis-stamp, a corrupt shard, a future writer
+    /// bug — is placed into this thread and rendered: a real leak, demonstrated by
+    /// `tests/timeline_tests.rs::no_machinery_from_one_entity_renders_in_another_entitys_thread`.
+    /// Clause 2 is the reported form of a containment that is already structural: `rank`
+    /// holds exactly the accepted turns and is also the placement key, so a refused turn
+    /// has no bucket to be placed in. Deleting clause 2 therefore does not leak — it
+    /// costs the REPORT, which is its own failure (§22's posture is refuse AND say so,
+    /// never quietly show less), and the same test fails on that too.
     pub fn project(
         ledger: &Ledger,
         binding: &ThreadBinding,
@@ -700,11 +706,15 @@ impl Timeline {
 
         // Turn order = log order = chronological. Rank, so items sort per turn without
         // ever consulting a clock (§1.4 G3).
+        //
+        // `rank` is ALSO the acceptance set, deliberately: it holds exactly the turns the
+        // scoped view returned, so a record whose turn is not in it has nowhere to be
+        // placed. Containment for that class is by construction rather than by a check
+        // that could be deleted — and the explicit clause below turns the silent
+        // impossibility into a reported refusal.
         let mut rank: HashMap<&str, usize> = HashMap::new();
-        let mut accepted: HashSet<&str> = HashSet::new();
         for (i, t) in turns.iter().enumerate() {
             rank.insert(t.id.as_str(), i);
-            accepted.insert(t.id.as_str());
         }
 
         let mut buckets: Vec<Vec<TimelineItem>> = vec![Vec::new(); turns.len()];
@@ -732,7 +742,7 @@ impl Timeline {
                     turn_id: None,
                     reason: RejectionReason::NotTurnScoped,
                 }),
-                Some(turn_id) if accepted.contains(turn_id) => kept.push(r),
+                Some(turn_id) if rank.contains_key(turn_id) => kept.push(r),
                 Some(turn_id) => rejections.push(TimelineRejection {
                     record_id: r.machinery_id.clone(),
                     thread_id: r.thread_id.clone(),
@@ -749,8 +759,19 @@ impl Timeline {
 
         let owned: Vec<MachineryRecord> = kept.into_iter().cloned().collect();
         for row in crate::machinery::project(owned) {
-            let Some(turn_id) = row.turn_id.clone() else { continue };
-            let Some(&i) = rank.get(turn_id.as_str()) else { continue };
+            // Every row here already passed both clauses. If one somehow did not, it is
+            // REPORTED rather than dropped on the floor — there is no silent path out of
+            // this loop, because a silent drop is how a guard stops being testable.
+            let placement = row.turn_id.as_deref().and_then(|t| rank.get(t).map(|&i| (i, t)));
+            let Some((i, _)) = placement else {
+                rejections.push(TimelineRejection {
+                    record_id: row.machinery_id.clone(),
+                    thread_id: row.thread_id.clone(),
+                    turn_id: row.turn_id.clone(),
+                    reason: RejectionReason::UnscopedTurn,
+                });
+                continue;
+            };
             let turn = turns[i];
             buckets[i].push(activity_item(&row, turn, &entity, binding.binding_revision(), &types, &last_seen));
         }
