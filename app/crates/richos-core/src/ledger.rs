@@ -75,7 +75,20 @@ pub enum TurnState {
     /// Terminal, ended cleanly (carries the ACP stopReason).
     Completed,
     /// Terminal, ended by crash/cancel/rotation before turn-end.
+    ///
+    /// **This variant no longer covers a CEO stop.** It did until 2026-08-29, and that is
+    /// exactly why the §6.1 label *"You stopped after {duration}"* could not be rendered:
+    /// attributing an ACP crash to the CEO is a false statement about who did what.
+    /// [`TurnState::Stopped`] carries that one case now, and it is written only from a
+    /// durably-recorded stop REQUEST (`steering.rs`), never inferred.
     Interrupted,
+    /// Terminal, ended because the CEO asked it to stop (UX §9.3).
+    ///
+    /// The distinction from [`Interrupted`](Self::Interrupted) is the whole point: this
+    /// state is the evidence behind §6.1's `You stopped after {duration}`, which is an
+    /// ATTRIBUTION to the CEO. It is reachable only through [`Ledger::stop_turn`], which
+    /// the spine calls only when a stop request for that exact turn id is on disk.
+    Stopped,
 }
 
 /// How the CEO's input arrived. Voice and text land in ONE thread (fixes the
@@ -236,6 +249,16 @@ pub enum Event {
     },
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
     TurnInterrupted { turn_id: String, reason: String, at: u64 },
+    /// The CEO stopped this turn (UX §9.3 step 1-2). A SEPARATE event from
+    /// `TurnInterrupted` on purpose: replaying the log must be able to tell a stop from a
+    /// crash forever, and a `reason` string on the old event would have been a convention
+    /// rather than a guarantee.
+    ///
+    /// `requested_at` is when the stop request became durable on disk (`steering.rs`), and
+    /// `at` is when the turn actually ended. They differ by however long the lease took to
+    /// let go — recorded, not averaged away, because the gap is the honest measure of how
+    /// immediate "immediate" was.
+    TurnStopped { turn_id: String, requested_at: u64, at: u64 },
     /// Recorded AS the action happens (not at turn-end) so replay can't double-execute (§5.4).
     /// `turn_id` is `None` for actions that are not turn-scoped — lease rotation and
     /// re-prime injection happen AT a turn boundary, BETWEEN turns, and claiming them
@@ -358,6 +381,11 @@ pub struct Turn {
     /// Set once this turn has been superseded by a mid-turn-crash replay (§5.3) — the
     /// id of the turn that completed the work instead. `messages()`/re-prime skip it.
     pub superseded_by: Option<String>,
+    /// When the CEO's stop request became durable, for a turn in [`TurnState::Stopped`].
+    /// `None` for every other state. Kept beside `ended_at` rather than folded into it so
+    /// the LAG between "he asked" and "it let go" stays measurable after a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_requested_at: Option<u64>,
 }
 
 impl Turn {
@@ -542,6 +570,7 @@ impl Ledger {
                     ended_at: None,
                     tier: None,
                     superseded_by: None,
+                    stop_requested_at: None,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -572,6 +601,19 @@ impl Ledger {
                     t.state = TurnState::Interrupted;
                     t.stop_reason = Some(format!("interrupted: {reason}"));
                     t.ended_at = Some(at);
+                }
+            }
+            Event::TurnStopped { turn_id, requested_at, at } => {
+                if let Some(t) = self.turn_mut(&turn_id) {
+                    // A stop OVERRIDES nothing that already ended: a turn that completed
+                    // before the stop request reached the lease stays completed, because
+                    // it did. Only a turn still open is stopped.
+                    if matches!(t.state, TurnState::Received | TurnState::InFlight) {
+                        t.state = TurnState::Stopped;
+                        t.stop_reason = Some("stopped_by_ceo".to_string());
+                        t.ended_at = Some(at);
+                        t.stop_requested_at = Some(requested_at);
+                    }
                 }
             }
             Event::ActionRecorded { action_id, turn_id, kind, detail, status, visibility, at } => {
@@ -610,6 +652,7 @@ impl Ledger {
                     ended_at: None,
                     tier: Some(tier),
                     superseded_by: None,
+                    stop_requested_at: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -991,6 +1034,20 @@ impl Ledger {
         )
     }
 
+    /// Record that the CEO stopped this turn (UX §9.3 step 5's evidence).
+    ///
+    /// `requested_at` must be the timestamp of the DURABLE stop request
+    /// (`steering::IntakeLog`), not `now()` — the request is what makes the attribution
+    /// true, and it was written to disk before the lease was touched. Callers that do not
+    /// hold a real stop request must use [`interrupt_turn`](Self::interrupt_turn): there is
+    /// no code path that turns a crash into a CEO stop.
+    pub fn stop_turn(&mut self, turn_id: &str, requested_at: u64) -> Result<(), LedgerError> {
+        self.append(
+            Event::TurnStopped { turn_id: turn_id.to_string(), requested_at, at: now_millis() },
+            true,
+        )
+    }
+
     /// Claim a CEO-FACING, turn-scoped action BEFORE executing it (claim-then-execute,
     /// §6.4). Returns the action id; settle it later with `update_action`.
     pub fn record_action(&mut self, turn_id: &str, kind: &str, detail: &str) -> Result<String, LedgerError> {
@@ -1368,6 +1425,7 @@ mod tests {
             ended_at: None,
             tier: None,
             superseded_by: None,
+            stop_requested_at: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);
