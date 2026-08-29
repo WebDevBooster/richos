@@ -18,7 +18,7 @@
 #       discovers workflows only at the repository root, so the root copy is
 #       the one that actually fires, and it runs with working-directory: engine.
 #
-# Two YAML files that each spell out the same six verification steps is a
+# Two YAML files that each spell out the same seven verification steps is a
 # typed inventory in a different costume — the exact object `run-all-tests.sh`
 # refuses to keep, one level further out. So they do not spell out the steps.
 # Both call THIS script, and it is the only place the steps are written down.
@@ -53,6 +53,16 @@
 #      demo.test.sh (which invokes the demo twice), but the demo is the thing
 #      a prospect runs first and it broke silently for hours on 2026-08-29, so
 #      its 7/7 line gets its own visible step in the log.
+#   7. scripts/publication-completeness.sh — for a repository that declares
+#      itself publication-bound, the check that everything it CLAIMS to ship,
+#      it actually ships and an adopter can actually reach. Steps 1-6 all
+#      answer "does the engine work"; this is the only one that answers "does
+#      the customer receive it". It is HERE, and not in a checklist, because
+#      all four defects it was built from were found by hand on the same day,
+#      and a rule enforced by someone's attention lasts exactly as long as
+#      their attention. In a repository with no .publication-boundary it exits
+#      2 as NOT APPLICABLE and this step is skipped — adoption is declared,
+#      never inferred, so an adopter who does not publish is not held to it.
 #
 # ===========================================================================
 # THE GIT-IDENTITY PRECONDITION — checked, never quietly supplied
@@ -93,7 +103,7 @@ C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 step() { printf '\n%s=== [%s/%s] %s ===%s\n' "$C_BOLD" "$1" "$TOTAL_STEPS" "$2" "$C_RESET"; }
 die()  { printf '\n%s✗ ci-verify: %s%s\n' "$C_RED" "$1" "$C_RESET" >&2; exit "${2:-1}"; }
 
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 
 # --- 1. Preconditions ------------------------------------------------------
 step 1 "preconditions (tool versions + git identity)"
@@ -176,6 +186,25 @@ if ! grep -qE '7/7 beats passed' "$DEMO_LOG"; then
     die "demo.sh exited 0 but did not report '7/7 beats passed' — the beat COUNT changed. If that was deliberate, update the expected count in scripts/ci-verify.sh."
 fi
 rm -f "$DEMO_LOG"
+
+# --- 7. Publication completeness -------------------------------------------
+# Exit 2 means "this repository does not declare itself publication-bound", not
+# "the check broke" — it is the deliberate stand-down for the majority of
+# adopters, whose repositories never go public. The two are distinguished by
+# the NOT APPLICABLE banner rather than by the exit code alone, so a genuinely
+# broken run can never be read as a stand-down.
+step 7 "publication completeness (scripts/publication-completeness.sh)"
+PC_LOG="$(mktemp "${TMPDIR:-/tmp}/ci-verify-pubcomplete.XXXXXX")"
+scripts/publication-completeness.sh 2>&1 | tee "$PC_LOG"
+PC_RC="${PIPESTATUS[0]}"
+if [ "$PC_RC" -eq 2 ] && grep -q 'NOT APPLICABLE' "$PC_LOG"; then
+    printf '%s—%s not publication-bound; completeness check stood down (this is normal).\n' \
+        "$C_BOLD" "$C_RESET"
+elif [ "$PC_RC" -ne 0 ]; then
+    rm -f "$PC_LOG"
+    die "publication-completeness.sh exited $PC_RC — the public tree claims a capability it does not deliver. Each finding above names the file and the fix."
+fi
+rm -f "$PC_LOG"
 
 printf '\n%s✓ ci-verify: all %s steps passed.%s\n' "$C_GREEN" "$TOTAL_STEPS" "$C_RESET"
 exit 0

@@ -127,7 +127,7 @@ dependency, so the shell always builds against the same spine.
 
 ## Entity and thread navigation (Codex-UX slice 4)
 
-Contract: `docs/design/richos-codex-inspired-conversation-ux-2026-08-28.md` §3 and §25.
+Contract: `richos-hq/docs/design/richos-codex-inspired-conversation-ux-2026-08-28.md` §3 and §25.
 
 **Grouping happens in Rust, not in the renderer.** `navigation_tree` returns threads
 already inside their entity's group, resolved through `Ledger::thread_binding` — the
@@ -162,7 +162,7 @@ thread appears in and nothing else about its scope.
 Every non-text ACP update is now **routed**, not dropped, into a second event family
 (`rich://machinery`) and retained in a separate per-thread journal at
 `<app-data>/machinery/<thread_id>/<YYYY-MM-DD>.jsonl`. Contract:
-`docs/plans/richos-techy-mode-2026-08-26.md`. UI contract: `app/STREAMING.md`.
+`richos-hq/docs/plans/richos-techy-mode-2026-08-26.md`. UI contract: `app/STREAMING.md`.
 
 **Retention is unconditional and has no setting** — that is what makes it possible to turn
 the technical view on for a conversation that already happened.

@@ -10,7 +10,7 @@
 `engine/scripts/lib/publication-boundary.{sh,py}` and `.publication-boundary`;
 `docs/briefs/frank-brief-frontend-stress-2026-08-29.md`;
 `richos-hq` `wiki/{open-source-strategy,ceo-decisions,executive-continuity-system}.md` and
-`docs/case-studies/cs-001-unprepared-task-2026-08-29.md` (PRIVATE — cited by section, never quoted here).
+`richos-hq/docs/case-studies/cs-001-unprepared-task-2026-08-29.md` (PRIVATE — cited by section, never quoted here).
 
 **Publication note.** This file lives in `richos`, which gets published. CS-001 names a real third
 party and quotes the CEO. Everything below refers to it by section number and describes its content

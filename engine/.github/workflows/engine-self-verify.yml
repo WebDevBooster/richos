@@ -26,7 +26,7 @@ name: engine-self-verify
 #
 # WHAT IT VERIFIES is deliberately NOT written down here. Both copies call
 # `scripts/ci-verify.sh`, which is the single place the steps are listed —
-# because two YAML files each spelling out the same six steps is a typed
+# because two YAML files each spelling out the same seven steps is a typed
 # inventory in a different costume, and this engine does not keep those. Read
 # that script's header for the step list, the reasoning, and what CI can and
 # cannot cover.

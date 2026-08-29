@@ -590,7 +590,7 @@ by hand, by calling one script:
 scripts/ci-verify.sh
 ```
 
-That script — not the YAML — is where the six steps are written down: tool +
+That script — not the YAML — is where the seven steps are written down: tool +
 git-identity preconditions, `bash -n` on every shipped script, **every** test
 suite via `run-all-tests.sh` (discovered from disk, never globbed at one
 directory), `install.sh` to mint the gitignored `.sha256` sidecars a fresh clone
@@ -616,6 +616,45 @@ in shipped enforcement code, not a test. `docs/ci-portability-notes.md` records
 all three, what was fixed, and the one layer set CI honestly cannot cover
 (BR1-BR10, which need an operator's `~/.claude` registration and are covered
 instead by `scripts/hooks/by-reference.test.sh`).
+
+## If your repository gets published — the two publication contracts
+
+Some repositories go public. If yours does, create a **`.publication-boundary`**
+file at its root. That one committed file is the declaration, and it switches on
+both halves of the split — nothing is inferred, exactly as `orchestration.config`
+declares engine adoption. Its own header documents every key it takes; copy this
+engine's repository-root copy and edit `PRIVATE_RECORD` and `PRIVATE_SOURCES` to
+name where your private material actually lives.
+
+**Half one — may this leave?** `guard-publication-writes.sh` (at the write) and
+`guard-publication-commits.sh` (at `git commit`, against the staged index, which
+is where it catches files that tools generated and no Write ever touched) refuse
+private material entering a published tree. They decide on CONTENT, not on file
+extension: the incident that produced them was 137 files of recorded speech that
+passed a "no media committed" check three times because the payload was text.
+
+**Half two — is everything that must be there, there?** A leak guard is blind to
+the opposite failure: the public tree claiming a capability it does not deliver.
+Four of those shipped in a single day — enforcement with no declaration file to
+switch it on, a mechanism left behind in the private repo, a workflow at a path
+Actions never looks at, and a README citing a CI file that exists nowhere. Run:
+
+```
+scripts/publication-completeness.sh
+```
+
+It derives what must exist from what your tree already declares — no list of
+capabilities to maintain — and names anything missing, with the fix. `--explain`
+shows what it derived and from where. `ci-verify.sh` runs it on every push, so
+this is not a step anybody has to remember.
+
+When a finding is genuinely not a defect — a reference tree whose paths describe
+*your* repository rather than the engine's — say so in an optional
+**`.publication-completeness`** file beside the boundary declaration, with the
+reason in a comment. That escape hatch is safe to have because an entry which
+suppresses nothing FAILS and names itself for deletion, so an exemption cannot
+outlive its reason. The engine's own copy is at the repository root; read it for
+the four keys and for what each exemption is actually buying.
 
 ## The meta-roles (ship working)
 

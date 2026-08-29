@@ -1,10 +1,10 @@
 # What the ACP adapter actually emits — measured, 2026-08-28
 
 **Author:** Echo (Rust & Tauri desktop engineer). **Date:** 2026-08-28.
-**Answers:** the verify-first caveat in `docs/plans/richos-techy-mode-2026-08-26.md` §1.1 —
+**Answers:** the verify-first caveat in `richos-hq/docs/plans/richos-techy-mode-2026-08-26.md` §1.1 —
 *"the emitted subset of our actual adapter (`claude-agent-acp`) is **not verified anywhere in this
 repo** … Before Phase 1 is written, run the probe with a tool-using prompt and record the observed
-kinds."* (That section cites `app/scratch-acp/probe.js`; the directory was renamed `app/acp-adapter/`
+kinds."* (That section names a `scratch-acp/probe.js` path; the directory was renamed `app/acp-adapter/`
 in `9d8fc1f`. Path moved, citation didn't.)
 
 **Verdict up front: the §1.2 routing table HOLDS. Phase 1 is not blocked.** Every kind the table
