@@ -65,15 +65,19 @@ The mechanism that was called **the CEO queue** is now **the CEO's TODOs**. The
 CEO's reason is not cosmetic: the audience is non-technical CEOs based in the
 US, and *queue* is the British word for it. Everything renamed together:
 
-| Before | Now |
+The "before" column is written without backticks on purpose: those paths no
+longer exist in this tree, and a citation of a file a reader will never have is
+a finding `scripts/publication-completeness.sh` is right to raise.
+
+| Before (gone) | Now |
 |---|---|
-| `.ceo-queue` | `.ceo-todos` |
-| `QUEUE_RECORD` / `QUEUE_VIEW` | `TODO_RECORD` / `TODO_VIEW` |
-| `CEO-QUEUE.md` (the usual view name) | `CEO-TODOs.md` |
-| `scripts/ceo-queue-{lint,render,init}.sh` | `scripts/ceo-todos-{lint,render,init}.sh` |
-| `scripts/lib/ceo-queue.{sh,py}` | `scripts/lib/ceo-todos.{sh,py}` |
-| `scripts/hooks/guard-ceo-queue-commits.sh` | `scripts/hooks/guard-ceo-todos-commits.sh` |
-| `reference/ceo-queue/` | `reference/ceo-todos/` |
+| .ceo-queue | `.ceo-todos` |
+| QUEUE_RECORD / QUEUE_VIEW | `TODO_RECORD` / `TODO_VIEW` |
+| CEO-QUEUE.md (the usual view name) | `CEO-TODOs.md` |
+| scripts/ceo-queue-{lint,render,init}.sh | `scripts/ceo-todos-{lint,render,init}.sh` |
+| scripts/lib/ceo-queue.{sh,py} | `scripts/lib/ceo-todos.{sh,py}` |
+| scripts/hooks/guard-ceo-queue-commits.sh | `scripts/hooks/guard-ceo-todos-commits.sh` |
+| reference/ceo-queue/ | `reference/ceo-todos/` |
 
 **You do not have to do anything on the day you take this update.** A clean cut
 was rejected, and the reason is the ordering trap above turned inside out.
