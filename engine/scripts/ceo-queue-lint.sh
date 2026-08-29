@@ -105,7 +105,7 @@ fi
 
 cq_resolve_roots "$REPO"
 
-RESULT="$(cq_lint_file "$CQ_QUEUE_RECORD" "$RECORD")" || {
+RESULT="$(cq_lint_file "$CQ_QUEUE_RECORD" "$RECORD" "$REPO")" || {
     echo "ERROR: ceo-queue-lint.sh: the checker could not run — treating as BROKEN, not as clean." >&2
     exit 2
 }
@@ -120,6 +120,9 @@ case "$VERDICT" in
             SKIPPED="$(printf '%s' "$RESULT" | head -1 | cut -f3)"
             printf '✓ CEO queue clean: %s item(s) in section(s) %s are prepared — artifact on disk, time, done, unblocks.\n' \
                 "$CHECKED" "$CQ_CEO_SECTIONS"
+            printf '  entry point: %s — present, singular, named at the head of %s, byte-current with %s.\n' \
+                "${CQ_QUEUE_VIEW:-<none declared>}" "$CQ_ROOT_README" "$CQ_QUEUE_RECORD"
+            printf '  front door : sha256:%s\n' "$(cq_verdict_fp "$RESULT" | cut -c1-16)"
             if [ "${SKIPPED:-0}" != "0" ]; then
                 printf '  %s artifact(s) NOT checked (declared root not on this machine):\n' "$SKIPPED"
                 printf '%s\n' "$BODY" | while IFS="$(printf '\t')" read -r kind sec iid path why; do
@@ -127,11 +130,15 @@ case "$VERDICT" in
                     printf '    section %s, item %s — %s: %s\n' "$sec" "$iid" "$path" "$why"
                 done
             fi
+            # Every LIMIT of this run, printed on a clean verdict. A green tick
+            # that does not say what it left unchecked is how "clean" starts
+            # meaning something it never checked.
+            printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  NOT CHECKED — %s\n    %s\n", $2, $3}'
         fi
         exit 0 ;;
     VIOLATIONS)
         cq_refusal "ceo-queue-lint.sh" \
-            "$(printf '%s' "$RESULT" | head -1 | cut -f2) item(s) claim to be waiting on the CEO and are not ready" \
+            "$(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this queue are not ready" \
             "$BODY" "$REPO/$CQ_QUEUE_RECORD" >&2
         exit 1 ;;
     BROKEN)

@@ -224,6 +224,57 @@ if [ ! -s "$SUBJECT" ]; then
     fi
 fi
 
+# --- The SURFACE around the record, resolved the same way ------------------
+# THE ENTRY POINT IS CHECKED FROM THE SAME BYTES AS THE RECORD, and it has to
+# be: the failure being gated is a view that no longer matches the record, and
+# the commonest way to produce one is to stage a record change and leave the
+# generated page behind. Comparing a staged record against a WORKTREE view
+# would pass exactly that commit — the gate would be looking at two different
+# moments in time and calling them consistent.
+#
+# "-" means: this file will not be there after the commit. Distinct from unset
+# (read the worktree), because a DELETED entry point must read as absent, not
+# as whatever is still lying on disk.
+stage_view() {
+    # stage_view <repo-relative path> <scratch name> -> prints the override token
+    local rel="$1" tmp="$WORK/$2" staged=0 deleted=0
+    [ -n "$rel" ] || { printf ''; return; }
+    case "
+$STAGED_LIST
+" in
+        *"
+$rel
+"*) staged=1 ;;
+    esac
+    case "
+$DELETED_LIST
+" in
+        *"
+$rel
+"*) deleted=1 ;;
+    esac
+    if [ "$staged" -eq 1 ] && [ "$STAGE_ALL" -eq 0 ]; then
+        if git -C "$CQ_REPO" show ":$rel" > "$tmp" 2>/dev/null; then
+            printf '%s' "$tmp"
+            return
+        fi
+    fi
+    if [ "$deleted" -eq 1 ] && [ "$STAGE_ALL" -eq 0 ]; then
+        printf '%s' '-'
+        return
+    fi
+    if [ -f "$CQ_REPO/$rel" ]; then
+        printf ''      # unset: the library reads the worktree copy
+        return
+    fi
+    printf '%s' '-'
+}
+
+DELETED_LIST="$(git -C "$CQ_REPO" diff --cached --name-only --diff-filter=D 2>/dev/null || true)"
+CQ_OVERRIDE_VIEW="$(stage_view "$CQ_QUEUE_VIEW" view.md)"
+CQ_OVERRIDE_README="$(stage_view "$CQ_ROOT_README" readme.md)"
+export CQ_OVERRIDE_VIEW CQ_OVERRIDE_README
+
 if [ ! -f "$SUBJECT" ] || [ ! -s "$SUBJECT" ]; then
     # The declaration names a record that is not there. That is BROKEN — never
     # a quiet pass. A guard whose subject has vanished protects nothing while
@@ -242,7 +293,7 @@ fi
 
 cq_resolve_roots "$CQ_REPO"
 
-RESULT="$(cq_lint_file "$CQ_QUEUE_RECORD" "$SUBJECT")" || {
+RESULT="$(cq_lint_file "$CQ_QUEUE_RECORD" "$SUBJECT" "$CQ_REPO")" || {
     echo "ERROR: guard-ceo-queue-commits.sh: the CEO-queue predicate could not run — refusing (fail-closed), because a checker that cannot run is not a clean record." >&2
     exit 2
 }
@@ -252,15 +303,20 @@ BODY="$(printf '%s\n' "$RESULT" | tail -n +2)"
 
 case "$VERDICT" in
   CLEAN)
+    # A clean pass still says what it did NOT check. The only way to silence
+    # these lines is to declare the thing they name, which is the point: an
+    # undeclared check must cost something visible every time, or "clean"
+    # quietly grows to mean "checked" and we are back where this started.
+    printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  CEO QUEUE — NOT CHECKED: %s\n         %s\n", $2, $3}' >&2
     exit 0 ;;
   BROKEN)
     cq_broken_banner "guard-ceo-queue-commits.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
     exit 2 ;;
   VIOLATIONS)
     if [ "$TOUCHED" -eq 1 ]; then
-        HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | head -1 | cut -f2) item(s) in it are not ready"
+        HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this queue are not ready"
     else
-        HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | head -1 | cut -f2) item(s) in this repository's CEO queue are not ready (this commit did not touch the record)"
+        HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this repository's CEO queue are not ready (this commit did not touch the record)"
     fi
     cq_refusal "guard-ceo-queue-commits.sh" "$HEADLINE" "$BODY" "$CQ_REPO/$CQ_QUEUE_RECORD" >&2
     exit 2 ;;
