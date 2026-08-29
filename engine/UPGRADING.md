@@ -67,7 +67,12 @@ upgrade; the only reason to review a diff is curiosity about what changed.
   `ONBOARDING-RUNBOOK.md`, `LICENSE-TODO.md`, and the reference docs under
   `docs/` (`cost-governance.md`, `failures-playbook.md`, `orchestrator-memory.md`,
   `ci-portability-notes.md`).
-- `.github/workflows/engine-self-verify.yml` — take upstream unless you extended it.
+- `.github/workflows/engine-self-verify.yml` and `scripts/ci-verify.sh` — take
+  upstream unless you extended them. The YAML is a thin caller; `ci-verify.sh`
+  holds the actual steps, so an upstream change to what CI verifies arrives in
+  the script. **Check the workflow is at your repository ROOT** — Actions
+  discovers workflows nowhere else, and a copy left under a subdirectory never
+  fires and never says so.
 
 ### Adopter-owned — merge carefully, never blind-overwrite
 

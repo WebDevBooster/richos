@@ -1,56 +1,41 @@
 name: engine-self-verify
 
-# The RichOS engine self-verifies inside the adopter's own repo.
-# Every push/PR re-proves the enforcement machinery is wired and un-tampered,
-# so drift (a deleted settings key, a modified hook, a broken probe) surfaces
-# immediately in CI instead of as a silent total failure at some future
-# session start — exactly the CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS incident
-# the README warns about. This workflow is ready to commit as-is; it assumes
-# nothing repo-specific beyond the engine's own layout.
+# THE ADOPTER'S TEMPLATE. THIS COPY DOES NOT RUN, AND CANNOT.
 #
-# What it checks, in order:
-#   1. bash -n on every shipped shell script (fast fail on a syntax error).
-#   2. EVERY test suite, via scripts/run-all-tests.sh — which DISCOVERS them
-#      from disk rather than globbing one directory. This step used to be two
-#      steps, `scripts/lib/*.test.sh` and `scripts/hooks/*.test.sh`, and those
-#      two globs between them missed five suites including scripts/demo.test.sh
-#      and scripts/locate-engine.test.sh. On 2026-08-29 both of those were red
-#      on main and had been for a day, while "18/18 suites green" was quoted at
-#      every land and was, on its own terms, true. A CI step that enumerates
-#      directories is a typed inventory with extra steps; see the runner's own
-#      header for the full argument.
-#   3. install.sh + contract-integrity-probe.sh against the repo's own
-#      committed, filled orchestration.config / settings.local.json — the
-#      same command an adopter runs after cloning. Note this exercises the
-#      SEATED layer set (the engine is its own repo in CI); the by-reference
-#      layers are covered by by-reference.test.sh, which step 2 discovers and
-#      which builds the two-root topology CI cannot otherwise reproduce.
-#   4. scripts/demo.sh — deterministic, unattended, ~7s — asserting it reports
-#      all 7 beats passed. Step 2 already runs demo.test.sh, which invokes the
-#      demo twice; this step exists so the 7/7 line is visible in the CI log
-#      rather than buried inside a suite's captured output.
+# GitHub Actions discovers workflows ONLY in a `.github/workflows/` directory at
+# the REPOSITORY ROOT. This copy sits under `engine/` because the engine SHIPS
+# it: an adopter copies the engine's contents to their repository root (see
+# README, "Adopter flow"), at which point this file lands at THEIR root and
+# fires on their very next push.
 #
-# WHERE THIS FILE HAS TO LIVE. GitHub Actions discovers workflows ONLY in
-# `.github/workflows/` at the REPOSITORY ROOT. This copy sits under `engine/`
-# because the engine ships it as a ready-to-commit template for an adopter who
-# vendors `engine/` into their own repo — so if you are that adopter, copy it
-# to YOUR root and set `working-directory` (or drop the engine/ prefix)
-# accordingly. A copy that stays under `engine/` never runs: verified on the
-# engine's own repository, where `gh run list` returns nothing at all and this
-# workflow has never executed once.
+# If you have vendored `engine/` as a SUBDIRECTORY instead of copying its
+# contents to your root, copy this file to `<your repo>/.github/workflows/` and
+# add:
 #
-# Prerequisites: bash, git, python3 (pinned below), and standard GNU
-# coreutils — the same set documented in README's "Prerequisites" section.
-# No Claude API key, no live agents, no network access beyond checkout/setup.
+#     defaults:
+#       run:
+#         working-directory: engine
 #
-# Portability note (see docs/ci-portability-notes.md for the full reasoning):
-# this workflow runs on ubuntu-latest. The engine was developed on macOS; every
-# hook already uses the shasum -> sha256sum -> python3 hashlib fallback chain
-# and contains no BSD-only constructs (no sed -i, no date -v/-j, no stat -f,
-# no pbcopy/osascript) — confirmed by grep audit, not assumption. One
-# genuine (cosmetic, non-breaking) macOS/Linux difference exists in `mktemp
-# -t` usage — documented, and fixed in the core (non-test) scripts where it's
-# trivially portable.
+# That is exactly what this engine's own repository does — see the root-level
+# `.github/workflows/engine-self-verify.yml` there, which is the copy that
+# actually executes. It had to be created on 2026-08-29, because for as long as
+# this file was the only copy, the engine's self-verification had never run once:
+# `gh run list` returned nothing at all. Not broken — unreachable. A correct rule
+# with nothing enforcing it is the exact defect this engine exists to end, so it
+# is worth saying plainly: A WORKFLOW THAT HAS NOT EXECUTED VERIFIES NOTHING.
+#
+# WHAT IT VERIFIES is deliberately NOT written down here. Both copies call
+# `scripts/ci-verify.sh`, which is the single place the steps are listed —
+# because two YAML files each spelling out the same six steps is a typed
+# inventory in a different costume, and this engine does not keep those. Read
+# that script's header for the step list, the reasoning, and what CI can and
+# cannot cover.
+#
+# Prerequisites: bash, git, python3 (pinned below), and standard GNU coreutils —
+# the same set documented in README's "Prerequisites". No Claude API key, no
+# live agents, no network beyond checkout/setup. Portability: the engine is
+# developed on macOS and this runs on Linux; `docs/ci-portability-notes.md`
+# records what that first Linux run actually broke, and what was fixed.
 
 on:
   push:
@@ -62,54 +47,28 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Report tool versions
+      # Several suites build throwaway git repositories in $TMPDIR and commit
+      # into them, inheriting the machine's ambient identity by design (see the
+      # comment in scripts/lib/resolve-roots.test.sh). Every workstation has
+      # one; a runner has none, and without it `git commit` exits 128 inside the
+      # fixtures and the probe's Layer Q quietly downgrades to "FUNCTIONAL
+      # CANARY DID NOT RUN". ci-verify.sh refuses to start without an identity
+      # rather than degrade, so declare it here — visibly, and only on the
+      # ephemeral runner.
+      - name: Declare a git identity for the throwaway test fixtures
         run: |
-          bash --version | head -1
-          git --version
-          python3 --version
+          git config --global user.name  "engine-self-verify"
+          git config --global user.email "engine-self-verify@users.noreply.github.com"
 
-      - name: bash -n every shipped shell script
-        run: |
-          set -eo pipefail
-          fail=0
-          while IFS= read -r -d '' f; do
-            if ! bash -n "$f"; then
-              echo "SYNTAX ERROR: $f"
-              fail=1
-            fi
-          done < <(find scripts reference -name '*.sh' -print0 2>/dev/null)
-          if [ "$fail" -ne 0 ]; then
-            echo "One or more scripts failed bash -n" >&2
-            exit 1
-          fi
-          echo "bash -n: all scripts OK"
-
-      # Every suite, discovered from disk. Not a glob, not a list — see the
-      # runner's header for why the engine refuses to keep a typed inventory of
-      # anything it also reports a fraction over.
-      - name: All engine test suites (scripts/run-all-tests.sh)
-        run: scripts/run-all-tests.sh
-
-      - name: Mint sidecars + migrate any stale settings.json (install.sh)
-        run: scripts/hooks/install.sh
-
-      - name: Integrity probe (contract-integrity-probe.sh)
-        run: scripts/hooks/contract-integrity-probe.sh
-
-      - name: 60-second proof (scripts/demo.sh) — assert 7/7 beats
-        run: |
-          set -euo pipefail
-          scripts/demo.sh | tee /tmp/demo-output.log
-          if ! grep -qE '7/7 beats passed' /tmp/demo-output.log; then
-            echo "demo.sh did not report 7/7 beats passed" >&2
-            exit 1
-          fi
+      - name: Verify the engine (scripts/ci-verify.sh)
+        run: scripts/ci-verify.sh

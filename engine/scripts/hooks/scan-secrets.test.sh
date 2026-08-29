@@ -226,7 +226,7 @@ rm -rf "$FAKEBIN"
 # test that used one would be testing something the shipped hook never does.
 # Two real roots instead, one per setting.
 ca_mkroot() { # <value>
-    local d; d="$(mktemp -d -t scan-secrets-codeaware)"
+    local d; d="$(mktemp -d "${TMPDIR:-/tmp}/scan-secrets-codeaware.XXXXXX")"
     mkdir -p "$d/scripts/hooks" "$d/scripts/lib"
     cp "$HOOK" "$d/scripts/hooks/scan-secrets.sh"; chmod +x "$d/scripts/hooks/scan-secrets.sh"
     cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$d/scripts/lib/"
