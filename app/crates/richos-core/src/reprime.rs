@@ -11,6 +11,7 @@
 
 use crate::entity::ThreadBinding;
 use crate::ledger::{ActionStatus, Ledger, LedgerError, Source, TurnState};
+use crate::worker_status::Unattributed;
 use serde::Serialize;
 
 /// The Tier-C SEAM (continuity §2.3/§4, §8 Q4): the loro Context Compiler is
@@ -57,6 +58,11 @@ pub struct RePrimePayload {
     pub rolling_summary: Option<String>,
     pub action_ledger_digest: Vec<ActionView>,
     pub worker_state: Vec<String>,
+    /// Set when NO team directory could be attributed to this session, naming the reason
+    /// (`worker_status.rs`). `worker_state` is then empty for a reason that is NOT "there
+    /// are no workers", and `to_priming_prompt` says exactly that instead of falling
+    /// silent — the same rule the ACTION LEDGER section already follows.
+    pub worker_state_unknown: Option<Unattributed>,
     // Tier C — compiled, minimal (loro context compiler NOT YET BUILT → degrades gracefully)
     pub loro_slice: Option<String>,
 }
@@ -67,15 +73,25 @@ impl RePrimePayload {
     /// Tier C (loro slice) is intentionally `None` for v1: the loro context compiler
     /// is a concept, not a callable capability yet (continuity design §8 Q4), so this
     /// degrades to "ledger-only re-prime + Rich pulls loro on demand via tools".
-    /// Continuity holds; grounding is thinner. `worker_state` is likewise a seam for
-    /// the engine event-log watcher (later leg).
+    /// Continuity holds; grounding is thinner.
+    ///
+    /// `session_id` is the compute lease this payload is being built for. It is what the
+    /// worker section is ATTRIBUTED by: the team directory is derived from it
+    /// (`worker_status::resolve_team_dir`), never picked off the filesystem. `None` — no
+    /// lease — yields an explicitly-unknown worker section rather than an empty one, and
+    /// performs no filesystem read at all.
     ///
     /// SCOPED (ECS §3.3–3.5): the payload is assembled from a [`ThreadBinding`], not a
     /// bare thread id, and every ingredient is read through the entity guard. A re-prime
     /// is the highest-leverage cross-entity leak in the app — whatever lands here is
     /// asserted to a fresh session as authoritative — so an unbound thread cannot be
     /// primed at all, and no other entity's turns or actions can reach the prompt.
-    pub fn assemble(ledger: &Ledger, binding: &ThreadBinding, tail_turns: usize) -> Result<Self, LedgerError> {
+    pub fn assemble(
+        ledger: &Ledger,
+        binding: &ThreadBinding,
+        tail_turns: usize,
+        session_id: Option<&str>,
+    ) -> Result<Self, LedgerError> {
         // Superseded turns (§5.3 mid-turn-crash replay) are excluded from the working
         // set entirely — a successfully-replayed turn is no longer "unfinished," and its
         // dead predecessor shouldn't pollute the verbatim tail either.
@@ -170,12 +186,23 @@ impl RePrimePayload {
             .collect();
 
         // Tier B #7 — live worker state, from the engine's durable event logs
-        // (worker_status.rs). Best-effort + honest: today that module can only report
-        // COMPLETED tasks (no "active"/"decision required" signal exists in the current
-        // hook set — see worker_status.rs's module doc), so this list is either empty
-        // (nothing has completed since boot) or a short list of recent completions —
-        // never a fabricated "N active" claim.
-        let worker_state: Vec<String> = crate::worker_status::current_status()
+        // (worker_status.rs), for THIS SESSION and no other.
+        //
+        // THIS IS THE HIGHEST-STAKES LINE IN THE MODULE and it was wrong until 2026-08-29.
+        // `current_status()` took no argument and resolved its directory by picking the
+        // most-recently-modified `~/.claude/teams/session-*` — so on any machine running a
+        // second Claude Code session (the stated ICP runs one; the founder's dogfood
+        // machine always does) this section handed a fresh Rich ANOTHER SESSION'S WORKERS,
+        // under a header calling it live worker state, in the very payload whose Tier A #1
+        // identity assertion exists to kill the false-attribution class. Four `session-*`
+        // directories were present on the development machine when this was found, and the
+        // mtime-newest belonged to the session writing the fix.
+        //
+        // It is now derived from the lease's own session id, and when that yields nothing
+        // the payload SAYS SO (see `to_priming_prompt`) rather than falling silent.
+        let workers = crate::worker_status::current_status(session_id);
+        let worker_state_unknown = workers.unattributed;
+        let worker_state: Vec<String> = workers
             .items
             .into_iter()
             .map(|i| format!("[{}] {}", i.state, i.label))
@@ -189,6 +216,7 @@ impl RePrimePayload {
             rolling_summary,
             action_ledger_digest,
             worker_state,
+            worker_state_unknown,
             loro_slice: None,
         })
     }
@@ -281,8 +309,28 @@ impl RePrimePayload {
             }
         }
         s.push('\n');
-        if !self.worker_state.is_empty() {
-            s.push_str("LIVE WORKER STATE (from the engine's event logs):\n");
+        // THREE CASES, AND THE THIRD IS THE ONE THAT MATTERS.
+        //
+        //   attributed + rows  -> the rows, which belong to this session and no other;
+        //   attributed + none  -> nothing rendered: a true, specific silence;
+        //   NOT attributed     -> a stated unknown.
+        //
+        // The third case used to be indistinguishable from the second, and it must not be:
+        // silence here reads to a successor as "no workers are running", which is a claim
+        // nobody is entitled to make when the app could not even identify whose workers it
+        // would be counting. Same rule, same reason as the ACTION LEDGER section above —
+        // an absent section is how a successor infers a denial from an absence.
+        if let Some(reason) = &self.worker_state_unknown {
+            s.push_str(&format!(
+                "LIVE WORKER STATE: NOT AVAILABLE — this session's team directory could not be \
+                 identified ({}), so nothing was read rather than reading another session's \
+                 workers. THIS IS NOT A STATEMENT THAT NO WORKERS ARE RUNNING: you do not know \
+                 either way. Do not report a worker count from this section, and say you would \
+                 need to check if the CEO asks.\n\n",
+                reason.reason()
+            ));
+        } else if !self.worker_state.is_empty() {
+            s.push_str("LIVE WORKER STATE (this session's own workers, from the engine's event logs):\n");
             for w in &self.worker_state {
                 s.push_str(&format!("  - {w}\n"));
             }

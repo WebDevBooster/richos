@@ -213,25 +213,38 @@ pub enum WorkerEventsSource {
     Disabled,
     /// A fixed file. Tests, and an explicit operator override.
     File(PathBuf),
-    /// Resolve the current team-session directory on EVERY read
+    /// Resolve THIS SESSION's team directory on every read
     /// (`worker_status::resolve_team_dir`, honoring `RICHOS_TEAM_DIR`) and read its
-    /// `worker-events.jsonl`. The home fallback (`~/.claude/worker-events.jsonl`) is
-    /// deliberately never resolved — it accumulates across every session that ever missed
-    /// a team dir and cannot be session-scoped (`worker_events.rs`, "Session scope").
+    /// `worker-events.jsonl`.
+    ///
+    /// Re-resolved per read rather than bound at boot because the lease is swappable: a
+    /// rotation mints a new session id, and the directory follows it. It is derived from
+    /// that id and NEVER from a directory mtime — see `worker_status.rs`, "WHOSE workers
+    /// these are". When no directory can be attributed, the stream is EMPTY, which costs
+    /// exactly one thing (a `Task` call stays an ordinary activity row) and claims nothing.
+    ///
+    /// The home fallback (`~/.claude/worker-events.jsonl`) is deliberately never resolved —
+    /// it accumulates across every session that ever missed a team dir and cannot be
+    /// session-scoped (`worker_events.rs`, "Session scope").
     CurrentTeamDir,
 }
 
 impl WorkerEventsSource {
-    /// Read the rows this source currently holds. A missing/unreadable file is an EMPTY
-    /// stream, never an error: "no worker events" is a true and common state.
-    pub fn read(&self) -> Vec<WorkerEventRow> {
+    /// Read the rows this source currently holds, for the session `session_id` names.
+    ///
+    /// A missing/unreadable file is an EMPTY stream, never an error: "no worker events" is
+    /// a true and common state. So is `session_id: None` — no lease, therefore no
+    /// directory this app is entitled to, therefore no rows.
+    pub fn read(&self, session_id: Option<&str>) -> Vec<WorkerEventRow> {
         match self {
             WorkerEventsSource::Disabled => Vec::new(),
             WorkerEventsSource::File(p) => worker_events::read_stream(p),
-            WorkerEventsSource::CurrentTeamDir => match crate::worker_status::resolve_team_dir() {
-                Some(dir) => worker_events::read_stream(&worker_events::worker_events_path(&dir)),
-                None => Vec::new(),
-            },
+            WorkerEventsSource::CurrentTeamDir => {
+                match crate::worker_status::resolve_team_dir(session_id) {
+                    Ok(dir) => worker_events::read_stream(&worker_events::worker_events_path(&dir)),
+                    Err(_) => Vec::new(),
+                }
+            }
         }
     }
 }
@@ -417,12 +430,35 @@ impl Spine {
     }
 
     pub fn attach_lease(&mut self, lease: Box<dyn Cognition>) {
-        // Publish this lease's cancel seam BEFORE it can be handed a turn. A lease with no
-        // cancel story publishes `None`, and a stop against it reports `reached_lease:
-        // false` rather than claiming an interrupt that never happened.
+        self.install_lease(lease);
+    }
+
+    /// THE ONLY place `self.lease` is assigned — boot, clean rotation and crash recovery
+    /// all come through here.
+    ///
+    /// It exists because two things outside the spine lock must never be able to describe a
+    /// lease that is gone, and both used to. `set_cancel` was documented as being called
+    /// "when a lease is attached, rotated or recovered" and was in fact called only on
+    /// attach, so after a rotation the shell's stop button held the DEAD child's cancel
+    /// handle. And `set_lease_session` (new) is what the worker path derives its team
+    /// directory from, so a stale value there is a false-attribution channel of exactly the
+    /// kind this commit removes. Centralising the assignment is what makes both true by
+    /// construction rather than by remembering.
+    fn install_lease(&mut self, lease: Box<dyn Cognition>) {
+        // Published BEFORE the lease can be handed a turn. A lease with no cancel story
+        // publishes `None`, and a stop against it reports `reached_lease: false` rather
+        // than claiming an interrupt that never happened.
         self.control.set_cancel(lease.cancel_handle());
+        self.control.set_lease_session(Some(lease.session_id().to_string()));
         self.lease = Some(lease);
         self.lease_primed = false;
+    }
+
+    /// The current lease's session id — the ONLY honest answer to "whose workers is this
+    /// app looking at" (`worker_status.rs`). `None` when no lease is attached, and callers
+    /// must propagate that rather than substituting anything for it.
+    pub fn lease_session_id(&self) -> Option<&str> {
+        self.lease.as_ref().map(|l| l.session_id())
     }
 
     /// Install the shared stop/steer control (UX §9.2/§9.3). The shell keeps a clone of
@@ -430,6 +466,7 @@ impl Spine {
     /// anything reaches a turn that is already running.
     pub fn set_turn_control(&mut self, control: TurnControl) {
         control.set_cancel(self.lease.as_ref().and_then(|l| l.cancel_handle()));
+        control.set_lease_session(self.lease.as_ref().map(|l| l.session_id().to_string()));
         self.control = control;
     }
 
@@ -746,7 +783,7 @@ impl Spine {
         // The worker stream is read HERE rather than by the caller, for the same reason the
         // binding and the journal are: every consumer that assembled these itself would be
         // one more place the scope guard could be forgotten.
-        let workers = self.worker_events.read();
+        let workers = self.worker_events.read(self.lease_session_id());
         Ok(Timeline::project_with_workers(&self.ledger, &binding, &machinery, &workers)?)
     }
 
@@ -1320,8 +1357,7 @@ impl Spine {
         let from_session = self.lease.as_ref().map(|l| l.session_id().to_string()).unwrap_or_else(|| "crashed".to_string());
         let to_session = fresh.session_id().to_string();
 
-        self.lease = Some(fresh);
-        self.lease_primed = false; // the nested deliver() below re-primes via the normal path
+        self.install_lease(fresh); // publishes the fresh cancel seam AND the fresh session id
         self.context_chars = 0; // fresh lease, fresh budget
 
         self.ledger.record_rotation(&from_session, &to_session, "mid-turn-crash")?;
@@ -1407,7 +1443,11 @@ impl Spine {
 
         // Step 3: assemble the re-prime payload (Tiers A/B from the ledger; Tier C from
         // the optional loro seam, degrading gracefully when absent).
-        let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS)?;
+        // The worker section is scoped to the session THIS payload is being built for —
+        // the OUTGOING lease on a rotation, which is the session whose workers the
+        // conversation so far actually belongs to. Never a directory picked by mtime.
+        let mut payload =
+            RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         if let Some(compiler) = self.loro_compiler.as_ref() {
             if let Ok(slice) = compiler.compile_slice(thread_id) {
                 payload.loro_slice = Some(slice);
@@ -1455,11 +1495,11 @@ impl Spine {
         // (see `acp::AcpClient`) kills + waits on the child process, so exactly one live
         // session exists at any instant ("serialize" — §3.3 step 6). The CEO's next
         // prompt (queued or freshly typed) lands on the already-primed successor.
-        // Republish the cancel seam FIRST: between `self.lease = Some(fresh)` and this
-        // call the control would still be holding the dead lease's handle, and a stop in
-        // that window would be written to a child that no longer exists.
-        self.control.set_cancel(fresh.cancel_handle());
-        self.lease = Some(fresh);
+        // `install_lease` republishes the cancel seam AND the session id in one place:
+        // between the swap and those two calls the control would still describe the dead
+        // lease, and a stop in that window would be written to a child that no longer
+        // exists while the worker path read the retired session's team directory.
+        self.install_lease(fresh);
         self.lease_primed = true; // already primed above — deliver() won't re-prime redundantly
         self.context_chars = priming.len(); // reset the watermark baseline to the new payload
 
@@ -1521,7 +1561,11 @@ impl Spine {
             return Ok(());
         }
         let thread_id = binding.thread_id();
-        let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS)?;
+        // The worker section is scoped to the session THIS payload is being built for —
+        // the OUTGOING lease on a rotation, which is the session whose workers the
+        // conversation so far actually belongs to. Never a directory picked by mtime.
+        let mut payload =
+            RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
         if let Some(compiler) = self.loro_compiler.as_ref() {
             if let Ok(slice) = compiler.compile_slice(thread_id) {
                 payload.loro_slice = Some(slice);

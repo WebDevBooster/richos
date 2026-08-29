@@ -86,7 +86,7 @@ fn main() {
 
     // Exactly what the successor is about to be handed — printed so the proof is
     // inspectable rather than asserted.
-    let payload = RePrimePayload::assemble(spine.ledger(), &spine.ledger().thread_binding(&thread).unwrap(), DEFAULT_TAIL_TURNS).expect("payload");
+    let payload = RePrimePayload::assemble(spine.ledger(), &spine.ledger().thread_binding(&thread).unwrap(), DEFAULT_TAIL_TURNS, spine.lease_session_id()).expect("payload");
     eprintln!("[action-ledger] digest going into the successor's re-prime:");
     for a in &payload.action_ledger_digest {
         eprintln!("[action-ledger]   - [{}] {}: {}", a.status, a.kind, a.detail);

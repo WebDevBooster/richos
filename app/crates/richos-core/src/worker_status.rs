@@ -40,6 +40,38 @@
 //!   muted unknown mark*). Hiding it would assert it is gone; counting it would assert it is
 //!   running.
 //!
+//! # WHOSE workers these are — derived from identity, never from a timestamp
+//!
+//! Everything below is arithmetic over one team-session directory. **Which directory** is
+//! therefore the first and largest claim this module makes, and until 2026-08-29 it was
+//! made by `max_by_key(mtime)` over `~/.claude/teams/session-*` — the most recently
+//! touched directory on the machine, whoever it belonged to. That is not a scoping detail:
+//! [`current_status`] is read by `reprime.rs` and lands in the payload injected into every
+//! fresh Claude session under a header calling it live worker state, so a wrong directory
+//! puts **another session's workers into Rich's own prompt as his**. Measured on the
+//! development machine on 2026-08-29: four `session-*` directories present, the
+//! mtime-newest one belonging to the session that was writing this code.
+//!
+//! The directory is now derived from the session the app is actually serving:
+//!
+//! ```text
+//! team dir = $HOME/.claude/teams/session-<first 8 chars of the lease's session id>
+//! ```
+//!
+//! That name is the engine's own convention (`~/.claude/teams/session-<first8>`), and the
+//! id spaces match: the ACP session id `55c79b81-ace3-4b07-a5f3-406853ac1a36` recorded in
+//! `docs/verification/acp-emission-probe-2026-08-28/run1.raw.jsonl` has a Claude Code
+//! transcript at `~/.claude/projects/-Users-alex-ab-richos-engine/55c79b81-….jsonl`, so the
+//! adapter's session id IS the harness session id. This closes the hypothesis
+//! `timeline.rs` used to carry as an open question.
+//!
+//! **There is no mtime fallback and there must never be one again.** When no directory can
+//! be derived, this module reports NOTHING and says why ([`Unattributed`]) — an honest
+//! zero, the same posture as `needs_you` and as a `run_ended` that is never dressed up as
+//! `done`. A guessed directory that reaches the model's prompt is precisely the failure
+//! being removed, so guessing is not an available degrade.
+//! `tests/worker_attribution_tests.rs` fails if the guess comes back.
+//!
 //! # Session scope, and the fallback that cannot be scoped
 //!
 //! Rows are read from `<team dir>/worker-events.jsonl` and filtered to the session the
@@ -109,6 +141,69 @@ pub struct WorkerStatusView {
     /// `unknown`, not a count."*
     #[serde(default)]
     pub liveness_unknown: usize,
+    /// WHY the three numbers above are all zero, when they are zero because no team
+    /// directory could be attributed to this session at all.
+    ///
+    /// `None` means a directory WAS attributed — to the live lease's session id, or to an
+    /// explicit `RICHOS_TEAM_DIR` override — and the counts describe it. `Some(_)` means
+    /// nothing was read, and names the reason. The distinction is load-bearing for
+    /// `reprime.rs`: "this session has no workers" and "I do not know whose workers those
+    /// are" are different statements, and only one of them may be injected into a prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattributed: Option<Unattributed>,
+}
+
+impl WorkerStatusView {
+    /// Nothing read, and the reason it was not read. Never a guess, never a partial count.
+    pub fn unattributed(reason: Unattributed) -> Self {
+        WorkerStatusView { unattributed: Some(reason), ..Default::default() }
+    }
+
+    /// Whether the counts above describe a directory this session is entitled to.
+    pub fn is_attributed(&self) -> bool {
+        self.unattributed.is_none()
+    }
+}
+
+/// Why no team-session directory could be attributed to this app's session.
+///
+/// Reported rather than swallowed, and reported INSTEAD of a fallback — the same posture
+/// as [`crate::timeline::RejectionReason`]: refusing to answer AND saying so beats quietly
+/// answering about someone else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Unattributed {
+    /// No compute lease is attached, so the app does not know which session it is serving.
+    /// The ordinary state of a boot where the ACP child could not start.
+    NoSession,
+    /// A session id exists but cannot name a directory: shorter than the 8 characters the
+    /// engine's `session-<first8>` convention uses, or carrying a character that is not
+    /// `[0-9A-Za-z-]`. The whitelist is not cosmetic — the session id arrives over the ACP
+    /// wire and is being used to build a filesystem path.
+    UnusableSessionId,
+    /// `$HOME` is unset, so `~/.claude/teams` cannot be located at all.
+    NoHome,
+    /// The session id is fine and `~/.claude/teams/session-<first8>` does not exist. The
+    /// engine creates a team directory on the first spawn, so this is the ordinary,
+    /// correct state of a session that has dispatched no workers.
+    NoTeamDirForSession,
+    /// `RICHOS_TEAM_DIR` was set to a path that is not a directory. An explicit override
+    /// that does not resolve is an operator error, not a licence to fall back.
+    OverrideNotADirectory,
+}
+
+impl Unattributed {
+    /// A short clause naming the reason, for the re-prime payload and the demo. Written to
+    /// slot into "RichOS could not identify this session's team directory ({reason})".
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Unattributed::NoSession => "no compute lease is attached",
+            Unattributed::UnusableSessionId => "the session id cannot name a directory",
+            Unattributed::NoHome => "the home directory could not be located",
+            Unattributed::NoTeamDirForSession => "this session has no team directory on disk",
+            Unattributed::OverrideNotADirectory => "RICHOS_TEAM_DIR does not point at a directory",
+        }
+    }
 }
 
 /// How many recently-completed tasks to surface (bounded — a drill-down, not a log).
@@ -209,53 +304,85 @@ pub fn read_from_dir_with_probe(team_dir: &Path, probe: HostProbe) -> WorkerStat
 
     // needs_you: still structurally 0. No hook payload asks the CEO for anything, so there
     // is no honest non-zero value (§22, "worker waiting state" must not be faked).
-    WorkerStatusView { active, needs_you: 0, items, liveness_unknown }
+    // `unattributed: None` — a directory was named and read, so the counts describe it.
+    WorkerStatusView { active, needs_you: 0, items, liveness_unknown, unattributed: None }
 }
 
-/// Resolve which team-session directory to read, honoring an explicit override
-/// (`RICHOS_TEAM_DIR`, primarily for tests/dev) and otherwise the most-recently-modified
-/// `session-*` dir under `~/.claude/teams/` — a best-effort "this machine's current
-/// session" proxy for the single-CEO/single-machine v1 topology (no authoritative
-/// mapping from the ACP session id to a team dir name exists today). Returns `None`
-/// when nothing resolves — the honest "no team dir" case.
+/// How many leading characters of a session id name its team directory. The engine's
+/// convention, not this module's: `~/.claude/teams/session-<first8>/config.json`.
+pub const TEAM_DIR_PREFIX_LEN: usize = 8;
+
+/// The team-directory NAME a session id maps to (`session-<first8>`), or `None` when the
+/// id cannot name one.
 ///
-/// **On the Phase 4 gate.** This is the one place in the module that looks at filesystem
-/// activity: `max_by_key(modified)` picks WHICH session directory is current. That is
-/// directory SELECTION, not state inference — no worker status is derived from it, and a
-/// directory chosen this way still yields `active: 0` unless its `worker-events.jsonl`
-/// says otherwise and the recorded host pid answers a real signal probe. The gate forbids
-/// inferring active or completed FROM filesystem activity; it does not forbid using an
-/// mtime to choose a file to read. Pass `RICHOS_TEAM_DIR` to remove even that.
-pub fn resolve_team_dir() -> Option<PathBuf> {
+/// The character whitelist is a boundary check, not tidiness: `session_id` arrives from
+/// the ACP adapter over the wire and is being spliced into a filesystem path, so a `/` or
+/// a `.` in the first eight characters must not be able to walk out of `~/.claude/teams`.
+/// A real id is a UUID, whose first eight characters are always `[0-9a-f]`.
+pub fn team_dir_name(session_id: &str) -> Option<String> {
+    let bytes = session_id.as_bytes();
+    if bytes.len() < TEAM_DIR_PREFIX_LEN {
+        return None;
+    }
+    let head = &bytes[..TEAM_DIR_PREFIX_LEN];
+    if !head.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-') {
+        return None;
+    }
+    let head = std::str::from_utf8(head).ok()?;
+    Some(format!("session-{head}"))
+}
+
+/// Resolve WHICH team-session directory this app may read — from the session it is
+/// actually serving, or not at all.
+///
+/// `session_id` is the live compute lease's session id ([`crate::cognition::Cognition::session_id`]).
+/// `None` means no lease is attached, which is a real state and not an excuse to guess.
+///
+/// Order, and each step's refusal:
+///
+/// 1. `RICHOS_TEAM_DIR`, if set — an EXPLICIT operator/test override, which is an identity
+///    statement rather than an inference. Set to a non-directory, it fails
+///    ([`Unattributed::OverrideNotADirectory`]) rather than falling through, because an
+///    operator who named a directory does not want a different one.
+/// 2. No session id -> [`Unattributed::NoSession`].
+/// 3. A session id that cannot name a directory -> [`Unattributed::UnusableSessionId`].
+/// 4. `$HOME` unset -> [`Unattributed::NoHome`].
+/// 5. `$HOME/.claude/teams/session-<first8>` — the answer, if it is a directory. Otherwise
+///    [`Unattributed::NoTeamDirForSession`].
+///
+/// **There is deliberately no sixth step.** The mtime pick this function used to end with
+/// (`max_by_key(modified)` over every `session-*` directory) answered a question it had no
+/// evidence for — *whose* workers these are — and that answer reached Rich's own re-prime
+/// prompt. Reintroducing it is what `tests/worker_attribution_tests.rs` exists to catch.
+pub fn resolve_team_dir(session_id: Option<&str>) -> Result<PathBuf, Unattributed> {
     if let Ok(explicit) = std::env::var("RICHOS_TEAM_DIR") {
         let p = PathBuf::from(explicit);
-        return if p.is_dir() { Some(p) } else { None };
+        return if p.is_dir() { Ok(p) } else { Err(Unattributed::OverrideNotADirectory) };
     }
-    let home = dirs_home()?;
-    let teams_dir = home.join(".claude").join("teams");
-    let entries = fs::read_dir(&teams_dir).ok()?;
-    entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter(|e| e.file_name().to_string_lossy().starts_with("session-"))
-        .filter_map(|e| {
-            let modified = e.metadata().ok()?.modified().ok()?;
-            Some((e.path(), modified))
-        })
-        .max_by_key(|(_, m)| *m)
-        .map(|(p, _)| p)
+    let session_id = session_id.ok_or(Unattributed::NoSession)?;
+    let name = team_dir_name(session_id).ok_or(Unattributed::UnusableSessionId)?;
+    let home = dirs_home().ok_or(Unattributed::NoHome)?;
+    let dir = home.join(".claude").join("teams").join(name);
+    if dir.is_dir() {
+        Ok(dir)
+    } else {
+        Err(Unattributed::NoTeamDirForSession)
+    }
 }
 
 fn dirs_home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-/// The command-facing entry point: resolve the team dir, then read it. Honest-zero when
-/// resolution fails (no team dir exists yet — nothing has ever been dispatched).
-pub fn current_status() -> WorkerStatusView {
-    match resolve_team_dir() {
-        Some(dir) => read_from_dir(&dir),
-        None => WorkerStatusView::default(),
+/// The command-facing entry point: attribute a team dir to `session_id`, then read it.
+///
+/// When nothing can be attributed the result is an honest zero that CARRIES THE REASON
+/// ([`WorkerStatusView::unattributed`]) rather than a bare zero, so a caller — `reprime.rs`
+/// above all — can say "I do not know" instead of "there are none".
+pub fn current_status(session_id: Option<&str>) -> WorkerStatusView {
+    match resolve_team_dir(session_id) {
+        Ok(dir) => read_from_dir(&dir),
+        Err(reason) => WorkerStatusView::unattributed(reason),
     }
 }
 
@@ -378,20 +505,55 @@ mod tests {
         )
         .unwrap();
         std::env::set_var("RICHOS_TEAM_DIR", &dir);
-        let status = current_status();
+        // No session id at all: an EXPLICIT override is an identity statement and outranks
+        // the derivation, which is why it still answers here.
+        let status = current_status(None);
         std::env::remove_var("RICHOS_TEAM_DIR");
+        assert!(status.is_attributed(), "an override that resolves IS an attribution");
         assert_eq!(status.items.len(), 1);
         assert!(status.items[0].label.contains("override works"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn explicit_team_dir_override_missing_is_honest_zero() {
+    fn explicit_team_dir_override_missing_reports_nothing_and_says_why() {
         let _guard = ENV_GUARD.lock().unwrap();
         std::env::set_var("RICHOS_TEAM_DIR", "/definitely/does/not/exist/anywhere");
-        let status = current_status();
+        // A session id IS supplied, and it is deliberately ignored: an operator who named a
+        // directory does not want a different one silently substituted.
+        let status = current_status(Some("55c79b81-ace3-4b07-a5f3-406853ac1a36"));
         std::env::remove_var("RICHOS_TEAM_DIR");
-        assert_eq!(status, WorkerStatusView::default());
+        assert_eq!(status.active, 0);
+        assert!(status.items.is_empty());
+        assert_eq!(status.unattributed, Some(Unattributed::OverrideNotADirectory));
+    }
+
+    #[test]
+    fn a_team_dir_name_is_the_engines_session_first8_and_cannot_escape_the_teams_dir() {
+        // The engine's convention, verified against a real directory on this machine:
+        // `~/.claude/teams/session-9e3192d3` for session 9e3192d3-37f1-47b0-aa64-0c5f4b0504ac.
+        assert_eq!(
+            team_dir_name("55c79b81-ace3-4b07-a5f3-406853ac1a36").as_deref(),
+            Some("session-55c79b81")
+        );
+        assert_eq!(team_dir_name("abcd1234").as_deref(), Some("session-abcd1234"), "exactly 8 is enough");
+        assert_eq!(team_dir_name("abcd123").as_deref(), None, "7 cannot name a directory");
+        assert_eq!(team_dir_name("").as_deref(), None);
+        // The id arrives over the ACP wire. These must never become a path.
+        for hostile in ["../../etc", "..%2f..%2f", "a/b/c/d/e", "....//..", "\\..\\..\\x"] {
+            assert_eq!(team_dir_name(hostile).as_deref(), None, "must refuse {hostile:?}");
+        }
+    }
+
+    #[test]
+    fn no_lease_means_no_directory_and_a_named_reason() {
+        let _guard = ENV_GUARD.lock().unwrap();
+        std::env::remove_var("RICHOS_TEAM_DIR");
+        let status = current_status(None);
+        assert_eq!(status.active, 0);
+        assert!(status.items.is_empty());
+        assert_eq!(status.unattributed, Some(Unattributed::NoSession));
+        assert!(!status.is_attributed());
     }
 
     // -----------------------------------------------------------------------
