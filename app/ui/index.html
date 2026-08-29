@@ -75,10 +75,20 @@
           </div>
         </header>
 
-        <div id="conversation" role="log" aria-live="polite">
+        <!-- THE CONVERSATION TIMELINE (§5). `role="log"` per §18, and `aria-live="off"`
+             DELIBERATELY: §18 requires CONTROLLED announcements ("do not announce every
+             timer tick", "announce meaningful commentary when it COMPLETES, not every
+             token"), and a polite live region wrapped around streaming text and a
+             once-per-second duration row does the opposite of both. Announcements go
+             through #live-region below, one at a time, from main.js's `announce()`. -->
+        <div id="conversation" role="log" aria-live="off" tabindex="0">
           <div id="scroll-sentinel-top"></div>
           <div id="messages"></div>
         </div>
+
+        <!-- §18's controlled announcements: "Rich started working", a completed run of his
+             prose, completion with the frozen duration, a failure. Never a timer tick. -->
+        <div id="live-region" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
         <!-- ENTITY OVERVIEW (§3.5) and EMPTY ENTITY (§21). A practical navigation state,
              not the ambitious start screen. -->
@@ -109,7 +119,17 @@
           </div>
         </section>
 
+        <!-- §15: "a small circular down-arrow centered just above the composer", visible
+             while the viewport is detached from the bottom. It scrolls to the latest
+             MEANINGFUL item, not merely the last pixel in the container. -->
+        <button id="jump-latest" type="button" hidden aria-label="Jump to latest">
+          <span aria-hidden="true">↓</span>
+        </button>
+
         <div id="composer-zone">
+          <!-- The engine-task courtesy chip. NOT a §7 worker chip: `rich://worker-upserted`
+               is deferred (no worker lifecycle signal exists) and §7 is slice 7. -->
+          <div id="drill-chip-zone" hidden></div>
           <!-- Says which entity a first message will be filed under, whenever that is not
                already obvious from an open thread (§3.3 new-thread flow). -->
           <p id="composer-scope" class="composer-scope" hidden></p>
@@ -201,6 +221,9 @@
     </div>
 
     <script src="mock.js"></script>
+    <!-- The typed timeline: the model (§12) and the render (§5, §6). Loaded BEFORE main.js,
+         which drives it. -->
+    <script src="timeline.js"></script>
     <script src="main.js"></script>
   </body>
 </html>
