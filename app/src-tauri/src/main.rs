@@ -18,7 +18,6 @@ use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
-use richos_core::timeline::ViewMode;
 use richos_core::worker_status::{self, WorkerStatusView};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -27,6 +26,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// Durable left-navigation view state (pin, rename, archive, rail width). See nav.rs
 /// for why these are shell state and not ledger events.
 mod nav;
+
+/// The `get_timeline` command body, in its own file so `examples/timeline_payload.rs`
+/// can include the SAME source and print the exact JSON the webview receives.
+mod timeline_view;
+use timeline_view::timeline_payload;
 
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
@@ -154,9 +158,7 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 /// Fails closed on an unbound thread, exactly like `get_messages`.
 #[tauri::command]
 fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let spine = state.spine.lock().unwrap();
-    let timeline = spine.timeline(&thread_id).map_err(|e| e.to_string())?;
-    Ok(timeline.view(ViewMode::Ceo).payload())
+    timeline_payload(&state.spine.lock().unwrap(), &thread_id)
 }
 
 /// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
