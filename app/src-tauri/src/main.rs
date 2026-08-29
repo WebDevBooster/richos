@@ -6,6 +6,8 @@
 // this file is just the window + the Tauri command bridge to the web UI in ../ui.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod events;
+
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore};
@@ -241,6 +243,12 @@ fn main() {
             }
             spine.set_machinery_journal(journal);
             spine.set_machinery_observer(Box::new(TauriMachineryEmitter { app: app.handle().clone() }));
+
+            // The ADDITIVE §13 family (UX brief slice 3) — see `events.rs`. A THIRD sink
+            // beside the two above, so the four events the shipping UI listens to are
+            // untouched; `crates/richos-core/tests/live_event_tests.rs` asserts their
+            // payloads are byte-identical with and without this line.
+            spine.set_live_observer(Box::new(events::TauriLiveEmitter { app: app.handle().clone() }));
 
             // Attach the compute lease best-effort. A boot with no Claude auth degrades
             // to a calm "not connected" state rather than failing to launch.
