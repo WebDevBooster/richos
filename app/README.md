@@ -45,6 +45,7 @@ app/
                               path to a webview is view(mode), which drops what the mode may
                               not see and removes the technical detail it may not read)
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
+    src/loro.rs              the Tier-C seam IMPLEMENTED: compile a slice, re-assert its lane
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
     src/machinery.rs         the SECOND event family: every non-text ACP update, routed not
@@ -461,9 +462,7 @@ half-duplex taint rule stay in force on this desk, and "headphones recommended" 
 honest note. Four reproducible rigs carry the evidence: `aec_rig` (offline), `aec_live`,
 `aec_probe`, `aec_transcribe`.
 
-**Foundation only / later legs:** the loro Tier-C WIRING (the compiler itself now exists
-in `loro/` with a versioned `CONTEXT-CONTRACT.md`; `LoroContextCompiler` in `reprime.rs` is
-still an unwired trait seam), the attention-seam TRIGGER (timers/log-watchers that decide
+**Foundation only / later legs:** the attention-seam TRIGGER (timers/log-watchers that decide
 WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment is not),
 a magnitude-domain echo DETECTOR for the barge-in decision path (the linear canceller has
 landed; this is what would make barge-in work on hardware whose echo path is not linear —

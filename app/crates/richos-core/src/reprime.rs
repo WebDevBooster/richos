@@ -14,24 +14,110 @@ use crate::ledger::{ActionStatus, Ledger, LedgerError, Source, TurnState};
 use crate::worker_status::Unattributed;
 use serde::Serialize;
 
-/// The Tier-C SEAM (continuity §2.3/§4, §8 Q4): the loro Context Compiler is
-/// loro-owned, a DIFFERENT engineer's parallel work (see the handoff conflict-discipline
-/// note — richos-core stays out of `loro/`). This trait is the CONTRACT that lets it
-/// plug in later with zero coupling: implement it, call
-/// `Spine::set_loro_context_compiler`, done. Absent (as it is today — `Spine` never sets
-/// one), `RePrimePayload.loro_slice` stays `None` and the payload degrades gracefully to
-/// "ledger-only re-prime + Rich pulls loro on demand via tools," exactly as this module
-/// already documented before rotation existed. Continuity holds either way; grounding is
-/// thinner without it.
+/// What Tier C asks the compiler for. A slice is ALWAYS topical — `CONTEXT-CONTRACT.md`
+/// §1: *"there is no compile all of loro"* — so a thread id alone was never a legal
+/// request, and the seam used to pass one. §3 says it plainly: pass the CEO's **current
+/// intent**, one or two sentences of natural language; a long tail dilutes `coverage`
+/// because every incidental word enlarges the denominator, so a squarely-relevant slice
+/// gets labelled `adjacent` purely for having been asked verbosely.
+///
+/// `entity_id` rides along because a slice is also SCOPED (ECS §3.5). What the compiler
+/// side does with it is its own business — narrow a lane, or refuse — but it must be told,
+/// and it cannot recover the entity from the thread id.
+#[derive(Debug, Clone, Copy)]
+pub struct SliceRequest<'a> {
+    /// The conversation being re-primed. Provenance and logging, not ranking.
+    pub thread_id: &'a str,
+    /// The entity area this thread is bound to, immutably (ECS §3.4).
+    pub entity_id: &'a str,
+    /// The CEO's current intent, in his words. Never empty — see [`RePrimePayload::topic`].
+    pub topic: &'a str,
+    /// Hard cap on the returned text, in CHARACTERS (`CONTEXT-CONTRACT.md` §3: characters,
+    /// not tokens, because characters are model-agnostic and exactly checkable).
+    pub budget_chars: usize,
+}
+
+/// Tier C's FOUR states, and three of them are not "a slice".
+///
+/// This is the rule the ACTION LEDGER and LIVE WORKER STATE sections of this payload
+/// already follow, applied to company memory: **an absence must never read to a successor
+/// as a denial.** "loro has nothing on this" (a real, checked answer), "loro could not be
+/// consulted" (an unknown) and "this install has no corpus configured" (a different
+/// unknown) are three different facts, and collapsing them into one silent `None` is how a
+/// fresh Rich ends up asserting the company has no position on something it decided.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum LoroTier {
+    /// No compiler is attached — the default, and what an install with no corpus
+    /// configured keeps. Continuity holds; grounding is thinner (continuity §2.3/§4, §8 Q4).
+    NotWired,
+    /// Compiled, and loro had something to say. The string is `slice.text` VERBATIM —
+    /// `CONTEXT-CONTRACT.md` §3: it is self-contained and carries its own
+    /// `COMPANY MEMORY (loro) — bearing on: …` heading, so it is injected as its own block
+    /// with no prefix. Adding one doubles the heading.
+    Slice(String),
+    /// Compiled, exit 0, `thin: true` — loro genuinely holds nothing bearing on the topic.
+    /// The string is loro's OWN one-line honesty text (§5), which already ends *"Do not
+    /// assume company facts — ask the CEO or check a live system."* That sentence is the
+    /// answer; fabricating a slice in its place is the failure this variant exists to make
+    /// impossible.
+    NothingRecorded(String),
+    /// A compiler is attached and could not produce a trustworthy answer: the process
+    /// failed to spawn, exited non-zero, returned an unsupported `schemaVersion`, or the
+    /// slice was REFUSED by the entity/lane re-assertion. Carries the reason, because a
+    /// successor told nothing at all would infer "nothing recorded".
+    Unavailable(String),
+}
+
+impl LoroTier {
+    /// The injectable text, when there is one. `None` for both unknown states.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            LoroTier::Slice(t) | LoroTier::NothingRecorded(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// True only for a checked, positive answer from loro.
+    pub fn is_slice(&self) -> bool {
+        matches!(self, LoroTier::Slice(_))
+    }
+}
+
+/// The Tier-C SEAM (continuity §2.3/§4, §8 Q4): the loro Context Compiler is loro-owned
+/// and lives outside this repo (`richos-hq/loro/`, behind a versioned
+/// `CONTEXT-CONTRACT.md`); richos-core stays out of it. This trait is the CONTRACT that
+/// lets it plug in with zero coupling — implement it, call
+/// `Spine::set_loro_context_compiler`, done. The shipped implementation is
+/// [`crate::loro::CliContextCompiler`], which shells out to the contract's own entry point.
+///
+/// **It cannot fail the turn.** The return type has no error arm on purpose:
+/// `CONTEXT-CONTRACT.md` §3 requires that a non-zero exit degrades to no slice and *never*
+/// fails the turn, and a `Result` invites a caller to `?` it into the rotation path — where
+/// a memory miss would take down a session rotation the CEO is not supposed to be able to
+/// see. Every failure is an [`LoroTier::Unavailable`] carrying its reason instead.
 pub trait LoroContextCompiler: Send {
-    /// Compile the small, topical slice for `thread_id` (§2.1 #8: strategy, constraints,
-    /// prior decisions, CEO preferences bearing on the ACTIVE thread — not all of loro).
-    fn compile_slice(&self, thread_id: &str) -> Result<String, String>;
+    /// Compile the small, topical slice for `req` (§2.1 #8: strategy, constraints, prior
+    /// decisions, CEO preferences bearing on the ACTIVE thread — not all of loro).
+    fn compile_slice(&self, req: &SliceRequest<'_>) -> LoroTier;
 }
 
 /// How many recent turns carry VERBATIM (Tier A #4). Small by design — the payload
 /// is billed on every rotation under BYO-Anthropic, so it is budgeted, not dumped.
 pub const DEFAULT_TAIL_TURNS: usize = 8;
+
+/// Tier C's character budget. `CONTEXT-CONTRACT.md` §3 asks for *"the number the payload
+/// budgeter can afford after Tiers A and B"* and calls 800–1600 the sane band; **there is
+/// no payload budgeter**, so this is a constant sitting at the contract's own default, and
+/// it is named as a constant rather than dressed up as a measurement.
+///
+/// What it costs, MEASURED rather than asserted (2026-08-29,
+/// `examples/loro_reprime_demo.rs` against the 515-record dogfood corpus, one CEO turn, no
+/// action ledger): the compiled slice was **911 chars** of a **3,241-char** payload —
+/// 28.1%. Had it filled its cap the payload would be 3,530 chars and Tier C 34.0% of it.
+/// So Tier C is the single largest lever in the payload, and the number to turn first if a
+/// re-prime ever has to get cheaper. At the contract's ~4 chars/token guide, 1200 chars is
+/// ≈300 tokens.
+pub const DEFAULT_LORO_BUDGET_CHARS: usize = 1200;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TurnView {
@@ -63,17 +149,19 @@ pub struct RePrimePayload {
     /// are no workers", and `to_priming_prompt` says exactly that instead of falling
     /// silent — the same rule the ACTION LEDGER section already follows.
     pub worker_state_unknown: Option<Unattributed>,
-    // Tier C — compiled, minimal (loro context compiler NOT YET BUILT → degrades gracefully)
-    pub loro_slice: Option<String>,
+    // Tier C — compiled, minimal. FOUR states, never one silent Option (see `LoroTier`).
+    pub loro: LoroTier,
 }
 
 impl RePrimePayload {
     /// Assemble the payload for a conversation thread from the shared ledger.
     ///
-    /// Tier C (loro slice) is intentionally `None` for v1: the loro context compiler
-    /// is a concept, not a callable capability yet (continuity design §8 Q4), so this
-    /// degrades to "ledger-only re-prime + Rich pulls loro on demand via tools".
-    /// Continuity holds; grounding is thinner.
+    /// Tier C is [`LoroTier::NotWired`] here and is filled in by the caller
+    /// (`Spine::compile_loro_tier`), because compiling it needs a TOPIC and the topic is
+    /// derived from the payload this function returns — Tier A #3's current intent, or
+    /// failing that the last thing the CEO actually said. Assembling Tiers A/B first and
+    /// compiling Tier C from them is the only ordering that can produce a topical request
+    /// (`CONTEXT-CONTRACT.md` §1: a slice is always topical).
     ///
     /// `session_id` is the compute lease this payload is being built for. It is what the
     /// worker section is ATTRIBUTED by: the team directory is derived from it
@@ -217,7 +305,7 @@ impl RePrimePayload {
             action_ledger_digest,
             worker_state,
             worker_state_unknown,
-            loro_slice: None,
+            loro: LoroTier::NotWired,
         })
     }
 
@@ -263,6 +351,39 @@ impl RePrimePayload {
             Self::identity_assertion(binding.thread_id()),
             binding.entity_id()
         )
+    }
+
+    /// The TOPIC to compile Tier C for, per `CONTEXT-CONTRACT.md` §3.
+    ///
+    /// §3 asks for the CEO's *current intent* — "one or two sentences of natural language,
+    /// not a keyword and not the whole conversation tail", because a long tail dilutes
+    /// `coverage`: every incidental word enlarges the IDF denominator, so a squarely
+    /// relevant slice gets labelled `adjacent` for having been asked verbosely. It gives
+    /// the fallback too: *"If you have only a long tail, send its last user turn."*
+    ///
+    /// So, in order: Tier A #3's `current_intent` (the most recent not-yet-completed ask —
+    /// which is what "current intent" means here and in the continuity design §2.1 #3),
+    /// then the last thing the CEO actually said in the verbatim tail. `None` when the
+    /// thread holds neither, and `None` means DO NOT COMPILE: there is no legal
+    /// topic-less request, and inventing one out of the thread id would ask loro a
+    /// question nobody asked.
+    ///
+    /// Rich's own replies are never a topic. Compiling company memory for what the
+    /// ASSISTANT last said would let a single hallucinated noun steer the next re-prime's
+    /// grounding — memory retrieved for a question the CEO never asked, injected under a
+    /// header calling it company memory.
+    pub fn topic(&self) -> Option<&str> {
+        if let Some(intent) = self.current_intent.as_deref() {
+            let t = intent.trim();
+            if !t.is_empty() {
+                return Some(t);
+            }
+        }
+        self.recent_tail
+            .iter()
+            .rev()
+            .find(|tv| tv.role == "user" && !tv.text.trim().is_empty())
+            .map(|tv| tv.text.trim())
     }
 
     /// Render the payload to the internal priming-turn text sent on `session/new`
@@ -336,13 +457,37 @@ impl RePrimePayload {
             }
             s.push('\n');
         }
-        if let Some(slice) = &self.loro_slice {
-            s.push_str(&format!("RELEVANT COMPANY MEMORY (loro slice): {slice}\n\n"));
-        } else {
-            s.push_str(
-                "COMPANY MEMORY: the loro context compiler is not yet wired; pull any authoritative \
-                 company facts you need live via tools rather than assuming them.\n\n",
-            );
+        // COMPANY MEMORY (Tier C) — FOUR cases, and the two unknowns are the ones that
+        // matter. Same rule, same reason as the two sections above: a successor that is
+        // handed silence infers a denial from it. "loro holds nothing on this" is a
+        // CHECKED answer and is allowed to sound like one; "loro could not be consulted"
+        // is not an answer at all and must not be allowed to sound like one.
+        match &self.loro {
+            // §3: `slice.text` is self-contained and carries its own heading. It is
+            // injected VERBATIM, with no prefix — a prefix doubles the heading.
+            LoroTier::Slice(text) | LoroTier::NothingRecorded(text) => {
+                s.push_str(text);
+                if !text.ends_with('\n') {
+                    s.push('\n');
+                }
+                s.push('\n');
+            }
+            LoroTier::Unavailable(reason) => {
+                s.push_str(&format!(
+                    "COMPANY MEMORY: loro could not be consulted for this ({reason}). THIS IS NOT A \
+                     STATEMENT THAT LORO HOLDS NOTHING — you do not know either way. Do not assume \
+                     any company fact, and do not tell the CEO the company has no position on \
+                     something; pull authoritative facts live via tools, or ask him.\n\n"
+                ));
+            }
+            LoroTier::NotWired => {
+                s.push_str(
+                    "COMPANY MEMORY: no loro corpus is configured for this install, so company \
+                     memory was NOT consulted. That is a statement about this install, not about \
+                     what is recorded — pull any authoritative company facts you need live via \
+                     tools rather than assuming them.\n\n",
+                );
+            }
         }
         s.push_str("Acknowledge internally and continue as the same Rich. Reply only with: ready");
         s
