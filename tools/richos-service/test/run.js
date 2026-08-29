@@ -1972,6 +1972,35 @@ test('SILENCE vs DELETION side by side: silent on the silence, loud on the claus
 });
 
 // ---------------------------------------------------------------------------------------
+// Pass 3 of the corrector: canonical casing
+// ---------------------------------------------------------------------------------------
+
+test('one name spelled two ways by case is TWO spellings, and the corrector settles it', () => {
+  const ents = normalizeEntities({ entities: [{ canonical: 'Halden Freight' }, { canonical: 'Everlock' }] }).entities;
+  const r = correctText('the Halden freight manifest, and the everlock agent', ents);
+  assert.equal(r.text, 'the Halden Freight manifest, and the Everlock agent');
+  assert.deepEqual(r.corrections.map((c) => c.method), ['casing', 'casing']);
+});
+
+test("the casing pass never touches an ordinary word that happens to be someone's name", () => {
+  const ents = normalizeEntities({ entities: [{ canonical: 'Rich' }, { canonical: 'Deep' }] }).entities;
+  const text = 'a rich history and a deep breath';
+  assert.equal(correctText(text, ents).text, text, 'stopwords are refused outright');
+});
+
+test("a short single-token canonical is below the casing pass's floor, a multi-word one is not", () => {
+  const short = normalizeEntities({ entities: [{ canonical: 'Ada' }] }).entities;
+  assert.equal(correctText('ada wrote it', short).text, 'ada wrote it', 'three letters is too little to be sure');
+  const long = normalizeEntities({ entities: [{ canonical: 'Ada Systems' }] }).entities;
+  assert.equal(correctText('ada systems wrote it', long).text, 'Ada Systems wrote it', 'a phrase is unambiguous');
+});
+
+test('caseSensitive: true opts an entity OUT — the flag declares that the casing IS the difference', () => {
+  const ents = normalizeEntities({ entities: [{ canonical: 'NeXT', caseSensitive: true }] }).entities;
+  assert.equal(correctText('we used next year', ents).text, 'we used next year');
+});
+
+// ---------------------------------------------------------------------------------------
 // The correction flywheel, DICTATION half — "ASK, NEVER INFER" (ceo-decisions.md §7)
 //
 // Two properties are load-bearing and both are asserted below rather than described:
