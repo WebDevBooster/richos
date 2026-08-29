@@ -1,0 +1,21 @@
+DICTATION — does the shared vocabulary reach the decode?
+12 invented utterances, 14 names, ggml-large-v3-turbo-q5_0.bin
+open-wispr's exact arguments: -m -f -l en --no-timestamps -nt  (NO -mc, so whisper's own default)
+
+path                                names right   names spelled consistently
+no vocabulary at all (today)              23/27                        14/14
+vocabulary as an initial PROMPT           26/27                        13/14
+vocabulary as a CORRECTION                25/27                        14/14
+prompt AND correction                     26/27                        13/14
+FLYWHEEL vocabulary, correction           27/27                        14/14
+FLYWHEEL vocabulary, prompt + correction       26/27                        13/14
+
+WHAT THE FLYWHEEL LEARNED — 2 entities, from the FIRST wrong utterance only:
+  u2: "Corvain Systems" -> "Corvane Systems"  [both]
+  u10: "Palace" -> "Pallas"  [sound]
+
+WHERE THE PROMPT ALONE STILL SPELLS ONE NAME MORE THAN ONE WAY:
+  Pallas -> "Pallas" , "Palas"
+
+WHERE THE FLYWHEEL VOCABULARY STILL SPELLS ONE NAME MORE THAN ONE WAY:
+  nothing — every tracked name came out exactly right, every time

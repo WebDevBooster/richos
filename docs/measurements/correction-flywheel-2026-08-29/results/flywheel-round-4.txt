@@ -1,0 +1,14 @@
+THE CORRECTION FLYWHEEL, TURNED ONCE — what one correction per channel teaches
+model large-v3-turbo   -mc 0   (the shipped pipeline-wide MAX_CONTEXT_TOKENS)
+
+The CEO corrects the FIRST name he sees rendered wrong in each channel, and nothing else.
+Every later occurrence, every other channel and every other mis-spelling is held out.
+
+
+LEARNED 0 entities -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/entities-r4.json  (version 2026-08-28)
+
+APPLIED 0 corrections across all 12 channels -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/large-v3-turbo__mc0__r4
+WER   before 2.31%   after 2.31%
+cased WER   before 3.04%   after 3.04%
+
+written: /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/flywheel-r4.txt

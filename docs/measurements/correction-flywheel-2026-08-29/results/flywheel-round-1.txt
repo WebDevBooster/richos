@@ -1,0 +1,42 @@
+THE CORRECTION FLYWHEEL, TURNED ONCE — what one correction per channel teaches
+model large-v3-turbo   -mc 0   (the shipped pipeline-wide MAX_CONTEXT_TOKENS)
+
+The CEO corrects the FIRST name he sees rendered wrong in each channel, and nothing else.
+Every later occurrence, every other channel and every other mis-spelling is held out.
+
+call-01-halden-scheduling/others
+  he saw     "Briella"  where "Priya" belongs  (Priya Sandoval)
+  he fixed   ...Yes, send it to the depot address. Briella, does Halden Frey need a second signature?...
+  ASKED      Add "Priya" to your vocabulary?   [sound: spelling 0.429, sound 0.667]  -> CONFIRMED
+call-02-corvane-support/me
+  he saw     "Corvain"  where "Corvane" belongs  (Corvane Systems)
+  he fixed   ...Thanks for calling Corvain Systems Support. This is Marla Kestrel. How...
+  ASKED      Add "Corvane Systems Support" to your vocabulary?   [both: spelling 0.714, sound 1]  -> CONFIRMED
+call-03-quilvern-discovery/others
+  he saw     "Briella"  where "Priya" belongs  (Priya Sandoval)
+  he fixed   ...Speaking. Thanks for making the time, Briella. I have about 20 minutes. Right now,...
+  ASKED      Add "Priya" to your vocabulary?   [sound: spelling 0.429, sound 0.667]  -> CONFIRMED
+call-04-brightmoor-billing/others
+  he saw     "Canary"  where "Cannery" belongs  (Cannery Street)
+  he fixed   ...Wexford Road, not the Brightmoor Dental on Canary Street. That may be the whole problem....
+  ASKED      Add "Cannery Street" to your vocabulary?   [both: spelling 0.714, sound 1]  -> CONFIRMED
+call-06-northgate-incident/me
+  he saw     "Palace"  where "Pallas" belongs  (Pallas)
+  he fixed   ...review for Northgate, Tuesday night. We do. Palace is in the timeline from 11:40 until...
+  ASKED      Add "Pallas" to your vocabulary?   [sound: spelling 0.5, sound 1]  -> CONFIRMED
+call-06-northgate-incident/others
+  he saw     "POLIS"  where "Pallas" belongs  (Pallas)
+  he fixed   ...do we have the timeline from the POLIS site as well? Good. I want to...
+  ASKED      Add "Pallas" to your vocabulary?   [sound: spelling 0.5, sound 1]  -> CONFIRMED
+
+LEARNED 4 entities -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/entities-r1.json  (version 2026-08-29.4)
+  Priya  <- ["briella"]
+  Corvane Systems Support  <- ["corvain systems support"]
+  Cannery Street  <- ["canary street"]
+  Pallas  <- ["palace","polis"]
+
+APPLIED 13 corrections across all 12 channels -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/large-v3-turbo__mc0__r1
+WER   before 3.15%   after 2.47%
+cased WER   before 3.88%   after 3.20%
+
+written: /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/flywheel-r1.txt
