@@ -136,6 +136,147 @@
     legacy: [],
   };
 
+  // TURN RECORDS — the harness's stand-in for `ledger::Turn`, holding exactly the fields
+  // `Timeline::project` reads to build a `work_duration` row. Without them the harness could
+  // only fake a timeline; with them it PROJECTS one, from the same fields, using the same
+  // derived item ids (`{turnId}:user`, `{turnId}:text:{n}`, `{turnId}:duration`).
+  //
+  // This is NOT §26's deterministic `memory-strategy` fixture — that is slice 8, with its own
+  // scripted 16-step scenario and injectable clock. This is the existing canned turn, given
+  // the shape the §13 contract actually has, so the browser harness is not dead against the
+  // renderer that ships.
+  const turnsById = new Map(); // turnId -> { threadId, entityId, userText, runs, state, createdAt, startedAt, endedAt }
+
+  function seedTurn(threadId, turnId, userText, replyText, at, durationMs) {
+    const t = threads.find((x) => x.id === threadId);
+    turnsById.set(turnId, {
+      threadId,
+      entityId: t ? t.entity_id : null,
+      userText,
+      runs: replyText ? [{ text: replyText, startSeq: 0, at: at + 2000 }] : [],
+      state: "completed",
+      createdAt: at,
+      startedAt: at,
+      endedAt: at + durationMs,
+      activities: [],
+    });
+  }
+
+  /// The harness's `Timeline::project` + `view(ViewMode::Ceo)`, in the same ORDER and with
+  /// the same derived ids as timeline.rs. Item order within a turn is
+  /// `(slot, sequence)` — opening, then the stream in shared-counter order, then terminal —
+  /// which is `TimelineBase::order_key`.
+  function projectTimeline(threadId) {
+    const t = threads.find((x) => x.id === threadId);
+    const items = [];
+    const rev = t && t.entity_id ? 1 : 0;
+    const baseOf = (turn, id, seq, slot, at) => ({
+      id,
+      entityId: turn.entityId,
+      threadId: turn.threadId,
+      turnId: null, // set by the caller
+      bindingRevision: rev,
+      createdAt: at,
+      sequence: seq,
+      slot,
+      visibility: "ceo",
+    });
+    for (const [turnId, turn] of turnsById) {
+      if (turn.threadId !== threadId) continue;
+      // A SUPERSEDED TURN CONTRIBUTES NOTHING. `Timeline::project` demotes it wholesale to
+      // `Internal` (`turn.superseded_by.is_some()` -> `internal_turn`), and `view(Ceo)`
+      // removes it — so the CEO sees ONE clean exchange rather than a duplicated prompt.
+      // Reproduced here because without it the harness projects something the real backend
+      // never would, and would hide exactly the defect this case exists to catch.
+      if (turn.supersededBy) continue;
+      if (turn.userText) {
+        items.push(
+          Object.assign(baseOf(turn, turnId + ":user", null, "opening", turn.createdAt), {
+            kind: "user_message",
+            turnId,
+            text: turn.userText,
+            source: "text",
+          })
+        );
+      }
+      turn.runs.forEach((run, idx) => {
+        items.push(
+          Object.assign(baseOf(turn, turnId + ":text:" + idx, run.startSeq, "stream", run.at), {
+            kind: "rich_message",
+            turnId,
+            // ALWAYS "unknown" for a streamed reply — `STREAMED_MESSAGE_PHASE` (live.rs).
+            phase: "unknown",
+            text: run.text,
+          })
+        );
+      });
+      for (const a of turn.activities) {
+        items.push(Object.assign({}, a, { turnId, bindingRevision: rev }));
+      }
+      // `active_ms` is MEASURED (`ended_at - started_at`) and is null whenever either
+      // endpoint is missing — never `now() - startedAt` (§6.3).
+      const activeMs =
+        typeof turn.startedAt === "number" && typeof turn.endedAt === "number" && turn.endedAt >= turn.startedAt
+          ? turn.endedAt - turn.startedAt
+          : null;
+      const dur = Object.assign(baseOf(turn, turnId + ":duration", null, "terminal", turn.createdAt), {
+        kind: "work_duration",
+        turnId,
+        state: turn.state,
+        startedAt: turn.startedAt,
+        endedAt: turn.endedAt,
+      });
+      if (activeMs !== null) dur.activeMs = activeMs;
+      items.push(dur);
+    }
+    return { entityId: t ? t.entity_id : null, threadId, mode: "ceo", items };
+  }
+
+  // The canned history above, as turn records. Durations are deliberately spread across
+  // three of §6.2's four display bands so the format is exercised, not just the code path:
+  //   acmeTurn1   4_207_000ms -> "1h 10m 7s"   (hour band)
+  //   acmeTurn2     247_000ms -> "4m 7s"       (minute band)
+  //   hiringTurn1    18_360ms -> "18s"         (second band)
+  //   partnerTurn1  interrupted, endedAt absent -> no number at all
+  seedTurn("acme", acmeTurn1, "what's the status on Acme?",
+    "Their counter came in this morning — 8% below list. I've pulled comparables and it's within range. Want me to draft a response or do you want to see the comps first?",
+    now() - 1000 * 60 * 60 * 20, 4207000);
+  seedTurn("acme", acmeTurn2, "draft it, keep it firm",
+    "Done — firm counter drafted, holding at list minus 3%. Sitting in your review queue.",
+    now() - 1000 * 60 * 30, 247000);
+  seedTurn("hiring", hiringTurn1, "where are we on the Q4 reqs?",
+    "Three of five roles have candidates in final round. The platform-eng req is still thin — I've asked the recruiter for a wider pass.",
+    now() - 1000 * 60 * 60 * 5, 18360);
+  seedTurn("partner", partnerTurn1, "how did the partner book review land?",
+    "Two partners pushed back on the carry split. I have the numbers but I stopped short of a recommendation — I want your read on the Hensley relationship first.",
+    now() - 1000 * 60 * 60 * 9, 0);
+  // A turn that ended without finishing and never wrote an end time: `active_ms` is None
+  // FOREVER for it (ledger.rs), so the row must claim no number.
+  {
+    const p = turnsById.get(partnerTurn1);
+    p.state = "interrupted";
+    p.endedAt = null;
+  }
+  // Real semantic activity on the Acme turn, so §5.3's rollup and §6.4's collapse have
+  // something to act on. Ids are machinery ids, as `activity_item` derives them.
+  turnsById.get(acmeTurn1).activities = [
+    { kind: "activity", id: "mach_a1", slot: "stream", sequence: 1, visibility: "ceo",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1000,
+      activityType: "read", state: "completed", summary: "Read a file" },
+    { kind: "activity", id: "mach_a2", slot: "stream", sequence: 2, visibility: "ceo",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1100,
+      activityType: "read", state: "completed", summary: "Read a file" },
+    { kind: "activity", id: "mach_a3", slot: "stream", sequence: 3, visibility: "ceo",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1200,
+      activityType: "read", state: "completed", summary: "Read a file" },
+    { kind: "activity", id: "mach_a4", slot: "stream", sequence: 4, visibility: "ceo",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1400,
+      activityType: "command", state: "unknown", summary: "Ran a command" },
+    { kind: "activity", id: "mach_a5", slot: "stream", sequence: 5, visibility: "ceo",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1600,
+      activityType: "search", state: "completed", summary: "Searched" },
+  ];
+
   function activeContextOf() {
     const t = threads.find((x) => x.id === activeThreadId);
     if (!t || !t.entity_id) return null;
@@ -157,34 +298,143 @@
     "On it. I'll check with the relevant thread and come back to you shortly.",
   ];
 
-  function simulateTurn(threadId, userText) {
+  /// The fence every §13 payload carries. `bindingRevision` is the ACTIVATION revision —
+  /// it advances on thread activation and is legitimately HIGHER than what a re-projection
+  /// of the same thread reports, which is exactly why a renderer must treat it as a
+  /// staleness floor and never as an equality key.
+  function fenceOf(threadId, turnId) {
+    const t = threads.find((x) => x.id === threadId);
+    return { entityId: t ? t.entity_id : null, threadId, turnId, bindingRevision: t && t.entity_id ? 1 : 0 };
+  }
+
+  /// Both families for one turn: the four ORIGINAL events verbatim (byte-for-byte
+  /// unchanged — a consumer of only those keeps working), and the six additive §13 events.
+  ///
+  /// `opts.crashAt` drives the mid-turn-crash replay: after that many deltas the turn emits
+  /// `recovering`, and a REPLACEMENT turn's `queued` carries `supersedesTurnId`. The
+  /// replacement re-streams from the beginning, exactly as a replay does — which is why a
+  /// renderer that ignores the merge instruction draws the CEO's one prompt twice.
+  function simulateTurn(threadId, userText, opts) {
+    opts = opts || {};
     const turnId = uid("turn");
     const userAt = now();
     messagesByThread[threadId] = messagesByThread[threadId] || [];
     messagesByThread[threadId].push({ role: "user", text: userText, turn_id: turnId, at: userAt });
+    turnsById.set(turnId, {
+      threadId,
+      entityId: (threads.find((x) => x.id === threadId) || {}).entity_id,
+      userText,
+      runs: [],
+      state: "queued",
+      createdAt: userAt,
+      startedAt: null,
+      endedAt: null,
+      activities: [],
+    });
 
-    emit("rich://turn-started", { threadId, turnId, at: now() });
+    const fence = fenceOf(threadId, turnId);
+    if (opts.supersedes && turnsById.has(opts.supersedes)) {
+      // `Turn::superseded_by` — set on the CRASHED turn by the ledger before the replay is
+      // journaled. It is what makes the crashed turn unrenderable, forever.
+      turnsById.get(opts.supersedes).supersededBy = turnId;
+    }
+    emit("rich://turn-status", Object.assign({}, fence, {
+      status: "queued", startedAt: null, activeDurationMs: null, visibility: "ceo", at: now(),
+      supersedesTurnId: opts.supersedes,
+    }));
 
-    const reply = CANNED_REPLIES[Math.floor(Math.random() * CANNED_REPLIES.length)];
+    const startedAt = now();
+    turnsById.get(turnId).startedAt = startedAt;
+    turnsById.get(turnId).state = "working";
+    emit("rich://turn-started", { threadId, turnId, at: startedAt });
+    emit("rich://turn-status", Object.assign({}, fence, {
+      status: "working", startedAt, activeDurationMs: null, visibility: "ceo", at: startedAt,
+    }));
+
+    const reply = opts.reply || CANNED_REPLIES[Math.floor(Math.random() * CANNED_REPLIES.length)];
     const words = reply.split(" ");
+    const messageId = turnId + ":text:0";
     let seq = 0;
     let acc = "";
     let i = 0;
+    let opened = false;
+    let activityFired = false;
 
     function next() {
-      if (i >= words.length) {
-        messagesByThread[threadId].push({ role: "assistant", text: acc.trim(), turn_id: turnId, at: now() });
-        emit("rich://turn-completed", { threadId, turnId, stopReason: "end_turn", at: now() });
+      if (opts.crashAt && i === opts.crashAt) {
+        // A POSITIVE termination signal, mid-turn. The crashed turn emits `recovering` and
+        // is about to be superseded — never `failed`, and a reload will not render it at all.
+        turnsById.get(turnId).state = "interrupted";
+        emit("rich://turn-status", Object.assign({}, fence, {
+          status: "recovering", startedAt, activeDurationMs: null, visibility: "ceo", at: now(),
+        }));
+        setTimeout(function () {
+          simulateTurn(threadId, userText, { supersedes: turnId, reply: opts.reply });
+        }, 400);
         return;
+      }
+      if (i >= words.length) {
+        const endedAt = now();
+        const text = acc.trim();
+        messagesByThread[threadId].push({ role: "assistant", text, turn_id: turnId, at: endedAt });
+        const turn = turnsById.get(turnId);
+        turn.runs = [{ text, startSeq: 0, at: startedAt }];
+        turn.state = "completed";
+        turn.endedAt = endedAt;
+        emit("rich://message-completed", Object.assign({}, fence, {
+          messageId, phase: "unknown", text, visibility: "ceo", at: endedAt,
+        }));
+        emit("rich://turn-completed", { threadId, turnId, stopReason: "end_turn", at: endedAt });
+        emit("rich://turn-status", Object.assign({}, fence, {
+          status: "completed", startedAt, activeDurationMs: endedAt - startedAt, visibility: "ceo", at: endedAt,
+        }));
+        emit("rich://thread-summary-updated", Object.assign({}, fence, {
+          title: (threads.find((x) => x.id === threadId) || {}).title || "",
+          messageCount: messagesByThread[threadId].length,
+          lastActivity: endedAt, status: "idle", visibility: "ceo", at: endedAt,
+        }));
+        return;
+      }
+      if (!opened) {
+        opened = true;
+        emit("rich://message-started", Object.assign({}, fence, {
+          messageId, phase: "unknown", seq: 0, visibility: "ceo", at: now(),
+        }));
       }
       const delta = (i === 0 ? "" : " ") + words[i];
       acc += delta;
-      emit("rich://chunk", { threadId, turnId, seq: seq++, textDelta: delta, at: now() });
+      emit("rich://chunk", { threadId, turnId, seq, textDelta: delta, at: now() });
+      emit("rich://message-delta", Object.assign({}, fence, {
+        messageId, seq, textDelta: delta, visibility: "ceo", at: now(),
+      }));
+      seq += 1;
       i += 1;
+      // One real semantic activity row partway through, so the live activity lane and the
+      // §6.4 collapse are exercised rather than only the reload path.
+      if (!activityFired && i === Math.ceil(words.length / 2)) {
+        activityFired = true;
+        const act = {
+          kind: "activity", id: "mach_" + turnId, entityId: fence.entityId, threadId,
+          turnId, bindingRevision: fence.bindingRevision, createdAt: now(),
+          sequence: seq, slot: "stream", visibility: "ceo",
+          activityType: "command", state: "running", summary: "Ran a command",
+        };
+        turnsById.get(turnId).activities = [act];
+        emit("rich://activity-upserted", Object.assign({}, act, { at: now() }));
+        seq += 1;
+        // The SAME row again as it reaches a terminal state — one tool call is ONE row that
+        // arrives several times. A renderer that keyed on anything but `id` shows two.
+        setTimeout(function () {
+          const done = Object.assign({}, act, { state: "completed", completedAt: now(), updatedAt: now() });
+          turnsById.get(turnId).activities = [done];
+          emit("rich://activity-upserted", Object.assign({}, done, { at: now() }));
+        }, 300);
+      }
       setTimeout(next, 60 + Math.random() * 90);
     }
-    // Small "thinking" delay before the first chunk so the working state is visibly exercised.
-    setTimeout(next, 500 + Math.random() * 400);
+    // Small "thinking" delay before the first chunk so the `Working` state is visibly
+    // exercised — including §6.1's under-one-second row, which has no number yet.
+    setTimeout(next, 900 + Math.random() * 400);
   }
 
   window.RichBridge = {
@@ -215,6 +465,13 @@
               "This thread has no entity home: it predates entity scoping, and Rich will not guess " +
               "which entity this work belongs to. An operator must bind it explicitly.",
           };
+        }
+        case "get_timeline": {
+          const id = args.threadId ?? args.thread_id;
+          const t = threads.find((x) => x.id === id);
+          // Fails closed on an unbound thread exactly like the real command.
+          if (t && !t.entity_id) return Promise.reject(UNBOUND_ERR(id));
+          return projectTimeline(id);
         }
         case "active_context":
           return activeContextOf();
@@ -414,6 +671,26 @@
     /// mark comes from the ordinary `rich://turn-started` event, not from a special path.
     simulateBackgroundTurn(threadId = "hiring", text = "run the numbers again") {
       simulateTurn(threadId, text);
+    },
+    /// A turn with a REPLY LONG ENOUGH TO WATCH. The canned replies stream in about two
+    /// seconds, which is shorter than the §25 working-state checks need — this exists so
+    /// "updates once per second" and "survives navigation" can be observed against a live
+    /// turn rather than asserted about one that already finished.
+    simulateSlowTurn(threadId, text, words) {
+      const n = words || 90;
+      const reply = Array.from({ length: n }, function (_, i) {
+        return ["pulling", "the", "comparables", "now", "and", "checking", "each", "line"][i % 8];
+      }).join(" ");
+      simulateTurn(threadId || activeThreadId, text || "run the numbers", { reply: reply });
+    },
+    /// A MID-TURN CRASH and its automatic replay. The crashed turn emits `recovering`; the
+    /// replacement's `queued` carries `supersedesTurnId`. THE PROOF: the CEO's one prompt
+    /// must appear exactly ONCE when this finishes.
+    simulateMidTurnCrash(threadId, text) {
+      simulateTurn(threadId || activeThreadId, text || "check the Acme numbers again", {
+        crashAt: 3,
+        reply: "Picked it straight back up — the comparables hold and the counter stands.",
+      });
     },
     setNotConnected(v) {
       window.__RICHOS_MOCK__._notConnected = v;
