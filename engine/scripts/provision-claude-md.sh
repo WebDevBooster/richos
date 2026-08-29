@@ -78,7 +78,7 @@ command -v python3 >/dev/null 2>&1 || {
 # an unconfigured one (honest note) rather than a crash.
 COMPANY_NAME="" CEO_NAME="" COMPANY_DOMAIN="" COMPANY_ONE_LINER="" PRODUCT_NAME=""
 CEO_TIMEZONE="" CEO_NOTES="" VCS_NOTES="" TEAM_ROSTER="" ROUTING_RULES="" EXTRA_DIRS=""
-PRODUCT_SURFACES="" PRODUCT_HARD_RULES="" DEPLOY_TARGETS="" QA_ROLES="" LORO_PATH="../loro"
+PRODUCT_SURFACES="" PRODUCT_HARD_RULES="" PRODUCT_LOCALE="" DEPLOY_TARGETS="" QA_ROLES="" LORO_PATH="../loro"
 
 if [ -f "$CONFIG_FILE" ]; then
     # shellcheck disable=SC1090
@@ -109,6 +109,7 @@ export RP_CEO_TIMEZONE="$CEO_TIMEZONE" RP_CEO_NOTES="$CEO_NOTES" RP_VCS_NOTES="$
 export RP_TEAM_ROSTER="$TEAM_ROSTER" RP_ROUTING_RULES="$ROUTING_RULES" RP_EXTRA_DIRS="$EXTRA_DIRS"
 export RP_PRODUCT_SURFACES="$PRODUCT_SURFACES" RP_PRODUCT_HARD_RULES="$PRODUCT_HARD_RULES"
 export RP_DEPLOY_TARGETS="$DEPLOY_TARGETS" RP_QA_ROLES="$QA_ROLES" RP_LORO_PATH="$LORO_PATH"
+export RP_PRODUCT_LOCALE="$PRODUCT_LOCALE"
 export RP_ENGINE_VERSION="$ENGINE_VERSION" RP_TEMPLATE="$TEMPLATE_FILE" RP_OUT="$OUT_FILE"
 export RP_MODE="$MODE" RP_UPGRADE="$UPGRADE" RP_FORCE="$FORCE"
 
@@ -166,6 +167,10 @@ BLOCKS = [
     ('this heading is ALREADY your real one',
      lambda: as_block(V['PRODUCT_HARD_RULES'],
                       unset('No product hard rules are recorded.', 'A hard rule is a non-negotiable invariant, so it comes from the CEO, never from you.'))),
+    ('state your locale and its consequences',
+     lambda: as_block(V['PRODUCT_LOCALE'],
+                      unset('No locale is recorded, so nothing here says which dialect, date format or currency a user-facing string must use.',
+                            'Until one is, match the dialect and formats already used in the product rather than your own default, and flag the inconsistency instead of picking a side.'))),
     ('define your deploy targets',
      lambda: as_block(V['DEPLOY_TARGETS'],
                       unset('No deploy target is configured.', 'The deploy-always rule above stands the moment one exists: what is on `main` MUST be what is on staging.'))),
@@ -222,7 +227,7 @@ template_sha = sha(src)
 values_sha = sha('\n'.join(k + '=' + V.get(k, '') for k in sorted(
     ['COMPANY_NAME', 'CEO_NAME', 'COMPANY_DOMAIN', 'COMPANY_ONE_LINER', 'PRODUCT_NAME', 'CEO_TIMEZONE',
      'CEO_NOTES', 'VCS_NOTES', 'TEAM_ROSTER', 'ROUTING_RULES', 'EXTRA_DIRS', 'PRODUCT_SURFACES',
-     'PRODUCT_HARD_RULES', 'DEPLOY_TARGETS', 'QA_ROLES', 'LORO_PATH'])))
+     'PRODUCT_HARD_RULES', 'PRODUCT_LOCALE', 'DEPLOY_TARGETS', 'QA_ROLES', 'LORO_PATH'])))
 
 # 1. Drop the adopter-facing header comment block — instructions ABOUT the file are not doctrine.
 body = re.sub(r'\A<!--\s*=+.*?=+\s*-->\s*', '', src, count=1, flags=re.S)

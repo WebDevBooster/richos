@@ -179,7 +179,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # change and made the new count something a human had to acknowledge rather than
 # absorb.
 #
-# 22 -> 23 on 2026-08-29: guard-ceo-queue-commits.sh was wired, making "waiting
+# 22 -> 23 on 2026-08-29: guard-ceo-todos-commits.sh was wired, making "waiting
 # on the CEO" a checkable claim instead of an unfalsifiable one. The tripwire
 # fired again, exactly as intended — this line is the acknowledgement.
 if [ "$REGISTERED_N" -eq 23 ]; then

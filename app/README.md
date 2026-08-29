@@ -14,6 +14,24 @@ This scaffold delivers **front-end Phase 1.1–1.2 + the P1.4 continuity FOUNDAT
 a working "talk to Rich" loop through the real ACP path, a crash-safe conversation +
 action ledger, a multi-thread data model, and the re-prime seam.
 
+## Who reads every string in here
+
+**Non-technical CEOs, based in the US** (CEO, 2026-08-29 — "the main or at least the initial target
+audience"). So **every user-facing string in `app/` is American English**: labels, status words,
+empty states, error and permission copy. Not code identifiers, not CSS custom properties, not ACP
+protocol values — those stay as they are.
+
+Verified 2026-08-29: no British spelling appears in any shipped string in `app/ui` or
+`app/crates/*/src`. Every hit for *colour*, *behaviour*, *cancelled*, *unrecognised* and the rest is
+in a comment or is the ACP constant `STOP_REASON_CANCELLED`. The rule exists to keep it that way.
+
+One open question, not a defect: `timeline.js:1140`, `timeline.js:1414` and `main.js:124` format
+time with `toLocaleTimeString(undefined, …)`, which follows the **operator's machine locale** — so
+the same build shows 12-hour time on a US Mac and 24-hour on a European one. Whether the product
+declares `en-US` or keeps respecting the machine has never been decided. See
+`richos-hq/wiki/ceo-decisions.md` §13; the full wording rule is §1.1/§17.5 of the Codex-inspired
+conversation-UX brief.
+
 ## Why `app/` (not `tools/`)
 
 `tools/` holds supporting utilities (the extension, the transcription service, the

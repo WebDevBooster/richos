@@ -247,6 +247,23 @@ doctrine and role templates reference — no orphan paths, nothing to invent.
      the instruction is wrong — stop and surface the contradiction. Delete this
      block if your product has a single surface. -->
 
+### Language and Locale — the dialect of every word a customer reads
+
+**Pick the dialect your customers speak, write it down here, and hold every user-facing string to it.** This is a hard rule and not a style preference, because the dialect of your product's words is decided either by you once or by whoever happens to be typing, forever — and the second is not a decision, it is an accident that ships.
+
+The rule binds **user-facing strings**: UI copy, button and menu labels, empty and error states, notifications, generated documents the customer opens, onboarding text, marketing surfaces. It does **not** bind code identifiers, file names, third-party API values, or existing commit history — renaming a variable to match a dialect is churn, and rewriting history is a lie.
+
+<!-- TODO (adopter): state your locale and its consequences. At minimum:
+     - the dialect ("American English", "British English", "Deutsch (Sie-Form)")
+       and one worked example of a word it changes in YOUR domain;
+     - date, time and number formats, currency, phone and address shapes,
+       timezone default;
+     - anything legal or regulatory that follows from where your customers are.
+     A dialect line with no format line is half a rule: "color" and "31/12/2026"
+     on the same screen is still the wrong locale. -->
+
+**Vocabulary is part of the product, not a coat of paint.** When a name is wrong for the audience, the fix is a rename with a stated migration, not a synonym in the docs — see `UPGRADING.md` for the worked example of one this engine did to itself.
+
 ### The Freshness Contract — NO STALE ANYTHING (OPTIONAL — advanced tier)
 
 The *pattern* — every artifact carries a commit SHA baked INSIDE it, and every consumer verifies that SHA before trusting the artifact ("identity or refuse") — is generic and powerful. Its full implementation is stack-bound (deploy pipeline, devices, verifier scripts) and ships as **reference** in `reference/advanced-tier/` (see `freshness-contract.md` + `freshness-check.sh`).

@@ -35,29 +35,99 @@ upgrade done on "it looks merged" — run the three and read the greens. (If you
 run the bootstrap interview or the CI workflow, they run these same checks for
 you — CI on every push, the interview at the end of its generation pass.)
 
-## Ordering trap — the engine goes FIRST when a `.ceo-queue` key is new
+## Ordering trap — the engine goes FIRST when a `.ceo-todos` key is new
 
-`.ceo-queue` is strict-parsed: a key the running engine does not know is
+`.ceo-todos` is strict-parsed: a key the running engine does not know is
 refused, loudly, rather than silently doing nothing. That is deliberate (a
 setting that quietly has no effect is the defect this engine keeps finding in
 itself) and it has one consequence worth stating before you hit it.
 
-**If a repository's `.ceo-queue` starts using a key that only a NEWER engine
+**If a repository's `.ceo-todos` starts using a key that only a NEWER engine
 knows, every commit into that repository is refused until the engine is
 upgraded.** The refusal names the key and lists the ones the running engine
 accepts, so it diagnoses itself — but it will stop work.
 
-So when an update adds declaration keys (`QUEUE_VIEW`, `ROOT_README` and
+So when an update adds declaration keys (`TODO_VIEW`, `ROOT_README` and
 `COLD_OPEN_DIR` arrived together in one such update):
 
 1. Land the **engine** update and run `scripts/hooks/install.sh`.
-2. Only then land the `.ceo-queue` change in the repository that owns the record.
+2. Only then land the `.ceo-todos` change in the repository that owns the record.
 
 Reversing those two wedges the record's repository for everyone using the older
 engine. If you have already reversed them, the way out is the same either way:
 upgrade the engine. Do not delete keys to make the old parser happy — that
 silently switches off whatever they enabled, which is the failure you were being
 protected from.
+
+## The CEO's TODOs: the 2026-08-29 rename, and why nothing breaks
+
+The mechanism that was called **the CEO queue** is now **the CEO's TODOs**. The
+CEO's reason is not cosmetic: the audience is non-technical CEOs based in the
+US, and *queue* is the British word for it. Everything renamed together:
+
+The "before" column is written without backticks on purpose: those paths no
+longer exist in this tree, and a citation of a file a reader will never have is
+a finding `scripts/publication-completeness.sh` is right to raise.
+
+| Before (gone) | Now |
+|---|---|
+| .ceo-queue | `.ceo-todos` |
+| QUEUE_RECORD / QUEUE_VIEW | `TODO_RECORD` / `TODO_VIEW` |
+| CEO-QUEUE.md (the usual view name) | `CEO-TODOs.md` |
+| scripts/ceo-queue-{lint,render,init}.sh | `scripts/ceo-todos-{lint,render,init}.sh` |
+| scripts/lib/ceo-queue.{sh,py} | `scripts/lib/ceo-todos.{sh,py}` |
+| scripts/hooks/guard-ceo-queue-commits.sh | `scripts/hooks/guard-ceo-todos-commits.sh` |
+| reference/ceo-queue/ | `reference/ceo-todos/` |
+
+**You do not have to do anything on the day you take this update.** A clean cut
+was rejected, and the reason is the ordering trap above turned inside out.
+`.ceo-queue` is strict-parsed, so a new engine that only knew `.ceo-todos` would
+find no declaration in an un-migrated repository, **stand down, and say
+nothing** — the repository would look governed while every commit sailed
+through. That is the failure class this mechanism was built to remove, so it is
+not an acceptable way to ship its own rename.
+
+Instead:
+
+- The old declaration name and the old key names are **still read and still
+  enforced**. Nothing switches off.
+- Every verdict — including a **clean** one, and including the commit guard's —
+  prints `LEGACY-DECLARATION-NAME` / `LEGACY-DECLARATION-KEYS` naming the file
+  and the exact rename command. Accepted, never silent.
+- Carrying **both** `.ceo-todos` and `.ceo-queue` is `BROKEN` and blocks. Two
+  declarations are two answers to "what is the record"; the engine will not pick
+  one quietly.
+- `ceo-todos-init.sh` refuses to run in a repository that already declares under
+  the old name — that is a rename, not a re-install — and prints the commands.
+
+### The migration, when you want the notice to stop
+
+```bash
+git mv .ceo-queue .ceo-todos
+# inside it: QUEUE_RECORD -> TODO_RECORD, QUEUE_VIEW -> TODO_VIEW
+git mv CEO-QUEUE.md CEO-TODOs.md          # only if that is your TODO_VIEW name
+# point TODO_VIEW at the new name, then re-render and re-check:
+scripts/ceo-todos-render.sh /path/to/repo
+scripts/ceo-todos-lint.sh   /path/to/repo
+```
+
+Renaming the view changes the front door, so the render is not optional and the
+cold-open freshness gate (if you declare `COLD_OPEN_DIR`) will ask for a fresh
+reading: `scripts/cold-open.sh --run /path/to/repo`.
+
+### The direction the alias cannot save — the land order still matters
+
+The alias fixes **new engine + old declaration**. It cannot fix **old engine +
+new declaration**, because that engine has already shipped and will look for
+`.ceo-queue`, not find it, and stand down silently. So the rule from the
+ordering trap is unchanged and now matters more:
+
+1. Land and install the **engine** update.
+2. Only then rename the declaration in the repository that owns the record.
+
+If you own both, land them in that order in that sitting. If you are an adopter
+pulling this release, you are already safe: the engine arrives first by
+definition, and your `.ceo-queue` keeps working until you choose to rename it.
 
 ## Which files are yours, and which are the engine's
 

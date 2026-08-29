@@ -39,6 +39,11 @@ ROUTING_RULES=""           # how work routes from the CEO through Rich to the te
 EXTRA_DIRS=""              # additional repo-root directories your product needs
 PRODUCT_SURFACES=""        # the surfaces map, if the product has more than one
 PRODUCT_HARD_RULES=""      # one "- **Rule.** explanation" line per non-negotiable product rule
+PRODUCT_LOCALE=""          # the dialect + formats every user-facing string must use, e.g.
+                           # "**American English.** Customers are US-based. Dates M/D/YYYY,
+                           #  12-hour clock, USD, US phone/address shapes, timezone default
+                           #  America/New_York. Binds UI copy, notifications and generated
+                           #  documents; never code identifiers or third-party API values."
 DEPLOY_TARGETS=""          # the tree-aware deploy table (which landed paths -> which script)
 QA_ROLES=""                # which teammate performs each of the four QA-pipeline steps
 

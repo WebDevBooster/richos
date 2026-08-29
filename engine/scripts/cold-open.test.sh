@@ -43,7 +43,7 @@ export RICHOS_ENTITY_ROOT
 unset CLAUDE_PROJECT_DIR
 
 CO="$ENGINE_ROOT/scripts/cold-open.sh"
-RENDER="$ENGINE_ROOT/scripts/ceo-queue-render.sh"
+RENDER="$ENGINE_ROOT/scripts/ceo-todos-render.sh"
 PROMPT="$ENGINE_ROOT/scripts/lib/cold-open-prompt.md"
 BASH_BIN="$(command -v bash)"
 
@@ -55,16 +55,16 @@ trap 'rm -rf "$SCRATCH"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in "$CO" "$RENDER" "$PROMPT" "$ENGINE_ROOT/scripts/lib/ceo-queue.sh"; do
+for f in "$CO" "$RENDER" "$PROMPT" "$ENGINE_ROOT/scripts/lib/ceo-todos.sh"; do
     [ -f "$f" ] || { echo "FATAL: missing $f" >&2; exit 1; }
 done
 
 # --- fixture ---------------------------------------------------------------
 ANSWER_TEXT='## 1. What is this repository
-It appears to be a working repository with a queue of things waiting on me, and
-the front page points straight at that queue rather than at the product.
+It appears to be a working repository with a list of things waiting on me, and
+the front page points straight at those TODOs rather than at the product.
 ## 2. Where do I start
-CEO-QUEUE.md, named in the first line of the README, which is where I looked.
+CEO-TODOs.md, named in the first line of the README, which is where I looked.
 ## 5. What confused me
 Nothing much, though I had to guess where the generated page comes from.'
 
@@ -73,15 +73,15 @@ mk_repo() {
     mkdir -p "$repo/wiki" "$repo/docs/cold-open"
     git -C "$repo" init -q
     printf 'an artifact that exists\n' > "$repo/docs/prepared.md"
-    printf '# A repo\n\nStart at [CEO-QUEUE.md](CEO-QUEUE.md).\n' > "$repo/README.md"
+    printf '# A repo\n\nStart at [CEO-TODOs.md](CEO-TODOs.md).\n' > "$repo/README.md"
     {
-        echo 'QUEUE_RECORD="wiki/open-items.md"'
-        echo 'QUEUE_VIEW="CEO-QUEUE.md"'
+        echo 'TODO_RECORD="wiki/open-items.md"'
+        echo 'TODO_VIEW="CEO-TODOs.md"'
         echo 'CEO_SECTIONS="1 2"'
         echo 'PREPARER_SECTION="3"'
         echo 'ARTIFACT_ROOTS="repo=."'
         echo 'COLD_OPEN_DIR="docs/cold-open"'
-    } > "$repo/.ceo-queue"
+    } > "$repo/.ceo-todos"
     {
         printf '# Open items\n\n'
         printf '## 1. Waiting on the CEO — a decision\n\n'
@@ -185,7 +185,7 @@ if grep -qF '## What the reader answered' "$T" && grep -qF 'Where do I start' "$
 else
     bad "the transcript should contain the reader's answer"
 fi
-if grep -q '^| the entry point | `CEO-QUEUE.md` | yes |' "$T"; then
+if grep -q '^| the entry point | `CEO-TODOs.md` | yes |' "$T"; then
     ok "the checked-claims table records that the reader came away with the entry point"
 else
     bad "the checked-claims table should record the entry point claim"
@@ -195,10 +195,10 @@ fi
 # (c) A DIVERGENCE is recorded, not punished
 # ---------------------------------------------------------------------------
 R="$(mk_repo diverge)"
-STUB="$(mk_stub blind "$(printf 'I could not find anything at all in here.\nThere is no queue that I can see and I would have given up.\nI looked for a starting point and there was none.\nI am recording that plainly because guessing would be worse.')")"
+STUB="$(mk_stub blind "$(printf 'I could not find anything at all in here.\nThere is no TODO list that I can see and I would have given up.\nI looked for a starting point and there was none.\nI am recording that plainly because guessing would be worse.')")"
 "$BASH_BIN" "$CO" --run "$R" --reader-cmd "$STUB" --reader "stub" >/dev/null 2>&1; RC=$?
 T="$(ls "$R/docs/cold-open"/*.md 2>/dev/null | head -1)"
-if [ "$RC" -eq 0 ] && [ -n "$T" ] && grep -q '^| the entry point | `CEO-QUEUE.md` | no |' "$T"; then
+if [ "$RC" -eq 0 ] && [ -n "$T" ] && grep -q '^| the entry point | `CEO-TODOs.md` | no |' "$T"; then
     ok "a reader who MISSED the entry point is recorded as a 'no' and the transcript is still filed — the finding is the product, not a failure"
 else
     bad "a divergence should be recorded, not refused (rc=$RC)"
@@ -229,7 +229,7 @@ fi
 # (e) The page must be settled before anyone is asked to read it
 # ---------------------------------------------------------------------------
 R="$(mk_repo staleview)"
-printf 'hand-edited nonsense\n' > "$R/CEO-QUEUE.md"
+printf 'hand-edited nonsense\n' > "$R/CEO-TODOs.md"
 STUB="$(mk_stub good2)"
 OUT="$("$BASH_BIN" "$CO" --run "$R" --reader-cmd "$STUB" --reader "stub" 2>&1)"; RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'missing or stale'; then
@@ -256,7 +256,7 @@ if [ "$?" -eq 0 ]; then
 else
     bad "--check should exit 0 after a reading"
 fi
-printf '# A repo\n\nA different front page entirely. [CEO-QUEUE.md](CEO-QUEUE.md).\n' > "$R/README.md"
+printf '# A repo\n\nA different front page entirely. [CEO-TODOs.md](CEO-TODOs.md).\n' > "$R/README.md"
 "$BASH_BIN" "$CO" --check "$R" >/dev/null 2>&1
 if [ "$?" -eq 1 ]; then
     ok "--check goes red again the moment the front door changes"
@@ -290,7 +290,7 @@ fi
 TMPENG="$(mktemp -d -t cotest-eng.XXXXXX)"
 mkdir -p "$TMPENG/scripts/lib"
 cp "$CO" "$TMPENG/scripts/"
-cp "$ENGINE_ROOT/scripts/lib/ceo-queue.sh" "$ENGINE_ROOT/scripts/lib/ceo-queue.py" \
+cp "$ENGINE_ROOT/scripts/lib/ceo-todos.sh" "$ENGINE_ROOT/scripts/lib/ceo-todos.py" \
    "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$TMPENG/scripts/lib/"
 OUT="$("$BASH_BIN" "$TMPENG/scripts/cold-open.sh" --brief "$R" 2>&1)"; RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -qF 'verbatim prompt is missing'; then
@@ -314,7 +314,7 @@ else
     bad "the default reader should be read-only"
 fi
 if [ -x "$CO" ] && [ -x "$RENDER" ]; then
-    ok "cold-open.sh and ceo-queue-render.sh are executable"
+    ok "cold-open.sh and ceo-todos-render.sh are executable"
 else
     bad "the harness scripts must be executable"
 fi
@@ -327,10 +327,10 @@ fi
 # not a documentation nicety; it is the difference between shipped and shipped
 # working, and it gets an assertion.
 for doc in ONBOARDING-RUNBOOK.md skills/bootstrap-interview/SKILL.md; do
-    if grep -qF 'ceo-queue-init.sh' "$ENGINE_ROOT/$doc" 2>/dev/null; then
-        ok "$doc names ceo-queue-init.sh — an adopter is told the queue exists"
+    if grep -qF 'ceo-todos-init.sh' "$ENGINE_ROOT/$doc" 2>/dev/null; then
+        ok "$doc names ceo-todos-init.sh — an adopter is told the CEO's TODOs exist"
     else
-        bad "$doc does NOT name ceo-queue-init.sh — adopters would receive inert enforcement again"
+        bad "$doc does NOT name ceo-todos-init.sh — adopters would receive inert enforcement again"
     fi
 done
 

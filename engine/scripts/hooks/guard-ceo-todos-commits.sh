@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# guard-ceo-queue-commits.sh — BLOCKING PreToolUse guard on the Bash tool.
+# guard-ceo-todos-commits.sh — BLOCKING PreToolUse guard on the Bash tool.
 #
-# Refuses a commit into a repository whose CEO queue is making a claim it
+# Refuses a commit into a repository whose CEO TODOs is making a claim it
 # cannot back: an item sitting in a "waiting on the CEO" section without the
 # four fields, or naming an artifact that does not exist on disk.
 #
 # The predicate, the two states, the declaration format and the honest list of
-# what none of this can catch all live in scripts/lib/ceo-queue.sh — one place,
+# what none of this can catch all live in scripts/lib/ceo-todos.sh — one place,
 # because a predicate in two copies is the defect class this engine keeps
 # finding in itself.
 #
@@ -48,7 +48,7 @@
 # The repository that owns the record may not have adopted this engine, and in
 # the case this guard was built for it has not. So, exactly as the publication
 # pair does: the SESSION must be governed, and the DESTINATION repository
-# declares its own scope in a committed `.ceo-queue`. A governed session
+# declares its own scope in a committed `.ceo-todos`. A governed session
 # committing into an unadopted repository is fully covered.
 #
 # WHAT THAT CANNOT CATCH, said here rather than discovered later:
@@ -77,7 +77,7 @@
 
 set -eo pipefail
 
-command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-ceo-queue-commits.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-ceo-todos-commits.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
 
 # --- ROOT RESOLUTION -------------------------------------------------------
 # TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
@@ -90,7 +90,7 @@ _RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
 if [ ! -f "$_RR_LIB" ]; then
     {
         echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
-        echo "  hook: scripts/hooks/guard-ceo-queue-commits.sh"
+        echo "  hook: scripts/hooks/guard-ceo-todos-commits.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
         echo "  It will not guess, and it will not carry on quietly — a defence"
@@ -109,29 +109,29 @@ if resolve_entity_root "$INPUT"; then
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     exit 0
 else
-    root_failure_banner "scripts/hooks/guard-ceo-queue-commits.sh" >&2
+    root_failure_banner "scripts/hooks/guard-ceo-todos-commits.sh" >&2
     exit 2
 fi
 
-_CQ_LIB="$SCRIPT_DIR/../lib/ceo-queue.sh"
-if [ ! -f "$_CQ_LIB" ]; then
+_CT_LIB="$SCRIPT_DIR/../lib/ceo-todos.sh"
+if [ ! -f "$_CT_LIB" ]; then
     {
         echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
-        echo "  hook: scripts/hooks/guard-ceo-queue-commits.sh"
-        echo "  scripts/lib/ceo-queue.sh is missing at: $_CQ_LIB"
+        echo "  hook: scripts/hooks/guard-ceo-todos-commits.sh"
+        echo "  scripts/lib/ceo-todos.sh is missing at: $_CT_LIB"
         echo "  This guard's entire predicate lives there. Without it it cannot"
         echo "  tell a prepared item from an unprepared one, and it will not guess."
     } >&2
     exit 2
 fi
-# shellcheck source=../lib/ceo-queue.sh
-. "$_CQ_LIB"
+# shellcheck source=../lib/ceo-todos.sh
+. "$_CT_LIB"
 
 # --- Is this a commit at all, and where? -----------------------------------
 # Classified in python, assigned via a quoted heredoc first for the same bash
 # 3.2 reason guard-worktree-removal.sh documents: a `)` inside a character
 # class mis-scans as the close of a $( ) substitution on macOS's /bin/bash.
-read -r -d '' _CQ_CLASSIFIER <<'PYEOF' || true
+read -r -d '' _CT_CLASSIFIER <<'PYEOF' || true
 import json, os, re
 
 try:
@@ -162,7 +162,7 @@ stage_all = bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)
 print("COMMIT\t%s\t%s" % (repo_hint, "1" if stage_all else "0"))
 PYEOF
 
-CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CQ_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CT_CLASSIFIER" 2>/dev/null || printf 'PASS')"
 case "$(printf '%s' "$CLASS" | cut -f1)" in
   COMMIT) ;;
   *) exit 0 ;;
@@ -178,49 +178,49 @@ try:
 except Exception:
     print("")' 2>/dev/null || true)"
 
-CQ_ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
-case "$CQ_ANCHOR" in
+CT_ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
+case "$CT_ANCHOR" in
   /*) ;;
-  *) CQ_ANCHOR="${PAYLOAD_CWD:-$PWD}/$CQ_ANCHOR" ;;
+  *) CT_ANCHOR="${PAYLOAD_CWD:-$PWD}/$CT_ANCHOR" ;;
 esac
 
-CQ_REPO="$(cq_repo_root "$CQ_ANCHOR" 2>/dev/null || true)"
-[ -n "$CQ_REPO" ] || exit 0
+CT_REPO="$(ct_repo_root "$CT_ANCHOR" 2>/dev/null || true)"
+[ -n "$CT_REPO" ] || exit 0
 
-CQ_DECL_RC=0
-cq_load_declaration "$CQ_REPO" || CQ_DECL_RC=$?
-case "$CQ_DECL_RC" in
+CT_DECL_RC=0
+ct_load_declaration "$CT_REPO" || CT_DECL_RC=$?
+case "$CT_DECL_RC" in
   0) ;;
-  1) exit 0 ;;   # this repository declares no CEO queue — nothing to enforce
-  *) cq_broken_banner "guard-ceo-queue-commits.sh" "$CQ_BROKEN_REASON" >&2; exit 2 ;;
+  1) exit 0 ;;   # this repository declares no CEO TODOs — nothing to enforce
+  *) ct_broken_banner "guard-ceo-todos-commits.sh" "$CT_BROKEN_REASON" >&2; exit 2 ;;
 esac
 
 # --- Which bytes are the record about to be? -------------------------------
 # Staged blob when the record is staged (those are the bytes that land); the
 # worktree copy otherwise, including under `-a`, where an unstaged modification
 # is what gets committed.
-WORK="$(mktemp -d -t ceo-queue-commit.XXXXXX)"
+WORK="$(mktemp -d -t ceo-todos-commit.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 SUBJECT="$WORK/record.md"
 TOUCHED=0
 
-STAGED_LIST="$(git -C "$CQ_REPO" diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)"
+STAGED_LIST="$(git -C "$CT_REPO" diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)"
 case "
 $STAGED_LIST
 " in
   *"
-$CQ_QUEUE_RECORD
+$CT_TODO_RECORD
 "*) TOUCHED=1 ;;
 esac
 
 if [ "$TOUCHED" -eq 1 ] && [ "$STAGE_ALL" -eq 0 ]; then
-    if ! git -C "$CQ_REPO" show ":$CQ_QUEUE_RECORD" > "$SUBJECT" 2>/dev/null; then
+    if ! git -C "$CT_REPO" show ":$CT_TODO_RECORD" > "$SUBJECT" 2>/dev/null; then
         rm -f "$SUBJECT"
     fi
 fi
 if [ ! -s "$SUBJECT" ]; then
-    if [ -f "$CQ_REPO/$CQ_QUEUE_RECORD" ]; then
-        cp "$CQ_REPO/$CQ_QUEUE_RECORD" "$SUBJECT" 2>/dev/null || true
+    if [ -f "$CT_REPO/$CT_TODO_RECORD" ]; then
+        cp "$CT_REPO/$CT_TODO_RECORD" "$SUBJECT" 2>/dev/null || true
     fi
 fi
 
@@ -254,7 +254,7 @@ $rel
 "*) deleted=1 ;;
     esac
     if [ "$staged" -eq 1 ] && [ "$STAGE_ALL" -eq 0 ]; then
-        if git -C "$CQ_REPO" show ":$rel" > "$tmp" 2>/dev/null; then
+        if git -C "$CT_REPO" show ":$rel" > "$tmp" 2>/dev/null; then
             printf '%s' "$tmp"
             return
         fi
@@ -263,38 +263,38 @@ $rel
         printf '%s' '-'
         return
     fi
-    if [ -f "$CQ_REPO/$rel" ]; then
+    if [ -f "$CT_REPO/$rel" ]; then
         printf ''      # unset: the library reads the worktree copy
         return
     fi
     printf '%s' '-'
 }
 
-DELETED_LIST="$(git -C "$CQ_REPO" diff --cached --name-only --diff-filter=D 2>/dev/null || true)"
-CQ_OVERRIDE_VIEW="$(stage_view "$CQ_QUEUE_VIEW" view.md)"
-CQ_OVERRIDE_README="$(stage_view "$CQ_ROOT_README" readme.md)"
-export CQ_OVERRIDE_VIEW CQ_OVERRIDE_README
+DELETED_LIST="$(git -C "$CT_REPO" diff --cached --name-only --diff-filter=D 2>/dev/null || true)"
+CT_OVERRIDE_VIEW="$(stage_view "$CT_TODO_VIEW" view.md)"
+CT_OVERRIDE_README="$(stage_view "$CT_ROOT_README" readme.md)"
+export CT_OVERRIDE_VIEW CT_OVERRIDE_README
 
 if [ ! -f "$SUBJECT" ] || [ ! -s "$SUBJECT" ]; then
     # The declaration names a record that is not there. That is BROKEN — never
     # a quiet pass. A guard whose subject has vanished protects nothing while
     # looking switched on, which is the failure mode this engine keeps finding.
     {
-        echo "=== CEO QUEUE: THE DECLARED RECORD IS NOT ON DISK — REFUSING THIS COMMIT ==="
-        echo "  repository : $CQ_REPO"
-        echo "  declared   : $CQ_QUEUE_RECORD  (in $CEO_QUEUE_DECLARATION)"
+        echo "=== CEO TODOs: THE DECLARED RECORD IS NOT ON DISK — REFUSING THIS COMMIT ==="
+        echo "  repository : $CT_REPO"
+        echo "  declared   : $CT_TODO_RECORD  (in $CEO_TODOS_DECLARATION)"
         echo ""
-        echo "  Either restore the record, or delete $CEO_QUEUE_DECLARATION to stand"
+        echo "  Either restore the record, or delete $CEO_TODOS_DECLARATION to stand"
         echo "  this mechanism down deliberately and visibly."
-        echo "(hook: scripts/hooks/guard-ceo-queue-commits.sh)"
+        echo "(hook: scripts/hooks/guard-ceo-todos-commits.sh)"
     } >&2
     exit 2
 fi
 
-cq_resolve_roots "$CQ_REPO"
+ct_resolve_roots "$CT_REPO"
 
-RESULT="$(cq_lint_file "$CQ_QUEUE_RECORD" "$SUBJECT" "$CQ_REPO")" || {
-    echo "ERROR: guard-ceo-queue-commits.sh: the CEO-queue predicate could not run — refusing (fail-closed), because a checker that cannot run is not a clean record." >&2
+RESULT="$(ct_lint_file "$CT_TODO_RECORD" "$SUBJECT" "$CT_REPO")" || {
+    echo "ERROR: guard-ceo-todos-commits.sh: the CEO-TODOs predicate could not run — refusing (fail-closed), because a checker that cannot run is not a clean record." >&2
     exit 2
 }
 
@@ -307,20 +307,20 @@ case "$VERDICT" in
     # these lines is to declare the thing they name, which is the point: an
     # undeclared check must cost something visible every time, or "clean"
     # quietly grows to mean "checked" and we are back where this started.
-    printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  CEO QUEUE — NOT CHECKED: %s\n         %s\n", $2, $3}' >&2
+    printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  CEO TODOs — NOT CHECKED: %s\n         %s\n", $2, $3}' >&2
     exit 0 ;;
   BROKEN)
-    cq_broken_banner "guard-ceo-queue-commits.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
+    ct_broken_banner "guard-ceo-todos-commits.sh" "$(printf '%s' "$RESULT" | head -1 | cut -f2-)" >&2
     exit 2 ;;
   VIOLATIONS)
     if [ "$TOUCHED" -eq 1 ]; then
-        HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this queue are not ready"
+        HEADLINE="this commit changes the record, and $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about these TODOs are not ready"
     else
-        HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this repository's CEO queue are not ready (this commit did not touch the record)"
+        HEADLINE="PRE-EXISTING: $(printf '%s' "$RESULT" | head -1 | cut -f2) thing(s) about this repository's CEO TODOs are not ready (this commit did not touch the record)"
     fi
-    cq_refusal "guard-ceo-queue-commits.sh" "$HEADLINE" "$BODY" "$CQ_REPO/$CQ_QUEUE_RECORD" >&2
+    ct_refusal "guard-ceo-todos-commits.sh" "$HEADLINE" "$BODY" "$CT_REPO/$CT_TODO_RECORD" >&2
     exit 2 ;;
   *)
-    echo "ERROR: guard-ceo-queue-commits.sh: unexpected verdict from the predicate — refusing (fail-closed)" >&2
+    echo "ERROR: guard-ceo-todos-commits.sh: unexpected verdict from the predicate — refusing (fail-closed)" >&2
     exit 2 ;;
 esac

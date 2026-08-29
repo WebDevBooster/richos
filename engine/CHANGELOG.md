@@ -12,12 +12,12 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
-- **The CEO queue, part two: REACHABLE, and READ FROM OUTSIDE**
-  (`scripts/ceo-queue-render.sh`, `scripts/ceo-queue-init.sh`,
+- **The CEO TODOs, part two: REACHABLE, and READ FROM OUTSIDE**
+  (`scripts/ceo-todos-render.sh`, `scripts/ceo-todos-init.sh`,
   `scripts/cold-open.sh`, `scripts/lib/cold-open-prompt.md`,
-  `reference/ceo-queue/`) — MINOR, still inert without a `.ceo-queue`.
+  `reference/ceo-todos/`) — MINOR, still inert without a `.ceo-todos`.
 
-  The first release of the CEO queue enforced that every item waiting on the
+  The first release of the CEO TODOs enforced that every item waiting on the
   CEO was PREPARED, and shipped with nowhere for him to look: the items lived
   inside a long record mixed with everything else, and the only new artifact was
   a dotfile. The report read *"the contract is live, 9 prepared items"* — true
@@ -29,8 +29,8 @@ version heading with Added / Changed / Fixed groupings.
 
   Three things now have exit codes that did not:
 
-  1. **One entry point, enforced.** `QUEUE_VIEW` is a bare top-level, un-dotted
-     file name, generated from the record by `ceo-queue-render.sh` and refused
+  1. **One entry point, enforced.** `TODO_VIEW` is a bare top-level, un-dotted
+     file name, generated from the record by `ceo-todos-render.sh` and refused
      at commit unless it is byte-identical to what the record renders to,
      singular (no second file carrying the generated marker), and named in the
      first 40 lines of `ROOT_README`. The renderer moved INTO the engine and
@@ -48,8 +48,8 @@ version heading with Added / Changed / Fixed groupings.
      demanded a favourable verdict would get one every time, and the finding is
      the entire product. Undeclared `COLD_OPEN_DIR` never blocks and is printed
      as an unchecked limit on every clean verdict.
-  3. **An adopter actually gets one.** `ceo-queue-init.sh` plus
-     `reference/ceo-queue/` install the declaration, a starter record, the
+  3. **An adopter actually gets one.** `ceo-todos-init.sh` plus
+     `reference/ceo-todos/` install the declaration, a starter record, the
      entry point and the README pointer in one command, and the onboarding
      runbook and bootstrap interview name it. For one release the engine shipped
      the lint, the guard, the predicate and the test suite with **no
@@ -66,10 +66,10 @@ version heading with Added / Changed / Fixed groupings.
   declared root is a sibling. Both were things a green lint could not see and a
   stranger noticed in ninety seconds.
 
-- **The CEO queue** (`scripts/lib/ceo-queue.sh`, `scripts/lib/ceo-queue.py`,
-  `scripts/ceo-queue-lint.sh`, `scripts/hooks/guard-ceo-queue-commits.sh`) —
+- **The CEO TODOs** (`scripts/lib/ceo-todos.sh`, `scripts/lib/ceo-todos.py`,
+  `scripts/ceo-todos-lint.sh`, `scripts/hooks/guard-ceo-todos-commits.sh`) —
   MINOR: purely additive, and inert in any repository that does not declare a
-  `.ceo-queue`. Makes "waiting on the CEO" a **checkable claim** instead of an
+  `.ceo-todos`. Makes "waiting on the CEO" a **checkable claim** instead of an
   unfalsifiable one.
 
   The engine's orchestrator writes long, exact briefs for every teammate —
@@ -112,7 +112,7 @@ version heading with Added / Changed / Fixed groupings.
   invisible. No silent degradation anywhere — a missing declared section, a
   CEO section reverted to a markdown table, an absent record and a malformed
   declaration each BLOCK; the CLI gives an absent record its own exit code (3)
-  so "nothing to check" can never be read as "clean". `ceo-queue.test.sh`
+  so "nothing to check" can never be read as "clean". `ceo-todos.test.sh`
   proves the predicate on fixtures alone (the real record lives in a private
   repository CI cannot see), including the original failing item replayed in
   both its shapes and its prepared replacement passing.
@@ -189,6 +189,39 @@ version heading with Added / Changed / Fixed groupings.
   thin callers of it, because two YAML files each spelling out the same six
   steps is a typed inventory in a different costume. Runnable by hand, so
   "what does CI do?" has an answer you can execute before you push.
+
+### Changed
+
+- **"The CEO queue" is now "the CEO's TODOs" — and the old name still works.**
+  The CEO's instruction, and his reason: the target audience is non-technical
+  CEOs based in the **US**, and *queue* is the British word for it. The rename
+  is total — `.ceo-todos`, `TODO_RECORD`, `TODO_VIEW`, `CEO-TODOs.md`,
+  `scripts/ceo-todos-{lint,render,init}.sh`, `scripts/lib/ceo-todos.{sh,py}`,
+  `scripts/hooks/guard-ceo-todos-commits.sh`, `reference/ceo-todos/`, and the
+  rendered heading a CEO actually reads (**"Your TODOs"**). The word *queue* is
+  untouched everywhere it means something else: a Railway build queue, a Resend
+  import status, the lander's next queued handoff, the app's audio queues.
+
+  **The compatibility decision, because it is the whole story.** `.ceo-queue`
+  was strict-parsed, so a clean cut would make the new engine find no
+  declaration in an un-migrated repository, **stand down, and say nothing.** A
+  guard that switches itself off silently is the failure class this mechanism
+  exists to remove, so it is not an acceptable way to ship its own rename — and
+  "no release ever carried `.ceo-queue`" is not a defence, because adopters
+  install from `main` and at least one live repository already declares it.
+
+  So: the legacy declaration and the legacy keys are **still read and still
+  enforced**, and every verdict — including a CLEAN one, and including the
+  commit guard's — prints `LEGACY-DECLARATION-NAME` / `LEGACY-DECLARATION-KEYS`
+  with the exact rename command. Carrying **both** declarations is `BROKEN` and
+  blocks; the engine never picks one quietly. `ceo-todos-init.sh` refuses beside
+  a legacy declaration, because a rename is not a re-install.
+
+  What the alias cannot fix, stated rather than discovered: **old engine + new
+  `.ceo-todos`** still stands down silently, because that code has shipped. The
+  land order in [`UPGRADING.md`](./UPGRADING.md) is the only fix — engine first,
+  record repository second — and the alias makes the window between them safe
+  rather than merely short. Migration steps are in `UPGRADING.md`.
 
 ### Fixed
 

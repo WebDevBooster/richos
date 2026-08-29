@@ -30,7 +30,7 @@ build artifacts, applied to a judgment.
 
 It checks that a reading **happened** for the front door as it currently
 stands. It has **no opinion on what the reader concluded**, and that is
-deliberate: a gate that demanded a favourable verdict would get one every time,
+deliberate: a gate that demanded a favorable verdict would get one every time,
 and the finding — the thing worth having — would be the one output that costs
 its author a blocked commit.
 

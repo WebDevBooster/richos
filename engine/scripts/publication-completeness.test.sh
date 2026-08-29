@@ -9,10 +9,10 @@
 #
 #   (1) SHIPPED INERT — a guard gated on a declaration file, with no instance,
 #       no template, and no word of it in anything an adopter reads. The real
-#       one was the whole ceo-queue mechanism.
+#       one was the whole ceo-todos mechanism.
 #   (2) MECHANISM IN THE PRIVATE TREE — an executable in the private repo that
 #       reads a contract the public tree enforces. The real one was
-#       render-ceo-queue.mjs.
+#       render-ceo-todos.mjs.
 #   (3) UNREACHABLE BY CONSTRUCTION — a workflow under a subdirectory, which
 #       GitHub Actions never discovers. The real one had never executed once.
 #   (4) A CLAIM WITH NOTHING BEHIND IT — a document citing a path that exists
@@ -252,8 +252,8 @@ commit_all "$T"
 assert_clean "a real committed instance counts as copyable, not just a .example" "$T"
 
 # A dotfile's template is usually shipped WITHOUT the dot, so a person
-# browsing the tree can see it. The real `.ceo-queue` template shipped as
-# reference/ceo-queue/ceo-queue.example, and this check called it missing.
+# browsing the tree can see it. The real `.ceo-todos` template shipped as
+# reference/ceo-todos/ceo-todos.example, and this check called it missing.
 T="$(mktree inert_fixed_undotted)"
 rm "$T/.widget.example"
 mkdir -p "$T/reference/widget"
@@ -282,7 +282,7 @@ printf -- '---\nname: setup\n---\nRun the setup, then create `.widget` from `.wi
 commit_all "$T"
 assert_clean "a SKILL.md counts as onboarding (agents read skills, not just READMEs)" "$T"
 
-# A CHANGELOG must NOT count as onboarding — the real .ceo-queue was named in
+# A CHANGELOG must NOT count as onboarding — the real .ceo-todos was named in
 # exactly one published document, the one recording that it happened.
 T="$(mktree inert_changelog)"
 rm "$T/.widget.example"

@@ -84,6 +84,20 @@ assert_has 'provisioning: the file carries an engine-version provenance stamp' "
 assert_has 'provisioning: Rich is pointed at loro for company memory' "$OUT" 'loro-context.mjs compile'
 assert_has 'provisioning: Rich is told to scope a teammate slice with --audience worker' "$OUT" '--audience worker'
 
+# THE LOCALE RULE MUST SURVIVE INTO LIVE DOCTRINE. A dialect that lives only in
+# the template is a dialect nobody is bound by: the whole point is that the
+# implementer reads it in CLAUDE.md, not in the engine's docs. Both arms —
+# unconfigured is an honest refusal to guess, configured reaches the doctrine
+# verbatim — because either one alone can pass while the other silently rots.
+assert_has 'provisioning: an unconfigured locale refuses to pick a dialect rather than defaulting to one' \
+    "$OUT" 'No locale is recorded'
+LOCALE_CFG="$WORK/locale.config"
+mkconfig "$LOCALE_CFG" "Dana Whitlock"
+printf 'PRODUCT_LOCALE="**American English.** Dates M/D/YYYY, USD."\n' >> "$LOCALE_CFG"
+"$PROV" --config "$LOCALE_CFG" --template "$TEMPLATE" --out "$WORK/locale.md" >/dev/null 2>&1
+assert_has 'provisioning: a configured locale reaches live doctrine verbatim, where an implementer reads it' \
+    "$WORK/locale.md" '**American English.** Dates M/D/YYYY, USD.'
+
 printf '\n== idempotency and no-clobber ==\n'
 
 BEFORE="$(shasum "$OUT" | awk '{print $1}')"

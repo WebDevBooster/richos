@@ -115,7 +115,7 @@
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ceo-queue-commits.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-ceo-todos-commits.sh",
             "timeout": 20
           }
         ]
