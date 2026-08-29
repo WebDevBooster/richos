@@ -149,6 +149,16 @@ cp -R "$ENGINE_ROOT_REAL/scripts" "$INST_ENGINE/scripts"
 cp "$ENGINE_ROOT_REAL/VERSION" "$INST_ENGINE/VERSION"
 mkdir -p "$INST_ENGINE/.claude"
 cp "$ENGINE_ROOT_REAL/.claude/settings.local.json" "$INST_ENGINE/.claude/settings.local.json"
+# THE REGISTRATION SURFACE IS PART OF THE FIXTURE, and this line is why 6a was
+# red. install.sh no longer takes its sidecar-minting scope from a typed list;
+# it DERIVES it from hooks/hooks.json through scripts/lib/registered-hooks.sh,
+# and exits 2 rather than minting a guessed subset. This fixture copied
+# scripts/ and VERSION only, so the installer correctly refused it and no
+# pointer was ever minted — a fixture defect wearing the costume of a locator
+# defect. (scripts/demo.sh built its sample repo the same way and broke the
+# same day, in front of buyers.)
+mkdir -p "$INST_ENGINE/hooks"
+cp "$ENGINE_ROOT_REAL/hooks/hooks.json" "$INST_ENGINE/hooks/hooks.json"
 CFG7="$TMP/cfg-install"; mkdir -p "$CFG7"
 env CLAUDE_CONFIG_DIR="$CFG7" bash "$INST_ENGINE/scripts/hooks/install.sh" >/dev/null 2>&1
 if [ -L "$CFG7/richos-engine" ] && [ "$(cd "$CFG7/richos-engine" && pwd -P)" = "$(cd "$INST_ENGINE" && pwd -P)" ]; then
