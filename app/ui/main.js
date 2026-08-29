@@ -555,6 +555,8 @@ function showEntityView(entityId, mode) {
     (mode === "new" ? "New thread in " : "Talk to Rich about ") + entity.display_name;
   composerScopeEl.hidden = false;
   inputEl.placeholder = "Talk to Rich about " + entity.display_name + "…";
+  inputEl.value = drafts.get(ENTITY_DRAFT_PREFIX + entityId) || "";
+  autoGrow();
 
   setMainView("entity");
   renderScopeHeader();
@@ -593,11 +595,27 @@ function renderScopeHeader() {
 
 // ---- per-thread draft and scroll (§3.1) -------------------------------------------------
 
+/// Park whatever is in the composer against the thing it was being written TO, then the
+/// caller is free to load something else into it.
+///
+/// The entity case is not a nicety. An entity is a privacy boundary (§1), and leaving a
+/// half-written sentence from one entity's thread sitting in another entity's composer
+/// means one Enter files it in the wrong company. So the composer is emptied on every
+/// move and only ever re-filled from the draft belonging to what is now on screen.
 function stashThreadViewState() {
-  if (mainView !== "conversation" || !activeThreadId) return;
-  drafts.set(activeThreadId, inputEl.value);
-  scrollTops.set(activeThreadId, conversationEl.scrollTop);
+  if (mainView === "conversation" && activeThreadId) {
+    drafts.set(activeThreadId, inputEl.value);
+    scrollTops.set(activeThreadId, conversationEl.scrollTop);
+  } else if (mainView === "entity" && viewEntityId) {
+    drafts.set(ENTITY_DRAFT_PREFIX + viewEntityId, inputEl.value);
+  }
+  inputEl.value = "";
+  autoGrow();
 }
+
+/// Namespace for a draft that belongs to an ENTITY's new-thread composer rather than to a
+/// thread. Prefixed so it can never collide with a thread id.
+const ENTITY_DRAFT_PREFIX = "entity:";
 
 function restoreThreadViewState(threadId) {
   inputEl.value = drafts.get(threadId) || "";
@@ -931,6 +949,7 @@ async function send() {
       autoGrow();
       return;
     }
+    drafts.delete(ENTITY_DRAFT_PREFIX + entityId); // it became a thread; it is not a draft any more
     draftEntityId = null;
     await refreshNavigation();
     await openThread(newId);
