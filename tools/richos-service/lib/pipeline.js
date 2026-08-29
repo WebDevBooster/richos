@@ -166,10 +166,11 @@ export function runPipeline(sessionDir, opts = {}) {
     log.info(`${sessionId} — transcribed: me=${asr.me.length} seg, others=${asr.others.length} seg`);
 
     // ---- Stage 3.5: HALLUCINATION GUARD (P5) ----------------------------------------------------
-    // The post-decode HALF of the hallucination defence, model-agnostic, across three measured
-    // decode-failure classes (see lib/repetition-guard.js): a repetition LOOP and a sliding-overlap
-    // STUTTER are collapsed before they reach the merge/transcript; a persistent ordinal INSERTION
-    // is DETECT-ONLY (removing it would delete real speech) and therefore has to be LOUD instead.
+    // The post-decode HALF of the hallucination defence, model-agnostic, across FOUR measured
+    // decode-failure classes (see lib/repetition-guard.js): a repetition LOOP, a sliding-overlap
+    // STUTTER and a SILENCE FABRICATION are removed before they reach the merge/transcript; a
+    // persistent ordinal INSERTION is DETECT-ONLY (removing it would delete real speech) and
+    // therefore has to be LOUD instead.
     // Runs on every tier (cheap, precision-guarded); the safety net that lets large-v3 be opt-in.
     let asrGuarded = { me: asr.me, others: asr.others };
     /** @type {{me: object[], others: object[]}|null} the physical evidence the loop class needs */
@@ -177,17 +178,23 @@ export function runPipeline(sessionDir, opts = {}) {
     let repetitionReport = {
       removed: 0,
       detected: false,
-      classes: { repetition: 0, insertion: 0, overlapStutter: 0, preservedByAudio: 0 },
+      classes: { repetition: 0, insertion: 0, overlapStutter: 0, silenceFabrication: 0, preservedByAudio: 0 },
       loops: [],
       preserved: [],
       insertions: [],
       stutters: [],
+      silenceFabrications: [],
+      silenceRemoved: 0,
+      silenceUnrepaired: 0,
+      silenceProbed: { me: false, others: false },
+      silenceUnit: { me: null, others: null },
       byChannel: { me: {}, others: {} },
     };
     // The PHYSICAL evidence, one ffmpeg pass per channel — 0.68 s for a 92-minute channel, measured
-    // 2026-08-29, so it is free at any call length. TWO stages consume it and it is computed ONCE:
-    // the repetition guard's burst veto (class 1: is a repeated phrase a human retake?) and the
-    // deletion detector below (class 4: is a wordless span a deleted clause?). It used to live
+    // 2026-08-29, so it is free at any call length. THREE consumers and it is computed ONCE: the
+    // repetition guard's burst veto (class 1: is a repeated phrase a human retake?), the same
+    // guard's silence-fabrication class (class 4: was ANY of this span spoken?), and the deletion
+    // detector below (is a wordless span a deleted clause?). It used to live
     // inside the `tier.repetitionGuard` branch; it is hoisted because the deletion detector needs it
     // whether or not the repetition classes are enabled, and because "which stage owns the audio
     // probe" is exactly the kind of hidden coupling that goes wrong later.
@@ -201,7 +208,7 @@ export function runPipeline(sessionDir, opts = {}) {
       speechBursts = b;
       log.info(`${sessionId} — speech bursts: me=${b.me.length} others=${b.others.length}`);
     } catch (err) {
-      log.alarm(`${sessionId} — speech-burst probe failed; the repetition guard runs TEXT-ONLY and may delete genuine repeated speech, and the deletion detector cannot run at all`, {
+      log.alarm(`${sessionId} — speech-burst probe failed; the repetition guard runs TEXT-ONLY (it may delete genuine repeated speech, and its silence-fabrication class cannot run at all, so invented text over silence WILL reach transcript.md), and the deletion detector cannot run at all`, {
         error: String(err && err.message ? err.message : err),
       });
     }
@@ -212,6 +219,34 @@ export function runPipeline(sessionDir, opts = {}) {
       if (repetitionReport.preserved && repetitionReport.preserved.length) {
         log.info(`${sessionId} — ${repetitionReport.preserved.length} repeated run(s) PRESERVED: the audio contains a speech burst for every repetition`, {
           preserved: repetitionReport.preserved.map((p) => ({ channel: p.channel, count: p.count, text: p.text.slice(0, 60) })),
+        });
+      }
+      if (repetitionReport.silenceRemoved) {
+        // The 2026-08-29 corpus put 60.4% of one 126-minute channel's timeline inside this class,
+        // so on a real call this line is the difference between a transcript and a fiction.
+        log.alarm(`${sessionId} — ${repetitionReport.silenceRemoved} segment(s) of text over MEASURED SILENCE removed by the guard`, {
+          byChannel: {
+            me: repetitionReport.byChannel.me.silenceRemoved,
+            others: repetitionReport.byChannel.others.silenceRemoved,
+          },
+          seconds: +repetitionReport.silenceFabrications
+            .filter((f) => f.action === 'removed')
+            .reduce((n, f) => n + f.durationSec, 0)
+            .toFixed(1),
+          unit: repetitionReport.silenceUnit,
+        });
+      }
+      for (const f of repetitionReport.silenceFabrications) {
+        // NOT removed, on purpose: over silence, but not in the silence vocabulary. Still IN the
+        // transcript, so it has to be loud — same treatment as the insertion class below.
+        if (f.action !== 'reported') continue;
+        log.alarm(`${sessionId} — TEXT OVER SILENCE LEFT IN THE TRANSCRIPT (not in the silence vocabulary)`, {
+          channel: f.channel,
+          fromMs: f.startMs,
+          seconds: f.durationSec,
+          words: f.words,
+          burstOverlapSec: f.burstOverlapSec,
+          remedy: 'check the span or re-transcribe; the guard will not guess against a quiet real utterance',
         });
       }
       if (repetitionReport.loops.length) {
@@ -408,6 +443,16 @@ export function runPipeline(sessionDir, opts = {}) {
         ? { me: speechBursts.me.length, others: speechBursts.others.length }
         : null,
       stutters: repetitionReport.stutters,
+      // Class 4. Every span the guard judged to sit over measured silence, both tiers, each row
+      // carrying its own `action` — so the removals can never be read without what was left behind.
+      silenceFabrications: repetitionReport.silenceFabrications,
+      silenceRemoved: repetitionReport.silenceRemoved,
+      // Still IN the transcript: over silence, but not in the silence vocabulary. Same meaning as
+      // `unrepaired` below — never let "enabled: true" imply "clean".
+      silenceUnrepaired: repetitionReport.silenceUnrepaired,
+      // "Nothing found" and "never looked" are different answers: class 4 needs the burst grid.
+      silenceProbed: repetitionReport.silenceProbed,
+      silenceUnit: repetitionReport.silenceUnit,
       // Detect-only: these are still IN the transcript. Never let "enabled: true" imply "clean".
       insertions: repetitionReport.insertions,
       unrepaired: repetitionReport.insertions.reduce((n, i) => n + i.count, 0),

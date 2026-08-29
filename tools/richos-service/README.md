@@ -73,7 +73,8 @@ session dir (closed)
       · -ojf adds per-TOKEN offsets. It is output verbosity, not a decode parameter (it sits
         outside whisperArgs() with -of), and it is required: without per-word times the deletion
         detector at 3.7 has to score coverage on segment extents, which is measurably wrong.
- 3.5 HALLUCINATION GUARD  repetition loop / sliding stutter collapsed; ordinal insertion DETECTED
+ 3.5 HALLUCINATION GUARD  silence fabrication REMOVED; repetition loop / sliding stutter collapsed;
+                      ordinal insertion DETECTED
  3.6 DIARIZATION SEAM     opt-in; default identity
  3.7 DELETION DETECTOR    speech bursts the transcript never claims, adjudicated by isolated
                       re-decode → DETECT-ONLY alarm (a deletion cannot be repaired here)
@@ -216,7 +217,7 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
   - `quantized` — quantized turbo (`large-v3-turbo-q5_0`, ~574 MB vs 1.6 GB; build once with
     `whisper-quantize`) for low-resource Apple Silicon.
 - **Hallucination guard (`lib/repetition-guard.js`, pipeline stage 3.5), model-agnostic:** the
-  post-decode half of the hallucination defence, over **three measured decode-failure classes**, each
+  post-decode half of the hallucination defence, over **four measured decode-failure classes**, each
   with a fixture built from the real captured artifact (`test/fixtures/captured-hallucinations.js`,
   sha256 of every source JSON baked in). Findings are recorded in
   `session.json.pipeline.repetitionGuard` + `verification.json`.
@@ -233,11 +234,34 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
   3. **Sliding-overlap stutter** — consecutive segments re-emitting the previous tail with shifted
      boundaries (`large-v3`, 1,979 reference words → 3,999, 110.86 % WER; the loop detector saw only
      6 of 353 segments). **De-overlapped**, content-preservingly: every word survives exactly once.
+  4. **Silence fabrication** — text emitted over audio that carries **no speech energy at all**
+     (`large-v3-turbo` at `-mc 0`, **159 of 353 segments / 60.4 % of the timeline** on a 126-minute
+     per-speaker track, 143 of them the single phrase "Thank you."; podcast-corpus brief
+     2026-08-29 §3.3). **It is a function of channel silence and of nothing else** — Spearman
+     ρ = 1.0000 over six tracks from two conversations — so it is worst on the channel shaped like
+     a real call's `me` side, **the one carrying the CEO's own words**. Classes 1–3 caught 29.5 %
+     of it by accident; the guard now takes the fabricated timeline on those three host channels
+     from **69.4 minutes to 11.6 minutes** (87.4 % of it on the 126-minute channel). **REMOVED**,
+     and repairable where class 2 is not because a span over measured silence has no speech in it
+     to lose — verified per span, not assumed: **all 189 removals on the corpus were re-decoded in
+     isolation under two decoders and in 189 of 189 the removed words did not come back** (on 12 of
+     them the isolated decode returned a *different* hallucination — "We'll be right back",
+     "Amen" — over audio at −44.8 to −63.4 dBFS, which is evidence *for* fabrication).
+     Text over silence that is *not* in the silence vocabulary is **report-only**.
+     Runs FIRST, so fabricated filler cannot look like a loop to class 1. Needs the burst grid and
+     is **inert without it** — `silenceProbed` in the record says which.
+     **No decode parameter fixes this and that was measured, not assumed:** `-nth` is inert across
+     `0.01 … 0.9` (six byte-identical decodes), and `-lpt 0.0` removes 1 of 14 for +90 % wall time.
   Precision is the contract and the thresholds are set from measurement, not taste — across the 18
-  clean turbo/`q5_0` transcripts of the 2026-08-26 benchmark the guard changes **nothing**, and the
-  known blind spots are enumerated in the module header rather than papered over.
+  clean turbo/`q5_0` transcripts of the 2026-08-26 benchmark the guard changes **nothing**; across
+  the three **guest** channels of the 2026-08-29 corpus (28,275 words containing 217 immediate
+  repeats and 23 same-word triples) class 4 removes **three segments, five words**, each one
+  independently adjudicated as fabrication; and `maxSilenceOverlapSec` was swept over *adjudicated*
+  spans, taking **0.10 s** — one step inside the last clean value — because at 0.20 s the rule
+  starts eating a genuine backchannel hum spoken at the host's own speech median. The known blind
+  spots, including that one, are enumerated in the module header rather than papered over.
 - **Deletion detector (`lib/deletion-guard.js`, pipeline stage 3.7), the class the guard above
-  cannot see:** all three hallucination classes are the model *saying too much*, and each leaves
+  cannot see:** all four hallucination classes are the model *saying too much*, and each leaves
   evidence in the text. **Deletion leaves none** — the model emits nothing over real speech, with no
   repetition, no marker, and **no confidence signal**: measured, the tokens either side of a
   confirmed deletion carry 0.94–1.00 confidence. Any alarm built on confidence stays silent.
