@@ -668,7 +668,11 @@ async function main() {
       assert(!r.overlapsInput, "the stop control overlaps the text field");
       const s = await shot(p, `steering-composer-${w}`);
       await p.close();
-      return `${r.w}x${r.h} inside a ${r.composerWidth}px composer — ${path.basename(s.file)} (${s.bytes}B)`;
+      // `distinct` is present once the harness's own flat-fill check lands beside this
+      // suite; reported when it is there rather than asserted, so this file runs against
+      // either version of `lib/harness.js`.
+      const painted = s.distinct != null ? `, ${s.distinct} distinct colours` : "";
+      return `${r.w}x${r.h} inside a ${r.composerWidth}px composer — ${path.basename(s.file)} (${s.bytes}B${painted})`;
     });
   }
 
@@ -680,7 +684,8 @@ async function main() {
   await page.close();
   await browser.close();
 
-  console.log(`\n  evidence: ${stoppedShot.file} (${stoppedShot.bytes}B)`);
+  const painted = stoppedShot.distinct != null ? `, ${stoppedShot.distinct} distinct colours` : "";
+  console.log(`\n  evidence: ${stoppedShot.file} (${stoppedShot.bytes}B${painted})`);
   const failed = run.report();
   process.exit(failed ? 1 : 0);
 }
