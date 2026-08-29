@@ -190,6 +190,39 @@ version heading with Added / Changed / Fixed groupings.
   steps is a typed inventory in a different costume. Runnable by hand, so
   "what does CI do?" has an answer you can execute before you push.
 
+### Changed
+
+- **"The CEO queue" is now "the CEO's TODOs" — and the old name still works.**
+  The CEO's instruction, and his reason: the target audience is non-technical
+  CEOs based in the **US**, and *queue* is the British word for it. The rename
+  is total — `.ceo-todos`, `TODO_RECORD`, `TODO_VIEW`, `CEO-TODOs.md`,
+  `scripts/ceo-todos-{lint,render,init}.sh`, `scripts/lib/ceo-todos.{sh,py}`,
+  `scripts/hooks/guard-ceo-todos-commits.sh`, `reference/ceo-todos/`, and the
+  rendered heading a CEO actually reads (**"Your TODOs"**). The word *queue* is
+  untouched everywhere it means something else: a Railway build queue, a Resend
+  import status, the lander's next queued handoff, the app's audio queues.
+
+  **The compatibility decision, because it is the whole story.** `.ceo-queue`
+  was strict-parsed, so a clean cut would make the new engine find no
+  declaration in an un-migrated repository, **stand down, and say nothing.** A
+  guard that switches itself off silently is the failure class this mechanism
+  exists to remove, so it is not an acceptable way to ship its own rename — and
+  "no release ever carried `.ceo-queue`" is not a defence, because adopters
+  install from `main` and at least one live repository already declares it.
+
+  So: the legacy declaration and the legacy keys are **still read and still
+  enforced**, and every verdict — including a CLEAN one, and including the
+  commit guard's — prints `LEGACY-DECLARATION-NAME` / `LEGACY-DECLARATION-KEYS`
+  with the exact rename command. Carrying **both** declarations is `BROKEN` and
+  blocks; the engine never picks one quietly. `ceo-todos-init.sh` refuses beside
+  a legacy declaration, because a rename is not a re-install.
+
+  What the alias cannot fix, stated rather than discovered: **old engine + new
+  `.ceo-todos`** still stands down silently, because that code has shipped. The
+  land order in [`UPGRADING.md`](./UPGRADING.md) is the only fix — engine first,
+  record repository second — and the alias makes the window between them safe
+  rather than merely short. Migration steps are in `UPGRADING.md`.
+
 ### Fixed
 
 - **Probe layer BR7 walked up from the POINTER, not the checkout.** When the
