@@ -47,6 +47,56 @@ pub fn barge_in_debounce_secs() -> f32 {
     frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES)
 }
 
+/// **The converged debounce window.** Once the echo canceller is confident
+/// ([`crate::aec::EchoCanceller::confident`]) the interruption test changes shape entirely:
+/// instead of racing echo for 5.008 s of unbroken speech, it asks whether the CEO has been
+/// talking for most of the last 0.400 s.
+///
+/// ```text
+///   AEC_BARGE_IN_WINDOW_FRAMES   = 25
+///   25 frames x 256 samples/frame = 6400 samples
+///   6400 samples / 16 000 samples/s = 0.400 s exactly
+/// ```
+pub const AEC_BARGE_IN_WINDOW_FRAMES: u32 = 25;
+
+/// How many of those 25 frames must be near-end speech.
+///
+/// ```text
+///   AEC_BARGE_IN_REQUIRED_FRAMES = 15
+///   15 x 256 / 16000 = 0.240 s of evidence inside a 0.400 s window (60 %)
+/// ```
+///
+/// **Why a window and not a consecutive run.** The consecutive rule is not a stricter version
+/// of this one, it is a different test, and it was built for a different job: echo is bursty,
+/// so ANY gap resetting the counter is what made 313 frames unreachable by echo. But real
+/// speech is bursty too. Measured on the rig with a converged canceller, a full **1000 ms**
+/// interruption produced 46 near-end frames of 62 — and a longest unbroken run of only
+/// **16**. Under a consecutive rule, no interruption of any length reliably registers once
+/// the near-end verdict is honest, because the CEO stops between words like everyone else.
+///
+/// The window counts evidence instead of demanding perfection, which is the right primitive
+/// once the false-positive source (echo) has been removed by measurement rather than dodged
+/// by a continuity race.
+pub const AEC_BARGE_IN_REQUIRED_FRAMES: u32 = 15;
+
+/// The converged window in seconds, derived: 25 x 256 / 16000 = 0.400 s.
+pub fn aec_barge_in_window_secs() -> f32 {
+    frames_to_secs(AEC_BARGE_IN_WINDOW_FRAMES)
+}
+
+/// How the monitor is currently deciding. Not a preference — a consequence of whether the
+/// canceller has measured itself into a position to be believed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BargeInMode {
+    /// **The fallback, and the default.** 313 consecutive speech frames = 5.008 s. In force
+    /// whenever the echo canceller is not confident: at start-up, after a device change, after
+    /// a reference-ring overrun, or when there is no canceller at all.
+    Consecutive,
+    /// **The converged rule.** 15 near-end frames within a sliding 25-frame (0.400 s) window.
+    Windowed,
+}
+
+
 /// Watches the mic while Rich is speaking and reports the moment the CEO has been talking
 /// over him for a continuous [`BARGE_IN_DEBOUNCE_FRAMES`].
 ///
@@ -58,6 +108,13 @@ pub struct BargeInMonitor {
     run: u32,
     armed: bool,
     fired: bool,
+    mode: BargeInMode,
+    /// Sliding window of the last `AEC_BARGE_IN_WINDOW_FRAMES` verdicts, as a bitmask, plus
+    /// the running population count. A `u32` is exactly enough for 25 frames and costs one
+    /// shift per frame — this runs on the audio callback thread.
+    window: u32,
+    window_len: u32,
+    window_hits: u32,
 }
 
 impl Default for BargeInMonitor {
@@ -70,7 +127,62 @@ impl BargeInMonitor {
     /// Build a monitor with an explicit frame threshold (tests, and the one-line retune the
     /// pilot's history shows this number will get).
     pub fn with_frames(required: u32) -> Self {
-        BargeInMonitor { required, run: 0, armed: false, fired: false }
+        BargeInMonitor {
+            required,
+            run: 0,
+            armed: false,
+            fired: false,
+            mode: BargeInMode::Consecutive,
+            window: 0,
+            window_len: 0,
+            window_hits: 0,
+        }
+    }
+
+    /// Which rule is in force right now.
+    pub fn mode(&self) -> BargeInMode {
+        self.mode
+    }
+
+    /// **Switch rules.** Driven by [`crate::aec::EchoCanceller::confident`] and by nothing
+    /// else — never by a setting, never by a guess about headphones.
+    ///
+    /// Changing mode clears the accumulated evidence in both directions. Carrying a 200-frame
+    /// consecutive run into the windowed rule (or vice versa) would let a debounce fire on
+    /// evidence gathered under a rule that no longer applies.
+    pub fn set_aec_confident(&mut self, confident: bool) {
+        let want = if confident { BargeInMode::Windowed } else { BargeInMode::Consecutive };
+        if want != self.mode {
+            self.mode = want;
+            self.run = 0;
+            self.window = 0;
+            self.window_len = 0;
+            self.window_hits = 0;
+        }
+    }
+
+    /// Frames of near-end speech inside the current 0.400 s window. The windowed counterpart
+    /// of [`BargeInMonitor::run_frames`], and the same kind of diagnostic: it makes "why did
+    /// it not barge in" answerable.
+    pub fn window_hits(&self) -> u32 {
+        self.window_hits
+    }
+
+    /// The threshold currently in force, in frames — 313 or 15 depending on the mode.
+    pub fn effective_required_frames(&self) -> u32 {
+        match self.mode {
+            BargeInMode::Consecutive => self.required,
+            BargeInMode::Windowed => AEC_BARGE_IN_REQUIRED_FRAMES,
+        }
+    }
+
+    /// The worst-case time to fire under the rule currently in force, in seconds.
+    /// 5.008 s consecutive, or 0.400 s windowed.
+    pub fn effective_debounce_secs(&self) -> f32 {
+        match self.mode {
+            BargeInMode::Consecutive => frames_to_secs(self.required),
+            BargeInMode::Windowed => frames_to_secs(AEC_BARGE_IN_WINDOW_FRAMES),
+        }
     }
 
     /// Build a monitor from a duration in seconds, rounded UP to whole frames.
@@ -97,6 +209,9 @@ impl BargeInMonitor {
     pub fn arm(&mut self) {
         self.armed = true;
         self.run = 0;
+        self.window = 0;
+        self.window_len = 0;
+        self.window_hits = 0;
         self.fired = false;
     }
 
@@ -104,6 +219,9 @@ impl BargeInMonitor {
     pub fn disarm(&mut self) {
         self.armed = false;
         self.run = 0;
+        self.window = 0;
+        self.window_len = 0;
+        self.window_hits = 0;
         self.fired = false;
     }
 
@@ -113,16 +231,40 @@ impl BargeInMonitor {
         if !self.armed || self.fired {
             return false;
         }
-        if is_speech {
-            self.run += 1;
-            if self.run >= self.required {
-                self.fired = true;
-                return true;
+        match self.mode {
+            BargeInMode::Consecutive => {
+                if is_speech {
+                    self.run += 1;
+                    if self.run >= self.required {
+                        self.fired = true;
+                        return true;
+                    }
+                } else {
+                    // The reset that makes the whole scheme work WITHOUT a canceller: echo is
+                    // bursty, so any gap between Rich's own syllables returns the run to zero.
+                    self.run = 0;
+                }
             }
-        } else {
-            // The reset that makes the whole scheme work: echo is bursty, so any gap between
-            // Rich's own syllables returns the run to zero.
-            self.run = 0;
+            BargeInMode::Windowed => {
+                // Slide the window: drop the frame falling out of the far end, admit the new
+                // one at the near end, and keep the population count incrementally.
+                if self.window_len == AEC_BARGE_IN_WINDOW_FRAMES {
+                    let leaving = (self.window >> (AEC_BARGE_IN_WINDOW_FRAMES - 1)) & 1;
+                    self.window_hits -= leaving;
+                } else {
+                    self.window_len += 1;
+                }
+                self.window = (self.window << 1) & ((1u32 << AEC_BARGE_IN_WINDOW_FRAMES) - 1);
+                if is_speech {
+                    self.window |= 1;
+                    self.window_hits += 1;
+                }
+                self.run = self.window_hits;
+                if self.window_hits >= AEC_BARGE_IN_REQUIRED_FRAMES {
+                    self.fired = true;
+                    return true;
+                }
+            }
         }
         false
     }
@@ -301,6 +443,210 @@ mod tests {
         // 1.2 s -> ceil(1.2 x 16000 / 256) = ceil(75.0) = 75 frames -> 1.200 s exactly.
         assert_eq!(m.required_frames(), 75);
         assert!((frames_to_secs(75) - 1.2).abs() < 1e-6);
+    }
+
+    /// INVARIANT: the converged window is 25 frames = 0.400 s and the evidence threshold is
+    /// 15 frames = 0.240 s, both re-derived from the frame math rather than quoted.
+    #[test]
+    fn the_converged_window_is_25_frames_which_is_400_milliseconds_exactly() {
+        assert_eq!(AEC_BARGE_IN_WINDOW_FRAMES, 25);
+        assert_eq!(AEC_BARGE_IN_WINDOW_FRAMES, frames_for_secs(0.400));
+        assert!((aec_barge_in_window_secs() - 0.400).abs() < 1e-6, "{}", aec_barge_in_window_secs());
+        assert_eq!(AEC_BARGE_IN_REQUIRED_FRAMES, 15);
+        assert!((frames_to_secs(AEC_BARGE_IN_REQUIRED_FRAMES) - 0.240).abs() < 1e-6);
+        // 15 of 25 is 60 % of the window.
+        assert_eq!(AEC_BARGE_IN_REQUIRED_FRAMES * 100 / AEC_BARGE_IN_WINDOW_FRAMES, 60);
+        // And the window must fit in the u32 bitmask the monitor slides.
+        assert!(AEC_BARGE_IN_WINDOW_FRAMES < 32);
+        // 5.008 / 0.400 = 12.52x shorter than the fallback.
+        let ratio = barge_in_debounce_secs() / aec_barge_in_window_secs();
+        assert!((ratio - 12.52).abs() < 0.01, "{ratio}");
+    }
+
+    /// **THE SAFETY INVARIANT.** A fresh monitor uses the 5.008 s consecutive rule. The short
+    /// window is never the default and can only be reached by an explicit, measured claim of
+    /// confidence from the canceller.
+    #[test]
+    fn the_five_second_rule_is_the_default_and_the_short_window_must_be_earned() {
+        let m = BargeInMonitor::default();
+        assert_eq!(m.mode(), BargeInMode::Consecutive);
+        assert_eq!(m.effective_required_frames(), BARGE_IN_DEBOUNCE_FRAMES);
+        assert!((m.effective_debounce_secs() - 5.008).abs() < 1e-6);
+
+        let mut m = BargeInMonitor::default();
+        m.set_aec_confident(true);
+        assert_eq!(m.mode(), BargeInMode::Windowed);
+        assert_eq!(m.effective_required_frames(), AEC_BARGE_IN_REQUIRED_FRAMES);
+        assert!((m.effective_debounce_secs() - 0.400).abs() < 1e-6);
+
+        // And it goes straight back the moment confidence is withdrawn.
+        m.set_aec_confident(false);
+        assert_eq!(m.mode(), BargeInMode::Consecutive);
+        assert!((m.effective_debounce_secs() - 5.008).abs() < 1e-6);
+    }
+
+    /// INVARIANT: under the windowed rule, 15 near-end frames fire it — on the 15th, not the
+    /// 14th.
+    #[test]
+    fn the_windowed_rule_fires_on_the_fifteenth_frame_not_the_fourteenth() {
+        let mut m = BargeInMonitor::default();
+        m.set_aec_confident(true);
+        m.arm();
+        for i in 1..AEC_BARGE_IN_REQUIRED_FRAMES {
+            assert!(!m.push(true), "fired early at frame {i}");
+        }
+        assert_eq!(m.window_hits(), AEC_BARGE_IN_REQUIRED_FRAMES - 1);
+        assert!(m.push(true), "should fire on frame {AEC_BARGE_IN_REQUIRED_FRAMES}");
+    }
+
+    /// **THE WHOLE POINT.** Real speech has gaps between words; the consecutive rule treats
+    /// every gap as a reset. Measured on the AEC rig with a converged canceller, a full 1000 ms
+    /// interruption produced 46 near-end frames of 62 and a longest unbroken run of only 16 —
+    /// so under the consecutive rule NO interruption of any length reliably registers once the
+    /// near-end verdict is honest.
+    ///
+    /// Same 400 ms of realistically-gappy speech, both rules, side by side.
+    #[test]
+    fn gappy_real_speech_registers_under_the_window_and_never_under_the_consecutive_rule() {
+        // 25 frames = 0.400 s at a 72 % duty cycle: 4 on, 1 off, 4 on, 1 off, ...
+        let pattern: Vec<bool> = (0..AEC_BARGE_IN_WINDOW_FRAMES)
+            .map(|i| i % 5 != 4)
+            .collect();
+        let speaking = pattern.iter().filter(|v| **v).count();
+        assert_eq!(speaking, 20, "premise: 20 of 25 frames are speech");
+        let longest = pattern
+            .split(|v| !*v)
+            .map(|run| run.len())
+            .max()
+            .unwrap();
+        assert_eq!(longest, 4, "premise: the longest unbroken run is only 4 frames = 64 ms");
+
+        let mut windowed = BargeInMonitor::default();
+        windowed.set_aec_confident(true);
+        windowed.arm();
+        assert!(
+            pattern.iter().any(|v| windowed.push(*v)),
+            "0.400 s of ordinary gappy speech must interrupt Rich"
+        );
+
+        let mut consecutive = BargeInMonitor::default();
+        consecutive.arm();
+        assert!(
+            !pattern.iter().any(|v| consecutive.push(*v)),
+            "premise: the consecutive rule cannot see this at all"
+        );
+    }
+
+    /// **THE REASON THE WINDOW IS GATED ON THE CANCELLER, stated as a test.**
+    ///
+    /// Fed RAW verdicts — no echo cancellation — the windowed rule fires on Rich's own voice
+    /// in under half a second. That is not a defect in the window; it is the entire reason
+    /// `set_aec_confident` exists and the entire reason the 5.008 s rule stays as the
+    /// fallback. Compare with `bursty_echo_never_barges_in_because_gaps_reset_the_run`, which
+    /// asserts the consecutive rule survives exactly this input.
+    #[test]
+    fn the_windowed_rule_would_fire_on_raw_echo_which_is_why_it_needs_a_canceller() {
+        let mut m = BargeInMonitor::default();
+        m.set_aec_confident(true);
+        m.arm();
+        // The same bursty echo the consecutive rule shrugs off: 20 on, 5 off.
+        let mut fired_at = None;
+        'outer: for burst in 0..10 {
+            for i in 0..20 {
+                if m.push(true) {
+                    fired_at = Some(burst * 25 + i);
+                    break 'outer;
+                }
+            }
+            for i in 0..5 {
+                if m.push(false) {
+                    fired_at = Some(burst * 25 + 20 + i);
+                    break 'outer;
+                }
+            }
+        }
+        let at = fired_at.expect("premise: the window DOES fire on raw echo");
+        assert!(at < 25, "fired at frame {at}");
+        // Which is why the default is the other rule, and why only a canceller that has
+        // MEASURED its own residual below the VAD's speech floor may switch it.
+        assert_eq!(BargeInMonitor::default().mode(), BargeInMode::Consecutive);
+    }
+
+    /// INVARIANT: the window slides. 14 frames of speech, then 25 frames of silence, then 14
+    /// more must NOT fire — evidence older than 0.400 s has left the window.
+    #[test]
+    fn evidence_older_than_the_window_stops_counting() {
+        let mut m = BargeInMonitor::default();
+        m.set_aec_confident(true);
+        m.arm();
+        for _ in 0..14 {
+            assert!(!m.push(true));
+        }
+        assert_eq!(m.window_hits(), 14);
+        for _ in 0..AEC_BARGE_IN_WINDOW_FRAMES {
+            assert!(!m.push(false));
+        }
+        assert_eq!(m.window_hits(), 0, "the window did not slide");
+        for i in 0..14 {
+            assert!(!m.push(true), "stale evidence resurrected at {i}");
+        }
+    }
+
+    /// INVARIANT: switching modes discards evidence gathered under the old rule. A 300-frame
+    /// consecutive run must not instantly satisfy the 15-frame window, and vice versa.
+    #[test]
+    fn changing_mode_discards_evidence_gathered_under_the_old_rule() {
+        let mut m = BargeInMonitor::default();
+        m.arm();
+        for _ in 0..(BARGE_IN_DEBOUNCE_FRAMES - 1) {
+            assert!(!m.push(true));
+        }
+        assert_eq!(m.run_frames(), BARGE_IN_DEBOUNCE_FRAMES - 1);
+        m.set_aec_confident(true);
+        assert_eq!(m.window_hits(), 0, "312 frames of consecutive evidence leaked into the window");
+        for i in 1..AEC_BARGE_IN_REQUIRED_FRAMES {
+            assert!(!m.push(true), "fired at {i} on stale evidence");
+        }
+        assert!(m.push(true));
+    }
+
+    /// INVARIANT: arming and disarming clear the window as well as the run — speech from
+    /// before Rich started talking can never count toward interrupting him.
+    #[test]
+    fn arming_clears_the_window_as_well_as_the_run() {
+        let mut m = BargeInMonitor::default();
+        m.set_aec_confident(true);
+        m.arm();
+        for _ in 0..14 {
+            m.push(true);
+        }
+        assert_eq!(m.window_hits(), 14);
+        m.arm();
+        assert_eq!(m.window_hits(), 0);
+        m.push(true);
+        m.disarm();
+        assert_eq!(m.window_hits(), 0);
+    }
+
+    /// INVARIANT: the windowed rule still fires at most once per armed period, and "tap to
+    /// stop" still bypasses it entirely.
+    #[test]
+    fn the_windowed_rule_fires_once_and_tap_to_stop_still_overrides_it() {
+        let mut m = BargeInMonitor::default();
+        m.set_aec_confident(true);
+        m.arm();
+        let mut fires = 0;
+        for _ in 0..100 {
+            if m.push(true) {
+                fires += 1;
+            }
+        }
+        assert_eq!(fires, 1);
+
+        let mut m2 = BargeInMonitor::default();
+        m2.set_aec_confident(true);
+        m2.arm();
+        assert!(m2.force(), "tap to stop must remain instant under either rule");
     }
 
     /// INVARIANT: v1's gate is honest — it observes the reference signal (proving the seam
