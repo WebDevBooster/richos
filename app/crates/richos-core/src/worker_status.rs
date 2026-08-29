@@ -218,6 +218,14 @@ pub fn read_from_dir_with_probe(team_dir: &Path, probe: HostProbe) -> WorkerStat
 /// session" proxy for the single-CEO/single-machine v1 topology (no authoritative
 /// mapping from the ACP session id to a team dir name exists today). Returns `None`
 /// when nothing resolves — the honest "no team dir" case.
+///
+/// **On the Phase 4 gate.** This is the one place in the module that looks at filesystem
+/// activity: `max_by_key(modified)` picks WHICH session directory is current. That is
+/// directory SELECTION, not state inference — no worker status is derived from it, and a
+/// directory chosen this way still yields `active: 0` unless its `worker-events.jsonl`
+/// says otherwise and the recorded host pid answers a real signal probe. The gate forbids
+/// inferring active or completed FROM filesystem activity; it does not forbid using an
+/// mtime to choose a file to read. Pass `RICHOS_TEAM_DIR` to remove even that.
 pub fn resolve_team_dir() -> Option<PathBuf> {
     if let Ok(explicit) = std::env::var("RICHOS_TEAM_DIR") {
         let p = PathBuf::from(explicit);
