@@ -11,6 +11,13 @@ before it was allowed to count as evidence; a shot with fewer than 8 distinct co
 Re-running the suite overwrites all nine. They are committed — unlike `.shots/`, which is the
 per-run scratch every suite writes and gitignores — because §26 names them as deliverables.
 
+**These PNGs are not byte-stable across runs and are not claimed to be.** The fixture's
+determinism is asserted where it means something — the projected snapshot is byte-identical
+JSON across three constructions from one anchor, and the measured duration is exactly
+`8_270_000 ms` every time — but a full-page capture also carries the scroll offset the shell
+happened to settle at, so a re-run can differ by a few bytes without anything having changed.
+Do not treat a diff here as a regression signal; read the suite's exit code.
+
 | # | File | Distinct colours | §26 asked for | What it is |
 |---|---|---|---|---|
 | 1 | `ms-01-just-after-send.png` | 253 | just after send | As asked. The prompt in its quiet right-aligned bubble, clamped at §5.1's 18 lines with `Show more`, and §6.1's bare `Working` — no number invented under one second. |
