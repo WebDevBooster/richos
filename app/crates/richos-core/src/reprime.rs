@@ -9,7 +9,8 @@
 //! turn-boundary rotation on a context watermark + self-authored handoff summaries
 //! are a LATER leg; the seam is here (Spine::reprime_current_session) so they drop in.
 
-use crate::ledger::{ActionStatus, Ledger, Source, TurnState};
+use crate::entity::ThreadBinding;
+use crate::ledger::{ActionStatus, Ledger, LedgerError, Source, TurnState};
 use serde::Serialize;
 
 /// The Tier-C SEAM (continuity §2.3/§4, §8 Q4): the loro Context Compiler is
@@ -68,15 +69,22 @@ impl RePrimePayload {
     /// degrades to "ledger-only re-prime + Rich pulls loro on demand via tools".
     /// Continuity holds; grounding is thinner. `worker_state` is likewise a seam for
     /// the engine event-log watcher (later leg).
-    pub fn assemble(ledger: &Ledger, thread_id: &str, conv_id: &str, tail_turns: usize) -> Self {
+    ///
+    /// SCOPED (ECS §3.3–3.5): the payload is assembled from a [`ThreadBinding`], not a
+    /// bare thread id, and every ingredient is read through the entity guard. A re-prime
+    /// is the highest-leverage cross-entity leak in the app — whatever lands here is
+    /// asserted to a fresh session as authoritative — so an unbound thread cannot be
+    /// primed at all, and no other entity's turns or actions can reach the prompt.
+    pub fn assemble(ledger: &Ledger, binding: &ThreadBinding, tail_turns: usize) -> Result<Self, LedgerError> {
         // Superseded turns (§5.3 mid-turn-crash replay) are excluded from the working
         // set entirely — a successfully-replayed turn is no longer "unfinished," and its
         // dead predecessor shouldn't pollute the verbatim tail either.
-        let turns: Vec<_> = ledger
-            .turns()
-            .iter()
-            .filter(|t| t.thread_id == thread_id && t.source != Source::Internal && t.superseded_by.is_none())
+        let scoped = ledger.thread_turns_scoped(binding)?;
+        let turns: Vec<_> = scoped
+            .into_iter()
+            .filter(|t| t.source != Source::Internal && t.superseded_by.is_none())
             .collect();
+        let thread_id = binding.thread_id();
 
         // Tier A #4 — last N verbatim (user + assistant).
         let mut recent_tail = Vec::new();
@@ -139,8 +147,15 @@ impl RePrimePayload {
         // revealing or referencing session rotation (§6.2), so handing it a line reading
         // "[done] session_rotation" under a header that calls the section authoritative
         // ground truth for "what Rich has done" would manufacture that leak.
+        //
+        // ENTITY-SCOPED (ECS §3.5, UX §22 "cross-entity context must not be faked). The
+        // digest used to be the WHOLE ledger's CEO-facing actions, which meant every
+        // rotation injected every entity's actions into every entity's session under a
+        // header calling them authoritative. Scoping is by entity, not by thread, so
+        // nothing that was visible within an entity disappears — only the cross-entity
+        // leak closes.
         let action_ledger_digest: Vec<ActionView> = ledger
-            .ceo_facing_actions()
+            .ceo_facing_actions_for_entity(binding.entity_id())
             .iter()
             .map(|a| ActionView {
                 kind: a.kind.clone(),
@@ -166,8 +181,8 @@ impl RePrimePayload {
             .map(|i| format!("[{}] {}", i.state, i.label))
             .collect();
 
-        RePrimePayload {
-            identity_assertion: Self::identity_assertion(conv_id),
+        Ok(RePrimePayload {
+            identity_assertion: Self::identity_assertion_scoped(binding),
             pending_decisions,
             current_intent,
             recent_tail,
@@ -175,7 +190,7 @@ impl RePrimePayload {
             action_ledger_digest,
             worker_state,
             loro_slice: None,
-        }
+        })
     }
 
     /// Tier A #1 — the verbatim identity assertion that kills the false-attribution
@@ -197,6 +212,28 @@ impl RePrimePayload {
              Rich's behalf, not yet the tool calls made inside a session. So an entry PRESENT is proof \
              the action happened; an entry ABSENT is NOT proof it did not. Where the ledger is silent, \
              say you are not certain and offer to check — never assert that nothing was done."
+        )
+    }
+
+    /// The identity assertion PLUS the scope the successor is resuming inside (ECS §3.5:
+    /// *"The default read set is the person layer plus the active entity"* and *"A thread
+    /// cannot read another entity because a name appears related"*).
+    ///
+    /// A successor that is not told its entity has an advisory boundary, not an enforced
+    /// one: everything else here is filtered for it, but nothing stops it from REASONING
+    /// across entities out of its own training or from a name it recognizes. So the scope
+    /// is stated as a fact and the cross-entity assumption is named and forbidden. This is
+    /// the prompt half; the data half is the filtering above, and neither is sufficient
+    /// alone.
+    pub fn identity_assertion_scoped(binding: &ThreadBinding) -> String {
+        format!(
+            "{} \
+             SCOPE: this thread's home entity area is \"{}\" and that is immutable. Everything below \
+             is scoped to it. Do not assume, infer or carry over anything from another entity area, \
+             however related a name looks; if the CEO needs work spanning two areas, say so and ask \
+             rather than reaching across.",
+            Self::identity_assertion(binding.thread_id()),
+            binding.entity_id()
         )
     }
 

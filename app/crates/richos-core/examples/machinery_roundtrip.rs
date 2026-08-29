@@ -24,6 +24,7 @@ use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord};
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::Cognition;
@@ -94,7 +95,7 @@ fn main() {
     let live = Live::default();
     spine.set_observer(Box::new(live.clone()));
     spine.set_machinery_observer(Box::new(live.clone()));
-    let thread_id = spine.create_thread("Machinery roundtrip proof").expect("thread");
+    let thread_id = spine.create_thread("Machinery roundtrip proof", &EntityId::parse("richos").unwrap()).expect("thread");
 
     let acp_bin = resolve_acp_bin(None);
     eprintln!("[machinery] adapter   = {}", acp_bin.display());
@@ -108,7 +109,7 @@ fn main() {
 
     // ---- 1. the calm view: exactly what the CEO sees ------------------------
     println!("================ 1. THE CALM VIEW (what the CEO sees) ================");
-    for m in spine.messages(&thread_id) {
+    for m in spine.messages(&thread_id).expect("scoped read") {
         println!("{:>6}> {}", m.role, m.text);
     }
 

@@ -6,7 +6,15 @@
 use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition};
 use richos_core::ledger::{Ledger, Source, TurnState};
 use richos_core::reprime::RePrimePayload;
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
+
+/// The dogfood entity these tests run under. Every thread now has an immutable entity
+/// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
+/// inheriting a default that no longer exists.
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
 use richos_core::stream::{StreamEvent, TurnObserver};
 use std::sync::{Arc, Mutex};
 
@@ -26,7 +34,7 @@ fn prompt_is_persisted_received_before_send() {
     // Crash-safety: even with NO lease attached, submitting persists the prompt.
     let (path, ledger) = tmp_ledger("crashsafe");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
 
     // No lease attached -> delivery fails, but the prompt MUST already be durable.
     let result = spine.submit_prompt("remember this even if we crash", Source::Text);
@@ -47,7 +55,7 @@ fn prompt_is_persisted_received_before_send() {
 fn full_roundtrip_persists_and_renders_clean() {
     let (path, ledger) = tmp_ledger("roundtrip");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Hello CEO, I'm Rich."])));
 
     let turn_id = spine.submit_prompt("hi", Source::Text).unwrap();
@@ -57,7 +65,7 @@ fn full_roundtrip_persists_and_renders_clean() {
     assert_eq!(turn.assistant_text, "Hello CEO, I'm Rich.");
 
     // Clean output view: user + assistant, no internal machinery.
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0].role, "user");
     assert_eq!(msgs[1].role, "assistant");
@@ -71,7 +79,7 @@ fn lease_is_reprimed_before_first_turn() {
     // before the first CEO-visible turn.
     let (path, ledger) = tmp_ledger("reprime");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
 
     let mock = MockCognition::new("sess-1", vec!["reply"]);
     let reprimes_ref = mock.reprimes.clone();
@@ -93,14 +101,14 @@ fn lease_is_reprimed_before_first_turn() {
 fn internal_reprime_turn_is_never_rendered() {
     let (path, ledger) = tmp_ledger("internal");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["ok"])));
     spine.submit_prompt("hey", Source::Text).unwrap();
 
     // A `received` Internal turn exists in the ledger...
     assert!(spine.ledger().turns().iter().any(|t| t.source == Source::Internal));
     // ...but it has NO render path: messages() only shows the real user + assistant.
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     assert!(msgs.iter().all(|m| m.text != "[re-prime]"));
     assert_eq!(msgs.len(), 2);
     let _ = std::fs::remove_file(&path);
@@ -114,7 +122,7 @@ fn default_thread_title_is_running_not_general() {
     // fallback — this test is the backend-side proof the one-liner landed).
     let (path, ledger) = tmp_ledger("default-title");
     let mut spine = Spine::new(ledger);
-    let thread_id = spine.ensure_active_thread().unwrap();
+    let thread_id = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     let summaries = spine.threads();
     let default = summaries.iter().find(|t| t.id == thread_id).unwrap();
     assert_eq!(default.title, "Running");
@@ -125,8 +133,8 @@ fn default_thread_title_is_running_not_general() {
 fn threads_are_views_over_one_shared_ledger() {
     let (path, ledger) = tmp_ledger("threads");
     let mut spine = Spine::new(ledger);
-    let germany = spine.create_thread("Germany").unwrap();
-    let hiring = spine.create_thread("Q4 hiring").unwrap();
+    let germany = spine.create_thread("Germany", &femcboost()).unwrap();
+    let hiring = spine.create_thread("Q4 hiring", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["a", "b"])));
 
     spine.switch_thread(&germany).unwrap();
@@ -136,10 +144,10 @@ fn threads_are_views_over_one_shared_ledger() {
 
     // Two threads, each carrying only its own messages, but both projected from the
     // one shared ledger (topic separation WITHOUT fragmentation).
-    assert_eq!(spine.messages(&germany).len(), 2);
-    assert_eq!(spine.messages(&hiring).len(), 2);
-    assert_eq!(spine.messages(&germany)[0].text, "about germany");
-    assert_eq!(spine.messages(&hiring)[0].text, "about hiring");
+    assert_eq!(spine.messages(&germany).unwrap().len(), 2);
+    assert_eq!(spine.messages(&hiring).unwrap().len(), 2);
+    assert_eq!(spine.messages(&germany).unwrap()[0].text, "about germany");
+    assert_eq!(spine.messages(&hiring).unwrap()[0].text, "about hiring");
 
     let summaries = spine.threads();
     assert_eq!(summaries.len(), 2);
@@ -152,14 +160,14 @@ fn history_survives_restart() {
     let thread;
     {
         let mut spine = Spine::new(ledger);
-        thread = spine.create_thread("General").unwrap();
+        thread = spine.create_thread("General", &femcboost()).unwrap();
         spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["persisted reply"])));
         spine.submit_prompt("remember me", Source::Text).unwrap();
     } // spine + ledger dropped (app "restart")
 
     let reopened = Ledger::open(&path).unwrap();
     let spine2 = Spine::new(reopened);
-    let msgs = spine2.messages(&thread);
+    let msgs = spine2.messages(&thread).unwrap();
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0].text, "remember me");
     assert_eq!(msgs[1].text, "persisted reply");
@@ -170,11 +178,11 @@ fn history_survives_restart() {
 fn reprime_payload_carries_action_ledger_as_ground_truth() {
     // Anti-false-attribution: a recorded action appears in the re-prime as authoritative.
     let (path, mut ledger) = tmp_ledger("attribution");
-    let thread = ledger.create_thread("General").unwrap();
-    let turn = ledger.record_prompt_received(&thread, "dispatch a worker", Source::Text).unwrap();
+    let thread = ledger.create_thread("General", &femcboost()).unwrap();
+    let turn = ledger.record_prompt_received(&ledger.thread_binding(&thread).unwrap(), "dispatch a worker", Source::Text).unwrap();
     ledger.record_action(&turn, "dispatch", "spawned worker mark-sonnet-f1").unwrap();
 
-    let payload = RePrimePayload::assemble(&ledger, &thread, &thread, 8);
+    let payload = RePrimePayload::assemble(&ledger, &ledger.thread_binding(&thread).unwrap(), 8).unwrap();
     assert_eq!(payload.action_ledger_digest.len(), 1);
     assert_eq!(payload.action_ledger_digest[0].kind, "dispatch");
     let priming = payload.to_priming_prompt();
@@ -189,14 +197,14 @@ fn queue_not_interrupt_orders_prompts_without_dropping() {
     // wired and ordered (a mid-turn arrival is journaled + delivered, never dropped).
     let (path, ledger) = tmp_ledger("queue");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["r1", "r2", "r3"])));
 
     spine.submit_prompt("first", Source::Text).unwrap();
     spine.submit_prompt("second", Source::Text).unwrap();
     spine.submit_prompt("third", Source::Text).unwrap();
 
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     let user_texts: Vec<_> = msgs.iter().filter(|m| m.role == "user").map(|m| m.text.clone()).collect();
     assert_eq!(user_texts, vec!["first", "second", "third"]);
     assert_eq!(spine.queue_depth(), 0);
@@ -247,7 +255,7 @@ fn stream_emits_chunks_in_order_and_ledger_holds_full_reply() {
     // truth) independently reflects the same full reply.
     let (path, ledger) = tmp_ledger("stream-order");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["Hello CEO, I am Rich and I am here."])));
 
     let observer = RecordingObserver::default();
@@ -291,7 +299,7 @@ fn turn_state_events_bracket_the_turn() {
     // last, both keyed to the same thread + turn; chunks live strictly between them.
     let (path, ledger) = tmp_ledger("stream-bracket");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["working then done"])));
 
     let observer = RecordingObserver::default();
@@ -332,7 +340,7 @@ fn failed_turn_emits_turn_error_and_persists_partial() {
     // terminal turn-error is emitted (never a silent hang, never a leaked stack trace).
     let (path, ledger) = tmp_ledger("stream-error");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-x".into() }));
 
     let observer = RecordingObserver::default();

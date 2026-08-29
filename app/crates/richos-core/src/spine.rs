@@ -18,6 +18,7 @@
 //! while a TURN, not a rotation, is in flight).
 
 use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem};
+use crate::entity::{EntityId, EntityRegistry, ThreadBinding};
 use crate::journal::MachineryJournal;
 use crate::ledger::{ActionStatus, ActionVisibility, AttentionTier, Ledger, LedgerError, Message, Source};
 use crate::machinery::{MachineryObserver, MachineryRecord};
@@ -33,8 +34,18 @@ pub enum SpineError {
     Ledger(#[from] LedgerError),
     #[error(transparent)]
     Cognition(#[from] CognitionError),
-    #[error("no active thread")]
+    /// No thread is active AND none can be chosen without guessing. UX §21 "Entity
+    /// binding failure": *"Block send. State that Rich cannot safely determine which
+    /// entity the work belongs to. Require an explicit entity choice. Never default to
+    /// the last entity."* That is why this no longer silently creates a thread.
+    #[error(
+        "no active thread, and no entity was named — Rich will not guess which entity area this \
+         belongs to. Choose an entity, or activate an existing thread."
+    )]
     NoActiveThread,
+    /// An entity id that is not in the registry (ECS §3.3: never default, never guess).
+    #[error("unknown entity {0}: not in the entity registry")]
+    UnknownEntity(String),
     #[error("no compute lease attached")]
     NoLease,
     #[error("no lease factory attached — cannot rotate or recover")]
@@ -43,9 +54,14 @@ pub enum SpineError {
 
 /// A prompt accepted while a turn was in flight, awaiting delivery at the next turn
 /// boundary (queue-not-interrupt: the CEO is never blocked, workers are never killed).
+///
+/// Carries the BINDING it was accepted under, not just a thread id (ECS §3.4: the binding
+/// is *"captured when the turn started"*). A queued prompt that the CEO typed in entity A
+/// is therefore still delivered as entity A even if the active context has since moved to
+/// entity B — the queue can never launder a turn across the boundary.
 struct Queued {
     turn_id: String,
-    thread_id: String,
+    binding: ThreadBinding,
     text: String,
 }
 
@@ -78,7 +94,14 @@ const DEFAULT_WATERMARK_RATIO: f64 = 0.70;
 pub struct Spine {
     ledger: Ledger,
     lease: Option<Box<dyn Cognition>>,
-    active_thread: Option<String>,
+    /// THE ACTIVE CONTEXT (ECS §3.3): person + entity + thread + binding revision. Not a
+    /// bare thread id — holding the full binding is what lets every downstream call be
+    /// scoped without re-deriving (or re-guessing) the entity.
+    active: Option<ThreadBinding>,
+    /// The entity areas this spine will accept. ECS §10.2's four by default; a caller can
+    /// substitute its own. Membership is checked on thread creation so an unregistered
+    /// entity can never become a thread's immutable home.
+    registry: EntityRegistry,
     /// The turn-boundary controller state. Keyed on turn-in-progress (NOT workers-live):
     /// a turn can END while engine subagents keep running, so delivery/rotation proceeds
     /// the moment the turn ends. Rotation NEVER happens inside a turn.
@@ -125,7 +148,8 @@ impl Spine {
         Spine {
             ledger,
             lease: None,
-            active_thread: None,
+            active: None,
+            registry: EntityRegistry::dogfood(),
             turn_in_progress: false,
             queue: VecDeque::new(),
             lease_primed: false,
@@ -254,8 +278,8 @@ impl Spine {
             self.pending_rotation_reason = Some(reason.to_string());
             return Ok(());
         }
-        let thread_id = self.ensure_active_thread()?;
-        self.rotate_lease(&thread_id, reason)
+        let binding = self.ensure_active_thread()?;
+        self.rotate_lease(&binding, reason)
     }
 
     /// Raise a proactive message (the attention seam's persistence + UI half — UX §5).
@@ -272,13 +296,17 @@ impl Spine {
         tier: AttentionTier,
         text: &str,
     ) -> Result<String, SpineError> {
-        let thread_id = match thread_id {
-            Some(t) => t.to_string(),
+        // A proactive message is a scoped WRITE like any other: the binding comes from the
+        // ledger (never from the caller), so Rich cannot speak unprompted into an unbound
+        // thread or into an entity the target thread does not belong to.
+        let binding = match thread_id {
+            Some(t) => self.ledger.thread_binding(t)?,
             None => self.ensure_active_thread()?,
         };
+        let thread_id = binding.thread_id().to_string();
         // Durable regardless of tier or turn state — once Rich has "said" something
         // (even if Silent never renders it), it must survive a crash immediately after.
-        let turn_id = self.ledger.record_proactive_message(&thread_id, tier, text)?;
+        let turn_id = self.ledger.record_proactive_message(&binding, tier, text)?;
 
         // ACTION LEDGER (continuity §5.4 / §6.1): raising a proactive message is the one
         // genuinely CEO-FACING thing this app does on its own initiative today — Rich
@@ -320,51 +348,151 @@ impl Spine {
 
     // ---- threads -----------------------------------------------------------
 
-    pub fn create_thread(&mut self, title: &str) -> Result<String, SpineError> {
-        let id = self.ledger.create_thread(title)?;
-        if self.active_thread.is_none() {
-            self.active_thread = Some(id.clone());
+    /// Replace the entity registry (tests, or a future CEO-configured registry).
+    pub fn set_entity_registry(&mut self, registry: EntityRegistry) {
+        self.registry = registry;
+    }
+
+    pub fn entity_registry(&self) -> &EntityRegistry {
+        &self.registry
+    }
+
+    /// Create a thread with its IMMUTABLE entity home. The entity must be registered —
+    /// an unknown one is refused, never invented (ECS §3.3).
+    pub fn create_thread(&mut self, title: &str, entity_id: &EntityId) -> Result<String, SpineError> {
+        if !self.registry.contains(entity_id) {
+            return Err(SpineError::UnknownEntity(entity_id.to_string()));
+        }
+        let id = self.ledger.create_thread(title, entity_id)?;
+        if self.active.is_none() {
+            self.activate(&id)?;
         }
         Ok(id)
     }
 
-    /// Ensure at least one thread exists and one is active; returns the active id.
-    pub fn ensure_active_thread(&mut self) -> Result<String, SpineError> {
-        if let Some(id) = &self.active_thread {
-            return Ok(id.clone());
+    /// The ACTIVE-CONTEXT TRANSACTION (ECS §11.3: *"Active-context switching is a
+    /// transaction, so entity and thread cannot disagree"*).
+    ///
+    /// Re-reads the entity from the durable record and issues a NEW binding revision, so
+    /// every command captured under the previous context is now stale and will be refused
+    /// (ECS §3.4). Entity and thread move together or not at all: an unbound thread cannot
+    /// be activated, so there is no state in which a thread is active without an entity.
+    fn activate(&mut self, thread_id: &str) -> Result<ThreadBinding, SpineError> {
+        let binding = self.ledger.rebind_at_new_revision(thread_id)?;
+        self.active = Some(binding.clone());
+        Ok(binding)
+    }
+
+    /// The active context's binding, or `NoActiveThread`. NEVER falls back to "the first
+    /// thread" — that would be picking an entity for the CEO, which UX §21 forbids
+    /// ("Never default to the last entity") and which is the exact failure mode §22 calls
+    /// out as unfakeable.
+    pub fn ensure_active_thread(&mut self) -> Result<ThreadBinding, SpineError> {
+        self.active.clone().ok_or(SpineError::NoActiveThread)
+    }
+
+    /// Ensure a thread is active WITHIN A NAMED ENTITY. This is the honest replacement for
+    /// the old zero-argument auto-create: the entity is supplied by the caller (in the
+    /// dogfood shell, from deterministic repository-root resolution — ECS §3.3), never
+    /// inferred here. If a thread is already active in that entity it is returned; if one
+    /// exists in that entity it is activated (most recent first); otherwise a new
+    /// "Running" thread is created bound to it.
+    ///
+    /// A thread active in a DIFFERENT entity is not reused — that would be a silent
+    /// cross-entity switch.
+    pub fn ensure_active_thread_in(&mut self, entity_id: &EntityId) -> Result<ThreadBinding, SpineError> {
+        if !self.registry.contains(entity_id) {
+            return Err(SpineError::UnknownEntity(entity_id.to_string()));
         }
-        if let Some(first) = self.ledger.threads().first() {
-            let id = first.id.clone();
-            self.active_thread = Some(id.clone());
-            return Ok(id);
+        if let Some(active) = &self.active {
+            if active.entity_id() == entity_id {
+                return Ok(active.clone());
+            }
         }
-        // "Running" per the UX direction doc §2.1: the pinned default thread's real title, not
-        // a placeholder the UI has to cosmetically relabel. (app/ui/main.js previously
-        // carried a client-side relabel for a literal "General" title — see that file's
-        // `displayTitle`, updated alongside this fix.)
-        self.create_thread("Running")
+        let existing = self
+            .ledger
+            .threads()
+            .iter()
+            .filter(|t| t.entity_id() == Some(entity_id))
+            .map(|t| (t.id.clone(), t.created_at))
+            .max_by_key(|(_, created)| *created)
+            .map(|(id, _)| id);
+        match existing {
+            Some(id) => self.activate(&id),
+            None => {
+                // "Running" per the UX direction doc §2.1: the pinned default thread's real
+                // title, not a placeholder the UI has to cosmetically relabel.
+                let id = self.create_thread("Running", entity_id)?;
+                self.activate(&id)
+            }
+        }
     }
 
     /// Switch the active topic view. Continuity holds across the switch because every
-    /// thread folds over the SAME shared ledger (and later, shared loro).
+    /// thread folds over the SAME shared ledger (and later, shared loro) — WITHIN its
+    /// entity. Switching to an unbound legacy thread fails closed.
     pub fn switch_thread(&mut self, thread_id: &str) -> Result<(), SpineError> {
-        if !self.ledger.threads().iter().any(|t| t.id == thread_id) {
-            return Err(LedgerError::UnknownThread(thread_id.to_string()).into());
-        }
-        self.active_thread = Some(thread_id.to_string());
+        self.activate(thread_id)?;
         Ok(())
     }
 
     pub fn active_thread(&self) -> Option<&str> {
-        self.active_thread.as_deref()
+        self.active.as_ref().map(|b| b.thread_id())
+    }
+
+    /// The active entity area — the scope every read and write is currently under.
+    pub fn active_entity(&self) -> Option<&EntityId> {
+        self.active.as_ref().map(|b| b.entity_id())
+    }
+
+    /// The full active-context binding (person + entity + thread + revision).
+    pub fn active_binding(&self) -> Option<&ThreadBinding> {
+        self.active.as_ref()
+    }
+
+    /// ECS §3.4's FENCING CHECK for an outbound command: *"The command is rejected as
+    /// `stale_binding` if the active-context binding revision ... has advanced ... an old
+    /// Rich instance is never allowed to send, dispatch or write into a newly switched
+    /// entity/thread. This is a fencing token, not a UI hint."*
+    ///
+    /// A caller that captured a binding at turn start passes it back here before acting on
+    /// the outside world. A binding for a different thread or entity is `ScopeMismatch`; a
+    /// binding older than the current active context is `StaleBinding`.
+    ///
+    /// **Honest scope note.** Slice 1's spine is synchronous and single-threaded (the
+    /// shell serializes every call behind one `Mutex<Spine>`), so there is no concurrent
+    /// in-process holder that can actually go stale today. This is the seam the Tauri
+    /// command layer and any future async writer must call, and it is exercised by test
+    /// rather than merely declared — but it is defence in depth, not a bug being fixed.
+    pub fn verify_active_binding(&self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        let active = self.active.as_ref().ok_or(SpineError::NoActiveThread)?;
+        if binding.thread_id() != active.thread_id() || binding.entity_id() != active.entity_id() {
+            return Err(LedgerError::ScopeMismatch {
+                thread_id: active.thread_id().to_string(),
+                home: format!("{}/{}", active.entity_id(), active.thread_id()),
+                presented: format!("{}/{}", binding.entity_id(), binding.thread_id()),
+            }
+            .into());
+        }
+        if binding.binding_revision() < active.binding_revision() {
+            return Err(LedgerError::StaleBinding {
+                thread_id: active.thread_id().to_string(),
+                presented: binding.binding_revision(),
+                current: active.binding_revision(),
+            }
+            .into());
+        }
+        Ok(())
     }
 
     pub fn threads(&self) -> Vec<ThreadSummary> {
         summaries(&self.ledger)
     }
 
-    pub fn messages(&self, thread_id: &str) -> Vec<Message> {
-        self.ledger.messages(thread_id)
+    /// Scoped read. An unbound legacy thread returns `UnboundThread` rather than an empty
+    /// conversation — see `Ledger::messages`.
+    pub fn messages(&self, thread_id: &str) -> Result<Vec<Message>, SpineError> {
+        Ok(self.ledger.messages(thread_id)?)
     }
 
     pub fn ledger(&self) -> &Ledger {
@@ -376,19 +504,37 @@ impl Spine {
     /// Accept a CEO prompt. CRASH-SAFETY: the prompt is journaled + fsync'd `received`
     /// BEFORE anything else. QUEUE-NOT-INTERRUPT: if a turn is in flight it is queued,
     /// never delivered as an interrupt. Returns the turn id (persisted regardless).
+    /// SCOPE FIRST, then persist-before-send. The binding is captured before the durable
+    /// write, not after, because ECS §3.4 says the store rejects an unscoped event —
+    /// journaling first and scoping second would make the crash window contain exactly the
+    /// record the model forbids. A turn whose entity cannot be resolved is therefore
+    /// REFUSED, loudly:
+    ///
+    ///   - no active context           -> `SpineError::NoActiveThread`
+    ///   - active thread is unbound    -> `LedgerError::UnboundThread`
+    ///   - binding contradicts the log -> `LedgerError::ScopeMismatch`
+    ///
+    /// Nothing is lost by refusing. The caller still holds the CEO's text and the send is
+    /// blocked with an explanation, which is precisely UX §21's "Entity binding failure"
+    /// behaviour: *"Block send. State that Rich cannot safely determine which entity the
+    /// work belongs to. Require an explicit entity choice."* The alternative — persisting
+    /// an unscoped turn and sorting it out later — is how a message ends up rendered in
+    /// the wrong entity, which is a privacy incident rather than an inconvenience.
     pub fn submit_prompt(&mut self, text: &str, source: Source) -> Result<String, SpineError> {
-        let thread_id = self.ensure_active_thread()?;
-        // (1) persist-before-send — the message is durable before any risk.
-        let turn_id = self.ledger.record_prompt_received(&thread_id, text, source)?;
+        let binding = self.ensure_active_thread()?;
+        // (1) persist-before-send, under a verified scope — the message is durable before
+        //     any risk, and it is never durable without an entity.
+        let turn_id = self.ledger.record_prompt_received(&binding, text, source)?;
 
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
+        //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
         if self.turn_in_progress {
-            self.queue.push_back(Queued { turn_id: turn_id.clone(), thread_id, text: text.to_string() });
+            self.queue.push_back(Queued { turn_id: turn_id.clone(), binding, text: text.to_string() });
             return Ok(turn_id);
         }
         // (3) otherwise deliver now.
-        self.deliver(&turn_id, &thread_id, text, true)?;
-        self.after_turn_boundary(&thread_id)?;
+        self.deliver(&turn_id, &binding, text, true)?;
+        self.after_turn_boundary(&binding)?;
         self.drain_queue()?;
         Ok(turn_id)
     }
@@ -404,10 +550,21 @@ impl Spine {
     /// recovery + replay (continuity §5.3) if a lease factory is attached. Pass `false`
     /// from the recovery path itself so a lease that dies immediately on every respawn
     /// surfaces honestly after one attempt rather than looping forever.
-    fn deliver(&mut self, turn_id: &str, thread_id: &str, text: &str, allow_recovery: bool) -> Result<(), SpineError> {
+    fn deliver(
+        &mut self,
+        turn_id: &str,
+        binding: &ThreadBinding,
+        text: &str,
+        allow_recovery: bool,
+    ) -> Result<(), SpineError> {
+        // The scope is re-verified at delivery, not merely at acceptance: a queued turn
+        // may have waited across an active-context switch, and this is the last point
+        // before the text reaches a compute lease.
+        self.ledger.verify_binding(binding)?;
+        let thread_id = binding.thread_id();
         // Re-prime the lease on first use (continuity foundation): the successor reads
         // the identity assertion + action ledger + tail before any CEO-visible turn.
-        self.prime_lease_if_needed(thread_id)?;
+        self.prime_lease_if_needed(binding)?;
 
         let session_id = {
             let lease = self.lease.as_ref().ok_or(SpineError::NoLease)?;
@@ -516,7 +673,7 @@ impl Spine {
                 // replay if a factory is attached. A genuinely dead recovery path (no
                 // factory, or the fresh spawn ALSO fails) surfaces the error honestly.
                 if allow_recovery && self.lease_factory.is_some() {
-                    return self.recover_and_replay(turn_id, thread_id, text);
+                    return self.recover_and_replay(turn_id, binding, text);
                 }
                 Err(e.into())
             }
@@ -554,8 +711,8 @@ impl Spine {
     fn drain_queue(&mut self) -> Result<(), SpineError> {
         while !self.turn_in_progress {
             let Some(next) = self.queue.pop_front() else { break };
-            self.deliver(&next.turn_id, &next.thread_id, &next.text, true)?;
-            self.after_turn_boundary(&next.thread_id)?;
+            self.deliver(&next.turn_id, &next.binding, &next.text, true)?;
+            self.after_turn_boundary(&next.binding)?;
         }
         Ok(())
     }
@@ -565,12 +722,12 @@ impl Spine {
     /// alongside queue-not-interrupt). Runs whether the turn came from `submit_prompt`
     /// directly or from draining the queue — both call sites only reach here once
     /// `turn_in_progress` is false, so nothing below ever runs mid-turn.
-    fn after_turn_boundary(&mut self, thread_id: &str) -> Result<(), SpineError> {
+    fn after_turn_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
         self.flush_pending_proactive_emits();
         if let Some(reason) = self.pending_rotation_reason.take() {
-            self.rotate_lease(thread_id, &reason)?;
+            self.rotate_lease(binding, &reason)?;
         } else if self.lease_factory.is_some() && self.watermark_reached() {
-            self.rotate_lease(thread_id, "context-watermark")?;
+            self.rotate_lease(binding, "context-watermark")?;
         }
         Ok(())
     }
@@ -599,10 +756,16 @@ impl Spine {
     /// RE-SERVED as a brand-new turn; the failed turn is marked superseded (never edited
     /// in place — it stays in the ledger as the durable crash record) so the CEO sees
     /// ONE clean exchange, not a duplicate.
-    fn recover_and_replay(&mut self, failed_turn_id: &str, thread_id: &str, original_text: &str) -> Result<(), SpineError> {
+    fn recover_and_replay(
+        &mut self,
+        failed_turn_id: &str,
+        binding: &ThreadBinding,
+        original_text: &str,
+    ) -> Result<(), SpineError> {
         if self.lease_factory.is_none() {
             return Err(SpineError::NoLeaseFactory);
         }
+        let thread_id = binding.thread_id();
         // CLAIM-THEN-EXECUTE (§6.4), Internal visibility: written BEFORE the respawn, so
         // a crash inside recovery itself leaves a durable `claimed` record instead of
         // nothing. Internal because crash recovery is machinery the successor is under
@@ -633,9 +796,13 @@ impl Spine {
         self.rotation_count += 1;
         self.last_rotation_reason = Some("mid-turn-crash".to_string());
 
-        let replay_turn_id = self.ledger.record_prompt_received(thread_id, original_text, Source::Text)?;
+        // The REPLAY inherits the ORIGINAL turn's binding, not the current active context
+        // (§5.3 replays the turn that crashed, and it belongs to the entity it was
+        // accepted under — re-scoping it here would be exactly the cross-entity
+        // mis-attribution the guard exists to prevent).
+        let replay_turn_id = self.ledger.record_prompt_received(binding, original_text, Source::Text)?;
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
-        let outcome = self.deliver(&replay_turn_id, thread_id, original_text, false);
+        let outcome = self.deliver(&replay_turn_id, binding, original_text, false);
         self.ledger.update_action(
             &recovery_action,
             if outcome.is_ok() { ActionStatus::Completed } else { ActionStatus::Failed },
@@ -646,10 +813,11 @@ impl Spine {
     /// App-owned CLEAN rotation at a turn boundary (continuity §3.3). Only ever called
     /// from `after_turn_boundary`, which only runs once `turn_in_progress` is false —
     /// rotation NEVER happens mid-turn (§3.1).
-    fn rotate_lease(&mut self, thread_id: &str, reason: &str) -> Result<(), SpineError> {
+    fn rotate_lease(&mut self, binding: &ThreadBinding, reason: &str) -> Result<(), SpineError> {
         if self.lease_factory.is_none() {
             return Err(SpineError::NoLeaseFactory);
         }
+        let thread_id = binding.thread_id();
 
         // CLAIM-THEN-EXECUTE (§6.4), Internal visibility. Claimed at the very TOP so the
         // claim covers the whole operation (handoff-summary ask -> spawn -> re-prime ->
@@ -670,7 +838,7 @@ impl Spine {
         // fatal to rotation (the deterministic structured digest in reprime.rs is the
         // crash-safe floor either way), so errors are swallowed, not propagated.
         if self.lease.is_some() {
-            if let Ok(summary) = self.request_handoff_summary(thread_id) {
+            if let Ok(summary) = self.request_handoff_summary(binding) {
                 if !summary.trim().is_empty() {
                     self.ledger.record_handoff_summary(thread_id, &summary)?;
                 }
@@ -695,7 +863,7 @@ impl Spine {
 
         // Step 3: assemble the re-prime payload (Tiers A/B from the ledger; Tier C from
         // the optional loro seam, degrading gracefully when absent).
-        let mut payload = RePrimePayload::assemble(&self.ledger, thread_id, thread_id, DEFAULT_TAIL_TURNS);
+        let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS)?;
         if let Some(compiler) = self.loro_compiler.as_ref() {
             if let Ok(slice) = compiler.compile_slice(thread_id) {
                 payload.loro_slice = Some(slice);
@@ -703,7 +871,7 @@ impl Spine {
         }
         let priming = payload.to_priming_prompt();
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
-        let _ = self.ledger.record_prompt_received(thread_id, "[re-prime:rotation]", Source::Internal);
+        let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
 
         // Step 5: inject the re-prime payload as an internal priming turn — itself a
         // recorded (Internal) action, because "the successor WAS primed" is the single
@@ -759,12 +927,13 @@ impl Spine {
     /// SAME durable machinery as a normal turn (so a crash mid-summary is still
     /// crash-safe) but as `Source::Internal`, so it has NO render path (`messages()`
     /// excludes it) exactly like re-prime injection.
-    fn request_handoff_summary(&mut self, thread_id: &str) -> Result<String, SpineError> {
+    fn request_handoff_summary(&mut self, binding: &ThreadBinding) -> Result<String, SpineError> {
+        let thread_id = binding.thread_id();
         const HANDOFF_PROMPT: &str = "[INTERNAL — do not mention this message] Before you're \
             rotated to a successor, summarize this conversation so far in a few sentences: \
             topics covered, decisions reached, commitments you made to the CEO. Reply with \
             ONLY the summary, nothing else.";
-        let turn_id = self.ledger.record_prompt_received(thread_id, HANDOFF_PROMPT, Source::Internal)?;
+        let turn_id = self.ledger.record_prompt_received(binding, HANDOFF_PROMPT, Source::Internal)?;
 
         // Disjoint field borrows — same pattern as `deliver()`.
         let ledger = &mut self.ledger;
@@ -799,12 +968,12 @@ impl Spine {
     }
 
     /// Assemble + inject the re-prime payload once per lease (before its first turn).
-    fn prime_lease_if_needed(&mut self, thread_id: &str) -> Result<(), SpineError> {
+    fn prime_lease_if_needed(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
         if self.lease_primed || self.lease.is_none() {
             return Ok(());
         }
-        let conv_id = self.active_thread.clone().unwrap_or_else(|| thread_id.to_string());
-        let mut payload = RePrimePayload::assemble(&self.ledger, thread_id, &conv_id, DEFAULT_TAIL_TURNS);
+        let thread_id = binding.thread_id();
+        let mut payload = RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS)?;
         if let Some(compiler) = self.loro_compiler.as_ref() {
             if let Ok(slice) = compiler.compile_slice(thread_id) {
                 payload.loro_slice = Some(slice);
@@ -812,7 +981,7 @@ impl Spine {
         }
         let priming = payload.to_priming_prompt();
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
-        let _ = self.ledger.record_prompt_received(thread_id, "[re-prime]", Source::Internal);
+        let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);
         // ... and as an Internal ACTION, claim-then-execute: this is the first-attach
         // priming path (boot, or a lease attached with no factory), the counterpart of
         // the rotation path's own `session_reprime` record.

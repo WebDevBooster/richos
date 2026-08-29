@@ -9,6 +9,7 @@
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore};
+use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
@@ -80,6 +81,15 @@ struct AppState {
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
     config: Mutex<ConfigStore>,
+    /// The entity area this launch is bound to, resolved DETERMINISTICALLY from the
+    /// repository root (ECS §3.3: *"Repository-root mapping can select an entity
+    /// deterministically during FemcBoost dogfood"*). `None` when the root is unknown or
+    /// ambiguous — which fails closed: threads cannot be created and sends are refused,
+    /// rather than defaulting to an entity nobody chose.
+    ///
+    /// This is deliberately the minimum wiring needed to keep the shell honest in slice 1.
+    /// The CEO-facing entity PICKER is slice 4 (`ui: build entity and thread navigation`).
+    entity: Option<EntityId>,
 }
 
 #[tauri::command]
@@ -95,7 +105,11 @@ fn active_thread(state: State<AppState>) -> Option<String> {
 #[tauri::command]
 fn create_thread(state: State<AppState>, title: String) -> Result<String, String> {
     let title = if title.trim().is_empty() { "New thread".to_string() } else { title };
-    state.spine.lock().unwrap().create_thread(&title).map_err(|e| e.to_string())
+    // A thread cannot exist without an immutable entity home (ECS §3.2). Until the entity
+    // picker lands (slice 4) the entity comes from deterministic root resolution, and an
+    // unresolved root refuses rather than guessing.
+    let entity = state.entity.clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    state.spine.lock().unwrap().create_thread(&title, &entity).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -103,9 +117,12 @@ fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String
     state.spine.lock().unwrap().switch_thread(&thread_id).map_err(|e| e.to_string())
 }
 
+/// Scoped read. Now fallible: a thread written before entity scoping existed has no
+/// entity home, and `LedgerError::UnboundThread` is returned rather than an empty list —
+/// "I will not serve this" and "there is nothing here" are different statements.
 #[tauri::command]
-fn get_messages(state: State<AppState>, thread_id: String) -> Vec<Message> {
-    state.spine.lock().unwrap().messages(&thread_id)
+fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message>, String> {
+    state.spine.lock().unwrap().messages(&thread_id).map_err(|e| e.to_string())
 }
 
 /// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
@@ -126,7 +143,42 @@ fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, St
     let mut spine = state.spine.lock().unwrap();
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
     let thread = spine.active_thread().ok_or("no active thread")?.to_string();
-    Ok(spine.messages(&thread))
+    spine.messages(&thread).map_err(|e| e.to_string())
+}
+
+/// What the CEO is told when the repository root does not deterministically select one
+/// entity. UX §21 "Entity binding failure": state that Rich cannot safely determine which
+/// entity the work belongs to, and require an explicit choice. Never default.
+const ENTITY_UNRESOLVED_MESSAGE: &str =
+    "I can't safely tell which entity area this belongs to, so I won't guess. \
+     Set RICHOS_ENTITY to one of femcboost, deeply, prospects or richos, or launch me from \
+     that entity's repository root.";
+
+/// Resolve this launch's entity area (ECS §3.3/§10.2), deterministically and fail-closed.
+///
+/// `RICHOS_ENTITY` is an explicit operator statement and wins. Otherwise the current
+/// working directory is resolved against the registry by path CONTAINMENT — an unknown or
+/// ambiguous root yields `None`, which blocks thread creation and sends rather than
+/// picking an entity nobody chose.
+fn boot_entity() -> Option<EntityId> {
+    let registry = EntityRegistry::dogfood();
+    if let Ok(explicit) = std::env::var("RICHOS_ENTITY") {
+        return match EntityId::parse(explicit.trim()) {
+            Ok(id) if registry.contains(&id) => Some(id),
+            _ => {
+                eprintln!("[richos] RICHOS_ENTITY={explicit:?} is not a registered entity — refusing it");
+                None
+            }
+        };
+    }
+    let cwd = std::env::current_dir().ok()?;
+    match registry.resolve_root(&cwd) {
+        Ok(entity) => Some(entity.id.clone()),
+        Err(e) => {
+            eprintln!("[richos] entity not resolved from {}: {e}", cwd.display());
+            None
+        }
+    }
 }
 
 fn engine_dir() -> PathBuf {
@@ -149,7 +201,18 @@ fn main() {
             let ledger = Ledger::open(&ledger_path).expect("open ledger");
 
             let mut spine = Spine::new(ledger);
-            spine.ensure_active_thread().expect("ensure thread");
+            // A thread now requires an entity home, so boot no longer conjures one out of
+            // nowhere. If the root resolves, the default thread is created/activated in
+            // that entity; if it does not, the app still launches with NO active context
+            // and every send is refused with an explanation. Failing closed at boot beats
+            // binding a conversation to a guess.
+            let boot_entity = boot_entity();
+            match &boot_entity {
+                Some(entity) => {
+                    spine.ensure_active_thread_in(entity).expect("ensure thread");
+                }
+                None => eprintln!("[richos] {ENTITY_UNRESOLVED_MESSAGE}"),
+            }
 
             // Attach the live UI sink: streamed reply deltas + turn-state events flow to
             // the webview via Tauri events (see app/STREAMING.md for the contract).
@@ -207,7 +270,12 @@ fn main() {
             // genuinely-unexpected io error creating the parent dir.
             let config = ConfigStore::open(&config_path).expect("open config store");
 
-            app.manage(AppState { spine: Mutex::new(spine), lease_ready, config: Mutex::new(config) });
+            app.manage(AppState {
+                spine: Mutex::new(spine),
+                lease_ready,
+                config: Mutex::new(config),
+                entity: boot_entity,
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -7,7 +7,15 @@
 
 use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition, MockLeaseFactory};
 use richos_core::ledger::{AttentionTier, Ledger, Source, TurnState};
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
+
+/// The dogfood entity these tests run under. Every thread now has an immutable entity
+/// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
+/// inheriting a default that no longer exists.
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::LeaseFactory;
 use std::sync::{Arc, Mutex};
@@ -79,7 +87,7 @@ fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
     // shows the conversation continuing seamlessly on the successor — done-criterion (a).
     let (path, ledger) = tmp_ledger("explicit-rotation");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     let factory = MockLeaseFactory::new(vec!["reply from successor lease"]);
     let initial = MockCognition::new("sess-initial", vec!["reply from the first lease"]);
@@ -104,7 +112,7 @@ fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
     // Different backing sessions...
     assert_ne!(session_after_turn1, session_after_turn2, "rotation actually swapped the lease");
     // ...but ONE unbroken conversation: both exchanges are still there, in order.
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     assert_eq!(msgs.len(), 4, "both turns' user+assistant pairs are intact across the rotation");
     assert_eq!(msgs[0].text, "what's on my plate today?");
     assert_eq!(msgs[1].text, "reply from the first lease");
@@ -121,7 +129,7 @@ fn watermark_triggers_rotation_automatically_at_the_next_turn_boundary() {
     // automatic path (not just the manual one exercised above).
     let (path, ledger) = tmp_ledger("watermark-rotation");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["short reply"])));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["post-rotation reply"])));
 
@@ -149,7 +157,7 @@ fn context_estimate_is_measured_not_asserted() {
     // actually sent — captured by the mock's `reprimes` log — and measure THAT.
     let (path, ledger) = tmp_ledger("context-math");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
 
     let reply = "exactly forty chars in this canned reply!!"; // length MEASURED below, not assumed
     let mock = MockCognition::new("sess-1", vec![reply]);
@@ -197,8 +205,8 @@ fn rotation_re_primes_the_successor_with_identity_and_the_action_ledger() {
     // lease (via MockLeaseFactory's per-spawn reprime log), not just on the payload
     // object in isolation.
     let (path, mut ledger) = tmp_ledger("attribution-rotation");
-    let thread = ledger.create_thread("General").unwrap();
-    let turn = ledger.record_prompt_received(&thread, "dispatch a worker", Source::Text).unwrap();
+    let thread = ledger.create_thread("General", &femcboost()).unwrap();
+    let turn = ledger.record_prompt_received(&ledger.thread_binding(&thread).unwrap(), "dispatch a worker", Source::Text).unwrap();
     ledger.record_action(&turn, "dispatch", "spawned worker mark-sonnet-f1").unwrap();
 
     let mut spine = Spine::new(ledger);
@@ -234,7 +242,7 @@ fn clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary() 
     // the internal ask never appears in the CEO-visible conversation.
     let (path, ledger) = tmp_ledger("handoff-summary");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     let outgoing = MockCognition::new("sess-outgoing", vec!["the CEO's own reply", "We discussed the Acme deal and Q4 hiring."]);
     let outgoing_prompts = outgoing.prompts.clone();
@@ -252,7 +260,7 @@ fn clean_rotation_asks_the_outgoing_lease_for_a_self_authored_handoff_summary() 
     assert!(prompts[1].contains("summarize this conversation"), "handoff summary was requested");
 
     // The internal ask + its reply are durable (ledger.turns()) but NEVER rendered.
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     assert!(msgs.iter().all(|m| !m.text.contains("We discussed the Acme deal")), "internal handoff turn is not CEO-visible");
     assert!(spine
         .ledger()
@@ -279,7 +287,7 @@ fn mid_turn_crash_recovers_and_replays_without_duplicating_the_message() {
     // one exchange, not a duplicate of the failed attempt.
     let (path, ledger) = tmp_ledger("crash-recovery");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed".into() }));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["I'm back — here's your answer."])));
 
@@ -297,7 +305,7 @@ fn mid_turn_crash_recovers_and_replays_without_duplicating_the_message() {
 
     // CLEAN OUTPUT: exactly ONE user+assistant pair, not two — the failed attempt is
     // superseded, not re-shown.
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     assert_eq!(msgs.len(), 2, "no duplicate exchange from the failed attempt");
     assert_eq!(msgs[0].role, "user");
     assert_eq!(msgs[0].text, "what's my Q3 revenue?");
@@ -330,7 +338,7 @@ fn mid_turn_crash_without_a_lease_factory_degrades_to_an_honest_error() {
     // recovery.)
     let (path, ledger) = tmp_ledger("crash-no-factory");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed".into() }));
     // Deliberately NOT calling set_lease_factory.
 
@@ -347,7 +355,7 @@ fn mid_turn_crash_recovery_is_bounded_to_one_attempt() {
     // never spin).
     let (path, ledger) = tmp_ledger("crash-loop-bound");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed-1".into() }));
     let spawn_count = Arc::new(Mutex::new(0u64));
     spine.set_lease_factory(Box::new(AlwaysFailingLeaseFactory { spawn_count: spawn_count.clone() }));
@@ -367,7 +375,7 @@ fn mid_turn_crash_recovery_is_bounded_to_one_attempt() {
 fn proactive_tier1_and_tier2_render_as_rich_only_messages_no_preceding_ceo_prompt() {
     let (path, ledger) = tmp_ledger("proactive-render");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     spine
         .raise_proactive(None, AttentionTier::InterruptNow, "The Acme counter expires at noon — what's your floor?")
@@ -376,7 +384,7 @@ fn proactive_tier1_and_tier2_render_as_rich_only_messages_no_preceding_ceo_promp
         .raise_proactive(None, AttentionTier::Digest, "Morning brief: three things need your attention.")
         .unwrap();
 
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).unwrap();
     assert_eq!(msgs.len(), 2, "both tiers render; NO paired user message (nothing was prompted)");
     assert!(msgs.iter().all(|m| m.role == "assistant"));
     assert_eq!(msgs[0].text, "The Acme counter expires at noon — what's your floor?");
@@ -390,14 +398,14 @@ fn proactive_silent_tier_never_renders_but_stays_durable() {
     // must still be durably logged (a CEO who goes looking, or a future activity view).
     let (path, ledger) = tmp_ledger("proactive-silent");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     let observer = RecordingObserver::default();
     spine.set_observer(Box::new(observer.clone()));
 
     spine.raise_proactive(None, AttentionTier::Silent, "FYI: renewed the Acme NDA, nothing needed from you.").unwrap();
 
-    assert!(spine.messages(&thread).is_empty(), "Silent tier has NO render path");
+    assert!(spine.messages(&thread).unwrap().is_empty(), "Silent tier has NO render path");
     assert!(observer.events().is_empty(), "Silent tier never notifies — no live UI event either");
     // But it's not lost — durable in the raw ledger.
     assert!(spine
@@ -416,7 +424,7 @@ fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_f
     // uses the documented test-only seam to force the in-flight state deterministically.
     let (path, ledger) = tmp_ledger("proactive-deferred");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["a reply"])));
 
     let observer = RecordingObserver::default();
@@ -426,7 +434,7 @@ fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_f
     let proactive_turn_id = spine.raise_proactive(None, AttentionTier::Digest, "queued while busy").unwrap();
     assert!(observer.events().is_empty(), "no live event fires while a turn is (simulated) in flight");
     // But durability doesn't wait for the boundary.
-    assert_eq!(spine.messages(&thread).len(), 1, "the message is already durable/readable");
+    assert_eq!(spine.messages(&thread).unwrap().len(), 1, "the message is already durable/readable");
     spine.debug_set_turn_in_progress(false);
 
     // Drive a REAL turn boundary — its own after_turn_boundary() flushes the deferred emit.
@@ -447,8 +455,8 @@ fn proactive_message_raised_mid_turn_is_durable_immediately_but_ui_event_waits_f
 fn proactive_message_defaults_to_active_thread_when_none_given() {
     let (path, ledger) = tmp_ledger("proactive-default-thread");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.raise_proactive(None, AttentionTier::Digest, "hello").unwrap();
-    assert_eq!(spine.messages(&thread).len(), 1);
+    assert_eq!(spine.messages(&thread).unwrap().len(), 1);
     let _ = std::fs::remove_file(&path);
 }
