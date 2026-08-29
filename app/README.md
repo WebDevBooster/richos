@@ -216,69 +216,124 @@ say -v Samantha -o /tmp/ceo.wav --data-format=LEI16@16000 "Rich, are you there?"
 cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav
 ```
 
-## App icon — pipeline exists, source art does not (BLOCKED)
+## App icon — pipeline built and proven, source art does not exist (BLOCKED ON ARTWORK ONLY)
 
-The build warns while the icons are still placeholders and does not fail, so app
-development is never blocked on artwork. Bundling and CI set
-`RICHOS_REQUIRE_REAL_ICONS=1`, which turns the same check fatal — a release must
-not ship a placeholder icon.
+**CEO handover sheet: [`app/APP-ICON.md`](APP-ICON.md)** — what to supply, the one
+command, and how he knows it worked. That file is the deliverable for open-items 3.12;
+this section is the engineering detail behind it.
 
-`src-tauri/icons/` currently holds four **placeholder** files (`32x32.png`, `128x128.png`,
-`[email protected]`, `icon.png`) — all four are byte-identical, and all four are internally a
-512x512 PNG regardless of what their filename claims. `src-tauri/build.rs` checks for this on
-every build (dimension check + cross-file identity check; see its doc comment for the exact
-defect it was written against) and WARNS, so compilation is never blocked on artwork. Under
-`RICHOS_REQUIRE_REAL_ICONS=1` — which bundling and CI set — the same check is fatal, because
-a release must not ship a placeholder. Tauri does not resize a bundle icon to fit its
-declared filename: a mis-sized file ships exactly as supplied.
+`src-tauri/icons/` holds four **placeholder** files (`32x32.png`, `128x128.png`,
+`128x128@2x.png`, `icon.png`) — all four byte-identical, all four internally a 512x512
+PNG regardless of what their filename claims. `icon.icns` and `icon.ico` do not exist at
+all. So the app currently has **no icon at any size**.
 
-**What Tauri (v2.11.5 desktop app / tauri-build 2.6.3, pinned `"2"` in `Cargo.toml`)
-actually requires**, per the v2 docs:
-- `tauri.conf.json`'s `bundle.icon` array must list, at minimum, the set `tauri icon`
-  generates: `icons/32x32.png`, `icons/128x128.png`, `[email protected]` (256x256px — the
-  "@2x" of 128), `icons/icon.png` (512x512px), plus `icons/icon.icns` for macOS and
-  `icons/icon.ico` for Windows
-  ([App Icons](https://v2.tauri.app/develop/icons/),
-  [Configuration Files](https://v2.tauri.app/develop/configuration-files/)). This repo's
-  `tauri.conf.json` now lists all six.
-- `icon.ico` (Windows) must contain layers for 16, 24, 32, 48, 64 and 256px
-  ([Tauri v1 Icons guide](https://v1.tauri.app/v1/guides/features/icons/), format
-  unchanged in v2).
-- `icon.icns` (macOS) must contain the 10 named/sized layers in the Tauri repo's
-  `icns.json` (`is32`/16, `ic11`/32, `il32`/32, `ic12`/64, `ic07`/128, `ic13`/256,
-  `ic08`/256, `ic14`/512, `ic09`/512, `ic10`/1024 —
-  [tauri-apps/tauri `helpers/icns.json`](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-cli/src/helpers/icns.json)).
-  The `ic10` layer is 1024x1024px, which is why the source must be at least that large —
-  anything smaller forces an upscale for that one layer.
-- The `tauri icon` CLI subcommand
-  ([CLI reference](https://v2.tauri.app/reference/cli/)) takes "a squared PNG or SVG file
-  with transparency" (default `./app-icon.png`) and generates the whole platform set —
-  desktop PNGs, `icon.icns`, `icon.ico`, plus iOS/Android sets if those targets are ever
-  enabled. The Tauri v1 docs state the source concretely: **"png, 1024x1024px with
-  transparency"** — i.e. exactly the resolution the `icns.json` `ic10` layer needs, with
-  no upscaling.
-
-**Generation step, once a real source image exists** (not run yet — no source art is
-checked into this public repo; verified locally there is no `.svg`/`.icns`/`.ico` anywhere
-under `app/`):
+### Generating the real set
 
 ```sh
-cargo install tauri-cli --version "^2" --locked   # once
-cd app/src-tauri
-cargo tauri icon /path/to/a-1024x1024-square-source.png
+app/scripts/generate-app-icons.sh /path/to/artwork.png
 ```
 
-This overwrites everything under `src-tauri/icons/` with a real, correctly-sized,
-non-placeholder set (including `icon.icns` and `icon.ico`), at which point
-`check_icons_are_not_placeholders()` in `build.rs` passes and `cargo build` proceeds
-normally — verified locally by swapping in real (correctly-sized, distinct) test renders
-and confirming the same build command that fails today succeeds unchanged.
+One square PNG of at least 1024x1024 with a transparent background in; every artefact
+`tauri.conf.json` declares out, verified before the command exits. Source requirements
+are enforced, not documented: wrong size, missing alpha, non-square, JPEG, blank and
+full-bleed artwork are each rejected by name, all problems reported at once.
 
-**What the CEO needs to hand over, in one line:** a single square PNG or SVG, **at least
-1024x1024px**, with a **transparent background**, with no baked-in padding/rounding (macOS
-and Windows both apply their own corner/shape treatment at bundle time) — that one file is
-the only missing input; the config, the generation command, and the build-time guard
-against shipping placeholders again are all already in place.
+To re-check an existing set without regenerating:
+
+```sh
+python3 app/scripts/lib/app_icons.py verify
+```
+
+### Derived, never typed
+
+Both the generator (`app/scripts/lib/app_icons.py`) and the build gate
+(`src-tauri/build.rs`) derive the required artefact list from **`tauri.conf.json`'s own
+`bundle.icon` array**. Neither contains a hand-typed list of filenames. Adding a size to
+that array is picked up by both with no code change — proven by adding `icons/64x64.png`
+and watching the gate warn and the generator emit it. An entry that cannot be decoded is
+a hard failure, never a skip.
+
+That rewrite fixed a real hole: the previous gate hand-typed four filenames while the
+config declared six, so `icon.icns` and `icon.ico` — the only artefacts that carry the
+icon on macOS and Windows — were never checked on any build.
+
+### Warn on build, fatal on bundle
+
+Deliberate, and load-bearing: app development must never be blocked on artwork nobody
+has yet.
+
+- `cargo check` / `cargo build` → **warnings only**, exit 0.
+- `RICHOS_REQUIRE_REAL_ICONS=1` (set by bundling and CI) → **panics**, refuses to build.
+
+Verified on the committed placeholder set: 12 warnings and `Finished dev profile` in the
+first mode, a hard panic in the second, and — after a real generation run — strict mode
+compiling clean with zero icon warnings.
+
+### Tooling and licence
+
+**Pillow, SPDX `MIT-CMU`** (read from the installed distribution's `License-Expression`
+metadata, Pillow 12.3.0) for decode/resample/PNG/ICO, plus Apple's own
+**`/usr/bin/iconutil`** for the macOS `.icns`. Both are **authoring-time only**: nothing
+from either is linked into or shipped inside the signed `.app`, and the only artefacts
+that ship are pixels derived from the supplied artwork. That keeps the licence question
+entirely clear of the signing/notarisation path.
+
+### What Tauri actually requires
+
+(Tauri v2.11.5 desktop app / tauri-build 2.6.3, pinned `"2"` in `Cargo.toml`.)
+
+- `tauri.conf.json`'s `bundle.icon` array is the source of truth and lists all six:
+  `icons/32x32.png`, `icons/128x128.png`, `icons/128x128@2x.png` (256x256px — the "@2x"
+  of 128), `icons/icon.png` (512x512px), `icons/icon.icns`, `icons/icon.ico`
+  ([App Icons](https://v2.tauri.app/develop/icons/)).
+- `icon.ico` (Windows) carries layers for 16, 24, 32, 48, 64 and 256px
+  ([Tauri v1 Icons guide](https://v1.tauri.app/v1/guides/features/icons/), format
+  unchanged in v2). Verified: `cargo tauri icon` 2.11.4 emits exactly that set.
+- `icon.icns` (macOS) must cover pixel sizes **16, 32, 64, 128, 256, 512, 1024**.
+
+  **Correction to what this section previously claimed.** It said the `.icns` "must
+  contain the 10 named/sized layers" of Tauri's `helpers/icns.json`, including `is32`
+  and `il32`. That describes what one generator emits, not what macOS requires. Measured
+  here: `cargo tauri icon` 2.11.4 writes `is32`/`il32` (the pre-10.7 24-bit RLE variants
+  with separate `s8mk`/`l8mk` masks) for 16/32px, while **Apple's own `iconutil` writes
+  the ARGB `ic04`/`ic05` instead** and never emits `is32`/`il32` at all. Both cover the
+  identical set of pixel sizes. So the checks require **pixel-size coverage, not a
+  literal fourcc list** — requiring the fourccs would reject output from Apple's own
+  tool, which would be a checker bug rather than an artwork problem.
+- The 1024px `ic10` layer is why the source must be at least 1024x1024: anything smaller
+  upscales for exactly the layer shown largest.
+
+Coverage was verified against the authoritative tool rather than assumed. Installed
+tauri-cli 2.11.4 and ran `cargo tauri icon` on a synthetic 1024x1024 source:
+
+```
+required ICNS sizes     : [16, 32, 64, 128, 256, 512, 1024]
+cargo tauri icon 2.11.4 : [16, 32, 64, 128, 256, 512, 1024]
+this pipeline (iconutil): [16, 32, 64, 128, 256, 512, 1024]
+required ICO layers     : [16, 24, 32, 48, 64, 256]
+cargo tauri icon 2.11.4 : [16, 24, 32, 48, 64, 256]
+this pipeline (Pillow)  : [16, 24, 32, 48, 64, 256]
+```
+
+The verifier also accepts `cargo tauri icon`'s own unmodified output (exit 0), so it is
+not over-fitted to this generator.
+
+### Named degradation: off macOS
+
+There is no `iconutil` outside macOS, so `.icns` falls back to Pillow's ICNS writer,
+which emits **no 16px layer** (measured: `ic07 ic08 ic09 ic10 ic11 ic12 ic13 ic14`). The
+fallback prints a warning saying exactly that and telling the caller to regenerate on
+macOS before signing a release. It does not pretend to be equivalent, and the verifier
+fails it — `icons/icon.icns is missing layer size(s) [16]px`.
+
+### Fixed along the way
+
+The `@2x` icon was literally named `[email protected]` on disk — Cloudflare
+email-obfuscation mangling — and `tauri.conf.json` carried the same mangled string, so
+config and file agreed with each other and nothing noticed. Every standard generator
+emits `128x128@2x.png`, so the first real generation run would have written a file the
+config was not looking for. Fixed in `ad017b8`; the mangled form is now rejected by the
+derivation as an unsupported extension, so it cannot recur silently.
 
 ## Runtime config (env)
 
