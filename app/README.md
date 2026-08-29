@@ -94,14 +94,47 @@ app/
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
+    src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
     tauri.conf.json, capabilities/, icons/
-  ui/                        minimal web UI (thread list + messages + composer)
+  ui/                        minimal web UI (entity/thread rail + messages + composer)
   acp-adapter/               hosts the claude-agent-acp adapter + probe.js (wire-shape repro)
 ```
 
 `src-tauri/` is a **deliberately detached** nested workspace so the heavy webview
 dependency tree never gates `cargo test -p richos-core`. richos-core is a path
 dependency, so the shell always builds against the same spine.
+
+## Entity and thread navigation (Codex-UX slice 4)
+
+Contract: `docs/design/richos-codex-inspired-conversation-ux-2026-08-28.md` §3 and §25.
+
+**Grouping happens in Rust, not in the renderer.** `navigation_tree` returns threads
+already inside their entity's group, resolved through `Ledger::thread_binding` — the
+accessor that reads the immutable durable record. An entity is a privacy boundary
+(§1), so a renderer that bucketed a flat list by an `entity_id` string would be one
+`if` away from a boundary violation with nothing to catch it. `app/ui/main.js` renders
+the groups it is given and never re-sorts them, and the main-pane header renders from
+`active_context` — the spine's binding — so a UI bug can show the wrong thread but
+cannot mislabel which entity the CEO is talking to.
+
+**A thread with no entity home is rendered, calmly, and refused.** A record written
+before entity scoping replays as `ThreadEntity::Unbound`: listed under "Needs an
+entity", never inside one, never activated, never read. The pane states the reason in
+Rich's voice and the composer is disabled. `Ledger::adopt_unbound_thread` is the only
+exit and is **not reachable from the shell** — `Spine` exposes `&Ledger`, not `&mut` —
+so binding one remains a programmatic/back-office act until a core change lands.
+
+**Rail status marks are never fabricated.** The full list, with the signal that earns
+each, is `STATUS_MARKS` in `app/ui/main.js`. §3.2's *Queued* and *Waiting for CEO* are
+absent because no per-thread enqueue event and no waiting signal exist in this build,
+and §22 lists worker waiting state as something that must not be faked. No worker
+count appears in the rail at all.
+
+**Pin, rename and archive are shell state, not ledger events** (`src/nav.rs`). §25
+requires them to work *without changing context authority*; the ledger is evidence and
+has no rename/pin/archive event to append. A rename is therefore a display override
+with the ledger title returned untouched beside it, and archiving changes which list a
+thread appears in and nothing else about its scope.
 
 ## Machinery routing (techy mode, Phase 1 — routing + retention only)
 
