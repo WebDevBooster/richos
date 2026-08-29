@@ -176,6 +176,36 @@
         </div>
       </main>
 
+      <!-- THE WORKER INSPECTOR (§7.2). A SIBLING PANE, not a modal: it docks beside the
+           conversation at 1180px and wider, overlays from the right between 820 and 1179px
+           (two readable columns no longer fit), and becomes a full-height sheet below 820px
+           (§20). Its divider is draggable and its width is durable (nav.rs).
+
+           READ-ONLY IS THE BOUNDARY, NOT A SIMPLIFICATION. §7.2 lists what it must not
+           expose — model selection, prompt editing, tool permissions, per-worker resume or
+           stop, raw mailboxes — and every one of those is a business action. R2
+           business-action governance is deferred to V2 by CEO decision for v1 and all 1.x,
+           so there is no control here at all beyond Close. A window, not a cockpit. -->
+      <div id="inspector-scrim" hidden></div>
+      <aside id="inspector" hidden aria-labelledby="inspector-title">
+        <div
+          id="inspector-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Worker panel width"
+          tabindex="0"
+          aria-valuemin="280"
+          aria-valuemax="520"
+          aria-valuenow="336"
+        ></div>
+        <header class="inspector-head">
+          <span class="inspector-eyebrow">AI workers</span>
+          <h2 id="inspector-title" class="inspector-title"></h2>
+          <button id="inspector-close" class="rail-icon-btn" type="button" aria-label="Close worker details">✕</button>
+        </header>
+        <div id="inspector-body" class="inspector-body" tabindex="0"></div>
+      </aside>
+
       <!-- Optional drill-down — summoned, never resident. -->
       <div id="slideover-backdrop" hidden></div>
       <aside id="slideover" hidden aria-label="Under the hood">

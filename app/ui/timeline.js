@@ -1,4 +1,4 @@
-// RichOS web UI — the Codex-inspired working timeline (UX brief §5, §6, §15, slice 5 of §24).
+// RichOS web UI — the Codex-inspired working timeline (UX brief §5, §6, §7, §15).
 //
 // This file owns TWO things and nothing else:
 //
@@ -7,7 +7,9 @@
 //      item ids: the `get_timeline` snapshot (the reload path) and the six additive
 //      `rich://` events (the live path, app/STREAMING.md "The additive live-work family").
 //   2. THE RENDER — the CEO bubble (§5.1), Rich's prose (§5.2/§5.4), semantic work
-//      activity (§5.3), the working-duration row (§6) and its collapse (§6.4).
+//      activity (§5.3), delegated AI workers and their chips (§7.1), the read-only worker
+//      inspector's BODY (§7.2 — the pane's shell and its divider are main.js's), the
+//      working-duration row (§6) and its collapse (§6.4).
 //
 // It talks to no bridge, listens to no event and invokes no command. `main.js` drives it.
 // That split is deliberate: every rule below is testable in a browser with no Tauri, no
@@ -257,6 +259,31 @@
     return "unknown";
   }
 
+  /// Collapse a CONSECUTIVE run of WORK rows — activity and worker alike — into render
+  /// groups, in order, never merging across the two kinds. A worker group and an activity
+  /// group are different shapes with different truth conditions; running them through one
+  /// rollup would let a worker state leak into an activity group state (or the reverse),
+  /// which is the whole class of bug this file keeps refusing.
+  function rollupWork(items) {
+    const out = [];
+    let run = [];
+    let runIsWorker = null;
+    const flushRun = () => {
+      if (!run.length) return;
+      if (runIsWorker) out.push({ type: "worker", group: rollupWorkers(run) });
+      else for (const g of rollupActivity(run)) out.push({ type: "activity", group: g });
+      run = [];
+    };
+    for (const item of items) {
+      const w = isWorker(item);
+      if (runIsWorker !== null && w !== runIsWorker) flushRun();
+      runIsWorker = w;
+      run.push(item);
+    }
+    flushRun();
+    return out;
+  }
+
   /// Collapse a run of CONSECUTIVE activity items with the identical summary into one row.
   /// Consecutive only — an interleaved prose run or a different activity type breaks the
   /// group, so the rollup can never reorder the chronology it is summarising.
@@ -288,6 +315,170 @@
     unknown: "outcome not recorded",
     stopped: "stopped",
   };
+
+  // -------------------------------------------------------------------------------------
+  // §7.1 DELEGATED AI WORKERS — and the one word this slice had to choose
+  // -------------------------------------------------------------------------------------
+  //
+  // Three CEO-facing states exist, because three are all the engine can witness
+  // (`richos_core::worker_events` — `created`, `started`, `updated`, `run_ended`). §7.1's
+  // table lists seven. The four that are absent are absent for a sourced reason, not for
+  // lack of effort:
+  //
+  //   Waiting      — the only candidate signal is `TeammateIdle`, whose payload cannot
+  //                  separate "paused for input" from "finished for good".
+  //   Done         — no completion signal exists at WORKER grain. `TaskCompleted` is
+  //                  authoritative but task-grain, and `SubagentStop` is not a completion.
+  //   Stopped      — a `shutdown_request` is an instruction issued BEFORE anything happens,
+  //                  not an observation.
+  //   Failed       — no payload in the worker path carries an outcome at all.
+  //
+  // ===== `run_ended` IS NOT `completed`, AND THIS IS THE WORDING THAT SAYS SO =============
+  //
+  // Every run that ends arrives as `run_ended` with the reason genuinely unobservable.
+  // `richos_core::timeline::RUN_ENDED_WORKER_STATE` is `WorkerState::Unknown`, serialized
+  // `"unknown"`, and it is a NAMED CONSTANT precisely so nobody defaults it into a
+  // confident outcome. `completed`, `interrupted` and `failed` are all folded inside it, so
+  // drawing any one of them would be wrong roughly two thirds of the time — and §7.4
+  // renders failure and recovery completely differently from success, so a wrong collapse
+  // does not mislabel a row, it draws the wrong thing.
+  //
+  // The word chosen is **`Ended`**, always paired with the visible qualifier
+  // **`outcome not recorded`**. Three constraints, and why each candidate failed:
+  //
+  //   * must not imply success  -> rules out `Done`, `Finished`, `Completed`, `Wrapped up`.
+  //     §7.1's own verb `{name} finished` is reserved for the `completed` state and taking
+  //     it here would claim the one thing nobody witnessed.
+  //   * must not imply failure  -> rules out `Stopped` (§7.1's word for `interrupted`,
+  //     which asserts something cut it short) and anything in the danger palette.
+  //   * must not sound broken   -> rules out `Unavailable` / `Unknown` / `?`. Those are
+  //     §7.1's `not_found` treatment and they say "I lost track of this worker", which is
+  //     false and alarming: the run's end was positively WITNESSED. What is missing is the
+  //     reason, not the worker.
+  //
+  // `Ended` states exactly what was observed — the run is over — and claims nothing about
+  // the work. `outcome not recorded` is the same vocabulary slice 5 already ships for an
+  // activity row whose status never arrived (`ACTIVITY_STATE_LABEL.unknown`), so the CEO
+  // learns one phrase, not two. It is rendered as TEXT, never colour alone (§18), and it
+  // is in the chip's accessible name.
+  //
+  // The group verb is `{names} are no longer running` for the same reason: §7.1's list
+  // offers `finished`, `was interrupted` and `failed`, and all three are verdicts.
+  // =======================================================================================
+
+  const WORKER_STATES = {
+    // §7.1 verbatim: "pending_init | Starting | Hollow indicator". The harness accepted the
+    // spawn and returned an id; execution is NOT confirmed, and "Starting" is exactly that.
+    pending_init: {
+      label: "Starting",
+      glyph: "○",
+      tone: "starting",
+      qualifier: null,
+      note: "The spawn was accepted. Nothing has reported back yet.",
+      pulse: false,
+    },
+    // §7.1 verbatim: "running | Working | Subtle pulse".
+    running: {
+      label: "Working",
+      glyph: "◐",
+      tone: "active",
+      qualifier: null,
+      note: "This run is open — no end has been recorded for it.",
+      pulse: true,
+    },
+    // THE ONE THIS SLICE CHOSE. See the block above.
+    unknown: {
+      label: "Ended",
+      glyph: "◇",
+      tone: "ended",
+      qualifier: "outcome not recorded",
+      note:
+        "This run has ended. Nothing recorded whether the work finished, stopped or failed — so I'm not going to call it either way.",
+      pulse: false,
+    },
+  };
+
+  /// Any state outside the three above cannot be produced by this runtime today
+  /// (`WorkerState::from_observed` yields only `pending_init`, `running` and `unknown`).
+  /// If one ever arrives it is a NEW signal whose treatment is a product decision that has
+  /// not been made — so it reads as the one thing that is certainly true and claims
+  /// nothing, exactly as the duration row's default does for an unrecognised turn state.
+  function workerStateSpec(state) {
+    return (
+      WORKER_STATES[state] || {
+        label: "Status unavailable",
+        glyph: "·",
+        tone: "unknown",
+        qualifier: null,
+        note: "This worker reported a state RichOS does not know how to read.",
+        pulse: false,
+      }
+    );
+  }
+
+  /// §7.1 wants a display NAME. `workerName` is carried only by a `created` row — a run
+  /// first witnessed at `started` genuinely has none, and nothing invents one. The
+  /// fallbacks descend through what was actually observed and stop before the `agentId`:
+  /// an opaque harness id is machinery, and §5.3 keeps the CEO default semantic.
+  function workerDisplayName(w) {
+    if (w.workerName) return w.workerName;
+    if (w.agentType) return w.agentType;
+    return "A teammate";
+  }
+
+  function workerHasName(w) {
+    return !!(w.workerName || w.agentType);
+  }
+
+  /// "Sage", "Sage and Frank", "Sage, Frank and Clark" — §7.1's own example, verbatim.
+  function joinNames(names) {
+    if (names.length <= 1) return names[0] || "";
+    if (names.length === 2) return names[0] + " and " + names[1];
+    return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+  }
+
+  /// §7.1: *"Grouped events should say `Sage, Frank and Clark started working`, not render
+  /// three identical rows."*
+  ///
+  /// The verb comes from the states the group ACTUALLY holds, and there is deliberately no
+  /// verb for a mixed group: "started working" alongside a worker that has already ended
+  /// would be a claim about one member made from another's evidence. A mixed group states
+  /// the one fact every member shares — Rich delegated to them — and the chips carry each
+  /// individual state, which is where §25's "their states update independently" lives.
+  function workerGroupSummary(workers) {
+    const names = workers.map(workerDisplayName);
+    const who = joinNames(names);
+    const states = workers.map((w) => w.state);
+    const all = (s) => states.length > 0 && states.every((x) => x === s);
+    if (all("pending_init")) return who + (workers.length === 1 ? " is starting" : " are starting");
+    // §7.1's verb list, verbatim.
+    if (all("running")) return who + " started working";
+    if (all("unknown")) return who + (workers.length === 1 ? " is no longer running" : " are no longer running");
+    return "Delegated to " + who;
+  }
+
+  /// Collapse a run of CONSECUTIVE worker rows into one group, one chip per DISTINCT
+  /// `agentId`. Consecutive only, for the same reason the activity rollup is: a group must
+  /// never reorder the chronology it summarises. Distinct by agent id because two `Task`
+  /// calls naming the same worker are two records of one worker, not two workers — the
+  /// join key is the identity (§7.2), never the name and never the row.
+  function rollupWorkers(items) {
+    const seen = new Map();
+    const order = [];
+    for (const item of items) {
+      const w = item.worker;
+      if (!w || !w.agentId) continue;
+      if (!seen.has(w.agentId)) order.push(w.agentId);
+      // Last write wins: a later record carries the later observation.
+      seen.set(w.agentId, w);
+    }
+    const workers = order.map((id) => seen.get(id));
+    return {
+      key: items[0] ? items[0].id : "workers",
+      workers,
+      label: workerGroupSummary(workers),
+    };
+  }
 
   // -------------------------------------------------------------------------------------
   // THE MODEL
@@ -720,24 +911,27 @@
 
   const isProse = (i) => i.kind === "rich_message";
   const isActivity = (i) => i.kind === "activity";
+  const isWorker = (i) => i.kind === "worker_activity";
+  /// EVERYTHING POSITIVELY TYPED AS WORK. This is the set §6.4 collapses — "This includes
+  /// interim Rich commentary, semantic activity, plans and WORKER LIFECYCLE ROWS" — and it
+  /// is why a worker row belongs in the disclosure lane rather than beside the prose: the
+  /// row is work, and the collapse hides work. Prose is still never hidden (see the header).
+  const isWork = (i) => isActivity(i) || isWorker(i);
 
   /// THE KINDS THIS SLICE DRAWS. Everything else in the payload is kept in the model and
   /// reported on `turn.unrendered` rather than quietly discarded, because a silent drop is
   /// how a missing row stops being noticeable.
   ///
-  /// **`worker_activity` IS IN THE PAYLOAD AND IS NOT DRAWN HERE, AND THAT IS A REAL GAP.**
-  /// The worker-consumer slice landed on main while this branch was open: a `Task` tool call
-  /// with an extractable `agentId` now projects as `kind: "worker_activity"` at `ceo`
-  /// visibility INSTEAD of as an ordinary `activity` row. §7's worker treatment — chips,
-  /// names, states, the inspector — is SLICE 7 and is deliberately not built here.
-  ///
-  /// The consequence, stated rather than discovered later: once both branches are on main, a
-  /// turn in which Rich delegated work shows the delegation NOWHERE in the CEO timeline
-  /// until slice 7 lands. It did show as one semantic activity row before the join existed.
-  /// Nothing here invents a replacement, because `ObservedWorkerState` carries meanings that
-  /// need product wording — `RunEnded` is explicitly NOT a completion — and inventing that
-  /// wording is slice 7's call, not this slice's.
-  const RENDERED_STREAM_KINDS = ["rich_message", "activity"];
+  /// `worker_activity` JOINED THIS LIST ON 2026-08-29 AND THAT WAS A LIVE REGRESSION FIX.
+  /// Slice 2b made a `Task` call with an extractable `agentId` project as
+  /// `kind: "worker_activity"` at `ceo` visibility instead of as an ordinary `activity`
+  /// row; slice 5 drew nothing for that kind and said so here rather than dropping it
+  /// silently. Neither was wrong alone, and together they meant a turn in which Rich
+  /// delegated work showed the delegation NOWHERE in the CEO's timeline. The producer half
+  /// was wired in the same branch (`Spine::set_worker_events`) — before that, the app could
+  /// not emit this kind at all and a delegation reached the CEO as one nameless activity
+  /// row reading "Worked".
+  const RENDERED_STREAM_KINDS = ["rich_message", "activity", "worker_activity"];
 
   // -------------------------------------------------------------------------------------
   // THE RENDER
@@ -886,6 +1080,87 @@
     return row;
   }
 
+  /// §7.1 — the delegated-worker group: one summary line, then one chip per worker.
+  ///
+  /// The chip is a BUTTON (§18: *"worker chips: buttons with name, role and state in
+  /// accessible label"*) and it opens the read-only inspector. READ-ONLY IS THE BOUNDARY,
+  /// NOT A SIMPLIFICATION: every control §7.2 forbids — interrupt, retry, approve, resume,
+  /// model selection, prompt editing — is a business action, and R2 business-action
+  /// governance is deferred to V2 by CEO decision for v1 and all 1.x. A window, not a
+  /// cockpit.
+  ///
+  /// Status is carried by GLYPH + WORD, never by colour alone (§18). The pulse is on the
+  /// `running` chip only, one at a time, and `prefers-reduced-motion` replaces it with a
+  /// static mark (§17.4).
+  function renderWorkerGroup(group, opts) {
+    const wrap = elem("div", "tl-workers");
+
+    const head = elem("div", "tl-workers-head");
+    const mark = elem("span", "tl-activity-mark", "→");
+    mark.setAttribute("aria-hidden", "true");
+    head.appendChild(mark);
+    head.appendChild(elem("span", "tl-activity-text", group.label));
+    wrap.appendChild(head);
+
+    const chips = elem("div", "tl-chips");
+    chips.setAttribute("role", "group");
+    chips.setAttribute("aria-label", group.label);
+    for (const w of group.workers) {
+      chips.appendChild(renderWorkerChip(w, opts));
+    }
+    wrap.appendChild(chips);
+    return wrap;
+  }
+
+  function renderWorkerChip(w, opts) {
+    const spec = workerStateSpec(w.state);
+    const name = workerDisplayName(w);
+    const interactive = typeof opts.openWorker === "function";
+    const chip = elem(interactive ? "button" : "div", "tl-chip");
+    if (interactive) chip.type = "button";
+    else chip.setAttribute("role", "group");
+    chip.dataset.state = spec.tone;
+    chip.dataset.agentId = w.agentId;
+    chip.id = "chip:" + w.agentId;
+
+    const glyph = elem("span", "tl-chip-mark", spec.glyph);
+    glyph.setAttribute("aria-hidden", "true");
+    chip.appendChild(glyph);
+
+    chip.appendChild(elem("span", "tl-chip-name", name));
+    // §7.1: "short role or delegated objective". The role is the agent type the harness
+    // recorded. The DELEGATED OBJECTIVE is not here and is not faked — see the inspector.
+    if (w.agentType && w.agentType !== name) {
+      const sep = elem("span", "tl-chip-sep", "·");
+      sep.setAttribute("aria-hidden", "true");
+      chip.appendChild(sep);
+      chip.appendChild(elem("span", "tl-chip-role", w.agentType));
+    }
+
+    const state = elem("span", "tl-chip-state", spec.label);
+    chip.appendChild(state);
+    if (spec.qualifier) chip.appendChild(elem("span", "tl-chip-qualifier", spec.qualifier));
+    if (spec.pulse) {
+      const pulse = elem("span", "tl-pulse tl-chip-pulse");
+      pulse.setAttribute("aria-hidden", "true");
+      chip.appendChild(pulse);
+    }
+
+    // §18's accessible label: name, role and state — plus the two honest caveats, so a
+    // screen-reader user is never told less than a sighted one.
+    const parts = [name];
+    if (w.agentType && w.agentType !== name) parts.push(w.agentType);
+    parts.push(spec.label);
+    if (spec.qualifier) parts.push(spec.qualifier);
+    if (!workerHasName(w)) parts.push("name not recorded");
+    if (w.latestUpdate) parts.push("latest update: " + w.latestUpdate);
+    if (interactive) parts.push("open worker details");
+    chip.setAttribute("aria-label", parts.join(", "));
+    chip.title = spec.note;
+    if (interactive) chip.addEventListener("click", () => opts.openWorker(w));
+    return chip;
+  }
+
   const ACTIVITY_GLYPH = {
     queued: "·",
     running: "◐",
@@ -895,13 +1170,174 @@
     stopped: "▪",
   };
 
+  // -------------------------------------------------------------------------------------
+  // §7.2 THE WORKER INSPECTOR — read-only, and read-only is the BOUNDARY
+  // -------------------------------------------------------------------------------------
+  //
+  // §7.2 lists seven things a worker detail view shows. THREE of them have a source and
+  // four do not, and this pane shows the three, names the four, and invents nothing:
+  //
+  //   1. identity and role                 REAL — `workerName` from a `created` row,
+  //                                        `agentType` from whichever row carried one.
+  //   2. current state                     REAL — the last state witnessed.
+  //      ...and elapsed time               NO SOURCE. §22 lists "elapsed active time" under
+  //                                        must-not-be-faked, and the wall-clock spread
+  //                                        between two log lines is not active time — a
+  //                                        worker that idled two hours between its first and
+  //                                        last row did not work for two hours. The two
+  //                                        TIMESTAMPS are shown as timestamps; no duration
+  //                                        is computed from them anywhere in this file.
+  //   3. delegated task in Rich's words    NO SOURCE. The `Task` tool call's title in the
+  //                                        measured traffic is the literal string "Task"
+  //                                        (timeline_tests.rs:701), and a CEO view carries
+  //                                        no `detail` at all — `Timeline::view(Ceo)` removed
+  //                                        the bytes rather than hiding them. Surfacing the
+  //                                        delegation prompt needs a CEO-safe objective field
+  //                                        the projection does not have; see the handoff.
+  //   4. latest authored update            REAL — the `summary` a worker actually wrote.
+  //   5. output or response when done      NO SOURCE. `result_ref` has no witness.
+  //   6. artifacts or changed files        NO SOURCE. Phase 5 owns artifacts.
+  //   7. failure reason when failed        NO SOURCE. Nothing in the worker path carries an
+  //                                        outcome, so failure is not detectable at all.
+  //
+  // AND NO CONTROLS. §7.2's forbidden list — model selection, prompt editing, tool
+  // permissions, per-worker resume/stop, raw mailboxes — is a list of BUSINESS ACTIONS, and
+  // R2 business-action governance is deferred to V2 by CEO decision for v1 and all 1.x. So
+  // there is no interrupt, no retry, no approve, and no "ask Sage to..." field. A window,
+  // not a cockpit. `renderWorkerInspector` returns a node containing exactly zero
+  // interactive elements other than the one disclosure below; the pane's Close button lives
+  // in the shell, not here.
+
+  /// An RFC-3339 stamp the emitter wrote, rendered as a TIME. Never differenced.
+  function formatStamp(iso) {
+    if (!iso) return null;
+    const t = Date.parse(iso);
+    if (!isFinite(t)) return iso;
+    return new Date(t).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+
+  /// The §7.4 sentence for a run that ended with nothing recorded about how. It is Rich's
+  /// voice and it is deliberately not a status line: the CEO's real question is "did a
+  /// worker fail?", and the only honest answer is that this build cannot tell him — said
+  /// once, calmly, without a stack trace and without an alarm.
+  //
+  // "was cut short" and not "stopped": §6.1 already spends the word `stopped` on a turn the
+  // CEO stopped himself (`You stopped after {duration}`), so reusing it here would read as
+  // an attribution rather than a possibility.
+  const ENDED_EXPLANATION =
+    "This run has ended. Nothing recorded whether the work finished, was cut short or failed — so I'm not going to call it either way.";
+
+  function renderWorkerInspector(w, opts) {
+    opts = opts || {};
+    const frag = document.createDocumentFragment();
+    const spec = workerStateSpec(w.state);
+
+    // ---- identity and role (§7.2 item 1) ----
+    //
+    // The NAME lives in the pane header, which §7.2 requires it to ("The pane header
+    // includes a back action, the worker name and a close action"), so it is not repeated
+    // here — printing it twice, twenty pixels apart, made the pane read like two panes.
+    // It is still in this fragment's accessible structure via the role line's heading when
+    // the header is absent (the isolated-render case in `tests/workers.js`).
+    const idBlock = elem("div", "insp-identity");
+    idBlock.appendChild(elem("h3", "insp-name sr-only", workerDisplayName(w)));
+    if (w.agentType) idBlock.appendChild(elem("p", "insp-role", w.agentType));
+    if (!workerHasName(w)) {
+      idBlock.appendChild(
+        elem("p", "insp-note", "This run was first seen already underway, so no display name was recorded for it.")
+      );
+    }
+    frag.appendChild(idBlock);
+
+    // ---- state (§7.2 item 2, minus the elapsed time that has no source) ----
+    const stateBlock = elem("div", "insp-block insp-state");
+    stateBlock.dataset.state = spec.tone;
+    const line = elem("p", "insp-state-line");
+    const glyph = elem("span", "insp-state-mark", spec.glyph);
+    glyph.setAttribute("aria-hidden", "true");
+    line.appendChild(glyph);
+    line.appendChild(elem("span", "insp-state-word", spec.label));
+    if (spec.qualifier) line.appendChild(elem("span", "insp-state-qualifier", spec.qualifier));
+    stateBlock.appendChild(line);
+    stateBlock.appendChild(elem("p", "insp-state-note", w.state === "unknown" ? ENDED_EXPLANATION : spec.note));
+    frag.appendChild(stateBlock);
+
+    // ---- the latest thing this worker actually wrote (§7.2 item 4) ----
+    // THE WORKER RESULT, in the only form that exists. §7.2 says the result stays visible
+    // when the activity closes, and that is why this sits ABOVE the disclosure below rather
+    // than inside it.
+    if (w.latestUpdate) {
+      const upd = elem("div", "insp-block insp-update");
+      upd.appendChild(elem("p", "insp-label", "Latest update"));
+      upd.appendChild(elem("p", "insp-update-text", w.latestUpdate));
+      frag.appendChild(upd);
+    }
+
+    // ---- the observed chronology, collapsible INDEPENDENTLY (§7.2) ----
+    const chron = elem("div", "insp-block insp-chron");
+    const open = !!opts.chronologyOpen;
+    const toggle = elem("button", "insp-disclosure");
+    toggle.type = "button";
+    toggle.id = "insp-chron-toggle";
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-controls", "insp-chron-body");
+    const chev = elem("span", "tl-chevron", open ? "⌄" : "›");
+    chev.setAttribute("aria-hidden", "true");
+    toggle.appendChild(chev);
+    toggle.appendChild(elem("span", null, "What I saw"));
+    if (typeof opts.toggleChronology === "function") toggle.addEventListener("click", opts.toggleChronology);
+    chron.appendChild(toggle);
+
+    const body = elem("dl", "insp-facts");
+    body.id = "insp-chron-body";
+    if (!open) body.hidden = true;
+    const fact = (k, v) => {
+      if (v == null) return;
+      body.appendChild(elem("dt", null, k));
+      body.appendChild(elem("dd", null, v));
+    };
+    fact("First seen", formatStamp(w.firstObservedAt));
+    fact("Last seen", formatStamp(w.lastObservedAt));
+    fact(
+      "Lifecycle events",
+      typeof w.eventsObserved === "number" ? String(w.eventsObserved) : null
+    );
+    // The two timestamps above are LABELS. §22 forbids faking elapsed active time and the
+    // spread between them is not it, so the pane says so where the number would have gone.
+    body.appendChild(elem("dt", null, "Time spent working"));
+    body.appendChild(elem("dd", "insp-absent", "not recorded"));
+    chron.appendChild(body);
+    frag.appendChild(chron);
+
+    // ---- what is genuinely not here (§7.2 items 3, 5, 6, 7) ----
+    // Said once, in one sentence, rather than four empty sections. A pane that silently
+    // omitted them would read as broken; a pane that listed four "unavailable" rows would
+    // read as an apology. This states the boundary and moves on.
+    const gap = elem("p", "insp-note insp-gap");
+    gap.textContent =
+      "I don't have this worker's brief, its output or the files it touched — nothing records those yet, and I'd rather say so than show you a blank.";
+    frag.appendChild(gap);
+
+    return frag;
+  }
+
   /// §6 — the working-duration row, and §6.4's disclosure.
   ///
   /// The row IS the disclosure control (§6.4 step 5). What it discloses is the ACTIVITY
   /// lane only — never prose. See the header of this file.
   function renderDurationRow(turn, opts) {
     const row = durationRow(turn.record, opts.now);
-    const hasActivity = turn.stream.some(isActivity);
+    // "Work" now includes delegated workers (§6.4 lists worker lifecycle rows inside the
+    // collapsed transcript). A turn whose ONLY work was a delegation therefore gets a real
+    // disclosure control instead of a static row — before this it got the static one and
+    // the delegation had nowhere to be.
+    const hasActivity = turn.stream.some(isWork);
     const wrap = elem("div", "tl-duration");
     wrap.dataset.tone = row.tone;
 
@@ -1019,12 +1455,16 @@
       const flush = () => {
         if (!pendingActivity.length) return;
         if (expanded) {
-          for (const g of rollupActivity(pendingActivity)) lane.appendChild(renderActivityGroup(g, opts));
+          for (const g of rollupWork(pendingActivity)) {
+            lane.appendChild(
+              g.type === "worker" ? renderWorkerGroup(g.group, opts) : renderActivityGroup(g.group, opts)
+            );
+          }
         }
         pendingActivity = [];
       };
       for (const item of turn.stream) {
-        if (isActivity(item)) {
+        if (isWork(item)) {
           pendingActivity.push(item);
           continue;
         }
@@ -1035,8 +1475,8 @@
 
       // §6.4: "The collapsed row shows a chevron and optionally one summary line."
       if (hasActivity && !expanded) {
-        const groups = rollupActivity(turn.stream.filter(isActivity));
-        const summary = groups.map((g) => g.label).join(" · ");
+        const groups = rollupWork(turn.stream.filter(isWork));
+        const summary = groups.map((g) => g.group.label).join(" · ");
         const line = elem("button", "tl-collapsed-summary", summary);
         line.type = "button";
         line.id = "summary:" + turn.turnId;
@@ -1151,6 +1591,14 @@
     formatDuration,
     durationRow,
     rollupActivity,
+    rollupWork,
+    rollupWorkers,
+    workerGroupSummary,
+    workerStateSpec,
+    workerDisplayName,
+    joinNames,
+    renderWorkerInspector,
+    ENDED_EXPLANATION,
     render,
     updateProse,
     updateTimers,

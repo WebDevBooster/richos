@@ -48,6 +48,7 @@
 
   const navPrefs = {
     sidebar_width: 300,
+    inspector_width: 336,
     sidebar_collapsed: false,
     collapsed_entities: [],
     pinned_threads: [],
@@ -275,6 +276,38 @@
     { kind: "activity", id: "mach_a5", slot: "stream", sequence: 5, visibility: "ceo",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1600,
       activityType: "search", state: "completed", summary: "Searched" },
+  ];
+
+  // THREE DELEGATED WORKERS on the Q4-hiring turn (UX §7.1, §26's multi-agent fixture).
+  // The payload shape is `TimelineItem::WorkerActivity` verbatim: `kind: "worker_activity"`,
+  // a flattened base, and a camelCase `worker` object.
+  //
+  // The three states are the three the ENGINE CAN ACTUALLY WITNESS, one each — `created`,
+  // `started`, `run_ended` (`richos_core::worker_events::ObservedWorkerState`). There is
+  // deliberately no `completed`, `failed`, `interrupted` or `waiting` worker in this
+  // fixture, because none of those can occur: `WorkerState::from_observed` cannot produce
+  // them and a mock that showed one would be teaching the design a state the product does
+  // not have.
+  turnsById.get(hiringTurn1).activities = [
+    { kind: "worker_activity", id: "mach_w1", slot: "stream", sequence: 1, visibility: "ceo",
+      entityId: "femcboost", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 900,
+      detailRef: "mach_w1",
+      worker: { agentId: "agt_sage_1", workerName: "Sage", agentType: "architecture",
+                observedState: "created", state: "pending_init", eventsObserved: 1,
+                firstObservedAt: "2026-08-29T04:00:00+00:00", lastObservedAt: "2026-08-29T04:00:00+00:00" } },
+    { kind: "worker_activity", id: "mach_w2", slot: "stream", sequence: 2, visibility: "ceo",
+      entityId: "femcboost", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 1000,
+      detailRef: "mach_w2",
+      worker: { agentId: "agt_frank_1", workerName: "Frank", agentType: "red team",
+                observedState: "started", state: "running", eventsObserved: 2,
+                firstObservedAt: "2026-08-29T04:00:01+00:00", lastObservedAt: "2026-08-29T04:01:44+00:00" } },
+    { kind: "worker_activity", id: "mach_w3", slot: "stream", sequence: 3, visibility: "ceo",
+      entityId: "femcboost", threadId: "hiring", createdAt: now() - 1000 * 60 * 60 * 5 + 1100,
+      detailRef: "mach_w3",
+      worker: { agentId: "agt_clark_1", workerName: "Clark", agentType: "research",
+                observedState: "run_ended", state: "unknown", eventsObserved: 5,
+                latestUpdate: "Pulled the platform-eng comparables from three sources",
+                firstObservedAt: "2026-08-29T04:00:02+00:00", lastObservedAt: "2026-08-29T04:07:31+00:00" } },
   ];
 
   function activeContextOf() {
@@ -543,11 +576,31 @@
           }
           return hits.slice(0, args.limit || 40);
         }
+        // UX §7.3's background-work summary. Shaped exactly like `WorkerStatusView`
+        // (worker_status.rs): a real `active` count, a real `liveness_unknown`, and
+        // `needs_you` STRUCTURALLY ZERO — no decision-required signal exists anywhere in
+        // the engine, so there is no honest non-zero value to mock either.
+        case "get_worker_status":
+          return {
+            active: 1,
+            needs_you: 0,
+            liveness_unknown: 1,
+            items: [
+              { label: "Frank", state: "active", agent_id: "agt_frank_1" },
+              { label: "Sage", state: "unknown", agent_id: "agt_sage_1" },
+              { label: "mark-sonnet-f1: wire the tenantGuard fixture", state: "done" },
+            ],
+          };
         case "nav_state":
           return JSON.parse(JSON.stringify(navPrefs));
         case "set_sidebar_width":
           navPrefs.sidebar_width = Math.max(224, Math.min(420, Number(args.width) || 300));
           return navPrefs.sidebar_width;
+        // Same clamp bounds as nav.rs's `clamp_inspector_width`, and it returns the width
+        // the store ACCEPTED — so the harness cannot drift from the real contract.
+        case "set_inspector_width":
+          navPrefs.inspector_width = Math.max(280, Math.min(520, Number(args.width) || 336));
+          return navPrefs.inspector_width;
         case "set_sidebar_collapsed":
           navPrefs.sidebar_collapsed = !!args.collapsed;
           return null;

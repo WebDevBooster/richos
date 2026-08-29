@@ -22,7 +22,7 @@ use richos_core::entity::EntityId;
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord};
-use richos_core::spine::Spine;
+use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::timeline::{
     ActivityState, ActivityType, RejectionReason, RichMessagePhase, Timeline, TimelineItem, TimelineSlot, ViewMode,
@@ -876,4 +876,133 @@ fn no_worker_item_is_built_from_a_task_call_belonging_to_another_thread() {
     let rendered = serde_json::to_string(&timeline.view(ViewMode::Technical)).unwrap();
     assert!(!rendered.contains("deeply-worker"), "leaked: {rendered}");
     let _ = std::fs::remove_file(&path);
+}
+
+// ===========================================================================================
+// THE READ PATH THE APP ACTUALLY CALLS (slice 7, 2026-08-29)
+// ===========================================================================================
+//
+// The three tests above prove `Timeline::project_with_workers`. Until this slice NOTHING in
+// the app called it: `Spine::timeline` — the body of the `get_timeline` command — called
+// `Timeline::project`, which supplies an EMPTY worker stream. So `TimelineItem::WorkerActivity`
+// was fully specified, fully tested and UNREACHABLE on the wire, and a delegated `Task` call
+// reached the CEO as one nameless activity row reading "Worked".
+//
+// These two tests pin the wiring itself, because a green test over a function nobody calls is
+// exactly the failure that hid it.
+
+/// Write the shared two-entity ledger AND a worker stream file, and return a spine whose
+/// timeline read path can be pointed at that file.
+fn spine_with_worker_stream(tag: &str, rows: &str) -> (Spine, std::path::PathBuf, std::path::PathBuf) {
+    let ledger_path = tmp(tag, ".jsonl");
+    two_entity_ledger(&ledger_path);
+    let stream_path = tmp(&format!("{tag}-workers"), ".jsonl");
+    std::fs::write(&stream_path, rows).unwrap();
+
+    let ledger = Ledger::open(&ledger_path).unwrap();
+    let mut spine = Spine::new(ledger);
+    let journal = MachineryJournal::new(tmp(&format!("{tag}-mach"), ""));
+    journal.append(&task_record("thr_fem", "turn_ok", "s1")).unwrap();
+    spine.set_machinery_journal(journal);
+    (spine, ledger_path, stream_path)
+}
+
+#[test]
+fn the_apps_own_read_path_joins_a_task_call_to_the_worker_it_spawned() {
+    // THE REGRESSION FIX, at the producer. Same fixture as
+    // `a_task_call_joined_by_identity_becomes_a_worker_item`, driven through `Spine::timeline`
+    // — the function `get_timeline` calls — instead of through `project_with_workers` directly.
+    let rows = concat!(
+        r#"{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"created","agent_id":"agt_shared","worker_name":"sage-opus-r3","agent_type":"sage","session_id":"s1"}"#,
+        "\n",
+        r#"{"timestamp":"2026-08-29T04:00:01+00:00","lifecycle_state":"started","agent_id":"agt_shared","agent_type":"sage","session_id":"s1"}"#,
+        "\n",
+    );
+    let (mut spine, lp, sp) = spine_with_worker_stream("spineworker", rows);
+
+    // (1) THE POSITIVE PROBE FOR THE NEGATIVE BELOW. Default = Disabled = what shipped:
+    //     the Task call is an ordinary activity row and no worker exists on the wire.
+    let before = spine.timeline("thr_fem").unwrap();
+    let ceo_before = before.view(ViewMode::Ceo);
+    assert!(
+        !ceo_before.items().iter().any(|i| matches!(i, TimelineItem::WorkerActivity { .. })),
+        "with the source Disabled the app cannot produce a worker row — this is what main shipped"
+    );
+    assert!(
+        ceo_before
+            .items()
+            .iter()
+            .any(|i| matches!(i, TimelineItem::Activity { summary, .. } if summary == "Worked")),
+        "and the delegation reached the CEO as one nameless \"Worked\" row"
+    );
+
+    // (2) WIRED. Same ledger, same journal, same machinery — one setting.
+    spine.set_worker_events(WorkerEventsSource::File(sp.clone()));
+    let after = spine.timeline("thr_fem").unwrap();
+    let ceo = after.view(ViewMode::Ceo);
+    let worker = ceo
+        .items()
+        .iter()
+        .find_map(|i| match i {
+            TimelineItem::WorkerActivity { worker, detail, .. } => Some((worker, detail)),
+            _ => None,
+        })
+        .expect("the app's own read path now produces a worker row");
+    assert_eq!(worker.0.worker_name.as_deref(), Some("sage-opus-r3"));
+    assert_eq!(worker.0.observed_state, ObservedWorkerState::Started);
+    assert_eq!(worker.0.state, WorkerState::Running);
+    assert!(worker.1.is_none(), "the technical half is still removed from a CEO view");
+    assert!(
+        !ceo.items()
+            .iter()
+            .any(|i| matches!(i, TimelineItem::Activity { summary, .. } if summary == "Worked")),
+        "and the nameless row is REPLACED, not duplicated alongside the worker row"
+    );
+
+    let _ = std::fs::remove_file(&lp);
+    let _ = std::fs::remove_file(&sp);
+}
+
+#[test]
+fn a_session_id_mismatch_is_reported_rather_than_silently_producing_no_worker() {
+    // The failure mode that would otherwise be invisible. The stream HAS rows for exactly
+    // the agent id this Task call spawned — but under a different session id, which is what
+    // happens if the ACP session id and the harness session id turn out to be different id
+    // spaces. The join must still refuse (agent_id is not globally unique), and the refusal
+    // must be TELLABLE from "the engine emitted nothing at all".
+    let rows = concat!(
+        r#"{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"created","agent_id":"agt_shared","worker_name":"someone-elses-worker","agent_type":"sage","session_id":"a-different-uuid"}"#,
+        "\n",
+    );
+    let (mut spine, lp, sp) = spine_with_worker_stream("spinemismatch", rows);
+    spine.set_worker_events(WorkerEventsSource::File(sp.clone()));
+
+    let timeline = spine.timeline("thr_fem").unwrap();
+    assert!(
+        !timeline.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::WorkerActivity { .. })),
+        "a foreign session's row must not attach — the leak guard holds"
+    );
+    let mismatches: Vec<_> = timeline
+        .rejections()
+        .iter()
+        .filter(|r| r.reason == RejectionReason::WorkerSessionMismatch)
+        .collect();
+    assert_eq!(mismatches.len(), 1, "the refusal is reported: {:?}", timeline.rejections());
+    assert!(
+        !mismatches[0].is_scope_violation(),
+        "nothing crossed a boundary — something was correctly kept out; it is a diagnostic, not a leak"
+    );
+    let rendered = serde_json::to_string(&timeline.view(ViewMode::Technical)).unwrap();
+    assert!(!rendered.contains("someone-elses-worker"), "leaked: {rendered}");
+
+    // And an EMPTY stream produces no such report — the two states are distinguishable.
+    std::fs::write(&sp, "").unwrap();
+    let quiet = spine.timeline("thr_fem").unwrap();
+    assert!(
+        !quiet.rejections().iter().any(|r| r.reason == RejectionReason::WorkerSessionMismatch),
+        "no rows for the id at all is a different statement and must not report a mismatch"
+    );
+
+    let _ = std::fs::remove_file(&lp);
+    let _ = std::fs::remove_file(&sp);
 }
