@@ -124,42 +124,105 @@ narrate "is deleted when this script exits. Wiring in the engine's real, unmodif
 narrate "enforcement hooks from this checkout — the same files that would protect"
 narrate "your own repo."
 
-mkdir -p "$SAMPLE_ROOT/scripts/hooks" "$SAMPLE_ROOT/scripts/lib" "$SAMPLE_ROOT/.claude/state" "$SAMPLE_ROOT/app"
-
-for f in guard-worktree-isolation.sh guard-definition-drift.sh snapshot-agent-definitions.sh \
-         reader-teammate-hint.sh verify-agent-prompt.sh \
-         guard-main-checkout-writes.sh guard-bash-main-writes.sh guard-worktree-removal.sh \
-         scan-secrets.sh \
-         guard-resume-isolation.sh guard-workflow-ban.sh detect-nonnative-worktree.sh teammate-idle-handoff.sh \
-         task-completed-handoff.sh session-start-reap-worktrees.sh \
-         worker-created-handoff.sh worker-started-handoff.sh \
-         worker-updated-handoff.sh worker-ended-handoff.sh \
-         engine-status.sh install.sh contract-integrity-probe.sh; do
-    cp "$REPO_ROOT/scripts/hooks/$f" "$SAMPLE_ROOT/scripts/hooks/$f"
-done
-chmod +x "$SAMPLE_ROOT/scripts/hooks/"*.sh
-cp "$REPO_ROOT/scripts/lib/resolve-main-checkout.sh" "$SAMPLE_ROOT/scripts/lib/resolve-main-checkout.sh"
-# The root-resolution contract. Every hook's bootstrap looks for it relative to
-# its own location and REFUSES TO START without it — deliberately, because a
-# guard that cannot tell which repository it governs must not guess.
-cp "$REPO_ROOT/scripts/lib/resolve-roots.sh" "$SAMPLE_ROOT/scripts/lib/resolve-roots.sh"
+mkdir -p "$SAMPLE_ROOT/scripts/hooks" "$SAMPLE_ROOT/scripts/lib" "$SAMPLE_ROOT/hooks" "$SAMPLE_ROOT/.claude/state" "$SAMPLE_ROOT/app"
 
 # The sample repo IS the governed repository for every hook fired below, so say
 # so rather than letting the guards infer it from the demo's own cwd. This is
 # exactly what a real session's CLAUDE_PROJECT_DIR does for a real adopter.
 CLAUDE_PROJECT_DIR="$SAMPLE_ROOT"
 export CLAUDE_PROJECT_DIR
-# The one managed script outside scripts/hooks/ — the half of the SessionStart
-# worktree-reaper chain that actually removes worktrees. install.sh mints its
-# sidecar and probe Layer Q hashes + exercises it, so the sample repo needs it.
-cp "$REPO_ROOT/scripts/reap-stale-worktrees.sh" "$SAMPLE_ROOT/scripts/reap-stale-worktrees.sh"
-chmod +x "$SAMPLE_ROOT/scripts/reap-stale-worktrees.sh"
-# The sanctioned worktree-removal helper. It ships as a PAIR with
-# guard-worktree-removal.sh — the guard blocks every raw removal and names this
-# as the only way through — so the probe's Layer S verifies both, and the sample
-# repo must carry both or Beat 7 fails for a reason that is not about the demo.
-cp "$REPO_ROOT/scripts/remove-agent-worktree.sh" "$SAMPLE_ROOT/scripts/remove-agent-worktree.sh"
-chmod +x "$SAMPLE_ROOT/scripts/remove-agent-worktree.sh"
+
+# ---------------------------------------------------------------------------
+# THE SAMPLE REPO'S FILE SET IS DERIVED, NEVER TYPED.
+#
+# The hook half used to be a hand-written list of twenty-two filenames, and it
+# was the FOURTH copy of "the set of guards" in this engine — exactly the reader
+# scripts/lib/registered-hooks.sh predicted would eventually drift out of sync.
+# It broke in the other direction first, and worse: install.sh stopped taking
+# its own inventory from a typed list and started DERIVING it from
+# hooks/hooks.json via registered-hooks.sh, so it began requiring two files this
+# script provisioned nowhere. install.sh refused, correctly. demo.sh — the
+# script whose whole job is to show a buyer the machinery works — died during
+# setup with exit 2 and printed no reason at all.
+#
+# So the demo now derives the same way, from the same file, through the same
+# parser. Wiring a new guard needs no edit here; and the sample repo carries the
+# registration surface and the parser THEMSELVES, because they are what
+# install.sh reads.
+# ---------------------------------------------------------------------------
+_RH_LIB="$REPO_ROOT/scripts/lib/registered-hooks.sh"
+[ -f "$_RH_LIB" ] || { echo "ERROR: demo.sh: $_RH_LIB is missing from this engine checkout — the sample repo's hook set is derived from it and must not be guessed. Refusing." >&2; exit 1; }
+# shellcheck source=lib/registered-hooks.sh
+. "$_RH_LIB"
+# Fail loud, never skip — the same contract install.sh holds itself to. A demo
+# that quietly wired "the guards we could work out" would be showing a buyer a
+# subset of the enforcement while calling it the whole thing.
+if ! _DEMO_REGISTERED_HOOKS="$(registered_hook_scripts "$REPO_ROOT/hooks/hooks.json")"; then
+    echo "ERROR: demo.sh: could not derive the managed hook set from $REPO_ROOT/hooks/hooks.json (missing, unreadable, or registering nothing). Refusing rather than demonstrating a partial engine." >&2
+    exit 1
+fi
+
+DEMO_FILES=()
+while IFS= read -r _h; do
+    [ -n "$_h" ] || continue
+    DEMO_FILES+=("scripts/hooks/$_h")
+done <<REGISTERED_EOF
+$_DEMO_REGISTERED_HOOKS
+REGISTERED_EOF
+
+# The files the sample repo needs that NO hook table names. Each is here for a
+# reason stated at its own line — there is no registration surface to derive
+# them from, which is precisely why these are the ones that go missing.
+DEMO_FILES+=(
+    # The registration surface itself, and the one parser that reads it.
+    # install.sh derives its sidecar-minting scope from exactly this pair and
+    # EXITS 2 if either is absent. Their absence here is what broke this script.
+    "hooks/hooks.json"
+    "scripts/lib/registered-hooks.sh"
+    # The root-resolution contract. Every hook's bootstrap looks for it relative
+    # to its own location and REFUSES TO START without it — deliberately,
+    # because a guard that cannot tell which repository it governs must not
+    # guess. It sources resolve-main-checkout.sh in turn.
+    "scripts/lib/resolve-roots.sh"
+    "scripts/lib/resolve-main-checkout.sh"
+    # Not hooks and registered nowhere: the installer the setup beat runs, and
+    # the integrity probe Beat 7 runs.
+    "scripts/hooks/install.sh"
+    "scripts/hooks/contract-integrity-probe.sh"
+    # The half of the SessionStart worktree-reaper chain that actually removes
+    # worktrees. install.sh mints its sidecar and probe Layer Q hashes +
+    # exercises it, so the sample repo needs it.
+    "scripts/reap-stale-worktrees.sh"
+    # The sanctioned worktree-removal helper. It ships as a PAIR with
+    # guard-worktree-removal.sh — the guard blocks every raw removal and names
+    # this as the only way through — so the probe's Layer S verifies both, and
+    # the sample repo must carry both or Beat 7 fails for a reason that is not
+    # about the demo.
+    "scripts/remove-agent-worktree.sh"
+    # Cosmetic but buyer-facing: without it Beat 7's probe banner opens with
+    # "richos-engine (VERSION file absent)", which reads to someone evaluating
+    # the engine like a broken install rather than a sample repo the demo built
+    # thirty seconds ago. The probe treats a missing VERSION as a banner gap and
+    # never fails on it, so this is presentation only -- and it is presentation
+    # in the one place the demo is asking to be trusted.
+    "VERSION"
+)
+
+DEMO_MISSING=""
+for rel in "${DEMO_FILES[@]}"; do
+    if [ -f "$REPO_ROOT/$rel" ]; then
+        mkdir -p "$SAMPLE_ROOT/$(dirname "$rel")"
+        cp "$REPO_ROOT/$rel" "$SAMPLE_ROOT/$rel"
+    else
+        DEMO_MISSING="$DEMO_MISSING $rel"
+    fi
+done
+if [ -n "$DEMO_MISSING" ]; then
+    echo "ERROR: demo.sh: this engine checkout is missing file(s) the sample repo needs:$DEMO_MISSING" >&2
+    echo "       Each is either registered in hooks/hooks.json or named explicitly in demo.sh. Refusing to run a partial demo." >&2
+    exit 1
+fi
+chmod +x "$SAMPLE_ROOT/scripts/hooks/"*.sh "$SAMPLE_ROOT/scripts/"*.sh
 
 cat >"$SAMPLE_ROOT/orchestration.config" <<'CFG'
 # Sample orchestration.config for the demo — mirrors the shape of the real
@@ -176,83 +239,59 @@ SECRET_SCAN_MIN_ENTROPY="3.0"
 SECRET_SCAN_ALLOWLIST=""
 CFG
 
-python3 - "$SAMPLE_ROOT/.claude/settings.local.json" <<'PY'
+# ---------------------------------------------------------------------------
+# THE SAMPLE REPO'S HOOK TABLE IS DERIVED FROM hooks/hooks.json, NEVER TYPED.
+#
+# This block used to be a hand-transcribed second copy of the engine's own hook
+# registrations — every event, every matcher, every timeout, retyped. It was the
+# copy most likely to rot silently: a wrong ORDER under PreToolUse[Agent], or a
+# guard omitted, still produces a demo that runs and reports 7/7, while showing
+# a buyer a weaker engine than the one they would get.
+#
+# The seated form is a pure, total rewrite of the plugin form — the engine's own
+# committed .claude/settings.local.json is byte-for-byte what this transform
+# produces from hooks/hooks.json — so there is nothing here to decide and
+# therefore nothing to get wrong. Registration order, which probe Layers C and H
+# both depend on, is preserved by construction rather than by proofreading.
+# ---------------------------------------------------------------------------
+python3 - "$SAMPLE_ROOT/.claude/settings.local.json" "$SAMPLE_ROOT/hooks/hooks.json" <<'PY'
 import json, sys
-out_path = sys.argv[1]
+
+out_path, plugin_hooks_path = sys.argv[1], sys.argv[2]
+
+with open(plugin_hooks_path, "r", encoding="utf-8") as f:
+    plugin = json.load(f)
+
+def seat(obj):
+    """Rewrite the plugin-route command form into the seated form.
+
+    `bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/x.sh` (the engine is loaded from
+    wherever it lives) becomes `$CLAUDE_PROJECT_DIR/scripts/hooks/x.sh` (the
+    engine's hooks sit inside the governed repo), which is what an adopter with
+    a seated install commits. Inline hooks that mention neither placeholder --
+    the knowledge-verification echo -- pass through untouched, correctly."""
+    if isinstance(obj, dict):
+        return {k: seat(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [seat(v) for v in obj]
+    if isinstance(obj, str):
+        return obj.replace("bash ${CLAUDE_PLUGIN_ROOT}/", "$CLAUDE_PROJECT_DIR/") \
+                  .replace("${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PROJECT_DIR")
+    return obj
+
+hooks = plugin.get("hooks")
+if not isinstance(hooks, dict) or not hooks:
+    sys.stderr.write("ERROR: demo.sh: %s registers no hooks -- refusing to wire a "
+                     "sample repo that enforces nothing.\n" % plugin_hooks_path)
+    sys.exit(1)
+
 data = {
+    # The two critical non-hook keys. install.sh REFUSES to proceed without
+    # either (and probe Layers I/J re-check them independently), so the sample
+    # repo carries exactly what a real adopter's file must carry.
     "env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"},
     "worktree": {"baseRef": "head"},
-    "hooks": {
-        "SessionStart": [
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/engine-status.sh", "timeout": 10}]},
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/session-start-reap-worktrees.sh", "timeout": 30}]},
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/snapshot-agent-definitions.sh", "timeout": 15}]}
-        ],
-        "PreToolUse": [
-            {
-                "matcher": "Agent",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-worktree-isolation.sh", "timeout": 10},
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-definition-drift.sh", "timeout": 10},
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/reader-teammate-hint.sh", "timeout": 10},
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/verify-agent-prompt.sh", "timeout": 10},
-                ],
-            },
-            {
-                "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-main-checkout-writes.sh", "timeout": 10},
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/scan-secrets.sh", "timeout": 10},
-                ],
-            },
-            {
-                "matcher": "SendMessage",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-resume-isolation.sh", "timeout": 10},
-                ],
-            },
-            {
-                "matcher": "Bash",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-bash-main-writes.sh", "timeout": 10},
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-worktree-removal.sh", "timeout": 10},
-                ],
-            },
-            {
-                "matcher": "Workflow",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-workflow-ban.sh", "timeout": 10},
-                ],
-            },
-        ],
-        "PostToolUse": [
-            {
-                "matcher": "Agent",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/detect-nonnative-worktree.sh", "timeout": 10},
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-created-handoff.sh", "timeout": 15},
-                ],
-            },
-            {
-                "matcher": "SendMessage",
-                "hooks": [
-                    {"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-updated-handoff.sh", "timeout": 15},
-                ],
-            },
-        ],
-        "SubagentStart": [
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-started-handoff.sh", "timeout": 15}]}
-        ],
-        "SubagentStop": [
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-ended-handoff.sh", "timeout": 15}]}
-        ],
-        "TeammateIdle": [
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/teammate-idle-handoff.sh", "timeout": 15}]}
-        ],
-        "TaskCompleted": [
-            {"hooks": [{"type": "command", "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/task-completed-handoff.sh", "timeout": 15}]}
-        ],
-    },
+    "hooks": seat(hooks),
 }
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
@@ -263,6 +302,7 @@ cat >"$SAMPLE_ROOT/.gitignore" <<'GI'
 /.claude/worktrees/
 scripts/hooks/*.sha256
 scripts/*.sha256
+scripts/lib/*.sha256
 GI
 
 # The sample "product": a two-file toy — one source file, one QA check — just
@@ -333,8 +373,31 @@ label_real "install.sh — generating .claude/settings.json + hook integrity sid
 # Measured — BR6b caught exactly that, on this machine, from this script. A demo
 # a buyer runs sight-unseen must not touch their machine at all.
 mkdir -p "$SAMPLE_ROOT/.claude-config"
+# rc is captured, NOT left to `set -e`. When install.sh refused this sample repo
+# (it required hooks/hooks.json + registered-hooks.sh, which the demo provisioned
+# nowhere), `set -e` killed the script on the assignment line — BEFORE
+# show_output could print the error install.sh had gone to the trouble of
+# writing. What a buyer actually saw was the setup banner, then silence, then
+# exit 2: the single least useful failure this engine is capable of producing.
+# A setup failure now prints install.sh's own words and says whose fault it is.
+set +e
 INSTALL_OUT="$(CLAUDE_CONFIG_DIR="$SAMPLE_ROOT/.claude-config" "$SAMPLE_ROOT/scripts/hooks/install.sh" 2>&1)"
+INSTALL_RC=$?
+set -e
 show_output "$INSTALL_OUT"
+if [ "$INSTALL_RC" -ne 0 ]; then
+    printf '\n%s✗ SETUP FAILED%s — install.sh exited %s wiring the sample repo. None of the seven beats ran.\n' \
+        "$C_RED$C_BOLD" "$C_RESET" "$INSTALL_RC" >&2
+    narrate ""
+    narrate "This is a defect in the engine checkout you are running, not in your machine"
+    narrate "and not in your repo — nothing outside the temp directory was touched. The"
+    narrate "installer's own message above says exactly what it wanted and did not get."
+    narrate "Report it with that message; scripts/demo.test.sh reproduces it."
+    # Exit 1 (setup failure), not 2. Exit 2 means "one or more BEATS failed",
+    # i.e. the enforcement machinery is broken — a far more alarming claim than
+    # the truth, and the one this script used to make.
+    exit 1
+fi
 narrate "Sample company ready."
 
 # ---------------------------------------------------------------------------
