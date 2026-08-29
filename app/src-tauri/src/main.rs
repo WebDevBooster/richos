@@ -11,9 +11,11 @@ mod events;
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore};
+use richos_core::correction::{CliLoroWriter, CorrectionDesk, Proposal, ProposedWrite, WriteOutput};
 use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
+use richos_core::loro::CliContextCompiler;
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::steering::{IntakeRecord, StopOutcome, TurnControl};
@@ -114,6 +116,15 @@ struct AppState {
     /// that locked the spine would fire only after the work it meant to interrupt had
     /// already ended. This is the same `Arc` the spine holds, reached without the lock.
     control: TurnControl,
+    /// THE LORO CORRECTION DESK (open-items 3.5). `None` when no corpus is configured,
+    /// which is an ordinary install and not an error — the commands then say so in words
+    /// instead of failing obscurely.
+    ///
+    /// Behind its OWN mutex, not the spine's, for the same reason `control` is: reading
+    /// what loro believes and confirming a correction are things the CEO does while Rich
+    /// may be mid-turn, and `send_message` holds the spine lock for the whole of a turn.
+    /// A correction UI that froze until Rich finished would be a UI nobody uses.
+    correction: Option<Mutex<CorrectionDesk>>,
 }
 
 #[tauri::command]
@@ -314,6 +325,27 @@ fn main() {
             // cannot be session-scoped (`worker_events.rs`).
             spine.set_worker_events(WorkerEventsSource::CurrentTeamDir);
 
+            // TIER C — COMPANY MEMORY (continuity §2.1 #8 / §4, open-items 3.5).
+            //
+            // Without this line the seam that has existed since the continuity foundation
+            // stays unset and every re-prime asserts a fresh Rich into existence with no
+            // company memory at all, while the compiler sits complete and versioned one
+            // directory away. That is what shipped, and it is why `LoroContextCompiler`
+            // was fully specified, fully documented and had never once been called.
+            //
+            // Nothing is inferred. `LORO_CORPUS`/`LORO_ROOT` names the corpus and
+            // `RICHOS_LORO_DIR` names the tools; with either unset the app boots with
+            // `LoroTier::NotWired`, which the priming prompt states as a fact about THIS
+            // INSTALL rather than as a claim about what is recorded.
+            match CliContextCompiler::from_env() {
+                Ok(Some(compiler)) => {
+                    eprintln!("[richos] loro Tier C: compiling from {}", compiler.root().path().display());
+                    spine.set_loro_context_compiler(Box::new(compiler));
+                }
+                Ok(None) => eprintln!("[richos] loro Tier C: no corpus configured — re-primes carry no company memory"),
+                Err(e) => eprintln!("[richos] loro Tier C: configured but unusable, continuing without it: {e}"),
+            }
+
             // Attach the compute lease best-effort. A boot with no Claude auth degrades
             // to a calm "not connected" state rather than failing to launch.
             let engine = engine_dir();
@@ -373,6 +405,28 @@ fn main() {
                 eprintln!("[richos] intake reconciliation at boot: {e}");
             }
 
+            // THE CORRECTION DESK (open-items 3.5). Its log sits beside the ledger and the
+            // intake log, same durability posture, and deliberately NOT in the ledger: a
+            // proposal the CEO has not answered yet is not evidence of anything that
+            // happened — the same rule `TurnControl`'s intake log follows.
+            let correction = match CliLoroWriter::from_env() {
+                Ok(Some(writer)) => match CorrectionDesk::open(data_dir.join("loro-corrections.jsonl"), Box::new(writer)) {
+                    Ok(desk) => Some(Mutex::new(desk)),
+                    Err(e) => {
+                        // Refuse rather than pretend. A desk that cannot record a proposal
+                        // durably would lose the CEO's answer across a relaunch, which is
+                        // worse than saying the capability is unavailable.
+                        eprintln!("[richos] loro correction desk unavailable, corrections will refuse rather than pretend: {e}");
+                        None
+                    }
+                },
+                Ok(None) => None,
+                Err(e) => {
+                    eprintln!("[richos] loro correction desk: configured but unusable: {e}");
+                    None
+                }
+            };
+
             app.manage(AppState {
                 spine: Mutex::new(spine),
                 lease_ready,
@@ -380,6 +434,7 @@ fn main() {
                 entity: boot_entity,
                 nav: Mutex::new(nav_store),
                 control,
+                correction,
             });
             Ok(())
         })
@@ -396,6 +451,15 @@ fn main() {
             set_assertiveness,
             get_worker_status,
             raise_proactive_message,
+            // --- loro (2026-08-29) — appended, never reordered ---
+            loro_available,
+            loro_show_record,
+            loro_pending_corrections,
+            loro_propose_correction,
+            loro_confirm_correction,
+            loro_decline_correction,
+            loro_suppressed_records,
+            loro_unsuppress_record,
             // --- voice mode (2026-08-24) — appended, never reordered ---
             start_voice_capture,
             stop_voice_capture,
@@ -1474,4 +1538,119 @@ fn running_turn(state: State<AppState>) -> Option<RunningTurn> {
         entity_id: a.entity_id.map(|e| e.as_str().to_string()),
         started_at: a.started_at,
     })
+}
+
+// ---------------------------------------------------------------------------------------
+// LORO — reading what the system believes, and correcting it (open-items 3.5)
+//
+// This is the surface that makes the writer reachable from the APP rather than only from a
+// terminal. loro-writer.md named the gap: "Rich does not call the writer yet... the
+// writer's reachable surface is the CLI."
+//
+// EVERY command here goes through `CorrectionDesk`, which cannot write without a prior
+// proposal the CEO has confirmed (ceo-decisions.md §7, ask never infer). There is no
+// command that writes loro directly, and adding one would be the bug.
+//
+// They take their own mutex, never the spine's: `send_message` holds the spine lock for a
+// whole turn, and a correction panel that froze until Rich finished would not be used.
+// ---------------------------------------------------------------------------------------
+
+/// Whether this install can read and correct company memory at all — so the UI can show a
+/// real state instead of a dead button. Never a guess: it reflects the configured corpus.
+#[tauri::command]
+fn loro_available(state: State<AppState>) -> bool {
+    state.correction.is_some()
+}
+
+fn desk<'a>(state: &'a State<AppState>) -> Result<std::sync::MutexGuard<'a, CorrectionDesk>, String> {
+    state
+        .correction
+        .as_ref()
+        .ok_or_else(|| {
+            "No loro corpus is configured for this install, so there is nothing to read or correct. \
+             That is a statement about this install, not about what is recorded."
+                .to_string()
+        })
+        .map(|d| d.lock().unwrap())
+}
+
+/// "What does loro actually believe?" — the answer is a file. Read-only; no proposal, no
+/// confirmation, because reading is not correcting.
+#[tauri::command]
+fn loro_show_record(state: State<AppState>, record_ref: String) -> Result<WriteOutput, String> {
+    desk(&state)?.show(&record_ref).map_err(|e| e.to_string())
+}
+
+/// Corrections waiting on the CEO, for the entity this launch is bound to. Scoped, not
+/// global: a proposal about one entity's memory has no business in another's queue.
+#[tauri::command]
+fn loro_pending_corrections(state: State<AppState>) -> Result<Vec<Proposal>, String> {
+    let entity = state.entity.as_ref().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    Ok(desk(&state)?.pending_for(entity.as_str()).into_iter().cloned().collect())
+}
+
+/// Stage a change and get back exactly what it WOULD write. **Nothing is written here.**
+/// `why` is the CEO's own words for what is wrong, and an empty one is refused before a
+/// process is started — a correction with no stated reason is the shape an inferred one
+/// takes.
+#[tauri::command]
+fn loro_propose_correction(
+    state: State<AppState>,
+    thread_id: Option<String>,
+    write: ProposedWrite,
+    why: String,
+) -> Result<Proposal, String> {
+    let entity = state.entity.as_ref().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    // The thread id is PROVENANCE and comes from the caller. It is deliberately not read
+    // off the spine: `send_message` holds that lock for the whole of a turn, so asking the
+    // spine which thread is active would freeze a correction panel until Rich finished —
+    // the same reason the stop control lives outside the lock (UX §9.3).
+    let thread_id = thread_id.unwrap_or_default();
+    desk(&state)?.propose(entity.as_str(), &thread_id, write, &why).map_err(|e| e.to_string())
+}
+
+/// The CEO says yes. The ONLY path in this application to a loro write.
+///
+/// The write is also recorded in the conversation ledger as a CEO-FACING action, because
+/// "Rich changed what the company believes" is exactly the class of fact the action-ledger
+/// digest exists to stop a successor denying from absent memory (`reprime.rs`, §2.1 #6).
+/// The ledger write is best-effort and never fails the correction: the desk's own log is
+/// already durable, and losing a ledger line must not un-write a record that landed.
+#[tauri::command]
+fn loro_confirm_correction(state: State<AppState>, id: String) -> Result<Proposal, String> {
+    let entity = state.entity.as_ref().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let done = desk(&state)?.confirm(entity.as_str(), &id).map_err(|e| e.to_string())?;
+    if let Some(outcome) = &done.outcome {
+        let detail = match &outcome.superseded_ref {
+            Some(old) => format!("superseded {old} with {}", outcome.r#ref),
+            None => format!("wrote {}", outcome.r#ref),
+        };
+        let _ = state
+            .spine
+            .lock()
+            .unwrap()
+            .record_ceo_action("loro_correction", &format!("{detail} — \"{}\"", done.why));
+    }
+    Ok(done)
+}
+
+/// He says no. `permanent` is his explicit "don't ask about this record again" — a plain
+/// decline is NOT permanent, because a decline is ambiguous while a repeat is evidence
+/// (ceo-decisions.md §7).
+#[tauri::command]
+fn loro_decline_correction(state: State<AppState>, id: String, permanent: bool) -> Result<(), String> {
+    desk(&state)?.decline(&id, permanent).map_err(|e| e.to_string())
+}
+
+/// The suppression list, inspectable — §7 requires it, "or a term silently refuses to
+/// learn with no way to see why".
+#[tauri::command]
+fn loro_suppressed_records(state: State<AppState>) -> Result<Vec<String>, String> {
+    Ok(desk(&state)?.suppressed().to_vec())
+}
+
+/// ...and liftable. A list you can see and cannot clear is only half of inspectable.
+#[tauri::command]
+fn loro_unsuppress_record(state: State<AppState>, record_ref: String) -> Result<(), String> {
+    desk(&state)?.unsuppress(&record_ref).map_err(|e| e.to_string())
 }

@@ -30,3 +30,11 @@ path = "examples/machinery_roundtrip.rs"
 [[example]]
 name = "worker_status_demo"
 path = "examples/worker_status_demo.rs"
+
+[[example]]
+name = "loro_reprime_demo"
+path = "examples/loro_reprime_demo.rs"
+
+[[example]]
+name = "loro_correction_demo"
+path = "examples/loro_correction_demo.rs"

@@ -25,7 +25,10 @@ use crate::live::{
     proactive_message_events, EventFence, LiveEvent, LiveObserver, LiveTurn, ThreadStatus, TurnStatus,
 };
 use crate::machinery::{ContextUsage, MachineryObserver, MachineryRecord};
-use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
+use crate::reprime::{
+    LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest, DEFAULT_LORO_BUDGET_CHARS,
+    DEFAULT_TAIL_TURNS,
+};
 use crate::steering::{ActiveTurn, IntakeRecord, StopClaim, TurnControl};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
@@ -613,9 +616,71 @@ impl Spine {
     }
 
     /// Attach the optional Tier-C seam (continuity §2.3/§4). See `LoroContextCompiler`'s
-    /// doc for the degrade-gracefully contract when this is never called.
+    /// doc for the degrade-gracefully contract when this is never called, and
+    /// `crate::loro::CliContextCompiler` for the shipped implementation.
     pub fn set_loro_context_compiler(&mut self, compiler: Box<dyn LoroContextCompiler>) {
         self.loro_compiler = Some(compiler);
+    }
+
+    pub fn has_loro_context_compiler(&self) -> bool {
+        self.loro_compiler.is_some()
+    }
+
+    /// Record ONE completed, CEO-facing action that the app took outside a turn.
+    ///
+    /// The shell needs this because `ledger()` is deliberately `&Ledger`: the ledger is
+    /// append-only evidence and handing out `&mut` would be one more place a caller could
+    /// write an event the spine knows nothing about. The concrete need is a confirmed loro
+    /// correction — "Rich changed what the company believes" is exactly the class of fact
+    /// the action-ledger digest exists to stop a successor denying from absent memory
+    /// (continuity §2.1 #6, `reprime.rs`'s identity assertion: *"an entry PRESENT is proof
+    /// the action happened"*).
+    ///
+    /// `turn_id: None` is first-class here, not a gap: a correction the CEO confirms in a
+    /// side panel belongs to the THREAD, not to any turn, the same way re-prime machinery
+    /// does (§1.4 G4).
+    pub fn record_ceo_action(&mut self, kind: &str, detail: &str) -> Result<String, SpineError> {
+        Ok(self.ledger.record_action_with(
+            None,
+            kind,
+            detail,
+            ActionVisibility::CeoFacing,
+            ActionStatus::Completed,
+        )?)
+    }
+
+    /// Fill Tier C of a payload whose Tiers A and B are already assembled.
+    ///
+    /// **The ordering is forced, not stylistic.** A slice is always topical
+    /// (`CONTEXT-CONTRACT.md` §1) and the topic is the CEO's current intent, which lives in
+    /// Tier A. So Tier C cannot be assembled inside `RePrimePayload::assemble` alongside
+    /// the rest — it is compiled FROM the rest, here, once, on the one path that then
+    /// renders the prompt.
+    ///
+    /// **No compiler attached leaves `LoroTier::NotWired` and returns.** That is the
+    /// degrade-gracefully contract, and it is what every install with no corpus keeps.
+    ///
+    /// **It cannot fail the rotation.** `compile_slice` has no error arm by construction,
+    /// so there is no `?` to add here, and a memory miss cannot take down a session
+    /// rotation the CEO is not supposed to be able to see.
+    fn fill_loro_tier(&self, payload: &mut RePrimePayload, binding: &ThreadBinding) {
+        let Some(compiler) = self.loro_compiler.as_ref() else { return };
+        // Owned before the mutable borrow below: the topic is borrowed OUT of the payload
+        // we are about to write to.
+        let Some(topic) = payload.topic().map(str::to_string) else {
+            payload.loro = LoroTier::Unavailable(
+                "no topic — this thread holds nothing the CEO has said, and there is no such thing                  as a topic-less slice"
+                    .into(),
+            );
+            return;
+        };
+        let req = SliceRequest {
+            thread_id: binding.thread_id(),
+            entity_id: binding.entity_id().as_str(),
+            topic: &topic,
+            budget_chars: DEFAULT_LORO_BUDGET_CHARS,
+        };
+        payload.loro = compiler.compile_slice(&req);
     }
 
     /// Override the context-window watermark budget (continuity §8 Q2). `window_tokens`
@@ -1847,11 +1912,7 @@ impl Spine {
         // conversation so far actually belongs to. Never a directory picked by mtime.
         let mut payload =
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
-        if let Some(compiler) = self.loro_compiler.as_ref() {
-            if let Ok(slice) = compiler.compile_slice(thread_id) {
-                payload.loro_slice = Some(slice);
-            }
-        }
+        self.fill_loro_tier(&mut payload, binding);
         let priming = payload.to_priming_prompt();
         // Durable but NEVER rendered — same Internal-turn discipline as first-attach priming.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime:rotation]", Source::Internal);
@@ -1965,11 +2026,7 @@ impl Spine {
         // conversation so far actually belongs to. Never a directory picked by mtime.
         let mut payload =
             RePrimePayload::assemble(&self.ledger, binding, DEFAULT_TAIL_TURNS, self.lease_session_id())?;
-        if let Some(compiler) = self.loro_compiler.as_ref() {
-            if let Ok(slice) = compiler.compile_slice(thread_id) {
-                payload.loro_slice = Some(slice);
-            }
-        }
+        self.fill_loro_tier(&mut payload, binding);
         let priming = payload.to_priming_prompt();
         // Record the priming as an Internal turn so it is durable but NEVER rendered.
         let _ = self.ledger.record_prompt_received(binding, "[re-prime]", Source::Internal);

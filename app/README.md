@@ -45,6 +45,8 @@ app/
                               path to a webview is view(mode), which drops what the mode may
                               not see and removes the technical detail it may not read)
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
+    src/loro.rs              the Tier-C seam IMPLEMENTED: compile a slice, re-assert its lane
+    src/correction.rs        the loro WRITE loop: propose, ASK the CEO, then write
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
     src/machinery.rs         the SECOND event family: every non-text ACP update, routed not
@@ -351,6 +353,37 @@ derivation as an unsupported extension, so it cannot recur silently.
 - `RICHOS_ACP_DEBUG` — if set, adapter stderr is echoed (developer machinery only;
   never reaches the CEO view).
 
+### Company memory (loro) — off unless configured, and never inferred
+
+Tier C of the re-prime payload, plus the correction desk. **All three are explicit; there
+is no default and there cannot be one.** A default corpus root means one owner's Rich
+answering out of another's memory and exiting 0 either way, which is a larger failure than
+an error wearing a success code — so with these unset the app boots, says so on stderr, and
+every re-prime states that company memory was NOT consulted rather than implying there is
+none.
+
+- `LORO_CORPUS` — a provisioned corpus root (`person/` + `companies/<id>/`), **or**
+- `LORO_ROOT` — an in-repo dogfood root (a checkout with `wiki/` + `loro/`). `LORO_CORPUS`
+  wins if both are set.
+- `RICHOS_LORO_DIR` — the loro checkout holding `bin/loro-context.mjs` and
+  `bin/loro-write.mjs`. Deliberately **not** derived from this checkout: RichOS ships no
+  `loro/` directory and never will — the corpus and the vocabulary are the owner's and live
+  outside a repository that gets published.
+- `RICHOS_LORO_LANES` — optional, `entity=lane,entity=lane`. Maps an ECS entity area onto a
+  loro company partition. **Empty by default, and name equality is never a mapping**: an
+  entity with no lane reads the person layer and nothing else, and a slice carrying another
+  company's item is refused whole. This is a map rather than a rule because the corpus
+  layout question is the owner's to answer, and a hard-coded entity-is-a-company would
+  answer it by shipping.
+- `RICHOS_NODE_BIN` — optional; the `node` used to run the two loro entry points.
+
+See it end to end without launching the app:
+
+```bash
+cargo run -p richos-core --example loro_reprime_demo -- "what did we decide about X?"
+cargo run -p richos-core --example loro_correction_demo   # provisions its own throwaway corpus
+```
+
 ## What is proven vs pending
 
 **Proven (live, 2026-08-24):** the ACP round-trip through the full spine — CEO prompt
@@ -461,9 +494,7 @@ half-duplex taint rule stay in force on this desk, and "headphones recommended" 
 honest note. Four reproducible rigs carry the evidence: `aec_rig` (offline), `aec_live`,
 `aec_probe`, `aec_transcribe`.
 
-**Foundation only / later legs:** the loro Tier-C WIRING (the compiler itself now exists
-in `loro/` with a versioned `CONTEXT-CONTRACT.md`; `LoroContextCompiler` in `reprime.rs` is
-still an unwired trait seam), the attention-seam TRIGGER (timers/log-watchers that decide
+**Foundation only / later legs:** the attention-seam TRIGGER (timers/log-watchers that decide
 WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment is not),
 a magnitude-domain echo DETECTOR for the barge-in decision path (the linear canceller has
 landed; this is what would make barge-in work on hardware whose echo path is not linear —

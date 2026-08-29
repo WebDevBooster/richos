@@ -1,0 +1,746 @@
+//! THE READ SEAM, WIRED — company memory reaching a re-prime, and the guard on the way in.
+//!
+//! `reprime.rs` has carried a `LoroContextCompiler` trait since the continuity foundation
+//! landed, and nothing ever implemented it. The compiler itself has been complete and
+//! versioned the whole time, one directory away, behind `loro/CONTEXT-CONTRACT.md`. So
+//! every re-prime asserted a fresh Rich into existence with **no company memory at all**
+//! while the thing that would have supplied it sat there callable. This module is the
+//! implementation, and it is the only place in richos-core that knows loro exists.
+//!
+//! # What crosses the boundary, and what must not
+//!
+//! `richos` GOES PUBLIC. loro's content is the CEO's second brain and is private by
+//! construction — it is not in this repo and never will be. Everything here is *mechanism*:
+//! how to invoke a binary that lives elsewhere, how to parse a documented JSON shape, and
+//! what to refuse. **No corpus content, no corrections, no speech.** The corpus root is
+//! read from the environment at runtime and is never defaulted — `CONTEXT-CONTRACT.md` §1
+//! is explicit that a default root means "a customer's Rich silently answering out of the
+//! VENDOR's company memory, and exiting 0 either way", which it correctly calls a larger
+//! failure than an error, not a smaller one.
+//!
+//! # The read-only invariant is not weakened, and could not be from here
+//!
+//! loro's compiler is read-only by structural proof: `assertNoSideEffects` scans every
+//! module under `loro/lib/**` for a filesystem write (`privacy.js`), which is why a
+//! persistent index cannot live in the compiler at all. Nothing in this file can change
+//! that — it invokes `bin/loro-context.mjs` as a child process and reads stdout. What it
+//! CAN do is smuggle a write in through the same door, so it doesn't: [`CliContextCompiler`]
+//! holds no writer, cannot name one, and a test asserts its argv contains no write verb.
+//! Writing is a different type reaching a different binary (`correction.rs`), and it only
+//! ever runs after the CEO has said yes.
+
+use crate::reprime::{LoroContextCompiler, LoroTier, SliceRequest};
+use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// The slice schema this build understands. `CONTEXT-CONTRACT.md` §2's forward-compat rule:
+/// fields may be ADDED within a version and unknown ones must be ignored (which
+/// `#[serde(default)]` + serde's default of ignoring unknown keys does); a REMOVED or
+/// retyped field bumps this, and *"a consumer that cares should assert
+/// `schemaVersion === 1` and treat anything higher as unsupported — degrade to no slice —
+/// rather than mis-parsing it."* This consumer cares.
+pub const SUPPORTED_SLICE_SCHEMA: u64 = 1;
+
+/// The memory-scope wall this consumer reads at (`CONTEXT-CONTRACT.md` §4). `rich` is the
+/// re-prime's audience by name in the contract's own table — *"Rich is the CEO's own
+/// executive function"* — and it is a constant rather than a setting because widening it is
+/// a privacy decision and narrowing it silently would hide the CEO's own memory from him.
+pub const REPRIME_AUDIENCE: &str = "rich";
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoroError {
+    #[error("loro tools not found: {0}")]
+    ToolsNotFound(String),
+    #[error("loro corpus root not configured: {0}")]
+    NoRoot(String),
+    #[error("loro lane map: {0}")]
+    LaneMap(String),
+}
+
+// ---------------------------------------------------------------------------
+// configuration — all of it explicit, none of it inferred
+// ---------------------------------------------------------------------------
+
+/// Where the CEO's memory is. `CONTEXT-CONTRACT.md` §1: *"There is no fallback."*
+///
+/// Two shapes, and they are not interchangeable. A provisioned [`LoroRoot::Corpus`] is
+/// `person/` + `companies/<id>/` and is the real thing. A [`LoroRoot::Root`] is the in-repo
+/// dogfood layout (`wiki/` + `loro/`) and the slice it produces SAYS SO, carrying
+/// `corpus.layout: "repo"` and a note naming it as RichOS's own memory — because, as the
+/// contract puts it, the wrong company's memory is byte-honest too and only provenance
+/// distinguishes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoroRoot {
+    Corpus(PathBuf),
+    Root(PathBuf),
+}
+
+impl LoroRoot {
+    /// Resolve from the environment in the contract's own precedence order: `LORO_CORPUS`,
+    /// then `LORO_ROOT`. `None` is a legitimate, common state — an install with no corpus —
+    /// and it produces [`LoroTier::NotWired`], never a guess.
+    pub fn from_env() -> Option<Self> {
+        if let Ok(v) = std::env::var("LORO_CORPUS") {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(LoroRoot::Corpus(PathBuf::from(v)));
+            }
+        }
+        if let Ok(v) = std::env::var("LORO_ROOT") {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(LoroRoot::Root(PathBuf::from(v)));
+            }
+        }
+        None
+    }
+
+    /// The two CLI arguments naming this root.
+    pub fn args(&self) -> (&'static str, &Path) {
+        match self {
+            LoroRoot::Corpus(p) => ("--corpus", p.as_path()),
+            LoroRoot::Root(p) => ("--root", p.as_path()),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        match self {
+            LoroRoot::Corpus(p) | LoroRoot::Root(p) => p.as_path(),
+        }
+    }
+}
+
+/// The loro checkout holding `bin/loro-context.mjs` and `bin/loro-write.mjs`.
+///
+/// **Deliberately not inferred from this checkout.** richos has no `loro/` directory and
+/// never has — the vocabulary and the corpus are the CEO's and live outside a repo that
+/// goes public, which is exactly the trap the transcription E2E fell into on 2026-08-29
+/// (open-items 3.3e: a precondition a clean checkout can never satisfy). `RICHOS_LORO_DIR`
+/// names it, or nothing does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoroTools {
+    dir: PathBuf,
+    node: String,
+}
+
+impl LoroTools {
+    /// Verify that `dir` really is a loro checkout — BOTH entry points present. A directory
+    /// that exists but holds neither is the failure that would otherwise surface as a
+    /// non-zero exit on every compile, once per rotation, forever.
+    pub fn locate(dir: impl AsRef<Path>) -> Result<Self, LoroError> {
+        let dir = dir.as_ref().to_path_buf();
+        let ctx = dir.join("bin").join("loro-context.mjs");
+        let wri = dir.join("bin").join("loro-write.mjs");
+        if !ctx.is_file() {
+            return Err(LoroError::ToolsNotFound(format!("{} is not a file", ctx.display())));
+        }
+        if !wri.is_file() {
+            return Err(LoroError::ToolsNotFound(format!("{} is not a file", wri.display())));
+        }
+        let node = std::env::var("RICHOS_NODE_BIN").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| "node".into());
+        Ok(LoroTools { dir, node })
+    }
+
+    pub fn from_env() -> Option<Result<Self, LoroError>> {
+        let v = std::env::var("RICHOS_LORO_DIR").ok()?;
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            return None;
+        }
+        Some(LoroTools::locate(v))
+    }
+
+    pub fn context_bin(&self) -> PathBuf {
+        self.dir.join("bin").join("loro-context.mjs")
+    }
+
+    pub fn write_bin(&self) -> PathBuf {
+        self.dir.join("bin").join("loro-write.mjs")
+    }
+
+    pub fn node(&self) -> &str {
+        &self.node
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+}
+
+/// ENTITY → loro company lane, stated by an operator and never guessed.
+///
+/// # Why this is a map and not `entity_id == company_id`
+///
+/// Because name equality is an inference, and this is the one place an inference costs the
+/// most. The re-prime's own identity assertion tells the successor *"do not assume, infer or
+/// carry over anything from another entity area, however related a name looks"*; a compiler
+/// that binds an entity to a loro partition because the two strings match is doing precisely
+/// the thing the sentence forbids, one layer down, in the payload that carries the sentence.
+///
+/// # And why it does not settle CEO decision 1.6
+///
+/// `loro-structure.md`'s "one loro, two homes" — the person layer plus N company partitions
+/// — is READY-FOR-CEO and unratified (open-items 1.6). Shipping a hard-coded
+/// entity-is-a-company rule would ratify it in code while the register still says OPEN. A
+/// map that an operator fills in, and that is EMPTY by default, asserts nothing about the
+/// layout: with no mapping the seam refuses to narrow and says why, which is the honest
+/// fallback rather than a smaller version of a decision that has not been taken.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LaneMap(BTreeMap<String, String>);
+
+impl LaneMap {
+    /// Parse `entity=lane,entity=lane`. An entry with an empty half is a usage error, not a
+    /// silently-dropped mapping — a typo that quietly maps nothing would look exactly like
+    /// a working configuration until the day it mattered.
+    pub fn parse(spec: &str) -> Result<Self, LoroError> {
+        let mut map = BTreeMap::new();
+        for pair in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let Some((entity, lane)) = pair.split_once('=') else {
+                return Err(LoroError::LaneMap(format!("{pair:?} is not entity=lane")));
+            };
+            let (entity, lane) = (entity.trim(), lane.trim());
+            if entity.is_empty() || lane.is_empty() {
+                return Err(LoroError::LaneMap(format!("{pair:?} has an empty half")));
+            }
+            if map.insert(entity.to_string(), lane.to_string()).is_some() {
+                return Err(LoroError::LaneMap(format!("entity {entity:?} is mapped twice")));
+            }
+        }
+        Ok(LaneMap(map))
+    }
+
+    pub fn from_env() -> Result<Self, LoroError> {
+        match std::env::var("RICHOS_LORO_LANES") {
+            Ok(v) if !v.trim().is_empty() => LaneMap::parse(&v),
+            _ => Ok(LaneMap::default()),
+        }
+    }
+
+    pub fn lane_for(&self, entity_id: &str) -> Option<&str> {
+        self.0.get(entity_id).map(String::as_str)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// the slice — the documented shape, and only the documented shape
+// ---------------------------------------------------------------------------
+
+/// The compiled slice, parsed down to the fields `CONTEXT-CONTRACT.md` §2 promises.
+///
+/// Everything is `#[serde(default)]` and unknown keys are ignored, which is §2's
+/// forward-compatibility rule as code: within `schemaVersion: 1` fields may be added, and a
+/// consumer that breaks on a new field is a consumer that breaks on the next ranking
+/// improvement.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Slice {
+    #[serde(default)]
+    pub schema_version: u64,
+    #[serde(default)]
+    pub compiler: String,
+    #[serde(default)]
+    pub thin: bool,
+    #[serde(default)]
+    pub coverage: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub items: Vec<SliceItem>,
+    #[serde(default)]
+    pub corpus: SliceCorpus,
+    #[serde(default)]
+    pub budget: SliceBudget,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SliceItem {
+    #[serde(default)]
+    pub r#ref: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub scope: String,
+    /// The item's LANE. `null` is the person layer — `CONTEXT-CONTRACT.md` §6c calls that
+    /// "a legitimate permanent state, not an error".
+    #[serde(default)]
+    pub company: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceCorpus {
+    #[serde(default)]
+    pub record_count: u64,
+    #[serde(default)]
+    pub fingerprint: String,
+    #[serde(default)]
+    pub layout: String,
+    #[serde(default)]
+    pub root_source: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceBudget {
+    #[serde(default)]
+    pub chars: usize,
+    #[serde(default)]
+    pub used_chars: usize,
+    #[serde(default)]
+    pub items_included: usize,
+    #[serde(default)]
+    pub withheld_by_scope: usize,
+}
+
+/// An item in a compiled slice that belongs to a lane this thread is not entitled to read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignLane {
+    pub item_ref: String,
+    pub found: String,
+    pub expected: Option<String>,
+}
+
+impl Slice {
+    /// **The cross-entity re-assertion, run on the FINISHED artifact.**
+    ///
+    /// The same posture loro takes on its own privacy wall — `CONTEXT-CONTRACT.md` §4:
+    /// *"compile filters before ranking and re-asserts on the finished slice"* — applied on
+    /// this side of the boundary, because a re-prime is the highest-leverage cross-entity
+    /// leak in the app (`reprime.rs`: whatever lands there is asserted to a fresh session as
+    /// authoritative).
+    ///
+    /// `expected` is the lane this thread's entity is mapped to, or `None` for a corpus with
+    /// no partitions at all. Person-layer items (`company: null`) are always allowed: ECS
+    /// §3.5's default read set is *"the person layer plus the active entity"*, and
+    /// `loro-structure.md` says the same in loro's own words.
+    ///
+    /// A violation returns the offending item rather than filtering it. **Filtering would be
+    /// worse than useless here**: `items` is only a description of what is in `text`, and
+    /// `text` is the string that gets injected — dropping the row would leave the foreign
+    /// company's memory in the prompt and remove the only evidence that it was there.
+    pub fn foreign_lane(&self, expected: Option<&str>) -> Option<ForeignLane> {
+        self.items.iter().find_map(|item| match item.company.as_deref() {
+            None => None,
+            Some(found) if Some(found) == expected => None,
+            Some(found) => Some(ForeignLane {
+                item_ref: item.r#ref.clone(),
+                found: found.to_string(),
+                expected: expected.map(str::to_string),
+            }),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// the compiler
+// ---------------------------------------------------------------------------
+
+/// The shipped [`LoroContextCompiler`]: invokes `loro-context.mjs compile` and maps its
+/// documented exit codes onto the four [`LoroTier`] states.
+///
+/// The mapping is `CONTEXT-CONTRACT.md` §3's own table, with one addition the contract
+/// leaves to the caller:
+///
+/// | | contract | here |
+/// |---|---|---|
+/// | exit 0, `!thin` | use the slice | [`LoroTier::Slice`] — after the lane re-assertion |
+/// | exit 0, `thin` | no slice | [`LoroTier::NothingRecorded`], carrying loro's OWN honest line |
+/// | exit != 0 | no slice, never fail the turn | [`LoroTier::Unavailable`], carrying the code |
+///
+/// The contract maps a thin slice to "no slice, keep today's pull-loro-live line". That is
+/// right about the injectable text and wrong about the honesty: a checked "loro holds
+/// nothing on this" and an unconsulted loro are different facts and this build keeps them
+/// different (see [`LoroTier`]). loro already writes the correct sentence for the first case
+/// — §5 — so the fix is to inject its sentence rather than to invent one.
+pub struct CliContextCompiler {
+    tools: LoroTools,
+    root: LoroRoot,
+    lanes: LaneMap,
+    audience: String,
+}
+
+impl CliContextCompiler {
+    pub fn new(tools: LoroTools, root: LoroRoot, lanes: LaneMap) -> Self {
+        CliContextCompiler { tools, root, lanes, audience: REPRIME_AUDIENCE.to_string() }
+    }
+
+    /// Build from the environment, or explain why not. `Ok(None)` = nothing configured,
+    /// which is the ordinary state of an install with no corpus and is not an error.
+    pub fn from_env() -> Result<Option<Self>, LoroError> {
+        let Some(root) = LoroRoot::from_env() else { return Ok(None) };
+        let Some(tools) = LoroTools::from_env() else {
+            return Err(LoroError::ToolsNotFound(
+                "a corpus root is configured but RICHOS_LORO_DIR is not — richos ships no loro/ \
+                 directory, so the tools cannot be inferred from this checkout"
+                    .into(),
+            ));
+        };
+        Ok(Some(CliContextCompiler::new(tools?, root, LaneMap::from_env()?)))
+    }
+
+    pub fn root(&self) -> &LoroRoot {
+        &self.root
+    }
+
+    pub fn lanes(&self) -> &LaneMap {
+        &self.lanes
+    }
+
+    /// The argv for one compile, exposed so a test can assert what this type is capable of
+    /// asking for — in particular that it names the READ entry point and carries no write
+    /// verb (see the module doc).
+    pub fn argv(&self, req: &SliceRequest<'_>) -> Vec<String> {
+        let (root_flag, root_path) = self.root.args();
+        let mut argv = vec![
+            self.tools.context_bin().display().to_string(),
+            "compile".into(),
+            root_flag.into(),
+            root_path.display().to_string(),
+            // §1: the topic is multi-line natural language and "must not go through shell
+            // quoting" — stdin, not a flag. Command does not use a shell, but the contract's
+            // own instruction for Rust callers is --topic-stdin and it costs nothing to obey.
+            "--topic-stdin".into(),
+            "--budget-chars".into(),
+            req.budget_chars.to_string(),
+            "--audience".into(),
+            self.audience.clone(),
+            "--format".into(),
+            "json".into(),
+        ];
+        if let Some(lane) = self.lanes.lane_for(req.entity_id) {
+            argv.push("--company".into());
+            argv.push(lane.to_string());
+        }
+        argv
+    }
+
+    fn run(&self, req: &SliceRequest<'_>) -> LoroTier {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let argv = self.argv(req);
+        let mut child = match Command::new(self.tools.node())
+            .args(&argv)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return LoroTier::Unavailable(format!("could not start the loro compiler: {e}")),
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            // A broken pipe here is not fatal on its own — the exit code below decides.
+            let _ = stdin.write_all(req.topic.as_bytes());
+        }
+        let out = match child.wait_with_output() {
+            Ok(o) => o,
+            Err(e) => return LoroTier::Unavailable(format!("the loro compiler did not complete: {e}")),
+        };
+        if !out.status.success() {
+            let code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into());
+            let why = String::from_utf8_lossy(&out.stderr);
+            let why = why.lines().next().unwrap_or("").trim();
+            return LoroTier::Unavailable(format!("the loro compiler exited {code}: {why}"));
+        }
+        self.interpret(&String::from_utf8_lossy(&out.stdout), req)
+    }
+
+    /// Parse + judge one compiler stdout. Split out from [`Self::run`] so every branch is
+    /// testable without a corpus, a child process or a byte of the CEO's memory.
+    pub fn interpret(&self, stdout: &str, req: &SliceRequest<'_>) -> LoroTier {
+        let slice: Slice = match serde_json::from_str(stdout) {
+            Ok(s) => s,
+            Err(e) => return LoroTier::Unavailable(format!("the loro slice did not parse: {e}")),
+        };
+        if slice.schema_version != SUPPORTED_SLICE_SCHEMA {
+            // §2: assert the version and treat anything else as unsupported rather than
+            // mis-parsing it. Mis-parsing a memory slice does not fail loudly — it injects
+            // subtly wrong company memory under a header calling it authoritative.
+            return LoroTier::Unavailable(format!(
+                "slice schemaVersion {} is not supported (this build reads {SUPPORTED_SLICE_SCHEMA})",
+                slice.schema_version
+            ));
+        }
+        // THE LANE RE-ASSERTION. Before anything is injected, and before `thin` is even
+        // consulted — a thin slice cannot carry a foreign item, but the guard must not
+        // depend on that being true tomorrow.
+        let expected = self.lanes.lane_for(req.entity_id);
+        if let Some(bad) = slice.foreign_lane(expected) {
+            return LoroTier::Unavailable(format!(
+                "the compiled slice carried company {:?} memory ({}) into entity {:?}{} — refused \
+                 whole rather than filtered, because `items` only describes what is already in \
+                 `text`",
+                bad.found,
+                bad.item_ref,
+                req.entity_id,
+                match &bad.expected {
+                    Some(lane) => format!(", whose lane is {lane:?}"),
+                    None => ", which is mapped to no lane".into(),
+                }
+            ));
+        }
+        // §7 guarantee 1 — `text.length <= budgetChars`, at every budget. Verified rather
+        // than trusted: this string goes into a prompt the CEO is billed for on every
+        // rotation, and the guarantee is cheap to check and expensive to assume.
+        if slice.text.chars().count() > req.budget_chars {
+            return LoroTier::Unavailable(format!(
+                "the slice broke its own budget guarantee: {} chars against a {}-char cap",
+                slice.text.chars().count(),
+                req.budget_chars
+            ));
+        }
+        if slice.thin || slice.text.trim().is_empty() {
+            // §5: loro's own thin line already says the honest thing, ending "Do not assume
+            // company facts — ask the CEO or check a live system." Injecting that sentence
+            // IS the empty-corpus answer. A blank text with thin unset would be a compiler
+            // defect, so it degrades to the same honest state rather than to silence.
+            let text = if slice.text.trim().is_empty() {
+                format!(
+                    "COMPANY MEMORY (loro): nothing recorded bears on \"{}\". Do not assume company \
+                     facts — ask the CEO or check a live system.",
+                    req.topic
+                )
+            } else {
+                slice.text.clone()
+            };
+            return LoroTier::NothingRecorded(text);
+        }
+        LoroTier::Slice(slice.text)
+    }
+}
+
+impl LoroContextCompiler for CliContextCompiler {
+    fn compile_slice(&self, req: &SliceRequest<'_>) -> LoroTier {
+        if req.topic.trim().is_empty() {
+            // §1: "A slice is always TOPICAL — there is no compile all of loro." An empty
+            // topic is a caller bug, and asking anyway would exit 2 on every rotation.
+            return LoroTier::Unavailable("no topic — the thread has nothing the CEO has said yet".into());
+        }
+        self.run(req)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req<'a>(entity: &'a str, topic: &'a str) -> SliceRequest<'a> {
+        SliceRequest { thread_id: "t1", entity_id: entity, topic, budget_chars: 1200 }
+    }
+
+    fn compiler(lanes: &str) -> CliContextCompiler {
+        CliContextCompiler::new(
+            LoroTools { dir: PathBuf::from("/nowhere/loro"), node: "node".into() },
+            LoroRoot::Corpus(PathBuf::from("/nowhere/corpus")),
+            LaneMap::parse(lanes).unwrap(),
+        )
+    }
+
+    fn slice_json(items: &str, thin: bool, text: &str) -> String {
+        format!(
+            r#"{{"schemaVersion":1,"compiler":"loro-context-compiler/1.2.0","thin":{thin},
+                "coverage":"direct","text":{text:?},"items":[{items}],
+                "corpus":{{"recordCount":3,"fingerprint":"sha256:abc","layout":"corpus","rootSource":"--corpus"}},
+                "budget":{{"chars":1200,"usedChars":10,"itemsIncluded":1,"withheldByScope":0}},
+                "notes":[]}}"#
+        )
+    }
+
+    #[test]
+    fn a_lane_map_is_explicit_and_a_typo_is_refused_rather_than_dropped() {
+        let m = LaneMap::parse("femcboost=fb, richos=richos").unwrap();
+        assert_eq!(m.lane_for("femcboost"), Some("fb"));
+        assert_eq!(m.lane_for("richos"), Some("richos"));
+        // Name equality is NOT a mapping. "deeply" is unmapped even though a `deeply`
+        // partition might well exist — inferring it is the thing this type refuses to do.
+        assert_eq!(m.lane_for("deeply"), None);
+        assert!(LaneMap::parse("femcboost").is_err());
+        assert!(LaneMap::parse("femcboost=").is_err());
+        assert!(LaneMap::parse("=fb").is_err());
+        assert!(LaneMap::parse("a=1,a=2").is_err(), "a doubly-mapped entity is ambiguous, not last-wins");
+        assert!(LaneMap::parse("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_compilers_argv_names_the_read_entry_point_and_carries_no_write_verb() {
+        // The module's structural claim, asserted rather than promised: this type cannot
+        // reach the writer, so wiring the read seam creates no write path through it.
+        let c = compiler("femcboost=fb");
+        let argv = c.argv(&req("femcboost", "how does pricing work"));
+        assert!(argv[0].ends_with("bin/loro-context.mjs"), "{argv:?}");
+        assert!(!argv.iter().any(|a| a.contains("loro-write")), "{argv:?}");
+        for verb in ["append", "supersede", "correct", "create-company"] {
+            assert!(!argv.iter().any(|a| a == verb), "argv must carry no write verb, found {verb}: {argv:?}");
+        }
+        assert!(argv.contains(&"--topic-stdin".to_string()), "the topic never goes through shell quoting");
+        assert_eq!(argv.iter().filter(|a| *a == "--audience").count(), 1);
+        assert!(argv.contains(&"rich".to_string()));
+        // The mapped entity narrows to its lane...
+        assert_eq!(argv.iter().position(|a| a == "--company").map(|i| argv[i + 1].clone()), Some("fb".into()));
+        // ...and an UNMAPPED one never widens to "every company" by omission-plus-default.
+        // It sends no --company at all, and the lane re-assertion below is what catches
+        // anything the corpus then hands back.
+        let wide = c.argv(&req("prospects", "how does pricing work"));
+        assert!(!wide.contains(&"--company".to_string()), "{wide:?}");
+    }
+
+    #[test]
+    fn a_slice_with_content_is_injected_verbatim() {
+        let c = compiler("femcboost=fb");
+        let json = slice_json(r#"{"ref":"rec:x","kind":"decision","title":"t","scope":"org-shared","company":"fb"}"#, false, "COMPANY MEMORY (loro) — bearing on: \"pricing\"\n• [decision] per seat");
+        match c.interpret(&json, &req("femcboost", "pricing")) {
+            LoroTier::Slice(t) => {
+                assert!(t.starts_with("COMPANY MEMORY (loro)"), "{t}");
+                assert!(!t.contains("RELEVANT COMPANY MEMORY"), "the heading must not be doubled");
+            }
+            other => panic!("expected a slice, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_person_layer_is_always_readable_because_ecs_says_it_is_in_the_default_read_set() {
+        let c = compiler("femcboost=fb");
+        let json = slice_json(r#"{"ref":"rec:p","kind":"principle","title":"t","scope":"ceo-private","company":null}"#, false, "COMPANY MEMORY (loro) — bearing on: \"x\"\n• [principle] p");
+        assert!(c.interpret(&json, &req("femcboost", "x")).is_slice());
+        // ...and it is readable from an entity that is mapped to no lane at all, which is
+        // what makes an unratified decision 1.6 survivable rather than blocking.
+        assert!(c.interpret(&json, &req("prospects", "x")).is_slice());
+    }
+
+    // ---- THE CROSS-ENTITY NEGATIVE CONTROL -------------------------------
+    //
+    // Remove the `foreign_lane` check in `interpret` and this test fails: the slice is
+    // well-formed, exit 0, non-thin, inside budget, and carries another company's memory.
+
+    #[test]
+    fn a_slice_carrying_another_companys_memory_is_refused_whole() {
+        let c = compiler("femcboost=fb,richos=rx");
+        let json = slice_json(
+            r#"{"ref":"rec:companies/rx/records/margin","kind":"decision","title":"margins","scope":"org-shared","company":"rx"}"#,
+            false,
+            "COMPANY MEMORY (loro) — bearing on: \"pricing\"\n• [decision] rx margins are 40%",
+        );
+        match c.interpret(&json, &req("femcboost", "pricing")) {
+            LoroTier::Unavailable(why) => {
+                assert!(why.contains("\"rx\""), "{why}");
+                assert!(why.contains("rec:companies/rx/records/margin"), "{why}");
+                assert!(why.contains("femcboost"), "{why}");
+            }
+            other => panic!("a cross-entity slice must be REFUSED, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unmapped_entity_refuses_every_company_item_rather_than_accepting_all_of_them() {
+        // The failure mode this guards: "no lane configured" must not read as "no
+        // restriction". An unmapped entity may read the person layer and nothing else.
+        let c = compiler("");
+        let json = slice_json(
+            r#"{"ref":"rec:companies/anything/records/x","kind":"fact","title":"t","scope":"org-shared","company":"anything"}"#,
+            false,
+            "COMPANY MEMORY (loro) — bearing on: \"x\"\n• [fact] t",
+        );
+        match c.interpret(&json, &req("femcboost", "x")) {
+            LoroTier::Unavailable(why) => assert!(why.contains("mapped to no lane"), "{why}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_corpus_yields_loros_own_honest_line_and_never_a_fabricated_slice() {
+        let c = compiler("femcboost=fb");
+        let thin = "COMPANY MEMORY (loro): nothing recorded bears on \"pricing\". Do not assume company facts — ask the CEO or check a live system.";
+        let json = slice_json("", true, thin);
+        match c.interpret(&json, &req("femcboost", "pricing")) {
+            LoroTier::NothingRecorded(t) => {
+                assert_eq!(t, thin);
+                assert!(t.contains("Do not assume company facts"));
+            }
+            other => panic!("expected NothingRecorded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_thin_slice_with_no_text_still_says_something_honest_rather_than_falling_silent() {
+        let c = compiler("femcboost=fb");
+        match c.interpret(&slice_json("", true, ""), &req("femcboost", "pricing")) {
+            LoroTier::NothingRecorded(t) => assert!(t.contains("nothing recorded bears on \"pricing\"")),
+            other => panic!("expected NothingRecorded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unsupported_schema_version_degrades_rather_than_mis_parsing() {
+        let c = compiler("femcboost=fb");
+        let json = slice_json("", false, "text").replace("\"schemaVersion\":1", "\"schemaVersion\":2");
+        match c.interpret(&json, &req("femcboost", "x")) {
+            LoroTier::Unavailable(why) => assert!(why.contains("schemaVersion 2"), "{why}"),
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_slice_over_its_own_budget_is_refused_because_the_ceo_pays_for_this_string() {
+        let c = compiler("femcboost=fb");
+        let long = "x".repeat(1201);
+        let json = slice_json(r#"{"ref":"r","kind":"fact","title":"t","scope":"org-shared","company":null}"#, false, &long);
+        match c.interpret(&json, &req("femcboost", "x")) {
+            LoroTier::Unavailable(why) => assert!(why.contains("1201 chars against a 1200-char cap"), "{why}"),
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored_so_a_ranking_change_does_not_break_this_consumer() {
+        // §2's forward-compatibility rule, exercised: 1.2.0 ADDED five fields inside
+        // schemaVersion 1, and the next ranker may add more.
+        let c = compiler("femcboost=fb");
+        let json = slice_json(r#"{"ref":"r","kind":"fact","title":"t","scope":"org-shared","company":null,"somethingNew":42}"#, false, "COMPANY MEMORY (loro) — bearing on: \"x\"\n• [fact] t")
+            .replace("\"notes\":[]", "\"notes\":[],\"laneDiagnostics\":{\"whatever\":true}");
+        assert!(c.interpret(&json, &req("femcboost", "x")).is_slice());
+    }
+
+    #[test]
+    fn unparseable_stdout_never_fails_the_turn() {
+        let c = compiler("femcboost=fb");
+        assert!(matches!(c.interpret("not json at all", &req("femcboost", "x")), LoroTier::Unavailable(_)));
+    }
+
+    #[test]
+    fn an_empty_topic_is_refused_before_a_process_is_ever_started() {
+        // Not a corpus question — a caller bug. Asking anyway exits 2 on every rotation.
+        let c = compiler("femcboost=fb");
+        match c.compile_slice(&req("femcboost", "   ")) {
+            LoroTier::Unavailable(why) => assert!(why.contains("no topic"), "{why}"),
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tools_must_hold_both_entry_points_or_they_are_not_a_loro_checkout() {
+        let dir = std::env::temp_dir().join(format!("loro-tools-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        assert!(LoroTools::locate(&dir).is_err(), "an empty bin/ is not a loro checkout");
+        std::fs::write(dir.join("bin").join("loro-context.mjs"), "//").unwrap();
+        assert!(LoroTools::locate(&dir).is_err(), "the read half alone is not enough to be sure");
+        std::fs::write(dir.join("bin").join("loro-write.mjs"), "//").unwrap();
+        assert!(LoroTools::locate(&dir).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -13,6 +13,10 @@
 //!   - `cognition` — the swappable compute-lease seam (+ a test mock).
 //!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
+//!   - `loro`      — the Tier-C READ seam, implemented: company memory compiled into a
+//!                   re-prime, with the cross-entity lane re-assertion on the finished slice.
+//!   - `correction` — the loro WRITE loop: propose, ASK the CEO, then write. Never the
+//!                   other order — ceo-decisions.md §7, enforced by the state machine.
 //!   - `steering`  — the CEO's two mid-turn controls (UX §9.2/§9.3): the durable intake
 //!                   log and the cancel seam, both reachable WITHOUT the spine lock.
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
@@ -31,10 +35,12 @@
 
 pub mod acp;
 pub mod cognition;
+pub mod correction;
 pub mod config;
 pub mod entity;
 pub mod journal;
 pub mod ledger;
+pub mod loro;
 pub mod live;
 pub mod machinery;
 pub mod reprime;
@@ -61,7 +67,12 @@ pub use live::{
     EVENT_TURN_STATUS, STREAMED_MESSAGE_PHASE,
 };
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
-pub use reprime::{LoroContextCompiler, RePrimePayload};
+pub use correction::{
+    CliLoroWriter, CorrectionDesk, CorrectionError, LoroWriteBackend, Proposal, ProposalState,
+    ProposedWrite, WriteOutput,
+};
+pub use loro::{CliContextCompiler, LaneMap, LoroError, LoroRoot, LoroTools, Slice};
+pub use reprime::{LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest};
 pub use spine::{Spine, SpineError, WorkerEventsSource};
 pub use steering::{
     ActiveTurn, IntakeLog, IntakeRecord, SteeringError, StopClaim, StopOutcome, TurnCancel, TurnControl,
