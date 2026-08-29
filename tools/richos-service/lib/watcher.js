@@ -18,7 +18,44 @@ import { reconcilePipeline } from './reconcile.js';
 import { runPipeline, readRecord, audioBytesOnDisk, ARTIFACTS } from './pipeline.js';
 import { hasUsableAudio } from './contract.js';
 import { dropZone } from './config.js';
+import { sweepRetention, TEXT_RETENTION_DAYS, TEXT_RETENTION_RECORDS } from './dictation-store.js';
 import { log } from './log.js';
+
+/**
+ * How often the dictation journal's retention policy is enforced. Hourly, not per sweep: the drop
+ * zone is swept every few seconds and a retention pass that ran that often would be reading the
+ * whole journal directory hundreds of times an hour to delete nothing.
+ */
+const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Enforce the dictation journal's retention posture (`lib/dictation-store.js`).
+ *
+ * THIS IS THE ONLY THING THAT DELETES FROM THE JOURNAL, and that is the point. open-wispr APPENDS —
+ * one JSON line per dictation, never a rewrite — and this long-running service SWEEPS. One writer,
+ * one sweeper, and neither edits what the other wrote, so eviction stays an `unlink` of a whole day
+ * file rather than a rewrite of the CEO's speech.
+ *
+ * A deletion of his speech is never silent: every pass that removes anything says what it removed
+ * and why.
+ */
+export function sweepDictationRetention(opts = {}) {
+  try {
+    const r = sweepRetention({ ...opts, dryRun: false });
+    if (r.evictDays.length || r.evictAudio.length) {
+      log.info(
+        `dictation journal: evicted ${r.evictedRecords} record(s) in ${r.evictDays.length} day file(s) `
+        + `and ${r.evictAudio.length} audio file(s) (${r.evictedAudioBytes} bytes) — `
+        + `policy ${TEXT_RETENTION_DAYS} days OR ${TEXT_RETENTION_RECORDS} records`,
+      );
+    }
+    return r;
+  } catch (err) {
+    // A journal that cannot be swept is a disk-space problem, never a reason to stop transcribing.
+    log.error(`dictation retention sweep failed: ${String(err.message || err)}`);
+    return null;
+  }
+}
 
 function sessionDirs(zone) {
   if (!fs.existsSync(zone)) return [];
@@ -118,6 +155,14 @@ export function watch(opts = {}) {
 
   sweep();
   const timer = setInterval(sweep, intervalMs);
+  // The dictation journal's retention posture, enforced by the process that is already running
+  // continuously. Once at startup so a long-stopped service catches up the moment it comes back,
+  // then hourly.
+  sweepDictationRetention(opts.journalRoot ? { root: opts.journalRoot } : {});
+  const retentionTimer = setInterval(
+    () => sweepDictationRetention(opts.journalRoot ? { root: opts.journalRoot } : {}),
+    opts.retentionIntervalMs || RETENTION_INTERVAL_MS,
+  );
   let watcher = null;
   try {
     watcher = fs.watch(zone, { persistent: true }, () => setTimeout(sweep, 500));
@@ -127,6 +172,7 @@ export function watch(opts = {}) {
   return {
     stop() {
       clearInterval(timer);
+      clearInterval(retentionTimer);
       if (watcher) watcher.close();
     },
   };

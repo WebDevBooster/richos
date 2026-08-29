@@ -1,0 +1,29 @@
+THE CORRECTION FLYWHEEL, TURNED ONCE — what one correction per channel teaches
+model large-v3-turbo   -mc 0   (the shipped pipeline-wide MAX_CONTEXT_TOKENS)
+
+The CEO corrects the FIRST name he sees rendered wrong in each channel, and nothing else.
+Every later occurrence, every other channel and every other mis-spelling is held out.
+
+call-02-corvane-support/me
+  he saw     "Corvain"  where "Corvane" belongs  (Corvane Systems)
+  he fixed   ...identifier so I can look at your Corvain Systems tenant? Thank you. I can see...
+  ASKED      Add "Corvane Systems" to your vocabulary?   [both: spelling 0.714, sound 1]  -> CONFIRMED
+call-03-quilvern-discovery/others
+  he saw     "Quilburn"  where "Quilvern" belongs  (Quilvern Media)
+  he fixed   ...I have about 20 minutes. Right now, Quilburn Media pulls everything into a spreadsheet every...
+  ASKED      Add "Quilvern Media" to your vocabulary?   [both: spelling 0.75, sound 1]  -> CONFIRMED
+call-04-brightmoor-billing/others
+  he saw     "Brightmore"  where "Brightmoor" belongs  (Brightmoor Dental)
+  he fixed   ...long does that approval normally take at Brightmore Dental? I would appreciate that. The last...
+  ASKED      Add "Brightmoor Dental" to your vocabulary?   [both: spelling 0.8, sound 1]  -> CONFIRMED
+
+LEARNED 3 entities -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/entities-r2.json  (version 2026-08-29.2)
+  Corvane Systems  <- ["corvain systems"]
+  Quilvern Media  <- ["quilburn media"]
+  Brightmoor Dental  <- ["brightmore dental"]
+
+APPLIED 7 corrections across all 12 channels -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/large-v3-turbo__mc0__r2
+WER   before 2.47%   after 2.41%
+cased WER   before 3.20%   after 3.15%
+
+written: /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/flywheel-r2.txt

@@ -2,10 +2,10 @@
 #
 # Reproducible build of our open-wispr dictation HUD patch.
 #
-# Clones open-wispr at the audited commit (7ab4e62 = v0.43.0), applies
-# tools/richos-hud/dictation-hud.patch, runs the test suite, builds a
-# release binary, and bundles OpenWispr.app — WITHOUT installing over the
-# CEO's live install or touching the running service. The final swap +
+# Clones open-wispr at the audited commit (7ab4e62 = v0.43.0), applies our
+# patches in order, runs the test suite, builds a release binary, and bundles
+# OpenWispr.app — WITHOUT installing over the CEO's live install or touching
+# the running service. The final swap +
 # service restart is a deliberate manual step (see README.md "Apply"),
 # because it triggers the live permission / paste-at-cursor gates.
 #
@@ -20,10 +20,11 @@ AUDITED_COMMIT="7ab4e62e8f182f3ecc2116e1094a1eb4416a248f"
 REPO="https://github.com/human37/open-wispr.git"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HUD_PATCH="${SCRIPT_DIR}/dictation-hud.patch"
-# Applied ON TOP of the HUD patch, in this order. Keep the order stable — the
-# two-model patch is diffed against the HUD-patched tree.
+# Applied ON TOP of the HUD patch, in this order. Keep the order stable — each
+# patch is diffed against the tree the ones before it produce.
 TWO_MODEL_PATCH="${SCRIPT_DIR}/dictation-two-model.patch"
-PATCHES=("${HUD_PATCH}" "${TWO_MODEL_PATCH}")
+FLYWHEEL_PATCH="${SCRIPT_DIR}/dictation-flywheel.patch"
+PATCHES=("${HUD_PATCH}" "${TWO_MODEL_PATCH}" "${FLYWHEEL_PATCH}")
 WORKDIR="${1:-$(mktemp -d)}"
 SRC="${WORKDIR}/open-wispr"
 

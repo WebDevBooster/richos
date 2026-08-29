@@ -214,6 +214,40 @@ export function correctText(text, entities, opts = {}) {
     }
   }
 
+  // ---- Pass 3: CANONICAL CASING ------------------------------------------------------------------
+  // A name written "Halden freight" in one sentence and "Halden Freight" in the next is TWO
+  // spellings of one name, and cross-window spelling consistency is the thing carried decode context
+  // used to provide and `-mc 0` gave up. Passes 1 and 2 cannot close it by construction: a mangling
+  // that normalizes to its canonical is refused as useless (it carries no information), and the
+  // fuzzy pass skips any span that is ALREADY a correct mention. So a casing difference — which IS a
+  // difference, to every consumer that reads the transcript — survives both. Measured on 12 invented
+  // dictations, casing accounted for 2 of the 3 names the vocabulary otherwise could not make
+  // consistent.
+  //
+  // This is the narrowest possible pass and it rewrites nothing but capitalization:
+  //   - the span must equal a canonical ignoring case, and differ from it in case alone;
+  //   - a single-token canonical must clear the same length floor the fuzzy pass uses and must not
+  //     be an ordinary English word, so a customer called "Rich" never capitalizes "rich history";
+  //   - `caseSensitive: true` opts an entity OUT entirely — that flag is a declaration that the
+  //     casing distinguishes two different things, and this pass must respect it.
+  for (const e of entities) {
+    if (e.caseSensitive === true) continue;
+    const canonNorm = normalizeTerm(e.canonical);
+    if (!canonNorm) continue;
+    const multiToken = canonNorm.includes(' ');
+    if (!multiToken) {
+      if (STOPWORDS.has(canonNorm)) continue;
+      if (canonNorm.length < MIN_FUZZY_CANONICAL_LEN) continue;
+    }
+    const re = phraseRegex(e.canonical);
+    if (!re) continue;
+    out = out.replace(re, (match) => {
+      if (match === e.canonical) return match;
+      corrections.push({ from: match, to: e.canonical, entity: e.canonical, method: 'casing', score: 1 });
+      return e.canonical;
+    });
+  }
+
   return { text: out, corrections };
 }
 

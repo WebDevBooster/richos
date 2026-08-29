@@ -1,0 +1,731 @@
+diff --git a/Sources/OpenWisprLib/AppDelegate.swift b/Sources/OpenWisprLib/AppDelegate.swift
+index fe7ebc2..adad736 100644
+--- a/Sources/OpenWisprLib/AppDelegate.swift
++++ b/Sources/OpenWisprLib/AppDelegate.swift
+@@ -77,6 +77,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+             RecordingStore.deleteAllRecordings()
+         }
+         transcriber = makeTranscriber(for: config)
++        AppDelegate.applyFlywheelSettings(config)
+ 
+         DispatchQueue.main.async {
+             self.statusBar.reprocessHandler = { [weak self] url in
+@@ -228,6 +229,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+         }
+         transcriber = makeTranscriber(for: config)
+         inserter = TextInserter()
++        AppDelegate.applyFlywheelSettings(config)
+ 
+         for m in hotkeyManagers { m.stop() }
+         hotkeyManagers = []
+@@ -278,6 +280,30 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+         print("Config updated: lang=\(config.language) model=\(config.modelSize) hotkey=\(hotkeyDesc)")
+     }
+ 
++    /// Wire the correction flywheel's two switches from config: whether a dictation is journalled
++    /// (the "heard" side) and where the shared vocabulary lives (the corrector). Called on launch and
++    /// on every live config change, from ONE place, so the two can never disagree about which is on.
++    ///
++    /// Both are announced on the service log at the moment they are decided. A silently-off flywheel
++    /// is indistinguishable from a broken one, and this is the only line anybody will have to go on.
++    static func applyFlywheelSettings(_ config: Config) {
++        DictationJournal.enabled = config.dictationJournal?.value ?? true
++        LoroCorrection.servicePath = LoroCorrection.resolveServicePath(configured: config.richosServicePath)
++        let journal = DictationJournal.enabled ? DictationJournal.journalDir.path : "off"
++        let corrector: String
++        if let p = LoroCorrection.servicePath {
++            // Present is not the same as capable: a RichOS checkout older than the flywheel resolves
++            // and runs and has no `correct-text`. Because `correct()` swallows every failure by
++            // design, that state is invisible at the paste — so it is named here instead.
++            corrector = LoroCorrection.supportsCorrection()
++                ? p
++                : "\(p) — installed but has no correct-text; dictation is uncorrected"
++        } else {
++            corrector = "not installed — dictation is uncorrected"
++        }
++        print("Correction flywheel: journal=\(journal) corrector=\(corrector)")
++    }
++
+     private func makeTranscriber(for config: Config) -> Transcriber {
+         let transcriber = Transcriber(
+             modelSize: config.modelSize,
+@@ -352,6 +378,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+         currentRecordingURL = nil
+         statusBar.state = .transcribing
+ 
++        let startedAt = Date()
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self = self else { return }
+             let maxRecordings = Config.effectiveMaxRecordings(self.config.maxRecordings)
+@@ -362,10 +389,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
+             }
+             do {
+                 let raw = try self.transcriber.transcribe(audioURL: audioURL)
+-                let text = (self.config.spokenPunctuation?.value ?? false) ? TextPostProcessor.process(raw) : raw
++                let heard = (self.config.spokenPunctuation?.value ?? false) ? TextPostProcessor.process(raw) : raw
++                // THE SHARED VOCABULARY REACHES DICTATION HERE, and nowhere else. Between the
++                // recogniser and the paste, running the same corrector the call pipeline runs.
++                // It returns `heard` unchanged on any failure, so this line cannot cost a dictation.
++                let text = LoroCorrection.correct(heard)
+                 if maxRecordings > 0 {
+                     RecordingStore.prune(maxCount: maxRecordings)
+                 }
++                // THE HEARD SIDE, MADE DURABLE. Journalled before the paste rather than after, so a
++                // correction the CEO makes in the target app always has its other half on disk —
++                // even if the paste itself fails. Both sides are kept: what the machine heard AND
++                // what actually went out, because the flywheel needs to know the difference.
++                if !text.isEmpty {
++                    DictationJournal.append(DictationJournal.Record(
++                        id: DictationJournal.newID(),
++                        at: Int(Date().timeIntervalSince1970 * 1000),
++                        ms: Int(Date().timeIntervalSince(startedAt) * 1000),
++                        model: self.config.modelSize,
++                        text: heard,
++                        emitted: text,
++                        audio: maxRecordings > 0 ? audioURL.lastPathComponent : nil
++                    ))
++                }
+                 DispatchQueue.main.async {
+                     if !text.isEmpty {
+                         self.lastTranscription = text
+diff --git a/Sources/OpenWisprLib/Config.swift b/Sources/OpenWisprLib/Config.swift
+index fcf7135..7a25cd3 100644
+--- a/Sources/OpenWisprLib/Config.swift
++++ b/Sources/OpenWisprLib/Config.swift
+@@ -26,6 +26,13 @@ public struct Config: Codable {
+     public var toggleMode: FlexBool?
+     public var audioInputDeviceID: UInt32?
+     public var audioInputDeviceUID: String?
++    /// Journal what was heard, so a correction has something to be a correction OF. Default on;
++    /// setting it false returns dictation to the pre-flywheel behaviour of transcribe-paste-forget.
++    /// Retention is not this app's business — it appends, the RichOS local service sweeps.
++    public var dictationJournal: FlexBool?
++    /// Absolute path to `richos-service`'s CLI. When it resolves, a dictation is run through the
++    /// SHARED vocabulary before it is pasted; when it does not, dictation is untouched.
++    public var richosServicePath: String?
+ 
+     public var hotkey: HotkeyConfig {
+         get { hotkeys[0] }
+@@ -61,6 +68,8 @@ public struct Config: Codable {
+         case toggleMode
+         case audioInputDeviceID
+         case audioInputDeviceUID
++        case dictationJournal
++        case richosServicePath
+     }
+ 
+     public init(from decoder: Decoder) throws {
+@@ -86,6 +95,8 @@ public struct Config: Codable {
+         self.toggleMode = try c.decodeIfPresent(FlexBool.self, forKey: .toggleMode)
+         self.audioInputDeviceID = try c.decodeIfPresent(UInt32.self, forKey: .audioInputDeviceID)
+         self.audioInputDeviceUID = try c.decodeIfPresent(String.self, forKey: .audioInputDeviceUID)
++        self.dictationJournal = try c.decodeIfPresent(FlexBool.self, forKey: .dictationJournal)
++        self.richosServicePath = try c.decodeIfPresent(String.self, forKey: .richosServicePath)
+     }
+ 
+     public func encode(to encoder: Encoder) throws {
+@@ -104,6 +115,8 @@ public struct Config: Codable {
+         try c.encodeIfPresent(toggleMode, forKey: .toggleMode)
+         try c.encodeIfPresent(audioInputDeviceID, forKey: .audioInputDeviceID)
+         try c.encodeIfPresent(audioInputDeviceUID, forKey: .audioInputDeviceUID)
++        try c.encodeIfPresent(dictationJournal, forKey: .dictationJournal)
++        try c.encodeIfPresent(richosServicePath, forKey: .richosServicePath)
+     }
+ 
+     public init(
+@@ -119,7 +132,9 @@ public struct Config: Codable {
+         maxRecordings: Int?,
+         toggleMode: FlexBool?,
+         audioInputDeviceID: UInt32? = nil,
+-        audioInputDeviceUID: String? = nil
++        audioInputDeviceUID: String? = nil,
++        dictationJournal: FlexBool? = nil,
++        richosServicePath: String? = nil
+     ) {
+         self.hotkeys = hotkeys.isEmpty
+             ? [HotkeyConfig(keyCode: 63, modifiers: [])]
+@@ -136,6 +151,8 @@ public struct Config: Codable {
+         self.toggleMode = toggleMode
+         self.audioInputDeviceID = audioInputDeviceID
+         self.audioInputDeviceUID = audioInputDeviceUID
++        self.dictationJournal = dictationJournal
++        self.richosServicePath = richosServicePath
+     }
+ 
+     public static let supportedLanguages: [LanguageOption] = [
+diff --git a/Sources/OpenWisprLib/DictationJournal.swift b/Sources/OpenWisprLib/DictationJournal.swift
+new file mode 100644
+index 0000000..02e7b0e
+--- /dev/null
++++ b/Sources/OpenWisprLib/DictationJournal.swift
+@@ -0,0 +1,134 @@
++import Foundation
++
++/// The "heard" side of the RichOS correction flywheel, made durable.
++///
++/// open-wispr transcribes, holds the text in memory for the menu bar's "copy last transcription",
++/// pastes it into whatever field has focus, and forgets. With nothing stored there is nothing to
++/// compare a correction against, and the flywheel described in
++/// `wiki/getting-text-into-richos.md` cannot turn at all. This is the smallest thing that makes it
++/// possible: one JSON line per dictation, appended to a day file.
++///
++/// **This file records everything the CEO dictates, in plaintext, on his own machine.** It is
++/// `ceo-private` by construction and it never leaves the device — nothing here opens a socket. The
++/// retention posture that bounds it is stated and enforced in the RichOS local service
++/// (`tools/richos-service/lib/dictation-store.js`), which is also the only thing that ever DELETES
++/// from this directory:
++///
++///   * **Tier A, the text**: a rolling window, 14 days OR 5,000 records, whichever binds first,
++///     evicted oldest-day-file-first.
++///   * **Tier B, the audio**: OFF by default, because a correction is text against text and the
++///     flywheel never needs the audio. That default is upstream's own (`maxRecordings = 0`) and
++///     this patch does not change it.
++///
++/// **Day files are the unit on purpose**: eviction is then an `unlink` of a whole file, never a
++/// rewrite of the CEO's speech, and this writer only ever APPENDS. One process appends, another
++/// sweeps, and neither edits what the other wrote.
++public enum DictationJournal {
++    /// One dictation. `text` is what the recogniser produced; `emitted` is what was actually pasted,
++    /// which differs when the shared vocabulary corrected a name on the way out. Keeping BOTH is the
++    /// whole point: the flywheel needs to know what the machine heard, not only what reached the app.
++    public struct Record: Codable, Equatable {
++        public let v: Int
++        public let id: String
++        public let at: Int
++        public let ms: Int
++        public let model: String
++        public let text: String
++        public let emitted: String
++        public let corrected: Bool
++        /// Tier B pointer. `nil` whenever audio retention is off, which is the default, and `nil`
++        /// again once a retained recording has aged out — an honest degrade, never a silent blank.
++        public let audio: String?
++
++        public init(
++            id: String,
++            at: Int,
++            ms: Int,
++            model: String,
++            text: String,
++            emitted: String,
++            audio: String?
++        ) {
++            self.v = 1
++            self.id = id
++            self.at = at
++            self.ms = ms
++            self.model = model
++            self.text = text
++            self.emitted = emitted
++            self.corrected = text != emitted
++            self.audio = audio
++        }
++    }
++
++    public static var journalDir = Config.configDir.appendingPathComponent("dictation-journal")
++
++    /// Whether a dictation is journalled at all. Off means the flywheel has no "heard" side and
++    /// cannot turn — which is exactly the state before this patch, and remains one config key away.
++    public static var enabled = true
++
++    static let dayFormatter: DateFormatter = {
++        let f = DateFormatter()
++        f.dateFormat = "yyyy-MM-dd"
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.timeZone = TimeZone(identifier: "UTC")
++        return f
++    }()
++
++    /// `YYYY-MM-DD` in UTC. UTC, not local time, so a day file means the same span of time to the
++    /// service that evicts it as to the app that wrote it — a boundary that moves with the CEO's
++    /// travel would make "14 days" mean two different things at once.
++    public static func dayKey(_ date: Date) -> String {
++        dayFormatter.string(from: date)
++    }
++
++    public static func dayFileURL(_ date: Date = Date()) -> URL {
++        journalDir.appendingPathComponent("\(dayKey(date)).jsonl")
++    }
++
++    /// Encode one record as the single JSONL line it becomes on disk. Pure and separately testable:
++    /// the reader lives in another language, so the line format is a contract, not an implementation
++    /// detail. Sorted keys so a diff of the journal is readable and a test can assert on the bytes.
++    public static func line(for record: Record) throws -> String {
++        let encoder = JSONEncoder()
++        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
++        let data = try encoder.encode(record)
++        guard let json = String(data: data, encoding: .utf8) else {
++            throw NSError(domain: "DictationJournal", code: 1)
++        }
++        return json + "\n"
++    }
++
++    /// Append one dictation to today's file.
++    ///
++    /// **A journal failure must never cost the CEO a dictation.** Every error is reported to the
++    /// service log and swallowed: the paste has already happened or is about to, and a full disk is
++    /// not a reason to lose the sentence he just spoke.
++    @discardableResult
++    public static func append(_ record: Record, at date: Date = Date()) -> Bool {
++        guard enabled else { return false }
++        do {
++            try FileManager.default.createDirectory(at: journalDir, withIntermediateDirectories: true)
++            let url = dayFileURL(date)
++            let data = Data(try line(for: record).utf8)
++            if let handle = try? FileHandle(forWritingTo: url) {
++                defer { try? handle.close() }
++                try handle.seekToEnd()
++                try handle.write(contentsOf: data)
++            } else {
++                try data.write(to: url, options: .atomic)
++            }
++            return true
++        } catch {
++            fputs("Warning: could not journal dictation: \(error.localizedDescription)\n", stderr)
++            return false
++        }
++    }
++
++    /// A short, sortable id for one dictation. Time-prefixed so a human reading the file can find a
++    /// record by when it happened, and suffixed so two dictations in the same second cannot collide.
++    public static func newID(at date: Date = Date()) -> String {
++        let ms = Int(date.timeIntervalSince1970 * 1000)
++        return "d-\(ms)-\(String(UUID().uuidString.prefix(4)).lowercased())"
++    }
++}
+diff --git a/Sources/OpenWisprLib/LoroCorrection.swift b/Sources/OpenWisprLib/LoroCorrection.swift
+new file mode 100644
+index 0000000..48d395a
+--- /dev/null
++++ b/Sources/OpenWisprLib/LoroCorrection.swift
+@@ -0,0 +1,164 @@
++import Foundation
++
++/// The other half of the RichOS correction flywheel: the shared vocabulary reaching DICTATION.
++///
++/// `loro/entities.json` is one shared vocabulary by design and, until this patch, a single-reader
++/// file in fact — only the call-transcription pipeline read it. So a term the CEO taught the system
++/// once was spelled right in his call transcripts and wrong in everything he dictated. This runs the
++/// recognised text through `richos-service correct-text` before it is pasted, which closes that.
++///
++/// **IT SHELLS OUT ON PURPOSE, AND THE ALTERNATIVE WAS WORSE.** The corrector is 240 lines of
++/// carefully guarded matching — curated manglings, a fuzzy pass with a stopword list, a
++/// canonical-casing pass — and re-implementing it in Swift would create two correctors that drift.
++/// `correct-text` calls the EXACT function the call pipeline calls, so a word can never be corrected
++/// one way in a transcript and another way in a dictation. Measured cost: 0.05–0.06 s per
++/// invocation, against a 1.29 s cold dictation — about 4%.
++///
++/// **WHAT THIS DELIBERATELY DOES NOT DO: bias the decode with an initial prompt.** `whisper-cli`
++/// takes `--prompt`, open-wispr passes no `-mc` so the prompt would be live, and feeding it the
++/// vocabulary is the obvious idea. It was measured on 12 invented dictations and it is the wrong
++/// one: the prompt raised exact name hits from 23/27 to 26/27 but DROPPED cross-utterance spelling
++/// consistency from 14/14 to 13/14, because it nudged one name into a third new spelling ("Palas")
++/// while fixing another. Correction alone, with two pairs the flywheel had learned, reached 27/27
++/// and 14/14. A probabilistic nudge can invent a variant; a deterministic replacement cannot. So the
++/// vocabulary reaches the decode through the corrector, and the prompt is left alone.
++public enum LoroCorrection {
++    /// Absolute path to `richos-service`'s CLI entry point, or `nil` to disable correction entirely.
++    public static var servicePath: String?
++
++    /// `node`, resolved once. Overridable for a non-standard install.
++    public static var nodePath: String = "/usr/bin/env"
++
++    /// How long the corrector may take before the dictation goes out uncorrected. This sits between
++    /// the recogniser and the paste, so it has a hard ceiling: a hung subprocess must cost the CEO a
++    /// correction, never his sentence.
++    public static var timeout: TimeInterval = 2.0
++
++    /// Is a service installed at all?
++    public static func isAvailable() -> Bool {
++        guard let p = servicePath else { return false }
++        return FileManager.default.isReadableFile(atPath: p)
++    }
++
++    /// Does the installed service actually KNOW `correct-text`?
++    ///
++    /// Present is not the same as capable. A RichOS checkout older than the correction flywheel has
++    /// a `richos-service` that resolves, runs, and does not have this command — and because
++    /// `correct()` swallows every failure by design, an incapable service is indistinguishable at
++    /// the paste from a working one that had nothing to fix. This asks the service's own usage
++    /// output, so the answer is a capability, never a version number to keep in step.
++    ///
++    /// Called once, for the startup diagnostic. Not in the dictation path.
++    public static func supportsCorrection() -> Bool {
++        guard let service = servicePath, FileManager.default.isReadableFile(atPath: service) else { return false }
++        let process = Process()
++        process.executableURL = URL(fileURLWithPath: nodePath)
++        process.arguments = nodePath.hasSuffix("env") ? ["node", service] : [service]
++        let pipe = Pipe()
++        process.standardOutput = pipe
++        process.standardError = Pipe()
++        do { try process.run() } catch { return false }
++        let data = pipe.fileHandleForReading.readDataToEndOfFile()
++        process.waitUntilExit()
++        return String(data: data, encoding: .utf8)?.contains("correct-text") ?? false
++    }
++
++    /// Resolve the service from the config, then from the environment, then from the two places a
++    /// RichOS checkout normally sits. Returns `nil` when it is simply not installed, which is not an
++    /// error: without it, dictation behaves exactly as it did before this patch.
++    public static func resolveServicePath(configured: String?) -> String? {
++        var candidates: [String] = []
++        if let c = configured, !c.isEmpty { candidates.append((c as NSString).expandingTildeInPath) }
++        if let e = ProcessInfo.processInfo.environment["RICHOS_SERVICE_BIN"], !e.isEmpty {
++            candidates.append((e as NSString).expandingTildeInPath)
++        }
++        let home = FileManager.default.homeDirectoryForCurrentUser.path
++        candidates.append("\(home)/ab/richos/tools/richos-service/bin/richos-service.js")
++        candidates.append("\(home)/richos/tools/richos-service/bin/richos-service.js")
++        return candidates.first { FileManager.default.isReadableFile(atPath: $0) }
++    }
++
++    /// Correct one dictated sentence against the shared vocabulary.
++    ///
++    /// **FAILURE POSTURE: return the input, always.** Correction is an accuracy enhancement, never a
++    /// dependency. A missing service, a missing vocabulary, a non-zero exit, a timeout, unreadable
++    /// output — every one of them yields the text unchanged, because the alternative is a dictation
++    /// that produces nothing and a CEO who says the sentence again.
++    public static func correct(_ text: String) -> String {
++        guard let service = servicePath, !text.isEmpty else { return text }
++        guard FileManager.default.isReadableFile(atPath: service) else { return text }
++
++        let process = Process()
++        process.executableURL = URL(fileURLWithPath: nodePath)
++        process.arguments = nodePath.hasSuffix("env")
++            ? ["node", service, "correct-text"]
++            : [service, "correct-text"]
++
++        let stdinPipe = Pipe()
++        let stdoutPipe = Pipe()
++        let stderrPipe = Pipe()
++        process.standardInput = stdinPipe
++        process.standardOutput = stdoutPipe
++        process.standardError = stderrPipe
++
++        do {
++            try process.run()
++        } catch {
++            fputs("loro-correction: could not run \(service): \(error.localizedDescription)\n", stderr)
++            return text
++        }
++
++        // Write the sentence in, then CLOSE — `correct-text` reads stdin to EOF, so without the close
++        // both processes wait for each other forever and the timeout below is the only thing that
++        // ends it. The close is the contract, the timeout is the net under it.
++        stdinPipe.fileHandleForWriting.write(Data(text.utf8))
++        try? stdinPipe.fileHandleForWriting.close()
++
++        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
++        let deadline = Date().addingTimeInterval(timeout)
++        while process.isRunning && Date() < deadline {
++            Thread.sleep(forTimeInterval: 0.01)
++        }
++        if process.isRunning {
++            process.terminate()
++            fputs("loro-correction: timed out after \(timeout)s — pasting the text uncorrected\n", stderr)
++            return text
++        }
++        _ = try? stderrPipe.fileHandleForReading.readToEnd()
++
++        guard process.terminationStatus == 0,
++              let out = String(data: data, encoding: .utf8) else { return text }
++        let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard isPlausibleCorrectionOf(text, trimmed) else {
++            fputs("loro-correction: implausible output, pasting the text uncorrected\n", stderr)
++            return text
++        }
++        return trimmed
++    }
++
++    /// **A VOCABULARY REPLACES NAMES. IT NEVER REWRITES A SENTENCE.** So whatever comes back must
++    /// still be recognisably the thing he said, and this is the last guard between a misbehaving
++    /// subprocess and the CEO's cursor.
++    ///
++    /// Found by test, not by reasoning: a stand-in for an OLD richos-service — one that resolves,
++    /// runs, and has never heard of `correct-text` — printed its usage banner to stdout and exited
++    /// ZERO. Every check above passed, and the dictation would have been replaced by the word
++    /// "usage:". Exit status is not enough, because a program that does not understand a command is
++    /// under no obligation to say so in its exit code.
++    ///
++    /// The bounds are deliberately loose, because a real correction genuinely does change length —
++    /// "deep graham" becomes the single word "Deepgram". They are here to catch a DIFFERENT
++    /// sentence, not a corrected one.
++    static func isPlausibleCorrectionOf(_ input: String, _ output: String) -> Bool {
++        // No vocabulary can legitimately turn a spoken sentence into nothing.
++        if output.isEmpty { return false }
++        let inWords = input.split(whereSeparator: { $0.isWhitespace }).count
++        let outWords = output.split(whereSeparator: { $0.isWhitespace }).count
++        if inWords > 0 {
++            let ratio = Double(outWords) / Double(inWords)
++            if ratio < 0.5 || ratio > 1.5 { return false }
++        }
++        let ratio = Double(output.count) / Double(max(input.count, 1))
++        return ratio >= 0.4 && ratio <= 2.0
++    }
++}
+diff --git a/Tests/OpenWisprTests/DictationFlywheelTests.swift b/Tests/OpenWisprTests/DictationFlywheelTests.swift
+new file mode 100644
+index 0000000..8ac7b41
+--- /dev/null
++++ b/Tests/OpenWisprTests/DictationFlywheelTests.swift
+@@ -0,0 +1,260 @@
++import XCTest
++@testable import OpenWisprLib
++
++/// The correction flywheel's dictation half, as far as it can be tested without a microphone.
++///
++/// Two things are load-bearing and both are asserted rather than described:
++///   1. the JSONL line format, because the reader is in another language and the format is a
++///      CONTRACT between two processes, not an implementation detail; and
++///   2. that neither the journal nor the corrector can ever cost the CEO a dictation.
++final class DictationFlywheelTests: XCTestCase {
++    private var tmp: URL!
++
++    override func setUp() {
++        super.setUp()
++        tmp = FileManager.default.temporaryDirectory
++            .appendingPathComponent("dictation-journal-tests-\(UUID().uuidString)")
++        DictationJournal.journalDir = tmp
++        DictationJournal.enabled = true
++    }
++
++    override func tearDown() {
++        try? FileManager.default.removeItem(at: tmp)
++        DictationJournal.journalDir = Config.configDir.appendingPathComponent("dictation-journal")
++        DictationJournal.enabled = true
++        LoroCorrection.servicePath = nil
++        super.tearDown()
++    }
++
++    private func sampleRecord(text: String, emitted: String) -> DictationJournal.Record {
++        DictationJournal.Record(
++            id: "d-1700000000000-abcd",
++            at: 1_700_000_000_000,
++            ms: 6400,
++            model: "large-v3-turbo-q5_0",
++            text: text,
++            emitted: emitted,
++            audio: nil
++        )
++    }
++
++    // MARK: - the line format is a cross-language contract
++
++    func testLineIsOneJsonObjectPerDictationEndingInANewline() throws {
++        let line = try DictationJournal.line(for: sampleRecord(text: "hello", emitted: "hello"))
++        XCTAssertTrue(line.hasSuffix("\n"), "JSONL: one record, one line")
++        XCTAssertEqual(line.filter { $0 == "\n" }.count, 1, "and no embedded newlines")
++        let obj = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
++        XCTAssertEqual(obj?["v"] as? Int, 1)
++        XCTAssertEqual(obj?["id"] as? String, "d-1700000000000-abcd")
++        XCTAssertEqual(obj?["at"] as? Int, 1_700_000_000_000)
++        XCTAssertEqual(obj?["text"] as? String, "hello")
++    }
++
++    func testTheRecordKeepsBOTHWhatWasHeardAndWhatWentOut() throws {
++        // The whole reason to journal: a correction needs the difference, not just the result.
++        let rec = sampleRecord(text: "the deep graham contract", emitted: "the Deepgram contract")
++        XCTAssertEqual(rec.text, "the deep graham contract")
++        XCTAssertEqual(rec.emitted, "the Deepgram contract")
++        XCTAssertTrue(rec.corrected, "the vocabulary changed it on the way out, and the record says so")
++        XCTAssertFalse(sampleRecord(text: "same", emitted: "same").corrected)
++    }
++
++    func testAudioPointerIsNilWhenTierBIsOffWhichIsTheDefault() throws {
++        let line = try DictationJournal.line(for: sampleRecord(text: "x", emitted: "x"))
++        let obj = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
++        XCTAssertTrue(obj?["audio"] is NSNull || obj?["audio"] == nil,
++                      "no audio is retained unless the CEO switches Tier B on")
++    }
++
++    // MARK: - day files, because eviction must be an unlink and never a rewrite
++
++    func testDayFileIsKeyedInUTCSoOneDayMeansTheSameSpanToTheWriterAndTheSweeper() {
++        let d = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14T22:13:20Z
++        XCTAssertEqual(DictationJournal.dayKey(d), "2023-11-14")
++        XCTAssertEqual(DictationJournal.dayFileURL(d).lastPathComponent, "2023-11-14.jsonl")
++    }
++
++    func testAppendingOnlyEverAPPENDS() throws {
++        let d = Date(timeIntervalSince1970: 1_700_000_000)
++        XCTAssertTrue(DictationJournal.append(sampleRecord(text: "one", emitted: "one"), at: d))
++        XCTAssertTrue(DictationJournal.append(sampleRecord(text: "two", emitted: "two"), at: d))
++        let body = try String(contentsOf: DictationJournal.dayFileURL(d), encoding: .utf8)
++        let lines = body.split(separator: "\n")
++        XCTAssertEqual(lines.count, 2, "the second dictation did not overwrite the first")
++        XCTAssertTrue(body.contains("\"text\":\"one\""))
++        XCTAssertTrue(body.contains("\"text\":\"two\""))
++    }
++
++    func testTwoDictationsInOneSecondCannotCollide() {
++        let d = Date(timeIntervalSince1970: 1_700_000_000)
++        XCTAssertNotEqual(DictationJournal.newID(at: d), DictationJournal.newID(at: d))
++    }
++
++    func testJournallingOffIsTheOldBehaviourExactly() {
++        DictationJournal.enabled = false
++        XCTAssertFalse(DictationJournal.append(sampleRecord(text: "x", emitted: "x")))
++        XCTAssertFalse(FileManager.default.fileExists(atPath: DictationJournal.journalDir.path),
++                       "nothing is created at all — transcribe, paste, forget")
++    }
++
++    func testAnUnwritableJournalCostsTheRecordAndNOTTheDictation() {
++        // A full disk is not a reason to lose the sentence he just spoke.
++        DictationJournal.journalDir = URL(fileURLWithPath: "/dev/null/cannot-exist")
++        XCTAssertFalse(DictationJournal.append(sampleRecord(text: "x", emitted: "x")),
++                       "it reports failure and returns — it does not throw into the paste path")
++    }
++
++    // MARK: - the corrector can never cost a dictation
++
++    func testNoServiceInstalledMeansTheTextPassesThroughUNCHANGED() {
++        LoroCorrection.servicePath = nil
++        XCTAssertEqual(LoroCorrection.correct("Ask deep graham for the numbers"),
++                       "Ask deep graham for the numbers")
++    }
++
++    func testAMissingServiceFileMeansTheTextPassesThroughUNCHANGED() {
++        LoroCorrection.servicePath = "/nonexistent/richos-service.js"
++        XCTAssertFalse(LoroCorrection.isAvailable())
++        XCTAssertEqual(LoroCorrection.correct("hello there"), "hello there")
++    }
++
++    func testEmptyInputIsNeverHandedToASubprocess() {
++        LoroCorrection.servicePath = "/nonexistent/richos-service.js"
++        XCTAssertEqual(LoroCorrection.correct(""), "")
++    }
++
++    func testServiceResolutionPrefersTheConfiguredPathAndExpandsTilde() {
++        let real = tmp.appendingPathComponent("richos-service.js")
++        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
++        FileManager.default.createFile(atPath: real.path, contents: Data("//\n".utf8))
++        XCTAssertEqual(LoroCorrection.resolveServicePath(configured: real.path), real.path)
++    }
++
++    func testEveryDefaultLocationIsBuiltFromTheRealHomeAndNotALiteralPath() {
++        // Same invariant the two-model patch asserts. Checking the RESOLVED string for a developer's
++        // name would be checking the wrong thing — on that developer's own machine the correct
++        // answer contains it. What has to hold is that a default is a suffix of THIS user's home,
++        // which is only true if it was built from FileManager rather than typed in.
++        let home = FileManager.default.homeDirectoryForCurrentUser.path
++        if let r = LoroCorrection.resolveServicePath(configured: nil) {
++            XCTAssertTrue(r.hasPrefix(home + "/"),
++                          "a default location must be derived from the current user's home, got \(r)")
++        }
++        // And a configured path that does not exist is never silently used.
++        XCTAssertNil(LoroCorrection.resolveServicePath(configured: "/nope/also-nope.js")
++                        .flatMap { $0 == "/nope/also-nope.js" ? $0 : nil })
++    }
++
++    // MARK: - the real thing, across the language boundary
++
++    /// The one test in this file that starts another process.
++    ///
++    /// Everything above proves this app behaves when the corrector is absent. This proves it
++    /// behaves when it is PRESENT — that the shared vocabulary really does reach a dictation, and
++    /// that a term the CEO confirmed once is spelled his way on the way to the paste. Nothing is
++    /// mocked: a real `richos-service`, a real entities file, a real subprocess.
++    ///
++    /// SKIPPED, never failed, when RichOS is not checked out beside this app. open-wispr is a
++    /// standalone application and its suite must stay green for someone who has never heard of
++    /// RichOS; a missing optional integration is not a defect in it.
++    func testTheSharedVocabularyReallyDoesReachADictation() throws {
++        guard let service = LoroCorrection.resolveServicePath(configured: nil) else {
++            throw XCTSkip("richos-service is not installed beside this app — correction is optional")
++        }
++        LoroCorrection.servicePath = service
++        guard LoroCorrection.supportsCorrection() else {
++            throw XCTSkip("the installed richos-service has no correct-text — nothing to integrate with")
++        }
++        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
++        let entities = tmp.appendingPathComponent("entities.json")
++        // One entry, exactly as `dictation-answer --confirm` writes it after the CEO answers
++        // *Add "Deepgram" to your vocabulary?* — invented, and nobody's speech.
++        try #"""
++        {"schemaVersion": 1, "version": "2026-08-29", "entities": [
++          {"canonical": "Deepgram", "type": "product", "aliases": [], "mangled": ["deep graham"]}
++        ]}
++        """# .write(to: entities, atomically: true, encoding: .utf8)
++        setenv("RICHOS_ENTITIES_FILE", entities.path, 1)
++        defer { unsetenv("RICHOS_ENTITIES_FILE") }
++
++        let heard = "The deep graham contract is signed, send it to Marla Kestrel."
++        let emitted = LoroCorrection.correct(heard)
++        XCTAssertEqual(emitted, "The Deepgram contract is signed, send it to Marla Kestrel.",
++                       "a confirmed correction reaches the very next dictation")
++
++        // And the journal records BOTH sides, which is what makes the next correction possible.
++        let rec = DictationJournal.Record(
++            id: DictationJournal.newID(), at: 1_700_000_000_000, ms: 6400,
++            model: "large-v3-turbo-q5_0", text: heard, emitted: emitted, audio: nil
++        )
++        XCTAssertTrue(rec.corrected)
++        XCTAssertTrue(DictationJournal.append(rec, at: Date(timeIntervalSince1970: 1_700_000_000)))
++        let onDisk = try String(
++            contentsOf: DictationJournal.dayFileURL(Date(timeIntervalSince1970: 1_700_000_000)),
++            encoding: .utf8
++        )
++        XCTAssertTrue(onDisk.contains("deep graham"), "what was heard")
++        XCTAssertTrue(onDisk.contains("Deepgram"), "and what went out")
++    }
++
++    func testAnIncapableServiceIsDETECTEDRatherThanSilentlyDoingNothing() {
++        // `correct()` swallows every failure by design, so an installed-but-too-old service would be
++        // invisible at the paste. The probe is what makes it sayable.
++        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
++        let fake = tmp.appendingPathComponent("old-service.js")
++        FileManager.default.createFile(atPath: fake.path, contents: Data("console.log('usage:\\n  watch')\n".utf8))
++        LoroCorrection.servicePath = fake.path
++        XCTAssertTrue(LoroCorrection.isAvailable(), "it is installed")
++        XCTAssertFalse(LoroCorrection.supportsCorrection(), "and it cannot do the one thing needed")
++        // And — the part that matters — its stdout does NOT reach the CEO's cursor, even though it
++        // exited zero. This exact fake is where the plausibility guard came from.
++        XCTAssertEqual(LoroCorrection.correct("the deep graham contract is signed today"),
++                       "the deep graham contract is signed today")
++    }
++
++    func testACORRECTIONIsAllowedThroughAndAREWRITEIsNot() {
++        // The guard has to let a real correction past: "deep graham" -> "Deepgram" loses a word.
++        XCTAssertTrue(LoroCorrection.isPlausibleCorrectionOf(
++            "The deep graham contract is signed.", "The Deepgram contract is signed."))
++        XCTAssertTrue(LoroCorrection.isPlausibleCorrectionOf("Call Briella at four.", "Call Priya at four."))
++        // And stop anything that is a different sentence.
++        XCTAssertFalse(LoroCorrection.isPlausibleCorrectionOf("The deep graham contract is signed.", "usage: watch"))
++        XCTAssertFalse(LoroCorrection.isPlausibleCorrectionOf("The deep graham contract is signed.", ""))
++        XCTAssertFalse(LoroCorrection.isPlausibleCorrectionOf(
++            "Send it.", "Send it. Send it. Send it. Send it. Send it. Send it."))
++    }
++
++    // MARK: - config
++
++    func testTheTwoFlywheelKeysRoundTripThroughTheConfigFile() throws {
++        let cfg = Config(
++            hotkeys: [HotkeyConfig(keyCode: 105, modifiers: [])],
++            modelPath: nil,
++            modelSize: "large-v3-turbo-q5_0",
++            language: "en",
++            spokenPunctuation: nil,
++            maxRecordings: nil,
++            toggleMode: nil,
++            dictationJournal: FlexBool(false),
++            richosServicePath: "~/ab/richos/tools/richos-service/bin/richos-service.js"
++        )
++        let data = try JSONEncoder().encode(cfg)
++        let back = try JSONDecoder().decode(Config.self, from: data)
++        XCTAssertEqual(back.dictationJournal?.value, false)
++        XCTAssertEqual(back.richosServicePath, "~/ab/richos/tools/richos-service/bin/richos-service.js")
++    }
++
++    func testAConfigWithoutTheFlywheelKeysStillLoadsAndJournallingDefaultsON() throws {
++        // The CEO's live config predates this patch. It must load, and the flywheel must be on —
++        // an opt-in nobody knows about is a feature that never runs.
++        let json = """
++        {"modelSize":"large-v3-turbo-q5_0","language":"en","hotkey":{"keyCode":105,"modifiers":[]}}
++        """
++        let cfg = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
++        XCTAssertNil(cfg.dictationJournal)
++        XCTAssertNil(cfg.richosServicePath)
++        AppDelegate.applyFlywheelSettings(cfg)
++        XCTAssertTrue(DictationJournal.enabled, "absent means on")
++    }
++}

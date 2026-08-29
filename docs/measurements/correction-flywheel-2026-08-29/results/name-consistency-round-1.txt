@@ -1,0 +1,10 @@
+CROSS-WINDOW NAME CONSISTENCY — how many DIFFERENT ways did one decode spell one name?
+(case-sensitive alignment; a name counts only where it occurs at least twice in that channel)
+
+model                     -mc   names tracked   consistently spelled   inconsistent   distinct spellings total
+large-v3-turbo              0              24                     21              3                       27
+
+large-v3-turbo  -mc 0: 3 inconsistent name(s)
+    call-02-corvane-support/me: Corvane Systems -> "Corvane" , "Corvain" (3 occurrences)
+    call-03-quilvern-discovery/others: Priya Sandoval -> "Priya" , "Brea" (3 occurrences)
+    call-04-brightmoor-billing/others: Brightmoor Dental -> "Brightmoor" , "Brightmore" (3 occurrences)

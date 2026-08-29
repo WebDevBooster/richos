@@ -10,6 +10,9 @@ the application they patch, and it is deliberately not vendored here.
 2. **Two-model dictation** — More accurate (`large-v3-turbo-q5_0`, default) / Faster
    (`small.en`) with a live menu toggle, plus explicit configurable model-path
    resolution. See [Two-model dictation](#two-model-dictation-accurate--fast) below.
+3. **Correction flywheel** — the dictation journal (what was heard, made durable)
+   and the shared vocabulary reaching dictation before the paste. See
+   [Correction flywheel](#correction-flywheel-the-journal-and-the-shared-vocabulary) below.
 
 Built to **the design lead's endorsed spec**
 (the dictation-HUD assessment, 2026-08-24). This directory holds
@@ -20,8 +23,9 @@ handled). CEO greenlit 2026-08-24 ("go ahead as recommended").
 - **Base commit (audited):** `7ab4e62e8f182f3ecc2116e1094a1eb4416a248f`
 - **Patch 1 (what we build/install):** [`dictation-hud.patch`](./dictation-hud.patch)
 - **Patch 2 (applied ON TOP of patch 1):** [`dictation-two-model.patch`](./dictation-two-model.patch)
+- **Patch 3 (applied ON TOP of patch 2):** [`dictation-flywheel.patch`](./dictation-flywheel.patch)
 - **Patch (upstream-ready, HUD-free):** [`device-change-listener.patch`](./device-change-listener.patch)
-- **Build:** [`build.sh`](./build.sh) — applies both patches, in order
+- **Build:** [`build.sh`](./build.sh) — applies all three patches, in order
 - **Upstream drift:** [`check-upstream-drift.sh`](./check-upstream-drift.sh) — reports whether open-wispr has moved past the pinned base. The build cannot break from upstream movement (the pin is immutable); what movement means is that staying frozen has started costing something. Run it when you want to know, not on a schedule.
 - **Models:** [`fetch-dictation-models.sh`](./fetch-dictation-models.sh)
 - **Stack:** native **Swift / SwiftPM / AppKit**, macOS 13+ (17 source files).
@@ -152,6 +156,102 @@ re-override a later choice of his.
 
 ---
 
+## Correction flywheel (the journal, and the shared vocabulary)
+
+`dictation-flywheel.patch`. The decision this implements is **"ask, never infer"**
+(`ceo-decisions.md` §7, decided 2026-08-26), and until this patch it was unbuilt at both
+ends: open-wispr kept neither the text nor the audio, so there was nothing for a
+correction to be a correction *of*; and `entities.json` had exactly one reader, so a term
+the CEO taught the system once was spelled right in his call transcripts and wrong in
+everything he dictated.
+
+### What the patch changes
+
+New:
+- `Sources/OpenWisprLib/DictationJournal.swift` — one JSON line per dictation, appended to
+  a UTC day file under `~/.config/open-wispr/dictation-journal/`. Keeps **both** what the
+  recogniser produced and what was actually pasted, because the flywheel needs the
+  difference, not the result.
+- `Sources/OpenWisprLib/LoroCorrection.swift` — runs the recognised text through
+  `richos-service correct-text` before the paste, plus a capability probe and a
+  plausibility guard on what comes back.
+- `Tests/OpenWisprTests/DictationFlywheelTests.swift` — **18 tests**: the JSONL line
+  format as a cross-language contract, append-only behaviour, UTC day keys, the
+  never-cost-a-dictation failure posture in five forms, service resolution with no
+  hardcoded home, config round-trip and default-on migration, and one live
+  integration test that runs the real service (skipped, never failed, when RichOS is not
+  installed beside the app).
+
+Modified (minimal):
+- `Config.swift` — adds `dictationJournal` (default on) and `richosServicePath`.
+- `AppDelegate.swift` — correct, then journal, then paste; and one
+  `applyFlywheelSettings` called from launch *and* every live config change, so the two
+  switches can never disagree.
+
+### Three properties worth stating
+
+1. **It cannot cost a dictation.** A missing service, an old service, a crash, a timeout,
+   an empty or implausible result — every one returns the recognised text unchanged, and
+   a journal write that fails is logged and swallowed. Correction is an accuracy
+   enhancement; it is never a dependency of getting the words out.
+2. **One corrector, not two.** It shells out to `correct-text`, which calls the exact
+   function the call-transcription pipeline calls. Re-implementing 240 lines of guarded
+   matching in Swift would produce two correctors that drift, and a word corrected one way
+   in a transcript and another way in a dictation. Measured cost: **0.05–0.06 s** per
+   invocation against a 1.29 s cold dictation, about 4%.
+3. **Retention is decided, not drifted into.** The app only ever **appends**; the RichOS
+   local service **sweeps**, hourly, from its `watch` loop. Tier A (the text) is a rolling
+   window of 14 days or 5,000 records, whichever binds first, evicted oldest-day-file-first
+   by `unlink`. Tier B (the audio) stays **off by default** — upstream's own default, and
+   the right one, because a correction is text against text. Measured: **284 KB per hour**
+   of dictation for Tier A; the audio would be **110 MB/hour**, 397× more, for something
+   the flywheel never reads.
+
+### What this deliberately does NOT do: bias the decode with an initial prompt
+
+`whisper-cli` takes `--prompt`, open-wispr passes no `-mc` so the prompt is live in
+dictation, and feeding it the vocabulary is the obvious idea. It was measured on 12
+invented dictations and it is the wrong one:
+
+| path | names right | names spelled consistently |
+|---|---|---|
+| no vocabulary at all | 23/27 | 14/14 |
+| vocabulary as an initial **prompt** | 26/27 | **13/14** |
+| vocabulary as a **correction** | 25/27 | 14/14 |
+| prompt **and** correction | 26/27 | **13/14** |
+| **flywheel-learned vocabulary, correction** | **27/27** | **14/14** |
+
+The prompt raises exact hits and **costs consistency**: it nudged one name into a third new
+spelling ("Palas") while fixing another. A probabilistic nudge can invent a variant; a
+deterministic replacement cannot. Two pairs the flywheel had actually learned beat the
+whole hand-written vocabulary handed over as a prompt. So the vocabulary reaches the decode
+through the corrector, and `whisperPrompt` is left alone.
+
+### Config
+
+```jsonc
+{
+  "dictationJournal": true,          // default; false returns to transcribe-paste-forget
+  "richosServicePath": "~/ab/richos/tools/richos-service/bin/richos-service.js"
+}
+```
+
+`richosServicePath` is optional — resolution falls back to `$RICHOS_SERVICE_BIN` and then
+to the two places a RichOS checkout normally sits. When nothing resolves, dictation
+behaves exactly as it did before this patch, and the service log says so at startup:
+
+```
+Correction flywheel: journal=/Users/…/.config/open-wispr/dictation-journal corrector=/Users/…/richos-service.js
+Correction flywheel: journal=…  corrector=not installed — dictation is uncorrected
+Correction flywheel: journal=…  corrector=… — installed but has no correct-text; dictation is uncorrected
+```
+
+That third line exists because `correct()` swallows every failure by design, which makes an
+installed-but-too-old service indistinguishable at the paste from a working one that had
+nothing to fix. It is the only place anybody would find out.
+
+---
+
 ## Build (reproducible, non-installing)
 
 ```bash
@@ -169,6 +269,9 @@ Verified with the HUD patch alone: fresh checkout + patch → `swift build` clea
 Verified with both patches (2026-08-26): fresh clone at `7ab4e62` → both
 patches apply clean → `swift build` clean → **205/205 tests pass** (168
 pre-existing + 37 new) → release build + `OpenWispr.app` bundle succeed.
+Verified with all three (2026-08-29): fresh clone at `7ab4e62` → three patches
+apply clean → **223/223 tests pass** (205 pre-existing + 18 new) → release build
++ `OpenWispr.app` bundle succeed, through `build.sh` end to end.
 
 ## Apply (scripted)
 
@@ -243,9 +346,23 @@ and §10–§11 (the TCC root cause and what it forces on RichOS packaging).
 - **Non-activating invariant** asserted by test (`canBecomeKey`/`canBecomeMain` are `false`).
 - Offscreen render sanity: every state draws non-empty, meter is level-sensitive, states differ. Built binary `--help`/`status` run clean.
 
+**Verified for the flywheel patch (2026-08-29):**
+- 18 new tests green, including a live integration test that runs the real
+  `richos-service correct-text` subprocess and asserts a confirmed correction reaches the
+  next dictation. It **skips** rather than fails where RichOS is not installed, so
+  open-wispr's suite stays green for anyone who has never heard of RichOS.
+- The plausibility guard was found BY that suite, not by reasoning: a stand-in for an old
+  `richos-service` printed its usage banner to stdout and **exited zero**, and every other
+  check passed. Without the guard the dictation would have been replaced by the word
+  "usage:".
+
 **Pending (the real gates — deferred by design):**
 - **The design lead's live visual audit** on the real surface (an explicit signoff requirement).
 - **CEO real-use:** F13 fade-in, meter moving on real speech, **paste-at-cursor still lands** in email/docs/chat (the load-bearing non-activating proof in practice), multi-display placement + Dock-hidden behavior, permission re-grant flow.
+- **CEO real-use of the flywheel specifically:** one real dictation, journalled; one real
+  correction, asked and confirmed; the next dictation spelling it his way. Everything
+  above is measured on invented speech, which is the correct way to measure it and is not
+  the same as him using it.
 
 ## Deviations from the spec (flagged, not silent)
 

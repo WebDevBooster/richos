@@ -1,0 +1,19 @@
+THE CORRECTION FLYWHEEL, TURNED ONCE — what one correction per channel teaches
+model large-v3-turbo   -mc 0   (the shipped pipeline-wide MAX_CONTEXT_TOKENS)
+
+The CEO corrects the FIRST name he sees rendered wrong in each channel, and nothing else.
+Every later occurrence, every other channel and every other mis-spelling is held out.
+
+call-03-quilvern-discovery/others
+  he saw     "Brea"  where "Priya" belongs  (Priya Sandoval)
+  he fixed   ...the old spreadsheet. me something in writing, Brea, and I will take it to Tobias...
+  ASKED      Add "Priya" to your vocabulary?   [sound: spelling 0.4, sound 1]  -> CONFIRMED
+
+LEARNED 1 entities -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/entities-r3.json  (version 2026-08-29)
+  Priya  <- ["brea"]
+
+APPLIED 2 corrections across all 12 channels -> /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/large-v3-turbo__mc0__r3
+WER   before 2.41%   after 2.31%
+cased WER   before 3.15%   after 3.04%
+
+written: /private/tmp/claude-501/-Users-alex-ab-femcboost/9e3192d3-37f1-47b0-aa64-0c5f4b0504ac/scratchpad/flywheel/runs/flywheel-r3.txt

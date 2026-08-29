@@ -41,6 +41,31 @@ import {
 import { encodeMessage, FrameDecoder } from '../lib/stdio.js';
 import { SessionSink } from '../lib/host-handlers.js';
 import { appendLedger, alreadyLedgered } from '../lib/ledger.js';
+import {
+  phoneticKey,
+  phoneticSimilarity,
+  askCandidates,
+  askKey,
+  applyLedger,
+  answerAsk,
+  matchHeard,
+  reviewSent,
+  ASK_MIN_PHONETIC,
+  MATCH_WINDOW_MS,
+} from '../lib/dictation.js';
+import { sweepDictationRetention } from '../lib/watcher.js';
+import {
+  parseJournalFile,
+  loadJournal,
+  loadLedger,
+  saveLedger,
+  markReconciled,
+  withConsumed,
+  planRetention,
+  surveyJournal,
+  sweepRetention,
+  costPerHour,
+} from '../lib/dictation-store.js';
 import { parseChannels, parseVolume, parseSilenceLog, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
 import { resolveTier, MODEL_TIERS, DEFAULT_TIER, whisperArgs, MAX_CONTEXT_TOKENS } from '../lib/config.js';
@@ -520,9 +545,11 @@ group('correction flywheel — TRANSCRIPT-EDIT diff intake: PRECISION over recal
 test('tokenReplaceHunks expands a name fix to the full proper-noun span and ignores pure insertions', () => {
   // "Hand"->"Hanna" absorbs the adjacent unchanged term token "Rich" so the mangling is the WHOLE
   // name (safe), never the dangerous lone word "Hand".
+  // `coreFrom`/`coreTo` keep the UNEXPANDED delta beside it, because a similarity gate scored on the
+  // expanded span is scored partly on context that is identical by construction.
   assert.deepEqual(
     tokenReplaceHunks('we run on Rich Hand today'.split(' '), 'we run on Rich Hanna today'.split(' ')),
-    [{ from: 'Rich Hand', to: 'Rich Hanna' }],
+    [{ from: 'Rich Hand', to: 'Rich Hanna', coreFrom: 'Hand', coreTo: 'Hanna' }],
   );
   // a pure insertion (no removed counterpart) yields no replace hunk
   assert.deepEqual(tokenReplaceHunks('we shipped it'.split(' '), 'we finally shipped it'.split(' ')), []);
@@ -1943,6 +1970,425 @@ test('SILENCE vs DELETION side by side: silent on the silence, loud on the claus
   const silence = report.rejected.find((r) => r.startMs === 20000);
   assert.ok(silence, 'the silent burst was examined, not skipped');
   assert.equal(silence.verdict, 'not-speech');
+});
+
+// ---------------------------------------------------------------------------------------
+// Pass 3 of the corrector: canonical casing
+// ---------------------------------------------------------------------------------------
+
+test('one name spelled two ways by case is TWO spellings, and the corrector settles it', () => {
+  const ents = normalizeEntities({ entities: [{ canonical: 'Halden Freight' }, { canonical: 'Everlock' }] }).entities;
+  const r = correctText('the Halden freight manifest, and the everlock agent', ents);
+  assert.equal(r.text, 'the Halden Freight manifest, and the Everlock agent');
+  assert.deepEqual(r.corrections.map((c) => c.method), ['casing', 'casing']);
+});
+
+test("the casing pass never touches an ordinary word that happens to be someone's name", () => {
+  const ents = normalizeEntities({ entities: [{ canonical: 'Rich' }, { canonical: 'Deep' }] }).entities;
+  const text = 'a rich history and a deep breath';
+  assert.equal(correctText(text, ents).text, text, 'stopwords are refused outright');
+});
+
+test("a short single-token canonical is below the casing pass's floor, a multi-word one is not", () => {
+  const short = normalizeEntities({ entities: [{ canonical: 'Ada' }] }).entities;
+  assert.equal(correctText('ada wrote it', short).text, 'ada wrote it', 'three letters is too little to be sure');
+  const long = normalizeEntities({ entities: [{ canonical: 'Ada Systems' }] }).entities;
+  assert.equal(correctText('ada systems wrote it', long).text, 'Ada Systems wrote it', 'a phrase is unambiguous');
+});
+
+test('caseSensitive: true opts an entity OUT — the flag declares that the casing IS the difference', () => {
+  const ents = normalizeEntities({ entities: [{ canonical: 'NeXT', caseSensitive: true }] }).entities;
+  assert.equal(correctText('we used next year', ents).text, 'we used next year');
+});
+
+// ---------------------------------------------------------------------------------------
+// The correction flywheel, DICTATION half — "ASK, NEVER INFER" (ceo-decisions.md §7)
+//
+// Two properties are load-bearing and both are asserted below rather than described:
+//   1. NOTHING here learns without a human answer. `reviewSent` produces questions and no route
+//      from it reaches a vocabulary write.
+//   2. The ask stays SILENT on a change of mind, and — the part the shipped orthographic gate got
+//      wrong — it SPEAKS UP on a mis-hearing that sounds close and is spelled far apart.
+// ---------------------------------------------------------------------------------------
+
+test('phoneticKey hears b and p as one sound, which is what an orthographic gate cannot do', () => {
+  assert.equal(phoneticKey('Briella'), phoneticKey('Priella'), 'b/p differ only in spelling');
+  assert.equal(phoneticKey('Everlock'), phoneticKey('EverLock'), 'casing is not sound');
+  assert.equal(phoneticKey('Brightmoor'), phoneticKey('Brightmore'), 'a trailing vowel is not sound');
+  assert.equal(phoneticKey('aeiou'), '', 'a term with no classifiable consonant has no key');
+});
+
+test('the phonetic leg catches the mis-hearing the orthographic gate documents as its own blind spot', () => {
+  // ceo-decisions.md §7: "an orthographic gate stays silent on exactly the worst ASR failures,
+  // where the mis-hearing sounds close but is spelled far apart (Deke Graham -> Deepgram)".
+  const orth = similarity(normalizeTerm('Deke Graham'), normalizeTerm('Deepgram'));
+  const phon = phoneticSimilarity('Deke Graham', 'Deepgram');
+  assert.ok(phon > orth, `sound (${phon.toFixed(2)}) beats spelling (${orth.toFixed(2)}) on this pair`);
+  assert.ok(phon >= ASK_MIN_PHONETIC, 'and it clears the phonetic floor, so the ask happens');
+});
+
+test('"ship Thursday" -> "ship Friday" is a CHANGE OF MIND and produces no ask at all', () => {
+  const { asks, rejected } = askCandidates('We should ship Thursday.', 'We should ship Friday.');
+  assert.equal(asks.length, 0, 'a change of mind is never a vocabulary question');
+  assert.ok(rejected.length >= 1, 'and the silence is explained, not merely empty');
+  assert.match(rejected[0].reason, /change of mind/);
+});
+
+test('a term-shaped mis-hearing DOES ask, and names which leg let it through', () => {
+  const { asks } = askCandidates(
+    'The deep graham integration lands Tuesday.',
+    'The Deepgram integration lands Tuesday.',
+  );
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].to, 'Deepgram');
+  assert.equal(asks[0].from, 'deep graham');
+  assert.ok(['spelling', 'sound', 'both'].includes(asks[0].leg));
+});
+
+test('a lone-token mis-hearing that the LEARN gate rejects is still ASKED — the human is the judge', () => {
+  // capture.js rejects "briella" -> "Priya" for inference (lone token, similarity 0.43 < 0.6). Under
+  // §7 that same pair must reach the CEO as a question: similarity decides whether to ASK, never the
+  // answer, and a missed ask loses the correction outright.
+  const inferred = extractTermCorrections('Call Briella at four.', 'Call Priya at four.');
+  assert.equal(inferred.proposals.length, 0, 'the INFERENCE path still refuses to learn it silently');
+  const { asks } = askCandidates('Call Briella at four.', 'Call Priya at four.');
+  assert.equal(asks.length, 1, 'but the ASK path raises it');
+  assert.equal(asks[0].to, 'Priya');
+});
+
+test('"great" -> "Grant" ASKS and is never learned — a false ask is cheap, a wrong lesson is not', () => {
+  // The single most dangerous pair in the whole flywheel: learn it and every future call transcript
+  // starts rewriting the ordinary word "great" as a person's name. §7's answer is not a cleverer
+  // threshold, it is that a human decides. So the ask happens (0.60 spelling, at the bar), nothing is
+  // learned, and ONE "never" retires the question permanently.
+  const { asks } = askCandidates('That was a great result.', 'That was a Grant result.');
+  assert.equal(asks.length, 1, 'asked, because only he knows whether Grant is a person');
+  const res = answerAsk({}, { ...asks[0] }, 'never');
+  assert.equal(res.learn, null, 'and declining to learn it is the whole point');
+  assert.equal(applyLedger(asks, res.ledger).prompts.length, 0, 'asked once, then never again');
+});
+
+test('the gate judges the CORE of a change, not the context wrapped around it', () => {
+  // Found by a negative control over the short-call corpus: "Northgate, Tuesday" ->
+  // "Northgate, Wednesday" is 0.9 similar as a phrase, because most of the phrase is identical by
+  // construction. Its core, "Tuesday" -> "Wednesday", is what the question is actually about.
+  const hunks = tokenReplaceHunks(
+    'the review for Northgate, Tuesday night'.split(' '),
+    'the review for Northgate, Wednesday night'.split(' '),
+  );
+  assert.equal(hunks[0].coreFrom, 'Tuesday', 'the delta, unexpanded');
+  const { asks, rejected } = askCandidates(
+    'the review for Northgate, Tuesday night',
+    'the review for Northgate, Wednesday night',
+  );
+  assert.equal(asks.length, 0, 'a change of mind hiding inside a proper-noun phrase is still a change of mind');
+  assert.ok(rejected.length >= 1);
+});
+
+test('a day or a month is capitalized by grammar and is never learned as a name', () => {
+  // "Tuesday" -> "Wednesday" scores 0.75 by SOUND, so the phonetic leg would have asked. The list is
+  // narrow and it was found by measurement, not reasoned into existence.
+  for (const [a, b] of [['Tuesday', 'Wednesday'], ['March', 'April'], ['Thursday', 'Friday']]) {
+    const { asks, rejected } = askCandidates(`we meet ${a} at noon`, `we meet ${b} at noon`);
+    assert.equal(asks.length, 0, `${a} -> ${b} must not be asked`);
+    assert.ok(rejected.some((r) => /change of mind/.test(r.reason)), `${a} -> ${b} says why`);
+  }
+  // and the escape hatch stays open for a customer genuinely called August
+  const doc = learnTerm({ schemaVersion: 1, version: '', entities: [] }, { canonical: 'August', mangled: 'orgust' });
+  assert.equal(doc.changed, true, 'learn-term is an explicit instruction and overrides the list');
+});
+
+test('an ordinary prose edit is not a vocabulary question', () => {
+  const { asks, rejected } = askCandidates('I think we should wait.', 'I think we must wait.');
+  assert.equal(asks.length, 0);
+  assert.match(rejected.map((r) => r.reason).join(' '), /ordinary prose/);
+});
+
+test('a casing-only fix asks nothing — a vocabulary cannot hold it', () => {
+  const { asks, rejected } = askCandidates('the everlock agent', 'the Everlock agent');
+  assert.equal(asks.length, 0);
+  assert.match(rejected.map((r) => r.reason).join(' '), /casing/);
+});
+
+test('hunk expansion stops at a full stop — a sentence-initial capital is grammar, not a name', () => {
+  // Before this guard, the 2026-08-29 short-call corpus produced three asks of this shape out of
+  // six captured corrections: Add "Cannery Street. That" to your vocabulary? — which is the kind of
+  // question that gets a feature switched off.
+  const hunks = tokenReplaceHunks(
+    'the Brightmoor Dental on Canary Street. That may be the problem.'.split(' '),
+    'the Brightmoor Dental on Cannery Street. That may be the problem.'.split(' '),
+  );
+  assert.equal(hunks.length, 1);
+  assert.equal(hunks[0].to, 'Cannery Street.', 'the name, and not the next sentence with it');
+  assert.equal(hunks[0].from, 'Canary Street.');
+  const { asks } = askCandidates(
+    'the Brightmoor Dental on Canary Street. That may be the problem.',
+    'the Brightmoor Dental on Cannery Street. That may be the problem.',
+  );
+  // And the ask itself drops the sentence's own full stop: a vocabulary entry reading
+  // "Cannery Street." is junk in the CEO's file and reads as a broken feature in the prompt.
+  assert.equal(asks[0].to, 'Cannery Street');
+  assert.equal(asks[0].from, 'Canary Street');
+});
+
+test('a trailing full stop is dropped from a learned term; an INTERNAL dot is part of it', () => {
+  const { asks } = askCandidates('we moved off nodejs last year.', 'we moved off node.js last year.');
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].to, 'node.js', 'node.js keeps its dot — it is not sentence punctuation');
+  const end = askCandidates('we moved off nodejs.', 'we moved off node.js.');
+  assert.equal(end.asks[0].to, 'node.js', 'and the sentence\'s own full stop still goes');
+});
+
+test('a name fix asks about the WHOLE name, never the lone word inside it', () => {
+  // "Hand" -> "Hanna" as a curated mangling would corrupt the ordinary word "hand" forever.
+  const { asks } = askCandidates('I spoke to Rich Hand today.', 'I spoke to Rich Hanna today.');
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].from, 'Rich Hand');
+  assert.equal(asks[0].to, 'Rich Hanna');
+});
+
+test('a wholesale rewrite asks nothing (neither close in spelling nor in sound)', () => {
+  const { asks } = askCandidates('um', 'Marcus Whitfield');
+  assert.equal(asks.length, 0);
+});
+
+test('matchHeard claims a recent, similar dictation', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
+  const m = matchHeard(journal, 'Send the Deepgram numbers to Marla.', { now });
+  assert.ok(m, 'the sent text is recognisably that dictation, corrected');
+  assert.equal(m.entry.id, 'a');
+});
+
+test('matchHeard REFUSES a typed message — this is how a typed sentence stays silent', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
+  assert.equal(matchHeard(journal, 'Remind me to book the flight on Tuesday.', { now }), null);
+});
+
+test('matchHeard REFUSES a dictation older than the window, and one already reconciled', () => {
+  const now = 1_700_000_000_000;
+  const text = 'Send the deep graham numbers to Marla.';
+  assert.equal(matchHeard([{ id: 'a', at: now - MATCH_WINDOW_MS - 1, text }], text, { now }), null, 'stale');
+  assert.equal(matchHeard([{ id: 'a', at: now - 1000, text, consumed: true }], text, { now }), null, 'already answered');
+});
+
+test('matchHeard breaks a tie toward the more recent dictation — he is looking at the last one', () => {
+  const now = 1_700_000_000_000;
+  const text = 'Send the deep graham numbers to Marla.';
+  const m = matchHeard([{ id: 'old', at: now - 60000, text }, { id: 'new', at: now - 2000, text }], text, { now });
+  assert.equal(m.entry.id, 'new');
+});
+
+test('reviewSent on a TYPED message returns no prompts and says why', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
+  const r = reviewSent(journal, 'Book the flight for Tuesday morning.', {}, { now });
+  assert.equal(r.matched, false);
+  assert.equal(r.prompts.length, 0);
+  assert.match(r.reason, /treated as typed/);
+});
+
+test('reviewSent on an UNCHANGED dictation returns no prompts — nothing was corrected', () => {
+  const now = 1_700_000_000_000;
+  const text = 'Send the Deepgram numbers to Marla.';
+  const r = reviewSent([{ id: 'a', at: now - 5000, text }], text, {}, { now });
+  assert.equal(r.matched, true);
+  assert.equal(r.prompts.length, 0);
+  assert.match(r.reason, /sent unchanged/);
+});
+
+test('reviewSent asks the exact sentence §7 specifies', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'The deep graham contract is signed.' }];
+  const r = reviewSent(journal, 'The Deepgram contract is signed.', {}, { now });
+  assert.equal(r.prompts.length, 1);
+  assert.equal(r.prompts[0].prompt, 'Add "Deepgram" to your vocabulary?');
+  assert.equal(r.prompts[0].askedBefore, false);
+});
+
+test('NO route out of reviewSent carries a learn — the review cannot change what the system believes', () => {
+  const now = 1_700_000_000_000;
+  const journal = [{ id: 'a', at: now - 5000, text: 'The deep graham contract is signed.' }];
+  const r = reviewSent(journal, 'The Deepgram contract is signed.', {}, { now });
+  assert.equal(r.learn, undefined, 'the review returns questions, never an instruction');
+  assert.ok(r.prompts.every((p) => p.learn === undefined));
+});
+
+test('a DECLINE is not permanent: the very next repeat asks again, and says it has asked before', () => {
+  const ask = { from: 'deep graham', to: 'Deepgram', key: askKey('deep graham', 'Deepgram') };
+  const first = answerAsk({}, ask, 'decline');
+  assert.equal(first.learn, null, 'a decline learns nothing');
+  const { prompts } = applyLedger([ask], first.ledger);
+  assert.equal(prompts.length, 1, 'asked again on the next repeat — no threshold, no cool-off');
+  assert.equal(prompts[0].askedBefore, true);
+  assert.match(prompts[0].prompt, /you corrected this before/);
+});
+
+test('"don\'t ask for this term again" is permanent, and lands on an INSPECTABLE list', () => {
+  const ask = { from: 'great', to: 'Grant', key: askKey('great', 'Grant') };
+  const res = answerAsk({}, ask, 'never');
+  assert.equal(res.learn, null);
+  assert.deepEqual(res.ledger.suppressed, [askKey('great', 'Grant')], 'readable, not a hash');
+  const after = applyLedger([ask], res.ledger);
+  assert.equal(after.prompts.length, 0, 'never asked again');
+  assert.equal(after.suppressed.length, 1, 'and the suppression is reported, not silent');
+});
+
+test('CONFIRM is the only answer that yields a vocabulary pair', () => {
+  const ask = { from: 'deep graham', to: 'Deepgram', key: askKey('deep graham', 'Deepgram') };
+  assert.deepEqual(answerAsk({}, ask, 'confirm').learn, { canonical: 'Deepgram', mangled: 'deep graham' });
+  assert.equal(answerAsk({}, ask, 'decline').learn, null);
+  assert.equal(answerAsk({}, ask, 'never').learn, null);
+  assert.throws(() => answerAsk({}, ask, 'probably'), /unknown answer/);
+});
+
+test('a confirmed pair goes in by the SAME explicit path learn-term uses, version bump included', () => {
+  const ask = { from: 'deep graham', to: 'Deepgram', key: askKey('deep graham', 'Deepgram') };
+  const { learn } = answerAsk({}, ask, 'confirm');
+  const doc = { schemaVersion: 1, version: '2026-08-01', entities: [] };
+  const res = learnTerm(doc, { canonical: learn.canonical, mangled: learn.mangled }, { today: '2026-08-29' });
+  assert.equal(res.changed, true);
+  assert.equal(res.doc.version, '2026-08-29');
+  assert.deepEqual(res.doc.entities[0].mangled, ['deep graham']);
+});
+
+// ---------------------------------------------------------------------------------------
+// The dictation journal on disk, and the retention posture it enforces
+// ---------------------------------------------------------------------------------------
+
+test('a corrupt journal line costs one dictation, never the whole journal', () => {
+  const rows = parseJournalFile([
+    '{"id":"a","at":1,"text":"one"}',
+    'not json at all',
+    '{"id":"b","at":2}',            // no text
+    '{"id":"c","at":2,"text":"two"}',
+    '',
+  ].join('\n'));
+  assert.deepEqual(rows.map((r) => r.id), ['a', 'c']);
+});
+
+test('a missing journal is an EMPTY journal, never a crash — the loop degrades, it does not break', () => {
+  assert.deepEqual(loadJournal({ root: path.join(os.tmpdir(), 'no-such-journal-dir-xyz') }), []);
+  const l = loadLedger(path.join(os.tmpdir(), 'no-such-journal-dir-xyz'));
+  assert.deepEqual(l, { suppressed: [], declined: {}, reconciled: [] });
+});
+
+test('the ask ledger round-trips on disk and stores the suppression list sorted, for a human to read', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  saveLedger({ suppressed: ['z=>Z', 'a=>A'], declined: { 'q=>Q': 2 }, reconciled: ['e1'] }, root);
+  const back = loadLedger(root);
+  assert.deepEqual(back.suppressed, ['a=>A', 'z=>Z']);
+  assert.equal(back.declined['q=>Q'], 2);
+  assert.deepEqual(back.reconciled, ['e1']);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('reconciling an entry marks it consumed WITHOUT rewriting what open-wispr appended', () => {
+  const ledger = markReconciled({ reconciled: [] }, 'e1');
+  const rows = withConsumed([{ id: 'e1', at: 1, text: 'x' }, { id: 'e2', at: 2, text: 'y' }], ledger);
+  assert.equal(rows[0].consumed, true);
+  assert.equal(rows[1].consumed, undefined);
+});
+
+test('Tier A evicts whole day files past the window, oldest first, by unlink and nothing else', () => {
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const days = [
+    { day: '2026-08-01', records: 10, bytes: 1000 },
+    { day: '2026-08-20', records: 10, bytes: 1000 },
+    { day: '2026-08-29', records: 10, bytes: 1000 },
+  ];
+  const plan = planRetention(days, { audio: [] }, { now, textDays: 14 });
+  assert.deepEqual(plan.evictDays.map((d) => d.day), ['2026-08-01']);
+  assert.equal(plan.keptRecords, 20);
+  assert.match(plan.evictDays[0].why, /older than 14 days/);
+});
+
+test('Tier A also binds on the record ceiling, and says which limit bound', () => {
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const days = [
+    { day: '2026-08-27', records: 400, bytes: 1 },
+    { day: '2026-08-28', records: 400, bytes: 1 },
+    { day: '2026-08-29', records: 400, bytes: 1 },
+  ];
+  const plan = planRetention(days, { audio: [] }, { now, textDays: 14, textRecords: 900 });
+  assert.deepEqual(plan.evictDays.map((d) => d.day), ['2026-08-27']);
+  assert.match(plan.evictDays[0].why, /record ceiling/);
+  assert.equal(plan.keptRecords, 800);
+});
+
+test('Tier B audio binds on days OR bytes, whichever comes first — the techy-mode numbers, unchanged', () => {
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const audio = [
+    { id: 'old', at: now - 20 * 24 * 3600 * 1000, bytes: 10 },
+    { id: 'big1', at: now - 3 * 24 * 3600 * 1000, bytes: 800 },
+    { id: 'big2', at: now - 1 * 24 * 3600 * 1000, bytes: 800 },
+  ];
+  const plan = planRetention([], { audio }, { now, audioDays: 14, audioBytes: 1000 });
+  assert.deepEqual(plan.evictAudio.map((a) => a.id), ['old', 'big1']);
+  assert.equal(plan.keptAudioBytes, 800);
+  assert.match(plan.evictAudio[0].why, /older than 14 days/);
+  assert.match(plan.evictAudio[1].why, /byte ceiling/);
+});
+
+test('Tier B is OFF by default, so the flywheel costs zero bytes of retained audio', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  fs.writeFileSync(path.join(root, '2026-08-29.jsonl'), `${JSON.stringify({ id: 'a', at: Date.now(), ms: 3000, text: 'hello' })}\n`);
+  const survey = surveyJournal(root);
+  assert.equal(survey.audio.length, 0, 'no audio directory exists unless retention was switched on');
+  assert.equal(survey.days.length, 1);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('the retention sweep is a DRY RUN by default — a policy that erases his speech is readable first', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  fs.writeFileSync(path.join(root, '2020-01-01.jsonl'), `${JSON.stringify({ id: 'a', at: 1577836800000, text: 'old' })}\n`);
+  const dry = sweepRetention({ root });
+  assert.equal(dry.dryRun, true);
+  assert.equal(dry.evictDays.length, 1);
+  assert.ok(fs.existsSync(path.join(root, '2020-01-01.jsonl')), 'still there — nothing was deleted');
+  const wet = sweepRetention({ root, dryRun: false });
+  assert.equal(wet.dryRun, false);
+  assert.ok(!fs.existsSync(path.join(root, '2020-01-01.jsonl')), 'and --apply really does unlink it');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a record whose audio aged out still READS — an honest degrade, never a silent blank', () => {
+  const rec = { id: 'a', at: 1, ms: 3000, text: 'the Deepgram numbers', audio: null };
+  const rows = withConsumed([rec], { reconciled: [] });
+  assert.equal(rows[0].text, 'the Deepgram numbers');
+  assert.equal(rows[0].audio, null, 'the pointer is null, and null is the answer, not an error');
+});
+
+test('the SERVICE sweeps the journal, and it is the only thing that deletes from it', () => {
+  // open-wispr appends and never rewrites; this long-running service evicts and never edits. The
+  // split is what keeps a retention pass an unlink of a whole day file rather than a rewrite of the
+  // CEO\'s speech.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  fs.writeFileSync(path.join(root, '2019-05-05.jsonl'), `${JSON.stringify({ id: 'a', at: 1557014400000, ms: 1000, text: 'ancient' })}\n`);
+  const today = new Date().toISOString().slice(0, 10);
+  fs.writeFileSync(path.join(root, `${today}.jsonl`), `${JSON.stringify({ id: 'b', at: Date.now(), ms: 1000, text: 'fresh' })}\n`);
+  const r = sweepDictationRetention({ root });
+  assert.equal(r.dryRun, false, 'the scheduled sweep really evicts');
+  assert.deepEqual(r.evictDays.map((d) => d.day), ['2019-05-05']);
+  assert.ok(!fs.existsSync(path.join(root, '2019-05-05.jsonl')));
+  assert.ok(fs.existsSync(path.join(root, `${today}.jsonl`)), "today's dictation is untouched");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a journal that cannot be swept is a disk problem, never a reason to stop transcribing', () => {
+  assert.doesNotThrow(() => sweepDictationRetention({ root: '/dev/null/not-a-directory' }));
+});
+
+test('costPerHour is measured from real records, not estimated', () => {
+  const cost = costPerHour([
+    { id: 'a', at: 1, ms: 1_800_000, text: 'x'.repeat(100) },
+    { id: 'b', at: 2, ms: 1_800_000, text: 'y'.repeat(100) },
+  ]);
+  assert.equal(cost.records, 2);
+  assert.equal(cost.spokenMs, 3_600_000, 'exactly one hour of dictation');
+  assert.equal(cost.textBytesPerHour, cost.textBytes, 'so bytes/hour IS the measured byte total');
+  assert.equal(cost.audioBytesPerHour, 0, 'Tier B off');
 });
 
 // ---------------------------------------------------------------------------------------

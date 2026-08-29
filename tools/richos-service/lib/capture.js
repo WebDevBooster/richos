@@ -239,6 +239,17 @@ function words(line) {
   return String(line || '').split(/\s+/).filter(Boolean);
 }
 
+/**
+ * Does the token at `i` begin a sentence? Its capital letter is then grammar, not evidence of a name,
+ * so hunk expansion must not absorb it. Judged from the token BEFORE it in the operation stream —
+ * which is the token that actually precedes it in the text, changed or unchanged.
+ */
+function startsSentence(ops, i) {
+  if (i <= 0) return true; // nothing before it: it is the start of the body
+  const prev = String(ops[i - 1]?.v ?? '');
+  return /[.?!\u2026]["')\]]?$/.test(prev);
+}
+
 /** A single token that is proper-noun / term shaped (capitalized, internal-caps, or dotted). */
 function isTermToken(tok) {
   const t = String(tok || '');
@@ -256,8 +267,17 @@ function isTermToken(tok) {
  * A replace hunk is then EXPANDED across immediately adjacent unchanged term tokens (proper-noun
  * context), so a name fix like "Rich Hand" -> "Rich Hanna" yields the WHOLE name pair, never the
  * dangerous lone-word delta "Hand" -> "Hanna" (which as a curated mangling would corrupt the ordinary
- * word "hand"). The very first body token is never absorbed (it's capitalized only because it starts
- * the sentence).
+ * word "hand").
+ *
+ * EXPANSION STOPS AT A SENTENCE BOUNDARY, and this is not a nicety. A capital letter is the ONLY
+ * evidence this function has that a token is part of a name, and the first word of a sentence is
+ * capitalized for a reason that has nothing to do with names. Absorbing it produces a "term" like
+ * `Cannery Street. That` — which, put to the CEO as *Add "Cannery Street. That" to your vocabulary?*,
+ * is the kind of question that gets a feature switched off. Measured on the 2026-08-29 short-call
+ * corpus: 3 of 6 captured corrections came out this way before the guard. The very first body token
+ * was already excluded for exactly this reason; a token following `.`, `?` or `!` is the same case
+ * and was not. The cost is that a genuine name immediately after a full stop is not absorbed as
+ * CONTEXT — conservative in the safe direction, since the changed span itself is never dropped.
  * @returns {{from:string, to:string}[]}
  */
 export function tokenReplaceHunks(oldTokens, newTokens) {
@@ -295,19 +315,29 @@ export function tokenReplaceHunks(oldTokens, newTokens) {
         k += 1;
       }
       if (!dels.length || !inss.length) continue; // pure insert/delete — ignore
-      // Expand left across adjacent unchanged term tokens (but never the very first body token).
+      // Expand left across adjacent unchanged term tokens (but never the very first body token, and
+      // never across a sentence boundary — see the note above).
       const left = [];
       for (let p = blockStart - 1; p > 0 && ops[p].t === 'eq' && isTermToken(ops[p].v); p -= 1) {
+        if (startsSentence(ops, p)) break;
         left.unshift(ops[p].v);
       }
-      // Expand right across adjacent unchanged term tokens.
+      // Expand right across adjacent unchanged term tokens, under the same sentence guard.
       const right = [];
       for (let p = k; p < ops.length && ops[p].t === 'eq' && isTermToken(ops[p].v); p += 1) {
+        if (startsSentence(ops, p)) break;
         right.push(ops[p].v);
       }
       hunks.push({
         from: [...left, ...dels, ...right].join(' '),
         to: [...left, ...inss, ...right].join(' '),
+        // The UNEXPANDED delta — what actually changed, before the proper-noun context was wrapped
+        // around it. The expansion exists to make the LEARNED PAIR safe; it must not be what a
+        // similarity gate judges, because identical context inflates every score. "Northgate,
+        // Tuesday" -> "Northgate, Wednesday" looks like a near-identical phrase and is a change of
+        // mind about a day; its core, "Tuesday" -> "Wednesday", says so plainly.
+        coreFrom: dels.join(' '),
+        coreTo: inss.join(' '),
       });
     } else {
       k += 1;
@@ -396,10 +426,24 @@ export function extractTermCorrections(baselineText, editedText) {
 }
 
 function trimEdgePunct(s) {
-  return String(s == null ? '' : s)
+  const t = String(s == null ? '' : s)
     .replace(/^[^\p{L}\p{N}]+/u, '')
     .replace(/[^\p{L}\p{N}.]+$/u, '')
     .trim();
+  return dropSentencePeriod(t);
+}
+
+/**
+ * Drop the full stop that ended the sentence. It is never part of the term, and a vocabulary entry
+ * reading `Cannery Street.` is junk in the CEO's own file — put to him as *Add "Cannery Street." to
+ * your vocabulary?* it reads as a broken feature. An INTERNAL dot survives untouched, which is the
+ * only one that ever mattered: `whisper.cpp.` at the end of a sentence trims to `whisper.cpp`.
+ * Dropping it from BOTH sides of a pair keeps them in correspondence, and the corrector's
+ * word-boundary phrase match leaves the sentence's own punctuation in the text either way.
+ */
+function dropSentencePeriod(t) {
+  const stripped = t.replace(/\.+$/, '');
+  return stripped || t;
 }
 
 /**

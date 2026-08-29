@@ -1,0 +1,13 @@
+PRECISION — what the ask gate does NOT say, measured on the same corpus
+
+CONTROL 1  a change of mind (day names, numbers, ordinary verbs) across 12 channels
+           asks raised: 0   <- silent, as required
+
+PROBE      the SAME channels with a real name mis-hearing planted (11 channels)
+           asks raised: 11   <- the gate is awake, so the silence above means something
+
+CONTROL 2  3 TYPED messages offered against a live dictation journal
+           matched a dictation: 0   prompts: 0   <- silent, as required
+PROBE      the same journal, sent as a corrected dictation: matched true, prompts 1   <- the pairing works, so the refusals above mean something
+
+VERDICT    the gate stayed silent on every change of mind and every typed message, while still speaking on a planted mis-hearing
