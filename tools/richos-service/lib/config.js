@@ -174,6 +174,20 @@ export const DEFAULT_MODEL = 'large-v3-turbo';
  * a full 92-minute q5_0 run with `-mc 0` alone and one with `-mc 0 -et 2.4 -lpt -1.0 -nth 0.6`
  * produced BYTE-IDENTICAL JSON (sha256 07ad0d16b1e94e99bb66da32a6a1588701aed9629c4c2e7653c6791e87ae961b).
  * They are dropped rather than left in place implying a defence that was never running.
+ *
+ * AND `-nth` IS NOT A DEFENCE AT ANY VALUE, NOT ONLY AT ITS DEFAULT — measured 2026-08-29 (second
+ * pass), because "no-speech-thold" is the parameter anyone looking at whisper hallucinating over
+ * silence reaches for first, and reaching for it here is a dead end. On a 700 s slice of a real
+ * host channel holding 14 segments emitted over MEASURED SILENCE, six full decodes at
+ * `-nth 0.01 / 0.1 / 0.2 / 0.4 / 0.6 / 0.9` produced SIX BYTE-IDENTICAL JSON files (sha256
+ * e8f7998b56d3740ad8d0c662db049b2ba83206a74b305054bbe6c51f18060d16). The parameter is inert in this
+ * whisper.cpp build across a 90x range. `-lpt 0.0` — the other arm of whisper.cpp's no-speech
+ * branch — removed ONE of the 14 for +90% wall clock (24.9 s -> 47.4 s) and perturbed the real
+ * decode as well (+1 segment, +8 words), which is a cost with no defensible benefit.
+ *
+ * So the silence-fabrication class is handled POST-DECODE, in `repetition-guard.js` class 4, and
+ * NO tier value changes for it. This paragraph exists so the next person to meet 60% of a channel
+ * filled with "Thank you." does not spend a day on a decode flag that cannot help.
  */
 export const MODEL_TIERS = {
   turbo: {
