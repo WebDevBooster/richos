@@ -12,6 +12,57 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **The CEO queue** (`scripts/lib/ceo-queue.sh`, `scripts/lib/ceo-queue.py`,
+  `scripts/ceo-queue-lint.sh`, `scripts/hooks/guard-ceo-queue-commits.sh`) —
+  MINOR: purely additive, and inert in any repository that does not declare a
+  `.ceo-queue`. Makes "waiting on the CEO" a **checkable claim** instead of an
+  unfalsifiable one.
+
+  The engine's orchestrator writes long, exact briefs for every teammate —
+  paths, commands, constraints, a completion criterion. When the executor is
+  the CEO the brief collapses to one sentence, so the most expensive executor
+  in the system gets the worst brief. Worse, a record can say an item is
+  waiting on him while the thing he is supposed to touch has never been
+  prepared and does not exist; that claim reads exactly like a real one, so it
+  sits for weeks looking blocked on him while it is blocked on unfinished
+  preparation. One real item read, in full: *a real recorded call, a length,
+  and a verified transcript* — a description of a desired state, with no file
+  behind it, waiting on material that was never going to arrive.
+
+  **AN ITEM MAY NOT CLAIM TO BE WAITING ON THE CEO UNLESS THE THING HE TOUCHES
+  ALREADY EXISTS ON DISK.** Every item in a declared CEO section must carry
+  four fields — the exact artifact path, the time cost, what *done* looks like,
+  and what it unblocks — and the artifact is `stat`ed. Two states: `READY-FOR-CEO`
+  (prepared) and `BLOCKED-ON-RICH` (unprepared, and therefore in the preparer's
+  own section). Moving an item to `BLOCKED-ON-RICH` is the mechanism working;
+  the CEO sections are worth something only while "waiting on the CEO" is a
+  promise that everything else is done.
+
+  Enforced at `git commit`, not at `Write`: the dominant way a markdown record
+  changes here is the Bash tool, so a write-matcher guard would miss most real
+  edits while reporting a clean session — the same shape as the "18/18 suites"
+  defect, and the same discovery `guard-publication-writes.sh` records from the
+  other direction. It fires on EVERY commit in a declaring repository, not only
+  ones that touch the record, because the original failure was a bad row
+  *sitting* there rather than a bad row being written; the refusal says whether
+  this commit introduced the problem or ran into a pre-existing one.
+
+  Scope is declared **by the repository that owns the record**, exactly as
+  `.publication-boundary` declares the publication split — so a governed
+  session committing into a repository that has NOT adopted the engine is fully
+  covered. Artifact roots resolve against that repository's MAIN checkout
+  (`scripts/lib/resolve-main-checkout.sh`), because a linked worktree contains
+  no gitignored files and a private artifact prepared for the CEO is very often
+  gitignored. A declared root that is not on this machine makes its artifacts
+  UNCHECKABLE: skipped, and NAMED in every verdict, never blocked and never
+  invisible. No silent degradation anywhere — a missing declared section, a
+  CEO section reverted to a markdown table, an absent record and a malformed
+  declaration each BLOCK; the CLI gives an absent record its own exit code (3)
+  so "nothing to check" can never be read as "clean". `ceo-queue.test.sh`
+  proves the predicate on fixtures alone (the real record lives in a private
+  repository CI cannot see), including the original failing item replayed in
+  both its shapes and its prepared replacement passing.
+
 - **Worker lifecycle event stream** (`worker-created-handoff.sh`,
   `worker-started-handoff.sh`, `worker-updated-handoff.sh`,
   `worker-ended-handoff.sh` → `worker-events.jsonl`) — MINOR: purely additive
