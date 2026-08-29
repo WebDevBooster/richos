@@ -365,7 +365,13 @@ git -C "$SAMPLE_ROOT" add -A
 git -C "$SAMPLE_ROOT" add -f .claude/settings.local.json
 git -C "$SAMPLE_ROOT" commit -q -m "Initial sample product"
 
-label_real "install.sh — generating .claude/settings.json + hook integrity sidecars"
+# The label used to read "generating .claude/settings.json + hook integrity
+# sidecars". install.sh stopped generating settings.json when the double-fire
+# bug was fixed — it now REMOVES a stale one — so the very next line of output a
+# buyer read was "✓ no settings.json to migrate", contradicting the label above
+# it. Small, and precisely the kind of small that makes someone evaluating the
+# tool wonder what else the narration is asserting from memory.
+label_real "install.sh — minting hook integrity sidecars + verifying the single canonical settings source"
 # CLAUDE_CONFIG_DIR is redirected into the sample repo, and this is not a
 # detail. install.sh mints the entity-facing engine pointer into the operator's
 # config dir; without this line the demo would repoint a REAL operator's pointer
