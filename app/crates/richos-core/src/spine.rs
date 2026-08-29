@@ -26,6 +26,7 @@ use crate::live::{
 };
 use crate::machinery::{MachineryObserver, MachineryRecord};
 use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
+use crate::steering::{ActiveTurn, IntakeRecord, StopClaim, TurnControl};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
 use crate::timeline::Timeline;
@@ -56,6 +57,10 @@ pub enum SpineError {
     NoLease,
     #[error("no lease factory attached — cannot rotate or recover")]
     NoLeaseFactory,
+    /// The durable intake log (UX §9.2/§9.3) could not be written. Surfaced rather than
+    /// swallowed: an undrained record is the CEO's words still waiting to be delivered.
+    #[error("steering intake: {0}")]
+    Steering(String),
 }
 
 /// A prompt accepted while a turn was in flight, awaiting delivery at the next turn
@@ -69,6 +74,13 @@ struct Queued {
     turn_id: String,
     binding: ThreadBinding,
     text: String,
+    /// The intake-log id this came from, when it was a steering message (UX §9.2).
+    ///
+    /// It is the ORDERING KEY a stop is settled against: steering the CEO wrote BEFORE he
+    /// pressed stop is stopped with it, steering he wrote AFTER is a new instruction and
+    /// survives. `None` means it did not come through the intake log at all, which is
+    /// treated as "before", because there is no evidence it came after.
+    intake_id: Option<u64>,
 }
 
 /// A proactive message (Tier 1/2) raised WHILE a turn was in flight — the ledger write
@@ -103,6 +115,11 @@ const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 200_000;
 /// continuity design §8 Q2's recommended starting point: "~70% as the starting point,
 /// tuned in dogfood." Overridable via `set_context_budget`.
 const DEFAULT_WATERMARK_RATIO: f64 = 0.70;
+
+/// The `stop_reason` a CEO-stopped turn carries on the legacy `stream.rs` family, and in
+/// the ledger. One string, in one place, so nothing downstream has to pattern-match on a
+/// phrase somebody typed twice.
+pub const STOPPED_BY_CEO: &str = "stopped_by_ceo";
 
 pub struct Spine {
     ledger: Ledger,
@@ -158,6 +175,19 @@ pub struct Spine {
     /// `observer` on purpose — the four `stream.rs` events are unchanged and a UI that
     /// listens only to them is unaffected by anything on this one.
     live: Option<Box<dyn LiveObserver>>,
+    /// THE CEO'S TWO MID-TURN CONTROLS (UX §9.2/§9.3), and the only thing in this struct
+    /// that is reachable while a turn is running.
+    ///
+    /// Everything else here is behind `&mut self`, which `deliver()` holds for the whole
+    /// turn. `TurnControl` is an `Arc` the shell keeps its own handle on, so a stop can be
+    /// recorded and delivered to the lease without ever waiting for this spine's lock —
+    /// which is the difference between a stop control and a button that fires after the
+    /// work it meant to interrupt has finished.
+    ///
+    /// Defaults to `TurnControl::detached()`: turn bookkeeping works, stop and steer are
+    /// REFUSED, because there is nowhere durable to record the request. Every pre-existing
+    /// test and headless run therefore behaves exactly as it did.
+    control: TurnControl,
     /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
     /// `Task` tool call can be joined to the worker it spawned (UX §7).
     ///
@@ -214,6 +244,7 @@ impl Spine {
             active: None,
             registry: EntityRegistry::dogfood(),
             turn_in_progress: false,
+            control: TurnControl::detached(),
             queue: VecDeque::new(),
             lease_primed: false,
             observer: None,
@@ -386,8 +417,25 @@ impl Spine {
     }
 
     pub fn attach_lease(&mut self, lease: Box<dyn Cognition>) {
+        // Publish this lease's cancel seam BEFORE it can be handed a turn. A lease with no
+        // cancel story publishes `None`, and a stop against it reports `reached_lease:
+        // false` rather than claiming an interrupt that never happened.
+        self.control.set_cancel(lease.cancel_handle());
         self.lease = Some(lease);
         self.lease_primed = false;
+    }
+
+    /// Install the shared stop/steer control (UX §9.2/§9.3). The shell keeps a clone of
+    /// the same handle beside the `Mutex<Spine>`; this is the only channel by which
+    /// anything reaches a turn that is already running.
+    pub fn set_turn_control(&mut self, control: TurnControl) {
+        control.set_cancel(self.lease.as_ref().and_then(|l| l.cancel_handle()));
+        self.control = control;
+    }
+
+    /// A clone of the shared control handle, for the shell's own commands.
+    pub fn turn_control(&self) -> TurnControl {
+        self.control.clone()
     }
 
     pub fn has_lease(&self) -> bool {
@@ -744,7 +792,12 @@ impl Spine {
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
         if self.turn_in_progress {
-            self.queue.push_back(Queued { turn_id: turn_id.clone(), binding, text: text.to_string() });
+            self.queue.push_back(Queued {
+                turn_id: turn_id.clone(),
+                binding,
+                text: text.to_string(),
+                intake_id: None,
+            });
             return Ok(turn_id);
         }
         // (3) otherwise deliver now.
@@ -788,6 +841,15 @@ impl Spine {
 
         self.turn_in_progress = true;
         self.ledger.mark_turn_started(turn_id, &session_id)?;
+        // Publish the running turn to the shared control. A MIRROR of `turn_in_progress`,
+        // written at the same instant and from the same durable fact — never inferred from
+        // activity or from silence (continuity §5.2).
+        self.control.begin_turn(ActiveTurn {
+            turn_id: turn_id.to_string(),
+            thread_id: thread_id.to_string(),
+            entity_id: Some(binding.entity_id().clone()),
+            started_at: self.ledger.turn(turn_id).and_then(|t| t.started_at),
+        });
 
         // Turn start: the UI shows the calm "Rich is working" state now.
         self.emit(StreamEvent::TurnStarted {
@@ -868,6 +930,13 @@ impl Spine {
         // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
 
         self.turn_in_progress = false;
+        // THE CEO'S STOP, read once, here. `stop_claim_for` returns a claim only if it
+        // names THIS turn id — a stop is a statement about one turn and must never fall
+        // through onto whatever runs next.
+        let stop_claim = self.control.stop_claim_for(turn_id);
+        // The mirror is cleared whatever happens below, including on the error paths: a
+        // stale "still running" would make the next stop request name a dead turn.
+        self.control.end_turn(turn_id);
 
         // Close whatever run of prose was still open, whatever the outcome: the partial
         // text is already durable, so finalizing it is a statement about the ledger rather
@@ -896,6 +965,18 @@ impl Spine {
         // len(whatever the ledger actually holds for this turn's reply so far)).
         let reply_len = self.ledger.turn(turn_id).map(|t| t.assistant_text.len()).unwrap_or(0);
         self.context_chars += text.len() + reply_len;
+
+        // THE CEO STOPPED IT (§9.3 steps 4 and 5). Taken before either branch below,
+        // because the two things that must NOT happen here are a `completed` row for work
+        // the CEO ended, and a crash-replay of a turn he explicitly told to stop.
+        //
+        // Everything already streamed is already durable (each delta was persisted before
+        // it was emitted), so step 4 — "preserve partial commentary, activity and
+        // assistant output" — needs no code: not deleting it is the whole implementation.
+        if let Some(claim) = stop_claim {
+            self.finish_stopped_turn(turn_id, binding, &claim, stop.as_deref().ok())?;
+            return Ok(());
+        }
 
         match stop {
             Ok(stop_reason) => {
@@ -977,6 +1058,144 @@ impl Spine {
         }
     }
 
+    /// Terminal handling for a turn the CEO stopped (UX §9.3 steps 4-6).
+    ///
+    /// Two things must not happen here, and both used to be the only options: a
+    /// `completed` row for work the CEO ended, and a crash-replay of a turn he explicitly
+    /// told to stop. `Ledger::stop_turn` quotes the REQUEST's timestamp rather than the
+    /// clock, so `You stopped after {duration}` is anchored to the moment he pressed the
+    /// button and not to the moment the lease got round to letting go.
+    ///
+    /// **On the legacy `stream.rs` family this emits `TurnCompleted`, not `TurnError`.**
+    /// That family has four events and none of them means "stopped"; of the two that could
+    /// carry a terminal, `TurnError` says something went wrong, and nothing did. The
+    /// authoritative statement is `TurnStatus::Stopped` on the additive §13 family, which
+    /// is what the shipping UI reads. The legacy `stop_reason` carries `stopped_by_ceo` so
+    /// even a consumer that only listens to the old family is not misled.
+    fn finish_stopped_turn(
+        &mut self,
+        turn_id: &str,
+        binding: &ThreadBinding,
+        claim: &StopClaim,
+        lease_stop_reason: Option<&str>,
+    ) -> Result<(), SpineError> {
+        let thread_id = binding.thread_id().to_string();
+        self.ledger.stop_turn(turn_id, claim.requested_at)?;
+        self.emit(StreamEvent::TurnCompleted {
+            thread_id,
+            turn_id: turn_id.to_string(),
+            stop_reason: STOPPED_BY_CEO.to_string(),
+            at: now_millis(),
+        });
+        self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Stopped, None));
+        self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Idle));
+
+        // A lease that never acknowledged `session/cancel` is no longer KNOWN to be idle —
+        // it may still be working, and whatever it says next would land on the next turn.
+        // So it is retired at this boundary, through the rotation path that already exists
+        // (never mid-turn: `pending_rotation_reason` is honoured by `after_turn_boundary`).
+        if lease_stop_reason == Some(crate::acp::STOP_REASON_CANCEL_UNACKNOWLEDGED)
+            && self.lease_factory.is_some()
+        {
+            self.pending_rotation_reason.get_or_insert_with(|| "cancel-unacknowledged".to_string());
+        }
+        Ok(())
+    }
+
+    /// What a stop means for work the CEO had already lined up behind it.
+    ///
+    /// A stop that immediately starts the next queued turn is not a stop — the CEO would
+    /// press the button and watch Rich carry straight on. So anything ACCEPTED BUT NOT YET
+    /// DELIVERED when the stop request landed is stopped too, and his words stay in the
+    /// ledger and on screen rather than being deleted.
+    ///
+    /// The cut is by intake id, not by wall clock: steering written BEFORE the stop is
+    /// cancelled with it, steering written AFTER it is a new instruction and survives.
+    fn settle_stop_claim(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        let Some(claim) = self.control.stop_claim() else { return Ok(()) };
+        let mut survivors: VecDeque<Queued> = VecDeque::new();
+        while let Some(queued) = self.queue.pop_front() {
+            let written_before_the_stop = queued.intake_id.map(|id| id < claim.intake_id).unwrap_or(true);
+            if written_before_the_stop {
+                self.ledger.stop_turn(&queued.turn_id, claim.requested_at)?;
+                self.emit_live(self.turn_status_event(&queued.binding, &queued.turn_id, TurnStatus::Stopped, None));
+            } else {
+                survivors.push_back(queued);
+            }
+        }
+        self.queue = survivors;
+        if self.queue.is_empty() {
+            self.emit_live(self.thread_summary_event(binding, &claim.turn_id, ThreadStatus::Idle));
+        }
+        self.control.clear_stop_claim();
+        Ok(())
+    }
+
+    /// Move durable intake records into the ledger, now that the boundary is clear.
+    ///
+    /// This is where §9.2's "persisted before delivery" pays out: the CEO's steering was
+    /// already on disk when he pressed Enter, and it becomes a real, entity-scoped turn
+    /// here — through `record_prompt_received`, under a binding read fresh from the
+    /// ledger, exactly like any other prompt. The intake log is not a second source of
+    /// truth; this is the only thing that ever happens to a record.
+    ///
+    /// **A record that cannot be turned into a turn is NOT marked drained and NOT
+    /// discarded.** It stops the drain and comes back at the next boundary. That blocks
+    /// everything behind it, which is the deliberate trade: the CEO's words surviving
+    /// matters more than the liveness of the records queued after them, and a binding
+    /// failure here is systemic rather than per-message.
+    fn drain_intake(&mut self) -> Result<(), SpineError> {
+        for record in self.control.pending_intake() {
+            match record {
+                IntakeRecord::Steer { id, thread_id, text, .. } => {
+                    let binding = self.ledger.thread_binding(&thread_id)?;
+                    let turn_id = self.ledger.record_prompt_received(&binding, &text, Source::Text)?;
+                    self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
+                    self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
+                    self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
+                    self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                }
+                IntakeRecord::Stop { id, turn_id, at } => {
+                    // Reached only when a stop outlived the process (see
+                    // `reconcile_intake`) or named a turn that had already ended. A turn
+                    // still open is stopped; anything else is left exactly as it is,
+                    // because `Ledger::stop_turn` refuses to rewrite a terminal state.
+                    let open = self
+                        .ledger
+                        .turn(&turn_id)
+                        .map(|t| {
+                            matches!(
+                                t.state,
+                                crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight
+                            )
+                        })
+                        .unwrap_or(false);
+                    if open {
+                        self.ledger.stop_turn(&turn_id, at)?;
+                    }
+                    self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                }
+                IntakeRecord::Drained { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Startup reconciliation: apply stop requests that outlived the process.
+    ///
+    /// The crash window this closes is one line wide. The stop request is fsync'd before
+    /// the lease is touched (`steering.rs`), and the ledger's `TurnStopped` is written when
+    /// the turn ends. Die in between and the turn is `in_flight` forever with a durable
+    /// stop request sitting beside it — and §5.3's crash-replay would REPLAY a turn the
+    /// CEO explicitly stopped. Running this at boot is what makes that impossible.
+    ///
+    /// Called by the shell after the ledger and the control are both open. Safe to call
+    /// when there is nothing to do.
+    pub fn reconcile_intake(&mut self) -> Result<(), SpineError> {
+        self.drain_intake()?;
+        self.drain_queue()
+    }
+
     /// Deliver queued prompts (FIFO) now that the turn boundary is clear.
     fn drain_queue(&mut self) -> Result<(), SpineError> {
         while !self.turn_in_progress {
@@ -994,6 +1213,17 @@ impl Spine {
     /// `turn_in_progress` is false, so nothing below ever runs mid-turn.
     fn after_turn_boundary(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
         self.flush_pending_proactive_emits();
+        // The CEO's two mid-turn controls settle HERE, at the boundary, and in this order.
+        //
+        // DRAIN FIRST, THEN STOP — and the order was chosen by running it the other way.
+        // Settling the stop first drops the pre-stop steering records straight out of the
+        // intake log, so words the CEO had already watched appear as a bubble never became
+        // a ledger turn: they survived until the next reload and then vanished. Draining
+        // first means everything he typed becomes a real, durable turn, and the stop then
+        // marks the ones it covers as stopped. His words stay on screen, correctly marked,
+        // and a reload agrees with what he saw.
+        self.drain_intake()?;
+        self.settle_stop_claim(binding)?;
         if let Some(reason) = self.pending_rotation_reason.take() {
             self.rotate_lease(binding, &reason)?;
         } else if self.lease_factory.is_some() && self.watermark_reached() {
@@ -1214,6 +1444,10 @@ impl Spine {
         // (see `acp::AcpClient`) kills + waits on the child process, so exactly one live
         // session exists at any instant ("serialize" — §3.3 step 6). The CEO's next
         // prompt (queued or freshly typed) lands on the already-primed successor.
+        // Republish the cancel seam FIRST: between `self.lease = Some(fresh)` and this
+        // call the control would still be holding the dead lease's handle, and a stop in
+        // that window would be written to a child that no longer exists.
+        self.control.set_cancel(fresh.cancel_handle());
         self.lease = Some(fresh);
         self.lease_primed = true; // already primed above — deliver() won't re-prime redundantly
         self.context_chars = priming.len(); // reset the watermark baseline to the new payload

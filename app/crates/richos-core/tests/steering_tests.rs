@@ -14,9 +14,16 @@
 //!
 //! Headless throughout: no live Claude, no network, no Tauri.
 
+use richos_core::cognition::{CancellableMockCognition, Cognition, CognitionError, MockLeaseFactory, TurnItem};
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source, TurnState};
+use richos_core::live::{LiveEvent, LiveObserver};
+use richos_core::spine::Spine;
+use richos_core::steering::{StopOutcome, TurnCancel, TurnControl};
 use richos_core::timeline::{Timeline, TimelineItem, ViewMode, WorkState};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 fn femcboost() -> EntityId {
     EntityId::parse("femcboost").unwrap()
@@ -31,6 +38,20 @@ fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
     let _ = std::fs::remove_file(&path);
     let ledger = Ledger::open(&path).unwrap();
     (path, ledger)
+}
+
+/// The turns the CEO can actually see. `thread_turns_scoped` includes the internal
+/// priming turn (`[re-prime]`, `Source::Internal`), which has no render path anywhere —
+/// `messages()` and the timeline both drop it — so a test that asserts on the
+/// conversation filters it out the same way rather than asserting on machinery.
+fn ceo_turns<'a>(ledger: &'a Ledger, thread: &str) -> Vec<&'a richos_core::ledger::Turn> {
+    let binding = ledger.thread_binding(thread).unwrap();
+    ledger
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.source == Source::Text)
+        .collect()
 }
 
 /// One received + started turn, ready to be ended one way or the other.
@@ -133,4 +154,300 @@ fn a_stopped_turn_raises_no_system_error_row_because_nothing_went_wrong() {
     let view = timeline.view(ViewMode::Technical);
     let errors = view.items.iter().filter(|i| matches!(i, TimelineItem::SystemError { .. })).count();
     assert_eq!(errors, 0, "a CEO stop is not a system error");
+}
+
+// =======================================================================================
+// THE PART THAT MATTERS: A REAL TURN, STOPPED WHILE IT IS RUNNING
+// =======================================================================================
+//
+// Everything above is about what the log says. This is about whether the button works.
+//
+// The wall, measured in slice 4 and re-measured here: `submit_prompt` takes `&mut self`
+// and does not return until the turn ends, and the shell holds one `Mutex<Spine>`. These
+// tests reproduce that exactly — the spine goes behind an `Arc<Mutex<..>>`, a thread takes
+// the lock and runs a turn, and the stop is pressed from another thread that CANNOT have
+// the lock. `the_spine_lock_is_genuinely_held...` asserts that directly with `try_lock`,
+// so if some future change made the lock available mid-turn this stops being a proof and
+// says so.
+
+#[derive(Clone, Default)]
+struct RecordingLive {
+    events: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+}
+
+impl RecordingLive {
+    fn statuses(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(n, _)| n == richos_core::live::EVENT_TURN_STATUS)
+            .filter_map(|(_, p)| p.get("status").and_then(|s| s.as_str()).map(|s| s.to_string()))
+            .collect()
+    }
+}
+
+impl LiveObserver for RecordingLive {
+    fn on_live_event(&self, event: &LiveEvent) {
+        self.events.lock().unwrap().push((event.event_name().to_string(), event.payload()));
+    }
+}
+
+fn tmp_path(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "richos-steering-{tag}-{}-{}",
+        std::process::id(),
+        richos_core::util::now_millis()
+    ))
+}
+
+/// A spine wired the way the shell wires it: durable ledger, durable intake, a lease whose
+/// turn takes long enough to be interrupted.
+fn running_spine(tag: &str, chunks: usize) -> (Arc<Mutex<Spine>>, TurnControl, RecordingLive, String) {
+    let ledger_path = tmp_path(&format!("{tag}-ledger")).with_extension("jsonl");
+    let intake_path = tmp_path(&format!("{tag}-intake")).with_extension("jsonl");
+    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    let thread = spine.create_thread("stop me", &femcboost()).unwrap();
+    spine.switch_thread(&thread).unwrap();
+
+    let text: Vec<String> = (0..chunks).map(|i| format!("chunk {i} ")).collect();
+    let lease = CancellableMockCognition::new(
+        "sess-cancellable",
+        text.iter().map(|s| s.as_str()).collect(),
+        Duration::from_millis(20),
+    );
+    spine.attach_lease(Box::new(lease));
+    let control = TurnControl::open(&intake_path).unwrap();
+    spine.set_turn_control(control.clone());
+    (Arc::new(Mutex::new(spine)), control, live, thread)
+}
+
+#[test]
+fn the_spine_lock_is_genuinely_held_for_the_whole_turn_and_the_stop_does_not_wait_for_it() {
+    // 60 chunks x 20ms = 1.2s of turn, which is 60x the 20ms the stop needs. If the stop
+    // were routed through the spine lock this test would take the full 1.2s and the turn
+    // would complete normally — which is exactly what a decorative stop button looks like.
+    let (spine, control, _live, _thread) = running_spine("lock", 60);
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || {
+            spine.lock().unwrap().submit_prompt("go", Source::Text).unwrap()
+        })
+    };
+
+    // Wait until the turn is genuinely running — observed through the control's mirror,
+    // never through a sleep-and-hope.
+    let began = std::time::Instant::now();
+    while control.active_turn().is_none() {
+        assert!(began.elapsed() < Duration::from_secs(5), "the turn never started");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    // THE PROOF. The turn owns the lock; nothing that needs it could stop anything.
+    assert!(spine.try_lock().is_err(), "the spine lock was free mid-turn — this test no longer proves anything");
+
+    let outcome = control.request_stop().unwrap();
+    match outcome {
+        StopOutcome::Requested { reached_lease, .. } => assert!(reached_lease, "the cancel reached the lease"),
+        other => panic!("expected Requested, got {other:?}"),
+    }
+
+    let turn_id = runner.join().unwrap();
+    let guard = spine.lock().unwrap();
+    let turn = guard.ledger().turn(&turn_id).unwrap();
+    assert_eq!(turn.state, TurnState::Stopped, "the turn must record that the CEO ended it");
+    // It really was cut short: 60 chunks were scripted, fewer arrived.
+    let delivered = turn.assistant_text.split_whitespace().filter(|w| *w == "chunk").count();
+    assert!(delivered > 0, "partial output must be preserved (§9.3 step 4), got none");
+    assert!(delivered < 60, "the turn ran to completion — nothing was actually stopped");
+}
+
+#[test]
+fn a_stopped_turn_reaches_the_wire_as_stopped_and_never_as_completed_or_failed() {
+    let (spine, control, live, _thread) = running_spine("wire", 60);
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || spine.lock().unwrap().submit_prompt("go", Source::Text).unwrap())
+    };
+    while control.active_turn().is_none() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    control.request_stop().unwrap();
+    runner.join().unwrap();
+
+    let statuses = live.statuses();
+    assert!(statuses.contains(&"stopped".to_string()), "no stopped status on the wire: {statuses:?}");
+    assert!(!statuses.contains(&"completed".to_string()), "a stopped turn was announced as completed: {statuses:?}");
+    assert!(!statuses.contains(&"failed".to_string()), "a stopped turn was announced as failed: {statuses:?}");
+}
+
+#[test]
+fn steering_written_while_rich_works_is_durable_immediately_and_delivered_at_the_boundary() {
+    let (spine, control, _live, thread) = running_spine("steer", 20);
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || spine.lock().unwrap().submit_prompt("first", Source::Text).unwrap())
+    };
+    while control.active_turn().is_none() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    // The spine is locked. This still returns.
+    assert!(spine.try_lock().is_err());
+    let record = control.steer("also check the invoice").unwrap();
+    // Durable BEFORE anything is delivered (§9.2) — the bytes are on disk right now, while
+    // the turn that will eventually carry them has not even ended.
+    let on_disk = std::fs::read_to_string(control.intake_path().unwrap()).unwrap();
+    assert!(on_disk.contains("also check the invoice"), "steering must be persisted before delivery");
+    assert!(record.id() > 0);
+
+    runner.join().unwrap();
+    let guard = spine.lock().unwrap();
+    let turns = ceo_turns(guard.ledger(), &thread);
+    let texts: Vec<&str> = turns.iter().map(|t| t.user_text.as_str()).collect();
+    assert_eq!(texts, vec!["first", "also check the invoice"], "steering joins the thread in order");
+    // And it was actually delivered to a lease rather than parked forever.
+    assert_eq!(turns.last().unwrap().state, TurnState::Completed);
+}
+
+#[test]
+fn a_stop_also_stops_the_work_the_ceo_had_queued_behind_it() {
+    // A stop that immediately starts the next queued turn is not a stop.
+    let (spine, control, _live, thread) = running_spine("queued", 60);
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || spine.lock().unwrap().submit_prompt("first", Source::Text).unwrap())
+    };
+    while control.active_turn().is_none() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    control.steer("and then this").unwrap();
+    control.request_stop().unwrap();
+    runner.join().unwrap();
+
+    let guard = spine.lock().unwrap();
+    let turns = ceo_turns(guard.ledger(), &thread);
+    // His words are still there — STOPPED, NOT DELETED. He watched that bubble appear; if
+    // it never became a ledger turn it would survive until the next reload and then vanish.
+    let texts: Vec<&str> = turns.iter().map(|t| t.user_text.as_str()).collect();
+    assert!(texts.contains(&"and then this"), "the CEO's words must survive a stop: {texts:?}");
+    for t in &turns {
+        assert!(
+            matches!(t.state, TurnState::Stopped),
+            "turn {:?} should be stopped, is {:?}",
+            t.user_text,
+            t.state
+        );
+    }
+}
+
+/// A lease that dies the instant it is cancelled — "the CEO pressed stop and the child
+/// fell over" is one event, not two, and the ledger must not describe it as a crash.
+struct DiesOnCancel {
+    flag: Arc<AtomicBool>,
+}
+
+struct DiesOnCancelHandle(Arc<AtomicBool>);
+impl TurnCancel for DiesOnCancelHandle {
+    fn cancel(&self) -> bool {
+        self.0.store(true, Ordering::SeqCst);
+        true
+    }
+}
+
+impl Cognition for DiesOnCancel {
+    fn session_id(&self) -> &str {
+        "sess-dies"
+    }
+    fn reprime(&mut self, _t: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        Ok(())
+    }
+    fn prompt(&mut self, _text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        on_item(TurnItem::Text { seq: 0, text: "starting" });
+        while !self.flag.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Err(CognitionError::Io("broken pipe".into()))
+    }
+    fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
+        Some(Arc::new(DiesOnCancelHandle(Arc::clone(&self.flag))) as Arc<dyn TurnCancel>)
+    }
+}
+
+#[test]
+fn a_turn_the_ceo_stopped_is_never_crash_replayed_even_when_the_lease_dies_with_it() {
+    // The nastiest case, and the reason the stop claim is read BEFORE either terminal
+    // branch: without it, `prompt` returning `Err` sends this straight into §5.3's
+    // automatic replay, and Rich re-runs the exact work the CEO just told him to stop.
+    let ledger_path = tmp_path("replay-ledger").with_extension("jsonl");
+    let intake_path = tmp_path("replay-intake").with_extension("jsonl");
+    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let thread = spine.create_thread("no replay", &femcboost()).unwrap();
+    spine.switch_thread(&thread).unwrap();
+    spine.attach_lease(Box::new(DiesOnCancel { flag: Arc::new(AtomicBool::new(false)) }));
+    // A factory IS attached, so recovery is fully available — and must still not fire.
+    let factory = MockLeaseFactory::new(vec!["I have redone the thing you stopped"]);
+    spine.set_lease_factory(Box::new(factory));
+    let control = TurnControl::open(&intake_path).unwrap();
+    spine.set_turn_control(control.clone());
+
+    let spine = Arc::new(Mutex::new(spine));
+    let runner = {
+        let spine = Arc::clone(&spine);
+        std::thread::spawn(move || spine.lock().unwrap().submit_prompt("do the thing", Source::Text))
+    };
+    while control.active_turn().is_none() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    control.request_stop().unwrap();
+    let outcome = runner.join().unwrap();
+    assert!(outcome.is_ok(), "a stopped turn is not an error: {outcome:?}");
+
+    let guard = spine.lock().unwrap();
+    let turns = ceo_turns(guard.ledger(), &thread);
+    assert_eq!(
+        turns.len(),
+        1,
+        "the stopped turn was replayed: {:?}",
+        turns.iter().map(|t| &t.user_text).collect::<Vec<_>>()
+    );
+    assert_eq!(turns[0].state, TurnState::Stopped);
+    assert!(turns[0].superseded_by.is_none(), "a stopped turn must never be superseded by a replay");
+}
+
+#[test]
+fn a_stop_request_that_outlived_the_process_is_applied_at_startup_not_replayed() {
+    // The one-line crash window: the stop request is fsync'd, then the process dies before
+    // the ledger's terminal event is written. On restart the turn is `in_flight` with a
+    // durable stop request beside it — and crash-replay would re-run it.
+    let ledger_path = tmp_path("outlive-ledger").with_extension("jsonl");
+    let intake_path = tmp_path("outlive-intake").with_extension("jsonl");
+    let turn_id;
+    {
+        let mut ledger = Ledger::open(&ledger_path).unwrap();
+        let thread = ledger.create_thread("outlived", &femcboost()).unwrap();
+        let binding = ledger.thread_binding(&thread).unwrap();
+        turn_id = ledger.record_prompt_received(&binding, "long job", Source::Text).unwrap();
+        ledger.mark_turn_started(&turn_id, "sess-dead").unwrap();
+
+        let control = TurnControl::open(&intake_path).unwrap();
+        control.begin_turn(richos_core::steering::ActiveTurn {
+            turn_id: turn_id.clone(),
+            thread_id: thread.clone(),
+            entity_id: Some(femcboost()),
+            started_at: Some(1),
+        });
+        control.request_stop().unwrap();
+        // ...and the process dies here. Nothing else is written.
+    }
+
+    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let control = TurnControl::open(&intake_path).unwrap();
+    assert_eq!(control.pending_intake().len(), 1, "the stop request survived the crash");
+    spine.set_turn_control(control.clone());
+    spine.reconcile_intake().unwrap();
+
+    assert_eq!(spine.ledger().turn(&turn_id).unwrap().state, TurnState::Stopped);
+    assert!(control.pending_intake().is_empty(), "the request was applied and marked drained");
 }
