@@ -245,6 +245,41 @@ export function lexicalText(text) {
 }
 
 /**
+ * Is this text ENTIRELY silence-hallucination filler, sentence by sentence?
+ *
+ * The same vocabulary as `lexicalText`, read in a stricter unit and exported for the OTHER
+ * direction: `repetition-guard.js`'s silence-fabrication class (class 4) removes a segment only
+ * when the audio under it is measured silence AND its text is nothing but this. ONE vocabulary
+ * serves both directions deliberately — a second copy of "what whisper says over silence" that
+ * drifts from this one would make the detector and the remover disagree about the same failure.
+ *
+ * PER SENTENCE, AND THE UNIT IS NOT A DETAIL. `lexicalText` tests the whole string against the
+ * pattern, so `"Thank you. Thank you."` — two copies of whisper's canonical silence filler — does
+ * not match the pattern for ONE `"Thank you."` and reads as lexical. That exact bug invalidated a
+ * 24-span adjudication run in the 2026-08-29 podcast measurement, in the direction that turns the
+ * finding into its opposite (every confirmed fabrication came back "REAL-QUIET"). Splitting into
+ * sentence units first makes the number of repeats irrelevant.
+ *
+ * AND IT STAYS CONSERVATIVE, because EVERY unit must be filler. `"Thank you. And then we agreed
+ * the budget."` splits into one filler unit and one real one, so the whole thing is NOT filler and
+ * class 4 will not touch it. The failure this can produce is a fabrication left in the transcript,
+ * never a real clause removed from it.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isSilenceFillerText(text) {
+  const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  if (!t) return true;
+  const units = t
+    .split(/(?<=[.!?])\s+|\s*\.\s*/)
+    .map((u) => u.replace(/^[-.,\s]+|[.!?,\s]+$/g, '').trim())
+    .filter(Boolean);
+  if (!units.length) return true; // bare punctuation — whisper's "-" over dead air
+  return units.every((u) => NON_LEXICAL.test(u));
+}
+
+/**
  * Comparable content words of a decode — lowercased alphanumerics, the same tokenizer shape
  * `repetition-guard.js#wordsOf` uses, so "here's" is one token on both sides of a comparison.
  * @param {string} text
