@@ -23,7 +23,7 @@ import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
-import { MIN_TRANSCRIPT_WORDS, resolveTier } from './config.js';
+import { MIN_TRANSCRIPT_WORDS, resolveTier, whisperArgs } from './config.js';
 import { guardTranscription, guardWarnings } from './repetition-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
@@ -161,6 +161,8 @@ export function runPipeline(sessionDir, opts = {}) {
     // is DETECT-ONLY (removing it would delete real speech) and therefore has to be LOUD instead.
     // Runs on every tier (cheap, precision-guarded); the safety net that lets large-v3 be opt-in.
     let asrGuarded = { me: asr.me, others: asr.others };
+    /** @type {{me: object[], others: object[]}|null} the physical evidence the loop class needs */
+    let speechBursts = null;
     let repetitionReport = {
       removed: 0,
       detected: false,
@@ -177,7 +179,6 @@ export function runPipeline(sessionDir, opts = {}) {
       // retake-dense material, deletes real speech — measured, 13 genuine deliveries on 92 minutes
       // of real audio (repetition-guard.js header). Best-effort: if ffmpeg cannot produce it the
       // guard falls back to its old text-only behaviour rather than failing the pipeline.
-      let speechBursts = null;
       try {
         const b = {
           me: detectSpeechBursts(channelPaths.me, { peakDb: silence.me.maxDb }).speech,
@@ -264,12 +265,25 @@ export function runPipeline(sessionDir, opts = {}) {
     record.pipeline.model = model;
     record.pipeline.tier = tier.name;
     if (decodeArgs.length) record.pipeline.decodeArgs = decodeArgs;
+    // The EFFECTIVE decode invocation, not just the tier's extras. Since `-mc` moved out of tier
+    // data (2026-08-29) an empty `decodeArgs` no longer means "bare defaults", and a record that
+    // implied it would be lying about the single most load-bearing decode setting we have.
+    record.pipeline.whisperArgs = whisperArgs({ extraArgs: decodeArgs });
+    record.pipeline.maxContextTokens = Number(
+      record.pipeline.whisperArgs[record.pipeline.whisperArgs.lastIndexOf('-mc') + 1],
+    );
     record.pipeline.repetitionGuard = {
       enabled: tier.repetitionGuard !== false,
       detected: repetitionReport.detected,
       removedSegments: repetitionReport.removed,
       classes: repetitionReport.classes,
       loops: repetitionReport.loops,
+      // Runs the guard chose NOT to touch because the audio backs every repetition. A decision, so
+      // it is recorded like one — otherwise "removedSegments: 0" cannot be told from "never looked".
+      preserved: repetitionReport.preserved || [],
+      speechBurstProbe: speechBursts
+        ? { me: speechBursts.me.length, others: speechBursts.others.length }
+        : null,
       stutters: repetitionReport.stutters,
       // Detect-only: these are still IN the transcript. Never let "enabled: true" imply "clean".
       insertions: repetitionReport.insertions,

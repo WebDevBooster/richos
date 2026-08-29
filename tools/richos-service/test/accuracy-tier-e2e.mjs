@@ -125,8 +125,16 @@ if (tierModelPresent('turbo')) {
   check('default (turbo) tier reached READY', r.status === 'ready', JSON.stringify(r.problems || ''));
   const rec = readRecord(dir);
   check('default tier is turbo', rec.pipeline.tier === 'turbo' && rec.pipeline.model === 'large-v3-turbo');
+  // THE REGRESSION THIS FILE EXISTS TO CATCH NOW. Until 2026-08-29 the SHIPPING tier decoded with
+  // full context carry-over while only the opt-in `max` tier got the cap, and nothing here noticed.
+  check('the DEFAULT tier decodes with NO previous-text conditioning', rec.pipeline.maxContextTokens === 0,
+    `maxContextTokens=${rec.pipeline.maxContextTokens} whisperArgs=${JSON.stringify(rec.pipeline.whisperArgs)}`);
   check('turbo produced NO repetition loop on a normal sample', rec.pipeline.repetitionGuard.detected === false,
     `removed=${rec.pipeline.repetitionGuard.removedSegments}`);
+  // The guard's physical evidence must actually reach it, or the loop class is text-only and can
+  // delete genuine repeated speech without anyone being told.
+  check('the speech-burst probe reached the guard', !!rec.pipeline.repetitionGuard.speechBurstProbe,
+    JSON.stringify(rec.pipeline.repetitionGuard.speechBurstProbe));
 } else {
   skip('turbo tier', 'turbo model not installed');
 }
@@ -138,9 +146,13 @@ if (tierModelPresent('max')) {
   const r = runPipeline(dir, { zone, tier: 'max', now: T0 + 13 * 60 * 1000 });
   check('max tier reached READY', r.status === 'ready', JSON.stringify(r.problems || ''));
   const rec = readRecord(dir);
-  check('max tier is full large-v3 with guard decode params recorded', rec.pipeline.tier === 'max' &&
-    rec.pipeline.model === 'large-v3' && Array.isArray(rec.pipeline.decodeArgs) && rec.pipeline.decodeArgs.includes('-mc'),
-    `decode=${JSON.stringify(rec.pipeline.decodeArgs)}`);
+  check('max tier is full large-v3', rec.pipeline.tier === 'max' && rec.pipeline.model === 'large-v3',
+    `tier=${rec.pipeline.tier} model=${rec.pipeline.model}`);
+  // The decode cap moved out of this tier's decodeArgs into whisperArgs (2026-08-29), so the
+  // record — not the tier — is what proves it ran. `decodeArgs` being empty no longer means bare.
+  check('max tier RECORDED the effective decode context cap', rec.pipeline.maxContextTokens === 0 &&
+    Array.isArray(rec.pipeline.whisperArgs) && rec.pipeline.whisperArgs.includes('-mc'),
+    `maxContextTokens=${rec.pipeline.maxContextTokens} whisperArgs=${JSON.stringify(rec.pipeline.whisperArgs)}`);
 } else {
   skip('max tier (guarded large-v3)', 'large-v3 model not in a standard model dir — guard proven on the benchmark sample separately (see P5 report). Set RICHOS_MODEL_DIR to run it here.');
 }
