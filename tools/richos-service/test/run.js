@@ -967,9 +967,12 @@ test('the guard does NOT collapse short legitimate backchannels ("Yeah." "Yeah."
 });
 
 // ---------------------------------------------------------------------------------------
-// THE PHYSICAL VETO. Fixtures are the REAL 2026-08-29 92-minute artifacts, not invented shapes:
-// the retake is what large-v3-turbo actually emitted at 5502-5536 s on the `others` channel, and
-// the bursts are what ffmpeg silencedetect actually measured on that same audio.
+// THE PHYSICAL VETO. The TIMINGS are the real 2026-08-29 92-minute artifact — the burst offsets are
+// what ffmpeg silencedetect actually measured, and the three-take structure at 5502-5536 s on the
+// `others` channel is what large-v3-turbo actually emitted. The SENTENCE is invented, deliberately:
+// this test asserts SHAPE (three near-identical deliveries must survive the veto), never content, so
+// a synthetic line proves exactly what a real one would. The real sentence was private speech and
+// had no business in a repository that gets published — see docs/briefs/README-transcription-work.md.
 const RETAKE_LINE = 'Because before you commit to a rollout, you need to agree the metrics.';
 const REAL_RETAKE_X3 = [
   { startMs: 5502400, endMs: 5509500, text: RETAKE_LINE, speaker: 'others' },
