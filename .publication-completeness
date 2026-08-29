@@ -1,0 +1,98 @@
+# EXEMPTIONS FOR THE PUBLICATION COMPLETENESS CONTRACT.
+#
+# `.publication-boundary` declares that this repository gets published, and it
+# switches on BOTH contracts: the leak guards (may this leave?) and
+# engine/scripts/publication-completeness.sh (is everything that must be there,
+# there, and usable by someone who has only the public repo?). This file adds
+# no adoption switch and no thresholds. It carries deliberate, committed,
+# reviewable exemptions and nothing else.
+#
+# WHY AN ESCAPE HATCH AT ALL
+# --------------------------
+# The same reason the boundary has an ALLOWLIST and no override token: a check
+# with no sanctioned way through gets removed whole, and then protects nothing.
+# So the way through is a line in a committed file, reviewed in a diff, with a
+# reason written next to it — never an in-the-moment judgement call, which is
+# the exact thing both contracts exist to replace.
+#
+# WHY THAT IS SAFE
+# ----------------
+#   AN ENTRY THAT SUPPRESSES NOTHING IS A FAILURE.
+#
+# Every exemption list is a place drift hides: the line was written for a real
+# reason, the reason was fixed, and the line stayed — silently licensing the
+# next instance of the defect. So the checker FAILS on an entry that no longer
+# suppresses anything and names it for deletion. An exemption here cannot
+# outlive its own justification.
+
+# ---------------------------------------------------------------------------
+# CITATION_EXEMPT — documents whose paths describe A DIFFERENT REPOSITORY.
+#
+# Check 1 requires every path a public document cites to resolve in the public
+# tree. That is right for a document describing THIS repository and wrong for a
+# document describing the adopter's. These four trees are the latter, and each
+# is template material by construction rather than by opinion:
+#
+#   engine/reference/      Its own README already says so, in prose: "Cross-file
+#                          path references still point at the original layout and
+#                          will not resolve here — that is expected for reference
+#                          material." This line makes that existing declaration
+#                          machine-readable; it grants no new licence.
+#   engine/skills/         Skills instruct an agent working in the ADOPTER's repo
+#                          (`scripts/railway-api.sh`), name files a skill's own
+#                          run creates (`.claude/product-marketing-context.md`,
+#                          `ceo-wiki/wiki/vision-and-positioning.md`), and cite
+#                          UPSTREAM provenance for vendored skills
+#                          (`skills/taste-skill/SKILL.md` @ 72e2995).
+#   engine/.claude/agents/ Agent definitions are the adopter's team. They name
+#                          the adopter's own entry points (`scripts/preflight.sh`).
+#   engine/qa-audits/      EXAMPLE_AUDIT.md is a shape to copy; its evidence
+#                          screenshots are the adopter's, taken during their audit.
+#
+# THE COST, stated rather than discovered: a genuinely dangling citation inside
+# one of these four trees is not caught. That is the price of the precision —
+# without these, the check reported 26 findings of which 16 were correct
+# documents doing their job, and a check that is 60% noise gets switched off.
+CITATION_EXEMPT="engine/reference/ engine/skills/ engine/.claude/agents/ engine/qa-audits/"
+
+# ---------------------------------------------------------------------------
+# DECLARATION_EXEMPT — SELF-CLEARING, AND IN FLIGHT RIGHT NOW.
+#
+# `.ceo-queue` is failure #1, the one that named this whole defect class: the
+# engine ships ceo-queue-lint.sh, guard-ceo-queue-commits.sh and
+# lib/ceo-queue.{sh,py} with no declaration, no template and no word of it in
+# anything an adopter reads. It is being fixed on a parallel branch
+# (zach/ceo-queue-cold-open-2026-08-29), which adds the template and the
+# onboarding mention.
+#
+# This line exists so that landing the CHECK does not have to wait on landing
+# that FIX. It is not a licence and it does not need a reminder to remove: the
+# moment the template and the mention land, this entry suppresses nothing, and
+# the checker FAILS until the line is deleted. A TODO enforced by the machinery
+# it is a TODO about.
+DECLARATION_EXEMPT=".ceo-queue"
+
+# ---------------------------------------------------------------------------
+# INSTANCE_MECHANISMS — executable files in the PRIVATE tree that read a public
+# contract, and are allowed to stay there.
+#
+#   pubcheck.sh  is genuinely instance-specific and belongs where it is. It is
+#                an artifact of one brief, recorded beside that brief: it hard-
+#                codes one operator's absolute worktree path
+#                (/Users/alex/ab/richos-wt/norm-deletion-2026-08-29) to run the
+#                boundary predicate by hand over one branch, because the hooks
+#                were installed mid-session and had not fired on those commits.
+#                It is a record of a one-off verification, not a mechanism a
+#                customer could use.
+#
+#   render-ceo-queue.mjs  IS NOT INSTANCE-SPECIFIC, and this entry says so on
+#                purpose. It is failure #2 — the engine ships the queue's
+#                enforcement, its lint and its parser, and leaves the RENDERER,
+#                the only thing that turns the record into something a CEO can
+#                look at, in the private repository. It is being moved into the
+#                engine on zach/ceo-queue-cold-open-2026-08-29. This line lets
+#                the CHECK land without waiting on that MOVE, and it deletes
+#                itself the way DECLARATION_EXEMPT's does: once the file is gone
+#                from the private tree, this entry suppresses nothing and the
+#                checker FAILS until it is removed.
+INSTANCE_MECHANISMS="richos-hq/docs/briefs/norm-deletion-detection-2026-08-29-assets/tools/pubcheck.sh richos-hq/scripts/render-ceo-queue.mjs"
