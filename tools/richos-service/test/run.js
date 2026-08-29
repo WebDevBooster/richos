@@ -53,6 +53,18 @@ import {
   ASK_MIN_PHONETIC,
   MATCH_WINDOW_MS,
 } from '../lib/dictation.js';
+import {
+  parseJournalFile,
+  loadJournal,
+  loadLedger,
+  saveLedger,
+  markReconciled,
+  withConsumed,
+  planRetention,
+  surveyJournal,
+  sweepRetention,
+  costPerHour,
+} from '../lib/dictation-store.js';
 import { parseChannels, parseVolume, parseSilenceLog, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
 import { resolveTier, MODEL_TIERS, DEFAULT_TIER, whisperArgs, MAX_CONTEXT_TOKENS } from '../lib/config.js';
@@ -2148,6 +2160,124 @@ test('a confirmed pair goes in by the SAME explicit path learn-term uses, versio
   assert.equal(res.changed, true);
   assert.equal(res.doc.version, '2026-08-29');
   assert.deepEqual(res.doc.entities[0].mangled, ['deep graham']);
+});
+
+// ---------------------------------------------------------------------------------------
+// The dictation journal on disk, and the retention posture it enforces
+// ---------------------------------------------------------------------------------------
+
+test('a corrupt journal line costs one dictation, never the whole journal', () => {
+  const rows = parseJournalFile([
+    '{"id":"a","at":1,"text":"one"}',
+    'not json at all',
+    '{"id":"b","at":2}',            // no text
+    '{"id":"c","at":2,"text":"two"}',
+    '',
+  ].join('\n'));
+  assert.deepEqual(rows.map((r) => r.id), ['a', 'c']);
+});
+
+test('a missing journal is an EMPTY journal, never a crash — the loop degrades, it does not break', () => {
+  assert.deepEqual(loadJournal({ root: path.join(os.tmpdir(), 'no-such-journal-dir-xyz') }), []);
+  const l = loadLedger(path.join(os.tmpdir(), 'no-such-journal-dir-xyz'));
+  assert.deepEqual(l, { suppressed: [], declined: {}, reconciled: [] });
+});
+
+test('the ask ledger round-trips on disk and stores the suppression list sorted, for a human to read', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  saveLedger({ suppressed: ['z=>Z', 'a=>A'], declined: { 'q=>Q': 2 }, reconciled: ['e1'] }, root);
+  const back = loadLedger(root);
+  assert.deepEqual(back.suppressed, ['a=>A', 'z=>Z']);
+  assert.equal(back.declined['q=>Q'], 2);
+  assert.deepEqual(back.reconciled, ['e1']);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('reconciling an entry marks it consumed WITHOUT rewriting what open-wispr appended', () => {
+  const ledger = markReconciled({ reconciled: [] }, 'e1');
+  const rows = withConsumed([{ id: 'e1', at: 1, text: 'x' }, { id: 'e2', at: 2, text: 'y' }], ledger);
+  assert.equal(rows[0].consumed, true);
+  assert.equal(rows[1].consumed, undefined);
+});
+
+test('Tier A evicts whole day files past the window, oldest first, by unlink and nothing else', () => {
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const days = [
+    { day: '2026-08-01', records: 10, bytes: 1000 },
+    { day: '2026-08-20', records: 10, bytes: 1000 },
+    { day: '2026-08-29', records: 10, bytes: 1000 },
+  ];
+  const plan = planRetention(days, { audio: [] }, { now, textDays: 14 });
+  assert.deepEqual(plan.evictDays.map((d) => d.day), ['2026-08-01']);
+  assert.equal(plan.keptRecords, 20);
+  assert.match(plan.evictDays[0].why, /older than 14 days/);
+});
+
+test('Tier A also binds on the record ceiling, and says which limit bound', () => {
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const days = [
+    { day: '2026-08-27', records: 400, bytes: 1 },
+    { day: '2026-08-28', records: 400, bytes: 1 },
+    { day: '2026-08-29', records: 400, bytes: 1 },
+  ];
+  const plan = planRetention(days, { audio: [] }, { now, textDays: 14, textRecords: 900 });
+  assert.deepEqual(plan.evictDays.map((d) => d.day), ['2026-08-27']);
+  assert.match(plan.evictDays[0].why, /record ceiling/);
+  assert.equal(plan.keptRecords, 800);
+});
+
+test('Tier B audio binds on days OR bytes, whichever comes first — the techy-mode numbers, unchanged', () => {
+  const now = Date.parse('2026-08-29T12:00:00Z');
+  const audio = [
+    { id: 'old', at: now - 20 * 24 * 3600 * 1000, bytes: 10 },
+    { id: 'big1', at: now - 3 * 24 * 3600 * 1000, bytes: 800 },
+    { id: 'big2', at: now - 1 * 24 * 3600 * 1000, bytes: 800 },
+  ];
+  const plan = planRetention([], { audio }, { now, audioDays: 14, audioBytes: 1000 });
+  assert.deepEqual(plan.evictAudio.map((a) => a.id), ['old', 'big1']);
+  assert.equal(plan.keptAudioBytes, 800);
+  assert.match(plan.evictAudio[0].why, /older than 14 days/);
+  assert.match(plan.evictAudio[1].why, /byte ceiling/);
+});
+
+test('Tier B is OFF by default, so the flywheel costs zero bytes of retained audio', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  fs.writeFileSync(path.join(root, '2026-08-29.jsonl'), `${JSON.stringify({ id: 'a', at: Date.now(), ms: 3000, text: 'hello' })}\n`);
+  const survey = surveyJournal(root);
+  assert.equal(survey.audio.length, 0, 'no audio directory exists unless retention was switched on');
+  assert.equal(survey.days.length, 1);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('the retention sweep is a DRY RUN by default — a policy that erases his speech is readable first', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  fs.writeFileSync(path.join(root, '2020-01-01.jsonl'), `${JSON.stringify({ id: 'a', at: 1577836800000, text: 'old' })}\n`);
+  const dry = sweepRetention({ root });
+  assert.equal(dry.dryRun, true);
+  assert.equal(dry.evictDays.length, 1);
+  assert.ok(fs.existsSync(path.join(root, '2020-01-01.jsonl')), 'still there — nothing was deleted');
+  const wet = sweepRetention({ root, dryRun: false });
+  assert.equal(wet.dryRun, false);
+  assert.ok(!fs.existsSync(path.join(root, '2020-01-01.jsonl')), 'and --apply really does unlink it');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a record whose audio aged out still READS — an honest degrade, never a silent blank', () => {
+  const rec = { id: 'a', at: 1, ms: 3000, text: 'the Deepgram numbers', audio: null };
+  const rows = withConsumed([rec], { reconciled: [] });
+  assert.equal(rows[0].text, 'the Deepgram numbers');
+  assert.equal(rows[0].audio, null, 'the pointer is null, and null is the answer, not an error');
+});
+
+test('costPerHour is measured from real records, not estimated', () => {
+  const cost = costPerHour([
+    { id: 'a', at: 1, ms: 1_800_000, text: 'x'.repeat(100) },
+    { id: 'b', at: 2, ms: 1_800_000, text: 'y'.repeat(100) },
+  ]);
+  assert.equal(cost.records, 2);
+  assert.equal(cost.spokenMs, 3_600_000, 'exactly one hour of dictation');
+  assert.equal(cost.textBytesPerHour, cost.textBytes, 'so bytes/hour IS the measured byte total');
+  assert.equal(cost.audioBytesPerHour, 0, 'Tier B off');
 });
 
 // ---------------------------------------------------------------------------------------
