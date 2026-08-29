@@ -28,8 +28,15 @@ app/
   Cargo.toml                 workspace: richos-core (fast, native-dep-free) + richos-voice
   crates/richos-core/        the runtime SPINE — UI-agnostic, fully unit-tested
     src/acp.rs               ACP client (ndjson JSON-RPC to claude-agent-acp; relay dropped)
-    src/ledger.rs            append-only conversation + action ledger (crash-safe)
-    src/thread.rs            topic threads as VIEWS over the one shared ledger
+    src/entity.rs            the ENTITY scope + privacy boundary (ECS §3.2-3.4): validated
+                              entity ids, the four-area registry, fail-closed repository-root
+                              resolution, and the IMMUTABLE ThreadBinding (private fields,
+                              crate-private constructor — obtainable only from the ledger)
+    src/ledger.rs            append-only conversation + action ledger (crash-safe), now
+                              entity-scoped: every thread has one immutable home entity,
+                              every turn carries it, and no event from one entity can render
+                              in another entity's thread
+    src/thread.rs            topic threads as VIEWS over the one shared ledger, within an entity
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
@@ -43,6 +50,10 @@ app/
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
     examples/acp_roundtrip.rs      headless proof of the real ACP round-trip
     examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
+    tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
+                              CONTROL (proven failing with the guard removed), immutability,
+                              the fail-closed unbound legacy thread + its one-way explicit
+                              adoption, the activation fence, and restart
     tests/spine_tests.rs     12 spine invariant tests (no live Claude needed)
     tests/rotation_tests.rs  12 rotation/crash-recovery/proactive-seam tests
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
