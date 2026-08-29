@@ -12,6 +12,33 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Worker lifecycle event stream** (`worker-created-handoff.sh`,
+  `worker-started-handoff.sh`, `worker-updated-handoff.sh`,
+  `worker-ended-handoff.sh` → `worker-events.jsonl`) — MINOR: purely additive
+  log-only hooks; an adopter who ignores the new file experiences no change.
+  The engine emitted only *completed* and *idle*, so a worker's CREATION was
+  observed at `PreToolUse[Agent]` and thrown away into a plain-text name
+  ledger. No consumer could answer "how many workers are running" from a
+  signal, only from a guess — which is why the desktop app's `worker_status.rs`
+  reports `active: 0` structurally rather than guess. These four emitters
+  supply **created** (`PostToolUse[Agent]`, gated on the harness's async-launch
+  acknowledgement so a synchronous Agent run — whose PostToolUse fires when the
+  work is already over — never becomes a live worker), **started**
+  (`SubagentStart`), **updated** (`PostToolUse[SendMessage]`, only when the
+  payload's `agent_id` proves a worker sent it) and **run_ended**
+  (`SubagentStop`). All four are sourced from PostToolUse or from events that
+  only fire inside a running worker, so a BLOCKED spawn produces silence rather
+  than a phantom active worker, and an event with no `agent_id` produces no
+  line rather than an anonymous one. Deliberately NOT emitted, with the reason
+  written down: **waiting** (idle cannot distinguish "paused for input" from
+  "finished"), **interrupted** (a shutdown request is an instruction, not an
+  observation) and **failed** (no payload carries an outcome) — see
+  `docs/worker-lifecycle-events.md` for the full per-state table and the honest
+  active-count derivation. Message bodies, spawn prompts and assistant text
+  never enter the log. `spawned-names.log` and `guard-worktree-isolation.sh`
+  are untouched; `worker-lifecycle.test.sh` re-proves name-reuse blocking and
+  the blocked-spawn silence with paired positive controls.
+
 - **`CLAUDE.md` provisioning** (`scripts/provision-claude-md.sh` +
   `identity.config.example`) — MINOR by `VERSIONING.md`'s test: purely
   additive, and an adopter who ignores it experiences no change. The engine

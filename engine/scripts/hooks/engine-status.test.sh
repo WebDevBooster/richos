@@ -158,13 +158,23 @@ REGISTERED_N="$(grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' "$HOOKS_JSON" \
 # banner). engine-status.sh excludes it self-referentially, by its own
 # filename, so the exclusion cannot itself become a stale list.
 EXPECT_N=$((REGISTERED_N - 1))
+# The three fractions the mutations below produce, derived from the same
+# reading rather than typed. They used to be literals, and every legitimate
+# new guard turned six passing cases red at once for no reason connected to
+# what they test — the same hand-maintained-inventory failure this suite was
+# written to kill, reproduced inside the suite itself.
+EXPECT_PLUS=$((EXPECT_N + 1))    # cases 2/3/6b: one extra guard wired
+EXPECT_MINUS=$((EXPECT_N - 1))   # case 4: one guard unavailable or unwired
+# Case 3's mutation ships its own hand-typed list; this is ITS length, a
+# property of the mutation and not of the engine, so it stays a literal.
+STALE_N=14
 
 banner
 expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching hooks.json minus the announcer" \
     "${EXPECT_N}/${EXPECT_N}"
 
-if [ "$REGISTERED_N" -eq 16 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 16 scripts, so the banner reads 15/15"
+if [ "$REGISTERED_N" -eq 20 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 20 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi
@@ -183,11 +193,11 @@ esac
 # ===========================================================================
 wire_extra_guard
 banner
-expect_fraction "2a  a newly wired 17th guard is counted immediately: 16/16" "16/16"
+expect_fraction "2a  one more wired guard is counted immediately: ${EXPECT_PLUS}/${EXPECT_PLUS}" "${EXPECT_PLUS}/${EXPECT_PLUS}"
 
 case "$OUT" in
-    *"?/?"*) bad "2b  the 17th guard did not break the derivation" "inventory came back unknown" ;;
-    *) ok "2b  the 17th guard did not break the derivation" ;;
+    *"?/?"*) bad "2b  the extra guard did not break the derivation" "inventory came back unknown" ;;
+    *) ok "2b  the extra guard did not break the derivation" ;;
 esac
 
 # ===========================================================================
@@ -212,15 +222,15 @@ registered_hook_scripts() {
 }
 STALE
 banner
-if [ "$SYS_FRAC" = "14/14 guards" ] && [ "$MODEL_FRAC" = "14/14 guards" ]; then
-    ok "3a  NEGATIVE CONTROL: a hand-typed inventory reports a full 14/14 while 17 guards are wired — the historical defect, reproduced"
+if [ "$SYS_FRAC" = "${STALE_N}/${STALE_N} guards" ] && [ "$MODEL_FRAC" = "${STALE_N}/${STALE_N} guards" ]; then
+    ok "3a  NEGATIVE CONTROL: a hand-typed inventory reports a full ${STALE_N}/${STALE_N} while ${EXPECT_PLUS} guards are wired — the historical defect, reproduced"
 else
-    bad "3a  NEGATIVE CONTROL" "expected the stale mutation to yield '14/14 guards'; got operator='$SYS_FRAC' model='$MODEL_FRAC'. If this cannot be reproduced, case 2 is not proving anything."
+    bad "3a  NEGATIVE CONTROL" "expected the stale mutation to yield '${STALE_N}/${STALE_N} guards'; got operator='$SYS_FRAC' model='$MODEL_FRAC'. If this cannot be reproduced, case 2 is not proving anything."
 fi
-if [ "$SYS_FRAC" != "16/16 guards" ]; then
+if [ "$SYS_FRAC" != "${EXPECT_PLUS}/${EXPECT_PLUS} guards" ]; then
     ok "3b  NEGATIVE CONTROL: case 2's assertion is load-bearing — it goes red under the mutation"
 else
-    bad "3b  NEGATIVE CONTROL" "the mutated banner still read 16/16, so case 2 passes for a reason unrelated to the derivation"
+    bad "3b  NEGATIVE CONTROL" "the mutated banner still read ${EXPECT_PLUS}/${EXPECT_PLUS}, so case 2 passes for a reason unrelated to the derivation"
 fi
 restore
 
@@ -235,12 +245,12 @@ restore
 # ===========================================================================
 chmod -x "$ENGINE/scripts/hooks/scan-secrets.sh"
 banner
-expect_fraction "4a  SHORTFALL: a registered guard that is not executable drops the numerator only (14/15)" "14/15"
+expect_fraction "4a  SHORTFALL: a registered guard that is not executable drops the numerator only (${EXPECT_MINUS}/${EXPECT_N})" "${EXPECT_MINUS}/${EXPECT_N}"
 restore
 
 mv "$ENGINE/scripts/hooks/scan-secrets.sh" "$SANDBOX/scan-secrets.parked"
 banner
-expect_fraction "4b  SHORTFALL: a registered guard missing from disk drops the numerator only (14/15)" "14/15"
+expect_fraction "4b  SHORTFALL: a registered guard missing from disk drops the numerator only (${EXPECT_MINUS}/${EXPECT_N})" "${EXPECT_MINUS}/${EXPECT_N}"
 mv "$SANDBOX/scan-secrets.parked" "$ENGINE/scripts/hooks/scan-secrets.sh"
 restore
 
@@ -261,7 +271,7 @@ with open(p, "w", encoding="utf-8") as fh:
     json.dump(d, fh, indent=2)
 PY
 banner
-expect_fraction "4c  a guard UNWIRED from hooks.json leaves the count (present on disk, loads nothing): 14/14" "14/14"
+expect_fraction "4c  a guard UNWIRED from hooks.json leaves the count (present on disk, loads nothing): ${EXPECT_MINUS}/${EXPECT_MINUS}" "${EXPECT_MINUS}/${EXPECT_MINUS}"
 restore
 
 # ===========================================================================
@@ -335,7 +345,7 @@ if [ -x "$NOPY/bash" ] && ! PATH="$NOPY" "$NOPY/bash" -c 'command -v python3' >/
         "${EXPECT_N}/${EXPECT_N}"
     wire_extra_guard
     banner "PATH=$NOPY"
-    expect_fraction "6b  without python3 a 17th guard is still counted: 16/16" "16/16"
+    expect_fraction "6b  without python3 one more wired guard is still counted: ${EXPECT_PLUS}/${EXPECT_PLUS}" "${EXPECT_PLUS}/${EXPECT_PLUS}"
     restore
 else
     bad "6   python3-absent sandbox" "could not build a python3-free PATH; the fallback went untested"

@@ -515,6 +515,10 @@ guard-bash-main-writes.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
+worker-created-handoff.sh|PostToolUse
+worker-updated-handoff.sh|PostToolUse
+worker-started-handoff.sh|SubagentStart
+worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted"
 
@@ -1787,6 +1791,15 @@ CANON = [
     "teammate-idle-handoff.sh",
     "task-completed-handoff.sh",
     "session-start-reap-worktrees.sh",
+    # The worker-lifecycle emitters. They are append-only loggers, which is
+    # exactly the class that MAKES a double-registration visible (byte-identical
+    # duplicate lines) — and exactly the class a consumer would then read as two
+    # workers where there is one. Counted here so the duplicate is caught before
+    # it can be believed.
+    "worker-created-handoff.sh",
+    "worker-started-handoff.sh",
+    "worker-updated-handoff.sh",
+    "worker-ended-handoff.sh",
 ]
 
 def load(p):
