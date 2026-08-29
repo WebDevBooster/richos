@@ -53,6 +53,7 @@ const conversationEl = el("conversation");
 const composerEl = el("composer");
 const inputEl = el("input");
 const sendBtn = el("send");
+const stopBtn = el("stop");
 const talkToggleBtn = el("talk-toggle");
 const voicePanelEl = el("voice-panel");
 const voiceListeningEl = el("voice-state-listening");
@@ -85,6 +86,11 @@ let mainView = "conversation"; // "conversation" | "entity" | "unbound"
 let viewEntityId = null; // the entity whose overview / new-thread screen is showing
 let draftEntityId = null; // §3.3: a draft thread bound to this entity, with NO record yet
 let sendBlockedReason = null; // §21: non-null means send is refused, with this reason
+/// What the composer says when NOTHING is running (§9.1). Held as state because §9.2
+/// replaces it with "Add context or steer Rich…" while Rich works, and the idle text is
+/// view-dependent ("Talk to Rich about FemcBoost…" on an entity overview) — so it has to be
+/// restored, not re-derived.
+let idlePlaceholder = "Talk to Rich…";
 const expandedEntities = new Set(); // entity ids whose "Show more" has been used
 const drafts = new Map(); // threadId -> unsent composer text (§3.1)
 const scrollTops = new Map(); // threadId -> conversation scrollTop (§3.1)
@@ -458,9 +464,11 @@ function showConversationView() {
   composerBlockedEl.hidden = true;
   composerScopeEl.hidden = true;
   inputEl.disabled = false;
-  inputEl.placeholder = "Talk to Rich…";
+  idlePlaceholder = "Talk to Rich…";
+  inputEl.placeholder = idlePlaceholder;
   sendBtn.disabled = false;
   setMainView("conversation");
+  syncComposerMode();
   renderScopeHeader();
 }
 
@@ -485,9 +493,11 @@ function showUnboundView(row, rawError) {
   inputEl.disabled = true;
   // The placeholder is part of the block: an inviting "Talk to Rich…" above a dead field
   // is the composer telling a small lie about what it will do.
-  inputEl.placeholder = "Send is off for this thread";
+  idlePlaceholder = "Send is off for this thread";
+  inputEl.placeholder = idlePlaceholder;
   sendBtn.disabled = true;
   setMainView("unbound");
+  syncComposerMode();
   renderScopeHeader();
 }
 
@@ -554,7 +564,8 @@ function showEntityView(entityId, mode) {
   composerScopeEl.textContent =
     (mode === "new" ? "New thread in " : "Talk to Rich about ") + entity.display_name;
   composerScopeEl.hidden = false;
-  inputEl.placeholder = "Talk to Rich about " + entity.display_name + "…";
+  idlePlaceholder = "Talk to Rich about " + entity.display_name + "…";
+  inputEl.placeholder = idlePlaceholder;
   inputEl.value = drafts.get(ENTITY_DRAFT_PREFIX + entityId) || "";
   autoGrow();
 
@@ -1040,11 +1051,11 @@ async function loadTimeline() {
 async function send() {
   const text = inputEl.value.trim();
   if (!text) return;
-  // §9.2 says the composer stays usable while Rich works. Steering is SLICE 6 and the spine
-  // queues rather than interrupts, so a second send during a live turn is refused here
-  // until that slice wires the queue into the timeline. Refusing is honest; accepting the
-  // words and drawing nothing would not be.
-  if (anyLiveTurn()) return;
+  // §9.2: "The composer remains enabled. This is essential. Long work should not trap the
+  // CEO in a passive state." Until this slice the line here read `if (anyLiveTurn()) return;`
+  // — an honest refusal, because the spine's mutex is held for the whole turn and there was
+  // nowhere durable to put the words. There is now (`steering.rs`), so they go there.
+  if (anyLiveTurn()) return steer(text);
   // §21 "Entity binding failure": BLOCK SEND and state why. Never quietly file the CEO's
   // words somewhere Rich guessed.
   if (sendBlockedReason) {
@@ -1100,9 +1111,119 @@ async function send() {
   }
 }
 
+/// §9.2 — the CEO added words while Rich was working.
+///
+/// WHAT THIS DOES AND DOES NOT DO, because the difference is the whole honesty of the
+/// feature. §25 asks that "a steering message joins the active turn in durable order".
+/// What actually happens: the words are fsync'd to the intake log before this call returns,
+/// they are ordered by that log, and they reach Rich at the next turn boundary. They do NOT
+/// join the running ACP turn — ACP runs one `session/prompt` at a time, and the continuity
+/// design's turn-boundary controller is queue-not-interrupt by construction (§3.1).
+///
+/// So the UI never implies the message landed mid-thought. The bubble goes up with the
+/// §9.2 cue and nothing else is claimed: no "Rich is reading this", no re-ordering of the
+/// running turn's rows.
+async function steer(text) {
+  inputEl.value = "";
+  autoGrow();
+  window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+  followBottom = true;
+  scheduleRender();
+  try {
+    await Bridge.invoke("steer_message", { text });
+  } catch (e) {
+    // The words are NEVER swallowed. If the intake refused them they go back in the
+    // composer, where the CEO can see them and decide.
+    window.RichTimeline.addLocalNotice(
+      timelineModel,
+      "I couldn't take that down while I was working — it's back in the box below, nothing lost.",
+      Date.now()
+    );
+    inputEl.value = text;
+    autoGrow();
+    scheduleRender();
+  }
+}
+
+/// §9.3 — stop.
+///
+/// The command persists the request and then interrupts, in that order, and does not answer
+/// until the request is on disk. So setting `stopping` from its RETURN is a statement of
+/// durable fact, not an optimistic guess: by then "you asked me to stop" is true whatever
+/// happens next. The authoritative terminal arrives as `rich://turn-status: stopped`.
+///
+/// `stopped: false` means nothing was running. Nothing is said and nothing changes — a
+/// button that announces it did something when it did not is worse than one that stays
+/// quiet.
+async function stopTurn() {
+  if (stopBtn.disabled) return;
+  stopBtn.disabled = true;
+  try {
+    const report = await Bridge.invoke("stop_turn");
+    if (!report || !report.stopped) return;
+    if (window.RichTimeline.markStopping(timelineModel, report.turnId)) scheduleRender();
+    announce("Stopping.");
+    // REPORTED, NOT HIDDEN. The request is durable and the turn will be recorded as
+    // stopped either way, but nothing was there to interrupt it — so the work may still run
+    // to its natural end, and saying "stopped" flatly would be a claim about the lease that
+    // this app cannot make.
+    if (report.reachedLease === false) {
+      window.RichTimeline.addLocalNotice(
+        timelineModel,
+        "I've noted that you stopped this. I couldn't interrupt the work already in flight, " +
+          "so it may finish on its own — nothing new will start.",
+        Date.now()
+      );
+      scheduleRender();
+    }
+  } catch (e) {
+    window.RichTimeline.addLocalNotice(
+      timelineModel,
+      typeof e === "string" ? e : "I couldn't record that stop, so I haven't acted on it.",
+      Date.now()
+    );
+    scheduleRender();
+  } finally {
+    syncComposerMode();
+  }
+}
+
 function anyLiveTurn() {
   for (const t of timelineModel.turns.values()) if (t.live) return true;
   return false;
+}
+
+function anyStoppingTurn() {
+  for (const t of timelineModel.turns.values()) if (t.status === "stopping") return true;
+  return false;
+}
+
+/// §9.1 vs §9.2 — the composer has two modes and this is the only place that decides which.
+///
+/// Idle:     placeholder "Talk to Rich…", send visible, no stop.
+/// Working:  placeholder "Add context or steer Rich…", and per §9.2 "a stop button replaces
+///           or sits beside send when the composer is empty" — empty composer shows stop in
+///           place of send, a composer with words in it shows both, so the CEO never has to
+///           choose between sending what he typed and stopping.
+/// Stopping: §11 says "Composer disabled briefly". Only the CONTROLS are disabled; the text
+///           field stays editable, because taking the keyboard away mid-sentence would lose
+///           whatever he was in the middle of typing.
+function syncComposerMode() {
+  if (mainView !== "conversation" || sendBlockedReason) {
+    stopBtn.hidden = true;
+    return;
+  }
+  const working = anyLiveTurn();
+  const stopping = anyStoppingTurn();
+  const empty = inputEl.value.trim().length === 0;
+
+  inputEl.placeholder = working ? "Add context or steer Rich…" : idlePlaceholder;
+
+  stopBtn.hidden = !working;
+  stopBtn.disabled = stopping;
+  sendBtn.hidden = working && empty;
+  sendBtn.disabled = stopping;
+  el("composer-row").dataset.mode = stopping ? "stopping" : working ? "working" : "idle";
 }
 
 /// A READ-ONLY handle on the timeline model, for the acceptance harness and for anyone
@@ -1129,7 +1250,17 @@ function autoGrow() {
   const max = 5 * 22; // ~5 lines
   inputEl.style.height = Math.min(inputEl.scrollHeight, max) + "px";
 }
-inputEl.addEventListener("input", autoGrow);
+inputEl.addEventListener("input", () => {
+  autoGrow();
+  // §9.2's "replaces or sits beside send when the composer is empty" is a function of what
+  // is in the box, so it is re-evaluated as he types.
+  syncComposerMode();
+});
+
+stopBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  stopTurn();
+});
 
 el("rail-new-thread").addEventListener("click", startNewThreadFlow);
 el("nav-search").addEventListener("click", openSearch);
@@ -1162,12 +1293,16 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
   const r = window.RichTimeline.onTurnStatus(timelineModel, payload);
   if (r.rejected) return;
 
+  // The composer has two modes (§9.1/§9.2) and this is the authoritative signal for which
+  // one it is in — not a timer, not the absence of events.
+  syncComposerMode();
+
   // §18: "announce `Rich started working` once".
   if (payload.status === "working" && !timelineModel.announcedWorking.has(payload.turnId)) {
     timelineModel.announcedWorking.add(payload.turnId);
     announce("Rich started working");
   }
-  if (payload.status === "completed" || payload.status === "failed") {
+  if (payload.status === "completed" || payload.status === "failed" || payload.status === "stopped") {
     // §6.4: "Collapse the working transcript after a short settling transition."
     // 180ms — inside §17.4's allowed 150–220ms band — and skipped entirely under reduced
     // motion, where the collapse is immediate rather than transitioned.
@@ -1185,9 +1320,17 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
     announce(
       payload.status === "completed"
         ? "Rich finished. " + (row ? row.label : "")
-        : "Rich stopped before finishing."
+        : payload.status === "stopped"
+          ? // The row's own words, so the announcement and the screen say the same thing —
+            // including the attribution. "Rich stopped before finishing" would be wrong
+            // here: he did not, the CEO did.
+            row
+            ? row.label
+            : "You stopped it."
+          : "Rich stopped before finishing."
     );
   }
+  syncComposerMode();
   scheduleRender();
 });
 
@@ -2225,8 +2368,32 @@ async function init() {
     // selected". No entity is selected, so the picker opens.
     startNewThreadFlow();
   }
+  // WHAT IS RUNNING RIGHT NOW, read from the backend rather than assumed from the absence
+  // of events. A webview reload does not restart the Rust side, so a turn can be mid-flight
+  // with this script one second old; without this the row renders "Status unavailable" and
+  // the stop control never arms. `running_turn` is the control's mirror of the spine's own
+  // `turn_in_progress`, written at the same durable points — not an inference from silence.
+  await hydrateRunningTurn();
   renderRail();
+  syncComposerMode();
   inputEl.focus();
+}
+
+async function hydrateRunningTurn() {
+  const running = await invokeQuiet("running_turn");
+  if (!running || !running.turnId) return;
+  sessionLiveTurns.set(running.turnId, {
+    threadId: running.threadId,
+    startedAt: typeof running.startedAt === "number" ? running.startedAt : null,
+  });
+  if (running.threadId === activeThreadId) {
+    const t = timelineModel.turns.get(running.turnId);
+    if (t) {
+      t.live = true;
+      if (typeof running.startedAt === "number") t.startedAt = running.startedAt;
+      scheduleRender();
+    }
+  }
 }
 
 init();
