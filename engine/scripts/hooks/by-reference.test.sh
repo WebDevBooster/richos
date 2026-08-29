@@ -318,10 +318,21 @@ python3 - "$SB/engine/hooks/hooks.json" <<'PY'
 import json, sys
 p = sys.argv[1]
 d = json.load(open(p))
+# Move a NAMED guard, never "whichever happens to be last". PostToolUse[Agent]
+# is a chain and it has already grown once (the worker-lifecycle creation
+# emitter was appended to it); a positional pop silently retargets this case at
+# whatever guard was added most recently, and the assertion below then fails
+# for a reason that has nothing to do with the defect under test.
 moved = None
 for entry in d["hooks"]["PostToolUse"]:
-    if entry.get("matcher") == "Agent":
-        moved = entry["hooks"].pop()
+    if entry.get("matcher") != "Agent":
+        continue
+    for h in list(entry["hooks"]):
+        if "detect-nonnative-worktree.sh" in h.get("command", ""):
+            entry["hooks"].remove(h)
+            moved = h
+if moved is None:
+    raise SystemExit("mutation target detect-nonnative-worktree.sh not found in PostToolUse[Agent]")
 d["hooks"].setdefault("Stop", []).append({"hooks": [moved]})
 json.dump(d, open(p, "w"), indent=2)
 PY
