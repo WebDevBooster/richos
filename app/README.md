@@ -46,6 +46,7 @@ app/
                               not see and removes the technical detail it may not read)
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
     src/loro.rs              the Tier-C seam IMPLEMENTED: compile a slice, re-assert its lane
+    src/correction.rs        the loro WRITE loop: propose, ASK the CEO, then write
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
     src/machinery.rs         the SECOND event family: every non-text ACP update, routed not
