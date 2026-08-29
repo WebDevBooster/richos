@@ -19,3 +19,17 @@
 /engine/identity.config
 /engine/CLAUDE.md
 /engine/CLAUDE.md.new
+
+# Private source material, and anything derived from it.
+#
+# This repository gets published (see `.publication-boundary`). Recordings —
+# and TRANSCRIPTS, MEASUREMENTS and TOOL OUTPUT built on them — belong here,
+# where git will never carry them out.
+#
+# It was already the convention on 2026-08-29: the webinar audio sat at
+# docs/reference/local/ and was correctly kept out. It was never written down,
+# so the derived TEXT went in anyway, three lands running. Now it is a rule the
+# machine reads: `.publication-boundary` names this path as a PRIVATE_SOURCES
+# tree, and the publication guards both refuse a tracked write that reproduces
+# anything found under it.
+/docs/reference/local/
