@@ -419,10 +419,24 @@ export function extractTermCorrections(baselineText, editedText) {
 }
 
 function trimEdgePunct(s) {
-  return String(s == null ? '' : s)
+  const t = String(s == null ? '' : s)
     .replace(/^[^\p{L}\p{N}]+/u, '')
     .replace(/[^\p{L}\p{N}.]+$/u, '')
     .trim();
+  return dropSentencePeriod(t);
+}
+
+/**
+ * Drop the full stop that ended the sentence. It is never part of the term, and a vocabulary entry
+ * reading `Cannery Street.` is junk in the CEO's own file — put to him as *Add "Cannery Street." to
+ * your vocabulary?* it reads as a broken feature. An INTERNAL dot survives untouched, which is the
+ * only one that ever mattered: `whisper.cpp.` at the end of a sentence trims to `whisper.cpp`.
+ * Dropping it from BOTH sides of a pair keeps them in correspondence, and the corrector's
+ * word-boundary phrase match leaves the sentence's own punctuation in the text either way.
+ */
+function dropSentencePeriod(t) {
+  const stripped = t.replace(/\.+$/, '');
+  return stripped || t;
 }
 
 /**

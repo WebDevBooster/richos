@@ -2063,7 +2063,18 @@ test('hunk expansion stops at a full stop — a sentence-initial capital is gram
     'the Brightmoor Dental on Canary Street. That may be the problem.',
     'the Brightmoor Dental on Cannery Street. That may be the problem.',
   );
-  assert.equal(asks[0].to, 'Cannery Street.');
+  // And the ask itself drops the sentence's own full stop: a vocabulary entry reading
+  // "Cannery Street." is junk in the CEO's file and reads as a broken feature in the prompt.
+  assert.equal(asks[0].to, 'Cannery Street');
+  assert.equal(asks[0].from, 'Canary Street');
+});
+
+test('a trailing full stop is dropped from a learned term; an INTERNAL dot is part of it', () => {
+  const { asks } = askCandidates('we moved off nodejs last year.', 'we moved off node.js last year.');
+  assert.equal(asks.length, 1);
+  assert.equal(asks[0].to, 'node.js', 'node.js keeps its dot — it is not sentence punctuation');
+  const end = askCandidates('we moved off nodejs.', 'we moved off node.js.');
+  assert.equal(end.asks[0].to, 'node.js', 'and the sentence\'s own full stop still goes');
 });
 
 test('a name fix asks about the WHOLE name, never the lone word inside it', () => {

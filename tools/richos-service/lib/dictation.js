@@ -199,10 +199,14 @@ export function askKey(from, to) {
 }
 
 function trimEdge(s) {
-  return String(s == null ? '' : s)
+  const t = String(s == null ? '' : s)
     .replace(/^[^\p{L}\p{N}]+/u, '')
     .replace(/[^\p{L}\p{N}.]+$/u, '')
     .trim();
+  // A trailing full stop is the sentence's, not the term's — unless the term has an internal dot
+  // (`whisper.cpp`). `Add "Cannery Street." to your vocabulary?` is the shape of a broken feature.
+  const stripped = t.replace(/\.+$/, '');
+  return stripped || t;
 }
 
 /**
