@@ -603,8 +603,10 @@ impl Spine {
                 // by text and machinery. The spine no longer counts text items itself —
                 // that would be the second counter G1 exists to forbid.
                 TurnItem::Text { seq, text: c } => {
-                    // Ledger stays the source of truth: persist the delta BEFORE emitting.
-                    if let Err(e) = ledger.append_assistant_delta(turn_id, c) {
+                    // Ledger stays the source of truth: persist the delta BEFORE emitting
+                    // — and persist it AT its shared-sequence position, so the
+                    // interleaving of text and machinery survives the process (§1.4 G1).
+                    if let Err(e) = ledger.append_assistant_delta(turn_id, c, seq) {
                         persist_err = Some(e);
                         return;
                     }
@@ -942,8 +944,8 @@ impl Spine {
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
         let result = {
             let mut on_item = |item: TurnItem| match item {
-                TurnItem::Text { text: c, .. } => {
-                    let _ = ledger.append_assistant_delta(&turn_id, c);
+                TurnItem::Text { seq, text: c } => {
+                    let _ = ledger.append_assistant_delta(&turn_id, c, seq);
                 }
                 // Rotation machinery: retained for debugging, `internal: true`, NEVER in a
                 // thread render (§1.5). The CEO must never see that a rotation happened.

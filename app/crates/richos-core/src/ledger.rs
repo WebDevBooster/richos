@@ -217,7 +217,23 @@ pub enum Event {
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
     /// reply survives a mid-turn crash (§5.1).
-    AssistantDelta { turn_id: String, text: String, at: u64 },
+    ///
+    /// `seq` is the SHARED per-turn counter assigned at the ACP drain point
+    /// (`acp.rs:309-317`, techy-mode §1.4 G1) — the same counter `MachineryRecord.seq`
+    /// carries. Persisting it is what makes *"he said X, then ran Y, then said Z"*
+    /// survive a restart: without it the ledger holds only the concatenated reply, so the
+    /// interleaving G1 guarantees LIVE is lost the moment the process exits.
+    ///
+    /// `#[serde(default)]` ⇒ `None` for every delta written before this field existed.
+    /// `None` means "position not recorded", NOT position 0 — a legacy run is reported
+    /// with an unknown position rather than a fabricated one (§22: show unknown).
+    AssistantDelta {
+        turn_id: String,
+        text: String,
+        at: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seq: Option<u64>,
+    },
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
     TurnInterrupted { turn_id: String, reason: String, at: u64 },
     /// Recorded AS the action happens (not at turn-end) so replay can't double-execute (§5.4).
@@ -314,13 +330,71 @@ pub struct Turn {
     pub session_id: Option<String>,
     /// Accumulated assistant reply (concatenated deltas). May be partial if interrupted.
     pub assistant_text: String,
+    /// The SAME reply, split into contiguous RUNS of the shared per-turn sequence.
+    ///
+    /// `assistant_text` answers *"what did Rich say?"*. This answers *"where in the turn
+    /// did he say each part of it?"* — the question §5.2-vs-§5.4 (commentary vs final
+    /// response) is a special case of, and which one concatenated string cannot answer.
+    /// A run ends wherever a non-text item consumed a sequence position, i.e. wherever a
+    /// tool call interrupted the prose.
+    ///
+    /// Derived purely by folding `AssistantDelta`: no new event, no second counter.
+    pub text_runs: Vec<TextRun>,
     pub stop_reason: Option<String>,
     pub created_at: u64,
+    /// When the turn was handed to a compute lease (`TurnStarted.at`). `None` for a turn
+    /// that was journaled but never started, and for an atomically-written proactive turn
+    /// (there was no delivery span to measure).
+    pub started_at: Option<u64>,
+    /// When the turn reached a terminal state (`TurnCompleted.at` / `TurnInterrupted.at`).
+    /// `None` while in flight AND for a turn whose process was killed mid-turn — a hard
+    /// kill writes no terminal event, so the end of that span is genuinely unrecorded.
+    /// UX §6.3's rule depends on this staying `None`: the elapsed time of an unfinished
+    /// turn must never be recomputed from the current clock at read time, or an overnight
+    /// restart turns a five-minute task into a twelve-hour one.
+    pub ended_at: Option<u64>,
     /// Set only for `Source::Proactive` turns (the tier it was raised at).
     pub tier: Option<AttentionTier>,
     /// Set once this turn has been superseded by a mid-turn-crash replay (§5.3) — the
     /// id of the turn that completed the work instead. `messages()`/re-prime skip it.
     pub superseded_by: Option<String>,
+}
+
+impl Turn {
+    /// The MEASURED active span of this turn, in millis — `ended_at - started_at`, and
+    /// `None` whenever either endpoint is missing.
+    ///
+    /// Three refusals, all deliberate (UX §6.3, §22 "elapsed active time after restart"):
+    ///   1. an in-flight turn returns `None`, never `now() - started_at` — a read at
+    ///      09:00 the next morning would otherwise report a five-minute task as twelve
+    ///      hours, which is the exact failure §6.3 calls out;
+    ///   2. a turn killed mid-flight (no terminal event) returns `None` forever, because
+    ///      when it actually stopped was never written down;
+    ///   3. `checked_sub` ⇒ a clock that went backwards between the two events yields
+    ///      `None` rather than a u64 that wrapped to ~584 million years.
+    ///
+    /// There is no pause accounting because there is no pause: §11's `waiting_for_user`
+    /// state does not exist in this runtime yet, so no interval can be excluded. When it
+    /// lands, this measure becomes wall time and MUST be replaced by accumulated active
+    /// time, not extended.
+    pub fn active_ms(&self) -> Option<u64> {
+        self.ended_at?.checked_sub(self.started_at?)
+    }
+}
+
+/// One contiguous stretch of assistant text inside a turn's shared sequence.
+///
+/// `start_seq`/`end_seq` are INCLUSIVE positions in the ONE per-turn counter shared with
+/// machinery (§1.4 G1). Both are `None` for a run folded from pre-`seq` deltas: the text
+/// is intact, its position was never recorded, and it is reported as unknown rather than
+/// guessed at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TextRun {
+    pub start_seq: Option<u64>,
+    pub end_seq: Option<u64>,
+    pub text: String,
+    /// Epoch millis of the FIRST delta in the run. A label, never the ordering key.
+    pub at: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,6 +495,7 @@ impl Ledger {
     }
 
     /// Fold one event into the in-memory projection. Pure; no I/O.
+    /// (`Self::push_text_run` does the text-run splitting.)
     fn apply(&mut self, event: Event) {
         match event {
             Event::ThreadCreated { thread_id, title, at, entity_id, person_id, binding_revision } => {
@@ -460,33 +535,43 @@ impl Ledger {
                     state: TurnState::Received,
                     session_id: None,
                     assistant_text: String::new(),
+                    text_runs: Vec::new(),
                     stop_reason: None,
                     created_at: at,
+                    started_at: None,
+                    ended_at: None,
                     tier: None,
                     superseded_by: None,
                 });
             }
-            Event::TurnStarted { turn_id, session_id, .. } => {
+            Event::TurnStarted { turn_id, session_id, at } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::InFlight;
                     t.session_id = Some(session_id);
+                    // FIRST start wins. A mid-turn-crash replay is a NEW turn id (§5.3),
+                    // so a second start on THIS id would be a duplicated record, not a
+                    // legitimate restart of the same span.
+                    t.started_at.get_or_insert(at);
                 }
             }
-            Event::AssistantDelta { turn_id, text, .. } => {
+            Event::AssistantDelta { turn_id, text, at, seq } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.assistant_text.push_str(&text);
+                    Self::push_text_run(&mut t.text_runs, seq, &text, at);
                 }
             }
-            Event::TurnCompleted { turn_id, stop_reason, .. } => {
+            Event::TurnCompleted { turn_id, stop_reason, at } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::Completed;
                     t.stop_reason = Some(stop_reason);
+                    t.ended_at = Some(at);
                 }
             }
-            Event::TurnInterrupted { turn_id, reason, .. } => {
+            Event::TurnInterrupted { turn_id, reason, at } => {
                 if let Some(t) = self.turn_mut(&turn_id) {
                     t.state = TurnState::Interrupted;
                     t.stop_reason = Some(format!("interrupted: {reason}"));
+                    t.ended_at = Some(at);
                 }
             }
             Event::ActionRecorded { action_id, turn_id, kind, detail, status, visibility, at } => {
@@ -513,9 +598,16 @@ impl Ledger {
                     source: Source::Proactive,
                     state: TurnState::Completed,
                     session_id: None,
+                    text_runs: vec![TextRun { start_seq: None, end_seq: None, text: text.clone(), at }],
                     assistant_text: text,
                     stop_reason: Some("proactive".to_string()),
                     created_at: at,
+                    // NO delivery span: this turn was written atomically, never streamed
+                    // through a lease. Both endpoints stay `None` so nothing can render a
+                    // 0ms "Worked for" — that would be a measurement claim about work this
+                    // ledger never saw happen.
+                    started_at: None,
+                    ended_at: None,
                     tier: Some(tier),
                     superseded_by: None,
                 });
@@ -533,6 +625,36 @@ impl Ledger {
 
     fn turn_mut(&mut self, id: &str) -> Option<&mut Turn> {
         self.turns.iter_mut().find(|t| t.id == id)
+    }
+
+    /// Fold one delta into a turn's text RUNS.
+    ///
+    /// A delta EXTENDS the open run when it sits at the very next sequence position.
+    /// Anything else starts a NEW run, because a gap in the shared counter means a
+    /// non-text item occupied the positions in between (§1.4 G1) — and that gap is
+    /// exactly the boundary these runs exist to record.
+    ///
+    /// Two legacy deltas (both `seq: None`) also extend one another: they are known to be
+    /// consecutive in ARRIVAL order, which is the order the append-only log holds them
+    /// in, even though their absolute positions were never written down. A positioned
+    /// delta never merges with an unpositioned one in either direction — that would
+    /// assert an adjacency nothing recorded.
+    fn push_text_run(runs: &mut Vec<TextRun>, seq: Option<u64>, text: &str, at: u64) {
+        let extend = match runs.last() {
+            Some(last) => match (last.end_seq, seq) {
+                (Some(end), Some(next)) => end + 1 == next,
+                (None, None) => true,
+                _ => false,
+            },
+            None => false,
+        };
+        match runs.last_mut() {
+            Some(last) if extend => {
+                last.text.push_str(text);
+                last.end_seq = seq;
+            }
+            _ => runs.push(TextRun { start_seq: seq, end_seq: seq, text: text.to_string(), at }),
+        }
     }
 
     /// Keep the revision counter ahead of everything durably recorded.
@@ -838,9 +960,19 @@ impl Ledger {
         )
     }
 
-    pub fn append_assistant_delta(&mut self, turn_id: &str, text: &str) -> Result<(), LedgerError> {
+    /// Persist one streamed delta AT its position in the shared per-turn sequence.
+    ///
+    /// `seq` is not invented here: it is the value the lease assigned at its drain point
+    /// and handed over on `TurnItem::Text` (§1.4 G1). The spine passes it straight
+    /// through, so there is still exactly ONE counter in the system.
+    pub fn append_assistant_delta(&mut self, turn_id: &str, text: &str, seq: u64) -> Result<(), LedgerError> {
         self.append(
-            Event::AssistantDelta { turn_id: turn_id.to_string(), text: text.to_string(), at: now_millis() },
+            Event::AssistantDelta {
+                turn_id: turn_id.to_string(),
+                text: text.to_string(),
+                at: now_millis(),
+                seq: Some(seq),
+            },
             false,
         )
     }
@@ -1142,4 +1274,118 @@ fn truncate_detail(detail: &str) -> String {
     let mut out: String = detail.chars().take(ACTION_DETAIL_MAX_CHARS).collect();
     out.push('\u{2026}');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runs(input: &[(Option<u64>, &str)]) -> Vec<TextRun> {
+        let mut out = Vec::new();
+        for (seq, text) in input {
+            Ledger::push_text_run(&mut out, *seq, text, 1_700_000_000_000);
+        }
+        out
+    }
+
+    #[test]
+    fn consecutive_deltas_fold_into_one_run() {
+        let r = runs(&[(Some(0), "he said "), (Some(1), "X")]);
+        assert_eq!(r.len(), 1, "no gap in the shared counter ⇒ one uninterrupted stretch of prose");
+        assert_eq!(r[0].text, "he said X");
+        assert_eq!((r[0].start_seq, r[0].end_seq), (Some(0), Some(1)));
+    }
+
+    #[test]
+    fn a_gap_in_the_shared_sequence_splits_the_run() {
+        // "he said X, then ran Y, then said Z" — seq 2 is the tool call, and it is the
+        // ONLY evidence that the prose was interrupted. Machinery consumed position 2
+        // (§1.4 G1); the text jumps 1 -> 3.
+        let r = runs(&[(Some(0), "he said "), (Some(1), "X"), (Some(3), "then said Z")]);
+        assert_eq!(r.len(), 2, "the gap at seq 2 is a boundary, not noise");
+        assert_eq!(r[0].text, "he said X");
+        assert_eq!(r[1].text, "then said Z");
+        assert_eq!(r[1].start_seq, Some(3));
+        // The concatenation the ledger has always held is unchanged and still complete —
+        // runs ADD structure, they never subtract text.
+        let joined: String = r.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(joined, "he said Xthen said Z");
+    }
+
+    #[test]
+    fn legacy_deltas_with_no_seq_stay_one_run_with_an_unknown_position() {
+        // Every delta written before this field existed. The text is intact; the position
+        // is reported as unknown rather than back-filled with a plausible-looking 0.
+        let r = runs(&[(None, "old "), (None, "reply")]);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].text, "old reply");
+        assert_eq!((r[0].start_seq, r[0].end_seq), (None, None));
+    }
+
+    #[test]
+    fn a_positioned_delta_never_merges_with_an_unpositioned_one() {
+        // The mixed case a live upgrade actually produces: a turn that began streaming
+        // under the old build and continued under the new one. Merging would assert an
+        // adjacency nothing recorded.
+        let r = runs(&[(None, "old"), (Some(4), "new")]);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].start_seq, None);
+        assert_eq!(r[1].start_seq, Some(4));
+    }
+
+    #[test]
+    fn a_legacy_assistant_delta_line_still_replays_and_carries_no_position() {
+        // Byte-for-byte, a line written before `seq` existed (the shape asserted in
+        // tests/entity_binding_tests.rs:76).
+        let line = r#"{"event":"AssistantDelta","turn_id":"t","text":"hi","at":6}"#;
+        let event: Event = serde_json::from_str(line).expect("legacy line still parses");
+        match event {
+            Event::AssistantDelta { seq, text, .. } => {
+                assert_eq!(seq, None, "absent ⇒ unknown position, not position 0");
+                assert_eq!(text, "hi");
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_turns_active_span_is_measured_and_refuses_to_be_invented() {
+        let mut turn = Turn {
+            id: "t".into(),
+            thread_id: "thr".into(),
+            entity_id: None,
+            binding_revision: 0,
+            quarantined: false,
+            user_text: String::new(),
+            source: Source::Text,
+            state: TurnState::InFlight,
+            session_id: None,
+            assistant_text: String::new(),
+            text_runs: Vec::new(),
+            stop_reason: None,
+            created_at: 1_000,
+            started_at: Some(1_000),
+            ended_at: None,
+            tier: None,
+            superseded_by: None,
+        };
+        // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
+        assert_eq!(turn.active_ms(), None);
+
+        // COMPLETED: an actual measurement. 1_000 -> 19_360 millis = 18.36s, which §6.2
+        // renders as `18s` (the display rounding is the renderer's, not the record's).
+        turn.ended_at = Some(19_360);
+        turn.state = TurnState::Completed;
+        assert_eq!(turn.active_ms(), Some(18_360));
+
+        // A CLOCK THAT WENT BACKWARDS between the two events: unknown, not a u64 that
+        // wrapped to ~584 million years.
+        turn.ended_at = Some(999);
+        assert_eq!(turn.active_ms(), None);
+
+        // NEVER STARTED (journaled, then the process died before delivery): unknown.
+        turn.started_at = None;
+        turn.ended_at = Some(19_360);
+        assert_eq!(turn.active_ms(), None);
+    }
 }
