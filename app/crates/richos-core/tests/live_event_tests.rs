@@ -21,7 +21,7 @@ use richos_core::entity::EntityId;
 use richos_core::ledger::{AttentionTier, Ledger, Source};
 use richos_core::live::{LiveEvent, LiveObserver};
 use richos_core::machinery::{MachineryObserver, MachineryRecord};
-use richos_core::spine::Spine;
+use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::timeline::{Timeline, ViewMode, Visibility};
 use serde_json::{json, Value};
@@ -117,6 +117,11 @@ enum Beat {
     /// A raw ACP `session/update` payload, turned into a `MachineryRecord` the same way
     /// `acp.rs` turns one.
     Update(Value),
+    /// A side effect that happens BETWEEN two beats — i.e. genuinely mid-turn, while the
+    /// spine holds the ledger. Used to reproduce the engine hook writing its worker row in
+    /// another process AFTER the tool result that named the worker has already been
+    /// observed. It consumes no `seq`, because nothing reached the stream.
+    Effect(Box<dyn Fn() + Send>),
 }
 
 struct ScriptedLease {
@@ -156,6 +161,7 @@ impl Cognition for ScriptedLease {
                         seq += 1;
                     }
                 }
+                Beat::Effect(f) => f(),
             }
         }
         match &self.die_with {
@@ -867,4 +873,460 @@ fn an_unbound_legacy_thread_emits_nothing_at_all() {
     assert!(spine.submit_prompt("hi", Source::Text).is_err(), "and no turn can be accepted for it");
     assert!(live.payloads().is_empty(), "no binding, no fence, no event");
     let _ = std::fs::remove_file(&path);
+}
+
+// ===========================================================================
+// 5. `rich://worker-upserted` — THE DELEGATION THE CEO SEES WHILE IT HAPPENS
+// ===========================================================================
+//
+// The defect these close, as the §26 fixture measured it before this slice: 0 worker chips
+// live, 3 after a `get_timeline` read. During the turn — exactly when the CEO wants to know
+// Rich has delegated — a delegation showed as a nameless "Worked" row.
+
+/// A DELEGATED-WORK tool call: the two-part witness `worker-created-handoff.sh` requires —
+/// the vendor tool name `Task`, and the harness's async-launch acknowledgement carrying an
+/// extractable `agentId`. Missing either half and the call stays an ordinary activity row.
+fn task_call(id: &str, agent_id: &str) -> Value {
+    json!({
+        "sessionUpdate": "tool_call",
+        "toolCallId": id,
+        "title": "Task",
+        "kind": "other",
+        "status": "in_progress",
+        "_meta": {"claudeCode": {"toolName": "Task"}},
+        "rawOutput": format!("Async agent launched successfully. agentId: {agent_id}")
+    })
+}
+
+/// One line of the engine's `worker-events.jsonl`, in the emitters' own format
+/// (`engine/docs/worker-lifecycle-events.md`).
+fn worker_line(state: &str, agent_id: &str, name: &str, agent_type: &str, session: &str, summary: &str) -> String {
+    json!({
+        "timestamp": "2026-08-29T04:00:00+00:00",
+        "lifecycle_state": state,
+        "source_hook": "test",
+        "agent_id": agent_id,
+        "worker_name": name,
+        "agent_type": agent_type,
+        "session_id": session,
+        "summary": summary,
+        "host_pid": 4242
+    })
+    .to_string()
+}
+
+fn write_worker_stream(tag: &str, lines: &[String]) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "richos-live-workers-{tag}-{}-{}.jsonl",
+        std::process::id(),
+        richos_core::util::now_millis()
+    ));
+    let body = if lines.is_empty() { String::new() } else { lines.join("\n") + "\n" };
+    std::fs::write(&path, body).unwrap();
+    path
+}
+
+#[test]
+fn a_delegation_reaches_the_webview_during_the_turn_not_after_it() {
+    // THE DEFECT, closed. `rich://worker-upserted` was deferred at live.rs:26 and unwired
+    // in main.js, so the only route a worker row had to the screen was a `get_timeline`
+    // snapshot. The assertion here is POSITIONAL, not merely existential: every worker
+    // event must land before the turn's terminal status, because "after the turn" is
+    // precisely the behaviour that was wrong.
+    let stream = write_worker_stream(
+        "during",
+        &[
+            worker_line("created", "agt_sage", "Sage", "architecture", "sess-1", ""),
+            worker_line("created", "agt_frank", "Frank", "red team", "sess-1", ""),
+            worker_line("started", "agt_frank", "", "red team", "sess-1", ""),
+        ],
+    );
+    let (path, ledger) = tmp_ledger("during");
+    let mut spine = Spine::new(ledger);
+    spine.create_thread("Memory strategy", &femcboost()).unwrap();
+    spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![
+            Beat::Text("Pulling Sage and Frank onto this."),
+            Beat::Update(task_call("tc_t1", "agt_sage")),
+            Beat::Update(task_call("tc_t2", "agt_frank")),
+            Beat::Update(tool_open("tc_c1", "Bash", "execute")),
+            Beat::Update(tool_close("tc_c1", "git status --short", "clean")),
+            Beat::Text("Both are running."),
+        ],
+    )));
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    spine.submit_prompt("who's on the memory strategy?", Source::Text).unwrap();
+
+    let names = live.names();
+    let first_worker = names
+        .iter()
+        .position(|n| n == "rich://worker-upserted")
+        .unwrap_or_else(|| panic!("no worker row reached the calm family at all: {names:?}"));
+    // The terminal turn status is the LAST event of that name.
+    let last_status = names.iter().rposition(|n| n == "rich://turn-status").unwrap();
+    assert!(
+        first_worker < last_status,
+        "the worker rows arrived at or after the turn's terminal status — that is the \
+         snapshot-only behaviour this slice exists to remove: {names:?}"
+    );
+
+    let workers = live.of("rich://worker-upserted");
+    let mut by_agent: std::collections::BTreeMap<String, Value> = Default::default();
+    for w in &workers {
+        by_agent.insert(w["worker"]["agentId"].as_str().unwrap().to_string(), w.clone());
+    }
+    assert_eq!(
+        by_agent.keys().cloned().collect::<Vec<_>>(),
+        vec!["agt_frank".to_string(), "agt_sage".to_string()],
+        "both delegations reached the wire, joined by identity and nothing else"
+    );
+    let sage = &by_agent["agt_sage"];
+    assert_eq!(sage["kind"], json!("worker_activity"), "a delegation is not a nameless activity row");
+    assert_eq!(sage["worker"]["workerName"], json!("Sage"));
+    assert_eq!(sage["worker"]["agentType"], json!("architecture"));
+    assert_eq!(sage["worker"]["observedState"], json!("created"));
+    assert_eq!(sage["worker"]["state"], json!("pending_init"));
+    assert_eq!(by_agent["agt_frank"]["worker"]["state"], json!("running"), "`started` opens a running run");
+    assert_eq!(sage["visibility"], json!("ceo"));
+    assert!(sage.get("detail").is_none(), "the vendor title and paths were removed, not flagged");
+    assert_eq!(sage["entityId"], json!("femcboost"), "the ECS fence rides on this event like every other");
+    assert!(sage["bindingRevision"].is_u64());
+
+    // The ordinary tool call beside them is untouched, and a delegation is never BOTH.
+    let acts = live.of("rich://activity-upserted");
+    assert!(
+        acts.iter().any(|a| a["summary"] == json!("Ran a command")),
+        "a non-delegating tool call still produces its activity row: {acts:?}"
+    );
+    assert!(
+        !acts.iter().any(|a| a["id"] == sage["id"]),
+        "one machinery record is ONE row — a delegation must not also be drawn as activity"
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&stream);
+}
+
+#[test]
+fn the_live_worker_row_and_the_reloaded_worker_row_are_the_same_row() {
+    // The property that makes a live row safe to draw: a cold reopen must RE-STATE what the
+    // CEO already saw — never contradict it, never duplicate it. Proven exactly the way
+    // `the_wire_and_the_reload_agree_on_every_field` proves it for an activity row: field
+    // by field against the item `Timeline::project_with_workers` builds from the same
+    // durable records and the same lifecycle stream.
+    let stream = write_worker_stream(
+        "agree",
+        &[
+            worker_line("created", "agt_clark", "Clark", "research", "sess-1", ""),
+            worker_line("started", "agt_clark", "", "research", "sess-1", ""),
+            worker_line("updated", "agt_clark", "", "", "sess-1", "Pulled 14 sources on Claude Code memory"),
+        ],
+    );
+    let (path, ledger) = tmp_ledger("agree-worker");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
+    spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![Beat::Text("Clark is on the sources."), Beat::Update(task_call("tc_t1", "agt_clark"))],
+    )));
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    let machinery = RecordingMachinery::default();
+    spine.set_machinery_observer(Box::new(machinery.clone()));
+    spine.submit_prompt("who's reading the sources?", Source::Text).unwrap();
+
+    let wire = live.of("rich://worker-upserted").last().cloned().expect("a live worker row");
+
+    // Rebuild from the durable records + the same stream, the way a cold reopen does.
+    let records = machinery.records.lock().unwrap().clone();
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let reloaded = Timeline::project_with_workers(spine.ledger(), &binding, &records, &rows).unwrap();
+    let view = reloaded.view(ViewMode::Ceo);
+    let projected = view
+        .items()
+        .iter()
+        .find(|i| matches!(i, richos_core::timeline::TimelineItem::WorkerActivity { .. }))
+        .expect("the reload projects one worker row");
+    let mut reload = serde_json::to_value(projected).unwrap();
+
+    // The same two fields that legitimately differ for an activity row, for the same two
+    // reasons: `at` is §13's timestamp label, which a timeline item does not carry; and
+    // `bindingRevision` is the ACTIVATION's revision live and the thread's durable one on a
+    // re-projection. It is a staleness fence, never an equality key.
+    let live_revision = wire["bindingRevision"].as_u64().unwrap();
+    let durable_revision = reload["bindingRevision"].as_u64().unwrap();
+    assert!(live_revision >= durable_revision, "an activation fence never moves backwards");
+    let mut wire_stripped = wire.as_object().unwrap().clone();
+    wire_stripped.remove("at");
+    wire_stripped.insert("bindingRevision".into(), json!(durable_revision));
+    reload.as_object_mut().unwrap().remove("at");
+    assert_eq!(
+        Value::Object(wire_stripped),
+        reload,
+        "the live worker row and the reloaded worker row must be the SAME row — a row that \
+         changes when the turn ends is a new defect, not a fix"
+    );
+
+    // Named rather than left implied by the equality above.
+    assert_eq!(wire["kind"], json!("worker_activity"));
+    assert_eq!(wire["worker"]["workerName"], json!("Clark"));
+    assert_eq!(wire["worker"]["latestUpdate"], json!("Pulled 14 sources on Claude Code memory"));
+    assert_eq!(wire["worker"]["eventsObserved"], json!(3));
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&stream);
+}
+
+#[test]
+fn a_run_that_ended_crosses_the_live_wire_as_unknown_never_as_a_completion() {
+    // §7.1's `waiting`, `interrupted` and `failed` have NO witness anywhere, and `run_ended`
+    // is the honest superset of completed/interrupted/failed. The live path must say the
+    // same thing the reload path says, or the row changes meaning when the turn completes.
+    let stream = write_worker_stream(
+        "ended",
+        &[
+            worker_line("created", "agt_sage", "Sage", "architecture", "sess-1", ""),
+            worker_line("run_ended", "agt_sage", "", "", "sess-1", ""),
+        ],
+    );
+    let (path, ledger) = tmp_ledger("ended-worker");
+    let mut spine = Spine::new(ledger);
+    spine.create_thread("Memory strategy", &femcboost()).unwrap();
+    spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![Beat::Update(task_call("tc_t1", "agt_sage")), Beat::Text("Sage's run is over.")],
+    )));
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    spine.submit_prompt("what happened to Sage?", Source::Text).unwrap();
+
+    let workers = live.of("rich://worker-upserted");
+    let w = workers.last().cloned().expect("a worker row");
+    assert_eq!(w["worker"]["observedState"], json!("run_ended"));
+    assert_eq!(
+        w["worker"]["state"],
+        json!("unknown"),
+        "RUN_ENDED_WORKER_STATE is WorkerState::Unknown — `run_ended` is not a completion"
+    );
+    // Only the three witnessable states may cross this wire, on any event.
+    for e in &workers {
+        let st = e["worker"]["state"].as_str().unwrap();
+        assert!(
+            ["pending_init", "running", "unknown"].contains(&st),
+            "a worker state the engine cannot witness reached the live wire: {st}"
+        );
+    }
+    // And no field claiming an outcome was invented alongside it.
+    let obj = w["worker"].as_object().unwrap();
+    for banned in ["completedAt", "resultRef", "errorRef", "reason", "outcome", "durationMs", "elapsedMs"] {
+        assert!(!obj.contains_key(banned), "the live payload invented `{banned}`");
+    }
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&stream);
+}
+
+#[test]
+fn no_worker_from_another_session_reaches_the_live_wire() {
+    // THE CROSS-ENTITY NEGATIVE CONTROL for this event, with a positive probe and a
+    // vacuity check — the same three-part shape the merged-machinery control uses.
+    //
+    // `agent_id` is the join key and it is NOT globally unique across sessions (the
+    // engine's own residue at `~/.claude/worker-events.jsonl` reuses `aTESTWORKER00001`
+    // across twelve rows). CLAUSE 3 of the join — a row is admitted only when its
+    // `session_id` equals the record's — is the only thing between another entity's worker
+    // NAME and authored SUMMARY and a row stamped with THIS binding's entity, thread and
+    // turn. Such a row would look perfectly scoped and would not be.
+    let foreign_name = "deeply-analyst";
+    let foreign_summary = "deeply's Q4 term sheet numbers";
+    let stream = write_worker_stream(
+        "clause3",
+        &[
+            // MINE — same agent id, this session.
+            worker_line("created", "agt_shared", "Sage", "architecture", "sess-1", ""),
+            // ANOTHER SESSION's row, reusing the id, carrying another entity's content.
+            worker_line("updated", "agt_shared", foreign_name, "deeply", "some-other-session", foreign_summary),
+        ],
+    );
+    let (path, ledger) = tmp_ledger("clause3");
+    let mut spine = Spine::new(ledger);
+    spine.create_thread("Memory strategy", &femcboost()).unwrap();
+    spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![Beat::Update(task_call("tc_t1", "agt_shared")), Beat::Text("Sage has it.")],
+    )));
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    spine.submit_prompt("who's on it", Source::Text).unwrap();
+
+    // POSITIVE PROBE: the correctly-scoped row IS admitted, so the refusal below cannot
+    // pass merely because the whole path is broken.
+    let w = live
+        .of("rich://worker-upserted")
+        .last()
+        .cloned()
+        .expect("POSITIVE PROBE FAILED — the in-session row was refused too, so this control is vacuous");
+    assert_eq!(w["worker"]["workerName"], json!("Sage"));
+    assert_eq!(w["entityId"], json!("femcboost"));
+
+    // THE REFUSAL: neither the foreign name nor the foreign authored summary appears
+    // anywhere on the family — not on this row, not on any other event.
+    let flat = serde_json::to_string(&live.payloads()).unwrap();
+    assert!(!flat.contains(foreign_name), "another session's worker name reached the live wire: {flat}");
+    assert!(!flat.contains("Q4 term sheet"), "another session's authored update reached the live wire");
+    assert_eq!(w["worker"]["latestUpdate"], Value::Null, "the only `updated` row belongs to another session");
+    assert_eq!(w["worker"]["eventsObserved"], json!(1), "one row admitted of the two on disk");
+
+    // THE CONTROL IS NOT VACUOUS. The guard is one clause; re-apply the join WITHOUT it,
+    // over the same public rows, and it admits exactly the row that was refused.
+    let rows = WorkerEventsSource::File(stream.clone()).read();
+    assert_eq!(rows.len(), 2, "both rows are on disk and both parse");
+    let without_session_clause: Vec<&richos_core::worker_events::WorkerEventRow> =
+        rows.iter().filter(|r| r.agent_id == "agt_shared").collect();
+    assert_eq!(
+        without_session_clause.len(),
+        2,
+        "with the session clause deleted the foreign row IS selected — the guard is doing the work"
+    );
+    assert!(
+        without_session_clause.iter().any(|r| r.worker_name == foreign_name && r.summary == foreign_summary),
+        "and the row it would admit is the one carrying the other entity's name and words"
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&stream);
+}
+
+#[test]
+fn a_lifecycle_row_that_lands_after_the_tool_result_still_reaches_the_screen_in_the_same_turn() {
+    // THE RACE, run rather than reasoned about. The `agentId` is extractable only from the
+    // async-launch acknowledgement on the tool RESULT, and `worker-created-handoff.sh`
+    // writes its row at about that same instant, from `PostToolUse[Agent]` in another
+    // process. Neither order is guaranteed.
+    //
+    // So: the delegation is observed while the stream is EMPTY (it draws as the ordinary
+    // activity row — the honest degrade), the hook then writes, and the NEXT machinery
+    // record upgrades it to a worker row UNDER THE SAME ITEM ID. An idempotent upsert, not
+    // a second row.
+    let stream = write_worker_stream("race", &[]);
+    let (path, ledger) = tmp_ledger("race");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
+    spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
+
+    let hook_path = stream.clone();
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![
+            Beat::Update(task_call("tc_t1", "agt_late")),
+            // The hook fires here — mid-turn, after the result that named the worker.
+            Beat::Effect(Box::new(move || {
+                std::fs::write(
+                    &hook_path,
+                    worker_line("created", "agt_late", "Clark", "research", "sess-1", "") + "\n",
+                )
+                .unwrap();
+            })),
+            Beat::Update(tool_open("tc_c1", "Bash", "execute")),
+            Beat::Update(tool_close("tc_c1", "git status --short", "clean")),
+        ],
+    )));
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    let machinery = RecordingMachinery::default();
+    spine.set_machinery_observer(Box::new(machinery.clone()));
+    spine.submit_prompt("delegate it", Source::Text).unwrap();
+
+    let workers = live.of("rich://worker-upserted");
+    let upgraded = workers.first().expect("the late lifecycle row still produced a worker event in this turn");
+    let delegation_id = upgraded["id"].as_str().unwrap().to_string();
+    assert_eq!(upgraded["worker"]["workerName"], json!("Clark"));
+
+    let acts = live.of("rich://activity-upserted");
+    assert!(
+        acts.iter().any(|a| a["id"] == json!(delegation_id)),
+        "before the hook wrote, the delegation was drawn as an ordinary activity row — the honest degrade"
+    );
+    // SAME id: §13's "repeated event IDs are idempotent". The renderer upserts by id, so
+    // the upgrade replaces the row it already drew instead of adding a second one.
+    assert_eq!(workers.len(), 1, "one delegation, one upgrade — not one per subsequent record");
+
+    // And a reload agrees with where it ended up.
+    let records = machinery.records.lock().unwrap().clone();
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let reloaded = Timeline::project_with_workers(spine.ledger(), &binding, &records, &rows).unwrap();
+    let view = reloaded.view(ViewMode::Ceo);
+    let projected: Vec<&richos_core::timeline::TimelineItem> = view
+        .items()
+        .iter()
+        .filter(|i| matches!(i, richos_core::timeline::TimelineItem::WorkerActivity { .. }))
+        .collect();
+    assert_eq!(projected.len(), 1, "the reload projects exactly one worker row");
+    assert_eq!(projected[0].id(), delegation_id, "and it is the row the live path last drew");
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&stream);
+}
+
+#[test]
+fn a_delegation_on_an_internal_turn_is_constructed_and_then_refused() {
+    // The gate, on the richest payload this family carries. A re-prime or rotation turn is
+    // one the CEO must never see at all, and a delegation inside one would carry a worker's
+    // name and authored words. The event is CONSTRUCTED — so the gate has something to
+    // refuse and this control has something to observe — and stops at
+    // `LiveEvent::may_reach_webview`, exactly like an internal activity row.
+    let stream = write_worker_stream(
+        "internal",
+        &[worker_line("created", "agt_hidden", "SECRET-WORKER", "internal", "sess-1", "")],
+    );
+    let (path, ledger) = tmp_ledger("internal-worker");
+    let mut spine = Spine::new(ledger);
+    let thread = spine.create_thread("Memory strategy", &femcboost()).unwrap();
+    spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
+    spine.attach_lease(Box::new(ScriptedLease::new(
+        "sess-1",
+        vec![Beat::Update(task_call("tc_t1", "agt_hidden")), Beat::Text("priming")],
+    )));
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+    let machinery = RecordingMachinery::default();
+    spine.set_machinery_observer(Box::new(machinery.clone()));
+    spine.submit_prompt("[re-prime]", Source::Internal).unwrap();
+
+    assert!(
+        live.of("rich://worker-upserted").is_empty(),
+        "a delegation inside an internal turn has no render path in any mode"
+    );
+    let flat = serde_json::to_string(&live.payloads()).unwrap();
+    assert!(!flat.contains("SECRET-WORKER"), "an internal turn's worker name reached the wire: {flat}");
+
+    // NOT VACUOUS: the row exists and carries the name — it is the GATE that stops it, not
+    // its absence. `audit_including_internal` is the only way to see it, by design.
+    let records = machinery.records.lock().unwrap().clone();
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let reloaded = Timeline::project_with_workers(spine.ledger(), &binding, &records, &rows).unwrap();
+    let internal_row = reloaded
+        .audit_including_internal()
+        .iter()
+        .find(|i| matches!(i, richos_core::timeline::TimelineItem::WorkerActivity { .. }))
+        .expect("the worker row was BUILT — the gate is what refuses it");
+    assert_eq!(internal_row.visibility(), Visibility::Internal);
+    assert!(
+        reloaded.view(ViewMode::Technical).items().iter().all(
+            |i| !matches!(i, richos_core::timeline::TimelineItem::WorkerActivity { .. })
+        ),
+        "not even technical mode renders an internal turn's delegation"
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&stream);
 }

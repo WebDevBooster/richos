@@ -741,15 +741,18 @@
   // THE PATH — the same one a real turn takes, with ONE named divergence
   // ---------------------------------------------------------------------------------------
   //
-  // Prose, activity and turn state go out as the five §13 events the emitter actually emits
-  // (live.rs:107-112) and reach the renderer through `main.js`'s listeners — the real live
-  // path. WORKER ROWS DO NOT, and cannot: `rich://worker-upserted` is DEFERRED in the
-  // emitter (live.rs:26) and has no listener in `main.js`. Their only route to the screen
-  // today is the durable snapshot, so this fixture writes them into the turn record and
-  // they surface on the next `get_timeline` — which is a real path (§13: "missed stream
-  // events recover from the durable snapshot"), just not a live one. Emitting a
-  // `rich://worker-upserted` the backend never sends would have made the fixture a claim
-  // about a wire that does not exist.
+  // Prose, activity, turn state AND WORKER ROWS all go out as §13 events the emitter
+  // actually emits, and reach the renderer through `main.js`'s listeners — the real live
+  // path, with no divergence left in this fixture.
+  //
+  // Worker rows were the one exception until 2026-08-29: `rich://worker-upserted` was
+  // deferred in the emitter (live.rs:26) and had no listener in `main.js`, so their only
+  // route to the screen was the durable snapshot and this fixture measured the consequence
+  // — 0 chips live, 3 after a `get_timeline` read. The emitter now sends it (live.rs, "the
+  // delegation the CEO sees while it happens"), so the fixture sends it too: every worker
+  // row is written into the durable turn record AND emitted live, exactly as the backend
+  // does. The payload shape is `TimelineItem::WorkerActivity` + `at`, which is what
+  // `LiveEvent::WorkerUpserted::payload` puts on the wire.
   //
   // ---------------------------------------------------------------------------------------
   // THE CLOCK
@@ -858,15 +861,15 @@
            "semantic_summary builds the line from the activity TYPE alone and deliberately " +
            "carries no query text, so the CEO default stays semantic and never leaks syntax.",
       source: "timeline.rs:1400-1417" },
-    { n: 6, spec: "Sage, Frank and Clark start", status: "partial",
+    { n: 6, spec: "Sage, Frank and Clark start", status: "represented",
       have: "Three worker rows, `created` then `started` -> Starting/Working, grouped as " +
-            "`Sage, Frank and Clark started working`.",
-      gap: "NOT LIVE. rich://worker-upserted is deferred in the emitter and unwired in " +
-           "main.js, so worker rows reach the screen only through a get_timeline snapshot.",
+            "`Sage, Frank and Clark started working` — LIVE, during the turn. Was " +
+            "snapshot-only until 2026-08-29, when rich://worker-upserted stopped being " +
+            "deferred; this fixture measured that gap as 0 chips live and 3 after the read.",
       source: "live.rs:26, worker_events.rs:128-139" },
-    { n: 7, spec: "Clark update", status: "partial",
-      have: "`updated` -> Running, with the summary Clark actually authored.",
-      gap: "Snapshot-only, as step 6.",
+    { n: 7, spec: "Clark update", status: "represented",
+      have: "`updated` -> Running, with the summary Clark actually authored, live and in " +
+            "place — one run is one row however many lifecycle events it produced.",
       source: "worker_events.rs:134-136" },
     { n: 8, spec: "Frank completion", status: "partial",
       have: "Frank's run ENDS, and the row says so: `Ended · outcome not recorded`.",
@@ -986,8 +989,8 @@
       return row;
     }
 
-    /// A worker row goes into the DURABLE record only. See the path note above: there is no
-    /// live worker event on this wire, so emitting one would be a lie about the contract.
+    /// A worker row goes into the durable record AND onto the live wire, because the
+    /// backend now does both. See the path note above for what changed and when.
     function workerRow(id, offset, worker) {
       const row = {
         kind: "worker_activity",
@@ -1003,15 +1006,26 @@
         worker,
       };
       turn.activities.push(row);
+      emitWorker(row, at(offset));
       return row;
     }
 
     /// Update a worker row IN PLACE, by id — one run is one row however many events it
-    /// produces, which is the invariant slice 5 landed and slice 7 tested.
-    function workerUpdate(id, patch) {
+    /// produces, which is the invariant slice 5 landed and slice 7 tested. The live event
+    /// carries the WHOLE row under the same id, which is why the renderer's upsert leaves
+    /// one chip rather than two.
+    function workerUpdate(id, patch, offset) {
       const row = turn.activities.find((a) => a.id === id);
-      if (row) Object.assign(row.worker, patch);
+      if (!row) return row;
+      Object.assign(row.worker, patch);
+      emitWorker(row, typeof offset === "number" ? at(offset) : now());
       return row;
+    }
+
+    /// One `rich://worker-upserted`, shaped exactly as `LiveEvent::WorkerUpserted::payload`
+    /// shapes it: the flattened timeline item, the fence already inside it, plus `at`.
+    function emitWorker(row, atMs) {
+      emit("rich://worker-upserted", Object.assign({ turnId: MEMORY_TURN_ID }, row, { at: atMs }));
     }
 
     /// One contiguous run of Rich's prose, streamed sentence by sentence through the three

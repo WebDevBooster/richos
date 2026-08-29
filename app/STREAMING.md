@@ -164,7 +164,7 @@ gate); relay: `app/src-tauri/src/events.rs`.
 
 ### What is live, and what is deferred
 
-§13 lists eleven events. **Six are emitted. Five are not, and are not emitted at all** —
+§13 lists eleven events. **Seven are emitted. Four are not, and are not emitted at all** —
 not as an empty or "unknown" version, because for those the arrival of the event would
 itself be the claim. §22: *"If the source signal does not exist, build the signal first or
 show unknown."*
@@ -177,7 +177,7 @@ show unknown."*
 | `rich://message-completed` | **LIVE** | `{…fence, messageId, phase, text, visibility, at}` |
 | `rich://activity-upserted` | **LIVE** | one timeline activity record + `at` (below) |
 | `rich://thread-summary-updated` | **LIVE** | `{…fence, title, messageCount, lastActivity, status, visibility, at}` |
-| `rich://worker-upserted` | **DEFERRED** | No worker lifecycle signal exists. A delegated-work (`Task`) tool call is an ordinary activity row and is deliberately **not** inferred into a worker — §22 lists active worker count, waiting state and completion state as things that must not be faked. A consumer gets written against the real schema when the engine emits one. |
+| `rich://worker-upserted` | **LIVE** (2026-08-29) | one timeline `worker_activity` record + `at` (below) |
 | `rich://plan-updated` | **DEFERRED** | `plan` updates are retained as untyped machinery; their entries live **only** in the evictable Tier-B raw payload, so a plan projected from them would silently empty out after the retention window. |
 | `rich://approval-requested` | **DEFERRED** | Nothing in this runtime asks the CEO to approve anything. The permission requests that do happen are auto-approved by the ACP client and recorded as a fact — they arrive as `activity-upserted` with `activityType: "approval"`, `state: "completed"`: a thing that happened, not a decision awaiting you. |
 | `rich://approval-resolved` | **DEFERRED** | Same. |
@@ -333,6 +333,52 @@ several times as it moves `queued → completed`. Order by `(turnId, sequence)`,
 they do not appear on this family at all. They previously projected as CEO rows reading
 *"Worked"* — one live turn produced six of them against one real command. They are still
 routed, retained, and rendered in technical mode with their vendor kind.
+
+### `worker-upserted`: the delegation you see while it is happening
+
+Added 2026-08-29. It was deferred while there was no worker lifecycle signal anywhere;
+the engine's four emitters now write `worker-events.jsonl`
+(`engine/docs/worker-lifecycle-events.md`), and a `Task` tool call is joined to it **by
+identity**. Before this the join ran only inside `get_timeline`, so a delegation reached
+the screen after a snapshot read and showed as a nameless *"Worked"* row for the rest of
+the turn. The §26 fixture measured the gap: **0 chips live, 3 after the snapshot.**
+
+The payload **is** the `worker_activity` timeline item a reload projects (fence flattened
+into it, `detail` already removed) plus `at`, so:
+
+- **Merge by `id`, last write wins** — the same upsert as `activity-upserted`. The id is
+  the machinery id, stable across re-projection, so a repeated id is idempotent and a cold
+  reopen re-states the row instead of drawing a second one.
+- **One delegated run is ONE row**, however many lifecycle events it produced. `created →
+  started → updated → run_ended` all arrive under the same id.
+- `worker.agentId` is the join key and **is not globally unique across sessions**. The
+  emitter admits a lifecycle row only when its `session_id` matches the tool call's; a
+  renderer never has to think about it, but never key anything on `agentId` alone either.
+- **A row may arrive as `activity` first and become `worker_activity` later, under the
+  same id.** The `agentId` is extractable only from the tool result, and the engine's
+  `created` hook writes at about that same instant in another process — so a delegation
+  whose lifecycle row lands late is drawn as an ordinary activity row and upgraded at the
+  next observation. **Replace the item on a kind change; do not merge over it**, or the
+  activity row's `summary` / `state` / `activityType` cling to a worker row where they mean
+  something else.
+
+`worker.state` is `pending_init | running | unknown` and **nothing else in practice**:
+
+- `run_ended` crosses the wire as **`unknown`**, never `completed`. The reason a run ended
+  is not observable anywhere in the hook set, and `unknown` is the honest superset of
+  completed, interrupted and failed. Render it as *Ended · outcome not recorded*.
+- `waiting`, `interrupted`, `failed` and `completed` are in the type because they are §12's
+  vocabulary. **Nothing constructs them.** If one ever arrives, it is a new signal, not a
+  default.
+- There is no `completedAt`, no `resultRef`, no `errorRef` and **no duration**: §22 forbids
+  faking elapsed active time, and the wall-clock spread between the first and last
+  lifecycle rows is not active time.
+
+**THE ONE STALENESS LIMIT, STATED.** This event is emitted when machinery arrives and once
+more at the turn's end — there is no poll and no timer. A worker's state changes through
+hook writes that produce no ACP traffic at all, so between two tool calls a chip can be up
+to one tool call behind. It is never wrong about a worker that was never witnessed, and the
+turn-end emission means the last live row is the row an immediate reload projects.
 
 ### `thread-summary-updated`
 

@@ -876,6 +876,12 @@ impl Spine {
         let journal = self.machinery_journal.as_ref();
         let machinery_observer = self.machinery_observer.as_deref();
         let live_observer = self.live.as_deref();
+        // The engine's worker-lifecycle stream, borrowed as a distinct field so the closure
+        // below can re-read it DURING the turn — that is what makes a delegation reach the
+        // screen while it is happening rather than at the next `get_timeline`. It is read
+        // lazily (`LiveTurn::on_machinery` calls the thunk only once this turn has a
+        // delegation to resolve), so a turn that never delegates does no extra file I/O.
+        let worker_source = &self.worker_events;
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
         let mut persist_err: Option<LedgerError> = None;
         // The additive family's per-turn bookkeeping (§13). Holds no counter of its own:
@@ -921,7 +927,7 @@ impl Spine {
                     // the turn's end, and §5.2's "commentary, then activity" is live-accurate.
                     let runs = ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
                     Self::forward_live(live_observer, live_turn.close_open_message(runs, now_millis()));
-                    Self::forward_live(live_observer, live_turn.on_machinery(&record).into_iter().collect());
+                    Self::forward_live(live_observer, live_turn.on_machinery(&record, &|| worker_source.read()));
                     Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
             };
@@ -944,6 +950,16 @@ impl Spine {
         let final_runs = self.ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
         let closing = live_turn.close_open_message(final_runs, now_millis());
         self.emit_live(closing);
+
+        // ONE LAST WORKER RE-JOIN, before the terminal turn status goes out. A worker's
+        // state changes through hook writes in another process and produces no ACP traffic
+        // at all, so the last machinery record is not necessarily the last thing that
+        // happened to a delegation. Without this the live row and a snapshot taken a second
+        // later could disagree at exactly the moment the transcript settles and collapses.
+        // Emitted for every outcome — completed, stopped, interrupted — because a turn that
+        // ended badly still delegated.
+        let converged = live_turn.on_turn_end(&|| self.worker_events.read());
+        self.emit_live(converged);
 
         // A ledger write failing mid-stream is terminal for the turn (durability first).
         if let Some(e) = persist_err {

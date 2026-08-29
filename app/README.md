@@ -342,7 +342,26 @@ gaps and packaging requirements: the voice-pipeline brief, 2026-08-24.
 in `loro/` with a versioned `CONTEXT-CONTRACT.md`; `LoroContextCompiler` in `reprime.rs` is
 still an unwired trait seam), the attention-seam TRIGGER (timers/log-watchers that decide
 WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment is not),
-worker-status upstream signal (the reader is real; nothing emits worker activity yet), real
-AEC, a live partial transcript, a warm whisper daemon, a Windows `SpeechSynth`, and
+real AEC, a live partial transcript, a warm whisper daemon, a Windows `SpeechSynth`, and
 packaging (signed/notarized bundles, bundled Node + adapter + whisper + models — see the
 voice brief's size table). See the feasibility notes in the handoffs.
+
+**Delegated workers, live (2026-08-29):** the engine's worker-lifecycle stream now reaches
+the CEO *during* the turn. `rich://worker-upserted` — §13's eleventh event, deferred while
+no lifecycle signal existed — carries the same `worker_activity` row a reload projects,
+built by the same two functions (`timeline::worker_activity`, the join with its session
+clause, and `timeline::worker_activity_item`, the row), so the live path and the snapshot
+path cannot drift. Before this the join ran only inside `get_timeline`: a delegation
+appeared after a snapshot read and showed as a nameless *"Worked"* row during the turn.
+The §26 fixture measured it — 0 chips live, 3 after the snapshot — and now measures the
+opposite plus the agreement between the two paths.
+
+Three honest limits, unchanged by this work and worth restating rather than rediscovering:
+`waiting`, `interrupted` and `failed` have **no witness anywhere** in the hook set, so
+`run_ended` crosses the wire as `WorkerState::Unknown` and renders as *Ended · outcome not
+recorded* — never as a completion. There is **no poll and no timer**: the event is emitted
+when machinery arrives and once more at the turn's end, so between two tool calls a chip
+can be up to one tool call stale (bounded, one-directional, never a claim about a worker
+that was never witnessed). And the join is **session-scoped**, because `agent_id` is not
+globally unique — the clause that keeps another session's worker name and authored summary
+out of this entity's thread.

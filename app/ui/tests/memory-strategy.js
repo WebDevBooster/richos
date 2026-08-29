@@ -255,10 +255,10 @@ async function main() {
   await sendTheBrief(b, ANCHOR_18S);
 
   await run.check(
-    "§6.4 GAP: a LIVE turn's work transcript renders COLLAPSED, not expanded by default",
+    "§6.4 a LIVE turn's work transcript is expanded BY DEFAULT — and the CEO still wins",
     async () => {
       await runTo(b, 5);
-      const r = await b.evaluate(() => {
+      const live = await b.evaluate(() => {
         const sec = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"]');
         return {
           expanded: sec.querySelector(".tl-duration-btn").getAttribute("aria-expanded"),
@@ -266,14 +266,35 @@ async function main() {
         };
       });
       // §6.4 opens: "While active, the work activity beneath the duration row is expanded by
-      // default." Nothing puts a live turn into `model.expanded` — the set is written only by
-      // the CEO's own toggle (main.js:954) and cleared on completion (main.js:1177-1179) — so
-      // a running turn starts closed and the CEO watches a chevron instead of the work.
-      // ASSERTED AS IT IS, not as §6.4 wants it: this suite records the divergence rather
-      // than hiding it, and it belongs to the renderer, which is not this slice's to change.
-      assertEqual(r.expanded, "false", "today a live turn starts collapsed");
-      assertEqual(r.activityRows, 0, "and its work is not on screen until the CEO opens it");
-      return "aria-expanded=false while working; §6.4 asks for expanded. Renderer gap, reported not patched.";
+      // default." Until 2026-08-29 nothing put a live turn into `model.expanded` — that set
+      // was written by the CEO's own toggle alone — so a running turn started closed and the
+      // CEO watched a chevron instead of the work. `RichTimeline.isTurnExpanded` now carries
+      // §6.4's two defaults, and the CEO's explicit choice overrules both.
+      assertEqual(live.expanded, "true", "§6.4: while active, expanded by default");
+      assert(live.activityRows > 0, "and the work is on screen without a click: " + live.activityRows);
+
+      // THE CEO'S OWN COLLAPSE, MID-TURN, IS NOT OVERRULED. This is the half a naive fix
+      // breaks: re-deriving "expanded" from liveness on every render re-opens what he just
+      // closed, on the very next event.
+      await setTranscript(b, false);
+      const closed = await b.evaluate(() => {
+        const sec = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"]');
+        return sec.querySelector(".tl-duration-btn").getAttribute("aria-expanded");
+      });
+      assertEqual(closed, "false", "the CEO closed it while the turn is still running");
+      await runTo(b, 5);
+      const stillClosed = await b.evaluate(() => {
+        const sec = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"]');
+        return sec.querySelector(".tl-duration-btn").getAttribute("aria-expanded");
+      });
+      assertEqual(stillClosed, "false", "and further live events do not re-open it over him");
+
+      // Back to the default state for the rest of this pass.
+      await setTranscript(b, true);
+      return (
+        "live turn: aria-expanded=true with " + live.activityRows + " work rows, no click.\n" +
+        "          CEO collapse mid-turn holds across further live events."
+      );
     }
   );
 
@@ -307,24 +328,38 @@ async function main() {
     evidence(b, "ms-02-working-for-18s", "§26 shot 2")
   );
 
-  await run.check("§26.6 three workers start — and the route they had to take", async () => {
+  await run.check("§26.6 three workers start — LIVE, and the reload says the same thing", async () => {
     await runTo(b, 6);
+    // MEASURED THE WAY THE GAP WAS MEASURED: read the chips with no snapshot in between.
+    // This is the assertion that was `0` before `rich://worker-upserted` stopped being
+    // deferred — a delegation reached the screen only after a `get_timeline` read, and
+    // showed as a nameless "Worked" row for the rest of the turn.
     const live = await readTurn(b);
-    assertEqual(live.chips.length, 0, "NOT LIVE: no worker event exists on this wire (live.rs:26)");
+    const liveChips = live.chips.map((c) => `${c.name}/${c.role}/${c.state}`);
+    assertEqual(
+      liveChips,
+      ["Sage/architecture/Working", "Frank/red team/Working", "Clark/research/Working"],
+      "three chips, DURING the turn, with no snapshot read"
+    );
+    assertEqual(live.workerGroups, 1, "§7.1: one group, not three identical rows");
+    assert(
+      live.text.includes("Sage, Frank and Clark started working"),
+      "§7.1's grouped summary, verbatim, live: " + live.text.slice(0, 400)
+    );
+
+    // AND THE TWO PATHS AGREE. A row that changed when the snapshot arrived would be a new
+    // defect, not a fix — so the same three chips are re-read after leaving the thread and
+    // coming back, which forces a real `get_timeline`.
     await leaveAndReturn(b);
     await expandTranscript(b);
     const t = await readTurn(b);
     assertEqual(
       t.chips.map((c) => `${c.name}/${c.role}/${c.state}`),
-      ["Sage/architecture/Working", "Frank/red team/Working", "Clark/research/Working"],
-      "three chips, three roles, states read off the wire"
+      liveChips,
+      "the reloaded rows must be the SAME rows: same worker, same role, same state"
     );
-    assertEqual(t.workerGroups, 1, "§7.1: one group, not three identical rows");
-    assert(
-      t.text.includes("Sage, Frank and Clark started working"),
-      "§7.1's grouped summary, verbatim: " + t.text.slice(0, 400)
-    );
-    return "0 chips live; 3 chips after the snapshot read — the gap is the deferred worker event, not the fixture";
+    assertEqual(t.chips.map((c) => c.id), live.chips.map((c) => c.id), "and the same ids — an upsert, not a duplicate");
+    return "live: " + liveChips.join(", ") + "\n          after a get_timeline read: identical, same ids";
   });
 
   await run.check("SCREENSHOT 3/9: three workers active", async () =>
@@ -584,6 +619,22 @@ async function main() {
   await sendTheBrief(c, ANCHOR_18S);
 
   await run.check("§6.4 completion collapses the work transcript on its own", async () => {
+    // THE TWO DEFAULTS, ON ONE PAGE, WITH THE DISCLOSURE NEVER TOUCHED. §6.4 asks for
+    // expanded while active and collapsed after a settling transition, and the second must
+    // not be defeated by the first: an implementation that simply derives "expanded" from
+    // liveness would snap the transcript shut the instant the terminal status arrived,
+    // leaving the 180ms settle with nothing to do and no transition to see.
+    await runTo(c, 9);
+    const midTurn = await c.evaluate(() => {
+      const sec = document.querySelector('.tl-turn[data-turn-id="turn_memory_01"]');
+      return {
+        expanded: sec.querySelector(".tl-duration-btn").getAttribute("aria-expanded"),
+        chips: sec.querySelectorAll(".tl-chip").length,
+      };
+    });
+    assertEqual(midTurn.expanded, "true", "expanded by default while the turn is running");
+    assertEqual(midTurn.chips, 3, "with the delegations visible, unclicked");
+
     await runTo(c, 16);
     await c.waitForFunction(
       () => {
@@ -598,7 +649,10 @@ async function main() {
     assertEqual(t.chips.length, 0, "worker rows are inside the collapsed transcript");
     assert(t.text.includes("1. What is the first deliverable"), "the final response stays out of it");
     assert(t.text.includes("5. On cutover day"), "all five questions");
-    return "collapsed by the settle, not by a click; five questions still on screen";
+    return (
+      "mid-turn: aria-expanded=true, 3 chips, never clicked -> after completion: collapsed " +
+      "by the 180ms settle; five questions still on screen"
+    );
   });
 
   await run.check("no page errors in the untouched pass", async () => {

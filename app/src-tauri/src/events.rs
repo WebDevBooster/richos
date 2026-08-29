@@ -24,8 +24,8 @@
 //!     calm view. **Completely unchanged by this slice** (`app/STREAMING.md`).
 //!   - `rich://machinery` — the technical family, which the calm view does not subscribe
 //!     to and must not.
-//!   - the six §13 events below — the typed calm family: turn status, message phase,
-//!     semantic activity, thread summary. Only `Visibility::Ceo` items are ever handed to
+//!   - the seven §13 events below — the typed calm family: turn status, message phase,
+//!     semantic activity, DELEGATED WORKERS, thread summary. Only `Visibility::Ceo` items are handed to
 //!     it, and the spine's `forward_live` chokepoint is what enforces that, before this
 //!     file ever sees an event.
 //!
