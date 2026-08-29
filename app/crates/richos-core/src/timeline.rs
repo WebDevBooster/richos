@@ -57,7 +57,8 @@
 //! | [`TimelineItem::Activity`] | REAL — journaled machinery records |
 //! | [`TimelineItem::SystemError`] | REAL — an interrupted turn |
 //! | [`TimelineItem::Recovery`] | REAL — `TurnSuperseded` (mid-turn-crash replay) |
-//! | [`TimelineItem::Worker`] | **NO SOURCE.** Never constructed here. |
+//! | [`TimelineItem::WorkerActivity`] | REAL — a `Task` call joined by `agent_id` to the lifecycle stream |
+//! | [`TimelineItem::Worker`] | **NO SOURCE.** §12-verbatim `WorkerRun`; never constructed here. |
 //! | [`TimelineItem::Plan`] | **NO SOURCE.** `plan` updates are Phase-2 machinery. |
 //! | [`TimelineItem::Approval`] | **NO SOURCE.** Nothing asks the CEO to approve anything. |
 //! | [`TimelineItem::Question`] | **NO SOURCE.** There is no `waiting_for_user` state. |
@@ -83,16 +84,39 @@
 //! (`ledger::TextRun`), so "he said X, then ran Y, then said Z" is three items with real
 //! positions, and the phase field is the only thing still missing.
 //!
-//! ### Workers, stated plainly
+//! ### Workers, stated plainly — the signal landed, and what it still cannot say
 //! §22 names active worker count, worker waiting state and completion state as things that
-//! must not be faked, and `worker_status.rs`'s module doc already refuses that inference.
-//! There is no engine lifecycle signal yet. Therefore [`WorkerRun`] and
-//! [`TimelineItem::Worker`] have **no constructor from any current source** and
-//! [`Timeline::project`] cannot produce one. A delegated-work tool call (the vendor's
-//! `Task` tool) becomes an ordinary [`TimelineItem::Activity`] — the one place a worker
-//! could plausibly be inferred from, and the place it deliberately is not.
+//! must not be faked. When slice 2a was written there was no engine lifecycle signal at
+//! all, so [`WorkerRun`] and [`TimelineItem::Worker`] had no constructor and a delegated
+//! `Task` call became an ordinary [`TimelineItem::Activity`].
+//!
+//! The engine landed the signal at `d14bc54` (`engine/docs/worker-lifecycle-events.md`), so
+//! a `Task` call **joined to a real `agent_id`** now becomes a
+//! [`TimelineItem::WorkerActivity`]. Three things about that join are load-bearing:
+//!
+//! 1. **It joins by IDENTITY, never by name and never by timing proximity.** The witness is
+//!    the same one `worker-created-handoff.sh` uses — the harness's async-launch
+//!    acknowledgement *and* an extractable `agentId` — read from the tool call's own raw
+//!    payload. A `Task` call with no extractable id, or an id with no row in the stream,
+//!    stays an ordinary `Activity`, exactly as before.
+//! 2. **The join is SESSION-SCOPED.** `agent_id` is the join key but it is not globally
+//!    unique across sessions, so a row is admitted only when its `session_id` matches the
+//!    record's. Without that clause another session's worker name and authored summary
+//!    render inside this entity's thread on a row that looks perfectly scoped — the same
+//!    shape of leak slice 2a found in the `toolCallId` merge. See
+//!    `no_worker_row_from_another_session_attaches_to_this_sessions_task_call`.
+//! 3. **Only the four observable states cross the boundary.** The stream witnesses
+//!    `created`, `started`, `updated` and `run_ended`; `waiting`, `interrupted` and `failed`
+//!    have no witness at all (see [`crate::worker_events`]). `run_ended` maps to
+//!    [`RUN_ENDED_WORKER_STATE`], which is [`WorkerState::Unknown`] — **not**
+//!    [`WorkerState::Completed`].
+//!
+//! [`TimelineItem::Worker`] and [`WorkerRun`] are untouched and still have no constructor:
+//! they are §12-verbatim and carry fields (`result_ref`, `error_ref`, `completed_at`) that
+//! nothing witnesses.
 
 use crate::entity::{EntityId, ThreadBinding};
+use crate::worker_events::{ObservedWorkerState, SessionScope, WorkerEventRow};
 use crate::ledger::{AttentionTier, Ledger, LedgerError, Source, Turn, TurnState};
 use crate::machinery::{MachineryKind, MachineryRecord, ToolStatus};
 use serde::{Deserialize, Serialize};
@@ -330,16 +354,113 @@ pub struct WorkerRun {
     pub error_ref: Option<String>,
 }
 
-/// §12's worker lifecycle states, verbatim. Modelled, not sourced.
+/// §12's worker lifecycle states, **plus `Unknown`, which the measured signal forces.**
+///
+/// §12 lists six states and assumes all six are knowable. The engine's measurement
+/// (`engine/docs/worker-lifecycle-events.md`) says three of them are not: `Waiting`,
+/// `Interrupted` and `Failed` have no witnessing signal anywhere in the hook set. Every run
+/// that ends arrives as `run_ended` with the reason genuinely unobservable, and §12 has no
+/// variant for that — so without `Unknown` this enum **cannot represent a real worker run**.
+///
+/// `Unknown` is the same admission [`RichMessagePhase::Unknown`] makes for the message
+/// phase, for the same reason and with the same consequence: a renderer that wants to show
+/// a completion or a failure must wait for a real signal instead of reading a default.
+///
+/// The three unwitnessed variants are retained because they are §12's vocabulary and a real
+/// signal may yet arrive for them — but **nothing in this crate constructs them**, and
+/// [`RUN_ENDED_WORKER_STATE`] exists precisely so no future author reaches for `Completed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerState {
     PendingInit,
     Running,
+    /// NO SIGNAL. `TeammateIdle` cannot separate "paused for input" from "finished for
+    /// good". Never constructed.
     Waiting,
+    /// NO SIGNAL at worker grain. `TaskCompleted` is authoritative but task-grain; a
+    /// `SubagentStop` is not a completion. Never constructed from the lifecycle stream.
     Completed,
+    /// NO SIGNAL. A `shutdown_request` is an instruction issued before anything happens,
+    /// not an observation. Never constructed.
     Interrupted,
+    /// NO SIGNAL. No payload carries an outcome; `stop_hook_active`, a transcript path and
+    /// a last assistant message are not verdicts. Never constructed.
     Failed,
+    /// The run is over and **the reason is not observable**. The honest superset of
+    /// `Completed`, `Interrupted` and `Failed`. Serialized explicitly as `"unknown"`.
+    Unknown,
+}
+
+/// The state a `run_ended` observation maps to — a NAMED CONSTANT, so the mapping is one
+/// declared thing rather than a match arm each author re-decides.
+///
+/// This follows slice 3's `STREAMED_MESSAGE_PHASE` precedent exactly, and for the same
+/// reason: an unknown that is not named gets silently defaulted into a confident one. The
+/// tempting default here is `Completed`, and it would be wrong roughly two thirds of the
+/// time — `run_ended` is the superset of completed, interrupted and failed, and §7.4 renders
+/// failure and recovery completely differently from success. A wrong collapse does not
+/// mislabel a row; it draws the wrong thing.
+pub const RUN_ENDED_WORKER_STATE: WorkerState = WorkerState::Unknown;
+
+impl WorkerState {
+    /// Map an observed lifecycle state onto §12's vocabulary. The ONLY mapping in this
+    /// crate, and it never yields `Completed`, `Waiting`, `Interrupted` or `Failed`.
+    ///
+    /// `Updated` maps to `Running` on the same basis as `Started`: the run is open (no
+    /// terminal event has been observed for it). Whether the host is still ALIVE is a
+    /// separate question, answered by a real pid probe in `worker_status.rs` — a timeline
+    /// item is a record of what was witnessed during a turn, not a live count.
+    pub fn from_observed(observed: ObservedWorkerState) -> WorkerState {
+        match observed {
+            // The harness accepted the spawn and returned an id. Execution not confirmed —
+            // which is exactly what §7.1 renders as "Starting".
+            ObservedWorkerState::Created => WorkerState::PendingInit,
+            ObservedWorkerState::Started | ObservedWorkerState::Updated => WorkerState::Running,
+            ObservedWorkerState::RunEnded => RUN_ENDED_WORKER_STATE,
+        }
+    }
+}
+
+/// A delegated AI worker, as witnessed by the engine's lifecycle stream (§7).
+///
+/// **REAL and sourced**, unlike [`WorkerRun`] beside it. Built only when a `Task` tool call
+/// carries an extractable `agentId` AND that id has at least one row in the worker-lifecycle
+/// stream for the SAME session. Everything in here was observed; nothing is derived from
+/// timing, from a name match, or from the text of a last assistant message.
+///
+/// The fields §12's `WorkerRun` has and this does not — `result_ref`, `error_ref`,
+/// `completed_at` — are absent because nothing witnesses them. An outcome would have to be
+/// scraped from a transcript, which is a guess wearing a field name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerActivityItem {
+    /// THE JOIN KEY, and the only one. Never a display name, never proximity in time.
+    pub agent_id: String,
+    /// The spawn-time display name, from a `created` row. `None` when only `started` was
+    /// observed — that payload has no name and nothing invents one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+    /// The LAST state witnessed for this worker in this session. A record of an
+    /// observation, never a verdict — in particular `RunEnded` is not a completion.
+    pub observed_state: ObservedWorkerState,
+    /// [`observed_state`](Self::observed_state) mapped onto §12's vocabulary via
+    /// [`WorkerState::from_observed`]. `RunEnded` becomes [`RUN_ENDED_WORKER_STATE`].
+    pub state: WorkerState,
+    /// The latest `summary` a worker actually authored (§7.2 item 4). Never the message
+    /// body — the emitter does not log content, so this cannot leak one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_update: Option<String>,
+    /// RFC-3339 timestamps as the emitter wrote them, first and last row observed. Labels
+    /// for display; no duration is computed from them, because §22 forbids faking elapsed
+    /// active time and wall-clock spread is not active time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_observed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_observed_at: Option<String>,
+    /// How many lifecycle rows were observed for this worker. Evidence volume, not progress.
+    pub events_observed: usize,
 }
 
 /// One CEO-readable plan row (§8). Modelled, not sourced — `plan` session updates are
@@ -461,13 +582,31 @@ pub enum TimelineItem {
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<ActivityDetail>,
     },
-    /// A delegated AI worker (§7). **MODELLED, NEVER PRODUCED** — no lifecycle signal
-    /// exists (§22, `worker_status.rs`).
+    /// A delegated AI worker (§7). **MODELLED, NEVER PRODUCED** — `WorkerRun` is
+    /// §12-verbatim and carries fields (`result_ref`, `error_ref`, `completed_at`) that no
+    /// signal witnesses. The sourced worker row is [`TimelineItem::WorkerActivity`].
     #[serde(rename_all = "camelCase")]
     Worker {
         #[serde(flatten)]
         base: TimelineBase,
         run: WorkerRun,
+    },
+    /// A delegated AI worker as actually witnessed (§7). **REAL** — a `Task` tool call
+    /// joined by `agent_id` to the engine's worker-lifecycle stream. See the module doc's
+    /// "Workers, stated plainly" for the three load-bearing properties of that join.
+    #[serde(rename_all = "camelCase")]
+    WorkerActivity {
+        #[serde(flatten)]
+        base: TimelineBase,
+        worker: WorkerActivityItem,
+        /// The journal key for a drill-down into the underlying `Task` call (§12's
+        /// `detailRef`). An opaque id, not content.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail_ref: Option<String>,
+        /// Technical-mode only: the vendor tool title and touched paths. Removed outright
+        /// from a CEO view, exactly like an `Activity`'s.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<ActivityDetail>,
     },
     /// The CEO-readable plan projection (§8). MODELLED, NEVER PRODUCED.
     #[serde(rename_all = "camelCase")]
@@ -542,6 +681,7 @@ impl TimelineItem {
             | TimelineItem::WorkDuration { base, .. }
             | TimelineItem::Activity { base, .. }
             | TimelineItem::Worker { base, .. }
+            | TimelineItem::WorkerActivity { base, .. }
             | TimelineItem::Plan { base, .. }
             | TimelineItem::Approval { base, .. }
             | TimelineItem::Question { base, .. }
@@ -578,6 +718,7 @@ impl TimelineItem {
     fn redacted(mut self) -> Self {
         match &mut self {
             TimelineItem::Activity { detail, .. } => *detail = None,
+            TimelineItem::WorkerActivity { detail, .. } => *detail = None,
             TimelineItem::WorkDuration { detail, .. } => *detail = None,
             TimelineItem::SystemError { detail, .. } => *detail = None,
             _ => {}
@@ -708,6 +849,39 @@ impl Timeline {
         binding: &ThreadBinding,
         machinery: &[MachineryRecord],
     ) -> Result<Timeline, LedgerError> {
+        // No worker stream supplied: every `Task` call stays an ordinary `Activity`, which
+        // is exactly slice 2a's behaviour. The honest degrade when the engine's lifecycle
+        // hooks are not registered (they are snapshotted at session start, so a freshly
+        // installed emitter produces its first row only in the NEXT session).
+        Timeline::project_with_workers(ledger, binding, machinery, &[])
+    }
+
+    /// [`Timeline::project`] with the engine's worker-lifecycle rows supplied, so a `Task`
+    /// tool call can be joined to the worker it actually spawned.
+    ///
+    /// ## The worker join, and its own guard
+    /// The two machinery clauses above are about the RECORD. They say nothing about the
+    /// worker rows, which arrive from a different store entirely (`worker-events.jsonl`,
+    /// written by hooks) and carry no entity and no thread — only an `agent_id` and a
+    /// `session_id`. So the join gets a third clause:
+    ///
+    ///   3. a worker row is admitted only when its `session_id` equals the SESSION OF THE
+    ///      RECORD it would attach to.
+    ///
+    /// That clause is load-bearing, not hygiene. `agent_id` is the join key and it is not
+    /// globally unique across sessions — the engine's own test residue at
+    /// `~/.claude/worker-events.jsonl` shows a single id (`aTESTWORKER00001`) reused across
+    /// twelve rows. Delete clause 3 and a row from ANOTHER session attaches to this
+    /// session's `Task` call, and its `worker_name` and authored `summary` render stamped
+    /// with THIS binding's entity, thread and turn. It looks perfectly scoped and is not —
+    /// the same shape of leak the `toolCallId` merge produced in clause 2's write-up.
+    /// Proven by `no_worker_row_from_another_session_attaches_to_this_sessions_task_call`.
+    pub fn project_with_workers(
+        ledger: &Ledger,
+        binding: &ThreadBinding,
+        machinery: &[MachineryRecord],
+        worker_events: &[WorkerEventRow],
+    ) -> Result<Timeline, LedgerError> {
         let turns = ledger.thread_turns_scoped(binding)?;
         let entity = binding.entity_id().clone();
         let thread_id = binding.thread_id().to_string();
@@ -764,6 +938,11 @@ impl Timeline {
         // the doc above), keyed by tool call.
         let types = resolve_activity_types(&kept);
         let last_seen = resolve_last_seen(&kept);
+        // Resolved over the RAW records for the same measured reason the activity type is:
+        // the async-launch acknowledgement arrives on the tool RESULT, and `merge_into`
+        // replaces `payload` with the last update's raw JSON. Resolve before the merge, or
+        // resolve nothing.
+        let agent_ids = resolve_agent_ids(&kept);
 
         let owned: Vec<MachineryRecord> = kept.into_iter().cloned().collect();
         for row in crate::machinery::project(owned) {
@@ -781,7 +960,25 @@ impl Timeline {
                 continue;
             };
             let turn = turns[i];
-            buckets[i].push(activity_item(&row, turn, &entity, binding.binding_revision(), &types, &last_seen));
+            // A `Task` call joined BY IDENTITY to the lifecycle stream becomes a worker
+            // row. No id, or an id with no in-session rows, falls through to the ordinary
+            // activity row — the pre-signal behaviour, unchanged.
+            let joined = row
+                .tool_call_id
+                .as_ref()
+                .and_then(|id| agent_ids.get(id))
+                .and_then(|agent_id| worker_activity(agent_id, &row.session_id, worker_events));
+            match joined {
+                Some(worker) => buckets[i].push(worker_activity_item(
+                    &row,
+                    turn,
+                    &entity,
+                    binding.binding_revision(),
+                    worker,
+                )),
+                None => buckets[i]
+                    .push(activity_item(&row, turn, &entity, binding.binding_revision(), &types, &last_seen)),
+            }
         }
 
         let mut items = Vec::new();
@@ -1177,6 +1374,141 @@ fn resolve_last_seen(records: &[&MachineryRecord]) -> HashMap<String, u64> {
     out
 }
 
+/// Build the worker item for one `agent_id`, from the rows the stream actually holds for it
+/// **in the given session**.
+///
+/// Returns `None` when the stream has no in-session row for this id — which is the honest
+/// answer, not an empty worker: an id extracted from a tool result proves the harness
+/// acknowledged a spawn, but this module reports only what the LIFECYCLE stream witnessed,
+/// and deriving a second, parallel "created" here would be a competing source of truth.
+fn worker_activity(agent_id: &str, session_id: &str, rows: &[WorkerEventRow]) -> Option<WorkerActivityItem> {
+    // CLAUSE 3 — see `project_with_workers`. Identity is the join key; the session is the
+    // scope. Both are required, and neither is a name or a timestamp.
+    let scope = SessionScope::Exact(session_id.to_string());
+    let mine: Vec<&WorkerEventRow> =
+        rows.iter().filter(|r| r.agent_id == agent_id && r.in_scope(&scope)).collect();
+    let last = mine.last()?;
+
+    let worker_name = mine.iter().rev().find(|r| !r.worker_name.is_empty()).map(|r| r.worker_name.clone());
+    let agent_type = mine.iter().rev().find(|r| !r.agent_type.is_empty()).map(|r| r.agent_type.clone());
+    let latest_update = mine
+        .iter()
+        .rev()
+        .find(|r| r.lifecycle_state == ObservedWorkerState::Updated && !r.summary.is_empty())
+        .map(|r| r.summary.clone());
+
+    let observed_state = last.lifecycle_state;
+    Some(WorkerActivityItem {
+        agent_id: agent_id.to_string(),
+        worker_name,
+        agent_type,
+        observed_state,
+        // NEVER a bare match on Completed. The mapping is one named function and one named
+        // constant; see `WorkerState::from_observed` / `RUN_ENDED_WORKER_STATE`.
+        state: WorkerState::from_observed(observed_state),
+        latest_update,
+        first_observed_at: mine.first().map(|r| r.timestamp.clone()).filter(|t| !t.is_empty()),
+        last_observed_at: Some(last.timestamp.clone()).filter(|t| !t.is_empty()),
+        events_observed: mine.len(),
+    })
+}
+
+fn worker_activity_item(
+    row: &MachineryRecord,
+    turn: &Turn,
+    entity: &EntityId,
+    revision: u64,
+    worker: WorkerActivityItem,
+) -> TimelineItem {
+    // Same visibility rule as an activity row: internal traffic stays internal, and a
+    // delegated worker inside a re-prime or rotation turn must never surface.
+    let visibility = if row.internal || turn.source == Source::Internal || turn.superseded_by.is_some() {
+        Visibility::Internal
+    } else {
+        Visibility::Ceo
+    };
+    TimelineItem::WorkerActivity {
+        base: TimelineBase {
+            id: row.machinery_id.clone(),
+            entity_id: entity.clone(),
+            thread_id: row.thread_id.clone(),
+            turn_id: turn.id.clone(),
+            binding_revision: revision,
+            created_at: row.at,
+            updated_at: None,
+            sequence: Some(row.seq),
+            slot: TimelineSlot::Stream,
+            visibility,
+        },
+        worker,
+        detail_ref: Some(row.machinery_id.clone()),
+        detail: Some(ActivityDetail {
+            title: row.title.clone(),
+            summary: row.summary.clone(),
+            locations: row.locations.clone(),
+            vendor_kind: None,
+        }),
+    }
+}
+
+/// The latest `agent_id` extractable per tool call, across the raw records.
+fn resolve_agent_ids(records: &[&MachineryRecord]) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    for r in records {
+        let (Some(id), Some(payload)) = (r.tool_call_id.as_ref(), r.payload.as_ref()) else {
+            continue;
+        };
+        if out.contains_key(id) {
+            continue;
+        }
+        if let Some(agent_id) = extract_agent_id(payload) {
+            out.insert(id.clone(), agent_id);
+        }
+    }
+    out
+}
+
+/// Extract the spawned worker's `agentId` from a delegated-work tool call's raw payload.
+///
+/// The SAME two-part witness `worker-created-handoff.sh` requires, deliberately, so the two
+/// sources cannot disagree about what counts as a spawn:
+///
+///   1. the harness's async-launch acknowledgement — this was a BACKGROUNDED spawn, not a
+///      synchronous subagent run whose result had already returned; and
+///   2. an extractable `agentId` — the join key every lifecycle event carries.
+///
+/// Missing either half yields `None`, and `None` means the call stays an ordinary activity.
+/// Hand-rolled rather than a regex because this crate is deliberately dependency-light.
+fn extract_agent_id(payload: &Value) -> Option<String> {
+    // Only the vendor's delegated-work tools can spawn a worker. Anything else carrying
+    // this text would be quoting it.
+    let name = payload
+        .get("_meta")
+        .and_then(|m| m.get("claudeCode"))
+        .and_then(|c| c.get("toolName"))
+        .and_then(|v| v.as_str())?;
+    if name != "Task" && name != "Agent" {
+        return None;
+    }
+    // Flatten: the harness has used more than one shape for a tool result, and a scan over
+    // the flattened form survives all of them.
+    let text = payload.to_string();
+    if !text.contains("Async agent launched successfully") {
+        return None;
+    }
+    let start = text.find("agentId:")? + "agentId:".len();
+    let id: String = text[start..]
+        .chars()
+        .skip_while(|c| c.is_whitespace() || *c == '"' || *c == '\\')
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
+}
+
 /// Classify one raw ACP tool payload. The vendor's real tool name first (it is specific),
 /// then the coarse ACP `kind`. Anything unrecognised returns `None` rather than a guess,
 /// and `None` becomes `Other`.
@@ -1452,8 +1784,14 @@ mod tests {
     }
 
     #[test]
-    fn a_delegated_task_tool_call_is_an_activity_and_never_a_worker() {
-        // The one place a worker could plausibly be inferred from. §22: it must not be.
+    fn a_delegated_task_tool_call_with_no_joinable_identity_is_still_only_an_activity() {
+        // CHANGED DELIBERATELY from slice 2a's
+        // `a_delegated_task_tool_call_is_an_activity_and_never_a_worker`. That test pinned
+        // an absolute — a Task call is NEVER a worker — which was correct only because no
+        // lifecycle signal existed. The signal landed at d14bc54, so the invariant is now
+        // sharper and conditional: a Task call becomes a worker row when, and only when, it
+        // can be joined BY IDENTITY to that stream. This half pins the unjoinable case,
+        // which is byte-for-byte the old behaviour.
         let r = record(
             0,
             json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T","sessionUpdate":"tool_call",
@@ -1462,6 +1800,125 @@ mod tests {
         let types = resolve_activity_types(&[&r]);
         assert_eq!(activity_type_of(&r, &types), ActivityType::Other, "no worker type, no worker state, no guess");
         assert!(types.get("toolu_T").is_none(), "Task is deliberately unclassified");
+        // No async-launch acknowledgement on this payload, so no identity, so no join.
+        assert_eq!(resolve_agent_ids(&[&r]).get("toolu_T"), None);
+        assert_eq!(extract_agent_id(r.payload.as_ref().unwrap()), None);
+    }
+
+    fn wrow(state: &str, agent: &str, session: &str, extra: &str) -> WorkerEventRow {
+        serde_json::from_str(&format!(
+            r#"{{"timestamp":"2026-08-29T04:00:00+00:00","lifecycle_state":"{state}","agent_id":"{agent}","agent_type":"sage","session_id":"{session}"{extra}}}"#
+        ))
+        .unwrap()
+    }
+
+    /// The tool result the harness returns for a BACKGROUNDED spawn — both halves of the
+    /// witness the creation hook requires.
+    fn task_ack(agent: &str) -> Value {
+        json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
+               "sessionUpdate":"tool_call_update","status":"in_progress","title":"Task",
+               "rawOutput":format!("Async agent launched successfully. agentId: {agent}")})
+    }
+
+    #[test]
+    fn the_identity_witness_requires_both_the_async_ack_and_an_agent_id() {
+        // Exactly the creation hook's gate, so the two sources cannot disagree about what
+        // counts as a spawn.
+        assert_eq!(extract_agent_id(&task_ack("agt_sage_r3")), Some("agt_sage_r3".to_string()));
+
+        // A SYNCHRONOUS subagent run returns its finished result — no ack. Its PostToolUse
+        // fires when the work is already over, so calling it a creation would announce a
+        // live worker at the moment it stopped existing.
+        let sync = json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
+                          "sessionUpdate":"tool_call_update","rawOutput":"Here is the finished result. agentId: agt_x"});
+        assert_eq!(extract_agent_id(&sync), None, "no async ack, no creation");
+
+        // An ack with no extractable id cannot be joined to anything.
+        let no_id = json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
+                           "sessionUpdate":"tool_call_update","rawOutput":"Async agent launched successfully."});
+        assert_eq!(extract_agent_id(&no_id), None);
+
+        // And a different tool quoting the same string is not a spawn.
+        let other = json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_B",
+                           "sessionUpdate":"tool_call_update","rawOutput":"Async agent launched successfully. agentId: agt_x"});
+        assert_eq!(extract_agent_id(&other), None, "only the delegated-work tools spawn workers");
+    }
+
+    #[test]
+    fn a_worker_item_joins_by_identity_and_carries_only_witnessed_facts() {
+        let rows = vec![
+            wrow("created", "agt_sage_r3", "sess", r#","worker_name":"sage-opus-r3""#),
+            wrow("started", "agt_sage_r3", "sess", ""),
+            wrow("updated", "agt_sage_r3", "sess", r#","summary":"architecture package committed""#),
+        ];
+        let w = worker_activity("agt_sage_r3", "sess", &rows).unwrap();
+        assert_eq!(w.agent_id, "agt_sage_r3");
+        assert_eq!(w.worker_name.as_deref(), Some("sage-opus-r3"));
+        assert_eq!(w.observed_state, ObservedWorkerState::Updated);
+        assert_eq!(w.state, WorkerState::Running, "open run: started, no terminal event");
+        assert_eq!(w.latest_update.as_deref(), Some("architecture package committed"));
+        assert_eq!(w.events_observed, 3);
+    }
+
+    #[test]
+    fn a_task_call_whose_agent_id_has_no_stream_row_stays_unjoined() {
+        // An id extracted from a tool result is not a second source of truth. If the
+        // lifecycle stream never witnessed this worker, this module reports nothing.
+        assert!(worker_activity("agt_missing", "sess", &[]).is_none());
+        let rows = vec![wrow("started", "agt_other", "sess", "")];
+        assert!(worker_activity("agt_missing", "sess", &rows).is_none());
+    }
+
+    #[test]
+    fn run_ended_maps_to_unknown_and_never_to_completed() {
+        // THE COLLAPSE THIS SLICE EXISTS TO PREVENT, pinned at the type level.
+        assert_eq!(RUN_ENDED_WORKER_STATE, WorkerState::Unknown);
+        assert_ne!(RUN_ENDED_WORKER_STATE, WorkerState::Completed);
+        assert_eq!(serde_json::to_string(&RUN_ENDED_WORKER_STATE).unwrap(), "\"unknown\"");
+        assert_eq!(WorkerState::from_observed(ObservedWorkerState::RunEnded), RUN_ENDED_WORKER_STATE);
+        assert_eq!(WorkerState::from_observed(ObservedWorkerState::Created), WorkerState::PendingInit);
+        assert_eq!(WorkerState::from_observed(ObservedWorkerState::Started), WorkerState::Running);
+        assert_eq!(WorkerState::from_observed(ObservedWorkerState::Updated), WorkerState::Running);
+
+        // The three unwitnessed states are unreachable through the only mapping there is.
+        for observed in [
+            ObservedWorkerState::Created,
+            ObservedWorkerState::Started,
+            ObservedWorkerState::Updated,
+            ObservedWorkerState::RunEnded,
+        ] {
+            let mapped = WorkerState::from_observed(observed);
+            assert!(
+                !matches!(mapped, WorkerState::Waiting | WorkerState::Interrupted | WorkerState::Failed | WorkerState::Completed),
+                "{observed:?} must not map to an unwitnessed state, got {mapped:?}"
+            );
+        }
+
+        // End to end through the join, including the serialized form a renderer sees.
+        let rows = vec![
+            wrow("started", "a1", "sess", r#","worker_name":"clark-sonnet-1""#),
+            wrow("run_ended", "a1", "sess", ""),
+        ];
+        let w = worker_activity("a1", "sess", &rows).unwrap();
+        assert_eq!(w.observed_state, ObservedWorkerState::RunEnded);
+        assert_eq!(w.state, WorkerState::Unknown);
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains(r#""observedState":"run_ended""#), "{json}");
+        assert!(json.contains(r#""state":"unknown""#), "{json}");
+        for forbidden in ["completed", "failed", "interrupted", "waiting", "success"] {
+            assert!(!json.contains(forbidden), "a run_ended worker must not serialize as {forbidden}: {json}");
+        }
+    }
+
+    #[test]
+    fn a_worker_item_never_carries_a_duration_or_an_outcome() {
+        // §22 forbids faking elapsed active time; wall-clock spread between two log lines
+        // is not active time. And no outcome field exists to be filled in with a guess.
+        let rows = vec![wrow("started", "a1", "sess", ""), wrow("run_ended", "a1", "sess", "")];
+        let json = serde_json::to_string(&worker_activity("a1", "sess", &rows).unwrap()).unwrap();
+        for absent in ["durationMs", "activeMs", "elapsed", "resultRef", "errorRef", "completedAt"] {
+            assert!(!json.contains(absent), "{absent} has no witness and must not appear: {json}");
+        }
     }
 
     #[test]

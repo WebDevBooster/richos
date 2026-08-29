@@ -55,7 +55,7 @@ pub use spine::{Spine, SpineError};
 pub use stream::{StreamEvent, TurnObserver};
 pub use timeline::{
     ActivityState, ActivityType, RichMessagePhase, Timeline, TimelineBase, TimelineItem, TimelineView, ViewMode,
-    Visibility, WorkerRun, WorkerState,
+    Visibility, WorkerActivityItem, WorkerRun, WorkerState, RUN_ENDED_WORKER_STATE,
 };
 pub use worker_events::{HostLiveness, ObservedWorkerState, OpenRun, SessionScope, WorkerEventRow};
 pub use worker_status::WorkerStatusView;
