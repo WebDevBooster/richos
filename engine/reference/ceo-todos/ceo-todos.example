@@ -80,7 +80,7 @@ ARTIFACT_ROOTS="@@ARTIFACT_ROOTS@@"
 # refused until a fresh cold reading is on file.
 #
 # The gate checks only that a reading HAPPENED. It has no opinion on what the
-# reader concluded, deliberately — a gate that demanded a favourable verdict
+# reader concluded, deliberately — a gate that demanded a favorable verdict
 # would get one every time.
 #
 # Leaving it undeclared is allowed and is never a block; every verdict then

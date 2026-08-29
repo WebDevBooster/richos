@@ -75,7 +75,7 @@
 # THE GATE ENFORCES THAT A COLD READER WAS CONSULTED. IT NEVER ENFORCES WHAT
 # THE COLD READER SAID.
 #
-# If a favourable transcript were required, the finding — the entire product —
+# If a favorable transcript were required, the finding — the entire product —
 # would be the one output that costs its author a blocked commit, and within a
 # week every transcript would say the page was lovely. So a transcript that
 # reports the surface is incomprehensible satisfies the gate exactly as well as
@@ -351,7 +351,7 @@ claim_row() {
     echo ">"
     echo "> The gate that consumes this transcript checks only that it EXISTS for the front"
     echo "> door as it currently stands. It has no opinion on what the reader concluded, on"
-    echo "> purpose — a gate that demanded a favourable verdict would get one every time."
+    echo "> purpose — a gate that demanded a favorable verdict would get one every time."
     echo ""
     echo "## Checked claims"
     echo ""

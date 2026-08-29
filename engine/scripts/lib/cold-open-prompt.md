@@ -28,7 +28,7 @@ RULES.
   Those are records of other people doing this exact exercise before you, and
   reading one would hand you the answers — which would make you the one thing
   you are here not to be: someone who already knows.
-- Do not summarise what the product does. Nobody is asking what the company
+- Do not summarize what the product does. Nobody is asking what the company
   makes; they are asking what this repository is telling you to do.
 - "I could not tell" is a complete and useful answer. A confident guess
   presented as a fact is worse than an admission, because the whole point of
