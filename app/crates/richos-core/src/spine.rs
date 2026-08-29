@@ -1008,15 +1008,53 @@ impl Spine {
         let reply_len = self.ledger.turn(turn_id).map(|t| t.assistant_text.len()).unwrap_or(0);
         self.context_chars += text.len() + reply_len;
 
-        // THE CEO STOPPED IT (§9.3 steps 4 and 5). Taken before either branch below,
-        // because the two things that must NOT happen here are a `completed` row for work
-        // the CEO ended, and a crash-replay of a turn he explicitly told to stop.
+        // THE CEO STOPPED IT (§9.3 steps 4 and 5) — IF the stop is what ended the turn.
         //
+        // Two things must not happen when a stop genuinely lands: a `completed` row for
+        // work the CEO ended, and a crash-replay of a turn he explicitly told to stop.
         // Everything already streamed is already durable (each delta was persisted before
         // it was emitted), so step 4 — "preserve partial commentary, activity and
         // assistant output" — needs no code: not deleting it is the whole implementation.
+        //
+        // A THIRD THING MUST NOT HAPPEN, AND USED TO. This branch was taken on the mere
+        // EXISTENCE of a stop claim, before looking at what the lease reported — so a turn
+        // that ran to completion while the stop was in flight was written `Stopped`, and
+        // `app/ui/timeline.js` rendered `You stopped after {d}` (the one row that names the
+        // CEO as the cause of anything) above a complete, successful answer. It failed in
+        // the direction where he believes he prevented something he did not.
+        //
+        // The race is real and narrow: `AcpCancelHandle::cancel` clones the sink and
+        // appends `ChunkMsg::Cancel` AFTER whatever is already queued, so when the
+        // adapter's `Done` is already in the channel `rx.recv()` returns it first and
+        // `prompt` returns `"end_turn"` (`acp.rs:443-450`). That handle's own doc guards
+        // `Done` RACING the wake; this is `Done` ALREADY QUEUED before the wake exists.
+        //
+        // The distinguishing signal was passed into `finish_stopped_turn` and thrown away.
+        // `STOP_REASON_CANCELLED` — the adapter's acknowledgement that it HONOURED the
+        // cancel — had no production reader anywhere. It has one now, right here.
         if let Some(claim) = stop_claim {
-            self.finish_stopped_turn(turn_id, binding, &claim, stop.as_deref().ok())?;
+            let lease_reported = stop.as_deref().ok();
+            // Did the stop end this turn?
+            //
+            //   `cancelled`             — yes, the adapter said so.
+            //   `cancel_unacknowledged` — yes as far as RichOS is concerned: the CEO's stop
+            //                             stands and we stopped rendering, whatever the
+            //                             adapter is still doing.
+            //   `None` (the lease errored) — the turn did not reach a terminal of its own,
+            //                             and a stopped turn must never be crash-replayed.
+            //   anything else           — NO. The lease reported its OWN terminal
+            //                             (`end_turn`, `max_tokens`, `refusal`, …). The
+            //                             turn ended because it finished.
+            let stop_ended_the_turn = !matches!(
+                lease_reported,
+                Some(r) if r != crate::acp::STOP_REASON_CANCELLED
+                    && r != crate::acp::STOP_REASON_CANCEL_UNACKNOWLEDGED
+            );
+            if stop_ended_the_turn {
+                self.finish_stopped_turn(turn_id, binding, &claim, lease_reported)?;
+            } else {
+                self.finish_completed_turn_the_stop_missed(turn_id, binding, &claim, lease_reported.unwrap())?;
+            }
             return Ok(());
         }
 
@@ -1108,6 +1146,11 @@ impl Spine {
     /// clock, so `You stopped after {duration}` is anchored to the moment he pressed the
     /// button and not to the moment the lease got round to letting go.
     ///
+    /// **This is now reached only when the stop actually ended the turn** — the lease
+    /// reported `cancelled`, reported `cancel_unacknowledged`, or reported nothing because
+    /// it errored. A lease that reported its own terminal goes to
+    /// [`Spine::finish_completed_turn_the_stop_missed`] instead.
+    ///
     /// **On the legacy `stream.rs` family this emits `TurnCompleted`, not `TurnError`.**
     /// That family has four events and none of them means "stopped"; of the two that could
     /// carry a terminal, `TurnError` says something went wrong, and nothing did. The
@@ -1141,6 +1184,51 @@ impl Spine {
         {
             self.pending_rotation_reason.get_or_insert_with(|| "cancel-unacknowledged".to_string());
         }
+        Ok(())
+    }
+
+    /// Terminal handling for a turn the CEO tried to stop and which finished anyway.
+    ///
+    /// The order below is the whole fix and it is not interchangeable:
+    ///
+    /// 1. `complete_turn` — because that is what happened. Written FIRST, while the turn is
+    ///    still `InFlight`, so it actually takes.
+    /// 2. `stop_turn` — because the CEO really did ask, and a request that did not land is
+    ///    still a fact worth having on disk. `Ledger::apply` refuses to move a turn that has
+    ///    already ended (*"A stop OVERRIDES nothing that already ended: a turn that completed
+    ///    before the stop request reached the lease stays completed, because it did"*), so
+    ///    this writes a durable `TurnStopped` event that the projection correctly ignores.
+    ///
+    /// That guard existed and was UNREACHABLE from the live path — the spine never called
+    /// those two in that order, so the only thing proving it was a unit test calling the
+    /// ledger directly. This is the call site that makes it real.
+    ///
+    /// The events emitted are the ordinary completion events, byte-for-byte, because the
+    /// ordinary thing is what occurred: `stop_reason` is the lease's own terminal, verbatim.
+    /// Emitting `Stopped` here is what put "You stopped after" over a finished answer.
+    ///
+    /// The stop is not discarded, only outranked: `settle_stop_claim` still runs at the
+    /// boundary, so anything the CEO had QUEUED behind this turn is still stopped. That is
+    /// the part of his instruction that can still be honoured, and withholding is the safe
+    /// direction.
+    fn finish_completed_turn_the_stop_missed(
+        &mut self,
+        turn_id: &str,
+        binding: &ThreadBinding,
+        claim: &StopClaim,
+        lease_stop_reason: &str,
+    ) -> Result<(), SpineError> {
+        let thread_id = binding.thread_id().to_string();
+        self.ledger.complete_turn(turn_id, lease_stop_reason)?;
+        self.ledger.stop_turn(turn_id, claim.requested_at)?; // recorded; refused by the guard
+        self.emit(StreamEvent::TurnCompleted {
+            thread_id,
+            turn_id: turn_id.to_string(),
+            stop_reason: lease_stop_reason.to_string(),
+            at: now_millis(),
+        });
+        self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Completed, None));
+        self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Idle));
         Ok(())
     }
 
