@@ -53,6 +53,9 @@ import {
   guardWarnings,
   readEnumerationMarker,
   burstCapacity,
+  burstOverlapMs,
+  guardSilenceFabrication,
+  REPETITION_GUARD_DEFAULTS,
 } from '../lib/repetition-guard.js';
 import {
   TURBO_NUMERAL_INSERTION,
@@ -68,6 +71,7 @@ import {
   guardDeletions,
   deletionWarnings,
   lexicalText,
+  isSilenceFillerText,
   informativeWords,
   echoLength,
   echoRatio,
@@ -1317,7 +1321,199 @@ test('collapseStutter:false keeps detection while leaving the text untouched', (
 });
 
 // ---------------------------------------------------------------------------------------
-group('P5 hallucination guard — all three classes through the one pipeline seam');
+group('P5 hallucination guard, class 4 — SILENCE FABRICATION (the 2026-08-29 podcast corpus)');
+
+// THE SHAPE, from the measurement. On a 126-minute per-speaker HOST track — the shape of the `me`
+// channel of any real call, silent ~90% of the time — large-v3-turbo at `-mc 0` emitted 159 of its
+// 353 segments over measured silence, covering 60.4% of the timeline, 143 of them "Thank you.".
+// Almost every one is a FULL 30-SECOND WHISPER WINDOW carrying 1-3 words, which is the shape below.
+//
+// THE TEXT IS NOT REDACTED AND DOES NOT NEED TO BE. "Thank you." over measured silence is whisper's
+// canonical filler; isolated re-decode proved nobody said it. It is the only text in this file that
+// is quoted from the corpus rather than invented, and it is quotable precisely because it is not
+// speech. Every line here that stands for REAL speech is invented, like the rest of the file.
+const SILSEG = (startMs, endMs, text, wordTimesMs) => ({ startMs, endMs, text, speaker: 'me', ...(wordTimesMs ? { wordTimesMs } : {}) });
+const SILB = (startMs, endMs) => ({ startMs, endMs });
+
+test('burstOverlapMs measures speech energy inside a span, and stops at the span', () => {
+  const bursts = [SILB(0, 1000), SILB(5000, 6000), SILB(20000, 30000)];
+  assert.equal(burstOverlapMs(bursts, 2000, 7000), 1000);
+  assert.equal(burstOverlapMs(bursts, 2000, 4000), 0);
+  assert.equal(burstOverlapMs(bursts, 25000, 40000), 5000, 'a partially overlapping burst counts its overlap only');
+  assert.equal(burstOverlapMs(null, 0, 10000), 0, 'no grid is no energy, and the caller must not act on it');
+});
+
+test('isSilenceFillerText reads the vocabulary PER SENTENCE — the bug that inverted an adjudication', () => {
+  assert.equal(isSilenceFillerText('Thank you.'), true);
+  assert.equal(isSilenceFillerText('Thank you. Thank you.'), true, 'the count of repeats must not matter');
+  assert.equal(isSilenceFillerText('Hmm. Hmm.'), true);
+  assert.equal(isSilenceFillerText('[BLANK_AUDIO]'), true);
+  assert.equal(isSilenceFillerText('-'), true);
+  // and it stays conservative: ONE real unit and the whole thing is real
+  assert.equal(isSilenceFillerText('Thank you. And then we agreed the metrics.'), false);
+  assert.equal(isSilenceFillerText("That's a tough one."), false);
+  assert.equal(isSilenceFillerText('the migration is finished'), false);
+});
+
+test('NO BURST GRID -> class 4 never ran. "Never looked" is not "nothing found"', () => {
+  const segs = [SILSEG(219680, 249660, 'Thank you.', [219700, 219900])];
+  const r = guardSilenceFabrication(segs, {});
+  assert.equal(r.probed, false, 'without the physical probe this class must be inert');
+  assert.equal(r.removed, 0);
+  assert.equal(r.fabrications.length, 0);
+  assert.deepEqual(r.segments, segs, 'and the channel is returned untouched');
+});
+
+test('THE DEFECT: a 30 s window of silence carrying "Thank you." is removed', () => {
+  // 219.68-249.66 s on the 001 host channel: 29.98 s, 2 words, zero speech energy in the extent.
+  const segs = [
+    SILSEG(200000, 205000, 'and how did that land with the board', [200200, 200800, 201400, 202000, 202600, 203200, 203800]),
+    SILSEG(219680, 249660, 'Thank you.', [219700, 219900]),
+  ];
+  const bursts = [SILB(200100, 204200)];
+  const r = guardSilenceFabrication(segs, { speechBursts: bursts });
+  assert.equal(r.probed, true);
+  assert.equal(r.removed, 1);
+  assert.equal(r.segments.length, 1);
+  assert.equal(r.segments[0].startMs, 200000, 'the real clause beside it survives untouched');
+  assert.equal(r.fabrications[0].action, 'removed');
+  assert.equal(r.fabrications[0].durationSec, 29.98);
+  assert.equal(r.fabrications[0].burstOverlapSec, 0);
+  assert.equal(r.fabrications[0].unit, 'word-times');
+});
+
+test('condition 5, THE STRETCHED EXTENT: a real backchannel inside a long extent is NOT removed', () => {
+  // Measured on the 001 host channel: 41 segments whose extent reaches tens of seconds back across
+  // silence while the word was physically spoken inside one short burst. Judging that on the extent
+  // alone deletes a word the person really said. The word time is the veto.
+  const segs = [SILSEG(279680, 289040, 'Hmm.', [285000])];
+  const r = guardSilenceFabrication(segs, { speechBursts: [SILB(284800, 285300)] });
+  assert.equal(r.removed, 0);
+  assert.equal(r.fabrications.length, 0, 'a word inside a burst is not a candidate at all');
+  assert.deepEqual(r.segments, segs);
+});
+
+test('condition 6, THE VOCABULARY TIER: unfamiliar text over silence is REPORTED, never removed', () => {
+  // A guest channel really produced this over a span the burst grid calls silent. It might be a
+  // quiet real answer the channel-relative floor missed, and this guard does not guess.
+  const segs = [SILSEG(4403720, 4405700, "That's a tough one.", [4403800, 4404100, 4404400, 4404700])];
+  const r = guardSilenceFabrication(segs, { speechBursts: [SILB(0, 1000)] });
+  assert.equal(r.removed, 0);
+  assert.equal(r.reported, 1);
+  assert.equal(r.fabrications[0].action, 'reported');
+  assert.equal(r.segments.length, 1, 'and it is STILL IN the transcript');
+});
+
+test('condition 3, THE BREVITY CAP: this class can never remove a sentence, whatever else fails', () => {
+  const long = 'okay okay okay okay okay okay okay okay';
+  const segs = [SILSEG(0, 30000, long, [100, 200, 300, 400, 500, 600, 700, 800])];
+  const r = guardSilenceFabrication(segs, { speechBursts: [] });
+  assert.equal(r.removed, 0, '8 words is over the cap even though every one of them is filler');
+  assert.equal(r.fabrications.length, 0);
+});
+
+test('condition 2, THE DURATION FLOOR: the sub-second band is out of scope, and stays in', () => {
+  const segs = [SILSEG(6213600, 6214100, 'Hmm.', [6213600])];
+  const r = guardSilenceFabrication(segs, { speechBursts: [] });
+  assert.equal(r.removed, 0);
+  assert.equal(r.segments.length, 1);
+});
+
+test('condition 4, BOTH HALVES: an absolute cap and a fraction, because either alone fails', () => {
+  // (a) ONLY THE FRACTION SEES THIS. 0.08 s of energy is under the 0.10 s absolute cap, but inside
+  //     a 1.2 s backchannel it is 6.7% of the span — the absolute cap alone would have removed it.
+  const shortSeg = [SILSEG(0, 1200, 'Yeah.', [50])];
+  assert.equal(guardSilenceFabrication(shortSeg, { speechBursts: [SILB(600, 680)] }).removed, 0);
+  // (b) ONLY THE ABSOLUTE CAP SEES THIS. 0.5 s of energy inside a 30 s extent is 1.67% — under the
+  //     2% fraction, which alone would have removed a span holding half a second of real speech.
+  const longSeg = [SILSEG(0, 30000, 'Thank you.', [100, 300])];
+  assert.equal(guardSilenceFabrication(longSeg, { speechBursts: [SILB(20000, 20500)] }).removed, 0);
+  // and with the energy gone, the same segment IS removed
+  assert.equal(guardSilenceFabrication(longSeg, { speechBursts: [SILB(20000, 20050)] }).removed, 1);
+});
+
+test('THE MEASURED LOSS, pinned: 0.2 s of energy in the extent means KEEP, not remove', () => {
+  // The one place this class was measured destroying a real word: a genuine one-word backchannel
+  // hum at -35.0 / -34.7 dBFS — the host's own speech MEDIAN — whose energy fell just under the
+  // burst floor, leaving ~0.2 s inside a 20-25 s extent. Both decoders recovered "Mm-hmm" from
+  // those spans in isolation. `maxSilenceOverlapSec` was swept over adjudicated spans and set to
+  // 0.10 s for the margin; this test is the frontier, so nobody loosens it back by accident.
+  const hum = [SILSEG(1193100, 1218660, 'Hmm.', [1193120])];
+  assert.equal(guardSilenceFabrication(hum, { speechBursts: [SILB(1200000, 1200200)] }).removed, 0);
+  assert.equal(REPETITION_GUARD_DEFAULTS.maxSilenceOverlapSec, 0.1, 'swept, not chosen — see the module header');
+});
+
+test('ONE-DIRECTIONAL: a segment the audio backs is left completely alone', () => {
+  const segs = [SILSEG(0, 3000, 'Thank you.', [500, 800])];
+  const r = guardSilenceFabrication(segs, { speechBursts: [SILB(400, 2900)] });
+  assert.equal(r.removed, 0);
+  assert.equal(r.fabrications.length, 0);
+  assert.deepEqual(r.segments, segs, 'the grid can condemn silence, never speech');
+});
+
+test('ORDER: 143 copies of the filler over silence are class 4, not a repetition finding', () => {
+  // Class 4 runs FIRST on purpose. Collapsing them as a loop would keep one and EXTEND its end
+  // across the silence — destroying the very evidence this class reads — and would leave a
+  // fabricated line in the transcript besides.
+  const segs = [];
+  for (let i = 0; i < 6; i += 1) segs.push(SILSEG(i * 30000, i * 30000 + 29980, 'Thank you.', [i * 30000 + 20]));
+  const r = guardChannelAll(segs, { speechBursts: [] });
+  assert.equal(r.silenceRemoved, 6);
+  assert.equal(r.loops.length, 0, 'nothing is left for the loop class to find');
+  assert.equal(r.segments.length, 0);
+  assert.equal(r.removed, 6, 'and the total removed count carries class 4');
+});
+
+test('the guest-channel probe: genuine speech with genuine repetition is byte-identical after class 4', () => {
+  // The powered false-positive test in miniature. On the real corpus this is 28,275 guest words
+  // containing 217 immediate repeats and 23 same-word triples, of which class 4 touched 3 segments,
+  // every one independently adjudicated as fabrication.
+  const segs = [
+    SILSEG(0, 2000, 'no no no that is not what the contract says', [100, 400, 700, 1000, 1200, 1400, 1600, 1800, 1900]),
+    SILSEG(2000, 4000, "it's it's the renewal clause", [2100, 2400, 2700, 3000, 3400]),
+    SILSEG(4000, 6000, 'Yeah.', [4100]),
+    SILSEG(6000, 9000, 'right right right', [6100, 6600, 7100]),
+  ];
+  const bursts = [SILB(0, 4000), SILB(4050, 4400), SILB(6000, 8500)];
+  const r = guardSilenceFabrication(segs, { speechBursts: bursts });
+  assert.equal(r.removed, 0);
+  assert.equal(r.reported, 0);
+  assert.deepEqual(r.segments, segs);
+});
+
+test('THE TWO GUARDS DO NOT FIGHT: class 4 cannot add a deletion candidate under word times', () => {
+  // Condition 5 means every removed word was already outside every burst, so no burst loses
+  // coverage when the segment goes. Asserted rather than argued.
+  const segs = [
+    SILSEG(0, 4000, 'the rollout starts on monday morning', [100, 700, 1300, 1900, 2500, 3100]),
+    SILSEG(10000, 39980, 'Thank you.', [10020, 10200]),
+  ];
+  const bursts = [SILB(0, 3800), SILB(45000, 47500)];
+  const before = findDeletionCandidates(segs, bursts, { channel: 'me' });
+  const guarded = guardSilenceFabrication(segs, { speechBursts: bursts });
+  const after = findDeletionCandidates(guarded.segments, bursts, { channel: 'me' });
+  assert.equal(guarded.removed, 1);
+  assert.equal(before.coverageUnit, 'word-times');
+  assert.equal(after.candidates.length, before.candidates.length);
+  assert.deepEqual(after.candidates.map((c) => c.startMs), before.candidates.map((c) => c.startMs));
+});
+
+test('the known-silence span stays silent: class 4 removes the filler, the deletion guard still says NOT-SPEECH', () => {
+  // 4885.2 s of the 92-minute artifact: max -51.3 dBFS against a -0.9 dBFS peak, whisper emitting
+  // "Thank you." seven times over it. Neither guard may turn that window into a finding about speech.
+  const segs = [SILSEG(4885200, 4915180, 'Thank you.', [4885220, 4885400])];
+  const r = guardSilenceFabrication(segs, { speechBursts: [SILB(0, 2000)] });
+  assert.equal(r.removed, 1, 'the fabricated words go');
+  const v = adjudicateCandidate(
+    { channel: 'me', index: 0, startMs: 4885200, endMs: 4915180, durationSec: 29.98, nearbyText: '' },
+    { tight: 'Thank you.', wide: 'Thank you. Thank you.', maxDb: -51.3, meanDb: -62 },
+    { peakDb: -0.9 },
+  );
+  assert.equal(v.verdict, 'not-speech', 'and the span is still not claimed as deleted speech');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 hallucination guard — all four classes through the one pipeline seam');
 
 test('guardTranscription reports the insertion class from the real turbo artifact', () => {
   const r = guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION });
@@ -1379,6 +1575,50 @@ test('guardChannelAll runs loops before insertions before overlap so classes can
   assert.equal(r.insertions.length, 1);
   assert.equal(r.loops.length, 0);
   assert.equal(r.stutters.length, 0, 'a leading marker must not be mistaken for a boundary overlap');
+});
+
+test('guardTranscription reports class 4 PER CHANNEL, and never mixes the two grids', () => {
+  const me = [
+    { startMs: 0, endMs: 29980, text: 'Thank you.', speaker: 'me', wordTimesMs: [20, 200] },
+    { startMs: 40000, endMs: 43000, text: 'so what changed on the pricing page', speaker: 'me', wordTimesMs: [40100, 40500, 40900, 41300, 41700, 42100] },
+  ];
+  const others = [
+    { startMs: 0, endMs: 29980, text: 'Thank you.', speaker: 'others', wordTimesMs: [20, 200] },
+  ];
+  // The `others` channel HAS a burst under that span; the `me` channel does not. Feeding one
+  // channel's grid to the other would invent evidence, so the report must show 1 removal, not 2.
+  const r = guardTranscription({ me, others }, {
+    speechBursts: { me: [{ startMs: 40000, endMs: 42900 }], others: [{ startMs: 0, endMs: 25000 }] },
+  });
+  assert.equal(r.report.classes.silenceFabrication, 1);
+  assert.equal(r.report.silenceRemoved, 1);
+  assert.equal(r.report.byChannel.me.silenceRemoved, 1);
+  assert.equal(r.report.byChannel.others.silenceRemoved, 0);
+  assert.equal(r.me.length, 1);
+  assert.equal(r.others.length, 1, 'the guest line is backed by audio and survives');
+  assert.deepEqual(r.report.silenceProbed, { me: true, others: true });
+  assert.deepEqual(r.report.silenceUnit, { me: 'word-times', others: 'word-times' });
+  assert.equal(r.report.removed, 1, 'removed carries class 4');
+});
+
+test('class 4 REPORT-ONLY becomes a plain-English warning; class 4 REMOVED does not', () => {
+  const removedOnly = guardTranscription(
+    { me: [{ startMs: 0, endMs: 29980, text: 'Thank you.', speaker: 'me', wordTimesMs: [20] }], others: [] },
+    { speechBursts: { me: [], others: [] } },
+  );
+  assert.equal(removedOnly.report.silenceRemoved, 1);
+  assert.deepEqual(guardWarnings(removedOnly.report), [], 'a repaired class produces no warning');
+
+  const reported = guardTranscription(
+    { me: [{ startMs: 0, endMs: 29980, text: "That's a tough one.", speaker: 'me', wordTimesMs: [20] }], others: [] },
+    { speechBursts: { me: [], others: [] } },
+  );
+  assert.equal(reported.report.silenceUnrepaired, 1);
+  const w = guardWarnings(reported.report);
+  assert.equal(w.length, 1);
+  assert.ok(/measures as SILENT/.test(w[0]), 'it says what the physical probe found');
+  assert.ok(/left them IN the transcript/.test(w[0]), 'and that it did NOT remove them');
+  assert.ok(/"me" channel/.test(w[0]));
 });
 
 // ---------------------------------------------------------------------------------------
