@@ -8,6 +8,8 @@
  *   2. NORMALIZE (ffmpeg)   stereo contract -> me.wav / others.wav @ 16 kHz mono
  *   3. TRANSCRIBE (whisper) large-v3-turbo per channel, with timestamps
  *   4. MERGE by timestamp   + fold in caption speaker labels -> verification.json
+ *   3.7 DELETION DETECTOR   physical speech bursts with NO emitted word, adjudicated by isolated
+ *                           re-decode -> DETECT-ONLY alarm (a deletion cannot be repaired here)
  *   5. loro-CORRECTION      P1 seam (identity pass); P4 wires the real corrector
  *   6. EMIT                 transcript.md + verification.json; pipeline.status="ready";
  *                           append the ingest ledger; RETAIN audio for re-transcription
@@ -17,14 +19,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reconcilePipeline } from './reconcile.js';
 import { upgradeRecord, PIPELINE_STATUS, hasUsableAudio } from './contract.js';
-import { normalizeSession, ffmpegVersion, detectSilence, detectSpeechBursts, CHANNEL_FILES } from './normalize.js';
-import { transcribeSession, whisperVersion } from './transcribe.js';
+import {
+  normalizeSession,
+  ffmpegVersion,
+  detectSilence,
+  detectSpeechBursts,
+  cutSpan,
+  measureSpanVolume,
+  CHANNEL_FILES,
+} from './normalize.js';
+import { transcribeSession, transcribeClips, whisperVersion } from './transcribe.js';
 import { mergeTranscript, renderMarkdown, verify, wordCount } from './merge.js';
 import { correct } from './correct.js';
 import { loadEntityMemory } from './entities.js';
 import { appendLedger } from './ledger.js';
 import { MIN_TRANSCRIPT_WORDS, resolveTier, whisperArgs } from './config.js';
 import { guardTranscription, guardWarnings } from './repetition-guard.js';
+import { guardDeletions, deletionWarnings, DELETION_GUARD_DEFAULTS } from './deletion-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
 
@@ -173,24 +184,28 @@ export function runPipeline(sessionDir, opts = {}) {
       stutters: [],
       byChannel: { me: {}, others: {} },
     };
+    // The PHYSICAL evidence, one ffmpeg pass per channel — 0.68 s for a 92-minute channel, measured
+    // 2026-08-29, so it is free at any call length. TWO stages consume it and it is computed ONCE:
+    // the repetition guard's burst veto (class 1: is a repeated phrase a human retake?) and the
+    // deletion detector below (class 4: is a wordless span a deleted clause?). It used to live
+    // inside the `tier.repetitionGuard` branch; it is hoisted because the deletion detector needs it
+    // whether or not the repetition classes are enabled, and because "which stage owns the audio
+    // probe" is exactly the kind of hidden coupling that goes wrong later.
+    // Best-effort: if ffmpeg cannot produce it, the repetition guard falls back to its old text-only
+    // behaviour and the deletion detector reports honestly that it could not look.
+    try {
+      const b = {
+        me: detectSpeechBursts(channelPaths.me, { peakDb: silence.me.maxDb }).speech,
+        others: detectSpeechBursts(channelPaths.others, { peakDb: silence.others.maxDb }).speech,
+      };
+      speechBursts = b;
+      log.info(`${sessionId} — speech bursts: me=${b.me.length} others=${b.others.length}`);
+    } catch (err) {
+      log.alarm(`${sessionId} — speech-burst probe failed; the repetition guard runs TEXT-ONLY and may delete genuine repeated speech, and the deletion detector cannot run at all`, {
+        error: String(err && err.message ? err.message : err),
+      });
+    }
     if (tier.repetitionGuard !== false) {
-      // The PHYSICAL evidence the loop class needs to tell a decoder loop from a human retake, one
-      // ffmpeg pass per channel (~3% of decode time). Without it the guard is text-only and, on
-      // retake-dense material, deletes real speech — measured, 13 genuine deliveries on 92 minutes
-      // of real audio (repetition-guard.js header). Best-effort: if ffmpeg cannot produce it the
-      // guard falls back to its old text-only behaviour rather than failing the pipeline.
-      try {
-        const b = {
-          me: detectSpeechBursts(channelPaths.me, { peakDb: silence.me.maxDb }).speech,
-          others: detectSpeechBursts(channelPaths.others, { peakDb: silence.others.maxDb }).speech,
-        };
-        speechBursts = b;
-        log.info(`${sessionId} — speech bursts: me=${b.me.length} others=${b.others.length}`);
-      } catch (err) {
-        log.alarm(`${sessionId} — speech-burst probe failed; the repetition guard runs TEXT-ONLY and may delete genuine repeated speech`, {
-          error: String(err && err.message ? err.message : err),
-        });
-      }
       const guarded = guardTranscription({ me: asr.me, others: asr.others }, speechBursts ? { speechBursts } : {});
       asrGuarded = { me: guarded.me, others: guarded.others };
       repetitionReport = guarded.report;
@@ -237,6 +252,114 @@ export function runPipeline(sessionDir, opts = {}) {
     const dia = diarizeOthers(asrGuarded.others, { method: diarizeMethod });
     if (dia.method !== 'none') {
       log.info(`${sessionId} — diarization(${dia.method}): ${dia.turns} remote turn(s), identityStable=${dia.identityStable}`);
+    }
+
+    // ---- Stage 3.7: DELETION DETECTOR (P5) ------------------------------------------------------
+    // The class the three hallucination-guard classes structurally cannot see: the model saying
+    // NOTHING over real speech. See lib/deletion-guard.js for the discriminator, the four-condition
+    // precision rule, and the enumerated blind spots.
+    //
+    // Two stages, and only the second one costs anything. Stage A is arithmetic over the burst grid
+    // already computed above and the segments already in memory. Stage B re-decodes ONLY the spans
+    // stage A found suspect, as clips, through ONE whisper-cli invocation that loads the model once.
+    // Nothing here re-transcribes the recording.
+    //
+    // DETECT-ONLY, like the insertion class: a deletion cannot be repaired from here, so the remedy
+    // is a named span in the alarm and in verification.json, and re-transcription against retained
+    // audio. `RICHOS_DELETION_GUARD=off` disables it; it changes no decode parameter either way.
+    const deletionOn = String(opts.deletionGuard ?? process.env.RICHOS_DELETION_GUARD ?? 'on') !== 'off';
+    const probeDir = path.join(sessionDir, '_deletion-probe');
+    /** Cut + level + isolated re-decode for one channel's suspect spans. The impure half. */
+    const makeProbe = (channel) => (spans) => {
+      const wavPath = channelPaths[channel];
+      fs.mkdirSync(probeDir, { recursive: true });
+      const tightPaths = [];
+      const widePaths = [];
+      const levels = [];
+      spans.forEach((s, i) => {
+        tightPaths.push(
+          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-t.wav`), { padSec: DELETION_GUARD_DEFAULTS.probePadSec }),
+        );
+        widePaths.push(
+          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-w.wav`), { padSec: DELETION_GUARD_DEFAULTS.probeWidePadSec }),
+        );
+        levels.push(measureSpanVolume(wavPath, s));
+      });
+      // One invocation for BOTH paddings of every span: the model loads once for the whole channel.
+      const texts = transcribeClips([...tightPaths, ...widePaths], { model, extraArgs: decodeArgs });
+      const finite = (x) => (Number.isFinite(x) ? x : null);
+      return spans.map((s, i) => ({
+        tight: texts[i] || '',
+        wide: texts[spans.length + i] || '',
+        maxDb: finite(levels[i].maxDb),
+        meanDb: finite(levels[i].meanDb),
+      }));
+    };
+    let deletionReport = {
+      detected: false,
+      probeAvailable: false,
+      coverageUnit: null,
+      candidates: 0,
+      probed: 0,
+      deletedSpans: 0,
+      deletedSeconds: 0,
+      unprobedSpans: 0,
+      deletions: [],
+      rejected: [],
+      unprobed: [],
+      byChannel: {},
+      enabled: deletionOn,
+    };
+    if (deletionOn && speechBursts) {
+      try {
+        const t0 = Date.now();
+        const del = guardDeletions(
+          // Post-diarization segments: turn splitting changes labels and boundaries, never extents,
+          // so coverage is identical — but the detector must judge the timeline that actually ships.
+          { me: asrGuarded.me, others: dia.segments },
+          {
+            speechBursts,
+            peaks: { me: silence.me.maxDb, others: silence.others.maxDb },
+            probe: (spans, channel) => makeProbe(channel)(spans),
+          },
+        );
+        deletionReport = { ...del.report, enabled: true, elapsedMs: Date.now() - t0 };
+      } catch (err) {
+        // A failed probe must never fail the pipeline, and must never look like a clean result.
+        log.alarm(`${sessionId} — deletion detector could not run; this transcript is NOT checked for deleted speech`, {
+          error: String(err && err.message ? err.message : err),
+        });
+        deletionReport = { ...deletionReport, probeAvailable: false, error: String(err && err.message ? err.message : err) };
+      } finally {
+        try {
+          fs.rmSync(probeDir, { recursive: true, force: true });
+        } catch {
+          /* the clips are inside the session dir, which already holds the full audio */
+        }
+      }
+      for (const d of deletionReport.deletions) {
+        // NOT repaired, on purpose — see the module header. The transcript below is still missing it.
+        log.alarm(`${sessionId} — SPEECH MISSING FROM THE TRANSCRIPT (detect-only class)`, {
+          channel: d.channel,
+          fromMs: d.startMs,
+          toMs: d.endMs,
+          seconds: d.durationSec,
+          maxDb: d.maxDb,
+          recovered: d.recovered,
+          remedy: 're-transcribe (audio is retained); a deletion cannot be filled in from here',
+        });
+      }
+      if (deletionReport.unprobedSpans) {
+        log.alarm(`${sessionId} — ${deletionReport.unprobedSpans} wordless speech span(s) went UNADJUDICATED — not cleared, not claimed`, {
+          spans: deletionReport.unprobed.slice(0, 10).map((u) => ({ channel: u.channel, fromMs: u.startMs, seconds: u.durationSec })),
+        });
+      }
+      log.info(
+        `${sessionId} — deletion detector: ${deletionReport.candidates} candidate(s), ${deletionReport.probed} probed, ` +
+          `${deletionReport.deletedSpans} deletion(s) / ${deletionReport.deletedSeconds}s (unit=${deletionReport.coverageUnit})`,
+      );
+    } else if (deletionOn) {
+      log.alarm(`${sessionId} — deletion detector SKIPPED: no speech-burst grid, so nothing physical to compare the transcript against`);
     }
 
     // ---- Stage 4: MERGE + caption fold-in -------------------------------------------------------
@@ -289,6 +412,31 @@ export function runPipeline(sessionDir, opts = {}) {
       insertions: repetitionReport.insertions,
       unrepaired: repetitionReport.insertions.reduce((n, i) => n + i.count, 0),
     };
+    record.pipeline.deletionGuard = {
+      enabled: deletionReport.enabled,
+      // "0 deletions" and "never looked" are DIFFERENT ANSWERS and this record must never conflate
+      // them: probeAvailable says whether an isolated re-decode was possible at all, coverageUnit
+      // says which evidence coverage was scored on, and unrepaired counts what is still missing.
+      probeAvailable: deletionReport.probeAvailable,
+      coverageUnit: deletionReport.coverageUnit,
+      // What this stage COST, in the record, because a detector's price is an operational fact and
+      // an unmeasured one gets guessed at. Burst grid + candidate arithmetic + the clip re-decodes.
+      elapsedMs: deletionReport.elapsedMs ?? null,
+      detected: deletionReport.detected,
+      candidates: deletionReport.candidates,
+      probed: deletionReport.probed,
+      deletedSpans: deletionReport.deletedSpans,
+      deletedSeconds: deletionReport.deletedSeconds,
+      // Detect-only: every one of these is STILL missing from transcript.md. Never let
+      // "enabled: true" imply "complete" — the same vocabulary the insertion class uses.
+      unrepaired: deletionReport.deletedSpans,
+      deletions: deletionReport.deletions,
+      // Wordless speech spans that were adjudicated NOT to be deletions, kept because a rejection
+      // is a decision and an empty `deletions` list otherwise cannot be told from an idle detector.
+      rejected: deletionReport.rejected,
+      unprobed: deletionReport.unprobed,
+      byChannel: deletionReport.byChannel,
+    };
     record.pipeline.diarization = {
       method: dia.method,
       remoteTurns: dia.turns,
@@ -297,9 +445,12 @@ export function runPipeline(sessionDir, opts = {}) {
     };
     const verification = verify(finalMerged, { me: asrGuarded.me, others: asrGuarded.others }, captions, record);
     verification.repetitionGuard = record.pipeline.repetitionGuard;
-    // A detect-only class leaves fabricated text in transcript.md. verification.json must say so in
-    // plain English, or "repetitionGuard.enabled: true" reads as "hallucination: handled".
-    verification.warnings = guardWarnings(repetitionReport);
+    verification.deletionGuard = record.pipeline.deletionGuard;
+    // A detect-only class leaves fabricated text in transcript.md, and the deletion class leaves a
+    // HOLE in it. verification.json must say both in plain English, or "enabled: true" reads as
+    // "hallucination: handled" and a missing clause reads as a pause. ONE warnings vocabulary for
+    // both classes, deliberately: a reader should meet one way of being told this is not clean.
+    verification.warnings = [...guardWarnings(repetitionReport), ...deletionWarnings(deletionReport)];
     const totalWords = verification.channels.totalWords;
 
     if (totalWords < MIN_TRANSCRIPT_WORDS) {
