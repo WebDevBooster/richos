@@ -1,0 +1,70 @@
+name: engine-self-verify
+
+# THIS IS THE COPY THAT ACTUALLY RUNS.
+#
+# GitHub Actions discovers workflows ONLY in a `.github/workflows/` directory
+# at the REPOSITORY ROOT. Until 2026-08-29 this repository's only copy lived at
+# `engine/.github/workflows/engine-self-verify.yml` — correct as a template for
+# an adopter who copies the engine's contents to THEIR root, and completely
+# inert here. It had never executed once: `gh run list` returned nothing at all.
+# Not broken. Unreachable. That is the same defect the engine's own test runner
+# exists to end, one level out: a correct rule with nothing enforcing it.
+#
+# WHAT IT VERIFIES is deliberately NOT written down here. Both this file and the
+# adopter template call `engine/scripts/ci-verify.sh`, which is the single place
+# the steps are listed — because two YAML files each spelling out the same six
+# steps is a typed inventory in a different costume, and this engine does not
+# keep those. Read that script's header for the full argument and the step list.
+#
+# THE ENGINE LIVES IN A SUBDIRECTORY HERE (`engine/`), because this repository
+# also carries the product that loads it by reference. Hence
+# `working-directory: engine`. An adopter who vendored the engine at their root
+# drops that line; the template under `engine/.github/` already has it dropped.
+#
+# WHAT THIS RUN CANNOT COVER, stated rather than skipped: the integrity probe's
+# BY-REFERENCE layer set (BR1-BR10). Those layers verify that an operator's
+# user-scope `~/.claude` plugin registration resolves to this engine — a
+# property of a workstation, not of a repository, and there is no honest way to
+# synthesise it on a runner. They are exercised instead by
+# `scripts/hooks/by-reference.test.sh`, which builds that two-root topology from
+# scratch and which the suite runner discovers automatically. See
+# `engine/docs/ci-portability-notes.md`.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Several suites build throwaway git repositories in $TMPDIR and commit
+      # into them, inheriting the machine's ambient identity by design (see the
+      # comment in scripts/lib/resolve-roots.test.sh). Every workstation has
+      # one; a runner has none, and without it `git commit` exits 128 inside the
+      # fixtures and the probe's Layer Q quietly downgrades to "FUNCTIONAL
+      # CANARY DID NOT RUN". ci-verify.sh refuses to start without an identity
+      # rather than degrade, so declare it here — visibly, and only on the
+      # ephemeral runner.
+      - name: Declare a git identity for the throwaway test fixtures
+        run: |
+          git config --global user.name  "engine-self-verify"
+          git config --global user.email "engine-self-verify@users.noreply.github.com"
+
+      - name: Verify the engine (scripts/ci-verify.sh)
+        run: scripts/ci-verify.sh
