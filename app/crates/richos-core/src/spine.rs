@@ -450,6 +450,41 @@ impl Spine {
         self.active.as_ref()
     }
 
+    /// ECS §3.4's FENCING CHECK for an outbound command: *"The command is rejected as
+    /// `stale_binding` if the active-context binding revision ... has advanced ... an old
+    /// Rich instance is never allowed to send, dispatch or write into a newly switched
+    /// entity/thread. This is a fencing token, not a UI hint."*
+    ///
+    /// A caller that captured a binding at turn start passes it back here before acting on
+    /// the outside world. A binding for a different thread or entity is `ScopeMismatch`; a
+    /// binding older than the current active context is `StaleBinding`.
+    ///
+    /// **Honest scope note.** Slice 1's spine is synchronous and single-threaded (the
+    /// shell serializes every call behind one `Mutex<Spine>`), so there is no concurrent
+    /// in-process holder that can actually go stale today. This is the seam the Tauri
+    /// command layer and any future async writer must call, and it is exercised by test
+    /// rather than merely declared — but it is defence in depth, not a bug being fixed.
+    pub fn verify_active_binding(&self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        let active = self.active.as_ref().ok_or(SpineError::NoActiveThread)?;
+        if binding.thread_id() != active.thread_id() || binding.entity_id() != active.entity_id() {
+            return Err(LedgerError::ScopeMismatch {
+                thread_id: active.thread_id().to_string(),
+                home: format!("{}/{}", active.entity_id(), active.thread_id()),
+                presented: format!("{}/{}", binding.entity_id(), binding.thread_id()),
+            }
+            .into());
+        }
+        if binding.binding_revision() < active.binding_revision() {
+            return Err(LedgerError::StaleBinding {
+                thread_id: active.thread_id().to_string(),
+                presented: binding.binding_revision(),
+                current: active.binding_revision(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
     pub fn threads(&self) -> Vec<ThreadSummary> {
         summaries(&self.ledger)
     }
