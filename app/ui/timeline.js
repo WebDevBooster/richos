@@ -229,17 +229,30 @@
     "Worked": (n) => `Worked (${n} steps)`,
   };
 
-  /// The group's state from its members'. Precedence: something is still happening beats
-  /// something failed beats everything finished beats nobody knows.
+  /// The group's state from its members'. THE PRECEDENCE IS "REPORT THE WEAKEST CLAIM",
+  /// not "report the most interesting one":
   ///
-  /// `unknown` is COMMON and is not an error — 34 of the 58 tool events measured on
-  /// 2026-08-28 carried no `status` field at all (STREAMING.md). It is never folded into
-  /// `completed`; a group with one unknown member and no running member reports `unknown`,
-  /// because "they all finished" would be a completion claim nobody made.
+  ///   failed  -> he needs to know something broke
+  ///   running -> ONLY if a member is explicitly `running`
+  ///   unknown -> nobody recorded how at least one of these ended
+  ///   queued  -> at least one opened and has not reported back
+  ///   completed -> and only when EVERY member says so
+  ///
+  /// CORRECTED after rendering the real backend payload: a group of one `unknown` and one
+  /// `queued` reported `running`, because the first clause tested them together. Nothing in
+  /// that group was running. `running` is a statement that work is happening right now, and
+  /// the emission probe found `in_progress` did not appear ONCE in 58 measured tool events
+  /// — so a rule that reaches `running` from anything other than a literal `running` is a
+  /// rule that will be wrong every single time it fires.
+  ///
+  /// `unknown` is COMMON and is not an error (34 of 58 events carried no `status` at all)
+  /// and is NEVER folded into `completed`: "they all finished" is a completion claim nobody
+  /// made, and §22 lists completion state under "must not be faked".
   function groupState(states) {
-    if (states.includes("running") || states.includes("queued")) return "running";
     if (states.includes("failed")) return "failed";
+    if (states.includes("running")) return "running";
     if (states.includes("unknown")) return "unknown";
+    if (states.includes("queued")) return "queued";
     if (states.length && states.every((s) => s === "completed")) return "completed";
     return "unknown";
   }
@@ -838,7 +851,7 @@
 
     // §18: status must never rely on colour alone, and an `unknown` state must not read as
     // done. Only the two states that are NOT self-evident from the verb are spelled out.
-    if (group.state === "unknown" || group.state === "failed" || group.state === "running") {
+    if (["unknown", "failed", "running", "queued"].indexOf(group.state) >= 0) {
       row.appendChild(elem("span", "tl-activity-state", ACTIVITY_STATE_LABEL[group.state]));
     } else {
       row.appendChild(srOnly(ACTIVITY_STATE_LABEL[group.state] || ""));
