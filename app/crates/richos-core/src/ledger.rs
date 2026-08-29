@@ -226,6 +226,18 @@ pub enum Event {
         entity_id: Option<EntityId>,
         #[serde(default)]
         binding_revision: u64,
+        /// The `steering::IntakeLog` record this turn was drained from, when it came from
+        /// one (UX §9.2). THE DE-DUPLICATION KEY, and the reason it is on the event rather
+        /// than kept in memory: the intake drain is at-least-once by construction — the
+        /// ledger write comes first and the drain marker second, because a crash between
+        /// them must re-present the CEO's words rather than lose them. Re-presenting them
+        /// would create a SECOND turn with the same text, and this is what lets the drain
+        /// recognise its own earlier work and skip it.
+        ///
+        /// `#[serde(default)]` ⇒ `None` for every turn written before steering existed,
+        /// and for every ordinary typed message, which never passes through the intake.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intake_id: Option<u64>,
     },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
@@ -386,6 +398,11 @@ pub struct Turn {
     /// the LAG between "he asked" and "it let go" stays measurable after a restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_requested_at: Option<u64>,
+    /// The intake-log record this turn was drained from (UX §9.2), if any. See
+    /// `Event::PromptReceived::intake_id` — it is a de-duplication key, not a display
+    /// field, and nothing renders it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intake_id: Option<u64>,
 }
 
 impl Turn {
@@ -550,7 +567,16 @@ impl Ledger {
                     }
                 }
             }
-            Event::PromptReceived { turn_id, thread_id, text, source, at, entity_id, binding_revision } => {
+            Event::PromptReceived {
+                turn_id,
+                thread_id,
+                text,
+                source,
+                at,
+                entity_id,
+                binding_revision,
+                intake_id,
+            } => {
                 self.observe_revision(binding_revision);
                 self.turns.push(Turn {
                     id: turn_id,
@@ -571,6 +597,7 @@ impl Ledger {
                     tier: None,
                     superseded_by: None,
                     stop_requested_at: None,
+                    intake_id,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -653,6 +680,7 @@ impl Ledger {
                     tier: Some(tier),
                     superseded_by: None,
                     stop_requested_at: None,
+                    intake_id: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -979,6 +1007,29 @@ impl Ledger {
         text: &str,
         source: Source,
     ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, None)
+    }
+
+    /// As above, stamping the `steering::IntakeLog` record this turn was drained from
+    /// (UX §9.2). Use [`turn_for_intake`](Self::turn_for_intake) before calling it: the
+    /// drain is at-least-once and this is the key that makes a replay recognisable.
+    pub fn record_prompt_received_from_intake(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: u64,
+    ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, Some(intake_id))
+    }
+
+    fn record_prompt_received_with(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: Option<u64>,
+    ) -> Result<String, LedgerError> {
         self.verify_binding(binding)?;
         let turn_id = new_id("turn");
         self.append(
@@ -990,10 +1041,21 @@ impl Ledger {
                 at: now_millis(),
                 entity_id: Some(binding.entity_id().clone()),
                 binding_revision: binding.binding_revision(),
+                intake_id,
             },
             true, // fsync — never lose the CEO's input
         )?;
         Ok(turn_id)
+    }
+
+    /// The turn already drained from intake record `intake_id`, if there is one.
+    ///
+    /// The drain writes the LEDGER first and the drain marker second, deliberately: a
+    /// crash between the two must re-present the CEO's words rather than lose them. That
+    /// makes the drain at-least-once, and this is how the second attempt recognises the
+    /// first one's work instead of filing the same sentence twice.
+    pub fn turn_for_intake(&self, intake_id: u64) -> Option<&Turn> {
+        self.turns.iter().find(|t| t.intake_id == Some(intake_id))
     }
 
     pub fn mark_turn_started(&mut self, turn_id: &str, session_id: &str) -> Result<(), LedgerError> {
@@ -1426,6 +1488,7 @@ mod tests {
             tier: None,
             superseded_by: None,
             stop_requested_at: None,
+            intake_id: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

@@ -1148,8 +1148,19 @@ impl Spine {
         for record in self.control.pending_intake() {
             match record {
                 IntakeRecord::Steer { id, thread_id, text, .. } => {
+                    // ALREADY DRAINED, and this is not a theoretical branch. The order below
+                    // is ledger-first, marker-second, on purpose: a crash between them must
+                    // re-present the CEO's words rather than lose them. So the drain is
+                    // at-least-once, and without this check a restart in that window files
+                    // the same sentence as a second turn — the CEO's one message, asked
+                    // twice.
+                    if self.ledger.turn_for_intake(id).is_some() {
+                        self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                        continue;
+                    }
                     let binding = self.ledger.thread_binding(&thread_id)?;
-                    let turn_id = self.ledger.record_prompt_received(&binding, &text, Source::Text)?;
+                    let turn_id =
+                        self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
                     self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });

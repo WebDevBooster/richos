@@ -1669,6 +1669,7 @@ mod tests {
             tier: None,
             superseded_by: None,
             stop_requested_at: None,
+            intake_id: None,
         }
     }
 

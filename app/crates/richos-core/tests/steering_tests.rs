@@ -451,3 +451,66 @@ fn a_stop_request_that_outlived_the_process_is_applied_at_startup_not_replayed()
     assert_eq!(spine.ledger().turn(&turn_id).unwrap().state, TurnState::Stopped);
     assert!(control.pending_intake().is_empty(), "the request was applied and marked drained");
 }
+
+#[test]
+fn a_crash_between_the_ledger_write_and_the_drain_marker_files_the_message_once_not_twice() {
+    // THE WINDOW, and why it is the direction it is. `drain_intake` writes the LEDGER first
+    // and the drain marker SECOND, on purpose: a crash between them must re-present the
+    // CEO's words rather than lose them. That makes the drain at-least-once — so without a
+    // de-duplication key, a restart in that window files his one sentence as a second turn
+    // and Rich answers it twice.
+    //
+    // The crash is reproduced exactly, not approximated: the ledger write is performed and
+    // the drain marker is NOT, then the process boundary is crossed by dropping everything
+    // and reopening both files from disk.
+    let ledger_path = tmp_path("dedupe-ledger").with_extension("jsonl");
+    let intake_path = tmp_path("dedupe-intake").with_extension("jsonl");
+    let thread;
+    let intake_id;
+    {
+        let mut ledger = Ledger::open(&ledger_path).unwrap();
+        thread = ledger.create_thread("dedupe", &femcboost()).unwrap();
+        let binding = ledger.thread_binding(&thread).unwrap();
+
+        let control = TurnControl::open(&intake_path).unwrap();
+        control.begin_turn(richos_core::steering::ActiveTurn {
+            turn_id: "turn_running".into(),
+            thread_id: thread.clone(),
+            entity_id: Some(femcboost()),
+            started_at: Some(1),
+        });
+        let rec = control.steer("check the invoice too").unwrap();
+        intake_id = rec.id();
+
+        // The first half of the drain, and then the power goes out.
+        ledger
+            .record_prompt_received_from_intake(&binding, "check the invoice too", Source::Text, intake_id)
+            .unwrap();
+    }
+
+    let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
+    let control = TurnControl::open(&intake_path).unwrap();
+    assert_eq!(control.pending_intake().len(), 1, "the record is still undrained, as it must be");
+    spine.set_turn_control(control.clone());
+    spine.attach_lease(Box::new(richos_core::cognition::MockCognition::new("sess-after", vec!["on it"])));
+    spine.switch_thread(&thread).unwrap();
+    spine.reconcile_intake().unwrap();
+
+    let turns = ceo_turns(spine.ledger(), &thread);
+    let texts: Vec<&str> = turns.iter().map(|t| t.user_text.as_str()).collect();
+    assert_eq!(texts, vec!["check the invoice too"], "the CEO's one message became {} turns", texts.len());
+    assert!(control.pending_intake().is_empty(), "the record must end up drained either way");
+}
+
+#[test]
+fn an_ordinary_typed_message_carries_no_intake_id_and_can_never_collide_with_one() {
+    let (_p, mut ledger) = tmp_ledger("no-intake-id");
+    let thread = ledger.create_thread("plain", &femcboost()).unwrap();
+    let binding = ledger.thread_binding(&thread).unwrap();
+    let turn = ledger.record_prompt_received(&binding, "just a message", Source::Text).unwrap();
+    assert_eq!(ledger.turn(&turn).unwrap().intake_id, None);
+    // And the lookup does not match a `None` against any id — the failure mode would be a
+    // drain deciding its record was already handled by an unrelated typed message.
+    assert!(ledger.turn_for_intake(0).is_none());
+    assert!(ledger.turn_for_intake(1).is_none());
+}
