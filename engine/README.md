@@ -590,7 +590,7 @@ by hand, by calling one script:
 scripts/ci-verify.sh
 ```
 
-That script — not the YAML — is where the six steps are written down: tool +
+That script — not the YAML — is where the seven steps are written down: tool +
 git-identity preconditions, `bash -n` on every shipped script, **every** test
 suite via `run-all-tests.sh` (discovered from disk, never globbed at one
 directory), `install.sh` to mint the gitignored `.sha256` sidecars a fresh clone
