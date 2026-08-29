@@ -12,12 +12,22 @@ companion write. It adds zero pipeline code; it only produces the contract. It i
 the macOS companion** (`../companion-macos/`) — same two-layer shape, same contract, same reliability
 model, same coordination seam.
 
-> **On-Mac status:** this file, the code, the CI workflow, and the unit tests were authored on macOS,
-> which **cannot compile or run WASAPI**. Verification is therefore split: (a) the GitHub Actions
-> workflow `.github/workflows/windows-companion-ci.yml` compiles the whole thing on a real
-> `windows-latest` runner and runs the core unit tests; (b) the CEO validates **real capture** on his
-> own Windows machine per [`WINDOWS-TEST-PROTOCOL.md`](./WINDOWS-TEST-PROTOCOL.md). Nothing here
-> claims capture works until (b) passes — it is **CI-compile-verified + pending the CEO's real test**.
+> **On-Mac status — CORRECTED 2026-08-29, and the correction matters.** This file, the code and the
+> unit tests were authored on macOS, which **cannot compile or run WASAPI**. This note used to add
+> "and the CI workflow", and to conclude that the companion was **"CI-compile-verified + pending the
+> CEO's real test"**.
+>
+> **It was not.** `.github/workflows/windows-companion-ci.yml` did not exist — never written, no
+> history, nothing to move or rename — so **this code has never been compiled anywhere, by anyone.**
+> The workflow now exists, at exactly the path this file has been citing since 2026-08-24, and its
+> header says the same thing at more length.
+>
+> So verification is split three ways, and only the first is closed today: (a) the pure core's unit
+> tests, which run on any .NET host; (b) the Windows compile + core tests on a real `windows-latest`
+> runner — **the workflow is written and has never run**; (c) the CEO validates **real capture** on
+> his own Windows machine per [`WINDOWS-TEST-PROTOCOL.md`](./WINDOWS-TEST-PROTOCOL.md). Nothing here
+> claims capture works, and nothing here may be upgraded to "CI-verified" until a green run of that
+> workflow can be pointed at by SHA.
 
 ## Toolchain choice: C#/.NET 8 (justification)
 
@@ -105,7 +115,22 @@ dotnet build src/richos-companion/richos-companion.csproj       -c Release   # W
 dotnet test  tests/RichOSCompanionCore.Tests/RichOSCompanionCore.Tests.csproj -c Release
 ```
 
-CI runs exactly this on `windows-latest` (`.github/workflows/windows-companion-ci.yml`).
+`.github/workflows/windows-companion-ci.yml` runs exactly this on `windows-latest`, plus a
+`richos-companion doctor` invocation to prove the built executable actually starts. **As of
+2026-08-29 that workflow has never executed** — it was written on a Mac with no .NET SDK, so its
+first run is also its first test. Until a green run exists on a named SHA, treat this section as an
+instruction, not a result.
+
+### A known defect this build has not been able to test
+
+`Program.cs#ResolveZone` falls back to `<cwd>\wiki\raw\meetings` when `RICHOS_DROP_ZONE` is unset —
+a path **inside this repository**, which ships publicly, and one the pipeline now **refuses**
+outright (`assertEvidenceOutsideProductRepo`). So an unconfigured `capture` would write the CEO's
+recorded call into the public tree, and the pipeline that should transcribe it would never look
+there. The macOS companion had the identical defect and it is fixed there (`DropZone`, with unit
+tests and the same refusal). **This is a source reading, not an executed one** — there is no .NET
+toolchain on the machine that found it — so it is recorded here rather than patched blind. Fixing it
+is a job for someone who can run the build.
 
 ## Contract fields emitted (parity with P1 — so Rich can confirm)
 
