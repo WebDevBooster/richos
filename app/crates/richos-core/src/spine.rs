@@ -24,7 +24,7 @@ use crate::ledger::{ActionStatus, ActionVisibility, AttentionTier, Ledger, Ledge
 use crate::live::{
     proactive_message_events, EventFence, LiveEvent, LiveObserver, LiveTurn, ThreadStatus, TurnStatus,
 };
-use crate::machinery::{MachineryObserver, MachineryRecord};
+use crate::machinery::{ContextUsage, MachineryObserver, MachineryRecord};
 use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
 use crate::steering::{ActiveTurn, IntakeRecord, StopClaim, TurnControl};
 use crate::stream::{StreamEvent, TurnObserver};
@@ -100,21 +100,106 @@ struct QueuedProactiveEmit {
 }
 
 /// Rough chars-per-token ESTIMATE — the well-known ~4-chars/token heuristic for English
-/// text under the Claude tokenizer family. Used ONLY as the context-watermark PROXY per
-/// continuity design §3.2, which explicitly permits "ACP usage reporting OR AN ESTIMATE."
-/// `AcpClient::prompt` (acp.rs) currently discards the wire `usage` field entirely — real
-/// per-turn token counts are NOT wired end-to-end today, so this crate measures a
-/// deterministic, testable proxy (cumulative prompt+reply char count since the lease was
-/// last (re)primed) rather than asserting a number it can't prove. Shown as an estimate
-/// everywhere it's surfaced (`context_estimate_tokens`), never presented as exact.
+/// text under the Claude tokenizer family.
+///
+/// **This is now the FALLBACK, not the watermark.** Continuity design §3.2 permits "ACP
+/// usage reporting OR AN ESTIMATE"; the adapter does report, so the estimate is used only
+/// while the current lease has not yet said anything about itself. `context_source()`
+/// answers which of the two is in force at any instant, and nothing surfaces the estimate
+/// as a measurement.
+///
+/// **It is kept, rather than deleted, because a fresh lease genuinely has no measurement**
+/// — see `ContextSource::Estimated`. It is also, measurably, a bad one, and the size of
+/// the error is stated here rather than left as a feeling. Re-derived from the five probe
+/// runs at `docs/verification/acp-emission-probe-2026-08-28/`, comparing what this
+/// estimate would have counted (prompt chars + reply chars, ÷ 4) against the `used` the
+/// adapter reported over the same turn:
+///
+/// | run | est. tokens | measured Δ`used` | undercount |
+/// |-----|------------:|-----------------:|-----------:|
+/// | 1   |         386 |            1_354 |      3.5×  |
+/// | 2   |         646 |            2_138 |      3.3×  |
+/// | 3   |         282 |           11_523 |     40.9×  |
+/// | 4   |         711 |            2_431 |      3.4×  |
+/// | 5   |          97 |              225 |      2.3×  |
+///
+/// Run 3 is the tool-heavy one. `deliver` adds `prompt.len() + reply.len()` and nothing
+/// else, so every tool input and tool output — for an orchestrator Rich, the large
+/// majority of context — is invisible to it. The error is unbounded in that direction,
+/// which is why it may never again be the primary trigger.
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
-/// Default context-window budget (Claude's documented context-window class). Overridable
-/// via `set_context_budget` — real per-model limits differ and this is a v1 default, not
-/// a wired model-capability lookup.
+/// Fallback context-window budget, used ONLY while no `usage_update` has arrived for the
+/// current lease. Overridable via `set_context_budget`.
+///
+/// **Measured and wrong by 5×, kept honest rather than raised.** All 50 `usage_update`
+/// events across the five 2026-08-28 probe runs reported `"size": 1000000` — the
+/// adapter's own statement of the window. This constant is not corrected to 1_000_000
+/// because it is not a measurement of anything: it is the number to use when the lease
+/// has told us nothing, and guessing HIGH there is the dangerous direction (it delays
+/// rotation on the one path that has no real signal). Guessing low costs a rotation;
+/// guessing high risks the hard wall.
 const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 200_000;
 /// continuity design §8 Q2's recommended starting point: "~70% as the starting point,
 /// tuned in dogfood." Overridable via `set_context_budget`.
 const DEFAULT_WATERMARK_RATIO: f64 = 0.70;
+/// The fraction of the MEASURED window past which a lease is treated as in danger of
+/// hitting the hard context wall **inside the turn that is currently running** — the one
+/// place continuity §3.1 forbids rotating.
+///
+/// **Why a second, higher threshold exists at all.** The watermark rotates BETWEEN turns,
+/// so the question it cannot answer is "can the turn now in flight finish?" Crossing the
+/// watermark at 0.70 of a measured 1_000_000 leaves 300_000 tokens of headroom. The
+/// largest single-turn consumption in the probe capture is run 3's 11_523 tokens
+/// (`used` 30_468 → 41_991), so 300_000 ÷ 11_523 = **26.0 turns** of headroom: on measured
+/// traffic a turn cannot cross from the watermark to the wall, and this threshold should
+/// never fire. It exists for the traffic that was not measured.
+///
+/// 0.95 leaves 50_000 tokens = **4.3×** the largest measured turn. The point at which one
+/// more turn the size of the biggest ever measured would not fit is 1 − 11_523/1_000_000 =
+/// **0.9885**, so 0.95 fires with margin ahead of it.
+///
+/// **What crossing it does, and does not, do.** It does NOT rotate — rotation mid-turn is
+/// structurally forbidden and a mid-turn rotation would be worse than a late one. It
+/// records the crossing durably (an `Internal` action, invisible to the CEO) and forces
+/// rotation at the very next boundary under the reason `context-critical`, ahead of any
+/// ratio the operator configured. If the turn dies at the wall before reaching that
+/// boundary, that is a positive termination signal from the adapter and `recover_and_replay`
+/// (§5.3) is what catches it. **The client cannot prevent a mid-turn hard limit. It can
+/// only make it rare, and say so when it happened.**
+const CONTEXT_CRITICAL_RATIO: f64 = 0.95;
+
+/// Where the rotation watermark's numerator and denominator came from, right now.
+///
+/// This type exists so a fallback can never masquerade as a measurement. The two states
+/// are genuinely different — one is the adapter's own arithmetic, the other is a
+/// chars÷4 heuristic measured to undercount by 2.3× to 40.9× (`CHARS_PER_TOKEN_ESTIMATE`)
+/// — and every surface that reports context has to say which one it is holding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextSource {
+    /// The current lease reported `usage_update` at least once. `used`/`size` are the
+    /// adapter's, and the watermark is anchored to them.
+    Measured,
+    /// The current lease has not reported yet. The watermark is running on the chars÷4
+    /// proxy over `DEFAULT_CONTEXT_WINDOW_TOKENS` — an ESTIMATE, and named as one
+    /// everywhere it is surfaced. Every fresh lease starts here and leaves as soon as the
+    /// first `usage_update` arrives, which the probe measured at 6.8 s / event n=8 into
+    /// the first turn.
+    Estimated,
+}
+
+impl ContextSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContextSource::Measured => "measured",
+            ContextSource::Estimated => "estimated",
+        }
+    }
+    /// True only for `Measured`. Written as a method so a caller cannot accidentally
+    /// treat "we have a number" as "we measured a number".
+    pub fn is_measured(&self) -> bool {
+        matches!(self, ContextSource::Measured)
+    }
+}
 
 /// The `stop_reason` a CEO-stopped turn carries on the legacy `stream.rs` family, and in
 /// the ledger. One string, in one place, so nothing downstream has to pattern-match on a
@@ -152,6 +237,19 @@ pub struct Spine {
     /// Cumulative prompt+reply chars sent/received on the CURRENT lease since it was
     /// last (re)primed — the context-watermark measurement (see `CHARS_PER_TOKEN_ESTIMATE`).
     context_chars: usize,
+    /// The MEASURED context usage the current lease last reported (`usage_update`'s
+    /// `{used, size}`). `None` means this lease has not reported yet and the watermark is
+    /// running on the estimate above — a genuinely different state, exposed as
+    /// [`ContextSource`] rather than smoothed over.
+    ///
+    /// Cleared in `install_lease`, which is the only place `self.lease` is assigned: a
+    /// successor inherits none of its predecessor's consumption, and carrying the old
+    /// number forward would rotate every fresh lease instantly.
+    context_usage: Option<ContextUsage>,
+    /// Set when a `usage_update` arriving DURING a turn crosses `CONTEXT_CRITICAL_RATIO`.
+    /// Carries the turn it crossed in, because that is the turn the durable record
+    /// belongs to. Consumed at the next turn boundary; see `after_turn_boundary`.
+    context_pressure: Option<(String, ContextUsage)>,
     context_window_tokens: usize,
     watermark_ratio: f64,
     /// An explicit rotation request (continuity §3.2 "Explicit (!rotate equivalent)").
@@ -264,6 +362,8 @@ impl Spine {
             lease_factory: None,
             loro_compiler: None,
             context_chars: 0,
+            context_usage: None,
+            context_pressure: None,
             context_window_tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
             watermark_ratio: DEFAULT_WATERMARK_RATIO,
             pending_rotation_reason: None,
@@ -457,6 +557,14 @@ impl Spine {
         self.control.set_lease_session(Some(lease.session_id().to_string()));
         self.lease = Some(lease);
         self.lease_primed = false;
+        // A FRESH LEASE HAS NOT MEASURED ITSELF YET, and must not inherit a number about
+        // a session that no longer exists. Clearing here — the one place `self.lease` is
+        // assigned — is what makes that true by construction on all three paths (boot,
+        // clean rotation, crash recovery) instead of by remembering it at each. Leaving it
+        // set would put a successor over the watermark on its first turn and rotate it
+        // immediately: rotation as a loop, which is worse than no rotation at all.
+        self.context_usage = None;
+        self.context_pressure = None;
     }
 
     /// The current lease's session id — the ONLY honest answer to "whose workers is this
@@ -512,20 +620,96 @@ impl Spine {
     }
 
     /// The current lease's ESTIMATED consumed-context in tokens (chars ÷ 4 — see
-    /// `CHARS_PER_TOKEN_ESTIMATE`). An estimate, never presented as an exact measurement.
+    /// `CHARS_PER_TOKEN_ESTIMATE`). An estimate, never presented as an exact measurement,
+    /// and no longer the watermark's input once the lease has reported.
     pub fn context_estimate_tokens(&self) -> usize {
         self.context_chars / CHARS_PER_TOKEN_ESTIMATE
     }
 
+    /// The MEASURED `{used, size}` the current lease last reported, or `None` if it has
+    /// not reported yet. Read from the machinery STREAM as records go past — never from
+    /// the journal, whose Tier-B payloads are evictable (`machinery.rs`).
+    pub fn context_usage(&self) -> Option<ContextUsage> {
+        self.context_usage
+    }
+
+    /// Which of the two the watermark is running on RIGHT NOW. The whole point of
+    /// exposing this is that a caller must never be able to print a context number
+    /// without also being able to say where it came from.
+    pub fn context_source(&self) -> ContextSource {
+        match self.context_usage {
+            Some(_) => ContextSource::Measured,
+            None => ContextSource::Estimated,
+        }
+    }
+
+    /// Consumed context in tokens: the adapter's `used` when it has reported, otherwise
+    /// the chars÷4 estimate. Pair it with `context_source()` before showing it to anyone.
+    pub fn context_used_tokens(&self) -> usize {
+        match self.context_usage {
+            Some(u) => u.used as usize,
+            None => self.context_estimate_tokens(),
+        }
+    }
+
+    /// The context window in tokens: the adapter's `size` when it has reported, otherwise
+    /// the configured fallback.
+    ///
+    /// **The wire outranks `set_context_budget`'s window, deliberately.** The adapter knows
+    /// which model is behind the session; this process is guessing. Measured 50/50 on
+    /// 2026-08-28: `size` = 1_000_000 against a configured default of 200_000. The
+    /// configured ratio is NOT overridden — that is policy, and policy stays ours.
     pub fn context_window_tokens(&self) -> usize {
+        match self.context_usage {
+            Some(u) if u.size > 0 => u.size as usize,
+            _ => self.context_window_tokens,
+        }
+    }
+
+    /// The window this spine would fall back to if the lease never reported. Exposed
+    /// separately so `set_context_budget`'s effect stays inspectable even once a
+    /// measurement has superseded it.
+    pub fn configured_context_window_tokens(&self) -> usize {
         self.context_window_tokens
+    }
+
+    /// The fraction of the context window consumed — the exact number `watermark_reached`
+    /// compares against the ratio. Measured or estimated per `context_source()`.
+    pub fn context_fraction(&self) -> f64 {
+        match self.context_usage {
+            Some(u) => u.fraction(),
+            None => {
+                let window = self.context_window_tokens.max(1) as f64;
+                self.context_estimate_tokens() as f64 / window
+            }
+        }
     }
 
     /// Whether the current lease has crossed the watermark and is due for rotation at
     /// the next turn boundary (continuity §3.2, primary trigger).
+    ///
+    /// **Measured first, estimated only as a fallback** (Frank's F2, 2026-08-29). When the
+    /// lease has reported `usage_update` this is `used / size >= ratio` — the adapter's own
+    /// arithmetic. Until then it is the chars÷4 proxy over the configured fallback window,
+    /// which is an estimate and is labelled one by `context_source()`.
+    ///
+    /// The integer-threshold form was kept for the fallback branch so the existing
+    /// `set_context_budget(1000, 0.001)` tests keep meaning exactly what they meant.
     pub fn watermark_reached(&self) -> bool {
-        let threshold = (self.context_window_tokens as f64 * self.watermark_ratio) as usize;
-        self.context_estimate_tokens() >= threshold
+        match self.context_usage {
+            Some(u) if u.size > 0 => u.fraction() >= self.watermark_ratio,
+            // No measurement (fresh lease, or an adapter that reported a zero window).
+            _ => {
+                let threshold = (self.context_window_tokens as f64 * self.watermark_ratio) as usize;
+                self.context_estimate_tokens() >= threshold
+            }
+        }
+    }
+
+    /// The measured usage that crossed `CONTEXT_CRITICAL_RATIO` mid-turn and has not yet
+    /// been settled at a boundary, with the turn it crossed in. `None` in the normal case.
+    pub fn context_pressure(&self) -> Option<(&str, ContextUsage)> {
+        self.context_pressure.as_ref().map(|(t, u)| (t.as_str(), *u))
     }
 
     pub fn rotation_count(&self) -> u64 {
@@ -924,6 +1108,14 @@ impl Spine {
         // lazily (`LiveTurn::on_machinery` calls the thunk only once this turn has a
         // delegation to resolve), so a turn that never delegates does no extra file I/O.
         let worker_source = &self.worker_events;
+        // THE MEASURED WATERMARK'S INPUT (Frank F2). Two more disjoint field borrows, so
+        // the drain closure can consume `usage_update` AS IT GOES PAST — which is the
+        // only place it can be consumed: `usage_update` lands in the EVICTABLE Tier B
+        // (`journal.rs`), so reading it back from the journal is reading something that
+        // may legitimately be gone. 50 of these arrived across five probe runs and every
+        // one of them was retained and ignored; this is the line that stops ignoring them.
+        let usage_slot = &mut self.context_usage;
+        let pressure_slot = &mut self.context_pressure;
         // Captured up front: the borrow checker will not let `self` be touched inside the
         // stream closure below, and the session identity is what names the team directory.
         let worker_session = self.lease.as_ref().map(|l| l.session_id().to_string());
@@ -967,6 +1159,21 @@ impl Spine {
                 }
                 TurnItem::Machinery(record) => {
                     let record = record.stamp(thread_id, Some(turn_id), internal_turn);
+                    // THE ONE machinery record that is read rather than merely retained.
+                    // Everything else in this family is routed for later interpretation;
+                    // this pair decides when Rich rotates, so it is consumed here, live.
+                    if let Some(usage) = record.context_usage() {
+                        *usage_slot = Some(usage);
+                        // MID-TURN, AT THE WALL. Rotation is structurally forbidden here
+                        // (continuity §3.1) and firing one would be worse than firing
+                        // late, so this DETECTS and RECORDS; `after_turn_boundary` acts.
+                        // First crossing wins — it is the honest "when", and a later,
+                        // higher reading in the same turn changes nothing that can be done
+                        // about it.
+                        if usage.fraction() >= CONTEXT_CRITICAL_RATIO && pressure_slot.is_none() {
+                            *pressure_slot = Some((turn_id.to_string(), usage));
+                        }
+                    }
                     // A tool call ENDS the open run of prose — the ledger will fold the next
                     // delta into a new run — so the message is closed here rather than at
                     // the turn's end, and §5.2's "commentary, then activity" is live-accurate.
@@ -1388,10 +1595,62 @@ impl Spine {
         // and a reload agrees with what he saw.
         self.drain_intake()?;
         self.settle_stop_claim(binding)?;
+        self.settle_context_pressure()?;
         if let Some(reason) = self.pending_rotation_reason.take() {
             self.rotate_lease(binding, &reason)?;
         } else if self.lease_factory.is_some() && self.watermark_reached() {
             self.rotate_lease(binding, "context-watermark")?;
+        }
+        Ok(())
+    }
+
+    /// Settle a mid-turn crossing of `CONTEXT_CRITICAL_RATIO`, at the first legal moment.
+    ///
+    /// **This is the honest answer to "what happens when a turn's own consumption crosses
+    /// the limit while it is running", and the honest answer is: not much, on purpose.**
+    /// The three things this process can actually do are done here, and the fourth thing
+    /// is named rather than faked.
+    ///
+    /// 1. **It is written down, durably, against the turn it happened in.** `Internal`
+    ///    visibility, so it never reaches the CEO's view and is excluded from the re-prime
+    ///    digest (`reprime.rs`) — the standing order is that Rich never reveals rotation,
+    ///    and this is rotation's cause.
+    /// 2. **The next boundary rotates, whatever the configured ratio says.** An operator
+    ///    who set `watermark_ratio` to 0.99 has, at 0.95 measured, already been overtaken
+    ///    by events; `context-critical` outranks the policy that let it get here.
+    /// 3. **Nothing rotates now.** `after_turn_boundary` is only ever reached with
+    ///    `turn_in_progress == false` — that is what makes this legal, and it is the same
+    ///    invariant the whole controller is built on.
+    /// 4. **The turn may still die at the wall before it reaches this point, and this
+    ///    cannot prevent that.** A client cannot stop a session it does not own from
+    ///    running out of context inside a request it has already sent. What happens then
+    ///    is the existing crash path, unchanged and correct: the adapter returns a
+    ///    positive termination signal, the turn is marked `interrupted` in the durable
+    ///    ledger, and `recover_and_replay` (§5.3) replays it on a fresh lease with
+    ///    `supersedesTurnId`. The CEO sees a calm reconnect, not a stack trace. **The
+    ///    watermark's job is to make that path rare; this constant's job is to notice when
+    ///    it nearly happened.**
+    fn settle_context_pressure(&mut self) -> Result<(), SpineError> {
+        let Some((turn_id, usage)) = self.context_pressure.take() else { return Ok(()) };
+        let session = self.lease_session_id().unwrap_or("unknown").to_string();
+        self.ledger.record_action_with(
+            Some(&turn_id),
+            "context_pressure",
+            &format!(
+                "session={session} crossed {:.0}% of its MEASURED context window during a turn \
+                 (used={} size={} = {:.1}%); rotation deferred to this boundary, never fired mid-turn",
+                CONTEXT_CRITICAL_RATIO * 100.0,
+                usage.used,
+                usage.size,
+                usage.fraction() * 100.0,
+            ),
+            ActionVisibility::Internal,
+            ActionStatus::Completed,
+        )?;
+        // Does not clobber an explicit request already pending — a CEO-requested rotation
+        // and this one do the same thing, and his reason is the more informative one.
+        if self.pending_rotation_reason.is_none() {
+            self.pending_rotation_reason = Some("context-critical".to_string());
         }
         Ok(())
     }
