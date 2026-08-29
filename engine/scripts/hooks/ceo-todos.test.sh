@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# ceo-queue.test.sh — regression tests for the CEO-queue mechanism:
-# scripts/lib/ceo-queue.sh, scripts/lib/ceo-queue.py, the CLI
-# scripts/ceo-queue-lint.sh, and the guard that runs them at every commit
-# (scripts/hooks/guard-ceo-queue-commits.sh).
+# ceo-todos.test.sh — regression tests for the CEO-TODOs mechanism:
+# scripts/lib/ceo-todos.sh, scripts/lib/ceo-todos.py, the CLI
+# scripts/ceo-todos-lint.sh, and the guard that runs them at every commit
+# (scripts/hooks/guard-ceo-todos-commits.sh).
 #
 # ONE suite for all four files on purpose. They are one subject — a predicate
 # and its chokepoints — and splitting them would create several places to
@@ -24,7 +24,7 @@
 # loud block from the guard) that can never be mistaken for a pass.
 #
 # Covers:
-#   (a) STAND-DOWN — a repository with no .ceo-queue is untouched. This is the
+#   (a) STAND-DOWN — a repository with no .ceo-todos is untouched. This is the
 #       precision floor: get it wrong and the guard fires in every repository
 #       on the machine.
 #   (b) THE REAL FAILURE — the item as it was actually written ("a real
@@ -52,7 +52,7 @@
 #   (i) FAIL-CLOSED conventions, matching the hook family.
 #   (j) REGISTRATION on both surfaces, plus the probe's oracle and Layer R.
 #
-# Run directly: scripts/hooks/ceo-queue.test.sh
+# Run directly: scripts/hooks/ceo-todos.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
 
 set -uo pipefail
@@ -68,8 +68,8 @@ RICHOS_ENTITY_ROOT="$ENGINE_ROOT"
 export RICHOS_ENTITY_ROOT
 unset CLAUDE_PROJECT_DIR
 
-GUARD="$SCRIPT_DIR/guard-ceo-queue-commits.sh"
-LINT="$ENGINE_ROOT/scripts/ceo-queue-lint.sh"
+GUARD="$SCRIPT_DIR/guard-ceo-todos-commits.sh"
+LINT="$ENGINE_ROOT/scripts/ceo-todos-lint.sh"
 BASH_BIN="$(command -v bash)"
 
 PASS=0
@@ -80,7 +80,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in "$GUARD" "$LINT" "$ENGINE_ROOT/scripts/lib/ceo-queue.sh" "$ENGINE_ROOT/scripts/lib/ceo-queue.py"; do
+for f in "$GUARD" "$LINT" "$ENGINE_ROOT/scripts/lib/ceo-todos.sh" "$ENGINE_ROOT/scripts/lib/ceo-todos.py"; do
     [ -f "$f" ] || { echo "FATAL: missing $f" >&2; exit 1; }
 done
 
@@ -96,18 +96,18 @@ mk_repo() {
     # a README. Every fixture starts REACHABLE so that a case which fails does
     # so for the reason it is testing — and so the reachability cases below have
     # something real to break.
-    printf '# A repo\n\nStart at [CEO-QUEUE.md](CEO-QUEUE.md).\n' > "$repo/README.md"
+    printf '# A repo\n\nStart at [CEO-TODOs.md](CEO-TODOs.md).\n' > "$repo/README.md"
     if [ "$#" -ge 2 ]; then
-        printf '%s\n' "$2" > "$repo/.ceo-queue"
+        printf '%s\n' "$2" > "$repo/.ceo-todos"
     else
         {
-            echo 'QUEUE_RECORD="wiki/open-items.md"'
-            echo 'QUEUE_VIEW="CEO-QUEUE.md"'
+            echo 'TODO_RECORD="wiki/open-items.md"'
+            echo 'TODO_VIEW="CEO-TODOs.md"'
             echo 'ROOT_README="README.md"'
             echo 'CEO_SECTIONS="1 2"'
             echo 'PREPARER_SECTION="3"'
             echo 'ARTIFACT_ROOTS="repo=. nowhere=../no-such-sibling-repository"'
-        } > "$repo/.ceo-queue"
+        } > "$repo/.ceo-todos"
     fi
     printf '%s' "$repo"
 }
@@ -116,7 +116,7 @@ mk_repo() {
 # record, exactly as a person is expected to — so a stale-view failure in a case
 # that is not about staleness would be the fixture's fault, not the predicate's.
 sync_view() {
-    "$BASH_BIN" "$ENGINE_ROOT/scripts/ceo-queue-render.sh" "$1" >/dev/null 2>&1 || true
+    "$BASH_BIN" "$ENGINE_ROOT/scripts/ceo-todos-render.sh" "$1" >/dev/null 2>&1 || true
 }
 
 # A well-formed section 1 item, used as ballast so no case passes merely
@@ -173,17 +173,17 @@ run_lint() {
     return 0
 }
 
-echo "=== ceo-queue: the predicate, the CLI and the commit guard ==="
+echo "=== ceo-todos: the predicate, the CLI and the commit guard ==="
 
 # ---------------------------------------------------------------------------
 # (a) STAND-DOWN — the precision floor
 # ---------------------------------------------------------------------------
 R="$(mk_repo standdown)"
-rm -f "$R/.ceo-queue"
+rm -f "$R/.ceo-todos"
 write_record "$R" '### 2.1 READY-FOR-CEO — nothing here is valid'
 run_guard "$R"
 if [ "$GRC" -eq 0 ]; then
-    ok "a repository with no .ceo-queue is untouched, however bad its record"
+    ok "a repository with no .ceo-todos is untouched, however bad its record"
 else
     bad "stand-down failed: guard fired in an undeclared repository (rc=$GRC)"
 fi
@@ -429,7 +429,7 @@ else
 fi
 
 R="$(mk_repo nodecl)"
-rm -f "$R/.ceo-queue"
+rm -f "$R/.ceo-todos"
 write_record "$R" '### 2.1 READY-FOR-CEO — anything at all'
 run_lint "$R"
 if [ "$LRC" -eq 2 ] && printf '%s' "$LOUT" | grep -qF 'not a pass'; then
@@ -508,13 +508,13 @@ fi
 # ---------------------------------------------------------------------------
 for decl_case in \
   'UNKNOWN_KEY="x"|unknown key' \
-  'QUEUE_RECORD="wiki/open-items.md"
+  'TODO_RECORD="wiki/open-items.md"
 CEO_SECTIONS=""|CEO_SECTIONS is empty' \
-  'QUEUE_RECORD="wiki/open-items.md"
+  'TODO_RECORD="wiki/open-items.md"
 CEO_SECTIONS="1 3"
 PREPARER_SECTION="3"|BOTH' \
-  'QUEUE_RECORD="/etc/passwd"|repository-relative' \
-  'QUEUE_RECORD="wiki/open-items.md"
+  'TODO_RECORD="/etc/passwd"|repository-relative' \
+  'TODO_RECORD="wiki/open-items.md"
 ARTIFACT_ROOTS="justaprefix"|<prefix>=<root>' ; do
     body="${decl_case%|*}"
     want="${decl_case##*|}"
@@ -535,11 +535,11 @@ done
 # and the CEO could not find any of it, because the only new file was a dotfile
 # and the items were buried in a 173-line record. Every criterion in that
 # landing was internal. These are the criteria that are not.
-RENDER="$ENGINE_ROOT/scripts/ceo-queue-render.sh"
+RENDER="$ENGINE_ROOT/scripts/ceo-todos-render.sh"
 COLDOPEN="$ENGINE_ROOT/scripts/cold-open.sh"
-INIT="$ENGINE_ROOT/scripts/ceo-queue-init.sh"
+INIT="$ENGINE_ROOT/scripts/ceo-todos-init.sh"
 
-DECL_NO_VIEW='QUEUE_RECORD="wiki/open-items.md"
+DECL_NO_VIEW='TODO_RECORD="wiki/open-items.md"
 CEO_SECTIONS="1 2"
 PREPARER_SECTION="3"
 ARTIFACT_ROOTS="repo=."'
@@ -548,14 +548,14 @@ R="$(mk_repo noview "$DECL_NO_VIEW")"
 write_record "$R" ''
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'NO-ENTRY-POINT-DECLARED'; then
-    ok "a queue with NO declared entry point is refused — a queue nobody can find is a queue nobody has"
+    ok "TODOs with NO declared entry point are refused — TODOs nobody can find are TODOs nobody has"
 else
-    bad "a queue with no QUEUE_VIEW should be refused (rc=$GRC)"
+    bad "TODOs with no TODO_VIEW should be refused (rc=$GRC)"
 fi
 
 R="$(mk_repo noviewfile)"
 write_record "$R" ''
-rm -f "$R/CEO-QUEUE.md"
+rm -f "$R/CEO-TODOs.md"
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-MISSING'; then
     ok "a declared entry point that is not on disk is refused"
@@ -593,8 +593,8 @@ R="$(mk_repo stagedview)"
 write_record "$R" ''
 git -C "$R" add -A >/dev/null 2>&1
 git -C "$R" -c user.email=t@t -c user.name=t commit -qm base >/dev/null 2>&1
-printf 'hand-edited nonsense\n' > "$R/CEO-QUEUE.md"
-git -C "$R" add CEO-QUEUE.md >/dev/null 2>&1
+printf 'hand-edited nonsense\n' > "$R/CEO-TODOs.md"
+git -C "$R" add CEO-TODOs.md >/dev/null 2>&1
 sync_view "$R"                     # worktree is fine again; the INDEX is not
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-STALE'; then
@@ -603,8 +603,8 @@ else
     bad "a staged stale view should be refused (rc=$GRC)"
 fi
 
-DECL_DOTFILE='QUEUE_RECORD="wiki/open-items.md"
-QUEUE_VIEW=".ceo-queue.md"
+DECL_DOTFILE='TODO_RECORD="wiki/open-items.md"
+TODO_VIEW=".ceo-todos.md"
 CEO_SECTIONS="1 2"
 PREPARER_SECTION="3"
 ARTIFACT_ROOTS="repo=."'
@@ -631,7 +631,7 @@ fi
 R="$(mk_repo buriedinreadme)"
 write_record "$R" ''
 { printf '# A repo\n'; for i in $(seq 1 60); do printf 'filler line %s\n' "$i"; done
-  printf 'see CEO-QUEUE.md\n'; } > "$R/README.md"
+  printf 'see CEO-TODOs.md\n'; } > "$R/README.md"
 sync_view "$R"
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'ENTRY-POINT-NOT-DISCOVERABLE'; then
@@ -642,10 +642,10 @@ fi
 
 R="$(mk_repo twoviews)"
 write_record "$R" ''
-cp "$R/CEO-QUEUE.md" "$R/CEO-QUEUE-COPY.md"
+cp "$R/CEO-TODOs.md" "$R/CEO-TODOs-COPY.md"
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'MULTIPLE-ENTRY-POINTS'; then
-    ok "a COPY of the generated page at the top level is refused — one queue, one page"
+    ok "a COPY of the generated page at the top level is refused — one list, one page"
 else
     bad "a second generated page should be refused (rc=$GRC)"
 fi
@@ -653,8 +653,8 @@ fi
 # ---------------------------------------------------------------------------
 # (n) THE COLD OPEN — the machine enforces that it happened, never its verdict
 # ---------------------------------------------------------------------------
-DECL_COLD='QUEUE_RECORD="wiki/open-items.md"
-QUEUE_VIEW="CEO-QUEUE.md"
+DECL_COLD='TODO_RECORD="wiki/open-items.md"
+TODO_VIEW="CEO-TODOs.md"
 CEO_SECTIONS="1 2"
 PREPARER_SECTION="3"
 ARTIFACT_ROOTS="repo=."
@@ -708,7 +708,7 @@ else
 fi
 
 # Change the front door; the same transcript now describes a page that is gone.
-printf '# A repo\n\nA COMPLETELY DIFFERENT front page. Start at [CEO-QUEUE.md](CEO-QUEUE.md).\n' > "$R/README.md"
+printf '# A repo\n\nA COMPLETELY DIFFERENT front page. Start at [CEO-TODOs.md](CEO-TODOs.md).\n' > "$R/README.md"
 run_guard "$R"
 if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'COLD-OPEN-STALE'; then
     ok "changing the front door makes every existing transcript stale — identity or refuse, applied to a judgment"
@@ -748,7 +748,7 @@ else
     bad "the render is not deterministic"
 fi
 
-printf 'hand-edited\n' > "$R/CEO-QUEUE.md"
+printf 'hand-edited\n' > "$R/CEO-TODOs.md"
 "$BASH_BIN" "$RENDER" --check "$R" >/dev/null 2>&1
 if [ "$?" -eq 1 ]; then
     ok "--check reports a stale page as exit 1 and writes nothing"
@@ -760,26 +760,26 @@ fi
 # with no declaration, no template and no mention in the runbook — so every
 # adopter received enforcement that could never fire, and nothing told them.
 # This is that customer, and the assertion is that one command hands them a
-# working, lint-clean queue with a page on it.
+# working, lint-clean TODO list with a page on it.
 FRESH="$SCRATCH/freshadopter"
 mkdir -p "$FRESH"
 git -C "$FRESH" init -q
 printf '# Some company\n\nWe do things.\n' > "$FRESH/README.md"
 IOUT="$("$BASH_BIN" "$INIT" "$FRESH" --no-cold-open 2>&1)"; IRC=$?
-if [ "$IRC" -eq 0 ] && [ -f "$FRESH/.ceo-queue" ] && [ -f "$FRESH/CEO-QUEUE.md" ]; then
-    ok "a FRESH ADOPTER gets a working queue from one command — declaration, record and a page"
+if [ "$IRC" -eq 0 ] && [ -f "$FRESH/.ceo-todos" ] && [ -f "$FRESH/CEO-TODOs.md" ]; then
+    ok "a FRESH ADOPTER gets a working TODO list from one command — declaration, record and a page"
 else
-    bad "ceo-queue-init.sh should give a fresh repo a working queue (rc=$IRC): $IOUT"
+    bad "ceo-todos-init.sh should give a fresh repo a working TODO list (rc=$IRC): $IOUT"
 fi
-if head -40 "$FRESH/README.md" | grep -qF 'CEO-QUEUE.md'; then
+if head -40 "$FRESH/README.md" | grep -qF 'CEO-TODOs.md'; then
     ok "...and their root README points at it, so the page is reachable and not merely present"
 else
     bad "init should point the root README at the entry point"
 fi
-if grep -qF 'Nothing is waiting on you' "$FRESH/CEO-QUEUE.md"; then
-    ok "...and an EMPTY queue still renders a real page, so the surface exists from minute one"
+if grep -qF 'Nothing is waiting on you' "$FRESH/CEO-TODOs.md"; then
+    ok "...and an EMPTY list still renders a real page, so the surface exists from minute one"
 else
-    bad "an empty queue should still render a page"
+    bad "an empty list should still render a page"
 fi
 run_lint "$FRESH"
 if [ "$LRC" -eq 0 ]; then
@@ -794,8 +794,8 @@ else
     bad "init should refuse to clobber an existing declaration (rc=$IRC)"
 fi
 
-for f in reference/ceo-queue/ceo-queue.example reference/ceo-queue/open-items.md \
-         reference/ceo-queue/cold-open-README.md scripts/lib/cold-open-prompt.md; do
+for f in reference/ceo-todos/ceo-todos.example reference/ceo-todos/open-items.md \
+         reference/ceo-todos/cold-open-README.md scripts/lib/cold-open-prompt.md; do
     if [ -f "$ENGINE_ROOT/$f" ]; then
         ok "the engine ships $f — an adopter cannot switch this on without it"
     else
@@ -825,8 +825,8 @@ cp "$GUARD" "$TMPENG/scripts/hooks/"
 cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$TMPENG/scripts/lib/"
 rc=0
 out="$(printf '{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"git commit -m x"}}' \
-       | "$BASH_BIN" "$TMPENG/scripts/hooks/guard-ceo-queue-commits.sh" 2>&1 >/dev/null)" || rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF "ceo-queue.sh is missing"; then
+       | "$BASH_BIN" "$TMPENG/scripts/hooks/guard-ceo-todos-commits.sh" 2>&1 >/dev/null)" || rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF "ceo-todos.sh is missing"; then
     ok "a missing predicate library is a LOUD refusal, never a quiet skip"
 else
     bad "missing predicate library should block loudly (rc=$rc)"
@@ -836,7 +836,7 @@ rm -rf "$TMPENG"
 # ---------------------------------------------------------------------------
 # (l) REGISTRATION — both surfaces, or the engine ships a guard nobody loads
 # ---------------------------------------------------------------------------
-G=guard-ceo-queue-commits.sh
+G=guard-ceo-todos-commits.sh
 if grep -q "$G" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then
     ok "$G registered in hooks/hooks.json (plugin surface)"
 else
@@ -852,13 +852,13 @@ if grep -q "^${G}|PreToolUse" "$ENGINE_ROOT/scripts/hooks/contract-integrity-pro
 else
     bad "$G NOT declared in the probe's managed set"
 fi
-if grep -q "guard-ceo-queue-commits" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
-   && grep -q "guard-ceo-queue-commits \\\\" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null; then
+if grep -q "guard-ceo-todos-commits" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null \
+   && grep -q "guard-ceo-todos-commits \\\\" "$ENGINE_ROOT/scripts/hooks/contract-integrity-probe.sh" 2>/dev/null; then
     ok "$G listed among Layer R's root-resolving hooks"
 else
     bad "$G NOT listed in Layer R's rooted-hook set — its bootstrap would go unchecked"
 fi
-for lib in scripts/lib/ceo-queue.sh scripts/lib/ceo-queue.py scripts/lib/cold-open-prompt.md; do
+for lib in scripts/lib/ceo-todos.sh scripts/lib/ceo-todos.py scripts/lib/cold-open-prompt.md; do
     if grep -q "$lib" "$ENGINE_ROOT/scripts/hooks/install.sh" 2>/dev/null; then
         ok "$lib is sidecar-hashed by install.sh (the guard delegates its whole decision to it)"
     else

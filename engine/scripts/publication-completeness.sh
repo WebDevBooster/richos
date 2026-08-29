@@ -19,13 +19,13 @@
 # That half was decided by hand, per artifact, all day. It was got wrong four
 # times in one day, and all four are the same shape:
 #
-#   1. SHIPPED INERT. The engine shipped ceo-queue-lint.sh,
-#      guard-ceo-queue-commits.sh, lib/ceo-queue.{sh,py} and a full test suite
-#      — and no `.ceo-queue`, no template of one, and no mention in
+#   1. SHIPPED INERT. The engine shipped ceo-todos-lint.sh,
+#      guard-ceo-todos-commits.sh, lib/ceo-todos.{sh,py} and a full test suite
+#      — and no `.ceo-todos`, no template of one, and no mention in
 #      ONBOARDING-RUNBOOK.md, WALKTHROUGH.md or the bootstrap-interview skill.
 #      A customer receives enforcement machinery that can never fire.
 #
-#   2. MECHANISM IN THE PRIVATE TREE. The queue RENDERER — the only thing that
+#   2. MECHANISM IN THE PRIVATE TREE. The TODOs RENDERER — the only thing that
 #      turns the record into something a CEO can look at — stayed in
 #      richos-hq/scripts/. The customer got the enforcement and not the view.
 #

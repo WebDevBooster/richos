@@ -267,7 +267,7 @@ def _drop_ignored(tree, pending):
 # ---------------------------------------------------------------------------
 # The engine's guards are switched on by a committed declaration file at the
 # governed repository's root: .publication-boundary switches on the boundary
-# guards, .ceo-queue switches on the queue guard. Presence IS adoption. That
+# guards, .ceo-todos switches on the TODOs guard. Presence IS adoption. That
 # design is right, and it has a failure mode that is invisible from inside:
 #
 #   SHIP THE ENFORCEMENT, SHIP THE TESTS, SHIP NO DECLARATION AND NO WORD OF
@@ -275,8 +275,8 @@ def _drop_ignored(tree, pending):
 #   NEVER FIRE.
 #
 # That is not a hypothetical. On 2026-08-29 the engine shipped
-# ceo-queue-lint.sh, guard-ceo-queue-commits.sh, lib/ceo-queue.{sh,py} and a
-# full test suite, with no .ceo-queue anywhere, no template of one, and no
+# ceo-todos-lint.sh, guard-ceo-todos-commits.sh, lib/ceo-todos.{sh,py} and a
+# full test suite, with no .ceo-todos anywhere, no template of one, and no
 # mention in ONBOARDING-RUNBOOK.md, WALKTHROUGH.md or the bootstrap-interview
 # skill. Every test passed. The probe was green. The capability was inert.
 #
@@ -284,7 +284,7 @@ def _drop_ignored(tree, pending):
 # declaration in its own source, in one form the engine already uses twice:
 #
 #     : "${PUBLICATION_DECLARATION:=.publication-boundary}"
-#     : "${CEO_QUEUE_DECLARATION:=.ceo-queue}"
+#     : "${CEO_TODOS_DECLARATION:=.ceo-todos}"
 #
 # so the set is a grep over shipped source, and a third capability added
 # tomorrow is checked the moment it follows the same convention. What that
@@ -336,7 +336,7 @@ def derive_declarations(tree):
         # A DEFINITION IS CODE. A COMMENT QUOTING THE CONVENTION IS NOT.
         # This file's own header quotes both real declarations verbatim to
         # explain the derivation, and that made it register as a THIRD source
-        # of `.ceo-queue` — so a finding named it alongside the guard that
+        # of `.ceo-todos` — so a finding named it alongside the guard that
         # actually implements the gate, and deleting the real guard would have
         # left the declaration "alive" in a doc comment. Comment lines are
         # dropped before matching, which is both more accurate and the reason
@@ -351,7 +351,7 @@ def derive_declarations(tree):
 # A CHANGELOG IS NOT ONBOARDING, and this distinction is load-bearing rather
 # than fussy. Measured: with CHANGELOG.md in the closure, BOTH declarations
 # passed the ONBOARDED arm — because the changelog records the commit that
-# ADDED them. `.ceo-queue` was mentioned in exactly one published document, the
+# ADDED them. `.ceo-todos` was mentioned in exactly one published document, the
 # one that says it happened, and in none of the documents that tell an adopter
 # to do it. A changelog answers "what changed"; onboarding answers "what do I
 # do". Counting the first as the second is how a capability comes to look
@@ -414,7 +414,7 @@ def check_declarations(tree, exempt, used, explain):
         problems = []
         # A DOTFILE'S TEMPLATE IS USUALLY SHIPPED WITHOUT THE DOT, because a
         # hidden template is a template nobody browsing the tree ever sees.
-        # `.ceo-queue`'s real one shipped as reference/ceo-queue/ceo-queue.example
+        # `.ceo-todos`'s real one shipped as reference/ceo-todos/ceo-todos.example
         # and this check called it missing — a false positive on a capability
         # that had just been fixed properly, which is how a checker earns the
         # reputation that gets it switched off. The dot-stripped form is
@@ -518,7 +518,7 @@ def check_workflows(tree, exempt, used, explain):
 # ---------------------------------------------------------------------------
 # CHECK 4 — MECHANISM MISPLACEMENT
 # ---------------------------------------------------------------------------
-# The queue contract shipped its guard, its lint and its parser to the public
+# The TODOs contract shipped its guard, its lint and its parser to the public
 # tree, and left the renderer — the only thing that turns the record into
 # something a CEO can look at — in the private HQ repository. The customer got
 # the enforcement and not the view.
@@ -526,13 +526,13 @@ def check_workflows(tree, exempt, used, explain):
 # THE JUDGEMENT CALL IS MECHANISM vs INSTANCE DATA, and it is made
 # STRUCTURALLY rather than by opinion:
 #
-#   INSTANCE DATA  is content. `.ceo-queue` in richos-hq is one company's
-#                  declaration; CEO-QUEUE.md is one company's queue. Correctly
+#   INSTANCE DATA  is content. `.ceo-todos` in richos-hq is one company's
+#                  declaration; CEO-TODOs.md is one company's TODOs. Correctly
 #                  private, and never a candidate here, because neither has a
 #                  shebang nor an executable extension.
 #
 #   MECHANISM      is executable. A shebang, or a .sh/.py/.mjs/.js/.rb/.ps1
-#                  extension. render-ceo-queue.mjs is one.
+#                  extension. render-ceo-todos.mjs is one.
 #
 # Being a mechanism is not enough — a private repo is allowed its own scripts.
 # The defect is a private mechanism COUPLED TO A PUBLIC CONTRACT: it reads or

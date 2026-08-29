@@ -1,8 +1,8 @@
 # Open items
 
-The source of truth for everything in flight. `@@QUEUE_VIEW@@` at the repository
+The source of truth for everything in flight. `@@TODO_VIEW@@` at the repository
 root is generated from this file — edit here, then run
-`scripts/ceo-queue-render.sh` (RichOS engine).
+`scripts/ceo-todos-render.sh` (RichOS engine).
 
 **Sections 1 and 2 are the CEO's.** An item may sit there only when it is
 *prepared*: the thing he opens already exists on disk, the time cost is stated,

@@ -131,8 +131,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="$SCRIPT_DIR/lib/ceo-queue.sh"
-RENDER="$SCRIPT_DIR/ceo-queue-render.sh"
+LIB="$SCRIPT_DIR/lib/ceo-todos.sh"
+RENDER="$SCRIPT_DIR/ceo-todos-render.sh"
 
 MODE=""
 TARGET=""
@@ -167,43 +167,43 @@ done
 [ -n "$MODE" ] || die "no mode given. One of --brief, --run, --record, --check."
 [ -n "$TARGET" ] || TARGET="$PWD"
 
-[ -f "$LIB" ] || die "scripts/lib/ceo-queue.sh is missing at $LIB — the fingerprint and the parse both live there and this script will not guess."
-# shellcheck source=lib/ceo-queue.sh
+[ -f "$LIB" ] || die "scripts/lib/ceo-todos.sh is missing at $LIB — the fingerprint and the parse both live there and this script will not guess."
+# shellcheck source=lib/ceo-todos.sh
 . "$LIB"
 
-PROMPT_FILE="$(cq_prompt_file)"
+PROMPT_FILE="$(ct_prompt_file)"
 [ -f "$PROMPT_FILE" ] || die "the verbatim prompt is missing at $PROMPT_FILE. Without it there is no fixed question, and a cold open with an improvised question is not reproducible."
 
-REPO="$(cq_repo_root "$TARGET" 2>/dev/null || true)"
+REPO="$(ct_repo_root "$TARGET" 2>/dev/null || true)"
 [ -n "$REPO" ] || die "'$TARGET' is not inside a git repository."
 
 DECL_RC=0
-cq_load_declaration "$REPO" || DECL_RC=$?
+ct_load_declaration "$REPO" || DECL_RC=$?
 case "$DECL_RC" in
     0) ;;
-    1) die "$REPO carries no $CEO_QUEUE_DECLARATION, so it declares no CEO queue and there is no surface to cold-read. Start one: scripts/ceo-queue-init.sh $REPO" ;;
-    *) cq_broken_banner "cold-open.sh" "$CQ_BROKEN_REASON" >&2; exit 2 ;;
+    1) die "$REPO carries no $CEO_TODOS_DECLARATION, so it declares no CEO TODOs and there is no surface to cold-read. Start one: scripts/ceo-todos-init.sh $REPO" ;;
+    *) ct_broken_banner "cold-open.sh" "$CT_BROKEN_REASON" >&2; exit 2 ;;
 esac
 
-[ -n "$CQ_COLD_OPEN_DIR" ] || die "$CEO_QUEUE_DECLARATION declares no COLD_OPEN_DIR, so there is nowhere to file a transcript and nothing gates one. Add COLD_OPEN_DIR=\"docs/cold-open\"."
+[ -n "$CT_COLD_OPEN_DIR" ] || die "$CEO_TODOS_DECLARATION declares no COLD_OPEN_DIR, so there is nowhere to file a transcript and nothing gates one. Add COLD_OPEN_DIR=\"docs/cold-open\"."
 
-RECORD="$REPO/$CQ_QUEUE_RECORD"
+RECORD="$REPO/$CT_TODO_RECORD"
 [ -f "$RECORD" ] || die "the declared record is not on disk: $RECORD" 3
 
-cq_resolve_roots "$REPO"
+ct_resolve_roots "$REPO"
 
 # --- The fingerprint, from the SAME code path the gate uses -----------------
 # Never computed a second way here. The harness stamps exactly what the guard
 # will later demand, so the two cannot drift into disagreeing about what
 # "current" means — which is how every duplicated-fact defect in this engine
 # started.
-VERDICT="$(cq_lint_file "$CQ_QUEUE_RECORD" "$RECORD" "$REPO")" \
-    || die "the CEO-queue predicate could not run — refusing rather than stamping a fingerprint nobody computed."
-FP="$(cq_verdict_fp "$VERDICT")"
+VERDICT="$(ct_lint_file "$CT_TODO_RECORD" "$RECORD" "$REPO")" \
+    || die "the CEO-TODOs predicate could not run — refusing rather than stamping a fingerprint nobody computed."
+FP="$(ct_verdict_fp "$VERDICT")"
 [ -n "$FP" ] || die "the predicate returned no front-door fingerprint. Refusing to invent one."
-PROMPT_FP="$(cq_sha256 "$PROMPT_FILE")"
+PROMPT_FP="$(ct_sha256 "$PROMPT_FILE")"
 
-COLD_DIR="$REPO/$CQ_COLD_OPEN_DIR"
+COLD_DIR="$REPO/$CT_COLD_OPEN_DIR"
 TRANSCRIPT="$COLD_DIR/$(date +%Y-%m-%d)-${FP:0:12}.md"
 
 # --- --check ---------------------------------------------------------------
@@ -226,7 +226,7 @@ if [ "$MODE" = "brief" ]; then
     echo "  repository          : $REPO"
     echo "  front-door surface  : sha256:$FP"
     echo "  prompt              : sha256:$PROMPT_FP"
-    echo "  transcript goes to  : $CQ_COLD_OPEN_DIR/$(basename "$TRANSCRIPT")"
+    echo "  transcript goes to  : $CT_COLD_OPEN_DIR/$(basename "$TRANSCRIPT")"
     echo ""
     echo "  Hand the text below, unchanged, to someone who has not worked on this"
     echo "  repository and has not been told what it is for. Then file what they"
@@ -248,9 +248,9 @@ fi
 if [ -x "$RENDER" ]; then
     if ! "$RENDER" --check "$REPO" >/dev/null 2>&1; then
         {
-            echo "ERROR: cold-open.sh: $CQ_QUEUE_VIEW is missing or stale, so there is no"
+            echo "ERROR: cold-open.sh: $CT_TODO_VIEW is missing or stale, so there is no"
             echo "       settled page for a cold reader to read. Render it first:"
-            echo "         scripts/ceo-queue-render.sh $REPO"
+            echo "         scripts/ceo-todos-render.sh $REPO"
         } >&2
         exit 2
     fi
@@ -263,7 +263,8 @@ mkdir -p "$COLD_DIR" || die "could not create $COLD_DIR"
 # run of this harness surfaced it unprompted: "git status shows CEO-QUEUE.md and
 # .ceo-queue as modified and a script as deleted. I don't know if the queue I
 # just read is current or stale relative to those uncommitted changes — that's a
-# real ambiguity." It is, and it is about the worktree rather than about the
+# real ambiguity." (Quoted verbatim; both files were renamed on 2026-08-29 to
+# CEO-TODOs.md and .ceo-todos.) It is, and it is about the worktree rather than about the
 # surface. Cold-reading mid-change is often exactly what you want; reading a
 # transcript later without knowing which it was is not.
 DIRTY_COUNT="$(git -C "$REPO" status --porcelain 2>/dev/null | grep -c . || true)"
@@ -322,9 +323,9 @@ fi
 # it gates nothing; it exists so a transcript is not purely unfalsifiable prose,
 # and so a DIVERGENCE (the surface says nine, the reader read six) lands in the
 # file as a finding instead of dissolving into an impression.
-TRUE_VIEW="$CQ_QUEUE_VIEW"
-TRUE_ITEMS="$(grep -c '^### ' "$REPO/$CQ_QUEUE_VIEW" 2>/dev/null || echo 0)"
-TRUE_MINUTES="$(sed -n 's/.*total about \*\*\([0-9][0-9]*\) minutes\*\*.*/\1/p' "$REPO/$CQ_QUEUE_VIEW" 2>/dev/null | head -1)"
+TRUE_VIEW="$CT_TODO_VIEW"
+TRUE_ITEMS="$(grep -c '^### ' "$REPO/$CT_TODO_VIEW" 2>/dev/null || echo 0)"
+TRUE_MINUTES="$(sed -n 's/.*total about \*\*\([0-9][0-9]*\) minutes\*\*.*/\1/p' "$REPO/$CT_TODO_VIEW" 2>/dev/null | head -1)"
 
 claim_row() {
     # claim_row <what the surface says> <needle>
@@ -384,7 +385,7 @@ claim_row() {
 # It also closes a real hole found by this file's own test suite: a reader that
 # printed a single blank line produced a non-empty file, so a size check passed
 # it, and the transcript satisfied nothing while looking filed.
-AFTER="$(cq_lint_file "$CQ_QUEUE_RECORD" "$RECORD" "$REPO" 2>/dev/null || true)"
+AFTER="$(ct_lint_file "$CT_TODO_RECORD" "$RECORD" "$REPO" 2>/dev/null || true)"
 COLD_LEFT="$(printf '%s\n' "$AFTER" | awk -F'\t' '$1=="V" && $4 ~ /^COLD-OPEN/ {print $4": "$5}')"
 if [ -n "$COLD_LEFT" ]; then
     rm -f "$TRANSCRIPT"

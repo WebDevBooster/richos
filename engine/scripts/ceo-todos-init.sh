@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# ceo-queue-init.sh — GIVE A REPOSITORY A CEO QUEUE, IN ONE COMMAND.
+# ceo-todos-init.sh — GIVE A REPOSITORY A CEO TODOs, IN ONE COMMAND.
 #
 # ===========================================================================
 # WHY THIS EXISTS
 # ===========================================================================
-# For one release the engine shipped a CEO-queue lint, a commit guard, a
-# predicate and a test suite — and no `.ceo-queue`, no template, and no mention
+# For one release the engine shipped a CEO-TODOs lint, a commit guard, a
+# predicate and a test suite — and no `.ceo-todos`, no template, and no mention
 # in the onboarding runbook or the bootstrap interview. All of that machinery is
 # switched on by the presence of one declaration file, so every adopter received
 # enforcement that COULD NEVER FIRE, and nothing told them.
@@ -20,18 +20,18 @@
 # copy four files and remember a fifth step.
 #
 # WHAT IT DOES, in order, and it prints every one of them:
-#   1. writes `.ceo-queue`                    the declaration that switches the
+#   1. writes `.ceo-todos`                    the declaration that switches the
 #                                             guard on
 #   2. writes the starter record              sections 1, 2, 3 and one worked
 #                                             example, parked in section 3
 #   3. creates the cold-open folder           with a note saying what goes in it
-#   4. renders the entry point                an EMPTY queue still renders a
+#   4. renders the entry point                an EMPTY list still renders a
 #                                             real page: "Nothing is waiting on
 #                                             you", both sections shown. The
 #                                             surface exists from minute one
 #                                             instead of appearing the day
 #                                             something lands on it.
-#   5. points the root README at it           a queue nobody can find is a queue
+#   5. points the root README at it           TODOs nobody can find are TODOs
 #                                             nobody has
 #   6. runs a cold open                       and only declares COLD_OPEN_DIR if
 #                                             it SUCCEEDS — see below
@@ -48,9 +48,9 @@
 # instruction. Never wedged, never silent.
 #
 # Usage:
-#   scripts/ceo-queue-init.sh [repo]
+#   scripts/ceo-todos-init.sh [repo]
 #     --record <path>     record location   (default docs/open-items.md)
-#     --view <NAME.md>    entry point       (default CEO-QUEUE.md)
+#     --view <NAME.md>    entry point       (default CEO-TODOs.md)
 #     --cold-open <path>  transcript folder (default docs/cold-open)
 #     --no-cold-open      skip step 6 entirely
 #     --no-readme         do not touch README.md (the lint will then refuse
@@ -58,7 +58,7 @@
 #     --force             overwrite an existing declaration
 #
 # Exit codes:
-#   0  the repository now has a working, lint-clean CEO queue
+#   0  the repository now has a working, lint-clean CEO TODOs
 #   1  installed, but the lint is not clean yet — every reason is printed
 #   2  cannot run
 
@@ -66,18 +66,18 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIB="$SCRIPT_DIR/lib/ceo-queue.sh"
-TPL="$ENGINE_ROOT/reference/ceo-queue"
+LIB="$SCRIPT_DIR/lib/ceo-todos.sh"
+TPL="$ENGINE_ROOT/reference/ceo-todos"
 
 TARGET=""
 RECORD_REL="docs/open-items.md"
-VIEW="CEO-QUEUE.md"
+VIEW="CEO-TODOs.md"
 COLD_REL="docs/cold-open"
 DO_COLD=1
 DO_README=1
 FORCE=0
 
-die() { echo "ERROR: ceo-queue-init.sh: $1" >&2; exit 2; }
+die() { echo "ERROR: ceo-todos-init.sh: $1" >&2; exit 2; }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -95,27 +95,27 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$TARGET" ] || TARGET="$PWD"
 
-[ -f "$LIB" ] || die "scripts/lib/ceo-queue.sh is missing at $LIB"
+[ -f "$LIB" ] || die "scripts/lib/ceo-todos.sh is missing at $LIB"
 [ -d "$TPL" ] || die "the starter templates are missing at $TPL. Without them this command would have to inline a copy of the declaration format, which is a second source for it — refusing."
-# shellcheck source=lib/ceo-queue.sh
+# shellcheck source=lib/ceo-todos.sh
 . "$LIB"
 
-REPO="$(cq_repo_root "$TARGET" 2>/dev/null || true)"
+REPO="$(ct_repo_root "$TARGET" 2>/dev/null || true)"
 [ -n "$REPO" ] || die "'$TARGET' is not inside a git repository."
 
 case "$VIEW" in
-    */*|.*) die "--view must be a bare TOP-LEVEL file name ('CEO-QUEUE.md'), not '$VIEW'. The entry point is what a stranger sees listing the repository root." ;;
+    */*|.*) die "--view must be a bare TOP-LEVEL file name ('CEO-TODOs.md'), not '$VIEW'. The entry point is what a stranger sees listing the repository root." ;;
 esac
 
-DECL="$REPO/$CEO_QUEUE_DECLARATION"
+DECL="$REPO/$CEO_TODOS_DECLARATION"
 if [ -f "$DECL" ] && [ "$FORCE" -eq 0 ]; then
-    echo "ERROR: ceo-queue-init.sh: $REPO already declares a CEO queue ($CEO_QUEUE_DECLARATION)." >&2
-    echo "       Refusing to overwrite it. Check it with:  scripts/ceo-queue-lint.sh $REPO" >&2
+    echo "ERROR: ceo-todos-init.sh: $REPO already declares a CEO TODOs ($CEO_TODOS_DECLARATION)." >&2
+    echo "       Refusing to overwrite it. Check it with:  scripts/ceo-todos-lint.sh $REPO" >&2
     echo "       Re-install anyway with --force." >&2
     exit 2
 fi
 
-echo "=== CEO queue — installing into $REPO ==="
+echo "=== CEO TODOs — installing into $REPO ==="
 
 # --- 2. the record (first: the declaration must not name a file that is absent)
 RECORD="$REPO/$RECORD_REL"
@@ -123,7 +123,7 @@ if [ -f "$RECORD" ]; then
     echo "  · record already present, kept: $RECORD_REL"
 else
     mkdir -p "$(dirname "$RECORD")" || die "could not create $(dirname "$RECORD")"
-    sed "s|@@QUEUE_VIEW@@|$VIEW|g" "$TPL/open-items.md" > "$RECORD" || die "could not write $RECORD"
+    sed "s|@@TODO_VIEW@@|$VIEW|g" "$TPL/open-items.md" > "$RECORD" || die "could not write $RECORD"
     echo "  ✓ wrote the starter record: $RECORD_REL"
 fi
 
@@ -140,20 +140,20 @@ fi
 # transcript actually got filed — see the header.
 write_declaration() {
     local cold_line="$1"
-    sed -e "s|@@QUEUE_RECORD@@|$RECORD_REL|g" \
-        -e "s|@@QUEUE_VIEW@@|$VIEW|g" \
+    sed -e "s|@@TODO_RECORD@@|$RECORD_REL|g" \
+        -e "s|@@TODO_VIEW@@|$VIEW|g" \
         -e "s|@@CEO_SECTIONS@@|1 2|g" \
         -e "s|@@PREPARER_SECTION@@|3|g" \
         -e "s|@@ARTIFACT_ROOTS@@|repo=.|g" \
         -e "s|@@COLD_OPEN_DIR@@|$cold_line|g" \
-        "$TPL/ceo-queue.example" > "$DECL"
+        "$TPL/ceo-todos.example" > "$DECL"
 }
-write_declaration "# COLD_OPEN_DIR=\"$COLD_REL\"   # see step 6 of ceo-queue-init.sh"
-echo "  ✓ wrote $CEO_QUEUE_DECLARATION — the guard is now live in this repository"
+write_declaration "# COLD_OPEN_DIR=\"$COLD_REL\"   # see step 6 of ceo-todos-init.sh"
+echo "  ✓ wrote $CEO_TODOS_DECLARATION — the guard is now live in this repository"
 
 # --- 4. the entry point ----------------------------------------------------
-"$SCRIPT_DIR/ceo-queue-render.sh" "$REPO" 2>/dev/null | sed 's/^/  /' \
-    || die "the renderer failed — the queue would have no page. Run scripts/ceo-queue-render.sh $REPO to see why."
+"$SCRIPT_DIR/ceo-todos-render.sh" "$REPO" 2>/dev/null | sed 's/^/  /' \
+    || die "the renderer failed — the CEO's TODOs would have no page. Run scripts/ceo-todos-render.sh $REPO to see why."
 
 # --- 5. the front door -----------------------------------------------------
 README="$REPO/README.md"
@@ -163,7 +163,7 @@ if [ "$DO_README" -eq 0 ]; then
 elif [ -f "$README" ] && head -40 "$README" | grep -qF "$VIEW"; then
     echo "  · README already names $VIEW in its first 40 lines"
 else
-    TMP_README="$(mktemp -t ceo-queue-readme.XXXXXX)" || die "mktemp failed"
+    TMP_README="$(mktemp -t ceo-todos-readme.XXXXXX)" || die "mktemp failed"
     {
         printf '%s\n' "$POINTER"
         printf '>\n'
@@ -199,7 +199,7 @@ if [ "$DO_COLD" -eq 1 ]; then
         echo "    this repository from now until one exists. When you are ready:"
         echo "      scripts/cold-open.sh --run $REPO       # a fresh reader"
         echo "      scripts/cold-open.sh --brief $REPO     # the prompt, for a person"
-        echo "    then uncomment COLD_OPEN_DIR in $CEO_QUEUE_DECLARATION."
+        echo "    then uncomment COLD_OPEN_DIR in $CEO_TODOS_DECLARATION."
     fi
 fi
 
@@ -207,10 +207,10 @@ fi
 echo ""
 echo "=== the lint, on your repository ==="
 LRC=0
-"$SCRIPT_DIR/ceo-queue-lint.sh" "$REPO" 2>&1 | sed 's/^/  /' || LRC=1
+"$SCRIPT_DIR/ceo-todos-lint.sh" "$REPO" 2>&1 | sed 's/^/  /' || LRC=1
 echo ""
 if [ "$LRC" -eq 0 ]; then
-    echo "Done. Edit $RECORD_REL, then: scripts/ceo-queue-render.sh $REPO"
+    echo "Done. Edit $RECORD_REL, then: scripts/ceo-todos-render.sh $REPO"
     echo "Never edit $VIEW by hand — it is generated, and the commit guard refuses a stale one."
     exit 0
 fi

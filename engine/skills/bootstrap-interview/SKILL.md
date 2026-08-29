@@ -339,28 +339,28 @@ Only capture what the CEO actually said as durable fact — Stage 1-6 answers,
 not your own inferences about the product. If you want to note an inference,
 label it as such explicitly, same as any wiki page would.
 
-### G4b — Give the CEO a queue, and a page to find it on
+### G4b — Give the CEO a TODO list, and a page to find it on
 
-The engine ships a CEO-queue lint, a commit guard, a predicate and a test suite.
-**Every one of them is inert until this repository carries a `.ceo-queue`
+The engine ships a CEO-TODOs lint, a commit guard, a predicate and a test suite.
+**Every one of them is inert until this repository carries a `.ceo-todos`
 declaration.** For one release there was no template and no step here, so
 adopters received enforcement that could never fire and nothing told them —
 which is the same defect the mechanism itself exists to catch, one level out.
 That is why this is a generation step and not a suggestion.
 
 ```bash
-scripts/ceo-queue-init.sh <this repo>
+scripts/ceo-todos-init.sh <this repo>
 ```
 
 It writes the declaration, a starter record, renders the one entry point
-(`CEO-QUEUE.md` at the repository root), points the root `README.md` at it,
+(`CEO-TODOs.md` at the repository root), points the root `README.md` at it,
 runs a **cold open**, and finishes by running the lint. Show the CEO the real
 output.
 
 Then say these three things, because they are the contract and he is the one it
 protects:
 
-1. **`CEO-QUEUE.md` is the only place his work appears.** Repository root, one
+1. **`CEO-TODOs.md` is the only place his work appears.** Repository root, one
    page, generated from the record. Never edit it by hand — the commit guard
    refuses a copy that has drifted from its source.
 2. **Nothing reaches that page unprepared.** An item may not claim to be waiting
@@ -416,9 +416,9 @@ never report "bootstrapped" over a red verification pass.
   least one dated entry for this session.
 - `install.sh` + `contract-integrity-probe.sh` + `scripts/demo.sh` all ran
   green in this same session.
-- The repository carries a `.ceo-queue`, `CEO-QUEUE.md` exists at its root and
-  is named in the first lines of `README.md`, and `scripts/ceo-queue-lint.sh`
-  ran clean in this same session. A shipped queue mechanism with no declaration
+- The repository carries a `.ceo-todos`, `CEO-TODOs.md` exists at its root and
+  is named in the first lines of `README.md`, and `scripts/ceo-todos-lint.sh`
+  ran clean in this same session. A shipped TODOs mechanism with no declaration
   is enforcement that can never fire — "installed" is not the same as "on".
 
 Only once every item above is true do you tell the CEO the company is

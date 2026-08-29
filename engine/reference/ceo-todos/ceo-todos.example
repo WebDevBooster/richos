@@ -1,8 +1,8 @@
-# THIS REPOSITORY OWNS A CEO QUEUE.
+# THIS REPOSITORY OWNS A CEO TODOs.
 #
 # The presence of this file is the declaration. It switches on
-# guard-ceo-queue-commits.sh — the RichOS engine guard that refuses a commit
-# while the queue is making a claim it cannot back. Delete it and the queue is
+# guard-ceo-todos-commits.sh — the RichOS engine guard that refuses a commit
+# while the CEO's TODOs are making a claim they cannot back. Delete it and the TODOs are
 # unguarded, which is a visible, reviewable diff and is meant to be.
 #
 # WHY IT EXISTS
@@ -39,24 +39,24 @@
 # ----------------------------------------------
 # The first version of this contract enforced preparation and shipped with
 # nowhere to look: the items were buried in a long record and the only new file
-# was a dotfile. So there is also exactly ONE entry point — QUEUE_VIEW — which
+# was a dotfile. So there is also exactly ONE entry point — TODO_VIEW — which
 # is top-level, un-dotted, named at the head of the root README, and generated
 # from the record. It is a projection, never a second copy: the guard refuses a
 # view that is not byte-identical to what the record renders to.
 #
-#   Regenerate:  scripts/ceo-queue-render.sh <this repo>
-#   Check:       scripts/ceo-queue-lint.sh   <this repo>
+#   Regenerate:  scripts/ceo-todos-render.sh <this repo>
+#   Check:       scripts/ceo-todos-lint.sh   <this repo>
 #   Cold-read:   scripts/cold-open.sh --run  <this repo>
 #
 # (Paths are relative to the RichOS engine. If it is installed by reference,
 # that is typically ~/.claude/richos-engine/.)
 
 # The record. One file. The source of truth; the view is derived from it.
-QUEUE_RECORD="@@QUEUE_RECORD@@"
+TODO_RECORD="@@TODO_RECORD@@"
 
-# The queue's one entry point: a bare TOP-LEVEL file name. Generated — do not
+# The one entry point: a bare TOP-LEVEL file name. Generated — do not
 # edit it by hand.
-QUEUE_VIEW="@@QUEUE_VIEW@@"
+TODO_VIEW="@@TODO_VIEW@@"
 
 # The front door the entry point must be named from, in its first 40 lines.
 ROOT_README="README.md"

@@ -35,23 +35,23 @@ upgrade done on "it looks merged" — run the three and read the greens. (If you
 run the bootstrap interview or the CI workflow, they run these same checks for
 you — CI on every push, the interview at the end of its generation pass.)
 
-## Ordering trap — the engine goes FIRST when a `.ceo-queue` key is new
+## Ordering trap — the engine goes FIRST when a `.ceo-todos` key is new
 
-`.ceo-queue` is strict-parsed: a key the running engine does not know is
+`.ceo-todos` is strict-parsed: a key the running engine does not know is
 refused, loudly, rather than silently doing nothing. That is deliberate (a
 setting that quietly has no effect is the defect this engine keeps finding in
 itself) and it has one consequence worth stating before you hit it.
 
-**If a repository's `.ceo-queue` starts using a key that only a NEWER engine
+**If a repository's `.ceo-todos` starts using a key that only a NEWER engine
 knows, every commit into that repository is refused until the engine is
 upgraded.** The refusal names the key and lists the ones the running engine
 accepts, so it diagnoses itself — but it will stop work.
 
-So when an update adds declaration keys (`QUEUE_VIEW`, `ROOT_README` and
+So when an update adds declaration keys (`TODO_VIEW`, `ROOT_README` and
 `COLD_OPEN_DIR` arrived together in one such update):
 
 1. Land the **engine** update and run `scripts/hooks/install.sh`.
-2. Only then land the `.ceo-queue` change in the repository that owns the record.
+2. Only then land the `.ceo-todos` change in the repository that owns the record.
 
 Reversing those two wedges the record's repository for everyone using the older
 engine. If you have already reversed them, the way out is the same either way:
