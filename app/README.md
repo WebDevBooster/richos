@@ -263,7 +263,14 @@ Deliberate, and load-bearing: app development must never be blocked on artwork n
 has yet.
 
 - `cargo check` / `cargo build` → **warnings only**, exit 0.
-- `RICHOS_REQUIRE_REAL_ICONS=1` (set by bundling and CI) → **panics**, refuses to build.
+- `RICHOS_REQUIRE_REAL_ICONS=1` → **panics**, refuses to build.
+
+**Nothing sets that variable yet.** Previous text here claimed it was "set by bundling
+and CI"; it is not, because this repository has no bundling script and no CI job that
+builds the app — `.github/workflows/` contains only `engine-self-verify.yml`. The
+mechanism works and is proven in both directions, but the caller that would arm it does
+not exist. **Whoever adds the packaging entrypoint must export
+`RICHOS_REQUIRE_REAL_ICONS=1`**, or a bundle can still ship a placeholder icon.
 
 Verified on the committed placeholder set: 12 warnings and `Finished dev profile` in the
 first mode, a hard panic in the second, and — after a real generation run — strict mode

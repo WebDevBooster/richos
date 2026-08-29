@@ -165,7 +165,14 @@ fn report(failures: Vec<String>) {
     // cannot make the binary wrong, and the icons are blocked on artwork the CEO supplies
     // (open-items 3.12) — so a hard failure here would freeze all app development for an
     // indefinite wait. Warn on every build; fail hard only where the icon actually ships,
-    // which callers signal with RICHOS_REQUIRE_REAL_ICONS=1 (bundling and CI set it).
+    // which callers signal with RICHOS_REQUIRE_REAL_ICONS=1.
+    //
+    // HONEST STATUS: nothing in this repository sets that variable yet, because there
+    // is no bundling script and no CI job that builds the app — the only workflow is
+    // engine-self-verify.yml. The mechanism is here and proven in both directions; the
+    // caller that must set it does not exist. Whoever adds the packaging entrypoint
+    // has to export RICHOS_REQUIRE_REAL_ICONS=1, or a bundle can still ship a
+    // placeholder. Do not read this gate as protecting a release path today.
     let strict = std::env::var("RICHOS_REQUIRE_REAL_ICONS").as_deref() == Ok("1");
 
     if !strict {
@@ -176,7 +183,8 @@ fn report(failures: Vec<String>) {
             "cargo::warning=app icons are still placeholders — the binary builds, but a \
              bundle produced now would ship no real icon. Fix: \
              app/scripts/generate-app-icons.sh <artwork.png>. Set \
-             RICHOS_REQUIRE_REAL_ICONS=1 to make this fatal (bundling and CI do)."
+             RICHOS_REQUIRE_REAL_ICONS=1 to make this fatal — the packaging \
+             entrypoint that should set it does not exist yet."
         );
         return;
     }
