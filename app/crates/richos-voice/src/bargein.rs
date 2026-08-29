@@ -282,29 +282,49 @@ impl BargeInMonitor {
 
 /// The acoustic-echo-cancellation seam.
 ///
-/// `observe_playback` receives every frame RichOS renders to the speakers (the reference
-/// signal); `process_capture` may modify the mic frame in place before the VAD sees it.
-/// A real implementation subtracts the (delayed, room-filtered) reference from the capture.
+/// `process_capture` may modify the mic frame in place before the VAD sees it; a real
+/// implementation subtracts the (delayed, room-filtered) reference from the capture.
+///
+/// **The reference signal does NOT come through this trait.** It used to —
+/// `observe_playback(&[f32])`, called from the output callback behind a `Mutex` with
+/// `try_lock`. That was fine for a gate that cancels nothing and impossible for one that
+/// does: a reference frame dropped on lock contention is a permanent 16 ms shift between the
+/// reference and the echo, which invalidates every tap an adaptive filter has learned. The
+/// reference now travels over [`crate::aec::ReferenceRing`], lock-free, and an implementation
+/// takes its own handle to that ring at construction.
+///
+/// [`crate::aec::EchoCanceller`] is the real implementation; [`NoEchoCancellation`] is the
+/// honest null one. A macOS `VoiceProcessingIO` implementation, if the live figures ever
+/// justify one, goes here too.
 pub trait EchoGate: Send {
-    /// One frame of what RichOS just sent to the output device, at the capture sample rate.
-    fn observe_playback(&mut self, frame: &[f32]);
     /// One mic frame, mutable, immediately before VAD classification.
     fn process_capture(&mut self, frame: &mut [f32]);
-    /// Honest identity for logs and the UI's "headphones recommended" note.
+    /// Honest identity for logs and for the UI's "headphones recommended" note.
     fn name(&self) -> &'static str;
     /// Whether this gate actually cancels anything. `false` means the 5.008 s debounce +
     /// headphones are the whole story — the UI keeps showing the honest note.
     fn cancels(&self) -> bool;
+    /// Did the last processed frame contain near-end speech (a real interruption) rather than
+    /// leftover echo? A gate that cannot tell says `false` and the VAD decides alone.
+    fn near_end_speech(&self) -> bool {
+        false
+    }
+    /// Has this gate MEASURED its residual echo below the VAD's speech threshold? Only a
+    /// `true` here may shorten the barge-in debounce.
+    fn confident(&self) -> bool {
+        false
+    }
 }
 
-/// **v1.** No cancellation whatsoever. The reference signal is observed and discarded, so
-/// the plumbing is proven live and a real canceller is a drop-in replacement for this type.
+/// **The null gate.** No cancellation whatsoever, and it says so.
 ///
-/// This is the honest fallback the architecture doc's open question (§7) and the CEO's
-/// "real AEC is NOT a v1 blocker" decision call for — not a fix wearing a fix's name.
+/// Kept, and still exercised, because it is what the pipeline falls back to on any platform or
+/// device where the real canceller cannot run — and because a type that reports
+/// `cancels() == false` is what keeps the UI's "headphones recommended" note honest instead of
+/// decorative. Selecting it puts the 5.008 s consecutive debounce in force, permanently.
 #[derive(Debug, Default)]
 pub struct NoEchoCancellation {
-    /// Reference frames seen — proves the seam is actually wired at runtime.
+    /// Capture frames seen — proves the seam is actually wired at runtime.
     observed_frames: u64,
 }
 
@@ -315,11 +335,9 @@ impl NoEchoCancellation {
 }
 
 impl EchoGate for NoEchoCancellation {
-    fn observe_playback(&mut self, _frame: &[f32]) {
-        self.observed_frames += 1;
-    }
     fn process_capture(&mut self, _frame: &mut [f32]) {
-        // Intentionally empty. See the type docs.
+        // Intentionally does not touch the frame. See the type docs.
+        self.observed_frames += 1;
     }
     fn name(&self) -> &'static str {
         "none (5.008s debounce + headphones)"
@@ -649,18 +667,20 @@ mod tests {
         assert!(m2.force(), "tap to stop must remain instant under either rule");
     }
 
-    /// INVARIANT: v1's gate is honest — it observes the reference signal (proving the seam
-    /// is wired) and modifies nothing.
+    /// INVARIANT: the null gate is honest — it sees the frames (proving the seam is wired)
+    /// and modifies not one sample of them, and it never claims confidence, so selecting it
+    /// leaves the 5.008 s debounce permanently in force.
     #[test]
-    fn v1_echo_gate_observes_the_reference_signal_and_cancels_nothing() {
+    fn the_null_echo_gate_sees_the_frames_and_cancels_nothing() {
         let mut gate = NoEchoCancellation::default();
-        gate.observe_playback(&[0.5; 256]);
-        gate.observe_playback(&[0.5; 256]);
-        assert_eq!(gate.observed_frames(), 2);
         let mut capture = vec![0.25f32; 256];
         let before = capture.clone();
         gate.process_capture(&mut capture);
-        assert_eq!(capture, before, "v1 gate must not pretend to cancel");
+        gate.process_capture(&mut capture);
+        assert_eq!(gate.observed_frames(), 2);
+        assert_eq!(capture, before, "the null gate must not pretend to cancel");
         assert!(!gate.cancels());
+        assert!(!gate.confident(), "the null gate must never shorten the debounce");
+        assert!(!gate.near_end_speech());
     }
 }

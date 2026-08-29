@@ -13,15 +13,24 @@
 //!    so [`crate::bargein::EchoGate`] gets fed for free. That is the half of AEC that can be
 //!    built honestly today; the cancellation itself is the open gap.
 //!
-//! ## Audio-thread discipline, stated honestly
+//! ## Audio-thread discipline — and the `Mutex` that had to go
 //!
-//! The output callback must never block. It uses `try_lock` on both the queue and the echo
-//! gate and emits silence rather than waiting. For v1's passthrough gate a missed reference
-//! frame costs nothing. **A real AEC cannot live behind a `Mutex` like this** — it needs a
-//! lock-free SPSC ring plus delay alignment between capture and playout. That is called out
-//! in the brief as a design constraint on the AEC follow-up, not papered over here.
+//! The output callback must never block. It uses `try_lock` on the queue and emits silence
+//! rather than waiting.
+//!
+//! The reference signal used to go the same way: `try_lock` on an `Arc<Mutex<Box<dyn
+//! EchoGate>>>`, dropping the frame on contention. These docs said, correctly, that **a real
+//! AEC cannot live behind a `Mutex` like this** — it needs a lock-free SPSC ring plus delay
+//! alignment. A dropped reference frame is not a lost 16 ms; it is a PERMANENT 16 ms shift
+//! between the reference and the echo it is supposed to predict, which invalidates every tap
+//! the adaptive filter has learned.
+//!
+//! So it now goes into [`crate::aec::ReferenceRing`] — lock-free, no `unsafe`, and with
+//! overrun detected and counted rather than silently absorbed. The rate conversion to the
+//! pipeline's 16 kHz happens here, on the output thread, through a stateful
+//! [`crate::wav::RateConverter`] so the reference phase is continuous across callbacks.
 
-use crate::bargein::EchoGate;
+use crate::aec::{ReferenceRing, ReferenceSink};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -99,9 +108,9 @@ pub struct Playout {
 }
 
 impl Playout {
-    /// Open the default output device. `gate` receives every rendered mono frame as the AEC
-    /// reference signal.
-    pub fn start(gate: Option<Arc<Mutex<Box<dyn EchoGate>>>>) -> Result<Playout, PlayoutError> {
+    /// Open the default output device. `reference` receives every rendered mono frame,
+    /// resampled to 16 kHz, as the echo canceller's reference signal.
+    pub fn start(reference: Option<Arc<ReferenceRing>>) -> Result<Playout, PlayoutError> {
         let host = cpal::default_host();
         let device = host.default_output_device().ok_or(PlayoutError::NoOutputDevice)?;
         let supported = device
@@ -126,7 +135,11 @@ impl Playout {
             callback_frames: AtomicUsize::new(0),
         });
         let cb_shared = shared.clone();
-        let mut reference: Vec<f32> = Vec::new();
+        // Preallocated: the output callback must not allocate. `ReferenceSink` owns the rate
+        // converter, so the reference reaches the canceller at exactly 16 kHz with a phase
+        // that is continuous across callbacks.
+        let mut sink = reference.map(|ring| ReferenceSink::new(ring, rate));
+        let mut mono: Vec<f32> = Vec::with_capacity(4096);
 
         let stream = device
             .build_output_stream(
@@ -152,13 +165,13 @@ impl Playout {
                     cb_shared.queued.store(remaining, Ordering::Relaxed);
 
                     // THE AEC REFERENCE SIGNAL: exactly the samples that just went to the
-                    // speakers. Channel 0 carries the mono signal (fill_output duplicates).
-                    if let Some(g) = &gate {
-                        if let Ok(mut g) = g.try_lock() {
-                            reference.clear();
-                            reference.extend(out.iter().step_by(ch).copied());
-                            g.observe_playback(&reference);
-                        }
+                    // speakers, not what we hoped would go there. Channel 0 carries the mono
+                    // signal (fill_output duplicates it across channels). No lock, no
+                    // try_lock, no dropped frames — see the module docs.
+                    if let Some(sink) = sink.as_mut() {
+                        mono.clear();
+                        mono.extend(out.iter().step_by(ch).copied());
+                        sink.submit(&mono);
                     }
                 },
                 |e| eprintln!("[richos-voice] output stream error: {e}"),
