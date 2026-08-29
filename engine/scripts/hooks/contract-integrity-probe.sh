@@ -1085,7 +1085,15 @@ PY
     # nobody else ever gets enforcement — and, as with settings.local.json, the
     # local probe passes the whole way.
     BR7_MARKET_ROOT=""
-    BR7_DIR="$ENGINE_ROOT"
+    # PHYSICAL path, not the pointer. When the engine is loaded by reference the
+    # engine root is normally a SYMLINK (~/.claude/richos-engine -> the
+    # checkout), and walking up from the link path climbs ~/.claude and then the
+    # home directory — never reaching the repository that actually carries the
+    # marketplace manifest. The manifest was present, committed and correct, and
+    # BR7 reported it missing. BR6b resolves the same pointer two layers up; this
+    # one did not, which is how the check that exists to prove an adopter can
+    # load the engine went red on the machine where the engine loads fine.
+    BR7_DIR="$( (cd "$ENGINE_ROOT" 2>/dev/null && pwd -P) || printf '%s' "$ENGINE_ROOT" )"
     while [ -n "$BR7_DIR" ] && [ "$BR7_DIR" != "/" ]; do
         if [ -f "$BR7_DIR/.claude-plugin/marketplace.json" ]; then
             BR7_MARKET_ROOT="$BR7_DIR"
