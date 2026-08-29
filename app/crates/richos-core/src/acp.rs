@@ -14,16 +14,53 @@
 
 use crate::cognition::{Cognition, CognitionError, TurnItem};
 use crate::machinery::MachineryRecord;
+use crate::steering::TurnCancel;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::time::Duration;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 const ACP_PROTOCOL_VERSION: i64 = 1;
+
+/// The stopReason `prompt` returns when the adapter itself acknowledged the cancel — the
+/// clean path, and the one the ACP spec describes.
+pub const STOP_REASON_CANCELLED: &str = "cancelled";
+
+/// The stopReason `prompt` returns when the adapter did NOT answer the pending
+/// `session/prompt` within [`CANCEL_GRACE_MS`] of being told to cancel.
+///
+/// A distinct string because it is a distinct fact: the CEO's stop still stands and the
+/// turn is still recorded as stopped, but this lease is no longer known to be idle, so the
+/// spine rotates it at the boundary rather than handing it the next turn (`spine.rs`).
+pub const STOP_REASON_CANCEL_UNACKNOWLEDGED: &str = "cancel_unacknowledged";
+
+/// How long `prompt` waits for the adapter to answer the cancelled `session/prompt`.
+///
+/// **This is a BOUND, not a measurement, and it is the one number in this commit that has
+/// not been measured against a live adapter.** No live ACP turn was runnable in this
+/// slice, so nothing here can claim an observed turnaround. It is chosen to be long enough
+/// that a healthy adapter draining an in-flight tool call is never cut off, and short
+/// enough that a non-compliant one cannot hold the turn open indefinitely. It costs the
+/// CEO nothing in perceived latency either way: the stop request is durable and the UI has
+/// already moved to `stopping` before this timer starts.
+///
+/// Whoever runs the first live stop should replace this with the measured p99 and say so.
+pub const CANCEL_GRACE_MS: u64 = 3_000;
+
+/// [`CANCEL_GRACE_MS`], overridable by `RICHOS_CANCEL_GRACE_MS`.
+///
+/// The override exists so the non-compliant-adapter test can prove the timeout in
+/// milliseconds instead of adding three seconds to every run — and, once someone has a
+/// live adapter in front of them, so the bound can be tuned without a rebuild.
+pub fn cancel_grace() -> Duration {
+    let ms = std::env::var("RICHOS_CANCEL_GRACE_MS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(CANCEL_GRACE_MS);
+    Duration::from_millis(ms)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AcpError {
@@ -63,6 +100,14 @@ enum ChunkMsg {
     /// An `fs/read_text_file` / `fs/write_text_file` the agent asked the client to do.
     FsCall { method: String, params: Value },
     Done(Value),
+    /// The CEO pressed stop. Sent by [`AcpCancelHandle`] into THIS turn's channel purely
+    /// to wake the drain loop, which is otherwise parked in a blocking `recv()`.
+    ///
+    /// Waking it this way rather than polling is deliberate arithmetic: a poll loop tight
+    /// enough to feel immediate (20ms) would wake 50 times a second for the whole turn —
+    /// 8_270s x 50 = 413_500 wakeups on §6.2's own `2h 17m 50s` example, every one of them
+    /// finding nothing. One send costs one wakeup, at the moment it is needed.
+    Cancel,
 }
 
 /// A live ACP session to a `claude-agent-acp` child.
@@ -304,6 +349,21 @@ impl AcpClient {
             .ok_or_else(|| AcpError::Protocol("session/new returned no sessionId".into()))
     }
 
+    /// A handle that can cancel the CURRENTLY IN-FLIGHT prompt from another thread.
+    ///
+    /// Takes `&self` and clones only `Arc`s, which is the whole requirement: the stop
+    /// control never holds the `Mutex<Spine>` the running turn is holding, so it can never
+    /// queue behind it. `stdin` was already an `Arc<Mutex<ChildStdin>>` (the reader thread
+    /// writes responses to agent requests through it), so writing one more notification
+    /// from a third thread needs no new synchronisation.
+    pub fn cancel_handle(&self, session_id: &str) -> Arc<AcpCancelHandle> {
+        Arc::new(AcpCancelHandle {
+            stdin: Arc::clone(&self.stdin),
+            current_prompt: Arc::clone(&self.current_prompt),
+            session_id: session_id.to_string(),
+        })
+    }
+
     /// Run ONE turn, streaming text AND machinery to `on_item` in arrival order.
     ///
     /// **This loop is where `seq` is assigned (§1.4 G1).** One counter, shared by text and
@@ -334,8 +394,20 @@ impl AcpClient {
         // THE shared per-turn counter (§1.4 G1). Advanced only when an item is actually
         // delivered — a dropped `user_message_chunk` consumes no position.
         let mut seq: u64 = 0;
+        // Set the moment a `Cancel` wakes this loop. From then on the loop keeps DELIVERING
+        // whatever still arrives — §9.3 step 4, "preserve partial commentary, activity and
+        // assistant output" — but stops waiting forever for a `Done` that a non-compliant
+        // adapter may never send.
+        let mut cancel_deadline: Option<std::time::Instant> = None;
         loop {
-            match rx.recv() {
+            let received = match cancel_deadline {
+                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()) {
+                    Some(remaining) => rx.recv_timeout(remaining),
+                    None => Err(RecvTimeoutError::Timeout),
+                },
+            };
+            match received {
                 Ok(ChunkMsg::Text(t)) => {
                     on_item(TurnItem::Text { seq, text: &t });
                     seq += 1;
@@ -362,6 +434,13 @@ impl AcpClient {
                     )));
                     seq += 1;
                 }
+                Ok(ChunkMsg::Cancel) => {
+                    // The notification has already gone out (AcpCancelHandle::cancel writes
+                    // it BEFORE waking us, so a fast adapter's `Done` cannot arrive before
+                    // the deadline exists). All this arm does is start the clock.
+                    cancel_deadline
+                        .get_or_insert_with(|| std::time::Instant::now() + cancel_grace());
+                }
                 Ok(ChunkMsg::Done(result)) => {
                     return Ok(result
                         .get("stopReason")
@@ -369,9 +448,54 @@ impl AcpClient {
                         .unwrap_or("end_turn")
                         .to_string());
                 }
-                Err(_) => return Err(AcpError::Closed),
+                Err(RecvTimeoutError::Timeout) => {
+                    // The adapter was told to cancel and did not answer the pending
+                    // `session/prompt` within the grace window. Stop rendering this turn —
+                    // and DETACH the sink first, so anything the adapter says afterwards
+                    // cannot be routed into whatever turn runs next. `dispatch` drops an
+                    // unmatched response rather than misfiling it.
+                    *self.current_prompt.lock().unwrap() = None;
+                    return Ok(STOP_REASON_CANCEL_UNACKNOWLEDGED.to_string());
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(AcpError::Closed),
             }
         }
+    }
+}
+
+/// The cancel seam for a live ACP session: `session/cancel` to the child, then a wake for
+/// the local drain loop.
+///
+/// Both halves are needed and they answer different failure modes. The notification is the
+/// protocol-correct request that the AGENT stop working. The local wake is what makes the
+/// CEO's stop authoritative in RichOS regardless of whether the agent complies — RichOS
+/// stops rendering and records the stop either way, because "the child ignored us" is not
+/// a reason to leave the CEO looking at a turn he ended.
+pub struct AcpCancelHandle {
+    stdin: Arc<Mutex<ChildStdin>>,
+    current_prompt: Arc<Mutex<Option<(i64, Sender<ChunkMsg>)>>>,
+    session_id: String,
+}
+
+impl TurnCancel for AcpCancelHandle {
+    fn cancel(&self) -> bool {
+        // Take the sink FIRST so the ordering is unambiguous: notification out, then wake.
+        // The reverse order would let a very fast adapter's `Done` overtake the wake, and
+        // the loop would return `end_turn` for a turn the CEO stopped.
+        let sink = match self.current_prompt.lock().unwrap().as_ref() {
+            Some((_, sink)) => sink.clone(),
+            // Nothing in flight on this session. Reported as `false` and never as a
+            // success — see `StopOutcome::reached_lease`.
+            None => return false,
+        };
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": "session/cancel",
+            "params": { "sessionId": self.session_id }
+        });
+        let wrote = AcpClient::write_line(&self.stdin, &notification).is_ok();
+        let woke = sink.send(ChunkMsg::Cancel).is_ok();
+        wrote && woke
     }
 }
 
@@ -430,5 +554,9 @@ impl Cognition for AcpCognition {
 
     fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
         Ok(self.client.prompt(&self.session_id, text, on_item)?)
+    }
+
+    fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
+        Some(self.client.cancel_handle(&self.session_id))
     }
 }
