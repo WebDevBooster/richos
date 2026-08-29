@@ -117,16 +117,23 @@ struct QueuedProactiveEmit {
 ///
 /// | run | est. tokens | measured Δ`used` | undercount |
 /// |-----|------------:|-----------------:|-----------:|
-/// | 1   |         386 |            1_354 |      3.5×  |
-/// | 2   |         646 |            2_138 |      3.3×  |
-/// | 3   |         282 |           11_523 |     40.9×  |
-/// | 4   |         711 |            2_431 |      3.4×  |
+/// | 1   |         387 |            1_354 |      3.5×  |
+/// | 2   |         649 |            2_138 |      3.3×  |
+/// | 3   |         284 |           11_523 |     40.6×  |
+/// | 4   |         716 |            2_431 |      3.4×  |
 /// | 5   |          97 |              225 |      2.3×  |
+///
+/// (Byte lengths, because that is what `text.len()` and `assistant_text.len()` return and
+/// therefore what this estimate is actually made of. The re-derivation lives in
+/// `tests/watermark_cadence_tests.rs` and re-runs from the raw capture on every
+/// `cargo test`, so these figures cannot quietly drift away from the data.)
 ///
 /// Run 3 is the tool-heavy one. `deliver` adds `prompt.len() + reply.len()` and nothing
 /// else, so every tool input and tool output — for an orchestrator Rich, the large
-/// majority of context — is invisible to it. The error is unbounded in that direction,
-/// which is why it may never again be the primary trigger.
+/// majority of context — is invisible to it. And the error is not a constant that could
+/// have been calibrated out: 2.3× on the lightest run, 40.6× on the heaviest, same code,
+/// same adapter, same day. It is unbounded in that direction, which is why it may never
+/// again be the primary trigger.
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
 /// Fallback context-window budget, used ONLY while no `usage_update` has arrived for the
 /// current lease. Overridable via `set_context_budget`.
