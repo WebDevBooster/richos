@@ -576,6 +576,21 @@
           }
           return hits.slice(0, args.limit || 40);
         }
+        // UX §7.3's background-work summary. Shaped exactly like `WorkerStatusView`
+        // (worker_status.rs): a real `active` count, a real `liveness_unknown`, and
+        // `needs_you` STRUCTURALLY ZERO — no decision-required signal exists anywhere in
+        // the engine, so there is no honest non-zero value to mock either.
+        case "get_worker_status":
+          return {
+            active: 1,
+            needs_you: 0,
+            liveness_unknown: 1,
+            items: [
+              { label: "Frank", state: "active", agent_id: "agt_frank_1" },
+              { label: "Sage", state: "unknown", agent_id: "agt_sage_1" },
+              { label: "mark-sonnet-f1: wire the tenantGuard fixture", state: "done" },
+            ],
+          };
         case "nav_state":
           return JSON.parse(JSON.stringify(navPrefs));
         case "set_sidebar_width":

@@ -100,6 +100,9 @@ let activeThreadId = null;
 let voiceMode = false;
 let drillItems = []; // populated from the real `get_worker_status` command — honest-empty
 // until the engine has ever completed a task since boot (richos-core's worker_status.rs).
+// The view's OWN authoritative counts (§7.3). Never re-derived from `drillItems`, and
+// `needs_you` is deliberately absent: it is structurally 0 and there is no signal for it.
+let workerCounts = { active: 0, livenessUnknown: 0 };
 
 // COMPANY IDENTITY — the rail header per the UX direction §2.1 is "the company/CEO identity, not
 // RichOS." Backed by `get_company_name` (main.rs, wired in init() below). This constant
@@ -1263,30 +1266,64 @@ Bridge.listen("rich://mock-proactive", ({ payload }) => {
   loadTimeline();
 });
 
-// The real worker-status drill-down, backed by `get_worker_status`. Polled on turn-started
-// rather than continuously — the chip is a courtesy, not a live dashboard. Honest-empty
-// when nothing has completed since boot.
+// §7.3 THE BACKGROUND WORK SUMMARY — "3 working · 1 done".
 //
-// NOT a §7 worker chip. `rich://worker-upserted` is DEFERRED (no worker lifecycle signal
-// exists) and §7's timeline treatment is SLICE 7. This is the pre-existing engine-task
-// courtesy chip, moved out of the working row it used to hang off and otherwise unchanged.
+// §7.3 was explicit that this could not be built honestly: *"The current `worker_status.rs`
+// cannot support this honestly because it only sees completion events. The engine and task
+// graph must emit full lifecycle events first."* The engine landed those events at
+// `d14bc54` and `worker_status.rs` consumes them, so `active` is now
+//
+//     open runs (a created/started with no LATER run_ended, per agent_id)
+//     reconciled against each row's recorded host_pid via a REAL signal-0 probe
+//
+// — arithmetic over observations plus one syscall. That is the literal §23 Phase 4 exit
+// gate: "no active or completed status is inferred from idle logs or filesystem activity."
+// Nothing in that chain reads `idle-events.jsonl`, an mtime, a file size or a directory
+// listing as a signal.
+//
+// THREE NUMBERS ARE READ AND THE FOURTH IS REFUSED:
+//   `active`            REAL — the count above.
+//   done                REAL — but TASK-grain, from `TaskCompleted`, never from a worker's
+//                       `run_ended` (which is the honest superset of completed, interrupted
+//                       and failed and would be a completion claim nobody made).
+//   `liveness_unknown`  REAL — an open run whose host liveness could not be established.
+//                       Shown rather than folded in either direction: counting it as active
+//                       asserts it is running, hiding it asserts it is gone.
+//   `needs_you`         NEVER SHOWN. It is structurally 0 — no hook payload asks the CEO
+//                       for anything — and §22 lists "worker waiting state" under must not
+//                       be faked. The branch is gone rather than dormant: a branch that can
+//                       never fire is a claim waiting for someone to make it fire.
+//
+// Polled on turn-started rather than continuously — a courtesy line, not a live dashboard.
 async function pollWorkerStatus() {
   try {
     const status = await Bridge.invoke("get_worker_status");
     drillItems = status.items || [];
+    workerCounts = {
+      active: typeof status.active === "number" ? status.active : 0,
+      livenessUnknown: typeof status.liveness_unknown === "number" ? status.liveness_unknown : 0,
+    };
   } catch (_e) {
     drillItems = [];
+    workerCounts = { active: 0, livenessUnknown: 0 };
   }
   renderDrillChip();
 }
 
 function renderDrillChip() {
   drillChipEl.innerHTML = "";
-  const active = drillItems.filter((i) => i.state === "active").length;
-  const needsYou = drillItems.filter((i) => i.state === "needs_you").length;
+  // `active` comes from the view's own authoritative field, not from counting item labels:
+  // the count is the thing that was derived and probed, and re-deriving it here would be a
+  // second implementation of the one number that must not be wrong.
+  const active = workerCounts.active;
+  const unknown = workerCounts.livenessUnknown;
+  const done = drillItems.filter((i) => i.state === "done").length;
   const parts = [];
   if (active) parts.push(`${active} working`);
-  if (needsYou) parts.push(`${needsYou} needs you`);
+  if (done) parts.push(`${done} done`);
+  // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
+  // error code; this says what actually happened.
+  if (unknown) parts.push(`${unknown} I can't see`);
   if (!parts.length) {
     drillChipEl.hidden = true;
     return;
@@ -1295,6 +1332,7 @@ function renderDrillChip() {
   chip.type = "button";
   chip.className = "drill-chip";
   chip.textContent = "⋯ " + parts.join(" · ");
+  chip.setAttribute("aria-label", parts.join(", ") + ". Open the work summary.");
   chip.addEventListener("click", openSlideOver);
   drillChipEl.appendChild(chip);
   drillChipEl.hidden = false;
@@ -1316,7 +1354,11 @@ function openSlideOver() {
   for (const item of drillItems) {
     const row = document.createElement("div");
     row.className = "slide-item slide-item--" + item.state;
-    const marker = { active: "●", done: "○", needs_you: "⚑" }[item.state] || "●";
+    // `unknown` is a real state from `worker_status.rs` (an open run whose host liveness
+    // could not be established) and had no marker here at all, so it fell through to the
+    // same filled dot as `active` — reading as "running". `needs_you` is gone: nothing can
+    // produce it.
+    const marker = { active: "●", done: "○", unknown: "◇" }[item.state] || "·";
     row.textContent = `${marker} ${item.label}`;
     slideoverBody.appendChild(row);
   }
