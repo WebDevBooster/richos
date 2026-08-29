@@ -649,7 +649,7 @@ model.** That is a gap in the record, not a Parakeet problem.
   (Apache-2.0, M4 Pro numbers, 15 s windows / 2 s overlap for long files).
 
 **RichOS internal:**
-- `docs/briefs/norm-brief-real-audio-92min-2026-08-29.md` @ `290560a` — the measurement that raised
+- `richos-hq/docs/briefs/norm-brief-real-audio-92min-2026-08-29.md` @ `290560a` — the measurement that raised
   this question. §4.1 (wall time, 2.83 GB peak RSS), §4.2 (decay buckets), §4.3 (length is the cause,
   proven), §5 (the guard's 8 false positives), §6 (zero cross-talk bleed), §7 (`-mc 0` unmeasured).
 - `wiki/call-transcription-approach.md` — the claims this brief touches.

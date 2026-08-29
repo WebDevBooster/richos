@@ -8,8 +8,8 @@
 `app/src-tauri/src/{main,timeline_view,nav}.rs`; `app/ui/{main,timeline}.js`; `app/STREAMING.md`;
 `app/crates/richos-core/tests/{steering,live_event,timeline}_tests.rs`; `app/ui/tests/`;
 `docs/verification/acp-emission-probe-2026-08-28/` (all five raw runs);
-`richos-hq` `wiki/{richos-frontend,open-items}.md`, `docs/plans/richos-techy-mode-2026-08-26.md` §6–7,
-`docs/briefs/frank-frontend-stress-test-2026-08-24.md`. `git log` on `main` was the source, not any summary.
+`richos-hq` `wiki/{richos-frontend,open-items}.md`, `richos-hq/docs/plans/richos-techy-mode-2026-08-26.md` §6–7,
+`richos-hq/docs/briefs/frank-frontend-stress-test-2026-08-24.md`. `git log` on `main` was the source, not any summary.
 
 **This is late, and the framing of 3.6 is now wrong.** It says "before further front-end engineering."
 Ten slices landed first, so this is an audit, not a prevention. What that cost is nameable and I state it

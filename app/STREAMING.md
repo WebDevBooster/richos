@@ -105,7 +105,7 @@ treat it as the reconciled snapshot, not the primary render path.
 **The default conversation view does NOT subscribe to this event, and must not.** It is a
 separate family carrying every non-text ACP update — tool calls, thoughts, permission
 requests — for the opt-in technical view. Contract:
-`docs/plans/richos-techy-mode-2026-08-26.md`; Rust source of truth:
+`richos-hq/docs/plans/richos-techy-mode-2026-08-26.md`; Rust source of truth:
 `app/crates/richos-core/src/machinery.rs`.
 
 | Event name | When | Payload |
