@@ -33,3 +33,8 @@
 # tree, and the publication guards both refuse a tracked write that reproduces
 # anything found under it.
 /docs/reference/local/
+
+# Python bytecode from the app-icon pipeline (app/scripts/lib/). Generated on every
+# run; never an artefact.
+__pycache__/
+*.pyc
