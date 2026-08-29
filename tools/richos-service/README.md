@@ -111,11 +111,21 @@ node bin/richos-service.js claim --surface <s> --kind <browser-tab|system|proces
      [--process-hint <h>] [--session-id <id>]   # own the call, or stand down (exit 3)? no double-capture
 node bin/richos-service.js failover-scan          # browser-owned calls that went dark -> promotable
 node bin/richos-service.js mark-superseded --dead <id> --by <id>   # close the failover loop
+
+# the correction flywheel — ASK, NEVER INFER (ceo-decisions.md §7)
+node bin/richos-service.js learn-term --canonical "Deepgram" --mangled "deep graham"  # explicit
+node bin/richos-service.js learn-from-edits <id> [--apply]      # proposals from an edited transcript
+node bin/richos-service.js correct-text --text "..."            # DICTATION reads the same vocabulary
+node bin/richos-service.js dictation-review --sent "<what you sent>"   # produces ASKS; learns nothing
+node bin/richos-service.js dictation-answer --from "<heard>" --to "<term>" (--confirm|--decline|--never)
+node bin/richos-service.js dictation-asks                       # the inspectable suppression list
+node bin/richos-service.js dictation-retention [--apply]        # what it costs, and what ages out
 ```
 
 Env overrides: `RICHOS_DROP_ZONE`, `RICHOS_WHISPER_MODEL` / `RICHOS_MODEL_DIR`, `RICHOS_WHISPER_BIN`,
 `RICHOS_FFMPEG_BIN`, `RICHOS_WHISPER_LANG`, `RICHOS_TRANSCRIPT_SLA_MS`, `RICHOS_ENTITIES_FILE`,
-`RICHOS_DIARIZE` (P5 diarization method, default `none`).
+`RICHOS_DIARIZE` (P5 diarization method, default `none`), `RICHOS_DICTATION_JOURNAL`,
+`RICHOS_DICTATION_TEXT_DAYS` / `_TEXT_RECORDS` / `_AUDIO_DAYS` / `_AUDIO_BYTES` (retention).
 
 ---
 
@@ -305,3 +315,43 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
   producer entry (`RICHOS_WINDOWS_COMPANION`), no rework.
 - **Native-messaging-rewire decision — STILL DEFERRED (unchanged):** the extension→service audio
   transport swap is untouched by P5; it still awaits its live-browser E2E.
+
+---
+
+## The correction flywheel — dictation, and one shared vocabulary (landed 2026-08-29)
+
+`ceo-decisions.md` §7 decided **"ask, never infer"** on 2026-08-26, and it was unbuilt at both ends:
+open-wispr kept neither text nor audio, so nothing existed for a correction to be a correction *of*,
+and `entities.json` had exactly **one reader** — this pipeline — so a term the CEO taught the system
+once was right in his call transcripts and wrong in everything he dictated.
+
+**`correct-text` is the second reader.** open-wispr calls it between `whisper-cli` and the paste
+(`tools/richos-hud/dictation-flywheel.patch`), and it calls `correctText()` — the exact function
+`lib/pipeline.js` calls. One corrector, so a word cannot be corrected one way in a transcript and
+another way in a dictation.
+
+**`lib/dictation.js` is the ask.** It produces QUESTIONS and has no `--apply` at any setting;
+`answerAsk()` is the only function in the module that changes what the system believes, and it
+cannot be reached without a human answer. §7's three outcomes exactly: confirm learns; decline
+learns nothing and is asked again on the very next repeat; decline-and-never is permanent and
+inspectable. The gate gains a **phonetic leg**, because §7 named the shipped orthographic gate's own
+blind spot — it stays silent on exactly the worst ASR failures, the ones that sound close and are
+spelled far apart.
+
+**`lib/dictation-store.js` is the retention posture**, and it is stated rather than drifted into,
+reusing the techy-mode journal's shape and its exact numbers:
+
+| tier | what | policy | measured cost |
+|---|---|---|---|
+| A | the text record | 14 days OR 5,000 records, whichever binds first | **284 KB / hour** of dictation |
+| B | the audio | **OFF by default**; when on, 14 days OR 2 GB | 110 MB/hour — 397× — for something the flywheel never reads |
+
+open-wispr **appends**; this service **sweeps**, hourly, from `watch`. That split is what keeps
+eviction an `unlink` of a whole day file rather than a rewrite of the CEO's speech.
+
+**Measured, not asserted** — `docs/measurements/correction-flywheel-2026-08-29/`. On an invented
+6-call corpus, one correction per channel per round: name consistency **19/24 → 21 → 23 → 24/24**,
+converging in three rounds, WER 3.15% → 2.31%, without touching `-mc`. Up-front prompt biasing was
+measured and **rejected**: it is byte-identically inert at the pipeline's `-mc 0`, and in dictation —
+where it is live — it raises exact hits while *costing* spelling consistency, because a
+probabilistic nudge can invent a new variant and a deterministic replacement cannot.
