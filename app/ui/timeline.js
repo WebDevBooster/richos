@@ -704,13 +704,40 @@
           // INTERLEAVED, which is what makes §25's "commentary is restored in its original
           // order" true when the transcript is expanded: prose rows never move, activity
           // rows appear between them.
-          stream: items.filter((i) => i.kind === "rich_message" || i.kind === "activity"),
+          stream: items.filter((i) => RENDERED_STREAM_KINDS.indexOf(i.kind) >= 0),
+          // NOT DROPPED SILENTLY — see RENDERED_STREAM_KINDS. `user_message` and
+          // `work_duration` are excluded because they have their OWN render slots above;
+          // what lands here is genuinely undrawn.
+          unrendered: items.filter(
+            (i) =>
+              RENDERED_STREAM_KINDS.indexOf(i.kind) < 0 &&
+              i.kind !== "user_message" &&
+              i.kind !== "work_duration"
+          ),
         };
       });
   }
 
   const isProse = (i) => i.kind === "rich_message";
   const isActivity = (i) => i.kind === "activity";
+
+  /// THE KINDS THIS SLICE DRAWS. Everything else in the payload is kept in the model and
+  /// reported on `turn.unrendered` rather than quietly discarded, because a silent drop is
+  /// how a missing row stops being noticeable.
+  ///
+  /// **`worker_activity` IS IN THE PAYLOAD AND IS NOT DRAWN HERE, AND THAT IS A REAL GAP.**
+  /// The worker-consumer slice landed on main while this branch was open: a `Task` tool call
+  /// with an extractable `agentId` now projects as `kind: "worker_activity"` at `ceo`
+  /// visibility INSTEAD of as an ordinary `activity` row. §7's worker treatment — chips,
+  /// names, states, the inspector — is SLICE 7 and is deliberately not built here.
+  ///
+  /// The consequence, stated rather than discovered later: once both branches are on main, a
+  /// turn in which Rich delegated work shows the delegation NOWHERE in the CEO timeline
+  /// until slice 7 lands. It did show as one semantic activity row before the join existed.
+  /// Nothing here invents a replacement, because `ObservedWorkerState` carries meanings that
+  /// need product wording — `RunEnded` is explicitly NOT a completion — and inventing that
+  /// wording is slice 7's call, not this slice's.
+  const RENDERED_STREAM_KINDS = ["rich_message", "activity"];
 
   // -------------------------------------------------------------------------------------
   // THE RENDER
