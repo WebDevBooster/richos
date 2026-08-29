@@ -60,6 +60,21 @@
 //!    no witness at all (`worker_events.rs`), and nothing here invents one.
 //! 3. **No poll and no timer.** See [`LiveTurn::on_machinery`] for what that costs.
 //!
+//! AND ONE THING THIS EVENT INHERITS RATHER THAN FIXES. The join's session clause compares
+//! the ACP session id the adapter minted against the `session_id` the engine hook read from
+//! the Claude Code harness, and **whether those are the same id space has never been
+//! measured** — the adapter is not installed in this checkout
+//! ([`crate::spine::Spine::set_worker_events`] states it). If they differ, every row is
+//! refused, every `Task` call stays an ordinary activity row, and the behaviour is exactly
+//! what it was before this event existed — safe, but silent.
+//!
+//! The reload path REPORTS that case as
+//! [`crate::timeline::RejectionReason::WorkerSessionMismatch`]; this family has no rejection
+//! channel, so the live path cannot. That is a real asymmetry and it is stated here rather
+//! than discovered later. The diagnostic is not lost — the shell reads `Spine::timeline` on
+//! every thread open — but nobody should read a live turn with no chips as proof that Rich
+//! did not delegate.
+//!
 //! ## THE MESSAGE PHASE, STATED LOUDLY
 //!
 //! **The ACP stream does not distinguish commentary from the final response, so every
