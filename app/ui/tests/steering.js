@@ -208,7 +208,11 @@ async function openApp(browser, viewport, opts) {
   });
   if (railHidden) await page.click("#rail-toggle");
   await page.waitForSelector(".nav-thread", { state: "visible" });
-  await page.click(".nav-thread");
+  // BY ID, never "the first one". `mock.js` is another engineer's file and its seed grows:
+  // a thread added with a newer `last_activity` sorts above whatever used to be first, and
+  // a suite that clicks position 1 starts opening an empty thread and times out with no
+  // hint why. `acme` is the seeded thread with real history.
+  await page.click('.nav-thread[data-thread-id="acme"]');
   await page.waitForSelector(".tl-turn");
   page.__errors = errors;
   return page;
