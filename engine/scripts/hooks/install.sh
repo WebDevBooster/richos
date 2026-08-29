@@ -287,6 +287,12 @@ HOOK_FILES+=(
     # on this list.
     "$REPO_ROOT/scripts/lib/publication-boundary.sh"
     "$REPO_ROOT/scripts/lib/publication-boundary.py"
+    # The CEO-queue predicate, in both its halves — same argument again:
+    # guard-ceo-queue-commits.sh delegates its entire decision to these two
+    # files, so hashing the guard and leaving the thing that decides unverified
+    # would check the lock and ignore the key.
+    "$REPO_ROOT/scripts/lib/ceo-queue.sh"
+    "$REPO_ROOT/scripts/lib/ceo-queue.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue
