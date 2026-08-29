@@ -924,6 +924,9 @@ impl Spine {
         // lazily (`LiveTurn::on_machinery` calls the thunk only once this turn has a
         // delegation to resolve), so a turn that never delegates does no extra file I/O.
         let worker_source = &self.worker_events;
+        // Captured up front: the borrow checker will not let `self` be touched inside the
+        // stream closure below, and the session identity is what names the team directory.
+        let worker_session = self.lease.as_ref().map(|l| l.session_id().to_string());
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
         let mut persist_err: Option<LedgerError> = None;
         // The additive family's per-turn bookkeeping (§13). Holds no counter of its own:
@@ -969,7 +972,7 @@ impl Spine {
                     // the turn's end, and §5.2's "commentary, then activity" is live-accurate.
                     let runs = ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
                     Self::forward_live(live_observer, live_turn.close_open_message(runs, now_millis()));
-                    Self::forward_live(live_observer, live_turn.on_machinery(&record, &|| worker_source.read()));
+                    Self::forward_live(live_observer, live_turn.on_machinery(&record, &|| worker_source.read(worker_session.as_deref())));
                     Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
             };
@@ -1000,7 +1003,11 @@ impl Spine {
         // later could disagree at exactly the moment the transcript settles and collapses.
         // Emitted for every outcome — completed, stopped, interrupted — because a turn that
         // ended badly still delegated.
-        let converged = live_turn.on_turn_end(&|| self.worker_events.read());
+        // The session id is threaded through here for the same reason it is at the other
+        // call site: whose workers these are is derived from the session identity, never
+        // guessed from a directory mtime.
+        let session_id = self.lease_session_id();
+        let converged = live_turn.on_turn_end(&|| self.worker_events.read(session_id));
         self.emit_live(converged);
 
         // A ledger write failing mid-stream is terminal for the turn (durability first).

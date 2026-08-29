@@ -1044,7 +1044,7 @@ fn the_live_worker_row_and_the_reloaded_worker_row_are_the_same_row() {
     // Rebuild from the durable records + the same stream, the way a cold reopen does.
     let records = machinery.records.lock().unwrap().clone();
     let binding = spine.ledger().thread_binding(&thread).unwrap();
-    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let rows = WorkerEventsSource::File(stream.clone()).read(None);
     let reloaded = Timeline::project_with_workers(spine.ledger(), &binding, &records, &rows).unwrap();
     let view = reloaded.view(ViewMode::Ceo);
     let projected = view
@@ -1186,7 +1186,7 @@ fn no_worker_from_another_session_reaches_the_live_wire() {
 
     // THE CONTROL IS NOT VACUOUS. The guard is one clause; re-apply the join WITHOUT it,
     // over the same public rows, and it admits exactly the row that was refused.
-    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let rows = WorkerEventsSource::File(stream.clone()).read(None);
     assert_eq!(rows.len(), 2, "both rows are on disk and both parse");
     let without_session_clause: Vec<&richos_core::worker_events::WorkerEventRow> =
         rows.iter().filter(|r| r.agent_id == "agt_shared").collect();
@@ -1261,7 +1261,7 @@ fn a_lifecycle_row_that_lands_after_the_tool_result_still_reaches_the_screen_in_
     // And a reload agrees with where it ended up.
     let records = machinery.records.lock().unwrap().clone();
     let binding = spine.ledger().thread_binding(&thread).unwrap();
-    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let rows = WorkerEventsSource::File(stream.clone()).read(None);
     let reloaded = Timeline::project_with_workers(spine.ledger(), &binding, &records, &rows).unwrap();
     let view = reloaded.view(ViewMode::Ceo);
     let projected: Vec<&richos_core::timeline::TimelineItem> = view
@@ -1312,7 +1312,7 @@ fn a_delegation_on_an_internal_turn_is_constructed_and_then_refused() {
     // its absence. `audit_including_internal` is the only way to see it, by design.
     let records = machinery.records.lock().unwrap().clone();
     let binding = spine.ledger().thread_binding(&thread).unwrap();
-    let rows = WorkerEventsSource::File(stream.clone()).read();
+    let rows = WorkerEventsSource::File(stream.clone()).read(None);
     let reloaded = Timeline::project_with_workers(spine.ledger(), &binding, &records, &rows).unwrap();
     let internal_row = reloaded
         .audit_including_internal()
