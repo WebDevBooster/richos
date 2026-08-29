@@ -1,0 +1,1118 @@
+// RichOS web UI — the Codex-inspired working timeline (UX brief §5, §6, §15, slice 5 of §24).
+//
+// This file owns TWO things and nothing else:
+//
+//   1. THE MODEL — a client-side projection of the typed timeline (§12). It is fed from
+//      exactly two sources, and they agree by construction because they carry the same
+//      item ids: the `get_timeline` snapshot (the reload path) and the six additive
+//      `rich://` events (the live path, app/STREAMING.md "The additive live-work family").
+//   2. THE RENDER — the CEO bubble (§5.1), Rich's prose (§5.2/§5.4), semantic work
+//      activity (§5.3), the working-duration row (§6) and its collapse (§6.4).
+//
+// It talks to no bridge, listens to no event and invokes no command. `main.js` drives it.
+// That split is deliberate: every rule below is testable in a browser with no Tauri, no
+// engine and no lease.
+//
+// =========================================================================================
+// THE ONE THING TO READ BEFORE CHANGING ANYTHING HERE: `phase` IS UNKNOWN.
+// =========================================================================================
+//
+// §5.2 (commentary) and §5.4 (the executive response) ask for two different treatments —
+// commentary folds into the collapsible working transcript, the final response stays
+// expanded outside it. **The data cannot tell them apart today, and this file does not
+// pretend otherwise.**
+//
+// Measured, not assumed (`docs/verification/acp-emission-probe-2026-08-28.md` §2, five
+// runs): 52 `agent_message_chunk`s and ZERO message-open, message-close or role updates.
+// Nothing on the ACP wire separates Rich thinking out loud from Rich answering. And
+// `rich://message-started` fires when the first delta is persisted — before the turn ends —
+// so even a perfect after-the-fact rule would not be available at emission time.
+// `richos_core::live::STREAMED_MESSAGE_PHASE` is a named constant equal to `Unknown`
+// precisely so nobody writes `phase ?? "final"`.
+//
+// So this renderer takes the one honest option:
+//
+//   * EVERY run of Rich's prose renders the same way, in sequence order — one lane, one
+//     treatment. No "final answer" styling, no larger type for the last run, no citation
+//     chrome, nothing that says "this is the deliverable".
+//   * **The collapse (§6.4) never hides prose.** Collapsing "the commentary" when
+//     commentary cannot be distinguished from the answer would put the CEO's deliverable
+//     behind a chevron. So the disclosure collapses exactly what IS positively typed as
+//     work — the semantic activity rows — and prose stays visible at every state.
+//   * The tempting fallback is also false: *"the last run of a completed turn is the final
+//     answer"* breaks the moment Rich verifies something after writing his conclusion,
+//     which makes the last run a two-word "Confirmed." and the deliverable the run before
+//     it.
+//
+// The ONE phase that is real is `proactive` — the ledger records it — and it keeps its
+// existing "reached out" treatment.
+//
+// When a real phase signal lands, the change is local: `isProse()` stays, and
+// `renderTurn()` gains a split between the collapsible lane and the response lane.
+"use strict";
+
+(function () {
+  // -------------------------------------------------------------------------------------
+  // §6.2 DURATION FORMAT
+  // -------------------------------------------------------------------------------------
+
+  /// §6.2's table, verbatim, with the arithmetic shown:
+  ///
+  ///   | elapsed            | rendered      |
+  ///   | 0 to 999ms         | (none)        |  -> null, NOT "0s"
+  ///   | 1s to 59s          | `18s`         |  18_360ms -> floor(18.36) -> "18s"
+  ///   | 1m to 59m 59s      | `4m 7s`       |  247_000ms -> 4m + 7s
+  ///   | 1h to 23h 59m 59s  | `2h 17m 50s`  |  8_270_000ms -> 2h + 17m + 50s
+  ///   | 24h or more        | `1d 3h`       |  97_200_000ms -> 27h -> 1d + 3h
+  ///
+  /// Space-separated, never zero-padded (§6.2). Truncation, not rounding: a turn that ran
+  /// 18.9s reads `18s`, because rounding UP would report time that had not yet elapsed.
+  function formatDuration(ms) {
+    if (typeof ms !== "number" || !isFinite(ms) || ms < 0) return null;
+    if (ms < 1000) return null; // "no duration yet" — an explicit row in §6.2's table
+    const totalSec = Math.floor(ms / 1000);
+    const s = totalSec % 60;
+    const totalMin = Math.floor(totalSec / 60);
+    const m = totalMin % 60;
+    const totalHour = Math.floor(totalMin / 60);
+    const h = totalHour % 24;
+    const d = Math.floor(totalHour / 24);
+    if (d >= 1) return `${d}d ${h}h`;
+    if (totalHour >= 1) return `${h}h ${m}m ${s}s`;
+    if (totalMin >= 1) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  // -------------------------------------------------------------------------------------
+  // §6.1 THE LABELS — and the two §6.1 labels this build refuses to draw
+  // -------------------------------------------------------------------------------------
+  //
+  // §6.1 lists six labels. Four are drawn. Two are NOT, and their absence is sourced:
+  //
+  //   `You stopped after {duration}`  — needs a CEO-stop signal. §9.3's stop control does
+  //       not exist (slice 6), and `WorkState::Interrupted` covers a crash, a rotation and
+  //       a cancel alike (timeline.rs). Rendering it would attribute the stop to the CEO on
+  //       no evidence, so an interrupted turn reads `Stopped after {duration}` instead —
+  //       §6.1's *failed* label, which claims only what is recorded.
+  //   `Waiting for you`              — §11's `waiting_for_user` does not exist in this
+  //       runtime (live.rs), so nothing can put a turn in it.
+  //
+  // And one label that is NOT in §6.1 at all, added because §14 demands it: a turn that is
+  // `working` on disk with no live turn running for it in this session. §14: *"Never infer
+  // that a turn completed because the app was closed … Show `Reconnecting` or `Status
+  // unavailable` honestly."* Ticking a timer from its `startedAt` at read time is the exact
+  // twelve-hour trap §6.3 names, so no duration is offered at all.
+
+  /// WHAT THE DURATION MEANS — and why the §6.1 wording is not an overclaim TODAY.
+  ///
+  /// §6.3: the timer measures ACTIVE turn time; it pauses in `waiting_for_user`. This build
+  /// has no pause, so there is no interval that could be excluded:
+  /// `ledger.rs` `Turn::active_ms` — *"There is no pause accounting because there is no
+  /// pause: §11's `waiting_for_user` state does not exist in this runtime yet, so no
+  /// interval can be excluded. When it lands, this measure becomes wall time and MUST be
+  /// replaced by accumulated active time, not extended."*
+  ///
+  /// So `active_ms` = `ended_at - started_at` = active time = wall time, and the three are
+  /// equal BY CONSTRUCTION rather than by assumption. `Worked for 4m 7s` is exact.
+  ///
+  /// **The day `waiting_for_user` lands, this stops being true and this label becomes a
+  /// lie** — it would then bill the CEO's lunch break to Rich. Whoever lands that state
+  /// must replace `active_ms` with accumulated active time (ledger.rs says so) BEFORE this
+  /// row ships against it.
+  const DURATION_MEANING =
+    "Active time from when Rich accepted the message to when the turn ended.";
+
+  /// Turn -> the row's label, its number, its tone and its accessible description.
+  ///
+  /// `t`: { status, startedAt, activeMs, live, mergedFrom }
+  /// `nowMs`: the clock for a LIVE tick only. Never consulted for a terminal turn.
+  function durationRow(t, nowMs) {
+    switch (t.status) {
+      case "queued":
+      case "working":
+      case "recovering": {
+        // §14: a turn that was in flight when the process died is NOT running now, and
+        // nothing recorded when it stopped. Refuse both the timer and the claim.
+        if (!t.live) {
+          return {
+            label: "Status unavailable",
+            duration: null,
+            tone: "unknown",
+            note: "This turn was still running when RichOS last closed, and nothing recorded how it ended.",
+            live: false,
+          };
+        }
+        if (typeof t.startedAt !== "number") {
+          // Accepted but not yet handed to a lease: §6.1's under-one-second row.
+          return { label: "Working", duration: null, tone: "active", note: DURATION_MEANING, live: true };
+        }
+        const d = formatDuration(nowMs - t.startedAt);
+        return {
+          label: d ? `Working for ${d}` : "Working",
+          duration: d,
+          tone: "active",
+          note: DURATION_MEANING,
+          live: true,
+        };
+      }
+      case "completed": {
+        if (typeof t.activeMs !== "number") {
+          return {
+            label: "Worked",
+            duration: null,
+            tone: "done",
+            note: "How long this took was not recorded.",
+            live: false,
+          };
+        }
+        const d = formatDuration(t.activeMs);
+        // MEASURED but under §6.2's one-second display floor. Not the same statement as
+        // "unrecorded", so it carries no apology.
+        return {
+          label: d ? `Worked for ${d}` : "Worked",
+          duration: d,
+          tone: "done",
+          note: DURATION_MEANING,
+          live: false,
+        };
+      }
+      case "interrupted":
+      case "failed": {
+        if (typeof t.activeMs !== "number") {
+          return {
+            label: "Stopped before it finished",
+            duration: null,
+            tone: "stopped",
+            note: "How long it ran was not recorded — the turn ended without writing an end time.",
+            live: false,
+          };
+        }
+        const d = formatDuration(t.activeMs);
+        return {
+          label: d ? `Stopped after ${d}` : "Stopped",
+          duration: d,
+          tone: "stopped",
+          note: DURATION_MEANING,
+          live: false,
+        };
+      }
+      default:
+        return { label: "Status unavailable", duration: null, tone: "unknown", note: "", live: false };
+    }
+  }
+
+  // -------------------------------------------------------------------------------------
+  // §5.3 SEMANTIC ACTIVITY ROLLUP
+  // -------------------------------------------------------------------------------------
+  //
+  // §25: *"Grouped start and completion summaries avoid repetitive rows."* §5.3: *"one row
+  // per meaningful action cluster."*
+  //
+  // The rollup counts TOOL CALLS, which is the only thing it can count: a CEO view carries
+  // `summary` and no `detail`, so there are no file paths here to add up (the bytes were
+  // removed by `Timeline::view`, not hidden). Each plural below is therefore true by
+  // construction — n rows that each said "Read a file" is n files.
+  //
+  // A row whose summary already carries its own count ("Read 8 files") is NEVER merged with
+  // another, because 8 + 8 is a sum this file cannot verify. It stays its own row.
+  const PLURALS = {
+    "Ran a command": (n) => `Ran ${n} commands`,
+    "Read a file": (n) => `Read ${n} files`,
+    "Edited a file": (n) => `Edited ${n} files`,
+    "Searched": (n) => `Searched ${n} times`,
+    "Used the web": (n) => `Used the web ${n} times`,
+    "Viewed an image": (n) => `Viewed ${n} images`,
+    "Used an integration": (n) => `Used ${n} integrations`,
+    "Updated a thread": (n) => `Updated ${n} threads`,
+    "Requested approval": (n) => `Requested approval ${n} times`,
+    "Set up the environment": (n) => `Set up the environment (${n} steps)`,
+    "Worked": (n) => `Worked (${n} steps)`,
+  };
+
+  /// The group's state from its members'. Precedence: something is still happening beats
+  /// something failed beats everything finished beats nobody knows.
+  ///
+  /// `unknown` is COMMON and is not an error — 34 of the 58 tool events measured on
+  /// 2026-08-28 carried no `status` field at all (STREAMING.md). It is never folded into
+  /// `completed`; a group with one unknown member and no running member reports `unknown`,
+  /// because "they all finished" would be a completion claim nobody made.
+  function groupState(states) {
+    if (states.includes("running") || states.includes("queued")) return "running";
+    if (states.includes("failed")) return "failed";
+    if (states.includes("unknown")) return "unknown";
+    if (states.length && states.every((s) => s === "completed")) return "completed";
+    return "unknown";
+  }
+
+  /// Collapse a run of CONSECUTIVE activity items with the identical summary into one row.
+  /// Consecutive only — an interleaved prose run or a different activity type breaks the
+  /// group, so the rollup can never reorder the chronology it is summarising.
+  function rollupActivity(items) {
+    const out = [];
+    for (const item of items) {
+      const last = out[out.length - 1];
+      if (last && last.summary === item.summary && PLURALS[item.summary]) {
+        last.members.push(item);
+        continue;
+      }
+      out.push({ summary: item.summary, activityType: item.activityType, members: [item] });
+    }
+    return out.map((g) => ({
+      key: g.members[0].id,
+      count: g.members.length,
+      activityType: g.activityType,
+      label: g.members.length === 1 ? g.summary : PLURALS[g.summary](g.members.length),
+      state: groupState(g.members.map((m) => m.state)),
+      members: g.members,
+    }));
+  }
+
+  const ACTIVITY_STATE_LABEL = {
+    queued: "queued",
+    running: "running",
+    completed: "done",
+    failed: "failed",
+    unknown: "outcome not recorded",
+    stopped: "stopped",
+  };
+
+  // -------------------------------------------------------------------------------------
+  // THE MODEL
+  // -------------------------------------------------------------------------------------
+
+  /// The synthetic turn id an optimistic CEO bubble carries between "the CEO pressed Enter"
+  /// and "the spine told us the turn id". It is re-keyed onto the real turn the moment
+  /// `rich://turn-status` names one, so the bubble is never drawn twice.
+  const PENDING_TURN = "\u0000pending";
+
+  const SLOT_RANK = { opening: 0, stream: 1, terminal: 2 };
+
+  function createModel() {
+    return {
+      entityId: null,
+      threadId: null,
+      /// The activation revision we are fenced at. §13's fence is a STALENESS fence, never
+      /// an equality key — see `accepts()`.
+      bindingRevision: -1,
+      items: new Map(), // id -> item  (idempotent by id: §13 "repeated event IDs are idempotent")
+      turns: new Map(), // turnId -> { status, startedAt, activeMs, live, mergedFrom: [] }
+      turnOrder: [], // turnIds, oldest first
+      expanded: new Set(), // turnIds whose work transcript the CEO has opened
+      settled: new Set(), // turnIds whose post-completion settle has already run
+      announcedWorking: new Set(),
+      pendingUser: [], // optimistic CEO bubbles awaiting a turn id
+    };
+  }
+
+  function bind(model, entityId, threadId, bindingRevision) {
+    model.entityId = entityId;
+    model.threadId = threadId;
+    model.bindingRevision = typeof bindingRevision === "number" ? bindingRevision : -1;
+  }
+
+  /// THE FENCE (§13: *"The renderer rejects events that do not match the immutable
+  /// binding."*), applied exactly as STREAMING.md specifies and NOT as it reads at first
+  /// glance:
+  ///
+  ///   * EQUALITY is `entityId` + `threadId`. Both are immutable for the life of a thread.
+  ///   * `bindingRevision` is a STALENESS fence, NEVER an equality key. It carries the
+  ///     revision of the ACTIVATION that produced the event, so it advances on every thread
+  ///     activation and is legitimately HIGHER than the revision a re-projection of the
+  ///     same thread reports. Comparing it for equality would reject every live event after
+  ///     any thread switch — i.e. the app would go silent the first time the CEO changed
+  ///     threads and came back. Reject anything OLDER; accept at or above.
+  function accepts(model, payload) {
+    if (!payload) return false;
+    if (model.threadId == null) return false;
+    if (payload.threadId !== model.threadId) return false;
+    if (model.entityId != null && payload.entityId !== model.entityId) return false;
+    if (typeof payload.bindingRevision === "number" && payload.bindingRevision < model.bindingRevision) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Only `ceo` items are rendered. Belt AND braces: the spine already refuses to put a
+  /// technical or internal item on this family (`LiveEvent::may_reach_webview`) and
+  /// `Timeline::view(Ceo)` already removes them from the snapshot, so this check should
+  /// never fire. It exists so that if a future emitter widens the family, the calm view
+  /// does not silently start rendering machinery — slice 3 fixed a live defect where
+  /// untyped vendor kinds surfaced as six CEO rows reading "Worked" against one real
+  /// command, and that class of regression must fail closed here too.
+  function visible(item) {
+    return !item || item.visibility === undefined || item.visibility === "ceo";
+  }
+
+  function turnRecord(model, turnId) {
+    let t = model.turns.get(turnId);
+    if (!t) {
+      t = { status: "queued", startedAt: null, activeMs: null, live: false, mergedFrom: [] };
+      model.turns.set(turnId, t);
+    }
+    if (!model.turnOrder.includes(turnId)) model.turnOrder.push(turnId);
+    return t;
+  }
+
+  function putItem(model, item) {
+    if (!visible(item)) return false;
+    const prev = model.items.get(item.id);
+    model.items.set(item.id, prev ? Object.assign({}, prev, item) : item);
+    if (item.turnId) turnRecord(model, item.turnId);
+    return !prev; // structural change?
+  }
+
+  // ---- the reload path -----------------------------------------------------------------
+
+  /// Replace the model from a `get_timeline` snapshot (§14 step 2, §13 *"reconnect uses a
+  /// full snapshot"*).
+  ///
+  /// This deliberately does NOT merge: the snapshot is the durable truth, and anything the
+  /// live path invented that the ledger does not hold should disappear rather than linger.
+  /// Item ids are derived from the durable records (`{turnId}:user`, `{turnId}:text:{n}`,
+  /// `{turnId}:duration`, the machinery id), so a snapshot taken mid-session re-states what
+  /// is already on screen instead of duplicating it.
+  ///
+  /// LIVE STATE SURVIVES IT. A turn still streaming in this session keeps `live: true` and
+  /// its `startedAt`, because the snapshot's `working` row carries no information about
+  /// whether the lease is alive right now — only this session knows that.
+  function applySnapshot(model, snapshot) {
+    const liveTurns = new Map();
+    for (const [id, t] of model.turns) if (t.live) liveTurns.set(id, t);
+    const expanded = model.expanded;
+    const settled = model.settled;
+    const announced = model.announcedWorking;
+
+    model.items = new Map();
+    model.turns = new Map();
+    model.turnOrder = [];
+    model.expanded = expanded;
+    model.settled = settled;
+    model.announcedWorking = announced;
+    model.pendingUser = [];
+
+    if (!snapshot || !Array.isArray(snapshot.items)) return;
+    model.entityId = snapshot.entityId != null ? snapshot.entityId : model.entityId;
+    model.threadId = snapshot.threadId != null ? snapshot.threadId : model.threadId;
+
+    for (const raw of snapshot.items) {
+      if (!visible(raw)) continue;
+      if (raw.kind === "work_duration") {
+        const t = turnRecord(model, raw.turnId);
+        t.status = raw.state; // queued | working | completed | interrupted
+        t.startedAt = typeof raw.startedAt === "number" ? raw.startedAt : null;
+        t.activeMs = typeof raw.activeMs === "number" ? raw.activeMs : null;
+        const alive = liveTurns.get(raw.turnId);
+        if (alive && (raw.state === "queued" || raw.state === "working")) {
+          t.live = true;
+          if (typeof alive.startedAt === "number") t.startedAt = alive.startedAt;
+        }
+        continue;
+      }
+      putItem(model, raw);
+    }
+    // A turn that contributed only a duration row still needs its place in the order.
+    for (const raw of snapshot.items) if (raw.turnId) turnRecord(model, raw.turnId);
+  }
+
+  // ---- the live path -------------------------------------------------------------------
+
+  /// The CEO pressed Enter. The bubble goes up immediately (§25: *"renders immediately"*)
+  /// with a synthetic id, and is re-keyed onto the real turn as soon as one is named.
+  function addPendingUserMessage(model, text, at) {
+    const id = "pending:" + model.pendingUser.length + ":" + at;
+    const item = {
+      kind: "user_message",
+      id,
+      entityId: model.entityId,
+      threadId: model.threadId,
+      turnId: PENDING_TURN,
+      createdAt: at,
+      slot: "opening",
+      sequence: null,
+      visibility: "ceo",
+      text,
+      source: "text",
+      pending: true,
+    };
+    model.items.set(id, item);
+    model.pendingUser.push(id);
+    return id;
+  }
+
+  /// A locally-authored line in Rich's voice that is NOT in the ledger — today only the
+  /// voice-mode failure explanations. It carries a synthetic turn id with no turn record,
+  /// so it can never grow a duration row claiming work that never happened, and the next
+  /// snapshot drops it (it is not evidence).
+  function addLocalNotice(model, text, at) {
+    const turnId = "\u0000local:" + at + ":" + Math.random().toString(36).slice(2, 8);
+    const id = turnId + ":text:0";
+    model.items.set(id, {
+      kind: "rich_message",
+      id,
+      entityId: model.entityId,
+      threadId: model.threadId,
+      turnId,
+      createdAt: at,
+      slot: "stream",
+      sequence: null,
+      visibility: "ceo",
+      phase: "unknown",
+      text,
+      closed: true,
+    });
+    if (!model.turnOrder.includes(turnId)) model.turnOrder.push(turnId);
+    return id;
+  }
+
+  /// Adopt the oldest un-adopted optimistic bubble onto a real turn, under the id the
+  /// ledger will derive for it. Doing this — rather than leaving the placeholder and adding
+  /// the projected item later — is what stops the CEO's one sentence appearing twice.
+  function adoptPendingUserMessage(model, turnId) {
+    const pendingId = model.pendingUser.shift();
+    if (!pendingId) return;
+    const item = model.items.get(pendingId);
+    if (!item) return;
+    model.items.delete(pendingId);
+    const realId = `${turnId}:user`;
+    if (!model.items.has(realId)) {
+      model.items.set(realId, Object.assign({}, item, { id: realId, turnId, pending: false }));
+    }
+  }
+
+  /// Drop every trace of a turn — items, record and order slot. Used only by the
+  /// supersession merge below.
+  function dropTurn(model, turnId) {
+    for (const [id, item] of Array.from(model.items)) {
+      if (item.turnId === turnId) model.items.delete(id);
+    }
+    model.turns.delete(turnId);
+    const at = model.turnOrder.indexOf(turnId);
+    if (at >= 0) model.turnOrder.splice(at, 1);
+    return at;
+  }
+
+  /// `rich://turn-status`.
+  ///
+  /// ## `supersedesTurnId` — A MERGE INSTRUCTION, NOT AN ANNOUNCEMENT
+  ///
+  /// When the compute lease dies mid-turn, the crashed turn emits `recovering` and the
+  /// REPLAY's `queued` carries `supersedesTurnId`. STREAMING.md: *"Without it you would
+  /// draw the CEO's single prompt twice."* So the crashed turn's items are removed and the
+  /// replacement takes its place IN THE SAME POSITION in the conversation — which is
+  /// exactly what a reload does, since `Timeline::project` demotes a superseded turn to
+  /// `Internal` and it never appears in a CEO view at all. Live and reload therefore render
+  /// the identical exchange.
+  ///
+  /// Nothing is said to the CEO. §21's calm recovery wording is a product decision that has
+  /// not been made, and STREAMING.md is explicit that this must not surface as "we
+  /// reconnected". Silence is the choice this slice makes: the work genuinely continued, so
+  /// the row keeps reading `Working`.
+  ///
+  /// ONE VISIBLE ARTIFACT, STATED PLAINLY: the timer restarts. The replacement turn has its
+  /// own `startedAt`, and the crashed attempt's span was never recorded — a hard kill
+  /// writes no terminal event, so `Turn::active_ms` is `None` for it forever (ledger.rs).
+  /// Carrying the older anchor forward would make the live ticker disagree with the frozen
+  /// number the same turn reports on completion, and with what a reload shows. The renderer
+  /// tracks the turn the ledger measured, and only that one.
+  function onTurnStatus(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    let structural = false;
+
+    if (p.supersedesTurnId) {
+      // THE CEO'S PROMPT IS CARRIED ACROSS, NOT DROPPED WITH THE TURN.
+      //
+      // Found by running the crash, not by reasoning about it: the optimistic bubble was
+      // already adopted onto the CRASHED turn (its `queued` consumed the pending entry), so
+      // deleting that turn's items deleted the CEO's sentence, and the replacement's
+      // `queued` had no pending bubble left to adopt. The prompt vanished from the
+      // conversation until the next snapshot put it back. Re-keying it onto the replacement
+      // is what "merge the two turn ids into one exchange" actually means, and it lands the
+      // item on `{replacementTurnId}:user` — the SAME id `Timeline::project` derives, so the
+      // reload agrees.
+      const carried = Object.values(Object.fromEntries(model.items)).find(
+        (i) => i.kind === "user_message" && i.turnId === p.supersedesTurnId
+      );
+      const at = dropTurn(model, p.supersedesTurnId);
+      structural = true;
+      const t = turnRecord(model, p.turnId);
+      t.mergedFrom.push(p.supersedesTurnId);
+      if (carried) {
+        const realId = `${p.turnId}:user`;
+        if (!model.items.has(realId)) {
+          model.items.set(realId, Object.assign({}, carried, { id: realId, turnId: p.turnId, pending: false }));
+        }
+      }
+      if (at >= 0) {
+        const now = model.turnOrder.indexOf(p.turnId);
+        if (now >= 0) model.turnOrder.splice(now, 1);
+        model.turnOrder.splice(at, 0, p.turnId);
+      }
+    }
+
+    const known = model.turns.has(p.turnId);
+    const t = turnRecord(model, p.turnId);
+    if (!known) structural = true;
+
+    t.status = p.status;
+    if (typeof p.startedAt === "number") t.startedAt = p.startedAt;
+    // NEVER `?? 0` and never `now() - startedAt`: `activeDurationMs` is explicitly null
+    // until the turn ends, and 0 is a measurement claim (STREAMING.md, §6.3).
+    if (typeof p.activeDurationMs === "number") t.activeMs = p.activeDurationMs;
+    t.live = p.status === "queued" || p.status === "working" || p.status === "recovering";
+
+    if (p.status === "queued" || p.status === "working") adoptPendingUserMessage(model, p.turnId);
+    if (!t.live && !model.expanded.has(p.turnId)) model.settled.delete(p.turnId);
+
+    return { structural, rejected: false };
+  }
+
+  function onMessageStarted(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    if (p.visibility && p.visibility !== "ceo") return { structural: false, rejected: true };
+    const isNew = putItem(model, {
+      kind: "rich_message",
+      id: p.messageId,
+      entityId: p.entityId,
+      threadId: p.threadId,
+      turnId: p.turnId,
+      createdAt: p.at,
+      slot: "stream",
+      // Never zero-by-default: a null position means the position was not recorded, and
+      // an unpositioned run sorts AFTER every positioned one (timeline.rs `order_key`).
+      sequence: typeof p.seq === "number" ? p.seq : null,
+      visibility: p.visibility || "ceo",
+      phase: p.phase, // "unknown" today, and rendered as such — see the header of this file
+      text: model.items.has(p.messageId) ? model.items.get(p.messageId).text : "",
+    });
+    return { structural: isNew, rejected: false };
+  }
+
+  function onMessageDelta(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    if (p.visibility && p.visibility !== "ceo") return { structural: false, rejected: true };
+    const existing = model.items.get(p.messageId);
+    if (!existing) {
+      // A delta whose open we missed still renders. The text is durable either way.
+      putItem(model, {
+        kind: "rich_message",
+        id: p.messageId,
+        entityId: p.entityId,
+        threadId: p.threadId,
+        turnId: p.turnId,
+        createdAt: p.at,
+        slot: "stream",
+        sequence: typeof p.seq === "number" ? p.seq : null,
+        visibility: "ceo",
+        phase: "unknown",
+        text: p.textDelta,
+      });
+      return { structural: true, rejected: false, textOnly: null };
+    }
+    existing.text += p.textDelta;
+    // Not structural: the caller updates this one node's text in place, so streaming never
+    // rebuilds the timeline and never moves focus (§18, §15's "coalesce tiny deltas").
+    return { structural: false, rejected: false, textOnly: p.messageId };
+  }
+
+  function onMessageCompleted(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    if (p.visibility && p.visibility !== "ceo") return { structural: false, rejected: true };
+    const existing = model.items.get(p.messageId);
+    // `text` is the run's FULL text read back from the ledger — authoritative over anything
+    // accumulated from deltas, so a consumer that missed every delta is still correct.
+    const isNew = putItem(model, {
+      kind: "rich_message",
+      id: p.messageId,
+      entityId: p.entityId,
+      threadId: p.threadId,
+      turnId: p.turnId,
+      createdAt: existing ? existing.createdAt : p.at,
+      slot: "stream",
+      sequence: existing ? existing.sequence : null,
+      visibility: p.visibility || "ceo",
+      phase: p.phase,
+      text: p.text,
+      closed: true,
+    });
+    return { structural: isNew, rejected: false, textOnly: isNew ? null : p.messageId };
+  }
+
+  /// `rich://activity-upserted`. The payload IS the timeline item a reload projects, plus
+  /// `at` — so this is a plain upsert by `id`, last write wins (STREAMING.md). One tool call
+  /// is ONE row that arrives several times as it moves `queued -> completed`.
+  function onActivityUpserted(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    if (p.visibility && p.visibility !== "ceo") return { structural: false, rejected: true };
+    const isNew = putItem(model, p);
+    return { structural: true, rejected: false, isNew };
+  }
+
+  // ---- ordering ------------------------------------------------------------------------
+
+  /// `(turn, slot, sequence)` — the same key `TimelineBase::order_key` uses, with the turn
+  /// order carried by first appearance. An UNPOSITIONED stream item sorts after every
+  /// positioned one, because claiming it came first would be a claim (timeline.rs).
+  function orderKey(model, item) {
+    const turnIdx = model.turnOrder.indexOf(item.turnId);
+    const slot = SLOT_RANK[item.slot] !== undefined ? SLOT_RANK[item.slot] : 1;
+    const positioned = typeof item.sequence === "number" ? 0 : 1;
+    const seq = typeof item.sequence === "number" ? item.sequence : 0;
+    return [turnIdx < 0 ? model.turnOrder.length : turnIdx, slot, positioned, seq];
+  }
+
+  function cmpKey(a, b) {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return a[i] - b[i];
+    }
+    return 0;
+  }
+
+  /// The model grouped into the shape §5/§6 renders: one entry per turn, with the CEO's
+  /// message, the duration row and the ordered stream lane.
+  function turnsOf(model) {
+    const byTurn = new Map();
+    for (const item of model.items.values()) {
+      const list = byTurn.get(item.turnId) || [];
+      list.push(item);
+      byTurn.set(item.turnId, list);
+    }
+    const ids = model.turnOrder.slice();
+    for (const id of byTurn.keys()) if (!ids.includes(id)) ids.push(id);
+
+    return ids
+      .filter((id) => byTurn.has(id) || model.turns.has(id))
+      .map((turnId) => {
+        const items = (byTurn.get(turnId) || []).slice().sort((a, b) => cmpKey(orderKey(model, a), orderKey(model, b)));
+        return {
+          turnId,
+          record: model.turns.get(turnId) || null,
+          user: items.find((i) => i.kind === "user_message") || null,
+          // Everything the lease emitted, in shared-counter order — prose and activity
+          // INTERLEAVED, which is what makes §25's "commentary is restored in its original
+          // order" true when the transcript is expanded: prose rows never move, activity
+          // rows appear between them.
+          stream: items.filter((i) => i.kind === "rich_message" || i.kind === "activity"),
+        };
+      });
+  }
+
+  const isProse = (i) => i.kind === "rich_message";
+  const isActivity = (i) => i.kind === "activity";
+
+  // -------------------------------------------------------------------------------------
+  // THE RENDER
+  // -------------------------------------------------------------------------------------
+
+  const CEO_BUBBLE_LINE_CLAMP = 18; // §5.1: "show the first 16 to 20 lines"
+
+  function elem(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function srOnly(text) {
+    return elem("span", "sr-only", text);
+  }
+
+  function formatClock(ms) {
+    return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  /// §5.1 — the CEO's message. Right aligned, a QUIET highlighted surface (§0.1: "must not
+  /// use a saturated consumer-chat color"), capped, and visually lighter than Rich's prose.
+  ///
+  /// NO EDIT AFFORDANCE. §5.1/§25 want Edit to start a superseding branch that leaves the
+  /// original in the evidence log. Nothing in this build can branch a turn, and a button
+  /// that silently rewrote evidence would be the exact failure §5.1 forbids. Copy ships;
+  /// Edit is absent and reported as absent.
+  function renderUserMessage(item, opts) {
+    const art = elem("article", "tl-user");
+    art.appendChild(srOnly("You said"));
+
+    const bubble = elem("div", "tl-user-bubble");
+    const body = elem("div", "tl-user-text", item.text);
+    bubble.appendChild(body);
+
+    const lines = item.text.split("\n").length;
+    const longEnough = lines > CEO_BUBBLE_LINE_CLAMP || item.text.length > 1400;
+    if (longEnough) {
+      const expanded = opts.expandedMessages.has(item.id);
+      if (!expanded) bubble.classList.add("is-clamped");
+      const more = elem("button", "tl-more", expanded ? "Show less" : "Show more");
+      more.type = "button";
+      more.id = "more:" + item.id;
+      more.setAttribute("aria-expanded", expanded ? "true" : "false");
+      more.addEventListener("click", () => {
+        if (expanded) opts.expandedMessages.delete(item.id);
+        else opts.expandedMessages.add(item.id);
+        opts.rerender();
+      });
+      bubble.appendChild(more);
+    }
+    art.appendChild(bubble);
+
+    // §5.1: "Place timestamp and message actions just beneath the bubble's lower-right
+    // edge. Revealing them must not change the bubble width or move surrounding content."
+    // The row is always in the layout and only its OPACITY changes — so nothing reflows.
+    const actions = elem("div", "tl-user-actions");
+    const stamp = elem("span", "tl-stamp", formatClock(item.createdAt));
+    actions.appendChild(stamp);
+    const copy = elem("button", "tl-mini-btn", "Copy");
+    copy.type = "button";
+    copy.id = "copy:" + item.id;
+    copy.setAttribute("aria-label", "Copy your message");
+    copy.addEventListener("click", () => opts.copy(item.text, copy));
+    actions.appendChild(copy);
+    art.appendChild(actions);
+
+    if (item.pending) art.classList.add("is-pending");
+    return art;
+  }
+
+  /// §5.2/§5.4 — Rich's prose. ONE treatment for every run, because `phase` is unknown.
+  /// See the header of this file before adding a second one.
+  function renderRichMessage(item, opts) {
+    const art = elem("article", "tl-rich");
+    art.dataset.messageId = item.id;
+    if (item.phase === "proactive") art.classList.add("tl-rich--proactive");
+    art.appendChild(srOnly(item.phase === "proactive" ? "Rich reached out" : "Rich said"));
+
+    // §5.2: "left aligned with RICH'S IDENTITY" — one identity per turn, not one per run.
+    //
+    // A turn where Rich talks, runs a tool and talks again is TWO messages (one per
+    // contiguous run of the shared seq counter), and stamping "Rich" on each of them made
+    // the lane read like two speakers. §6.1 says the same thing about the duration row: "It
+    // does not need to repeat `Rich` in the text." Observed in the WebKit run before this
+    // change — the name appeared above every run of a single turn.
+    if (opts.showIdentity()) {
+      const meta = elem("div", "tl-rich-meta");
+      if (opts.showAvatar()) {
+        const avatar = document.createElement("img");
+        avatar.className = "tl-avatar";
+        avatar.src = "assets/rich-hand.png";
+        avatar.alt = "";
+        meta.appendChild(avatar);
+      }
+      meta.appendChild(elem("span", "tl-who", "Rich"));
+      if (item.phase === "proactive") meta.appendChild(elem("span", "tl-whisper", "reached out"));
+      art.appendChild(meta);
+    }
+
+    // textContent, never innerHTML. §5.4 asks for Markdown; this surface has never had an
+    // HTML path and slice 5 does not open one — see the handoff.
+    const body = elem("div", "tl-prose");
+    body.id = "prose:" + item.id;
+    body.textContent = item.text;
+    if (!item.closed && item.text) body.classList.add("is-streaming");
+    art.appendChild(body);
+
+    const actions = elem("div", "tl-rich-actions");
+    const copy = elem("button", "tl-mini-btn", "Copy");
+    copy.type = "button";
+    copy.id = "copy:" + item.id;
+    copy.setAttribute("aria-label", "Copy Rich's message");
+    copy.addEventListener("click", () => opts.copy(item.text, copy));
+    actions.appendChild(copy);
+    art.appendChild(actions);
+    return art;
+  }
+
+  /// §5.3 — one row per meaningful action cluster. Subdued, small, semantic.
+  ///
+  /// The row is a BUTTON because §5.3 says clicking it opens detail. In the CEO view there
+  /// IS no detail to open — `Timeline::view(Ceo)` removed it — so the row states what it
+  /// knows (its state) and says plainly that the particulars live in technical mode, rather
+  /// than opening an empty pane.
+  function renderActivityGroup(group, opts) {
+    const row = elem("div", "tl-activity");
+    row.dataset.state = group.state;
+
+    const mark = elem("span", "tl-activity-mark");
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = ACTIVITY_GLYPH[group.state] || "·";
+    row.appendChild(mark);
+
+    row.appendChild(elem("span", "tl-activity-text", group.label));
+
+    // §18: status must never rely on colour alone, and an `unknown` state must not read as
+    // done. Only the two states that are NOT self-evident from the verb are spelled out.
+    if (group.state === "unknown" || group.state === "failed" || group.state === "running") {
+      row.appendChild(elem("span", "tl-activity-state", ACTIVITY_STATE_LABEL[group.state]));
+    } else {
+      row.appendChild(srOnly(ACTIVITY_STATE_LABEL[group.state] || ""));
+    }
+    return row;
+  }
+
+  const ACTIVITY_GLYPH = {
+    queued: "·",
+    running: "◐",
+    completed: "✓",
+    failed: "△",
+    unknown: "?",
+    stopped: "▪",
+  };
+
+  /// §6 — the working-duration row, and §6.4's disclosure.
+  ///
+  /// The row IS the disclosure control (§6.4 step 5). What it discloses is the ACTIVITY
+  /// lane only — never prose. See the header of this file.
+  function renderDurationRow(turn, opts) {
+    const row = durationRow(turn.record, opts.now);
+    const hasActivity = turn.stream.some(isActivity);
+    const wrap = elem("div", "tl-duration");
+    wrap.dataset.tone = row.tone;
+
+    let control;
+    if (hasActivity) {
+      control = elem("button", "tl-duration-btn");
+      control.type = "button";
+      control.id = "duration:" + turn.turnId;
+      const open = opts.isExpanded(turn.turnId);
+      control.setAttribute("aria-expanded", open ? "true" : "false");
+      control.setAttribute("aria-controls", "work:" + turn.turnId);
+      const chev = elem("span", "tl-chevron", open ? "⌄" : "›");
+      chev.setAttribute("aria-hidden", "true");
+      control.appendChild(chev);
+      control.addEventListener("click", () => opts.toggle(turn.turnId));
+    } else {
+      control = elem("div", "tl-duration-btn tl-duration-btn--static");
+    }
+
+    const label = elem("span", "tl-duration-label", row.label);
+    label.dataset.turnId = turn.turnId;
+    control.appendChild(label);
+
+    if (row.live) {
+      const pulse = elem("span", "tl-pulse");
+      pulse.setAttribute("aria-hidden", "true");
+      control.appendChild(pulse);
+    }
+
+    // §6.4: "The timer's live updates must not be announced to screen readers every
+    // second." The log region is aria-live="off" and this name is read only on focus.
+    let name = row.label;
+    if (row.note) name += ". " + row.note;
+    if (hasActivity) {
+      name += opts.isExpanded(turn.turnId) ? " Hide what Rich did." : " Show what Rich did.";
+    }
+    control.setAttribute("aria-label", name);
+    control.title = row.note || "";
+
+    wrap.appendChild(control);
+    wrap.appendChild(elem("span", "tl-rule"));
+    return { node: wrap, row, hasActivity };
+  }
+
+  /// §5.5 — a system intervention. Exactly ONE is reachable in this build.
+  ///
+  /// §5.5 lists six: waiting for a CEO answer, action approval, permission, connection
+  /// lost, recovery after restart, unrecoverable failure. Five have no source (live.rs
+  /// deferrals; `waiting_for_user` does not exist; approvals are auto-approved and recorded
+  /// as a completed FACT, not a decision awaiting anyone; recovery is `Internal` and never
+  /// announced). The sixth — a turn that ended without finishing — is reachable, and its
+  /// CEO-facing signal is the duration row's own state, so this card is driven by that and
+  /// not by a `SystemError` item (which is `Technical` and correctly never arrives here).
+  ///
+  /// The reason is NOT shown. `cognition io: broken pipe` is implementation machinery; §21
+  /// asks for "a short Rich-voiced explanation", and this is the sentence the shipping
+  /// build already uses for `rich://turn-error`.
+  function renderFailureCard(turn, opts) {
+    const card = elem("aside", "tl-intervention");
+    card.setAttribute("role", "note");
+    card.appendChild(elem("p", "tl-intervention-body",
+      "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up."));
+    const note = elem("p", "tl-intervention-note",
+      "Everything I'd already written above is saved.");
+    card.appendChild(note);
+    const retry = elem("button", "tl-intervention-action", "Pick it back up");
+    retry.type = "button";
+    retry.id = "retry:" + turn.turnId;
+    retry.addEventListener("click", () => opts.retry(turn));
+    card.appendChild(retry);
+    return card;
+  }
+
+  /// One turn: CEO bubble, then the duration row, then the lane.
+  ///
+  /// LAYOUT DECISION, AND ITS LIMIT. §5.4 wants the final response "separated from work
+  /// activity by the completed duration row", with the response below it. This build cannot
+  /// identify the final response, so the duration row sits above ALL of Rich's prose: every
+  /// run is below the divider, the deliverable among them. That satisfies §25's "the final
+  /// response appears below the completed-duration divider" for the ordinary case and never
+  /// mislabels a run as the answer.
+  function renderTurn(model, turn, opts) {
+    const frag = document.createDocumentFragment();
+    const section = elem("section", "tl-turn");
+    section.dataset.turnId = turn.turnId;
+
+    if (turn.user) section.appendChild(renderUserMessage(turn.user, opts));
+
+    // A turn with NO record is one of exactly two things, both real and both short-lived:
+    // an optimistic CEO bubble in the instant before `turn-status` names a turn id, and a
+    // locally-authored notice (a voice-mode failure Rich explains in his own voice). Both
+    // get the prose lane and NO duration row — there is no turn to have taken any time.
+    if (!turn.record) {
+      const lane = elem("div", "tl-lane");
+      for (const item of turn.stream) {
+        if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
+      }
+      if (lane.childNodes.length) section.appendChild(lane);
+      frag.appendChild(section);
+      return frag;
+    }
+
+    {
+      const { node, row, hasActivity } = renderDurationRow(turn, opts);
+      section.appendChild(node);
+
+      const expanded = !hasActivity || opts.isExpanded(turn.turnId);
+      const lane = elem("div", "tl-lane");
+      lane.id = "work:" + turn.turnId;
+
+      // Interleaved in shared-counter order. When the transcript is COLLAPSED the activity
+      // rows are omitted and the prose rows stay exactly where they were — so expanding
+      // restores the original chronology in place (§6.4, §25).
+      let pendingActivity = [];
+      const flush = () => {
+        if (!pendingActivity.length) return;
+        if (expanded) {
+          for (const g of rollupActivity(pendingActivity)) lane.appendChild(renderActivityGroup(g, opts));
+        }
+        pendingActivity = [];
+      };
+      for (const item of turn.stream) {
+        if (isActivity(item)) {
+          pendingActivity.push(item);
+          continue;
+        }
+        flush();
+        if (isProse(item) && item.text) lane.appendChild(renderRichMessage(item, opts));
+      }
+      flush();
+
+      // §6.4: "The collapsed row shows a chevron and optionally one summary line."
+      if (hasActivity && !expanded) {
+        const groups = rollupActivity(turn.stream.filter(isActivity));
+        const summary = groups.map((g) => g.label).join(" · ");
+        const line = elem("button", "tl-collapsed-summary", summary);
+        line.type = "button";
+        line.id = "summary:" + turn.turnId;
+        line.setAttribute("aria-label", "Show what Rich did: " + summary);
+        line.addEventListener("click", () => opts.toggle(turn.turnId));
+        // Above the prose, in the position the activity itself occupies when expanded.
+        lane.insertBefore(line, lane.firstChild);
+      }
+
+      section.appendChild(lane);
+
+      if (row.tone === "stopped") section.appendChild(renderFailureCard(turn, opts));
+      if (row.tone === "unknown") {
+        const card = elem("aside", "tl-intervention tl-intervention--quiet");
+        card.setAttribute("role", "note");
+        card.appendChild(elem("p", "tl-intervention-body",
+          "This turn was still running the last time RichOS was open, and I can't tell you how it ended."));
+        card.appendChild(elem("p", "tl-intervention-note",
+          "Anything I'd written is above. Send it again if you still need it."));
+        section.appendChild(card);
+      }
+    }
+
+    frag.appendChild(section);
+    return frag;
+  }
+
+  /// Full render into `container`. Called on every STRUCTURAL change; streaming text and
+  /// the one-second timer tick both bypass it (see `updateProse` / `updateTimers`), so a
+  /// turn that streams for two hours rebuilds the DOM once per new item, not once per
+  /// token (§15's "coalesce tiny deltas to avoid layout thrash").
+  function render(model, container, opts) {
+    const turns = turnsOf(model);
+    container.innerHTML = "";
+    let avatarShown = opts.avatarAlreadyShown === true;
+    const renderOpts = Object.assign({}, opts, {
+      showAvatar: () => {
+        if (avatarShown) return false;
+        avatarShown = true;
+        return true;
+      },
+    });
+    for (const turn of turns) {
+      // One Rich identity per TURN. The avatar is still once per SESSION (the Rich Hand mark
+      // is a greeting, not a speaker label), so the two counters are separate on purpose.
+      let identityShown = false;
+      const turnOpts = Object.assign({}, renderOpts, {
+        showIdentity: () => {
+          if (identityShown) return false;
+          identityShown = true;
+          return true;
+        },
+      });
+      container.appendChild(renderTurn(model, turn, turnOpts));
+    }
+    return turns;
+  }
+
+  /// The streaming path: one node, one `textContent` write, no rebuild, no focus move.
+  function updateProse(container, messageId, text, closed) {
+    const node = container.querySelector('[id="prose:' + cssEscape(messageId) + '"]');
+    if (!node) return false;
+    node.textContent = text;
+    node.classList.toggle("is-streaming", !closed && !!text);
+    return true;
+  }
+
+  /// The §6.2 tick: "The active label updates once per second. Do not emit timer events
+  /// every second. Persist timestamps and derive the display locally." One write per live
+  /// row, and NOT inside a live region — §6.4 forbids announcing the timer every second.
+  function updateTimers(model, container, nowMs) {
+    let anyLive = false;
+    for (const [turnId, t] of model.turns) {
+      if (!t.live) continue;
+      anyLive = true;
+      const node = container.querySelector('[data-turn-id="' + cssEscape(turnId) + '"].tl-duration-label');
+      if (!node) continue;
+      const row = durationRow(t, nowMs);
+      if (node.textContent !== row.label) node.textContent = row.label;
+      const btn = node.closest(".tl-duration-btn");
+      if (btn) {
+        let name = row.label;
+        if (row.note) name += ". " + row.note;
+        const control = btn.getAttribute("aria-expanded");
+        if (control !== null) name += control === "true" ? " Hide what Rich did." : " Show what Rich did.";
+        btn.setAttribute("aria-label", name);
+      }
+    }
+    return anyLive;
+  }
+
+  function cssEscape(s) {
+    return String(s).replace(/(["\\])/g, "\\$1");
+  }
+
+  // -------------------------------------------------------------------------------------
+  window.RichTimeline = {
+    PENDING_TURN,
+    DURATION_MEANING,
+    createModel,
+    bind,
+    accepts,
+    applySnapshot,
+    addPendingUserMessage,
+    addLocalNotice,
+    onTurnStatus,
+    onMessageStarted,
+    onMessageDelta,
+    onMessageCompleted,
+    onActivityUpserted,
+    turnsOf,
+    formatDuration,
+    durationRow,
+    rollupActivity,
+    render,
+    updateProse,
+    updateTimers,
+  };
+})();
