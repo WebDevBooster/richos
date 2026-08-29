@@ -13,6 +13,9 @@
  *
  * Requires: ffmpeg, whisper-cli, a whisper model, and (for the speech sample) macOS `say`. If `say`
  * is unavailable it self-skips the speech assertions and still exercises the anomaly paths.
+ *
+ * It requires NO private data. The loro entity memory it exercises is `test/fixtures/e2e-entities.json`,
+ * an invented, inert vocabulary pointed at through `RICHOS_ENTITIES_FILE` — never the CEO's corpus.
  */
 
 import assert from 'node:assert/strict';
@@ -20,15 +23,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { runPipeline, readRecord } from '../lib/pipeline.js';
 import { scanZone } from '../lib/watcher.js';
 import { ffmpegBin, whisperBin, resolveModel, ingestLedgerPath } from '../lib/config.js';
+import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 
 const T0 = 1_700_000_000_000; // fixed session start for deterministic timestamps
 let failures = 0;
+let skips = 0;
 function check(name, ok, detail = '') {
   console.log(`${ok ? '  ok  ' : 'FAIL  '}${name}${detail ? ` — ${detail}` : ''}`);
   if (!ok) failures += 1;
+}
+/**
+ * A check that could not be RUN, with the reason named. Never silent: it prints at the point of the
+ * check AND is counted into the final summary line, so a skip can never be mistaken for a pass.
+ */
+function skip(name, reason) {
+  console.log(`SKIP  ${name} — ${reason}`);
+  skips += 1;
 }
 function have(bin, args = ['-version']) {
   try {
@@ -66,6 +80,35 @@ if (!ffmpeg || !whisper || !model) {
   process.exit(1);
 }
 const canSay = have('say', ['-v', '?']);
+
+// ---- loro entity memory: what this machine really has, then what THIS TEST will use -------------
+//
+// WHY THIS BLOCK EXISTS (the 2026-08-29 diagnosis of a check that had been red for days):
+// the P4 check below asserts that the pipeline loads loro entity memory BY ITSELF — no
+// `opts.entityMemory` injected — which is the single wiring point every trigger path depends on
+// (CLI, watcher, host-spawned). It used to assert that against whatever `entitiesFilePath()`
+// resolved to on the machine running the test. With no `LORO_CORPUS` configured that resolves to
+// `<repo>/loro/entities.json`, and this repository HAS NO `loro/` DIRECTORY — the vocabulary is the
+// CEO's own and lives in his corpus, outside the product repo, which is exactly where a repo that
+// ships publicly should keep it. So the check asserted a precondition this repository can never
+// satisfy: `applied=false version=null`, permanently red, on every clean checkout. That is a
+// missing environment prerequisite, not a defect in the corrector — `correct()` sets
+// `applied = entities.length > 0` deliberately, and an absent file yielding an empty memory and a
+// clean identity pass is the documented contract (`lib/entities.js`, `lib/pipeline.js` stage 5).
+//
+// The repair is to stop borrowing the CEO's vocabulary as a test fixture and give the test its own:
+// an INVENTED, deliberately inert entities file, pointed at through the product's own documented
+// override. The invariant under test is unchanged and is now provable anywhere.
+const realEntitiesFile = entitiesFilePath();
+const realEntities = loadEntityMemory(realEntitiesFile);
+const E2E_ENTITIES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'e2e-entities.json');
+const E2E_ENTITIES_VERSION = 'e2e-fixture-1';
+process.env.RICHOS_ENTITIES_FILE = E2E_ENTITIES;
+console.log(
+  `loro entity memory: this machine resolves ${realEntitiesFile} ` +
+  `(${realEntities.entities.length} entities, version ${realEntities.entitiesVersion ?? 'none'}); ` +
+  `this run uses the fixture ${E2E_ENTITIES}`,
+);
 
 const zone = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-e2e-'));
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-e2e-work-'));
@@ -157,9 +200,27 @@ const rec = readRecord(sessionDir);
 check('session.json upgraded to schemaVersion 2', rec.schemaVersion === 2);
 check('pipeline.status = ready in session.json', rec.pipeline.status === 'ready');
 check('modelRuns records the run + model', rec.pipeline.modelRuns.length === 1 && rec.pipeline.model === 'large-v3-turbo');
-check('loro-correction (P4) ran with loro entity memory (applied=true, entitiesVersion recorded)',
-  rec.pipeline.loroCorrection.applied === true && typeof rec.pipeline.loroCorrection.entitiesVersion === 'string',
+// P4, the DEFAULT-WIRING invariant: nothing above passed `entityMemory` to runPipeline, so the only
+// way `applied` can be true and the fixture's version can appear in the record is if the pipeline
+// loaded entity memory from disk on its own. Section 3b proves a correction LANDS; this proves the
+// stage is wired without a caller's help, which is the part no other check covers.
+check('loro-correction (P4) ran on entity memory the pipeline loaded ITSELF (applied=true, version recorded)',
+  rec.pipeline.loroCorrection.applied === true
+    && rec.pipeline.loroCorrection.entitiesVersion === E2E_ENTITIES_VERSION,
   `applied=${rec.pipeline.loroCorrection.applied} version=${rec.pipeline.loroCorrection.entitiesVersion}`);
+check('the inert fixture changed nothing (correction is not allowed to touch text it has no entity for)',
+  rec.pipeline.loroCorrection.corrections === 0, `corrections=${rec.pipeline.loroCorrection.corrections}`);
+// Separately, and loudly: whether a REAL loro vocabulary exists on this machine. It is not required
+// for any assertion here and its absence is not a failure — but it must never go unreported, or the
+// day the CEO's corpus stops resolving nobody will notice.
+if (realEntities.entities.length > 0) {
+  check('a real loro entity memory is also resolvable on this machine',
+    typeof realEntities.entitiesVersion === 'string', `${realEntitiesFile} version=${realEntities.entitiesVersion}`);
+} else {
+  skip('real loro entity memory (not required by any assertion)',
+    `no readable entities file at ${realEntitiesFile} — set LORO_CORPUS to the corpus, or RICHOS_ENTITIES_FILE to a file. `
+    + 'The product treats this as an empty memory and a clean identity correction, by design.');
+}
 
 check('ingest ledger has a line for this session', fs.existsSync(ingestLedgerPath(zone)) &&
   fs.readFileSync(ingestLedgerPath(zone), 'utf8').includes(sessionId));
@@ -254,5 +315,6 @@ check('report-only reconcile leaves the READY session alone', sweep.skipped.incl
 // ---- cleanup ----------------------------------------------------------------------------------
 console.log(`\n(artifacts kept for inspection at ${zone}; remove manually)`);
 fs.rmSync(work, { recursive: true, force: true });
-console.log(`\n${failures === 0 ? 'ALL E2E CHECKS PASSED' : `${failures} E2E CHECK(S) FAILED`}`);
+const skipNote = skips ? ` (${skips} check(s) SKIPPED — reasons printed above)` : '';
+console.log(`\n${failures === 0 ? 'ALL E2E CHECKS PASSED' : `${failures} E2E CHECK(S) FAILED`}${skipNote}`);
 process.exit(failures ? 1 : 0);
