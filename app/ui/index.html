@@ -8,16 +8,32 @@
   </head>
   <body>
     <div id="app">
-      <!-- Recessive thread rail. Quiet index of topics Rich is tracking — never a channel
-           list. See the v1 front-end UX direction §2.1. -->
-      <aside id="rail">
+      <!-- Backdrop for the rail when it is a full-height drawer (below 820px, §20). -->
+      <div id="rail-scrim" hidden></div>
+
+      <!-- LEFT NAVIGATION (§3). A stable hierarchy of entity areas and their threads —
+           never a flat list of every conversation, and never a channel list. -->
+      <aside id="rail" aria-label="Entities and threads">
         <div id="rail-header">
           <span id="rail-company" class="rail-company"></span>
+          <button id="rail-drawer-close" class="rail-icon-btn" type="button" hidden aria-label="Close navigation">
+            ✕
+          </button>
         </div>
 
-        <nav id="rail-threads" aria-label="Threads"></nav>
+        <div id="rail-actions">
+          <button id="nav-search" class="rail-action" type="button" aria-keyshortcuts="Meta+K Control+K">
+            <span class="rail-action-label">Search</span>
+            <kbd class="rail-kbd" id="nav-search-kbd">⌘K</kbd>
+          </button>
+          <button id="rail-new-thread" class="rail-action" type="button">
+            <span class="rail-action-label">+ New thread</span>
+          </button>
+        </div>
 
-        <button id="rail-new-thread" class="rail-quiet-action" type="button">+ new thread</button>
+        <!-- Built by main.js from `navigation_tree`, which returns threads ALREADY inside
+             their entity's group (grouping is done by the ledger binding, not here). -->
+        <nav id="rail-nav" aria-label="Entity areas"></nav>
 
         <div id="rail-footer">
           <button id="rail-settings" class="rail-settings-btn" type="button" aria-haspopup="true" aria-expanded="false" title="How much should Rich interrupt you?">⚙</button>
@@ -31,16 +47,74 @@
           <label class="popover-option"><input type="radio" name="assertiveness" value="balanced" /> Balanced</label>
           <label class="popover-option"><input type="radio" name="assertiveness" value="urgent-only" /> Only when it's urgent</label>
         </div>
+
+        <!-- Draggable divider (§2.1: both vertical dividers are user-draggable). Keyboard
+             operable too — §18 requires every function to work without a pointer. -->
+        <div
+          id="rail-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Left navigation width"
+          tabindex="0"
+          aria-valuemin="224"
+          aria-valuemax="420"
+          aria-valuenow="300"
+        ></div>
       </aside>
 
       <!-- The conversation — the hero. Capped reading width, centered. -->
       <main id="stage">
+        <!-- Sticky scope header (§4). Rendered from `active_context`, the AUTHORITATIVE
+             binding, never from the renderer's own idea of what is selected. -->
+        <header id="stage-header">
+          <button id="rail-toggle" class="rail-icon-btn" type="button" aria-label="Show navigation" aria-expanded="true" hidden>☰</button>
+          <div id="scope-crumb" class="scope-crumb" aria-live="polite">
+            <span id="scope-entity" class="scope-entity"></span>
+            <span id="scope-sep" class="scope-sep" aria-hidden="true">/</span>
+            <span id="scope-thread" class="scope-thread"></span>
+          </div>
+        </header>
+
         <div id="conversation" role="log" aria-live="polite">
           <div id="scroll-sentinel-top"></div>
           <div id="messages"></div>
         </div>
 
+        <!-- ENTITY OVERVIEW (§3.5) and EMPTY ENTITY (§21). A practical navigation state,
+             not the ambitious start screen. -->
+        <section id="entity-view" class="pane-view" hidden aria-labelledby="entity-view-name">
+          <div class="pane-inner">
+            <h1 id="entity-view-name" class="pane-title"></h1>
+            <p id="entity-view-line" class="pane-line"></p>
+            <dl id="entity-view-facts" class="entity-facts"></dl>
+            <div id="entity-view-attention" class="entity-block" hidden>
+              <h2 class="entity-block-title">Needs attention</h2>
+              <ul id="entity-view-attention-list" class="entity-list"></ul>
+            </div>
+            <div id="entity-view-threads" class="entity-block" hidden>
+              <h2 class="entity-block-title">Threads</h2>
+              <ul id="entity-view-thread-list" class="entity-list"></ul>
+            </div>
+            <p id="entity-view-note" class="pane-note"></p>
+          </div>
+        </section>
+
+        <!-- ENTITY BINDING FAILURE (§21). What a pre-entity thread looks like: calm,
+             explained in Rich's own words, send blocked. Never a stack trace. -->
+        <section id="unbound-view" class="pane-view" hidden aria-labelledby="unbound-view-title">
+          <div class="pane-inner">
+            <h1 id="unbound-view-title" class="pane-title"></h1>
+            <p id="unbound-view-body" class="pane-line"></p>
+            <p id="unbound-view-detail" class="pane-note"></p>
+          </div>
+        </section>
+
         <div id="composer-zone">
+          <!-- Says which entity a first message will be filed under, whenever that is not
+               already obvious from an open thread (§3.3 new-thread flow). -->
+          <p id="composer-scope" class="composer-scope" hidden></p>
+          <!-- Send is blocked, with the reason stated (§21 entity binding failure). -->
+          <p id="composer-blocked" class="composer-blocked" hidden role="status"></p>
           <div id="composer-row">
             <!-- Persistent across text/voice modes — this is the SAME ◉ the voice
                  footnote refers to ("tap ◉ to end voice"), so it must never hide. -->
@@ -91,6 +165,39 @@
         <div id="slideover-body"></div>
         <button id="slideover-close" type="button" class="slideover-close">back to Rich</button>
       </aside>
+
+      <!-- SEARCH (§3.4): a command-palette overlay, never a replacement for the sidebar.
+           Results group by entity; matching happens in Rust so no thread body is loaded
+           into the renderer. -->
+      <div id="search-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-label="Search">
+        <div class="overlay-panel">
+          <input
+            id="search-input"
+            type="text"
+            class="overlay-input"
+            placeholder="Search entities, threads and conversations…"
+            autocomplete="off"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="search-results"
+            aria-autocomplete="list"
+          />
+          <div id="search-results" class="overlay-results" role="listbox" aria-label="Search results"></div>
+          <p id="search-empty" class="overlay-empty" hidden></p>
+        </div>
+      </div>
+
+      <!-- ENTITY PICKER (§3.3): the global New thread flow asks which entity BEFORE the
+           first message. Never defaults to the last entity (§21). -->
+      <div id="entity-picker" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="entity-picker-title">
+        <div class="overlay-panel overlay-panel--compact">
+          <p id="entity-picker-title" class="overlay-title">Which entity is this work in?</p>
+          <div id="entity-picker-list" class="picker-list" role="listbox" aria-labelledby="entity-picker-title"></div>
+        </div>
+      </div>
+
+      <!-- Thread row overflow: rename, pin, archive (§3.1). -->
+      <div id="thread-menu" class="menu" hidden role="menu" aria-label="Thread actions"></div>
     </div>
 
     <script src="mock.js"></script>

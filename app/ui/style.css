@@ -56,7 +56,11 @@ button {
    Rail — recessive. A quiet index of topics Rich is tracking, never a channel list.
 --------------------------------------------------------------------------------------- */
 #rail {
-  width: 216px;
+  /* UX §2.1 desktop shell: 300px default, 224px min, 420px max. Driven by the custom
+     property main.js sets from the DURABLE width (nav.rs), so a relaunch restores it. */
+  width: var(--rail-width, 300px);
+  min-width: 224px;
+  max-width: 420px;
   flex-shrink: 0;
   background: var(--paper-rail);
   border-right: 1px solid var(--line);
@@ -67,7 +71,10 @@ button {
 }
 
 #rail-header {
-  padding: 4px 6px 20px;
+  padding: 4px 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .rail-company {
@@ -660,4 +667,797 @@ button {
 .slideover-close:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* =======================================================================================
+   ENTITY AND THREAD NAVIGATION (Codex-UX slice 4, 2026-08-29)
+
+   `docs/design/richos-codex-inspired-conversation-ux-2026-08-28.md` §3 (left navigation),
+   §17 (visual system), §18 (accessibility), §20 (responsive), §21 (empty/error states).
+
+   The calm paper palette above is the base and is not replaced — §17.1 asks for better
+   legibility, not generic developer-tool styling. The tokens below extend it with the two
+   values §17.1 names that the v1 palette had no equivalent for (a selected surface and a
+   danger colour), and nothing else.
+   ======================================================================================= */
+
+:root {
+  --rail-width: 300px;
+  --bg-selected: rgba(47, 58, 86, 0.1);
+  --bg-hover: rgba(32, 31, 27, 0.045);
+  --danger: #8a4944;
+  --success: #4f6d58;
+}
+
+/* ---- rail chrome --------------------------------------------------------------------- */
+
+#rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px 10px;
+}
+
+.rail-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.rail-action:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.rail-kbd {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 15px;
+}
+
+.rail-icon-btn {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.rail-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+#rail-header .rail-icon-btn {
+  margin-left: auto;
+}
+
+#rail-nav {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 8px;
+}
+
+/* ---- entity groups (§3.1) ------------------------------------------------------------- */
+
+.nav-group {
+  margin-bottom: 10px;
+}
+
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 0;
+}
+
+.nav-disclosure {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1;
+  width: 18px;
+  height: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: transform 0.16s ease; /* §17.4: chevron rotation is explicitly allowed */
+}
+
+.nav-disclosure.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.nav-group-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-group-label.is-selectable {
+  cursor: pointer;
+}
+
+.nav-group-label.is-selectable:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.nav-group-count {
+  font-size: 11px;
+  color: var(--ink-faint);
+  padding: 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-group-add {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  /* §3.1: "a quiet plus control on hover or focus" — quiet, but never invisible to the
+     keyboard, so it appears on focus-within as well as hover. */
+  opacity: 0;
+}
+
+.nav-group-head:hover .nav-group-add,
+.nav-group-head:focus-within .nav-group-add {
+  opacity: 1;
+}
+
+.nav-group-add:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.nav-threads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ---- thread rows (§3.1) --------------------------------------------------------------- */
+
+.nav-thread-row {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  border-left: 2px solid transparent;
+}
+
+.nav-thread-row:hover {
+  background: var(--bg-hover);
+}
+
+/* §3.1: "shows selection with a tonal background and a leading accent". */
+.nav-thread-row.is-active {
+  background: var(--bg-selected);
+  border-left-color: var(--accent);
+}
+
+.nav-thread {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 4px 6px 8px;
+  font-size: 13.5px;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.nav-thread-row:hover .nav-thread {
+  color: var(--ink-soft);
+}
+
+.nav-thread-row.is-active .nav-thread {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* §3.1: "truncates to one line with the full title in a tooltip". */
+.nav-thread-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-thread-entity {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.nav-thread-more {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.nav-thread-row:hover .nav-thread-more,
+.nav-thread-row:focus-within .nav-thread-more {
+  opacity: 1;
+}
+
+.nav-thread-more:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink);
+}
+
+.nav-show-more {
+  background: none;
+  border: none;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.nav-show-more:hover {
+  color: var(--ink-soft);
+  background: var(--bg-hover);
+}
+
+/* ---- status marks (§3.2) --------------------------------------------------------------
+   Shape carries the meaning; colour only reinforces it (§18: status must never rely on
+   colour alone). Each mark also ships a word in the row's accessible label — see
+   `buildThreadRow` in main.js. */
+
+.nav-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  width: 12px;
+  text-align: center;
+  color: var(--ink-faint);
+}
+
+.nav-status--working {
+  color: var(--accent);
+  /* §17.4: "one subtle pulse for active work" — one element, one animation. */
+  animation: nav-pulse 1.8s ease-in-out infinite;
+}
+
+.nav-status--unseen {
+  color: var(--success);
+}
+
+.nav-status--failed,
+.nav-status--interrupted {
+  color: var(--danger);
+}
+
+.nav-status--unknown {
+  color: var(--attention);
+  font-weight: 700;
+}
+
+.nav-status--unbound {
+  color: var(--attention);
+}
+
+@keyframes nav-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* §17.4 / §18: "In reduced motion mode, replace pulses with a static active mark." */
+@media (prefers-reduced-motion: reduce) {
+  .nav-status--working {
+    animation: none;
+    opacity: 1;
+  }
+  .nav-disclosure {
+    transition: none;
+  }
+  .turn {
+    animation: none;
+  }
+}
+
+.nav-group--unbound .nav-group-label,
+.nav-group--unbound .nav-group-count {
+  color: var(--attention);
+}
+
+/* ---- resizable divider (§2.1) --------------------------------------------------------- */
+
+#rail-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 15;
+  background: transparent;
+}
+
+#rail-resizer:hover,
+#rail-resizer:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+#rail-resizer:focus-visible {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ---- scope header (§4) ----------------------------------------------------------------- */
+
+#stage-header {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.scope-crumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.scope-entity {
+  color: var(--ink-soft);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scope-sep {
+  color: var(--ink-faint);
+}
+
+.scope-thread {
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- entity overview and binding-failure panes (§3.5, §21) ----------------------------- */
+
+.pane-view {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.pane-inner {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 56px 28px 32px;
+}
+
+.pane-title {
+  font-size: 21px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+
+.pane-line {
+  font-size: 15.5px;
+  line-height: 1.62;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+
+.pane-note {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+  margin: 20px 0 0;
+}
+
+.entity-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 0 0 24px;
+  font-size: 12.5px;
+}
+
+.entity-facts dt {
+  color: var(--ink-faint);
+}
+
+.entity-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.entity-block {
+  margin-bottom: 24px;
+}
+
+.entity-block-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.entity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.entity-list .nav-thread-row {
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.entity-list .nav-thread-item:last-child .nav-thread-row {
+  border-bottom: none;
+}
+
+#unbound-view .pane-title {
+  color: var(--ink);
+}
+
+/* ---- composer scope + blocked lines (§3.3, §21) ---------------------------------------- */
+
+.composer-scope,
+.composer-blocked {
+  max-width: 680px;
+  margin: 0 auto 6px;
+  padding: 0 28px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.composer-scope {
+  color: var(--ink-faint);
+}
+
+.composer-blocked {
+  color: var(--attention);
+}
+
+#input:disabled {
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+#send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.nav-status {
+  /* wide enough that a glyph is never clipped at the row's right edge */
+  min-width: 14px;
+}
+
+/* ---- overlays: search palette and entity picker (§3.3, §3.4) --------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(32, 31, 27, 0.18);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.overlay-panel {
+  width: min(620px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(20, 19, 16, 0.16);
+  overflow: hidden;
+  animation: overlay-in 0.16s ease-out;
+}
+
+.overlay-panel--compact {
+  width: min(420px, 92vw);
+  padding: 16px;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-panel {
+    animation: none;
+  }
+}
+
+.overlay-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 14px 16px;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: transparent;
+  outline: none;
+}
+
+.overlay-results {
+  max-height: 48vh;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.overlay-empty {
+  padding: 14px 16px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.overlay-title {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+
+.result-group {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 8px 10px 4px;
+}
+
+.result-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.result-item.is-active,
+.result-item:hover {
+  background: var(--bg-selected);
+}
+
+.result-title {
+  display: block;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.result-meta {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-top: 1px;
+}
+
+.result-excerpt {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.picker-item:hover,
+.picker-item:focus-visible {
+  background: var(--bg-selected);
+  outline: none;
+}
+
+.picker-name {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.picker-meta {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+/* ---- thread overflow menu (§3.1) ------------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 176px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(20, 19, 16, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-item {
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--bg-hover);
+  color: var(--ink);
+  outline: none;
+}
+
+/* ---- focus visibility (§18: "visible focus rings") ------------------------------------- */
+
+.rail-action:focus-visible,
+.rail-icon-btn:focus-visible,
+.nav-disclosure:focus-visible,
+.nav-group-label.is-selectable:focus-visible,
+.nav-group-add:focus-visible,
+.nav-thread:focus-visible,
+.nav-thread-more:focus-visible,
+.nav-show-more:focus-visible,
+.result-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+
+/* ---- responsive (§20) ------------------------------------------------------------------
+   1180px and wider: sidebar persistent, width directly adjustable.
+   820px to 1179px:  sidebar collapsible; the conversation keeps its width.
+   Below 820px:      one visible pane at a time; the sidebar is a full-height drawer.
+   --------------------------------------------------------------------------------------- */
+
+#rail-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 31, 27, 0.22);
+  z-index: 25;
+}
+
+body.bp-wide #rail-scrim,
+body.bp-mid #rail-scrim {
+  display: none !important;
+}
+
+body.rail-closed #rail {
+  display: none;
+}
+
+body.bp-narrow #rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 30;
+  width: min(86vw, 320px);
+  max-width: 86vw;
+  box-shadow: 0 0 40px rgba(20, 19, 16, 0.18);
+}
+
+body.bp-narrow #rail-resizer {
+  display: none;
+}
+
+body.bp-narrow #messages,
+body.bp-narrow .pane-inner {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+/* §20: below 820px "user bubble may use up to 92 percent width". */
+body.bp-narrow .turn--user .turn-text {
+  max-width: 92%;
 }
