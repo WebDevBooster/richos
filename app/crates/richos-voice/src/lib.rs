@@ -44,6 +44,7 @@
 
 pub mod bargein;
 pub mod chunk;
+pub mod fft;
 pub mod endpoint;
 pub mod event;
 pub mod noaudio;
