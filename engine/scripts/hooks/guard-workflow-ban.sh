@@ -90,7 +90,7 @@ if [ "${1:-}" = "--self-test" ]; then
   st_root=""
   st_mkroot() { # <ban-value-or-empty>
     local d
-    d="$(mktemp -d -t guard-workflow-ban-selftest)"
+    d="$(mktemp -d "${TMPDIR:-/tmp}/guard-workflow-ban-selftest.XXXXXX")"
     ( cd "$d" && git init -q . >/dev/null 2>&1 ) || true
     if [ -n "${1:-}" ]; then
       printf 'BAN_WORKFLOW_TOOL=%s\n' "$1" > "$d/orchestration.config"
@@ -101,7 +101,7 @@ if [ "${1:-}" = "--self-test" ]; then
   }
   st_case() { # <name> <expected-exit> <root> <payload> [<must-contain-in-stderr>]
     local name="$1" want="$2" root="$3" payload="$4" needle="${5:-}" err rc
-    err="$(mktemp -t guard-workflow-ban-selftest-err)"
+    err="$(mktemp "${TMPDIR:-/tmp}/guard-workflow-ban-selftest-err.XXXXXX")"
     set +e
     printf '%s' "$payload" | RICHOS_ENTITY_ROOT="$root" "$SELF" >/dev/null 2>"$err"
     rc=$?
@@ -123,7 +123,7 @@ if [ "${1:-}" = "--self-test" ]; then
   ADOPTED="$(st_mkroot "")"
   OPTED_OUT="$(st_mkroot 0)"
   EXPLICIT_ON="$(st_mkroot 1)"
-  UNADOPTED="$(mktemp -d -t guard-workflow-ban-unadopted)"
+  UNADOPTED="$(mktemp -d "${TMPDIR:-/tmp}/guard-workflow-ban-unadopted.XXXXXX")"
   ( cd "$UNADOPTED" && git init -q . >/dev/null 2>&1 ) || true
 
   st_case "a.workflow-call-blocked-by-default" 2 "$ADOPTED" \

@@ -338,7 +338,7 @@ rm -rf "$FAKEBIN" "$ROOT"
 # READS. Every case below is a pair, because a hook that appends nothing and a
 # hook that appends everything both satisfy a single-sided assertion.
 ROOT="$(make_sandbox)"
-LEDGER_TEAMS="$(mktemp -d -t detect-ledger-teams)"
+LEDGER_TEAMS="$(mktemp -d "${TMPDIR:-/tmp}/detect-ledger-teams.XXXXXX")"
 SESS="deadbeef-0000-4000-8000-000000000000"
 LEDGER_TEAM_DIR="$LEDGER_TEAMS/session-deadbeef"
 mkdir -p "$LEDGER_TEAM_DIR"
@@ -376,7 +376,7 @@ fi
 
 # (L4) the append is best-effort: an unwritable teams dir must not change the
 # hook's verdict for the launch it was actually asked about.
-UNWRITABLE="$(mktemp -d -t detect-ledger-ro)"
+UNWRITABLE="$(mktemp -d "${TMPDIR:-/tmp}/detect-ledger-ro.XXXXXX")"
 chmod 500 "$UNWRITABLE"
 printf '%s' "$(json_agent 'dev' 'dev-sonnet-led2' 'worktree' 'Do the thing.')" \
     | GUARD_ISOLATION_TEAMS_DIR="$UNWRITABLE" RICHOS_ENTITY_ROOT="$ROOT" \
