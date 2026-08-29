@@ -308,7 +308,7 @@ explicit triggers), self-authored handoff summaries on clean rotation, mid-turn-
 recovery/replay (bounded to one attempt, clean-render dedup via superseded turns), and the
 identity/action-ledger re-prime that structurally excludes false attribution — all wired
 in `richos-core::spine` (`LeaseFactory`, `rotate_lease`, `recover_and_replay`) and proven
-both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 21 tests) and live
+both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 22 tests) and live
 against the real ACP adapter (`examples/rotation_roundtrip.rs` — a forced mid-conversation
 rotation swaps the backing Claude session and the successor correctly recalls the prior
 exchange purely via the re-prime payload). Company name, the assertiveness dial, and the
