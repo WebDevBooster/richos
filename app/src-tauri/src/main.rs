@@ -755,7 +755,12 @@ fn active_binding_view(spine: &Spine) -> Option<ActiveContext> {
 fn navigation_tree(state: State<AppState>) -> NavigationTree {
     let spine = state.spine.lock().unwrap();
     let nav = state.nav.lock().unwrap();
-    let nav_state = nav.state();
+    build_navigation_tree(&spine, nav.state())
+}
+
+/// The command's whole body, taking plain references instead of Tauri state — so the rail's
+/// grouping can be tested against a REAL ledger file rather than only exercised by hand.
+fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> NavigationTree {
     let ledger = spine.ledger();
     let registry = spine.entity_registry();
 
@@ -918,14 +923,17 @@ fn excerpt_at(original: &[char], at: usize, needle_len: usize) -> String {
 /// without having to work out which entity a result came from.
 #[tauri::command]
 fn search_nav(state: State<AppState>, query: String, limit: Option<usize>) -> Vec<SearchHit> {
+    let spine = state.spine.lock().unwrap();
+    let nav = state.nav.lock().unwrap();
+    run_search(&spine, nav.state(), &query, limit.unwrap_or(SEARCH_DEFAULT_LIMIT))
+}
+
+fn run_search(spine: &Spine, nav_state: &nav::NavState, query: &str, limit: usize) -> Vec<SearchHit> {
     let needle = fold_chars(query.trim());
     if needle.is_empty() {
         return Vec::new();
     }
-    let limit = limit.unwrap_or(SEARCH_DEFAULT_LIMIT).clamp(1, 200);
-    let spine = state.spine.lock().unwrap();
-    let nav = state.nav.lock().unwrap();
-    let nav_state = nav.state();
+    let limit = limit.clamp(1, 200);
     let ledger = spine.ledger();
     let registry = spine.entity_registry();
 
@@ -991,13 +999,20 @@ fn search_nav(state: State<AppState>, query: String, limit: Option<usize>) -> Ve
             let chars: Vec<char> = m.text.chars().collect();
             let folded = fold_chars(&m.text);
             if let Some(at) = find_folded(&folded, &needle) {
+                let excerpt = excerpt_at(&chars, at, needle.len());
+                // A message whose whole text IS the thread title (the common case for the
+                // first message, since §3.3 derives the provisional title from it) would
+                // render as a second identical row under the title hit. One match, one row.
+                if excerpt == display {
+                    continue;
+                }
                 hits.push(SearchHit {
                     kind: "message".into(),
                     entity_id: s.entity_id.clone(),
                     entity_label: label_of(s.entity_id.as_deref()),
                     thread_id: Some(s.id.clone()),
                     thread_title: Some(display.clone()),
-                    excerpt: excerpt_at(&chars, at, needle.len()),
+                    excerpt,
                     at: m.at,
                 });
                 per_thread += 1;
@@ -1051,4 +1066,191 @@ fn set_thread_archived(state: State<AppState>, thread_id: String, archived: bool
 #[tauri::command]
 fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Result<(), String> {
     state.nav.lock().unwrap().rename_thread(&thread_id, &title).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    /// The FIRST TWO LINES OF THE REAL SHIPPING LEDGER on this machine
+    /// (`~/Library/Application Support/com.richos.app/conversation-ledger.jsonl`), copied
+    /// byte-for-byte on 2026-08-29. They are the two cases the rail has to get right and
+    /// the reason this test is written against real bytes instead of a synthetic fixture:
+    ///
+    ///   line 1 — a `ThreadCreated` with NO `entity_id` at all. Written before entity
+    ///            scoping existed, so it replays as `ThreadEntity::Unbound`. This is the
+    ///            record that used to break the shell when opened.
+    ///   line 2 — a `ThreadCreated` carrying `entity_id: "richos"`, written after slice 1.
+    ///
+    /// Any future change to the on-disk event shape that would silently reclassify either
+    /// of these fails here.
+    const REAL_PRE_ENTITY_LEDGER: &str = concat!(
+        r#"{"event":"ThreadCreated","thread_id":"thr_5941509111b84531a299acfce7f99948","title":"General","at":1787577795601}"#,
+        "\n",
+        r#"{"event":"ThreadCreated","thread_id":"thr_dbaacd4320ee482daf414414f590ccba","title":"Running","at":1787975160731,"entity_id":"richos","person_id":"ceo-default","binding_revision":1}"#,
+        "\n",
+    );
+
+    const UNBOUND_ID: &str = "thr_5941509111b84531a299acfce7f99948";
+    const BOUND_ID: &str = "thr_dbaacd4320ee482daf414414f590ccba";
+
+    fn spine_from_real_ledger(tag: &str) -> (Spine, PathBuf) {
+        let mut path = std::env::temp_dir();
+        path.push(format!("richos-nav-real-{}-{}.jsonl", tag, std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, REAL_PRE_ENTITY_LEDGER).unwrap();
+        let ledger = Ledger::open(&path).expect("replay the real ledger");
+        (Spine::new(ledger), path)
+    }
+
+    #[test]
+    fn the_real_pre_entity_thread_lands_in_unbound_and_in_no_entity_group() {
+        let (spine, path) = spine_from_real_ledger("group");
+        let tree = build_navigation_tree(&spine, &nav::NavState::default());
+
+        // Four registered entities, each its own top-level group (§25 Navigation #1).
+        let ids: Vec<&str> = tree.groups.iter().map(|g| g.entity.id.as_str()).collect();
+        assert_eq!(ids, vec!["femcboost", "deeply", "prospects", "richos"]);
+
+        // The pre-entity thread is listed, but NOT inside any entity.
+        assert_eq!(tree.unbound.len(), 1);
+        assert_eq!(tree.unbound[0].id, UNBOUND_ID);
+        assert_eq!(tree.unbound[0].display_title, "General");
+        assert!(tree.unbound[0].entity_id.is_none());
+        for group in &tree.groups {
+            assert!(
+                !group.threads.iter().any(|t| t.id == UNBOUND_ID),
+                "an unbound thread must never be placed in {} — that placement WOULD BE the guess \
+                 slice 1 refused to make",
+                group.entity.id
+            );
+        }
+
+        // The bound thread is in exactly one group, and it is its own home entity.
+        let homes: Vec<&str> = tree
+            .groups
+            .iter()
+            .filter(|g| g.threads.iter().any(|t| t.id == BOUND_ID))
+            .map(|g| g.entity.id.as_str())
+            .collect();
+        assert_eq!(homes, vec!["richos"], "§25: exactly one immutable entity home per thread");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_unbound_thread_reports_no_turn_state_because_its_turns_are_not_readable() {
+        let (spine, path) = spine_from_real_ledger("facts");
+        let tree = build_navigation_tree(&spine, &nav::NavState::default());
+        let row = &tree.unbound[0];
+        // NOT "idle" and NOT "completed" — unknown, because the scoped accessor refuses.
+        assert_eq!(row.last_turn_state, None);
+        assert!(!row.has_pending_turn);
+        assert_eq!(row.message_count, 0);
+        // And the read the UI performs when the row is clicked genuinely refuses.
+        let err = spine.messages(UNBOUND_ID).unwrap_err().to_string();
+        assert!(err.contains("no entity binding"), "{err}");
+        assert!(err.contains("An operator must bind it explicitly"), "{err}");
+        // The sentence the UI shows is the one the core raises, not a paraphrase.
+        assert!(tree.unbound_explanation.contains("predates entity scoping"));
+        assert!(tree.unbound_explanation.contains("An operator must bind it explicitly"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pin_rename_and_archive_move_the_row_without_touching_the_entity_home() {
+        let (spine, path) = spine_from_real_ledger("navstate");
+        let mut nav_state = nav::NavState::default();
+        nav_state.pinned_threads.push(BOUND_ID.to_string());
+        nav_state.archived_threads.push(BOUND_ID.to_string());
+        nav_state.renamed_threads.insert(BOUND_ID.to_string(), "Rich's desk".to_string());
+
+        let tree = build_navigation_tree(&spine, &nav_state);
+        let row = tree
+            .groups
+            .iter()
+            .flat_map(|g| &g.threads)
+            .find(|t| t.id == BOUND_ID)
+            .expect("still in its entity group");
+
+        assert!(row.pinned && row.archived);
+        // §25: these "work without changing context authority".
+        assert_eq!(row.entity_id.as_deref(), Some("richos"), "archive must not move a thread's home");
+        // A rename is a DISPLAY override; the ledger's title is evidence and is untouched.
+        assert_eq!(row.title, "Running");
+        assert_eq!(row.display_title, "Rich's desk");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn search_finds_titles_and_entities_but_never_an_unbound_threads_contents() {
+        let (mut spine, path) = spine_from_real_ledger("search");
+        // Give the bound thread real content to find.
+        let entity = EntityId::parse("richos").unwrap();
+        spine.switch_thread(BOUND_ID).unwrap();
+        let binding = spine.active_binding().unwrap().clone();
+        assert_eq!(binding.entity_id(), &entity);
+
+        let empty = nav::NavState::default();
+        // Entity name.
+        let hits = run_search(&spine, &empty, "richos", 40);
+        assert!(hits.iter().any(|h| h.kind == "entity" && h.entity_id.as_deref() == Some("richos")));
+        // The unbound thread's TITLE is findable (navigation metadata, already on screen).
+        let hits = run_search(&spine, &empty, "general", 40);
+        let unbound_hits: Vec<&SearchHit> = hits.iter().filter(|h| h.thread_id.as_deref() == Some(UNBOUND_ID)).collect();
+        assert_eq!(unbound_hits.len(), 1);
+        assert_eq!(unbound_hits[0].kind, "thread");
+        assert!(unbound_hits[0].excerpt.is_empty(), "a title hit carries no body excerpt");
+        assert_eq!(unbound_hits[0].entity_label, "No entity", "never labelled with a guessed entity");
+        // No hit anywhere is ever a `message` from the unbound thread.
+        for q in ["e", "a", "n"] {
+            for h in run_search(&spine, &empty, q, 200) {
+                assert!(
+                    !(h.kind == "message" && h.thread_id.as_deref() == Some(UNBOUND_ID)),
+                    "search must never read an unbound thread's body"
+                );
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn search_folding_is_index_aligned_so_excerpts_are_not_sliced_in_the_wrong_place() {
+        // U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE lowercases to TWO chars
+        // ("i" + U+0307 COMBINING DOT ABOVE). `str::to_lowercase` would therefore shift
+        // every index after it by one and slice the excerpt in the wrong place;
+        // `fold_chars` keeps a strict 1:1 char mapping, so the excerpt maths stays correct.
+        const SUBJECT: &str = "\u{130}stanbul office MATCH tail";
+        let original: Vec<char> = SUBJECT.chars().collect();
+        let folded = fold_chars(SUBJECT);
+        assert_eq!(folded.len(), original.len(), "folding must not change the character count");
+
+        // Proof the hazard is real and not theoretical on this exact input.
+        assert_eq!(SUBJECT.to_lowercase().chars().count(), original.len() + 1);
+
+        let at = find_folded(&folded, &fold_chars("match")).expect("found");
+        assert_eq!(original[at..at + 5].iter().collect::<String>(), "MATCH");
+        assert!(excerpt_at(&original, at, 5).contains("MATCH"));
+
+        // The naive index would have landed one char early — on "H" through "tail".
+        let naive = SUBJECT.to_lowercase().chars().collect::<Vec<char>>();
+        let naive_at = find_folded(&naive, &fold_chars("match")).expect("found");
+        assert_eq!(naive_at, at + 1, "the two indices genuinely differ");
+    }
+
+    #[test]
+    fn create_thread_in_refuses_an_unregistered_entity_rather_than_inventing_one() {
+        let (mut spine, path) = spine_from_real_ledger("create");
+        let err = spine.create_thread("x", &EntityId::parse("not-an-entity").unwrap()).unwrap_err();
+        assert!(err.to_string().contains("not-an-entity"), "{err}");
+        // And the valid case binds immutably to the chosen entity.
+        let id = spine.create_thread("Q4 board pack", &EntityId::parse("deeply").unwrap()).unwrap();
+        spine.switch_thread(&id).unwrap();
+        assert_eq!(spine.active_entity().unwrap().as_str(), "deeply");
+        let tree = build_navigation_tree(&spine, &nav::NavState::default());
+        let deeply = tree.groups.iter().find(|g| g.entity.id == "deeply").unwrap();
+        assert!(deeply.threads.iter().any(|t| t.id == id));
+        assert_eq!(tree.active.as_ref().unwrap().entity_id, "deeply");
+        let _ = std::fs::remove_file(&path);
+    }
 }
