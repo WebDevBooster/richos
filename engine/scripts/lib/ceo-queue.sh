@@ -45,6 +45,36 @@
 # forgot", the design would be the defect wearing a new hat.
 #
 # ===========================================================================
+# PREPARED IS HALF. THE OTHER HALF IS REACHABLE.
+# ===========================================================================
+# The first version of this mechanism enforced preparation and shipped with
+# nowhere for the CEO to look. Nine prepared items sat inside a 173-line record
+# mixed with everything else, and the only new artifact was a dotfile. The
+# landing report read "the contract is live, 9 prepared items" — true of the
+# record, false of his experience. His words were: "Why am I not IMMEDIATELY
+# seeing my queue in the repo? Or is this supposed to be it: .ceo-queue?"
+#
+# THE REASON THAT HALF FELL OUT SILENTLY IS THE GENERAL CASE. Every acceptance
+# criterion in that landing was INTERNAL — lint exit codes, guard tests, probe
+# layers, git state. A view has no exit code, so it had no test that could
+# fail, so it was never in scope and nothing said so. The half that could be
+# verified was reported as the whole.
+#
+# So the contract now has three parts, and the third one is the one that keeps
+# the other two honest:
+#
+#   1. PREPARED   an item may not claim to be waiting on the CEO unless the
+#                 thing he touches already exists on disk.
+#   2. REACHABLE  the queue has exactly ONE entry point: top-level, un-dotted,
+#                 named at the head of the repo-root README, and CURRENT — a
+#                 projection of the record, byte-checked at every commit, never
+#                 a second copy maintained by hand.
+#   3. READ FROM  a cold reader, who is not its builder and has no context, is
+#      OUTSIDE    asked what the surface says and what he would do. The machine
+#                 enforces that the reading HAPPENED, never what it concluded.
+#                 scripts/cold-open.sh runs it; the transcript is the product.
+#
+# ===========================================================================
 # TWO STATES, AND WHY THE SECOND ONE IS THE POINT
 # ===========================================================================
 #   READY-FOR-CEO      prepared. The artifact exists, the time cost is stated,
@@ -86,6 +116,18 @@
 #                     could match.
 #   READY_STATE       default READY-FOR-CEO
 #   BLOCKED_STATE     default BLOCKED-ON-RICH
+#   QUEUE_VIEW        REQUIRED. The one entry point: a top-level, un-dotted
+#                     file name (no '/'), generated from the record by
+#                     scripts/ceo-queue-render.sh. Required because a queue
+#                     with no entry point is the defect this half exists to
+#                     remove — an optional entry point is an entry point that
+#                     is missing on the day it matters.
+#   ROOT_README       default README.md. The front door the view must be named
+#                     from, in its first 40 lines.
+#   COLD_OPEN_DIR     optional. Where cold-open transcripts live. Declaring it
+#                     switches ON the cold-open freshness gate; NOT declaring
+#                     it is a stated, printed limit in every verdict, never a
+#                     silent absence.
 #
 # ===========================================================================
 # MAIN CHECKOUT, NOT THE CURRENT ONE — measured, not assumed
@@ -115,6 +157,17 @@
 #     not continuously.
 #   * Deletion of `.ceo-queue` itself, or of the record. Both are visible diffs
 #     rather than silent bypasses, but both are bypasses.
+#   * Whether the VIEW is any good to read. It checks that the page exists, is
+#     the only one, is named from the front door, and is byte-current with the
+#     record. Whether a human can make sense of it is the cold open's job, and
+#     the cold open's answer is prose a person has to read.
+#   * Whether the cold reader was really cold. The transcript records WHO read
+#     it; nothing can verify that claim. What it can do — and does — is refuse
+#     to accept a transcript describing a front door that no longer exists.
+#   * A second, hand-written queue page that never carried the generated
+#     marker. The singularity check catches the realistic drift (a COPY of the
+#     view that stops being regenerated), not an unrelated file someone writes
+#     from scratch.
 #
 # Safe to source repeatedly. Never mutates state, never changes the caller's cwd.
 
@@ -131,7 +184,13 @@ _CQ_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Every key the declaration may carry. A key outside this set is a typo, and a
 # typo that silently does nothing is the defect class this file exists to
 # remove — so it is refused, loudly, by name.
-_CQ_KNOWN_KEYS="QUEUE_RECORD CEO_SECTIONS PREPARER_SECTION ARTIFACT_ROOTS READY_STATE BLOCKED_STATE"
+_CQ_KNOWN_KEYS="QUEUE_RECORD CEO_SECTIONS PREPARER_SECTION ARTIFACT_ROOTS READY_STATE BLOCKED_STATE QUEUE_VIEW ROOT_README COLD_OPEN_DIR"
+
+# The verbatim cold-open prompt. Its sha256 is baked into every transcript, so
+# changing a question invalidates every transcript on file — which is correct:
+# a transcript answers the questions it was asked, and a new question has never
+# been answered by anyone.
+_CQ_PROMPT_FILE_NAME="cold-open-prompt.md"
 
 # ---------------------------------------------------------------------------
 # cq_physical <path>
@@ -212,6 +271,9 @@ cq_load_declaration() {
     CQ_ARTIFACT_ROOTS=""
     CQ_READY_STATE="READY-FOR-CEO"
     CQ_BLOCKED_STATE="BLOCKED-ON-RICH"
+    CQ_QUEUE_VIEW=""
+    CQ_ROOT_README="README.md"
+    CQ_COLD_OPEN_DIR=""
     CQ_BROKEN_REASON=""
 
     [ -n "$root" ] || return 1
@@ -255,6 +317,9 @@ cq_load_declaration() {
             ARTIFACT_ROOTS)   CQ_ARTIFACT_ROOTS="$val" ;;
             READY_STATE)      CQ_READY_STATE="$val" ;;
             BLOCKED_STATE)    CQ_BLOCKED_STATE="$val" ;;
+            QUEUE_VIEW)       CQ_QUEUE_VIEW="$val" ;;
+            ROOT_README)      CQ_ROOT_README="$val" ;;
+            COLD_OPEN_DIR)    CQ_COLD_OPEN_DIR="$val" ;;
         esac
     done < "$f"
 
@@ -303,6 +368,30 @@ cq_load_declaration() {
             return 2
         fi
     done
+    # QUEUE_VIEW's ABSENCE is not a broken declaration — it is a queue with no
+    # entry point, which is a finding about the queue and is reported as one by
+    # the predicate (NO-ENTRY-POINT-DECLARED). Only its SHAPE is checked here,
+    # because a value the predicate could not use at all is a typo.
+    case "$CQ_QUEUE_VIEW" in
+        '') ;;
+        /*|~*|*..*|*/*)
+            CQ_BROKEN_REASON="QUEUE_VIEW must be a bare TOP-LEVEL file name ('CEO-QUEUE.md'), not '$CQ_QUEUE_VIEW'. The entry point is what a stranger sees listing the repository root."
+            return 2 ;;
+    esac
+    case "$CQ_ROOT_README" in
+        '')
+            CQ_BROKEN_REASON="ROOT_README is empty. Set it, or leave the key out to accept the default README.md; an empty value would make the discoverability check compare against nothing."
+            return 2 ;;
+        /*|~*|*..*|*/*)
+            CQ_BROKEN_REASON="ROOT_README must be a bare top-level file name, not '$CQ_ROOT_README'"
+            return 2 ;;
+    esac
+    case "$CQ_COLD_OPEN_DIR" in
+        '') ;;
+        /*|~*|*..*)
+            CQ_BROKEN_REASON="COLD_OPEN_DIR must be a plain repository-relative path, not '$CQ_COLD_OPEN_DIR'"
+            return 2 ;;
+    esac
     if [ "$CQ_READY_STATE" = "$CQ_BLOCKED_STATE" ]; then
         CQ_BROKEN_REASON="READY_STATE and BLOCKED_STATE are the same string, so the two states are indistinguishable"
         return 2
@@ -328,11 +417,18 @@ cq_resolve_roots() {
     local root="${1:-}" main pair prefix rel abs
     CQ_ROOTS_OK=""
     CQ_ROOTS_ABSENT=""
+    # The DECLARED root of every prefix, verbatim, whether or not it is on this
+    # machine. The renderer uses this and never the resolved path: a view that
+    # rendered differently depending on which sibling repositories happen to be
+    # cloned would make "is the view current?" a per-machine question, and the
+    # staleness gate would be unusable.
+    CQ_ROOT_SPECS=""
     [ -n "$root" ] || return 1
     main="$(cq_main_checkout "$root")"
     for pair in $CQ_ARTIFACT_ROOTS; do
         prefix="${pair%%=*}"
         rel="${pair#*=}"
+        CQ_ROOT_SPECS="${CQ_ROOT_SPECS:+$CQ_ROOT_SPECS$(printf '\t')}$prefix=$rel"
         case "$rel" in
             /*) abs="$rel" ;;
             *)  abs="$main/$rel" ;;
@@ -348,7 +444,143 @@ cq_resolve_roots() {
 }
 
 # ---------------------------------------------------------------------------
-# cq_lint_file <label> <path-to-record-text>
+# cq_prompt_file
+# ---------------------------------------------------------------------------
+# Absolute path of the verbatim cold-open prompt shipped with this engine.
+cq_prompt_file() { printf '%s\n' "$_CQ_LIB_DIR/$_CQ_PROMPT_FILE_NAME"; }
+
+# ---------------------------------------------------------------------------
+# cq_sha256 <file>
+# ---------------------------------------------------------------------------
+cq_sha256() {
+    local f="${1:-}"
+    [ -f "$f" ] || return 1
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$f" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$f" | awk '{print $1}'
+    else
+        python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$f"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# cq_build_job <mode> <label> <record-text-path> <repo-root> <out.json>
+# ---------------------------------------------------------------------------
+# Assembles the whole job — the record AND the CEO-facing surface around it.
+# Requires cq_load_declaration + cq_resolve_roots to have run.
+#
+# TWO OVERRIDES, and they exist for one reason: at `git commit` the bytes that
+# LAND are the staged blob, not the worktree copy, and a gate that checks the
+# worktree would pass a commit that stages a stale view.
+#   CQ_OVERRIDE_VIEW    path to the view bytes, or "-" meaning "not present"
+#   CQ_OVERRIDE_README  same, for the root README
+# Unset = read the worktree.
+cq_build_job() {
+    local mode="${1:-lint}" label="${2:-<record>}" src="${3:-}" repo="${4:-}" out="${5:-}"
+    [ -n "$src" ] && [ -f "$src" ] || { echo "ERROR: cq_build_job: no record text at '$src'" >&2; return 2; }
+    [ -n "$out" ] || { echo "ERROR: cq_build_job: no output path" >&2; return 2; }
+    command -v python3 >/dev/null 2>&1 || { echo "ERROR: cq_build_job: python3 is required" >&2; return 2; }
+
+    local prompt_fp=""
+    if [ -f "$(cq_prompt_file)" ]; then
+        prompt_fp="$(cq_sha256 "$(cq_prompt_file)")"
+    fi
+
+    CQ_J_MODE="$mode" CQ_J_LABEL="$label" CQ_J_SRC="$src" CQ_J_REPO="$repo" \
+    CQ_J_CEO="$CQ_CEO_SECTIONS" CQ_J_PREP="$CQ_PREPARER_SECTION" \
+    CQ_J_OK="$CQ_ROOTS_OK" CQ_J_ABSENT="$CQ_ROOTS_ABSENT" CQ_J_SPECS="$CQ_ROOT_SPECS" \
+    CQ_J_READY="$CQ_READY_STATE" CQ_J_BLOCKED="$CQ_BLOCKED_STATE" \
+    CQ_J_VIEW="$CQ_QUEUE_VIEW" CQ_J_README="$CQ_ROOT_README" CQ_J_COLD="$CQ_COLD_OPEN_DIR" \
+    CQ_J_OVR_VIEW="${CQ_OVERRIDE_VIEW:-}" CQ_J_OVR_README="${CQ_OVERRIDE_README:-}" \
+    CQ_J_PROMPT_FP="$prompt_fp" CQ_J_OUT="$out" python3 -c '
+import json, os
+
+def pairs(raw):
+    out = {}
+    for entry in (raw or "").split("\t"):
+        if entry and "=" in entry:
+            k, v = entry.split("=", 1)
+            out[k] = v
+    return out
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except Exception:
+        return None
+
+def surface(name, override, repo):
+    """The bytes that will BE there. "-" means the override says: absent."""
+    if override == "-":
+        return None
+    if override:
+        return read(override)
+    if not name or not repo:
+        return None
+    return read(os.path.join(repo, name))
+
+repo = os.environ.get("CQ_J_REPO") or ""
+view = os.environ.get("CQ_J_VIEW") or ""
+readme = os.environ.get("CQ_J_README") or "README.md"
+cold = os.environ.get("CQ_J_COLD") or ""
+
+top_level_md = []
+if repo and os.path.isdir(repo):
+    for name in sorted(os.listdir(repo)):
+        if not name.lower().endswith(".md") or name == view:
+            continue
+        p = os.path.join(repo, name)
+        if os.path.isfile(p):
+            top_level_md.append([name, read(p) or ""])
+
+cold_present = False
+transcripts = []
+if cold and repo:
+    d = os.path.join(repo, cold)
+    cold_present = os.path.isdir(d)
+    if cold_present:
+        for name in sorted(os.listdir(d)):
+            # A folder README explains what the folder is for; it is not a
+            # transcript and must not be reported as a broken one. Every other
+            # .md in here is a transcript CANDIDATE — deliberately, so a file
+            # that is nearly a transcript is named rather than skipped.
+            if not name.lower().endswith(".md") or name.lower() == "readme.md":
+                continue
+            p = os.path.join(d, name)
+            if os.path.isfile(p):
+                transcripts.append([name, read(p) or ""])
+
+job = {
+    "mode": os.environ.get("CQ_J_MODE") or "lint",
+    "record_label": os.environ.get("CQ_J_LABEL", "<record>"),
+    "text": read(os.environ["CQ_J_SRC"]) or "",
+    "ceo_sections": [s for s in os.environ.get("CQ_J_CEO", "").split() if s],
+    "preparer_section": os.environ.get("CQ_J_PREP", ""),
+    "artifact_roots": pairs(os.environ.get("CQ_J_OK")),
+    "absent_roots": pairs(os.environ.get("CQ_J_ABSENT")),
+    "root_specs": pairs(os.environ.get("CQ_J_SPECS")),
+    "ready_state": os.environ.get("CQ_J_READY", "READY-FOR-CEO"),
+    "blocked_state": os.environ.get("CQ_J_BLOCKED", "BLOCKED-ON-RICH"),
+    "queue_view": view,
+    "view_text": surface(view, os.environ.get("CQ_J_OVR_VIEW") or "", repo),
+    "root_readme": readme,
+    "readme_text": surface(readme, os.environ.get("CQ_J_OVR_README") or "", repo),
+    "top_level_md": top_level_md,
+    "cold_open_dir": cold,
+    "cold_open_dir_present": cold_present,
+    "cold_open": transcripts,
+    "prompt_fingerprint": os.environ.get("CQ_J_PROMPT_FP", ""),
+}
+with open(os.environ["CQ_J_OUT"], "w", encoding="utf-8") as fh:
+    json.dump(job, fh)
+' || { echo "ERROR: cq_build_job: could not build the job" >&2; return 2; }
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# cq_lint_file <label> <path-to-record-text> [repo-root]
 # ---------------------------------------------------------------------------
 # Runs the predicate. Prints the raw verdict lines (see ceo-queue.py) on
 # stdout. Requires cq_load_declaration + cq_resolve_roots to have run.
@@ -356,46 +588,43 @@ cq_resolve_roots() {
 # rc 0 whatever the verdict is; rc 2 only when the CHECKER could not run, which
 # every caller must treat as BROKEN rather than as a clean record.
 cq_lint_file() {
-    local label="${1:-<record>}" src="${2:-}" job rc
-    [ -n "$src" ] && [ -f "$src" ] || { echo "ERROR: cq_lint_file: no record text at '$src'" >&2; return 2; }
+    local label="${1:-<record>}" src="${2:-}" repo="${3:-}" job rc
     [ -f "$_CQ_LIB_DIR/ceo-queue.py" ] || { echo "ERROR: cq_lint_file: scripts/lib/ceo-queue.py is missing" >&2; return 2; }
-    command -v python3 >/dev/null 2>&1 || { echo "ERROR: cq_lint_file: python3 is required" >&2; return 2; }
-
     job="$(mktemp -t ceo-queue-job.XXXXXX.json)" || return 2
-    CQ_J_LABEL="$label" CQ_J_SRC="$src" \
-    CQ_J_CEO="$CQ_CEO_SECTIONS" CQ_J_PREP="$CQ_PREPARER_SECTION" \
-    CQ_J_OK="$CQ_ROOTS_OK" CQ_J_ABSENT="$CQ_ROOTS_ABSENT" \
-    CQ_J_READY="$CQ_READY_STATE" CQ_J_BLOCKED="$CQ_BLOCKED_STATE" \
-    CQ_J_OUT="$job" python3 -c '
-import json, os
-def pairs(raw):
-    out = {}
-    for entry in (raw or "").split("\t"):
-        if not entry or "=" not in entry:
-            continue
-        k, v = entry.split("=", 1)
-        out[k] = v
-    return out
-with open(os.environ["CQ_J_SRC"], encoding="utf-8", errors="replace") as fh:
-    text = fh.read()
-job = {
-    "record_label": os.environ.get("CQ_J_LABEL", "<record>"),
-    "text": text,
-    "ceo_sections": [s for s in os.environ.get("CQ_J_CEO", "").split() if s],
-    "preparer_section": os.environ.get("CQ_J_PREP", ""),
-    "artifact_roots": pairs(os.environ.get("CQ_J_OK")),
-    "absent_roots": pairs(os.environ.get("CQ_J_ABSENT")),
-    "ready_state": os.environ.get("CQ_J_READY", "READY-FOR-CEO"),
-    "blocked_state": os.environ.get("CQ_J_BLOCKED", "BLOCKED-ON-RICH"),
-}
-with open(os.environ["CQ_J_OUT"], "w", encoding="utf-8") as fh:
-    json.dump(job, fh)
-' || { rm -f "$job"; echo "ERROR: cq_lint_file: could not build the lint job" >&2; return 2; }
-
+    cq_build_job lint "$label" "$src" "$repo" "$job" || { rm -f "$job"; return 2; }
     python3 "$_CQ_LIB_DIR/ceo-queue.py" "$job"
     rc=$?
     rm -f "$job"
     return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# cq_render <label> <path-to-record-text> [repo-root]
+# ---------------------------------------------------------------------------
+# Prints the rendered view on stdout. Same parse, same declaration, no
+# filesystem lookups inside the render — see ceo-queue.py.
+#
+# rc 0 rendered; 2 the renderer could not run; 3 the record is not renderable
+# (and stdout then carries a BROKEN line, never a partial document).
+cq_render() {
+    local label="${1:-<record>}" src="${2:-}" repo="${3:-}" job rc
+    [ -f "$_CQ_LIB_DIR/ceo-queue.py" ] || { echo "ERROR: cq_render: scripts/lib/ceo-queue.py is missing" >&2; return 2; }
+    job="$(mktemp -t ceo-queue-job.XXXXXX.json)" || return 2
+    cq_build_job render "$label" "$src" "$repo" "$job" || { rm -f "$job"; return 2; }
+    python3 "$_CQ_LIB_DIR/ceo-queue.py" "$job"
+    rc=$?
+    rm -f "$job"
+    return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# cq_verdict_fp <verdict-text>
+# ---------------------------------------------------------------------------
+# The front-door fingerprint out of a lint verdict. ONE number, computed in one
+# place: the cold-open harness stamps what the gate will later demand, so the
+# two can never drift into disagreeing about what "current" means.
+cq_verdict_fp() {
+    printf '%s\n' "${1:-}" | awk -F'\t' '$1=="FP" {print $2; exit}'
 }
 
 # ---------------------------------------------------------------------------
@@ -428,12 +657,22 @@ cq_refusal() {
         case "$kind" in
             V)    printf '  BLOCK  section %s, item %s — %s\n         %s\n' "$sec" "$iid" "$code" "$msg" ;;
             SKIP) printf '  SKIP   section %s, item %s — %s\n         %s\n' "$sec" "$iid" "$code" "$msg" ;;
+            # A stated limit of this run. Printed on refusals too: a reader
+            # fixing one problem must still be told what was never checked.
+            NOTE) printf '  NOTE   %s\n         %s\n' "$sec" "$iid" ;;
         esac
     done
     echo ""
-    echo "  THE CONTRACT. Every item in a CEO section carries all four fields —"
-    echo "  **Open:** \`<prefix>/path\`, **Time:**, **Done:**, **Unblocks:** —"
-    echo "  and the artifact must already exist on disk."
+    echo "  THE CONTRACT, in three parts."
+    echo "  1. PREPARED — every item in a CEO section carries all four fields:"
+    echo "     **Open:** \`<prefix>/path\`, **Time:**, **Done:**, **Unblocks:** —"
+    echo "     and the artifact must already exist on disk."
+    echo "  2. REACHABLE — one top-level, un-dotted entry point, named at the head"
+    echo "     of the root README, and byte-current with the record. Regenerate it:"
+    echo "       scripts/ceo-queue-render.sh <repo>"
+    echo "  3. READ FROM OUTSIDE — a cold reader who is not its builder has seen"
+    echo "     the front door as it stands now:"
+    echo "       scripts/cold-open.sh --run <repo>"
     echo ""
     echo "  If it is not prepared, that is not a failure: mark it $CQ_BLOCKED_STATE"
     echo "  and move it to section $CQ_PREPARER_SECTION. \"Waiting on the CEO\" is a"
