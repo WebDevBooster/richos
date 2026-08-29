@@ -21,6 +21,9 @@ use crate::cognition::{Cognition, CognitionError, LeaseFactory, TurnItem};
 use crate::entity::{EntityId, EntityRegistry, ThreadBinding};
 use crate::journal::MachineryJournal;
 use crate::ledger::{ActionStatus, ActionVisibility, AttentionTier, Ledger, LedgerError, Message, Source};
+use crate::live::{
+    proactive_message_events, EventFence, LiveEvent, LiveObserver, LiveTurn, ThreadStatus, TurnStatus,
+};
 use crate::machinery::{MachineryObserver, MachineryRecord};
 use crate::reprime::{LoroContextCompiler, RePrimePayload, DEFAULT_TAIL_TURNS};
 use crate::stream::{StreamEvent, TurnObserver};
@@ -73,6 +76,13 @@ struct QueuedProactiveEmit {
     thread_id: String,
     turn_id: String,
     tier: AttentionTier,
+    /// The binding the message was written under — carried, not re-derived at flush time,
+    /// for the same reason `Queued` carries one: the active context may have moved, and a
+    /// deferred emit must never be re-scoped to wherever the CEO happens to be looking.
+    binding: ThreadBinding,
+    /// The message text, so the deferred flush can emit the §13 message events without
+    /// re-reading a ledger that has since moved on.
+    text: String,
 }
 
 /// Rough chars-per-token ESTIMATE — the well-known ~4-chars/token heuristic for English
@@ -142,6 +152,10 @@ pub struct Spine {
     /// families means the default UI's subscription list is the proof that the calm view
     /// carries no machinery (§3.3).
     machinery_observer: Option<Box<dyn MachineryObserver>>,
+    /// The THIRD live sink: the additive §13 event family (`live.rs`). Separate from
+    /// `observer` on purpose — the four `stream.rs` events are unchanged and a UI that
+    /// listens only to them is unaffected by anything on this one.
+    live: Option<Box<dyn LiveObserver>>,
 }
 
 impl Spine {
@@ -166,6 +180,7 @@ impl Spine {
             last_rotation_reason: None,
             machinery_journal: None,
             machinery_observer: None,
+            live: None,
         }
     }
 
@@ -182,6 +197,86 @@ impl Spine {
         if let Some(obs) = self.observer.as_deref() {
             obs.on_event(&event);
         }
+    }
+
+    /// Attach the ADDITIVE live-work sink (UX brief §13). Optional and independent: the
+    /// four `stream.rs` events fire identically whether or not this is set, so the
+    /// shipping UI is unaffected by its presence or absence.
+    pub fn set_live_observer(&mut self, observer: Box<dyn LiveObserver>) {
+        self.live = Some(observer);
+    }
+
+    /// THE ONE CHOKEPOINT for the additive family — every `LiveEvent` in this file goes
+    /// through here or through [`Spine::forward_live`], which is this function's body.
+    fn emit_live(&self, events: Vec<LiveEvent>) {
+        Self::forward_live(self.live.as_deref(), events);
+    }
+
+    /// The gate, as an associated function so the streaming closure in `deliver` (which
+    /// holds a `&mut Ledger` and therefore cannot call `&self` methods) enforces the SAME
+    /// rule rather than a second copy of it.
+    ///
+    /// **Only `Visibility::Ceo` leaves this process on the additive family.** An internal
+    /// item (re-prime, rotation, model reasoning, a Tier-3 silent proactive message) and a
+    /// technical-only item are both refused here; technical detail already has its own
+    /// family, `rich://machinery`, which the calm view does not subscribe to. The item was
+    /// CONSTRUCTED before being refused, deliberately: a guard that is never asked cannot
+    /// be tested, and `tests/live_event_tests.rs` removes this line to watch it leak.
+    fn forward_live(observer: Option<&dyn LiveObserver>, events: Vec<LiveEvent>) {
+        let Some(obs) = observer else { return };
+        for e in events {
+            if e.may_reach_webview() {
+                obs.on_live_event(&e);
+            }
+        }
+    }
+
+    /// §13 `rich://thread-summary-updated` for one thread, computed exactly the way
+    /// `thread::summaries` computes the sidebar today — same title, same scoped message
+    /// count, same recency — so a live row and a re-listed row can never disagree.
+    fn thread_summary_event(&self, binding: &ThreadBinding, turn_id: &str, status: ThreadStatus) -> Vec<LiveEvent> {
+        let thread_id = binding.thread_id();
+        let Some(thread) = self.ledger.threads().iter().find(|t| t.id == thread_id) else {
+            return Vec::new();
+        };
+        let message_count = self.ledger.messages(thread_id).map(|m| m.len()).unwrap_or(0);
+        let last_activity = self
+            .ledger
+            .turns()
+            .iter()
+            .filter(|tn| tn.thread_id == thread_id)
+            .map(|tn| tn.created_at)
+            .max()
+            .unwrap_or(thread.created_at);
+        vec![LiveEvent::ThreadSummaryUpdated {
+            fence: EventFence::for_turn(binding, turn_id),
+            title: thread.title.clone(),
+            message_count,
+            last_activity,
+            status,
+            at: now_millis(),
+        }]
+    }
+
+    /// §13 `rich://turn-status`, read back OUT of the ledger rather than assembled from
+    /// the values in hand: `started_at` and the MEASURED `active_ms` are whatever survived
+    /// the write, so the wire cannot report a span the ledger does not hold.
+    fn turn_status_event(
+        &self,
+        binding: &ThreadBinding,
+        turn_id: &str,
+        status: TurnStatus,
+        supersedes_turn_id: Option<String>,
+    ) -> Vec<LiveEvent> {
+        let turn = self.ledger.turn(turn_id);
+        vec![LiveEvent::TurnStatus {
+            fence: EventFence::for_turn(binding, turn_id),
+            status,
+            started_at: turn.and_then(|t| t.started_at),
+            active_duration_ms: turn.and_then(|t| t.active_ms()),
+            supersedes_turn_id,
+            at: now_millis(),
+        }]
     }
 
     /// Attach a fresh compute lease. This is the swappable-lease seam: a later
@@ -334,6 +429,8 @@ impl Spine {
                     thread_id,
                     turn_id: turn_id.clone(),
                     tier,
+                    binding,
+                    text: text.to_string(),
                 });
             } else {
                 self.emit(StreamEvent::ProactiveMessage {
@@ -342,6 +439,7 @@ impl Spine {
                     tier,
                     at: now_millis(),
                 });
+                self.emit_proactive_live(&binding, &turn_id, tier, text);
             }
         }
         Ok(turn_id)
@@ -546,6 +644,14 @@ impl Spine {
         //     any risk, and it is never durable without an entity.
         let turn_id = self.ledger.record_prompt_received(&binding, text, source)?;
 
+        // ADDITIVE (§13): the turn is durably `received`, so its first authoritative state
+        // transition is emittable — §11's `queued`, the state whose timeline treatment is
+        // "CEO bubble plus scaffold". Emitted for BOTH branches below, so a prompt that is
+        // delivered immediately still shows queued -> working rather than appearing
+        // mid-flight. Nothing on `stream.rs` changes here.
+        self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
+        self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
+
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
         if self.turn_in_progress {
@@ -600,6 +706,10 @@ impl Spine {
             turn_id: turn_id.to_string(),
             at: now_millis(),
         });
+        // ADDITIVE (§13), after the SAME durable write and after the existing event, never
+        // instead of it.
+        self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Working, None));
+        self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Working));
 
         // A turn the CEO never sees (re-prime injection, the rotation handoff summary)
         // produces machinery he must never see either — §1.5's `internal` rule, the same
@@ -614,8 +724,13 @@ impl Spine {
         let observer = self.observer.as_deref();
         let journal = self.machinery_journal.as_ref();
         let machinery_observer = self.machinery_observer.as_deref();
+        let live_observer = self.live.as_deref();
         let lease = self.lease.as_mut().ok_or(SpineError::NoLease)?;
         let mut persist_err: Option<LedgerError> = None;
+        // The additive family's per-turn bookkeeping (§13). Holds no counter of its own:
+        // message ids come from the ledger's `text_runs` fold, activity identity and
+        // position from `machinery.rs`'s merge rules.
+        let mut live_turn = LiveTurn::new(EventFence::for_turn(binding, turn_id), internal_turn);
 
         let stop = {
             let mut on_item = |item: TurnItem| match item {
@@ -640,9 +755,22 @@ impl Spine {
                             at: now_millis(),
                         });
                     }
+                    // ADDITIVE (§13): message-started / message-delta, keyed to the run the
+                    // LEDGER just folded this delta into — so the boundary between "he said
+                    // X" and "then said Z" is the ledger's, not a second opinion.
+                    // Borrowed, never cloned: this runs once per delta, and copying the
+                    // whole reply-so-far each time would be quadratic in the reply length.
+                    let runs = ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
+                    Self::forward_live(live_observer, live_turn.on_text(runs, seq, c, now_millis()));
                 }
                 TurnItem::Machinery(record) => {
                     let record = record.stamp(thread_id, Some(turn_id), internal_turn);
+                    // A tool call ENDS the open run of prose — the ledger will fold the next
+                    // delta into a new run — so the message is closed here rather than at
+                    // the turn's end, and §5.2's "commentary, then activity" is live-accurate.
+                    let runs = ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
+                    Self::forward_live(live_observer, live_turn.close_open_message(runs, now_millis()));
+                    Self::forward_live(live_observer, live_turn.on_machinery(&record).into_iter().collect());
                     Self::retain_and_emit_machinery(journal, machinery_observer, record);
                 }
             };
@@ -651,6 +779,13 @@ impl Spine {
         // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
 
         self.turn_in_progress = false;
+
+        // Close whatever run of prose was still open, whatever the outcome: the partial
+        // text is already durable, so finalizing it is a statement about the ledger rather
+        // than about the turn's success.
+        let final_runs = self.ledger.turn(turn_id).map(|t| t.text_runs.as_slice()).unwrap_or(&[]);
+        let closing = live_turn.close_open_message(final_runs, now_millis());
+        self.emit_live(closing);
 
         // A ledger write failing mid-stream is terminal for the turn (durability first).
         if let Some(e) = persist_err {
@@ -661,6 +796,9 @@ impl Spine {
                 reason: e.to_string(),
                 at: now_millis(),
             });
+            // ADDITIVE (§13). No recovery is attempted on this path, so `failed` is final.
+            self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Failed, None));
+            self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Failed));
             return Err(e.into());
         }
 
@@ -679,6 +817,11 @@ impl Spine {
                     stop_reason,
                     at: now_millis(),
                 });
+                // ADDITIVE (§13). `complete_turn` wrote `ended_at` first, so the
+                // `activeDurationMs` this carries is the MEASURED span, not an estimate —
+                // and it is still `null` for a turn whose start was never recorded.
+                self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Completed, None));
+                self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Idle));
                 Ok(())
             }
             Err(e) => {
@@ -694,7 +837,23 @@ impl Spine {
                 // signal (this `Err`) just fired — attempt ONE automatic respawn +
                 // replay if a factory is attached. A genuinely dead recovery path (no
                 // factory, or the fresh spawn ALSO fails) surfaces the error honestly.
-                if allow_recovery && self.lease_factory.is_some() {
+                let will_recover = allow_recovery && self.lease_factory.is_some();
+                // ADDITIVE (§13). THE TWO CASES ARE DIFFERENT STATEMENTS, and emitting the
+                // wrong one is how the wire and a reload stop agreeing:
+                //   - no recovery ahead  -> `failed`, and the turn stays visible as failed;
+                //   - recovery ahead     -> `recovering`, because this turn is about to be
+                //     SUPERSEDED and a reload will not render it at all (it becomes
+                //     `Visibility::Internal`, timeline.rs). Claiming `failed` here would
+                //     leave a failure on screen that vanishes on the next launch.
+                // `recovering` is §11's own state and is sourced by a POSITIVE termination
+                // signal — this `Err` — never by inferring death from silence (§5.2).
+                if will_recover {
+                    self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Recovering, None));
+                } else {
+                    self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Failed, None));
+                    self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Failed));
+                }
+                if will_recover {
                     return self.recover_and_replay(turn_id, binding, text);
                 }
                 Err(e.into())
@@ -762,11 +921,32 @@ impl Spine {
         while let Some(p) = self.pending_proactive_emits.pop_front() {
             self.emit(StreamEvent::ProactiveMessage {
                 thread_id: p.thread_id,
-                turn_id: p.turn_id,
+                turn_id: p.turn_id.clone(),
                 tier: p.tier,
                 at: now_millis(),
             });
+            self.emit_proactive_live(&p.binding, &p.turn_id, p.tier, &p.text);
         }
+    }
+
+    /// The ADDITIVE half of a proactive message (§13).
+    ///
+    /// **This is the ONE place a real, non-`unknown` message phase exists.** A streamed
+    /// reply has no phase signal anywhere on the ACP wire (`live.rs`'s module doc, with the
+    /// measurement behind it), but a proactive message knows what it is because the LEDGER
+    /// recorded it as one — `Source::Proactive` plus a tier. So it is emitted as
+    /// `phase: "proactive"`, and it is the proof that the phase field is a real field
+    /// rather than a decorative one.
+    ///
+    /// A proactive turn is written ATOMICALLY, so there is no delivery span to measure:
+    /// `started_at` is `None` and `activeDurationMs` is `null`. It emits `completed`
+    /// (which it already is) and never `queued` or `working`, both of which would describe
+    /// a delivery that never happened.
+    fn emit_proactive_live(&self, binding: &ThreadBinding, turn_id: &str, tier: AttentionTier, text: &str) {
+        let fence = EventFence::for_turn(binding, turn_id);
+        self.emit_live(proactive_message_events(&fence, tier, text, now_millis()));
+        self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Completed, None));
+        self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Idle));
     }
 
     /// Mid-turn-crash recovery + replay (continuity §5.3). The dead lease is dropped;
@@ -824,6 +1004,18 @@ impl Spine {
         // mis-attribution the guard exists to prevent).
         let replay_turn_id = self.ledger.record_prompt_received(binding, original_text, Source::Text)?;
         self.ledger.mark_turn_superseded(failed_turn_id, &replay_turn_id)?;
+        // ADDITIVE (§13), and the one place this contract goes BEYOND §13 — which has no
+        // event for "this turn continues as that one". Emitted only after the supersession
+        // is durable. `supersedesTurnId` is a MERGE instruction for the renderer, not an
+        // announcement: without it the replay's new turn id draws the CEO's single prompt
+        // a second time, and with it the two ids collapse into the one exchange a reload
+        // shows. Rich still never says that a rotation happened.
+        self.emit_live(self.turn_status_event(
+            binding,
+            &replay_turn_id,
+            TurnStatus::Queued,
+            Some(failed_turn_id.to_string()),
+        ));
         let outcome = self.deliver(&replay_turn_id, binding, original_text, false);
         self.ledger.update_action(
             &recovery_action,
