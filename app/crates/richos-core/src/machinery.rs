@@ -31,9 +31,14 @@
 //! `MachineryKind::Unknown`, which retains the vendor kind and the verbatim payload. That
 //! is the honest fallback and it is chosen on purpose — §1.4 G5 forbids re-introducing a
 //! silent drop, and the CEO's whole argument for landing routing before a renderer is
-//! that a dropped byte is a permanent hole. Retention, not interpretation: nothing reads
-//! these records, and in particular **`usage_update` is not wired to anything** — the
-//! chars÷4 context proxy at `spine.rs:59-66` stays exactly as honest as it was.
+//! that a dropped byte is a permanent hole.
+//!
+//! **ONE of them is now read, and only one: `usage_update`.** [`MachineryRecord::context_usage`]
+//! pulls `{used, size}` back out of the retained payload so the spine's rotation watermark
+//! can be driven by the adapter's own measurement instead of a chars/4 estimate. This is
+//! deliberately an ACCESSOR over `Unknown` rather than a new `MachineryKind`: typing the
+//! kind is Phase 2 (Section 5) and would move this record's timeline visibility, which is
+//! not this change's business. Everything else here is still retention, not interpretation.
 //!
 //! `user_message_chunk` is DROPPED (§1.2): it is our own prompt echoed back, and
 //! `ledger.rs:386-409` already holds the CEO's words verbatim and fsync'd. A second copy
@@ -251,6 +256,31 @@ impl MachineryRecord {
         })
     }
 
+    /// The `{used, size}` pair off a `usage_update`, or `None` for every other record.
+    ///
+    /// **Read this from the STREAM, never from the journal.** `usage_update` lands in the
+    /// evictable Tier B (`journal.rs`), so a record read back after eviction has
+    /// `payload: None` and this returns `None` - correctly, because at that point the
+    /// measurement genuinely is gone. The spine consumes it in `deliver`'s drain closure,
+    /// as the record goes past.
+    ///
+    /// Returns `None` on a `truncated` record too: a truncated payload is a JSON *string*,
+    /// not an object, and half a number is not a measurement. In practice this never
+    /// fires - the measured `usage_update` payloads are ~120 bytes against a 32 KB cap -
+    /// but the check is here so the type can never be built out of a fragment.
+    pub fn context_usage(&self) -> Option<ContextUsage> {
+        if self.truncated {
+            return None;
+        }
+        let p = self.payload.as_ref()?;
+        if p.get("sessionUpdate").and_then(|v| v.as_str()) != Some("usage_update") {
+            return None;
+        }
+        // BOTH fields required. A `usage_update` carrying only `used` says nothing about
+        // the denominator, and guessing a denominator is the exact failure this replaces.
+        Some(ContextUsage { used: p.get("used")?.as_u64()?, size: p.get("size")?.as_u64()? })
+    }
+
     /// Normalize a client-directed `session/request_permission` (§1.2). Recording the
     /// auto-approval is a FACT, not a policy: `acp.rs` still auto-approves exactly as it
     /// did, and this design says nothing else about gap #1.
@@ -437,6 +467,33 @@ fn extract_locations(update: &Value) -> Vec<String> {
         .collect()
 }
 
+/// The adapter's OWN statement of how much of the model's context window this session
+/// has consumed - `{used, size}` off a `usage_update` `session/update`.
+///
+/// A MEASUREMENT, not an estimate. Measured on the wire 2026-08-28: 50 `usage_update`
+/// events across five probe runs (`docs/verification/acp-emission-probe-2026-08-28/`),
+/// `size` = **1_000_000** in 50 of 50, `used` ranging 30_322 -> 41_991. It was the second
+/// most frequent event in the whole capture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContextUsage {
+    /// Tokens consumed so far on this session, as the adapter counts them.
+    pub used: u64,
+    /// The session's context window, as the adapter reports it.
+    pub size: u64,
+}
+
+impl ContextUsage {
+    /// `used / size`, or 0.0 when the adapter reported a zero window (which would make the
+    /// ratio meaningless - a zero denominator is refused rather than divided by).
+    pub fn fraction(&self) -> f64 {
+        if self.size == 0 {
+            0.0
+        } else {
+            self.used as f64 / self.size as f64
+        }
+    }
+}
+
 /// Apply §2.4's 32 KB per-record payload cap. An over-cap payload is replaced by a
 /// char-boundary-safe truncation of its serialized form, as a JSON string, with
 /// `truncated: true` — visibly a different shape, so nothing can mistake it for the
@@ -560,6 +617,84 @@ mod tests {
             assert_eq!(r.title, k, "the vendor kind must survive as the dim line's text");
             assert_eq!(r.payload.as_ref().unwrap()["sessionUpdate"], k);
         }
+    }
+
+    #[test]
+    fn a_usage_update_yields_the_measured_used_and_size_pair() {
+        // The EXACT wire shape, copied from run1.raw.jsonl n=8
+        // (docs/verification/acp-emission-probe-2026-08-28/run1.raw.jsonl).
+        let u = json!({"sessionUpdate":"usage_update","used":30477,"size":1000000});
+        let r = MachineryRecord::from_acp_update(&u, "sess", 8).unwrap();
+        let usage = r.context_usage().expect("a usage_update carries a measurement");
+        assert_eq!(usage.used, 30_477);
+        assert_eq!(usage.size, 1_000_000);
+        // 30477 / 1000000 = 0.030477 - re-derived here rather than trusted.
+        assert!((usage.fraction() - 0.030_477).abs() < 1e-9, "got {}", usage.fraction());
+    }
+
+    #[test]
+    fn the_rate_limit_meta_variant_still_yields_the_measurement() {
+        // run1 n=30: the same event with `_meta._claude/rateLimit` attached. 2 of the 8
+        // usage_updates in run1 carry it. An extra field must not cost us the numbers.
+        let u = json!({"sessionUpdate":"usage_update","used":30873,"size":1000000,
+                       "_meta":{"_claude/rateLimit":{"status":"allowed","resetsAt":1787958600}}});
+        let r = MachineryRecord::from_acp_update(&u, "sess", 30).unwrap();
+        assert_eq!(r.context_usage().map(|u| (u.used, u.size)), Some((30_873, 1_000_000)));
+    }
+
+    #[test]
+    fn only_a_usage_update_is_a_measurement() {
+        // Every other machinery record must return None - a tool call is not a token count,
+        // and a watermark that read one would be worse than the estimate it replaced.
+        for u in [
+            json!({"sessionUpdate":"plan","used":99,"size":100}),
+            json!({"sessionUpdate":"session_info_update","used":99,"size":100}),
+            json!({"sessionUpdate":"agent_thought_chunk","content":{"text":"t"}}),
+        ] {
+            let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+            assert_eq!(r.context_usage(), None, "non-usage kind must carry no measurement: {u}");
+        }
+        // `plan` carrying used/size is not hypothetical caution: the wire is the vendor's
+        // and open, so the KIND, not the field names, is what makes a number a measurement.
+    }
+
+    #[test]
+    fn half_a_measurement_is_no_measurement() {
+        for u in [
+            json!({"sessionUpdate":"usage_update","used":30477}),
+            json!({"sessionUpdate":"usage_update","size":1000000}),
+            json!({"sessionUpdate":"usage_update"}),
+            json!({"sessionUpdate":"usage_update","used":"30477","size":"1000000"}),
+        ] {
+            let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+            assert_eq!(r.context_usage(), None, "must refuse a partial/untyped pair: {u}");
+        }
+    }
+
+    #[test]
+    fn a_zero_window_is_refused_rather_than_divided_by() {
+        let u = json!({"sessionUpdate":"usage_update","used":500,"size":0});
+        let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        let usage = r.context_usage().unwrap();
+        assert_eq!(usage.fraction(), 0.0, "a zero denominator must not become inf/NaN");
+    }
+
+    #[test]
+    fn an_evicted_payload_reports_no_measurement_rather_than_a_stale_one() {
+        // Tier B is evictable (journal.rs). A record read back after eviction has
+        // payload: None, and the honest answer there is "gone", not a remembered number.
+        let u = json!({"sessionUpdate":"usage_update","used":30477,"size":1000000});
+        let mut r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        r.payload = None;
+        assert_eq!(r.context_usage(), None);
+    }
+
+    #[test]
+    fn a_truncated_payload_reports_no_measurement() {
+        let u = json!({"sessionUpdate":"usage_update","used":30477,"size":1000000});
+        let mut r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        r.truncated = true;
+        assert_eq!(r.context_usage(), None, "half a number is not a measurement");
     }
 
     #[test]

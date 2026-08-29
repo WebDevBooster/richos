@@ -20,6 +20,10 @@ name = "rotation_roundtrip"
 path = "examples/rotation_roundtrip.rs"
 
 [[example]]
+name = "watermark_roundtrip"
+path = "examples/watermark_roundtrip.rs"
+
+[[example]]
 name = "machinery_roundtrip"
 path = "examples/machinery_roundtrip.rs"
 

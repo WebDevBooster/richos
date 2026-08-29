@@ -1,0 +1,35 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `/Users/alex/ab/richos-wt/echo-rotation-2026-08-29/app/target/debug/examples/watermark_roundtrip /Users/alex/ab/richos-wt/echo-rotation-2026-08-29/engine`
+[watermark] adapter   = /Users/alex/ab/richos-wt/echo-rotation-2026-08-29/app/acp-adapter/node_modules/.bin/claude-agent-acp
+[watermark] engine cwd = /Users/alex/ab/richos-wt/echo-rotation-2026-08-29/engine
+[watermark] session 0 = 7fc14c98-5c89-4a8e-aa8a-ee41179c5803
+[watermark] before any turn        source=estimated used=<none reported> estimate=0 tokens  window=200000  reached=false
+
+CEO> In five words or fewer, what is 2+2?
+
+Rich> 4
+
+[watermark] after one live turn    source=measured  used=31310 size=1000000 = 3.1310%  window=1000000  reached=false
+[watermark] the wire's window is 1000000 against the app's old assumption of 200000 (5.0x)
+[watermark] over the SAME turn the chars/4 estimate reads 602 tokens against a measured 31310 (52.0x under)
+
+[watermark] setting watermark_ratio = 0.028179 (90% of the MEASURED fraction 0.031310)
+
+CEO> Say the word: ok
+
+Rich> ok
+
+[watermark] rotation_count 0 -> 1 reason=Some("context-watermark")
+[watermark] session before = 7fc14c98-5c89-4a8e-aa8a-ee41179c5803
+[watermark] session after  = 1a058545-1b4c-408a-a442-7209284eff78
+[watermark] after rotation         source=estimated used=<none reported> estimate=883 tokens  window=200000  reached=false
+
+CEO> Without re-explaining, what did I just ask you?
+
+Rich> You asked me to say the word "ok" — and before that, what 2+2 is in five words or fewer.
+
+[watermark] after successor's turn source=measured  used=31719 size=1000000 = 3.1719%  window=1000000  reached=false
+
+[watermark] rendered messages across the rotation = 6
+[watermark] ledger at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-watermark-roundtrip-60881.jsonl
+PASS — the rotation watermark ran on the adapter's own numbers, on real turns.

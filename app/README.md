@@ -308,7 +308,7 @@ explicit triggers), self-authored handoff summaries on clean rotation, mid-turn-
 recovery/replay (bounded to one attempt, clean-render dedup via superseded turns), and the
 identity/action-ledger re-prime that structurally excludes false attribution — all wired
 in `richos-core::spine` (`LeaseFactory`, `rotate_lease`, `recover_and_replay`) and proven
-both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 12 tests) and live
+both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 22 tests) and live
 against the real ACP adapter (`examples/rotation_roundtrip.rs` — a forced mid-conversation
 rotation swaps the backing Claude session and the successor correctly recalls the prior
 exchange purely via the re-prime payload). Company name, the assertiveness dial, and the
@@ -331,6 +331,40 @@ here and nothing earlier is recoverable**; `agent_thought_chunk` currently produ
 at all on `claude-agent-acp` 0.70.0; between-turn updates are still unrouted (Phase 2); and
 there is no toggle, no renderer and no controls — that is the rest of Phase 1 and it is
 deliberately not in this work.
+
+**The rotation watermark reads the wire (2026-08-29):** the trigger that decides WHEN a
+lease rotates is now the adapter's own `usage_update` `{used, size}`, consumed live off the
+machinery stream in `deliver` — not from the journal, whose Tier B is evictable. Until a
+lease has reported, the chars÷4 estimate remains as the FALLBACK, and `context_source()`
+returns `Estimated` vs `Measured` so nothing can print a context number without being able
+to say where it came from.
+
+What it replaced was measurably wrong in both directions at once: a 200_000-token window
+against `"size": 1000000` on all 50 usage events in the 2026-08-28 capture, fed by a
+numerator counting prompt and reply characters only — no tool traffic at all. Live, on the
+simplest possible exchange, that numerator read **602 tokens against a measured 31_310**
+(`docs/verification/rotation-watermark-2026-08-29/live-run.txt`).
+
+**The cadence change is material and goes both ways**, which is the argument for reading the
+wire rather than tuning a constant. Recomputed from the raw capture on every `cargo test`
+(`tests/watermark_cadence_tests.rs`): mixed traffic rotates 42 % MORE often (turn 328.2 →
+189.5) and the old trigger sat 53.9 turns PAST the hard wall; low-tool traffic rotates 44 %
+LESS often (turn 302.9 → 435.7); tool-heavy traffic — an orchestrator Rich's actual shape —
+had the old trigger firing 5.86× too late (turn 493.0 against a wall at 84.1).
+
+**Mid-turn is the failure this is aimed at, and the honest answer is written down rather
+than implied.** A `usage_update` crossing 0.95 of the measured window DURING a turn does not
+rotate: rotation mid-turn is structurally forbidden (continuity §3.1) and a mid-turn
+rotation is worse than a late one. It records the crossing as an `Internal` action against
+that turn and forces rotation at the next boundary under `context-critical`, ahead of any
+configured ratio. **It cannot prevent a turn already in flight from hitting the wall** — if
+that happens the existing crash path (positive termination signal → `interrupted` turn →
+`recover_and_replay`) is what catches it, and that limit is stated in
+`spine.rs::settle_context_pressure` rather than papered over. Honest gaps: the cadence
+extrapolation is linear over FRESH single-turn probe sessions, so its turn counts are
+ceilings not predictions (real per-turn consumption grows as tool output accumulates), and
+nothing here surfaces context state to the UI — `context_source()` has no reader outside
+tests yet.
 
 **Voice mode (2026-08-24):** the `◉` toggle is real. Mic -> VAD -> local whisper.cpp
 (`small.en`) -> the SAME `Spine::submit_prompt` typed text uses (`Source::Jam`, one thread,
