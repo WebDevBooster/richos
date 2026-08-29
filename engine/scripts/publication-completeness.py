@@ -311,10 +311,24 @@ SOURCE_SUFFIXES = (".sh", ".py", ".mjs", ".js", ".rb", ".ps1")
 MD_LINK = re.compile(r"\]\(([^)\s#]{1,200})\)")
 
 
+# A TEST FIXTURE IS NOT A SHIPPED CAPABILITY. Suites and mutation testers build
+# synthetic trees declaring synthetic gates — this file's own suite declares a
+# `.widget` — and deriving from those would demand a template and an onboarding
+# paragraph for a capability that exists only inside a fixture. Caught on the
+# first end-to-end ci-verify run: the check reported the engine as shipping
+# inert `.widget` enforcement, which is exactly the kind of confident,
+# well-formatted, wrong finding that gets a checker switched off.
+#
+# The blind spot this opens, stated: a declaration named ONLY in a test file is
+# not derived. That is the correct reading — a gate no shipped code reads is not
+# a capability the tree offers.
+FIXTURE_SUFFIXES = (".test.sh", ".test.py", ".mutation.sh")
+
+
 def derive_declarations(tree):
     decls = {}
     for f in sorted(tree.files):
-        if not f.endswith(SOURCE_SUFFIXES):
+        if not f.endswith(SOURCE_SUFFIXES) or f.endswith(FIXTURE_SUFFIXES):
             continue
         text = tree.read(f)
         if text is None:

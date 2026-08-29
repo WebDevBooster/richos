@@ -272,6 +272,20 @@ commit_all "$T"
 assert_finding "a CHANGELOG mention does NOT satisfy onboarding" \
     "$T" INERT "named in no document an adopter reads"
 
+# A declaration that exists only inside a TEST FIXTURE is not a shipped
+# capability. This suite is itself the regression: its own fixtures declare
+# `.widget`, and before this rule existed the first end-to-end ci-verify run
+# reported the ENGINE as shipping inert `.widget` enforcement.
+T="$(mktree fixture_decl)"
+cat > "$T/scripts/hooks/other.test.sh" <<'EOF'
+#!/usr/bin/env bash
+# A suite that builds a synthetic tree declaring a synthetic gate.
+: "${SYNTHETIC_DECLARATION:=.synthetic}"
+echo "$SYNTHETIC_DECLARATION"
+EOF
+commit_all "$T"
+assert_clean "a declaration appearing only in a *.test.sh is NOT a shipped capability" "$T"
+
 # ---------------------------------------------------------------------------
 echo "--- (c/d) FIXTURE 4 — A CLAIM WITH NOTHING BEHIND IT, and its neighbours"
 # ---------------------------------------------------------------------------
