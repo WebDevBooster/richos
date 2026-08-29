@@ -17,8 +17,15 @@ it — a browser engine per worktree is not free:
 RICHOS_PLAYWRIGHT=/path/to/node_modules/playwright node run.js
 ```
 
-`node_modules/` and `.shots/` are gitignored. The tests are the artifact; the PNGs are
+`node_modules/` and `.shots/` are gitignored. The tests are the artifact; those PNGs are
 evidence for one run.
+
+**`shots-26/` is the one exception and IS committed.** §26 names nine screenshots as
+deliverables of the memory-strategy fixture, and until slice 8 this UI had no visual record
+at all — the display on this machine has been locked for three slices and `screencapture`
+returns a valid single-colour (0,0,0) PNG. `memory-strategy.js` writes those nine, out of
+WebKit's own compositor, pixel-verified. Two of the nine are deliberately not what §26 asked
+for; the filenames and the suite's SCREENSHOT INVENTORY say which and why.
 
 ## What is here
 
@@ -26,7 +33,9 @@ evidence for one run.
 |---|---|
 | `workers.js` | §25 "AI workers", criterion by criterion, against the renderer in isolation. Includes the delegated-worker regression before/after and the cross-entity negative control. |
 | `inspector.js` | §7.2 the read-only inspector, §7.3 the background-work summary and §20's three breakpoints — through the REAL shell (`index.html` + `main.js` + `mock.js`). |
-| `lib/harness.js` | WebKit launch, the fixture page, screenshots, the four-line runner. |
+| `realbytes.js` | The join the other suites cannot make: the payload `cargo run --example timeline_payload` prints from a real ledger on disk, rendered by the real renderer. Catches field-name and shape drift between backend and UI. |
+| `memory-strategy.js` | §26's sixteen-step fixture, driven end to end through the REAL SHELL by typing the prompt and pressing Enter. Injected clock (the two-hour turn runs in under a millisecond), the nine required screenshots, and the negative half: every §26 step this runtime cannot produce is asserted ABSENT. |
+| `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner. |
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
 
 ## Three rules, each one a thing an earlier slice got wrong
