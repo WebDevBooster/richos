@@ -11,6 +11,7 @@
 
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::ledger::{Ledger, Source};
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
 use richos_core::Cognition;
 use std::path::PathBuf;
@@ -28,7 +29,7 @@ fn main() {
     let scratch = std::env::temp_dir().join(format!("richos-roundtrip-{}.jsonl", std::process::id()));
     let ledger = Ledger::open(&scratch).expect("open ledger");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("Roundtrip proof").expect("thread");
+    spine.create_thread("Roundtrip proof", &EntityId::parse("richos").unwrap()).expect("thread");
 
     let acp_bin = resolve_acp_bin(None);
     eprintln!("[roundtrip] adapter = {}", acp_bin.display());
@@ -44,7 +45,7 @@ fn main() {
     // Render the CLEAN view (only user + assistant text).
     let thread_id = spine.active_thread().unwrap().to_string();
     print!("Rich> ");
-    for m in spine.messages(&thread_id) {
+    for m in spine.messages(&thread_id).expect("scoped read") {
         if m.role == "assistant" {
             println!("{}", m.text);
         }

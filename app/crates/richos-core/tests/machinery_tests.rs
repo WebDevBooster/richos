@@ -14,7 +14,15 @@ use richos_core::cognition::{Cognition, CognitionError, TurnItem};
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
+
+/// The dogfood entity these tests run under. Every thread now has an immutable entity
+/// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
+/// inheriting a default that no longer exists.
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
 use richos_core::stream::{StreamEvent, TurnObserver, EVENT_CHUNK, EVENT_PROACTIVE_MESSAGE, EVENT_TURN_COMPLETED, EVENT_TURN_ERROR, EVENT_TURN_STARTED};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -165,7 +173,7 @@ fn spine_with_journal(dir: &std::path::Path) -> (Spine, MachineryJournal) {
 fn a_turns_machinery_is_retained_keyed_to_its_thread_and_turn() {
     let dir = tmp_dir("retain");
     let (mut spine, journal) = spine_with_journal(&dir);
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     let turn = spine.submit_prompt("what version is the engine?", Source::Text).unwrap();
 
     let rows = journal.project_thread(&thread);
@@ -183,7 +191,7 @@ fn one_tool_call_is_one_row_with_the_real_title_and_a_terminal_status() {
     // to ONE row — §1.4 G2, against the exact shapes measured in run1.
     let dir = tmp_dir("merge");
     let (mut spine, journal) = spine_with_journal(&dir);
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
 
     let rows = journal.project_thread(&thread);
@@ -200,7 +208,7 @@ fn text_and_machinery_share_one_sequence_so_the_true_order_is_reconstructible() 
     // Z". Two independent counters cannot express this.
     let dir = tmp_dir("seq");
     let (mut spine, journal) = spine_with_journal(&dir);
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     let stream = RecordingObserver::default();
     spine.set_observer(Box::new(stream.clone()));
     spine.submit_prompt("go", Source::Text).unwrap();
@@ -236,7 +244,7 @@ fn the_dropped_user_message_chunk_consumes_no_position_and_leaves_no_record() {
     // fsync'd, and a second copy would create two sources of truth.
     let dir = tmp_dir("drop");
     let (mut spine, journal) = spine_with_journal(&dir);
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
     let all = journal.read_thread(&thread);
     assert!(
@@ -253,7 +261,7 @@ fn a_phase_two_kind_is_retained_as_unknown_rather_than_dropped() {
     // the CEO's whole argument that a dropped byte is a permanent hole.
     let dir = tmp_dir("unknown");
     let (mut spine, journal) = spine_with_journal(&dir);
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
     let unknown: Vec<_> = journal
         .read_thread(&thread)
@@ -273,18 +281,18 @@ fn the_calm_conversation_is_byte_identical_whether_or_not_machinery_flows() {
     let with_dir = tmp_dir("calm-with");
     let (mut a, _) = spine_with_journal(&with_dir);
     a.set_machinery_observer(Box::new(RecordingMachineryObserver::default()));
-    let ta = a.ensure_active_thread().unwrap();
+    let ta = a.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     a.submit_prompt("what version is the engine?", Source::Text).unwrap();
 
     let without_dir = tmp_dir("calm-without");
     let ledger = Ledger::open(without_dir.join("conversation-ledger.jsonl")).unwrap();
     let mut b = Spine::new(ledger);
     b.attach_lease(Box::new(ReplayCognition::new("sess-1", recorded_turn())));
-    let tb = b.ensure_active_thread().unwrap();
+    let tb = b.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     b.submit_prompt("what version is the engine?", Source::Text).unwrap();
 
-    let ma: Vec<(String, String)> = a.messages(&ta).into_iter().map(|m| (m.role, m.text)).collect();
-    let mb: Vec<(String, String)> = b.messages(&tb).into_iter().map(|m| (m.role, m.text)).collect();
+    let ma: Vec<(String, String)> = a.messages(&ta).unwrap().into_iter().map(|m| (m.role, m.text)).collect();
+    let mb: Vec<(String, String)> = b.messages(&tb).unwrap().into_iter().map(|m| (m.role, m.text)).collect();
     assert_eq!(ma, mb, "the CEO's conversation is identical with the journal on and off");
     assert_eq!(ma.last().unwrap().1, "Let me check. It says 1.0.0.");
 }
@@ -295,7 +303,7 @@ fn no_tool_output_ever_reaches_the_conversation_ledger() {
     // one missing filter away from the CEO's conversation. It is a different file.
     let dir = tmp_dir("ledger-clean");
     let (mut spine, _journal) = spine_with_journal(&dir);
-    spine.ensure_active_thread().unwrap();
+    spine.ensure_active_thread_in(&femcboost()).unwrap();
     spine.submit_prompt("go", Source::Text).unwrap();
     drop(spine);
 
@@ -320,7 +328,7 @@ fn machinery_never_reaches_the_stream_event_family() {
     let mach = RecordingMachineryObserver::default();
     spine.set_observer(Box::new(stream.clone()));
     spine.set_machinery_observer(Box::new(mach.clone()));
-    spine.ensure_active_thread().unwrap();
+    spine.ensure_active_thread_in(&femcboost()).unwrap();
     spine.submit_prompt("go", Source::Text).unwrap();
 
     for e in stream.events.lock().unwrap().iter() {
@@ -343,7 +351,7 @@ fn reprime_machinery_is_retained_internal_and_never_projected() {
     let mut lease = ReplayCognition::new("sess-1", recorded_turn());
     lease.reprime_machinery = true;
     spine.attach_lease(Box::new(lease));
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
 
     let journal = MachineryJournal::new(dir.join("machinery"));
@@ -382,11 +390,11 @@ fn a_journal_write_failure_never_fails_the_turn() {
     let mut spine = Spine::new(ledger);
     spine.set_machinery_journal(MachineryJournal::new(&blocked));
     spine.attach_lease(Box::new(ReplayCognition::new("sess-1", recorded_turn())));
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
 
     let turn = spine.submit_prompt("go", Source::Text).expect("the turn must still succeed");
     assert_eq!(spine.ledger().turn(&turn).unwrap().assistant_text, "Let me check. It says 1.0.0.");
-    assert_eq!(spine.messages(&thread).len(), 2, "the CEO's conversation is unharmed");
+    assert_eq!(spine.messages(&thread).unwrap().len(), 2, "the CEO's conversation is unharmed");
 }
 
 #[test]
@@ -401,9 +409,9 @@ fn a_spine_with_no_journal_still_routes_and_completes_the_turn() {
     let mach = RecordingMachineryObserver::default();
     spine.set_machinery_observer(Box::new(mach.clone()));
     spine.attach_lease(Box::new(ReplayCognition::new("sess-1", recorded_turn())));
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
-    assert_eq!(spine.messages(&thread).len(), 2);
+    assert_eq!(spine.messages(&thread).unwrap().len(), 2);
     assert_eq!(mach.records.lock().unwrap().len(), 6, "routed and emitted, just not retained");
 }
 
@@ -413,7 +421,7 @@ fn a_permission_request_is_recorded_as_an_observation_with_no_control_attached()
     // approve/deny anything. A window, not a cockpit.
     let dir = tmp_dir("perm");
     let (mut spine, journal) = spine_with_journal(&dir);
-    let thread = spine.ensure_active_thread().unwrap();
+    let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
     let perms: Vec<_> = journal
         .read_thread(&thread)
@@ -432,7 +440,7 @@ fn machinery_survives_a_restart_and_is_readable_from_a_fresh_process() {
     let dir = tmp_dir("restart");
     let thread = {
         let (mut spine, _j) = spine_with_journal(&dir);
-        let t = spine.ensure_active_thread().unwrap();
+        let t = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
         spine.submit_prompt("go", Source::Text).unwrap();
         t
     };

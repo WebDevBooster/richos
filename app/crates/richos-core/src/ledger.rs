@@ -5,13 +5,31 @@
 //! projected over this one shared log — never siloed stores — so "the durable Rich
 //! is the app" holds: identity + history outlive any single (rotating) ACP session.
 //!
-//! Two invariants this module exists to guarantee:
+//! Three invariants this module exists to guarantee:
 //!   1. CRASH-SAFETY (persist-before-send): a CEO prompt is journaled `received`
 //!      and flushed to disk BEFORE it is ever handed to a compute session. A crash
 //!      the instant after the CEO hits send can never eat the message.
 //!   2. ANTI-FALSE-ATTRIBUTION: the ACTION ledger — recorded as actions happen,
 //!      outside the (rotating) transcript — is the SOLE authority for "did Rich do X".
+//!   3. ENTITY SCOPE (ECS §3.2–3.4, UX brief §22/§25 Integrity): every thread has
+//!      exactly one home entity, immutable after creation; every turn carries that
+//!      entity; and **no event from one entity may ever render in another entity's
+//!      thread**. Enforced at BOTH ends — a write cannot present a binding the ledger
+//!      did not issue, and a read re-checks every stored turn against its thread's home
+//!      so a corrupt, forged or badly-migrated log cannot leak across the boundary.
+//!
+//! ## Threads written before entity binding existed
+//!
+//! They replay as [`ThreadEntity::Unbound`] and FAIL CLOSED on every scoped read and
+//! write. They are deliberately NOT migrated by a heuristic: nothing durable in this log
+//! records the repository root a thread was created under, `config.rs` holds one free-text
+//! `company_name` (default `"My Company"`) rather than an entity id, and §22's
+//! "Must not be faked" list names cross-entity context explicitly — a wrong binding is a
+//! privacy-boundary violation, not a cosmetic bug. The only exit is
+//! [`Ledger::adopt_unbound_thread`], an explicit, once-only, durably-recorded operator
+//! decision. See that method's doc for exactly what an operator sees.
 
+use crate::entity::{EntityId, PersonId, ThreadBinding, ThreadEntity};
 use crate::util::{new_id, now_millis};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
@@ -28,6 +46,22 @@ pub enum LedgerError {
     UnknownThread(String),
     #[error("unknown turn: {0}")]
     UnknownTurn(String),
+    /// A thread that predates entity binding. ECS §3.3: `entity_id` is REQUIRED before
+    /// retrieval or mutation, so this is refused rather than served or guessed.
+    #[error(
+        "thread {0} has no entity binding: it predates entity scoping, and Rich will not guess \
+         which entity this work belongs to. An operator must bind it explicitly."
+    )]
+    UnboundThread(String),
+    /// A presented binding contradicts the thread's immutable home entity.
+    #[error("scope mismatch on thread {thread_id}: home entity is {home}, binding presented {presented}")]
+    ScopeMismatch { thread_id: String, home: String, presented: String },
+    /// ECS §3.4's fencing token: an old context tried to write into a newer one.
+    #[error("stale binding on thread {thread_id}: presented revision {presented}, current {current}")]
+    StaleBinding { thread_id: String, presented: u64, current: u64 },
+    /// The one-way, once-only adoption of a legacy unbound thread was attempted twice.
+    #[error("thread {thread_id} is already bound to {entity_id} — a thread's entity home is immutable")]
+    ThreadAlreadyBound { thread_id: String, entity_id: String },
 }
 
 /// Lifecycle state of a single conversational turn (§5.1 of the continuity design).
@@ -137,9 +171,49 @@ pub enum ActionVisibility {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event")]
 pub enum Event {
-    ThreadCreated { thread_id: String, title: String, at: u64 },
-    /// The crash-safety event: written + fsync'd BEFORE the prompt is sent.
-    PromptReceived { turn_id: String, thread_id: String, text: String, source: Source, at: u64 },
+    /// A thread and its IMMUTABLE entity home (ECS §3.2). The three scope fields are
+    /// `#[serde(default)]` so a record written before entity binding existed still
+    /// replays — as `entity_id: None`, i.e. [`ThreadEntity::Unbound`], which fails closed
+    /// rather than inheriting anybody's guess.
+    ThreadCreated {
+        thread_id: String,
+        title: String,
+        at: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity_id: Option<EntityId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        person_id: Option<PersonId>,
+        #[serde(default)]
+        binding_revision: u64,
+    },
+    /// The ONE-WAY, once-only adoption of a legacy unbound thread by an explicit operator
+    /// decision (see [`Ledger::adopt_unbound_thread`]). It can only move a thread from
+    /// `Unbound` to `Bound`; applying it to an already-bound thread is refused, so it can
+    /// never become a rebinding path.
+    ThreadEntityBound {
+        thread_id: String,
+        entity_id: EntityId,
+        person_id: PersonId,
+        binding_revision: u64,
+        /// Who made the call. Recorded because this is the one binding in the system that
+        /// did not come from thread creation, so "who decided" is part of the evidence.
+        adopted_by: String,
+        at: u64,
+    },
+    /// The crash-safety event: written + fsync'd BEFORE the prompt is sent. Carries the
+    /// scope it was accepted under (ECS §3.4) — turns are bound to entities, not merely
+    /// to threads, so a turn stamped with the wrong entity is detectable on replay.
+    PromptReceived {
+        turn_id: String,
+        thread_id: String,
+        text: String,
+        source: Source,
+        at: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity_id: Option<EntityId>,
+        #[serde(default)]
+        binding_revision: u64,
+    },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
     /// reply survives a mid-turn crash (§5.1).
@@ -169,7 +243,17 @@ pub enum Event {
     /// Rich reaching out unprompted (continuity §9 / UX §5) — written ATOMICALLY (no
     /// separate started/delta/completed cycle needed: the app already has the full text
     /// in hand when it raises this, unlike a live-streamed CEO-turn reply).
-    ProactiveMessage { turn_id: String, thread_id: String, tier: AttentionTier, text: String, at: u64 },
+    ProactiveMessage {
+        turn_id: String,
+        thread_id: String,
+        tier: AttentionTier,
+        text: String,
+        at: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entity_id: Option<EntityId>,
+        #[serde(default)]
+        binding_revision: u64,
+    },
     /// The self-authored handoff summary an outgoing lease produces before a clean
     /// rotation (continuity §2.4) — the highest-fidelity rolling-summary source. Keyed
     /// per thread; the latest one wins (each rotation replaces it, not appends).
@@ -186,12 +270,44 @@ pub struct Thread {
     pub id: String,
     pub title: String,
     pub created_at: u64,
+    /// The thread's home entity. PRIVATE and accessor-only: the entity home is immutable
+    /// after creation (ECS §3.2), so there is no field to reach in and change. The single
+    /// legal transition is `Unbound -> Bound` via `Ledger::adopt_unbound_thread`, applied
+    /// inside this module and refused if the thread is already bound.
+    entity: ThreadEntity,
+}
+
+impl Thread {
+    pub fn entity(&self) -> &ThreadEntity {
+        &self.entity
+    }
+
+    pub fn entity_id(&self) -> Option<&EntityId> {
+        self.entity.entity_id()
+    }
+
+    pub fn is_bound(&self) -> bool {
+        self.entity.is_bound()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Turn {
     pub id: String,
     pub thread_id: String,
+    /// The entity this turn was accepted under. `None` only for turns written before
+    /// entity scoping existed — those inherit their thread's home (the thread_id IS the
+    /// binding; the stamp is a denormalized fence on top of it). A stamp that CONTRADICTS
+    /// the thread's home is the cross-entity leak this field exists to catch, and such a
+    /// turn is quarantined (see `Turn::quarantined`).
+    pub entity_id: Option<EntityId>,
+    /// The active-context revision this turn was accepted at (ECS §3.4 fencing token).
+    pub binding_revision: u64,
+    /// Set by `reconcile_scope` when this turn's entity stamp contradicts its thread's
+    /// immutable home, or when its thread does not exist. A quarantined turn is excluded
+    /// from every scoped projection — `messages()`, `thread_turns()` and therefore the
+    /// re-prime payload. It is never deleted: the bytes stay as evidence.
+    pub quarantined: bool,
     pub user_text: String,
     pub source: Source,
     pub state: TurnState,
@@ -229,6 +345,20 @@ pub struct Message {
     pub at: u64,
 }
 
+/// One rejected cross-entity (or orphan) turn, recorded so the leak is VISIBLE rather
+/// than silently dropped. UX §22's "Must not be faked" list means the honest answer to a
+/// contradiction is to refuse to render it AND to say so — not to quietly show less.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScopeViolation {
+    pub thread_id: String,
+    pub turn_id: String,
+    /// The thread's immutable home entity, or `None` if the thread is unbound/missing.
+    pub thread_entity: Option<String>,
+    /// The entity the turn claimed.
+    pub turn_entity: Option<String>,
+    pub detail: String,
+}
+
 pub struct Ledger {
     path: PathBuf,
     file: File,
@@ -237,6 +367,18 @@ pub struct Ledger {
     actions: Vec<Action>,
     /// thread_id -> latest self-authored handoff summary (continuity §2.4).
     handoff_summaries: std::collections::HashMap<String, String>,
+    /// Every turn whose entity stamp contradicted its thread's home, found on replay.
+    scope_violations: Vec<ScopeViolation>,
+    /// The next active-context binding revision to hand out (ECS §3.4 fencing token).
+    ///
+    /// Monotonic in-process. On open it resumes at one past the highest revision EVER
+    /// stamped on a persisted event, so a restart never re-issues a revision that a
+    /// durable record already used. Slice 1 writes no event per activation, so a
+    /// revision consumed by an activation that produced no write is not durable and can
+    /// be reused after a restart. That is safe today because a fencing token cannot
+    /// outlive the process that captured it; if activations ever need auditing, an
+    /// explicit activation event is the fix, and it is not in this slice.
+    next_revision: u64,
 }
 
 impl Ledger {
@@ -253,8 +395,14 @@ impl Ledger {
             turns: Vec::new(),
             actions: Vec::new(),
             handoff_summaries: std::collections::HashMap::new(),
+            scope_violations: Vec::new(),
+            next_revision: 1,
         };
         ledger.replay()?;
+        // Scope reconciliation runs AFTER the whole log is folded, so the verdict never
+        // depends on event ORDER (a thread's adoption event can legally arrive after the
+        // turns it covers). Every turn is checked against its thread's final home entity.
+        ledger.reconcile_scope();
         Ok(ledger)
     }
 
@@ -275,13 +423,38 @@ impl Ledger {
     /// Fold one event into the in-memory projection. Pure; no I/O.
     fn apply(&mut self, event: Event) {
         match event {
-            Event::ThreadCreated { thread_id, title, at } => {
-                self.threads.push(Thread { id: thread_id, title, created_at: at });
+            Event::ThreadCreated { thread_id, title, at, entity_id, person_id, binding_revision } => {
+                self.observe_revision(binding_revision);
+                let entity = match entity_id {
+                    Some(entity_id) => ThreadEntity::Bound {
+                        person_id: person_id.unwrap_or_default(),
+                        entity_id,
+                        binding_revision,
+                    },
+                    // Pre-entity record. NOT migrated by a heuristic — quarantined.
+                    None => ThreadEntity::Unbound,
+                };
+                self.threads.push(Thread { id: thread_id, title, created_at: at, entity });
             }
-            Event::PromptReceived { turn_id, thread_id, text, source, at } => {
+            Event::ThreadEntityBound { thread_id, entity_id, person_id, binding_revision, at: _, adopted_by: _ } => {
+                self.observe_revision(binding_revision);
+                if let Some(t) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    // The single legal transition, and it is one-way. An adoption event
+                    // aimed at an already-bound thread is IGNORED on replay rather than
+                    // applied — a forged or duplicated record must never rebind a thread.
+                    if !t.entity.is_bound() {
+                        t.entity = ThreadEntity::Bound { person_id, entity_id, binding_revision };
+                    }
+                }
+            }
+            Event::PromptReceived { turn_id, thread_id, text, source, at, entity_id, binding_revision } => {
+                self.observe_revision(binding_revision);
                 self.turns.push(Turn {
                     id: turn_id,
                     thread_id,
+                    entity_id,
+                    binding_revision,
+                    quarantined: false,
                     user_text: text,
                     source,
                     state: TurnState::Received,
@@ -325,13 +498,17 @@ impl Ledger {
                 }
             }
             Event::SessionRotated { .. } => { /* projection-neutral; kept for audit/replay */ }
-            Event::ProactiveMessage { turn_id, thread_id, tier, text, at } => {
+            Event::ProactiveMessage { turn_id, thread_id, tier, text, at, entity_id, binding_revision } => {
+                self.observe_revision(binding_revision);
                 // A proactive message is written as a COMPLETE turn in one atomic event —
                 // no started/delta/completed cycle, unlike a live-streamed CEO-turn reply
                 // (the app already holds the full text when it raises this).
                 self.turns.push(Turn {
                     id: turn_id,
                     thread_id,
+                    entity_id,
+                    binding_revision,
+                    quarantined: false,
                     user_text: String::new(),
                     source: Source::Proactive,
                     state: TurnState::Completed,
@@ -358,6 +535,157 @@ impl Ledger {
         self.turns.iter_mut().find(|t| t.id == id)
     }
 
+    /// Keep the revision counter ahead of everything durably recorded.
+    fn observe_revision(&mut self, seen: u64) {
+        if seen >= self.next_revision {
+            self.next_revision = seen + 1;
+        }
+    }
+
+    /// Hand out the next active-context binding revision (ECS §3.4 fencing token).
+    pub(crate) fn take_revision(&mut self) -> u64 {
+        let r = self.next_revision;
+        self.next_revision += 1;
+        r
+    }
+
+    /// THE CROSS-ENTITY GUARD (UX §25 Integrity: *"An event with the wrong entity, thread
+    /// or binding revision is rejected"*; §22: cross-entity context must not be faked).
+    ///
+    /// Walks every turn once the whole log is folded and quarantines any turn that:
+    ///
+    ///   - claims an entity DIFFERENT from its thread's immutable home — the actual
+    ///     privacy-boundary leak, whether it arrived from a corrupt log, a forged line,
+    ///     a bad migration or a future writer bug that stamped a stale active context; or
+    ///   - claims an entity while its thread has no home at all (incoherent: a turn
+    ///     cannot be scoped to an entity that its thread is not in); or
+    ///   - references a thread that does not exist (an orphan has no scope to check
+    ///     against, so it fails closed).
+    ///
+    /// A turn with NO stamp inside a bound thread is NOT a violation: it predates entity
+    /// scoping, its `thread_id` is the binding, and the thread's home is the authority.
+    /// Inheriting there is the thread record speaking, not a guess.
+    ///
+    /// Quarantine excludes, it never deletes — the bytes remain on disk as evidence and
+    /// the violation is reported through [`Ledger::scope_violations`].
+    fn reconcile_scope(&mut self) {
+        self.scope_violations.clear();
+        let homes: Vec<(String, Option<EntityId>, bool)> = self
+            .threads
+            .iter()
+            .map(|t| (t.id.clone(), t.entity_id().cloned(), t.is_bound()))
+            .collect();
+        let mut violations = Vec::new();
+        for turn in self.turns.iter_mut() {
+            let home = homes.iter().find(|(id, _, _)| id == &turn.thread_id);
+            let (thread_entity, thread_exists) = match home {
+                Some((_, e, _)) => (e.clone(), true),
+                None => (None, false),
+            };
+            let violation_detail = if !thread_exists {
+                Some("turn references a thread that does not exist — no scope to verify against".to_string())
+            } else {
+                match (&thread_entity, &turn.entity_id) {
+                    (Some(home), Some(claimed)) if home != claimed => Some(format!(
+                        "turn claims entity {claimed} but its thread's immutable home is {home} — \
+                         cross-entity event rejected"
+                    )),
+                    (None, Some(claimed)) => Some(format!(
+                        "turn claims entity {claimed} but its thread has no entity home — \
+                         incoherent scope, rejected"
+                    )),
+                    _ => None,
+                }
+            };
+            match violation_detail {
+                Some(detail) => {
+                    turn.quarantined = true;
+                    violations.push(ScopeViolation {
+                        thread_id: turn.thread_id.clone(),
+                        turn_id: turn.id.clone(),
+                        thread_entity: thread_entity.as_ref().map(|e| e.to_string()),
+                        turn_entity: turn.entity_id.as_ref().map(|e| e.to_string()),
+                        detail,
+                    });
+                }
+                None => turn.quarantined = false,
+            }
+        }
+        for v in &violations {
+            // Loud, not silent: a rejected cross-entity event is an integrity incident.
+            eprintln!("[richos] SCOPE VIOLATION rejected: turn={} thread={} {}", v.turn_id, v.thread_id, v.detail);
+        }
+        self.scope_violations = violations;
+    }
+
+    /// Every cross-entity/orphan turn rejected by [`Ledger::reconcile_scope`].
+    pub fn scope_violations(&self) -> &[ScopeViolation] {
+        &self.scope_violations
+    }
+
+    fn thread_ref(&self, thread_id: &str) -> Result<&Thread, LedgerError> {
+        self.threads
+            .iter()
+            .find(|t| t.id == thread_id)
+            .ok_or_else(|| LedgerError::UnknownThread(thread_id.to_string()))
+    }
+
+    /// Obtain the durable scope of a thread. **This is the only way to get a
+    /// [`ThreadBinding`] outside this crate** — the entity comes from the immutable
+    /// record, never from the caller. An unbound (pre-entity) thread fails closed here,
+    /// which is what makes `entity_id` genuinely required before retrieval (ECS §3.3).
+    pub fn thread_binding(&self, thread_id: &str) -> Result<ThreadBinding, LedgerError> {
+        match &self.thread_ref(thread_id)?.entity {
+            ThreadEntity::Bound { person_id, entity_id, binding_revision } => Ok(ThreadBinding::new(
+                person_id.clone(),
+                entity_id.clone(),
+                thread_id,
+                *binding_revision,
+            )),
+            ThreadEntity::Unbound => Err(LedgerError::UnboundThread(thread_id.to_string())),
+        }
+    }
+
+    /// Re-issue a thread's binding at a NEW fencing revision (an active-context
+    /// activation transaction — ECS §11.3). The entity is re-read from the durable
+    /// record, so activation can never move a thread between entities; only the fence
+    /// advances.
+    pub(crate) fn rebind_at_new_revision(&mut self, thread_id: &str) -> Result<ThreadBinding, LedgerError> {
+        let base = self.thread_binding(thread_id)?;
+        let revision = self.take_revision();
+        Ok(ThreadBinding::new(base.person_id().clone(), base.entity_id().clone(), thread_id, revision))
+    }
+
+    /// Verify a presented binding against the thread's immutable home before any scoped
+    /// read or write. Three checks, all of which must pass:
+    ///   1. the thread exists and is bound (else `UnknownThread` / `UnboundThread`);
+    ///   2. the presented entity equals the home entity (else `ScopeMismatch`);
+    ///   3. the presented revision is not older than the thread's own binding revision
+    ///      (else `StaleBinding`).
+    pub fn verify_binding(&self, binding: &ThreadBinding) -> Result<(), LedgerError> {
+        let thread = self.thread_ref(binding.thread_id())?;
+        match &thread.entity {
+            ThreadEntity::Unbound => Err(LedgerError::UnboundThread(binding.thread_id().to_string())),
+            ThreadEntity::Bound { entity_id, binding_revision, .. } => {
+                if entity_id != binding.entity_id() {
+                    return Err(LedgerError::ScopeMismatch {
+                        thread_id: binding.thread_id().to_string(),
+                        home: entity_id.to_string(),
+                        presented: binding.entity_id().to_string(),
+                    });
+                }
+                if binding.binding_revision() < *binding_revision {
+                    return Err(LedgerError::StaleBinding {
+                        thread_id: binding.thread_id().to_string(),
+                        presented: binding.binding_revision(),
+                        current: *binding_revision,
+                    });
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Append + FLUSH one event durably, then fold it into the projection.
     /// `sync` forces an fsync for crash-critical events (the persist-before-send floor).
     fn append(&mut self, event: Event, sync: bool) -> Result<(), LedgerError> {
@@ -374,35 +702,129 @@ impl Ledger {
 
     // ---- write API ---------------------------------------------------------
 
-    pub fn create_thread(&mut self, title: &str) -> Result<String, LedgerError> {
+    /// Create a thread with its IMMUTABLE entity home (ECS §3.2 / UX §3.3 step 1:
+    /// *"Persist the thread with immutable `entity_id`"*). There is no entity-less
+    /// overload on purpose — the app cannot mint an unbound thread, so `Unbound` can only
+    /// ever be a pre-existing on-disk record. Returns the new thread id.
+    pub fn create_thread(&mut self, title: &str, entity_id: &EntityId) -> Result<String, LedgerError> {
+        self.create_thread_for(&PersonId::default_ceo(), title, entity_id)
+    }
+
+    pub fn create_thread_for(
+        &mut self,
+        person_id: &PersonId,
+        title: &str,
+        entity_id: &EntityId,
+    ) -> Result<String, LedgerError> {
         let id = new_id("thr");
+        let binding_revision = self.take_revision();
         self.append(
-            Event::ThreadCreated { thread_id: id.clone(), title: title.to_string(), at: now_millis() },
+            Event::ThreadCreated {
+                thread_id: id.clone(),
+                title: title.to_string(),
+                at: now_millis(),
+                entity_id: Some(entity_id.clone()),
+                person_id: Some(person_id.clone()),
+                binding_revision,
+            },
             false,
         )?;
         Ok(id)
     }
 
-    /// THE crash-safety invariant. Journals + fsyncs the CEO's prompt as `received`
-    /// and returns the turn id. Callers MUST call this before handing the prompt to
-    /// any compute session.
-    pub fn record_prompt_received(
+    /// Threads with no entity home — i.e. written before entity scoping existed. Listing
+    /// them is safe (an unassigned thread has no other entity to leak into) and necessary:
+    /// it is exactly what an operator needs in order to decide.
+    pub fn unbound_threads(&self) -> Vec<&Thread> {
+        self.threads.iter().filter(|t| !t.is_bound()).collect()
+    }
+
+    /// **The one and only exit from `Unbound`, and it is an explicit operator decision.**
+    ///
+    /// This is the deliberate answer to "existing threads have no `entity_id`". The
+    /// alternative — a deterministic migration rule — was rejected because there is no
+    /// defensible rule available: nothing in this log records the repository root a thread
+    /// was created under, and the only entity-ish value the app has ever persisted is
+    /// `config.rs`'s single free-text `company_name` (default `"My Company"`), which is a
+    /// display string, not an entity id. Deriving a privacy boundary from it would be a
+    /// heuristic on a label, and §22 names cross-entity context as something that must not
+    /// be faked.
+    ///
+    /// So a legacy thread stays quarantined until a human says which entity it is, and
+    /// that statement is recorded with its author. The transition is ONE-WAY and
+    /// ONCE-ONLY: a second call fails with [`LedgerError::ThreadAlreadyBound`], and a
+    /// duplicated adoption event is ignored on replay. Immutability therefore holds from
+    /// the moment a thread is bound, by either route.
+    ///
+    /// What an operator sees today: `unbound_threads()` lists them; any attempt to read or
+    /// write one returns [`LedgerError::UnboundThread`], whose message is
+    /// *"…it predates entity scoping, and Rich will not guess which entity this work
+    /// belongs to. An operator must bind it explicitly."* There is no UI for the choice in
+    /// slice 1 — the UI is slice 4 — so today this is a programmatic/back-office call.
+    pub fn adopt_unbound_thread(
         &mut self,
         thread_id: &str,
+        entity_id: &EntityId,
+        adopted_by: &str,
+    ) -> Result<ThreadBinding, LedgerError> {
+        let thread = self.thread_ref(thread_id)?;
+        if let ThreadEntity::Bound { entity_id: home, .. } = &thread.entity {
+            return Err(LedgerError::ThreadAlreadyBound {
+                thread_id: thread_id.to_string(),
+                entity_id: home.to_string(),
+            });
+        }
+        let person_id = PersonId::default_ceo();
+        let binding_revision = self.take_revision();
+        self.append(
+            Event::ThreadEntityBound {
+                thread_id: thread_id.to_string(),
+                entity_id: entity_id.clone(),
+                person_id: person_id.clone(),
+                binding_revision,
+                adopted_by: adopted_by.to_string(),
+                at: now_millis(),
+            },
+            true, // fsync — a privacy-boundary decision is crash-critical
+        )?;
+        // The adoption changes a thread's home, which changes the verdict for every turn
+        // in it — re-run the guard rather than leaving stale quarantine flags behind.
+        self.reconcile_scope();
+        Ok(ThreadBinding::new(person_id, entity_id.clone(), thread_id, binding_revision))
+    }
+
+    /// THE crash-safety invariant, now SCOPED. Journals + fsyncs the CEO's prompt as
+    /// `received` and returns the turn id. Callers MUST call this before handing the
+    /// prompt to any compute session.
+    ///
+    /// Takes a [`ThreadBinding`] rather than a bare `thread_id` so a turn cannot be
+    /// written without a scope. The binding is verified against the thread's immutable
+    /// home BEFORE anything is persisted (ECS §3.4: *"an old Rich instance is never
+    /// allowed to send, dispatch or write into a newly switched entity/thread"*), and the
+    /// turn is stamped with that entity and revision.
+    ///
+    /// Verification runs before the durable write and not after, because ECS §3.4 also
+    /// says the store rejects an UNSCOPED event: persisting first and scoping second would
+    /// mean the crash window contains exactly the record the model forbids. Nothing is
+    /// lost by refusing — the send is blocked with the caller still holding the text,
+    /// which is the behaviour UX §21 "Entity binding failure" prescribes.
+    pub fn record_prompt_received(
+        &mut self,
+        binding: &ThreadBinding,
         text: &str,
         source: Source,
     ) -> Result<String, LedgerError> {
-        if !self.threads.iter().any(|t| t.id == thread_id) {
-            return Err(LedgerError::UnknownThread(thread_id.to_string()));
-        }
+        self.verify_binding(binding)?;
         let turn_id = new_id("turn");
         self.append(
             Event::PromptReceived {
                 turn_id: turn_id.clone(),
-                thread_id: thread_id.to_string(),
+                thread_id: binding.thread_id().to_string(),
                 text: text.to_string(),
                 source,
                 at: now_millis(),
+                entity_id: Some(binding.entity_id().clone()),
+                binding_revision: binding.binding_revision(),
             },
             true, // fsync — never lose the CEO's input
         )?;
@@ -494,21 +916,23 @@ impl Ledger {
     /// new turn id.
     pub fn record_proactive_message(
         &mut self,
-        thread_id: &str,
+        binding: &ThreadBinding,
         tier: AttentionTier,
         text: &str,
     ) -> Result<String, LedgerError> {
-        if !self.threads.iter().any(|t| t.id == thread_id) {
-            return Err(LedgerError::UnknownThread(thread_id.to_string()));
-        }
+        // Rich speaking unprompted is still a scoped write: an unbound or mis-scoped
+        // thread must not receive one either.
+        self.verify_binding(binding)?;
         let turn_id = new_id("turn");
         self.append(
             Event::ProactiveMessage {
                 turn_id: turn_id.clone(),
-                thread_id: thread_id.to_string(),
+                thread_id: binding.thread_id().to_string(),
                 tier,
                 text: text.to_string(),
                 at: now_millis(),
+                entity_id: Some(binding.entity_id().clone()),
+                binding_revision: binding.binding_revision(),
             },
             true,
         )?;
@@ -552,8 +976,40 @@ impl Ledger {
         &self.threads
     }
 
+    /// The RAW, UNSCOPED turn log — the audit view, including quarantined turns. Every
+    /// CEO-facing projection must go through [`Ledger::thread_turns`] instead.
     pub fn turns(&self) -> &[Turn] {
         &self.turns
+    }
+
+    /// The SCOPED turn view for one thread: the guard that makes "no event from one
+    /// entity may ever render in another entity's thread" true.
+    ///
+    /// Fails closed for an unbound thread, and excludes every quarantined turn — the ones
+    /// whose entity stamp contradicts this thread's immutable home (see
+    /// [`Ledger::reconcile_scope`]). This is the single chokepoint that `messages()` and
+    /// the re-prime payload both read through, so there is one place the check can be
+    /// removed and one place it has to hold.
+    pub fn thread_turns(&self, thread_id: &str) -> Result<Vec<&Turn>, LedgerError> {
+        let binding = self.thread_binding(thread_id)?;
+        Ok(self
+            .turns
+            .iter()
+            .filter(|t| {
+                t.thread_id == thread_id
+                    // THE CROSS-ENTITY GUARD. Removing either clause makes
+                    // `no_event_from_one_entity_renders_in_another_entitys_thread` fail.
+                    && !t.quarantined
+                    && t.entity_id.as_ref().is_none_or(|e| e == binding.entity_id())
+            })
+            .collect())
+    }
+
+    /// Same view, but verifying a binding the caller already holds first (so a caller
+    /// operating under a stale or foreign context is refused rather than served).
+    pub fn thread_turns_scoped(&self, binding: &ThreadBinding) -> Result<Vec<&Turn>, LedgerError> {
+        self.verify_binding(binding)?;
+        self.thread_turns(binding.thread_id())
     }
 
     pub fn actions(&self) -> &[Action] {
@@ -567,15 +1023,17 @@ impl Ledger {
     /// The CLEAN-OUTPUT rendered view for a thread: user prompts + assistant replies,
     /// in order. `Internal` (re-prime / proactive) turns are structurally excluded —
     /// they have no render path at all.
-    pub fn messages(&self, thread_id: &str) -> Vec<Message> {
+    ///
+    /// Now fallible, because retrieval REQUIRES a scope (ECS §3.3). An unbound thread
+    /// returns [`LedgerError::UnboundThread`] rather than an empty list: "I will not serve
+    /// this" and "there is nothing here" are different statements and the UI must not
+    /// render the second when the first is true.
+    pub fn messages(&self, thread_id: &str) -> Result<Vec<Message>, LedgerError> {
+        let scoped = self.thread_turns(thread_id)?;
         let mut out = Vec::new();
         // Superseded turns (mid-turn-crash replay, §5.3) are excluded — the CEO sees the
         // ONE clean exchange (the successful replay), never a duplicated user line.
-        for t in self
-            .turns
-            .iter()
-            .filter(|t| t.thread_id == thread_id && t.source != Source::Internal && t.superseded_by.is_none())
-        {
+        for t in scoped.into_iter().filter(|t| t.source != Source::Internal && t.superseded_by.is_none()) {
             if t.source == Source::Proactive {
                 // Tier 3 (Silent) never appears in the conversation (UX §5.1) — it has no
                 // render path here at all, matching Internal's treatment above.
@@ -594,12 +1052,23 @@ impl Ledger {
                 out.push(Message { role: "assistant".into(), text: t.assistant_text.clone(), turn_id: t.id.clone(), at: t.created_at });
             }
         }
-        out
+        Ok(out)
+    }
+
+    /// The same clean-output view, but verifying a binding the caller already holds.
+    pub fn messages_scoped(&self, binding: &ThreadBinding) -> Result<Vec<Message>, LedgerError> {
+        self.verify_binding(binding)?;
+        self.messages(binding.thread_id())
     }
 
     /// Turns not yet terminal — used by crash recovery to find work to resume.
+    /// Quarantined turns are excluded: a turn that failed the scope check must not be
+    /// resumed into any entity.
     pub fn pending_turns(&self) -> Vec<&Turn> {
-        self.turns.iter().filter(|t| matches!(t.state, TurnState::Received | TurnState::InFlight)).collect()
+        self.turns
+            .iter()
+            .filter(|t| !t.quarantined && matches!(t.state, TurnState::Received | TurnState::InFlight))
+            .collect()
     }
 
     /// Open (claimed, not-yet-terminal) actions — the anti-double-execution guard set.
@@ -608,9 +1077,47 @@ impl Ledger {
     }
 
     /// CEO-facing actions only — the subset the re-prime digest is allowed to assert as
-    /// "what Rich has done" (see `ActionVisibility`).
+    /// "what Rich has done" (see `ActionVisibility`). UNSCOPED: the audit view.
     pub fn ceo_facing_actions(&self) -> Vec<&Action> {
         self.actions.iter().filter(|a| a.visibility == ActionVisibility::CeoFacing).collect()
+    }
+
+    /// The entity an action belongs to, derived through its turn's thread. `None` for a
+    /// turn-BOUNDARY action (`turn_id: None` — rotation, re-prime, crash recovery), for
+    /// an action on a quarantined turn, and for one whose thread is unbound.
+    pub fn action_entity(&self, action: &Action) -> Option<&EntityId> {
+        let turn_id = action.turn_id.as_deref()?;
+        let turn = self.turns.iter().find(|t| t.id == turn_id)?;
+        if turn.quarantined {
+            return None;
+        }
+        self.threads.iter().find(|t| t.id == turn.thread_id)?.entity_id()
+    }
+
+    /// CEO-facing actions belonging to ONE entity — what the re-prime digest for a thread
+    /// in that entity is allowed to contain.
+    ///
+    /// This closes a real leak that predates entity binding: the digest was assembled from
+    /// `ceo_facing_actions()` across the WHOLE ledger, so every rotation injected every
+    /// entity's actions into every entity's session as *"ground truth for what Rich has
+    /// done — authoritative"*. That is cross-entity context, which §22 says must not be
+    /// faked, and §3.5 forbids it explicitly ("A write has one home entity").
+    ///
+    /// Scoping by ENTITY, not by thread, is deliberate: threads are views over one shared
+    /// substrate WITHIN an entity, so this is strictly narrower than the old behaviour
+    /// only across entities. Nothing that used to be visible inside an entity disappears,
+    /// so no new false-denial risk is introduced.
+    ///
+    /// Turn-boundary actions are all `Internal` today and were never in the digest anyway.
+    /// A CEO-facing action that cannot be resolved to this entity is EXCLUDED here and
+    /// remains available unscoped through `ceo_facing_actions()` for audit — it is not
+    /// deleted, just not asserted into a session that has no claim to it.
+    pub fn ceo_facing_actions_for_entity(&self, entity_id: &EntityId) -> Vec<&Action> {
+        self.actions
+            .iter()
+            .filter(|a| a.visibility == ActionVisibility::CeoFacing)
+            .filter(|a| self.action_entity(a) == Some(entity_id))
+            .collect()
     }
 
     /// Internal (machinery) actions only — the durable audit trail for rotation,

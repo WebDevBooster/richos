@@ -26,6 +26,7 @@ use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::ledger::{AttentionTier, Ledger, Source};
 use richos_core::reprime::{RePrimePayload, DEFAULT_TAIL_TURNS};
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
 use std::path::PathBuf;
 
@@ -50,7 +51,7 @@ fn main() {
     let scratch = std::env::temp_dir().join(format!("richos-rotation-roundtrip-{}.jsonl", std::process::id()));
     let ledger = Ledger::open(&scratch).expect("open ledger");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("Rotation proof").expect("thread");
+    let thread = spine.create_thread("Rotation proof", &EntityId::parse("richos").unwrap()).expect("thread");
 
     let acp_bin = resolve_acp_bin(None);
     eprintln!("[rotation] adapter = {}", acp_bin.display());
@@ -85,7 +86,7 @@ fn main() {
 
     // Exactly what the successor is about to be handed — printed so the proof is
     // inspectable rather than asserted.
-    let payload = RePrimePayload::assemble(spine.ledger(), &thread, &thread, DEFAULT_TAIL_TURNS);
+    let payload = RePrimePayload::assemble(spine.ledger(), &spine.ledger().thread_binding(&thread).unwrap(), DEFAULT_TAIL_TURNS).expect("payload");
     eprintln!("[action-ledger] digest going into the successor's re-prime:");
     for a in &payload.action_ledger_digest {
         eprintln!("[action-ledger]   - [{}] {}: {}", a.status, a.kind, a.detail);
@@ -110,7 +111,7 @@ fn main() {
     eprintln!("[rotation] session after  rotation = {session2}");
     assert_ne!(session1, session2, "rotation must actually swap the backing session");
 
-    let msgs = spine.messages(&thread);
+    let msgs = spine.messages(&thread).expect("scoped read");
     eprintln!("[rotation] rendered messages across the rotation = {}", msgs.len());
     assert_eq!(msgs.len(), 4, "both exchanges (user+assistant × 2) must survive the rotation, unbroken");
 
@@ -153,7 +154,7 @@ fn main() {
 
 fn last_reply(spine: &Spine, thread: &str) -> String {
     spine
-        .messages(thread)
+        .messages(thread).expect("scoped read")
         .iter()
         .rev()
         .find(|m| m.role == "assistant")
@@ -163,7 +164,7 @@ fn last_reply(spine: &Spine, thread: &str) -> String {
 
 fn print_last_reply(spine: &Spine, thread: &str) {
     print!("Rich> ");
-    if let Some(m) = spine.messages(thread).iter().rev().find(|m| m.role == "assistant") {
+    if let Some(m) = spine.messages(thread).expect("scoped read").iter().rev().find(|m| m.role == "assistant") {
         println!("{}", m.text);
     } else {
         println!("(no reply)");

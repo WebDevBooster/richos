@@ -15,10 +15,18 @@
 
 use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition, MockLeaseFactory};
 use richos_core::ledger::{
-    ActionStatus, ActionVisibility, AttentionTier, Ledger, Source, ACTION_DETAIL_MAX_CHARS,
+    ActionStatus, ActionVisibility, AttentionTier, Ledger, LedgerError, Source, ACTION_DETAIL_MAX_CHARS,
 };
 use richos_core::reprime::RePrimePayload;
+use richos_core::entity::EntityId;
 use richos_core::spine::Spine;
+
+/// The dogfood entity these tests run under. Every thread now has an immutable entity
+/// home (ECS §3.2) and there is no entity-less path, so the tests NAME one rather than
+/// inheriting a default that no longer exists.
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
 
 fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
     let path = std::env::temp_dir().join(format!(
@@ -60,7 +68,7 @@ fn raising_a_proactive_message_writes_a_ceo_facing_action_at_runtime() {
     // `raise_proactive_message` Tauri command (src-tauri/src/main.rs).
     let (path, ledger) = tmp_ledger("proactive-writes-action");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     assert!(
         spine.ledger().ceo_facing_actions().is_empty(),
@@ -94,13 +102,13 @@ fn a_silent_tier_proactive_message_is_recorded_as_an_action_its_only_durable_sur
     // it. This is the sharpest case for wiring the ledger.
     let (path, ledger) = tmp_ledger("silent-recorded");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
 
     spine
         .raise_proactive(Some(&thread), AttentionTier::Silent, "FYI: renewed the Acme NDA.")
         .unwrap();
 
-    assert!(spine.messages(&thread).is_empty(), "Silent still never renders to the CEO");
+    assert!(spine.messages(&thread).unwrap().is_empty(), "Silent still never renders to the CEO");
     let actions = spine.ledger().ceo_facing_actions();
     assert_eq!(actions.len(), 1, "...but it IS recorded as an action");
     assert!(actions[0].detail.contains("renewed the Acme NDA"));
@@ -114,7 +122,7 @@ fn rotation_writes_internal_actions_claimed_then_completed() {
     // mid-rotation leaves a durable `claimed` record instead of silence.
     let (path, ledger) = tmp_ledger("rotation-internal-actions");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["ack2"])));
 
@@ -150,7 +158,7 @@ fn a_rotation_that_cannot_spawn_a_successor_leaves_a_durable_failed_record() {
     // Before this fix a failed rotation vanished into an `Err` return with no trace.
     let (path, ledger) = tmp_ledger("rotation-spawn-fails");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["never used"]);
     factory.fail_next_spawn();
@@ -177,7 +185,7 @@ fn first_lease_priming_is_recorded_as_an_internal_action() {
     // so it is durable on the FIRST lease too, not only on rotated ones.
     let (path, ledger) = tmp_ledger("first-prime");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-boot", vec!["hi"])));
 
     spine.submit_prompt("hello", Source::Text).unwrap();
@@ -199,7 +207,7 @@ fn mid_turn_crash_recovery_is_recorded_as_an_internal_action() {
     // lands, so the durable record exists even if recovery itself dies partway.
     let (path, ledger) = tmp_ledger("crash-recovery-action");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(FailingCognition { session_id: "sess-doomed".into() }));
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["recovered reply"])));
 
@@ -227,7 +235,7 @@ fn a_ceo_facing_action_recorded_by_production_code_reaches_the_successors_primin
     // spawned successor lease's re-prime log — not on a payload object in isolation.
     let (path, ledger) = tmp_ledger("action-survives-rotation");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["ack2"]);
     let spawned_reprimes = factory.spawned.clone();
@@ -263,7 +271,7 @@ fn internal_machinery_actions_never_leak_into_a_priming_prompt() {
     // DONE would manufacture exactly that leak. Internal actions stay durable and unseen.
     let (path, ledger) = tmp_ledger("no-machinery-leak");
     let mut spine = Spine::new(ledger);
-    spine.create_thread("General").unwrap();
+    spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
     let factory = MockLeaseFactory::new(vec!["a", "b"]);
     let spawned_reprimes = factory.spawned.clone();
@@ -302,8 +310,8 @@ fn the_action_ledger_section_is_always_rendered_so_the_assertion_never_points_at
     let (path, ledger) = tmp_ledger("empty-digest");
     let thread_holder = {
         let mut l = ledger;
-        let t = l.create_thread("General").unwrap();
-        let payload = RePrimePayload::assemble(&l, &t, &t, 8);
+        let t = l.create_thread("General", &femcboost()).unwrap();
+        let payload = RePrimePayload::assemble(&l, &l.thread_binding(&t).unwrap(), 8).unwrap();
         assert!(payload.action_ledger_digest.is_empty());
         let priming = payload.to_priming_prompt();
         assert!(priming.contains("ACTION LEDGER"), "the section is present even when empty");
@@ -343,14 +351,14 @@ fn a_proactive_turn_in_the_verbatim_tail_carries_no_phantom_ceo_line() {
     // not just the payload struct.
     let (path, ledger) = tmp_ledger("proactive-tail");
     let mut spine = Spine::new(ledger);
-    let thread = spine.create_thread("General").unwrap();
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(MockCognition::new("sess-1", vec!["ok"])));
     spine.submit_prompt("what's on my plate?", Source::Text).unwrap();
     spine
         .raise_proactive(Some(&thread), AttentionTier::Digest, "Acme counter expires at noon.")
         .unwrap();
 
-    let payload = RePrimePayload::assemble(spine.ledger(), &thread, &thread, 8);
+    let payload = RePrimePayload::assemble(spine.ledger(), &spine.ledger().thread_binding(&thread).unwrap(), 8).unwrap();
     assert!(
         payload.recent_tail.iter().all(|tv| !tv.text.is_empty()),
         "no empty-text line survives into the tail: {:?}",
@@ -378,7 +386,7 @@ fn actions_and_their_visibility_survive_a_restart() {
     let (path, ledger) = tmp_ledger("actions-survive-restart");
     {
         let mut spine = Spine::new(ledger);
-        let thread = spine.create_thread("General").unwrap();
+        let thread = spine.create_thread("General", &femcboost()).unwrap();
         spine.raise_proactive(Some(&thread), AttentionTier::Digest, "durable action").unwrap();
         spine.attach_lease(Box::new(MockCognition::new("sess-initial", vec!["ack"])));
         spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["ack2"])));
@@ -420,12 +428,31 @@ fn a_pre_visibility_action_record_replays_as_ceo_facing() {
     )
     .unwrap();
 
-    let ledger = Ledger::open(&path).unwrap();
+    let mut ledger = Ledger::open(&path).unwrap();
     assert_eq!(ledger.actions().len(), 1, "the legacy record still replays");
     assert_eq!(ledger.actions()[0].visibility, ActionVisibility::CeoFacing, "with its original meaning");
     assert_eq!(ledger.actions()[0].turn_id.as_deref(), Some("turn_1"));
-    let payload = RePrimePayload::assemble(&ledger, "thr_1", "thr_1", 8);
+
+    // ...but the THREAD it belongs to predates entity binding, so it is Unbound and
+    // FAILS CLOSED. No heuristic invents an entity for it, and no re-prime can run.
+    assert!(!ledger.threads()[0].is_bound());
+    assert!(matches!(ledger.thread_binding("thr_1"), Err(LedgerError::UnboundThread(_))));
+    assert!(matches!(ledger.messages("thr_1"), Err(LedgerError::UnboundThread(_))));
+
+    // The one exit is an EXPLICIT operator decision, recorded with its author. After it,
+    // the legacy turn (which carries no entity stamp) inherits its thread's home — the
+    // thread record is the authority, so that is not a guess — and the digest resolves.
+    let binding = ledger.adopt_unbound_thread("thr_1", &femcboost(), "operator:echo").unwrap();
+    assert_eq!(binding.entity_id().as_str(), "femcboost");
+    let payload = RePrimePayload::assemble(&ledger, &binding, 8).unwrap();
     assert_eq!(payload.action_ledger_digest.len(), 1);
+    assert_eq!(ledger.messages("thr_1").unwrap().len(), 1, "the legacy conversation is readable again");
+
+    // ...and it is ONE-WAY: the entity home is immutable from the moment it exists.
+    assert!(matches!(
+        ledger.adopt_unbound_thread("thr_1", &EntityId::parse("deeply").unwrap(), "operator:echo"),
+        Err(LedgerError::ThreadAlreadyBound { .. })
+    ));
     let _ = std::fs::remove_file(&path);
 }
 
@@ -436,7 +463,7 @@ fn action_detail_is_truncated_on_a_char_boundary_not_a_byte_boundary() {
     // `&s[..160]` would PANIC mid-codepoint on any non-ASCII input — an em-dash in the
     // CEO's own phrasing is enough. Frame the math: 300 '—' chars = 900 bytes.
     let (path, mut ledger) = tmp_ledger("truncation");
-    let thread = ledger.create_thread("General").unwrap();
+    let thread = ledger.create_thread("General", &femcboost()).unwrap();
     let long: String = "—".repeat(300);
     assert_eq!(long.len(), 900, "300 chars x 3 bytes = 900 bytes");
     assert_eq!(long.chars().count(), 300);
@@ -467,8 +494,8 @@ fn record_action_keeps_its_ceo_facing_claim_then_execute_default() {
     // turn-scoped. (Kept so the ledger's documented claim-then-execute API stays the
     // obvious one to reach for when a future typed-action writer lands.)
     let (path, mut ledger) = tmp_ledger("record-action-default");
-    let thread = ledger.create_thread("General").unwrap();
-    let turn = ledger.record_prompt_received(&thread, "dispatch a worker", Source::Text).unwrap();
+    let thread = ledger.create_thread("General", &femcboost()).unwrap();
+    let turn = ledger.record_prompt_received(&ledger.thread_binding(&thread).unwrap(), "dispatch a worker", Source::Text).unwrap();
     let id = ledger.record_action(&turn, "dispatch", "spawned worker mark-sonnet-f1").unwrap();
 
     let a = ledger.actions().iter().find(|a| a.id == id).unwrap();
