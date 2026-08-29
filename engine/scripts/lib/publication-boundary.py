@@ -148,10 +148,13 @@ SKIP_DIRS = {'.git', 'node_modules', '.venv', 'venv', 'dist', 'build',
 def normalise(text):
     """Lowercase, drop apostrophes, keep only alphanumeric word tokens.
 
-    Matching on this form is what lets a quote survive re-punctuation: the
-    brief prose wrote `"we shouldn't ship it like that"` where the
-    transcript has `we shouldnt ship it like that`, and both normalise to
-    the same token run."""
+    Matching on this form is what lets a quote survive re-punctuation: prose
+    that wrote `"we shouldn't ship it like that"` and a transcript that has
+    `we shouldnt ship it like that` both normalise to the same token run.
+
+    The illustration is invented on purpose. An earlier draft used a real
+    phrase from the incident that prompted this guard — which put a sample of
+    the material inside the thing built to keep it out."""
     return WORD.findall(text.lower().replace('’', '').replace("'", ''))
 
 
