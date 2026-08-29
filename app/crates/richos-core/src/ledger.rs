@@ -75,7 +75,20 @@ pub enum TurnState {
     /// Terminal, ended cleanly (carries the ACP stopReason).
     Completed,
     /// Terminal, ended by crash/cancel/rotation before turn-end.
+    ///
+    /// **This variant no longer covers a CEO stop.** It did until 2026-08-29, and that is
+    /// exactly why the §6.1 label *"You stopped after {duration}"* could not be rendered:
+    /// attributing an ACP crash to the CEO is a false statement about who did what.
+    /// [`TurnState::Stopped`] carries that one case now, and it is written only from a
+    /// durably-recorded stop REQUEST (`steering.rs`), never inferred.
     Interrupted,
+    /// Terminal, ended because the CEO asked it to stop (UX §9.3).
+    ///
+    /// The distinction from [`Interrupted`](Self::Interrupted) is the whole point: this
+    /// state is the evidence behind §6.1's `You stopped after {duration}`, which is an
+    /// ATTRIBUTION to the CEO. It is reachable only through [`Ledger::stop_turn`], which
+    /// the spine calls only when a stop request for that exact turn id is on disk.
+    Stopped,
 }
 
 /// How the CEO's input arrived. Voice and text land in ONE thread (fixes the
@@ -213,6 +226,18 @@ pub enum Event {
         entity_id: Option<EntityId>,
         #[serde(default)]
         binding_revision: u64,
+        /// The `steering::IntakeLog` record this turn was drained from, when it came from
+        /// one (UX §9.2). THE DE-DUPLICATION KEY, and the reason it is on the event rather
+        /// than kept in memory: the intake drain is at-least-once by construction — the
+        /// ledger write comes first and the drain marker second, because a crash between
+        /// them must re-present the CEO's words rather than lose them. Re-presenting them
+        /// would create a SECOND turn with the same text, and this is what lets the drain
+        /// recognise its own earlier work and skip it.
+        ///
+        /// `#[serde(default)]` ⇒ `None` for every turn written before steering existed,
+        /// and for every ordinary typed message, which never passes through the intake.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intake_id: Option<u64>,
     },
     TurnStarted { turn_id: String, session_id: String, at: u64 },
     /// A streamed partial reply chunk — persisted incrementally so a half-written
@@ -236,6 +261,16 @@ pub enum Event {
     },
     TurnCompleted { turn_id: String, stop_reason: String, at: u64 },
     TurnInterrupted { turn_id: String, reason: String, at: u64 },
+    /// The CEO stopped this turn (UX §9.3 step 1-2). A SEPARATE event from
+    /// `TurnInterrupted` on purpose: replaying the log must be able to tell a stop from a
+    /// crash forever, and a `reason` string on the old event would have been a convention
+    /// rather than a guarantee.
+    ///
+    /// `requested_at` is when the stop request became durable on disk (`steering.rs`), and
+    /// `at` is when the turn actually ended. They differ by however long the lease took to
+    /// let go — recorded, not averaged away, because the gap is the honest measure of how
+    /// immediate "immediate" was.
+    TurnStopped { turn_id: String, requested_at: u64, at: u64 },
     /// Recorded AS the action happens (not at turn-end) so replay can't double-execute (§5.4).
     /// `turn_id` is `None` for actions that are not turn-scoped — lease rotation and
     /// re-prime injection happen AT a turn boundary, BETWEEN turns, and claiming them
@@ -358,6 +393,16 @@ pub struct Turn {
     /// Set once this turn has been superseded by a mid-turn-crash replay (§5.3) — the
     /// id of the turn that completed the work instead. `messages()`/re-prime skip it.
     pub superseded_by: Option<String>,
+    /// When the CEO's stop request became durable, for a turn in [`TurnState::Stopped`].
+    /// `None` for every other state. Kept beside `ended_at` rather than folded into it so
+    /// the LAG between "he asked" and "it let go" stays measurable after a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_requested_at: Option<u64>,
+    /// The intake-log record this turn was drained from (UX §9.2), if any. See
+    /// `Event::PromptReceived::intake_id` — it is a de-duplication key, not a display
+    /// field, and nothing renders it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intake_id: Option<u64>,
 }
 
 impl Turn {
@@ -522,7 +567,16 @@ impl Ledger {
                     }
                 }
             }
-            Event::PromptReceived { turn_id, thread_id, text, source, at, entity_id, binding_revision } => {
+            Event::PromptReceived {
+                turn_id,
+                thread_id,
+                text,
+                source,
+                at,
+                entity_id,
+                binding_revision,
+                intake_id,
+            } => {
                 self.observe_revision(binding_revision);
                 self.turns.push(Turn {
                     id: turn_id,
@@ -542,6 +596,8 @@ impl Ledger {
                     ended_at: None,
                     tier: None,
                     superseded_by: None,
+                    stop_requested_at: None,
+                    intake_id,
                 });
             }
             Event::TurnStarted { turn_id, session_id, at } => {
@@ -572,6 +628,19 @@ impl Ledger {
                     t.state = TurnState::Interrupted;
                     t.stop_reason = Some(format!("interrupted: {reason}"));
                     t.ended_at = Some(at);
+                }
+            }
+            Event::TurnStopped { turn_id, requested_at, at } => {
+                if let Some(t) = self.turn_mut(&turn_id) {
+                    // A stop OVERRIDES nothing that already ended: a turn that completed
+                    // before the stop request reached the lease stays completed, because
+                    // it did. Only a turn still open is stopped.
+                    if matches!(t.state, TurnState::Received | TurnState::InFlight) {
+                        t.state = TurnState::Stopped;
+                        t.stop_reason = Some("stopped_by_ceo".to_string());
+                        t.ended_at = Some(at);
+                        t.stop_requested_at = Some(requested_at);
+                    }
                 }
             }
             Event::ActionRecorded { action_id, turn_id, kind, detail, status, visibility, at } => {
@@ -610,6 +679,8 @@ impl Ledger {
                     ended_at: None,
                     tier: Some(tier),
                     superseded_by: None,
+                    stop_requested_at: None,
+                    intake_id: None,
                 });
             }
             Event::HandoffSummaryUpdated { thread_id, summary, .. } => {
@@ -936,6 +1007,29 @@ impl Ledger {
         text: &str,
         source: Source,
     ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, None)
+    }
+
+    /// As above, stamping the `steering::IntakeLog` record this turn was drained from
+    /// (UX §9.2). Use [`turn_for_intake`](Self::turn_for_intake) before calling it: the
+    /// drain is at-least-once and this is the key that makes a replay recognisable.
+    pub fn record_prompt_received_from_intake(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: u64,
+    ) -> Result<String, LedgerError> {
+        self.record_prompt_received_with(binding, text, source, Some(intake_id))
+    }
+
+    fn record_prompt_received_with(
+        &mut self,
+        binding: &ThreadBinding,
+        text: &str,
+        source: Source,
+        intake_id: Option<u64>,
+    ) -> Result<String, LedgerError> {
         self.verify_binding(binding)?;
         let turn_id = new_id("turn");
         self.append(
@@ -947,10 +1041,21 @@ impl Ledger {
                 at: now_millis(),
                 entity_id: Some(binding.entity_id().clone()),
                 binding_revision: binding.binding_revision(),
+                intake_id,
             },
             true, // fsync — never lose the CEO's input
         )?;
         Ok(turn_id)
+    }
+
+    /// The turn already drained from intake record `intake_id`, if there is one.
+    ///
+    /// The drain writes the LEDGER first and the drain marker second, deliberately: a
+    /// crash between the two must re-present the CEO's words rather than lose them. That
+    /// makes the drain at-least-once, and this is how the second attempt recognises the
+    /// first one's work instead of filing the same sentence twice.
+    pub fn turn_for_intake(&self, intake_id: u64) -> Option<&Turn> {
+        self.turns.iter().find(|t| t.intake_id == Some(intake_id))
     }
 
     pub fn mark_turn_started(&mut self, turn_id: &str, session_id: &str) -> Result<(), LedgerError> {
@@ -987,6 +1092,20 @@ impl Ledger {
     pub fn interrupt_turn(&mut self, turn_id: &str, reason: &str) -> Result<(), LedgerError> {
         self.append(
             Event::TurnInterrupted { turn_id: turn_id.to_string(), reason: reason.to_string(), at: now_millis() },
+            true,
+        )
+    }
+
+    /// Record that the CEO stopped this turn (UX §9.3 step 5's evidence).
+    ///
+    /// `requested_at` must be the timestamp of the DURABLE stop request
+    /// (`steering::IntakeLog`), not `now()` — the request is what makes the attribution
+    /// true, and it was written to disk before the lease was touched. Callers that do not
+    /// hold a real stop request must use [`interrupt_turn`](Self::interrupt_turn): there is
+    /// no code path that turns a crash into a CEO stop.
+    pub fn stop_turn(&mut self, turn_id: &str, requested_at: u64) -> Result<(), LedgerError> {
+        self.append(
+            Event::TurnStopped { turn_id: turn_id.to_string(), requested_at, at: now_millis() },
             true,
         )
     }
@@ -1368,6 +1487,8 @@ mod tests {
             ended_at: None,
             tier: None,
             superseded_by: None,
+            stop_requested_at: None,
+            intake_id: None,
         };
         // IN FLIGHT: unknown, never `now() - started_at` (UX §6.3's twelve-hour trap).
         assert_eq!(turn.active_ms(), None);

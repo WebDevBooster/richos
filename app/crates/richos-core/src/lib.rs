@@ -13,6 +13,8 @@
 //!   - `cognition` — the swappable compute-lease seam (+ a test mock).
 //!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
+//!   - `steering`  — the CEO's two mid-turn controls (UX §9.2/§9.3): the durable intake
+//!                   log and the cancel seam, both reachable WITHOUT the spine lock.
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
 //!   - `live`      — the ADDITIVE live-work event family (UX brief §13): typed turn status,
 //!                   message phase, and semantic activity, beside `stream` — never replacing it.
@@ -37,6 +39,7 @@ pub mod live;
 pub mod machinery;
 pub mod reprime;
 pub mod spine;
+pub mod steering;
 pub mod stream;
 pub mod thread;
 pub mod timeline;
@@ -60,6 +63,9 @@ pub use live::{
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 pub use reprime::{LoroContextCompiler, RePrimePayload};
 pub use spine::{Spine, SpineError, WorkerEventsSource};
+pub use steering::{
+    ActiveTurn, IntakeLog, IntakeRecord, SteeringError, StopClaim, StopOutcome, TurnCancel, TurnControl,
+};
 pub use stream::{StreamEvent, TurnObserver};
 pub use timeline::{
     ActivityState, ActivityType, RichMessagePhase, Timeline, TimelineBase, TimelineItem, TimelineView, ViewMode,

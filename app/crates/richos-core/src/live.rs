@@ -208,6 +208,10 @@ pub enum TurnStatus {
     Completed,
     /// Terminal failure with no automatic replay attempt left.
     Failed,
+    /// Terminal, and ATTRIBUTED: the CEO stopped it (§9.3). Emitted only after
+    /// `Ledger::stop_turn`, which is itself reachable only from a durable stop request.
+    /// There is no path from a crash to this status.
+    Stopped,
 }
 
 impl TurnStatus {
@@ -218,6 +222,7 @@ impl TurnStatus {
             TurnStatus::Recovering => "recovering",
             TurnStatus::Completed => "completed",
             TurnStatus::Failed => "failed",
+            TurnStatus::Stopped => "stopped",
         }
     }
 }

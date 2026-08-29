@@ -261,14 +261,36 @@ then talks again produces two messages, not one.
 - A turn that fails mid-stream still closes its open message: the partial text is already
   durable.
 
-### `turn-status`: the states that exist, and the five that do not
+### `turn-status`: the states that exist, and the four that do not
 
-`status` is one of `queued | working | recovering | completed | failed`.
+`status` is one of `queued | working | recovering | completed | failed | stopped`.
 
-§11 names ten states. Five are **never emitted** because nothing can produce them:
+§11 names ten states. Four are **never emitted** because nothing can produce them:
 `draft` (UI state before a durable turn), `streaming_final` (needs the phase signal that
-does not exist), `waiting_for_user` (§9.4 is unbuilt), `stopping` / `stopped` (§9.3's stop
-control is unbuilt). Do not write branches for them yet.
+does not exist), `waiting_for_user` (§9.4 has no signal — see below), and `stopping`. Do
+not write branches for them yet.
+
+**`stopped` joined this list on 2026-08-29 (slice 6).** It is emitted only after
+`Ledger::stop_turn`, which is itself reachable only from a stop request that was fsync'd to
+the intake log *before* the lease was cancelled (`steering.rs`). There is no path from a
+crash to this status, which is what makes §6.1's `You stopped after {duration}` — an
+attribution to the CEO — safe to render. A crash or a rotation still produces
+`work_duration state: "interrupted"` on a reload, and **which one it was is still not
+recorded**; the only thing that state can now say for certain is that it was not the CEO.
+
+**`stopping` is a UI-LOCAL state and is deliberately not on the wire.** The `stop_turn`
+command does not answer until the request is durable, so the renderer setting `stopping`
+from that return is a statement of recorded fact rather than an optimistic guess. Emitting
+it as an event would need the spine, and the spine's mutex is held by the very turn being
+stopped — which is the whole reason `steering.rs` exists.
+
+**`waiting_for_user` (§9.4) STILL HAS NO SIGNAL, and slice 6 did not invent one.** §22 lists
+worker waiting state under "must not be faked", `worker_status.rs` refuses to infer it, and
+`TeammateIdle` cannot distinguish "paused for input" from "finished for good". It is not
+merely unimplemented: implementing it would also break §6.3's timer, which pauses in that
+state — `Turn::active_ms` is `ended_at - started_at` and is exact today precisely *because*
+there is no pause to exclude. Whoever lands the signal must replace that measure with
+accumulated active time, not extend it.
 
 - `activeDurationMs` is the **measured** span (`ended_at - started_at`) and is explicitly
   `null` until the turn ends. It is never `now() - startedAt`, because that turns a

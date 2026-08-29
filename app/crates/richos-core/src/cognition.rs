@@ -8,7 +8,9 @@
 //! swappable-lease foundation: a later rotation just drops in a fresh Cognition.
 
 use crate::machinery::MachineryRecord;
+use crate::steering::TurnCancel;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
@@ -85,6 +87,20 @@ pub trait Cognition: Send {
         text: &str,
         on_item: &mut dyn FnMut(TurnItem),
     ) -> Result<String, CognitionError>;
+
+    /// A handle that interrupts the CURRENTLY RUNNING `prompt` from another thread
+    /// (UX §9.3 step 2).
+    ///
+    /// It has to be obtainable WITHOUT `&mut self`, because while a turn is running the
+    /// `&mut` is held by `prompt` itself and the whole spine is behind one `Mutex`. That
+    /// constraint is the entire shape of this method: `&self`, `Arc`, `Send + Sync`.
+    ///
+    /// The default is `None` — "this lease cannot be interrupted" — so a lease with no
+    /// cancel story reports one honestly instead of silently accepting a stop that will
+    /// never arrive. `StopOutcome::reached_lease` carries that fact to the UI.
+    fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
+        None
+    }
 }
 
 /// A scripted Cognition for tests. Records every call so tests can assert that
@@ -211,5 +227,92 @@ impl LeaseFactory for MockLeaseFactory {
         self.spawned.lock().unwrap().push(mock.reprimes.clone());
         self.spawned_prompts.lock().unwrap().push(mock.prompts.clone());
         Ok(Box::new(mock))
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// A CANCELLABLE test double
+// ---------------------------------------------------------------------------------------
+
+/// A `Cognition` that streams slowly and can actually be stopped — the double the stop
+/// path needs, because `MockCognition` returns before a stop could possibly race it.
+///
+/// It emits `chunks` pieces of text, sleeping `step` between them, and checks its cancel
+/// flag before each one. So a test can start a turn on one thread, press stop on another,
+/// and assert on what the LEDGER holds afterwards: the partial text that arrived before
+/// the stop, and a terminal state that says the CEO ended it.
+pub struct CancellableMockCognition {
+    session_id: String,
+    chunks: Vec<String>,
+    step: std::time::Duration,
+    cancel: Arc<CancelFlag>,
+    /// Every prompt this lease was handed, for ordering assertions.
+    pub prompts: Arc<Mutex<Vec<String>>>,
+    /// How many chunks were actually delivered before the cancel landed.
+    pub delivered: Arc<Mutex<usize>>,
+}
+
+/// The shared flag behind [`CancellableMockCognition`]'s cancel seam.
+pub struct CancelFlag {
+    flag: AtomicBool,
+    /// Whether a cancel was ever requested — separate from `flag`, which the lease clears
+    /// at the start of each turn, so a test can tell "never asked" from "asked and acted on".
+    pub requested: AtomicBool,
+}
+
+impl TurnCancel for CancelFlag {
+    fn cancel(&self) -> bool {
+        self.requested.store(true, Ordering::SeqCst);
+        self.flag.store(true, Ordering::SeqCst);
+        true
+    }
+}
+
+impl CancellableMockCognition {
+    pub fn new(session_id: &str, chunks: Vec<&str>, step: std::time::Duration) -> Self {
+        CancellableMockCognition {
+            session_id: session_id.to_string(),
+            chunks: chunks.into_iter().map(|s| s.to_string()).collect(),
+            step,
+            cancel: Arc::new(CancelFlag { flag: AtomicBool::new(false), requested: AtomicBool::new(false) }),
+            prompts: Arc::new(Mutex::new(Vec::new())),
+            delivered: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    pub fn flag(&self) -> Arc<CancelFlag> {
+        Arc::clone(&self.cancel)
+    }
+}
+
+impl Cognition for CancellableMockCognition {
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn reprime(&mut self, _priming_text: &str, _on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        Ok(())
+    }
+
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.prompts.lock().unwrap().push(text.to_string());
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        let mut seq = 0u64;
+        for chunk in &self.chunks {
+            if self.cancel.flag.load(Ordering::SeqCst) {
+                // Exactly what the real client does: stop delivering, return the cancelled
+                // stopReason, and leave everything already persisted alone (§9.3 step 4).
+                return Ok(crate::acp::STOP_REASON_CANCELLED.to_string());
+            }
+            on_item(TurnItem::Text { seq, text: chunk });
+            seq += 1;
+            *self.delivered.lock().unwrap() += 1;
+            std::thread::sleep(self.step);
+        }
+        Ok("end_turn".to_string())
+    }
+
+    fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
+        Some(self.flag() as Arc<dyn TurnCancel>)
     }
 }

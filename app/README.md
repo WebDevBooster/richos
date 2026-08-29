@@ -51,8 +51,13 @@ app/
                               dropped, normalized + merged by toolCallId (rich://machinery)
     src/journal.rs           the machinery JOURNAL — separate store, per-thread, day-sharded,
                               Tier A never evicted / Tier B a rolling raw window
+    src/steering.rs          the CEO's two MID-TURN controls (UX §9.2/§9.3): an append-only
+                              intake log the stop/steer commands can write to WITHOUT the
+                              spine lock (which a running turn holds for its whole length),
+                              plus the lease cancel seam. Not a second source of truth —
+                              every record either becomes a ledger event or is refused
     src/spine.rs             queue-not-interrupt + turn-boundary rotation + crash recovery +
-                              the proactive-attention seam
+                              the proactive-attention seam + stop settlement at the boundary
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
     examples/acp_roundtrip.rs      headless proof of the real ACP round-trip
@@ -68,6 +73,16 @@ app/
                               stays out of every priming prompt)
     tests/machinery_tests.rs 14 machinery routing/retention tests, driven by ACP wire
                               shapes actually measured against the adapter
+    tests/steering_tests.rs  11 stop/steer tests (UX §9.2/§9.3). Includes the CONCURRENCY
+                              proof: the spine goes behind an Arc<Mutex<..>> exactly as the
+                              Tauri shell holds it, a real turn runs on one thread, and the
+                              test asserts try_lock FAILS at the instant the stop is pressed
+                              — so it cannot silently start passing for the wrong reason.
+                              Also: a turn the CEO stopped is never crash-replayed, and a
+                              stop request that outlived the process is applied at startup
+    tests/acp_cancel_tests.rs 3 session/cancel tests against a REAL CHILD PROCESS over real
+                              stdio (a POSIX-sh fake adapter the test writes itself), in two
+                              variants: compliant, and deliberately deaf to session/cancel
     tests/timeline_tests.rs  7 typed-timeline tests: the cross-entity machinery NEGATIVE
                               CONTROL (both clauses proven failing when removed — one leaks
                               a row, one leaks THROUGH the toolCallId merge), the one shared

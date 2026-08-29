@@ -124,6 +124,11 @@
   const DURATION_MEANING =
     "Active time from when Rich accepted the message to when the turn ended.";
 
+  /// Said while the stop is in flight. It claims only what is true at that instant: the
+  /// request is recorded, and Rich has been told. Whether the lease has actually let go
+  /// yet is not knowable from here, so it is not asserted.
+  const STOP_MEANING = "Your stop is recorded. Rich is letting go of this turn.";
+
   /// Turn -> the row's label, its number, its tone and its accessible description.
   ///
   /// `t`: { status, startedAt, activeMs, live, mergedFrom }
@@ -174,6 +179,52 @@
           label: d ? `Worked for ${d}` : "Worked",
           duration: d,
           tone: "done",
+          note: DURATION_MEANING,
+          live: false,
+        };
+      }
+      // §11 `stopping`: "Composer disabled briefly | Timer Running | Stop mark". This is
+      // the ONE status the renderer sets from a command RETURN rather than from an event —
+      // and it is not a guess: `stop_turn` only answers once the request is fsync'd, so
+      // "you asked me to stop" is a durable fact by the time this renders. The
+      // AUTHORITATIVE terminal still arrives as `rich://turn-status: stopped` and replaces
+      // it.
+      case "stopping": {
+        if (typeof t.startedAt !== "number") {
+          return { label: "Stopping", duration: null, tone: "active", note: STOP_MEANING, live: true };
+        }
+        const d = formatDuration(nowMs - t.startedAt);
+        return {
+          label: d ? `Stopping — ${d}` : "Stopping",
+          duration: d,
+          tone: "active",
+          note: STOP_MEANING,
+          live: true,
+        };
+      }
+      // §6.1's ATTRIBUTION row, and the only place in this file that names the CEO as the
+      // cause of anything. It is rendered from `TurnState::Stopped`, which the ledger
+      // writes only from a stop request that was fsync'd before anything was interrupted
+      // (`steering.rs`). Slice 5 could not draw this label at all — `Interrupted` covered
+      // a crash, a rotation and a cancel alike, so the sentence would have blamed the CEO
+      // for an ACP failure.
+      case "stopped": {
+        if (typeof t.activeMs !== "number") {
+          // He stopped it before it was ever handed to a lease: there is no span to
+          // report, and the sentence says only what is known.
+          return {
+            label: "You stopped it",
+            duration: null,
+            tone: "ceo-stopped",
+            note: "You stopped this before it started running, so there is no time to report.",
+            live: false,
+          };
+        }
+        const d = formatDuration(t.activeMs);
+        return {
+          label: d ? `You stopped after ${d}` : "You stopped it",
+          duration: d,
+          tone: "ceo-stopped",
           note: DURATION_MEANING,
           live: false,
         };
@@ -643,6 +694,21 @@
     return id;
   }
 
+  /// §11 `stopping`, set from `stop_turn`'s successful RETURN.
+  ///
+  /// The one status this renderer sets without an event, and the reason it is honest: the
+  /// command does not answer until the stop request is fsync'd, so by the time this runs,
+  /// "you asked me to stop" is a durable fact rather than an optimistic guess. The
+  /// authoritative terminal still arrives as `rich://turn-status: stopped` and replaces it.
+  /// Applied only to a turn that is currently live, so it can never resurrect a finished
+  /// row.
+  function markStopping(model, turnId) {
+    const t = model.turns.get(turnId);
+    if (!t || !t.live) return false;
+    t.status = "stopping";
+    return true;
+  }
+
   /// A locally-authored line in Rich's voice that is NOT in the ledger — today only the
   /// voice-mode failure explanations. It carries a synthetic turn id with no turn record,
   /// so it can never grow a duration row claiming work that never happened, and the next
@@ -883,6 +949,29 @@
     const ids = model.turnOrder.slice();
     for (const id of byTurn.keys()) if (!ids.includes(id)) ids.push(id);
 
+    // §9.2's "Added while Rich was working" cue, DERIVED rather than flagged.
+    //
+    // Nothing on the wire says "this message was steering". The obvious fix — have the
+    // sender set a flag — makes the cue a property of THIS SESSION: it would show while
+    // the CEO watched and vanish on the next reload, which is exactly the live-vs-reload
+    // disagreement the timeline is built to avoid.
+    //
+    // So it is computed from durable, measured timestamps that are already on the wire: a
+    // CEO message whose `createdAt` falls inside ANOTHER turn's active span was, by
+    // definition, added while Rich was working. True by construction, identical live and
+    // after a restart, and it needs no new field anywhere. A turn's own span never
+    // qualifies — `PromptReceived` is always written before `TurnStarted`.
+    const spans = [];
+    for (const [id, t] of model.turns) {
+      if (typeof t.startedAt !== "number") continue;
+      const end = typeof t.activeMs === "number" ? t.startedAt + t.activeMs : t.live ? Infinity : null;
+      if (end === null) continue; // ended, but when was never recorded — claims nothing
+      spans.push({ id, from: t.startedAt, to: end });
+    }
+    const addedWhileWorking = (item) =>
+      typeof item.createdAt === "number" &&
+      spans.some((s) => s.id !== item.turnId && item.createdAt >= s.from && item.createdAt <= s.to);
+
     return ids
       .filter((id) => byTurn.has(id) || model.turns.has(id))
       .map((turnId) => {
@@ -890,7 +979,10 @@
         return {
           turnId,
           record: model.turns.get(turnId) || null,
-          user: items.find((i) => i.kind === "user_message") || null,
+          user: (() => {
+            const u = items.find((i) => i.kind === "user_message") || null;
+            return u ? Object.assign({}, u, { steering: addedWhileWorking(u) }) : null;
+          })(),
           // Everything the lease emitted, in shared-counter order — prose and activity
           // INTERLEAVED, which is what makes §25's "commentary is restored in its original
           // order" true when the transcript is expanded: prose rows never move, activity
@@ -1000,6 +1092,18 @@
     copy.addEventListener("click", () => opts.copy(item.text, copy));
     actions.appendChild(copy);
     art.appendChild(actions);
+
+    // §9.2: "Steering messages render as CEO bubbles with a small `Added while Rich was
+    // working` cue." Placed in the actions row beside the timestamp so it never changes the
+    // bubble's width — §5.1's rule that revealing message furniture must not reflow.
+    if (item.steering) {
+      // Its OWN row, not the actions row. The actions row is `opacity: 0` until hover
+      // (§5.1's no-reflow rule), and a cue that only exists on hover is not a cue — the CEO
+      // would have to already suspect the thing it is there to tell him.
+      const cue = elem("p", "tl-steer-cue", "Added while Rich was working");
+      art.insertBefore(cue, actions);
+      art.classList.add("is-steering");
+    }
 
     if (item.pending) art.classList.add("is-pending");
     return art;
@@ -1581,6 +1685,7 @@
     accepts,
     applySnapshot,
     addPendingUserMessage,
+    markStopping,
     addLocalNotice,
     onTurnStatus,
     onMessageStarted,

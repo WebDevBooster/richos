@@ -308,10 +308,17 @@ pub enum ActivityType {
 /// The turn-level work state behind the §6.1 duration row.
 ///
 /// Mapped 1:1 from `ledger::TurnState`, using the ledger's own vocabulary rather than
-/// §6.1's labels, because two of those labels cannot be told apart from what is recorded:
-/// `Interrupted` covers a crash, a rotation and a cancel alike, so rendering *"You stopped
-/// after 18s"* would attribute the stop to the CEO on no evidence. Distinguishing them
-/// needs a CEO-stop signal that does not exist (§9.3).
+/// §6.1's labels.
+///
+/// **What changed on 2026-08-29, and why the note that used to sit here is gone.** It read:
+/// *"`Interrupted` covers a crash, a rotation and a cancel alike, so rendering 'You stopped
+/// after 18s' would attribute the stop to the CEO on no evidence. Distinguishing them needs
+/// a CEO-stop signal that does not exist (§9.3)."* That signal now exists: a stop request is
+/// written to `steering::IntakeLog` and fsync'd BEFORE the lease is touched, and
+/// `Ledger::stop_turn` is reachable only from it. So [`WorkState::Stopped`] is sourced
+/// evidence of a CEO decision, and [`WorkState::Interrupted`] keeps its old meaning
+/// unchanged — a crash or a rotation, WHICH ONE IS STILL NOT RECORDED, and still not
+/// attributable to anybody.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkState {
@@ -320,8 +327,12 @@ pub enum WorkState {
     /// Handed to a lease; no terminal event yet.
     Working,
     Completed,
-    /// Ended before turn-end: crash, cancel or rotation. Which one is not recorded.
+    /// Ended before turn-end: crash or rotation. Which one is not recorded — and it is
+    /// NOT the CEO, which is the one thing this state can now say for certain.
     Interrupted,
+    /// Ended because the CEO stopped it (§9.3). The only state §6.1's `You stopped after
+    /// {duration}` may be rendered from.
+    Stopped,
 }
 
 /// §12's `WorkerRun`, verbatim in shape.
@@ -1188,6 +1199,7 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
         TurnState::InFlight => WorkState::Working,
         TurnState::Completed => WorkState::Completed,
         TurnState::Interrupted => WorkState::Interrupted,
+        TurnState::Stopped => WorkState::Stopped,
     };
     out.push(TimelineItem::WorkDuration {
         base: base(
@@ -1656,6 +1668,8 @@ mod tests {
             ended_at: Some(19_360 + 8),
             tier: None,
             superseded_by: None,
+            stop_requested_at: None,
+            intake_id: None,
         }
     }
 

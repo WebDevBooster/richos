@@ -296,6 +296,7 @@ button {
 }
 
 #talk-toggle,
+#stop,
 #send {
   width: 40px;
   height: 40px;
@@ -314,6 +315,29 @@ button {
 #send:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* §9.3's stop. A SQUARE, which is the one glyph that means "stop" without a word — and it
+   is drawn in `--danger` because the control is destructive of work in progress, not
+   because the app is in an error state. Nothing else in the composer is red, so it reads
+   as "this ends something" at a glance. */
+.stop-glyph {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--danger);
+}
+
+#stop:hover {
+  border-color: var(--danger);
+}
+
+/* §11 `stopping`: "Composer disabled briefly". The CONTROLS go quiet; the text field does
+   not, because taking the keyboard away mid-sentence loses whatever he was typing. */
+#stop:disabled,
+#composer-row[data-mode="stopping"] #send {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 #talk-toggle[aria-pressed="true"] {
@@ -1464,6 +1488,17 @@ body.bp-narrow .tl-user-bubble {
   opacity: 1;
 }
 
+/* §9.2: "Steering messages render as CEO bubbles with a small `Added while Rich was
+   working` cue." Always visible — see the note in timeline.js about why it is not in the
+   hover-revealed actions row. Right-aligned with the bubble it belongs to. */
+.tl-steer-cue {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
 .tl-stamp {
   font-variant-numeric: tabular-nums;
 }
@@ -1626,6 +1661,16 @@ body.bp-narrow .tl-user-bubble {
 
 .tl-duration[data-tone="stopped"] .tl-duration-label {
   color: var(--danger);
+}
+
+/* §6.1 "You stopped after {duration}". DELIBERATELY NOT `--danger`, and this is the whole
+   point of giving it its own tone rather than reusing `stopped`: the CEO pressing his own
+   button is not a fault, and painting his decision in the failure colour would tell him
+   something went wrong every time he changed his mind. It reads like the completed row,
+   because it is the same kind of statement — a fact about a turn that ended. The word
+   "You" carries the attribution, not the colour (§18: status never relies on colour). */
+.tl-duration[data-tone="ceo-stopped"] .tl-duration-label {
+  color: var(--ink-faint);
 }
 
 .tl-duration[data-tone="unknown"] .tl-duration-label {
