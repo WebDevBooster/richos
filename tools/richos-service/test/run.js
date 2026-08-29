@@ -53,6 +53,7 @@ import {
   ASK_MIN_PHONETIC,
   MATCH_WINDOW_MS,
 } from '../lib/dictation.js';
+import { sweepDictationRetention } from '../lib/watcher.js';
 import {
   parseJournalFile,
   loadJournal,
@@ -2357,6 +2358,26 @@ test('a record whose audio aged out still READS — an honest degrade, never a s
   const rows = withConsumed([rec], { reconciled: [] });
   assert.equal(rows[0].text, 'the Deepgram numbers');
   assert.equal(rows[0].audio, null, 'the pointer is null, and null is the answer, not an error');
+});
+
+test('the SERVICE sweeps the journal, and it is the only thing that deletes from it', () => {
+  // open-wispr appends and never rewrites; this long-running service evicts and never edits. The
+  // split is what keeps a retention pass an unlink of a whole day file rather than a rewrite of the
+  // CEO\'s speech.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictjournal-'));
+  fs.writeFileSync(path.join(root, '2019-05-05.jsonl'), `${JSON.stringify({ id: 'a', at: 1557014400000, ms: 1000, text: 'ancient' })}\n`);
+  const today = new Date().toISOString().slice(0, 10);
+  fs.writeFileSync(path.join(root, `${today}.jsonl`), `${JSON.stringify({ id: 'b', at: Date.now(), ms: 1000, text: 'fresh' })}\n`);
+  const r = sweepDictationRetention({ root });
+  assert.equal(r.dryRun, false, 'the scheduled sweep really evicts');
+  assert.deepEqual(r.evictDays.map((d) => d.day), ['2019-05-05']);
+  assert.ok(!fs.existsSync(path.join(root, '2019-05-05.jsonl')));
+  assert.ok(fs.existsSync(path.join(root, `${today}.jsonl`)), "today's dictation is untouched");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a journal that cannot be swept is a disk problem, never a reason to stop transcribing', () => {
+  assert.doesNotThrow(() => sweepDictationRetention({ root: '/dev/null/not-a-directory' }));
 });
 
 test('costPerHour is measured from real records, not estimated', () => {
