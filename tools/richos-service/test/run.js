@@ -1028,7 +1028,15 @@ test('the veto still collapses a fabrication over digital silence (no bursts, no
 test('the veto collapses PARTIALLY when the audio holds some deliveries but not all', () => {
   // 5 emitted copies over 2 qualifying bursts -> keep 2, drop 3. Neither "delete it all" nor
   // "keep it all" is right when the audio says the truth is in between.
-  const line = 'and the week later you get an update that sounds reassuring but changes nothing';
+  // INVENTED, like every other fixture line here. The sentence that used to sit on this line was a
+  // verbatim 14-word run of the CEO's private webinar — the FIFTH instance of the leak the
+  // 2026-08-29 publication boundary was built for, and the second in this file after 2abf5ba fixed
+  // the retake fixture. Found by running `engine/scripts/lib/publication-boundary.py` by hand over
+  // this branch, because the guard's hooks snapshot at session start and this session predates them.
+  // A phrase of the same length and the same "substantial repeated line" shape proves exactly the
+  // same thing about burst capacity: 15 words -> needSec 4.55 s -> a 2.73 s floor per delivery, and
+  // the two bursts below clear it, so capacity is 2.
+  const line = 'the runbook pointed at the wrong dashboard and cost us twenty extra minutes of downtime';
   const segs = [0, 1, 2, 3, 4].map((i) => ({
     startMs: 2142400 + i * 9600, endMs: 2152000 + i * 9600, text: line, speaker: 'others',
   }));
