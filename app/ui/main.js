@@ -1779,10 +1779,16 @@ async function init() {
   if (active && threadRow(active)) {
     await openThread(active);
   } else if (navTree.groups.length) {
-    // No active context — the launch could not resolve an entity, or every thread is
-    // unbound. Never pick one on the CEO's behalf (§21): show the first entity's overview
-    // so the choice is visible and explicit rather than made silently.
-    showEntityView(navTree.groups[0].entity.id, "overview");
+    // No active context — the launch could not resolve an entity (the shell fails closed
+    // rather than guessing one), or every thread on disk is unbound.
+    //
+    // Opening the first entity's overview here was WRONG and is deliberately not what
+    // happens: that overview arms the composer for that entity, so the CEO's first
+    // sentence would have been filed under an entity he never chose — the exact silent
+    // default §21 forbids ("Never default to the last entity"). §3.3 already prescribes
+    // the right move: "opens an entity picker before the first message if no entity is
+    // selected". No entity is selected, so the picker opens.
+    startNewThreadFlow();
   }
   renderRail();
   inputEl.focus();
