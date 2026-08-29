@@ -1019,10 +1019,11 @@ impl Timeline {
             match joined {
                 Some(worker) => buckets[i].push(worker_activity_item(
                     &row,
-                    turn,
                     &entity,
                     binding.thread_id(),
+                    &turn.id,
                     binding.binding_revision(),
+                    internal_turn,
                     worker,
                 )),
                 None => buckets[i].push(activity_item(
@@ -1470,7 +1471,15 @@ fn resolve_last_seen(records: &[&MachineryRecord]) -> HashMap<String, u64> {
 /// answer, not an empty worker: an id extracted from a tool result proves the harness
 /// acknowledged a spawn, but this module reports only what the LIFECYCLE stream witnessed,
 /// and deriving a second, parallel "created" here would be a competing source of truth.
-fn worker_activity(agent_id: &str, session_id: &str, rows: &[WorkerEventRow]) -> Option<WorkerActivityItem> {
+/// **`pub(crate)` since 2026-08-29 so `live.rs` can make the SAME join during the turn**
+/// rather than a second one that agrees by inspection. A live worker row and a reloaded
+/// worker row are then the same row because they came out of the same function, not
+/// because two implementations were compared.
+pub(crate) fn worker_activity(
+    agent_id: &str,
+    session_id: &str,
+    rows: &[WorkerEventRow],
+) -> Option<WorkerActivityItem> {
     // CLAUSE 3 — see `project_with_workers`. Identity is the join key; the session is the
     // scope. Both are required, and neither is a name or a timestamp.
     let scope = SessionScope::Exact(session_id.to_string());
@@ -1502,27 +1511,31 @@ fn worker_activity(agent_id: &str, session_id: &str, rows: &[WorkerEventRow]) ->
     })
 }
 
-fn worker_activity_item(
+/// The worker ROW, from the merged machinery record and the joined worker.
+///
+/// Takes `turn_id` + `internal_turn` rather than a `&Turn` (changed 2026-08-29) because
+/// `live.rs` builds this row DURING the turn, where no `Turn` value is in hand — the spine
+/// holds the ledger mutably for the whole stream. The two inputs it actually used are
+/// exactly those two, so passing them directly costs nothing and lets the live path and the
+/// reload path share one constructor instead of two that must be kept in step.
+pub(crate) fn worker_activity_item(
     row: &MachineryRecord,
-    turn: &Turn,
     entity: &EntityId,
     thread_id: &str,
+    turn_id: &str,
     revision: u64,
+    internal_turn: bool,
     worker: WorkerActivityItem,
 ) -> TimelineItem {
     // Same visibility rule as an activity row: internal traffic stays internal, and a
     // delegated worker inside a re-prime or rotation turn must never surface.
-    let visibility = if row.internal || turn.source == Source::Internal || turn.superseded_by.is_some() {
-        Visibility::Internal
-    } else {
-        Visibility::Ceo
-    };
+    let visibility = if row.internal || internal_turn { Visibility::Internal } else { Visibility::Ceo };
     TimelineItem::WorkerActivity {
         base: TimelineBase {
             id: row.machinery_id.clone(),
             entity_id: entity.clone(),
             thread_id: thread_id.to_string(),
-            turn_id: turn.id.clone(),
+            turn_id: turn_id.to_string(),
             binding_revision: revision,
             created_at: row.at,
             updated_at: None,
@@ -1569,7 +1582,7 @@ fn resolve_agent_ids(records: &[&MachineryRecord]) -> HashMap<String, String> {
 ///
 /// Missing either half yields `None`, and `None` means the call stays an ordinary activity.
 /// Hand-rolled rather than a regex because this crate is deliberately dependency-light.
-fn extract_agent_id(payload: &Value) -> Option<String> {
+pub(crate) fn extract_agent_id(payload: &Value) -> Option<String> {
     // Only the vendor's delegated-work tools can spawn a worker. Anything else carrying
     // this text would be quoting it.
     let name = payload

@@ -10,7 +10,7 @@
 //!
 //! ## What is emitted, and what is deferred
 //!
-//! §13 lists eleven events. Six have a real source today and are emitted. Five do not and
+//! §13 lists eleven events. Seven have a real source today and are emitted. Four do not and
 //! are NOT emitted — §22's rule is *"if the source signal does not exist, build the signal
 //! first or show unknown"*, and an event with no source cannot even show unknown, because
 //! its very arrival would be the claim.
@@ -23,14 +23,42 @@
 //! | `rich://message-completed` | **LIVE** — closes that run, carrying its full text |
 //! | `rich://activity-upserted` | **LIVE** — one merged machinery row, CEO-safe |
 //! | `rich://thread-summary-updated` | **LIVE** — title, count, recency, operational status |
-//! | `rich://worker-upserted` | **DEFERRED** — no worker lifecycle signal exists |
+//! | `rich://worker-upserted` | **LIVE** since 2026-08-29 — see below |
 //! | `rich://plan-updated` | **DEFERRED** — plan entries live only in the evictable raw payload |
 //! | `rich://approval-requested` | **DEFERRED** — nothing asks the CEO to approve anything |
 //! | `rich://approval-resolved` | **DEFERRED** — same |
 //! | `rich://artifact-upserted` | **DEFERRED** — Phase 5 owns artifacts and provenance |
 //!
-//! The deferred five have no constant in this module ON PURPOSE. A named constant is an
+//! The deferred four have no constant in this module ON PURPOSE. A named constant is an
 //! invitation; there is nothing here to emit them with.
+//!
+//! ## `rich://worker-upserted` — deferred in slice 3, emitted from 2026-08-29
+//!
+//! It was deferred for a reason that no longer holds: when this family was written there
+//! was no worker lifecycle signal anywhere. There is now — the engine's four emitters write
+//! `worker-events.jsonl` (`engine/docs/worker-lifecycle-events.md`), `worker_events.rs`
+//! parses it, and `timeline.rs` already joined a `Task` tool call to it BY IDENTITY for the
+//! reload path. Until this commit that join happened only on `get_timeline`, so a
+//! delegation reached the screen after a snapshot read and showed as a nameless *"Worked"*
+//! row during the turn — exactly when the CEO wants to know Rich has delegated. Measured by
+//! the §26 fixture: 0 chips live, 3 after the snapshot.
+//!
+//! What is emitted is the SAME row the reload projects, because it is built by the SAME two
+//! functions: [`crate::timeline::worker_activity`] (the join, with its session clause) and
+//! [`crate::timeline::worker_activity_item`] (the row). Not a second implementation that
+//! agrees by inspection.
+//!
+//! THREE THINGS THIS EVENT DELIBERATELY DOES NOT CARRY:
+//!
+//! 1. **No `completed` / `failed` / `reason` field.** A run that ends arrives as
+//!    `run_ended` with the reason genuinely unobservable, which
+//!    [`crate::timeline::RUN_ENDED_WORKER_STATE`] maps to [`WorkerState::Unknown`]. The
+//!    live path says the same word the reload path says — *Ended, outcome not recorded* —
+//!    because a row that changes meaning when the turn completes is worse than a row that
+//!    arrived late.
+//! 2. **No `waiting`, `interrupted` or `failed` state.** Three of §7.1's seven states have
+//!    no witness at all (`worker_events.rs`), and nothing here invents one.
+//! 3. **No poll and no timer.** See [`LiveTurn::on_machinery`] for what that costs.
 //!
 //! ## THE MESSAGE PHASE, STATED LOUDLY
 //!
@@ -99,7 +127,8 @@
 use crate::entity::{EntityId, ThreadBinding};
 use crate::ledger::AttentionTier;
 use crate::machinery::MachineryRecord;
-use crate::timeline::{self, ActivityType, RichMessagePhase, TimelineItem, Visibility};
+use crate::timeline::{self, ActivityType, RichMessagePhase, TimelineItem, Visibility, WorkerActivityItem};
+use crate::worker_events::WorkerEventRow;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
@@ -109,6 +138,7 @@ pub const EVENT_MESSAGE_STARTED: &str = "rich://message-started";
 pub const EVENT_MESSAGE_DELTA: &str = "rich://message-delta";
 pub const EVENT_MESSAGE_COMPLETED: &str = "rich://message-completed";
 pub const EVENT_ACTIVITY_UPSERTED: &str = "rich://activity-upserted";
+pub const EVENT_WORKER_UPSERTED: &str = "rich://worker-upserted";
 pub const EVENT_THREAD_SUMMARY_UPDATED: &str = "rich://thread-summary-updated";
 
 /// The phase of every STREAMED Rich message. See the module doc: the ACP stream carries no
@@ -316,6 +346,14 @@ pub enum LiveEvent {
     /// §13 `rich://activity-upserted` — one merged machinery row as a CEO-safe semantic
     /// activity item. The payload IS the [`TimelineItem`] a reload projects, redacted.
     ActivityUpserted { fence: EventFence, item: TimelineItem, at: u64 },
+    /// §13 `rich://worker-upserted` — one delegated AI worker (§7), as witnessed.
+    ///
+    /// The payload is the [`TimelineItem::WorkerActivity`] a reload projects, redacted:
+    /// `entityId` + `threadId` are the equality keys, `bindingRevision` is a staleness
+    /// fence only, and the event id is the [`crate::timeline::TimelineBase`] id — the
+    /// machinery id, which is stable across re-projection, so repeated ids are idempotent.
+    /// [`WorkerActivityItem`] rides inside it verbatim.
+    WorkerUpserted { fence: EventFence, item: TimelineItem, at: u64 },
     /// §13 `rich://thread-summary-updated` — sidebar title, recency and operational status.
     ThreadSummaryUpdated {
         fence: EventFence,
@@ -335,6 +373,7 @@ impl LiveEvent {
             LiveEvent::MessageDelta { .. } => EVENT_MESSAGE_DELTA,
             LiveEvent::MessageCompleted { .. } => EVENT_MESSAGE_COMPLETED,
             LiveEvent::ActivityUpserted { .. } => EVENT_ACTIVITY_UPSERTED,
+            LiveEvent::WorkerUpserted { .. } => EVENT_WORKER_UPSERTED,
             LiveEvent::ThreadSummaryUpdated { .. } => EVENT_THREAD_SUMMARY_UPDATED,
         }
     }
@@ -346,6 +385,7 @@ impl LiveEvent {
             | LiveEvent::MessageDelta { fence, .. }
             | LiveEvent::MessageCompleted { fence, .. }
             | LiveEvent::ActivityUpserted { fence, .. }
+            | LiveEvent::WorkerUpserted { fence, .. }
             | LiveEvent::ThreadSummaryUpdated { fence, .. } => fence,
         }
     }
@@ -363,7 +403,10 @@ impl LiveEvent {
                 *visibility
             }
             LiveEvent::MessageDelta { visibility, .. } => *visibility,
-            LiveEvent::ActivityUpserted { item, .. } => item.visibility(),
+            // A worker row answers with its OWN projected visibility for the same reason an
+            // activity row does: a delegation inside a re-prime or rotation turn is
+            // `Internal` and must stop at the gate below, not be filtered by a caller.
+            LiveEvent::ActivityUpserted { item, .. } | LiveEvent::WorkerUpserted { item, .. } => item.visibility(),
         }
     }
 
@@ -417,7 +460,7 @@ impl LiveEvent {
                 map.insert("text".into(), json!(text));
                 map.insert("at".into(), json!(at));
             }
-            LiveEvent::ActivityUpserted { item, at, .. } => {
+            LiveEvent::ActivityUpserted { item, at, .. } | LiveEvent::WorkerUpserted { item, at, .. } => {
                 // The item's own flattened base already carries `kind`, `id`, the whole
                 // fence and `visibility` — so the payload is literally the timeline record
                 // a reload projects. The fence written above is overwritten with the
@@ -477,6 +520,19 @@ pub(crate) struct LiveTurn {
     types: HashMap<String, ActivityType>,
     /// The latest `at` observed per merge key.
     last_seen: HashMap<String, u64>,
+    /// Merge keys in FIRST-SIGHT order. A `HashMap` iteration order is not an order, and
+    /// this list is walked on every observation to refresh the other delegations — so the
+    /// events a turn emits are the same events in the same sequence on every run.
+    order: Vec<String>,
+    /// The `agentId` extracted per tool call, resolved from the RAW payload before the
+    /// merge overwrites it — the identical reason `timeline::resolve_agent_ids` resolves
+    /// over the raw records: the async-launch acknowledgement arrives on the tool RESULT,
+    /// and `merge_into` replaces `payload` with the last update's JSON.
+    agent_ids: HashMap<String, String>,
+    /// The last worker row EMITTED per merge key, so a re-observation that witnessed
+    /// nothing new emits nothing. §13's contract is *"emit on any observed state change"*,
+    /// not "emit on every tick".
+    emitted_workers: HashMap<String, WorkerActivityItem>,
 }
 
 impl LiveTurn {
@@ -488,6 +544,9 @@ impl LiveTurn {
             merged: HashMap::new(),
             types: HashMap::new(),
             last_seen: HashMap::new(),
+            order: Vec::new(),
+            agent_ids: HashMap::new(),
+            emitted_workers: HashMap::new(),
         }
     }
 
@@ -568,14 +627,47 @@ impl LiveTurn {
 
     /// One machinery record, ALREADY routed (and, where a journal is attached, retained).
     ///
-    /// Produces at most one `rich://activity-upserted`: the merged row so far, projected
-    /// through the SAME `timeline::activity_item` a reload uses and then redacted, so the
-    /// CEO-facing payload carries a semantic line and no command text. A record that
-    /// projects to anything but `Visibility::Ceo` (a thought, an `internal: true` record,
-    /// anything on an internal turn) yields an event whose visibility stops it at the
-    /// emit chokepoint — it is CONSTRUCTED, so the gate has something to refuse, and the
-    /// negative control has something to observe.
-    pub(crate) fn on_machinery(&mut self, record: &MachineryRecord) -> Option<LiveEvent> {
+    /// Produces the row this observation changed, as ONE of two events:
+    ///
+    ///   * `rich://worker-upserted` when the tool call is a DELEGATION whose `agentId`
+    ///     joins to the engine's lifecycle stream in the same session, or
+    ///   * `rich://activity-upserted` otherwise — the merged row so far, projected
+    ///     through the SAME `timeline::activity_item` a reload uses and then redacted.
+    ///
+    /// Either way the payload is the item a reload projects, because it is built by the
+    /// same functions. A record that projects to anything but `Visibility::Ceo` (a thought,
+    /// an `internal: true` record, anything on an internal turn) yields an event whose
+    /// visibility stops it at the emit chokepoint — it is CONSTRUCTED, so the gate has
+    /// something to refuse, and the negative control has something to observe.
+    ///
+    /// It also refreshes EVERY OTHER delegation this turn has made, and that is not
+    /// incidental — it is this path's whole answer to two real races:
+    ///
+    ///   1. **The lifecycle row can arrive after the tool result.** The `agentId` is only
+    ///      extractable from the async-launch acknowledgement on the tool RESULT, and
+    ///      `worker-created-handoff.sh` (`PostToolUse[Agent]`) writes its row at about the
+    ///      same instant. Neither order is guaranteed, so a delegation whose row was not
+    ///      on disk yet is picked up at the next observation instead of never.
+    ///   2. **A worker changes state without producing any ACP traffic at all.** `started`,
+    ///      `updated` and `run_ended` are hook writes in another process; nothing about
+    ///      them reaches this stream.
+    ///
+    /// **THE HONEST LIMIT, STATED RATHER THAN DISCOVERED LATER.** This path is driven by
+    /// machinery arrival, so between two tool events a worker's state change is not
+    /// observed — the refresh happens at the next record and, failing that, at
+    /// [`LiveTurn::on_turn_end`]. There is no poll and no timer, deliberately: the spine
+    /// holds `&mut self` for the whole length of a turn and `LiveObserver` is `Send` and
+    /// not `Sync`, so a background ticker would need a second lock and a second emit path.
+    /// The consequence is bounded and one-directional — a chip can be up to one tool call
+    /// STALE; it is never wrong about a worker that was never witnessed.
+    ///
+    /// `worker_rows` is a thunk, not a slice, so a turn that never delegates never reads
+    /// the lifecycle file at all (it is re-read per observation to see hook writes).
+    pub(crate) fn on_machinery(
+        &mut self,
+        record: &MachineryRecord,
+        worker_rows: &dyn Fn() -> Vec<WorkerEventRow>,
+    ) -> Vec<LiveEvent> {
         let key = record.tool_call_id.clone().unwrap_or_else(|| record.machinery_id.clone());
 
         let seen = self.last_seen.entry(key.clone()).or_insert(record.at);
@@ -588,6 +680,12 @@ impl LiveTurn {
                     self.types.insert(id.clone(), t);
                 }
             }
+            // Resolved from the RAW payload, before the merge below overwrites it.
+            if !self.agent_ids.contains_key(id) {
+                if let Some(agent_id) = timeline::extract_agent_id(payload) {
+                    self.agent_ids.insert(id.clone(), agent_id);
+                }
+            }
         }
 
         let mergeable = record.tool_call_id.is_some() && record.kind == crate::machinery::MachineryKind::ToolCall;
@@ -598,10 +696,33 @@ impl LiveTurn {
             // another row.)
             _ => {
                 self.merged.insert(key.clone(), record.clone());
+                self.order.push(key.clone());
             }
         }
-        let row = self.merged.get(&key)?;
 
+        let rows = if self.agent_ids.is_empty() { Vec::new() } else { worker_rows() };
+
+        let mut out = Vec::new();
+        match self.worker_upsert(&key, &rows) {
+            Some(event) => out.push(event),
+            // Not a delegation, or a delegation the lifecycle stream cannot yet vouch for
+            // — the ordinary activity row, exactly as before. A key that has ALREADY been
+            // emitted as a worker never falls back here: a row must not change kind
+            // backwards because one read of the stream came up short.
+            None if !self.emitted_workers.contains_key(&key) => {
+                if let Some(event) = self.activity_upsert(&key) {
+                    out.push(event);
+                }
+            }
+            None => {}
+        }
+        out.extend(self.refresh_workers(Some(&key), &rows));
+        out
+    }
+
+    /// The ordinary activity row for one merge key.
+    fn activity_upsert(&self, key: &str) -> Option<LiveEvent> {
+        let row = self.merged.get(key)?;
         let item = timeline::activity_item(
             row,
             self.fence.entity_id(),
@@ -616,6 +737,61 @@ impl LiveTurn {
         // Redacted for the same reason `Timeline::view(Ceo)` redacts: the bytes are gone
         // from the value, not merely flagged on it.
         Some(LiveEvent::ActivityUpserted { fence: self.fence.clone(), item: item.redacted(), at })
+    }
+
+    /// The worker row for one merge key, IF this tool call delegated and the lifecycle
+    /// stream has an in-session row for the id it spawned — and if anything about it
+    /// changed since the last emission.
+    ///
+    /// Both halves of the join are `timeline.rs`'s own: `worker_activity` carries CLAUSE 3
+    /// (a row is admitted only when its `session_id` matches the record's, because
+    /// `agent_id` is not globally unique across sessions) and `worker_activity_item`
+    /// builds the row. Nothing is re-derived here.
+    fn worker_upsert(&mut self, key: &str, rows: &[WorkerEventRow]) -> Option<LiveEvent> {
+        let record = self.merged.get(key)?;
+        let tool_call_id = record.tool_call_id.as_ref()?;
+        let agent_id = self.agent_ids.get(tool_call_id)?;
+        let worker = timeline::worker_activity(agent_id, &record.session_id, rows)?;
+        if self.emitted_workers.get(key) == Some(&worker) {
+            return None; // witnessed nothing new
+        }
+        let item = timeline::worker_activity_item(
+            record,
+            self.fence.entity_id(),
+            self.fence.thread_id(),
+            self.fence.turn_id(),
+            self.fence.binding_revision(),
+            self.internal_turn,
+            worker.clone(),
+        );
+        let at = record.at;
+        self.emitted_workers.insert(key.to_string(), worker);
+        Some(LiveEvent::WorkerUpserted { fence: self.fence.clone(), item: item.redacted(), at })
+    }
+
+    /// Re-join every delegation this turn has made, in first-sight order, and emit the ones
+    /// that changed. `skip` is the key already handled by the caller.
+    fn refresh_workers(&mut self, skip: Option<&str>, rows: &[WorkerEventRow]) -> Vec<LiveEvent> {
+        if self.agent_ids.is_empty() {
+            return Vec::new();
+        }
+        let keys: Vec<String> = self.order.iter().filter(|k| Some(k.as_str()) != skip).cloned().collect();
+        keys.iter().filter_map(|k| self.worker_upsert(k, rows)).collect()
+    }
+
+    /// The turn is over: one last re-join, so the LAST thing the CEO saw live is the thing
+    /// an immediate reload projects.
+    ///
+    /// Without this the two paths could legitimately disagree at exactly the moment the
+    /// disagreement is most visible — the turn settles, the transcript collapses, and a
+    /// snapshot read a second later redraws a chip the live path last described one tool
+    /// call ago.
+    pub(crate) fn on_turn_end(&mut self, worker_rows: &dyn Fn() -> Vec<WorkerEventRow>) -> Vec<LiveEvent> {
+        if self.agent_ids.is_empty() {
+            return Vec::new();
+        }
+        let rows = worker_rows();
+        self.refresh_workers(None, &rows)
     }
 }
 
