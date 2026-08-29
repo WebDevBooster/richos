@@ -69,7 +69,14 @@ session dir (closed)
  1. RECONCILE GUARD   anomaly? → LOUD alarm, pipeline.status="anomaly", STOP.  (never silent)
  2. NORMALIZE         concat parts → channelsplit → me.wav / others.wav @ 16 kHz mono
       · silent-capture guard: both channels below −60 dBFS → anomaly (ASR-independent)
- 3. TRANSCRIBE        whisper.cpp large-v3-turbo per channel, -oj timestamps (Metal)
+ 3. TRANSCRIBE        whisper.cpp large-v3-turbo per channel, -oj -ojf timestamps (Metal)
+      · -ojf adds per-TOKEN offsets. It is output verbosity, not a decode parameter (it sits
+        outside whisperArgs() with -of), and it is required: without per-word times the deletion
+        detector at 3.7 has to score coverage on segment extents, which is measurably wrong.
+ 3.5 HALLUCINATION GUARD  repetition loop / sliding stutter collapsed; ordinal insertion DETECTED
+ 3.6 DIARIZATION SEAM     opt-in; default identity
+ 3.7 DELETION DETECTOR    speech bursts the transcript never claims, adjudicated by isolated
+                      re-decode → DETECT-ONLY alarm (a deletion cannot be repaired here)
  4. MERGE             interleave by time; fold caption speaker NAMES onto far-side segments;
                       compute verification.json
  5. loro-CORRECTION   REAL corrector (P4): curated manglings + guarded fuzzy -> canonical, SAME
@@ -134,7 +141,8 @@ never depends on the service being installed.
 
 ```
 node test/run.js         # pure logic: contract, reconcile, merge, verify, correction seam, stdio,
-                         #   host handlers, ledger, parsers — no ffmpeg/whisper/browser
+                         #   host handlers, ledger, parsers, hallucination guard, DELETION detector
+                         #   — no ffmpeg/whisper/browser (142 tests)
 node test/e2e.mjs        # REAL: build a 2-channel `say` sample → full pipeline → transcript.md;
                          #   proves caption fold-in, re-transcribe, captions-only + silent anomalies
 node test/host-e2e.mjs   # REAL: speak Chrome's native-messaging protocol to the host process →
@@ -228,6 +236,37 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
   Precision is the contract and the thresholds are set from measurement, not taste — across the 18
   clean turbo/`q5_0` transcripts of the 2026-08-26 benchmark the guard changes **nothing**, and the
   known blind spots are enumerated in the module header rather than papered over.
+- **Deletion detector (`lib/deletion-guard.js`, pipeline stage 3.7), the class the guard above
+  cannot see:** all three hallucination classes are the model *saying too much*, and each leaves
+  evidence in the text. **Deletion leaves none** — the model emits nothing over real speech, with no
+  repetition, no marker, and **no confidence signal**: measured, the tokens either side of a
+  confirmed deletion carry 0.94–1.00 confidence. Any alarm built on confidence stays silent.
+  - **The discriminator** (from the 2026-08-29 coverage measurement, unchanged): a physically
+    detected speech burst of **≥ 1 s over which the run emitted no word at all**, where decoding
+    **that burst in isolation** returns real words. The burst grid is model-free (`silencedetect`,
+    the same probe the repetition veto uses, 0.68 s per 92-minute channel) but it cannot tell speech
+    from noise — the loudest uncovered burst in the corpus is **laughter** — so the isolated
+    re-decode adjudicates every candidate.
+  - **Five conditions, all required, all measured rather than chosen:** duration ≥ 1 s · ≥ 3
+    *distinct informative* words back from the isolated decode (whisper emits "Thank you." over
+    proven silence, and a laugh six times over) · level within 24 dB of the **channel's** peak
+    (relative, never absolute) · the decode **stable across two paddings** (the one-model
+    replacement for the measurement's two-model agreement) · and the recovered words appearing
+    **nowhere in the surrounding transcript** — text that is present with the wrong timestamps is
+    `mistimed`, and a timing defect must never be reported as a deletion.
+  - **DETECT-ONLY**, on the insertion class's precedent: a deletion cannot be repaired from here, so
+    the alarm names the span (`00:58:44–00:58:45`), quotes what came back, and points at the
+    retained audio. `pipeline.deletionGuard.unrepaired` + a plain-English `verification.warnings`
+    line, in the **same vocabulary** as the insertion class.
+  - **Cost is bounded by suspect spans, not by file length.** Only candidates are re-decoded, all of
+    them in ONE `whisper-cli` invocation (model loaded once), capped by `maxProbes`. Measured on 92
+    minutes: 21 candidates → **78.1 s**. `RICHOS_DELETION_GUARD=off` disables it. It changes no
+    decode parameter, no tier and no `MODEL_TIERS` value.
+  - **"0 deletions" and "never looked" are different answers** and the record keeps them apart:
+    `probeAvailable`, `coverageUnit`, `candidates`, `probed`, `rejected` (each with its reason) and
+    `unprobed` are separate fields. Blind spots — partial deletion inside a covered burst,
+    substitution, speech under the burst floor, sub-second loss, a span the model also refuses in
+    isolation — are enumerated in the module header.
 - **Diarization seam (`lib/diarize.js`, opt-in via `--`/`RICHOS_DIARIZE`), honest scope:** default
   `none` (identity — one "Them", no wrong speaker counts). Opt-in `tinydiarize-turns` consumes
   whisper.cpp's **native** `[SPEAKER_TURN]` markers (local, no extra dependency) to split the far-side
