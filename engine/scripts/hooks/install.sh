@@ -37,17 +37,25 @@
 #      from the current on-disk hooks (the probe's Layer B/C/K/P/Q compare live
 #      hooks against these).
 #
+#   4. MINT THE ENGINE POINTER (~/.claude/richos-engine), unless this checkout
+#      is a LINKED GIT WORKTREE — see the pointer section at the bottom for why
+#      that one step, and only that step, is withheld there.
+#
 # Idempotent. Re-running converges: an old duplicated settings.json is removed
 # on the first run and stays absent on every subsequent run. The operator
 # re-runs this at land time as the migration path. Run via:
 #
-#   scripts/hooks/install.sh
+#   scripts/hooks/install.sh [--force-engine-pointer]
+#
+#   --force-engine-pointer   mint the engine pointer even from a linked git
+#                            worktree. Deliberate, auditable, and almost never
+#                            what you want; the pointer section explains.
 #
 # Exit codes:
 #   0  migration (or no-op) succeeded
 #   1  unexpected error
 #   2  canonical `.claude/settings.local.json` missing/unreadable or missing a
-#      critical config key
+#      critical config key, or an unrecognised command-line argument
 
 set -eo pipefail
 
@@ -57,6 +65,23 @@ set -eo pipefail
 # front so the failure is a clear, actionable message instead of a bare
 # shell error.
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: install.sh: python3 is required (JSON generation + sha256 fallback) — refusing" >&2; exit 2; }
+
+# --- Arguments -----------------------------------------------------------
+# This script took none until the engine-pointer footgun below needed a
+# deliberate, auditable opt-in. Unknown arguments are REFUSED rather than
+# ignored: a typo'd --force-engine-pointer that silently did nothing would
+# hand the operator a green run and none of the effect they asked for.
+FORCE_ENGINE_POINTER=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --force-engine-pointer)
+            FORCE_ENGINE_POINTER=1 ;;
+        *)
+            echo "ERROR: install.sh: unrecognised argument '$1'. Usage: install.sh [--force-engine-pointer]" >&2
+            exit 2 ;;
+    esac
+    shift
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -287,9 +312,81 @@ echo "✓ refreshed hook sha256 manifests"
 # suite that runs this installer against a throwaway engine would repoint the
 # REAL operator's pointer at a temp directory that is deleted seconds later.
 # Observed, in this repo, before the variable was threaded through.
+#
+# AND IT IS WITHHELD FROM A LINKED GIT WORKTREE. This is the one step in the
+# script whose blast radius is the OPERATOR'S WHOLE MACHINE rather than this
+# checkout: every entity on the box, in every repository, follows this one
+# symlink. A linked worktree is the exact opposite — per-agent, ephemeral,
+# removed by the lander minutes later. Aiming a durable machine-wide pointer at
+# an ephemeral directory is never what anyone intended, and it is INVISIBLE at
+# the moment it happens: the installer prints a cheerful "✓ engine pointer ->"
+# either way, and nothing goes wrong until the worktree is reaped and the next
+# probe run reports BR6b DANGLING to whoever happens to be sitting there.
+#
+# MEASURED, on this machine: an engineer ran this installer inside his worktree
+# while testing something unrelated and silently repointed the operator's live
+# engine at it. He noticed only because he happened to look afterwards. Nobody
+# should have to happen to look.
+#
+# WHY SKIP RATHER THAN REFUSE THE WHOLE RUN. Everything else install.sh does is
+# repo-local and entirely correct inside a worktree — validating the config,
+# migrating a stale settings.json, and above all minting the .sha256 sidecars
+# the integrity probe needs to pass there. That is the REASON to run it in a
+# worktree, and it is a routine part of an engineer's loop. Refusing the whole
+# script would break a normal path to close an abnormal one, which trades down.
+# So the dangerous half is withheld and the useful half runs untouched.
+#
+# WHY SKIP RATHER THAN WARN. A warning is what this already effectively was:
+# the damage was done, printed among a dozen other lines, and caught only by
+# somebody looking for it. A warning that fires after the irreversible act is
+# an obituary, not a guard.
+#
+# --force-engine-pointer is the deliberate escape hatch, because there is a
+# legitimate case (exercising pointer behaviour itself) and because an opt-in
+# flag leaves a record in shell history that an env var or a silent default
+# does not.
+#
+# Detection is git's own definition of a linked worktree — a private --git-dir
+# that differs from the shared --git-common-dir — not a path heuristic. If git
+# is absent, or this is not a checkout at all (a vendored engine copy, a test
+# sandbox), the answer is "not a worktree" and behaviour is byte-identical to
+# before this paragraph existed.
+POINTER_IN_WORKTREE=0
+POINTER_MAIN_HINT=""
+if [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
+    _PTR_GIT_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+    _PTR_GIT_COMMON="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    if [ -n "$_PTR_GIT_DIR" ] && [ -n "$_PTR_GIT_COMMON" ] && [ "$_PTR_GIT_DIR" != "$_PTR_GIT_COMMON" ]; then
+        POINTER_IN_WORKTREE=1
+        # Name the exact path to run instead, rather than "the main checkout":
+        # the parent of the shared .git is the main checkout root, and this
+        # engine's offset inside the worktree is its offset inside the twin.
+        _PTR_MAIN_TOP="$(dirname "$_PTR_GIT_COMMON")"
+        _PTR_WT_TOP="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --show-toplevel 2>/dev/null || true)"
+        if [ -n "$_PTR_WT_TOP" ] && [ "${REPO_ROOT#"$_PTR_WT_TOP"}" != "$REPO_ROOT" ]; then
+            POINTER_MAIN_HINT="$_PTR_MAIN_TOP${REPO_ROOT#"$_PTR_WT_TOP"}"
+        else
+            POINTER_MAIN_HINT="$_PTR_MAIN_TOP"
+        fi
+    fi
+fi
+
 ENGINE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 ENGINE_POINTER="$ENGINE_CONFIG_DIR/richos-engine"
-if mkdir -p "$ENGINE_CONFIG_DIR" 2>/dev/null; then
+if [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
+    echo "NOTE: engine pointer SKIPPED — this checkout is a LINKED GIT WORKTREE:" >&2
+    echo "        $REPO_ROOT" >&2
+    echo "      $ENGINE_POINTER is unchanged, which is what you want: a worktree is removed at" >&2
+    echo "      land time, and a pointer left aimed at a removed directory is a dangling symlink" >&2
+    echo "      that probe layer BR6b reports as a hard failure to whoever runs it next." >&2
+    echo "      Everything else in this run completed normally — config validation, settings.json" >&2
+    echo "      migration and the .sha256 sidecars — which is what install.sh is for in a worktree." >&2
+    if [ -n "$POINTER_MAIN_HINT" ]; then
+        echo "      To repoint the operator's engine for real, run the installer from the main checkout:" >&2
+        echo "        $POINTER_MAIN_HINT/scripts/hooks/install.sh" >&2
+    fi
+    echo "      To repoint from HERE anyway, deliberately:  install.sh --force-engine-pointer" >&2
+elif mkdir -p "$ENGINE_CONFIG_DIR" 2>/dev/null; then
     if [ -L "$ENGINE_POINTER" ] || [ ! -e "$ENGINE_POINTER" ]; then
         if ln -sfn "$REPO_ROOT" "$ENGINE_POINTER" 2>/dev/null; then
             echo "✓ engine pointer -> $ENGINE_POINTER -> $REPO_ROOT"

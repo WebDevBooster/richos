@@ -212,7 +212,8 @@ left out. What ships here is only what transfers to any project:
 | Worktree reaper chain | `scripts/hooks/session-start-reap-worktrees.sh` (SessionStart) + `scripts/reap-stale-worktrees.sh` | Every file-writing spawn creates a linked git worktree; Rich is supposed to remove each one at land time, but across restarts, dropped handoffs and interrupted sessions they pile up silently (43 of them upstream before anyone noticed). The wrapper sweeps on every session start — log-only, fail-open, never blocks a start. The reaper it calls is DRY-RUN by default and removes a tree ONLY if all four gates pass: not locked (or provably stale — no live process AND lock file >2h old), branch merged into whatever branch `HEAD` is on, working tree clean (tracked AND untracked), no live process referencing the path. `git worktree remove` + `git branch -d` — never `--force`, never `-D`. Repo-agnostic; residue git doesn't own is reported, never deleted. This is the only hook-reachable code in the engine that DELETES anything, so probe **Layer Q** hashes BOTH halves and runs paired sandbox canaries: a merged/clean tree must be reaped, a dirty one must survive |
 | Raw-Bash main-write guard | `scripts/hooks/guard-bash-main-writes.sh` | Blocks a raw `Bash` command that writes into a protected source tree in the shared MAIN checkout (a compound `cd <root> && mkdir/cp/rm <tree>/…` or an absolute-path write) — the cwd-default drift vector the Write/Edit guard never sees, which otherwise surfaces as an interactive permission prompt to the human operator. Auto-denies with worktree guidance so the worker self-corrects. Protected trees from `PROTECTED_PATHS`; main-root resolved via `resolve-main-checkout.sh` (no hardcoded paths) |
 | 60-second proof | `scripts/demo.sh` (+ `scripts/demo.test.sh`) | One-command, unattended demo that drives the real hooks + real git mechanics through block → build → reject → fix → land, ending in a pass/fail verdict — see "60-second proof" above |
-| CI self-verification | `.github/workflows/engine-self-verify.yml` | Ready-to-commit GitHub Actions workflow — runs every suite + the probe + the demo on every push/PR, turning engine integrity into a standing guarantee. See "CI" below + `docs/ci-portability-notes.md` |
+| Test runner | `scripts/run-all-tests.sh` | Runs EVERY `*.test.sh` suite in the engine, DISCOVERED from disk rather than globbed at one directory, and reports a derived fraction. Exists because `scripts/hooks/*.test.sh` — the loop quoted as "18/18 suites green" at every land — omitted five suites, two of which were red on `main` for a day. Refuses to report green over an empty inventory. `--list` / `--verbose` |
+| CI self-verification | `.github/workflows/engine-self-verify.yml` | Ready-to-commit GitHub Actions workflow — runs `run-all-tests.sh` + the probe + the demo on every push/PR, turning engine integrity into a standing guarantee. **Copy it to YOUR repository root**: Actions only discovers workflows in a root-level `.github/workflows/`, so a copy left under `engine/` never fires. See "CI" below + `docs/ci-portability-notes.md` |
 | Full walkthrough | `WALKTHROUGH.md` | One feature traced through the complete lifecycle — wiki consult, real spawn, commit-is-the-handoff, single-writer land, the full 4-step QA pipeline with a genuine FIX-FIRST bounce, gatekeeper signoff — illustrative narrative, not a captured transcript; `scripts/demo.sh` is its runnable counterpart |
 | White-glove onboarding | `ONBOARDING-RUNBOOK.md` | The operator's timed script for a live setup session with a non-technical CEO — preflight checklist/email template, exact commands + expected-green output per step, realistic ~60-90 min timings, the common-stall playbook, and a machine-checkable definition of done |
 | Guided setup | `skills/bootstrap-interview/SKILL.md` | First-session orchestrator skill: interviews the CEO (~20 min, resumable), then fills `CLAUDE.md`/`orchestration.config`, staffs the initial roster via Dean, and seeds the first `ceo-wiki/` pages from the interview itself — the recommended path through "Adopter flow" below |
@@ -470,11 +471,8 @@ above (`scripts/demo.sh`) — it exercises the real hooks end-to-end against a
 throwaway sample and prints a pass/fail verdict. For the lower-level suites:
 
 ```bash
-# All hook test suites (each is self-contained):
-for t in scripts/hooks/*.test.sh; do echo "== $t =="; bash "$t" || break; done
-
-# The demo's own smoke check (syntax + a real invocation + repo-untouched check):
-scripts/demo.test.sh
+# EVERY test suite, discovered from disk (not globbed at one directory):
+scripts/run-all-tests.sh          # add --list to see the inventory, --verbose for full output
 
 # The wiring/integrity probe (confirms hooks are installed + chained + unmodified):
 scripts/hooks/contract-integrity-probe.sh
@@ -484,6 +482,15 @@ scripts/hooks/contract-integrity-probe.sh
 # settings-wiring ones:
 RICHOS_ENTITY_ROOT=/path/to/your/repo /path/to/engine/scripts/hooks/contract-integrity-probe.sh
 ```
+
+Use `scripts/run-all-tests.sh` rather than a `scripts/hooks/*.test.sh` loop. That
+loop is what this section used to recommend, and it silently omitted five suites
+— including `scripts/demo.test.sh` and `scripts/locate-engine.test.sh`. On
+2026-08-29 both of those were red on `main` for a day (the buyer-facing
+`scripts/demo.sh` exited 2 during setup) while "18/18 suites green" was quoted
+at every land and was, for the glob it described, entirely true. The runner
+discovers suites instead of enumerating directories, and refuses to report a
+fraction over an empty inventory.
 
 Green suites + a passing probe mean the framework is correctly wired standalone.
 A useful smoke test: spawn a file-writing teammate WITHOUT `isolation: "worktree"`
