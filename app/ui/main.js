@@ -62,6 +62,9 @@ const bargeInBtn = el("voice-barge-in");
 const slideoverEl = el("slideover");
 const slideoverBackdrop = el("slideover-backdrop");
 const slideoverBody = el("slideover-body");
+const jumpLatestBtn = el("jump-latest");
+const liveRegionEl = el("live-region");
+const drillChipEl = el("drill-chip-zone");
 const settingsBtn = el("rail-settings");
 const assertivenessPopover = el("assertiveness-popover");
 
@@ -88,21 +91,15 @@ const scrollTops = new Map(); // threadId -> conversation scrollTop (§3.1)
 // threadId -> "working" | "unseen" | "failed". LIVE, per-thread, and only ever written
 // from a positive `rich://` event — never inferred from silence, never from a timer.
 const liveStatus = new Map();
-// threadId -> { turnId, text } for a turn streaming in a thread that may not be on screen.
-// This is what lets the CEO leave a working thread and come back to its live state (§2).
-const liveByThread = new Map();
+// threadId -> "working" | "unseen" | "failed" for the RAIL only (see the live-status block
+// at the bottom of this file). The conversation's own live state moved to the typed timeline
+// model in `timeline.js` — one model, fed by the six §13 events and the `get_timeline`
+// snapshot, with `sessionLiveTurns` carrying what is running in threads that are not on
+// screen.
 let activeThreadId = null;
-let messages = []; // full history for the active thread, oldest first
-let liveTurnId = null; // the turn currently streaming into the last-rendered slot, or null
-let liveText = "";
-let working = false;
 let voiceMode = false;
-let sessionAvatarShown = false; // Rich Hand mark shows on his first message THIS SESSION only
-let renderedCount = 0; // how many of `messages` are currently mounted (virtualized window)
-const RENDER_WINDOW = 40; // initial/incremental render chunk — infinite scroll, no pagination
-let drillItems = []; // populated from the real `get_worker_status` command (see the
-// rich://turn-started listener below) — honest-empty until the engine has ever
-// completed a task since boot (richos-core's worker_status.rs).
+let drillItems = []; // populated from the real `get_worker_status` command — honest-empty
+// until the engine has ever completed a task since boot (richos-core's worker_status.rs).
 
 // COMPANY IDENTITY — the rail header per the UX direction §2.1 is "the company/CEO identity, not
 // RichOS." Backed by `get_company_name` (main.rs, wired in init() below). This constant
@@ -621,9 +618,15 @@ function restoreThreadViewState(threadId) {
   inputEl.value = drafts.get(threadId) || "";
   autoGrow();
   const top = scrollTops.get(threadId);
-  // A thread that has never been opened lands at the bottom — the newest turn — which is
-  // what `renderMessages` already did. Only a REMEMBERED position overrides that.
-  if (typeof top === "number") conversationEl.scrollTop = top;
+  // §15: "preserve each thread's scroll position during thread switching". A thread that
+  // has never been opened lands at the bottom — the newest turn.
+  if (typeof top === "number") {
+    conversationEl.scrollTop = top;
+    followBottom = atBottom();
+  } else {
+    followBottom = true;
+  }
+  updateJumpButton();
 }
 
 // ---- opening a thread ------------------------------------------------------------------
@@ -636,10 +639,12 @@ async function openThread(threadId) {
   stashThreadViewState();
   clearLiveMark(threadId);
   activeThreadId = threadId;
-  liveTurnId = null;
-  liveText = "";
   drillItems = [];
-  setWorking(false);
+  // A fresh model per thread. `sessionLiveTurns` (not this model) remembers what is running
+  // where, so nothing about the previous thread's live turn leaks into this one and nothing
+  // about THIS thread's live turn is forgotten by having left it.
+  timelineModel = window.RichTimeline.createModel();
+  renderDrillChip();
   closeSlideOver();
   closeThreadMenu();
   if (isNarrow()) setRailOpen(false);
@@ -666,19 +671,22 @@ async function openThread(threadId) {
   showConversationView();
   inputEl.placeholder = "Talk to Rich…";
   renderRail();
-  await loadMessages();
-  if (mainView !== "conversation") return; // loadMessages fell into the unbound state
+  // The fence comes from the AUTHORITATIVE binding, not from this file's idea of what is
+  // selected: `bindingRevision` is the activation revision, and every live event is measured
+  // against it as a STALENESS floor (never an equality key — see `accepts()` in timeline.js).
+  window.RichTimeline.bind(
+    timelineModel,
+    activeContext ? activeContext.entity_id : row.entity_id,
+    threadId,
+    activeContext ? activeContext.binding_revision : row.binding_revision
+  );
+  await loadTimeline();
+  if (mainView !== "conversation") return; // loadTimeline fell into the unbound state
   restoreThreadViewState(threadId);
-
-  // Returning to a thread whose turn is still streaming picks its live state back up
-  // (§2: "return to a running thread without losing its live state").
-  const live = liveByThread.get(threadId);
-  if (live) {
-    liveTurnId = live.turnId;
-    liveText = live.text;
-    setWorking(true);
-    if (live.text) updateWorkingText();
-  }
+  // Returning to a thread whose turn is still streaming picks its live state back up (§2:
+  // "return to a running thread without losing its live state") — `loadTimeline` already
+  // called `reviveLiveTurns()`, so the duration row resumes ticking from the real
+  // `startedAt` rather than restarting or reading `Status unavailable`.
 }
 
 /// §3.3 global entry point. The picker ALWAYS opens, even when an entity is already in
@@ -717,204 +725,300 @@ async function refreshActiveContext() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Conversation rendering
+// THE CONVERSATION TIMELINE (§5, §6, §15) — slice 5 of §24
+//
+// The render moved out of this file into `timeline.js`, which owns the model and the DOM.
+// What stays here is the WIRING: the two sources that feed the model, and the four
+// non-timeline concerns (rail marks, voice, drill chip, proactive) that were already here.
+//
+// TWO SOURCES, ONE MODEL, SAME ITEM IDS:
+//
+//   1. `get_timeline` — the durable snapshot (§14 step 2). Gated in Rust by
+//      `Timeline::view(ViewMode::Ceo)`, which REMOVES technical items and technical detail
+//      rather than masking them, so this file is never handed a raw command to leak.
+//   2. the six additive `rich://` events (app/STREAMING.md). Every payload carries the ECS
+//      fence and a `visibility` that is always `"ceo"` on this family.
+//
+// The four original events (`turn-started` / `chunk` / `turn-completed` / `turn-error`) are
+// STILL SUBSCRIBED but no longer render the conversation. They keep exactly the two jobs
+// the typed family does not cover: the rail's per-thread live marks (§3.2's `unseen` needs
+// a "completed while you were elsewhere" signal that `thread-summary-updated` deliberately
+// does not emit) and the reconciliation reload at turn end. Rendering from both families
+// would draw Rich's reply twice.
 // ---------------------------------------------------------------------------------------
-function isProactive(msg, prevMsg) {
-  // "Arrives with no CEO prompt above it" (§5.3) — today's backend always interleaves
-  // user/assistant pairs from the same turn, so this stays dormant until a real proactive
-  // seam (not yet built) emits an assistant-only turn. Forward-wired, not faked.
-  if (msg.role !== "assistant") return false;
-  if (!prevMsg) return true;
-  return prevMsg.role !== "user" || prevMsg.turn_id !== msg.turn_id;
+
+/// The model for the SELECTED thread. One thread, one model: a background thread's live
+/// state is tracked in `sessionLiveTurns` below and revived when it is opened.
+let timelineModel = window.RichTimeline.createModel();
+/// CEO messages the CEO has expanded past §5.1's line clamp. Survives re-render.
+const expandedMessages = new Set();
+let sessionAvatarShown = false; // the Rich Hand mark shows once per session, on his first line
+let renderPending = false; // rAF coalescing (§15: "at most once per animation frame")
+const proseDirty = new Set(); // message ids whose text changed since the last flush
+let timerHandle = null;
+
+/// TURNS THAT ARE LIVE IN THIS SESSION, across every thread.
+///
+/// This is the only thing that distinguishes "a turn that is running right now" from "a
+/// turn that was `in_flight` on disk when RichOS last closed" — the durable record looks
+/// identical for both, and §14 forbids guessing ("Never infer that a turn completed because
+/// the app was closed"). Written ONLY from a positive `rich://turn-status` event; nothing
+/// here is started, cleared or aged by a timer.
+const sessionLiveTurns = new Map(); // turnId -> { threadId, startedAt }
+
+/// Re-apply this session's knowledge of what is running on top of a fresh snapshot.
+/// Without it, switching away from a working thread and back would show its live turn as
+/// `Status unavailable` — technically the honest read of the durable record alone, but a
+/// lie in a session that is watching the turn stream.
+function reviveLiveTurns() {
+  for (const [turnId, live] of sessionLiveTurns) {
+    if (live.threadId !== timelineModel.threadId) continue;
+    const t = timelineModel.turns.get(turnId);
+    if (!t) continue;
+    if (t.status === "completed" || t.status === "interrupted") continue;
+    t.live = true;
+    if (typeof live.startedAt === "number") t.startedAt = live.startedAt;
+  }
 }
 
-function speakerLabel(msg) {
-  return msg.role === "assistant" ? "Rich" : "you";
-}
+// ---- scroll (§15) ----------------------------------------------------------------------
 
-function buildMessageEl(msg, prevMsg, opts) {
-  opts = opts || {};
-  const row = document.createElement("div");
-  const proactive = isProactive(msg, prevMsg) && !opts.isFirstRun;
-  row.className = "turn turn--" + msg.role + (proactive ? " turn--proactive" : "");
+const STUCK_TO_BOTTOM_PX = 48;
+let followBottom = true;
 
-  const meta = document.createElement("div");
-  meta.className = "turn-meta";
-
-  if (msg.role === "assistant" && !sessionAvatarShown) {
-    const avatar = document.createElement("img");
-    avatar.className = "turn-avatar";
-    avatar.src = "assets/rich-hand.png";
-    avatar.alt = "";
-    meta.appendChild(avatar);
-    sessionAvatarShown = true;
-  }
-
-  const who = document.createElement("span");
-  who.className = "turn-who";
-  who.textContent = speakerLabel(msg);
-  meta.appendChild(who);
-
-  const time = document.createElement("span");
-  time.className = "turn-time";
-  time.textContent = formatTime(msg.at);
-  meta.appendChild(time);
-
-  if (proactive) {
-    const whisper = document.createElement("span");
-    whisper.className = "turn-whisper";
-    whisper.textContent = "reached out";
-    meta.appendChild(whisper);
-  }
-
-  row.appendChild(meta);
-
-  const text = document.createElement("div");
-  text.className = "turn-text";
-  text.textContent = msg.text; // textContent only — no HTML injection, clean output
-  row.appendChild(text);
-
-  return row;
-}
-
-function renderFirstRun() {
-  messagesEl.innerHTML = "";
-  // Authored, in Rich's voice — never a blank screen. Client-side only: no backend command
-  // seeds this yet (a real seeded intro is a small follow-up once the ledger supports it),
-  // but the rendered result is identical to the acceptance bar in §6.1.
-  const intro = {
-    role: "assistant",
-    text: "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there. You can type, or tap ◉ to talk to me.",
-    turn_id: "intro",
-    at: Date.now(),
-  };
-  const row = buildMessageEl(intro, null, { isFirstRun: true });
-  row.querySelector(".turn-time").textContent = "now";
-  messagesEl.appendChild(row);
-  sessionAvatarShown = true;
-}
-
-function renderMessages() {
-  if (messages.length === 0 && !working) {
-    renderFirstRun();
-    return;
-  }
-  messagesEl.innerHTML = "";
-  const startIdx = Math.max(0, messages.length - renderedCount);
-  for (let i = startIdx; i < messages.length; i++) {
-    const row = buildMessageEl(messages[i], messages[i - 1]);
-    messagesEl.appendChild(row);
-  }
-  if (working) {
-    messagesEl.appendChild(buildWorkingRow());
-  }
-  scrollToBottom();
+function atBottom() {
+  return conversationEl.scrollHeight - conversationEl.scrollTop - conversationEl.clientHeight <= STUCK_TO_BOTTOM_PX;
 }
 
 function scrollToBottom() {
   conversationEl.scrollTop = conversationEl.scrollHeight;
+  followBottom = true;
+  updateJumpButton();
 }
 
-// Infinite-scroll-behind-the-scenes: load more of the already-fetched history as the CEO
-// scrolls up. No pagination controls, no "load more" button — standing rule.
-conversationEl.addEventListener("scroll", () => {
-  if (conversationEl.scrollTop < 80 && renderedCount < messages.length) {
-    const prevHeight = conversationEl.scrollHeight;
-    renderedCount = Math.min(messages.length, renderedCount + RENDER_WINDOW);
-    renderMessages();
-    conversationEl.scrollTop = conversationEl.scrollHeight - prevHeight;
+/// §15: "Render `Jump to latest` as a small circular down-arrow centered just above the
+/// composer. Keep it visible while the viewport is detached from the bottom." Activating it
+/// scrolls to the latest MEANINGFUL item, not merely the last pixel — so it lands on the
+/// last turn's top edge when that turn is taller than the viewport, and on the bottom
+/// otherwise.
+function updateJumpButton() {
+  jumpLatestBtn.hidden = followBottom || atBottom();
+}
+
+function jumpToLatest() {
+  const sections = messagesEl.querySelectorAll(".tl-turn");
+  const last = sections[sections.length - 1];
+  followBottom = true;
+  if (last && last.offsetHeight > conversationEl.clientHeight) {
+    conversationEl.scrollTop = last.offsetTop - 24;
+  } else {
+    conversationEl.scrollTop = conversationEl.scrollHeight;
   }
+  updateJumpButton();
+}
+
+conversationEl.addEventListener("scroll", () => {
+  // §15: "while the user is at the bottom, follow streaming content; when the user scrolls
+  // up, stop auto-following."
+  followBottom = atBottom();
+  updateJumpButton();
 });
 
-// ---------------------------------------------------------------------------------------
-// Working state + streaming (§3.1)
-// ---------------------------------------------------------------------------------------
-function buildWorkingRow() {
-  const row = document.createElement("div");
-  row.className = "turn turn--assistant turn--working";
-  row.id = "working-row";
+// ---- announcements (§18) ----------------------------------------------------------------
+//
+// The timeline itself is `aria-live="off"`. §18 requires CONTROLLED announcements — "do not
+// announce every timer tick", "announce meaningful commentary when it COMPLETES, not every
+// token" — and a live region wrapped around streaming text does the opposite of all of
+// them. So announcements go through this one polite region, deliberately and one at a time.
+function announce(text) {
+  if (!text) return;
+  liveRegionEl.textContent = "";
+  // A same-text write is not re-announced by every screen reader; the reflow forces it.
+  window.requestAnimationFrame(() => {
+    liveRegionEl.textContent = text;
+  });
+}
 
+// ---- the render loop ---------------------------------------------------------------------
+
+/// A STRUCTURAL change: a new item, a snapshot, a collapse toggle. Coalesced to one frame.
+function scheduleRender() {
+  if (renderPending) return;
+  renderPending = true;
+  window.requestAnimationFrame(flushRender);
+}
+
+/// A TEXT-ONLY change: one streamed message grew. Never rebuilds, never moves focus.
+let proseFlushPending = false;
+function scheduleProse(messageId) {
+  proseDirty.add(messageId);
+  if (proseFlushPending || renderPending) return;
+  proseFlushPending = true;
+  window.requestAnimationFrame(() => {
+    proseFlushPending = false;
+    for (const id of proseDirty) {
+      const item = timelineModel.items.get(id);
+      if (!item) continue;
+      // If the node is not mounted yet, fall back to a full render — which will pick the
+      // accumulated text up, because the model already holds it.
+      if (!window.RichTimeline.updateProse(messagesEl, id, item.text, item.closed)) {
+        scheduleRender();
+        break;
+      }
+    }
+    proseDirty.clear();
+    if (followBottom) conversationEl.scrollTop = conversationEl.scrollHeight;
+  });
+}
+
+function flushRender() {
+  renderPending = false;
+  proseDirty.clear();
+  if (mainView !== "conversation") return;
+
+  // §15: "preserve viewport position when activity above collapses", and §18: "focus
+  // remains stable during streaming and collapse transitions".
+  const focusId = document.activeElement && document.activeElement.id;
+  const anchorTop = conversationEl.scrollTop;
+  const anchorHeight = conversationEl.scrollHeight;
+
+  const turns = window.RichTimeline.render(timelineModel, messagesEl, {
+    now: Date.now(),
+    expandedMessages,
+    avatarAlreadyShown: sessionAvatarShown,
+    isExpanded: (turnId) => timelineModel.expanded.has(turnId),
+    toggle: toggleWorkTranscript,
+    rerender: scheduleRender,
+    copy: copyToClipboard,
+    retry: retryTurn,
+  });
+  if (turns.some((t) => t.stream.some((i) => i.kind === "rich_message"))) sessionAvatarShown = true;
+
+  if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0) renderFirstRun();
+
+  if (focusId) {
+    const again = messagesEl.querySelector('[id="' + focusId.replace(/(["\\])/g, "\\$1") + '"]');
+    if (again) again.focus({ preventScroll: true });
+  }
+
+  if (followBottom) {
+    conversationEl.scrollTop = conversationEl.scrollHeight;
+  } else {
+    // Keep the same content under the CEO's eye when something above changed height.
+    conversationEl.scrollTop = anchorTop + (conversationEl.scrollHeight - anchorHeight);
+  }
+  updateJumpButton();
+  startOrStopTimer();
+}
+
+/// §6.2: "The active label updates once per second… When the window is backgrounded, stop
+/// animation ticks. Recompute from timestamps when it becomes visible again."
+///
+/// One interval for the whole timeline, and it exists ONLY while something is live — an
+/// idle thread runs no timer at all.
+function startOrStopTimer() {
+  let anyLive = false;
+  for (const t of timelineModel.turns.values()) if (t.live) anyLive = true;
+  if (anyLive && !timerHandle && !document.hidden) {
+    timerHandle = window.setInterval(() => {
+      window.RichTimeline.updateTimers(timelineModel, messagesEl, Date.now());
+    }, 1000);
+  } else if ((!anyLive || document.hidden) && timerHandle) {
+    window.clearInterval(timerHandle);
+    timerHandle = null;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  // Recompute from timestamps the instant we are visible again — the display was DERIVED
+  // from `startedAt`, never accumulated, so nothing was lost by not ticking.
+  if (!document.hidden) window.RichTimeline.updateTimers(timelineModel, messagesEl, Date.now());
+  startOrStopTimer();
+});
+
+function toggleWorkTranscript(turnId) {
+  if (timelineModel.expanded.has(turnId)) timelineModel.expanded.delete(turnId);
+  else timelineModel.expanded.add(turnId);
+  // A deliberate open survives the post-completion settle.
+  timelineModel.settled.add(turnId);
+  scheduleRender();
+}
+
+async function copyToClipboard(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const was = button.textContent;
+    button.textContent = "Copied";
+    window.setTimeout(() => {
+      button.textContent = was;
+    }, 1200);
+  } catch (_e) {
+    /* a refused clipboard is not worth an error state */
+  }
+}
+
+/// §21 "Turn failure": "Start a new turn with the existing context". The CEO's original
+/// words are put back in the composer rather than resent silently — resending is an action
+/// with side effects, and it is his to take.
+function retryTurn(turn) {
+  if (turn.user && turn.user.text) {
+    inputEl.value = turn.user.text;
+    autoGrow();
+  }
+  inputEl.focus();
+}
+
+function renderFirstRun() {
+  // Authored, in Rich's voice — never a blank screen. Client-side only.
+  messagesEl.innerHTML = "";
+  const art = document.createElement("article");
+  art.className = "tl-rich";
+  const sr = document.createElement("span");
+  sr.className = "sr-only";
+  sr.textContent = "Rich said";
+  art.appendChild(sr);
   const meta = document.createElement("div");
-  meta.className = "turn-meta";
+  meta.className = "tl-rich-meta";
+  const avatar = document.createElement("img");
+  avatar.className = "tl-avatar";
+  avatar.src = "assets/rich-hand.png";
+  avatar.alt = "";
+  meta.appendChild(avatar);
   const who = document.createElement("span");
-  who.className = "turn-who";
+  who.className = "tl-who";
   who.textContent = "Rich";
   meta.appendChild(who);
-  row.appendChild(meta);
-
-  const text = document.createElement("div");
-  text.className = "turn-text turn-text--working";
-  text.id = "working-text";
-  if (liveTurnId && liveText) {
-    // Streaming resolve: the working line already holds the growing reply — no jarring
-    // swap from indicator to message (§3.1).
-    text.textContent = liveText;
-    text.classList.add("is-streaming");
-  } else {
-    text.innerHTML = 'Rich is working<span class="working-ellipsis"><i></i><i></i><i></i></span>';
-  }
-  row.appendChild(text);
-
-  if (drillItems.length > 0) {
-    row.appendChild(buildDrillChip());
-  }
-
-  return row;
+  art.appendChild(meta);
+  const body = document.createElement("div");
+  body.className = "tl-prose";
+  body.textContent =
+    "I'm Rich — your chief of staff. Tell me what you're working on and I'll take it from there. You can type, or tap ◉ to talk to me.";
+  art.appendChild(body);
+  messagesEl.appendChild(art);
+  sessionAvatarShown = true;
 }
 
-function buildDrillChip() {
-  const active = drillItems.filter((i) => i.state === "active").length;
-  const needsYou = drillItems.filter((i) => i.state === "needs_you").length;
-  const parts = [];
-  if (active) parts.push(`${active} working`);
-  if (needsYou) parts.push(`${needsYou} needs you`);
-
-  const chip = document.createElement("button");
-  chip.type = "button";
-  chip.className = "drill-chip";
-  chip.textContent = "⋯ " + parts.join(" · ");
-  chip.addEventListener("click", openSlideOver);
-  return chip;
-}
-
-function setWorking(on) {
-  working = on;
-  const existing = document.getElementById("working-row");
-  if (!on) {
-    if (existing) existing.remove();
-    liveTurnId = null;
-    liveText = "";
-    drillItems = [];
-    return;
-  }
-  if (existing) return; // already showing
-  messagesEl.appendChild(buildWorkingRow());
-  scrollToBottom();
-}
-
-function updateWorkingText() {
-  const textEl = document.getElementById("working-text");
-  if (!textEl) return;
-  textEl.textContent = liveText;
-  textEl.classList.add("is-streaming");
-  scrollToBottom();
-}
-
-async function loadMessages() {
-  // SCOPED READ, AND IT CAN REFUSE. `get_messages` became fallible when threads gained an
-  // entity home: a thread written before entity scoping existed returns
-  // `LedgerError::UnboundThread` rather than an empty list, because "I will not serve
-  // this" and "there is nothing here" are different statements. Before this catch existed
-  // the rejection was unhandled and opening such a thread simply broke the shell.
+/// The reload path. Fails closed exactly like `get_messages` did: an unbound thread refuses
+/// rather than returning an empty conversation, and the calm §21 screen takes over.
+async function loadTimeline() {
+  let snapshot;
   try {
-    messages = await Bridge.invoke("get_messages", { threadId: activeThreadId });
+    snapshot = await Bridge.invoke("get_timeline", { threadId: activeThreadId });
   } catch (e) {
-    messages = [];
-    showUnboundView(threadRow(activeThreadId), String(e));
+    const msg = String(e);
+    // The mock harness leaves some commands unwired; a genuine scope refusal is a different
+    // statement and gets the §21 screen.
+    window.RichTimeline.applySnapshot(timelineModel, { items: [] });
+    if (msg.startsWith("mock: no such command")) {
+      scheduleRender();
+      return;
+    }
+    showUnboundView(threadRow(activeThreadId), msg);
     return;
   }
-  renderedCount = Math.min(messages.length, RENDER_WINDOW);
-  renderMessages();
+  window.RichTimeline.applySnapshot(timelineModel, snapshot);
+  reviveLiveTurns();
+  scheduleRender();
 }
 
 // ---------------------------------------------------------------------------------------
@@ -922,7 +1026,12 @@ async function loadMessages() {
 // ---------------------------------------------------------------------------------------
 async function send() {
   const text = inputEl.value.trim();
-  if (!text || working) return;
+  if (!text) return;
+  // §9.2 says the composer stays usable while Rich works. Steering is SLICE 6 and the spine
+  // queues rather than interrupts, so a second send during a live turn is refused here
+  // until that slice wires the queue into the timeline. Refusing is honest; accepting the
+  // words and drawing nothing would not be.
+  if (anyLiveTurn()) return;
   // §21 "Entity binding failure": BLOCK SEND and state why. Never quietly file the CEO's
   // words somewhere Rich guessed.
   if (sendBlockedReason) {
@@ -934,8 +1043,7 @@ async function send() {
   autoGrow();
 
   // §3.3 first send in a draft thread: NOTHING was persisted when the CEO opened the
-  // new-thread screen ("no pre-created thread record until the CEO sends the first
-  // message"). The record is created here, with its immutable entity_id, before the
+  // new-thread screen. The record is created here, with its immutable entity_id, before the
   // message goes anywhere — step 1 then step 2 of §3.3, in that order.
   if (draftEntityId) {
     const entityId = draftEntityId;
@@ -949,39 +1057,47 @@ async function send() {
       autoGrow();
       return;
     }
-    drafts.delete(ENTITY_DRAFT_PREFIX + entityId); // it became a thread; it is not a draft any more
+    drafts.delete(ENTITY_DRAFT_PREFIX + entityId);
     draftEntityId = null;
     await refreshNavigation();
     await openThread(newId);
   }
 
-  // Optimistic append so the CEO's line appears immediately.
-  messages.push({ role: "user", text, turn_id: "pending", at: Date.now() });
-  renderedCount = Math.min(messages.length, renderedCount + 1);
-  renderMessages();
-  setWorking(true);
+  // §25: "The submitted message renders immediately on the right in a quiet highlighted
+  // surface." It carries a synthetic id until `rich://turn-status` names the turn, then it
+  // is RE-KEYED onto `{turnId}:user` — the same id the ledger derives — so the CEO's one
+  // sentence is never drawn twice.
+  window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+  followBottom = true;
+  scheduleRender();
 
-  // `send_message` resolves with the reconciled snapshot, but per STREAMING.md's ordering
-  // guarantee the UI always gets exactly one terminal event (`rich://turn-completed` or
-  // `rich://turn-error`) for the turn — those listeners (below) are the ONE place that
-  // clears the working state and finalizes the render. This call is only responsible for
-  // the outright-rejection case: an invoke that fails before any turn ever started (e.g.
-  // "not connected" — no lease, so no stream events will ever fire for this attempt).
   try {
     await Bridge.invoke("send_message", { text });
   } catch (e) {
-    if (!working) return; // a terminal stream event already resolved this turn
-    setWorking(false);
-    messages.push({
-      role: "assistant",
-      text: typeof e === "string" ? e : "Something went sideways on my end — one moment, I'll sort it.",
-      turn_id: "error_" + Date.now(),
-      at: Date.now(),
-    });
-    renderedCount += 1;
-    renderMessages();
+    // An outright rejection BEFORE any turn started (no lease ⇒ no stream events will ever
+    // fire for this attempt). A turn that started and then failed is resolved by
+    // `rich://turn-status: failed`, not here.
+    if (anyLiveTurn()) return;
+    window.RichTimeline.addLocalNotice(
+      timelineModel,
+      typeof e === "string" ? e : "Something went sideways on my end — one moment, I'll sort it.",
+      Date.now()
+    );
+    scheduleRender();
   }
 }
+
+function anyLiveTurn() {
+  for (const t of timelineModel.turns.values()) if (t.live) return true;
+  return false;
+}
+
+/// A READ-ONLY handle on the timeline model, for the acceptance harness and for anyone
+/// debugging a render against a live shell. It exposes nothing the DOM does not already
+/// carry — the model IS the CEO view, gated in Rust before it ever reached this file — so
+/// it cannot be a leak path. It is a getter, not the object, so nothing can be swapped
+/// underneath the renderer through it.
+window.__RICHOS_TIMELINE__ = () => timelineModel;
 
 composerEl.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -994,7 +1110,7 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
-// Auto-growing single field (§2.3) — a few lines, then it scrolls; never dominates.
+// Auto-growing single field — a few lines, then it scrolls; never dominates.
 function autoGrow() {
   inputEl.style.height = "auto";
   const max = 5 * 22; // ~5 lines
@@ -1004,88 +1120,180 @@ inputEl.addEventListener("input", autoGrow);
 
 el("rail-new-thread").addEventListener("click", startNewThreadFlow);
 el("nav-search").addEventListener("click", openSearch);
+jumpLatestBtn.addEventListener("click", jumpToLatest);
 
 // ---------------------------------------------------------------------------------------
-// Streaming event wiring (app/STREAMING.md)
+// THE ADDITIVE §13 FAMILY — the six events that drive the timeline
+// (app/STREAMING.md "The additive live-work family")
+//
+// Every handler returns `{ structural, rejected, textOnly }`; this layer only decides
+// whether to rebuild, to write one text node, or to do nothing. The fence, the visibility
+// gate, the idempotent upsert and the supersession merge all live in `timeline.js`.
+// ---------------------------------------------------------------------------------------
+Bridge.listen("rich://turn-status", ({ payload }) => {
+  // Session-wide first, so a BACKGROUND thread's live turn is remembered and revived when
+  // the CEO opens it (§2: "return to a running thread without losing its live state").
+  if (payload.status === "queued" || payload.status === "working" || payload.status === "recovering") {
+    const prev = sessionLiveTurns.get(payload.turnId);
+    sessionLiveTurns.set(payload.turnId, {
+      threadId: payload.threadId,
+      startedAt: typeof payload.startedAt === "number" ? payload.startedAt : prev && prev.startedAt,
+    });
+  } else {
+    sessionLiveTurns.delete(payload.turnId);
+  }
+  // The MERGE INSTRUCTION also has to reach the session registry, or a crashed turn would
+  // stay "live" forever in a thread nobody is looking at.
+  if (payload.supersedesTurnId) sessionLiveTurns.delete(payload.supersedesTurnId);
+
+  const r = window.RichTimeline.onTurnStatus(timelineModel, payload);
+  if (r.rejected) return;
+
+  // §18: "announce `Rich started working` once".
+  if (payload.status === "working" && !timelineModel.announcedWorking.has(payload.turnId)) {
+    timelineModel.announcedWorking.add(payload.turnId);
+    announce("Rich started working");
+  }
+  if (payload.status === "completed" || payload.status === "failed") {
+    // §6.4: "Collapse the working transcript after a short settling transition."
+    // 180ms — inside §17.4's allowed 150–220ms band — and skipped entirely under reduced
+    // motion, where the collapse is immediate rather than transitioned.
+    const settle = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180;
+    window.setTimeout(() => {
+      // Only if the CEO has not opened it himself in the meantime.
+      if (!timelineModel.settled.has(payload.turnId)) {
+        timelineModel.settled.add(payload.turnId);
+        timelineModel.expanded.delete(payload.turnId);
+        scheduleRender();
+      }
+    }, settle);
+    const t = timelineModel.turns.get(payload.turnId);
+    const row = t ? window.RichTimeline.durationRow(t, Date.now()) : null;
+    announce(
+      payload.status === "completed"
+        ? "Rich finished. " + (row ? row.label : "")
+        : "Rich stopped before finishing."
+    );
+  }
+  scheduleRender();
+});
+
+Bridge.listen("rich://message-started", ({ payload }) => {
+  const r = window.RichTimeline.onMessageStarted(timelineModel, payload);
+  if (!r.rejected && r.structural) scheduleRender();
+});
+
+Bridge.listen("rich://message-delta", ({ payload }) => {
+  const r = window.RichTimeline.onMessageDelta(timelineModel, payload);
+  if (r.rejected) return;
+  if (r.structural) scheduleRender();
+  else if (r.textOnly) scheduleProse(r.textOnly);
+});
+
+Bridge.listen("rich://message-completed", ({ payload }) => {
+  const r = window.RichTimeline.onMessageCompleted(timelineModel, payload);
+  if (r.rejected) return;
+  if (r.structural) scheduleRender();
+  else if (r.textOnly) scheduleProse(r.textOnly);
+  // §18: "announce meaningful commentary when it completes, not every token." Every run is
+  // "meaningful" here because none of them can be told apart — see timeline.js's header.
+  if (payload.text) announce(payload.text);
+});
+
+Bridge.listen("rich://activity-upserted", ({ payload }) => {
+  const r = window.RichTimeline.onActivityUpserted(timelineModel, payload);
+  if (!r.rejected) scheduleRender();
+});
+
+Bridge.listen("rich://thread-summary-updated", ({ payload }) => {
+  // The sidebar's own row. Computed by the spine exactly as `thread::summaries` computes
+  // it, so a live row and a re-listed row cannot disagree — which is why this refreshes the
+  // rail rather than patching one label in place.
+  if (payload.threadId) refreshNavigation();
+});
+
+// ---------------------------------------------------------------------------------------
+// The four ORIGINAL events (app/STREAMING.md). Unchanged on the wire, and no longer the
+// render path — see the block header above. `turn-completed` still triggers the
+// reconciliation reload, which is what makes a missed live event self-heal (§13: "missed
+// stream events recover from the durable snapshot").
 // ---------------------------------------------------------------------------------------
 Bridge.listen("rich://turn-started", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
-  liveTurnId = payload.turnId;
-  liveText = "";
-  setWorking(true);
   pollWorkerStatus();
-});
-
-Bridge.listen("rich://chunk", ({ payload }) => {
-  if (payload.threadId !== activeThreadId || payload.turnId !== liveTurnId) return;
-  liveText += payload.textDelta; // seq order is guaranteed by the spine (0-based, strictly increasing)
-  updateWorkingText();
 });
 
 Bridge.listen("rich://turn-completed", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
-  setWorking(false);
-  loadMessages(); // pulls the reconciled ledger snapshot as the durable record
+  drillItems = [];
+  renderDrillChip();
+  loadTimeline();
 });
 
 Bridge.listen("rich://turn-error", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
-  setWorking(false);
-  messages.push({
-    role: "assistant",
-    text: "I hit a snag mid-thought and had to stop — say the word and I'll pick it back up.",
-    turn_id: "error_" + payload.turnId,
-    at: payload.at || Date.now(),
-  });
-  renderedCount += 1;
-  renderMessages();
+  drillItems = [];
+  renderDrillChip();
+  // The typed family already carried `turn-status: failed`, which is what draws the failure
+  // treatment. This reload reconciles the partial text that streamed before the failure —
+  // already durable in the ledger.
+  loadTimeline();
 });
 
-// The real proactive-attention seam (§5, architecture §2.3/§4.2): Rich raised a Tier 1/2
-// message via the backend seam (`raise_proactive_message`, spine.rs `raise_proactive`).
-// The event only ever fires for Tier 1/2 (Tier 3/Silent never notifies, per §5.1) — the
-// UI's job is just to reload the reconciled ledger; the "reached out" whisper-cue render
-// (isProactive(), above) already fires correctly because a proactive turn has no paired
-// user message ahead of it.
+// The real proactive-attention seam: Rich raised a Tier 1/2 message via the backend seam
+// (`raise_proactive_message`, spine.rs `raise_proactive`). A proactive turn is written
+// atomically and is the ONE phase that is real — `phase: "proactive"` — so a reload is all
+// this needs; `timeline.js` renders the "reached out" treatment from the phase itself.
 Bridge.listen("rich://proactive-message", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
-  loadMessages();
+  loadTimeline();
 });
-// The mock harness's manual test hooks (window.__RICHOS_MOCK__.simulateProactiveDigest /
-// simulateProactiveInterrupt) fire this separate event name directly (mock.js predates
-// the real backend seam and isn't wired to `raise_proactive_message`) — kept so design
-// and QA can still exercise both proactive tiers without a live attention-seam trigger.
 Bridge.listen("rich://mock-proactive", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
-  loadMessages();
+  loadTimeline();
 });
 
-// The real worker-status drill-down (§3.2 / architecture P3.2), backed by
-// `get_worker_status` (main.rs -> richos-core's worker_status.rs, reading the engine's
-// task-events.jsonl). Polled on turn-started (above) rather than continuously — the
-// chip is a courtesy, not a live dashboard, and this is a read-only snapshot pull, not a
-// subscription. Honest-empty (drillItems stays []) when nothing has completed since boot.
+// The real worker-status drill-down, backed by `get_worker_status`. Polled on turn-started
+// rather than continuously — the chip is a courtesy, not a live dashboard. Honest-empty
+// when nothing has completed since boot.
+//
+// NOT a §7 worker chip. `rich://worker-upserted` is DEFERRED (no worker lifecycle signal
+// exists) and §7's timeline treatment is SLICE 7. This is the pre-existing engine-task
+// courtesy chip, moved out of the working row it used to hang off and otherwise unchanged.
 async function pollWorkerStatus() {
   try {
     const status = await Bridge.invoke("get_worker_status");
     drillItems = status.items || [];
   } catch (_e) {
-    // Unwired (mock harness) or a genuine read failure — never fabricate activity;
-    // just leave the chip absent.
     drillItems = [];
   }
-  if (working) renderMessages();
+  renderDrillChip();
 }
 
-// Dev-mock-only drill-down signal (§3.2) — the mock harness's manual test hook
-// (window.__RICHOS_MOCK__.simulateDrillChip) still uses this event directly, since
-// `get_worker_status` is one of the commands the mock harness deliberately leaves
-// unwired (see mock.js's default-reject comment) so design and QA can drive the
-// drill-down chip's states without a live engine event log to fake.
+function renderDrillChip() {
+  drillChipEl.innerHTML = "";
+  const active = drillItems.filter((i) => i.state === "active").length;
+  const needsYou = drillItems.filter((i) => i.state === "needs_you").length;
+  const parts = [];
+  if (active) parts.push(`${active} working`);
+  if (needsYou) parts.push(`${needsYou} needs you`);
+  if (!parts.length) {
+    drillChipEl.hidden = true;
+    return;
+  }
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "drill-chip";
+  chip.textContent = "⋯ " + parts.join(" · ");
+  chip.addEventListener("click", openSlideOver);
+  drillChipEl.appendChild(chip);
+  drillChipEl.hidden = false;
+}
+
 Bridge.listen("rich://mock-worker-status", ({ payload }) => {
   if (payload.threadId !== activeThreadId) return;
   drillItems = payload.items || [];
-  if (working) renderMessages();
+  renderDrillChip();
 });
 
 // ---------------------------------------------------------------------------------------
@@ -1159,10 +1367,13 @@ function renderVoiceState(state, noAudio) {
   voiceSpeakingEl.hidden = !speaking;
 }
 
+/// A line Rich says LOCALLY — a voice-mode failure he explains himself. Not a turn and not
+/// evidence: it carries a synthetic turn id with no turn record, so it can never grow a
+/// duration row claiming work that never happened, and the next snapshot drops it.
 function richVoiceSays(text) {
-  messages.push({ role: "assistant", text, turn_id: "voice_" + Date.now(), at: Date.now() });
-  renderedCount += 1;
-  renderMessages();
+  window.RichTimeline.addLocalNotice(timelineModel, text, Date.now());
+  followBottom = true;
+  scheduleRender();
 }
 
 async function enterVoiceMode() {
@@ -1227,9 +1438,11 @@ Bridge.listen("rich://voice-transcript", ({ payload }) => {
   // What the CEO said appears in the thread the moment it is recognised — voice and text are
   // one conversation, so this is an ordinary user turn, not a call artefact. The reconciled
   // ledger snapshot replaces it when the turn completes.
-  messages.push({ role: "user", text: payload.text, turn_id: "pending", at: payload.at || Date.now() });
-  renderedCount = Math.min(messages.length, renderedCount + 1);
-  renderMessages();
+  // The same optimistic path a typed send takes: a synthetic id, re-keyed onto the real
+  // turn the moment `rich://turn-status` names one. Voice and text are one conversation.
+  window.RichTimeline.addPendingUserMessage(timelineModel, payload.text, payload.at || Date.now());
+  followBottom = true;
+  scheduleRender();
 });
 
 Bridge.listen("rich://voice-error", ({ payload }) => {
@@ -1322,17 +1535,17 @@ document.addEventListener("click", (e) => {
 // ---------------------------------------------------------------------------------------
 Bridge.listen("rich://turn-started", ({ payload }) => {
   liveStatus.set(payload.threadId, "working");
-  liveByThread.set(payload.threadId, { turnId: payload.turnId, text: "" });
   renderRail();
 });
 
-Bridge.listen("rich://chunk", ({ payload }) => {
-  const live = liveByThread.get(payload.threadId);
-  if (live && live.turnId === payload.turnId) live.text += payload.textDelta;
-});
+// The per-thread live TEXT buffer this block used to keep is gone. It existed so that
+// returning to a background thread could re-show its half-streamed reply from memory;
+// `sessionLiveTurns` plus `get_timeline` now do that from the DURABLE record instead —
+// deltas are persisted before they are emitted (STREAMING.md), so the snapshot on reopen is
+// at least as complete as anything this file could have accumulated, and it survives a
+// reload that the buffer did not.
 
 Bridge.listen("rich://turn-completed", ({ payload }) => {
-  liveByThread.delete(payload.threadId);
   // §3.2 "Completed while away: small completion mark UNTIL OPENED". If the CEO is looking
   // at the thread, there is nothing to flag — he just watched it finish.
   if (payload.threadId === activeThreadId) liveStatus.delete(payload.threadId);
@@ -1341,7 +1554,6 @@ Bridge.listen("rich://turn-completed", ({ payload }) => {
 });
 
 Bridge.listen("rich://turn-error", ({ payload }) => {
-  liveByThread.delete(payload.threadId);
   if (payload.threadId === activeThreadId) liveStatus.delete(payload.threadId);
   else liveStatus.set(payload.threadId, "failed");
   refreshNavigation();

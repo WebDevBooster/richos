@@ -27,6 +27,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// for why these are shell state and not ledger events.
 mod nav;
 
+/// The `get_timeline` command body, in its own file so `examples/timeline_payload.rs`
+/// can include the SAME source and print the exact JSON the webview receives.
+mod timeline_view;
+use timeline_view::timeline_payload;
+
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
 /// the spine (assistant text only), so this layer just relays name + payload verbatim.
@@ -133,6 +138,27 @@ fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String
 #[tauri::command]
 fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message>, String> {
     state.spine.lock().unwrap().messages(&thread_id).map_err(|e| e.to_string())
+}
+
+/// One thread's TYPED TIMELINE (UX §12), gated to the CEO view (§5.3).
+///
+/// The RELOAD half of the §13 live family. `rich://*` events carry a turn while it runs;
+/// this is how a cold reopen — or a thread switch back to a thread that finished while
+/// the CEO was elsewhere — gets the same items with the same ids. §13's *"reconnect uses a
+/// full snapshot followed by events after a cursor"*, and §14's *"load the selected thread
+/// snapshot"*.
+///
+/// **THE GATE IS NOT RE-IMPLEMENTED HERE, AND MUST NOT BE.** `Timeline` deliberately does
+/// not implement `Serialize`, so there is no ungated path from this function to the
+/// webview; `view(ViewMode::Ceo)` is the only way to obtain a payload, and it REMOVES
+/// technical items and technical detail rather than masking them (timeline.rs). This
+/// command therefore cannot leak a raw command, a file path or an internal item even if it
+/// wanted to — it never holds those bytes.
+///
+/// Fails closed on an unbound thread, exactly like `get_messages`.
+#[tauri::command]
+fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
+    timeline_payload(&state.spine.lock().unwrap(), &thread_id)
 }
 
 /// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
@@ -336,7 +362,9 @@ fn main() {
             set_entity_collapsed,
             set_thread_pinned,
             set_thread_archived,
-            rename_thread
+            rename_thread,
+            // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
+            get_timeline
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
