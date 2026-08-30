@@ -570,6 +570,174 @@
   /// "or it reads as the system having forgotten".
   const declinedCounts = {};
 
+
+  // ---- the feedback channel (`feedback.rs`) ---------------------------------------------
+  //
+  // A REAL STATE MACHINE, not a table of answers — the same standard the two correction
+  // desks are held to here, and for the same reason. `feedback.rs` refuses a report on a
+  // `3`, refuses one with no diagnosis term, refuses one whose rating disagrees with the
+  // rating given, sorts and de-duplicates a selection so the same terms always render the
+  // same bytes, and refuses an approval whose text is not what this build would say. A
+  // harness that answered `{}` to every command would let a browser suite pass over a
+  // surface that records consent for text nobody was shown.
+  //
+  // EVERY STRING BELOW IS A COPY, AND `feedback.js` CHECKS EACH ONE against
+  // `tests/fixtures/feedback-vocabulary.json`, which a cargo test regenerates from the live
+  // Rust constants on every run. A preview harness that rehearses wording the product no
+  // longer uses is a fixture certifying the fixture.
+
+  /// Verbatim from `FEEDBACK_STORE_UNAVAILABLE`, app/src-tauri/src/main.rs.
+  const FEEDBACK_STORE_ABSENT =
+    "I can't keep an answer right now — the file I record them in wouldn't open, and I'm not going to ask you what you think and then lose it. That one is for whoever set RichOS up to look at; it isn't yours to fix.";
+  /// Verbatim from `FEEDBACK_PREVIEW_MISMATCH`, app/src-tauri/src/main.rs.
+  const FEEDBACK_PREVIEW_MISMATCH =
+    "I won't record that. What you were shown isn't what I would say now, so approving it would be approving something you haven't read. Ask me to show it again.";
+
+  /// `PROMPT_QUESTION`, `PROMPT_OPTIONS`, `REPORT_OFFER`, `DISCLOSURE_HEADING`.
+  const FEEDBACK_QUESTION = "How is RichOS doing this session?";
+  const FEEDBACK_OPTIONS = "1: Bad | 2: OK, but could be better | 3: Good | 0: Dismiss";
+  const FEEDBACK_REPORT_OFFER =
+    "Will you let your Rich tell the RichOS developers — fully anonymized and generically — what annoyed you and why it happened?";
+  const FEEDBACK_DISCLOSURE_HEADING =
+    "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.";
+
+  /// `Rating` — three variants, and `0` deliberately not one of them.
+  const FEEDBACK_RATINGS = [
+    { key: "1", label: "Bad", wire: "bad", invitesReport: true },
+    { key: "2", label: "OK, but could be better", wire: "ok-but-could-be-better", invitesReport: true },
+    { key: "3", label: "Good", wire: "good", invitesReport: false },
+  ];
+
+  /// The vocabulary, in DECLARATION ORDER — which is also the order `assemble` sorts a
+  /// selection into, so the index in these arrays is the sort key.
+  const FEEDBACK_FAILURE_CLASS = [
+    { wire: "unprepared-task-handed-to-user", label: "The assistant handed the user a task it had not prepared." },
+    { wire: "checking-handed-to-user", label: "The assistant left the user to notice a failure that machinery should have caught." },
+    { wire: "assurance-handed-to-user", label: "The assistant left the user to ask whether a class of failure would recur." },
+    { wire: "decision-handed-to-user", label: "The assistant asked the user a question whose answer was already determined." },
+    { wire: "scheduling-handed-to-user", label: "The assistant left the user to sequence work it should have sequenced itself." },
+  ];
+  const FEEDBACK_OCCURRENCES = [
+    { wire: "1", label: "once" },
+    { wire: "2", label: "twice" },
+    { wire: "3", label: "three times" },
+    { wire: "4", label: "four times" },
+    { wire: "5", label: "five times" },
+    { wire: "more-than-5", label: "more than five times" },
+  ];
+  const FEEDBACK_DIAGNOSIS = [
+    {
+      wire: "request-repeated-without-preparation",
+      sentence:
+        "The assistant asked the user to carry out a manual verification task more than once in a single session without preparing the artifact the task required.",
+    },
+    { wire: "no-input-artifact-named", sentence: "No input file was named." },
+    { wire: "no-location-within-input-specified", sentence: "No locations within it were specified." },
+    { wire: "no-method-given", sentence: "No method was given." },
+    { wire: "no-acceptance-criterion-stated", sentence: "No acceptance criterion was stated." },
+    {
+      wire: "automated-executors-received-self-contained-briefs",
+      sentence:
+        "In the same session the assistant produced detailed, self-contained briefs for its automated sub-agents.",
+    },
+    {
+      wire: "human-executor-received-the-least-prepared-instruction",
+      sentence: "The asymmetry is the defect: the human executor received the least prepared instruction.",
+    },
+  ];
+  const FEEDBACK_CONDITIONS = [
+    {
+      wire: "record-section-for-items-awaiting-the-user",
+      sentence:
+        "The durable task record contained a section for items awaiting the user, which made relaying an item feel equivalent to preparing it.",
+    },
+    {
+      wire: "no-user-facing-item-carried-an-acceptance-criterion",
+      sentence: "No user-facing item carried an acceptance criterion.",
+    },
+    {
+      wire: "rule-enforced-by-attention-rather-than-machinery",
+      sentence: "The rule that would have prevented this was enforced by attention rather than by machinery.",
+    },
+  ];
+
+  let feedbackStoreOpen = true;
+  let feedbackReadFailure = null;
+  /// The one file, as an array. Every entry is the shape `FeedbackEntry` serializes to.
+  const feedbackEntries = [];
+
+  /// `feedback.rs`'s `WRAP_COLUMNS`.
+  const FEEDBACK_WRAP_COLUMNS = 76;
+
+  /// `fold` — greedy word wrap into a two-space-indented folded block. Words are never
+  /// split, so every token in the output is a token from the vocabulary.
+  function feedbackFold(text) {
+    let out = "";
+    let line = "  ";
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      if (line.length > 2 && line.length + 1 + word.length > FEEDBACK_WRAP_COLUMNS) {
+        out += line + "\n";
+        line = "  ";
+      }
+      if (line.length > 2) line += " ";
+      line += word;
+    }
+    if (line.length > 2) out += line + "\n";
+    return out;
+  }
+
+  const feedbackTermIndex = (list, wire) => list.findIndex((t) => t.wire === wire);
+
+  /// `FeedbackPayload::assemble` — sorted into vocabulary order and de-duplicated, so the
+  /// same set of terms always produces the same payload and the same rendered text.
+  function feedbackAssemble(rating, sel) {
+    if (!rating.invitesReport)
+      throw "rating '" + rating.key + "' does not invite a report — the offer is made on 1 and 2 only";
+    const diagnosis = (sel.generic_diagnosis || []).slice();
+    if (diagnosis.length === 0) throw "a report needs at least one diagnosis term";
+    const order = (list) => (a, b) => feedbackTermIndex(list, a) - feedbackTermIndex(list, b);
+    const uniq = (xs) => xs.filter((x, i) => xs.indexOf(x) === i);
+    return {
+      taxonomy_version: "v1",
+      rating: rating.wire,
+      failure_class: sel.failure_class,
+      occurrences_this_session: sel.occurrences_this_session,
+      generic_diagnosis: uniq(diagnosis.sort(order(FEEDBACK_DIAGNOSIS))),
+      contributing_condition: uniq((sel.contributing_condition || []).slice().sort(order(FEEDBACK_CONDITIONS))),
+    };
+  }
+
+  const feedbackSentence = (list, wire) => (list.find((t) => t.wire === wire) || {}).sentence;
+
+  /// `render_disclosure` — deterministic and total, and the empty condition list is OMITTED
+  /// rather than shown as a key with nothing under it.
+  function feedbackRender(payload) {
+    const ratingKey = (FEEDBACK_RATINGS.find((r) => r.wire === payload.rating) || {}).key;
+    let out = "";
+    out += "taxonomy_version: " + payload.taxonomy_version + "\n";
+    out += "rating: " + ratingKey + "\n";
+    out += "failure_class: " + payload.failure_class + "\n";
+    out += "occurrences_this_session: " + payload.occurrences_this_session + "\n";
+    out += "generic_diagnosis: >\n";
+    out += feedbackFold(payload.generic_diagnosis.map((w) => feedbackSentence(FEEDBACK_DIAGNOSIS, w)).join(" "));
+    if (payload.contributing_condition.length > 0) {
+      out += "contributing_condition: >\n";
+      out += feedbackFold(payload.contributing_condition.map((w) => feedbackSentence(FEEDBACK_CONDITIONS, w)).join(" "));
+    }
+    return out;
+  }
+
+  const feedbackFullText = (payload) => FEEDBACK_DISCLOSURE_HEADING + "\n\n" + feedbackRender(payload);
+
+  /// `PromptOutcome::from_key` — anything that is not one of the four keys is not an answer
+  /// at all, and is never silently recorded as a dismissal.
+  function feedbackOutcome(key) {
+    const rating = FEEDBACK_RATINGS.find((r) => r.key === key);
+    if (rating) return { kind: "rated", value: rating.wire };
+    if (key === "0") return { kind: "dismissed" };
+    return null;
+  }
+
   const loroGate = () => (loroDeskOn ? loroReadFailure : LORO_DESK_ABSENT);
   const spokenGate = () => (spokenDeskOn ? spokenReadFailure : SPOKEN_DESK_ABSENT);
 
@@ -928,6 +1096,89 @@
           const at = spokenSuppressed.indexOf(args.key);
           if (at >= 0) spokenSuppressed.splice(at, 1);
           return null;
+        }
+
+        // ---- the feedback channel (`feedback.rs`) --------------------------------------
+        //
+        // NOTHING HERE SENDS ANYTHING, in the harness for the same reason as in the
+        // product: there is no transport to mock, because there is none to run.
+        case "feedback_available":
+          return feedbackStoreOpen;
+        case "feedback_wording":
+          return {
+            question: FEEDBACK_QUESTION,
+            options: FEEDBACK_OPTIONS,
+            reportOffer: FEEDBACK_REPORT_OFFER,
+            disclosureHeading: FEEDBACK_DISCLOSURE_HEADING,
+            taxonomyVersion: "v1",
+            ratings: FEEDBACK_RATINGS.map((r) => ({ ...r })),
+            dismiss: { key: "0", label: "Dismiss" },
+          };
+        case "feedback_taxonomy":
+          return {
+            version: "v1",
+            failureClass: FEEDBACK_FAILURE_CLASS.map((t) => ({ ...t })),
+            occurrences: FEEDBACK_OCCURRENCES.map((t) => ({ ...t })),
+            diagnosis: FEEDBACK_DIAGNOSIS.map((t) => ({ ...t })),
+            conditions: FEEDBACK_CONDITIONS.map((t) => ({ ...t })),
+          };
+        case "feedback_preview": {
+          const rating = FEEDBACK_RATINGS.find((r) => r.key === args.key);
+          if (!rating) return Promise.reject("That isn't one of the four answers, so I haven't written anything down.");
+          try {
+            const payload = feedbackAssemble(rating, args.selection || {});
+            return {
+              heading: FEEDBACK_DISCLOSURE_HEADING,
+              text: feedbackRender(payload),
+              full: feedbackFullText(payload),
+            };
+          } catch (e) {
+            return Promise.reject(String(e));
+          }
+        }
+        case "feedback_record": {
+          const outcome = feedbackOutcome(args.key);
+          if (!outcome)
+            return Promise.reject("That isn't one of the four answers, so I haven't written anything down.");
+          const rating = FEEDBACK_RATINGS.find((r) => r.key === args.key);
+          const choice = args.report || { decision: "not_offered" };
+          let report = { decision: "not_offered" };
+          if (choice.decision !== "not_offered") {
+            // `FeedbackEntry::with_report`: a `3` or a dismissal never invited an offer, so
+            // a report attached to one is not a thing that happened.
+            if (!rating || !rating.invitesReport)
+              return Promise.reject(
+                "rating '" + (rating ? rating.key : "0") + "' does not invite a report — the offer is made on 1 and 2 only"
+              );
+          }
+          if (choice.decision === "declined") report = { decision: "declined" };
+          if (choice.decision === "approved") {
+            let payload;
+            try {
+              payload = feedbackAssemble(rating, choice.selection || {});
+            } catch (e) {
+              return Promise.reject(String(e));
+            }
+            // THE CHECK THAT MAKES "he saw exactly this" SURVIVE THE BRIDGE. In-process the
+            // type system carries it (`ApprovedReport` has no public constructor); across
+            // an IPC boundary it has to be re-rendered and compared.
+            if (feedbackFullText(payload) !== choice.shown) return Promise.reject(FEEDBACK_PREVIEW_MISMATCH);
+            report = { decision: "approved", report: payload };
+          }
+          if (!feedbackStoreOpen) return Promise.reject(FEEDBACK_STORE_ABSENT);
+          const entry = { recorded_at_millis: now(), outcome, report };
+          feedbackEntries.push(entry);
+          return JSON.parse(JSON.stringify(entry));
+        }
+        case "feedback_history": {
+          if (!feedbackStoreOpen) return Promise.reject(FEEDBACK_STORE_ABSENT);
+          if (feedbackReadFailure) return Promise.reject(feedbackReadFailure);
+          return feedbackEntries.map((e) => ({
+            entry: JSON.parse(JSON.stringify(e)),
+            // Re-rendered from the STORED payload, exactly as `ApprovedReport::as_shown`
+            // does — no second copy of the text is kept anywhere.
+            shown: e.report.decision === "approved" ? feedbackRender(e.report.report) : null,
+          }));
         }
 
         default:
@@ -1661,5 +1912,45 @@
     },
     LORO_DESK_ABSENT,
     SPOKEN_DESK_ABSENT,
+
+    // ---- the feedback channel --------------------------------------------------------
+    /// The one file would not open. Every command then refuses with the backend's own
+    /// sentence — a DIFFERENT fact from an empty history, and the surface must not collapse
+    /// the two into one empty list.
+    setFeedbackAvailable(v) { feedbackStoreOpen = v !== false; },
+    /// The store IS there and a read refused. Transient, and it has a retry — the same
+    /// distinction both correction desks draw.
+    setFeedbackReadFailure(message) { feedbackReadFailure = message || null; },
+    /// Answers already on this machine, byte for byte. Used by the browser suite to render
+    /// entries that a cargo test wrote from the real types, so a screenshot cannot show a
+    /// record shape the backend would never produce.
+    seedFeedbackEntries(list) {
+      feedbackEntries.length = 0;
+      for (const e of list || []) feedbackEntries.push(e);
+    },
+    /// Read-only view, so a test can assert on the STORE rather than only on the DOM.
+    feedbackStoreState() {
+      return {
+        available: feedbackStoreOpen,
+        entries: feedbackEntries.map((e) => JSON.parse(JSON.stringify(e))),
+      };
+    },
+    /// What this harness believes the product says. `feedback.js` joins every one of these
+    /// to a fixture a cargo test regenerates from the live Rust constants.
+    feedbackVocabulary() {
+      return {
+        question: FEEDBACK_QUESTION,
+        options: FEEDBACK_OPTIONS,
+        reportOffer: FEEDBACK_REPORT_OFFER,
+        disclosureHeading: FEEDBACK_DISCLOSURE_HEADING,
+        ratings: FEEDBACK_RATINGS.map((r) => ({ ...r })),
+        failureClass: FEEDBACK_FAILURE_CLASS.map((t) => ({ ...t })),
+        occurrences: FEEDBACK_OCCURRENCES.map((t) => ({ ...t })),
+        diagnosis: FEEDBACK_DIAGNOSIS.map((t) => ({ ...t })),
+        conditions: FEEDBACK_CONDITIONS.map((t) => ({ ...t })),
+      };
+    },
+    FEEDBACK_STORE_ABSENT,
+    FEEDBACK_PREVIEW_MISMATCH,
   };
 })();

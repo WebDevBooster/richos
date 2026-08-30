@@ -2862,6 +2862,463 @@ Bridge.listen("rich://loro-proposed", () => {
 });
 
 // ---------------------------------------------------------------------------------------
+// THE FEEDBACK CHANNEL — `feedback.rs`'s local half, made reachable (RICH-TODOs row 5)
+//
+// The row read as if nothing existed. At `aa364ed` that was wrong in one direction and
+// right in the other: the module was complete — the CEO's wording in constants, the four
+// keys, `Rating::invites_report`, the versioned taxonomy, the store, the disclosure, and
+// four tests asserting no way off this machine — and `grep -rn feedback app/ui/main.js`
+// returned nothing. There was no way for him to reach any of it.
+//
+// WHEN THIS SURFACE APPEARS, AND WHY THAT IS THE ANSWER
+// ----------------------------------------------------
+// When he opens it. There is no trigger, no timer, no end-of-session prompt, and no badge.
+//
+// That is not timidity, it is the module's own measurement: in the reference case all five
+// moments of real annoyance were volunteered MID-WORK and unprompted, and none arrived at
+// session end. A prompt fired at a moment of RichOS's choosing would have caught none of
+// them at the moment they were felt. And the cost of firing one anyway is not zero — a
+// prompt that arrives during the work he is annoyed about is one more unprepared task
+// handed to him, which is the first term in this feature's own vocabulary. It also teaches
+// dismissal, and a fallback he has learned to dismiss catches less than no fallback at all.
+//
+// What WOULD beat zero is catching what is already being said, mid-work, unprompted — which
+// `feedback.rs` names as "a later, larger piece of work" and which this surface does not
+// pretend to be. So: reachable when he wants it, and honest about being the fallback half.
+//
+// THIS LAYER AUTHORS NO WORDING. The question, the four keys, the offer, the disclosure
+// heading and every term's sentence come from `feedback_wording` and `feedback_taxonomy`,
+// which project `feedback.rs`'s constants. The module holds them in one place so the UI
+// cannot paraphrase them; retyping one here would be the paraphrase it exists to prevent.
+//
+// NOTHING HERE SENDS ANYTHING. There is no transport in this file, and
+// `feedback_no_outbound_tests.rs` asserts that of this file rather than trusting this
+// sentence.
+// ---------------------------------------------------------------------------------------
+
+const feedbackOverlayEl = el("feedback-overlay");
+const feedbackNoticeEl = el("feedback-notice");
+const feedbackBtn = el("nav-feedback");
+
+/// Everything the surface knows, and each fact kept apart from the others.
+///
+/// `available: false` is a store that would not open — nobody in this app can change it,
+/// and no answer can be kept. `historyFailed` is a store that IS there and refused a read,
+/// which is transient and has a retry. An empty `history` is a store that opened and holds
+/// nothing. Rendering any of the three as one empty list would say "there is nothing here",
+/// which is the one thing only the third of them means.
+const feedback = {
+  available: null,
+  offReason: null,
+  historyFailed: null,
+  history: [],
+  wording: null,
+  taxonomy: null,
+  /// Where he is in the one answer he is giving right now: "asking" (nothing pressed),
+  /// "offered", "choosing", "previewing", "answered". Never persisted — this is a moment,
+  /// not a record, and the record is the file.
+  phase: "asking",
+  key: null,
+  selection: null,
+  /// The EXACT block he was shown, held verbatim as the backend rendered it. It is sent
+  /// back with the approval and checked there, so an approval can never be recorded for
+  /// text he did not read.
+  shown: null,
+};
+
+let feedbackReturnFocus = null;
+
+function feedbackNotice(text, tone) {
+  feedbackNoticeEl.textContent = text;
+  feedbackNoticeEl.classList.toggle("desk-notice--attention", tone === "attention");
+  feedbackNoticeEl.hidden = !text;
+}
+
+/// The three outcomes a recorded answer earns, and nothing about any of them promises a
+/// destination. The disclosure heading has already told him where it goes; these say what
+/// happened, in the same register.
+const FEEDBACK_KEPT = "Taken down. It stays on this machine.";
+const FEEDBACK_KEPT_WITH_REPORT =
+  "Taken down, word for word as you read it — and it stays on this machine.";
+const FEEDBACK_KEPT_WITHOUT_REPORT = "Taken down, with no report attached.";
+
+// ---- reading ----------------------------------------------------------------------------
+
+/// Read the surface. FOUR reads, and a refusal from any of them is kept and rendered rather
+/// than logged — `affordances.js` enforces that a refusal never dies in a console.
+async function refreshFeedback() {
+  feedback.historyFailed = null;
+  try {
+    feedback.available = (await Bridge.invoke("feedback_available")) === true;
+  } catch (e) {
+    // An unregistered command (an older shell) and a store that will not open mean the same
+    // thing to the CEO: no answer he gives here can be kept.
+    feedback.available = false;
+    feedback.offReason = String(e);
+    feedback.history = [];
+    return;
+  }
+  try {
+    // The wording and the vocabulary are read even when the store is shut, so the panel can
+    // still say what it would have asked. They are facts about this BUILD, not this file.
+    feedback.wording = await Bridge.invoke("feedback_wording");
+    feedback.taxonomy = await Bridge.invoke("feedback_taxonomy");
+  } catch (e) {
+    feedback.wording = null;
+    feedback.taxonomy = null;
+    feedback.offReason = String(e);
+    feedback.available = false;
+    feedback.history = [];
+    return;
+  }
+  feedback.history = [];
+  try {
+    feedback.history = (await Bridge.invoke("feedback_history")) || [];
+    feedback.offReason = null;
+  } catch (e) {
+    // A read that refused is TWO different conditions, and which one it is has already been
+    // answered by `feedback_available` above. If the store is shut, this refusal IS the
+    // reason — the backend's own sentence about this install, which names who owns it. If
+    // the store said it was open, the same refusal is transient and gets a retry instead.
+    if (feedback.available) feedback.historyFailed = String(e);
+    else feedback.offReason = String(e);
+  }
+}
+
+// ---- the ask ------------------------------------------------------------------------------
+
+function feedbackButton(label, kind) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "desk-btn" + (kind ? " desk-btn--" + kind : "");
+  b.textContent = label;
+  return b;
+}
+
+/// The four keys, built from the backend's own list. `invitesReport` travels WITH each
+/// rating rather than being re-derived from its digit — `Rating::invites_report` is the one
+/// place that rule is written down, and a `key === "1" || key === "2"` here would be a
+/// second place for it to be written differently.
+function renderFeedbackKeys() {
+  const zone = el("feedback-keys");
+  zone.textContent = "";
+  if (!feedback.wording) return;
+  const answered = feedback.phase === "answered";
+  for (const r of feedback.wording.ratings) {
+    const b = feedbackButton(r.key + ": " + r.label, r.key === "3" ? "confirm" : null);
+    b.dataset.key = r.key;
+    b.disabled = answered;
+    b.addEventListener("click", () => answerFeedback(r.key, r.invitesReport === true));
+    zone.appendChild(b);
+  }
+  const d = feedback.wording.dismiss;
+  const dismiss = feedbackButton(d.key + ": " + d.label);
+  dismiss.dataset.key = d.key;
+  dismiss.disabled = answered;
+  // A dismissal IS an answer and is recorded as one — `PromptOutcome::Dismissed`. Closing
+  // the panel is NOT: he opened it himself, and recording a dismissal because he shut a
+  // window he chose to open would put an answer in the file that nobody gave.
+  dismiss.addEventListener("click", () => answerFeedback(d.key, false));
+  zone.appendChild(dismiss);
+}
+
+/// One term type's choices. `single` builds radios (a payload carries exactly one failure
+/// class and one occurrence count); the other two build checkboxes over lists.
+function renderFeedbackGroup(legend, name, terms, single) {
+  const group = document.createElement("fieldset");
+  group.className = "feedback-group";
+  group.dataset.group = name;
+  const cap = document.createElement("legend");
+  cap.className = "feedback-group-legend";
+  cap.textContent = legend;
+  group.appendChild(cap);
+  for (const t of terms) {
+    const row = document.createElement("label");
+    row.className = "feedback-option";
+    const input = document.createElement("input");
+    input.type = single ? "radio" : "checkbox";
+    input.name = name;
+    input.value = t.wire;
+    input.addEventListener("change", syncFeedbackChoice);
+    const text = document.createElement("span");
+    // `label` on the closed lists, `sentence` on the two that compose the report — the
+    // backend hands over whichever this term type has, and this reads it rather than
+    // guessing from the shape.
+    text.textContent = t.sentence || t.label;
+    row.appendChild(input);
+    row.appendChild(text);
+    group.appendChild(row);
+  }
+  return group;
+}
+
+function chosen(name) {
+  return Array.from(
+    el("feedback-choose").querySelectorAll('input[name="' + name + '"]:checked')
+  ).map((i) => i.value);
+}
+
+/// The selection, in the payload's OWN field names — the same four keys the preview shows
+/// him. Nothing is renamed on the way across.
+function feedbackSelection() {
+  const cls = chosen("failure_class");
+  const occ = chosen("occurrences_this_session");
+  return {
+    failure_class: cls[0] || null,
+    occurrences_this_session: occ[0] || null,
+    generic_diagnosis: chosen("generic_diagnosis"),
+    contributing_condition: chosen("contributing_condition"),
+  };
+}
+
+/// A report with no diagnosis says nothing, and a payload with no class or count cannot be
+/// assembled at all — the backend refuses each of those by name. The button is disabled
+/// until the choice is complete rather than offered and then refused: a control that
+/// appears and then says no teaches him the surface is unreliable.
+function syncFeedbackChoice() {
+  const btn = el("feedback-show-preview");
+  if (!btn) return;
+  const s = feedbackSelection();
+  btn.disabled = !(s.failure_class && s.occurrences_this_session && s.generic_diagnosis.length > 0);
+}
+
+function renderFeedbackChoose() {
+  const zone = el("feedback-choose");
+  zone.textContent = "";
+  if (!feedback.taxonomy) return;
+  const t = feedback.taxonomy;
+  zone.appendChild(renderFeedbackGroup("What kind of failure was it?", "failure_class", t.failureClass, true));
+  zone.appendChild(renderFeedbackGroup("How many times this session?", "occurrences_this_session", t.occurrences, true));
+  zone.appendChild(renderFeedbackGroup("What went wrong", "generic_diagnosis", t.diagnosis, false));
+  zone.appendChild(renderFeedbackGroup("What let it happen", "contributing_condition", t.conditions, false));
+
+  const actions = document.createElement("div");
+  actions.className = "desk-card-actions";
+  const show = feedbackButton("Show me exactly what you'd say", "confirm");
+  show.id = "feedback-show-preview";
+  show.disabled = true;
+  show.addEventListener("click", showFeedbackPreview);
+  actions.appendChild(show);
+  zone.appendChild(actions);
+}
+
+// ---- the history --------------------------------------------------------------------------
+
+function feedbackRatingLabel(outcome) {
+  if (!outcome || outcome.kind !== "rated") return null;
+  // Matched on the value serde ACTUALLY wrote, which the backend hands over as `wire`.
+  // Deriving it here — lower-casing the label and hyphenating it — would be this file
+  // guessing at a serialization format, and it would go on working right up until a variant
+  // was renamed.
+  const found = (feedback.wording ? feedback.wording.ratings : []).find((r) => r.wire === outcome.value);
+  return found || null;
+}
+
+function renderFeedbackEntry(row) {
+  const entry = row.entry || {};
+  const card = document.createElement("article");
+  card.className = "feedback-entry";
+  card.dataset.decision = (entry.report && entry.report.decision) || "not_offered";
+
+  const head = document.createElement("div");
+  head.className = "feedback-entry-head";
+  const rating = feedbackRatingLabel(entry.outcome);
+  const key = document.createElement("span");
+  key.className = "feedback-entry-key";
+  key.textContent = rating ? rating.key : "0";
+  head.appendChild(key);
+  const label = document.createElement("span");
+  label.className = "feedback-entry-label";
+  label.textContent = rating ? rating.label : "Dismissed";
+  head.appendChild(label);
+  card.appendChild(head);
+  card.dataset.rating = rating ? rating.key : "0";
+
+  const decision = entry.report && entry.report.decision;
+  if (decision === "declined") {
+    const p = document.createElement("p");
+    p.className = "feedback-entry-note";
+    p.textContent = "You were offered a report and said no.";
+    card.appendChild(p);
+  } else if (decision === "approved") {
+    const p = document.createElement("p");
+    p.className = "feedback-entry-note";
+    p.textContent = "You approved this report:";
+    card.appendChild(p);
+    // Re-rendered by the backend from the STORED payload — the same bytes he approved, and
+    // the reason the record does not have to keep a second free-text copy of them.
+    const pre = document.createElement("pre");
+    pre.className = "desk-preview";
+    pre.textContent = row.shown || "";
+    card.appendChild(pre);
+  }
+  return card;
+}
+
+// ---- rendering the whole panel ------------------------------------------------------------
+
+function renderFeedback() {
+  const question = el("feedback-question");
+  question.textContent = feedback.wording ? feedback.wording.question : "";
+
+  const off = el("feedback-unavailable");
+  const historyOff = el("feedback-history-off");
+  const shut = feedback.available === false;
+  off.hidden = !shut;
+  historyOff.hidden = !shut;
+  if (shut) {
+    // The backend's own sentence, relayed verbatim. It names who owns the fix; this file
+    // adds nothing to it, because this file diagnosed nothing.
+    off.textContent = feedback.offReason || "";
+    historyOff.textContent = feedback.offReason || "";
+  }
+
+  // The four keys are not offered when nothing could be kept. An answer that cannot be
+  // recorded is a lost answer, and asking for one anyway is worse than not asking.
+  el("feedback-keys").hidden = shut;
+  renderFeedbackKeys();
+
+  const offer = el("feedback-offer");
+  offer.hidden = shut || !(feedback.phase === "offered");
+  const choose = el("feedback-choose");
+  choose.hidden = shut || !(feedback.phase === "choosing");
+  const preview = el("feedback-preview-block");
+  preview.hidden = shut || !(feedback.phase === "previewing");
+
+  const broke = el("feedback-history-broke");
+  broke.hidden = shut || !feedback.historyFailed;
+  if (feedback.historyFailed) el("feedback-history-broke-reason").textContent = feedback.historyFailed;
+
+  const readable = feedback.available === true && !feedback.historyFailed;
+  el("feedback-history-empty").hidden = !(readable && feedback.history.length === 0);
+  const list = el("feedback-history-list");
+  list.textContent = "";
+  if (readable) for (const row of feedback.history) list.appendChild(renderFeedbackEntry(row));
+}
+
+// ---- answering ------------------------------------------------------------------------------
+
+/// He pressed one of the four keys.
+///
+/// `invitesReport` is the backend's answer about THAT rating, carried through untouched.
+/// On a `3` or a dismissal the answer is recorded immediately and the offer is never made —
+/// `FeedbackEntry::with_report` would refuse a report attached to either, and a surface that
+/// offered one anyway would be inviting him into a refusal.
+async function answerFeedback(key, invitesReport) {
+  feedbackNotice("");
+  feedback.key = key;
+  if (invitesReport) {
+    feedback.phase = "offered";
+    el("feedback-offer-text").textContent = feedback.wording.reportOffer;
+    const actions = el("feedback-offer-actions");
+    actions.textContent = "";
+    const yes = feedbackButton("Yes", "confirm");
+    yes.id = "feedback-offer-yes";
+    yes.addEventListener("click", () => {
+      feedback.phase = "choosing";
+      renderFeedbackChoose();
+      renderFeedback();
+      syncFeedbackChoice();
+    });
+    const no = feedbackButton("No thanks");
+    no.id = "feedback-offer-no";
+    no.addEventListener("click", () => recordFeedback({ decision: "declined" }, FEEDBACK_KEPT_WITHOUT_REPORT));
+    actions.appendChild(yes);
+    actions.appendChild(no);
+    renderFeedback();
+    return;
+  }
+  await recordFeedback({ decision: "not_offered" }, FEEDBACK_KEPT);
+}
+
+/// THE PREVIEW. Nothing is stored by this and nothing is consented to by pressing it — it
+/// exists so he reads the report before he is asked to approve it.
+///
+/// The block he is shown is `full`: the heading and the report as one string, exactly as the
+/// backend composed them. The two halves are laid out separately on screen, and `full` is
+/// what travels back with the approval, so the composition on screen cannot drift from the
+/// bytes that are checked.
+async function showFeedbackPreview() {
+  feedbackNotice("");
+  const selection = feedbackSelection();
+  try {
+    const rendered = await Bridge.invoke("feedback_preview", { key: feedback.key, selection });
+    feedback.selection = selection;
+    feedback.shown = rendered.full;
+    el("feedback-disclosure-heading").textContent = rendered.heading;
+    el("feedback-preview").textContent = rendered.text;
+    const actions = el("feedback-preview-actions");
+    actions.textContent = "";
+    const yes = feedbackButton("Yes, report that", "confirm");
+    yes.id = "feedback-approve";
+    yes.addEventListener("click", () =>
+      recordFeedback(
+        { decision: "approved", selection: feedback.selection, shown: feedback.shown },
+        FEEDBACK_KEPT_WITH_REPORT
+      )
+    );
+    const no = feedbackButton("No, don't report that", "never");
+    no.id = "feedback-refuse";
+    // A declined report is not a report: the payload is dropped and nothing about it is
+    // recorded — `Disclosure::decline`'s own posture, kept on this side of the bridge too.
+    no.addEventListener("click", () => recordFeedback({ decision: "declined" }, FEEDBACK_KEPT_WITHOUT_REPORT));
+    actions.appendChild(yes);
+    actions.appendChild(no);
+    feedback.phase = "previewing";
+    renderFeedback();
+  } catch (e) {
+    feedbackNotice(String(e), "attention");
+  }
+}
+
+/// One line appended to one file, and that is the whole effect.
+async function recordFeedback(report, said) {
+  try {
+    await Bridge.invoke("feedback_record", { key: feedback.key, report });
+    feedback.phase = "answered";
+    feedbackNotice(said);
+  } catch (e) {
+    feedbackNotice(String(e), "attention");
+  }
+  await refreshFeedback();
+  renderFeedback();
+}
+
+// ---- opening and closing -----------------------------------------------------------------
+
+async function openFeedback() {
+  feedbackReturnFocus = document.activeElement;
+  feedbackNotice("");
+  // A fresh question every time the panel is opened. The record is the file; the phase is a
+  // moment, and carrying the last answer's state back onto the screen would show him a
+  // question he has already answered as though it were still open.
+  feedback.phase = "asking";
+  feedback.key = null;
+  feedback.selection = null;
+  feedback.shown = null;
+  feedbackOverlayEl.hidden = false;
+  feedbackBtn.setAttribute("aria-expanded", "true");
+  await refreshFeedback();
+  renderFeedback();
+  const first = feedbackOverlayEl.querySelector(".desk-btn, #feedback-close");
+  if (first) first.focus();
+}
+
+function closeFeedback() {
+  feedbackOverlayEl.hidden = true;
+  feedbackBtn.setAttribute("aria-expanded", "false");
+  if (feedbackReturnFocus && document.contains(feedbackReturnFocus)) feedbackReturnFocus.focus();
+  feedbackReturnFocus = null;
+}
+
+feedbackBtn.addEventListener("click", openFeedback);
+el("feedback-close").addEventListener("click", closeFeedback);
+feedbackOverlayEl.addEventListener("click", (e) => {
+  if (e.target === feedbackOverlayEl) closeFeedback();
+});
+el("feedback-history-retry").addEventListener("click", () => refreshFeedback().then(renderFeedback));
+
+// ---------------------------------------------------------------------------------------
 // Keyboard (§18)
 // ---------------------------------------------------------------------------------------
 /// Arrow-key movement inside a list of buttons. Every control in the rail is a real
@@ -2901,6 +3358,7 @@ document.addEventListener("keydown", (e) => {
     if (!searchOverlayEl.hidden) return closeSearch();
     if (!entityPickerEl.hidden) return closeEntityPicker();
     if (!correctionsOverlayEl.hidden) return closeCorrections();
+    if (!feedbackOverlayEl.hidden) return closeFeedback();
     if (!slideoverEl.hidden) return closeSlideOver();
     if (!inspectorEl.hidden) return closeWorkerInspector();
     if (isNarrow() && railOpen) return setRailOpen(false);

@@ -2060,8 +2060,8 @@ fn spoken_unsuppress_term(state: State<AppState>, key: String) -> Result<(), Str
 /// what he thinks and then dropping the answer would be worse than not asking.
 const FEEDBACK_STORE_UNAVAILABLE: &str =
     "I can't keep an answer right now — the file I record them in wouldn't open, and I'm \
-     not going to ask you what you think and then lose it. Whoever set RichOS up has to \
-     look at that; it isn't yours to fix.";
+     not going to ask you what you think and then lose it. That one is for whoever set \
+     RichOS up to look at; it isn't yours to fix.";
 
 /// What he is told if a key that is not one of the four ever reaches the store.
 ///
@@ -2118,6 +2118,10 @@ fn feedback_wording() -> serde_json::Value {
             serde_json::json!({
                 "key": r.key().to_string(),
                 "label": r.label(),
+                // The value serde ACTUALLY writes for this rating, so a surface reading an
+                // entry back off disk can match it without transforming the label into a
+                // wire name and hoping the two agree.
+                "wire": serde_json::to_value(r).unwrap_or(serde_json::Value::Null),
                 "invitesReport": r.invites_report(),
             })
         })
@@ -2187,7 +2191,7 @@ struct Selection {
 /// There is no `Pending` and no `Later`, mirroring `ReportDecision`: an answer is an answer,
 /// and a half-state here is the seam a future outbox would grow from.
 #[derive(serde::Deserialize)]
-#[serde(tag = "decision", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
 enum ReportChoice {
     /// `3`, or a dismissal — the offer was never made.
     NotOffered,

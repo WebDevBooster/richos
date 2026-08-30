@@ -317,6 +317,34 @@ async function deskAnswer(page, selector) {
   return page;
 }
 
+
+/// Open the feedback panel through the button the CEO presses, after driving `mock.js`'s
+/// store into one state.
+async function openFeedback(browser, setup) {
+  const page = await openApp(browser);
+  if (setup) await page.evaluate("(" + setup.toString() + ")(window.__RICHOS_MOCK__)");
+  await page.click("#nav-feedback");
+  await page.waitForSelector("#feedback-overlay:not([hidden])");
+  return page;
+}
+
+/// Press one of the feedback surface's answer buttons and wait for the notice it produces.
+async function feedbackAnswer(page, selector) {
+  await page.click(selector);
+  await page.waitForFunction(() => !document.getElementById("feedback-notice").hidden, { timeout: 5000 });
+  return page;
+}
+
+/// The smallest report that can be assembled: one class, one count, one diagnosis term and
+/// no conditions. Deliberately minimal — the empty condition list is omitted from the
+/// rendered report entirely, so this drives that branch as well.
+async function chooseMinimalReport(page) {
+  await page.check('#feedback-choose input[name="failure_class"]:first-of-type');
+  await page.check('#feedback-choose input[name="occurrences_this_session"]:first-of-type');
+  await page.check('#feedback-choose input[name="generic_diagnosis"][value="no-method-given"]');
+  await page.waitForFunction(() => !document.getElementById("feedback-show-preview").disabled);
+}
+
 const FIXTURES = {
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the
   /// screen those instructions render on.
@@ -557,6 +585,67 @@ const FIXTURES = {
     return page;
   },
 
+  // -------------------------------------------------------------------------------------
+  // THE FEEDBACK CHANNEL. Every one of these opens the REAL panel through the REAL rail
+  // button and drives `mock.js`'s own store, which enforces the same rules `feedback.rs`
+  // does — a fixture where a `3` could carry a report, or where an approval could be
+  // recorded for text nobody was shown, would prove a product that does not exist.
+  // -------------------------------------------------------------------------------------
+
+  /// The panel as he first meets it: the question, the four keys, and an empty store.
+  async feedback(browser) {
+    return openFeedback(browser);
+  },
+
+  /// The one file would not open. The backend's own sentence, and NO keys — an answer that
+  /// cannot be kept must not be asked for.
+  async "feedback-unavailable"(browser) {
+    return openFeedback(browser, (m) => m.setFeedbackAvailable(false));
+  },
+
+  /// A `3`. The offer is never made, because `FeedbackEntry::with_report` would refuse a
+  /// report attached to it and a surface that offered one would be inviting a refusal.
+  async "feedback-rated"(browser) {
+    const page = await openFeedback(browser);
+    await feedbackAnswer(page, '#feedback-keys .desk-btn[data-key="3"]');
+    return page;
+  },
+
+  /// A `1`, the offer accepted, the vocabulary on screen.
+  async "feedback-choosing"(browser) {
+    const page = await openFeedback(browser);
+    await page.click('#feedback-keys .desk-btn[data-key="1"]');
+    await page.waitForSelector("#feedback-offer:not([hidden])");
+    await page.click("#feedback-offer-yes");
+    await page.waitForSelector("#feedback-choose:not([hidden])");
+    return page;
+  },
+
+  /// ...and the report rendered, before he is asked to approve it.
+  async "feedback-previewing"(browser) {
+    const page = await FIXTURES["feedback-choosing"](browser);
+    await chooseMinimalReport(page);
+    await page.click("#feedback-show-preview");
+    await page.waitForSelector("#feedback-preview-block:not([hidden])");
+    return page;
+  },
+
+  async "feedback-approved"(browser) {
+    const page = await FIXTURES["feedback-previewing"](browser);
+    await feedbackAnswer(page, "#feedback-approve");
+    return page;
+  },
+
+  /// The offer made and refused. A declined report is not a report — the payload is
+  /// dropped and the rating is all that is kept.
+  async "feedback-declined-report"(browser) {
+    const page = await openFeedback(browser);
+    await page.click('#feedback-keys .desk-btn[data-key="1"]');
+    await page.waitForSelector("#feedback-offer:not([hidden])");
+    await feedbackAnswer(page, "#feedback-offer-no");
+    return page;
+  },
+
   async "corrections-lifted"(browser) {
     const page = await openDesk(browser);
     await deskAnswer(page, "#desk-loro-list .desk-btn--never");
@@ -588,6 +677,15 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "corrections-spoken-declined",
   "corrections-spoken-never",
   "corrections-lifted",
+  // Every feedback fixture renders its own words too — nothing on that surface needs
+  // hardware, so control-presence-only would be a choice rather than a limit.
+  "feedback",
+  "feedback-unavailable",
+  "feedback-rated",
+  "feedback-choosing",
+  "feedback-previewing",
+  "feedback-approved",
+  "feedback-declined-report",
   "unbound",
   "unknown-turn",
   "failed-turn",

@@ -739,6 +739,134 @@ module.exports = [
   },
 
   // -------------------------------------------------------------------------------------
+  // THE FEEDBACK CHANNEL (`feedback.rs`) — the local half, made reachable
+  //
+  // Almost every sentence on this surface comes from the BACKEND (`feedback_wording`,
+  // `feedback_taxonomy`), and `feedback.rs` holds them as constants precisely so a UI
+  // cannot paraphrase them — which is why the question, the four key labels, the report
+  // offer, the disclosure heading and every term's sentence appear in NO row below. They
+  // are not in this inventory because they are not in `index.html`, `main.js` or the
+  // command layer; they are projections of one module's constants, and `feedback.js` joins
+  // each of them to a fixture a cargo test regenerates from the live Rust values.
+  //
+  // What IS below is the small amount this surface genuinely authors: four group legends,
+  // four button labels, three outcome sentences, two history labels, one section heading,
+  // one empty line, and the three refusals the command layer writes.
+  // -------------------------------------------------------------------------------------
+  {
+    s: "I can't keep an answer right now — the file I record them in wouldn't open, and I'm not going to ask you what you think and then lose it. That one is for whoever set RichOS up to look at; it isn't yours to fix.",
+    c: "NEEDS-SOMEONE-ELSE",
+    fixture: "feedback-unavailable",
+    why:
+      "`FEEDBACK_STORE_UNAVAILABLE`. The one file would not open, which nothing in the app " +
+      "can change, so it names the party who can and offers no control. The four keys are " +
+      "NOT rendered beside it: asking him what he thinks and then dropping the answer is " +
+      "worse than not asking, and a set of buttons that record nothing would be exactly that.",
+  },
+  {
+    s: "What's on this machine",
+    c: "INFORMATIONAL",
+    fixture: "feedback",
+    why:
+      "The history section's heading, and a deliberate statement of scope rather than a " +
+      "neutral label — 'this machine' is the whole of where an answer goes in this version.",
+  },
+  {
+    s: "Nothing is recorded here yet. RichOS never puts the question to you on its own — this panel is the only place it is asked.",
+    c: "INFORMATIONAL",
+    fixture: "feedback",
+    why:
+      "A readable store holding nothing — and it renders ONLY when the read succeeded, " +
+      "which is why it is a different element from the store-would-not-open state. The " +
+      "second sentence exists because an empty history could otherwise read as 'you had " +
+      "nothing to say'; the truthful reason is that nothing has ever asked him, and this " +
+      "build deliberately never will (`feedback.rs`: all five moments in the reference case " +
+      "were volunteered mid-work, none at session end).",
+  },
+  {
+    s: "What kind of failure was it?",
+    c: "CONTROL",
+    fixture: "feedback-choosing",
+    why: "The accessible name of the failure-class radio group — a `<legend>` over its own controls.",
+  },
+  {
+    s: "How many times this session?",
+    c: "CONTROL",
+    fixture: "feedback-choosing",
+    why: "The accessible name of the occurrence radio group. Closed, never an integer field.",
+  },
+  {
+    s: "What went wrong",
+    c: "CONTROL",
+    fixture: "feedback-choosing",
+    why: "The accessible name of the diagnosis checkbox group — the terms that compose the report.",
+  },
+  {
+    s: "What let it happen",
+    c: "CONTROL",
+    fixture: "feedback-choosing",
+    why: "The accessible name of the contributing-condition group. Optional, and omitted from the report entirely when empty.",
+  },
+  {
+    s: "Show me exactly what you'd say",
+    c: "CONTROL",
+    fixture: "feedback-choosing",
+    why:
+      "#feedback-show-preview. Disabled until the selection can actually be assembled, " +
+      "because a control that appears and then refuses teaches him the surface is unreliable.",
+  },
+  {
+    s: "Yes, report that",
+    c: "CONTROL",
+    fixture: "feedback-previewing",
+    why: "#feedback-approve — and it is only reachable after the report has been rendered and read.",
+  },
+  {
+    s: "No, don't report that",
+    c: "CONTROL",
+    fixture: "feedback-previewing",
+    why: "#feedback-refuse. A declined report is not a report: the payload is dropped and nothing about it is recorded.",
+  },
+  {
+    s: "Taken down. It stays on this machine.",
+    c: "INFORMATIONAL",
+    fixture: "feedback-rated",
+    why: "A rating recorded with no offer made — a `3`, or a dismissal. States where it went, and promises nothing else.",
+  },
+  {
+    s: "Taken down, with no report attached.",
+    c: "INFORMATIONAL",
+    fixture: "feedback-declined-report",
+    why: "He was offered the chance to report and said no. Says what was kept, which is the rating and only the rating.",
+  },
+  {
+    s: "Taken down, word for word as you read it — and it stays on this machine.",
+    c: "INFORMATIONAL",
+    fixture: "feedback-approved",
+    why:
+      "An approved report. 'Word for word as you read it' is a checked claim rather than a " +
+      "reassurance: `feedback_record` re-renders the selection and refuses the write if it " +
+      "is not byte-identical to the block he was shown.",
+  },
+  {
+    s: "You approved this report:",
+    c: "INFORMATIONAL",
+    fixture: "feedback-approved",
+    why:
+      "The label over a stored approval's text, which is re-rendered from the stored payload " +
+      "rather than kept as a second free-text copy — the copy would have put an unvalidated " +
+      "string in the durable record, which is the channel this design exists to close.",
+  },
+  {
+    s: "You were offered a report and said no.",
+    c: "INFORMATIONAL",
+    fixture: "feedback-declined-report",
+    why:
+      "A stored `ReportDecision::Declined`. The offer having been made is part of what " +
+      "happened, and a row that showed only the rating would lose it.",
+  },
+
+  // -------------------------------------------------------------------------------------
   // UNREACHABLE / NOT-RENDERED
   // -------------------------------------------------------------------------------------
   {
@@ -754,6 +882,29 @@ module.exports = [
       "its party (\"whoever set RichOS up\") and offers no control, because there is none: " +
       "the environment variable it used to quote is now printed only at the boot `eprintln!`, " +
       "for the operator it names.",
+  },
+  {
+    s: "That isn't one of the four answers, so I haven't written anything down.",
+    c: "UNREACHABLE",
+    why:
+      "`FEEDBACK_KEY_NOT_ONE_OF_FOUR` — `PromptOutcome::from_key`'s `None`, said out loud. " +
+      "No path in the shipped UI reaches it: the only callers of `feedback_preview` and " +
+      "`feedback_record` are the four buttons `renderFeedbackKeys` builds from " +
+      "`feedback_wording.ratings` plus its `dismiss`, and each carries its own key. It is " +
+      "the guard for a caller that is not this file, and `feedback.js` check 9 invokes the " +
+      "command directly to prove it refuses rather than inventing a dismissal.",
+  },
+  {
+    s: "I won't record that. What you were shown isn't what I would say now, so approving it would be approving something you haven't read. Ask me to show it again.",
+    c: "UNREACHABLE",
+    why:
+      "`FEEDBACK_PREVIEW_MISMATCH`. In-process, 'he saw exactly this' is structural — " +
+      "`ApprovedReport` has no public constructor and the only route to one is " +
+      "`Disclosure::approve`, which cannot exist without having rendered its text. That does " +
+      "not survive an IPC boundary, so the command re-renders and compares. `main.js` holds " +
+      "the rendered block verbatim in `feedback.shown` and posts it back unmodified, so no " +
+      "path in the shipped UI produces a mismatch; `feedback.js` check 8 invokes the command " +
+      "with altered text to prove the guard is real rather than decorative.",
   },
   {
     s: "I couldn't read that audio file.",
