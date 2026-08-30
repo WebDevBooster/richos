@@ -10,7 +10,7 @@ mod events;
 
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
-use richos_core::config::{Assertiveness, ConfigStore, TechyMode};
+use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
 use richos_core::correction::{
     CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite, SharedCorrectionDesk,
     WriteOutput, EVENT_LORO_PROPOSED,
@@ -21,7 +21,7 @@ use richos_core::feedback::{
     FeedbackStore, Occurrences, PromptOutcome, Rating, ReportDecision, DISCLOSURE_HEADING,
     PROMPT_OPTIONS, PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
 };
-use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
+use richos_core::journal::{MachineryJournal, RawRetention};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::loro::{CliContextCompiler, SharedSliceProvenance, SliceProvenance};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
@@ -158,6 +158,14 @@ struct AppState {
     /// This is deliberately the minimum wiring needed to keep the shell honest in slice 1.
     /// The CEO-facing entity PICKER is slice 4 (`ui: build entity and thread navigation`).
     entity: Option<EntityId>,
+    /// `<app-data>/machinery` — the Tier-B store the retention setting governs.
+    ///
+    /// Held here as a PATH rather than reached through `spine.machinery_journal()`
+    /// deliberately: `send_message` holds the spine's mutex for the whole of a turn, so a
+    /// settings command that locked it would sit there until Rich finished talking. A
+    /// `MachineryJournal` is a path and nothing else, so building one per call costs
+    /// nothing and the gear popover answers while a turn is running.
+    machinery_root: PathBuf,
     /// Durable navigation view state (UX §3.1/§25: pin, rename, archive, rail width).
     /// Separate from `config` because it is view state, not a CEO preference about how
     /// Rich behaves — and separate from the ledger because it is not evidence (nav.rs).
@@ -416,6 +424,20 @@ fn main() {
             // the webview via Tauri events (see app/STREAMING.md for the contract).
             spine.set_observer(Box::new(TauriEmitter { app: app.handle().clone() }));
 
+            // Durable CEO preferences (company name, assertiveness dial, the raw-retention
+            // window) — same app data dir as the ledger, same durability posture, survives
+            // restart.
+            //
+            // OPENED HERE, ahead of the machinery block below, rather than where it used to
+            // sit fifty lines further down: boot eviction now reads its window out of this
+            // store (§7.2), and a store opened after the eviction it governs would leave the
+            // CEO's setting unread for exactly the one moment it matters.
+            let config_path = data_dir.join("config.json");
+            // ConfigStore::open never fails on a corrupt/missing file (it degrades to
+            // defaults internally — see config.rs) — expect() here only guards the
+            // genuinely-unexpected io error creating the parent dir.
+            let config = ConfigStore::open(&config_path).expect("open config store");
+
             // The MACHINERY journal + its live sink (techy-mode design §2.1). Its own
             // directory beside the ledger and config, per §2.1: NOT loro (it would poison
             // the context compiler) and NOT the conversation ledger (which replays whole
@@ -429,11 +451,14 @@ fn main() {
             // never look at — named as a cost, not hidden.
             let machinery_root = data_dir.join("machinery");
             let journal = MachineryJournal::new(&machinery_root);
-            // Tier-B eviction at boot (§2.4): raw payloads older than 14 days, then
-            // oldest-first until under 2 GB. Tier A — the normalized record — is never
-            // touched, so an evicted day still renders its structure, titles, statuses and
-            // paths. Boot is the right moment: it is off the streaming hot path entirely.
-            let evicted = journal.evict_raw(richos_core::util::now_millis(), RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES);
+            // Tier-B eviction at boot (§2.4), against THE CEO'S OWN WINDOW (§7.2) rather
+            // than against two constants. `raw_retention()` on an install that has never
+            // set it is `RAW_RETENTION_DAYS` / `RAW_MAX_TOTAL_BYTES` — the same 14 days and
+            // 2 GB this line passed before — so nothing about an existing machine changes.
+            // Tier A — the normalized record — is never touched at ANY setting, so an
+            // evicted day still renders its structure, titles, statuses and paths. Boot is
+            // the right moment: it is off the streaming hot path entirely.
+            let evicted = journal.evict_raw_within(richos_core::util::now_millis(), config.raw_retention());
             if evicted > 0 {
                 eprintln!("[richos] machinery: evicted {evicted} raw shard(s) past the retention window");
             }
@@ -509,14 +534,6 @@ fn main() {
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             spine.set_lease_factory(Box::new(EngineLeaseFactory { acp_bin, engine_dir: engine }));
-
-            // Durable CEO preferences (company name, assertiveness dial) — same app data
-            // dir as the ledger, same durability posture, survives restart.
-            let config_path = data_dir.join("config.json");
-            // ConfigStore::open never fails on a corrupt/missing file (it degrades to
-            // defaults internally — see config.rs) — expect() here only guards the
-            // genuinely-unexpected io error creating the parent dir.
-            let config = ConfigStore::open(&config_path).expect("open config store");
 
             // Left-navigation view state — same app data dir, same durability posture as
             // the ledger and config, and never fatal: a corrupt file degrades to defaults
@@ -698,6 +715,7 @@ fn main() {
                 spine: Mutex::new(spine),
                 lease_ready,
                 config: Mutex::new(config),
+                machinery_root,
                 entity: boot_entity,
                 nav: Mutex::new(nav_store),
                 control,
@@ -781,6 +799,9 @@ fn main() {
             techy_mode,
             set_techy_mode,
             set_techy_default,
+            // --- the raw-retention window as a setting (2026-08-30) — appended, never reordered ---
+            raw_retention,
+            set_raw_retention,
             // --- the opening screen and its off switch (2026-08-30) — appended, never reordered ---
             splash_enabled,
             set_splash_enabled,
@@ -2540,6 +2561,83 @@ fn set_techy_default(state: State<AppState>, enabled: bool) -> Result<bool, Stri
     let mut config = state.config.lock().unwrap();
     config.set_techy_default(enabled).map_err(|e| e.to_string())?;
     Ok(config.techy_default())
+}
+
+// ---------------------------------------------------------------------------------------
+// THE RAW-RETENTION WINDOW AS A SETTING (design §7.2 — open-items 1.4).
+//
+// §7.2 IS THE CEO'S QUESTION AND IS NOT ANSWERED HERE. These two commands answer a
+// different one: what does each of HIS possible answers cost? Until they existed, "14 days"
+// was two `const`s and "forever" was a developer, and a question whose status quo is the
+// only free answer is not really open. Now all three cost a click.
+//
+// EVICTION IS AN `unlink` AND NOTHING ANNOUNCES IT, which is the whole reason `set_` below
+// applies the new window IMMEDIATELY and returns what it removed. Boot-only eviction would
+// make a tightened window look like it did nothing, and then delete at some later launch he
+// would never connect to the click. Immediate + counted turns a silent delayed delete into a
+// visible present one. Tier A is untouched at every setting, so what is being counted is
+// stored OUTPUT, never a record.
+// ---------------------------------------------------------------------------------------
+
+/// The window, as the surface needs to show it: the menu entry it is (or `custom`), both
+/// axes verbatim, and what the store currently costs on disk.
+///
+/// `retained_bytes` is not decoration. "Keep everything" is only a real choice if the person
+/// making it can see what it costs, and `raw_bytes()` answers that off directory metadata
+/// without parsing a byte of anyone's terminal output.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RetentionView {
+    /// `two-weeks` | `three-months` | `forever` | `custom`.
+    choice: &'static str,
+    /// Days, or the string `"forever"`.
+    age_days: richos_core::journal::RetentionLimit,
+    /// Bytes, or the string `"forever"`.
+    total_bytes: richos_core::journal::RetentionLimit,
+    /// Raw payload bytes currently on disk, install-wide.
+    retained_bytes: u64,
+    /// Raw day-shards removed by the call that produced this view. Always 0 for a read.
+    evicted: usize,
+}
+
+impl RetentionView {
+    fn of(retention: RawRetention, choice: RetentionChoice, retained_bytes: u64, evicted: usize) -> Self {
+        RetentionView {
+            choice: choice.as_str(),
+            age_days: retention.age_days,
+            total_bytes: retention.total_bytes,
+            retained_bytes,
+            evicted,
+        }
+    }
+}
+
+/// What the window is set to right now, and what it currently costs.
+#[tauri::command]
+fn raw_retention(state: State<AppState>) -> RetentionView {
+    let config = state.config.lock().unwrap();
+    let bytes = MachineryJournal::new(&state.machinery_root).raw_bytes();
+    RetentionView::of(config.raw_retention(), config.retention_choice(), bytes, 0)
+}
+
+/// Set the window from one of the three named choices, and apply it now.
+///
+/// An unrecognized choice — including `custom`, which is a description of the file and never
+/// an instruction — is REFUSED rather than rounded to something plausible. Nothing is
+/// written and nothing is evicted: the failure mode of a bad argument to a command that
+/// deletes has to be "did nothing".
+#[tauri::command]
+fn set_raw_retention(state: State<AppState>, choice: String) -> Result<RetentionView, String> {
+    let Some(choice) = RetentionChoice::parse(&choice) else {
+        return Err(format!("unknown retention choice: {choice}"));
+    };
+    let mut config = state.config.lock().unwrap();
+    config.set_retention_choice(choice).map_err(|e| e.to_string())?;
+    let retention = config.raw_retention();
+    // Applied at the moment of the click, not at the next boot — see the block comment.
+    let journal = MachineryJournal::new(&state.machinery_root);
+    let evicted = journal.evict_raw_within(richos_core::util::now_millis(), retention);
+    Ok(RetentionView::of(retention, config.retention_choice(), journal.raw_bytes(), evicted))
 }
 
 // ---------------------------------------------------------------------------------------

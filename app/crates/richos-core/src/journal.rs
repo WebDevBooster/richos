@@ -14,6 +14,15 @@
 //! the CEO **already had**. (The toggle itself is not built here — §5 Phase 1 minus the
 //! renderer; see the commit message.)
 //!
+//! ## §7.2 IS THE CEO'S QUESTION AND IS NOT ANSWERED HERE
+//! *"How long do raw payloads survive?"* is open (open-items 1.4). What changed on
+//! 2026-08-30 is only the COST of each answer: the window is [`RawRetention`], a value in
+//! the config store beside the assertiveness dial and the techy toggle, and "14 days",
+//! "90 days" and "forever" are now the same kind of act — a click — rather than one
+//! default and two code changes. The shipping default is still [`RAW_RETENTION_DAYS`] /
+//! [`RAW_MAX_TOTAL_BYTES`], byte for byte, and an install with no `raw_retention` key
+//! behaves exactly as it did before the type existed.
+//!
 //! ## Durability posture: deliberately weaker than the ledger (§2.2)
 //! Append + `flush`, **no `fsync`**. `ledger.rs:363-374` fsyncs crash-critical events
 //! because losing a CEO word is unacceptable. Losing the last few machinery lines in a
@@ -76,11 +85,199 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 /// §2.4 / §7.2: the raw payload window. 14 days OR 2 GB per install, whichever binds first.
+///
+/// **Still the SHIPPING DEFAULT, and no longer the only reachable answer.** These two are
+/// what [`RawRetention::default`] is made of, and that default is what an install with no
+/// `raw_retention` key in its config gets — so the behaviour on every existing machine is
+/// byte-for-byte what it was. What changed is that the OTHER answers to §7.2 are now values
+/// rather than edits: see [`RawRetention`].
 pub const RAW_RETENTION_DAYS: u64 = 14;
 /// 2 GiB.
 pub const RAW_MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 const MILLIS_PER_DAY: u64 = 86_400_000;
+
+/// The token a "no limit" axis serializes as, in the config file and on the wire. Named
+/// once so the Rust, the JSON on disk and the UI cannot drift into three spellings.
+pub const FOREVER: &str = "forever";
+
+// ===========================================================================================
+// THE RAW WINDOW AS A VALUE (§7.2 — the CEO's open question, made answerable without a
+// developer)
+//
+// §7.2 is *"how long do raw payloads survive?"* and it is HIS to answer. Until this type
+// existed one of his possible answers — 14 days — was two `const`s and every other answer
+// was a code change, which is not a neutral way to leave a question open: it quietly argues
+// for the status quo. The point of this type is that "14 days", "90 days" and "forever" now
+// cost exactly the same thing, which is a click.
+//
+// WHY "FOREVER" IS A VARIANT AND NOT A BIG NUMBER. `u64::MAX` as a sentinel would be a fact
+// someone has to remember, and it is worse than that here: the old body computed
+// `max_age_days * MILLIS_PER_DAY`, which for `u64::MAX` PANICS in a debug build and wraps in
+// release — wrapping to a cutoff far in the future, i.e. to "delete everything". The one
+// sentinel a person would reach for first is the one that deletes his record. So it is a
+// variant, the multiply is saturating, and neither of those is decoration.
+//
+// TWO AXES, NOT ONE, AND NEITHER SUBSUMES THE OTHER. A day window bounds how far BACK the
+// raw output goes; a byte ceiling bounds how much DISK it may cost. A quiet fortnight is 30
+// MB and a loud one can be 20 GB, so the ceiling is the only thing standing between §2.4 and
+// a full disk, and the window is the only thing that expresses "I do not want last quarter's
+// terminal output on this machine". Each axis is therefore its own [`RetentionLimit`] — and
+// "forever" is only honest when BOTH of them say it, which is why [`RawRetention::FOREVER`]
+// exists as one named value rather than as an instruction to set two fields correctly.
+// ===========================================================================================
+
+/// One axis of the raw window. `Forever` is a VARIANT, never a magic number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetentionLimit {
+    /// No limit on this axis. Nothing is ever evicted on account of it.
+    Forever,
+    /// A finite limit — days on the age axis, bytes on the size axis.
+    ///
+    /// `Of(0)` is a real, honoured instruction ("keep nothing older than today", "keep no
+    /// bytes"), not a sentinel and not an error. It is reachable only by writing it into
+    /// the config file deliberately: no surface offers it, and no unreadable value ever
+    /// BECOMES it — see [`RetentionLimit::from_json`], where every unreadable value becomes
+    /// `Forever` instead.
+    Of(u64),
+}
+
+impl RetentionLimit {
+    pub fn is_forever(&self) -> bool {
+        matches!(self, RetentionLimit::Forever)
+    }
+
+    /// The finite value, or `None` for `Forever`.
+    pub fn value(&self) -> Option<u64> {
+        match self {
+            RetentionLimit::Forever => None,
+            RetentionLimit::Of(n) => Some(*n),
+        }
+    }
+
+    /// Read one axis out of arbitrary JSON, **without ever failing**, and biased in every
+    /// unreadable case toward KEEPING.
+    ///
+    /// This asymmetry is the whole safety argument of the setting. Eviction is an `unlink`:
+    /// a retention value misread as a small number destroys the CEO's stored output and
+    /// nothing announces it, while a retention value misread as "forever" costs disk he can
+    /// reclaim by clicking the setting he was trying to set anyway. One failure mode is
+    /// recoverable and the other is not, so `"fourteen"`, `-1`, `1.5`, `null`, `true` and
+    /// `[]` all read as `Forever` rather than as anything that deletes.
+    pub fn from_json(v: &Value) -> Self {
+        match v {
+            Value::String(s) if s.trim().eq_ignore_ascii_case(FOREVER) => RetentionLimit::Forever,
+            // `as_u64` is `None` for a negative or fractional number — neither of which is a
+            // limit anybody wrote on purpose, and both of which would otherwise have to be
+            // clamped to SOMETHING. Clamping toward zero deletes; this does not.
+            Value::Number(n) => n.as_u64().map(RetentionLimit::Of).unwrap_or(RetentionLimit::Forever),
+            _ => RetentionLimit::Forever,
+        }
+    }
+}
+
+impl Serialize for RetentionLimit {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            RetentionLimit::Forever => s.serialize_str(FOREVER),
+            RetentionLimit::Of(n) => s.serialize_u64(*n),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for RetentionLimit {
+    /// Hand-written rather than derived, for one reason: a derived impl ERRORS on a value it
+    /// does not recognize, and a serde error inside `config.json` fails the whole file, which
+    /// degrades EVERY preference to its default — including this one, back to 14 days, back
+    /// to deleting. Going through `Value` first means any well-formed JSON produces an
+    /// answer, and [`RetentionLimit::from_json`] makes that answer `Forever`.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(RetentionLimit::from_json(&Value::deserialize(d)?))
+    }
+}
+
+/// The raw-payload window, both axes. §2.4's *"whichever binds first"*, as a value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RawRetention {
+    /// How far back the raw output goes.
+    pub age_days: RetentionLimit,
+    /// How much disk it may cost, install-wide.
+    pub total_bytes: RetentionLimit,
+}
+
+impl RawRetention {
+    /// Keep everything. **Both** axes — a "forever" that left the byte ceiling in place
+    /// would still delete his oldest output the day the install crossed 2 GB, which is not
+    /// what the word means.
+    pub const FOREVER: RawRetention = RawRetention {
+        age_days: RetentionLimit::Forever,
+        total_bytes: RetentionLimit::Forever,
+    };
+
+    pub fn of(age_days: u64, total_bytes: u64) -> Self {
+        RawRetention {
+            age_days: RetentionLimit::Of(age_days),
+            total_bytes: RetentionLimit::Of(total_bytes),
+        }
+    }
+
+    /// True only when NEITHER axis can evict.
+    pub fn is_forever(&self) -> bool {
+        self.age_days.is_forever() && self.total_bytes.is_forever()
+    }
+
+    /// Read the whole setting out of arbitrary JSON, without ever failing.
+    ///
+    /// Three shapes are understood, and everything else keeps data:
+    ///
+    /// - an object — `{"age_days": 14, "total_bytes": 2147483648}`. Both `snake_case` (what
+    ///   this writes, matching the rest of `config.json`) and `camelCase` (what someone
+    ///   copying the wire shape would type) are accepted, because a key spelling that misses
+    ///   is a key that silently changes his retention.
+    /// - the bare string `"forever"`, so the shortest thing a person is likely to type by
+    ///   hand means what they meant.
+    /// - anything else — a number, `null`, a list, a typo — is not a window anyone wrote on
+    ///   purpose, and becomes [`Self::FOREVER`] rather than something that deletes.
+    ///
+    /// **An axis ABSENT from a present object is `Forever`, not the shipping default.** The
+    /// absent-whole-key case is what carries the shipping default (`#[serde(default)]` in
+    /// `config.rs`); once the object is there, `{"age_days": "forever"}` has to mean forever
+    /// on the axis it names and no eviction on the one it does not, or "forever" would still
+    /// quietly delete at 2 GB.
+    pub fn from_json(v: &Value) -> Self {
+        let Value::Object(map) = v else { return RawRetention::FOREVER };
+        let axis = |snake: &str, camel: &str| {
+            map.get(snake)
+                .or_else(|| map.get(camel))
+                .map(RetentionLimit::from_json)
+                .unwrap_or(RetentionLimit::Forever)
+        };
+        RawRetention {
+            age_days: axis("age_days", "ageDays"),
+            total_bytes: axis("total_bytes", "totalBytes"),
+        }
+    }
+}
+
+impl Default for RawRetention {
+    /// **The shipping default, and today's behaviour exactly**: [`RAW_RETENTION_DAYS`] and
+    /// [`RAW_MAX_TOTAL_BYTES`], the same two constants `evict_raw` was called with before
+    /// this type existed.
+    fn default() -> Self {
+        RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES)
+    }
+}
+
+impl<'de> Deserialize<'de> for RawRetention {
+    /// Hand-written for the same reason [`RetentionLimit`]'s is: a `raw_retention` key that
+    /// is not the shape this expects must not fail the parse of `config.json` and take every
+    /// other preference down with it — and must not, on the way, hand this one back to a
+    /// default that deletes.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(RawRetention::from_json(&Value::deserialize(d)?))
+    }
+}
 
 /// WHY THERE IS NOTHING HERE — the four answers, kept apart on purpose.
 ///
@@ -367,19 +564,48 @@ impl MachineryJournal {
     /// Every step is an `unlink` of a `*.raw.jsonl` sibling — Tier A is never touched, so
     /// an evicted day still renders its structure, titles, statuses, paths and summaries.
     /// Returns the number of raw shards removed.
+    ///
+    /// **The two-`u64` form, kept.** It is now a thin call into
+    /// [`Self::evict_raw_within`], deliberately: the tests that pinned this function's
+    /// behaviour before the window became a setting still call it, unchanged, with
+    /// [`RAW_RETENTION_DAYS`] and [`RAW_MAX_TOTAL_BYTES`] — so they now prove that the
+    /// shipping default runs the NEW path to the OLD answer, which is a stronger claim
+    /// than any assertion I could write about it.
     pub fn evict_raw(&self, now_ms: u64, max_age_days: u64, max_total_bytes: u64) -> usize {
+        self.evict_raw_within(now_ms, RawRetention::of(max_age_days, max_total_bytes))
+    }
+
+    /// Tier-B eviction against the CEO's configured window ([`RawRetention`]).
+    ///
+    /// `RetentionLimit::Forever` on an axis means that axis evicts NOTHING — it is not a
+    /// large number, and there is no arithmetic anywhere in this function that a large
+    /// number would have to survive. The one multiplication left is saturating, so even a
+    /// hand-written `{"age_days": 18446744073709551615}` produces a cutoff of `1970-01-01`
+    /// (which no shard sorts before) instead of the debug-build panic / release-build wrap
+    /// to "delete everything" that `days * MILLIS_PER_DAY` used to give.
+    pub fn evict_raw_within(&self, now_ms: u64, retention: RawRetention) -> usize {
         let mut shards = self.raw_shards();
         if shards.is_empty() {
             return 0;
         }
-        let cutoff = day_shard(now_ms.saturating_sub(max_age_days * MILLIS_PER_DAY));
-        let mut removed = 0usize;
         // Oldest first — the day string sorts chronologically.
         shards.sort_by(|a, b| a.0.cmp(&b.0));
 
+        let cutoff = match retention.age_days {
+            RetentionLimit::Forever => None,
+            RetentionLimit::Of(days) => {
+                Some(day_shard(now_ms.saturating_sub(days.saturating_mul(MILLIS_PER_DAY))))
+            }
+        };
+
+        let mut removed = 0usize;
         let mut kept: Vec<(String, PathBuf, u64)> = Vec::new();
         for (day, path, size) in shards {
-            if day < cutoff {
+            let too_old = match &cutoff {
+                Some(c) => &day < c,
+                None => false,
+            };
+            if too_old {
                 if std::fs::remove_file(&path).is_ok() {
                     removed += 1;
                 }
@@ -388,6 +614,9 @@ impl MachineryJournal {
             }
         }
 
+        let RetentionLimit::Of(max_total_bytes) = retention.total_bytes else {
+            return removed;
+        };
         let mut total: u64 = kept.iter().map(|k| k.2).sum();
         let mut i = 0;
         while total > max_total_bytes && i < kept.len() {
@@ -773,6 +1002,194 @@ mod tests {
         assert!(j.raw_bytes() < before);
         assert_eq!(j.read_thread("thr_a").len(), 2, "every Tier-A record still there");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ---- §7.2: the window as a SETTING -------------------------------------------------
+
+    /// A journal with raw payloads on six known days, `day 0` being the oldest. Returns the
+    /// root and the "now" that makes the newest shard today, so every test below can speak
+    /// in ages rather than in epochs.
+    fn aged_journal(days: &[u64]) -> (PathBuf, MachineryJournal, u64) {
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        let newest = 1_756_425_600_000; // 2025-08-29, the day the other tests use
+        for (i, age) in days.iter().enumerate() {
+            let at = newest - age * MILLIS_PER_DAY;
+            j.append(&rec("thr_a", Some("t"), i as u64, at, 100)).unwrap();
+        }
+        (root.clone(), MachineryJournal::new(&root), newest)
+    }
+
+    /// How many day shards still carry their raw payload, and how many records still render.
+    fn survivors(root: &Path, j: &MachineryJournal) -> (usize, usize) {
+        let raw = std::fs::read_dir(root.join("thr_a"))
+            .map(|d| {
+                d.filter_map(|e| e.ok())
+                    .filter(|e| e.file_name().to_string_lossy().ends_with(".raw.jsonl"))
+                    .count()
+            })
+            .unwrap_or(0);
+        let with_payload = j.read_thread("thr_a").iter().filter(|r| r.payload.is_some()).count();
+        (raw, with_payload)
+    }
+
+    #[test]
+    fn the_shipping_default_is_exactly_the_two_constants_it_replaced() {
+        // The claim the whole change stands on: an install with no `raw_retention` key
+        // behaves as it did yesterday. Proven by running BOTH forms over two identical
+        // journals and comparing what survived, not by asserting that the code looks the
+        // same. (The rest of this file's eviction tests still call the two-`u64` form with
+        // the constants, so they now exercise the new path to the old answer.)
+        assert_eq!(RawRetention::default(), RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES));
+
+        let ages = [40, 20, 15, 13, 1, 0];
+        let (root_a, ja, now) = aged_journal(&ages);
+        let (root_b, jb, _) = aged_journal(&ages);
+        let old_way = ja.evict_raw(now, RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES);
+        let new_way = jb.evict_raw_within(now, RawRetention::default());
+        assert_eq!(old_way, new_way, "the same number of shards removed");
+        assert_eq!(survivors(&root_a, &ja), survivors(&root_b, &jb), "and the same ones left");
+        assert_eq!(old_way, 3, "40, 20 and 15 days old are past a 14-day window; 13, 1 and 0 are not");
+        let _ = std::fs::remove_dir_all(&root_a);
+        let _ = std::fs::remove_dir_all(&root_b);
+    }
+
+    #[test]
+    fn the_survival_counts_at_four_windows() {
+        // THE OBSERVABLE CRITERION, in one test: the same journal — raw payloads on six
+        // known days — evicted at four different settings, reported as counts.
+        //
+        // Tier A is never touched by any of them, which is the sentence under every row:
+        // the record still renders at every setting; only the stored output goes.
+        let ages = [40, 20, 15, 13, 1, 0];
+        let mut table = Vec::new();
+        for (label, retention, expect_raw) in [
+            ("forever", RawRetention::FOREVER, 6usize),
+            ("90 days", RawRetention::of(90, RAW_MAX_TOTAL_BYTES), 6),
+            ("14 days (the shipping default)", RawRetention::default(), 3),
+            ("0 days", RawRetention::of(0, RAW_MAX_TOTAL_BYTES), 1),
+        ] {
+            let (root, j, now) = aged_journal(&ages);
+            let records_before = j.read_thread("thr_a").len();
+            let removed = j.evict_raw_within(now, retention);
+            let (raw_shards, with_payload) = survivors(&root, &j);
+            assert_eq!(records_before, 6, "six records went in");
+            assert_eq!(j.read_thread("thr_a").len(), 6, "and six still render at {label}");
+            assert_eq!(raw_shards, expect_raw, "raw shards surviving at {label}");
+            assert_eq!(with_payload, expect_raw, "and each surviving shard re-attaches its payload");
+            assert_eq!(removed, 6 - expect_raw, "removed count agrees with what is gone at {label}");
+            table.push(format!("{label:>30}: {raw_shards}/6 raw shards kept, 6/6 records still render"));
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        // Printed so the numbers in the handoff are the numbers the test produced.
+        for row in &table {
+            println!("{row}");
+        }
+    }
+
+    #[test]
+    fn forever_evicts_nothing_on_either_axis_including_a_journal_over_the_old_ceiling() {
+        // "Forever" that left the 2 GB ceiling in place would still delete his oldest
+        // output the day the install crossed it, which is not what the word means. Proven
+        // with a tiny ceiling standing in for 2 GB: under `FOREVER` there is no ceiling at
+        // all, so nothing goes even though the journal is far over the one it replaced.
+        let (root, j, now) = aged_journal(&[400, 200, 100, 3, 0]);
+        assert!(j.raw_bytes() > 100, "the fixture is over the stand-in ceiling");
+        assert_eq!(j.evict_raw_within(now, RawRetention::FOREVER), 0, "nothing, at any age");
+        assert_eq!(survivors(&root, &j), (5, 5));
+        // ...and the axes really are independent: a forever AGE with a finite ceiling still
+        // evicts by size, oldest first.
+        let size_capped = RawRetention { age_days: RetentionLimit::Forever, total_bytes: RetentionLimit::Of(100) };
+        assert!(j.evict_raw_within(now, size_capped) >= 1, "the ceiling binds on its own");
+        assert_eq!(j.read_thread("thr_a").len(), 5, "and Tier A is untouched by it");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn zero_days_is_an_honoured_instruction_and_keeps_today() {
+        // The bottom of the dial. `Of(0)` is reachable only by writing it into the file on
+        // purpose — no unreadable value becomes it (the test below) and no surface offers
+        // it — and when it IS written it means what it says: nothing older than today.
+        let (root, j, now) = aged_journal(&[2, 1, 0]);
+        assert_eq!(j.evict_raw_within(now, RawRetention::of(0, RAW_MAX_TOTAL_BYTES)), 2);
+        assert_eq!(survivors(&root, &j), (1, 1), "today's shard survives a zero-day window");
+        assert_eq!(j.read_thread("thr_a").len(), 3, "and all three records still render");
+        // A zero BYTE ceiling is the other end of the same instruction, and it is the one
+        // that empties the store — still without touching a single Tier-A record.
+        assert_eq!(j.evict_raw_within(now, RawRetention::of(0, 0)), 1);
+        assert_eq!(survivors(&root, &j), (0, 0));
+        assert_eq!(j.read_thread("thr_a").len(), 3, "three records, no payloads");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_window_too_large_to_multiply_keeps_everything_instead_of_wrapping_to_delete_everything() {
+        // The sentinel hazard, run rather than argued. `u64::MAX` is the first thing anyone
+        // reaches for to mean "forever", and the old body's `max_age_days * MILLIS_PER_DAY`
+        // panics on it in a debug build and wraps in release — wrapping to a cutoff far in
+        // the FUTURE, i.e. to deleting the lot. Saturating, it becomes 1970-01-01, which no
+        // shard sorts before.
+        let (root, j, now) = aged_journal(&[900, 30, 0]);
+        assert_eq!(j.evict_raw_within(now, RawRetention::of(u64::MAX, u64::MAX)), 0);
+        assert_eq!(survivors(&root, &j), (3, 3));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_unreadable_window_keeps_data_and_never_becomes_a_number_that_deletes() {
+        // THE FAILURE MODE THAT MATTERS. Eviction is an `unlink` and nothing announces it,
+        // so every value this cannot read has to mean KEEP. A wrong "forever" costs disk he
+        // can reclaim by clicking the setting; a wrong "0" costs a record that is gone.
+        for bad in [
+            json!("fourteen"),
+            json!("14 days"),
+            json!(-1),
+            json!(1.5),
+            json!(null),
+            json!(true),
+            json!([14]),
+            json!({"days": 14}),
+        ] {
+            assert_eq!(RetentionLimit::from_json(&bad), RetentionLimit::Forever, "{bad}");
+        }
+        // The whole-setting shapes, same rule.
+        assert_eq!(RawRetention::from_json(&json!("forever")), RawRetention::FOREVER);
+        assert_eq!(RawRetention::from_json(&json!("FOREVER ")), RawRetention::FOREVER, "trimmed, case-insensitive");
+        assert_eq!(RawRetention::from_json(&json!(14)), RawRetention::FOREVER, "a bare number is not a window");
+        assert_eq!(RawRetention::from_json(&json!(null)), RawRetention::FOREVER);
+        assert_eq!(RawRetention::from_json(&json!({"age_days": "nope", "total_bytes": "nope"})), RawRetention::FOREVER);
+        // An axis PRESENT and readable is honoured; an axis absent from a present object is
+        // forever, not the shipping default — otherwise "forever" would still delete at 2 GB.
+        assert_eq!(
+            RawRetention::from_json(&json!({"age_days": 30})),
+            RawRetention { age_days: RetentionLimit::Of(30), total_bytes: RetentionLimit::Forever }
+        );
+        assert_eq!(
+            RawRetention::from_json(&json!({"ageDays": 30, "totalBytes": 99})),
+            RawRetention::of(30, 99),
+            "camelCase is accepted too — a key spelling that misses is a silent retention change"
+        );
+        // And the one that actually deletes is only reachable by writing it.
+        assert_eq!(RawRetention::from_json(&json!({"age_days": 0, "total_bytes": 0})), RawRetention::of(0, 0));
+    }
+
+    #[test]
+    fn the_window_round_trips_through_json_in_both_shapes() {
+        // What lands in `config.json`, read back. `forever` is a token, not a number, so a
+        // human editing the file by hand sees a word rather than a sentinel to decode.
+        let text = serde_json::to_string(&RawRetention::FOREVER).unwrap();
+        assert_eq!(text, r#"{"age_days":"forever","total_bytes":"forever"}"#);
+        assert_eq!(serde_json::from_str::<RawRetention>(&text).unwrap(), RawRetention::FOREVER);
+
+        let text = serde_json::to_string(&RawRetention::default()).unwrap();
+        assert_eq!(text, r#"{"age_days":14,"total_bytes":2147483648}"#);
+        assert_eq!(serde_json::from_str::<RawRetention>(&text).unwrap(), RawRetention::default());
+        assert!(!RawRetention::default().is_forever());
+        assert!(RawRetention::FOREVER.is_forever());
+        assert!(!RawRetention { age_days: RetentionLimit::Forever, total_bytes: RetentionLimit::Of(1) }.is_forever(),
+            "a ceiling that can still evict is not forever");
+        assert_eq!(RetentionLimit::Of(14).value(), Some(14));
+        assert_eq!(RetentionLimit::Forever.value(), None);
     }
 
     #[test]

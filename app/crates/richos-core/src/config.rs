@@ -21,6 +21,10 @@
 //!     (`richos-hq/docs/plans/richos-techy-mode-2026-08-26.md` §3.1). Rendering only:
 //!     routing and retention run ALWAYS (§3.2), which is the only reason "turn the
 //!     technical view on for a conversation I already had" is possible at all.
+//!   - `raw_retention` — how long the stored output of that technical view survives
+//!     (§7.2). It is here for the same reason as everything above it: a mutable
+//!     point-in-time preference about how the product behaves toward him. It was two
+//!     `const`s in `journal.rs` until 2026-08-30; see the §7.2 note below.
 //!
 //! WHY THE SWITCH IS NOT OPTIONAL, stated where the field is rather than in a design
 //! doc nobody reads at the call site: the splash's failure mode is SILENT. Nobody
@@ -46,7 +50,18 @@
 //! setter ([`ConfigStore::clear_techy_thread`]) exists for that reason and for no other —
 //! without it a thread could never be handed BACK to the default once pinned, which
 //! would quietly settle §7.1 in favour of per-thread.
+//!
+//! ## §7.2 IS ALSO THE CEO'S QUESTION AND IS ALSO NOT ANSWERED HERE
+//! *"How long do raw payloads survive?"* is open (open-items 1.4), and this file does not
+//! decide it. It removes the reason the question was not neutral: "14 days" was
+//! `RAW_RETENTION_DAYS` in `journal.rs` and "forever" was a developer's edit, so the
+//! status quo was the only answer that cost nothing. Now every answer costs a click, the
+//! shipping default reproduces yesterday's behaviour exactly, and [`RetentionChoice`]
+//! carries a `Custom` arm precisely so that a value nobody put on a menu is still a value
+//! the store can hold and the surface can report honestly rather than round to the nearest
+//! button.
 
+use crate::journal::{RawRetention, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -131,6 +146,13 @@ struct StoredConfig {
     /// serializes in a stable order and a diff of `config.json` is readable.
     #[serde(default)]
     techy_threads: BTreeMap<String, bool>,
+    /// §7.2: how long the raw output survives. **The absent key is what carries the
+    /// shipping default** — `RawRetention::default()` is `RAW_RETENTION_DAYS` /
+    /// `RAW_MAX_TOTAL_BYTES`, so every config file already on disk keeps behaving exactly
+    /// as it did. A key that is PRESENT and unreadable is a different case and keeps
+    /// everything instead (`RawRetention::from_json`).
+    #[serde(default)]
+    raw_retention: RawRetention,
 }
 
 impl Default for StoredConfig {
@@ -143,6 +165,7 @@ impl Default for StoredConfig {
             splash_disabled_at: None,
             techy_default: false,
             techy_threads: BTreeMap::new(),
+            raw_retention: RawRetention::default(),
         }
     }
 }
@@ -184,6 +207,89 @@ pub struct TechyMode {
     pub default: bool,
 }
 
+/// THE THREE ANSWERS ON THE MENU, plus the honest fourth.
+///
+/// §7.2's own options, in his words: *"14 days or 2 GB, whichever binds first"*, or
+/// *"forever"* — *"~3-4 GB/year on his own disk and a perfectly reasonable choice, it is
+/// his machine"*. Those are the two ends; `ThreeMonths` is the middle one, because a dial
+/// whose only positions are a fortnight and eternity is not a dial.
+///
+/// **WHY THE MENU IS THREE NAMES AND NOT TWO NUMBER FIELDS.** The setting has two axes —
+/// days and bytes — and asking a CEO to reason about "90 days OR 2 GB, whichever binds
+/// first" is asking him to hold the implementation in his head to predict what he will
+/// still be able to look at. A named choice hides the arithmetic and the SURFACE states
+/// the consequence in a sentence. The axes are still both there, still independent, and
+/// still separately settable by anyone who edits `config.json`.
+///
+/// **AND WHY `Custom` EXISTS.** A hand-edited file can hold a window no button on the menu
+/// produces. Rounding that to the nearest named choice would misreport his setting on the
+/// screen that is supposed to tell him what it is, and — worse — the first click on any
+/// other control would write the rounded value back. So a window that is not one of the
+/// three reports as itself, and the surface shows no selection rather than a wrong one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetentionChoice {
+    /// 14 days or 2 GB, whichever binds first. **The shipping default** — today's
+    /// behaviour, and the one an install with no `raw_retention` key already has.
+    TwoWeeks,
+    /// 90 days, same 2 GB ceiling. The ceiling is deliberately NOT raised with the window:
+    /// it is the only thing between §2.4 and a full disk, and the surface says plainly
+    /// which of the two will bind.
+    ThreeMonths,
+    /// Nothing is ever evicted, on either axis.
+    Forever,
+    /// A window that is in the file and on no menu. Reported, never written by a click.
+    Custom,
+}
+
+/// 90 days. Named here rather than inline so the value the menu produces and the value the
+/// menu recognizes cannot drift apart — they are the same constant read twice.
+pub const THREE_MONTHS_DAYS: u64 = 90;
+
+impl RetentionChoice {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RetentionChoice::TwoWeeks => "two-weeks",
+            RetentionChoice::ThreeMonths => "three-months",
+            RetentionChoice::Forever => "forever",
+            RetentionChoice::Custom => "custom",
+        }
+    }
+
+    /// Parse a wire value. `"custom"` is deliberately NOT parseable: it is a description of
+    /// what is in the file, never an instruction, and a settable `custom` would be a
+    /// command with no argument.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "two-weeks" => Some(RetentionChoice::TwoWeeks),
+            "three-months" => Some(RetentionChoice::ThreeMonths),
+            "forever" => Some(RetentionChoice::Forever),
+            _ => None,
+        }
+    }
+
+    /// The window this choice means, or `None` for `Custom`.
+    pub fn retention(&self) -> Option<RawRetention> {
+        match self {
+            RetentionChoice::TwoWeeks => Some(RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES)),
+            RetentionChoice::ThreeMonths => Some(RawRetention::of(THREE_MONTHS_DAYS, RAW_MAX_TOTAL_BYTES)),
+            RetentionChoice::Forever => Some(RawRetention::FOREVER),
+            RetentionChoice::Custom => None,
+        }
+    }
+
+    /// Which menu entry, if any, a stored window IS. Derived by comparing against what each
+    /// entry produces, so the two directions can never disagree.
+    pub fn of(retention: &RawRetention) -> Self {
+        for c in [RetentionChoice::TwoWeeks, RetentionChoice::ThreeMonths, RetentionChoice::Forever] {
+            if c.retention().as_ref() == Some(retention) {
+                return c;
+            }
+        }
+        RetentionChoice::Custom
+    }
+}
+
 /// A small JSON-file-backed config store. Read once at open, written eagerly (whole-file
 /// rewrite) on every set — the file is tiny, so this stays simple and crash-safe-enough
 /// (a torn write here loses at most the CEO's last preference toggle, not a message).
@@ -198,10 +304,20 @@ impl ConfigStore {
     /// a preference layer, never a reason "talk to Rich" can't start.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let config = fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let config = match fs::read_to_string(&path) {
+            // No file: a fresh install. Every default applies, `raw_retention` included —
+            // which is the shipping window and nothing new.
+            Err(_) => StoredConfig::default(),
+            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| StoredConfig {
+                // A file that EXISTS and will not parse is NOT a fresh install, and the one
+                // preference in here that DELETES must not be reconstructed from a guess.
+                // Every other field degrading to its default costs a preference; this one
+                // degrading to 14 days costs records, silently, at the next boot. So the
+                // corrupt-file path keeps everything and the CEO can set it again.
+                raw_retention: RawRetention::FOREVER,
+                ..StoredConfig::default()
+            }),
+        };
         Ok(ConfigStore { path, config })
     }
 
@@ -347,6 +463,38 @@ impl ConfigStore {
         }
     }
 
+    // ---- the raw-payload window (design §7.2) --------------------------------------
+
+    /// How long the technical view's stored output survives. The shipping default on an
+    /// install that has never set it.
+    pub fn raw_retention(&self) -> RawRetention {
+        self.config.raw_retention
+    }
+
+    /// Which menu entry the stored window is, or `Custom` for one that is on no menu.
+    pub fn retention_choice(&self) -> RetentionChoice {
+        RetentionChoice::of(&self.config.raw_retention)
+    }
+
+    /// Set the window. Takes the WINDOW, not the menu entry, so a hand-written
+    /// `{"age_days": 45}` is as settable as a click and `Custom` stays describable.
+    pub fn set_raw_retention(&mut self, retention: RawRetention) -> io::Result<()> {
+        self.config.raw_retention = retention;
+        self.persist()
+    }
+
+    /// Set the window from a menu entry. `Custom` has no window to write and is refused —
+    /// it is a description of the file, never an instruction.
+    pub fn set_retention_choice(&mut self, choice: RetentionChoice) -> io::Result<bool> {
+        match choice.retention() {
+            Some(r) => {
+                self.set_raw_retention(r)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
     fn persist(&self) -> io::Result<()> {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
@@ -360,6 +508,7 @@ impl ConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::journal::RetentionLimit;
 
     fn tmp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("richos-config-test-{tag}-{}-{}.json", std::process::id(), crate::util::now_millis()))
@@ -605,6 +754,117 @@ mod tests {
 
         let reopened = ConfigStore::open(&path).unwrap();
         assert_eq!(reopened.splash_first_shown_at(), Some(1_700_000_000_000));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ---- the raw-payload window (§7.2) ---------------------------------------------
+
+    #[test]
+    fn an_install_that_has_never_set_the_window_gets_yesterdays_behaviour() {
+        // The claim the whole change stands on, at the store level: a fresh store AND a
+        // config file written before this setting existed both read as the shipping
+        // window — the same two constants `evict_raw` was called with before it was a
+        // setting. Neither of them is "forever", and neither of them is a new number.
+        let path = tmp_path("retention-default");
+        let fresh = ConfigStore::open(&path).unwrap();
+        assert_eq!(fresh.raw_retention(), RawRetention::of(RAW_RETENTION_DAYS, RAW_MAX_TOTAL_BYTES));
+        assert_eq!(fresh.retention_choice(), RetentionChoice::TwoWeeks);
+
+        let older = tmp_path("retention-legacy");
+        std::fs::write(&older, r#"{"company_name":"Acme","assertiveness":"balanced","techy_default":true}"#).unwrap();
+        let store = ConfigStore::open(&older).unwrap();
+        assert_eq!(store.raw_retention(), RawRetention::default(), "an absent key is the shipping default");
+        assert_eq!(store.retention_choice(), RetentionChoice::TwoWeeks);
+        assert!(store.techy_default(), "and the rest of the file still reads");
+        let _ = std::fs::remove_file(&older);
+    }
+
+    #[test]
+    fn every_answer_to_7_2_is_a_value_the_store_can_hold_and_forever_is_one_of_them() {
+        // The item, in one test. "Forever" is a real stored value that survives a restart,
+        // not a sentinel someone has to remember and not a code change.
+        let path = tmp_path("retention-forever");
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            assert!(store.set_retention_choice(RetentionChoice::Forever).unwrap());
+        }
+        let reopened = ConfigStore::open(&path).unwrap();
+        assert_eq!(reopened.raw_retention(), RawRetention::FOREVER);
+        assert!(reopened.raw_retention().is_forever(), "on BOTH axes — a ceiling that still evicts is not forever");
+        assert_eq!(reopened.retention_choice(), RetentionChoice::Forever);
+        // And it is a word on disk, not a number to decode.
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains(r#""age_days": "forever""#), "readable by hand: {on_disk}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_three_menu_entries_round_trip_and_custom_is_never_written_by_one() {
+        let path = tmp_path("retention-menu");
+        let mut store = ConfigStore::open(&path).unwrap();
+        for choice in [RetentionChoice::TwoWeeks, RetentionChoice::ThreeMonths, RetentionChoice::Forever] {
+            assert!(store.set_retention_choice(choice).unwrap());
+            assert_eq!(store.retention_choice(), choice, "what was set is what is reported");
+            assert_eq!(RetentionChoice::parse(choice.as_str()), Some(choice), "and the wire string round-trips");
+        }
+        assert_eq!(RetentionChoice::ThreeMonths.retention(), Some(RawRetention::of(THREE_MONTHS_DAYS, RAW_MAX_TOTAL_BYTES)));
+        assert_eq!(THREE_MONTHS_DAYS, 90);
+        // `custom` is a description, never an instruction: unparseable from the wire, and a
+        // no-op that writes nothing if one is somehow constructed.
+        assert_eq!(RetentionChoice::parse("custom"), None);
+        assert_eq!(RetentionChoice::parse("two weeks"), None);
+        assert_eq!(RetentionChoice::Custom.retention(), None);
+        let before = store.raw_retention();
+        assert!(!store.set_retention_choice(RetentionChoice::Custom).unwrap(), "refused");
+        assert_eq!(store.raw_retention(), before, "and nothing was written");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_hand_written_window_is_reported_as_itself_and_never_rounded_to_a_button() {
+        // Rounding a hand-edited window to the nearest named choice would misreport it on
+        // the one screen whose job is to say what it is — and the next click on any OTHER
+        // control would write the rounded value back over his.
+        let path = tmp_path("retention-custom");
+        std::fs::write(&path, r#"{"company_name":null,"raw_retention":{"age_days":45,"total_bytes":"forever"}}"#).unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(
+            store.raw_retention(),
+            RawRetention { age_days: RetentionLimit::Of(45), total_bytes: RetentionLimit::Forever }
+        );
+        assert_eq!(store.retention_choice(), RetentionChoice::Custom);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_unreadable_window_keeps_data_and_leaves_every_other_preference_alone() {
+        // A `raw_retention` key of the wrong shape must not fail the parse of config.json —
+        // that would degrade EVERY preference to its default, this one included, back to a
+        // window that deletes. It reads as forever, and the file around it still reads.
+        let path = tmp_path("retention-garbage");
+        std::fs::write(&path, r#"{"company_name":"Acme","assertiveness":"balanced","raw_retention":"a fortnight"}"#).unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.raw_retention(), RawRetention::FOREVER, "keeps, never deletes");
+        assert_eq!(store.company_name(), Some("Acme"), "and took nothing else down with it");
+        assert_eq!(store.assertiveness(), Assertiveness::Balanced);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_corrupt_config_file_keeps_the_stored_output_rather_than_evicting_on_a_guess() {
+        // The asymmetry, at the file level. Every other field degrading to its default
+        // costs a preference the CEO can set again; `raw_retention` degrading to 14 days
+        // costs records, at the next boot, with nothing on screen to say so. A file that
+        // exists and will not parse is not a fresh install and is not treated as one.
+        let path = tmp_path("retention-corrupt");
+        std::fs::write(&path, "{ not json").unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.raw_retention(), RawRetention::FOREVER);
+        assert_eq!(store.retention_choice(), RetentionChoice::Forever);
+        // ...while the fields whose worst case is a lost preference still take their
+        // defaults, exactly as they did before.
+        assert_eq!(store.assertiveness(), Assertiveness::Quiet);
+        assert!(store.splash_enabled());
         let _ = std::fs::remove_file(&path);
     }
 
