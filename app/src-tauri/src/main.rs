@@ -768,7 +768,11 @@ fn main() {
             feedback_taxonomy,
             feedback_preview,
             feedback_record,
-            feedback_history
+            feedback_history,
+            // --- the opening screen and its off switch (2026-08-30) — appended, never reordered ---
+            splash_enabled,
+            set_splash_enabled,
+            splash_note_shown
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -2391,4 +2395,57 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
             serde_json::json!({ "entry": e, "shown": shown })
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------------------
+// The opening screen's off switch (2026-08-30).
+//
+// `docs/design/richos-splash-micro-game-2026-08-30.md` §2 (richos-hq) verified that neither
+// the splash NOR a way to turn it off existed at richos `1807319`. This branch adds both, in
+// the same commit, deliberately: the surface's failure mode is silent — nobody writes in to
+// say a splash screen was beneath them, they switch it off — so the switch is the only
+// honest instrument we will ever have for knowing whether it is wanted (§7). A splash
+// without one cannot be measured.
+//
+// THE SURFACE ITSELF IS ENTIRELY IN THE WEBVIEW (`app/ui/splash.js`, `splash-library.js`,
+// `splash.css`), and nothing here is on the launch path. `setup()` is untouched by this
+// slice: the store these three commands read was already opened there for the company name
+// and the assertiveness dial, so the shell does not do one byte of extra work at boot on
+// account of the splash. The commands below are called AFTER the app is up.
+// ---------------------------------------------------------------------------------------
+
+/// Whether the opening screen shows at launch. Default on (`config.rs`).
+#[tauri::command]
+fn splash_enabled(state: State<AppState>) -> bool {
+    state.config.lock().unwrap().splash_enabled()
+}
+
+/// The switch. `config.rs` stamps `splash_disabled_at` on the way off and clears it on the
+/// way back on, and ignores a write of the value already stored — so the UI syncing this
+/// preference on every launch can never walk the timestamp forward.
+#[tauri::command]
+fn set_splash_enabled(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    state
+        .config
+        .lock()
+        .unwrap()
+        .set_splash_enabled(enabled, richos_core::util::now_millis())
+        .map_err(|e| e.to_string())
+}
+
+/// The surface reporting that it has been shown. Idempotent and cheap: only the FIRST call
+/// in this store's life touches the disk, so the UI calls it unconditionally rather than
+/// having to know whether it is the first launch.
+///
+/// It is the zero point of §7's time-to-disable, and it is MEASUREMENT, never display —
+/// §5 bans every counter and score from the CEO's screen and nothing reads this back to him.
+#[tauri::command]
+fn splash_note_shown(state: State<AppState>) -> Result<(), String> {
+    state
+        .config
+        .lock()
+        .unwrap()
+        .note_splash_shown(richos_core::util::now_millis())
+        .map(|_wrote| ())
+        .map_err(|e| e.to_string())
 }
