@@ -1,0 +1,53 @@
+[
+  {
+    "entry": {
+      "outcome": {
+        "kind": "dismissed"
+      },
+      "recorded_at_millis": 1788000000000,
+      "report": {
+        "decision": "not_offered"
+      }
+    },
+    "shown": null
+  },
+  {
+    "entry": {
+      "outcome": {
+        "kind": "rated",
+        "value": "ok-but-could-be-better"
+      },
+      "recorded_at_millis": 1788000000000,
+      "report": {
+        "decision": "declined"
+      }
+    },
+    "shown": null
+  },
+  {
+    "entry": {
+      "outcome": {
+        "kind": "rated",
+        "value": "bad"
+      },
+      "recorded_at_millis": 1788000000000,
+      "report": {
+        "decision": "approved",
+        "report": {
+          "contributing_condition": [
+            "no-user-facing-item-carried-an-acceptance-criterion"
+          ],
+          "failure_class": "unprepared-task-handed-to-user",
+          "generic_diagnosis": [
+            "no-input-artifact-named",
+            "no-method-given"
+          ],
+          "occurrences_this_session": "3",
+          "rating": "bad",
+          "taxonomy_version": "v1"
+        }
+      }
+    },
+    "shown": "taxonomy_version: v1\nrating: 1\nfailure_class: unprepared-task-handed-to-user\noccurrences_this_session: 3\ngeneric_diagnosis: >\n  No input file was named. No method was given.\ncontributing_condition: >\n  No user-facing item carried an acceptance criterion.\n"
+  }
+]

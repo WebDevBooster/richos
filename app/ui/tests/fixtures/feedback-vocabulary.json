@@ -1,0 +1,124 @@
+{
+  "conditions": [
+    {
+      "sentence": "The durable task record contained a section for items awaiting the user, which made relaying an item feel equivalent to preparing it.",
+      "wire": "record-section-for-items-awaiting-the-user"
+    },
+    {
+      "sentence": "No user-facing item carried an acceptance criterion.",
+      "wire": "no-user-facing-item-carried-an-acceptance-criterion"
+    },
+    {
+      "sentence": "The rule that would have prevented this was enforced by attention rather than by machinery.",
+      "wire": "rule-enforced-by-attention-rather-than-machinery"
+    }
+  ],
+  "diagnosis": [
+    {
+      "sentence": "The assistant asked the user to carry out a manual verification task more than once in a single session without preparing the artifact the task required.",
+      "wire": "request-repeated-without-preparation"
+    },
+    {
+      "sentence": "No input file was named.",
+      "wire": "no-input-artifact-named"
+    },
+    {
+      "sentence": "No locations within it were specified.",
+      "wire": "no-location-within-input-specified"
+    },
+    {
+      "sentence": "No method was given.",
+      "wire": "no-method-given"
+    },
+    {
+      "sentence": "No acceptance criterion was stated.",
+      "wire": "no-acceptance-criterion-stated"
+    },
+    {
+      "sentence": "In the same session the assistant produced detailed, self-contained briefs for its automated sub-agents.",
+      "wire": "automated-executors-received-self-contained-briefs"
+    },
+    {
+      "sentence": "The asymmetry is the defect: the human executor received the least prepared instruction.",
+      "wire": "human-executor-received-the-least-prepared-instruction"
+    }
+  ],
+  "disclosureHeading": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.",
+  "dismiss": {
+    "key": "0",
+    "label": "Dismiss"
+  },
+  "failureClass": [
+    {
+      "label": "The assistant handed the user a task it had not prepared.",
+      "wire": "unprepared-task-handed-to-user"
+    },
+    {
+      "label": "The assistant left the user to notice a failure that machinery should have caught.",
+      "wire": "checking-handed-to-user"
+    },
+    {
+      "label": "The assistant left the user to ask whether a class of failure would recur.",
+      "wire": "assurance-handed-to-user"
+    },
+    {
+      "label": "The assistant asked the user a question whose answer was already determined.",
+      "wire": "decision-handed-to-user"
+    },
+    {
+      "label": "The assistant left the user to sequence work it should have sequenced itself.",
+      "wire": "scheduling-handed-to-user"
+    }
+  ],
+  "occurrences": [
+    {
+      "label": "once",
+      "wire": "1"
+    },
+    {
+      "label": "twice",
+      "wire": "2"
+    },
+    {
+      "label": "three times",
+      "wire": "3"
+    },
+    {
+      "label": "four times",
+      "wire": "4"
+    },
+    {
+      "label": "five times",
+      "wire": "5"
+    },
+    {
+      "label": "more than five times",
+      "wire": "more-than-5"
+    }
+  ],
+  "options": "1: Bad | 2: OK, but could be better | 3: Good | 0: Dismiss",
+  "question": "How is RichOS doing this session?",
+  "ratings": [
+    {
+      "invitesReport": true,
+      "key": "1",
+      "label": "Bad",
+      "wire": "bad"
+    },
+    {
+      "invitesReport": true,
+      "key": "2",
+      "label": "OK, but could be better",
+      "wire": "ok-but-could-be-better"
+    },
+    {
+      "invitesReport": false,
+      "key": "3",
+      "label": "Good",
+      "wire": "good"
+    }
+  ],
+  "reportOffer": "Will you let your Rich tell the RichOS developers — fully anonymized and generically — what annoyed you and why it happened?",
+  "taxonomyVersion": "v1",
+  "vocabularyFingerprint": "16433139902729042306"
+}

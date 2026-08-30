@@ -151,6 +151,12 @@ app/
                               crate, no other module consuming the feature, and an approval
                               that lands in one file with no sibling left for anything to
                               pick up. Each proven to FAIL when broken
+    tests/feedback_surface_tests.rs 3 tests that WRITE the three fixtures the browser suite
+                              checks `app/ui/mock.js`'s copy of this feature against — the
+                              wording and the whole vocabulary, six selections with the exact
+                              block each renders, and three stored entries taken through a
+                              real store round trip. Regenerate with RICHOS_WRITE_FIXTURES=1;
+                              without it they compare and fail on any drift
     tests/spoken_precision.rs THE MEASUREMENT, pinned as a test rather than quoted in a
                               brief: TP 32 / FP 0 / FN 2 / TN 115 over the invented corpus,
                               plus the anchor-as-a-gate counterfactual that demoted it
@@ -419,6 +425,8 @@ What is pinned, and where:
 | Everything the feature can say is a finite word set | all 60,960 expressible reports are rendered and every token checked against the vocabulary |
 | A change to the vocabulary needs a version bump | `vocabulary_fingerprint()` pinned in a test |
 | The user cannot be asked to consent to a report he was never shown | `ApprovedReport` has a private field; the only public constructor is `Disclosure::approve()` |
+| ...and that survives the IPC boundary too | `feedback_record` re-renders the selection and refuses an approval whose text is not byte-identical to the block the webview says it showed |
+| The browser harness cannot rehearse wording the product no longer says | `tests/feedback_surface_tests.rs` writes the fixtures `ui/tests/feedback.js` joins `mock.js` to |
 
 Two limits, stated rather than discovered later:
 
@@ -426,14 +434,19 @@ Two limits, stated rather than discovered later:
    five moments of real annoyance were volunteered mid-work, unprompted; none arrived at
    session end. A prompt fired at a chosen moment would have caught none of them at the
    moment they were felt. Catching what is already being said is a larger, later piece.
-2. **No UI.** This is the spine's half: the prompt's wording, the persistence, the
-   vocabulary and the renderer. Nothing in `app/ui/` or `app/src-tauri/` calls it yet.
+2. **It appears when he opens it, and at no other time.** The rail carries a permanent
+   `Feedback` control with no count on it — nothing on that surface is ever waiting on
+   him. There is no timer, no end-of-session prompt and no trigger, and limit 1 above is
+   the reason: a prompt fired at a moment of RichOS's choosing would have caught none of
+   the five, and one that arrives during the work he is annoyed about is itself an
+   unprepared task handed to him. Reachable-when-he-wants-it is the honest fallback;
+   catching what is already being said is still the larger, later piece.
 
 ## Build & test
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 431 tests + 5 doc-tests
+cargo test -p richos-core                       # 434 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
