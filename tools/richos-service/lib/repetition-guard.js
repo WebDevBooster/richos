@@ -146,7 +146,24 @@
  *     a verification problem) and never rewrites the text. Audio is retained; re-transcribe with
  *     another model is the repair. `stripInsertions: true` is available and off by default.
  *
- *   - OVERLAP STUTTER: a link needs >= minOverlapWords (3) of word-exact suffix/prefix overlap
+ *   - OVERLAP STUTTER: THE HAND-OFF FROM CLASS 1, first, because it is the condition that was
+ *     MISSING and the miss cost real speech. K identical consecutive segments are, to a word-exact
+ *     boundary rule, indistinguishable from a stutter chain — so wherever class 1's veto had just
+ *     PRESERVED K genuine deliveries, this class collapsed them again and the protection evaporated.
+ *     Measured on the 72 hand-verified findings (2026-08-30): the veto recovered all 13 deleted
+ *     deliveries at the class-1 seam and this class then destroyed 5 of them downstream, which is
+ *     why the class-1 number and the end-to-end number disagreed. It bit at K >= 4, because 3
+ *     copies make only 2 links and `minChainLinks` is 3 — so the one genuine retake in the shipping
+ *     world happened to sit one delivery under the threshold, and nothing showed it.
+ *
+ *     `opts.protectedSpans` closes it, and the precedence is not a preference: class 1 consulted
+ *     the AUDIO and this class is text-only, so where the burst grid says K separate speech events
+ *     happened, a text rule does not get to overrule it. A boundary is not a link when BOTH its
+ *     segments sit inside a span class 1 protected. One-directional like every other probe here: it
+ *     can only ever remove links, never create them, so no stutter this class used to catch escapes
+ *     through it — measured, and the 3 stutter findings of that corpus are unchanged.
+ *
+ *     THE RULE ITSELF: a link needs >= minOverlapWords (3) of word-exact suffix/prefix overlap
  *     across a segment boundary, and a chain needs >= minChainLinks (3) consecutive links. Measured
  *     margin: across the 18 clean turbo/q5 transcripts of the 2026-08-26 benchmark (3 samples x 2
  *     models x 3 reps, ~28 minutes of distinct audio) the longest cross-boundary word overlap of ANY
@@ -250,6 +267,9 @@ const DEFAULT_OPTS = {
   minOverlapWords: 3, // 1-2 shared boundary words could be coincidence; 3 was never seen in clean output
   minChainLinks: 3, // a single overlapping pair could be a speaker restarting; a chain cannot
   collapseStutter: true, // the remedy is content-preserving (every word survives once)
+  // Spans class 1 already adjudicated against the AUDIO as separate deliveries. `guardChannelAll`
+  // fills this in; a caller running class 3 alone gets today's behavior. See THE HAND-OFF.
+  protectedSpans: null,
 
   // ---- class 4: SILENCE FABRICATION (see the header) -------------------------------------------
   // Every threshold below was swept against the six raw per-speaker tracks of the 2026-08-29
@@ -599,9 +619,20 @@ export function guardOverlapStutter(segments, opts = {}) {
 
   const words = segs.map((s) => tokens(s.text));
   const cap = 64;
+  // A boundary INSIDE a span class 1 protected is not a link. Both segments must be inside the same
+  // span: a chain that merely starts in one is a real stutter running out of it.
+  const shielded = Array.isArray(o.protectedSpans) && o.protectedSpans.length
+    ? (a, b) => o.protectedSpans.some(
+      (p) => Number(a.startMs) >= Number(p.startMs) - 1 && Number(b.endMs) <= Number(p.endMs) + 1,
+    )
+    : null;
   /** @type {number[]} link[i] = overlap between segment i and i+1 */
   const link = [];
   for (let i = 0; i < segs.length - 1; i += 1) {
+    if (shielded && shielded(segs[i], segs[i + 1])) {
+      link.push(0);
+      continue;
+    }
     link.push(boundaryOverlap(words[i], words[i + 1], cap));
   }
 
@@ -945,7 +976,15 @@ export function guardChannelAll(segments, opts = {}) {
   const sil = guardSilenceFabrication(segments, opts);
   const loop = guardChannel(sil.segments, opts);
   const ins = guardInsertions(loop.segments, opts);
-  const stut = guardOverlapStutter(ins.segments, opts);
+  // THE HAND-OFF (see the class-3 section of the header). Every run class 1 left standing on the
+  // audio's evidence — preserved outright, or clamped to more than one delivery — is closed to the
+  // stutter class, which has no audio and would otherwise collapse the very copies the burst grid
+  // just protected.
+  const protectedSpans = [
+    ...(loop.preserved || []).map((p) => ({ startMs: p.startMs, endMs: p.endMs })),
+    ...(loop.loops || []).filter((l) => Number(l.kept) > 1).map((l) => ({ startMs: l.startMs, endMs: l.endMs })),
+  ];
+  const stut = guardOverlapStutter(ins.segments, { ...opts, protectedSpans });
   return {
     silenceFabrications: sil.fabrications,
     silenceRemoved: sil.removed,

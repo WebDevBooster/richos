@@ -1577,6 +1577,61 @@ test('the known-silence span stays silent: class 4 removes the filler, the delet
 // ---------------------------------------------------------------------------------------
 group('P5 hallucination guard — all four classes through the one pipeline seam');
 
+// The 2026-08-30 end-to-end pass found class 3 undoing class 1's veto: K identical consecutive
+// segments are, to a word-exact boundary rule, a stutter chain, so the copies the burst grid had
+// just protected were collapsed one stage later. It bit at K >= 4 (3 copies make only 2 links, and
+// minChainLinks is 3), which is why the shipping world's one genuine 3x retake never showed it.
+const FOUR_TAKES = [0, 1, 2, 3].map((i) => ({
+  // INVENTED, like every fixture line here: what this turns on is four identical consecutive
+  // segments over four qualifying bursts, never which sentence it was.
+  startMs: 100000 + i * 10000,
+  endMs: 100000 + i * 10000 + 8000,
+  text: 'the runbook pointed at the wrong dashboard and cost us twenty extra minutes of downtime',
+  speaker: 'me',
+}));
+const FOUR_BURSTS = FOUR_TAKES.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
+
+test('class 3 does NOT collapse the deliveries class 1 preserved on the audio', () => {
+  const kept = guardChannelAll(FOUR_TAKES, { speechBursts: FOUR_BURSTS });
+  assert.equal(kept.preserved.length, 1, 'the burst grid holds all four, so class 1 preserves them');
+  assert.equal(kept.segments.length, 4, 'and all four are still in the transcript afterwards');
+  assert.equal(kept.stutterRemoved, 0);
+  assert.equal(kept.removed, 0);
+});
+
+test('a CLAMPED run is handed over too, not only a fully preserved one', () => {
+  // The shape that cost four deliveries: 7 emitted copies over 5 qualifying bursts. Class 1 clamps
+  // to 5 — a partial collapse, so the run is reported under `loops` and not under `preserved`, and
+  // a hand-off that only covered `preserved` would leave class 3 free to take the other four.
+  const line = FOUR_TAKES[0].text;
+  const segs = [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+    startMs: 200000 + i * 10000, endMs: 200000 + i * 10000 + 8000, text: line, speaker: 'others',
+  }));
+  const bursts = [0, 1, 2, 3, 4].map((i) => ({ startMs: 200000 + i * 10000, endMs: 200000 + i * 10000 + 8000 }));
+  const r = guardChannelAll(segs, { speechBursts: bursts });
+  assert.equal(r.loops.length, 1);
+  assert.equal(r.loops[0].kept, 5, 'class 1 clamps to what the audio holds');
+  assert.equal(r.preserved.length, 0, 'and reports it as a collapse, not as a preservation');
+  assert.equal(r.stutterRemoved, 0, 'class 3 must not then take the other four');
+  assert.equal(r.segments.filter((x) => x.text === line).length, 5);
+});
+
+test('the hand-off is scoped to the protected span — a real stutter outside one is still caught', () => {
+  const before = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER);
+  const after = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER, {
+    protectedSpans: [{ startMs: 0, endMs: 1 }],
+  });
+  assert.ok(before.removed > 0, 'the captured stutter is caught');
+  assert.equal(after.removed, before.removed, 'and an unrelated protected span changes nothing');
+  assert.equal(after.stutters.length, before.stutters.length);
+});
+
+test('without the burst grid class 1 keeps one copy, so class 3 has nothing left to eat', () => {
+  const textOnly = guardChannelAll(FOUR_TAKES);
+  assert.equal(textOnly.segments.length, 1, 'text-only behaviour is unchanged by the hand-off');
+  assert.equal(textOnly.loops[0].removed, 3);
+});
+
 test('guardTranscription reports the insertion class from the real turbo artifact', () => {
   const r = guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION });
   assert.equal(r.report.detected, true);
