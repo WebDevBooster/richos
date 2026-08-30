@@ -16,7 +16,7 @@
   FLAGGED FOR THE PACKAGING ENGINEER (next round): please verify this merge actually lands
   in `RichOS.app/Contents/Info.plist` after `cargo tauri build`, and that the hardened
   runtime entitlement `com.apple.security.device.audio-input` is present in the signing
-  entitlements — notarised, hardened-runtime apps need BOTH the usage string and the
+  entitlements — notarized, hardened-runtime apps need BOTH the usage string and the
   entitlement. Neither is verified here: this machine has no microphone to test the grant
   against (see app/crates/richos-voice/src/capture.rs).
 -->

@@ -201,7 +201,7 @@ async function main() {
   });
 
   await run.check("CORRECTNESS: the reused DOM is byte-identical to a from-scratch render", async () => {
-    // The check that makes the one above safe. Reuse is only ever an optimisation if what
+    // The check that makes the one above safe. Reuse is only ever an optimization if what
     // is on screen is what a full rebuild would have produced — so the same model is
     // rendered into a SECOND container, which has no cache and therefore builds everything,
     // and the two are compared as markup.

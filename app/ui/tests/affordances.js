@@ -127,7 +127,7 @@ async function openApp(browser, viewport) {
   return page;
 }
 
-/// EVERYTHING A READER CAN READ on this screen, normalised the way the inventory is: the
+/// EVERYTHING A READER CAN READ on this screen, normalized the way the inventory is: the
 /// rendered text, plus the placeholders, titles and accessible names of visible elements.
 /// A state that lives in a `placeholder` ("Send is off for this thread") is as visible to
 /// the CEO as one in a paragraph, and a check that only read `innerText` would report it

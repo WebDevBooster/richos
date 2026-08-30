@@ -499,7 +499,7 @@ async function main() {
     assertEqual(drawn.expanded, "true", "and the transcript is open by §6.4's live default, not by a click");
     const s = await shot(page, "live-workers-during-a-turn");
     assert(s.bytes > 3000, "a suspiciously small PNG is not evidence: " + s.bytes + " bytes");
-    return `${s.file} — ${s.width}x${s.height}, ${s.distinct} distinct colours, ${s.bytes} bytes; Sage, Frank, Clark in frame`;
+    return `${s.file} — ${s.width}x${s.height}, ${s.distinct} distinct colors, ${s.bytes} bytes; Sage, Frank, Clark in frame`;
   });
 
   await run.check("no page errors anywhere in this suite", async () => {

@@ -15,7 +15,7 @@
   --line: #e5e2d9;
   --accent: #2f3a56;
   --accent-soft: rgba(47, 58, 86, 0.08);
-  /* The ONE non-accent state colour: something needs the CEO's hand. A muted ochre that
+  /* The ONE non-accent state color: something needs the CEO's hand. A muted ochre that
      belongs to the paper palette — deliberately not a red alert. Nothing else uses it. */
   --attention: #8a6a2f;
   --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
@@ -409,7 +409,7 @@ button {
 }
 
 /* Silent input on an OPEN mic. Full ink, because it is the one line here he must actually
-   read and act on — the weight comes from contrast, not from size or colour temperature. */
+   read and act on — the weight comes from contrast, not from size or color temperature. */
 .voice-label--attention {
   color: var(--ink);
 }
@@ -579,7 +579,7 @@ button {
    The calm paper palette above is the base and is not replaced — §17.1 asks for better
    legibility, not generic developer-tool styling. The tokens below extend it with the two
    values §17.1 names that the v1 palette had no equivalent for (a selected surface and a
-   danger colour), and nothing else.
+   danger color), and nothing else.
    ======================================================================================= */
 
 :root {
@@ -853,8 +853,8 @@ button {
 }
 
 /* ---- status marks (§3.2) --------------------------------------------------------------
-   Shape carries the meaning; colour only reinforces it (§18: status must never rely on
-   colour alone). Each mark also ships a word in the row's accessible label — see
+   Shape carries the meaning; color only reinforces it (§18: status must never rely on
+   color alone). Each mark also ships a word in the row's accessible label — see
    `buildThreadRow` in main.js. */
 
 .nav-status {
@@ -1661,7 +1661,7 @@ body.bp-narrow .tl-user-bubble {
   background: var(--line);
 }
 
-/* Tone is carried by weight and by the words, never by colour alone (§18). */
+/* Tone is carried by weight and by the words, never by color alone (§18). */
 .tl-duration[data-tone="done"] .tl-duration-label {
   color: var(--ink-faint);
 }
@@ -1672,10 +1672,10 @@ body.bp-narrow .tl-user-bubble {
 
 /* §6.1 "You stopped after {duration}". DELIBERATELY NOT `--danger`, and this is the whole
    point of giving it its own tone rather than reusing `stopped`: the CEO pressing his own
-   button is not a fault, and painting his decision in the failure colour would tell him
+   button is not a fault, and painting his decision in the failure color would tell him
    something went wrong every time he changed his mind. It reads like the completed row,
    because it is the same kind of statement — a fact about a turn that ended. The word
-   "You" carries the attribution, not the colour (§18: status never relies on colour). */
+   "You" carries the attribution, not the color (§18: status never relies on color). */
 .tl-duration[data-tone="ceo-stopped"] .tl-duration-label {
   color: var(--ink-faint);
 }
@@ -1865,8 +1865,8 @@ body.bp-narrow .tl-user-bubble {
    so it is styled as a sibling of `.tl-activity` rather than as a card: a delegation is one
    more thing Rich did, not an announcement.
 
-   Status is glyph + word, never colour alone (§18). The tone attributes below adjust
-   WEIGHT and one muted hue; removing all colour leaves the row fully readable. */
+   Status is glyph + word, never color alone (§18). The tone attributes below adjust
+   WEIGHT and one muted hue; removing all color leaves the row fully readable. */
 
 .tl-workers {
   display: flex;
@@ -1970,7 +1970,7 @@ body.bp-narrow .tl-user-bubble {
   color: var(--accent);
 }
 
-/* `Ended` is NOT a failure and must not borrow the danger colour. It is the calmest
+/* `Ended` is NOT a failure and must not borrow the danger color. It is the calmest
    treatment on the row: the run is over and nothing is being claimed about it. */
 .tl-chip[data-state="ended"] {
   opacity: 0.92;
@@ -2177,7 +2177,7 @@ body.bp-narrow .tl-user-bubble {
   color: var(--accent);
 }
 
-/* `Ended` is calm on purpose: nothing failed as far as anyone knows. No danger colour. */
+/* `Ended` is calm on purpose: nothing failed as far as anyone knows. No danger color. */
 .insp-state[data-state="ended"] .insp-state-word {
   color: var(--ink-soft);
 }
@@ -2284,7 +2284,7 @@ body.bp-narrow .tl-user-bubble {
 
    The calm paper palette, unchanged. This surface asks the CEO to read exact bytes and
    then say yes or no, so the only two things it adds are a monospace block for the
-   writer's own output and one attention colour for a refusal — `--attention`, already in
+   writer's own output and one attention color for a refusal — `--attention`, already in
    the palette, never a red alert. A desk that shouted would be answered less often.
    ======================================================================================= */
 
@@ -2357,7 +2357,7 @@ body.bp-narrow .tl-user-bubble {
    returns the TRANSFORMED text — so an uppercased heading renders a string that exists
    nowhere in the source and can never be classified. The rest of the app's eyebrow labels
    (`.result-group`, `.entity-block-title`) are uppercased and get away with it only
-   because their text is dynamic. Weight, size and colour carry the same hierarchy here. */
+   because their text is dynamic. Weight, size and color carry the same hierarchy here. */
 .desk-section-title {
   margin: 0 0 10px;
   font-size: 11.5px;
@@ -2566,7 +2566,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 /* The terms themselves. Whole-sentence labels wrap, so the control and its sentence are
-   aligned at the top rather than centred against a three-line block. */
+   aligned at the top rather than centered against a three-line block. */
 .feedback-option {
   display: flex;
   align-items: flex-start;

@@ -150,7 +150,7 @@ async function settledShot(page, name) {
   fs.mkdirSync(SHOTS, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
   fs.copyFileSync(s.file, path.join(SHOTS, name + ".png"));
-  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colours)";
+  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
 }
 
 // ---------------------------------------------------------------------------------------
@@ -600,10 +600,10 @@ async function main() {
       assert(refusal, "key " + JSON.stringify(key) + " invented an answer");
       bump(1);
     }
-    assertEqual((await storeState(page)).entries.length, 0, "an unrecognised key reached the store");
+    assertEqual((await storeState(page)).entries.length, 0, "an unrecognized key reached the store");
     bump(1);
     await page.close();
-    return "4 unrecognised keys, 4 refusals, 0 entries";
+    return "4 unrecognized keys, 4 refusals, 0 entries";
   });
 
   // ---- 8. the honest states ------------------------------------------------------------
@@ -880,7 +880,7 @@ main().catch((e) => {
 //        -> consent recorded for text he was never shown, which is the one failure this
 //           whole feature is arranged to make impossible
 //  7b  mock.js `feedbackOutcome`: return { kind: "dismissed" } for any key
-//        -> an unrecognised key is silently recorded as an answer nobody gave
+//        -> an unrecognized key is silently recorded as an answer nobody gave
 //  8   main.js `renderFeedback`: feedback-keys.hidden = false
 //        -> the four keys are offered over a store that cannot keep an answer
 //  8   mock.js: one word of FEEDBACK_STORE_ABSENT changed

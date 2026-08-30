@@ -22,7 +22,7 @@ empty states, error and permission copy. Not code identifiers, not CSS custom pr
 protocol values — those stay as they are.
 
 Verified 2026-08-29: no British spelling appears in any shipped string in `app/ui` or
-`app/crates/*/src`. Every hit for *colour*, *behaviour*, *cancelled*, *unrecognised* and the rest is
+`app/crates/*/src`. Every hit for *color*, *behavior*, *cancelled*, *unrecognized* and the rest is
 in a comment or is the ACP constant `STOP_REASON_CANCELLED`. The rule exists to keep it that way.
 
 One open question, not a defect: `timeline.js:1140`, `timeline.js:1414` and `main.js:124` format
@@ -226,7 +226,7 @@ app/
                               lock-free reference ring, envelope delay estimator.
                               28.0 dB ERLE on a linear path; ~5.5 dB is all ANY linear
                               canceller can reach on this host's speakers+Elgato (measured)
-    src/fft.rs               512-point radix-2 FFT, hand-rolled (licence: no vendored crate)
+    src/fft.rs               512-point radix-2 FFT, hand-rolled (license: no vendored crate)
     src/endpoint.rs          utterance start/end, pre-roll ring, cough filter, 30.000 s cut
     src/noaudio.rs           post-open silent input: 188 frames (3.008 s) under -80.00 dBFS
     src/chunk.rs             streaming sentence chunker + clean output FOR THE EAR
@@ -236,7 +236,7 @@ app/
     src/{capture,playout}.rs cpal in/out; playout is one continuous, interruptible stream
     src/{stt,tts}.rs         local whisper.cpp (small.en) / macOS `say` behind a trait
     src/controller.rs        four threads, CaptureBrain, the half-duplex taint rule
-    tests/barge_in_composition.rs  the WIRING: echo defence + real interruptions
+    tests/barge_in_composition.rs  the WIRING: echo defense + real interruptions
     examples/voice_loop.rs   the reproducible end-to-end proof (audio -> Claude -> speakers)
     examples/device_probe.rs what the audio hardware on THIS machine actually reports
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
@@ -315,7 +315,7 @@ thread appears in and nothing else about its scope.
 Contract: §24's last two slices — *"verify restart, multi-thread and scope behavior"* and
 *"update streaming and UI contracts"*. Slices 1–8 each proved ONE thread, in isolation, for
 the length of ONE turn. These two close what that leaves open, and they are two halves of
-one job: the first checks the behaviour, the second checks the sentences about it.
+one job: the first checks the behavior, the second checks the sentences about it.
 
 **What is verified** (`app/ui/tests/restart-scope.js`, through the real shell under WebKit):
 
@@ -582,14 +582,14 @@ Verified on the committed placeholder set: 12 warnings and `Finished dev profile
 first mode, a hard panic in the second, and — after a real generation run — strict mode
 compiling clean with zero icon warnings.
 
-### Tooling and licence
+### Tooling and license
 
 **Pillow, SPDX `MIT-CMU`** (read from the installed distribution's `License-Expression`
 metadata, Pillow 12.3.0) for decode/resample/PNG/ICO, plus Apple's own
 **`/usr/bin/iconutil`** for the macOS `.icns`. Both are **authoring-time only**: nothing
 from either is linked into or shipped inside the signed `.app`, and the only artefacts
-that ship are pixels derived from the supplied artwork. That keeps the licence question
-entirely clear of the signing/notarisation path.
+that ship are pixels derived from the supplied artwork. That keeps the license question
+entirely clear of the signing/notarization path.
 
 ### What Tauri actually requires
 
@@ -911,7 +911,7 @@ requirements: the voice-pipeline brief, 2026-08-24.
 
 **Echo cancellation (2026-08-29):** `crates/richos-voice/src/aec.rs` is a real 2048-tap
 partitioned-block frequency-domain adaptive filter, written here rather than vendored (nothing
-to name in the open-source licence audit). It is bit-transparent while Rich is silent — with a
+to name in the open-source license audit). It is bit-transparent while Rich is silent — with a
 zero reference the estimate is exactly zero, so dictation and call transcription are provably
 untouched — and it costs 0.355 % of one core.
 

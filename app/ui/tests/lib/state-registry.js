@@ -415,7 +415,7 @@ module.exports = [
   {
     s: "This worker reported a state RichOS does not know how to read.",
     c: "INFORMATIONAL",
-    why: "The unrecognised-state fallback. Nothing for the CEO to do about a protocol surprise.",
+    why: "The unrecognized-state fallback. Nothing for the CEO to do about a protocol surprise.",
   },
   {
     s: "I don't have this worker's brief, its output or the files it touched — nothing records those yet, and I'd rather say so than show you a blank.",

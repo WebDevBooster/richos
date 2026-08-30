@@ -844,7 +844,7 @@ fn raise_proactive_message(
 // =====================================================================================
 // VOICE MODE — appended block (2026-08-24)
 //
-// Voice is a MODE of the one persistent conversation, never a room: a recognised
+// Voice is a MODE of the one persistent conversation, never a room: a recognized
 // utterance goes through `Spine::submit_prompt` exactly like typed text (only the
 // `Source` differs — `Jam` instead of `Text`), so it lands in the SAME thread, the SAME
 // durable ledger, and streams back through the SAME `rich://` events. There is no second
@@ -902,7 +902,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
 
     let observer: Arc<dyn VoiceObserver> = Arc::new(TauriVoiceEmitter { app: app.clone() });
 
-    // The submit callback: a recognised utterance takes the SAME path typed text takes.
+    // The submit callback: a recognized utterance takes the SAME path typed text takes.
     let submit_app = app.clone();
     let submit: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |text: String| {
         let state = submit_app.state::<AppState>();
@@ -969,7 +969,7 @@ fn stop_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<(), S
 }
 
 /// One `rich://chunk` delta, relayed by the UI while voice mode is on. Completed sentences
-/// are synthesised and queued immediately — this is the gapless pipelining.
+/// are synthesized and queued immediately — this is the gapless pipelining.
 #[tauri::command]
 fn voice_speak_delta(app: AppHandle, text: String) {
     if let Some(handle) = app.try_state::<VoiceHandle>() {
@@ -2152,7 +2152,7 @@ const FEEDBACK_STORE_UNAVAILABLE: &str =
 /// What he is told if a key that is not one of the four ever reaches the store.
 ///
 /// `PromptOutcome::from_key` returns `None` for anything else, and this is that `None` said
-/// out loud: an unrecognised key is not a dismissal, it is not an answer at all, and
+/// out loud: an unrecognized key is not a dismissal, it is not an answer at all, and
 /// recording it as one would put invented data in the store.
 const FEEDBACK_KEY_NOT_ONE_OF_FOUR: &str =
     "That isn't one of the four answers, so I haven't written anything down.";

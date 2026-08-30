@@ -20,7 +20,7 @@
   richos-hq/wiki/packaging-and-signing.md, "What RichOS specifically needs" item 2.
 
   WHY NOTHING ELSE. Every added entitlement widens what the app is permitted to do
-  and what Apple scrutinises at notarization, so this list stays at what is
+  and what Apple scrutinizes at notarization, so this list stays at what is
   demonstrably needed rather than what might be. Deliberately absent:
 
     - Accessibility (paste-at-cursor, the global hotkey) is a TCC grant obtained

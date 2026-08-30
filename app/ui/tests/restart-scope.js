@@ -95,7 +95,7 @@ async function waitIdle(page) {
 
 /// Every rail row with the mark it is currently carrying, read the way a screen reader
 /// reads it — the accessible name, not the glyph, because §18 forbids status by shape or
-/// colour alone.
+/// color alone.
 function railMarks(page) {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll(".nav-thread")).map((b) => ({
@@ -222,7 +222,7 @@ async function main() {
   await run.check("§15 each thread keeps its own scroll position across a switch", async () => {
     // A SHORT window on purpose. At 900px the seeded acme thread fits entirely on screen
     // (measured: scrollHeight 773 == clientHeight 773), and a scroll test on a pane that
-    // cannot scroll passes without touching the behaviour it names. The vacuity assert
+    // cannot scroll passes without touching the behavior it names. The vacuity assert
     // below is what caught that, and it stays.
     const sc = await openApp(browser, { width: 1200, height: 420 });
     await open(sc, "acme");
@@ -613,7 +613,7 @@ async function main() {
     );
     const r = await shot(s, "background-thread-working");
     await s.close();
-    return `${r.file} (${r.width}x${r.height}, ${r.distinct} distinct colours)`;
+    return `${r.file} (${r.width}x${r.height}, ${r.distinct} distinct colors)`;
   });
 
   await run.check("no page errors anywhere in this suite", async () => {

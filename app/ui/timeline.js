@@ -336,7 +336,7 @@
 
   /// Collapse a run of CONSECUTIVE activity items with the identical summary into one row.
   /// Consecutive only — an interleaved prose run or a different activity type breaks the
-  /// group, so the rollup can never reorder the chronology it is summarising.
+  /// group, so the rollup can never reorder the chronology it is summarizing.
   function rollupActivity(items) {
     const out = [];
     for (const item of items) {
@@ -409,7 +409,7 @@
   // `Ended` states exactly what was observed — the run is over — and claims nothing about
   // the work. `outcome not recorded` is the same vocabulary slice 5 already ships for an
   // activity row whose status never arrived (`ACTIVITY_STATE_LABEL.unknown`), so the CEO
-  // learns one phrase, not two. It is rendered as TEXT, never colour alone (§18), and it
+  // learns one phrase, not two. It is rendered as TEXT, never color alone (§18), and it
   // is in the chip's accessible name.
   //
   // The group verb is `{names} are no longer running` for the same reason: §7.1's list
@@ -452,7 +452,7 @@
   /// (`WorkerState::from_observed` yields only `pending_init`, `running` and `unknown`).
   /// If one ever arrives it is a NEW signal whose treatment is a product decision that has
   /// not been made — so it reads as the one thing that is certainly true and claims
-  /// nothing, exactly as the duration row's default does for an unrecognised turn state.
+  /// nothing, exactly as the duration row's default does for an unrecognized turn state.
   function workerStateSpec(state) {
     return (
       WORKER_STATES[state] || {
@@ -509,7 +509,7 @@
 
   /// Collapse a run of CONSECUTIVE worker rows into one group, one chip per DISTINCT
   /// `agentId`. Consecutive only, for the same reason the activity rollup is: a group must
-  /// never reorder the chronology it summarises. Distinct by agent id because two `Task`
+  /// never reorder the chronology it summarizes. Distinct by agent id because two `Task`
   /// calls naming the same worker are two records of one worker, not two workers — the
   /// join key is the identity (§7.2), never the name and never the row.
   function rollupWorkers(items) {
@@ -1366,7 +1366,7 @@
 
     row.appendChild(elem("span", "tl-activity-text", group.label));
 
-    // §18: status must never rely on colour alone, and an `unknown` state must not read as
+    // §18: status must never rely on color alone, and an `unknown` state must not read as
     // done. Only the two states that are NOT self-evident from the verb are spelled out.
     if (["unknown", "failed", "running", "queued"].indexOf(group.state) >= 0) {
       row.appendChild(elem("span", "tl-activity-state", ACTIVITY_STATE_LABEL[group.state]));
@@ -1385,7 +1385,7 @@
   /// governance is deferred to V2 by CEO decision for v1 and all 1.x. A window, not a
   /// cockpit.
   ///
-  /// Status is carried by GLYPH + WORD, never by colour alone (§18). The pulse is on the
+  /// Status is carried by GLYPH + WORD, never by color alone (§18). The pulse is on the
   /// `running` chip only, one at a time, and `prefers-reduced-motion` replaces it with a
   /// static mark (§17.4).
   function renderWorkerGroup(group, opts) {
@@ -1851,7 +1851,7 @@
   // list is the thing that rots.
   //
   // THE ONE CONTRACT THIS PLACES ON CALLERS: the `opts` callbacks (`copy`, `retry`,
-  // `toggle`, `openWorker`, `rerender`) must be behaviourally stable between renders,
+  // `toggle`, `openWorker`, `rerender`) must be behaviorally stable between renders,
   // because a reused node keeps the listeners bound when it was built. `main.js` passes
   // module-level functions and the harness passes equivalent closures. Everything a
   // callback closes over that CAN change — the item, the group, the expanded set, the

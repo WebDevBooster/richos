@@ -138,7 +138,7 @@ async function openFixture(browser, viewport) {
 /// THIS CHECK WAS DOCUMENTED HERE BEFORE IT WAS DONE. Until this commit the function
 /// measured `fs.statSync(...).size` and nothing else — and a byte count is exactly what an
 /// all-black PNG passes: `screencapture` on this machine has been returning a valid,
-/// several-kilobyte, single-colour (0,0,0) 1920x1080 file for three slices running. A file
+/// several-kilobyte, single-color (0,0,0) 1920x1080 file for three slices running. A file
 /// size is not a render. So the pixels are now counted, in the browser that just painted
 /// them: the PNG is handed back to WebKit, decoded, drawn to a canvas and sampled. No new
 /// dependency, and the decoder is the same engine the CEO's app renders through.
@@ -186,7 +186,7 @@ async function shot(page, name, opts) {
   if (stats.distinct < SHOT_MIN_DISTINCT) {
     throw new Error(
       `${name}.png is ${stats.width}x${stats.height} with only ${stats.distinct} distinct ` +
-        `colour(s) across ${stats.sampled} samples — that is a flat fill, not a render. ` +
+        `color(s) across ${stats.sampled} samples — that is a flat fill, not a render. ` +
         `Evidence of NOTHING (${file}).`
     );
   }

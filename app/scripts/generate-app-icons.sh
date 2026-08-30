@@ -10,7 +10,7 @@
 # Tool: Pillow (SPDX MIT-CMU) for decode/resample/PNG/ICO, plus Apple's own
 # /usr/bin/iconutil for the macOS .icns. Neither is linked into or shipped inside
 # the signed .app; both run at authoring time only. See app/scripts/lib/app_icons.py
-# for the full licence and layer-coverage reasoning.
+# for the full license and layer-coverage reasoning.
 #
 # Exit codes: 0 success, 1 output failed verification, 2 the source artwork was
 # rejected (with the precise reason), 3 a prerequisite is missing.

@@ -49,7 +49,7 @@ const APP = "file://" + path.join(UI_DIR, "index.html");
 // §26 names nine screenshots as required deliverables, so unlike `.shots/` — the per-run
 // scratch every other suite writes and gitignores — these NINE are committed. They are the
 // first visual record this UI has ever had; the display on this machine has been locked for
-// three slices and `screencapture` returns a valid single-colour (0,0,0) PNG, so every one
+// three slices and `screencapture` returns a valid single-color (0,0,0) PNG, so every one
 // of them comes out of WebKit's own compositor and is pixel-counted before it counts.
 const SHOTS_26 = path.join(__dirname, "shots-26");
 
@@ -63,7 +63,7 @@ async function evidence(page, name, note) {
   fs.mkdirSync(SHOTS_26, { recursive: true });
   fs.copyFileSync(s.file, path.join(SHOTS_26, name + ".png"));
   shots.push({ name, note, distinct: s.distinct, bytes: s.bytes });
-  return `${name}.png — ${s.width}x${s.height}, ${s.distinct} distinct colours, ${s.bytes} bytes`;
+  return `${name}.png — ${s.width}x${s.height}, ${s.distinct} distinct colors, ${s.bytes} bytes`;
 }
 
 async function openApp(browser, viewport) {
@@ -721,7 +721,7 @@ async function main() {
 
   await run.check("SCREENSHOT INVENTORY", async () => {
     assertEqual(shots.length, 9, "§26 asks for nine");
-    return shots.map((s) => `${s.name}.png (${s.distinct} colours) — ${s.note}`).join("\n          ");
+    return shots.map((s) => `${s.name}.png (${s.distinct} colors) — ${s.note}`).join("\n          ");
   });
 
   await run.check("no page errors", async () => {
