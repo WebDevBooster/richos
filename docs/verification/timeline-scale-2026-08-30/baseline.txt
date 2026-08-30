@@ -1,0 +1,53 @@
+THE TIMELINE AT 10,000 ITEMS — BASELINE
+=======================================
+
+Tree:     richos main @ 24787b5, app/ui/timeline.js UNMODIFIED
+Tool:     app/ui/tests/lib/scale-bench.js (this commit)
+Engine:   WebKit Version/26.5 (Playwright 1.61.1, webkit-2311) — the engine Tauri renders
+          through on macOS, per harness rule 2. Not Chromium.
+Machine:  Darwin 24.6.0, headless, viewport 1280x900
+Date:     2026-08-30
+
+`performance.now()` in this WebKit is coarsened to 1ms, so every figure below is a whole
+number of milliseconds. That is fine for everything here except the two smallest shapes.
+
+WHAT PROMPTED IT
+----------------
+docs/design/richos-codex-inspired-conversation-ux-2026-08-28.md:1243 — "The timeline uses
+virtualized infinite scroll." Same file :1712 — "A 10,000-item thread history remains
+smooth through virtualization." Two more sites say it in the standing-rule paragraph about
+pagination. On 2026-08-30, `grep -rn virtualiz app/` returned NOTHING.
+
+WHAT THE NUMBERS SAY
+--------------------
+The documents named the wrong defect. At the promised 10,000 items:
+
+  * SCROLLING WAS ALREADY FINE — 17ms p50, which is this engine's vsync floor. Nothing
+    needed virtualizing to make the CEO's scroll smooth.
+  * THE LIVE PATH WAS NOT. A structural change cost 257ms, and a structural change is
+    every activity row, every worker upsert, every turn-status transition. A 52-second
+    multi-tool turn emits dozens. That is a fifteen-frame stall, once per tool call, for
+    the whole of a long turn — and it is invisible in any test that renders once.
+  * THE ALL-EXPANDED CASE SCROLLED AT ~26ms p50 (~40fps), 51,001 nodes. Below smooth, and
+    reachable by the CEO opening work transcripts.
+
+=== BEFORE (24787b5, unmodified renderer) ===
+WebKit Version/26.5 Safari/605.1.15
+expanded transcripts: false
+
+10 turns x 10      items=   100 turns=   10 | apply     0ms | turnsOf     0ms | render     3ms | layout     3ms | firstPaint    26ms | struct     3ms | frame p50  17 p95  18 max  19 | dom    321 nodes, 4993px
+100 turns x 10     items=  1000 turns=  100 | apply     0ms | turnsOf     1ms | render     5ms | layout    17ms | firstPaint    30ms | struct    24ms | frame p50  17 p95  18 max  19 | dom   3201 nodes, 49205px
+500 turns x 10     items=  5000 turns=  500 | apply     5ms | turnsOf     4ms | render    28ms | layout    87ms | firstPaint   153ms | struct   121ms | frame p50  17 p95  18 max  19 | dom  16001 nodes, 245705px
+1000 turns x 10    items= 10000 turns= 1000 | apply    15ms | turnsOf    19ms | render    61ms | layout   175ms | firstPaint   278ms | struct   257ms | frame p50  17 p95  18 max  19 | dom  32001 nodes, 491330px
+10000 turns x 1    items= 20000 turns=10000 | apply   266ms | turnsOf   368ms | render   648ms | layout   648ms | firstPaint  1455ms | struct  1380ms | frame p50  95 p95 110 max 122 | dom 130001 nodes, 1776018px
+2000 turns x 5     items= 10000 turns= 2000 | apply    29ms | turnsOf    31ms | render   104ms | layout   228ms | firstPaint   384ms | struct   370ms | frame p50  17 p95  19 max  23 | dom  44001 nodes, 601705px
+
+WebKit Version/26.5 Safari/605.1.15
+expanded transcripts: true
+
+10 turns x 10      items=   100 turns=   10 | apply     0ms | turnsOf     0ms | render     3ms | layout     5ms | firstPaint    14ms | struct     4ms | frame p50  17 p95  19 max  19 | dom    511 nodes, 6208px
+100 turns x 10     items=  1000 turns=  100 | apply     0ms | turnsOf     1ms | render     8ms | layout    30ms | firstPaint    63ms | struct    36ms | frame p50  17 p95  18 max  18 | dom   5101 nodes, 61355px
+500 turns x 10     items=  5000 turns=  500 | apply     4ms | turnsOf     5ms | render    33ms | layout   135ms | firstPaint   251ms | struct   179ms | frame p50  18 p95  23 max  27 | dom  25501 nodes, 306455px
+1000 turns x 10    items= 10000 turns= 1000 | apply    14ms | turnsOf    18ms | render    72ms | layout   274ms | firstPaint   519ms | struct   383ms | frame p50  26 p95  37 max  65 | dom  51001 nodes, 612830px
+10000 turns x 1    items= 20000 turns=10000 | apply   273ms | turnsOf   355ms | render   647ms | layout   652ms | firstPaint  1472ms | struct  1387ms | frame p50  97 p95 115 max 120 | dom 130001 nodes, 1776018px
+2000 turns x 5     items= 10000 turns= 2000 | apply    29ms | turnsOf    34ms | render   115ms | layout   291ms | firstPaint   589ms | struct   450ms | frame p50  31 p95  39 max 146 | dom  58001 nodes, 675705px
