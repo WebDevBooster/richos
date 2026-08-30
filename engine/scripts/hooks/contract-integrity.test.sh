@@ -86,6 +86,8 @@ ALL_HOOKS=(
     guard-resume-isolation.sh
     guard-workflow-ban.sh
     guard-unresolved-claims.sh
+    snapshot-enforcing-hooks.sh
+    notice-hook-staleness.sh
     detect-nonnative-worktree.sh
     teammate-idle-handoff.sh
     task-completed-handoff.sh
