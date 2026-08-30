@@ -11,8 +11,9 @@
  *   2. PERSISTENT INSERTION — full `large-v3-turbo` on 11 minutes of noisy audio latched onto a real
  *      spoken 3-item list and then prefixed a fabricated, stalling list numeral onto 59 of 88
  *      segments, 65% of the call, deterministically in 3/3 runs (q5 call benchmark 2026-08-26 §6.3).
- *      Each segment carries DIFFERENT speech, so class 1 cannot see it. REMEDY: REPORT ONLY — see
- *      "why insertion is detect-only" below. This is the class the record named as invisible.
+ *      Each segment carries DIFFERENT speech, so class 1 cannot see it. REMEDY: strip the marker,
+ *      per marker, ONLY where an isolated re-decode of that segment's own audio fails to return the
+ *      numeral — report-only without that probe. See "why this was detect-only, and what changed".
  *   3. SLIDING-OVERLAP STUTTER — full `large-v3` on 11 minutes of clean audio collapsed after a loop
  *      into re-emitting each phrase 2-3x with shifted segment boundaries, turning 1,979 reference
  *      words into 3,999 (110.86% WER; q5 call benchmark 2026-08-26 §6.4). Consecutive segments are
@@ -137,14 +138,50 @@
  *     ("- ", "* ") are deliberately OUT OF SCOPE: they carry no ordering signal, so they cannot be
  *     told apart from a legitimate rendering convention, and guessing would eat real text.
  *
- *     WHY INSERTION IS DETECT-ONLY, on the evidence of the artifact itself. In the captured
- *     C-sample transcript the fabricated run contains at least one marker that is REAL SPEECH: at
- *     205.3 s the speaker answers "Any data loss?" with "Zero.", which whisper renders " 0. We ran a
- *     full checksum comparison...". Stripping markers across the fabricated span would delete that
- *     word. Detection of this class is achievable at ~zero false-positive cost; REMOVAL is not, and
- *     the real artifact proves it. So the guard makes the failure LOUD (report + pipeline alarm +
- *     a verification problem) and never rewrites the text. Audio is retained; re-transcribe with
- *     another model is the repair. `stripInsertions: true` is available and off by default.
+ *     WHY THIS WAS DETECT-ONLY, AND WHAT CHANGED (2026-08-30). In the captured C-sample transcript
+ *     the fabricated run contains a marker that is REAL SPEECH: at 205.3 s the speaker answers "Any
+ *     data loss?" with "Zero.", which whisper renders " 0. We ran a full checksum comparison...".
+ *     Stripping markers across the fabricated span deletes that word — measured, not feared: the
+ *     unadjudicated strip destroys it, 1 real word of 57 markers. So TEXT alone cannot separate the
+ *     two, and the class reported instead of repairing.
+ *
+ *     The evidence that can separate them is the same kind the loop class already uses and the same
+ *     kind stages 3.7/3.8 already buy: THE AUDIO, decoded in isolation. A fabricated ordinal is a
+ *     product of accumulated decode context; cut the segment's own span out and decode it ALONE and
+ *     the counter cannot form, while a numeral the speaker really said comes back. That is not an
+ *     analogy — it is the mechanism the 2026-08-29 long-form work proved on this same failure, where
+ *     a 65-second clip extracted from a catastrophically looped span decoded correctly at identical
+ *     parameters.
+ *
+ *     So the class now REPAIRS, and only ever on positive physical evidence:
+ *
+ *       1. PROBE PRESENT   `opts.probe` was injected. No probe, no repair, EVER — detect-only is
+ *                          still the behavior of this module on its own, exactly like class 4's
+ *                          condition 1. "Left the text alone" and "never looked" stay different
+ *                          answers and the report says which.
+ *       2. SUSPECT ONLY    the four detection conditions fired AND the marker is past the first
+ *                          well-formedness violation. The genuine leading enumeration is never
+ *                          probed and never touched.
+ *       3. NOT IN EITHER DECODE   neither the tight (0.3 s pad) nor the wide (0.75 s pad) isolated
+ *                          decode contains the numeral ANYWHERE, in digit or word form. Anywhere,
+ *                          not at the head: whisper's segment boundary inside a fabricated span is
+ *                          itself unreliable, and on the real " 0." the recovered word landed seven
+ *                          words in because the boundary was 1.7 s early. A head-anchored rule
+ *                          destroys that word; the whole-clip rule does not.
+ *       4. THE DECODE SAID SOMETHING   both clips returned lexical text. An empty or failed decode
+ *                          is not evidence of fabrication, it is absence of evidence — keep, report.
+ *
+ *     ONE-DIRECTIONAL, like every other probe in this file: it can only ever REFUSE to strip. A
+ *     numeral found anywhere in the clip protects the marker; there is no arm of the rule where a
+ *     probe result causes a removal that text alone would not have caused.
+ *
+ *     MEASURED on the artifact, ground truth known by construction (sample C is TTS of a written
+ *     script, so the script says which numerals were uttered): 57 suspect markers, of which exactly
+ *     one is real. The probe strips 56 and keeps the real "Zero." — 0 real words destroyed, 0
+ *     fabricated markers left in. The false-positive control is the speaker's genuine spoken action
+ *     list at 151.6 s / 159.6 s, where isolated decode returns "1." and "Three," and the rule
+ *     refuses both. `stripInsertions: true` remains available and off by default; it is the
+ *     UNADJUDICATED strip, and on this artifact it is the one that eats the word.
  *
  *   - OVERLAP STUTTER: THE HAND-OFF FROM CLASS 1, first, because it is the condition that was
  *     MISSING and the miss cost real speech. K identical consecutive segments are, to a word-exact
@@ -195,7 +232,13 @@
  *
  * KNOWN BLIND SPOTS, stated so nobody reads "guard: on" as "hallucination: handled":
  *   - a persistent insertion that is NOT an ordinal marker (a fabricated word, a speaker label, a
- *     bullet) — no ordering signal exists to separate it from speech without semantics;
+ *     bullet) — no ordering signal exists to separate it from speech without semantics, so nothing
+ *     ever reaches the probe that could repair it;
+ *   - an ordinal insertion on a pipeline with NO probe injected, or one whose probe budget the
+ *     marker count exceeds: detected, reported, left in the text. Unchanged from before;
+ *   - an ordinal insertion whose segment body happens to contain its own numeral in words or
+ *     digits. The probe refuses to strip it and the marker survives — a false NEGATIVE by design.
+ *     Zero of 57 on the captured artifact, and it is the direction this file always errs in;
  *   - a monotone, never-stalling fabricated enumeration — structurally identical to a person reading
  *     a numbered list aloud; deliberately not fired on;
  *   - a 2-segment sliding stutter (below minChainLinks);
@@ -261,7 +304,14 @@ const DEFAULT_OPTS = {
   minMarkerSpanDensity: 0.5, // markers must DOMINATE their own span, not punctuate a list
   minMarkerViolations: 2, // one stall/regression can be a person correcting themselves
   minMarkerViolationRate: 0.3, // and the sequence as a whole must be badly formed, not once-hiccuped
-  stripInsertions: false, // detect-only by default; see the header for why
+  // The UNADJUDICATED strip. Off, and it stays off: on the captured artifact it destroys the real
+  // spoken "Zero." at 205.3 s. Repair goes through `probe` below, which cannot.
+  stripInsertions: false,
+  // Injected by the pipeline, same callback shape stages 3.7/3.8 use:
+  //   (spans, channel) => [{ tight, wide }] — isolated re-decodes at two paddings.
+  // ABSENT -> this class is DETECT-ONLY, exactly as it shipped. No probe, no repair, ever.
+  probe: null,
+  insertionProbeBudget: 80, // hard cap on isolated re-decodes for this class, per channel
 
   // ---- class 3: sliding-overlap stutter --------------------------------------------------------
   minOverlapWords: 3, // 1-2 shared boundary words could be coincidence; 3 was never seen in clean output
@@ -458,6 +508,85 @@ export function guardChannel(segments, opts = {}) {
 }
 
 /**
+ * Number words for the values an enumeration marker can carry. Whisper writes a spoken numeral
+ * either way ("Three, we added a synthetic canary job" / "3. We added ..."), and a rule that only
+ * looked for digits would call the word form a fabrication and delete it.
+ */
+const NUMBER_WORDS = [
+  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven',
+  'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty',
+];
+
+/**
+ * Does this text contain the numeral `value`, in digit or word form, ANYWHERE?
+ *
+ * Anywhere, not at the head, and that is measured rather than tidy: inside a fabricated span
+ * whisper's own segment boundaries drift, and on the one real marker in the captured artifact the
+ * recovered "zero" landed seven words into the clip because the boundary was 1.7 s early. A
+ * head-anchored test deletes that word; this one does not.
+ *
+ * @param {string} text an isolated re-decode
+ * @param {number} value the marker's numeral
+ * @returns {boolean|null} null when the text is empty — absence of evidence, not evidence of absence
+ */
+export function numeralInText(text, value) {
+  const s = String(text == null ? '' : text).trim().toLowerCase();
+  if (!s) return null;
+  if (new RegExp(`(^|\\W)${value}(\\W|$)`).test(s)) return true;
+  const w = NUMBER_WORDS[value];
+  return w ? new RegExp(`(^|\\W)${w}(\\W|$)`).test(s) : false;
+}
+
+/**
+ * THE VERDICT FOR ONE SUSPECT MARKER, given its two isolated re-decodes. PURE: the probe is data,
+ * not a call. All of THE PRECISION RULE's evidence conditions (3 and 4 in the header) live here.
+ *
+ * @param {{value:number}} marker
+ * @param {{tight:string, wide:string}|null} probe
+ * @returns {{verdict:'fabricated'|'spoken'|'unprobed', reason:string}}
+ */
+export function adjudicateInsertionMarker(marker, probe) {
+  const value = Number(marker && marker.value);
+  if (!probe) {
+    return { verdict: 'unprobed', reason: 'no isolated re-decode was performed for this segment' };
+  }
+  const tight = numeralInText(probe.tight, value);
+  const wide = numeralInText(probe.wide, value);
+  if (tight === null || wide === null) {
+    return {
+      verdict: 'unprobed',
+      reason: 'an isolated re-decode returned nothing at all, which is absence of evidence rather than evidence of fabrication',
+    };
+  }
+  if (tight || wide) {
+    return {
+      verdict: 'spoken',
+      reason: `decoded alone, this segment's audio still returns "${value}" — the speaker said the numeral`,
+    };
+  }
+  return {
+    verdict: 'fabricated',
+    reason: `decoded alone at both paddings, this segment's audio never returns "${value}"`,
+  };
+}
+
+/**
+ * Which suspect markers are worth spending a decode on, capped by the budget. Document order: every
+ * marker costs one word and none is more at stake than another, so there is nothing to rank by, and
+ * a cap that silently reordered the transcript would be harder to read than one that does not.
+ * Separated out so the pipeline can size its work before doing any of it.
+ *
+ * @param {{index:number, value:number}[]} suspect
+ * @param {Partial<typeof DEFAULT_OPTS>} [opts]
+ * @returns {{probe: object[], unprobed: object[]}}
+ */
+export function selectInsertionProbes(suspect, opts = {}) {
+  const o = { ...DEFAULT_OPTS, ...opts };
+  const list = Array.isArray(suspect) ? suspect : [];
+  return { probe: list.slice(0, o.insertionProbeBudget), unprobed: list.slice(o.insertionProbeBudget) };
+}
+
+/**
  * Class 2 — detect a PERSISTENT INSERTION: a fabricated ordinal enumeration marker prefixed onto
  * many otherwise-distinct segments (the captured `large-v3-turbo` artifact).
  *
@@ -465,12 +594,14 @@ export function guardChannel(segments, opts = {}) {
  * `DEFAULT_OPTS`. The report names the well-formed prefix that is preserved as genuine (a real
  * spoken list that the fabrication latched onto) and the span judged fabricated.
  *
- * Text is NOT rewritten unless `stripInsertions` is explicitly enabled — the captured artifact
- * contains a real spoken "Zero." inside the fabricated span, so stripping is a lossy remedy.
+ * REPAIR is per marker and needs `opts.probe`: a marker is stripped only where an isolated re-decode
+ * of that segment's own audio, at both paddings, fails to return the numeral. Without a probe this
+ * function is byte-for-byte what it always was — detect-only, text untouched. See the header.
  *
  * @param {Segment[]} segments
  * @param {Partial<typeof DEFAULT_OPTS>} [opts]
- * @returns {{segments: Segment[], insertions: object[], stripped: number, stats: object}}
+ * @returns {{segments: Segment[], insertions: object[], stripped: number, stats: object,
+ *            probed: number, kept: number, unprobed: number}}
  */
 export function guardInsertions(segments, opts = {}) {
   const o = { ...DEFAULT_OPTS, ...opts };
@@ -493,9 +624,17 @@ export function guardInsertions(segments, opts = {}) {
     maxRepeat: 0,
   };
 
-  if (markers.length < o.minMarkerSegments) {
-    return { segments: segs.map((s) => ({ ...s })), insertions: [], stripped: 0, stats };
-  }
+  const inert = () => ({
+    segments: segs.map((s) => ({ ...s })),
+    insertions: [],
+    stripped: 0,
+    stats,
+    probed: 0,
+    kept: 0,
+    unprobed: 0,
+  });
+
+  if (markers.length < o.minMarkerSegments) return inert();
 
   const spanLen = markers[markers.length - 1].index - markers[0].index + 1;
   stats.spanDensity = spanLen > 0 ? markers.length / spanLen : 0;
@@ -525,9 +664,7 @@ export function guardInsertions(segments, opts = {}) {
     stats.violations >= o.minMarkerViolations &&
     stats.violationRate >= o.minMarkerViolationRate;
 
-  if (!fires) {
-    return { segments: segs.map((s) => ({ ...s })), insertions: [], stripped: 0, stats };
-  }
+  if (!fires) return inert();
 
   // Everything BEFORE the first well-formedness violation is a plausible genuine enumeration and is
   // never touched or reported as fabricated — in the captured artifact that is exactly the real
@@ -538,7 +675,54 @@ export function guardInsertions(segments, opts = {}) {
 
   const out = segs.map((s) => ({ ...s }));
   let stripped = 0;
-  if (o.stripInsertions) {
+  let kept = 0;
+  let unprobed = 0;
+  /** @type {object[]} one row per suspect marker once a probe has been consulted */
+  const adjudicated = [];
+
+  if (typeof o.probe === 'function') {
+    // ---- THE REPAIR ------------------------------------------------------------------------------
+    // Stage A above was pure arithmetic over text. This is the only part that costs anything, it
+    // runs only because all four detection conditions already fired, and it can only ever REFUSE.
+    const { probe: toProbe, unprobed: overBudget } = selectInsertionProbes(suspect, o);
+    const spans = toProbe.map((m) => ({
+      startMs: Number(segs[m.index].startMs || 0),
+      endMs: Number(segs[m.index].endMs || 0),
+    }));
+    let probes = [];
+    try {
+      probes = o.probe(spans, o.channel) || [];
+    } catch {
+      // A failed probe must never look like a clean result: every marker falls back to unprobed,
+      // the text is left alone, and the report says so.
+      probes = [];
+    }
+    toProbe.forEach((m, i) => {
+      const verdict = adjudicateInsertionMarker(m, probes[i] || null);
+      adjudicated.push({ index: m.index, value: m.value, marker: m.marker.trim(), ...verdict });
+      if (verdict.verdict === 'fabricated') {
+        out[m.index] = { ...out[m.index], text: m.rest };
+        stripped += 1;
+      } else if (verdict.verdict === 'spoken') {
+        kept += 1;
+      } else {
+        unprobed += 1;
+      }
+    });
+    for (const m of overBudget) {
+      adjudicated.push({
+        index: m.index,
+        value: m.value,
+        marker: m.marker.trim(),
+        verdict: 'unprobed',
+        reason: `beyond the ${o.insertionProbeBudget}-decode budget for this class`,
+      });
+      unprobed += 1;
+    }
+  } else if (o.stripInsertions) {
+    // The UNADJUDICATED strip, off by default. Kept because it is the only way to see what the
+    // adjudication buys, and because a text-only deployment may want it — but it is the arm that
+    // destroys a real spoken numeral, and that is measured, not theoretical.
     for (const m of suspect) {
       out[m.index] = { ...out[m.index], text: m.rest };
       stripped += 1;
@@ -557,12 +741,19 @@ export function guardInsertions(segments, opts = {}) {
       values: suspect.map((m) => m.value),
       genuinePrefix: genuinePrefix.map((m) => m.marker.trim()),
       stripped,
+      // Still in the text after this class ran, and WHY — a numeral the audio backs, or a marker
+      // nothing looked at. "0 stripped" must never be readable as "nothing was wrong here".
+      keptSpoken: kept,
+      unprobed,
+      probed: stripped + kept,
+      adjudicated,
+      repaired: typeof o.probe === 'function',
       stats: { ...stats },
       sample: String(segs[suspect[0].index].text || '').trim().slice(0, 80),
     },
   ];
 
-  return { segments: out, insertions, stripped, stats };
+  return { segments: out, insertions, stripped, stats, probed: stripped + kept, kept, unprobed };
 }
 
 /**
@@ -995,6 +1186,9 @@ export function guardChannelAll(segments, opts = {}) {
     loops: loop.loops,
     preserved: loop.preserved || [],
     insertions: ins.insertions,
+    insertionProbed: ins.probed || 0,
+    insertionKeptSpoken: ins.kept || 0,
+    insertionUnprobed: ins.unprobed || 0,
     stutters: stut.stutters,
     // Every segment this guard took out of the transcript, of any class. Without a burst grid
     // `sil.removed` is 0 by construction, so no existing caller's number moves.
@@ -1014,8 +1208,14 @@ export function guardChannelAll(segments, opts = {}) {
  */
 export function guardTranscription(channels, opts = {}) {
   // `speechBursts` is PER CHANNEL — passing one channel's bursts to the other would invent evidence.
+  // `channel` rides along for the same reason: the insertion probe cuts audio, and a probe that cut
+  // the wrong channel's WAV would adjudicate a marker against speech that is not underneath it.
   const bursts = opts.speechBursts && !Array.isArray(opts.speechBursts) ? opts.speechBursts : null;
-  const perChannel = (ch) => (bursts ? { ...opts, speechBursts: bursts[ch] || null } : opts);
+  const perChannel = (ch) => ({
+    ...opts,
+    channel: ch,
+    ...(bursts ? { speechBursts: bursts[ch] || null } : {}),
+  });
   const me = guardChannelAll(channels.me || [], perChannel('me'));
   const others = guardChannelAll(channels.others || [], perChannel('others'));
 
@@ -1047,6 +1247,16 @@ export function guardTranscription(channels, opts = {}) {
       loops,
       preserved,
       insertions,
+      // Class 2, since 2026-08-30. Did a probe REACH this function? Reported from what the guard
+      // received rather than from what the caller meant to send, because those are different facts
+      // and only the first one decides whether this class could repair anything.
+      insertionProbe: typeof opts.probe === 'function',
+      // `insertionsRepaired` are markers an isolated re-decode proved the speaker never said; the
+      // other two are what is STILL in the transcript and why. A repaired count without them
+      // beside it would read as "handled".
+      insertionsRepaired: me.insertionsStripped + others.insertionsStripped,
+      insertionsKeptSpoken: me.insertionKeptSpoken + others.insertionKeptSpoken,
+      insertionsUnprobed: me.insertionUnprobed + others.insertionUnprobed,
       stutters,
       // Class 4, both tiers in one list, each row carrying its own `action`. Kept whole rather than
       // split, so a reader can never see the removals without also seeing what was left behind.
@@ -1088,22 +1298,53 @@ export function guardTranscription(channels, opts = {}) {
  * NOT repair. This is the never-silent seam: without it, `repetitionGuard.enabled: true` in the
  * record reads as "hallucination: handled" while fabricated text sits in transcript.md.
  *
- * Repaired classes (loop, stutter, and the REMOVED tier of silence fabrication) produce no warning —
- * the transcript no longer contains them, and the finding is already in `report.loops` /
- * `report.stutters` / `report.silenceFabrications`.
+ * Repaired classes (loop, stutter, the REMOVED tier of silence fabrication, and since 2026-08-30 the
+ * adjudicated-fabricated tier of the insertion class) produce no warning — the transcript no longer
+ * contains them, and the finding is already in `report.loops` / `report.stutters` /
+ * `report.silenceFabrications` / the insertion's own `adjudicated` rows.
  *
  * @param {{insertions: object[], silenceFabrications?: object[]}} report from guardTranscription
  * @returns {string[]}
  */
 export function guardWarnings(report) {
   const insertions = (report && report.insertions) || [];
-  const out = insertions.map(
-    (i) =>
-      `${i.count} fabricated ${i.kind} insertion(s) on the "${i.channel || 'unknown'}" channel between ` +
-      `${Math.round(Number(i.startMs || 0) / 1000)}s and ${Math.round(Number(i.endMs || 0) / 1000)}s are ` +
-      'STILL IN the transcript — this class is detected, not repaired (removing it would delete real ' +
-      'speech). Audio is retained: re-transcribe with a different model.',
-  );
+  const out = [];
+  for (const i of insertions) {
+    const where =
+      `on the "${i.channel || 'unknown'}" channel between ${Math.round(Number(i.startMs || 0) / 1000)}s and ` +
+      `${Math.round(Number(i.endMs || 0) / 1000)}s`;
+    if (!i.repaired) {
+      out.push(
+        `${i.count} fabricated ${i.kind} insertion(s) ${where} are STILL IN the transcript — no isolated ` +
+          're-decode was available, so this class could only detect. Audio is retained: re-transcribe ' +
+          'with a different model.',
+      );
+      continue;
+    }
+    // Repaired, but never silently: a marker the audio backs, or one nothing looked at, is still in
+    // the text and is the only part worth a human's attention.
+    const left = Number(i.keptSpoken || 0) + Number(i.unprobed || 0);
+    if (Number(i.unprobed || 0) > 0) {
+      out.push(
+        `${i.unprobed} of ${i.count} fabricated ${i.kind} insertion(s) ${where} were NOT adjudicated ` +
+          '(no usable isolated re-decode, or beyond this class\'s probe budget) and are still in the ' +
+          'transcript. Audio is retained: check the span, or re-transcribe.',
+      );
+    }
+    if (Number(i.keptSpoken || 0) > 0) {
+      out.push(
+        `${i.keptSpoken} ${i.kind}(s) ${where} were KEPT: decoded alone, the audio still returns the ` +
+          'numeral, so the speaker said it. This is the guard refusing to delete real speech, not a ' +
+          'defect — no action needed.',
+      );
+    }
+    if (left === 0) {
+      out.push(
+        `${i.stripped} fabricated ${i.kind} insertion(s) ${where} were REMOVED after isolated re-decode ` +
+          'showed the audio never carried them. The rest of each segment is untouched.',
+      );
+    }
+  }
   // Class 4's report-only tier: over measured silence, but the text is not in the silence
   // vocabulary, so it was NOT removed. One line per span, because a count is not actionable.
   for (const f of (report && report.silenceFabrications) || []) {

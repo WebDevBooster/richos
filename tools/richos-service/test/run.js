@@ -81,6 +81,9 @@ import {
   burstCapacity,
   burstOverlapMs,
   guardSilenceFabrication,
+  numeralInText,
+  adjudicateInsertionMarker,
+  selectInsertionProbes,
   REPETITION_GUARD_DEFAULTS,
 } from '../lib/repetition-guard.js';
 import {
@@ -89,6 +92,7 @@ import {
   GENUINE_SPOKEN_ENUMERATION,
   LARGE_V3_SLIDING_STUTTER,
   CLEAN_NO_BOUNDARY_OVERLAP,
+  TURBO_NUMERAL_INSERTION_ISOLATED_DECODES,
 } from './fixtures/captured-hallucinations.js';
 import { diarizeOthers, readTurn, SPEAKER_TURN_MARKER } from '../lib/diarize.js';
 import {
@@ -1243,6 +1247,116 @@ test('POSITIVE CONTROL for the negatives below: the same detector fires on the a
   assert.equal(guardInsertions(TURBO_NUMERAL_INSERTION).insertions.length, 1);
 });
 
+// ---- class 2, the REPAIR (2026-08-30) ---------------------------------------------------------
+// The probe is DATA in these tests, never a call: the fixture holds the real isolated re-decodes.
+
+/** The recorded isolated decodes, in the order `guardInsertions` probes its suspect markers. */
+const isolatedProbe = () => (spans) =>
+  spans.map((s) => {
+    const seg = TURBO_NUMERAL_INSERTION.findIndex((x) => x.startMs === s.startMs && x.endMs === s.endMs);
+    const row = TURBO_NUMERAL_INSERTION_ISOLATED_DECODES.find((x) => x.index === seg);
+    assert.ok(row, `no recorded isolated decode for segment ${seg}`);
+    return { tight: row.tight, wide: row.wide };
+  });
+
+test('numeralInText reads a numeral in EITHER form, anywhere, and says "empty" rather than "absent"', () => {
+  assert.equal(numeralInText('Three, we added a synthetic canary job', 3), true, 'the word form');
+  assert.equal(numeralInText(' 3. We added a synthetic canary job', 3), true, 'the digit form');
+  assert.equal(numeralInText('my worry the whole time zero we ran a full checksum', 0), true, 'seven words in');
+  assert.equal(numeralInText('It pages after two consecutive failures', 3), false);
+  assert.equal(numeralInText('   ', 7), null, 'an empty decode is absence of evidence');
+  // Deliberately generous, and it can only ever PROTECT: "3.1.0" counts as a 3, so a marker whose
+  // segment happens to quote a version number is kept rather than stripped. Zero of 57 on the real
+  // artifact — a false negative here leaves fabrication in and says so; the other error deletes a word.
+  assert.equal(numeralInText('build 3.1.0 ships next month', 3), true);
+});
+
+test('a marker is only ever stripped on POSITIVE, agreeing evidence from both paddings', () => {
+  const m = { value: 7 };
+  assert.equal(adjudicateInsertionMarker(m, { tight: 'no numeral here', wide: 'nor here' }).verdict, 'fabricated');
+  assert.equal(adjudicateInsertionMarker(m, { tight: 'seven of them', wide: 'nor here' }).verdict, 'spoken');
+  assert.equal(adjudicateInsertionMarker(m, { tight: 'no numeral here', wide: '7 of them' }).verdict, 'spoken');
+  assert.equal(adjudicateInsertionMarker(m, { tight: '', wide: 'nothing' }).verdict, 'unprobed');
+  assert.equal(adjudicateInsertionMarker(m, null).verdict, 'unprobed');
+});
+
+test('THE REPAIR, on the real artifact and its real isolated decodes: 56 of 57 stripped, the spoken "Zero." kept', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: isolatedProbe() });
+  const f = r.insertions[0];
+  assert.equal(f.count, 57, 'the same 57 suspect markers as before');
+  assert.equal(r.stripped, 56, '56 markers the audio never carried');
+  assert.equal(r.kept, 1, 'and exactly one it did');
+  assert.equal(r.unprobed, 0, 'every marker was adjudicated');
+  // The whole reason this class was detect-only for two days.
+  const zero = r.segments.find((s) => s.startMs === 205260);
+  assert.ok(zero.text.trim().startsWith('0. We ran a full checksum'), 'the speaker\'s "Zero." is still there');
+  const spoken = f.adjudicated.find((a) => a.verdict === 'spoken');
+  assert.equal(spoken.index, 24);
+});
+
+test('the repair takes the marker and NOTHING else — every other word of all 88 segments is untouched', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: isolatedProbe() });
+  const strip = (t) => String(t).replace(/^\s*\d{1,3}\s*[.)]\s+/, ' ').replace(/\s+/g, ' ').trim();
+  assert.equal(r.segments.length, TURBO_NUMERAL_INSERTION.length);
+  TURBO_NUMERAL_INSERTION.forEach((before, i) => {
+    assert.equal(strip(r.segments[i].text), strip(before.text), `segment ${i} lost or gained words`);
+    assert.equal(r.segments[i].startMs, before.startMs);
+    assert.equal(r.segments[i].endMs, before.endMs);
+  });
+});
+
+test('the repair is one-directional: a probe can refuse a strip, never cause one', () => {
+  // Whatever the probe says, the set of markers it can touch is the same suspect set text alone
+  // already chose, and any numeral it recovers only ever SUBTRACTS from what gets stripped.
+  const all = guardInsertions(TURBO_NUMERAL_INSERTION, { stripInsertions: true }).stripped;
+  for (const probe of [
+    () => (spans) => spans.map(() => ({ tight: 'nothing at all', wide: 'nothing at all' })),
+    () => (spans) => spans.map(() => ({ tight: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen', wide: 'same' })),
+    isolatedProbe,
+  ]) {
+    const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: probe() });
+    assert.ok(r.stripped <= all, 'the probe never strips more than the unadjudicated strip would');
+  }
+});
+
+test('NO PROBE, NO REPAIR: without an isolated re-decode the class is byte-for-byte detect-only', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION);
+  assert.equal(flat(r.segments), flat(TURBO_NUMERAL_INSERTION));
+  assert.equal(r.stripped, 0);
+  assert.equal(r.insertions[0].repaired, false, 'and the report says which of "clean" and "never looked" this is');
+});
+
+test('a probe that returns nothing, or throws, leaves the text alone and reports it unadjudicated', () => {
+  const empty = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: (spans) => spans.map(() => ({ tight: '', wide: '' })) });
+  assert.equal(empty.stripped, 0, 'an empty decode is not evidence of fabrication');
+  assert.equal(empty.unprobed, 57);
+  assert.equal(flat(empty.segments), flat(TURBO_NUMERAL_INSERTION));
+  const threw = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: () => { throw new Error('whisper died'); } });
+  assert.equal(threw.stripped, 0, 'a failed probe must never look like a clean result');
+  assert.equal(threw.unprobed, 57);
+  assert.equal(flat(threw.segments), flat(TURBO_NUMERAL_INSERTION));
+});
+
+test('the probe BUDGET caps the decodes and the markers past it stay in the text, named', () => {
+  const { probe, unprobed } = selectInsertionProbes(new Array(120).fill(0).map((_, i) => ({ index: i, value: 1 })));
+  assert.equal(probe.length, REPETITION_GUARD_DEFAULTS.insertionProbeBudget);
+  assert.equal(unprobed.length, 120 - REPETITION_GUARD_DEFAULTS.insertionProbeBudget);
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: isolatedProbe(), insertionProbeBudget: 10 });
+  assert.equal(r.probed, 10, 'ten markers got a verdict');
+  assert.equal(r.unprobed, 47, 'and the rest are named as unadjudicated, not as clean');
+  assert.equal(r.stripped, 9, 'only what was actually looked at');
+  assert.equal(r.kept, 1, 'and the real "Zero." is the fifth of them, so the budget still spares it');
+});
+
+test('the genuine spoken enumeration is never probed at all — it is not in the suspect set', () => {
+  let calls = 0;
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, {
+    probe: (spans) => { calls += spans.length; return spans.map(() => ({ tight: 'x', wide: 'x' })); },
+  });
+  assert.equal(calls, 57, 'the two real "1." "3." list markers are not among them');
+  assert.deepEqual(r.insertions[0].genuinePrefix, ['1.', '3.']);
+});
+
 test('SILENT on real speech carrying the same surface feature — a genuinely spoken "1. 2. 3." list', () => {
   // large-v3-turbo on the CLEAN sample B: " 3. We added a synthetic canary job…" is a legitimate
   // segment-initial ordinal, byte-identical in surface form to the fabricated ones.
@@ -1632,6 +1746,7 @@ test('without the burst grid class 1 keeps one copy, so class 3 has nothing left
   assert.equal(textOnly.loops[0].removed, 3);
 });
 
+
 test('guardTranscription reports the insertion class from the real turbo artifact', () => {
   const r = guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION });
   assert.equal(r.report.detected, true);
@@ -1678,6 +1793,53 @@ test('a DETECTED-BUT-UNREPAIRED class becomes a plain-English verification warni
   assert.ok(/STILL IN the transcript/.test(w[0]), 'it says the fabricated text was NOT removed');
   assert.ok(/re-transcribe/.test(w[0]), 'and names the remedy');
   assert.ok(/57 fabricated/.test(w[0]) && /"others" channel/.test(w[0]));
+});
+
+test('the report says whether a probe REACHED the guard — "detect-only" and "clean" never merge', () => {
+  assert.equal(guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION }).report.insertionProbe, false);
+  assert.equal(
+    guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION }, { probe: (s) => s.map(() => ({ tight: 'x', wide: 'x' })) }).report.insertionProbe,
+    true,
+  );
+});
+
+test('the insertion probe is routed PER CHANNEL — it is told which wav to cut', () => {
+  const seen = [];
+  const r = guardTranscription(
+    { me: [], others: TURBO_NUMERAL_INSERTION },
+    { probe: (spans, channel) => { seen.push(channel); return spans.map(() => ({ tight: 'nothing', wide: 'nothing' })); } },
+  );
+  assert.deepEqual(seen, ['others'], 'only the channel that carries a finding costs a decode');
+  assert.equal(r.report.insertionsRepaired, 57);
+  assert.equal(r.report.insertionsKeptSpoken, 0);
+});
+
+test('a repaired insertion says what it removed AND what it left, and the two never merge', () => {
+  const r = guardTranscription(
+    { me: [], others: TURBO_NUMERAL_INSERTION },
+    {
+      probe: (spans) => spans.map((s) => (s.startMs === 205260
+        ? { tight: 'zero we ran a full checksum comparison', wide: 'Zero. We ran a full checksum comparison' }
+        : { tight: 'no numeral here at all', wide: 'nor here' })),
+    },
+  );
+  assert.equal(r.report.insertionsRepaired, 56);
+  assert.equal(r.report.insertionsKeptSpoken, 1);
+  assert.equal(r.report.insertionsUnprobed, 0);
+  const w = guardWarnings(r.report);
+  assert.equal(w.length, 1);
+  assert.ok(/were KEPT/.test(w[0]), 'the kept numeral is named as a refusal, not as a defect');
+  assert.ok(/no action needed/.test(w[0]));
+});
+
+test('an insertion NOTHING adjudicated warns that it was not adjudicated — never that it was clean', () => {
+  const r = guardTranscription(
+    { me: [], others: TURBO_NUMERAL_INSERTION },
+    { probe: (spans) => spans.map(() => ({ tight: '', wide: '' })) },
+  );
+  const w = guardWarnings(r.report);
+  assert.ok(w.some((x) => /57 of 57/.test(x) && /NOT adjudicated/.test(x)));
+  assert.equal(flat(r.others), flat(TURBO_NUMERAL_INSERTION), 'and not one character moved');
 });
 
 test('a REPAIRED class produces no warning — the transcript no longer contains it', () => {
