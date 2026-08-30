@@ -1156,6 +1156,12 @@ mod tests {
         // The other way prose arrives: beside the payload rather than inside it. Serde's
         // default is to ignore unknown fields, which would have made this a silent
         // channel — deny_unknown_fields is what closes it.
+        //
+        // PROVEN BY REMOVAL. With deny_unknown_fields taken off and a `notes: String`
+        // field added to FeedbackPayload, this is the ONLY test in the module that goes
+        // red: the control walks straight in here, while the four smuggling shapes in the
+        // tests above stay refused because prose in a term list is still a type error.
+        // Each clause holds its own ground, which is why they are separate tests.
         let smuggled = serde_json::json!({
             "taxonomy_version": "v1",
             "rating": "bad",
