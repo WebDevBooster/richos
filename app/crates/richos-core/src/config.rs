@@ -61,7 +61,7 @@
 //! the store can hold and the surface can report honestly rather than round to the nearest
 //! button.
 
-use crate::journal::{RawRetention, RetentionLimit, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
+use crate::journal::{RawRetention, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -508,6 +508,7 @@ impl ConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::journal::RetentionLimit;
 
     fn tmp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("richos-config-test-{tag}-{}-{}.json", std::process::id(), crate::util::now_millis()))
