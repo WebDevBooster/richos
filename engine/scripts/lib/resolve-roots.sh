@@ -351,6 +351,38 @@ resolve_entity_root() {
                 RICHOS_ROOT_STATUS="engine-self"
                 RICHOS_ROOT_SOURCE="engine-self"
                 RICHOS_ROOT_REASON="No session candidate carried ${RICHOS_ADOPTION_MARKER}; the engine's own root (${engine_root}) does, and lies under the session project dir (${anchor}). Governing the engine itself."
+
+                # THE NESTED-ENGINE TRAP, named rather than hidden.
+                #
+                # `engine-self` is correct when the engine IS the repository. It
+                # is a TRAP when the engine is a SUBDIRECTORY of a larger product
+                # repository that never adopted: the seat silently becomes the
+                # engine subdir, every PROTECTED_PATHS entry is joined onto it,
+                # and the guards end up defending <engine>/app while the real
+                # <repo>/app sits open. Measured in richos on 2026-08-30 — a
+                # write to richos/engine/app/ (WHICH DOES NOT EXIST) was blocked
+                # and a write to richos/app/ was allowed.
+                #
+                # The status still resolves and still returns 0: demoting it
+                # would strip enforcement from every live session in a nested
+                # setup, which trades a false green for a real hole. What changes
+                # is that the enclosing repository is now NAMED, so the announcer
+                # can say which tree is unprotected instead of implying none is.
+                RICHOS_ROOT_UNGOVERNED_ENCLOSING=""
+                local _rr_encl
+                _rr_encl="$(git -C "$anchor" rev-parse --show-toplevel 2>/dev/null || true)"
+                if [ -n "$_rr_encl" ]; then
+                    _rr_encl="$( (cd "$_rr_encl" && pwd) 2>/dev/null || printf '%s' "$_rr_encl" )"
+                    if [ "$_rr_encl" != "$engine_root" ] && \
+                       [ ! -f "$_rr_encl/$RICHOS_ADOPTION_MARKER" ]; then
+                        case "$engine_root/" in
+                            "$_rr_encl"/*)
+                                RICHOS_ROOT_UNGOVERNED_ENCLOSING="$_rr_encl"
+                                RICHOS_ROOT_REASON="${RICHOS_ROOT_REASON} WARNING: the engine is NESTED inside ${_rr_encl}, which has NOT adopted the engine. Every protected path is resolved against ${engine_root}, so nothing under ${_rr_encl} outside the engine is protected."
+                                ;;
+                        esac
+                    fi
+                fi
                 return 0
                 ;;
         esac
