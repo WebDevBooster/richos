@@ -467,10 +467,6 @@ fn grammar_core(tok: &str) -> String {
 /// May a term span contain this token? A grammar word ends the span; everything else is
 /// allowed, because the REJECTED side of a mishearing is routinely lowercase ("deep
 /// graham") and must not be excluded by casing.
-fn span_token(tok: &str) -> bool {
-    span_token_with(tok, false)
-}
-
 /// The same rule, with ONE switch: `allow_calendar` lets a CAPITALIZED calendar word
 /// through even when it is also a grammar word.
 ///
@@ -527,10 +523,6 @@ fn differs_only_by_enumerator(from: &str, to: &str) -> bool {
 /// the token counts then differ so the enumerator guard cannot see the swap underneath.
 /// With it, the span is `Phase 2` and the guard fires. (Never above the service's
 /// `MAX_ENTITY_TOKENS` of 4, whatever the rejected side's length.)
-fn trailing_span(clause: &[String], max: usize) -> Option<String> {
-    trailing_span_with(clause, max, false)
-}
-
 fn trailing_span_with(clause: &[String], max: usize, allow_calendar: bool) -> Option<String> {
     let max = max.min(4);
     let mut start = clause.len();
@@ -553,10 +545,6 @@ fn trailing_span_with(clause: &[String], max: usize, allow_calendar: bool) -> Op
 
 /// The longest run of span tokens starting at the BEGINNING of a slice, capped at four.
 /// This is the REJECTED side of `not <rejected>`.
-fn leading_span(tokens: &[String]) -> Option<String> {
-    leading_span_with(tokens, false)
-}
-
 fn leading_span_with(tokens: &[String], allow_calendar: bool) -> Option<String> {
     let mut end = 0;
     while end < tokens.len() && end < 4 && span_token_with(&tokens[end], allow_calendar) {
