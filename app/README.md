@@ -146,11 +146,18 @@ app/
     tests/acp_cancel_tests.rs 3 session/cancel tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake adapter the test writes itself), in two
                               variants: compliant, and deliberately deaf to session/cancel
-    tests/feedback_no_outbound_tests.rs 4 tests asserting an ABSENCE: no transport in the
+    tests/feedback_no_outbound_tests.rs 7 tests asserting an ABSENCE: no transport in the
                               module's shipping code, no network-capable dependency in the
                               crate, no other module consuming the feature, and an approval
                               that lands in one file with no sibling left for anything to
-                              pick up. Each proven to FAIL when broken
+                              pick up — plus three added with the SURFACE, because the first
+                              four were written when the module had no caller: no transport
+                              in the six Tauri commands OR anything they call (the call graph
+                              is walked, seeded from `generate_handler!`), no network
+                              primitive anywhere in the shipped web layer, and the positive
+                              half — `feedback_record` still compares the rendered report
+                              against what the webview says it showed him. Each proven to
+                              FAIL when broken
     tests/feedback_surface_tests.rs 3 tests that WRITE the three fixtures the browser suite
                               checks `app/ui/mock.js`'s copy of this feature against — the
                               wording and the whole vocabulary, six selections with the exact
@@ -399,7 +406,10 @@ happened. Before that could ever travel, the user sees exactly what would be sai
 
 **This version has no outbound half at all.** No transport, no endpoint, and deliberately
 no queue for a later version to find and flush. `tests/feedback_no_outbound_tests.rs`
-asserts that four ways rather than promising it in a comment.
+asserts that seven ways rather than promising it in a comment — four over the module, and
+three more over the Tauri commands, everything those commands call, and the shipped web
+layer, because a claim written when the feature had no caller stops covering it the day it
+gets one.
 
 **The taxonomy is the feature, and it is a type problem rather than a filter problem.**
 A filter reads free text and decides whether it is safe. `FeedbackPayload` has no `String`
@@ -446,7 +456,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 434 tests + 5 doc-tests
+cargo test -p richos-core                       # 437 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

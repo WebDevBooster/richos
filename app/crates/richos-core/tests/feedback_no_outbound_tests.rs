@@ -246,3 +246,322 @@ fn an_approved_report_lands_in_one_local_file_and_leaves_nothing_else_behind() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// =======================================================================================
+// THE SURFACE, ADDED 2026-08-30 — the same claim, over the code that now reaches the module
+// =======================================================================================
+//
+// Everything above this line was written when `feedback.rs` had no caller: `grep -n feedback
+// app/src-tauri/src/main.rs` returned nothing and `grep -rn feedback app/ui/main.js` returned
+// nothing. "There is no transport in the module" was then the whole of the claim, because
+// the module was the whole of the feature.
+//
+// It is not any more. Six Tauri commands and a web surface now reach it, and an outbound
+// path added THERE would satisfy every assertion above while sending exactly the thing the
+// CEO said must not be sent. So the claim is extended rather than restated: the checks below
+// read the shell's own source and the shipped web layer, and they JOIN this suite rather
+// than sitting beside it, so "nothing goes outbound" keeps meaning the whole feature.
+//
+// TEXT, NOT A DEPENDENCY. These are `include_str!`s. `richos-core` gains no build-time
+// relationship to the Tauri shell — the crate stays native-dep-free and fast to test, which
+// is the reason `src-tauri/` is detached from the workspace in the first place. The cost is
+// that the paths are relative to this file, so the suite is coupled to the tree's shape; that
+// is deliberate and is the cheaper side of the trade.
+
+/// The Tauri shell, embedded at compile time.
+const SHELL_SOURCE: &str = include_str!("../../../src-tauri/src/main.rs");
+
+/// The whole shipped web layer. Not "the feedback part of it": a transport anywhere in a
+/// file the feedback surface lives inside is reachable from that surface, and drawing a
+/// boundary inside `main.js` would be a boundary guessed once instead of derived.
+const UI_MAIN_JS: &str = include_str!("../../../ui/main.js");
+const UI_TIMELINE_JS: &str = include_str!("../../../ui/timeline.js");
+const UI_INDEX_HTML: &str = include_str!("../../../ui/index.html");
+
+/// Everything a report could be handed to, or handed through, IN THE SHELL LAYER.
+///
+/// A DIFFERENT LIST FROM `BANNED_IN_CODE`, and the difference is worth stating rather than
+/// leaving as an inconsistency. That list bans the bare words `command`, `spawn` and
+/// `process::`, which is right for a module that has no business containing any of them.
+/// This layer is a Tauri command layer: every one of its functions is annotated
+/// `#[tauri::command]`, and banning the word would ban the feature. So the needles here are
+/// the things that actually START a process or open a connection, not the vocabulary around
+/// them.
+const BANNED_IN_SHELL: &[&str] = &[
+    // A connection.
+    "tcpstream",
+    "tcplistener",
+    "udpsocket",
+    "std::net",
+    "reqwest",
+    "hyper",
+    "ureq",
+    "curl",
+    "http://",
+    "https://",
+    "websocket",
+    // A subprocess, by the things that actually make one.
+    "command::new",
+    "std::process::command",
+    "tokio::process",
+    "stdio::",
+    // A queue is a transport with a delay on it.
+    "outbox",
+    "spool",
+    "enqueue",
+    "unsent",
+    "transmit",
+    "upload",
+    "telemetry",
+    "analytics",
+    "beacon",
+    "endpoint",
+    "webhook",
+    "bearer",
+    "api_key",
+];
+
+/// Every network primitive the web layer could reach for. Identifiers, deliberately — a
+/// product sentence may say "send" (the composer's own button does), and banning the word
+/// would ban the copy rather than the capability.
+const BANNED_IN_WEB: &[&str] = &[
+    "fetch(",
+    "xmlhttprequest",
+    "websocket",
+    "eventsource",
+    "sendbeacon",
+    "rtcpeerconnection",
+    "importscripts",
+    "new worker",
+    "serviceworker",
+    "http://",
+    "https://",
+    // A form is a transport with a submit button on it — but only if it has somewhere to
+    // go. `<form>` itself is NOT banned, and that is a DELIBERATE NARROWING made when this
+    // check first ran red on `index.html`: the composer is a `<form id="composer">`, which
+    // is the right element for "type a sentence and press Enter" and which posts nowhere.
+    // What makes a form a transport is a destination, so the destination is what is banned,
+    // and the test below pins the composer as the only form there is.
+    "action=",
+    "formaction",
+    "formdata",
+];
+
+/// The brace-balanced body of `fn name`, from its signature to its closing brace.
+///
+/// String and char literals are skipped so a `"}"` inside a sentence cannot close a function
+/// early, and comments are skipped so a `{` in prose cannot open one — the same rules
+/// `ui/tests/lib/state-strings.js` applies for the same reason.
+fn function_body(src: &str, name: &str) -> Option<String> {
+    let needle = format!("fn {name}");
+    let start = src.find(&needle)?;
+    let bytes: Vec<char> = src[start..].chars().collect();
+    let mut depth = 0usize;
+    let mut opened = false;
+    let mut out = String::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == '/' && bytes.get(i + 1) == Some(&'/') {
+            while i < bytes.len() && bytes[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '"' {
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == '\\' {
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == '"' {
+                    break;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        out.push(c);
+        if c == '{' {
+            opened = true;
+            depth += 1;
+        } else if c == '}' {
+            depth -= 1;
+            if opened && depth == 0 {
+                return Some(out);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Every function in the shell that a `feedback_*` command can reach, WITHIN THAT FILE.
+///
+/// Derived rather than typed, and transitively: start from every `#[tauri::command] fn
+/// feedback_*` the file declares, pull in every identifier they call that is also a `fn`
+/// declared in the same file, and repeat until nothing new arrives. A helper added tomorrow
+/// is scanned tomorrow, with nobody remembering to add it here — which is the difference
+/// between a check and a list.
+fn feedback_reachable_source() -> (Vec<String>, Vec<String>, String) {
+    let declared: std::collections::BTreeSet<String> = SHELL_SOURCE
+        .match_indices("fn ")
+        .filter_map(|(i, _)| {
+            let rest = &SHELL_SOURCE[i + 3..];
+            let name: String =
+                rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            if name.is_empty() {
+                None
+            } else {
+                Some(name)
+            }
+        })
+        .collect();
+
+    // THE SEED IS THE REGISTRATION LIST, not "every fn whose name starts with feedback_".
+    // That is the authority over what the webview can actually call, and the difference is
+    // not academic: the first version of this seeded on the name prefix and swept in
+    // `feedback_store`, a private helper, which made the command count wrong by one and
+    // would have gone on being wrong every time a helper was named tidily.
+    let handler = {
+        let from = SHELL_SOURCE.find("generate_handler![").expect("no generate_handler! in the shell");
+        let to = SHELL_SOURCE[from..].find(']').expect("generate_handler! is not closed") + from;
+        &SHELL_SOURCE[from..to]
+    };
+    let mut frontier: Vec<String> = declared
+        .iter()
+        .filter(|n| n.starts_with("feedback_"))
+        .filter(|n| handler.contains(&format!("{n},")) || handler.contains(&format!("{n}\n")))
+        .cloned()
+        .collect();
+    let commands: Vec<String> = {
+        let mut c = frontier.clone();
+        c.sort();
+        c
+    };
+    let mut seen: std::collections::BTreeSet<String> = frontier.iter().cloned().collect();
+    let mut text = String::new();
+    while let Some(name) = frontier.pop() {
+        let Some(body) = function_body(SHELL_SOURCE, &name) else { continue };
+        for callee in &declared {
+            // A call site: the name followed by `(`. Bounded on the left so `feedback_store`
+            // does not match inside `my_feedback_store`.
+            let call = format!("{callee}(");
+            if body.contains(&call) && !seen.contains(callee) {
+                seen.insert(callee.clone());
+                frontier.push(callee.clone());
+            }
+        }
+        text.push_str(&body);
+        text.push('\n');
+    }
+    (commands, seen.into_iter().collect(), text.to_lowercase())
+}
+
+#[test]
+fn the_feedback_commands_and_everything_they_call_contain_no_transport() {
+    let (commands, reached, code) = feedback_reachable_source();
+    // Guard the guard, twice. An extraction that found nothing would pass every needle
+    // vacuously, and a closure that found ONLY the seed would mean the call-graph walk is
+    // not walking. `commands` is the REGISTERED set; `reached` is that plus everything they
+    // call, which is why the two are counted separately — `feedback_store` is a private
+    // helper and belongs in the second, never the first.
+    assert_eq!(
+        commands.len(),
+        6,
+        "expected 6 feedback commands in the shell, found {commands:?} — if a command was \
+         added or removed, this number is the place to say so"
+    );
+    assert!(
+        reached.len() > commands.len(),
+        "the call-graph walk reached no helpers at all ({reached:?}), so it is not walking"
+    );
+    assert!(
+        code.contains("feedbackstore::open") || code.contains("state.feedback"),
+        "the extracted code does not contain the store access it must — the walk found the \
+         wrong text"
+    );
+
+    for needle in BANNED_IN_SHELL {
+        assert!(
+            !code.contains(needle),
+            "the feedback command layer (and everything it calls: {reached:?}) contains \
+             {needle:?} — v1 has no outbound path and must not acquire one by accident"
+        );
+    }
+}
+
+#[test]
+fn the_command_that_records_an_approval_still_checks_what_the_user_was_shown() {
+    // THE POSITIVE HALF, in the same suite as the absences, because it protects the same
+    // constraint from the other side. In one process "he saw exactly this" is structural:
+    // `ApprovedReport` has no public constructor and the only route to one is
+    // `Disclosure::approve`, which cannot exist without having rendered its text. That does
+    // NOT survive an IPC boundary — a webview can post any `shown` it likes — so the command
+    // re-renders the selection and compares. Deleting that comparison would leave every
+    // other test in this file green while making it possible to record consent for text
+    // nobody ever read.
+    let body = function_body(SHELL_SOURCE, "feedback_record")
+        .expect("feedback_record is not in the shell source");
+    let flat: String = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains("if disclosure.full_text() != *shown"),
+        "feedback_record no longer compares the rendered report against what the webview says \
+         it showed him. Restore it, or state here what replaced it: {flat}"
+    );
+    assert!(
+        flat.contains("return Err(FEEDBACK_PREVIEW_MISMATCH"),
+        "the mismatch is detected and not refused"
+    );
+    // ...and the only route to an approval is still the one that had to render the text.
+    assert!(
+        flat.contains("disclosure.approve()"),
+        "an approval is being constructed by something other than Disclosure::approve"
+    );
+}
+
+#[test]
+fn the_shipped_web_layer_contains_no_network_primitive_at_all() {
+    // The STRONGER claim, and the reason it is available: the whole of `app/ui/` has never
+    // had one. So this is not "the feedback panel does not send" with a boundary drawn
+    // around it — it is "there is nothing in the renderer to send with", which no future
+    // edit to the feedback surface can satisfy by moving code one function over.
+    for (name, src) in [
+        ("main.js", UI_MAIN_JS),
+        ("timeline.js", UI_TIMELINE_JS),
+        ("index.html", UI_INDEX_HTML),
+    ] {
+        let lower = src.to_lowercase();
+        assert!(lower.len() > 2000, "{name} did not load — the include is pointing at nothing");
+        for needle in BANNED_IN_WEB {
+            assert!(
+                !lower.contains(needle),
+                "{name} contains {needle:?}. The feedback surface lives in this layer, and \
+                 v1 has no outbound path — if this arrived for something unrelated, say so \
+                 here and narrow the check deliberately rather than deleting it."
+            );
+        }
+    }
+    // THE ONE FORM, PINNED. `<form` is allowed above because the composer is one; this is
+    // what stops that allowance from being a hole. One form, no destination, and it is the
+    // composer — a second one, or an `action` on this one, fails here rather than passing
+    // through the narrowed needle list.
+    assert_eq!(
+        UI_INDEX_HTML.matches("<form").count(),
+        1,
+        "a second form appeared in the shipped markup; the needle list allows `<form` only \
+         because the composer is the only one"
+    );
+    assert!(
+        UI_INDEX_HTML.contains(r#"<form id="composer" autocomplete="off">"#),
+        "the one form is not the composer, or it has grown attributes worth reading"
+    );
+
+    // Guard the guard: the feedback surface really is in the file being scanned.
+    assert!(
+        UI_MAIN_JS.contains("feedback_record") && UI_INDEX_HTML.contains("feedback-overlay"),
+        "the surface is not in the sources this test scans, so it proves nothing about it"
+    );
+}

@@ -134,3 +134,63 @@ MUTATION 14  [ui/main.js]  the panel cannot be dismissed from the keyboard
 MUTATION 15  [src-tauri/src/main.rs]  a registered command disappears and nothing notices
   exit 1; 1 check(s) red
     FAIL  13 all six commands are reachable from the shipped UI layer
+
+
+THE THREE ASSERTIONS ADDED TO `feedback_no_outbound_tests.rs`, AND THE SIX RUNS THAT
+PROVE THEY CAN FAIL
+====================================================================================
+
+The four original tests in that suite were written when `feedback.rs` had no caller.
+"There is no transport in the module" was then the whole of the claim, because the module
+was the whole of the feature. Six Tauri commands and a web surface changed that, so the
+claim was EXTENDED — three new tests in the same file, joining the family rather than
+sitting beside it.
+
+Two of these mutations found a real defect in the checks themselves on their first run,
+before this transcript: seeding the call-graph walk on the name prefix `feedback_` swept in
+`feedback_store`, a private helper, and made the registered-command count wrong by one; and
+the web-layer needle `<form` fired on the composer, which is the right element for "type a
+sentence and press Enter" and posts nowhere. The first was fixed by seeding on
+`generate_handler!` — the actual authority over what a webview can call — and the second by
+banning the DESTINATION rather than the element, with a separate assertion pinning the
+composer as the only form there is. Both are recorded in the source at the point of the
+change.
+
+MUTATION N1  [src-tauri/src/main.rs]  a subprocess appears in a private HELPER, not in a command — the call-graph walk has to reach it
+  exit 101; 2 test(s) red
+    test the_feedback_commands_and_everything_they_call_contain_no_transport ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N2  [src-tauri/src/main.rs]  the shown-text comparison is deleted and consent can be recorded for text nobody read
+  exit 101; 2 test(s) red
+    test the_command_that_records_an_approval_still_checks_what_the_user_was_shown ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N3  [ui/main.js]  a transport appears in the shipped web layer
+  exit 101; 2 test(s) red
+    test the_shipped_web_layer_contains_no_network_primitive_at_all ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION N4  [src-tauri/src/main.rs]  a command leaves the registration list
+  exit 101; 2 test(s) red
+    test the_feedback_commands_and_everything_they_call_contain_no_transport ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N5  [ui/index.html]  the composer grows a destination
+  exit 101; 2 test(s) red
+    test the_shipped_web_layer_contains_no_network_primitive_at_all ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N6  [ui/index.html]  a second form appears in the shipped markup
+  exit 101; 2 test(s) red
+    test the_shipped_web_layer_contains_no_network_primitive_at_all ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+ONE MORE THING THE RUNS TAUGHT, AND IT IS NOT ABOUT THE PRODUCT
+---------------------------------------------------------------
+
+`include_str!` bakes a file into the test binary at COMPILE time, and the driver restores
+each mutated file with `shutil.move` from a `copy2` backup — which preserves the ORIGINAL
+mtime. So after run N6 the sources were correct on disk and cargo, seeing a file older than
+its last build, did not rebuild: the suite went on failing against a mutation that had
+already been reverted, and `git status` was clean while the test was red.
+
+That is worth writing down because the false conclusion was available and tempting — "the
+restore did not work" or "the check is flaky". Neither. `touch` on the four included
+sources, one rebuild, 442 green. Any future mutation run against an `include_str!` suite
+has to end with a touch, or its last result is a measurement of nothing.
