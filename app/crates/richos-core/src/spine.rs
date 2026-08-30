@@ -1445,6 +1445,12 @@ impl Spine {
         // before the text reaches a compute lease.
         self.ledger.verify_binding(binding)?;
         let thread_id = binding.thread_id();
+        // §1.5 gap #1: everything the lease said while no turn was in flight — its
+        // session-start traffic on the very first turn, and whatever arrived after the
+        // previous turn's response — lands NOW, as honest thread-scoped machinery, BEFORE
+        // the priming turn below can put its own residue in the lane. The ordering is the
+        // rule: honest first, then internal. See `pump_between_turn_stamped`.
+        self.pump_between_turn_stamped(binding, false);
         // Re-prime the lease on first use (continuity foundation): the successor reads
         // the identity assertion + action ledger + tail before any CEO-visible turn.
         self.prime_lease_if_needed(binding)?;
@@ -1577,6 +1583,16 @@ impl Spine {
         // `ledger` / `lease` / `observer` / `machinery_*` borrows end here.
 
         self.turn_in_progress = false;
+        // The turn is over, so anything still arriving has no turn to belong to (§1.5).
+        // Pumped HONESTLY here, and pumped here rather than only at the next turn's start
+        // for one ordering reason: a rotation may follow immediately, and the rotation path
+        // drains the lane as INTERNAL. Without this line, post-turn traffic that is the
+        // CEO's own turn's aftermath would be stamped internal and disappear.
+        //
+        // It usually lands nothing. The adapter writes those updates AFTER the response
+        // that unblocked the drain loop, so the reader thread has often not read them yet —
+        // which is why this is one of several pump points and not the only one.
+        self.pump_between_turn_stamped(binding, false);
         // THE CEO'S STOP, read once, here. `stop_claim_for` returns a claim only if it
         // names THIS turn id — a stop is a statement about one turn and must never fall
         // through onto whatever runs next.
@@ -1737,6 +1753,68 @@ impl Spine {
     /// retention conditional would destroy the feature, because the CEO's requirement is
     /// to flip a thread he ALREADY HAD.
     ///
+    /// Drain the lease's between-turn lane into the journal (techy-mode §1.5, gap #1).
+    ///
+    /// Returns how many records landed. `0` is an ordinary answer and never an error: it
+    /// means the adapter has said nothing since the last drain, which is the normal state
+    /// of a quiet session.
+    ///
+    /// **`turn_id` is `None` and stays `None`.** These records attach to the THREAD. There
+    /// is no turn they belong to, and stamping the previous turn (or the next one) would be
+    /// a false attribution — the one thing a record of what happened must not do. §1.4 G4
+    /// makes `turn_id: None` a first-class state rather than a gap.
+    ///
+    /// **Scope is verified BEFORE the drain, not after.** A drain is destructive: the lane
+    /// hands its records over and forgets them. Verifying first means a thread whose binding
+    /// no longer holds leaves the traffic PARKED for whoever can scope it, instead of
+    /// draining it into a refusal.
+    ///
+    /// Retention needs no special case here — [`Self::retain_and_emit_machinery`] is the
+    /// same append the in-turn path uses, so the raw window ([`crate::journal::RawRetention`])
+    /// covers these records exactly as it covers every other one.
+    pub fn pump_between_turn(&mut self) -> usize {
+        let Some(binding) = self.active.clone() else { return 0 };
+        self.pump_between_turn_stamped(&binding, false)
+    }
+
+    /// [`Self::pump_between_turn`], with the `internal` bit supplied by the caller that
+    /// knows what the lease was just doing.
+    ///
+    /// **THIS IS WHERE THE STANDING ORDER IS HELD, and it is a structural rule rather than
+    /// an argument about what the adapter is likely to say.** Machinery produced by a turn
+    /// the CEO never sees is `internal: true` (§1.5) — but the lane is filled by the reader
+    /// thread at moments no turn owns, so "which turn produced it" is not a question the
+    /// record can answer for itself. The rule the callers follow instead:
+    ///
+    ///   * the lane is drained as HONEST traffic *before* an internal turn is started, and
+    ///   * drained as INTERNAL immediately *after* one finishes.
+    ///
+    /// So anything the lease says in the aftermath of a re-prime, a handoff summary or a
+    /// rotation is stamped `internal: true` and can never render, without anyone having to
+    /// reason about whether a particular vendor kind would give a rotation away. Rotation
+    /// stays invisible to the CEO, and that includes its residue.
+    fn pump_between_turn_stamped(&mut self, binding: &ThreadBinding, internal: bool) -> usize {
+        if self.ledger.verify_binding(binding).is_err() {
+            return 0;
+        }
+        let records = match self.lease.as_mut() {
+            Some(lease) => lease.drain_between_turn(),
+            None => return 0,
+        };
+        if records.is_empty() {
+            return 0;
+        }
+        let thread_id = binding.thread_id().to_string();
+        let journal = self.machinery_journal.as_ref();
+        let observer = self.machinery_observer.as_deref();
+        let landed = records.len();
+        for record in records {
+            let record = record.stamp(&thread_id, None, internal);
+            Self::retain_and_emit_machinery(journal, observer, record);
+        }
+        landed
+    }
+
     /// **A machinery write failure NEVER fails a turn** (§2.2's corollary). `deliver`
     /// makes a LEDGER write failure terminal for the turn — correctly, because the ledger
     /// is truth. Machinery is not truth: a failed write is logged to stderr and the turn
@@ -2277,6 +2355,12 @@ impl Spine {
         // lease, and a stop in that window would be written to a child that no longer
         // exists while the worker path read the retired session's team directory.
         self.install_lease(fresh);
+        // The SUCCESSOR's own session-start and post-priming traffic, drained off the newly
+        // installed lease and stamped `internal: true`. A fresh `AcpClient` starts with an
+        // empty `last_session_meta` slot, so it re-announces its commands — and that
+        // re-announcement, appearing mid-conversation, is exactly the shape of a rotation
+        // tell. It never renders.
+        self.pump_between_turn_stamped(binding, true);
         self.lease_primed = true; // already primed above — deliver() won't re-prime redundantly
         self.context_chars = priming.len(); // reset the watermark baseline to the new payload
 
@@ -2329,6 +2413,10 @@ impl Spine {
                 return Err(e.into());
             }
         }
+        // The handoff turn's residue, stamped `internal: true` for the same reason the turn
+        // itself is: the CEO must never see that a rotation happened, and that includes
+        // whatever the outgoing lease says on its way out (§1.5).
+        self.pump_between_turn_stamped(binding, true);
         Ok(self.ledger.turn(&turn_id).map(|t| t.assistant_text.clone()).unwrap_or_default())
     }
 
@@ -2386,6 +2474,12 @@ impl Spine {
             return Err(e.into());
         }
         self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
+        // The priming turn's RESIDUE. Whatever the lease says once the priming response has
+        // returned lands in the between-turn lane with no turn to own it, so it is drained
+        // HERE and stamped `internal: true` — the aftermath of a turn the CEO never saw is
+        // as unrenderable as the turn itself (§1.5, and the standing order that Rich never
+        // reveals or references session rotation).
+        self.pump_between_turn_stamped(binding, true);
         self.lease_primed = true;
         self.context_chars = priming.len(); // baseline the watermark measurement
         Ok(())

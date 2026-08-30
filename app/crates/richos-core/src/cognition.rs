@@ -101,6 +101,21 @@ pub trait Cognition: Send {
     fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
         None
     }
+
+    /// Take everything the backing session emitted while NO turn was in flight (techy-mode
+    /// §1.5, gap #1): session-start traffic, and whatever arrives after a prompt response
+    /// has already been returned.
+    ///
+    /// The records come back with `turn_id: None` and an unstamped thread — only the spine
+    /// knows the thread, and NOTHING knows a turn, because there isn't one (§1.4 G4).
+    ///
+    /// **The default is an empty vec, and it is a statement rather than a stub:** a lease
+    /// with no independent machinery channel emitted nothing between turns as far as it can
+    /// witness, and saying "none" is the true answer for it. `AcpCognition` overrides this
+    /// with the real buffer; the test doubles below override it when a test drives the lane.
+    fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
+        Vec::new()
+    }
 }
 
 /// A scripted Cognition for tests. Records every call so tests can assert that
@@ -112,6 +127,15 @@ pub struct MockCognition {
     /// Shared handles so tests can inspect calls after the mock is boxed into the Spine.
     pub reprimes: Arc<Mutex<Vec<String>>>,
     pub prompts: Arc<Mutex<Vec<String>>>,
+    /// RAW ACP updates a test parked as between-turn traffic (§1.5 gap #1).
+    ///
+    /// Raw wire JSON, NOT pre-built records, deliberately: a test that pushed a finished
+    /// `MachineryRecord` would prove the spine can carry a record it was handed and nothing
+    /// about whether an `available_commands_update` normalizes into one. This runs the same
+    /// `MachineryRecord::from_between_turn_update` the real client's drain runs.
+    pub between_updates: Arc<Mutex<VecDeque<serde_json::Value>>>,
+    /// The lane's counter, mirroring `acp::BetweenTurn::next_seq`.
+    between_seq: Arc<Mutex<u64>>,
 }
 
 impl MockCognition {
@@ -121,6 +145,8 @@ impl MockCognition {
             replies: Arc::new(Mutex::new(replies.into_iter().map(|s| s.to_string()).collect())),
             reprimes: Arc::new(Mutex::new(Vec::new())),
             prompts: Arc::new(Mutex::new(Vec::new())),
+            between_updates: Arc::new(Mutex::new(VecDeque::new())),
+            between_seq: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -133,7 +159,14 @@ impl MockCognition {
             replies,
             reprimes: Arc::new(Mutex::new(Vec::new())),
             prompts: Arc::new(Mutex::new(Vec::new())),
+            between_updates: Arc::new(Mutex::new(VecDeque::new())),
+            between_seq: Arc::new(Mutex::new(0)),
         }
+    }
+
+    /// Park one raw ACP update as if the adapter had emitted it with no turn in flight.
+    pub fn emit_between_turn(&self, update: serde_json::Value) {
+        self.between_updates.lock().unwrap().push_back(update);
     }
 }
 
@@ -172,6 +205,18 @@ impl Cognition for MockCognition {
             emit(&reply);
         }
         Ok("end_turn".to_string())
+    }
+
+    fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
+        let mut seq = self.between_seq.lock().unwrap();
+        let mut out = Vec::new();
+        for update in std::mem::take(&mut *self.between_updates.lock().unwrap()) {
+            if let Some(r) = MachineryRecord::from_between_turn_update(&update, &self.session_id, *seq) {
+                *seq += 1;
+                out.push(r);
+            }
+        }
+        out
     }
 }
 

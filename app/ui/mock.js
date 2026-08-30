@@ -249,7 +249,17 @@
       if (activeMs !== null) dur.activeMs = activeMs;
       items.push(dur);
     }
-    return { entityId: t ? t.entity_id : null, threadId, mode: technical ? "technical" : "ceo", items };
+    return {
+      entityId: t ? t.entity_id : null,
+      threadId,
+      mode: technical ? "technical" : "ceo",
+      items,
+      // §1.5's lane travels inside the gated view, beside the items — never as a second
+      // command. `technical-empty` (an unreadable or never-written store) gives nothing
+      // back here for the same reason it gives no activity rows: the journal answered with
+      // nothing, and this is a projection of the journal.
+      betweenTurns: noMachinery ? [] : betweenTurnsFor(threadId, technical ? "technical" : "ceo"),
+    };
   }
 
   // The canned history above, as turn records. Durations are deliberately spread across
@@ -808,6 +818,12 @@
     "I can't read the technical record for this conversation. It's on this machine and I " +
     "haven't lost it — something is refusing to open it, and whoever set RichOS up needs to " +
     "look.";
+  // §1.5's between-turn lane, when it is empty. Verbatim from `machinery_view.rs`'s
+  // `BETWEEN_TURNS_QUIET`; `techy.js` check 2 compares them.
+  const TECHY_BETWEEN_TURNS_QUIET =
+    "Nothing was recorded between turns in this conversation. Rich started keeping this on " +
+    "2026-08-30 — so in an older conversation that is a gap in the record, not proof the " +
+    "session was quiet.";
   const TECHY_RAW_NOT_RETAINED =
     "The full output isn't kept this long — what's above is the whole record that was.";
   const TECHY_RAW_TRUNCATED = "This output was longer than RichOS keeps; you're seeing the start of it.";
@@ -876,6 +892,65 @@
     ["mach_a7", { payload: { sessionUpdate: "usage_update", used: 41991, size: 1000000 }, truncated: false }],
     ["mach_a8", { payload: { chosen: "allow", auto: true, options: ["allow", "reject"] }, truncated: false }],
   ]);
+
+  /// §1.5's BETWEEN-TURN LANE, per thread — what the session said with no turn in flight.
+  ///
+  /// `acme` has traffic; `hiring` deliberately has none, so the honest empty state is a
+  /// screen this harness can actually open rather than a branch nobody drives. The shape is
+  /// `timeline::BetweenTurnItem` — note what is NOT here: `turnId` (these records have
+  /// none, §1.4 G4) and `sessionId` (never on the wire, because a lane whose rows arrive at
+  /// session boundaries is where a session id would become a rotation tell).
+  const betweenTurnsByThread = new Map([
+    [
+      "acme",
+      [
+        {
+          id: "mach_bt1",
+          bindingRevision: 1,
+          sequence: 0,
+          at: now() - 1000 * 60 * 60 * 21,
+          visibility: "technical",
+          vendorKind: "available_commands_update",
+          detailRef: "mach_bt1",
+          // NO `summary`, and that is the fixture speaking rather than a gap. A SessionMeta
+          // update has no typed route (`MachineryKind::Unknown`), so `from_acp_update`
+          // produces no bounded preview for it — the live fixture at
+          // `fixtures/machinery-payload.json` has none either. One dim line carrying its
+          // vendor kind is exactly what §1.4 G5 asks for.
+          detail: {
+            title: "available_commands_update",
+            locations: [],
+            vendorKind: "available_commands_update",
+          },
+        },
+        {
+          id: "mach_bt2",
+          bindingRevision: 1,
+          sequence: 1,
+          at: now() - 1000 * 60 * 29,
+          visibility: "technical",
+          vendorKind: "session_info_update",
+          detailRef: "mach_bt2",
+          detail: {
+            title: "session_info_update",
+            locations: [],
+            vendorKind: "session_info_update",
+          },
+        },
+      ],
+    ],
+  ]);
+
+  /// The lane as `Timeline::view` hands it over: rows in TECHNICAL mode, nothing in CEO
+  /// mode. Every row is `Visibility::Technical`, so the calm view is handed an empty lane
+  /// by construction — reproduced here rather than filtered in the renderer, because that
+  /// is where the real gate is.
+  function betweenTurnsFor(threadId, mode) {
+    if (mode !== "technical") return [];
+    const t = threads.find((x) => x.id === threadId);
+    const rows = betweenTurnsByThread.get(threadId) || [];
+    return rows.map((r) => ({ ...r, entityId: t ? t.entity_id : null, threadId }));
+  }
 
   function techyModeOf(threadId) {
     const pinned = techyThreads.has(threadId);
@@ -951,12 +1026,29 @@
           // Fails closed on an unbound thread exactly like `get_timeline` and the real one.
           if (t && !t.entity_id) return Promise.reject(UNBOUND_ERR(id));
           const st = machineryStateOf(id);
+          // The SAME projection the payload carries, so the sentence is computed from what
+          // will actually be on screen rather than from a second read. `machinery_view.rs`
+          // does exactly this — it asks `view.between_turns()`, the gated lane — and the
+          // difference matters: an unreadable store projects NO lane rows, so a sentence
+          // derived from the raw fixture instead of from the projection would be answering
+          // about rows the CEO cannot see.
+          const projected = projectTimeline(id, st.state === "recorded" ? "technical" : "technical-empty");
           return {
             threadId: id,
             state: st.state,
             rowCount: st.rowCount || 0,
             sentence: st.sentence,
             reason: st.reason,
+            // §1.5: WHY the lane is empty when it is empty — and `null` when the store was
+            // UNREADABLE, because "nothing was recorded between turns" is a claim a store
+            // that refused to open never supported. `machinery_view.rs` decides it exactly
+            // this way.
+            betweenTurnsSentence:
+              st.state === "unreadable"
+                ? null
+                : projected.betweenTurns.length === 0
+                  ? TECHY_BETWEEN_TURNS_QUIET
+                  : null,
             // The conversation still renders in EVERY state — what changes is the sentence
             // over it. An unreadable store is not an empty thread.
             //
@@ -965,7 +1057,7 @@
             // real backend serves prose and a duration row and NO activity rows in this
             // state. A mock that kept showing them would let the renderer be tested against
             // a screen the product cannot produce.
-            timeline: projectTimeline(id, st.state === "recorded" ? "technical" : "technical-empty"),
+            timeline: projected,
           };
         }
         case "get_machinery_raw": {
@@ -2005,6 +2097,11 @@
     TECHY_UNREADABLE,
     TECHY_RAW_NOT_RETAINED,
     TECHY_RAW_TRUNCATED,
+    TECHY_BETWEEN_TURNS_QUIET,
+    /// Empty ONE thread's between-turn lane, so a suite can drive the honest empty state on
+    /// a thread that had traffic a moment ago — the state a CEO reaches by opening an older
+    /// conversation, not a separate fixture pretending to be one.
+    clearBetweenTurns(threadId) { betweenTurnsByThread.delete(threadId); },
     /// §26's `memory-strategy` scenario. See the block above it for what it refuses to do.
     memoryStrategy,
     /// Set the injected clock anchor BEFORE the CEO presses Enter. `Date.now() - 18600`

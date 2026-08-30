@@ -2873,3 +2873,60 @@ body.bp-narrow .tl-user-bubble {
   color: var(--attention);
   white-space: normal;
 }
+
+/* ---------------------------------------------------------------------------------------
+   BETWEEN TURNS (techy-mode design §1.5) — the lane for machinery that has no turn.
+
+   Same paper, same ink, same 13px as `.tl-tech`, because it is the same kind of
+   information. What separates it is POSITION and a heading, not a second visual language:
+   these records genuinely do not belong to any one exchange, and the section says so once
+   rather than each row apologising for itself.
+
+   It sits BELOW `#messages` — after the conversation, not inside it — for the reason the
+   markup gives: a between-turn record has no position in the conversation, and drawing one
+   inside the stream would claim a position nothing witnessed.
+
+   With techy mode off this section is hidden AND emptied by `renderBetweenTurns(null)`, so
+   §3.3's "byte-identical when off" holds by absence rather than by a display rule.
+--------------------------------------------------------------------------------------- */
+#between-turns {
+  margin: 0 auto;
+  max-width: var(--reading-width);
+  padding: 20px 28px 32px;
+  border-top: 1px solid var(--line);
+}
+
+#between-turns-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+#between-turns-lede {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+#between-turns-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* No status word and no chevron on these rows — a session update has no lifecycle, and an
+   `outcome not recorded` label would invent one for something that never had an outcome. */
+.bt-row .tl-activity-state,
+.bt-row .tl-tech-chevron {
+  display: none;
+}
+
+#between-turns-quiet {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}

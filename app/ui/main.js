@@ -1095,9 +1095,16 @@ async function loadTimeline() {
     if (techy) {
       const machinery = await Bridge.invoke("get_machinery", { threadId: activeThreadId });
       renderTechyState(machinery);
+      renderBetweenTurns(machinery);
       snapshot = machinery.timeline;
     } else {
       renderTechyState(null);
+      // §1.5's lane is techy-mode-only. `null` HIDES the section and EMPTIES its rows —
+      // both, because `hidden` alone would leave the previous thread's rows sitting in the
+      // document, one CSS mistake from being readable. The heading and lede are static
+      // markup and stay where they are; `hidden` is what keeps them out of `innerText`,
+      // which is what §3.3's "no affordance at all when off" is measured on (techy.js 18).
+      renderBetweenTurns(null);
       snapshot = await Bridge.invoke("get_timeline", { threadId: activeThreadId });
     }
   } catch (e) {
@@ -1105,6 +1112,10 @@ async function loadTimeline() {
     // The mock harness leaves some commands unwired; a genuine scope refusal is a different
     // statement and gets the §21 screen.
     window.RichTimeline.applySnapshot(timelineModel, { items: [] });
+    // The read failed, so there is nothing to say about the lane. Emptied rather than left
+    // showing the PREVIOUS thread's rows, which would be the worst of the three states: a
+    // section that looks answered and is answering about somewhere else.
+    renderBetweenTurns(null);
     if (msg.startsWith("mock: no such command")) {
       scheduleRender();
       return;
@@ -3532,6 +3543,88 @@ function renderTechyState(payload) {
     techyStateEl.appendChild(why);
   }
   techyStateEl.hidden = false;
+}
+
+const betweenTurnsEl = el("between-turns");
+const betweenTurnsRowsEl = el("between-turns-rows");
+const betweenTurnsQuietEl = el("between-turns-quiet");
+
+/// §1.5's between-turn lane: what the session said with no turn in flight.
+///
+/// Reads `payload.timeline.betweenTurns` — the gated `TimelineView`'s own field, so what is
+/// drawn here is what `Timeline::view` decided may be seen, not a second opinion formed in
+/// the renderer. `payload` is `null` whenever techy mode is off, and then this section is
+/// hidden and EMPTIED: §3.3's rule is that the conversation surface is byte-identical with
+/// the mode off, and a section that merely had `hidden` set would still be in the document.
+///
+/// THREE STATES, and the third is the one worth building:
+///
+///   1. rows -> draw them, in the order the projection gave them (journal append order,
+///      never re-sorted here — the lane's `sequence` is per-lease and restarts on a
+///      rotation, which is why `machinery::project_between_turns` does not sort by it);
+///   2. no rows, and Rust supplied a sentence -> say the sentence. An empty box under a
+///      heading reads as "broken"; the sentence says the lane is quiet AND that an older
+///      conversation's silence means the record was never written;
+///   3. no rows and NO sentence -> the store was unreadable, and the state line above
+///      already said so. A second sentence here would be a claim the store never supported.
+function renderBetweenTurns(payload) {
+  betweenTurnsRowsEl.textContent = "";
+  betweenTurnsQuietEl.textContent = "";
+  betweenTurnsQuietEl.hidden = true;
+  const rows = payload && payload.timeline && Array.isArray(payload.timeline.betweenTurns)
+    ? payload.timeline.betweenTurns
+    : [];
+  const sentence = payload ? payload.betweenTurnsSentence : null;
+  if (!payload || (!rows.length && !sentence)) {
+    betweenTurnsEl.hidden = true;
+    return;
+  }
+  for (const row of rows) {
+    // Deliberately the SAME `.tl-tech` shape a technical activity row uses: this is the
+    // same kind of information, and giving it a second visual language would suggest it is
+    // a different kind of fact. What it does NOT get is a status word — a session update
+    // has no lifecycle, and `ACTIVITY_STATE_LABEL`'s "outcome not recorded" would invent
+    // one for something that never had an outcome to record.
+    const wrap = document.createElement("div");
+    wrap.className = "tl-tech bt-row";
+    wrap.dataset.vendor = row.vendorKind || "";
+    const head = document.createElement("div");
+    head.className = "tl-tech-head";
+    const mark = document.createElement("span");
+    mark.className = "tl-activity-mark";
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = "\u00b7";
+    head.appendChild(mark);
+    const title = document.createElement("span");
+    title.className = "tl-tech-title";
+    title.textContent = row.vendorKind || "";
+    head.appendChild(title);
+    wrap.appendChild(head);
+    const detail = row.detail || {};
+    if (detail.summary) {
+      const sum = document.createElement("div");
+      sum.className = "tl-tech-summary";
+      sum.textContent = detail.summary;
+      wrap.appendChild(sum);
+    }
+    if (Array.isArray(detail.locations) && detail.locations.length) {
+      const paths = document.createElement("div");
+      paths.className = "tl-tech-paths";
+      for (const p of detail.locations) {
+        const one = document.createElement("span");
+        one.className = "tl-tech-path";
+        one.textContent = p;
+        paths.appendChild(one);
+      }
+      wrap.appendChild(paths);
+    }
+    betweenTurnsRowsEl.appendChild(wrap);
+  }
+  if (!rows.length && sentence) {
+    betweenTurnsQuietEl.textContent = sentence;
+    betweenTurnsQuietEl.hidden = false;
+  }
+  betweenTurnsEl.hidden = false;
 }
 
 /// §2.4's raw pane, filled after the node is mounted. Three answers, and every one of them

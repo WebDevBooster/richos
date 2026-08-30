@@ -45,6 +45,11 @@ use serde_json::json;
 struct ScriptedLease {
     session: String,
     script: Vec<Step>,
+    /// §1.5's between-turn lane: raw ACP updates the adapter emitted with NO turn in
+    /// flight. Held as wire JSON and normalized in `drain_between_turn`, so the fixture's
+    /// rows come out of `MachineryRecord::from_between_turn_update` rather than out of a
+    /// hand-built record.
+    between: Vec<serde_json::Value>,
 }
 
 enum Step {
@@ -73,6 +78,15 @@ impl Cognition for ScriptedLease {
             seq += 1;
         }
         Ok("end_turn".into())
+    }
+    fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
+        let mut out = Vec::new();
+        for (i, u) in std::mem::take(&mut self.between).iter().enumerate() {
+            if let Some(r) = MachineryRecord::from_between_turn_update(u, &self.session, i as u64) {
+                out.push(r);
+            }
+        }
+        out
     }
 }
 
@@ -135,6 +149,17 @@ mod probe {
     pub fn usage(used: u64) -> Value {
         json!({"sessionUpdate":"usage_update","used":used,"size":1000000})
     }
+    /// run1 §4.2 — emitted once per turn, AFTER the prompt response, i.e. with no turn in
+    /// flight. This is the update §1.5 says "hits no sink at all"; it is here so the fixture
+    /// carries a real between-turn row rather than an invented one.
+    pub fn available_commands() -> Value {
+        json!({"sessionUpdate":"available_commands_update",
+               "availableCommands":[{"name":"compact"},{"name":"resume"},{"name":"rewind"}]})
+    }
+    /// run1 §4.2 — the other one, same moment.
+    pub fn session_info(title: &str) -> Value {
+        json!({"sessionUpdate":"session_info_update","title":title})
+    }
 }
 
 fn main() {
@@ -152,6 +177,9 @@ fn main() {
     let thread = spine.create_thread("Machinery payload proof", &entity).expect("thread");
     spine.attach_lease(Box::new(ScriptedLease {
         session: "sess_mach_1".into(),
+        // §1.5's between-turn traffic: what the adapter said with no turn running. It is
+        // pumped below, BEFORE the turn, which is where `deliver` pumps it.
+        between: vec![probe::available_commands(), probe::session_info("Machinery payload proof")],
         script: vec![
             Step::Text("Checking the client now."),
             // A Bash call that SUCCEEDED, exactly as run1 emitted it: open with a
@@ -182,6 +210,8 @@ fn main() {
             Step::Text("It does — line 145 routes only agent_message_chunk and drops the rest."),
         ],
     }));
+    // The lane, drained the way `Spine::deliver` and `get_machinery` drain it.
+    let pumped = spine.pump_between_turn();
     let t1 = spine.submit_prompt("check whether the ACP client drops tool calls", Source::Text).expect("turn 1");
 
     // ---- a thread that ran BEFORE routing: prose, and no machinery directory, ever -----
@@ -189,6 +219,9 @@ fn main() {
     spine.switch_thread(&old_thread).expect("switch");
     spine.attach_lease(Box::new(ScriptedLease {
         session: "sess_mach_2".into(),
+        // No between-turn traffic at all — the honest empty lane, which is a real state and
+        // not a missing fixture.
+        between: vec![],
         script: vec![Step::Text("Two partners pushed back on the carry split.")],
     }));
     let _ = spine.submit_prompt("how did the partner review land?", Source::Text);
@@ -217,7 +250,7 @@ fn main() {
         eprintln!("[machinery] wrote {}", out.display());
     }
 
-    eprintln!("[machinery] thread = {thread}  turn = {t1}");
+    eprintln!("[machinery] thread = {thread}  turn = {t1}  between-turn records pumped = {pumped}");
     let items = payload["timeline"]["items"].as_array().cloned().unwrap_or_default();
     eprintln!("[machinery] state = {}  rowCount = {}  items = {}", payload["state"], payload["rowCount"], items.len());
     eprintln!("[machinery] --- one line per item, in the order the renderer receives them ---");
@@ -293,10 +326,31 @@ fn main() {
         !serialized.contains("rawOutput") && !serialized.contains("rawInput") && !serialized.contains("_meta"),
         format!("summaries: {:?}", acts.iter().map(|a| a["detail"]["summary"].clone()).collect::<Vec<_>>()));
 
+    eprintln!("\n[machinery] --- §1.5's between-turn lane ---");
+    let lane = payload["timeline"]["betweenTurns"].as_array().cloned().unwrap_or_default();
+    say("the update that used to hit no sink is on the wire",
+        lane.iter().any(|r| r["vendorKind"] == "available_commands_update"),
+        format!("kinds: {:?}", lane.iter().map(|r| r["vendorKind"].clone()).collect::<Vec<_>>()));
+    say("every lane row is TECHNICAL, so a CEO view is handed an empty lane",
+        !lane.is_empty() && lane.iter().all(|r| r["visibility"] == "technical"),
+        format!("{} rows", lane.len()));
+    say("no lane row carries a turn — §1.4 G4, `turn_id: None` is first-class",
+        lane.iter().all(|r| r.get("turnId").is_none()),
+        "attached to the thread, never to an exchange it did not belong to".into());
+    say("no lane row carries a session id — that is where a rotation would show",
+        !serde_json::to_string(&lane).unwrap().contains("sess_mach_1"),
+        "rotation stays reconstructible in the journal and invisible on the wire".into());
+    say("no sentence is offered when the lane HAS rows",
+        payload["betweenTurnsSentence"].is_null(),
+        "a state line over a full lane would be noise".into());
+
     eprintln!("\n[machinery] --- the four states, each from its real cause ---");
     say("a thread from before routing: `nothing_recorded`",
         empty["state"] == "nothing_recorded" && empty["sentence"].as_str().unwrap_or("").starts_with("No machinery was recorded"),
         format!("{}", empty["sentence"]));
+    say("an empty lane says WHY it is empty, and never implies a broken feature",
+        empty["betweenTurnsSentence"].as_str() == Some(machinery_view::BETWEEN_TURNS_QUIET),
+        format!("{:?}", empty["betweenTurnsSentence"]));
     say("...and it still renders its conversation",
         empty["timeline"]["items"].as_array().map(|v| !v.is_empty()).unwrap_or(false),
         format!("{} items", empty["timeline"]["items"].as_array().map(|v| v.len()).unwrap_or(0)));

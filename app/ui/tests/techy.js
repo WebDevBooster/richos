@@ -17,6 +17,13 @@
 //      different sentences and only the first is true. Check 12 is that; check 13 is its
 //      harder half — a store the OS refuses to open is NOT an empty one, and a renderer
 //      that serves the empty sentence over it is lying about the system.
+//   3. §1.5's BETWEEN-TURN LANE, added 2026-08-30 (checks 18-21). Everything the session
+//      says with NO turn in flight used to hit no sink at all. It now attaches to the
+//      THREAD — `turnId: None` is a first-class state, not a bug — and renders in its own
+//      section, because a record with no turn has no position in the conversation and
+//      drawing one inside the stream would claim a position nothing witnessed. Check 19 is
+//      the honest empty state for it, check 21 the standing order on the rendered surface.
+//
 //   2. No row is drawn for an event that provably never arrives. `agent_thought_chunk`
 //      fires ZERO times on claude-agent-acp 0.70.0 and `fs/*` never fires at all, so §5's
 //      own day-one mockup — which opens with `● thinking ⌄` — cannot be delivered. Check 16
@@ -71,6 +78,7 @@ const NOT_RETAINED = rustSentence(MACHINERY_RS, "it fills up as Rich works");
 const UNREADABLE = rustSentence(MACHINERY_RS, "something is refusing to open it");
 const RAW_NOT_RETAINED = rustSentence(MAIN_RS, "what's above is the whole record that was");
 const RAW_TRUNCATED = rustSentence(MAIN_RS, "you're seeing the start of it");
+const BETWEEN_TURNS_QUIET = rustSentence(MACHINERY_RS, "not proof the");
 
 // ---------------------------------------------------------------------------------------
 // Driving the REAL shell — nothing stubbed that mock.js does not already own
@@ -167,17 +175,19 @@ async function main() {
       unreadable: window.__RICHOS_MOCK__.TECHY_UNREADABLE,
       rawNotRetained: window.__RICHOS_MOCK__.TECHY_RAW_NOT_RETAINED,
       rawTruncated: window.__RICHOS_MOCK__.TECHY_RAW_TRUNCATED,
+      betweenQuiet: window.__RICHOS_MOCK__.TECHY_BETWEEN_TURNS_QUIET,
     }));
     assertEqual(mockCopies.nothing, NOTHING_RECORDED, "the empty-state sentence");
     assertEqual(mockCopies.notRetained, NOT_RETAINED, "the never-retained sentence");
     assertEqual(mockCopies.unreadable, UNREADABLE, "the unreadable sentence");
     assertEqual(mockCopies.rawNotRetained, RAW_NOT_RETAINED, "the evicted-raw sentence");
     assertEqual(mockCopies.rawTruncated, RAW_TRUNCATED, "the truncated-raw sentence");
+    assertEqual(mockCopies.betweenQuiet, BETWEEN_TURNS_QUIET, "the quiet-between-turns sentence");
     // And the three that answer "why is there nothing" are three DIFFERENT sentences.
     const distinct = new Set([NOTHING_RECORDED, NOT_RETAINED, UNREADABLE]);
     assertEqual(distinct.size, 3, "three states, three sentences — never one sentence for three facts");
     await page.close();
-    return "5 sentences joined to their Rust consts";
+    return "6 sentences joined to their Rust consts";
   });
 
   // ---- 3. §7.2 is not answered in copy -------------------------------------------------
@@ -191,12 +201,14 @@ async function main() {
       ["UNREADABLE", UNREADABLE],
       ["RAW_NOT_RETAINED", RAW_NOT_RETAINED],
       ["RAW_TRUNCATED", RAW_TRUNCATED],
+      ["BETWEEN_TURNS_QUIET", BETWEEN_TURNS_QUIET],
     ]) {
       assert(!/\b14 days?\b|\b2 ?GB\b|\bfortnight\b|\btwo weeks\b/i.test(sentence), name + " names a window");
     }
     // The retroactivity DATE is different and is deliberately allowed: it is a fact about
     // what was recorded, not a policy about what will be kept.
     assert(NOTHING_RECORDED.includes("2026-08-28"), "the routing date IS stated — that is a fact, not a policy");
+    assert(BETWEEN_TURNS_QUIET.includes("2026-08-30"), "and so is the lane's own start date, for the same reason");
     return "no window in any sentence; the routing date is named";
   });
 
@@ -500,6 +512,106 @@ async function main() {
     return "envelope and item shapes agree with the live payload";
   });
 
+  // ---- 18. §1.5's between-turn lane: the update that used to have nowhere to go ---------
+  //
+  // THE COMPLETION CRITERION, on the rendered surface. `acp.rs` delivered an update only
+  // while `current_prompt` was `Some`; anything the adapter said at session start or after
+  // a turn's answer had already been returned hit no sink at all. It now attaches to the
+  // thread and shows here.
+  await run.check("18. what the session said between turns is on screen, in its own section", async () => {
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+
+    // OFF: not a trace of it. §3.3's rule is about the whole conversation surface, and a
+    // heading the CEO can read is an affordance whatever its rows say.
+    assert(await page.locator("#between-turns").isHidden(), "the section does not exist for a calm view");
+    const calm = await page.evaluate(() => document.getElementById("stage").innerText);
+    assert(!calm.includes("Between turns"), "and its heading is not readable either");
+
+    await pressToggle(page);
+    assert(await page.locator("#between-turns").isVisible(), "the section is here in technical mode");
+    const rows = await page.$$eval("#between-turns-rows .bt-row", (r) =>
+      r.map((x) => ({ kind: x.dataset.vendor, title: x.querySelector(".tl-tech-title").textContent }))
+    );
+    assertEqual(rows.map((r) => r.kind), ["available_commands_update", "session_info_update"],
+      "the two kinds measured between turns on 2026-08-28, in journal order");
+    // The vendor kind IS the row (§1.4 G5's "one dim line"), because there is no CEO-safe
+    // semantic line for "the adapter restated its command list" and inventing one would be
+    // worse than the kind name.
+    assertEqual(rows.map((r) => r.title), ["available_commands_update", "session_info_update"], "kind as label");
+    assert(await page.locator("#between-turns-quiet").isHidden(), "no empty-state sentence over a full lane");
+    await shot(page, "../shots-3-1/3-1-08-between-turns-has-somewhere-to-go");
+    assertEqual(page.__errors, [], "no page errors");
+    await page.close();
+    return rows.length + " between-turn rows, present only in technical mode";
+  });
+
+  // ---- 19. the honest empty state for the lane -----------------------------------------
+  await run.check("19. a quiet lane SAYS it is quiet, and says why", async () => {
+    // An empty box under a heading reads as a broken feature. The sentence distinguishes
+    // the two things an empty lane can mean — nothing arrived, or nothing was ever written
+    // because the conversation predates the lane — exactly as `NOTHING_RECORDED` does for
+    // the thread as a whole.
+    const page = await openApp(browser);
+    await page.evaluate(() => window.__RICHOS_MOCK__.clearBetweenTurns("acme"));
+    await openThread(page, "acme");
+    await pressToggle(page);
+    assert(await page.locator("#between-turns").isVisible(), "the section still appears — silence is a state, not an absence");
+    assertEqual(await page.$$eval("#between-turns-rows .bt-row", (r) => r.length), 0, "no rows");
+    assertEqual(await page.textContent("#between-turns-quiet"), BETWEEN_TURNS_QUIET, "verbatim from machinery_view.rs");
+    // And the conversation above it is untouched: an empty lane is not an empty thread.
+    assert((await page.locator(".tl-tech").count()) > 0, "the turn's own machinery still renders");
+    await shot(page, "../shots-3-1/3-1-09-a-quiet-lane-says-so");
+    assertEqual(page.__errors, [], "no page errors");
+    await page.close();
+    return "the quiet sentence, with the conversation intact above it";
+  });
+
+  // ---- 20. an unreadable store does not get a SECOND claim ------------------------------
+  await run.check("20. over an unreadable store the lane says nothing at all", async () => {
+    // "Nothing was recorded between turns" is a claim a store that refused to open never
+    // supported. `machinery_view.rs` returns `null` in that state and the state line above
+    // already speaks for the whole view — this is check 13's rule, one level down.
+    const page = await openApp(browser);
+    await page.evaluate(() => window.__RICHOS_MOCK__.breakMachinery("acme"));
+    await openThread(page, "acme");
+    await pressToggle(page);
+    assertEqual(await sentenceOf(page), UNREADABLE, "the state line owns this screen");
+    assert(await page.locator("#between-turns").isHidden(), "and the lane makes no second claim");
+    assertEqual(await page.textContent("#between-turns-quiet"), "", "not even hidden text to leak later");
+    await page.close();
+    return "one honest sentence, not two contradictory ones";
+  });
+
+  // ---- 21. the standing order, on the rendered surface -----------------------------------
+  await run.check("21. no between-turn row names a turn, a session, or a rotation", async () => {
+    // Re-prime and rotation machinery is `internal: true` and refused at the timeline's
+    // guard, which `richos-core` proves. What THIS checks is the surface: the lane's rows
+    // arrive at session boundaries, so it is the one place a session identifier would
+    // become a rotation tell — and `BetweenTurnItem` carries none.
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+    await pressToggle(page);
+    const payload = await page.evaluate(() => window.RichBridge.invoke("get_machinery", { threadId: "acme" }));
+    const lane = payload.timeline.betweenTurns;
+    assert(lane.length > 0, "there is a lane to inspect");
+    for (const row of lane) {
+      assert(!("turnId" in row), "a lane row must carry no turn: " + JSON.stringify(row));
+      assert(!("sessionId" in row), "and no session id: " + JSON.stringify(row));
+      assertEqual(row.visibility, "technical", "every row is technical, so a CEO view is empty by construction");
+    }
+    const section = await page.textContent("#between-turns");
+    for (const word of ["rotat", "re-prime", "reprime", "successor", "lease", "session id"]) {
+      assert(!section.toLowerCase().includes(word), "the lane referenced " + word);
+    }
+    // The live fixture agrees — this is not a property of the mock.
+    for (const row of FIXTURE.recorded.timeline.betweenTurns) {
+      assert(!("turnId" in row) && !("sessionId" in row), "the LIVE payload leaks one: " + JSON.stringify(row));
+    }
+    await page.close();
+    return lane.length + " rows, none of them naming a turn or a session";
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);
@@ -554,6 +666,21 @@ main().catch((e) => {
 // 16  mock.js: add an activity with `detail.vendorKind = "agent_thought_chunk"` and the
 //     title "thinking" -> check 16 fails twice.
 // 17  mock.js `get_machinery`: drop the `rowCount` key -> check 17 fails on the envelope.
+// 18  main.js `renderBetweenTurns`: end with `betweenTurnsEl.hidden = true` -> the section
+//     never appears; checks 18 AND 19 fail.
+// 19  main.js `renderBetweenTurns`: delete the `if (!rows.length && sentence)` branch -> an
+//     empty lane draws an empty box under a heading; check 19 fails and ONLY check 19.
+// 20  machinery_view.rs + mock.js: drop the `Unreadable => None` arm, so an unreadable store
+//     also gets "nothing was recorded between turns" -> check 20 fails.
+//     THE FIRST ATTEMPT AT THIS ONE DID NOT GO RED, and the reason was a real mock defect,
+//     not a weak check: the mock computed the sentence from the raw lane fixture instead of
+//     from the PROJECTION, so an unreadable thread still counted rows the renderer would
+//     never receive. `machinery_view.rs` asks `view.between_turns()` — the gated lane — and
+//     the mock now asks the same projection it returns. Recorded rather than quietly fixed.
+// 21  timeline.rs `BetweenTurnItem`: add a `session_id` field and fill it from the record ->
+//     `between_turn_thread_tests::a_lane_row_carries_no_session_id...` fails, and so does
+//     `examples/machinery_payload.rs` (which exits 1). The mock-side half — adding
+//     `sessionId` in `betweenTurnsFor` -> check 21 fails here too.
 //
 // The whole sweep, with the run output and the two Rust-side mutations, is recorded at
 // `docs/verification/techy-mode-2026-08-30/mutation-runs.txt`.

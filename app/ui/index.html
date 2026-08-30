@@ -196,6 +196,25 @@
                one for the other. Empty unless techy mode is on AND there is nothing. -->
           <div id="techy-state" hidden></div>
           <div id="messages"></div>
+          <!-- BETWEEN TURNS (techy-mode design §1.5). What the session said while NO turn
+               was in flight: its start-up traffic, and whatever arrived after a turn's
+               answer had already been returned. It is a SEPARATE section because those
+               records have no turn — `turnId: None` is a first-class state (§1.4 G4) — and
+               placing them inside the conversation would mean claiming a position in it
+               that nothing witnessed.
+
+               Present only in technical mode: every row is `Visibility::Technical`, so a
+               CEO view is handed an empty lane by construction and this section stays
+               hidden with nothing in it. §3.3's "byte-identical when off" is unaffected. -->
+          <section id="between-turns" hidden aria-labelledby="between-turns-title">
+            <h2 id="between-turns-title">Between turns</h2>
+            <p id="between-turns-lede">Not part of any one exchange — this is what the session said with no turn running.</p>
+            <div id="between-turns-rows"></div>
+            <!-- The honest empty state, written in Rust (`machinery_view.rs`) and rendered
+                 verbatim: an empty lane must say WHY it is empty, not imply the feature is
+                 broken. -->
+            <p id="between-turns-quiet" hidden></p>
+          </section>
         </div>
 
         <!-- §18's controlled announcements: "Rich started working", a completed run of his

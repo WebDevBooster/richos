@@ -539,10 +539,16 @@ fn a_ceo_view_carries_no_internal_item_and_no_raw_command() {
 
 #[test]
 fn between_turn_machinery_has_no_render_path_and_is_not_a_violation() {
-    // Re-prime and rotation traffic is journaled with `turn_id: None` (§1.5 G4) — a
-    // first-class state, not a bug. A timeline item requires a turn, so those records are
-    // EXCLUDED; and the exclusion is classified honestly as "not turn-scoped" rather than
-    // reported as a cross-entity violation.
+    // Re-prime and rotation traffic is journaled with `turn_id: None` AND `internal: true`
+    // (§1.5 G4) — a first-class state, not a bug. Those records are EXCLUDED at the guard,
+    // before an item can exist; and the exclusion is classified honestly as "not
+    // turn-scoped" rather than reported as a cross-entity violation.
+    //
+    // NARROWED 2026-08-30: `turn_id: None` alone is no longer the refusal. Between-turn
+    // traffic carries the same absent turn and now has a home (`Timeline::between_turns`,
+    // §1.5 gap #1), so what this reason means is the INTERNAL half — the machinery the
+    // standing order forbids rendering. The fixture below is internal, which is why this
+    // test reads the same as it did. See `between_turn_thread_tests.rs` for the other half.
     let path = tmp("unturned", ".jsonl");
     let journal_root = tmp("unturned-journal", "");
     let (mut spine, _live) = spine_with(interleaved_script(), &path, &journal_root);

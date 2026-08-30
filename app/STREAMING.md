@@ -144,7 +144,7 @@ requests — for the opt-in technical view. Contract:
 {
   "machineryId": "mach_1f2e…",   // ours; the vendor gives none for thoughts
   "threadId": "thr_…",
-  "turnId": "turn_…",            // null for re-prime / between-turn traffic
+  "turnId": "turn_…",            // null for re-prime AND between-turn traffic — see 3 and 6
   "sessionId": "…",              // which compute lease produced it
   "seq": 7,                      // THE ordering key, shared with rich://chunk
   "at": 1756425600000,           // a LABEL, never the ordering key
@@ -176,6 +176,16 @@ Five rules for whoever renders this:
    honestly rather than showing a blank.
 5. **`kind: "unknown"` is not an error.** It is a kind that has no typed route yet; the
    vendor's own kind name is in `title`. Render it as one dim line.
+6. **`turnId: null` on a NON-internal record is between-turn traffic** (techy-mode §1.5):
+   what the session said at start-up, or after a turn's answer had already gone back. It
+   belongs to the THREAD and to no exchange in it, so it does NOT belong in the
+   conversation stream — `get_machinery` puts it in `timeline.betweenTurns`, its own lane,
+   and `app/ui/` draws it as its own section below the conversation. Ordering inside that
+   lane is JOURNAL ORDER, not `seq`: the lane's counter is per compute lease and restarts
+   when one is replaced, so sorting by it would interleave two leases wrongly.
+
+Rules 3 and 6 are one distinction, not two: `turnId: null` says only that the record has no
+turn, and `internal` is what says whether it may ever be seen.
 
 **Retroactivity, stated honestly:** retention began at the routing commit. A thread that
 ran before it has no machinery at all, and the honest empty state is *"No machinery was
