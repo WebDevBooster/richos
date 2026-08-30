@@ -12,6 +12,68 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Row currency — the working record stops going stale by itself**
+  (`scripts/lib/row-currency.{sh,py}`,
+  `scripts/hooks/guard-row-currency-commits.sh`,
+  `scripts/row-currency-lint.sh`, `reference/row-currency/`) — MINOR, and inert
+  without a `.row-currency` declaration.
+
+  The CEO-TODOs contract made the CEO's own two sections honest: an item may not
+  claim to be waiting on him unless the thing he opens exists. It left the
+  WORKING section — the one the team lives in — enforced by nobody. On
+  2026-08-29 four rows of that section described work as unbuilt, pending or
+  open, **hours after it had landed, in a single day**. Every one was caught by
+  a person reading the file, because a person reading the file was the only
+  detector that existed.
+
+  The cause was never carelessness. Updating a row is a manual step that comes
+  after the merge, and a rule enforced by attention lasts exactly as long as the
+  attention.
+
+  > A row that describes open work states the identity of the work it describes.
+  > When that identity changes and the row does not, the next landing is refused
+  > until somebody rewrites the row.
+
+  Each governed row's last cell carries a **warrant**: a status token and every
+  path that row describes pinned to the object id it had when the row was
+  written — `` **State:** `OPEN` — `<repo>/src/parser.rs`@`0a1b2c3d4e5f` ``. The
+  guard recomputes those ids from the tree the landing is about to create
+  (`merge-tree --write-tree` for a merge, a copy of the index for a commit) and
+  refuses by item id, printing the warrant to paste. Content identity, never a
+  timestamp: it survives a rebase and needs no clocks to agree.
+
+  Five decisions worth stating, because each was made against an alternative:
+
+  1. **`git merge` is gated, which the CEO-TODOs guard deliberately does not
+     do.** All four rows rotted at a merge. A guard on `git commit` alone would
+     have watched every one of them go past.
+  2. **Only at a landing** — main checkout, attached HEAD. An engineer's branch
+     is a proposal and has changed nothing the record describes. A guard that
+     fired on every branch commit would be switched off inside a day.
+  3. **Cross-repository, because no commit can touch two repositories.** The
+     work repository carries a one-key peer declaration naming the record's; the
+     two are drift-checked against each other; and a record repository that is
+     not on the machine stands the guard down **loudly and blocks nothing**, so
+     a published repository cloned without its private sibling still works.
+  4. **No re-stamp command, ever.** A tool that refreshed the pin would let the
+     obligation be discharged with nobody reading the sentence beside it, which
+     is the original defect wearing a fix's clothes.
+  5. **No live override**, for the publication boundary's reason with more
+     force: what failed was in-the-moment judgment by the lander at the moment
+     of the land, which is exactly when an escape token gets reached for. The
+     way through is deleting the declaration in a committed diff.
+
+  A second, narrower check refuses a commit or merge whose message NAMES an item
+  whose row did not change. Its precision rules were built by sweeping 800 real
+  commit messages and reading every hit: a blocklist of excluding words was
+  written first, claimed an id in 36 of 400 messages, and was mostly wrong —
+  `P1.4` (a phase), `bash 3.2` (a version), `nemotron-3.5` (a model),
+  `+1.2 points` (arithmetic), `Stages 3.5, 3.6 and 3.7` (pipeline stages, plural
+  and comma-separated). It was replaced with an **allowlist** of the words that
+  name an item, because the set of words that can precede a decimal number is
+  unbounded and the set of ways a team names an item is not. `--explain` prints
+  the reasoning candidate by candidate.
+
 - **The CEO TODOs, part two: REACHABLE, and READ FROM OUTSIDE**
   (`scripts/ceo-todos-render.sh`, `scripts/ceo-todos-init.sh`,
   `scripts/cold-open.sh`, `scripts/lib/cold-open-prompt.md`,
