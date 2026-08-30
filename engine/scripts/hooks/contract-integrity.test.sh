@@ -81,6 +81,7 @@ ALL_HOOKS=(
     guard-publication-writes.sh
     guard-publication-commits.sh
     guard-ceo-todos-commits.sh
+    guard-row-currency-commits.sh
     guard-resume-isolation.sh
     guard-workflow-ban.sh
     detect-nonnative-worktree.sh
@@ -112,6 +113,10 @@ ALL_ROOT_SCRIPTS=(
     # cannot run — the same reason the publication pair is on this list.
     scripts/lib/ceo-todos.sh
     scripts/lib/ceo-todos.py
+    # The row-currency predicate, for the same reason again:
+    # guard-row-currency-commits.sh refuses to start without row-currency.sh.
+    scripts/lib/row-currency.sh
+    scripts/lib/row-currency.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
