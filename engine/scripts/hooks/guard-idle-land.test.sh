@@ -28,7 +28,7 @@
 #     (f)  the operator called a hold                      -> exit 0
 #     (f2) a hold word inside a HOST-written prompt        -> exit 2
 #     (f3) a hold word inside the operator's own code span -> exit 2
-#          (f2 and f3 exist separately because two different defences stop the
+#          (f2 and f3 exist separately because two different defenses stop the
 #           one real false positive, and a fixture that trips both proves
 #           neither)
 #   CONFIRMATION IS IDENTITY, NOT PROSE
@@ -42,7 +42,7 @@
 #   THE RECORD, DERIVED
 #     (k)  "<x> free after 1-2" with 1 and 2 struck        -> free  (fires)
 #     (l)  "<x> free after 1-2" with 2 still open          -> blocked
-#     (m)  an unrecognised blocker cell is BLOCKED, quietly
+#     (m)  an unrecognized blocker cell is BLOCKED, quietly
 #     (n)  no such section              -> exit 0 + INERT and says so
 #     (o)  section present, no table    -> exit 0 + INERT and says so
 #     (p)  two candidate records        -> exit 0 + INERT and says so
@@ -300,9 +300,9 @@ mk_tr "$TR_HOLD" "$(printf '[{"prompt":"Land what is finished and then hold — 
     "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$MERGE_CMD")")"
 
 # The OPERATOR quoting a hold-shaped word inside a code span. Two separate
-# defences stop the real false positive — the host-prompt filter and the
+# defenses stop the real false positive — the host-prompt filter and the
 # code-span strip — and a fixture that trips both proves neither: remove one
-# and the case still passes. So there is a fixture per defence, and the
+# and the case still passes. So there is a fixture per defense, and the
 # mutation run confirms each one can go red on its own.
 TR_OPERATOR_CODE_HOLD="$SANDBOX/operator-code-hold.jsonl"
 mk_tr "$TR_OPERATOR_CODE_HOLD" "$(printf '[{"prompt":"Land it. The measurement I care about is `Freeze margin 1.5` and `pause budget 200ms` — nothing else."},{"bash":%s}]' \
@@ -475,9 +475,9 @@ assert rows is not None, reason
 assert all(r["state"] == "blocked" for r in rows), [(r["num"], r["state"]) for r in rows]
 PY
 then
-    printf '  PASS  m.an-unrecognised-blocker-is-blocked-not-free\n'; PASS=$((PASS + 1))
+    printf '  PASS  m.an-unrecognized-blocker-is-blocked-not-free\n'; PASS=$((PASS + 1))
 else
-    printf '  FAIL  m.an-unrecognised-blocker-is-blocked-not-free\n'; FAIL=$((FAIL + 1))
+    printf '  FAIL  m.an-unrecognized-blocker-is-blocked-not-free\n'; FAIL=$((FAIL + 1))
 fi
 
 write_record "$ENTITY/RICH-TODOs.md" no-section

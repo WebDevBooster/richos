@@ -22,7 +22,7 @@
 # here for that reason. A checker that fires on everything gets switched off and
 # then protects nothing, so every fixture below is paired with the nearest thing
 # that must NOT fire: the fixed version of itself, plus the legitimate
-# neighbours that look similar — a citation into a foreign tree, a citation of a
+# neighbors that look similar — a citation into a foreign tree, a citation of a
 # gitignored file, private INSTANCE DATA next to a private MECHANISM, a private
 # mechanism coupled to nothing public, a subdirectory workflow that a root
 # workflow does cover.
@@ -65,7 +65,7 @@ CHECK="$SCRIPT_DIR/publication-completeness.sh"
 PASS=0
 FAIL=0
 # pwd -P: macOS symlinks /tmp and /var, and git always answers with a physical
-# path. The same normalisation every suite in this engine applies, for the same
+# path. The same normalization every suite in this engine applies, for the same
 # reason — a prefix comparison between a typed path and a git-derived one
 # silently stops matching otherwise.
 SCRATCH="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/pubcomplete.XXXXXX")" && pwd -P)"
@@ -322,7 +322,7 @@ commit_all "$T"
 assert_clean "a declaration quoted only in a COMMENT is documentation, not a capability" "$T"
 
 # ---------------------------------------------------------------------------
-echo "--- (c/d) FIXTURE 4 — A CLAIM WITH NOTHING BEHIND IT, and its neighbours"
+echo "--- (c/d) FIXTURE 4 — A CLAIM WITH NOTHING BEHIND IT, and its neighbors"
 # ---------------------------------------------------------------------------
 T="$(mktree dangling)"
 mkdir -p "$T/.github/workflows"
@@ -479,7 +479,7 @@ P3="$(mkprivate hq_uncoupled)"
 cat > "$P3/scripts/normalize-exports.mjs" <<'EOF'
 #!/usr/bin/env node
 // One company's own export normaliser. Couples to nothing public.
-console.log("normalising");
+console.log("normalizing");
 EOF
 T="$(mktree uncoupled)"
 printf 'PRIVATE_RECORD="hq"\nPRIVATE_SOURCES="%s"\n' "$P3" > "$T/.publication-boundary"

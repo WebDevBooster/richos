@@ -23,7 +23,7 @@
 # The definition-drift guard PAIR is part of the managed set —
 # guard-definition-drift.sh at Agent-chain position 2, snapshot-agent-
 # definitions.sh under SessionStart — so both sandbox fixtures wire them and
-# probe Layer P has something to verify. The pair's own BEHAVIOURAL suite lives
+# probe Layer P has something to verify. The pair's own BEHAVIORAL suite lives
 # in scripts/hooks/guard-definition-drift.test.sh; this harness covers wiring.
 #
 # The WORKTREE-REAPER CHAIN is also part of the managed set —
@@ -31,7 +31,7 @@
 # scripts/reap-stale-worktrees.sh it invokes (the one managed script NOT under
 # scripts/hooks/, because it is the half that actually deletes worktrees). Both
 # fixtures carry them with minted sidecars so probe Layer Q has something to
-# assert. Wrapper behaviour lives in
+# assert. Wrapper behavior lives in
 # scripts/hooks/session-start-reap-worktrees.test.sh; this harness covers wiring
 # plus the tamper/gut/over-reach axes Layer Q is responsible for catching.
 #
@@ -319,7 +319,7 @@ PY
 # ROOT was passed to install.sh as a positional argument on every call. It was
 # harmless only because install.sh ignored arguments entirely — and it stopped
 # being harmless the moment install.sh grew --force-engine-pointer and began
-# REFUSING unrecognised ones, which is exactly what strict argument parsing is
+# REFUSING unrecognized ones, which is exactly what strict argument parsing is
 # for. The forwarding itself is kept, since forwarding extra flags is plainly
 # what this line was reaching for.
 run_install_in() {
@@ -1183,7 +1183,7 @@ set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
 emit_case "39.definition-snapshotter-duplicated-fails" 2 "$rc"
 rm -rf "$ROOT"
 
-# Case 40 — the pair's OWN behavioural suite (block/allow/ack/created/missing/
+# Case 40 — the pair's OWN behavioral suite (block/allow/ack/created/missing/
 # cross-session/dedup/e2e) passes against the live scripts.
 set +e; "$SCRIPT_DIR/guard-definition-drift.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "40.definition-drift-guard-suite-passes" 0 "$rc"
@@ -1341,7 +1341,7 @@ set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
 emit_case "47b.post-install-probe-passes" 0 "$rc"
 rm -rf "$ROOT"
 
-# Case 48 — the wrapper's OWN behavioural suite (reap/skip gates, fail-open,
+# Case 48 — the wrapper's OWN behavioral suite (reap/skip gates, fail-open,
 # JSON shape, idempotence) passes against the live scripts.
 set +e; "$SCRIPT_DIR/session-start-reap-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "48.reaper-wrapper-suite-passes" 0 "$rc"

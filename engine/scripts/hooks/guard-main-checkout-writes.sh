@@ -43,7 +43,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/guard-main-checkout-writes.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 2
@@ -78,7 +78,7 @@ fi
 
 INPUT="$(cat)"
 
-# Resolve the governed repository. Three outcomes, three different behaviours —
+# Resolve the governed repository. Three outcomes, three different behaviors —
 # see the contract for why "block everything unresolvable" is NOT the rule.
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
@@ -160,7 +160,7 @@ if ! GOVERNING_ROOT="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}")"; th
     exit 0
 fi
 
-# BOTH SIDES PHYSICALISED BEFORE THE PREFIX TEST BELOW. On macOS /var is a
+# BOTH SIDES PHYSICALIZED BEFORE THE PREFIX TEST BELOW. On macOS /var is a
 # symlink to /private/var, so the seat arrives logical (from the payload) while
 # the governing root arrives physical (it has been through `cd && pwd`). Compare
 # those two strings and a repository is not itself: the guard silently reloads

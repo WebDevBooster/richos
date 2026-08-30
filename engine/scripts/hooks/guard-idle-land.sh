@@ -14,7 +14,7 @@
 #   everything stopped again" — for the seventh time in two days.
 #
 #   Every previous answer to that question was a document. This engine has
-#   catalogued the same defect a dozen times in a week under one sentence:
+#   cataloged the same defect a dozen times in a week under one sentence:
 #
 #       A RULE ENFORCED BY ATTENTION LASTS EXACTLY AS LONG AS THE ATTENTION.
 #
@@ -147,7 +147,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/guard-idle-land.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 0
@@ -217,7 +217,7 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 stop_notice_init "guard-idle-land.sh" "$ENTITY_ROOT" "$INPUT"
 
 if [ "$CHECK_IDLE_LAND" = "0" ]; then
-    # Never a silent permission: an opt-out that cannot be seen is a defence
+    # Never a silent permission: an opt-out that cannot be seen is a defense
     # that decays into a rumour. This line used to write that sentence to
     # STDERR, which the operator cannot see — so the gate could be switched off
     # and his only evidence it was protecting him was that it was quiet, which

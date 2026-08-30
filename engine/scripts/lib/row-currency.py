@@ -108,9 +108,9 @@ import subprocess
 import sys
 
 # --- Grammar ---------------------------------------------------------------
-# Deliberately narrow, and a shape the parser does not recognise inside a
+# Deliberately narrow, and a shape the parser does not recognize inside a
 # governed section is a VIOLATION rather than a skip. The way a mechanism like
-# this dies is by somebody writing a row in an unrecognised shape and the lint
+# this dies is by somebody writing a row in an unrecognized shape and the lint
 # reporting CLEAN over it.
 
 SECTION_RE = re.compile(r"^##\s+(?P<num>\d+)\.\s+(?P<title>.*)$")
@@ -283,7 +283,7 @@ def identity(root, rev, relpath):
 #     P1.4 turn-boundary rotation          a PHASE label
 #     P3.2 drill-down                      a phase label again
 #     macOS ships bash 3.2                 a version of a tool
-#     nemotron-3.5 under OpenMDW-1.1       a model name and a licence
+#     nemotron-3.5 under OpenMDW-1.1       a model name and a license
 #     C - A = +1.2 points                  an arithmetic result
 #     Freeze margin 1.5 with the gate      a tuning constant
 #     8 words over 2.2 seconds             a measurement

@@ -42,7 +42,7 @@ while [ "$#" -gt 0 ]; do
             sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         -*)
-            echo "ERROR: ceo-todos-lint.sh: unrecognised argument '$1'" >&2
+            echo "ERROR: ceo-todos-lint.sh: unrecognized argument '$1'" >&2
             exit 2 ;;
         *)
             [ -z "$TARGET" ] || { echo "ERROR: ceo-todos-lint.sh: one target only" >&2; exit 2; }

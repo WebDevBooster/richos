@@ -197,7 +197,7 @@ run_case_msg "h4 block message names the ack override" 'worktree-remove-ack:' \
 ACK_LOG="$TMPROOT/entity/.claude/state/worktree-remove-acks.log"
 # Measure the DELTA, not the absolute count: case (f) above already appended a
 # (different) ack to this same log, so an absolute "exactly 1" would assert the
-# suite's history rather than the dedup behaviour under test.
+# suite's history rather than the dedup behavior under test.
 ACK_BEFORE="$(wc -l < "$ACK_LOG" 2>/dev/null | tr -d ' ')"; ACK_BEFORE="${ACK_BEFORE:-0}"
 ACK_PAYLOAD="$(bash_payload 'git worktree remove /x/.claude/worktrees/agent-abc  # worktree-remove-ack: dead agent, artifacts collected')"
 # Double-fire (two hook sources merging) must collapse to ONE new line.

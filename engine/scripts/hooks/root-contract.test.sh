@@ -294,7 +294,7 @@ else
 fi
 
 # ===========================================================================
-# 7. engine-status.sh — the answer to "is this defence on?"
+# 7. engine-status.sh — the answer to "is this defense on?"
 # ===========================================================================
 run engine-status.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO"
 if printf '%s' "$OUT" | grep -q 'ACTIVE' && printf '%s' "$OUT" | grep -q "$SESSREPO"; then

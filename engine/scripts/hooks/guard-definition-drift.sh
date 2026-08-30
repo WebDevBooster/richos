@@ -114,7 +114,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/guard-definition-drift.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 2
@@ -204,7 +204,7 @@ if [ -n "${DEFINITION_DRIFT_ROOT:-}" ]; then
     RICHOS_ENTITY_ROOT="$DEFINITION_DRIFT_ROOT"
 fi
 
-# Resolve the governed repository. Three outcomes, three different behaviours —
+# Resolve the governed repository. Three outcomes, three different behaviors —
 # see the contract for why "block everything unresolvable" is NOT the rule.
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"

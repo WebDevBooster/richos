@@ -86,7 +86,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/guard-publication-commits.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 2
@@ -179,7 +179,7 @@ if not re.search(r"\bgit\b[^\n;|&]*\bcommit\b", cmd):
 # only when there is one git call in it. `git -C /other add -A && git -C /here
 # commit` resolves to /other — the repository that is NOT being committed to —
 # and the guard then judges the wrong tree. It is superseded below by the -C of
-# the `commit` itself whenever the command tokenises; this stays as the fallback
+# the `commit` itself whenever the command tokenizes; this stays as the fallback
 # for a command that does not.
 m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
 repo_hint = ""
@@ -214,8 +214,8 @@ stage_all = bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)
 # so `git -C /other add -A && git -C /here commit` cannot drag a foreign tree
 # into this scan. An empty pathspec means "the whole repository" (-A/-u).
 #
-# A command this cannot tokenise emits nothing and the guard falls back to the
-# index alone — the behaviour it had before. Silently narrower, never wider.
+# A command this cannot tokenize emits nothing and the guard falls back to the
+# index alone — the behavior it had before. Silently narrower, never wider.
 cwd = str(d.get("cwd", "") or "") or "."
 
 

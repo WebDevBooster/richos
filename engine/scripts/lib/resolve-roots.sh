@@ -21,7 +21,7 @@
 #                                                 engine (one level too high)
 #   * neither                                  -> the session's own repository
 #
-# Measured, not theorised (step-1 audit, 2026-08-28): with the engine loaded as
+# Measured, not theorized (step-1 audit, 2026-08-28): with the engine loaded as
 # a plugin, `guard-worktree-isolation.sh` found the ENGINE's config and carried
 # on with the wrong entity's values; `session-start-reap-worktrees.sh` and
 # `snapshot-agent-definitions.sh` resolved to the enclosing repository, found
@@ -55,9 +55,9 @@
 #                  3. the hook payload's `cwd`
 #                  4. $PWD
 #                A candidate that is the TOP LEVEL of a working tree is
-#                normalised to its MAIN checkout (so a linked worktree resolves
+#                normalized to its MAIN checkout (so a linked worktree resolves
 #                to the shared checkout). A candidate that is a SUBDIRECTORY of
-#                a repository stands for ITSELF first — normalising it would
+#                a repository stands for ITSELF first — normalizing it would
 #                discard the nesting, which is precisely how an engine at
 #                <repo>/engine ends up governing <repo> — and only falls back to
 #                its enclosing checkout if it carries no marker of its own.
@@ -158,11 +158,11 @@ _RR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # resolves to on this platform. No associative arrays, and `"$@"` is unbound
 # under `set -u` when empty. Both constraints are respected below.
 
-# --- dependency: main-checkout normalisation ------------------------------
+# --- dependency: main-checkout normalization ------------------------------
 # resolve_main_checkout lives in its own file because it predates this one and
 # is sourced directly by scripts outside scripts/hooks/. Source it if it is not
 # already present; degrade to identity if it is genuinely absent (a test
-# sandbox), which reproduces pre-contract behaviour exactly.
+# sandbox), which reproduces pre-contract behavior exactly.
 if ! command -v resolve_main_checkout >/dev/null 2>&1; then
     _RR_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if [ -f "$_RR_SELF_DIR/resolve-main-checkout.sh" ]; then
@@ -253,18 +253,18 @@ resolve_entity_root() {
     # _rr_try <path> <source-label> — record and accept if adopted.
     # Sets RICHOS_ENTITY_ROOT_RESOLVED and returns 0 on acceptance.
     #
-    # THE SUBTLETY, and it is not optional. "Normalise to the main checkout"
+    # THE SUBTLETY, and it is not optional. "Normalize to the main checkout"
     # is right for one shape and WRONG for another, and the two are easy to
     # confuse because both are "a path inside a git repository":
     #
     #   C is the TOP LEVEL of a working tree
-    #       -> it is either the main checkout (normalises to itself) or a
-    #          LINKED WORKTREE (normalises to the shared checkout, which is
+    #       -> it is either the main checkout (normalizes to itself) or a
+    #          LINKED WORKTREE (normalizes to the shared checkout, which is
     #          what state, the worktree registry and "the shared checkout"
-    #          all have to mean). Normalise.
+    #          all have to mean). Normalize.
     #
     #   C is a SUBDIRECTORY of a repository
-    #       -> e.g. the engine at <repo>/engine. Normalising walks up to
+    #       -> e.g. the engine at <repo>/engine. Normalizing walks up to
     #          <repo> and silently DISCARDS the nesting, which is exactly how
     #          a nested engine ends up governing its enclosing repository. So
     #          C stands for itself first; only if C carries no marker do we
@@ -420,7 +420,7 @@ root_failure_banner() {
         done
     fi
     echo "  This is a HARD failure, not a skip. A guard that cannot resolve its"
-    echo "  root must never carry on quietly — that is how a defence reports 'on'"
+    echo "  root must never carry on quietly — that is how a defense reports 'on'"
     echo "  while protecting nothing."
     echo "=========================================================================="
 }
@@ -493,7 +493,7 @@ except Exception:
 #   rc 0  found; path on stdout
 #   rc 1  not namespaced and not found  — legitimate for host built-ins
 #         (general-purpose, Explore, ...), which have no definition file at all.
-#         Callers keep their existing "undeterminable -> accept" behaviour.
+#         Callers keep their existing "undeterminable -> accept" behavior.
 #   rc 2  NAMESPACED and not found — the caller must FAIL LOUD. A namespaced
 #         type is by construction supplied by a plugin, so its definition MUST
 #         be locatable; if it is not, any check that depends on it is silently

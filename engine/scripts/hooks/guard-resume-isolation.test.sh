@@ -166,7 +166,7 @@ chmod +x "$ACK_SANDBOX/scripts/hooks/guard-resume-isolation.sh"
 # root from the SESSION — so the sandbox needs both the library and an explicit
 # declaration. Without the library it refuses to start; without the declaration
 # it would write the log into the launching session's repository, which is the
-# very behaviour under repair.
+# very behavior under repair.
 cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$ACK_SANDBOX/scripts/lib/"
 printf 'SESSION_TEAMS_DIR=""\n' >"$ACK_SANDBOX/orchestration.config"
 RESUME_GUARD_TEAMS_DIR="$SANDBOX/teams" printf '%s' "$(send_json 'dev-done' "$RESUME_ACK_MSG")" \

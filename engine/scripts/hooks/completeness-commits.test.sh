@@ -34,7 +34,7 @@
 #   (c) THE WHOLE TREE, NOT THE DIFF — a commit that touches an unrelated file
 #       is still refused by a citation somebody else left, and the refusal says
 #       so instead of blaming the author. This is the trade the guard makes on
-#       purpose; a test that did not pin it would let a future "optimisation"
+#       purpose; a test that did not pin it would let a future "optimization"
 #       quietly turn it into a diff check.
 #   (d) THE MERGE ARM — a defect that exists on NEITHER branch and only in the
 #       merge is invisible at commit time and caught at push. This is the whole
@@ -320,7 +320,7 @@ echo "--- (f) the exemption cannot outlive its reason"
 # ---------------------------------------------------------------------------
 # The property that makes an escape hatch safe to have, asserted THROUGH the
 # chokepoint. If it only held in CI, an exemption could be added to get past
-# this guard and then quietly licence the next instance of the defect forever.
+# this guard and then quietly license the next instance of the defect forever.
 git -C "$OUT3" rm -q -f reference/tmpl.md >/dev/null 2>&1
 cc_case "with the defect gone, the now-empty exemption REFUSES" 2 "$OUT3"
 says    "and names itself for deletion" "suppresses nothing"
@@ -351,7 +351,7 @@ BROKE="$(mktree broke)"
 printf 'THIS IS NOT KEY=VALUE\n' > "$BROKE/.publication-boundary"
 cc_case "a malformed .publication-boundary REFUSES"          2 "$BROKE"
 
-# A missing predicate is a broken install, not a licence to proceed. Exercised
+# A missing predicate is a broken install, not a license to proceed. Exercised
 # against a COPY of the engine so the real one is never disturbed.
 FAKE_ENGINE="$SCRATCH/fake-engine"
 mkdir -p "$FAKE_ENGINE/scripts/hooks" "$FAKE_ENGINE/scripts/lib"
@@ -399,7 +399,7 @@ else
 fi
 
 # R3 in miniature, so a divergence is caught by this suite too and not only by a
-# probe somebody has to run. Same normalisation the probe applies.
+# probe somebody has to run. Same normalization the probe applies.
 norm_bootstrap() {
     sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' "$1" \
         | sed -e 's|scripts/hooks/[a-z-]*\.sh|<HOOK>|' -e 's|^    exit [0-9]*$|    exit <RC>|'

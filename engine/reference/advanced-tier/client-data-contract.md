@@ -607,7 +607,7 @@ The Bash gate's contract is two-line:
 That distinction motivates v5's two HIGH-1 mechanisms:
 
 1. **Compound REJECT** uses a quote-state-aware Python scanner that
-   recognises operators only OUTSIDE single quotes (and outside double
+   recognizes operators only OUTSIDE single quotes (and outside double
    quotes for `&&`/`;`/`|`/`&`). A literal `'a && b'` inside a Python
    string is data, not control flow, and stays allowed.
 2. **Whitelist anchoring** binds whitelist matches to the start of the
@@ -690,7 +690,7 @@ layer itself (not the app — the hooks). v5.2 closes every one:
 > payload is documentation.
 >
 > **Invariant (markdown parsing for bypass detection):** the
-> `data-contract-bypass:` opt-out line is recognised only when it
+> `data-contract-bypass:` opt-out line is recognized only when it
 > appears as live prose — outside every fenced code block, HTML
 > comment, blockquote, and indented code block. The stripper is a
 > line-based state machine that treats both backtick and tilde

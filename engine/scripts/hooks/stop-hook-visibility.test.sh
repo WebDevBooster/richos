@@ -270,7 +270,7 @@ fi
 
 # WHAT IS ENFORCED HERE, AND WHAT DELIBERATELY IS NOT.
 #
-# The requirement is BEHAVIOURAL — a Stop hook that cannot run must reach the
+# The requirement is BEHAVIORAL — a Stop hook that cannot run must reach the
 # operator — and section 3 enforces exactly that, for every derived hook, with
 # no exceptions and no opt-out. Using this particular helper is NOT the
 # requirement, and an earlier version of this section demanded it. That flagged
@@ -325,7 +325,7 @@ else
 fi
 
 # ===========================================================================
-# 3. BEHAVIOUR — driven down a cannot-run path, each one reaches the operator
+# 3. BEHAVIOR — driven down a cannot-run path, each one reaches the operator
 # ===========================================================================
 # The generic condition every rooted Stop hook has: an explicitly declared root
 # that is not an adopted repository. The resolver calls that `broken` ("an

@@ -177,7 +177,7 @@ for name in sorted(found):
 #
 #     <event>\t<matcher>\t<script-basename>
 #
-# sorted and de-duplicated, with an absent or empty matcher normalised to "-".
+# sorted and de-duplicated, with an absent or empty matcher normalized to "-".
 # Inline hooks that run no script contribute nothing, exactly as above.
 #
 # WHY A SECOND FUNCTION RATHER THAN A RICHER FIRST ONE

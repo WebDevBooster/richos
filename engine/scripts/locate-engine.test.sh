@@ -30,7 +30,7 @@
 #   6d  install.sh run from a LINKED GIT WORKTREE leaves an existing pointer
 #       ALONE — and still does everything else it was run for
 #   6e  ...and --force-engine-pointer is the deliberate way through
-#   6f  an unrecognised argument is REFUSED (exit 2), never ignored
+#   6f  an unrecognized argument is REFUSED (exit 2), never ignored
 
 set -uo pipefail
 
@@ -268,9 +268,9 @@ else
     env CLAUDE_CONFIG_DIR="$CFG9" bash "$WT_LINKED/scripts/hooks/install.sh" --force-enginepointer >/dev/null 2>&1
     BADARG_RC=$?
     if [ "$BADARG_RC" -eq 2 ]; then
-        ok "6f an unrecognised argument is refused with exit 2, not ignored"
+        ok "6f an unrecognized argument is refused with exit 2, not ignored"
     else
-        bad "6f unrecognised argument was not refused" "rc=$BADARG_RC (expected 2)"
+        bad "6f unrecognized argument was not refused" "rc=$BADARG_RC (expected 2)"
     fi
 
     # 6g — the POSITIVE control for 6d. Without it, 6d passes on any installer

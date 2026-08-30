@@ -106,7 +106,7 @@ Once you have the design read (Section 0) and dials (Section 1), pick the right 
 | US public-sector / trust-first | `uswds` | Same |
 | Fast local-business / agency MVP | Bootstrap 5.3 | Boring, fast, works |
 | Modern accessible React foundation | `@radix-ui/themes` | Primitives + polished theme |
-| Modern SaaS where you own the components | shadcn/ui (`npx shadcn@latest add ...`) | You own the code, easy to customise; never ship default state |
+| Modern SaaS where you own the components | shadcn/ui (`npx shadcn@latest add ...`) | You own the code, easy to customize; never ship default state |
 | Tailwind-based modern SaaS / AI marketing | Tailwind v4 utilities + `dark:` variant | Default for indie + small team builds |
 
 **Honesty rule:** if the brief reads as one of the systems above, install and use the **official** package. Do not recreate its CSS by hand. Do not import a system's tokens but then override 90% of them.
@@ -195,7 +195,7 @@ LLMs default to clichés. Override these defaults proactively. Each rule has a c
 ### 4.2 Color Calibration
 * Max 1 accent color. Saturation < 80% by default.
 * **THE LILA RULE:** The "AI Purple / Blue glow" aesthetic is discouraged as a default. No automatic purple button glows, no random neon gradients. Use neutral bases (Zinc / Slate / Stone) with high-contrast singular accents (Emerald, Electric Blue, Deep Rose, Burnt Orange, etc.).
-* **Override:** if the brand or brief explicitly asks for purple / violet / lila, embrace it. But execute with intent: consistent palette, harmonised neutrals, restrained gradients. Not generic AI gradient slop.
+* **Override:** if the brand or brief explicitly asks for purple / violet / lila, embrace it. But execute with intent: consistent palette, harmonized neutrals, restrained gradients. Not generic AI gradient slop.
 * **One palette per project.** Do not fluctuate between warm and cool grays within the same project.
 * **COLOR CONSISTENCY LOCK (mandatory):** Once an accent color is chosen for a page, it is used on the WHOLE page. A warm-grey site does not suddenly get a blue CTA in section 7. A rose-accented site does not get a teal status badge in the footer. Pick one accent, lock it, audit every component before shipping.
 
@@ -326,7 +326,7 @@ Landing pages live on the **first impression**, not the full read. Cut ruthlessl
   - **2-col card grid:** each spec gets its own card with the spec name, the value (large display number), and a one-line "why it matters" body. Cards arranged 2-col on desktop, 1-col mobile.
   - **Scroll-snap horizontal pills:** each spec is a pill, user can flick through.
   - **Grouped chunks:** group 10 specs into 3 logical clusters (e.g. "Materials", "Cooking", "Warranty"), each cluster gets ONE soft divider and a cluster heading.
-  - **Featured-vs-rest:** 3-4 hero specs visualised as large display tiles, the rest collapsed under a "View full specifications" disclosure.
+  - **Featured-vs-rest:** 3-4 hero specs visualized as large display tiles, the rest collapsed under a "View full specifications" disclosure.
 
 * **COPY SELF-AUDIT (mandatory before ship):** Before declaring any task done, re-read every visible string on the page (headlines, subheads, eyebrows, button labels, body copy, captions, alt text, footer text, error messages). Flag any string that is:
   - **Grammatically broken** ("free on its past", "two plans but one is honest", "to put it on the table" out of context)
@@ -354,7 +354,7 @@ The page has ONE theme. Sections do not invert.
 
 * If the page is dark mode, ALL sections are dark mode. No light-mode-warm-paper section sandwiched between dark sections (or vice versa). The user must not feel they walked into a different website mid-scroll.
 * The exception: if the brief explicitly calls for a "Color Block Story" or "Theme Switch on Scroll" device AND that is a deliberate composition (one full theme switch with a strong transition, not random alternation), it is allowed once per page.
-* Default behaviour: pick light, dark, or auto (`prefers-color-scheme`) at the page level and lock it. Section-level background tints within the same theme family are fine (`bg-zinc-950` next to `bg-zinc-900`); flipping to `bg-amber-50` in the middle of a `bg-zinc-950` page is broken.
+* Default behavior: pick light, dark, or auto (`prefers-color-scheme`) at the page level and lock it. Section-level background tints within the same theme family are fine (`bg-zinc-950` next to `bg-zinc-900`); flipping to `bg-amber-50` in the middle of a `bg-zinc-950` page is broken.
 * When using a design system with built-in theming (Radix Themes, shadcn/ui with `<Theme>`), set the theme ONCE in `layout.tsx` or the page root. Do not let individual sections override.
 
 ---
@@ -591,7 +591,7 @@ Dual-mode by default. Never assume light-only unless the brief is print-emulatin
 The brief and brand decide. This skill enforces only:
 * **Contrast** - WCAG AA minimum for body text, AAA target for hero copy.
 * **Hierarchy parity** - visual hierarchy that works in light must work in dark. If a CTA pops in light, it pops in dark.
-* **Brand fidelity** - primary brand color stays recognisable. Don't desaturate the brand into a dark mode.
+* **Brand fidelity** - primary brand color stays recognizable. Don't desaturate the brand into a dark mode.
 * **No pure `#000000` and no pure `#ffffff`** - use off-black (zinc-950, near-black warm gray) and off-white. Pure values kill depth.
 
 ### 8.C Default Mode
@@ -690,7 +690,7 @@ These patterns came out of real LLM-generated landing-page tests. They are the s
 **Locale, time, scroll cues**
 * **Locale / city-name / time / weather strips are banned for 99% of briefs.** "Lisbon, working with founders" in the hero, "1200-690 Lisbon, Portugal" in the footer, "Lisbon 14:23 · 18°C" in the nav. These are agency-portfolio decoration tells. Allowed ONLY when: the brief explicitly describes a globally-distributed studio with timezone-relevant work, OR a travel-focused brand, OR a real-world physical venue. A single contact-address mention in the footer is fine; an atmospheric locale strip is not.
 * **Scroll cues are banned.** `Scroll`, `↓ scroll`, `Scroll to explore`, `Scroll to walk through it`, animated mouse-wheel icons. If the user has not scrolled yet, they are looking at the hero. They know what scroll is. The bottom of the viewport does not need a label.
-* **ZERO decorative status dots by default.** A coloured dot before nav items, before list rows, before badges, before status labels is a Tell. Only acceptable when conveying real semantic state (a live indicator on actual server status, a live availability flag) and limited to one per page section.
+* **ZERO decorative status dots by default.** A colored dot before nav items, before list rows, before badges, before status labels is a Tell. Only acceptable when conveying real semantic state (a live indicator on actual server status, a live availability flag) and limited to one per page section.
 
 ### 9.G EM-DASH BAN (the single most-violated Tell)
 
@@ -796,7 +796,7 @@ This skill handles **greenfield builds AND redesigns**. Misclassifying the mode 
 
 ### 11.A Detect the Mode (first action)
 * **Greenfield** - no existing site, or full overhaul approved. Dial baseline from Section 1.
-* **Redesign - Preserve** - modernise without breaking the brand. Audit first, extract brand tokens, evolve gradually.
+* **Redesign - Preserve** - modernize without breaking the brand. Audit first, extract brand tokens, evolve gradually.
 * **Redesign - Overhaul** - new visual language on top of existing content. Treat as greenfield for visuals; preserve content and IA.
 
 If ambiguous, ask **once**: *"Should this redesign preserve the existing brand, or are we starting visually from scratch?"*
@@ -806,7 +806,7 @@ Document the current state before proposing changes:
 * **Brand tokens** - primary / accent colors, type stack, logo treatment, radii.
 * **Information architecture** - page tree, primary nav, key conversion paths.
 * **Content blocks** - what exists, what's doing work, what's filler.
-* **Patterns to preserve** - signature interactions, recognisable hero, copy voice.
+* **Patterns to preserve** - signature interactions, recognizable hero, copy voice.
 * **Patterns to retire** - AI-slop tells, broken layouts, dead links, generic stock imagery, perf traps.
 * **Dial reading of the existing site** - infer current `DESIGN_VARIANCE` / `MOTION_INTENSITY` / `VISUAL_DENSITY`. That's your starting point, not the baseline.
 * **SEO baseline** - current ranking pages, meta titles, structured data, OG cards. **SEO migration is the #1 redesign risk.**
@@ -814,11 +814,11 @@ Document the current state before proposing changes:
 ### 11.C Preservation Rules
 * **Do not change information architecture** unless asked. Keep page slugs, anchor IDs, primary nav labels stable for SEO and muscle memory.
 * **Extract brand colors before applying Section 4.2.** A brand that is already purple stays purple - apply the LILA RULE's override.
-* **Preserve copy voice** unless asked for a rewrite. Visual modernisation ≠ content rewrite.
+* **Preserve copy voice** unless asked for a rewrite. Visual modernization ≠ content rewrite.
 * **Honor existing accessibility wins.** Do not regress focus states, alt text, keyboard nav, contrast.
 * **Respect existing analytics events.** Do not rename buttons, form fields, section IDs that downstream tracking depends on.
 
-### 11.D Modernisation Levers (priority order)
+### 11.D Modernization Levers (priority order)
 Apply in order - stop when the brief is satisfied:
 1. **Typography refresh** - biggest visual lift per unit of risk.
 2. **Spacing & rhythm** - increase section padding, fix vertical rhythm.

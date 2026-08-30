@@ -27,8 +27,8 @@ version heading with Added / Changed / Fixed groupings.
 
   Nothing was wrong with the guards, and the sentence was not even false. The
   defect was that a deferred activation had been reported as a **forecast**
-  instead of a **request**, so nobody acted on it. That generalises well past
-  hooks, so it is stated to generalise:
+  instead of a **request**, so nobody acted on it. That generalizes well past
+  hooks, so it is stated to generalize:
 
   > **A deferred activation must name the actor and the action.** Never "this
   > arms at the next session" — always "restart the session to arm this; that is
@@ -102,7 +102,7 @@ version heading with Added / Changed / Fixed groupings.
   everything had stopped, for the seventh time in two days.
 
   Every previous answer to that question had been a document — which is this
-  engine's own catalogued defect, stated a dozen times in a week: **a rule
+  engine's own cataloged defect, stated a dozen times in a week: **a rule
   enforced by attention lasts exactly as long as the attention.** So the answer
   is a chokepoint. `Stop` is the chokepoint, and the turn gate that landed
   hours earlier had already established against the shipping binary that a Stop
@@ -119,7 +119,7 @@ version heading with Added / Changed / Fixed groupings.
   2. **Nothing was started.** No `Agent` call this turn, scoped to `promptId`.
   3. **There is something to start.** An unblocked row **derived** from the
      record's `## Next` table. Struck rows and rows whose blocker cell is
-     anything unrecognised are blocked; `"<x> free after 1-2"` resolves its
+     anything unrecognized are blocked; `"<x> free after 1-2"` resolves its
      references against the same table. Never a typed count.
   4. **Nothing is still running.** `background_tasks` from the payload.
      Landing while four agents work is not idling.
@@ -234,7 +234,7 @@ version heading with Added / Changed / Fixed groupings.
      supplied by the repository it was checking, and — worst — adopters received
      the enforcement without the page.
   2. **The cold open.** `cold-open.sh` puts the CEO-facing surface in front of a
-     reader with **no context by construction** — a fresh, customisation-free
+     reader with **no context by construction** — a fresh, customization-free
      process, or a person via `--record` — and files a transcript stamped with a
      fingerprint of the front door it describes. Change the front door and the
      next commit is refused until somebody reads the new one: the freshness
@@ -402,7 +402,7 @@ version heading with Added / Changed / Fixed groupings.
   declaration in an un-migrated repository, **stand down, and say nothing.** A
   guard that switches itself off silently is the failure class this mechanism
   exists to remove, so it is not an acceptable way to ship its own rename — and
-  "no release ever carried `.ceo-queue`" is not a defence, because adopters
+  "no release ever carried `.ceo-queue`" is not a defense, because adopters
   install from `main` and at least one live repository already declares it.
 
   So: the legacy declaration and the legacy keys are **still read and still
@@ -438,7 +438,7 @@ version heading with Added / Changed / Fixed groupings.
   `git status --porcelain -z --untracked-files=all`, where `-uall` is the whole
   fix for the directory: without it git reports a wholly-new directory as ONE
   entry with no bytes behind it. Index bytes and worktree bytes are now
-  materialised separately, because they are not the same bytes.
+  materialized separately, because they are not the same bytes.
 
   One level down, the shared predicate had the same walk-past for every caller:
   an item whose path was a DIRECTORY raised `IsADirectoryError` inside the

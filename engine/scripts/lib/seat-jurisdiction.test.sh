@@ -23,7 +23,7 @@
 #                           guard with the old shape turns this red on the day
 #                           it is written.
 #
-#   BEHAVIOURAL (cases 2.x) Drives the real guards against real sandbox repos
+#   BEHAVIORAL (cases 2.x) Drives the real guards against real sandbox repos
 #                           and asserts that divergence and stand-down are LOUD.
 #                           Silence and success must not look the same.
 #
@@ -139,10 +139,10 @@ EOF
 fi
 
 # ===========================================================================
-# 2. BEHAVIOURAL — divergence and stand-down are LOUD, against real guards
+# 2. BEHAVIORAL — divergence and stand-down are LOUD, against real guards
 # ===========================================================================
 echo
-echo "2. behavioural: silence and success must not look the same"
+echo "2. behavioral: silence and success must not look the same"
 
 # Two sandbox repos. ADOPTED carries orchestration.config and protects src/;
 # STRANGER carries nothing. Both are real git repositories, because every path
@@ -150,7 +150,7 @@ echo "2. behavioural: silence and success must not look the same"
 ADOPTED="$SANDBOX/adopted"
 STRANGER="$SANDBOX/stranger"
 #
-# core.hooksPath is neutralised and --no-verify is passed because this machine
+# core.hooksPath is neutralized and --no-verify is passed because this machine
 # carries a GLOBAL pre-commit identity guard. Without both, the sandbox commit
 # fails, the repo has no commits, `git worktree add` checks out an empty tree,
 # and case 2f fails for a reason that has nothing to do with jurisdiction. It
@@ -253,7 +253,7 @@ if git -C "$ADOPTED" worktree add -q -b jur-test "$WT" 2>/dev/null; then
     if ! printf '%s' "$OUT" | grep -q 'OUT OF JURISDICTION'; then
         ok "2f  a linked worktree of the seat is IN jurisdiction (no false notice on isolated work)"
     else
-        bad "2f  worktree normalisation" "a worktree of the seat was called out-of-jurisdiction: $OUT"
+        bad "2f  worktree normalization" "a worktree of the seat was called out-of-jurisdiction: $OUT"
     fi
     git -C "$ADOPTED" worktree remove --force "$WT" 2>/dev/null
 else
@@ -286,7 +286,7 @@ else
     bad "3b  NEGATIVE CONTROL" "the real guard classifies as divergent — the classifier fires on everything and 3a proved nothing"
 fi
 
-# --- 3c: the behavioural half must go RED without the library. With
+# --- 3c: the behavioral half must go RED without the library. With
 # seat-jurisdiction.sh unavailable a guard must refuse loudly, never carry on
 # quietly — a missing predicate is the BROKEN case, not the not-applicable one.
 BROKEN_ENGINE="$SANDBOX/broken-engine"

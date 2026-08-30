@@ -37,7 +37,7 @@
 #                          path references still point at the original layout and
 #                          will not resolve here — that is expected for reference
 #                          material." This line makes that existing declaration
-#                          machine-readable; it grants no new licence.
+#                          machine-readable; it grants no new license.
 #   engine/skills/         Skills instruct an agent working in the ADOPTER's repo
 #                          (`scripts/railway-api.sh`), name files a skill's own
 #                          run creates (`.claude/product-marketing-context.md`,

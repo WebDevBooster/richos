@@ -16,7 +16,7 @@
 #   its device-install pipeline runs the integrity probe and ABORTS if the hooks
 #   are not wired. Delete the entity's local copy of the probe with no way to
 #   find the engine's, and that abort silently becomes a no-op: the exact
-#   "a defence reports on while protecting nothing" failure this migration
+#   "a defense reports on while protecting nothing" failure this migration
 #   exists to remove, introduced BY the migration.
 #
 # RESOLUTION ORDER. Each candidate is accepted only if it actually looks like

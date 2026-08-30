@@ -88,7 +88,7 @@ while [ "$#" -gt 0 ]; do
         --no-readme)    DO_README=0 ;;
         --force)        FORCE=1 ;;
         -h|--help)      sed -n '46,70p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        -*)             die "unrecognised argument '$1'" ;;
+        -*)             die "unrecognized argument '$1'" ;;
         *)              [ -z "$TARGET" ] || die "one target only"; TARGET="$1" ;;
     esac
     shift

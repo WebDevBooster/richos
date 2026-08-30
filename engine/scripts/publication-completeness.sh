@@ -78,16 +78,16 @@
 # expensive part, so this was the first thing considered. It is the wrong host,
 # for three reasons that are about what the two scripts prove, not about cost:
 #
-#   THE SAMPLE REPO IS DELIBERATELY A SUBSET. demo.sh synthesises a sample
+#   THE SAMPLE REPO IS DELIBERATELY A SUBSET. demo.sh synthesizes a sample
 #   company from a DERIVED list of the files the guards need — hooks, libs, the
 #   installer, the probe. It ships no README, no skills, no reference tier, no
-#   docs, because the behaviour it proves does not need them. Running a
+#   docs, because the behavior it proves does not need them. Running a
 #   completeness check inside that world would report every deliberate omission
-#   as a defect. The adopter's world for THIS question is not a synthesised
+#   as a defect. The adopter's world for THIS question is not a synthesized
 #   subset; it is the published tree itself, and constructing it is one
 #   `git ls-files`.
 #
-#   THE QUESTIONS ARE DIFFERENT IN KIND. demo.sh is behavioural: the guards
+#   THE QUESTIONS ARE DIFFERENT IN KIND. demo.sh is behavioral: the guards
 #   FIRE, against a real git repository, and their real exit codes decide. This
 #   is structural: over the tree as published, does every capability it claims
 #   have the declaration, the template, the document and the resolvable path
@@ -162,7 +162,7 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -gt 0 ] || { echo "ERROR: --root needs a directory." >&2; exit 2; }
             START_DIR="$1" ;;
         -h|--help) sed -n '/^# Usage/,/^# ====/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "ERROR: publication-completeness.sh: unrecognised argument '$1'." >&2; exit 2 ;;
+        *) echo "ERROR: publication-completeness.sh: unrecognized argument '$1'." >&2; exit 2 ;;
     esac
     shift
 done

@@ -221,7 +221,7 @@ def repo_roots(entity_root, extra):
     """Repositories whose object DBs a SHA may legitimately live in.
 
     The entity itself, its siblings (an orchestrator routinely cites commits in
-    a neighbouring checkout), and anything the entity's config names. Bounded
+    a neighboring checkout), and anything the entity's config names. Bounded
     and cheap; a wider set only makes the gate quieter.
     """
     roots, seen = [], set()

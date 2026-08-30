@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# engine-status.sh — SessionStart hook. THE ANSWER TO "IS THIS DEFENCE ON?"
+# engine-status.sh — SessionStart hook. THE ANSWER TO "IS THIS DEFENSE ON?"
 #
 # WHY THIS HOOK EXISTS
 # ====================
-# This operation has been burned three times by defences that reported ON while
+# This operation has been burned three times by defenses that reported ON while
 # missing a whole failure class. The common shape is not "the guard was wrong";
 # it is "nobody could tell the guard was doing nothing". A silent skip is worse
 # than no guard at all, because it buys false confidence.
@@ -12,7 +12,7 @@
 # The cure is not "block everything you cannot resolve" — applied literally that
 # would brick every session in every directory on the machine, since the engine
 # plugin is enabled at USER scope and therefore loads in EVERY project. The cure
-# is that the defence must ALWAYS STATE WHETHER IT IS ON, in a place nobody has
+# is that the defense must ALWAYS STATE WHETHER IT IS ON, in a place nobody has
 # to go looking for.
 #
 # So this hook runs at every session start and emits:
@@ -71,7 +71,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/engine-status.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 0

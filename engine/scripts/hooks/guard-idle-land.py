@@ -35,7 +35,7 @@ THE PREDICATE, AND WHY EVERY TERM IS READ FROM GROUND TRUTH
        action instead of at an artifact.
 
     2. NO WORK WAS STARTED. No `Agent` tool call in this same turn, SCOPED TO
-       promptId. The scoping is not an optimisation: its sibling guard
+       promptId. The scoping is not an optimization: its sibling guard
        collected tool names session-wide, so "did this turn call Agent?" was
        permanently yes after the first spawn and its reporting layer was
        silently dead for weeks while its suite stayed green. That bug is
@@ -53,7 +53,7 @@ THE PREDICATE, AND WHY EVERY TERM IS READ FROM GROUND TRUTH
        while four agents work is not idling, and a gate that could not tell the
        difference would fire on the most productive turns in the session.
 
-  Everything unrecognised is treated as BLOCKED, not as free. Every ambiguity
+  Everything unrecognized is treated as BLOCKED, not as free. Every ambiguity
   resolves towards silence. A gate that cries wolf is removed within a day, and
   then the operator is worse off than before it existed.
 
@@ -438,8 +438,8 @@ def still_running(payload):
             st = str(t.get("status") or t.get("state") or "").strip().lower()
             if st in TERMINAL:
                 continue
-        # A non-dict entry, or one with no status we recognise, counts as
-        # RUNNING. Unrecognised means quiet.
+        # A non-dict entry, or one with no status we recognize, counts as
+        # RUNNING. Unrecognized means quiet.
         n += 1
     return n
 
@@ -792,7 +792,7 @@ def main():
 
     # From here the turn HAS landed and started nothing, so every remaining
     # outcome is worth a line on stderr. Above this point silence is correct;
-    # below it, silence would be a defence that reports "on" while looking at
+    # below it, silence would be a defense that reports "on" while looking at
     # nothing.
     cands = backlog_candidates(landed, entity_root, record_name)
     tag = "(hook: scripts/hooks/guard-idle-land.sh)"

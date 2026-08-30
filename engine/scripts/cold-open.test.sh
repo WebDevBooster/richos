@@ -19,7 +19,7 @@
 #
 #   * the prompt handed to the reader is the verbatim shipped file
 #   * the reader is invoked in the REPOSITORY, with the prompt on stdin
-#   * the default reader is customisation-free (a reader that loaded this
+#   * the default reader is customization-free (a reader that loaded this
 #     project's CLAUDE.md, plugins and hooks would not be cold, and the whole
 #     exercise would be theatre)
 #   * a failed or empty reading files NOTHING — an empty transcript would
@@ -321,7 +321,7 @@ done
 if grep -qF -- '--safe-mode' "$CO"; then
     ok "the default reader runs with --safe-mode: no CLAUDE.md, no plugins, no hooks, no skills, no memory — a reader that loaded this project's own doctrine would not be cold"
 else
-    bad "the default reader must disable customisations, or it is not a cold reader"
+    bad "the default reader must disable customizations, or it is not a cold reader"
 fi
 if grep -qF -- '--tools Read,Glob,Grep' "$CO"; then
     ok "the default reader is READ-ONLY — it is here to report what it found, not to fix it"

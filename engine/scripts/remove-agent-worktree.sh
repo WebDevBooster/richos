@@ -40,7 +40,7 @@
 # The companion PreToolUse[Bash] guard, scripts/hooks/guard-worktree-removal.sh,
 # BLOCKS raw `git worktree remove` / `git worktree prune --expire` /
 # `git branch -D <worktree-*>` / `rm -r <worktree-path>` UNLESS the command
-# invokes THIS helper (its name is the marker the guard recognises) or carries
+# invokes THIS helper (its name is the marker the guard recognizes) or carries
 # an explicit `worktree-remove-ack:<reason>` override. So this helper is the
 # blessed path: it runs the removal internally as a subprocess, which the
 # PreToolUse hook never intercepts.

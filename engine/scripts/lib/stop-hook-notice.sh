@@ -14,7 +14,7 @@
 #
 # Each one announced itself on STDERR and exited 0. Its own header says, of the
 # first: "Never a silent permission: an opt-out that cannot be seen is a
-# defence that decays into a rumour." It then wrote that sentence to a channel
+# defense that decays into a rumour." It then wrote that sentence to a channel
 # the operator cannot see, which made it the rumour.
 #
 # MEASURED, NOT ASSUMED — Claude Code 2.1.251, macOS, 2026-08-30. Three Stop
@@ -114,7 +114,7 @@
 # are in right now. That is a different change with a different blast radius,
 # and smuggling it in beside this one would be the wrong trade.
 #
-# What the gap actually costs, stated honestly rather than minimised: if
+# What the gap actually costs, stated honestly rather than minimized: if
 # resolve-roots.sh is missing then EVERY guard on EVERY event is off, not just
 # these two — so the correct fix is engine-wide by nature. It is also the case
 # that this helper lives in the same directory as resolve-roots.sh, so an
