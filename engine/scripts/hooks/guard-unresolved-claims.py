@@ -71,11 +71,11 @@ CONSERVATISM RULES (all of these make the gate quieter, never louder)
   * any resolver error fails OPEN
 
 WHAT IT CANNOT SEE
-  * a nameless action claim. "dispatching it rather than queuing it" with no
-    agent named contains no identifier, so this gate passes it. That exact
-    sentence is the failure that motivated the work, and only the reporting
-    layer sees it. Naming the agent -- which the engine's own naming doctrine
-    already requires -- is what moves it into the blocking layer.
+  * a nameless action claim -- "dispatching it now", with no agent named --
+    contains no identifier at all, so this gate passes it. A sentence of exactly
+    that shape is the failure that motivated the work, and only the reporting
+    layer sees it. Naming the agent, which the engine's own naming doctrine
+    already requires, is what moves it into the blocking layer.
   * a claim that is false about the WORLD but true about identifiers ("the
     tests pass" when they do not)
   * anything after the turn ends. This is a point-in-time check: it proves the

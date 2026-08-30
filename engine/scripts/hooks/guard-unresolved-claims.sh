@@ -9,8 +9,8 @@
 #   the repo. Two recurring failures happen inside the turn itself, where no
 #   repository hook can see them:
 #     1. ending a turn by NAMING the next step instead of taking it
-#     2. writing an action claim ("dispatching it rather than queuing it") with
-#        no corresponding tool call
+#     2. writing an action claim -- "dispatching it now" -- with no
+#        corresponding tool call
 #   Both happen at exactly the boundary a Stop hook fires on.
 #
 #   Verified against the SHIPPING BINARY (2.1.251), not documentation:

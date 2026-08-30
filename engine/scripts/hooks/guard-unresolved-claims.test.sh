@@ -248,13 +248,13 @@ run_case "n.legitimate-turn-end-passes" 0 \
 # The identifier gate cannot see this and must not pretend to; the reporting
 # layer records it. Asserting exit 0 here is the honest limit, written down.
 run_case "o.failure2-nameless-claim-reports-only" 0 \
-    "$(payload 'The trees are disjoint, so it goes now — dispatching it rather than queuing it.' "$BASH_TR")" \
+    "$(payload 'Separate trees, no collision — dispatching it now instead of holding it.' "$BASH_TR")" \
     "in-flight dispatch claim"
 
 # The same claim in the form the engine's naming doctrine already requires.
 # Naming the agent is what moves the failure into the blocking layer.
 run_case "o2.failure2-named-claim-blocks" 2 \
-    "$(payload 'The trees are disjoint, so it goes now — dispatching mark-opus-v2 rather than queuing it.' "$BASH_TR")" \
+    "$(payload 'Separate trees, no collision — dispatching mark-opus-v2 now instead of holding it.' "$BASH_TR")" \
     "never spawned"
 
 # FAILURE 1: naming the next step without taking it. Sometimes correct (a hold,
@@ -266,14 +266,14 @@ run_case "p.failure1-next-step-named-not-taken" 0 \
 # Turn scoping (the regression above). Same message both times; only the
 # position of the Agent call moves.
 run_case "p2.agent-called-this-turn-nothing-to-report" 0 \
-    "$(payload 'Disjoint trees, so it goes now — dispatching it rather than queuing it.' "$AGENT_IN_TURN")"
+    "$(payload 'Separate trees, no collision — dispatching it now instead of holding it.' "$AGENT_IN_TURN")"
 if printf '%s' "$LAST_ERR" | grep -qF "in-flight dispatch claim"; then
     printf '  FAIL  p2.agent-called-this-turn-nothing-to-report (reported anyway)\n'
     FAIL=$((FAIL + 1)); PASS=$((PASS - 1))
 fi
 
 run_case "p3.agent-called-only-in-an-earlier-turn-still-reports" 0 \
-    "$(payload 'Disjoint trees, so it goes now — dispatching it rather than queuing it.' "$AGENT_EARLIER")" \
+    "$(payload 'Separate trees, no collision — dispatching it now instead of holding it.' "$AGENT_EARLIER")" \
     "in-flight dispatch claim"
 
 # --- SAFETY: never strand a session ----------------------------------------
