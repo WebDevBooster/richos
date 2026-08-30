@@ -182,8 +182,12 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # 22 -> 23 on 2026-08-29: guard-ceo-todos-commits.sh was wired, making "waiting
 # on the CEO" a checkable claim instead of an unfalsifiable one. The tripwire
 # fired again, exactly as intended — this line is the acknowledgement.
-if [ "$REGISTERED_N" -eq 23 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 23 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+#
+# 23 -> 24 on 2026-08-30: guard-unresolved-claims.sh was wired on Stop — the
+# first guard here that reads the orchestrator's own turn rather than the
+# repository's state. Tripwire fired, acknowledged.
+if [ "$REGISTERED_N" -eq 24 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 24 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

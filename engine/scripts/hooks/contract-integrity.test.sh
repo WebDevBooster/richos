@@ -83,6 +83,7 @@ ALL_HOOKS=(
     guard-ceo-todos-commits.sh
     guard-resume-isolation.sh
     guard-workflow-ban.sh
+    guard-unresolved-claims.sh
     detect-nonnative-worktree.sh
     teammate-idle-handoff.sh
     task-completed-handoff.sh

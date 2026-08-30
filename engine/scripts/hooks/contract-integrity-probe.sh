@@ -325,7 +325,7 @@ run_layer_R() {
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
-    session-start-reap-worktrees snapshot-agent-definitions"
+    session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
     # stale inventory waiting to happen.
@@ -524,7 +524,8 @@ worker-updated-handoff.sh|PostToolUse
 worker-started-handoff.sh|SubagentStart
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
-task-completed-handoff.sh|TaskCompleted"
+task-completed-handoff.sh|TaskCompleted
+guard-unresolved-claims.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
     # drift surface of exactly the kind this probe exists to remove: add a
