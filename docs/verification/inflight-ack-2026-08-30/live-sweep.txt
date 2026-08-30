@@ -1,0 +1,35 @@
+in-flight sweep — the LIVE topology, not a sandbox
+captured 2026-08-30, engine/scripts/inflight-notify.sh status --repo /Users/alex/ab/richos
+
+This is the real repository this operation runs in: a session seated in
+femcboost, landing in richos, with hand-rolled worktrees under richos-wt/
+that take no lock. The sweep finds the one live worktree, resolves its base,
+counts what moved past it, and reports it as owed — which it is: main took
+seven commits while this branch was being written, and nothing told it.
+
+in-flight sweep — /Users/alex/ab/richos
+  tip            : dedd8a172ff8af268fe4915e084e419f6ef0d948
+  ack timeout    : 30 min
+  notice ledger  : <no team dir resolved>
+
+  OWED-NO-NOTICE         /Users/alex/ab/richos-wt/zach-ackguard-2026-08-30
+      branch     : zach/inflight-notify-guarantee-2026-08-30 @ 7b72ae802e1c
+      teammate   : <unresolved> (token-match)
+      liveness   : presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)
+      base       : 7dfb8d549f6c
+      moved      : 7 commit(s), 26 path(s)
+
+  live worktrees: 1   blocking: 1   notified-but-unacked: 0
+
+--- COST, measured rather than assumed ------------------------------------
+
+The guard sits on `git push` in the lander's own turn, so it has to be cheap
+enough that nobody wants it gone. Timed on this machine, 2026-08-30:
+
+    /Users/alex/ab/richos      1 live worktree                      0.10s
+    /Users/alex/ab/femcboost   0 live worktrees                     0.27s
+    synthetic repo            25 live worktrees, each behind        0.62s
+
+The registered hook timeout is 25 seconds. The 25-worktree figure is the one
+that matters — this session had 25 teammates — and it is 2.5% of the budget.
+

@@ -251,8 +251,16 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # a turn which landed work and started nothing. Sixth firing today. Six guards,
 # six blind bumps of this same line, six conflicts here. The count is not the
 # point; being made to look is.
-if [ "$REGISTERED_N" -eq 30 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 30 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+#
+# 30 -> 33 on 2026-08-30: the in-flight sweep, wired as three, because the two
+# guarantees it has to make are two different problems and the third is the
+# timeout underneath them. notice-inflight-sends.sh witnesses the lead's send on
+# PostToolUse[SendMessage]; guard-inflight-notify.sh refuses a push that leaves a
+# live teammate behind with no such witness; notice-inflight-acks.sh surfaces an
+# acknowledgement that never arrived. Seventh firing, and the first one to move
+# this line by more than one -- which is itself worth having been made to look at.
+if [ "$REGISTERED_N" -eq 33 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 33 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

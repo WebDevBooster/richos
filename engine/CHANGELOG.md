@@ -12,6 +12,65 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **The in-flight sweep — a land that leaves a teammate behind is refused, and
+  the acknowledgement is a file rather than a hope**
+  (`scripts/hooks/notice-inflight-sends.sh`,
+  `scripts/hooks/guard-inflight-notify.sh`,
+  `scripts/hooks/notice-inflight-acks.sh`,
+  `scripts/lib/inflight.{sh,py}`, `scripts/inflight-notify.sh`,
+  `scripts/inflight-ack.sh`, `verify-agent-prompt.sh` check 6) — MINOR.
+
+  Landing moves `main`. Every teammate still working was cut from an older base
+  and is now, silently, one revision behind. Nothing tells them; the lander is
+  the only thing that can. Twice on 2026-08-30 the lander did not — an
+  eight-hunk conflict across five files, and a library that shipped at 7 of 19,
+  two extra agents between them. `rich-lander/SKILL.md` gained §8b the same day,
+  and §8b is a paragraph. A paragraph is a promise.
+
+  The two halves are different problems and are treated differently, which is
+  the whole design rather than a caveat:
+
+  **The SEND is enforced.** `notice-inflight-sends.sh` is a
+  PostToolUse[SendMessage] hook — the exact mirror of `worker-updated-handoff.sh`,
+  same field, opposite branch of the attribution gate — that records every
+  message the LEAD sends, with the recipient and every hex SHA in the body (the
+  body itself is never logged). It observes the SEND inside the lead's own tool
+  call, so the record is true even when the ~50%-lossy mailbox drops the
+  message, and the only way to produce the record is to actually send. At `git
+  push origin main`, `guard-inflight-notify.sh` sweeps every live worktree and
+  REFUSES the push while any of them is behind with no witnessed notice naming
+  this tip — naming the teammate, its base, and what moved.
+
+  **The ACK is surfaced, not enforced,** and it deliberately cannot block: at
+  push time the message is seconds old. The teammate answers with an artifact in
+  its own worktree (`scripts/inflight-ack.sh`), because a reply the lead may
+  never receive proves nothing to the lead — the same reasoning that makes the
+  commit, not the mailbox, the handoff. `notice-inflight-acks.sh` reports a
+  missing ack at the end of every turn once 30 minutes have passed (measured:
+  22 worker run segments, p50 40m, p90 71m — see `INFLIGHT_ACK_TIMEOUT_MIN`).
+  Nothing is ever killed on a timer.
+
+  **What no machine here checks, said in the guard rather than left to be
+  found:** the ack's `detail` line is checked for length and for citing paths
+  that really exist; whether it is CORRECT is comprehension, and a string match
+  is not comprehension. The verifier prints it under HUMAN JUDGMENT REQUIRED.
+
+  Chokepoint chosen on evidence: `git merge` was rejected because the SHA a
+  notice must name does not exist yet at merge time, so a guard there could only
+  enforce the PREVIOUS land's debt. `git push` is once per land, after the
+  commit exists, and is the orchestrator's exclusive act. The stated gap — a
+  land that merges and never pushes — is covered by the Stop-hook notice.
+
+  The escape hatch is a command, not a token:
+  `scripts/inflight-notify.sh waive <worktree> --reason "<why>"`, recorded with
+  the tip, the worktree, the reason and the actor, and loud when what is being
+  waived overlaps files the teammate has also changed.
+
+  42 cases in `scripts/hooks/inflight-notify.test.sh`, including a POSITIVE
+  PROBE so "silent no-op" cannot be indistinguishable from "never ran"; 12
+  mutants killed in `scripts/hooks/inflight-notify.mutation.sh`. Three mutants
+  survived the first run and each one bought a case the suite did not have.
+
 - **Mid-session hook staleness — a landed guard says so, and says restarting is
   yours to do** (`scripts/hooks/snapshot-enforcing-hooks.sh`,
   `scripts/hooks/notice-hook-staleness.sh`,

@@ -2,7 +2,7 @@
 #
 # verify-agent-prompt.sh — PreToolUse gate on Agent spawns.
 #
-# Four always-on checks plus one OPT-IN check (the QA install-fresh gate,
+# Five always-on checks plus one OPT-IN check (the QA install-fresh gate,
 # toggled by ENABLE_QA_INSTALL_FRESH_GATE in orchestration.config — OFF by
 # default):
 #
@@ -29,6 +29,12 @@
 #                                  advanced "identity-or-refuse" tier; enable
 #                                  only if you adopt a device/install-fresh
 #                                  pipeline (see reference/advanced-tier/).
+#   6. ack-contract-missing      — a spawn that gets a worktree must carry the
+#                                  in-flight ack contract in its PROMPT (the
+#                                  helper name OR the ack path), or an auditable
+#                                  `no-inflight-ack:` line. The instruction
+#                                  cannot travel in the message it exists to
+#                                  make verifiable.
 
 set -eo pipefail
 
@@ -249,19 +255,23 @@ if [ -n "$PROMPT" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 5. qa-install-fresh precondition (OPT-IN — advanced identity-or-refuse tier)
-# ---------------------------------------------------------------------------
-# Any spawn that tests / audits / renders / captures the LOCAL APP must either
-# (a) cite an install-fresh script as a precondition or (b) opt out with an
-# auditable `data-contract-bypass:` line. Runs ONLY when the gate is enabled.
-if [ "$ENABLE_QA_INSTALL_FRESH_GATE" = "1" ] && [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
-  if printf '%s' "$PROMPT" | grep -qiE "$QA_TRIGGER_RE" \
-     && printf '%s' "$PROMPT" | grep -qE "$LOCAL_APP_CONTEXT_RE"; then
-
-    # Bypass detection runs against a SANITIZED copy of the prompt: fenced
-    # code, HTML comments, blockquotes, and indented code blocks are stripped
-    # first, so a forged bypass inside any of those never activates the opt-out.
-    BYPASS_LINE=""
+# sanitized_prompt — the prompt with fenced code, HTML comments, blockquotes
+# and indented code blocks stripped out.
+#
+# HOISTED out of check 5 on 2026-08-30, byte-identical, because check 6 needs
+# exactly the same treatment for exactly the same reason: an opt-out marker a
+# prompt merely QUOTES — from a file, an example, another agent's report — must
+# never activate the opt-out. Two copies of this stripper would be the drift
+# this engine keeps finding in itself. There is one, it is computed at most
+# once per spawn, and both checks read the same answer.
+PROMPT_SANITIZED=""
+PROMPT_SANITIZED_DONE=0
+sanitized_prompt() {
+  if [ "$PROMPT_SANITIZED_DONE" -eq 1 ]; then
+    printf '%s' "$PROMPT_SANITIZED"
+    return 0
+  fi
+  PROMPT_SANITIZED_DONE=1
     BYPASS_STRIPPER_PY="$(mktemp -t verify-agent-prompt-strip.XXXXXX.py)"
     cat >"$BYPASS_STRIPPER_PY" <<'STRIP_PY'
 import re, sys, unicodedata
@@ -334,6 +344,25 @@ print('\n'.join(out_lines))
 STRIP_PY
     PROMPT_FOR_BYPASS="$(printf '%s' "$PROMPT" | python3 "$BYPASS_STRIPPER_PY" 2>/dev/null || printf '%s' "$PROMPT")"
     rm -f "$BYPASS_STRIPPER_PY"
+  PROMPT_SANITIZED="$PROMPT_FOR_BYPASS"
+  printf '%s' "$PROMPT_SANITIZED"
+}
+
+# ---------------------------------------------------------------------------
+# 5. qa-install-fresh precondition (OPT-IN — advanced identity-or-refuse tier)
+# ---------------------------------------------------------------------------
+# Any spawn that tests / audits / renders / captures the LOCAL APP must either
+# (a) cite an install-fresh script as a precondition or (b) opt out with an
+# auditable `data-contract-bypass:` line. Runs ONLY when the gate is enabled.
+if [ "$ENABLE_QA_INSTALL_FRESH_GATE" = "1" ] && [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
+  if printf '%s' "$PROMPT" | grep -qiE "$QA_TRIGGER_RE" \
+     && printf '%s' "$PROMPT" | grep -qE "$LOCAL_APP_CONTEXT_RE"; then
+
+    # Bypass detection runs against a SANITIZED copy of the prompt: fenced
+    # code, HTML comments, blockquotes, and indented code blocks are stripped
+    # first, so a forged bypass inside any of those never activates the opt-out.
+    BYPASS_LINE=""
+    PROMPT_FOR_BYPASS="$(sanitized_prompt)"
     if printf '%s' "$PROMPT_FOR_BYPASS" | grep -qE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+'; then
       BYPASS_LINE="$(printf '%s' "$PROMPT_FOR_BYPASS" | grep -oE '^[[:space:]]*data-contract-bypass:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
     fi
@@ -362,6 +391,60 @@ STRIP_PY
         FAIL=1
         FAIL_REASONS+=("qa-install-fresh-precondition-missing: prompt assigns a task to agent \`${SUBAGENT_TYPE}\` that tests / audits / renders / captures the local app but does NOT cite an install-fresh script (${INSTALL_FRESH_SCRIPTS}) as a precondition. Every testing operation against the local app MUST start from a fresh install that passes the data-render contract — otherwise the result is meaningless. Either add 'Precondition: <install-fresh script> <sha> exits 0.' to the prompt, or — if the task is genuinely app-free — add a live-prose line starting with 'data-contract-bypass:' and the reason (logged to .claude/state/data-contract-bypasses.log).")
       fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 6. ack-contract-missing — a file-writing spawn must be TOLD how to acknowledge
+# ---------------------------------------------------------------------------
+# You cannot bootstrap reliability from an unreliable channel. If the
+# instruction "here is how you acknowledge" travels in the follow-up message,
+# it is lost with the message it rode in on — and the lead is then left waiting
+# for an ack the teammate was never told to write. That is not hypothetical: on
+# 2026-08-30 the lead sent two receipt checks to a teammate and sat waiting for
+# replies that never came, having never told it how to reply durably.
+#
+# So the ack contract belongs in the SPAWN PROMPT, which is one of the four
+# substrates the doctrine calls durable, and this is the chokepoint where every
+# spawn prompt passes exactly once.
+#
+# WHO IT APPLIES TO: spawns that get a worktree — native isolation, or a
+# hand-rolled worktree named in the prompt. Those are the teammates who can be
+# left behind by a land, because they are the ones holding a snapshot. A
+# read-only or synchronous subagent holds nothing and is owed nothing.
+#
+# HOW TO SATISFY IT: name either the helper (`inflight-ack.sh`) or the ack path
+# (`inflight-acks/`) in the prompt. One line:
+#
+#   If I message you saying main moved, acknowledge it durably — I cannot rely
+#   on a reply reaching me. Run: scripts/inflight-ack.sh --sha <sha> --impact
+#   <conflict|stale-record|grew-scope|none> --detail "<your own words>"
+#   --paths "<paths or none>"
+#
+# BOTH FORMS ARE ACCEPTED because the FORMAT is the contract, not the script.
+# The engine is loaded by reference, so `scripts/inflight-ack.sh` is not a path
+# that exists inside the governed repository — a teammate reaches the helper at
+# ~/.claude/richos-engine/scripts/inflight-ack.sh, and only if the operator has
+# installed it. A prompt that spells out the ack FILE instead
+# (<worktree>/.claude/inflight-acks/<sha12>.ack and its four keys) has satisfied
+# the requirement completely, and a check that insisted on the script name would
+# be refusing the more robust of the two.
+#
+# HOW TO OPT OUT: a live prompt line starting  no-inflight-ack: <reason>
+# Auditable, visible in the prompt itself, and never silent — the same shape as
+# main-checkout-run: and data-contract-bypass:.
+if [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
+  ACK_APPLIES=0
+  [ "$ISOLATION" = "worktree" ] && ACK_APPLIES=1
+  if [ "$ACK_APPLIES" -eq 0 ] && printf '%s' "$PROMPT" | grep -qiE 'worktree'; then
+    ACK_APPLIES=1
+  fi
+  if [ "$ACK_APPLIES" -eq 1 ]; then
+    if ! printf '%s' "$PROMPT" | grep -qE 'inflight-ack\.sh|inflight-acks/' \
+       && ! printf '%s' "$(sanitized_prompt)" | grep -qiE '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
+      FAIL=1
+      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.ack with its sha/impact/detail/paths keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
     fi
   fi
 fi

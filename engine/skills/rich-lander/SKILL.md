@@ -128,6 +128,10 @@ its layers green before deploy.)
 git push origin main
 ```
 
+**This is where the in-flight sweep is enforced** — see §8b. If a live teammate
+is behind with no witnessed notice naming this commit, the push is refused, by
+name. Run `scripts/inflight-notify.sh status` before you get here.
+
 The orchestrator is the only pusher. This makes the landed commit visible on the
 remote and keeps the local main / origin / worktree base window small.
 
@@ -164,7 +168,20 @@ If work was rejected or abandoned, record why before removing.
 
 ### 8b. SWEEP THE IN-FLIGHT TEAMMATES — the step that is forgotten
 
-**Added 2026-08-30, after it was forgotten twice in one day and cost two extra agents.**
+**Added 2026-08-30, after it was forgotten twice in one day and cost two extra
+agents. Made ENFORCEABLE the same day — this step is no longer only written
+down.**
+
+> **IT RUNS BEFORE STEP 6, NOT AFTER STEP 8.** The debt is created by the merge
+> (step 4) and the notice has to name the SHA main moved TO, so the sweep sits
+> between the clean-state verification and the push. `guard-inflight-notify.sh`
+> REFUSES `git push origin main` while a live teammate is behind with no
+> witnessed notice naming this tip. It is numbered 8b because that is where it
+> was written; it is executed at 5c.
+>
+> ```bash
+> scripts/inflight-notify.sh status     # who is in flight, and what moved under them
+> ```
 
 Landing moves `main`. Every teammate still working was cut from an older base and is
 now, silently, one revision behind. **Nothing tells them. You are the only thing that
@@ -207,6 +224,36 @@ confirmation does not arrive.
 
 Both were reported to the CEO as news. He had to point out that the message was never
 sent at all.
+
+**WHAT ENFORCES WHICH HALF — say it plainly, because the two are different
+problems.**
+
+| | mechanism | what it actually proves |
+|---|---|---|
+| the message was SENT | `notice-inflight-sends.sh`, a PostToolUse[SendMessage] hook writing `inflight-notices.jsonl`, checked by `guard-inflight-notify.sh` at the push | ENFORCED. The record is written inside the lead's own tool call, so the only way to produce it is to actually send the message. It witnesses the send, not the delivery — which is what makes it true on a channel that drops half of everything. |
+| the message was RECEIVED and READ | an ack file the teammate writes in its own worktree (`scripts/inflight-ack.sh`), verified by `scripts/inflight-notify.sh acks` | SURFACED, not enforced. It cannot block the push — at push time the message is seconds old. `notice-inflight-acks.sh` reports a missing ack at the end of every turn once 30 minutes have passed. |
+| the message was UNDERSTOOD | the ack's `detail` line | NOT MECHANIZED, and never claimed to be. The machine checks that the line exists, is at least 40 characters, and that the `paths` beside it are real. Whether the sentence is CORRECT is comprehension, and a string match is not comprehension. The verifier prints it under HUMAN JUDGMENT REQUIRED. Read it. |
+
+**The ack contract must be in the SPAWN PROMPT.** You cannot bootstrap
+reliability from an unreliable channel: an instruction that travels in the
+message is lost with the message. `verify-agent-prompt.sh` check 6 refuses any
+worktree spawn whose prompt does not carry it (opt out with a live
+`no-inflight-ack: <reason>` line).
+
+**The escape hatch is a command, not a promise:**
+
+```bash
+scripts/inflight-notify.sh waive <worktree-path> --reason "<why>"
+```
+
+Recorded with the tip, the worktree, the reason and the actor — and it prints
+loudly when what you are waiving has file overlap with what just moved.
+
+**WHAT IS STILL ON YOU.** Whether a move actually breaks a given teammate's
+assumptions is a judgment no diff can make — §8b's questions 2 and 3 are about
+records READ and material CONSUMED, neither of which shows up as a file the
+teammate touched. The machine forces every live teammate to be CONSIDERED and a
+decision to be RECORDED. It cannot make the decision a good one.
 
 ### 9. Strict serialization — process the next queued handoff
 

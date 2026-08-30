@@ -1,0 +1,231 @@
+in-flight sweep — the four transcripts the brief asks for
+captured 2026-08-30 from engine/scripts/hooks/inflight-notify.test.sh --verbose
+branch zach/inflight-notify-guarantee-2026-08-30
+
+The sandbox: a real git repository with a real linked worktree standing in
+for a live teammate, main moved under it. Nothing is stubbed except the
+session team directory the ledgers live in (INFLIGHT_TEAMS_DIR).
+
+  TRANSCRIPT 1  a land with a live teammate behind and un-notified -> BLOCKED,
+                naming it .................................. cases 2a/2b/2c
+  TRANSCRIPT 2  the same land once the notification is recorded -> ALLOWED,
+                and allowed silently ........................ cases 4a/4b/4c
+  TRANSCRIPT 3  an ack absent -> detected; an ack present -> verified from
+                durable state ................................ cases 5a-5m
+  TRANSCRIPT 4  no live worktrees -> silent no-op, with a POSITIVE PROBE so
+                the guard cannot pass by never running ...... cases 6a/6b/6c
+
+=== in-flight sweep: guard, witness, ack, and the silent case ===
+
+----- 1a status -----
+in-flight sweep — /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/repo
+  tip            : b8a8a5f75d297c72679bc0958d99a95372208dde
+  ack timeout    : 30 min
+  notice ledger  : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/teams/session-deadbeef/inflight-notices.jsonl
+
+  OWED-NO-NOTICE         /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+      branch     : worktree-norm @ 5cecd4807f1f
+      teammate   : <unresolved> (token-match)
+      liveness   : presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)
+      base       : fa02016c6107
+      moved      : 1 commit(s), 1 path(s)
+
+  live worktrees: 1   blocking: 1   notified-but-unacked: 0
+  PASS  1a. the runner names the live teammate that main moved under
+  PASS  1b. no false overlap — the teammate changed src/b.txt, the land changed src/a.txt
+
+----- 2 guard BLOCKED -----
+=== IN-FLIGHT SWEEP: THIS PUSH LEAVES A LIVE TEAMMATE BEHIND — REFUSING ===
+  repository : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/repo
+  tip        : b8a8a5f75d297c72679bc0958d99a95372208dde
+
+  Main has moved. The teammate(s) marked OWED-NO-NOTICE below were cut
+  from an older base, are still live, and nothing has told them. That is
+  the exact failure rich-lander/SKILL.md §8b was written from — twice in
+  one day, costing two extra agents.
+
+in-flight sweep — /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/repo
+  tip            : b8a8a5f75d297c72679bc0958d99a95372208dde
+  ack timeout    : 30 min
+  notice ledger  : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/teams/session-deadbeef/inflight-notices.jsonl
+
+  OWED-NO-NOTICE         /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+      branch     : worktree-norm @ 5cecd4807f1f
+      teammate   : <unresolved> (token-match)
+      liveness   : presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)
+      base       : fa02016c6107
+      moved      : 1 commit(s), 1 path(s)
+
+  live worktrees: 1   blocking: 1   notified-but-unacked: 0
+
+  TO CLEAR THIS, per §8b — for each one, either:
+
+   1. MESSAGE IT. Say what changed, NAME THE SHA b8a8a5f75d297c72679bc0958d99a95372208dde verbatim in the
+      body (that is what the witness matches on), and say which of its
+      assumptions it breaks. Ask for the ack, and tell it the command:
+        scripts/inflight-ack.sh --sha b8a8a5f75d297c72679bc0958d99a95372208dde --impact <conflict|stale-record|grew-scope|none> \
+            --detail "<its own words>" --paths "<paths or none>"
+      The send itself is the record — no file to write, nothing to
+      remember. Then re-run this push.
+
+   2. WAIVE IT, on the record:
+        scripts/inflight-notify.sh waive <worktree-path> --reason "<why>"
+
+  See what you are deciding about first:
+        scripts/inflight-notify.sh status
+(hook: scripts/hooks/guard-inflight-notify.sh)
+  PASS  2a. the push is BLOCKED (exit 2)
+  PASS  2b. the refusal NAMES the teammate it is refusing on behalf of
+  PASS  2c. the refusal names the SHA that has to appear in the message
+  PASS  3a. a message with NO SHA in it does not clear the debt
+  PASS  3b. a message to a DIFFERENT teammate does not clear the debt
+  PASS  3c. a message naming the OLD sha does not clear the debt
+  PASS  3d. a WORKER's message is not the lead's notice (attribution gate holds)
+
+----- 4 guard ALLOWED -----
+
+  PASS  4a. once the notice naming this tip is witnessed, the push is ALLOWED
+  PASS  4b. and it is allowed SILENTLY — a guard that talks on success gets muted
+  PASS  4c. the record was written by the SEND itself, and carries the tip
+  PASS  4d. the message BODY is never logged — only the recipient, the shas, a digest and a length
+
+----- 5a ack absent -----
+in-flight sweep — /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/repo
+  tip            : b8a8a5f75d297c72679bc0958d99a95372208dde
+  ack timeout    : 30 min
+  notice ledger  : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/teams/session-deadbeef/inflight-notices.jsonl
+
+  NOTIFIED-NO-ACK        /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+      branch     : worktree-norm @ 5cecd4807f1f
+      teammate   : <unresolved> (token-match)
+      liveness   : presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)
+      base       : fa02016c6107
+      moved      : 1 commit(s), 1 path(s)
+      notified   : 2026-08-30T17:54:47.050281+00:00  (to 'norm-sonnet-feature1')
+      ack        : NONE — 60 min since the notice (OVERDUE)
+
+  live worktrees: 1   blocking: 0   notified-but-unacked: 1
+  PASS  5a. an ABSENT ack is detected and reported, not assumed
+  PASS  5b. the ack writer REFUSES a too-short detail rather than writing a hollow ack
+  PASS  5c. the ack writer REFUSES a short sha — it has to be checkable against the tip
+  PASS  5d. an ack naming a DIFFERENT commit is not an ack for this one
+
+----- 5e invalid ack -----
+acks for tip b8a8a5f75d297c72679bc0958d99a95372208dde
+
+  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+    channel  : artifact
+    verified : NO
+      - paths: 'src/does-not-exist.txt' is neither in the moved changeset nor present in this worktree — it cannot have been read off either
+    detail   : My copy of the plan predates this land, so the count I was given is wrong.
+    ^^ HUMAN JUDGMENT REQUIRED. Everything above this line was checked by
+       a machine. Whether that sentence is CORRECT was not, and cannot be:
+       a string match is not comprehension. Read it yourself.
+  PASS  5e. an ack citing a path in neither the changeset nor the worktree is INVALID
+
+----- 5f verified ack -----
+acks for tip b8a8a5f75d297c72679bc0958d99a95372208dde
+
+  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+    channel  : artifact
+    verified : YES
+    detail   : My copy of src/a.txt is one revision behind; I will re-read it before I touch it.
+    ^^ HUMAN JUDGMENT REQUIRED. Everything above this line was checked by
+       a machine. Whether that sentence is CORRECT was not, and cannot be:
+       a string match is not comprehension. Read it yourself.
+  PASS  5f. a well-formed ack VERIFIES — from a file on disk, with no message received
+  PASS  5g. and the verifier SAYS which part of it no machine here checked
+  PASS  5h. the sweep reports the teammate as told AND proved
+
+----- 5m stale sha inside a correctly named ack -----
+acks for tip b8a8a5f75d297c72679bc0958d99a95372208dde
+
+  /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+    channel  : artifact
+    verified : NO
+      - sha: is 'fa02016c61078d8454679977b3cdd8363e81858f', must be the full 40-char tip 'b8a8a5f75d297c72679bc0958d99a95372208dde'
+    detail   : My copy of src/a.txt is one revision behind; I will re-read it before I touch it.
+    ^^ HUMAN JUDGMENT REQUIRED. Everything above this line was checked by
+       a machine. Whether that sentence is CORRECT was not, and cannot be:
+       a string match is not comprehension. Read it yourself.
+  PASS  5m. the right FILENAME with a stale sha INSIDE is still invalid
+  PASS  5i. with the notices gone the debt is back (the ledger is what is trusted)
+
+----- 5i waiver -----
+recorded a waiver in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/teams/session-deadbeef/inflight-waivers.jsonl
+  tip      : b8a8a5f75d297c72679bc0958d99a95372208dde
+  worktree : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1 (<unresolved>)
+  reason   : abandoned experiment, agent confirmed dead
+  PASS  5j. a recorded waiver clears the debt
+  PASS  5k. and the waiver is on the record with its reason and its actor
+  PASS  5l. a waiver with no reason is refused — that is a silent skip in a costume
+
+----- 6 no worktrees -----
+rc=0 out=[]
+  PASS  6a. with no teammate worktrees the guard allows the push
+  PASS  6b. and says NOTHING — silence is the whole requirement here
+  PASS  6c. POSITIVE PROBE: the guard demonstrably RAN — it registered the repo it swept
+  PASS  7a. an ordinary command is not a push
+  PASS  7b. talking about a push is not a push
+  PASS  7c. --dry-run is not a land
+  PASS  7d. pushing a teammate branch is not a land
+  PASS  7e. a push from inside a WORKTREE is not a land
+  PASS  7f. a merge is not the chokepoint (stated gap)
+  PASS  7g. a bare push from a worktree on 'master' is not a land
+
+----- 8 stop notice -----
+rc=0 out={"suppressOutput":true,"systemMessage":"IN-FLIGHT SWEEP (rich-lander SKILL.md §8b) — no ack past the timeout: norm-sonnet-feature1. Main moved under them and they cannot know it. Message them naming the SHA, or if 30min has passed with no ack, TaskStop + respawn with a corrected brief. That is yours to do: scripts/inflight-notify.sh status"}
+  PASS  8a. the Stop hook never blocks — it exits 0 on every path
+  PASS  8b. an overdue ack is SURFACED to the operator on the channel that reaches him
+  PASS  8c. and it names the ACTION and the ACTOR, not just the condition
+  PASS  8d. the same unchanged condition says nothing again — a notice every turn gets muted
+
+----- 9 ambiguous recipient -----
+=== IN-FLIGHT SWEEP: THIS PUSH LEAVES A LIVE TEAMMATE BEHIND — REFUSING ===
+  repository : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/repo
+  tip        : b8a8a5f75d297c72679bc0958d99a95372208dde
+
+  Main has moved. The teammate(s) marked OWED-NO-NOTICE below were cut
+  from an older base, are still live, and nothing has told them. That is
+  the exact failure rich-lander/SKILL.md §8b was written from — twice in
+  one day, costing two extra agents.
+
+in-flight sweep — /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/repo
+  tip            : b8a8a5f75d297c72679bc0958d99a95372208dde
+  ack timeout    : 30 min
+  notice ledger  : /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/teams/session-deadbeef/inflight-notices.jsonl
+
+  OWED-NO-NOTICE         /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature1
+      branch     : worktree-norm @ 5cecd4807f1f
+      teammate   : <unresolved> (token-match)
+      liveness   : presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)
+      base       : fa02016c6107
+      moved      : 1 commit(s), 1 path(s)
+
+  CLEAN-NOT-BEHIND       /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/inflight-notify.XXXXXX.Y0LuU7F9y6/wt/norm-sonnet-feature2
+      branch     : worktree-norm2 @ 044f1e482916
+      teammate   : <unresolved> (token-match)
+      liveness   : presumed LIVE (hand-rolled worktree — no lock is ever taken here, so quiet is not death)
+
+  live worktrees: 2   blocking: 1   notified-but-unacked: 0
+
+  TO CLEAR THIS, per §8b — for each one, either:
+
+   1. MESSAGE IT. Say what changed, NAME THE SHA b8a8a5f75d297c72679bc0958d99a95372208dde verbatim in the
+      body (that is what the witness matches on), and say which of its
+      assumptions it breaks. Ask for the ack, and tell it the command:
+        scripts/inflight-ack.sh --sha b8a8a5f75d297c72679bc0958d99a95372208dde --impact <conflict|stale-record|grew-scope|none> \
+            --detail "<its own words>" --paths "<paths or none>"
+      The send itself is the record — no file to write, nothing to
+      remember. Then re-run this push.
+
+   2. WAIVE IT, on the record:
+        scripts/inflight-notify.sh waive <worktree-path> --reason "<why>"
+
+  See what you are deciding about first:
+        scripts/inflight-notify.sh status
+(hook: scripts/hooks/guard-inflight-notify.sh)
+  PASS  9a. a recipient that matches TWO live worktrees credits NEITHER
+  PASS  9b. telling BOTH of them, by name, clears it
+
+[32m✓ in-flight sweep: all 42 checks passed.[0m
