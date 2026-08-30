@@ -50,7 +50,8 @@ pub const NOT_RETAINED: &str =
 /// The operator-facing reason travels alongside, in its own field, and names who owns it.
 pub const UNREADABLE: &str =
     "I can't read the technical record for this conversation. It's on this machine and I \
-     haven't lost it — something is refusing to open it, and that part isn't yours to fix.";
+     haven't lost it — something is refusing to open it, and whoever set RichOS up needs to \
+     look.";
 
 /// One thread's machinery, as the technical view of its timeline, plus WHY there is
 /// nothing when there is nothing.

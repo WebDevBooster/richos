@@ -174,7 +174,11 @@
   /// `(slot, sequence)` — opening, then the stream in shared-counter order, then terminal —
   /// which is `TimelineBase::order_key`.
   function projectTimeline(threadId, mode) {
-    const technical = mode === "technical";
+    const technical = mode === "technical" || mode === "technical-empty";
+    // `technical-empty` is the TECHNICAL view of a thread whose journal gave nothing back —
+    // unreadable, or never written. The mode on the wire is still `technical`; what is
+    // absent is the rows, exactly as `Spine::timeline` produces them from an empty read.
+    const noMachinery = mode === "technical-empty";
     const t = threads.find((x) => x.id === threadId);
     const items = [];
     const rev = t && t.entity_id ? 1 : 0;
@@ -223,6 +227,7 @@
         // it, and drops `Visibility::Technical` items outright. Reproduced here — a mock
         // that merely hid them would let a renderer bug through that the real backend makes
         // structurally impossible.
+        if (noMachinery) continue;
         if (!technical && a.visibility === "technical") continue;
         const item = Object.assign({}, a, { turnId, bindingRevision: rev });
         if (!technical) delete item.detail;
@@ -801,12 +806,14 @@
     "hasn't been written to — it fills up as Rich works.";
   const TECHY_UNREADABLE =
     "I can't read the technical record for this conversation. It's on this machine and I " +
-    "haven't lost it — something is refusing to open it, and that part isn't yours to fix.";
+    "haven't lost it — something is refusing to open it, and whoever set RichOS up needs to " +
+    "look.";
   const TECHY_RAW_NOT_RETAINED =
     "The full output isn't kept this long — what's above is the whole record that was.";
   const TECHY_RAW_TRUNCATED = "This output was longer than RichOS keeps; you're seeing the start of it.";
   const TECHY_RAW_UNREADABLE =
-    "I can't read the stored output for this one. It's on this machine and I haven't lost it.";
+    "I can't read the stored output for this one. It's on this machine and I haven't lost it " +
+    "— whoever set RichOS up needs to look.";
 
   let techyDefault = false;
   const techyThreads = new Map(); // threadId -> bool  (ABSENT means "follows the default")
@@ -908,8 +915,14 @@
             sentence: st.sentence,
             reason: st.reason,
             // The conversation still renders in EVERY state — what changes is the sentence
-            // under it. An unreadable store is not an empty thread.
-            timeline: projectTimeline(id, "technical"),
+            // over it. An unreadable store is not an empty thread.
+            //
+            // AND THE MACHINERY ROWS DO NOT. `Spine::timeline` reads the journal through
+            // `read_thread`, which returns nothing for a directory the OS refused, so the
+            // real backend serves prose and a duration row and NO activity rows in this
+            // state. A mock that kept showing them would let the renderer be tested against
+            // a screen the product cannot produce.
+            timeline: projectTimeline(id, st.state === "recorded" ? "technical" : "technical-empty"),
           };
         }
         case "get_machinery_raw": {

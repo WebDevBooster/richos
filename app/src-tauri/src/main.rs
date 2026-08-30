@@ -2488,7 +2488,8 @@ const RAW_NOT_RETAINED: &str =
 const RAW_TRUNCATED: &str = "This output was longer than RichOS keeps; you're seeing the start of it.";
 
 const RAW_UNREADABLE: &str =
-    "I can't read the stored output for this one. It's on this machine and I haven't lost it.";
+    "I can't read the stored output for this one. It's on this machine and I haven't lost it \
+     — whoever set RichOS up needs to look.";
 
 fn not_retained() -> serde_json::Value {
     serde_json::json!({

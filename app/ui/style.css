@@ -2781,10 +2781,18 @@ body.bp-narrow .tl-user-bubble {
    fact about the thread, not about any one thing Rich did.
 --------------------------------------------------------------------------------------- */
 #techy-state {
+  /* STICKY inside the scroller, deliberately. It is a fact about the whole thread, and the
+     conversation opens scrolled to the BOTTOM — a line pinned above the first turn would
+     be the one thing the CEO never sees, in exactly the two states (nothing recorded, and
+     could not be read) where he most needs to be told something. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
   margin: 0 auto;
   max-width: var(--reading-width);
-  padding: 10px 42px 0;
-  border-left: 2px solid var(--line);
+  padding: 12px 28px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
   line-height: 1.55;
   color: var(--ink-soft);
@@ -2793,7 +2801,8 @@ body.bp-narrow .tl-user-bubble {
 /* An unreadable store is not an empty one, and it must not look like one. The one
    non-accent state color the palette allows, and the same one an `unknown` outcome uses. */
 #techy-state[data-state="unreadable"] {
-  border-left-color: var(--attention);
+  border-bottom-color: var(--attention);
+  box-shadow: inset 2px 0 0 var(--attention);
   color: var(--ink);
 }
 
