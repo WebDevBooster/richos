@@ -52,6 +52,30 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook, so anything added inside it would
+# read as divergence.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does
+# the artifact I was just handed belong to the repository I govern?" — and
+# until 2026-08-30 nothing asked. See scripts/lib/seat-jurisdiction.sh.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-main-checkout-writes.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the artifact it was"
+        echo "  handed belongs to the repository it governs, and a guard that"
+        echo "  cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 INPUT="$(cat)"
 
 # Resolve the governed repository. Three outcomes, three different behaviours —
@@ -59,6 +83,11 @@ INPUT="$(cat)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # LOUD, once per repository per session. engine-status.sh announces the
+    # stand-down at SessionStart, which fires before any work happens and names
+    # no action; this fires at the MOMENT this guard declines, which is the only
+    # moment the absence costs anything.
+    richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh"
     # This repository never adopted the engine, so there is no enforcement to
     # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
     # stand-down into the orchestrator's own context at every session start.
@@ -97,6 +126,13 @@ esac
 case "$FILE_PATH" in
   */.claude/worktrees/*) exit 0 ;;
 esac
+
+# --- JURISDICTION: is this artifact even mine? -----------------------------
+# Before this check the answer was decided by falling off the end of a loop.
+# A target in another repository produced exit 0 — the same byte as a pass.
+if ! richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" "${ENTITY_ROOT}" "$FILE_PATH" "file"; then
+    exit 0
+fi
 
 # Sensible failure: with no protected paths configured, the guard cannot know
 # what to protect. Surface it loudly (never silently) and allow the write.

@@ -79,6 +79,30 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook, so anything added inside it would
+# read as divergence.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does
+# the artifact I was just handed belong to the repository I govern?" — and
+# until 2026-08-30 nothing asked. See scripts/lib/seat-jurisdiction.sh.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/scan-secrets.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the artifact it was"
+        echo "  handed belongs to the repository it governs, and a guard that"
+        echo "  cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 # Read the payload BEFORE resolving, so the payload's `cwd` is available as a
 # resolution candidate. It is the only candidate a subagent session is
 # guaranteed to carry.
@@ -89,6 +113,11 @@ INPUT="$(cat)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # LOUD, once per repository per session. engine-status.sh announces the
+    # stand-down at SessionStart, which fires before any work happens and names
+    # no action; this fires at the MOMENT this guard declines, which is the only
+    # moment the absence costs anything.
+    richos_announce_stand_down "scripts/hooks/scan-secrets.sh"
     # This repository never adopted the engine, so there is no enforcement to
     # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
     # stand-down into the orchestrator's own context at every session start.
@@ -121,6 +150,22 @@ case "$TOOL_NAME" in
 esac
 
 FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); ti=d.get("tool_input",{}) or {}; print(ti.get("file_path") or ti.get("notebook_path") or "")' 2>/dev/null || true)"
+
+# --- JURISDICTION: ANNOUNCED, AND DELIBERATELY NOT SKIPPED -----------------
+# Every other diverging guard exits 0 when the artifact is not its own. This
+# one MUST NOT, and the asymmetry is the point.
+#
+# A secret written into someone else's repository is still a leaked secret. The
+# rule is "an artifact outside the seat is announced, never silently allowed" —
+# and here it is not allowed at all, it is scanned. Declining would move
+# enforcement in the LESS SAFE direction, which no jurisdiction rule is allowed
+# to do.
+#
+# What the announcement actually buys is the config mismatch: allowlist, minimum
+# length and entropy floor were loaded from the SEAT's orchestration.config and
+# are about to be applied to a file in a different repository, whose own
+# thresholds may be nothing like them. That is worth saying out loud once.
+richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
 
 # The actual scan: extract every piece of NEW text this call would introduce
 # (Write: content; Edit: new_string; MultiEdit: each edits[].new_string;

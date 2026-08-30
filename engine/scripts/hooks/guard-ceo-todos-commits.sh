@@ -102,11 +102,43 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook, so anything added inside it would
+# read as divergence.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does
+# the artifact I was just handed belong to the repository I govern?" — and
+# until 2026-08-30 nothing asked. See scripts/lib/seat-jurisdiction.sh.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-ceo-todos-commits.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the artifact it was"
+        echo "  handed belongs to the repository it governs, and a guard that"
+        echo "  cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 INPUT="$(cat)"
 
 if resolve_entity_root "$INPUT"; then
-    :
+    # CAPTURED, not discarded. This used to be `:` — the seat decided whether
+    # this guard ran and then had no say in WHAT it judged, which is the
+    # divergence in its purest form.
+    SEAT_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # LOUD, once per repository per session. engine-status.sh announces the
+    # stand-down at SessionStart, which fires before any work happens and names
+    # no action; this fires at the MOMENT this guard declines, which is the only
+    # moment the absence costs anything.
+    richos_announce_stand_down "scripts/hooks/guard-ceo-todos-commits.sh"
     exit 0
 else
     root_failure_banner "scripts/hooks/guard-ceo-todos-commits.sh" >&2
@@ -186,6 +218,13 @@ esac
 
 CT_REPO="$(ct_repo_root "$CT_ANCHOR" 2>/dev/null || true)"
 [ -n "$CT_REPO" ] || exit 0
+
+# --- JURISDICTION: is this artifact even mine? -----------------------------
+# Before this check the answer was decided by falling off the end of a loop.
+# A target in another repository produced exit 0 — the same byte as a pass.
+if ! richos_assert_jurisdiction "scripts/hooks/guard-ceo-todos-commits.sh" "${SEAT_ROOT}" "$CT_REPO" "commit in"; then
+    exit 0
+fi
 
 CT_DECL_RC=0
 ct_load_declaration "$CT_REPO" || CT_DECL_RC=$?
