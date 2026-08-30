@@ -520,6 +520,7 @@ scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
+guard-inflight-notify.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-publication-commits.sh|PreToolUse
 guard-ceo-todos-commits.sh|PreToolUse
@@ -529,6 +530,7 @@ guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
 worker-updated-handoff.sh|PostToolUse
+notice-inflight-sends.sh|PostToolUse
 worker-started-handoff.sh|SubagentStart
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
@@ -536,6 +538,7 @@ task-completed-handoff.sh|TaskCompleted
 guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
+notice-inflight-acks.sh|Stop
 guard-idle-land.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a

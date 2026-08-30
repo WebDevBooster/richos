@@ -57,6 +57,7 @@ mutant() {
     cp "$ENGINE_ROOT/scripts/lib/inflight.sh" "$ENGINE_ROOT/scripts/lib/inflight.py" \
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
+       "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/scripts/inflight-notify.sh" "$ENGINE_ROOT/scripts/inflight-ack.sh" "$dir/scripts/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh

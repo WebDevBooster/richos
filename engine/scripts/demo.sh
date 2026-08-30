@@ -473,12 +473,13 @@ fi
 # ---------------------------------------------------------------------------
 heading "Beat 3 — the same guard lets a correctly-isolated spawn through"
 narrate 'This time the spawn does it right: isolation: "worktree", a proper'
-narrate 'truthful "<role>-<model>-<identifier>" name. It should sail through the'
-narrate 'full PreToolUse[Agent]'
+narrate 'truthful "<role>-<model>-<identifier>" name, and the ack contract that'
+narrate 'tells this teammate how to acknowledge a land that moves main under it.'
+narrate 'It should sail through the full PreToolUse[Agent]'
 narrate 'chain untouched:'
 label_real "guard-worktree-isolation.sh -> guard-definition-drift.sh -> reader-teammate-hint.sh -> verify-agent-prompt.sh (the real chain, in the real order)"
 
-GOOD_SPAWN_PAYLOAD='{"tool_name":"Agent","tool_input":{"subagent_type":"engineer","name":"engineer-sonnet-1","isolation":"worktree","prompt":"Fix the greeting bug in app/greeting.py."},"session_id":"demo0000-0000-4000-8000-000000000000"}'
+GOOD_SPAWN_PAYLOAD='{"tool_name":"Agent","tool_input":{"subagent_type":"engineer","name":"engineer-sonnet-1","isolation":"worktree","prompt":"Fix the greeting bug in app/greeting.py. If I message you that main moved under you, acknowledge it durably with scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail \"...\" --paths \"...\" — I cannot rely on a reply reaching me."},"session_id":"demo0000-0000-4000-8000-000000000000"}'
 BEAT3_OK=1
 for hook in guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh; do
     set +e

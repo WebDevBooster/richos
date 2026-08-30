@@ -50,7 +50,7 @@ for h in guard-inflight-notify.sh notice-inflight-sends.sh notice-inflight-acks.
     cp "$SRC_DIR/$h" "$REPO/scripts/hooks/$h"
     chmod +x "$REPO/scripts/hooks/$h"
 done
-for l in inflight.sh inflight.py resolve-roots.sh resolve-main-checkout.sh stop-hook-notice.sh; do
+for l in inflight.sh inflight.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh stop-hook-notice.sh; do
     cp "$SRC_DIR/../lib/$l" "$REPO/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_ROOT/scripts/inflight-notify.sh" "$REPO/scripts/"

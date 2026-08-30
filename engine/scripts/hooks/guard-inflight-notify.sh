@@ -129,6 +129,30 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does the
+# repository I was just handed belong to the one I govern?" — and this guard is
+# the case where those differ routinely: a session seated in one repository
+# landing work in another is the normal shape here, not an edge.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-inflight-notify.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the repository it was"
+        echo "  handed belongs to the one it governs, and a guard that cannot"
+        echo "  tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 _IF_LIB="$SCRIPT_DIR/../lib/inflight.sh"
 if [ ! -f "$_IF_LIB" ]; then
     {
@@ -259,6 +283,13 @@ print(inflight.main_checkout(os.environ["IF_REPO"]))
 ' 2>/dev/null || true)"
 [ -n "$MAIN_CHECKOUT" ] || MAIN_CHECKOUT="$REPO"
 [ "$(cd "$REPO" && pwd -P)" = "$(cd "$MAIN_CHECKOUT" && pwd -P)" ] || exit 0
+
+# The seat is REPORTED when it differs from the repository being pushed, and
+# never obeyed. A guard that switched itself off on a seat mismatch would have
+# let through exactly the cross-repository land this whole mechanism exists for.
+if [ -n "${SEAT_ROOT}" ]; then
+    richos_assert_jurisdiction "scripts/hooks/guard-inflight-notify.sh" "${SEAT_ROOT}" "$REPO" "push in" || true
+fi
 
 inflight_require || {
     echo "ERROR: guard-inflight-notify.sh: $INFLIGHT_BROKEN — refusing (fail-closed), because a sweep that cannot run is not a sweep." >&2
