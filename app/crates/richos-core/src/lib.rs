@@ -20,6 +20,9 @@
 //!   - `spoken`    — the flywheel's AUTOMATIC TRIGGER: what makes an utterance a
 //!                   correction, decided from a repair frame + the shipped §7 term gate.
 //!                   Detects; never writes.
+//!   - `staging`   — where a detected spoken correction LANDS: durable candidates and
+//!                   §7's three outcomes. The only path to a vocabulary write is a human
+//!                   answer; there is no threshold that reaches one.
 //!   - `steering`  — the CEO's two mid-turn controls (UX §9.2/§9.3): the durable intake
 //!                   log and the cancel seam, both reachable WITHOUT the spine lock.
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
@@ -49,6 +52,7 @@ pub mod machinery;
 pub mod reprime;
 pub mod spine;
 pub mod spoken;
+pub mod staging;
 pub mod steering;
 pub mod stream;
 pub mod thread;
