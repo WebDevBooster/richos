@@ -42,12 +42,21 @@
 #                   content SHOULD go rather than merely that it may not go here.
 #
 # PRIVATE_SOURCES   Trees that hold private source material. The guard walks
-#                   them and keeps ONLY the files that are themselves recorded
-#                   speech, then blocks any publication-bound write that
-#                   reproduces >= MIN_QUOTE_WORDS of them verbatim. The operator
-#                   declares WHERE private material lives; the machine works out
-#                   WHICH files those are. No dated list of transcript paths to
-#                   go stale.
+#                   them and keeps the files that ARE private speech — the ones
+#                   shaped like a recording, plus the ones that reproduce one of
+#                   those in bulk, which is how whisper's plain .txt output
+#                   (no timestamps, no speaker labels) gets in — then blocks any
+#                   publication-bound write that reproduces >= MIN_QUOTE_WORDS
+#                   of them verbatim. The operator declares WHERE private
+#                   material lives; the machine works out WHICH files those are.
+#                   No dated list of transcript paths to go stale.
+#
+#                   A file that merely QUOTES a recording does NOT join, and the
+#                   thresholds that draw that line were measured rather than
+#                   chosen: admitting mixed engineering documents puts their
+#                   BOILERPLATE into the private corpus, and a corpus like that
+#                   blocks LICENSE files. The numbers are in the engine's
+#                   scripts/lib/publication-boundary.py.
 #
 #                   An entry INSIDE this repository must be gitignored — a
 #                   "private" source that is itself published is not one, and

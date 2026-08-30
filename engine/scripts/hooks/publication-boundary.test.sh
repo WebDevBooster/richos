@@ -43,8 +43,18 @@
 #       (cp, git mv, a generator) is caught at `git commit`; unrelated Bash and
 #       clean commits pass; `git commit -m "... -a ..."` is not mistaken for a
 #       `-a` commit; a binary blob is never handed to the text scanner.
-#   (h) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
-#   (i) REGISTRATION on BOTH surfaces plus the probe's oracle.
+#   (h) WHAT THE COMMAND IS ABOUT TO STAGE. The hook runs BEFORE the command,
+#       so `git add X && git commit` has an empty index at check time; a whole
+#       new directory of transcripts arrives as ONE porcelain entry with no
+#       bytes behind it; and a pathspec or `-a` commit records the WORKTREE
+#       copy, not the index copy. Every one of those passed before, with the
+#       controls that keep ordinary `git add src/newmod && git commit` clean.
+#   (i) THE CORPUS CLOSURE. A second rendering of a recording — whisper's plain
+#       text output, no timestamps — joins the corpus; a brief that merely
+#       QUOTES the recording does not, so its boilerplate never becomes
+#       "private" and never blocks ordinary work.
+#   (j) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
+#   (k) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
 # Run directly: scripts/hooks/publication-boundary.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
@@ -134,6 +144,49 @@ make_srt() {
     for i in 1 2 3 4 5 6 7 8 9 10; do
         printf '%d\n00:0%d:00,000 --> 00:0%d:05,000\nsome caption text here\n\n' \
             "$i" "$((i % 10))" "$((i % 10))"
+    done
+}
+
+# make_speech_lines <lines> <words-per-line> <seed> — deterministic pseudo-random
+# sentences drawn from an ordinary word pool.
+#
+# VARIED ON PURPOSE. The corpus closure counts DISTINCT word-runs shared with
+# the corpus, so a fixture built by repeating one sentence with a changing number
+# in it collapses to a handful of distinct runs in a set and would prove nothing
+# about a threshold of hundreds. A pseudo-random walk over a 64-word pool makes
+# essentially every 10-word window unique, which is what real speech is like.
+#
+# Still invented, still assembled at run time — the same rule the whole fixture
+# section follows: this suite never carries a line of anybody's real speech.
+make_speech_lines() {
+    awk -v lines="$1" -v per="$2" -v seed="$3" 'BEGIN {
+        split("the and but so then when where because after before while about \
+into over under again really maybe always never people number reason system \
+change moment question answer problem morning evening meeting minute matter \
+whole point thing piece order price value market signal window record message \
+window driver builder holder keeper marker anchor pattern segment version \
+handle bridge ladder circle corner border member letter picture", pool, " ");
+        n = 0; for (k in pool) n++;
+        srand(seed);
+        for (i = 1; i <= lines; i++) {
+            out = "";
+            for (j = 1; j <= per; j++) {
+                w = pool[int(rand() * n) + 1];
+                out = (j == 1) ? w : out " " w;
+            }
+            print out;
+        }
+    }'
+}
+
+# A transcript in the whisper "[timestamp] Speaker:" shape, long enough to be a
+# corpus member several hundred distinct runs deep.
+make_long_transcript() {
+    local n=0 who
+    while IFS= read -r line; do
+        if [ $((n % 2)) -eq 0 ]; then who="Dana"; else who="Ellis"; fi
+        printf '%s00%s%02d%s %s%s %s\n' '[' ':' "$((n % 60))" ']' "$who" ':' "$line"
+        n=$((n + 1))
     done
 }
 
@@ -431,7 +484,191 @@ commit_case "a binary blob is skipped, not scanned" 0 "$SB_C"
 rm -rf "$SB_C"
 
 # ---------------------------------------------------------------------------
-# (h) FAIL-OPEN / FAIL-CLOSED conventions.
+# (h) WHAT THE COMMAND IS ABOUT TO STAGE — the not-yet-in-the-index shapes.
+#
+# This hook runs BEFORE the command it inspects, so for `git add X && git
+# commit` nothing is staged at the moment of the check. Measured 2026-08-30
+# against the shipped guard: every shape below PASSED with a wholly-new
+# directory of transcripts sitting in the working tree, because `git diff
+# --cached` was empty and the guard exited 0 having read nothing.
+#
+# The directory is the point. `git status --porcelain` reports a wholly-new
+# directory as ONE entry — `?? docs/session-notes/` — which is a path with no
+# bytes behind it, so an enumeration that stops there examines zero and reports
+# clean. The controls under it matter as much: a guard that starts refusing
+# ordinary `git add src/newmod && git commit` is a guard somebody switches off.
+# ---------------------------------------------------------------------------
+new_dir_of_speech() { # <sandbox>
+    mkdir -p "$1/docs/session-notes"
+    make_transcript > "$1/docs/session-notes/part1.txt"
+    make_transcript > "$1/docs/session-notes/part2.txt"
+}
+
+SB_S="$(make_default_sandbox)"
+git -C "$SB_S" add -A >/dev/null 2>&1
+sandbox_commit "$SB_S" base
+
+new_dir_of_speech "$SB_S"
+git -C "$SB_S" add -A >/dev/null 2>&1
+commit_case "a NEW DIRECTORY of transcripts, pre-staged, is refused" 2 "$SB_S"
+git -C "$SB_S" reset -q --hard HEAD >/dev/null 2>&1; rm -rf "$SB_S/docs/session-notes"
+
+new_dir_of_speech "$SB_S"
+commit_case "git add <new dir> && git commit — one command — is refused" 2 "$SB_S" \
+    "git -C $SB_S add docs/session-notes && git -C $SB_S commit -m notes"
+commit_case "git add -A && git commit is refused"                       2 "$SB_S" \
+    "git -C $SB_S add -A && git -C $SB_S commit -m notes"
+commit_case "cd repo; git add . ; git commit is refused"                2 "$SB_S" \
+    "cd $SB_S; git add . ; git commit -m notes"
+rm -rf "$SB_S/docs/session-notes"
+
+mkdir -p "$SB_S/docs/session notes"
+make_transcript > "$SB_S/docs/session notes/part1.txt"
+commit_case "a quoted pathspec containing a space is not a hole" 2 "$SB_S" \
+    "git -C $SB_S add 'docs/session notes' && git -C $SB_S commit -m n"
+rm -rf "$SB_S/docs/session notes"
+
+# `git commit -- <path>` commits the WORKING TREE copy of a tracked file, which
+# never passes through the index at all. Reading `git show :path` for it scans
+# the bytes being replaced instead of the bytes being recorded.
+printf '# notes\n\nordinary prose\n' > "$SB_S/docs/tracked.md"
+git -C "$SB_S" add -A >/dev/null 2>&1
+sandbox_commit "$SB_S" tracked
+make_transcript > "$SB_S/docs/tracked.md"
+commit_case "git commit -m x <tracked modified path> is refused" 2 "$SB_S" \
+    "git -C $SB_S commit -m x docs/tracked.md"
+commit_case "and so is a -a commit of the same modification"     2 "$SB_S" \
+    "git -C $SB_S commit -am wip"
+git -C "$SB_S" checkout -q -- docs/tracked.md
+
+# --- controls: ordinary work must still commit -----------------------------
+mkdir -p "$SB_S/src/newmod"
+printf 'export const Y = 2;\n' > "$SB_S/src/newmod/index.js"
+printf 'export const Z = 3;\n' > "$SB_S/src/newmod/other.js"
+commit_case "CONTROL: an ordinary new directory, added and committed in one go" 0 "$SB_S" \
+    "git -C $SB_S add src/newmod && git -C $SB_S commit -m mod"
+rm -rf "$SB_S/src/newmod"
+
+# The gitignored destination stays allowed even under `git add -A`, because git
+# does not stage ignored paths — the correct home for private material is still
+# the correct home.
+make_transcript > "$SB_S/private/second.transcript.txt"
+commit_case "CONTROL: git add -A does not drag in the gitignored private tree" 0 "$SB_S" \
+    "git -C $SB_S add -A && git -C $SB_S commit -m ordinary"
+
+SB_OTHER="$(make_default_sandbox)"
+new_dir_of_speech "$SB_OTHER"
+commit_case "CONTROL: a git add in ANOTHER repository does not widen this scan" 0 "$SB_S" \
+    "git -C $SB_OTHER add -A && git -C $SB_S commit -m unrelated"
+rm -rf "$SB_OTHER"
+
+new_dir_of_speech "$SB_S"
+commit_case "CONTROL: a git add AFTER the commit is not part of it" 0 "$SB_S" \
+    "git -C $SB_S commit -m nothing ; git -C $SB_S add docs/session-notes"
+rm -rf "$SB_S/docs/session-notes"
+
+mkdir -p "$SB_S/docs/media"
+printf 'PK\003\004\000\000\000\000binary' > "$SB_S/docs/media/thing.bin"
+commit_case "CONTROL: a new directory of binary files commits" 0 "$SB_S" \
+    "git -C $SB_S add docs/media && git -C $SB_S commit -m media"
+rm -rf "$SB_S/docs/media"
+rm -rf "$SB_S"
+
+# --- the same walk-past, one level down: the scanner itself ----------------
+# Every caller shares one predicate, so the expansion lives there and not in a
+# hook. A directory handed to the scanner used to raise IsADirectoryError inside
+# the unreadable-path branch and come back CLEAN.
+scan_case() { # <name> <expect: BLOCK|CLEAN> <sandbox> <item-path> <label>
+    local name="$1" want="$2" sb="$3" ipath="$4" label="$5" job out got
+    job="$(mktemp "$SCRATCH/job.XXXXXX")"
+    PB_JOB="$job" PB_SRC="$sb/private" PB_PATH="$ipath" PB_LABEL="$label" python3 -c '
+import json, os
+json.dump({"min_speech_lines": 8, "min_quote_words": 10,
+           "corpus_max_files": 4000, "corpus_max_bytes": 67108864,
+           "sources": [os.environ["PB_SRC"]],
+           "items": [{"label": os.environ["PB_LABEL"], "path": os.environ["PB_PATH"]}]},
+          open(os.environ["PB_JOB"], "w"))'
+    # SCAN_OUT is left behind for the assertion that follows: the evidence a
+    # directory finding carries is as much the contract as the verdict.
+    SCAN_OUT="$(python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$job" 2>/dev/null)"
+    got="$(printf '%s' "$SCAN_OUT" | head -1 | cut -f1)"
+    if [ "$got" = "$want" ]; then ok "$name"; else bad "$name (expected $want, got '$got')"; fi
+}
+
+SB_D="$(make_default_sandbox)"
+new_dir_of_speech "$SB_D"
+scan_case "the scanner handed a DIRECTORY expands it and blocks" \
+    BLOCK "$SB_D" "$SB_D/docs/session-notes" "docs/session-notes/"
+if printf '%s' "$SCAN_OUT" | grep -q "docs/session-notes/part2.txt"; then
+    ok "and names the FILE inside it, not the directory"
+else
+    bad "a directory finding must name the file it came from"
+fi
+rm -rf "$SB_D/docs/session-notes"
+mkdir -p "$SB_D/docs/media"
+printf 'PK\003\004\000\000\000\000binary' > "$SB_D/docs/media/thing.bin"
+scan_case "a directory of binary files scans clean, never fails closed on it" \
+    CLEAN "$SB_D" "$SB_D/docs/media" "docs/media/"
+rm -rf "$SB_D"
+
+# ---------------------------------------------------------------------------
+# (i) THE CORPUS CLOSURE — another RENDERING of a recording is the recording.
+#
+# Measured on the real private record 2026-08-30: 481 candidate files, and the
+# shape filter kept TWO, while seven more two-channel transcripts of real
+# recordings sat in the same tree carrying no timestamps and no speaker labels
+# — whisper's plain `.txt` output. The verbatim-quote detector, which is the
+# half that catches speech quoted inside prose, was matching against one
+# recording.
+#
+# The closure admits a private file that REPRODUCES corpus speech in bulk, and
+# refuses one that merely QUOTES it. Both halves are asserted below, because the
+# second is what keeps the corpus clean: admitting a mixed engineering document
+# puts its BOILERPLATE into the private corpus, and measured on the real tree
+# that blocked LICENSE files, .gitignore, package.json and a brief the
+# declaration itself names as deliberately public.
+# ---------------------------------------------------------------------------
+SB_CL="$(make_default_sandbox)"
+WORDS_A="$(make_speech_lines 40 30 7 | tf)"      # the recording
+WORDS_B="$(make_speech_lines 12 30 91 | tf)"     # only in the second rendering
+make_long_transcript < "$WORDS_A" > "$SB_CL/private/long.transcript.txt"
+cat "$WORDS_A" "$WORDS_B" > "$SB_CL/private/long.txt"
+
+TAIL_ONLY="$({ printf '# Notes\n\n'; head -3 "$WORDS_B"; } | tf)"
+write_case "text only in the untimestamped rendering is refused" 2 Write \
+    "$SB_CL/docs/tail.md" "$SB_CL" "$TAIL_ONLY"
+
+# The brief QUOTES one line of the recording and is otherwise its own prose. It
+# must NOT join the corpus, so its own sentences stay ordinary work.
+{
+    printf '# Measurement notes\n\n'
+    printf 'The parakeet loader keeps its own segment schema, which is the only\n'
+    printf 'reason the integration cost is a loader and not a rewrite.\n\n> '
+    head -1 "$WORDS_A"
+} > "$SB_CL/private/brief.md"
+
+BOILER="$({
+    printf '# Viability\n\n'
+    printf 'The parakeet loader keeps its own segment schema, which is the only\n'
+    printf 'reason the integration cost is a loader and not a rewrite.\n'
+} | tf)"
+write_case "a private brief that only QUOTES does not join the corpus" 0 Write \
+    "$SB_CL/docs/viability.md" "$SB_CL" "$BOILER"
+
+QUOTED_LINE="$({ printf 'As recorded:\n\n> '; head -1 "$WORDS_A"; } | tf)"
+write_case "and the line it quoted is still caught, from the transcript" 2 Write \
+    "$SB_CL/docs/quote.md" "$SB_CL" "$QUOTED_LINE"
+
+# A file with a single shared run is a quotation, not a rendering: 400 distinct
+# shared runs and 8% coverage are both required, and both were measured.
+SHORT_ECHO="$({ printf 'One line only:\n\n'; head -1 "$WORDS_A"; printf '\nand then ordinary engineering prose about loaders and schemas.\n'; } | tf)"
+cp "$SHORT_ECHO" "$SB_CL/private/echo.md"
+write_case "ordinary prose still writes cleanly with the corpus widened" 0 Write \
+    "$SB_CL/src/config.js" "$SB_CL" "$CODE"
+rm -rf "$SB_CL"
+
+# ---------------------------------------------------------------------------
+# (j) FAIL-OPEN / FAIL-CLOSED conventions.
 # ---------------------------------------------------------------------------
 rc=0; printf 'not json at all' | "$WRITE_HOOK" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 0 ]; then ok "malformed payload fails OPEN (sibling convention)"
@@ -487,7 +724,7 @@ fi
 rm -rf "$TMPENG"
 
 # ---------------------------------------------------------------------------
-# (i) REGISTRATION — both surfaces, or the engine ships a guard nobody loads.
+# (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads.
 # ---------------------------------------------------------------------------
 for g in guard-publication-writes.sh guard-publication-commits.sh; do
     if grep -q "$g" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then

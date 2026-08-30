@@ -225,6 +225,65 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **The publication boundary examined zero bytes for a whole class of commits**
+  (`scripts/hooks/guard-publication-commits.sh`,
+  `scripts/lib/publication-boundary.py`) — PATCH, and the two holes were found
+  while building on top of the guard rather than by testing it.
+
+  The commit guard runs BEFORE the command it inspects, and it read only the
+  index. So `git add <dir> && git commit`, `git add -A && git commit` and
+  `cd repo; git add . ; git commit` all found an empty index at check time and
+  exited 0 — a whole new directory of transcripts, committed in one go, was
+  waved through. `git commit -m x <path>` and `git commit -a` were worse than
+  missed: they record the WORKING TREE copy of a file, and the guard read
+  `git show :path`, scanning the bytes being replaced rather than the bytes
+  being recorded. The staged set is now derived from what the COMMAND will do —
+  every `git add` in the same command, before the commit, in THIS repository,
+  plus pathspecs given to `git commit` itself — enumerated with
+  `git status --porcelain -z --untracked-files=all`, where `-uall` is the whole
+  fix for the directory: without it git reports a wholly-new directory as ONE
+  entry with no bytes behind it. Index bytes and worktree bytes are now
+  materialised separately, because they are not the same bytes.
+
+  One level down, the shared predicate had the same walk-past for every caller:
+  an item whose path was a DIRECTORY raised `IsADirectoryError` inside the
+  unreadable-path branch and came back CLEAN. Directory items are expanded to
+  their files, binary skipped by NUL test, and overflowing the bound is BROKEN
+  rather than a quiet truncation.
+
+  Two smaller things fell out. The repository being committed to was taken from
+  the FIRST `-C` in the command line, so `git -C /other add -A && git -C /here
+  commit` judged `/other`; it is now the commit's own `-C`. And `git status -z`
+  output was being stored in a shell variable on the way to its parser, where
+  bash silently drops every NUL and all the paths concatenate into one string
+  that matches no file — the same class as the NUL-by-byte-count test three
+  lines below it.
+
+- **The derived-from-private corpus was one recording deep**
+  (`scripts/lib/publication-boundary.py`) — PATCH.
+
+  Measured on the real private record: 481 candidate text files, of which the
+  shape filter kept TWO, while seven more two-channel transcripts of real
+  recordings sat in the same tree carrying no timestamps and no speaker labels —
+  whisper's plain `.txt` output has neither. The verbatim-quote detector, the
+  half that catches speech quoted inside ordinary prose, was matching against
+  26,339 words. A private file now also joins the corpus when it reproduces
+  corpus speech IN BULK — at least 400 distinct runs AND at least 8% of its own
+  — which admits another rendering of a recording and refuses a document that
+  merely quotes one. Corpus 2 files / 26,339 words -> 10 / 83,793.
+
+  The threshold is where it is because the alternatives were measured. Admitting
+  any file that shares ONE run pulled 251 private engineering documents in and
+  blocked 206 of 5,333 public files, LICENSE and `.gitignore` among them; a
+  40-word inbound run admitted one mixed brief whose header line and a scratchpad
+  PATH then blocked five legitimate public files. Under the shipped rule the
+  false-positive count across those same 5,333 files is unchanged from the
+  narrow corpus, and zero in the publication-bound repository itself. The
+  widening that would catch the CEO's typed words quoted nowhere else — harvest
+  every quoted run from every private file — blocks 98 public files including
+  this engine's own README and WALKTHROUGH; it is rejected, and the gap it
+  leaves is now named in `publication-boundary.sh`'s "what this cannot catch".
+
 - **Probe layer BR7 walked up from the POINTER, not the checkout.** When the
   engine is loaded by reference its root is normally a symlink
   (`~/.claude/richos-engine` → the checkout), and BR7 climbed from the link
