@@ -664,8 +664,11 @@
           if (window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._notConnected) {
             // Mirrors main.rs's `lease_ready == false` path: rejects before any turn
             // starts, so NO rich:// events ever fire for this attempt.
+            // VERBATIM from `LEASE_UNAVAILABLE_MESSAGE`, app/src-tauri/src/main.rs. The
+            // affordance suite asserts the two are byte-identical, so the preview cannot
+            // quietly rehearse a sentence the product no longer says.
             return Promise.reject(
-              "I'm not connected to my thinking right now — check that the Claude CLI is signed in, then restart me."
+              "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and open it again — that clears it most of the time. If it keeps happening, whoever set RichOS up has to sign me back in; that part isn't yours to fix."
             );
           }
           // §26's scenario is started BY THE CEO PRESSING ENTER, not by a side door. The
