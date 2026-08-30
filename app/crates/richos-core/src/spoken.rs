@@ -675,7 +675,11 @@ fn push_gated(
     }
     let orth = similarity(&nfrom, &nto);
     let phon = phonetic_similarity(&from, &to);
-    let lone = !nfrom.contains(' ');
+    // Whitespace in the RAW span, not the normalized one — matching `dictation.js`'s
+    // `!/\s/.test(coreFrom)` exactly. The two differ on a hyphenated form: normalization
+    // turns `deep-graham` into `deep graham` and would call it multi-word, where the
+    // service calls it lone and holds it to the higher bar. One doctrine, not two opinions.
+    let lone = !from.contains(char::is_whitespace);
     let orth_floor = if lone { ASK_LONE_TOKEN_MIN } else { ASK_MIN_ORTHOGRAPHIC };
     let phon_floor = if lone { ASK_LONE_TOKEN_MIN } else { ASK_MIN_PHONETIC };
     let (orth_ok, phon_ok) = (orth >= orth_floor, phon >= phon_floor);
