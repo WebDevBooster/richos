@@ -173,7 +173,8 @@
   /// the same derived ids as timeline.rs. Item order within a turn is
   /// `(slot, sequence)` — opening, then the stream in shared-counter order, then terminal —
   /// which is `TimelineBase::order_key`.
-  function projectTimeline(threadId) {
+  function projectTimeline(threadId, mode) {
+    const technical = mode === "technical";
     const t = threads.find((x) => x.id === threadId);
     const items = [];
     const rev = t && t.entity_id ? 1 : 0;
@@ -218,7 +219,14 @@
         );
       });
       for (const a of turn.activities) {
-        items.push(Object.assign({}, a, { turnId, bindingRevision: rev }));
+        // `Timeline::view` REMOVES the technical half from a CEO view rather than masking
+        // it, and drops `Visibility::Technical` items outright. Reproduced here — a mock
+        // that merely hid them would let a renderer bug through that the real backend makes
+        // structurally impossible.
+        if (!technical && a.visibility === "technical") continue;
+        const item = Object.assign({}, a, { turnId, bindingRevision: rev });
+        if (!technical) delete item.detail;
+        items.push(item);
       }
       // `active_ms` is MEASURED (`ended_at - started_at`) and is null whenever either
       // endpoint is missing — never `now() - startedAt` (§6.3).
@@ -236,7 +244,7 @@
       if (activeMs !== null) dur.activeMs = activeMs;
       items.push(dur);
     }
-    return { entityId: t ? t.entity_id : null, threadId, mode: "ceo", items };
+    return { entityId: t ? t.entity_id : null, threadId, mode: technical ? "technical" : "ceo", items };
   }
 
   // The canned history above, as turn records. Durations are deliberately spread across
@@ -266,22 +274,63 @@
   }
   // Real semantic activity on the Acme turn, so §5.3's rollup and §6.4's collapse have
   // something to act on. Ids are machinery ids, as `activity_item` derives them.
+  //
+  // EVERY ROW ALSO CARRIES ITS `detail`, which is what `ViewMode::Technical` keeps and
+  // `ViewMode::Ceo` REMOVES — `projectTimeline` strips it for the calm view, exactly as
+  // `TimelineItem::redacted` does. The titles, summaries and paths below are the shapes the
+  // 2026-08-28 emission probe actually recorded and the `machinery-payload.json` fixture
+  // holds: a MERGED title that is the real command (never the opening event's placeholder
+  // "Terminal"), an 84-char bounded summary, and `locations` from `[{path}]`.
   turnsById.get(acmeTurn1).activities = [
     { kind: "activity", id: "mach_a1", slot: "stream", sequence: 1, visibility: "ceo",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1000,
-      activityType: "read", state: "completed", summary: "Read a file" },
+      activityType: "read", state: "completed", summary: "Read a file", detailRef: "mach_a1",
+      detail: { title: "Read comparables/q3-acme.csv", summary: "18 rows, 4 columns",
+                locations: ["/Users/alex/ab/acme/comparables/q3-acme.csv"] } },
     { kind: "activity", id: "mach_a2", slot: "stream", sequence: 2, visibility: "ceo",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1100,
-      activityType: "read", state: "completed", summary: "Read a file" },
+      activityType: "read", state: "completed", summary: "Read a file", detailRef: "mach_a2",
+      detail: { title: "Read comparables/q3-market.csv", summary: "31 rows, 4 columns",
+                locations: ["/Users/alex/ab/acme/comparables/q3-market.csv"] } },
     { kind: "activity", id: "mach_a3", slot: "stream", sequence: 3, visibility: "ceo",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1200,
-      activityType: "read", state: "completed", summary: "Read a file" },
+      activityType: "read", state: "completed", summary: "Read a file", detailRef: "mach_a3",
+      detail: { title: "Read notes/hensley-relationship.md", summary: "9 lines",
+                locations: ["/Users/alex/ab/acme/notes/hensley-relationship.md"] } },
+    // NO STATUS EVER ARRIVED for this one — 34 of the 58 measured tool events carried none.
+    // It must read "outcome not recorded" and must NEVER be folded into done.
     { kind: "activity", id: "mach_a4", slot: "stream", sequence: 4, visibility: "ceo",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1400,
-      activityType: "command", state: "unknown", summary: "Ran a command" },
+      activityType: "command", state: "unknown", summary: "Ran a command", detailRef: "mach_a4",
+      detail: { title: "python3 scripts/counter-model.py --list 4200000 --offer 3864000",
+                summary: "spread 8.0% \u00b7 within comparable range", locations: [] } },
     { kind: "activity", id: "mach_a5", slot: "stream", sequence: 5, visibility: "ceo",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1600,
-      activityType: "search", state: "completed", summary: "Searched" },
+      activityType: "search", state: "completed", summary: "Searched", detailRef: "mach_a5",
+      detail: { title: "grep -rn \"carry split\" notes/", summary: "4 matches", locations: [] } },
+    // A FAILED call. The status dot's other terminal value, and the row the CEO most wants
+    // to be able to see the output of.
+    { kind: "activity", id: "mach_a6", slot: "stream", sequence: 6, visibility: "ceo",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1700,
+      activityType: "command", state: "failed", summary: "Ran a command", detailRef: "mach_a6",
+      detail: { title: "cat comparables/q4-acme.csv", summary: "Exit code 1", locations: [] } },
+    // TECHNICAL-ONLY, and therefore ABSENT from the calm view entirely: an untyped vendor
+    // kind. `usage_update` was the second most frequent event on the wire (50 across five
+    // probe runs) and it is not something Rich DID, so it renders as one dim line here and
+    // as nothing at all in the conversation. Slice 3 fixed a live 6:1 noise defect by
+    // moving exactly this row out of the CEO view.
+    { kind: "activity", id: "mach_a7", slot: "stream", sequence: 7, visibility: "technical",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1800,
+      activityType: "other", state: "unknown", summary: "Worked", detailRef: "mach_a7",
+      detail: { title: "usage_update", locations: [], vendorKind: "usage_update" } },
+    // A PERMISSION REQUEST, also technical-only. Auto-approved by the ACP client and
+    // recorded as a FACT — never a decision awaiting the CEO. It rendered as a CEO row
+    // reading "Requested approval 7 times" until 2026-08-29, which manufactured demand for
+    // an approval queue that does not exist.
+    { kind: "activity", id: "mach_a8", slot: "stream", sequence: 8, visibility: "technical",
+      entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1850,
+      activityType: "approval", state: "completed", summary: "Requested approval", detailRef: "mach_a8",
+      detail: { title: "python3 scripts/counter-model.py", summary: "auto-approved: allow", locations: [] } },
   ];
 
   // THREE DELEGATED WORKERS on the Q4-hiring turn (UX §7.1, §26's multi-agent fixture).
@@ -738,6 +787,70 @@
     return null;
   }
 
+  // ---- techy mode (techy-mode design §3.1) ---------------------------------------------
+  //
+  // The THREE sentences below are `machinery_view.rs`'s consts, verbatim. `techy.js` check 2
+  // compares them to the Rust source, so a reworded sentence reaches this file through a
+  // failing check rather than through a stale copy nobody looked at.
+  const TECHY_NOTHING_RECORDED =
+    "No machinery was recorded for this conversation. Retention started on 2026-08-28, and " +
+    "anything Rich did before that was never written down — so this is a gap in the record, " +
+    "not a quiet conversation.";
+  const TECHY_NOT_RETAINED =
+    "Nothing has been recorded on this machine yet. The technical view reads a store that " +
+    "hasn't been written to — it fills up as Rich works.";
+  const TECHY_UNREADABLE =
+    "I can't read the technical record for this conversation. It's on this machine and I " +
+    "haven't lost it — something is refusing to open it, and that part isn't yours to fix.";
+  const TECHY_RAW_NOT_RETAINED =
+    "The full output isn't kept this long — what's above is the whole record that was.";
+  const TECHY_RAW_TRUNCATED = "This output was longer than RichOS keeps; you're seeing the start of it.";
+  const TECHY_RAW_UNREADABLE =
+    "I can't read the stored output for this one. It's on this machine and I haven't lost it.";
+
+  let techyDefault = false;
+  const techyThreads = new Map(); // threadId -> bool  (ABSENT means "follows the default")
+  /// Thread ids the OS would refuse to read. Not "empty" — a different state entirely.
+  const machineryUnreadable = new Set();
+
+  /// §2.4's Tier-B raw payloads, per machinery id. A row ABSENT from this map is one whose
+  /// raw window has passed: the normalized record still renders and the pane says so.
+  /// `mach_a5` is deliberately missing for exactly that reason, and `mach_a6` is over the
+  /// 32 KB cap and comes back as a truncated PREFIX.
+  const machineryRaw = new Map([
+    ["mach_a1", { payload: { command: "cat comparables/q3-acme.csv", stdout: "list,offer,spread\n4200000,3864000,0.08\n" }, truncated: false }],
+    ["mach_a2", { payload: { command: "cat comparables/q3-market.csv", stdout: "31 rows" }, truncated: false }],
+    ["mach_a3", { payload: { command: "cat notes/hensley-relationship.md", stdout: "Hensley has carried the relationship since 2019." }, truncated: false }],
+    ["mach_a4", { payload: { command: "python3 scripts/counter-model.py --list 4200000 --offer 3864000", stdout: "spread 8.0% · within comparable range" }, truncated: false }],
+    ["mach_a6", { payload: "{\"command\":\"cat comparables/q4-acme.csv\",\"stderr\":\"cat: comparables/q4-acme.csv: No such file or directory", truncated: true }],
+    ["mach_a7", { payload: { sessionUpdate: "usage_update", used: 41991, size: 1000000 }, truncated: false }],
+    ["mach_a8", { payload: { chosen: "allow", auto: true, options: ["allow", "reject"] }, truncated: false }],
+  ]);
+
+  function techyModeOf(threadId) {
+    const pinned = techyThreads.has(threadId);
+    return {
+      enabled: pinned ? techyThreads.get(threadId) : techyDefault,
+      source: pinned ? "thread" : "default",
+      default: techyDefault,
+    };
+  }
+
+  /// The FOUR states of `get_machinery`, kept apart exactly as `ThreadMachinery` keeps them.
+  /// "There is nothing in it" and "I could not read it" are different answers and this mock
+  /// refuses to collapse them, because collapsing them is the defect under test.
+  function machineryStateOf(threadId) {
+    if (machineryUnreadable.has(threadId)) {
+      return { state: "unreadable", sentence: TECHY_UNREADABLE, reason: "machinery/" + threadId + ": Permission denied (os error 13)" };
+    }
+    const rows = [];
+    for (const [, turn] of turnsById) {
+      if (turn.threadId === threadId) for (const a of turn.activities) rows.push(a);
+    }
+    if (!rows.length) return { state: "nothing_recorded", sentence: TECHY_NOTHING_RECORDED, reason: null };
+    return { state: "recorded", sentence: null, reason: null, rowCount: rows.length };
+  }
+
   const loroGate = () => (loroDeskOn ? loroReadFailure : LORO_DESK_ABSENT);
   const spokenGate = () => (spokenDeskOn ? spokenReadFailure : SPOKEN_DESK_ABSENT);
 
@@ -781,6 +894,55 @@
           if (t && !t.entity_id) return Promise.reject(UNBOUND_ERR(id));
           return projectTimeline(id);
         }
+        // ---- techy mode (techy-mode design §3.1/§3.4) ------------------------------
+        case "get_machinery": {
+          const id = args.threadId ?? args.thread_id;
+          const t = threads.find((x) => x.id === id);
+          // Fails closed on an unbound thread exactly like `get_timeline` and the real one.
+          if (t && !t.entity_id) return Promise.reject(UNBOUND_ERR(id));
+          const st = machineryStateOf(id);
+          return {
+            threadId: id,
+            state: st.state,
+            rowCount: st.rowCount || 0,
+            sentence: st.sentence,
+            reason: st.reason,
+            // The conversation still renders in EVERY state — what changes is the sentence
+            // under it. An unreadable store is not an empty thread.
+            timeline: projectTimeline(id, "technical"),
+          };
+        }
+        case "get_machinery_raw": {
+          const threadId = args.threadId ?? args.thread_id;
+          const machId = args.machineryId ?? args.machinery_id;
+          if (machineryUnreadable.has(threadId)) {
+            return { state: "unreadable", payload: null, truncated: false, note: TECHY_RAW_UNREADABLE, reason: "machinery/" + threadId + ": Permission denied (os error 13)" };
+          }
+          const hit = machineryRaw.get(machId);
+          // ABSENT = the Tier-B window passed over it. The record still rendered above; this
+          // says why the bytes are gone rather than showing a blank (§2.4's honest degrade).
+          if (!hit) return { state: "not_retained", payload: null, truncated: false, note: TECHY_RAW_NOT_RETAINED };
+          return {
+            state: "retained",
+            payload: hit.payload,
+            truncated: hit.truncated,
+            note: hit.truncated ? TECHY_RAW_TRUNCATED : null,
+          };
+        }
+        case "techy_mode":
+          return techyModeOf(args.threadId ?? args.thread_id ?? "");
+        case "set_techy_mode": {
+          const id = args.threadId ?? args.thread_id;
+          // `enabled: null` CLEARS the override and hands the thread back to the global
+          // default. That arm is what keeps §7.1 reversible; without it a pin is one-way.
+          if (args.enabled === null || args.enabled === undefined) techyThreads.delete(id);
+          else techyThreads.set(id, !!args.enabled);
+          return techyModeOf(id);
+        }
+        case "set_techy_default":
+          techyDefault = !!args.enabled;
+          return techyDefault;
+
         case "active_context":
           return activeContextOf();
         case "thread_scope": {
@@ -1753,6 +1915,21 @@
 
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
+    // ---- techy mode, driven the way the CEO drives it and the way the OS breaks it -----
+    /// Make one thread's machinery unreadable — a real `chmod 000` in the product, a set
+    /// membership here. The point of the control is that "unreadable" must never be served
+    /// as "empty", so a test needs to be able to produce it.
+    breakMachinery(threadId) { machineryUnreadable.add(threadId); },
+    healMachinery(threadId) { machineryUnreadable.delete(threadId); },
+    /// Evict one row's Tier-B payload, the way `evict_raw` does — an unlink of the sibling.
+    /// The normalized record is untouched, so the row still renders.
+    evictRaw(machineryId) { machineryRaw.delete(machineryId); },
+    techyState() { return { default: techyDefault, threads: Object.fromEntries(techyThreads) }; },
+    TECHY_NOTHING_RECORDED,
+    TECHY_NOT_RETAINED,
+    TECHY_UNREADABLE,
+    TECHY_RAW_NOT_RETAINED,
+    TECHY_RAW_TRUNCATED,
     /// §26's `memory-strategy` scenario. See the block above it for what it refuses to do.
     memoryStrategy,
     /// Set the injected clock anchor BEFORE the CEO presses Enter. `Date.now() - 18600`

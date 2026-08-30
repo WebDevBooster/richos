@@ -2458,19 +2458,42 @@ fn get_machinery_raw(
 ) -> Result<serde_json::Value, String> {
     let spine = state.spine.lock().unwrap();
     let Some(journal) = spine.machinery_journal() else {
-        return Ok(serde_json::json!({ "state": "not_retained", "payload": null, "truncated": false }));
+        return Ok(not_retained());
     };
     match journal.raw_payload(&thread_id, &machinery_id) {
-        Ok(Some((payload, truncated))) => {
-            Ok(serde_json::json!({ "state": "retained", "payload": payload, "truncated": truncated }))
-        }
-        Ok(None) => {
-            Ok(serde_json::json!({ "state": "not_retained", "payload": null, "truncated": false }))
-        }
-        Err(why) => {
-            Ok(serde_json::json!({ "state": "unreadable", "payload": null, "truncated": false, "reason": why }))
-        }
+        Ok(Some((payload, truncated))) => Ok(serde_json::json!({
+            "state": "retained",
+            "payload": payload,
+            "truncated": truncated,
+            "note": truncated.then_some(RAW_TRUNCATED),
+        })),
+        Ok(None) => Ok(not_retained()),
+        Err(why) => Ok(serde_json::json!({
+            "state": "unreadable", "payload": null, "truncated": false,
+            "note": RAW_UNREADABLE, "reason": why,
+        })),
     }
+}
+
+/// The sentence for §2.4's evicted-raw state. **The record still renders** — structure,
+/// title, status, paths, summary — and this says why the bytes are gone rather than showing
+/// a blank. An honest degrade.
+///
+/// It states the fact and NOT a duration, because the duration is §7.2 and §7.2 is the
+/// CEO's open question. A sentence naming "14 days" would answer it in copy.
+const RAW_NOT_RETAINED: &str =
+    "The full output isn't kept this long — what's above is the whole record that was.";
+
+/// §2.4's 32 KB per-record cap fired. Named so nobody reads a prefix as the whole thing.
+const RAW_TRUNCATED: &str = "This output was longer than RichOS keeps; you're seeing the start of it.";
+
+const RAW_UNREADABLE: &str =
+    "I can't read the stored output for this one. It's on this machine and I haven't lost it.";
+
+fn not_retained() -> serde_json::Value {
+    serde_json::json!({
+        "state": "not_retained", "payload": null, "truncated": false, "note": RAW_NOT_RETAINED,
+    })
 }
 
 /// This thread's resolved techy-mode state, with its provenance (§3.1).

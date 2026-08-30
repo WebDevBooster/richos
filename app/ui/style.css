@@ -2851,3 +2851,16 @@ body.bp-narrow .tl-user-bubble {
   color: var(--ink-faint);
   line-height: 1.45;
 }
+
+/* A note INSIDE the raw pane: today only the truncation notice, which sits under the prefix
+   it is about. A prefix that looks whole is worse than one that says it is not. */
+.tl-tech-note {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--attention);
+  white-space: normal;
+}

@@ -573,6 +573,11 @@
       settled: new Set(), // turnIds whose post-completion settle has already run
       announcedWorking: new Set(),
       pendingUser: [], // optimistic CEO bubbles awaiting a turn id
+      /// TRUE when the snapshot in this model came from `get_machinery` — i.e. the CEO has
+      /// techy mode on for this thread. Read in exactly one place, `isTurnExpanded`, and
+      /// set in exactly one place, `applySnapshot`, from the payload's own `mode` field. It
+      /// is never inferred from the presence of a `detail` somewhere.
+      technical: false,
       /// Machinery ids whose RAW pane the CEO has opened (techy mode §3.4: "Expand for
       /// input/output"). Held on the model, not in a render-local variable, so a stream of
       /// new rows during a live turn does not close a pane he is reading.
@@ -608,15 +613,27 @@
     return true;
   }
 
-  /// Only `ceo` items are rendered. Belt AND braces: the spine already refuses to put a
-  /// technical or internal item on this family (`LiveEvent::may_reach_webview`) and
-  /// `Timeline::view(Ceo)` already removes them from the snapshot, so this check should
-  /// never fire. It exists so that if a future emitter widens the family, the calm view
-  /// does not silently start rendering machinery — slice 3 fixed a live defect where
-  /// untyped vendor kinds surfaced as six CEO rows reading "Worked" against one real
+  /// WHICH ITEMS THIS MODEL MAY HOLD. Belt AND braces: the spine already refuses to put a
+  /// technical or internal item on the live family (`LiveEvent::may_reach_webview`) and
+  /// `Timeline::view(Ceo)` already removes them from a CEO snapshot, so on the calm path
+  /// this should never fire. It exists so that if a future emitter widens the family, the
+  /// calm view does not silently start rendering machinery — slice 3 fixed a live defect
+  /// where untyped vendor kinds surfaced as six CEO rows reading "Worked" against one real
   /// command, and that class of regression must fail closed here too.
-  function visible(item) {
-    return !item || item.visibility === undefined || item.visibility === "ceo";
+  ///
+  /// **`technical` is admitted ONLY when the model is holding a technical snapshot**, which
+  /// `applySnapshot` sets from the payload's own `mode` and nothing else sets at all. So:
+  ///
+  ///   * a CEO snapshot cannot bring a technical row in, whatever it contains;
+  ///   * a LIVE event cannot either — the live family is `"ceo"` by construction, and a
+  ///     widened emitter would still have to get past this on a calm model;
+  ///   * `internal` is refused in EVERY mode, exactly as `Visibility::renders_in` refuses
+  ///     it in every `ViewMode` (timeline.rs). Re-prime and rotation machinery has no
+  ///     render path here either, and techy mode does not open one.
+  function visible(model, item) {
+    if (!item || item.visibility === undefined) return true;
+    if (item.visibility === "ceo") return true;
+    return item.visibility === "technical" && model.technical === true;
   }
 
   /// THE ORDER GUARD IS ON THE CREATE BRANCH, AND THAT IS NOT A SHORTCUT. Every site that
@@ -648,7 +665,7 @@
   /// the activity row's `summary`, `state` and `activityType` clinging to a worker row —
   /// fields whose vocabularies are different and whose values would be stale.
   function putItem(model, item) {
-    if (!visible(item)) return false;
+    if (!visible(model, item)) return false;
     const prev = model.items.get(item.id);
     const merged = prev && prev.kind === item.kind ? Object.assign({}, prev, item) : item;
     model.items.set(item.id, merged);
@@ -690,9 +707,12 @@
     if (!snapshot || !Array.isArray(snapshot.items)) return;
     model.entityId = snapshot.entityId != null ? snapshot.entityId : model.entityId;
     model.threadId = snapshot.threadId != null ? snapshot.threadId : model.threadId;
+    // `TimelineView.mode` — `"ceo"` or `"technical"` — straight off the payload the backend
+    // built. See `isTurnExpanded` for the one thing it changes.
+    model.technical = snapshot.mode === "technical";
 
     for (const raw of snapshot.items) {
-      if (!visible(raw)) continue;
+      if (!visible(model, raw)) continue;
       if (raw.kind === "work_duration") {
         const t = turnRecord(model, raw.turnId);
         t.status = raw.state; // queued | working | completed | interrupted
@@ -1040,9 +1060,23 @@
   /// It does not fight the post-completion collapse: when the turn stops being live this
   /// falls back to `expanded`, which the settle has already cleared. No timer is cancelled
   /// and no state is raced.
+  /// §6.4 has TWO defaults for an UNTOUCHED turn — expanded while it is active, collapsed
+  /// once it settles — and the CEO's own choice overrules both. **Techy mode adds a third
+  /// default and overrules neither.**
+  ///
+  /// A settled turn collapses its work rows, which is right for the calm view: the CEO does
+  /// not need "Read 3 files" on screen forever. It is exactly wrong for techy mode, where
+  /// the machinery IS what he turned on, and a technical view that opens with every turn
+  /// collapsed would show him nothing he asked for and make him click once per turn to
+  /// undo his own setting. So an untouched turn is expanded while the mode is on.
+  ///
+  /// His explicit choice still wins in both directions — a turn he collapsed by hand stays
+  /// collapsed here, because `collapsed` is checked first and this only changes the default
+  /// for a turn nobody has touched.
   function isTurnExpanded(model, turnId) {
     if (model.expanded.has(turnId)) return true;
     if (model.collapsed.has(turnId)) return false;
+    if (model.technical) return true;
     const t = model.turns.get(turnId);
     return !!(t && t.live);
   }
