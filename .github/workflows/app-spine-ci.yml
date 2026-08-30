@@ -1,0 +1,95 @@
+name: app-spine-ci
+
+# THE PRODUCT'S OWN TESTS HAVE NEVER BEEN RUN BY ANY TOOLING.
+#
+# `app/README.md` has documented `cargo test -p richos-core` as the spine's gate
+# since the crate existed, and it is real — 375 tests plus 5 doctests, no
+# network, no native dependencies, a couple of seconds. (That number was 342
+# when this file was written and 375 by the end of the same day; it is checked
+# against the tree in app/ui/tests/docs-claims.js wherever a DOCUMENT states
+# it, which is why the authoritative copy lives in app/README.md and this
+# comment defers to it.) But `grep -rn "cargo test"` across this
+# repository's scripts and workflows returns README prose and nothing else. The
+# two workflows that existed verified the ENGINE and the Windows companion. The
+# runtime spine — ledger, entity scope, timeline visibility, ACP, and now the
+# feedback channel's privacy guarantee — was covered only when somebody
+# remembered to type the command.
+#
+# That is the defect the engine's own test runner was built to end, one repo out
+# and pointed at the product instead: a correct check that nothing fires. It is
+# worth saying plainly that the feedback module's "nothing goes outbound" suite
+# would have been exactly that kind of check — four careful assertions about an
+# absence, in a file no tool opened.
+#
+# WHY NOT ADD IT TO engine/scripts/ci-verify.sh, which would have been fewer
+# files. Because the engine is copied wholesale by adopters who do not have this
+# product in their tree, and a step that runs `cargo test -p richos-core` would
+# be broken for every one of them. The engine verifies the engine. This verifies
+# the thing the engine is loaded by.
+#
+# WHAT THIS RUN HAS NEVER DONE. This file has not executed. It was authored on
+# the machine that runs the suite locally, so the assertions are green here and
+# the WORKFLOW is unproven — no runner has fetched a crate for this project or
+# built it on Linux. The first push is its first run and may well be red. It must
+# not be described as "CI-verified" until a run of this workflow is green on a
+# SHA somebody can name.
+#
+# WHAT IT DELIBERATELY DOES NOT COVER:
+#   - richos-voice. It pulls cpal and a local whisper.cpp build; a runner has no
+#     audio endpoint and the native build is minutes, not seconds. Its pure logic
+#     deserves the same treatment and does not get it here.
+#   - app/src-tauri. A deliberately detached workspace with the whole webview
+#     dependency tree behind it, kept out of the spine's test path on purpose.
+#   - The live ACP round-trip, which needs a signed-in `claude` CLI.
+# Named rather than skipped, so the fraction this reports is over a set somebody
+# can check.
+
+on:
+  push:
+    paths:
+      - "app/crates/richos-core/**"
+      - "app/Cargo.toml"
+      - ".github/workflows/app-spine-ci.yml"
+  pull_request:
+    paths:
+      - "app/crates/richos-core/**"
+      - "app/Cargo.toml"
+      - ".github/workflows/app-spine-ci.yml"
+  # So the gate can be demanded on a SHA without touching the tree — the first
+  # green run has to be attributable to a commit somebody names.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # ubuntu-latest ships a rustup toolchain, so there is no setup action here
+      # and no third-party action in the chain. `app/Cargo.lock` is gitignored,
+      # which is why this does not pass --locked: there is no lockfile to honour.
+      - name: Toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      # The whole spine. Unit tests, the integration suites under tests/ (which
+      # cargo discovers from disk rather than from a typed list), and the doctests
+      # — including the compile_fail blocks that pin what the type system refuses
+      # to express. A doctest run is not optional here: those blocks ARE the
+      # feedback payload's negative controls, and `--lib` alone would skip them.
+      - name: cargo test -p richos-core
+        run: cargo test -p richos-core
+
+      # Cheap, and it catches the class of change that compiles in this crate but
+      # breaks a consumer's build.
+      - name: cargo build -p richos-core --release
+        run: cargo build -p richos-core --release

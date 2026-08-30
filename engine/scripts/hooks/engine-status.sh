@@ -163,8 +163,12 @@ VERSION="unknown"
 # The exclusion is computed from THIS FILE'S OWN NAME, so it is one line and it
 # cannot go stale — it is not a list of exceptions, which would be the same
 # hand-maintained record walking back in through a different door. Note that
-# the probe's BR2/BR4 count all 16 registered scripts, announcer included;
-# their subject is the registration, not the enforcing set.
+# the probe's BR2/BR4 count EVERY registered script, announcer included; their
+# subject is the registration, not the enforcing set. Deliberately no number
+# here: this comment read "all 16 registered scripts" while the derivation
+# three lines below returned 26 — a hand-typed count going stale inside the one
+# file whose entire argument is that counts must be derived. Found 2026-08-30.
+# If you are about to write a figure into this file, that is the reason not to.
 _GI_LIB="$SCRIPT_DIR/../lib/registered-hooks.sh"
 GUARD_COUNT="?"
 GUARD_EXPECTED="?"

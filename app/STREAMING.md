@@ -9,23 +9,26 @@ This is the whole contract the UI needs — **no Rust reading required.** The Ru
 truth is `app/crates/richos-core/src/stream.rs` (event names as constants) +
 `app/src-tauri/src/main.rs` (`TauriEmitter`).
 
-> **FOUR FAMILIES, and this document covers all four.** The five events below are the
+> **FIVE FAMILIES, and this document covers all five.** The five events below are the
 > shipping calm view and are **unchanged**. `rich://machinery` (further down) is the
 > opt-in technical family. [The additive live-work family](#the-additive-live-work-family-13)
 > — seven typed §13 events — was added on 2026-08-29 and is what a Codex-style timeline
 > renderer should be written against. [Voice mode](#voice-mode-richvoice-) is the fourth,
-> emitted by a different crate and subscribed only while the mic is open. **A UI that
+> emitted by a different crate and subscribed only while the mic is open, and
+> [the staging desk](#the-staging-desk-richcorrection-staged) is the fifth. **A UI that
 > subscribes only to the events below keeps working exactly as it does today**, asserted
 > byte-for-byte by `crates/richos-core/tests/live_event_tests.rs`. Clean output is
 > guaranteed by the spine:
 **only assistant-message text is ever emitted on the events below** — never tool calls,
 worker chatter, shell, or hook output.
 
-*(Both counts above were wrong until 2026-08-30 — "three families" and "six typed events",
-written when each was true and left behind by the two commits that changed them, and the
-voice family was not mentioned at all. `app/ui/tests/docs-claims.js` now joins this
-document's event names to the constants the Rust source declares, so a family cannot be
-added without appearing here.)*
+*(Every count in that paragraph has been wrong at some point — "three families" and "six
+typed events" until 2026-08-30, each written when it was true and left behind by the commit
+that changed it, with the voice family never mentioned at all.
+`app/ui/tests/docs-claims.js` now joins this document's event names to the
+`pub const … = "rich://…"` the Rust source declares, and it earned its keep immediately: it
+caught `rich://correction-staged` the same day the staging desk landed, before anybody had
+to notice.)*
 
 That guarantee is **structural, not a convention**: machinery is not a `StreamEvent` at
 all. It is a second, separate family on its own event name — see
@@ -464,3 +467,46 @@ stylistic:
 There is **no live partial transcript**: `whisper-cli` has no partial-hypothesis stream, so
 nothing arrives between the start of an utterance and its finished text. That is a stated
 deviation from the UX direction §4.1 sketch, not an omission here.
+
+---
+
+## The staging desk: `rich://correction-staged`
+
+The fifth family, added 2026-08-30 with the spoken-correction trigger. Source of truth:
+`app/crates/richos-core/src/staging.rs` (the constant, the `CorrectionObserver` sink and
+the payload); the relay is in `app/src-tauri/src/main.rs`.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://correction-staged` | The CEO said something that looked like a correction, and it has been written down as a QUESTION. | one `Staged`: `{ candidates: [...], withheld: [...] }` |
+
+It is deliberately **not** a §13 event. §13 lists eleven, this is none of them, and a
+subscription list is the proof of what a surface carries — inventing a twelfth would
+misrepresent the brief.
+
+Four rules for whoever renders it, all of them the ruling rather than taste:
+
+1. **Nothing has been learned.** `ceo-decisions.md` §7: *"Nothing is ever learned
+   silently."* This event announces a question, and `confirm` is the only path to a
+   vocabulary write. Render it as an ask — never as a notification that something changed.
+2. **Ask it in the words you were given.** Each candidate carries a built `prompt`
+   (*"Add "X" to your vocabulary?"*, or *"… (you corrected this before)"* once
+   `declinedBefore > 0`), so every surface asks identically and a second ask does not read
+   as amnesia.
+3. **A candidate carries its own `threadId` and `turnId`, captured at STAGE time.** Do not
+   re-derive them when he answers: the active thread can move while a question waits, and a
+   candidate re-scoped to wherever he happens to be looking has laundered itself across an
+   entity boundary.
+4. **`withheld` is not an error and is not a candidate.** It is the pairs the gate refused,
+   with `from`, `to` and a `reason`. It exists so the refusal is inspectable; it must not be
+   rendered as a question the CEO can answer.
+
+The payload is camelCase like every other family. A candidate is
+`{ key, at, threadId, turnId, utterance, ask, declinedBefore, prompt }`, where `ask` carries
+the detector's own reading — `from`, `to`, `frame`, the two similarity legs, which `leg` let
+it through, and an `anchor` that is **evidence and never a gate** (`null` simply means there
+is nothing to quote).
+
+**Missing this event costs a prompt, never a record.** The question is already durable on
+disk before the observer is called, so a UI that is not listening loses the ask and not the
+candidate.

@@ -211,6 +211,22 @@ needs the Accessibility read-back spike §7 defers, and the open question there 
 wired, a correction is stated through `richos-service dictation-review --sent "…"`, which is a real
 human statement and is exactly as safe, but is not the mini-HUD §7 describes.
 
+> **PARTLY CLOSED 2026-08-30 — but by a DIFFERENT mechanism, so read this paragraph carefully
+> rather than crossing it out.** The sentence above is about the DIFF trigger: what was heard
+> against what was sent. That still needs the composer wire or the Accessibility read-back, and it
+> is still open.
+>
+> What is now built is the **utterance** trigger: the CEO says *"It's Kestrel, not Kestral"* and the
+> pair is stated in the words, so no foreign text field has to be read back at all. It runs inside
+> `Spine::submit_prompt`, which every CEO utterance passes through — voice mode with `Source::Jam`,
+> the composer with `Source::Text` — and stages the correction with **no command typed**. Measured
+> at precision 1.000 / recall 0.941 over 149 invented utterances, and it still only STAGES, because
+> §7 is a ruling and not a performance target.
+>
+> Detail, corpus and the anchor counterfactual:
+> [`../spoken-correction-trigger-2026-08-30/README.md`](../spoken-correction-trigger-2026-08-30/README.md).
+> Still true above: no UI renders the ask, so the mini-HUD §7 describes is not built either way.
+
 **Real speech.** Every number here is measured on invented sentences, which is the correct way to
 measure it and is not the same as the CEO using it. One real dictation, journalled; one real
 correction, asked and confirmed; the next dictation spelling it his way — that is the test this

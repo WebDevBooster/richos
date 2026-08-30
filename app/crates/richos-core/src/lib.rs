@@ -17,6 +17,12 @@
 //!                   re-prime, with the cross-entity lane re-assertion on the finished slice.
 //!   - `correction` — the loro WRITE loop: propose, ASK the CEO, then write. Never the
 //!                   other order — ceo-decisions.md §7, enforced by the state machine.
+//!   - `spoken`    — the flywheel's AUTOMATIC TRIGGER: what makes an utterance a
+//!                   correction, decided from a repair frame + the shipped §7 term gate.
+//!                   Detects; never writes.
+//!   - `staging`   — where a detected spoken correction LANDS: durable candidates and
+//!                   §7's three outcomes. The only path to a vocabulary write is a human
+//!                   answer; there is no threshold that reaches one.
 //!   - `steering`  — the CEO's two mid-turn controls (UX §9.2/§9.3): the durable intake
 //!                   log and the cancel seam, both reachable WITHOUT the spine lock.
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
@@ -32,12 +38,18 @@
 //!   - `worker_events` — the CONSUMER of the engine's worker-lifecycle stream: the four
 //!                     states it can witness, and the three it refuses to invent.
 //!   - `worker_status` — the optional AI-worker drill-down, read from the engine's event logs.
+//!   - `feedback`  — the in-app feedback channel's LOCAL half: the rating prompt, its
+//!                   on-disk persistence, and the VERSIONED CLOSED VOCABULARY a report is
+//!                   assembled from — a payload with no free-text field anywhere in it, so
+//!                   the user's specifics are unrepresentable rather than filtered out.
+//!                   Nothing in it sends anything, and its tests assert that.
 
 pub mod acp;
 pub mod cognition;
 pub mod correction;
 pub mod config;
 pub mod entity;
+pub mod feedback;
 pub mod journal;
 pub mod ledger;
 pub mod loro;
@@ -45,6 +57,8 @@ pub mod live;
 pub mod machinery;
 pub mod reprime;
 pub mod spine;
+pub mod spoken;
+pub mod staging;
 pub mod steering;
 pub mod stream;
 pub mod thread;
@@ -55,6 +69,12 @@ pub mod worker_status;
 
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
+pub use feedback::{
+    render_disclosure, ApprovedReport, ContributingCondition, DiagnosisTerm, Disclosure,
+    FailureClass, FeedbackEntry, FeedbackPayload, FeedbackStore, Occurrences, PromptOutcome,
+    Rating, ReportDecision, TaxonomyError, TaxonomyVersion, DISCLOSURE_HEADING, PROMPT_OPTIONS,
+    PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
+};
 pub use entity::{
     Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
     ThreadBinding, ThreadEntity,

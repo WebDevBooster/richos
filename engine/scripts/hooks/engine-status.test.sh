@@ -207,8 +207,20 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the other two. Every one of those merges conflicted HERE. That is the whole
 # value of a typed count beside a derived one: the derivation absorbs a new
 # guard silently, and this line refuses to.
-if [ "$REGISTERED_N" -eq 26 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 26 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+# 26 -> 27 on 2026-08-30: turn-manifest.sh was wired on Stop. It is the first
+# entry in this count that is NOT a guard — it refuses nothing and renders
+# only, printing each turn's real tool statuses beneath whatever the turn
+# claimed. The noun in the banner is therefore now one wide, and that is a
+# deliberate choice rather than an oversight: the announcer is excluded because
+# its term could never be UNSATISFIED (no announcer, no banner to read the
+# fraction in), and that reasoning does not transfer. turn-manifest.sh can
+# absolutely be missing or non-executable, and a shortfall there is a real
+# signal an operator should see at session start. Excluding it would need a
+# second, hand-typed exception list beside the self-referential one — the same
+# stale inventory walking back in through a different door. Counted, and the
+# imprecision named here instead. Fifth firing.
+if [ "$REGISTERED_N" -eq 27 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 27 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi
