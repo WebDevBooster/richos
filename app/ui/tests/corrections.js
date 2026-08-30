@@ -718,10 +718,7 @@ main().catch((e) => {
 //        -> the preview rehearses a sentence the product does not say
 //  13  main.rs: remove `loro_show_record` from `generate_handler!`
 //        -> 13 registered, and the count assertion names it
-//  14  belief.rs `detect`: take `hits[0]` instead of requiring `hits.len() == 1`, then
-//      regenerate the fixture with RICHOS_WRITE_FIXTURES=1 against a two-February slice
-//        -> the card names the board-meeting record and the ref assertion fails
-//  14  belief.rs `BeliefAsk::proposed_write`: `scope: None`
-//        -> the preview says `scope: ceo-private` and the carry-through assertion fails
-//  14  mock.js `seedLoroProposals`: `proposals.push({...p, preview: LORO_PREVIEW})`
-//        -> the rendered bytes are the fixture's, not the detector's
+//  14  mock.js `seedLoroProposals`: push `Object.assign({}, p, {preview: LORO_PREVIEW})`
+//        -> the rendered bytes are a fixture's, not the detector's
+//  14  main.js `renderProposalCard`: drop the `" · " + targetRef` half of `desk-card-target`
+//        -> the card no longer names the record it would supersede
