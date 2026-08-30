@@ -103,6 +103,14 @@ import {
   echoRatio,
   nearbyTranscriptText,
 } from '../lib/deletion-guard.js';
+import {
+  findSparseWindows,
+  adjudicateSparseWindow,
+  guardSubstitution,
+  substitutionWarnings,
+  tileWindows,
+  DEFAULT_SPARSITY_OPTS,
+} from '../lib/substitution-guard.js';
 
 let passed = 0;
 const failures = [];
@@ -1971,6 +1979,304 @@ test('SILENCE vs DELETION side by side: silent on the silence, loud on the claus
   const silence = report.rejected.find((r) => r.startMs === 20000);
   assert.ok(silence, 'the silent burst was examined, not skipped');
   assert.equal(silence.verdict, 'not-speech');
+});
+
+
+// ---------------------------------------------------------------------------------------
+group('P5 word-density instrument, stage A — THE BUDGET: how much speech, how many words');
+
+// INVENTED FIXTURES, like the deletion detector's beside them and for the same reason: the corpus
+// this instrument was measured on is the CEO's private webinar. The SHAPES are taken from the
+// measurement — an 8-second window of ordinary conversational speech, the same window reduced to
+// four words, a burst of laughter at speech level, a channel whose median density is itself below
+// the conversational floor. The rates are the measured ones: real conversational English on this
+// project's corpora runs 1.87-3.68 words per second of detected speech, median 2.88.
+const DSEG = (startMs, endMs, text, wordTimesMs) => ({ startMs, endMs, text, speaker: 'me', ...(wordTimesMs ? { wordTimesMs } : {}) });
+
+/** A window of `n` bursts of `burstMs` each, `gapMs` apart, starting at `from`. */
+const BURSTS = (from, n, burstMs, gapMs) =>
+  Array.from({ length: n }, (_, i) => ({ startMs: from + i * (burstMs + gapMs), endMs: from + i * (burstMs + gapMs) + burstMs }));
+
+/** `count` word times spread evenly across a burst — a transcript that claims that burst's speech. */
+const WORDS_OVER = (burst, count) =>
+  Array.from({ length: count }, (_, i) => Math.round(burst.startMs + ((i + 0.5) / count) * (burst.endMs - burst.startMs)));
+
+/** A channel of `n` healthy bursts at `wps` words per second, as segments + its burst grid. */
+function healthyChannel(n, wps, burstMs = 3000, gapMs = 700, from = 0) {
+  const bursts = BURSTS(from, n, burstMs, gapMs);
+  const segments = bursts.map((b, i) => {
+    const count = Math.round((burstMs / 1000) * wps);
+    const times = WORDS_OVER(b, count);
+    return DSEG(b.startMs, b.endMs, new Array(count).fill('word').join(' '), times);
+  });
+  return { bursts, segments };
+}
+
+test('tileWindows groups consecutive bursts until the window holds windowSpeechSec of speech', () => {
+  const bursts = BURSTS(0, 9, 3000, 700);
+  const wins = tileWindows(bursts, 0, DEFAULT_SPARSITY_OPTS);
+  assert.equal(wins.length, 3, 'nine 3 s bursts make three 9 s windows at an 8 s target');
+  assert.equal(wins[0].bursts, 3);
+  assert.equal(wins[0].speechMs, 9000);
+});
+
+test('a window whose bursts are too far apart is ABANDONED, never judged on a denominator of silence', () => {
+  // 3 s of speech every 20 s: reaching 8 s of speech would span 60+ s of wall clock.
+  const bursts = BURSTS(0, 6, 3000, 20000);
+  assert.equal(tileWindows(bursts, 0, DEFAULT_SPARSITY_OPTS).length, 0);
+});
+
+test('a window at ordinary conversational density is NOT a candidate', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const found = findSparseWindows(segments, bursts, { channel: 'me' });
+  assert.equal(found.candidates.length, 0);
+  assert.ok(found.medianDensity >= 2.5 && found.medianDensity <= 3.3, `median ${found.medianDensity}`);
+});
+
+test('THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words IS a candidate', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  // Replace the 4th, 5th and 6th bursts' text with four words total — 9 s of speech, 4 words.
+  const kept = segments.filter((_, i) => i < 3 || i > 5);
+  kept.push(DSEG(bursts[3].startMs, bursts[5].endMs, 'the orange folder arrived', [
+    bursts[3].startMs + 100, bursts[3].startMs + 400, bursts[3].startMs + 700, bursts[3].startMs + 1000,
+  ]));
+  kept.sort((a, b) => a.startMs - b.startMs);
+  const found = findSparseWindows(kept, bursts, { channel: 'me' });
+  assert.equal(found.candidates.length, 1);
+  const c = found.candidates[0];
+  assert.equal(c.emittedWords, 4);
+  assert.ok(c.density < 0.5, `density ${c.density}`);
+  assert.ok(c.deficitWords >= 4, `deficit ${c.deficitWords} whole words`);
+});
+
+test('a WORDLESS window is never a candidate here — that is the deletion detector\'s class', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const kept = segments.filter((_, i) => i < 3 || i > 5); // nothing at all over bursts 3-5
+  const found = findSparseWindows(kept, bursts, { channel: 'me' });
+  assert.equal(found.candidates.length, 0, 'one failure must never be reported twice under two names');
+});
+
+test('on a channel at conversational pace the relative half is INERT — the absolute floor binds', () => {
+  // Measured on both channels of the 92-minute corpus (medians 2.88 and 2.51 w/s): 0.45x a normal
+  // median is above 1.2, so `min()` picks the absolute floor and the baseline changes nothing. The
+  // relative half exists for the OTHER case, below.
+  const { bursts, segments } = healthyChannel(24, 2.9);
+  const found = findSparseWindows(segments, bursts, { channel: 'me' });
+  assert.equal(found.thresholdWordsPerSec, 1.2);
+});
+
+test('THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further', () => {
+  // A channel whose whole delivery runs at 1.33 w/s. The relative half drops the floor to 0.6 w/s,
+  // so a window at 0.44 w/s — a finding on any ordinary channel — is not even a candidate here.
+  // That is the stated recall cost of not flagging a slow speaker wholesale, and it is one-directional.
+  const { bursts, segments } = healthyChannel(24, 1.33);
+  const kept = segments.filter((_, i) => i < 3 || i > 5);
+  kept.push(DSEG(bursts[3].startMs, bursts[5].endMs, 'the orange folder arrived', [
+    bursts[3].startMs + 100, bursts[3].startMs + 400, bursts[3].startMs + 700, bursts[3].startMs + 1000,
+  ]));
+  kept.sort((a, b) => a.startMs - b.startMs);
+  const found = findSparseWindows(kept, bursts, { channel: 'me' });
+  assert.ok(found.thresholdWordsPerSec < 1.2, `the relative half tightened the floor to ${found.thresholdWordsPerSec}`);
+  assert.equal(found.candidates.length, 0);
+  // The same four words over the same nine seconds ARE a finding on a channel at conversational pace.
+  const fast = healthyChannel(24, 2.9);
+  const fastKept = fast.segments.filter((_, i) => i < 3 || i > 5);
+  fastKept.push(DSEG(fast.bursts[3].startMs, fast.bursts[5].endMs, 'the orange folder arrived', [
+    fast.bursts[3].startMs + 100, fast.bursts[3].startMs + 400, fast.bursts[3].startMs + 700, fast.bursts[3].startMs + 1000,
+  ]));
+  fastKept.sort((a, b) => a.startMs - b.startMs);
+  assert.equal(findSparseWindows(fastKept, fast.bursts, { channel: 'me' }).candidates.length, 1);
+});
+
+test('a confirmed DELETION is excluded from the budget — the exclusion can only remove findings', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const kept = segments.filter((_, i) => i < 3 || i > 5);
+  kept.push(DSEG(bursts[3].startMs, bursts[3].endMs, 'the orange folder arrived', [
+    bursts[3].startMs + 100, bursts[3].startMs + 400, bursts[3].startMs + 700, bursts[3].startMs + 1000,
+  ]));
+  kept.sort((a, b) => a.startMs - b.startMs);
+  assert.equal(findSparseWindows(kept, bursts, { channel: 'me' }).candidates.length, 1);
+  // Stage 3.7 already owns bursts 4 and 5: their seconds leave this stage's denominator.
+  const excluded = findSparseWindows(kept, bursts, {
+    channel: 'me',
+    excludeSpans: [{ startMs: bursts[4].startMs, endMs: bursts[5].endMs }],
+  });
+  assert.equal(excluded.candidates.length, 0);
+});
+
+test('the whole channel being thin is a finding of its own, which no per-window comparison can see', () => {
+  const { bursts, segments } = healthyChannel(24, 0.6);
+  const found = findSparseWindows(segments, bursts, { channel: 'me' });
+  assert.equal(found.baselineBelowFloor, true);
+  assert.ok(found.medianDensity < 1.2, `median ${found.medianDensity}`);
+});
+
+test('analyzedSpeechSec is reported against burstSeconds, so "0 findings" can never read as "all clear"', () => {
+  const dense = BURSTS(0, 6, 3000, 700);
+  const scattered = BURSTS(200000, 4, 3000, 30000); // too spread out to make a window
+  const bursts = [...dense, ...scattered];
+  const segments = dense.map((b) => DSEG(b.startMs, b.endMs, 'a b c d e f g h', WORDS_OVER(b, 8)));
+  const found = findSparseWindows(segments, bursts, { channel: 'me' });
+  assert.ok(found.analyzedSpeechSec < found.burstSeconds, `${found.analyzedSpeechSec} of ${found.burstSeconds}s`);
+  assert.equal(found.burstSeconds, 30);
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 word-density instrument, stage B — THE PRECISION RULE, one test per condition');
+
+const REAL = 'the runbook pointed at the wrong dashboard and nobody noticed until the second incident review';
+const SPARSE_CAND = (over = {}) => ({
+  channel: 'me', index: 0, startMs: 10000, endMs: 22000, wallSec: 12, speechSec: 9,
+  bursts: 3, emittedWords: 4, density: 0.444, expectedWords: 10.8, deficitWords: 6.8,
+  nearbyText: '', ...over,
+});
+const SPARSE_PROBE = (over = {}) => ({ tight: REAL, wide: `${REAL} entirely`, maxDb: -12, meanDb: -30, ...over });
+
+test('all six conditions satisfied -> UNDER-TRANSCRIBED, carrying what the audio returned', () => {
+  const v = adjudicateSparseWindow(SPARSE_CAND(), SPARSE_PROBE(), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'under-transcribed');
+  assert.equal(v.recovered, REAL);
+  assert.ok(v.probeWords >= 12, `probe recovered ${v.probeWords} informative words`);
+});
+
+test('condition 4 — a thin window at near-silence level is NOT speech, so its budget was never real', () => {
+  const v = adjudicateSparseWindow(SPARSE_CAND(), SPARSE_PROBE({ maxDb: -44 }), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'not-speech');
+  assert.match(v.reason, /speech floor/);
+});
+
+test('condition 5 — A SLOW, EMPHATIC DELIVERY IS NOT A DEFECT: the audio agrees with the transcript', () => {
+  // Four words in the transcript, and decoding the window alone returns those same four words.
+  const v = adjudicateSparseWindow(SPARSE_CAND(), SPARSE_PROBE({ tight: 'we are not doing that', wide: 'we are not doing that' }), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'matches-audio');
+  assert.match(v.reason, /A thin transcript over thin speech is not a defect/);
+});
+
+test('condition 5 — laughter cannot manufacture a recovery: eight "words", two of them informative', () => {
+  const laugh = 'But first, ha, ha, ha, ha, ha, ha.';
+  const v = adjudicateSparseWindow(SPARSE_CAND(), SPARSE_PROBE({ tight: laugh, wide: laugh }), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'matches-audio');
+  assert.equal(v.probeWords, 2);
+});
+
+test('condition 5 — a recovery that does not survive repadding is a property of the window', () => {
+  const v = adjudicateSparseWindow(SPARSE_CAND(), SPARSE_PROBE({ wide: 'so' }), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'matches-audio');
+  assert.match(v.reason, /does not survive repadding/);
+});
+
+test('condition 6 — words already in the transcript beside the window are PRESENT, not missing', () => {
+  const v = adjudicateSparseWindow(SPARSE_CAND({ nearbyText: `and then ${REAL}` }), SPARSE_PROBE(), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'echoed');
+  assert.match(v.reason, /timing or de-duplication question/);
+});
+
+test('condition 6 — a three-word coincidence is NOT an echo, and that is why this floor is four', () => {
+  // The exact false rejection measured on the 92-minute corpus at the deletion detector's floor of 2.
+  const v = adjudicateSparseWindow(SPARSE_CAND({ nearbyText: 'at the wrong end of it' }), SPARSE_PROBE(), { peakDb: -0.9 });
+  assert.equal(v.verdict, 'under-transcribed');
+});
+
+test('no probe -> UNPROBED, and an unprobed window is never a finding', () => {
+  const v = adjudicateSparseWindow(SPARSE_CAND(), null, { peakDb: -0.9 });
+  assert.equal(v.verdict, 'unprobed');
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 word-density instrument — the report, and what it refuses to claim');
+
+test('guardSubstitution reports the span, the rate, the deficit and what the audio returned', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const kept = segments.filter((_, i) => i < 3 || i > 5);
+  kept.push(DSEG(bursts[3].startMs, bursts[5].endMs, 'the orange folder arrived', [
+    bursts[3].startMs + 100, bursts[3].startMs + 400, bursts[3].startMs + 700, bursts[3].startMs + 1000,
+  ]));
+  kept.sort((a, b) => a.startMs - b.startMs);
+  const { report } = guardSubstitution(
+    { me: kept, others: [] },
+    {
+      speechBursts: { me: bursts, others: [] },
+      peaks: { me: -0.9, others: -0.9 },
+      probe: (spans) => spans.map(() => SPARSE_PROBE()),
+    },
+  );
+  assert.equal(report.sparseSpans, 1);
+  const f = report.findings[0];
+  assert.equal(f.emittedWords, 4);
+  assert.equal(f.recovered, REAL);
+  assert.ok(f.probeWords > f.emittedWords);
+  assert.equal(report.byChannel.me.windows > 0, true);
+});
+
+test('NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const kept = segments.filter((_, i) => i < 3 || i > 5);
+  kept.push(DSEG(bursts[3].startMs, bursts[5].endMs, 'the orange folder arrived', [
+    bursts[3].startMs + 100, bursts[3].startMs + 400, bursts[3].startMs + 700, bursts[3].startMs + 1000,
+  ]));
+  kept.sort((a, b) => a.startMs - b.startMs);
+  const { report } = guardSubstitution({ me: kept, others: [] }, { speechBursts: { me: bursts, others: [] } });
+  assert.equal(report.sparseSpans, 0);
+  assert.equal(report.unprobedSpans, 1);
+  assert.equal(report.probeAvailable, false);
+});
+
+test('no burst grid -> the instrument says it never looked, which is not the same as clean', () => {
+  const { segments } = healthyChannel(12, 2.9);
+  const { report } = guardSubstitution({ me: segments, others: [] }, { probe: () => [] });
+  assert.equal(report.byChannel.me.probeAvailable, false);
+  assert.equal(report.windows, 0);
+  assert.equal(report.detected, false);
+});
+
+test('the warning names the span in clock time AND refuses to claim the words present are wrong', () => {
+  const w = substitutionWarnings({
+    findings: [{
+      channel: 'me', startMs: 4983000, endMs: 4995000, speechSec: 9, emittedWords: 4,
+      density: 0.44, probeWords: 16, recovered: REAL,
+    }],
+  });
+  assert.match(w[0], /01:23:03–01:23:15/);
+  assert.match(w[0], /Words that were spoken are NOT in the transcript here/);
+  assert.match(w[0], /whether the words that ARE there are wrong cannot be decided without a reference/);
+  assert.match(w[0], /detected, not repaired/);
+});
+
+test('a channel below the floor is warned about ONCE, as a channel, not as a window', () => {
+  const w = substitutionWarnings({ findings: [], channelsBelowFloor: [{ channel: 'others', medianDensity: 0.6, floorWordsPerSec: 1.2, windows: 40 }] });
+  assert.equal(w.length, 1);
+  assert.match(w[0], /The WHOLE "others" channel is thin/);
+  assert.match(w[0], /the sparse windows ARE the typical ones/);
+});
+
+test('an unadjudicated window never lets the transcript read as fully checked', () => {
+  const w = substitutionWarnings({ findings: [], unprobed: [{ channel: 'me', startMs: 0, endMs: 12000 }] });
+  assert.match(w[0], /not claimed as under-transcribed and they are not cleared either/);
+});
+
+// ---------------------------------------------------------------------------------------
+group('P5 — the two detectors divide the timeline instead of overlapping it');
+
+test('THE SAME WORDLESS BURST: a deletion to stage 3.7, invisible to stage 3.8, exactly once', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const kept = segments.filter((_, i) => i !== 5);
+  const del = findDeletionCandidates(kept, bursts, { channel: 'me' });
+  assert.equal(del.candidates.length, 1, 'the wordless burst is stage 3.7\'s');
+  assert.equal(del.candidates[0].startMs, bursts[5].startMs);
+  const sub = findSparseWindows(kept, bursts, { channel: 'me' });
+  assert.equal(sub.candidates.length, 0, 'and stage 3.8 does not report it a second time');
+});
+
+test('THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot', () => {
+  const { bursts, segments } = healthyChannel(12, 2.9);
+  const kept = segments.filter((_, i) => i < 3 || i > 5);
+  kept.push(DSEG(bursts[3].startMs, bursts[5].endMs, 'the orange folder arrived', [
+    bursts[3].startMs + 100, bursts[4].startMs + 400, bursts[5].startMs + 200, bursts[5].startMs + 900,
+  ]));
+  kept.sort((a, b) => a.startMs - b.startMs);
+  // Every burst carries an emitted word, so coverage is satisfied and stage 3.7 asks nothing.
+  assert.equal(findDeletionCandidates(kept, bursts, { channel: 'me' }).candidates.length, 0);
+  assert.equal(findSparseWindows(kept, bursts, { channel: 'me' }).candidates.length, 1);
 });
 
 // ---------------------------------------------------------------------------------------
