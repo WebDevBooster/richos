@@ -1,0 +1,322 @@
+UI-SUITE-CI — THE RUNS THAT PROVE THE GATE CAN REFUSE
+=====================================================
+
+`.github/workflows/ui-suite-ci.yml` reports on twelve browser suites. The whole reason it
+was written is that a green CI run which did not actually execute the suites is worse than
+no CI at all: it converts "nobody checked" into "somebody checked and it was fine". This
+repository has produced exactly that twice in one week — a scanner reporting CLEAN over an
+empty corpus, and a `run.js` reporting "all 4 suites passed" over a suite it was not
+running. Both exited 0, honestly.
+
+So the workflow's claim is not "the suites passed". It is "twelve suites ran and reported
+this many checks, and here are the numbers". That claim is only worth something if the
+machinery behind it can say no. Below is every new check, run RED once, by breaking the
+SHIPPED source and watching it refuse.
+
+WHERE THESE RAN. A copy of the tree extracted with `git archive` from the git tree object —
+tracked files only, no `node_modules`, no `.env`, nothing untracked — with
+`RICHOS_PLAYWRIGHT` removed from the environment with `env -u` and the browser cache
+pointed at a directory created empty for the purpose. One edit per run; the tests directory
+was restored from the tree object after each, whether it passed or failed.
+
+READ M1 FIRST. It is the one the CEO's sentence is about: every process exits 0, every
+suite's own checks pass, and the run is refused anyway.
+
+COVERAGE MAP — every rule the gate applies, and the run that proved it can refuse
+--------------------------------------------------------------------------------
+  a suite ran fewer checks than its source declares .................. M1
+  a suite reported no checks at all and exited 0 ..................... M2
+  a suite skipped without leave ...................................... M3a  (probe: M3b)
+  the suites were prevented from running entirely .................... M4
+  the inventory is empty ............................................. M5   (pre-existing)
+  the declared-check scanner is wrong ................................ M6
+  the --allow-skip flag was mistyped ................................. M7
+  `npm install` does not install a browser engine .................... M8   (probe in-line)
+
+  NOT COVERED BY A MUTATION OF ITS OWN, named rather than left to be noticed: the
+  "zero checks across the whole tree" rule has no mutation that reaches it alone. Any
+  tree-wide zero also trips the per-suite no-evidence rule first, which M4 shows firing
+  eleven times at once. It is a backstop for a case the per-suite rules already catch,
+  and it has never been the only thing between a run and a green badge.
+
+==============================================================================
+MUTATION M1
+  broken:     docs-claims.js stops after 3 of its 6 checks — the headline case: a suite that runs, exits 0, and every check it did run passed
+  how:        python3 /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/muts/m1.py
+  invoked as: node run.js --allow-skip=realbytes.js
+------------------------------------------------------------------------------
+docs-claims.js: an early `return run.report()` after check 3 of 6 — the suite still exits 0
+  PASS  CROSS-ENTITY: a worker row stamped with another entity never renders
+          guard on: rejected. guard off (entity clause deleted): admitted. Neither name nor authored update reached the DOM.
+  PASS  bindingRevision is a staleness fence, not an equality key
+          rev 3 accepted, rev 9 accepted (a later activation), rev 2 refused (stale)
+  PASS  SCREENSHOT: three workers, three states, real WebKit pixels
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests/.shots/three-workers-expanded.png (56760 bytes)
+  PASS  SCREENSHOT: every run ended, and nothing claims how
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests/.shots/all-ended.png (49294 bytes)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+== evidence ==
+  ok              affordances.js — 46 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)
+  SHORT           docs-claims.js — 3 check(s) run, 6 declared, 0 failed (exit 0)
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)
+  ok              realbytes.js — 7 check(s) run, 7 declared, 0 failed (exit 0)
+  ok              restart-scope.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              scale.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)
+  ok              workers.js — 16 check(s) run, 16 declared, 0 failed (exit 0)
+
+  12 discovered, 12 ran, 0 skipped, 221 checks observed against 189 declared
+  NOTE  --allow-skip=realbytes.js was passed and was not needed: realbytes.js ran here.
+
+== the evidence gate REFUSES this run ==
+  ✗ docs-claims.js: ran 3 check(s) but its source declares 6 — it stopped early or a check was never reached.
+------------------------------------------------------------------------------
+EXIT 1  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M2
+  broken:     workers.js runs nothing at all and exits 0 — 'somebody checked and it was fine' over zero checks
+  how:        python3 /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/muts/m2.py
+  invoked as: node run.js --allow-skip=realbytes.js
+------------------------------------------------------------------------------
+workers.js: main() returns 0 before creating a run — 16 declared checks, none run
+  PASS  §18 reduced motion: the live/stopping mark is present and does not move
+          mark present, animation-name=none, opacity=0.7
+  PASS  §20 the stop control is reachable and unclipped at 1400px (1180px and wider)
+          40x40 inside a 574px composer — steering-composer-1400.png (103471B, 252 distinct colours)
+  PASS  §20 the stop control is reachable and unclipped at 1000px (820px to 1179px)
+          40x40 inside a 574px composer — steering-composer-1000.png (95213B, 283 distinct colours)
+  PASS  §20 the stop control is reachable and unclipped at 760px (below 820px)
+          40x40 inside a 574px composer — steering-composer-760.png (57195B, 253 distinct colours)
+  PASS  no page errors anywhere in the shell run
+          clean
+
+== evidence ==
+  ok              affordances.js — 46 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)
+  ok              realbytes.js — 7 check(s) run, 7 declared, 0 failed (exit 0)
+  ok              restart-scope.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              scale.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)
+  NO EVIDENCE     workers.js (exit 0, 16 declared)
+
+  12 discovered, 11 ran, 0 skipped, 208 checks observed against 173 declared
+  NOTE  --allow-skip=realbytes.js was passed and was not needed: realbytes.js ran here.
+
+== the evidence gate REFUSES this run ==
+  ✗ workers.js: produced NO evidence — it exited 0 without reporting a single check. Its source declares 16.
+------------------------------------------------------------------------------
+EXIT 1  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M3a
+  broken:     realbytes.js cannot run (its cargo directory is gone) and NOBODY ALLOWED THE SKIP
+  how:        python3 /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/muts/m3.py
+  invoked as: node run.js 
+------------------------------------------------------------------------------
+realbytes.js: TAURI_DIR points nowhere, so cargo cannot run and the suite skips
+          1 pulse, animation-name: none, transitions: 0s
+  PASS  CROSS-ENTITY: a worker row stamped with another entity never renders
+          guard on: rejected. guard off (entity clause deleted): admitted. Neither name nor authored update reached the DOM.
+  PASS  bindingRevision is a staleness fence, not an equality key
+          rev 3 accepted, rev 9 accepted (a later activation), rev 2 refused (stale)
+  PASS  SCREENSHOT: three workers, three states, real WebKit pixels
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests/.shots/three-workers-expanded.png (56760 bytes)
+  PASS  SCREENSHOT: every run ended, and nothing claims how
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests/.shots/all-ended.png (49294 bytes)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+== evidence ==
+  ok              affordances.js — 46 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)
+  SKIP            realbytes.js — could not run `cargo run --example timeline_payload` from app/src-tauri. Install Rust and re-run.
+  ok              restart-scope.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              scale.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)
+  ok              workers.js — 16 check(s) run, 16 declared, 0 failed (exit 0)
+
+  12 discovered, 11 ran, 1 skipped, 217 checks observed against 182 declared
+
+== the evidence gate REFUSES this run ==
+  ✗ realbytes.js: did not run and was not allowed to skip. Pass --allow-skip=realbytes.js at the call site if that is deliberate, so the gap is visible where the run is started.
+------------------------------------------------------------------------------
+EXIT 1  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M3b
+  broken:     POSITIVE PROBE for M3a: the identical mutation, with the skip allowed by name on the command line
+  how:        python3 /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/muts/m3.py
+  invoked as: node run.js --allow-skip=realbytes.js
+------------------------------------------------------------------------------
+realbytes.js: TAURI_DIR points nowhere, so cargo cannot run and the suite skips
+  PASS  §18/§17.4: reduced motion replaces the pulse with a static mark
+          1 pulse, animation-name: none, transitions: 0s
+  PASS  CROSS-ENTITY: a worker row stamped with another entity never renders
+          guard on: rejected. guard off (entity clause deleted): admitted. Neither name nor authored update reached the DOM.
+  PASS  bindingRevision is a staleness fence, not an equality key
+          rev 3 accepted, rev 9 accepted (a later activation), rev 2 refused (stale)
+  PASS  SCREENSHOT: three workers, three states, real WebKit pixels
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests/.shots/three-workers-expanded.png (56760 bytes)
+  PASS  SCREENSHOT: every run ended, and nothing claims how
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests/.shots/all-ended.png (49294 bytes)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+== evidence ==
+  ok              affordances.js — 46 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)
+  SKIP (allowed)  realbytes.js — could not run `cargo run --example timeline_payload` from app/src-tauri. Install Rust and re-run.
+  ok              restart-scope.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              scale.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)
+  ok              workers.js — 16 check(s) run, 16 declared, 0 failed (exit 0)
+
+  12 discovered, 11 ran, 1 skipped, 217 checks observed against 182 declared
+
+all 11 suites passed — 217 checks over 11 suites, 1 skipped with leave (realbytes.js)
+------------------------------------------------------------------------------
+EXIT 0  ->  GREEN, WHICH IS THE RIGHT ANSWER HERE. This is the positive probe, not a
+            mutation: the same broken realbytes.js, with the skip allowed by name. The
+            driver prints its generic verdict for exit 0; read it as 'the allowance is
+            what made the difference, and nothing else did'. The run says so itself —
+            '1 skipped with leave (realbytes.js)', never 'all 12 suites passed'.
+
+==============================================================================
+MUTATION M4
+  broken:     THE SUITES ARE PREVENTED FROM RUNNING — no browser engine anywhere the harness can reach
+  how:        true
+  invoked as: PLAYWRIGHT_BROWSERS_PATH=/private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/no-such-cache node run.js --allow-skip=realbytes.js
+------------------------------------------------------------------------------
+== evidence ==
+  NO EVIDENCE     affordances.js (exit 1, 16 declared)
+  NO EVIDENCE     corrections.js (exit 1, 20 declared)
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)
+  NO EVIDENCE     feedback.js (exit 1, 24 declared)
+  NO EVIDENCE     inspector.js (exit 1, 11 declared)
+  NO EVIDENCE     live-workers.js (exit 1, 11 declared)
+  NO EVIDENCE     memory-strategy.js (exit 1, 32 declared)
+  NO EVIDENCE     realbytes.js (exit 1, 7 declared)
+  NO EVIDENCE     restart-scope.js (exit 1, 12 declared)
+  NO EVIDENCE     scale.js (exit 1, 12 declared)
+  NO EVIDENCE     steering.js (exit 1, 22 declared)
+  NO EVIDENCE     workers.js (exit 1, 16 declared)
+
+  12 discovered, 1 ran, 0 skipped, 6 checks observed against 6 declared
+
+== the evidence gate REFUSES this run ==
+  ✗ affordances.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 16.
+  ✗ corrections.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 20.
+  ✗ feedback.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 24.
+  ✗ inspector.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 11.
+  ✗ live-workers.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 11.
+  ✗ memory-strategy.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 32.
+  ✗ realbytes.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 7.
+  ✗ restart-scope.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 12.
+  ✗ scale.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 12.
+  ✗ steering.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 22.
+  ✗ workers.js: produced NO evidence — it exited 1 without reporting a single check. Its source declares 16.
+
+11 suite(s) FAILED: affordances.js, corrections.js, feedback.js, inspector.js, live-workers.js, memory-strategy.js, realbytes.js, restart-scope.js, scale.js, steering.js, workers.js
+------------------------------------------------------------------------------
+EXIT 1  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M5
+  broken:     the inventory itself — every suite moved out of the directory
+  how:        mkdir -p /tmp/parked-suites && mv *.js /tmp/parked-suites/ && mv /tmp/parked-suites/run.js . && rm -rf /tmp/parked-suites
+  invoked as: node run.js --allow-skip=realbytes.js
+------------------------------------------------------------------------------
+no browser suites discovered in /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/mut/app/ui/tests — refusing to report green over an empty inventory
+------------------------------------------------------------------------------
+EXIT 2  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M6
+  broken:     the declared-check scanner's own self-test — the thing that decides whether the floor is real
+  how:        python3 /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/muts/m6.py
+  invoked as: node run.js --allow-skip=realbytes.js
+------------------------------------------------------------------------------
+run.js: the scanner's regex-literal branch disabled — the self-test must catch it
+the declared-check scanner is broken: expected 4 on its own fixture, got 2
+------------------------------------------------------------------------------
+EXIT 2  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M7
+  broken:     a mistyped flag, which must not be silently ignored
+  how:        true
+  invoked as: node run.js --allow-skips=realbytes.js
+------------------------------------------------------------------------------
+unknown argument: --allow-skips=realbytes.js
+usage: node run.js [--allow-skip=<suite.js> ...]
+------------------------------------------------------------------------------
+EXIT 2  ->  RED. The gate refused it.
+
+==============================================================================
+MUTATION M8 — the v3 fix itself: package.json's postinstall removed
+  broken: the one line that makes `npm install` install a browser engine
+  the browser cache is a FRESH EMPTY DIRECTORY both times, so neither run can
+  borrow the webkit some other project already downloaded — which is exactly what
+  every previous run of this harness on this machine was doing.
+------------------------------------------------------------------------------
+removed:  "postinstall": "playwright install webkit"
+
+$ PLAYWRIGHT_BROWSERS_PATH=<empty dir> npm ci
+
+added 3 packages, and audited 4 packages in 433ms
+
+found 0 vulnerabilities
+
+$ <the workflow's 'Prove WebKit is really here' step>
+browserType.launch: Executable doesn't exist at /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/depcache-red/webkit-2311/pw_run.sh
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+->  RED. `npm ci` alone leaves this checkout with no browser. (The exit code is
+    captured without a pipe in the way at the foot of this section.)
+
+------------------------------------------------------------------------------
+POSITIVE PROBE — the same clean checkout, the postinstall line restored
+restored: "postinstall": "playwright install webkit"
+$ PLAYWRIGHT_BROWSERS_PATH=<a different empty dir> npm ci
+Downloading WebKit 26.5 (playwright webkit v2311) from https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit/2311/webkit-mac-15-arm64.zip
+WebKit 26.5 (playwright webkit v2311) downloaded to /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/depcache-green/webkit-2311
+Downloading FFmpeg (playwright ffmpeg v1011) from https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-mac-arm64.zip
+FFmpeg (playwright ffmpeg v1011) downloaded to /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/depcache-green/ffmpeg-1011
+
+added 3 packages, and audited 4 packages in 8s
+
+found 0 vulnerabilities
+
+$ <the same 'Prove WebKit is really here' step>
+WebKit 26.5 launched from this checkout's own node_modules
+->  GREEN.
+
+------------------------------------------------------------------------------
+EXIT CODES, captured without a pipe in the way (the two launches above, repeated
+against the same two caches — no downloads, so this is the same fact stated cleanly):
+  postinstall REMOVED, empty cache  -> exit 1   (RED)
+  postinstall PRESENT, empty cache  -> exit 0   (GREEN — the cache is no longer empty; npm ci filled it)
+

@@ -23,7 +23,7 @@
 
 const { spawnSync } = require("child_process");
 const path = require("path");
-const { loadPlaywright, openFixture, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { loadPlaywright, openFixture, shot, createRun, skipSuite, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const TAURI_DIR = path.resolve(UI_DIR, "..", "src-tauri");
 
@@ -45,10 +45,15 @@ async function main() {
 
   const wire = wirePayload();
   if (!wire.ok) {
-    console.log("\n== real backend bytes, real renderer, WebKit ==");
-    console.log("  SKIP  could not run `cargo run --example timeline_payload`");
-    console.log("        " + wire.why);
-    console.log("        This suite is SKIPPED, not passed. Install Rust and re-run.");
+    // The skip is now RECORDED as well as printed. It read identically to a human before and
+    // was invisible to `run.js`, which saw only exit 0 — so a CI runner with no cargo would
+    // have counted this suite as green while it did nothing at all. `run.js` fails on a skip
+    // it was not explicitly told to allow.
+    skipSuite(
+      "real backend bytes, real renderer, WebKit",
+      "could not run `cargo run --example timeline_payload` from app/src-tauri. Install Rust " +
+        "and re-run.\n        " + wire.why
+    );
     return 0;
   }
 

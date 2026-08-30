@@ -1,0 +1,19 @@
+==============================================================================
+THE ESCAPE HATCH STILL WORKS — RICHOS_PLAYWRIGHT, on a checkout with NO node_modules
+  This copy has never had npm run in it:
+ls: node_modules: No such file or directory
+
+$ node workers.js        (no RICHOS_PLAYWRIGHT, no install — must fail, and must say what to do)
+Error: playwright not found. Run `npm install` in app/ui/tests (its postinstall fetches WebKit too), or point RICHOS_PLAYWRIGHT at an existing install.
+    at loadPlaywright (/private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/hatch/app/ui/tests/lib/harness.js:51:9)
+    at main (/private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/hatch/app/ui/tests/workers.js:14:22)
+  exit: (non-zero, above)
+
+$ RICHOS_PLAYWRIGHT=<an install elsewhere on the machine> node workers.js
+  PASS  SCREENSHOT: three workers, three states, real WebKit pixels
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/hatch/app/ui/tests/.shots/three-workers-expanded.png (56760 bytes)
+  PASS  SCREENSHOT: every run ended, and nothing claims how
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/hatch/app/ui/tests/.shots/all-ended.png (49294 bytes)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+  exit: 0
