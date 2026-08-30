@@ -441,6 +441,49 @@ const FIXTURES = {
     return page;
   },
 
+  // ---- techy mode (open-items row 3.1) ------------------------------------------------
+  //
+  // All three go through the CEO's own path — open a thread, press the shortcut — rather
+  // than setting a flag. The state under test is what the SHIPPING `loadTimeline` branch
+  // produces, and a fixture that painted it would prove the fixture.
+
+  /// The technical view of a thread that HAS machinery, with the two raw panes that carry
+  /// their own sentences already open: an evicted Tier-B payload and a truncated one.
+  async "techy-on"(browser) {
+    const page = await openApp(browser);
+    await page.click('.nav-thread[data-thread-id="acme"]');
+    await page.waitForSelector(".tl-turn");
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForSelector(".tl-tech");
+    await page.click("#mach\\:mach_a5"); // raw window has passed over this one
+    await page.click("#mach\\:mach_a6"); // over the 32 KB cap
+    await page.waitForSelector("#raw\\:mach_a6 .tl-tech-note");
+    return page;
+  },
+
+  /// A conversation from before the routing commit: the journal is readable and this thread
+  /// is not in it. THE honest empty state.
+  async "techy-empty"(browser) {
+    const page = await openApp(browser);
+    await page.click('.nav-thread[data-thread-id="partner"]');
+    await page.waitForSelector(".tl-turn");
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForSelector('#techy-state[data-state="nothing_recorded"]');
+    return page;
+  },
+
+  /// The store is there and the OS refuses it — `breakMachinery` is the harness's stand-in
+  /// for the `chmod 000` that `journal.rs`'s own test uses. NOT the empty state.
+  async "techy-unreadable"(browser) {
+    const page = await openApp(browser);
+    await page.evaluate(() => window.__RICHOS_MOCK__.breakMachinery("acme"));
+    await page.click('.nav-thread[data-thread-id="acme"]');
+    await page.waitForSelector(".tl-turn");
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForSelector('#techy-state[data-state="unreadable"]');
+    return page;
+  },
+
   /// §3.5 entity overview, reached the way the CEO reaches it.
   async "entity-view"(browser) {
     const page = await openApp(browser);
@@ -677,6 +720,11 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "corrections-spoken-declined",
   "corrections-spoken-never",
   "corrections-lifted",
+  // Techy mode's three states are all pure software — no hardware behind any of them — so
+  // the sentence itself is asserted present, not just a control's existence.
+  "techy-on",
+  "techy-empty",
+  "techy-unreadable",
   // Every feedback fixture renders its own words too — nothing on that surface needs
   // hardware, so control-presence-only would be a choice rather than a limit.
   "feedback",
