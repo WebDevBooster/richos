@@ -514,8 +514,59 @@ else
     printf '  FAIL  s.unadopted-repository-passes\n'; FAIL=$((FAIL + 1))
 fi
 
+# --- t. THE OPT-OUT IS SEEN BY THE OPERATOR, NOT JUST BY THE TRANSCRIPT -----
+#
+# This case used to assert the notice appeared on STDERR, and passed. It was
+# asserting the defect. Measured against 2.1.251, a Stop hook's stderr and its
+# plain stdout are both filed into the transcript as a `hook_success`
+# attachment and rendered to the operator NOWHERE; only a stdout
+# {"systemMessage": ...} reaches his scroll. So the old assertion confirmed that
+# this gate could be switched off and say so where nobody would ever read it,
+# which is indistinguishable from not saying so at all.
+#
+# Both halves are asserted, because "it is on the right channel" and "it is no
+# longer only on the wrong one" are different claims and only the pair rules out
+# a notice that was duplicated rather than moved.
 printf 'CHECK_IDLE_LAND=0\n' > "$ENTITY/orchestration.config"
-run_case "t.explicit-opt-out-says-so" 0 "$(payload "$TR_MERGE")" "STOOD DOWN"
+rm -rf "$ENTITY/.claude/state/stop-hook-notices"
+T_OUT="$(mktemp "$SANDBOX/tout.XXXXXX")"; T_ERR="$(mktemp "$SANDBOX/terr.XXXXXX")"
+printf '%s' "$(payload "$TR_MERGE")" | RICHOS_ENTITY_ROOT="$ENTITY" "$HOOK" >"$T_OUT" 2>"$T_ERR"
+T_RC=$?
+if [ "$T_RC" -ne 0 ]; then
+    printf '  FAIL  t.explicit-opt-out-says-so (expected exit 0, got %s)\n' "$T_RC"; FAIL=$((FAIL + 1))
+elif ! grep -qF 'STOOD DOWN' "$T_OUT"; then
+    printf '  FAIL  t.explicit-opt-out-says-so (stdout carries no stand-down notice)\n'; FAIL=$((FAIL + 1))
+elif ! python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(d.get("systemMessage"),str) else 1)' "$T_OUT" 2>/dev/null; then
+    printf '  FAIL  t.explicit-opt-out-says-so (stdout is not valid JSON with a string systemMessage — the operator still cannot see it)\n'; FAIL=$((FAIL + 1))
+elif grep -qF 'STOOD DOWN' "$T_ERR"; then
+    printf '  FAIL  t.explicit-opt-out-says-so (still announced on stderr — the invisible channel was duplicated, not abandoned)\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  t.explicit-opt-out-says-so\n'; PASS=$((PASS + 1))
+fi
+
+# t2. AND IT DOES NOT REPEAT while the condition is unchanged — the state-change
+# rule in scripts/lib/stop-hook-notice.sh. Text repeated under every turn is
+# text the eye stops reading, and an unread notice is worth what the stderr one
+# was worth.
+printf '%s' "$(payload "$TR_MERGE")" | RICHOS_ENTITY_ROOT="$ENTITY" "$HOOK" >"$T_OUT" 2>/dev/null
+if [ -s "$T_OUT" ]; then
+    printf '  FAIL  t2.opt-out-does-not-repeat-while-unchanged (announced again: %s)\n' "$(head -c 120 "$T_OUT")"; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  t2.opt-out-does-not-repeat-while-unchanged\n'; PASS=$((PASS + 1))
+fi
+
+# t3. THE NEGATIVE CONTROL for t2 — silence there must mean "unchanged", not
+# "this hook never prints". Turn the gate back on in the same session: the state
+# changed, so the recovery IS announced.
+: > "$ENTITY/orchestration.config"
+printf '%s' "$(payload "$TR_MERGE")" | RICHOS_ENTITY_ROOT="$ENTITY" "$HOOK" >"$T_OUT" 2>/dev/null || true
+if grep -qF 'RUNNING AGAIN' "$T_OUT"; then
+    printf '  PASS  t3.recovery-is-announced-so-silence-means-unchanged\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  t3.recovery-is-announced-so-silence-means-unchanged (nothing said when the gate came back: %s)\n' "$(head -c 120 "$T_OUT")"; FAIL=$((FAIL + 1))
+fi
+rm -f "$T_OUT" "$T_ERR"
+rm -rf "$ENTITY/.claude/state/stop-hook-notices"
 : > "$ENTITY/orchestration.config"
 
 run_case "u.unparseable-payload-passes" 0 'not json at all {{{'

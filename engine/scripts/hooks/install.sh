@@ -314,6 +314,15 @@ HOOK_FILES+=(
     # guard and not the predicate would check the lock and ignore the key.
     "$REPO_ROOT/scripts/lib/row-currency.sh"
     "$REPO_ROOT/scripts/lib/row-currency.py"
+    # The Stop-hook notice channel. Not a hook, and hashed for the reason above
+    # turned inside out: the other entries decide whether to REFUSE something,
+    # and this one decides whether the operator is TOLD a guard has stopped
+    # deciding anything. Every Stop hook delegates its stand-down and cannot-run
+    # notices to it, so a tampered or reverted copy puts them all back on a
+    # channel nobody can see — and the symptom of that is silence, which is
+    # exactly what a healthy engine also looks like. Checking the lock and
+    # ignoring the key, one more time.
+    "$REPO_ROOT/scripts/lib/stop-hook-notice.sh"
     # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
     # and compared by the guard, so this file is not documentation — it is part
     # of the decision. Edit a question and every transcript on file stops

@@ -51,9 +51,20 @@
 #   up, and the operator watches a wedged session. The thing being protected
 #   here is report integrity, not containment of a destructive act. So a broken
 #   install, an unparseable payload, a resolver error or an unreadable
-#   transcript all pass the turn through, and the broken-install case SAYS SO on
-#   stderr rather than dying quietly. engine-status.sh announces BROKEN at
-#   session start anyway.
+#   transcript all pass the turn through.
+#
+#   FAILING OPEN IS ONLY DEFENSIBLE IF IT IS SEEN, and for a while it was not.
+#   All four ways this guard stops enforcing — stood down by config, no
+#   python3, no analyzer, no resolvable root — announced themselves on STDERR
+#   and exited 0. Measured against 2.1.251: a Stop hook's stderr AND its plain
+#   stdout are both filed into the transcript as a `hook_success` attachment
+#   and shown to the operator NOWHERE. So this guard could be switched off and
+#   the operator's only evidence that it was protecting him was that it was
+#   quiet — which is also exactly what being disabled looks like. Its own
+#   header called that "a defence that decays into a rumour" and then built
+#   one. The notices now go through scripts/lib/stop-hook-notice.sh, on the one
+#   channel proven to reach him. engine-status.sh announces BROKEN at session
+#   start as well, but it speaks once, at startup, about a different question.
 #
 # WHEN IT TAKES EFFECT
 #   Hooks snapshot at session start. Installing this changes nothing in the
@@ -100,6 +111,31 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- NOTICE CHANNEL --------------------------------------------------------
+# A Stop hook's stand-down and cannot-run notices go to the OPERATOR, never to
+# stderr. The measurement behind that, and the argument for announcing on state
+# change rather than every turn, are in scripts/lib/stop-hook-notice.sh. This
+# block is byte-identical in every Stop hook and stop-hook-visibility.test.sh
+# asserts it, for the reason Layer R asserts the same of the root bootstrap: a
+# divergent copy is one hook disagreeing with its siblings about how it tells
+# you it has stopped working.
+_SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
+if [ -f "$_SHN_LIB" ]; then
+    # shellcheck source=../lib/stop-hook-notice.sh
+    . "$_SHN_LIB"
+else
+    # The helper is the thing that makes these notices visible, so its absence
+    # must not make them invisible. The hook then announces EVERY turn,
+    # undeduplicated, and says why. Degrading toward noise is recoverable by an
+    # operator who can read it; degrading toward silence rebuilds the defect.
+    stop_notice_init() { :; }
+    stop_notice_normal() { :; }
+    stop_notice_abnormal() {
+        printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
+        return 0
+    }
+fi
+
 INPUT="$(cat)"
 
 # Resolve the governed repository. Three outcomes — but unlike a PreToolUse
@@ -109,6 +145,13 @@ if resolve_entity_root "$INPUT"; then
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     exit 0
 else
+    # No entity root, so no ledger: this one announces every turn, and should.
+    # A guard that cannot tell which repository it governs is not a guard, and
+    # is not entitled to be quiet. The full banner still goes to stderr, where
+    # the transcript keeps it for forensics; the operator gets the one line.
+    stop_notice_init "guard-unresolved-claims.sh" "" "$INPUT"
+    stop_notice_abnormal "root-failure" \
+        "CLAIM CHECK — NOT RUNNING: could not resolve which repository it governs, so no agent name, commit SHA or file path in this turn's report was checked against anything. Candidates examined are in this hook's transcript entry. $HOOK_TAG"
     root_failure_banner "scripts/hooks/guard-unresolved-claims.sh" >&2
     exit 0
 fi
@@ -117,25 +160,42 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${CHECK_UNRESOLVED_CLAIMS:=1}"
 
+stop_notice_init "guard-unresolved-claims.sh" "$ENTITY_ROOT" "$INPUT"
+
 if [ "$CHECK_UNRESOLVED_CLAIMS" = "0" ]; then
     # Never a silent permission: an opt-out that cannot be seen is a defence
-    # that decays into a rumour.
-    echo "claim check STOOD DOWN by CHECK_UNRESOLVED_CLAIMS=0 in $CONFIG $HOOK_TAG" >&2
+    # that decays into a rumour. This line used to write that sentence to
+    # STDERR, which the operator cannot see — the guard could be switched off
+    # and his only evidence it was protecting him was that it was quiet, which
+    # is also exactly what being disabled looks like.
+    stop_notice_abnormal "stood-down" \
+        "CLAIM CHECK — STOOD DOWN by CHECK_UNRESOLVED_CLAIMS=0 in $CONFIG. Agent names, commit SHAs and file paths in this session's reports are NOT being checked against ground truth. $HOOK_TAG"
     exit 0
 fi
 
 # python3 is the analysis half's only dependency. Absent, the turn ends — this
 # guard never turns a missing interpreter into an unendable session.
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "claim check SKIPPED: python3 not on PATH $HOOK_TAG" >&2
+    stop_notice_abnormal "no-python3" \
+        "CLAIM CHECK — NOT RUNNING: python3 is not on PATH, so this session's reports are going out unchecked. An unchecked turn is not a clean one. $HOOK_TAG"
     exit 0
 fi
 
 ANALYZER="$SCRIPT_DIR/guard-unresolved-claims.py"
 if [ ! -f "$ANALYZER" ]; then
-    echo "claim check SKIPPED: analyzer missing at $ANALYZER $HOOK_TAG" >&2
+    stop_notice_abnormal "no-analyzer" \
+        "CLAIM CHECK — NOT RUNNING: the analyzer is missing at $ANALYZER, so this session's reports are going out unchecked. An unchecked turn is not a clean one. $HOOK_TAG"
     exit 0
 fi
+
+# Everything it needs is present and it is about to check this turn. Silent in
+# the ordinary case — the whole point is that a working guard says nothing —
+# and one line if the previous state was one of the four above, so the operator
+# who was told it was off is told it is back. Safe to emit before the analysis:
+# a Stop hook may write systemMessage to stdout AND exit 2, verified live, and
+# the turn is still refused.
+stop_notice_normal \
+    "CLAIM CHECK — RUNNING AGAIN. Agent names, commit SHAs and file paths in this turn's report were checked against ground truth. $HOOK_TAG"
 
 set +e
 printf '%s' "$INPUT" | RICHOS_CLAIMS_ENTITY_ROOT="$ENTITY_ROOT" \

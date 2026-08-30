@@ -53,7 +53,7 @@
 # inventory and rc 0, or NOTHING on stdout and a non-zero rc the caller must
 # report rather than paper over.
 
-# registered_hook_scripts <path-to-hooks.json>
+# registered_hook_scripts <path-to-hooks.json> [event]
 #
 # Prints one hook-script BASENAME per line ("guard-bash-main-writes.sh"),
 # sorted and de-duplicated — every script the given hook table registers, on
@@ -61,16 +61,66 @@
 # verification echo) contribute nothing, correctly: they are not scripts and
 # cannot be present-or-missing on disk.
 #
+# With [event] ("Stop", "PreToolUse", …) the answer is narrowed to the scripts
+# that table registers ON THAT EVENT. The narrowed form exists so that "which
+# hooks run at turn-end?" is DERIVED like every other inventory here rather than
+# typed: stop-hook-visibility.test.sh asks this question, and a typed answer of
+# 14 where the registration held 15 is the exact defect the whole file was
+# written about. A Stop hook added tomorrow is in the answer with no edit here
+# and no edit there.
+#
+# The event filter REQUIRES python3 and says so with rc 3 rather than degrading.
+# The text-scan fallback below cannot see event boundaries at all, so filtering
+# through it would silently return the WHOLE inventory under an event's name —
+# an over-count wearing a precise label, which is worse than the honest refusal.
+#
 # Exit codes — a caller MUST distinguish these from an empty inventory:
 #   0  complete inventory printed
 #   1  no such file (the path is wrong, or the engine install is incomplete)
 #   2  present but unparseable, or parseable and registering no script at all
+#      (with [event]: no script registered on that event)
+#   3  [event] was requested and python3 is unavailable — cannot filter
 registered_hook_scripts() {
     local f="${1:-}"
+    local event="${2:-}"
     local out=""
     local rc=0
 
     [ -n "$f" ] && [ -f "$f" ] || return 1
+
+    if [ -n "$event" ]; then
+        command -v python3 >/dev/null 2>&1 || return 3
+        out="$(python3 -c '
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = json.load(fh)
+want = sys.argv[2]
+found = set()
+hooks = doc.get("hooks", {})
+if isinstance(hooks, dict):
+    for name, entries in hooks.items():
+        if name != want or not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            for h in entry.get("hooks", []) or []:
+                if not isinstance(h, dict):
+                    continue
+                cmd = h.get("command", "")
+                if not isinstance(cmd, str):
+                    continue
+                for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                    found.add(m)
+for name in sorted(found):
+    print(name)
+' "$f" "$event" 2>/dev/null)"
+        rc=$?
+        [ "$rc" -eq 0 ] || return 2
+        [ -n "$out" ] || return 2
+        printf '%s\n' "$out"
+        return 0
+    fi
 
     if command -v python3 >/dev/null 2>&1; then
         # The authoritative path: a real JSON parse. If the file is present but
