@@ -198,6 +198,42 @@ async function shot(page, name, opts) {
 // whole point is that it is cheap enough to keep.
 // ---------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------------
+// The evidence ledger
+// ---------------------------------------------------------------------------------------
+//
+// A suite prints PASS/FAIL lines for a human. `run.js` needs the same facts as NUMBERS, so
+// it can refuse to report green over a suite that ran and checked nothing — the failure this
+// repository has now produced twice: a scanner reporting CLEAN over an empty corpus, and a
+// `run.js` reporting "all 4 suites passed" over a suite it was not running. Neither was
+// detectable from a suite's exit code, because both exited 0 honestly.
+//
+// So every `report()` appends one JSON line naming how many checks it actually ran, and
+// `skipSuite()` writes the other kind of record: this suite produced no evidence, and here
+// is why. `run.js` reads them back and gates on them.
+//
+// Written ONLY when RICHOS_UI_TESTS_LEDGER is set, which `run.js` does for its children.
+// `node workers.js` on its own is byte-for-byte unchanged.
+
+const LEDGER = process.env.RICHOS_UI_TESTS_LEDGER || "";
+
+function recordEvidence(rec) {
+  if (!LEDGER) return;
+  const suite = path.basename(process.argv[1] || "unknown");
+  fs.appendFileSync(LEDGER, JSON.stringify(Object.assign({ suite }, rec)) + "\n");
+}
+
+/// A suite that CANNOT run says so here rather than returning 0 quietly. The distinction is
+/// the whole point: "did not run" and "ran and found nothing wrong" are different facts, and
+/// only one of them is evidence. `run.js` fails on any skip it was not told to expect.
+function skipSuite(label, reason) {
+  console.log("\n== " + label + " ==");
+  console.log("  SKIP  this suite did not run");
+  console.log("        " + reason);
+  console.log("        SKIPPED, not passed.");
+  recordEvidence({ label, skipped: reason });
+}
+
 function createRun(label) {
   const results = [];
   return {
@@ -217,6 +253,7 @@ function createRun(label) {
         if (!r.ok) failed++;
         console.log(`  ${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.detail ? "\n          " + r.detail : ""}`);
       }
+      recordEvidence({ label, checks: results.length, failed });
       return failed;
     },
   };
@@ -273,6 +310,7 @@ function assertEqual(actual, expected, msg) {
 module.exports = {
   loadPlaywright,
   openFixture,
+  skipSuite,
   shot,
   createRun,
   assert,
