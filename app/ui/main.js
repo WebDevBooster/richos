@@ -1104,7 +1104,7 @@ async function send() {
   // surface." It carries a synthetic id until `rich://turn-status` names the turn, then it
   // is RE-KEYED onto `{turnId}:user` — the same id the ledger derives — so the CEO's one
   // sentence is never drawn twice.
-  window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+  const pendingId = window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
   followBottom = true;
   scheduleRender();
 
@@ -1115,11 +1115,37 @@ async function send() {
     // fire for this attempt). A turn that started and then failed is resolved by
     // `rich://turn-status: failed`, not here.
     if (anyLiveTurn()) return;
+
+    // WHAT THIS USED TO DO, AND WHY IT WAS THE WORST STATE IN THE APP. It said
+    // "Something went sideways on my end — one moment, I'll sort it." and then left the
+    // optimistic bubble on screen. Two lies in one row: nothing was going to sort it (no
+    // turn exists, so no retry, no timer, no event will ever fire for this attempt), and
+    // the bubble sat there looking exactly like a message that had gone. The CEO's only
+    // correct move — send it again — was the one thing neither the copy nor the screen
+    // offered, and his words were no longer in the box to send.
+    //
+    // So the bubble is WITHDRAWN, the words go back where he can see and edit them, and
+    // the sentence names the control: Send. This is the same shape `steer()` below has
+    // used since §9.2 landed; there is no reason the two paths should differ.
+    //
+    // THE BACKEND'S OWN SENTENCE IS KEPT WHERE THERE IS ONE, and kept FIRST. `send_message`
+    // has exactly one authored refusal today — "I'm not connected to my thinking right now"
+    // (main.rs:199) — and it is a different statement from a generic failure, with a
+    // different thing for the CEO to do about it. Swallowing it for one house sentence
+    // would delete the only diagnosis the app has. What is added is the half it never
+    // carried: what happened to his words, and which control sends them again.
+    window.RichTimeline.dropPendingUserMessage(timelineModel, pendingId);
+    const reason = typeof e === "string" && e.trim() ? e.trim().replace(/\s*$/, "") : null;
     window.RichTimeline.addLocalNotice(
       timelineModel,
-      typeof e === "string" ? e : "Something went sideways on my end — one moment, I'll sort it.",
+      (reason || "I couldn't get that to my desk just now, and nothing is running.") +
+        " Your words are back in the box below, word for word — press Send when you want me" +
+        " to try again.",
       Date.now()
     );
+    inputEl.value = text; // never swallow the CEO's words
+    autoGrow();
+    syncComposerMode();
     scheduleRender();
   }
 }

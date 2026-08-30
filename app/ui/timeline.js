@@ -765,6 +765,26 @@
     }
   }
 
+  /// WITHDRAW an optimistic bubble that will never become a turn.
+  ///
+  /// The counterpart to `adoptPendingUserMessage`, and it exists because `send()` can be
+  /// refused BEFORE any turn starts: no lease, so no `turn-status` will ever name a turn
+  /// for it and no snapshot will ever replace it. Left in place, the bubble sits on screen
+  /// looking exactly like a message that went — which is the app telling the CEO his words
+  /// were delivered when they were not.
+  ///
+  /// Only ever applied to the id `addPendingUserMessage` returned, and only while it is
+  /// still `pending`: an adopted bubble belongs to a real turn and must never be removed
+  /// by this path.
+  function dropPendingUserMessage(model, id) {
+    const item = model.items.get(id);
+    if (!item || !item.pending) return false;
+    model.items.delete(id);
+    const at = model.pendingUser.indexOf(id);
+    if (at >= 0) model.pendingUser.splice(at, 1);
+    return true;
+  }
+
   /// Drop every trace of a turn — items, record and order slot. Used only by the
   /// supersession merge below.
   function dropTurn(model, turnId) {
@@ -1810,6 +1830,7 @@
     accepts,
     applySnapshot,
     addPendingUserMessage,
+    dropPendingUserMessage,
     markStopping,
     addLocalNotice,
     onTurnStatus,
