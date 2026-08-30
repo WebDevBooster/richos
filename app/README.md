@@ -67,6 +67,12 @@ app/
     src/correction.rs        the loro WRITE loop: propose, ASK the CEO, then write
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
+    src/live.rs              the THIRD event family (UX §13): seven typed live-work events,
+                              four deliberately NOT emitted, and the fence + visibility gate
+                              that make a payload impossible to build from a loose thread id
+    src/worker_events.rs     the engine's worker-lifecycle stream, read and joined BY
+                              IDENTITY to the Task call that spawned the run — session-scoped,
+                              because agent_id is not unique across sessions
     src/machinery.rs         the SECOND event family: every non-text ACP update, routed not
                               dropped, normalized + merged by toolCallId (rich://machinery)
     src/journal.rs           the machinery JOURNAL — separate store, per-thread, day-sharded,
@@ -99,20 +105,26 @@ app/
                               report is assembled from — FeedbackPayload has no String field at
                               any depth, so a user's specifics are unrepresentable rather than
                               filtered. Nothing in it sends anything and there is no queue
+    src/util.rs              the shared id and clock helpers, and nothing else
     examples/acp_roundtrip.rs      headless proof of the real ACP round-trip
     examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
+    examples/live_events_roundtrip.rs both families side by side on one real ACP turn
+    examples/worker_status_demo.rs   what the drill-down reads, against real event logs
+    examples/loro_reprime_demo.rs / loro_correction_demo.rs  the Tier-C read and write loops
+    examples/watermark_roundtrip.rs  the rotation trigger, reading the adapter's own usage
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
                               adoption, the activation fence, and restart
     tests/spine_tests.rs     12 spine invariant tests (no live Claude needed)
-    tests/rotation_tests.rs  12 rotation/crash-recovery/proactive-seam tests
+    tests/rotation_tests.rs  22 rotation/crash-recovery/proactive-seam tests, including
+                              the watermark's own live-vs-estimated source reporting
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
                               stays out of every priming prompt)
-    tests/machinery_tests.rs 14 machinery routing/retention tests, driven by ACP wire
+    tests/machinery_tests.rs 15 machinery routing/retention tests, driven by ACP wire
                               shapes actually measured against the adapter
-    tests/steering_tests.rs  11 stop/steer tests (UX §9.2/§9.3). Includes the CONCURRENCY
+    tests/steering_tests.rs  16 stop/steer tests (UX §9.2/§9.3). Includes the CONCURRENCY
                               proof: the spine goes behind an Arc<Mutex<..>> exactly as the
                               Tauri shell holds it, a real turn runs on one thread, and the
                               test asserts try_lock FAILS at the instant the stop is pressed
@@ -136,11 +148,24 @@ app/
     tests/spoken_trigger_tests.rs 9 tests for the completion criterion — speaking a
                               correction records it with no command typed, ordinary
                               conversation stages nothing, internal traffic is never mined
-    tests/timeline_tests.rs  7 typed-timeline tests: the cross-entity machinery NEGATIVE
+    tests/timeline_tests.rs  12 typed-timeline tests: the cross-entity machinery NEGATIVE
                               CONTROL (both clauses proven failing when removed — one leaks
                               a row, one leaks THROUGH the toolCallId merge), the one shared
                               per-turn sequence live and after a restart, the visibility
-                              gate, and the items that are never invented
+                              gate, the items that are never invented, and the worker join
+                              with its session clause
+    tests/live_event_tests.rs 20 additive-family tests (§13): the four original events
+                              asserted BYTE-IDENTICAL with and without the new family, the
+                              wire and the reload agreeing field by field, phase honestly
+                              `unknown`, the states that are never emitted, and the
+                              cross-entity fence on every payload
+    tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
+                              item is refused whole, and an entity with no lane reads the
+                              person layer and nothing else
+    tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
+                              SERVING SESSION's, derived from the session identity and
+                              never from a directory mtime (a decoy dir is present in
+                              every case, so "reads nothing" cannot pass by finding nothing)
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
@@ -166,11 +191,28 @@ app/
     examples/voice_loop.rs   the reproducible end-to-end proof (audio -> Claude -> speakers)
     examples/device_probe.rs what the audio hardware on THIS machine actually reports
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
+    tests/watermark_cadence_tests.rs 8 tests that recompute the rotation cadence from the
+                              RAW 2026-08-28 capture on every run, both directions
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
+    src/events.rs            the relay: one LiveObserver that puts §13's payloads on the
+                              webview, and nothing that can widen them
+    src/timeline_view.rs     the get_timeline command body — Timeline::view(Ceo) -> payload
+    examples/timeline_payload.rs prints that payload from a real ledger (what realbytes.js
+                              renders, so backend/UI field drift cannot go unnoticed)
+    examples/stop_payload.rs the stop path's wire bytes, for the same reason
     tauri.conf.json, capabilities/, icons/
-  ui/                        minimal web UI (entity/thread rail + messages + composer)
+  ui/                        the web UI — the CEO-facing surface
+    index.html               the shell: rail, header, timeline, inspector, composer
+    main.js                  the WIRING — commands, the four families' listeners, the rail,
+                              per-thread draft/scroll, voice, and the render loop
+    timeline.js              the timeline MODEL and its DOM: the fence, the visibility gate,
+                              the idempotent upsert, §6.4's two disclosure defaults
+    style.css                the calm paper palette and the work grammar (§17)
+    mock.js                  the dev harness — inert in the real Tauri build; the ONLY way
+                              every state is reachable without a live Claude
+    tests/                   the browser acceptance harness (see tests/README.md)
   acp-adapter/               hosts the claude-agent-acp adapter + probe.js (wire-shape repro)
 ```
 
@@ -209,6 +251,74 @@ requires them to work *without changing context authority*; the ledger is eviden
 has no rename/pin/archive event to append. A rename is therefore a display override
 with the ledger title returned untouched beside it, and archiving changes which list a
 thread appears in and nothing else about its scope.
+
+## Between threads, and across a restart (Codex-UX slices 9 and 10)
+
+Contract: §24's last two slices — *"verify restart, multi-thread and scope behavior"* and
+*"update streaming and UI contracts"*. Slices 1–8 each proved ONE thread, in isolation, for
+the length of ONE turn. These two close what that leaves open, and they are two halves of
+one job: the first checks the behaviour, the second checks the sentences about it.
+
+**What is verified** (`app/ui/tests/restart-scope.js`, through the real shell under WebKit):
+
+- **A working thread stays visibly active while another is selected**, and returning to it
+  RESUMES its timer rather than restarting it — measured, not asserted about: leave at 0s,
+  return at 3s, still ticking, derived from the turn's own `startedAt`.
+- **A draft and a scroll position belong to one thread.** The draft one is a privacy
+  control rather than a convenience: an entity is a boundary, so a half-written sentence for
+  one company sitting in another's composer is one Enter from being filed in the wrong
+  place.
+- **A turn streaming elsewhere renders nothing here** — across entities AND across two
+  threads inside one entity, which is the half only the fence's `threadId` clause catches.
+- **The fence is on EVERY live handler.** The inventory is read off the shipped
+  `window.RichTimeline` and cross-checked against the number of `accepts()` call sites in
+  `timeline.js` on disk, so an eighth handler that forgets the fence fails the check rather
+  than quietly widening the surface.
+- **Duplicates render once**, and **missed events recover from the durable snapshot** —
+  proven by replacing the whole typed family with functions that throw the events away and
+  watching the reconciliation reload put the turn back.
+- **A turn still in flight when the app closed reads "outcome unknown", never finished**
+  (§14: *"Never infer that a turn completed because the app was closed"*), and **a mid-turn
+  crash draws the CEO's prompt exactly once** — measured across the whole recovery window,
+  not just at the end, because the end state is right either way.
+
+**One defect it found.** §15's *"preserve each thread's scroll position during thread
+switching"* did not work: the position was written while the PREVIOUS thread's DOM was
+still mounted, so the browser clamped it and the render's height anchor then added the
+difference between the two threads' heights. A constant off-by-121px at 1200x420 against
+the seeded FemcBoost thread. Fixed; the mutation that removes the fix is M4 in the
+transcript below.
+
+**Every check was run RED once**, by breaking the thing it guards in the shipped source.
+The ten runs, the coverage map derived from them, and the one check with no mutation of its
+own are in
+[`docs/verification/restart-scope-2026-08-30/mutation-runs.txt`](../docs/verification/restart-scope-2026-08-30/mutation-runs.txt).
+Two of those runs changed the tests instead of confirming them, which is the whole argument
+for doing it.
+
+**What keeps the documents true** (`app/ui/tests/docs-claims.js`). Slice 10 rewrote the
+stale claims in this file, in `app/STREAMING.md` and in `app/ui/tests/README.md`; the suite
+is what stops them going stale again. It joins four kinds of claim to the tree and types
+nothing:
+
+| Claim | Joined to |
+|---|---|
+| per-file test counts in this file | `#[test]` counted in the file named |
+| the `cargo test -p <crate>` totals | the sum of those, plus doc-tests counted from the fences |
+| the suite table in `ui/tests/README.md` | the inventory `run.js` discovers from disk |
+| every `rich://` name in `STREAMING.md` | the `pub const … = "rich://…"` the Rust source declares |
+
+Its first run is the demonstrated failure and nothing in it was staged:
+[`docs/verification/restart-scope-2026-08-30/docs-claims-before-slice-10.txt`](../docs/verification/restart-scope-2026-08-30/docs-claims-before-slice-10.txt).
+Five of six checks red — two crate totals wrong by 207 and 42 tests, four per-file counts
+stale, three whole test suites documented nowhere, three browser suites missing from their
+own table, and four declared `rich://` events absent from the document that calls itself
+*"the whole contract the UI needs"*, `rich://proactive-message` — Rich speaking unprompted
+— among them.
+
+This is deliberately the gap `engine/scripts/publication-completeness.sh` names as beyond
+its reach: *"SEMANTIC honesty. Every path in a document can resolve while the sentence
+around it is false."* Every path in `app/README.md` did resolve the whole time.
 
 ## Machinery routing (techy mode, Phase 1 — routing + retention only)
 
@@ -287,10 +397,10 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 342/342 green (lib + tests/ + doctests)
+cargo test -p richos-core                       # 375 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
-cargo test -p richos-voice                      # 121/121 green
+cargo test -p richos-voice                      # 163 tests
 RICHOS_VOICE_LIVE_AUDIO=1 cargo test -p richos-voice   # + the audible live tests
 cargo run -p richos-voice --example device_probe       # what the audio hardware really is
 
@@ -313,6 +423,27 @@ RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
 say -v Samantha -o /tmp/ceo.wav --data-format=LEI16@16000 "Rich, are you there?"
 cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav
 ```
+
+```sh
+# 5. The UI, in the engine Tauri actually renders through (from app/ui/tests/):
+npm install && npm test                         # every suite, discovered from disk
+node restart-scope.js                           # one suite, while you are working on it
+```
+
+Contract and rules: [`app/ui/tests/README.md`](ui/tests/README.md). Two notes that belong
+here rather than there:
+
+- **The counts above are checked, not remembered.** `app/ui/tests/docs-claims.js` reads the
+  `#[test]` attributes out of the tree and fails if any number in this file disagrees — per
+  test file and per crate. It exists because both totals had gone stale by a wide margin
+  (`97/97` against 304, `121/121` against 163) while every sentence around them stayed true,
+  which is the one thing `engine/scripts/publication-completeness.sh` explicitly cannot
+  catch: *"Every path in a document can resolve while the sentence around it is false."*
+- **CI covers the spine and nothing else.** `.github/workflows/app-spine-ci.yml` runs
+  `cargo test -p richos-core` and a release build. As its own header says, that workflow
+  has never executed — so it must not be called CI-verified until a green run exists on a
+  SHA somebody can name. **The browser suites have no runner at all**: they run when
+  someone runs them, on a machine with a WebKit build.
 
 ## App icon — pipeline built and proven, source art does not exist (BLOCKED ON ARTWORK ONLY)
 
@@ -484,7 +615,9 @@ cargo run -p richos-core --example loro_correction_demo   # provisions its own t
 
 **Proven (live, 2026-08-24):** the ACP round-trip through the full spine — CEO prompt
 persisted crash-safe → re-prime identity injected → real Claude replies **as Rich** →
-clean render. The Tauri shell builds into a real arm64 binary. 11/11 spine tests green.
+clean render. The Tauri shell builds into a real arm64 binary. `tests/spine_tests.rs` was
+11 tests on the day this was written and is 12 now; the layout above carries the current
+number, and `docs-claims.js` is what keeps it current.
 
 **Streaming (2026-08-24):** Rich's reply deltas now stream **live** to the UI via Tauri
 events (`rich://turn-started` → `rich://chunk`… → `rich://turn-completed`/`rich://turn-error`),
@@ -512,7 +645,7 @@ the spine-seams + rotation brief, 2026-08-24.
 routed into a second event family (`rich://machinery`) and retained in a separate
 per-thread, day-sharded journal, on ONE per-turn `seq` shared with the assistant text so
 "he said X, then ran Y, then said Z" is reconstructible. Proven headless
-(`tests/machinery_tests.rs`, 14 tests, driven by wire shapes measured against the real
+(`tests/machinery_tests.rs`, 15 tests, driven by wire shapes measured against the real
 adapter) and live (`examples/machinery_roundtrip.rs` — one real tool-using turn, 24 journal
 lines projecting to 9 rows, positions 0..=34 used exactly once across both families; the run
 is kept at `docs/verification/machinery-roundtrip-2026-08-28.txt`). The emission set the

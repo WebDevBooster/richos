@@ -12,6 +12,139 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Mid-session hook staleness — a landed guard says so, and says restarting is
+  yours to do** (`scripts/hooks/snapshot-enforcing-hooks.sh`,
+  `scripts/hooks/notice-hook-staleness.sh`,
+  `registered_hook_rows()` in `scripts/lib/registered-hooks.sh`) — MINOR.
+
+  Six guards were landed in one day. The lander knew they were inert until the
+  session restarted and said so, in the form *"they arm at next session start"*.
+  That sentence names a date. It names no actor and no action. The operator read
+  it as something that would happen **to** him rather than something he could do,
+  in five seconds, at any moment — nobody ever told him restarting was an
+  available move. He was then hit by a failure three of those six guards would
+  have caught.
+
+  Nothing was wrong with the guards, and the sentence was not even false. The
+  defect was that a deferred activation had been reported as a **forecast**
+  instead of a **request**, so nobody acted on it. That generalises well past
+  hooks, so it is stated to generalise:
+
+  > **A deferred activation must name the actor and the action.** Never "this
+  > arms at the next session" — always "restart the session to arm this; that is
+  > the operator's to do." A state change that requires a human action is not a
+  > date, it is a request.
+
+  The pair mirrors the definition-drift pair exactly, because it is the same
+  problem one object over: something the host loads ONCE at session start, with
+  no baseline against which anyone could prove it had gone stale.
+  `snapshot-enforcing-hooks.sh` records the registrations this session actually
+  booted with; `notice-hook-staleness.sh` re-derives them at the end of a turn
+  and, when they differ, tells the **operator** — naming the inert guards,
+  saying they are enforcing nothing right now, and saying that restarting arms
+  them and that this is his to do. A notice that reported drift without naming
+  the remedy would have rebuilt the original failure in a new place.
+
+  Four decisions, each made against a real alternative and each settled by
+  measurement rather than by argument:
+
+  1. **Only the plugin surface is compared, and that was measured.** Probed
+     against the shipping binary, each run gated on a negative control that had
+     to fire first: a hook added mid-session to a loaded plugin's
+     `hooks/hooks.json` **never fired** (control: a hook already in that table
+     fired three times in the same run), while a hook appended mid-session to
+     `.claude/settings.local.json` **fired on the very next tool call**. So the
+     obvious "check both surfaces for completeness" would have produced a
+     confident, well-formatted false positive on every settings edit. Guard
+     script BODIES are excluded for the same reason: a registration names
+     `bash <path>`, re-executed per event, so a body edit is live immediately.
+     Only the registration is frozen, so only the registration is compared.
+  2. **Stop, and `systemMessage`, because that is the channel that reaches the
+     party who can act.** A Stop hook exiting 0 with `{"systemMessage": ...}`
+     surfaces live as `{"type":"system","content":"Stop says: ..."}`;
+     `additionalContext` and stderr reach only the model, which is precisely the
+     party that **cannot** restart a session. Announcing this at the next session
+     start instead would be a status line about a problem that had already
+     solved itself.
+  3. **Once per session, again only if the delta grows.** A notice on every turn
+     is noise, noise gets muted, and a muted notice is worse than none.
+  4. **It never blocks.** A stale hook set is not a reason to refuse work; it is
+     a reason to tell the operator to restart.
+
+  Zero false positives is structural here rather than hoped for: both sides are
+  derived from the same file by the same parser, so there is no threshold and
+  nothing to tune — a design for this that needed a threshold had taken a wrong
+  branch. A session in which the table did not change prints **nothing at all**,
+  and that is a test rather than a claim. Separately, a green run must prove it
+  read something: the baseline's `rows=` must agree with the rows parsed out of
+  it and be non-zero, the current derivation must be non-zero, and the engine
+  paths must match — otherwise the hook says it **cannot check** instead of
+  passing quietly. This operation has already shipped one scanner that reported
+  CLEAN over an empty corpus and one reporting layer that was dead for weeks;
+  that control is there so there is not a third.
+
+  **This mechanism is itself inert in the session that lands it**, and pretending
+  otherwise is the one joke it cannot afford to play straight. It is a hook. To
+  arm it: re-run `scripts/hooks/install.sh`, then **restart the session** — the
+  actor is the operator and the action is the restart, which is the whole rule
+  above, applied to itself.
+- **A land that starts nothing no longer ends the turn**
+  (`scripts/hooks/guard-idle-land.{sh,py}`) — MINOR, and inert in any
+  repository that does not carry the orchestrator's record beside a
+  `.ceo-todos` declaration.
+
+  The orchestrator's working record opens by stating its own rule: **a land
+  ends by starting the top unblocked item, then reports** — the only permitted
+  stop being an item whose next action needs a decision only the CEO can make.
+  The orchestrator wrote that rule, then landed four branches across two
+  repositories, wrote a long report, and ended the turn with an empty dispatch
+  queue and seven unblocked rows still in the file. The CEO had to ask why
+  everything had stopped, for the seventh time in two days.
+
+  Every previous answer to that question had been a document — which is this
+  engine's own catalogued defect, stated a dozen times in a week: **a rule
+  enforced by attention lasts exactly as long as the attention.** So the answer
+  is a chokepoint. `Stop` is the chokepoint, and the turn gate that landed
+  hours earlier had already established against the shipping binary that a Stop
+  hook can block and what its payload carries.
+
+  Four terms, all four required, none of them read from prose the orchestrator
+  wrote:
+
+  1. **This turn landed.** A `git merge` or `git push` in the turn's own tool
+     traffic, whose EFFECT is then confirmed by identity — the merged tip is an
+     ancestor of `HEAD`, or `HEAD` equals the branch's remote-tracking ref. A
+     merge that conflicted and was aborted fails both. The freshness contract's
+     own rule, identity or refuse, pointed at an action instead of an artifact.
+  2. **Nothing was started.** No `Agent` call this turn, scoped to `promptId`.
+  3. **There is something to start.** An unblocked row **derived** from the
+     record's `## Next` table. Struck rows and rows whose blocker cell is
+     anything unrecognised are blocked; `"<x> free after 1-2"` resolves its
+     references against the same table. Never a typed count.
+  4. **Nothing is still running.** `background_tasks` from the payload.
+     Landing while four agents work is not idling.
+
+  A missing, unreadable, unparsable or ambiguous record makes the gate **inert
+  and loud**, never a guess about what is left to do. There is **no live
+  override token**: the escape is to move the row into the CEO's record, a
+  committed, diffable act — which is also why the gate is inert unless
+  `.ceo-todos` declares that record exists. A refusal with nowhere to send the
+  row is a refusal people unwire.
+
+  Measured over **1,082 real orchestrator turns across six sessions** before it
+  was trusted: 305 turns ran a merge or push, 276 were confirmed by identity,
+  **29 ran the command and the repository did not agree**. Of the 276, 95
+  dispatched in the same turn, 101 still had an agent running, 0 were held, and
+  **80 landed and started nothing (29%)**. Fourteen were read by hand: the
+  mechanical terms were correct in all fourteen and **zero** fires came from the
+  gate misreading ground truth. It ships blocking at that rate because the cost
+  is bounded at one extra turn — `stop_hook_active` stands the gate down on its
+  own re-fire, so it can refuse a given turn at most once.
+  `IDLE_LAND_ENFORCE=0` runs it report-only.
+
+  Like every hook here it takes effect in the NEXT session, and `install.sh`
+  must be re-run after the merge to mint its `.sha256` sidecar.
+
 - **Row currency — the working record stops going stale by itself**
   (`scripts/lib/row-currency.{sh,py}`,
   `scripts/hooks/guard-row-currency-commits.sh`,

@@ -52,6 +52,30 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook, so anything added inside it would
+# read as divergence.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does
+# the artifact I was just handed belong to the repository I govern?" — and
+# until 2026-08-30 nothing asked. See scripts/lib/seat-jurisdiction.sh.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-main-checkout-writes.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the artifact it was"
+        echo "  handed belongs to the repository it governs, and a guard that"
+        echo "  cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 INPUT="$(cat)"
 
 # Resolve the governed repository. Three outcomes, three different behaviours —
@@ -59,6 +83,11 @@ INPUT="$(cat)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    # LOUD, once per repository per session. engine-status.sh announces the
+    # stand-down at SessionStart, which fires before any work happens and names
+    # no action; this fires at the MOMENT this guard declines, which is the only
+    # moment the absence costs anything.
+    richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh"
     # This repository never adopted the engine, so there is no enforcement to
     # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
     # stand-down into the orchestrator's own context at every session start.
@@ -97,6 +126,63 @@ esac
 case "$FILE_PATH" in
   */.claude/worktrees/*) exit 0 ;;
 esac
+
+# --- GOVERNANCE: resolved from the FILE, not from the seat -----------------
+# "Am I governed?" and "what am I inspecting?" are now the SAME question about
+# the SAME repository. The file's own repository governs it if it has adopted;
+# failing that the seat governs it, but only if the file is inside the seat.
+#
+# THIS IS THE LINE THAT WAS WRONG. PROTECTED_PATHS was joined onto whatever the
+# session happened to be seated in, so in richos the guard defended
+# richos/engine/app — WHICH DOES NOT EXIST — and allowed every write to the real
+# richos/app. Reloading the config from the governing root makes the protected
+# trees belong to the same repository as the path they are matched against.
+if ! GOVERNING_ROOT="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}")"; then
+    # TWO DIFFERENT PROBLEMS, TWO DIFFERENT MESSAGES, because they need
+    # different actions from the reader and a banner that names the wrong
+    # repository is barely better than no banner:
+    #
+    #   out of jurisdiction  the file lives in ANOTHER repository. The notice
+    #                        must name BOTH, or the reader cannot tell which
+    #                        tree is the unguarded one.
+    #   not adopted          the file is inside the seat, and the seat has
+    #                        adopted nothing. Naming the one repository is
+    #                        right, and the fix is to adopt it.
+    #
+    # richos_assert_jurisdiction returns 0 when the file IS inside the seat, so
+    # this reads as "if it was mine and I still cannot govern it, that is a
+    # non-adoption problem".
+    if richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
+           "${ENTITY_ROOT}" "$FILE_PATH" "file"; then
+        richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh" \
+            "this repository has adopted nothing, so no PROTECTED_PATHS govern this write"
+    fi
+    exit 0
+fi
+
+# BOTH SIDES PHYSICALISED BEFORE THE PREFIX TEST BELOW. On macOS /var is a
+# symlink to /private/var, so the seat arrives logical (from the payload) while
+# the governing root arrives physical (it has been through `cd && pwd`). Compare
+# those two strings and a repository is not itself: the guard silently reloads
+# a config it already had, and then matches PROTECTED_PATHS against a path with
+# the other spelling and never fires. Caught by case 2a of
+# scripts/lib/seat-jurisdiction.test.sh — the POSITIVE control, which is exactly
+# the case that exists to notice a guard that has gone inert.
+SEAT_PHYS="$(richos_physical "${ENTITY_ROOT:-}")"
+FILE_PATH="$(richos_physical "$FILE_PATH")"
+
+if [ "$GOVERNING_ROOT" != "$SEAT_PHYS" ]; then
+    # A different repository governs this file than the one this session sits
+    # in. Say so once, then judge it by ITS rules rather than the seat's.
+    richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
+        "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+    PROTECTED_PATHS=""
+    CONFIG="$GOVERNING_ROOT/orchestration.config"
+    # shellcheck disable=SC1090
+    [ -f "$CONFIG" ] && . "$CONFIG"
+    : "${PROTECTED_PATHS:=}"
+fi
+ENTITY_ROOT="$GOVERNING_ROOT"
 
 # Sensible failure: with no protected paths configured, the guard cannot know
 # what to protect. Surface it loudly (never silently) and allow the write.

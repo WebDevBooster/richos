@@ -80,12 +80,44 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook, so anything added inside it would
+# read as divergence.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does
+# the artifact I was just handed belong to the repository I govern?" — and
+# until 2026-08-30 nothing asked. See scripts/lib/seat-jurisdiction.sh.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-row-currency-commits.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the artifact it was"
+        echo "  handed belongs to the repository it governs, and a guard that"
+        echo "  cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 INPUT="$(cat)"
 
 if resolve_entity_root "$INPUT"; then
-    :
+    # CAPTURED, not discarded. This used to be `:` — the seat decided whether
+    # this guard ran and then had no say in WHAT it judged, which is the
+    # divergence in its purest form.
+    SEAT_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
-    exit 0
+    # DELIBERATELY NOT AN EXIT. This guard reads its contract out of the TARGET
+    # repository, not out of the seat, so an unadopted seat is not a reason to
+    # stop — the artifact's own repository still gets to govern itself below
+    # by its own declaration. Exiting here is what made richos-hq's committed
+    # .row-currency and .ceo-todos readable by nothing at all.
+    SEAT_ROOT=""
 else
     root_failure_banner "scripts/hooks/guard-row-currency-commits.sh" >&2
     exit 2
@@ -284,6 +316,23 @@ rc_require_ceo_todos_lib || { rc_broken_banner "guard-row-currency-commits.sh" "
 
 REPO="$(ct_repo_root "$ANCHOR" 2>/dev/null || true)"
 [ -n "$REPO" ] || exit 0
+
+# --- GOVERNANCE: the artifact's OWN repository decides ---------------------
+# "Am I governed?" and "what am I inspecting?" are the same question here, and
+# they are now asked of the SAME repository: the declaration loaded immediately
+# below is read out of $REPO — which is also the thing being judged. Two
+# questions about one repository cannot disagree; that is the whole fix, and it
+# needs no extra comparison to hold.
+#
+# The seat is deliberately given NO VETO. It used to have one: an unadopted seat
+# exited before this point, which is exactly why richos-hq's committed
+# .row-currency and .ceo-todos were read by nothing at all while the repository
+# took 28 commits in a day. The seat is REPORTED when it differs from the
+# artifact's repository, and never obeyed — a guard that switched itself off on
+# a seat mismatch would have let through a merge that was correctly refused.
+if [ -n "${SEAT_ROOT}" ]; then
+    richos_assert_jurisdiction "scripts/hooks/guard-row-currency-commits.sh" "${SEAT_ROOT}" "$REPO" "commit in" || true
+fi
 
 DECL_RC=0
 rc_load_declaration "$REPO" || DECL_RC=$?

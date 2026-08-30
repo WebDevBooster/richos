@@ -169,3 +169,80 @@ for name in sorted(found):
     [ -n "$out" ] || return 2
     printf '%s\n' "$out"
 }
+
+# registered_hook_rows <path-to-hooks.json>
+#
+# The same registration surface, read at one more level of detail: prints one
+# TAB-separated row per registered hook script,
+#
+#     <event>\t<matcher>\t<script-basename>
+#
+# sorted and de-duplicated, with an absent or empty matcher normalised to "-".
+# Inline hooks that run no script contribute nothing, exactly as above.
+#
+# WHY A SECOND FUNCTION RATHER THAN A RICHER FIRST ONE
+# ----------------------------------------------------
+# registered_hook_scripts answers "which guards does the host load?", and its
+# consumers — the session banner's fraction, install.sh's sidecar minting — want
+# a flat set of filenames. The staleness pair (snapshot-enforcing-hooks.sh /
+# notice-hook-staleness.sh) has to know WHERE each script is wired, because "the
+# same guard newly wired onto a second event" is drift that a set of basenames
+# cannot see. Widening the existing function would have meant editing three call
+# sites to throw two thirds of the answer away. Both functions parse the same
+# file, the same way, in the same place — which is the entire point of this
+# file: one parser, not four.
+#
+# NO TEXT-SCAN FALLBACK, DELIBERATELY. registered_hook_scripts degrades to a
+# grep when python3 is absent, and can afford to: over-counting a filename is
+# survivable, and BR2 cross-checks it. This function cannot. A text scan cannot
+# tell which event or matcher a command sits under — it would have to GUESS the
+# association, and a guessed row is precisely the invented fact that would turn
+# a staleness comparison into a false positive. So with no interpreter this
+# returns 2, and its callers say out loud that they could not make the
+# comparison rather than making a bad one.
+#
+# Exit codes — identical contract to registered_hook_scripts:
+#   0  complete inventory printed
+#   1  no such file
+#   2  present but unparseable, registering no script at all, or no python3
+registered_hook_rows() {
+    local f="${1:-}"
+    local out=""
+    local rc=0
+
+    [ -n "$f" ] && [ -f "$f" ] || return 1
+    command -v python3 >/dev/null 2>&1 || return 2
+
+    out="$(python3 -c '
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = json.load(fh)
+rows = set()
+hooks = doc.get("hooks", {})
+if isinstance(hooks, dict):
+    for event, entries in hooks.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            matcher = entry.get("matcher", "")
+            if not isinstance(matcher, str) or matcher == "":
+                matcher = "-"
+            for h in entry.get("hooks", []) or []:
+                if not isinstance(h, dict):
+                    continue
+                cmd = h.get("command", "")
+                if not isinstance(cmd, str):
+                    continue
+                for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", cmd):
+                    rows.add("%s\t%s\t%s" % (event, matcher, m))
+for row in sorted(rows):
+    print(row)
+' "$f" 2>/dev/null)"
+    rc=$?
+    [ "$rc" -eq 0 ] || return 2
+
+    [ -n "$out" ] || return 2
+    printf '%s\n' "$out"
+}

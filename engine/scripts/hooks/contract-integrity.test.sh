@@ -67,32 +67,49 @@ PASS=0
 FAIL=0
 FAIL_NAMES=()
 
-# All canonical hook scripts the probe/install manage.
-ALL_HOOKS=(
-    guard-worktree-isolation.sh
-    guard-definition-drift.sh
-    snapshot-agent-definitions.sh
-    reader-teammate-hint.sh
-    verify-agent-prompt.sh
-    guard-main-checkout-writes.sh
-    guard-bash-main-writes.sh
-    guard-worktree-removal.sh
-    scan-secrets.sh
-    guard-publication-writes.sh
-    guard-publication-commits.sh
-    guard-ceo-todos-commits.sh
-    guard-completeness-commits.sh
-    guard-row-currency-commits.sh
-    guard-resume-isolation.sh
-    guard-workflow-ban.sh
-    guard-unresolved-claims.sh
-    turn-manifest.sh
-    detect-nonnative-worktree.sh
-    teammate-idle-handoff.sh
-    task-completed-handoff.sh
-    session-start-reap-worktrees.sh
-    engine-status.sh
-)
+# All canonical hook scripts the probe/install manage — DERIVED FROM
+# hooks/hooks.json, NEVER TYPED.
+#
+# This was a hand-typed list of 22 names, in the suite whose entire subject is
+# whether the engine's guards are actually wired. It was wrong in two ways at
+# once and both were invisible:
+#
+#   * it was MISSING FOUR REGISTERED HOOKS (the worker-*-handoff.sh family).
+#     Every sandbox this suite built was therefore an engine that cannot exist,
+#     and the four were never copied, never hashed and never checked here.
+#   * adding a 23rd guard made every sandbox miss it, so the probe's Layer R
+#     reported it ABSENT and fourteen cases went red at once — with an error
+#     message about the new guard rather than about this list. That is the
+#     failure mode of a typed inventory exactly: the symptom points away from
+#     the cause.
+#
+# scripts/lib/registered-hooks.sh exists because the guard COUNT drifted twice
+# in two days for this reason, and its own header says a list a human must
+# remember to update is not a mitigation for drift but a source of it. The
+# suite that checks that contract was still carrying one. It is derived now,
+# from the same file the host actually loads, through the same parser
+# install.sh and engine-status.sh use.
+#
+# NO SILENT DEGRADATION: deriving nothing is fatal here, not an empty sandbox
+# that passes every case by having nothing in it to check.
+_RH_LIB="$SCRIPT_DIR/../lib/registered-hooks.sh"
+if [ ! -f "$_RH_LIB" ]; then
+    echo "FATAL: scripts/lib/registered-hooks.sh missing — the hook inventory cannot be derived, and this suite will not fall back to a typed list" >&2
+    exit 1
+fi
+# shellcheck source=../lib/registered-hooks.sh
+. "$_RH_LIB"
+ALL_HOOKS=()
+while IFS= read -r _h; do
+    [ -n "$_h" ] || continue
+    ALL_HOOKS+=("$_h")
+done <<REGISTERED_EOF
+$(registered_hook_scripts "$SCRIPT_DIR/../../hooks/hooks.json" || true)
+REGISTERED_EOF
+if [ "${#ALL_HOOKS[@]}" -eq 0 ]; then
+    echo "FATAL: derived ZERO hooks from hooks/hooks.json — refusing to build sandboxes with nothing in them and report them green" >&2
+    exit 1
+fi
 
 # Managed scripts living OUTSIDE scripts/hooks/, relative to the repo root. The
 # reaper is hook-reachable (the SessionStart wrapper runs it with --execute) and

@@ -36,10 +36,20 @@ for; the filenames and the suite's SCREENSHOT INVENTORY say which and why.
 | `inspector.js` | §7.2 the read-only inspector, §7.3 the background-work summary and §20's three breakpoints — through the REAL shell (`index.html` + `main.js` + `mock.js`). |
 | `realbytes.js` | The join the other suites cannot make: the payload `cargo run --example timeline_payload` prints from a real ledger on disk, rendered by the real renderer. Catches field-name and shape drift between backend and UI. |
 | `memory-strategy.js` | §26's sixteen-step fixture, driven end to end through the REAL SHELL by typing the prompt and pressing Enter. Injected clock (the two-hour turn runs in under a millisecond), the nine required screenshots, and the negative half: every §26 step this runtime cannot produce is asserted ABSENT. |
+| `affordances.js` | THE RULE: a state the user could change must render the control that changes it. The state inventory is derived from source every run (`lib/state-strings.js`), classified in `lib/state-registry.js`, and the two sets must be EQUAL — a new user-visible string that nobody has classified fails the suite. Every ACTIONABLE state is then driven up in the real shell and its control asserted present, visible, enabled and interactive. Carries a negative control (the scrape examined 112 states, not zero) and four positive controls (a missing, a hidden, and a fake control, and an unclassified state, must each be flagged). |
+| `lib/state-strings.js` | The derivation. Comment-stripping scanners for JS and Rust, HTML text nodes and human-readable attributes, `+`-concatenation folding, and four named blind spots. `node lib/state-strings.js` prints the inventory with file:line. |
+| `lib/state-registry.js` | The classification, one row per state, each with its reasoning. Annotation only — the inventory above is the authority. |
 | `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner. |
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
+| `steering.js` | §25 "Steering and stop", criterion by criterion, through the real shell. The `You stopped after {duration}` row from the real wire bytes, the crash that is never attributed to the CEO, a stop that reached nothing saying so, and the stop control at §20's three widths. |
+| `restart-scope.js` | What happens BETWEEN threads, and what survives a restart. A working thread stays visibly active while another is selected and its timer resumes rather than restarts; drafts and scroll positions belong to one thread and never cross an entity; a turn streaming elsewhere renders nothing here, across entities and inside one; the fence is on every live handler, with the inventory derived from the shipped object and cross-checked against `timeline.js` on disk; duplicates render once; missed events recover from the snapshot; an in-flight turn survives a restart as unknown; a mid-turn crash draws the CEO's prompt once. |
+| `docs-claims.js` | The only suite that opens no browser. It joins the claims in `app/README.md`, `app/STREAMING.md` and this file to the tree they describe: per-file and per-crate test counts against `#[test]`, this table against the inventory `run.js` discovers, and every `rich://` name against the constants the Rust source declares. Nothing in it is typed — both sides of every join are read off disk. |
 
-## Three rules, each one a thing an earlier slice got wrong
+## Four rules, each one a thing an earlier slice got wrong
+**This table is checked, not maintained by memory.** `docs-claims.js` fails if a suite
+`run.js` runs has no row here, or a row names a suite that no longer exists. It was added
+because `steering.js` had shipped one slice earlier with no row — the same drift `run.js`'s
+own discovery exists to prevent, one level out in the documentation.
 
 **1. The real renderer, never a copy.** Every page loads `../timeline.js` and `../style.css`
 from disk. A test that re-implements a rule proves the test.
@@ -50,7 +60,15 @@ way: pressing Tab from a focused button lands on `BODY`, because macOS ships "Fu
 Access" off and WebKit honours it. That is a system preference, not a renderer defect — and
 it applies to every button in the app, not just the new ones.
 
-**3. No faked screenshots.** `screencapture` on this machine has returned an all-black
+**3. Nothing that only runs when somebody remembers.** `affordances.js` derives its own
+inventory from disk on every run and refuses to report green over an empty one. The rule it
+enforces is the one thing in this directory that has to outlive the pass that wrote it: a
+rule with nothing enforcing it is the defect this project has found eleven times in two
+days. Its part 5 is deliberately REPORT-ONLY and prints the number that made that call
+(precision 70.8%, recall 54.8%, measured over all 112 states) — a check that cries wolf gets
+deleted within a day, and then the CEO is worse off than before it existed.
+
+**4. No faked screenshots.** `screencapture` on this machine has returned an all-black
 1920x1080 PNG for three slices running (display locked). Every screenshot here comes out of
 WebKit's own compositor, which does not depend on a display server — and every one is
 decoded and pixel-counted before it counts as evidence. A shot with fewer than 8 distinct
@@ -58,11 +76,31 @@ colours across the sample grid throws; the real app measures 175. That check was
 in `lib/harness.js` for one slice before it existed (the function measured file size, which
 is exactly what a valid all-black PNG passes), and now it runs.
 
+**4. A check that cannot fail proves nothing.** Every negative here carries a positive probe
+in the same run — the same content, correctly scoped, IS on screen — because "the foreign
+thread's text did not appear" passes perfectly on a page where nothing appears. Every
+derived inventory is asserted non-empty before it is compared, because a green run over an
+empty set is how a scanner in this repository reported CLEAN while walking nothing. And
+every check in `restart-scope.js` was additionally run RED once, by breaking the thing it
+guards in the shipped source: the ten runs are transcribed in
+`docs/verification/restart-scope-2026-08-30/mutation-runs.txt`, with a coverage map and the
+one check that has no mutation of its own named rather than left to be noticed.
+
+Two of those runs changed the tests rather than confirming them, which is the argument for
+doing it at all: deleting the fence's `threadId` clause left the scope check green (it was
+probing across ENTITIES, which a different clause catches), and disabling the renderer's
+supersession merge left the crash check green (the reload re-projects from a snapshot where
+the superseded turn contributes nothing, so the END STATE was right either way).
+
 ## What these tests do NOT cover
 
 They exercise the renderer and the shell. They say nothing about whether the backend emits
 what the renderer reads — that is
 `cargo run --example timeline_payload` in `app/src-tauri`, which prints the wire payload from
 a real ledger through the real command body, and `cargo test -p richos-core`.
+
+`docs-claims.js` is the one exception and does not use a browser at all: it reads documents
+and source files. It checks that the claims are TRUE OF THE TREE, never that the behaviour
+they describe works — that is what everything else here, and the Rust suites, are for.
 
 There is no CI runner wired to any of this yet. It runs when someone runs it.

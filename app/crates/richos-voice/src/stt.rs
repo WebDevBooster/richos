@@ -53,7 +53,12 @@ impl SttError {
     pub fn ceo_message(&self) -> String {
         match self {
             SttError::BinaryNotFound(_) | SttError::ModelNotFound(_) => {
-                "My ears aren't installed on this machine yet — I can still read what you type.".into()
+                // NAMES THE PARTY. "Aren't installed yet" implies somebody will install them
+                // and never said who, leaving a reader who cannot install anything holding a
+                // job with no owner.
+                "My ears aren't installed on this machine yet — whoever set RichOS up adds \
+                 those. I can still read what you type."
+                    .into()
             }
             SttError::Io(_) | SttError::Failed { .. } => {
                 "I didn't catch that — say it again?".into()

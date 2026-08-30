@@ -219,8 +219,40 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # second, hand-typed exception list beside the self-referential one — the same
 # stale inventory walking back in through a different door. Counted, and the
 # imprecision named here instead. Fifth firing.
-if [ "$REGISTERED_N" -eq 27 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 27 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+#
+# 26 -> 28 on 2026-08-30: the hook-staleness PAIR was wired —
+# snapshot-enforcing-hooks.sh on SessionStart and notice-hook-staleness.sh on
+# Stop — which together tell the operator, mid-session, that a guard landed
+# since this session booted is enforcing nothing and that RESTARTING THE SESSION
+# is what arms it. Two scripts, hence two, and the tripwire fired as designed;
+# this paragraph is the acknowledgement it demanded. Note the recursion, which
+# is the joke this pair cannot afford to play straight: the mechanism that
+# reports inert hooks is itself a hook, so it is inert in the session that lands
+# it, and arming it is the same request it makes of everyone else — re-run
+# install.sh, then restart.
+#
+# 27 -> 29 on 2026-08-30: notice-hook-staleness.sh and its sibling were wired.
+# Both acknowledgement paragraphs above are kept because both are true history;
+# main said 27 and the branch said 28, and the merged truth is 29. That is the
+# fifth time today two engineers each bumped this line blind and the merge
+# conflicted HERE, which is the entire point of a typed count sitting beside a
+# derived one: the derivation absorbs a new hook silently and this line refuses
+# to, so a human has to look.
+#
+# 26 -> 27 on 2026-08-30: guard-idle-land.sh was wired on Stop — the SECOND
+# guard that reads the orchestrator's turn rather than the repository, and the
+# first that refuses a turn for what it did NOT do. The tripwire went red on
+# the change, as designed, and this paragraph is a human having looked. Sixth
+# firing. It has now caught every guard added since it was written; nothing
+# else in this engine has that record, which is why nobody should ever be
+# tempted to derive this line too.
+#
+# 29 -> 30 on 2026-08-30: guard-idle-land.sh was wired -- the guard that refuses
+# a turn which landed work and started nothing. Sixth firing today. Six guards,
+# six blind bumps of this same line, six conflicts here. The count is not the
+# point; being made to look is.
+if [ "$REGISTERED_N" -eq 30 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 30 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

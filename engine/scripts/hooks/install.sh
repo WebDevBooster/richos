@@ -278,6 +278,13 @@ HOOK_FILES+=(
     # make the single most consequential file in the mechanical layer the only
     # one nobody verifies — the same argument that puts the reaper on this list.
     "$REPO_ROOT/scripts/lib/resolve-roots.sh"
+    # The jurisdiction predicate, same argument one step further on. SEVEN
+    # registered guards now route "does this artifact belong to the repository
+    # I govern?" through scripts/lib/seat-jurisdiction.sh, and five of them
+    # additionally take their governing root from it. Leaving it unhashed would
+    # mean the file that decides whether a guard enforces at all is the one file
+    # nobody verifies — check the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/seat-jurisdiction.sh"
     # The publication-boundary predicate, in both its halves. Not hooks, and
     # hashed for the reaper's reason: TWO registered guards
     # (guard-publication-writes.sh, guard-publication-commits.sh) delegate
