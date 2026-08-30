@@ -1,0 +1,42 @@
+=== belief-correction trigger, measured over 147 invented utterances ===
+
+   c01  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+   c02  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+   c03  PROPOSED  February       -> April          Calendar    rec:person/records/halstead-renewal [halstead]
+   c04  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+   c05  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+   c06  PROPOSED  Thursday       -> Friday         Calendar    rec:person/records/ship-date [ship]
+   c07  PROPOSED  Thursday       -> Friday         Calendar    rec:person/records/ship-date [ship]
+   c08  PROPOSED  Thursday       -> Tuesday        Calendar    rec:person/records/ship-date [ship]
+   c09  PROPOSED  Thursday       -> Friday         Calendar    rec:person/records/ship-date [ship]
+   c10  PROPOSED  1.2            -> 1.4 million    Numeric     mem:company:q3-revenue [q3]
+   c11  PROPOSED  1.2            -> 1.45           Numeric     mem:company:q3-revenue [q3]
+   c12  PROPOSED  1.2            -> 980000         Numeric     mem:company:q3-revenue [revenue]
+   c13  PROPOSED  June           -> July           Calendar    rec:person/records/pricing-model [pricing]
+   c14  PROPOSED  June           -> May            Calendar    rec:person/records/pricing-model [pricing]
+   c15  PROPOSED  June           -> July           Calendar    rec:person/records/pricing-model [pricing]
+   c16  PROPOSED  40             -> 46             Numeric     mem:company:headcount [engineering]
+   c17  PROPOSED  40             -> 38             Numeric     mem:company:headcount [engineering]
+   c18  PROPOSED  40             -> 52             Numeric     mem:company:headcount [headcount]
+   c19  PROPOSED  2029           -> 2031           Numeric     rec:person/records/office-lease [lease]
+   c20  PROPOSED  2029           -> 2027           Numeric     rec:person/records/office-lease [office]
+   c21  PROPOSED  2029           -> 2031           Numeric     rec:person/records/office-lease [office]
+   c23  PROPOSED  Marcus Webb    -> Dana Okonkwo   Nominal     rec:person/records/account-owner [halstead]
+   c24  PROPOSED  Marcus Webb    -> Priya Nair     Nominal     rec:person/records/account-owner [owns]
+   c25  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+   c26  PROPOSED  Thursday       -> Friday         Calendar    rec:person/records/ship-date [ship]
+   c27  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+   c28  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [renewal]
+   c29  PROPOSED  40             -> 41             Numeric     mem:company:headcount [engineering]
+   c30  PROPOSED  1.2            -> 1.35 million   Numeric     mem:company:q3-revenue [q3]
+   c31  PROPOSED  Thursday       -> Monday         Calendar    rec:person/records/ship-date [ship]
+   c32  PROPOSED  2029           -> 2033           Numeric     rec:person/records/office-lease [lease]
+   c33  PROPOSED  June           -> August         Calendar    rec:person/records/pricing-model [pricing]
+   c34  PROPOSED  Marcus Webb    -> Priya Nair     Nominal     rec:person/records/account-owner [account]
+   n01  PROPOSED  February       -> March          Calendar    rec:person/records/halstead-renewal [halstead]
+
+   c22  MISSED   "Priya Nair owns the Halstead account, not Marcus Webb."
+        rec:person/records/account-owner already states "Halstead account" as well — what the corrected record should say is genuinely unclear, so it is not guessed
+
+  SHIPPED (topic condition ON)   TP 34  FP 0  FN 1  TN 112   precision 1.000   recall 0.971
+  COUNTERFACTUAL (topic OFF)     TP 34  FP 12  FN 1          precision 0.739   recall 0.971

@@ -617,6 +617,10 @@ pub fn word_contains(hay: &str, needle: &str) -> bool {
 pub struct RepairFrame {
     /// The span under `not` — what is being rejected, always.
     pub rejected: String,
+    /// How many tokens the rejected side is. A substitution replaces like with like, so this
+    /// is the width the asserted side is expected to have when nothing else can pick it out
+    /// (see `belief::align`).
+    pub width: usize,
     /// The span on the other side of the pivot — what is asserted instead.
     pub asserted: String,
     pub frame: Frame,
@@ -637,20 +641,29 @@ pub struct FrameExtractor {
     /// *"the Q3 number was 1.4 million, not 1.2"* has a one-token rejected side and a
     /// two-token asserted one, and the symmetric cap returns `million`.
     symmetric_width: bool,
+    /// When the pivot LEADS, also try the TRAILING span of the next clause.
+    ///
+    /// A vocabulary repair states the replacement bare — *"Not deep graham — Deepgram."* —
+    /// so the leading span of the next clause is the whole of it. A belief correction
+    /// states it in a sentence — *"Not February — the Halstead renewal is March."* — whose
+    /// leading span dies on `the` and whose value sits at the far end. Measured, not
+    /// assumed: without this the corpus loses four of thirty-five corrections outright, all
+    /// four of them pivot-first, and gains no precision.
+    pivot_first_scans_to_the_end: bool,
 }
 
 impl FrameExtractor {
     /// The vocabulary configuration — byte-for-byte the behaviour that measured
     /// TP 32 / FP 0 / FN 2 / TN 115, and `tests/spoken_precision.rs` is what keeps it so.
     pub const fn spoken() -> Self {
-        FrameExtractor { allow_calendar: false, symmetric_width: true }
+        FrameExtractor { allow_calendar: false, symmetric_width: true, pivot_first_scans_to_the_end: false }
     }
 
     /// The belief configuration: months are values rather than grammar, and the asserted
     /// side is not capped by the rejected side's width. `belief.rs` applies its own
     /// shape-alignment rule to the wider span rather than truncating it blindly.
     pub const fn belief() -> Self {
-        FrameExtractor { allow_calendar: true, symmetric_width: false }
+        FrameExtractor { allow_calendar: true, symmetric_width: false, pivot_first_scans_to_the_end: true }
     }
 
     /// Every repair frame in one utterance, in the order they were said.
@@ -695,12 +708,22 @@ impl FrameExtractor {
             let (asserted, frame) = match asserted {
                 Some(a) => (a, Frame::Contrast),
                 // Frame 2: the pivot leads, so the asserted term is the NEXT clause.
-                None => match cl.get(ci + 1).and_then(|c| leading_span_with(c, self.allow_calendar)) {
-                    Some(a) => (a, Frame::PivotFirst),
-                    None => continue,
-                },
+                None => {
+                    let next = cl.get(ci + 1);
+                    let bare = next.and_then(|c| leading_span_with(c, self.allow_calendar));
+                    let whole = if self.pivot_first_scans_to_the_end {
+                        next.and_then(|c| trailing_span_with(c, 4, self.allow_calendar))
+                    } else {
+                        None
+                    };
+                    match bare.or(whole) {
+                        Some(a) => (a, Frame::PivotFirst),
+                        None => continue,
+                    }
+                }
             };
-            out.push(RepairFrame { rejected, asserted, frame });
+            let rejected_width = rejected.split(' ').filter(|t| !t.is_empty()).count();
+            out.push(RepairFrame { rejected, asserted, frame, width: rejected_width });
         }
         out
     }

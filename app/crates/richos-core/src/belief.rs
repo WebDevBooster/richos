@@ -89,6 +89,38 @@
 //! `--dry-run` bytes the CEO approves before anything is written, which is the only reason
 //! it is acceptable at all.
 //!
+//! # How I know it is not a false positive
+//!
+//! **Measured, over 147 invented utterances of which 112 are non-corrections and 105 of
+//! those carry a `not` pivot on purpose — most of them naming a value that IS on one of the
+//! records** (`tests/belief_precision.rs`, corpus and full table in
+//! `docs/measurements/loro-correction-trigger-2026-08-30/`):
+//!
+//! ```text
+//!   TP 34   FP 0   FN 1   TN 112      precision 1.000   recall 0.971
+//! ```
+//!
+//! A proposal whose REF is wrong scores as a false positive, not as a partial hit, and the
+//! matrix is pinned exactly rather than to a floor.
+//!
+//! **The topic condition is what earns that number, and it is measured rather than
+//! argued.** The same corpus with condition 2 removed:
+//!
+//! ```text
+//!   TP 34   FP 12   FN 1                precision 0.739   recall 0.971
+//! ```
+//!
+//! Twelve negatives name a value that is on a record while being about something else, and
+//! recall does not move at all. That comparison is itself an assertion in the test, so if a
+//! future change ever makes the condition free, the claim that it is not will fail rather
+//! than this paragraph going quietly stale.
+//!
+//! The single miss is named, not rounded away: *"Priya Nair owns the Halstead account, not
+//! Marcus Webb."* (`c22`) — the asserted name sits behind the article `the`, which stops the
+//! span scan, so the extractor offers `Halstead account` and condition 3 refuses it. The
+//! system misses safely rather than proposing wrongly, and its mirror image (`c23`, *"The
+//! Halstead account owner is Dana Okonkwo, not Marcus Webb."*) is found.
+//!
 //! # This module cannot write anything
 //!
 //! [`detect`] is a pure function over an utterance and a list of records. It returns asks
@@ -187,11 +219,26 @@ pub fn class_of(span: &str) -> ValueClass {
 /// alone carries no digit), and *"Revenue Q3 1.4, not 1.2"* yields `1.4` rather than
 /// `Revenue Q3 1.4`. For [`ValueClass::Nominal`] there is no positive marker to find a
 /// suffix by, so the span is returned whole rather than guessed at.
-fn align(asserted: &str, want: ValueClass) -> Option<String> {
-    if want == ValueClass::Nominal {
-        return (class_of(asserted) == ValueClass::Nominal).then(|| asserted.to_string());
-    }
+fn align(asserted: &str, want: ValueClass, width: usize, frame: Frame) -> Option<String> {
     let toks: Vec<&str> = asserted.split_whitespace().collect();
+    if want == ValueClass::Nominal {
+        if class_of(asserted) != ValueClass::Nominal || toks.is_empty() {
+            return None;
+        }
+        // No positive marker to find a suffix by, so the only signal left is WIDTH — and
+        // which end to take it from is decided by where the pivot is, because the two
+        // halves of a substitution sit against it. `Not Marcus Webb — Priya Nair owns the
+        // Halstead account.` yields `Priya Nair owns` from the extractor and `Priya Nair`
+        // from this rule; the corpus row that found it is c24.
+        if toks.len() <= width.max(1) {
+            return Some(asserted.to_string());
+        }
+        let w = width.max(1);
+        return Some(match frame {
+            Frame::Contrast => toks[toks.len() - w..].join(" "),
+            Frame::PivotFirst => toks[..w].join(" "),
+        });
+    }
     for start in (0..toks.len()).rev() {
         let cand = toks[start..].join(" ");
         if class_of(&cand) == want {
@@ -420,7 +467,7 @@ pub fn detect(utterance: &str, records: &[SliceRecord]) -> BeliefDetection {
 
         // (a) SHAPE. A substitution replaces like with like.
         let want = class_of(&f.rejected);
-        let Some(asserted) = align(&f.asserted, want) else {
+        let Some(asserted) = align(&f.asserted, want, f.width, f.frame) else {
             refuse(
                 &mut out,
                 format!(
@@ -530,7 +577,7 @@ pub fn detect(utterance: &str, records: &[SliceRecord]) -> BeliefDetection {
             asserted,
             class: want,
             frame: f.frame,
-            evidence: record.matchable().to_string(),
+            evidence: record.evidence().to_string(),
             topic_link: link,
             utterance: utterance.trim().to_string(),
         });
@@ -745,6 +792,58 @@ mod tests {
             let d = detect(u, &[renewal(), ship()]);
             assert!(d.is_silent(), "{u:?} filed {:?}", d.asks);
         }
+    }
+
+    /// INVARIANT (measured, not asserted): the corpus's ONE miss stays a MISS rather than
+    /// becoming a wrong proposal. The asserted name sits behind the article `the`, which
+    /// stops the span scan, so `Halstead account` is offered and condition 3 refuses it.
+    /// This test exists so the hole stays visible; if a future change closes it, this is
+    /// what must fail first.
+    #[test]
+    fn the_one_measured_miss_misses_safely_and_its_mirror_image_is_found() {
+        let owner = rec(
+            "rec:person/records/account-owner",
+            "fact",
+            "Halstead account owner",
+            "Marcus Webb owns the Halstead account.",
+        );
+        let d = detect("Priya Nair owns the Halstead account, not Marcus Webb.", &[owner.clone()]);
+        assert!(d.is_silent(), "{:?}", d.asks);
+        assert!(d.rejected[0].reason.contains("already states"), "{:?}", d.rejected);
+
+        let found = asks("The Halstead account owner is Dana Okonkwo, not Marcus Webb.", &[owner]);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].asserted, "Dana Okonkwo");
+    }
+
+    /// INVARIANT: a NOMINAL pair is aligned by width from the end nearest the PIVOT, because
+    /// a name carries no positive marker to find it by and the two halves of a substitution
+    /// sit against the pivot. Without this, `"Not Marcus Webb — Priya Nair owns the Halstead
+    /// account."` proposes `Priya Nair owns` as the new owner (corpus row c24).
+    #[test]
+    fn a_nominal_pair_is_aligned_from_the_end_nearest_the_pivot() {
+        let owner = rec(
+            "rec:person/records/account-owner",
+            "fact",
+            "Halstead account owner",
+            "Marcus Webb owns the Halstead account.",
+        );
+        let a = asks("Not Marcus Webb — Priya Nair owns the Halstead account.", &[owner.clone()]);
+        assert_eq!(a.len(), 1, "{a:?}");
+        assert_eq!(a[0].asserted, "Priya Nair", "the pivot-first half is taken from the START");
+        let b = asks("The account owner on Halstead is Priya Nair, not Marcus Webb.", &[owner]);
+        assert_eq!(b[0].asserted, "Priya Nair", "the contrast half is taken from the END");
+    }
+
+    /// INVARIANT: a pivot-first belief correction states its replacement in a SENTENCE, not
+    /// bare, so the next clause is scanned to its end. Measured: without this the corpus
+    /// loses four of thirty-five corrections and gains no precision.
+    #[test]
+    fn a_pivot_first_belief_correction_states_its_value_in_a_sentence() {
+        let a = asks("Not February — the Halstead renewal is March.", &[renewal()]);
+        assert_eq!(a.len(), 1, "{a:?}");
+        assert_eq!((a[0].rejected.as_str(), a[0].asserted.as_str()), ("February", "March"));
+        assert_eq!(a[0].frame, Frame::PivotFirst);
     }
 
     /// INVARIANT: the superseding id is deterministic (a test and a re-run agree) and

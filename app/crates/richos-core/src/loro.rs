@@ -406,7 +406,29 @@ pub struct SliceRecord {
 impl SliceRecord {
     /// The text a correction is matched against: the rendered line if there is one, the
     /// title if there is not. Never both concatenated — a match must be attributable.
+    ///
+    /// **The machine furniture is stripped**, and that is not tidiness. `renderItem` writes
+    /// `• [kind] Title — body… (ref: id)`, so leaving it in would put the kind name and
+    /// every word of the record's own id into the text a correction resolves against: a
+    /// record filed at `rec:person/records/ship-date` would answer to the word "date", and
+    /// two records could collide on nothing but their storage paths. Rich asserts the
+    /// title and the body; he does not assert the ref.
     pub fn matchable(&self) -> &str {
+        let Some(line) = self.line.as_deref() else { return &self.title };
+        let body = match line.find("] ") {
+            Some(i) if line.trim_start().starts_with('•') => &line[i + 2..],
+            _ => line,
+        };
+        match body.rfind(" (ref: ") {
+            Some(i) if body.ends_with(')') => body[..i].trim_end(),
+            _ => body.trim_end(),
+        }
+    }
+
+    /// The line AS RICH READ IT, machine furniture and all. This is what a surface quotes
+    /// back to the CEO, and it is deliberately not the same string as [`Self::matchable`]:
+    /// the ref is exactly what makes the evidence checkable by hand.
+    pub fn evidence(&self) -> &str {
         self.line.as_deref().unwrap_or(&self.title)
     }
 
@@ -837,7 +859,12 @@ mod tests {
         assert_eq!(recs[0].record_ref, "rec:person/records/ship-date");
         assert_eq!(recs[0].scope, "org-shared", "the scope a correction must carry through");
         assert!(!recs[0].kind_inferred);
-        assert!(recs[0].matchable().contains("We ship on Thursday."), "{:?}", recs[0].line);
+        assert_eq!(
+            recs[0].matchable(),
+            "Ship date — We ship on Thursday.",
+            "the kind label and the ref must not be matchable text"
+        );
+        assert!(recs[0].evidence().contains("(ref: rec:person/records/ship-date)"), "{:?}", recs[0].line);
         // A GUESSED kind is carried as a guess, never flattened into a declaration.
         assert!(recs[1].kind_inferred, "kindInferred was dropped");
         assert!(recs[1].is_supersedable(), "a mem: ref is supersedable");
