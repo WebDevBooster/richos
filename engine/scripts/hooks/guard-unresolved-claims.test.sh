@@ -288,10 +288,80 @@ else
     printf '  FAIL  r.unadopted-repository-passes\n'; FAIL=$((FAIL + 1))
 fi
 
+# --- s. THE OPT-OUT IS SEEN BY THE OPERATOR, NOT JUST BY THE TRANSCRIPT -----
+#
+# This case used to assert the notice appeared on STDERR, and passed. It was
+# asserting the defect. Measured against 2.1.251, a Stop hook's stderr and its
+# plain stdout are both filed into the transcript as a `hook_success`
+# attachment and rendered to the operator NOWHERE; only a stdout
+# {"systemMessage": ...} reaches his scroll. So the old assertion confirmed
+# that the guard could be switched off and say so where nobody would ever read
+# it — which is indistinguishable from not saying so at all.
+#
+# Both halves are asserted, because "it is on the right channel" and "it is no
+# longer only on the wrong one" are different claims and only the pair rules
+# out a notice that was duplicated rather than moved.
 printf 'CHECK_UNRESOLVED_CLAIMS=0\n' > "$ENTITY/orchestration.config"
-run_case "s.explicit-opt-out-says-so" 0 \
-    "$(payload 'Dispatched sage-opus-q4 on the migration.')" \
-    "STOOD DOWN"
+rm -rf "$ENTITY/.claude/state/stop-hook-notices"
+S_OUT="$(mktemp "$SANDBOX/sout.XXXXXX")"; S_ERR="$(mktemp "$SANDBOX/serr.XXXXXX")"
+printf '%s' "$(payload 'Dispatched sage-opus-q4 on the migration.')" \
+    | RICHOS_ENTITY_ROOT="$ENTITY" RICHOS_CLAIMS_TEAMS_DIR="$TEAMS" \
+      "$HOOK" >"$S_OUT" 2>"$S_ERR"
+S_RC=$?
+if [ "$S_RC" -ne 0 ]; then
+    printf '  FAIL  s.explicit-opt-out-says-so (expected exit 0, got %s)\n' "$S_RC"; FAIL=$((FAIL + 1))
+elif ! grep -qF 'STOOD DOWN' "$S_OUT"; then
+    printf '  FAIL  s.explicit-opt-out-says-so (stdout carries no stand-down notice)\n'; FAIL=$((FAIL + 1))
+elif ! grep -qF '"systemMessage"' "$S_OUT"; then
+    printf '  FAIL  s.explicit-opt-out-says-so (stand-down is on stdout but not as systemMessage — the operator still cannot see it)\n'; FAIL=$((FAIL + 1))
+elif ! python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(d.get("systemMessage"),str) else 1)' "$S_OUT" 2>/dev/null; then
+    printf '  FAIL  s.explicit-opt-out-says-so (stdout is not valid JSON with a string systemMessage)\n'; FAIL=$((FAIL + 1))
+elif grep -qF 'STOOD DOWN' "$S_ERR"; then
+    printf '  FAIL  s.explicit-opt-out-says-so (still announced on stderr — the invisible channel was duplicated, not abandoned)\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  s.explicit-opt-out-says-so\n'; PASS=$((PASS + 1))
+fi
+
+# s2. AND IT DOES NOT REPEAT. The condition has not changed, so the second turn
+# of the same session says nothing — the state-change rule in
+# scripts/lib/stop-hook-notice.sh. A notice printed under every turn is one the
+# operator learns to skip, and a notice nobody reads is worth what the stderr
+# one was worth.
+printf '%s' "$(payload 'Dispatched sage-opus-q4 on the migration.')" \
+    | RICHOS_ENTITY_ROOT="$ENTITY" RICHOS_CLAIMS_TEAMS_DIR="$TEAMS" \
+      "$HOOK" >"$S_OUT" 2>/dev/null
+if [ -s "$S_OUT" ]; then
+    printf '  FAIL  s2.opt-out-does-not-repeat-while-unchanged (announced again: %s)\n' "$(head -c 120 "$S_OUT")"; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  s2.opt-out-does-not-repeat-while-unchanged\n'; PASS=$((PASS + 1))
+fi
+
+# s3. THE NEGATIVE CONTROL for s2 — silence there must mean "unchanged", not
+# "this hook never prints". Turn the guard back ON in the same session: the
+# state changed, so the recovery IS announced.
+: > "$ENTITY/orchestration.config"
+printf '%s' "$(payload 'norm-opus-a1 landed the fix.')" \
+    | RICHOS_ENTITY_ROOT="$ENTITY" RICHOS_CLAIMS_TEAMS_DIR="$TEAMS" \
+      "$HOOK" >"$S_OUT" 2>/dev/null
+if grep -qF 'RUNNING AGAIN' "$S_OUT"; then
+    printf '  PASS  s3.recovery-is-announced-so-silence-means-unchanged\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  s3.recovery-is-announced-so-silence-means-unchanged (nothing said when the guard came back: %s)\n' "$(head -c 120 "$S_OUT")"; FAIL=$((FAIL + 1))
+fi
+
+# s4. A HEALTHY GUARD IS SILENT. Having announced the recovery, the next
+# ordinary turn says nothing at all. The requirement is that NOT running is
+# visible, never that running is.
+printf '%s' "$(payload 'norm-opus-a1 landed the fix.')" \
+    | RICHOS_ENTITY_ROOT="$ENTITY" RICHOS_CLAIMS_TEAMS_DIR="$TEAMS" \
+      "$HOOK" >"$S_OUT" 2>/dev/null
+if [ -s "$S_OUT" ]; then
+    printf '  FAIL  s4.healthy-guard-stays-quiet (printed: %s)\n' "$(head -c 120 "$S_OUT")"; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  s4.healthy-guard-stays-quiet\n'; PASS=$((PASS + 1))
+fi
+rm -f "$S_OUT" "$S_ERR"
+rm -rf "$ENTITY/.claude/state/stop-hook-notices"
 : > "$ENTITY/orchestration.config"
 
 run_case "t.unparseable-payload-passes" 0 'not json at all {{{'
