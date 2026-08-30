@@ -207,8 +207,19 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the other two. Every one of those merges conflicted HERE. That is the whole
 # value of a typed count beside a derived one: the derivation absorbs a new
 # guard silently, and this line refuses to.
-if [ "$REGISTERED_N" -eq 26 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 26 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+#
+# 26 -> 28 on 2026-08-30: the hook-staleness PAIR was wired —
+# snapshot-enforcing-hooks.sh on SessionStart and notice-hook-staleness.sh on
+# Stop — which together tell the operator, mid-session, that a guard landed
+# since this session booted is enforcing nothing and that RESTARTING THE SESSION
+# is what arms it. Two scripts, hence two, and the tripwire fired as designed;
+# this paragraph is the acknowledgement it demanded. Note the recursion, which
+# is the joke this pair cannot afford to play straight: the mechanism that
+# reports inert hooks is itself a hook, so it is inert in the session that lands
+# it, and arming it is the same request it makes of everyone else — re-run
+# install.sh, then restart.
+if [ "$REGISTERED_N" -eq 28 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 28 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi
