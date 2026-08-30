@@ -12,6 +12,63 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A land that starts nothing no longer ends the turn**
+  (`scripts/hooks/guard-idle-land.{sh,py}`) — MINOR, and inert in any
+  repository that does not carry the orchestrator's record beside a
+  `.ceo-todos` declaration.
+
+  The orchestrator's working record opens by stating its own rule: **a land
+  ends by starting the top unblocked item, then reports** — the only permitted
+  stop being an item whose next action needs a decision only the CEO can make.
+  The orchestrator wrote that rule, then landed four branches across two
+  repositories, wrote a long report, and ended the turn with an empty dispatch
+  queue and seven unblocked rows still in the file. The CEO had to ask why
+  everything had stopped, for the seventh time in two days.
+
+  Every previous answer to that question had been a document — which is this
+  engine's own catalogued defect, stated a dozen times in a week: **a rule
+  enforced by attention lasts exactly as long as the attention.** So the answer
+  is a chokepoint. `Stop` is the chokepoint, and the turn gate that landed
+  hours earlier had already established against the shipping binary that a Stop
+  hook can block and what its payload carries.
+
+  Four terms, all four required, none of them read from prose the orchestrator
+  wrote:
+
+  1. **This turn landed.** A `git merge` or `git push` in the turn's own tool
+     traffic, whose EFFECT is then confirmed by identity — the merged tip is an
+     ancestor of `HEAD`, or `HEAD` equals the branch's remote-tracking ref. A
+     merge that conflicted and was aborted fails both. The freshness contract's
+     own rule, identity or refuse, pointed at an action instead of an artifact.
+  2. **Nothing was started.** No `Agent` call this turn, scoped to `promptId`.
+  3. **There is something to start.** An unblocked row **derived** from the
+     record's `## Next` table. Struck rows and rows whose blocker cell is
+     anything unrecognised are blocked; `"<x> free after 1-2"` resolves its
+     references against the same table. Never a typed count.
+  4. **Nothing is still running.** `background_tasks` from the payload.
+     Landing while four agents work is not idling.
+
+  A missing, unreadable, unparsable or ambiguous record makes the gate **inert
+  and loud**, never a guess about what is left to do. There is **no live
+  override token**: the escape is to move the row into the CEO's record, a
+  committed, diffable act — which is also why the gate is inert unless
+  `.ceo-todos` declares that record exists. A refusal with nowhere to send the
+  row is a refusal people unwire.
+
+  Measured over **1,082 real orchestrator turns across six sessions** before it
+  was trusted: 305 turns ran a merge or push, 276 were confirmed by identity,
+  **29 ran the command and the repository did not agree**. Of the 276, 95
+  dispatched in the same turn, 101 still had an agent running, 0 were held, and
+  **80 landed and started nothing (29%)**. Fourteen were read by hand: the
+  mechanical terms were correct in all fourteen and **zero** fires came from the
+  gate misreading ground truth. It ships blocking at that rate because the cost
+  is bounded at one extra turn — `stop_hook_active` stands the gate down on its
+  own re-fire, so it can refuse a given turn at most once.
+  `IDLE_LAND_ENFORCE=0` runs it report-only.
+
+  Like every hook here it takes effect in the NEXT session, and `install.sh`
+  must be re-run after the merge to mint its `.sha256` sidecar.
+
 - **Row currency — the working record stops going stale by itself**
   (`scripts/lib/row-currency.{sh,py}`,
   `scripts/hooks/guard-row-currency-commits.sh`,
