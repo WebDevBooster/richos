@@ -136,14 +136,60 @@ The other 13 seat-resolving guards constrain their target *through* the seat —
 
 ---
 
-## 5. The rule this establishes
+## 5. The rule — first draft, and why it was wrong
 
-> **A guard enforces on an artifact if and only if that artifact lies inside the repository the guard
+The rule I wrote here first was:
+
+> ~~A guard enforces on an artifact if and only if that artifact lies inside the repository the guard
 > resolved as its seat; an artifact outside the seat is out of jurisdiction and is announced, never
-> silently allowed.**
+> silently allowed.~~
 
-Two properties follow, and both are testable:
+It is recorded rather than deleted because **it is the obvious answer and it is a regression**, and
+the next person to look at this will think of it too.
 
-- **Seat and target cannot disagree in silence.** Divergence is a reportable event, not a quiet 0.
-- **Standing down is loud.** A guard that declines to enforce names the repository and the reason,
-  once, where the operator sees it. Silence and success stop looking alike.
+Implemented literally, it closes the divergence by *skipping* when the artifact is outside the seat.
+The test suites went red within minutes — 5 of 31, and they were 5 of the 7 guards I had just wired.
+The reason is that `guard-row-currency-commits.sh` and its four siblings read their contract **out of
+the target repository** (`.row-currency`, `.ceo-todos`, `.publication-boundary`); the seat
+contributes nothing to what they judge. Skipping on a seat mismatch would have switched off a guard
+that was working: the merge into `richos-hq` that was correctly refused that morning would have
+sailed through.
+
+**A jurisdiction rule is never allowed to move enforcement in the less safe direction.**
+
+## 6. The rule that holds
+
+> **A guard resolves its governance from the repository of the artifact it is about to inspect, not
+> from where the session happens to sit — so "am I governed?" and "what am I inspecting?" are the
+> same question about the same repository, and cannot disagree.**
+
+The two questions are not reconciled by adding a comparison between them. They are reconciled by
+being **one question**. Two families, one rule:
+
+| Family | Guards | Where the rule lives | What changed |
+|---|---|---|---|
+| Declaration-driven | row-currency, ceo-todos, completeness, publication-commits, publication-writes | the target repo's own declaration file | the seat's **veto is removed** — an unadopted seat used to exit before the declaration was ever read |
+| Config-driven | main-checkout-writes, scan-secrets | `orchestration.config` | the config is loaded from the **file's** repository, via `richos_governing_root` |
+
+Three properties follow, and all three are tested
+(`scripts/lib/seat-jurisdiction.test.sh`, 12/12):
+
+- **Seat and target cannot disagree**, because they are no longer two answers.
+- **Standing down is loud**, at the moment of the decision, naming the repository and the reason.
+- **A new guard with the old shape turns the suite red** on the day it is written — derived from
+  `hooks/hooks.json`, with a negative control asserting the scan examined a non-zero number of guards.
+
+### What this does NOT fix
+
+Adoption. `richos` and `richos-hq` still carry no root `orchestration.config`, and no code change can
+decide that. Proven in a throwaway copy of the nested shape:
+
+```
+before adoption  write richos/app/crates/live.rs -> rc=0, LOUD stand-down
+                 (was: rc=0 in silence, while richos/engine/app — which does not exist — blocked)
+after adoption   write richos/app/crates/live.rs -> rc=2 BLOCKED
+                 write richos/docs/notes.md      -> rc=0 (not a protected tree)
+```
+
+The engine now does the right thing the moment either repository adopts. Whether they should is a
+decision, and for `richos-hq` it is the CEO's — put to him as item 1.8.
