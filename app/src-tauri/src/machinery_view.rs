@@ -53,6 +53,18 @@ pub const UNREADABLE: &str =
      haven't lost it — something is refusing to open it, and whoever set RichOS up needs to \
      look.";
 
+/// The CEO-facing sentence for a thread whose BETWEEN-TURN lane is empty (techy-mode §1.5).
+///
+/// Shaped exactly like [`NOTHING_RECORDED`] and for the same reason: the lane is empty in
+/// two different situations and only one of them means the session was quiet. Between-turn
+/// routing landed on 2026-08-30; every conversation older than that has an empty lane
+/// because nothing was ever written, not because nothing ever arrived. The sentence says
+/// which, rather than letting an empty box imply the feature is broken.
+pub const BETWEEN_TURNS_QUIET: &str =
+    "Nothing was recorded between turns in this conversation. Rich started keeping this on \
+     2026-08-30 — so in an older conversation that is a gap in the record, not proof the \
+     session was quiet.";
+
 /// One thread's machinery, as the technical view of its timeline, plus WHY there is
 /// nothing when there is nothing.
 ///
@@ -86,12 +98,28 @@ pub fn machinery_payload(spine: &Spine, thread_id: &str) -> Result<serde_json::V
     let timeline = spine.timeline(thread_id).map_err(|e| e.to_string())?;
     let view = timeline.view(ViewMode::Technical);
 
+    // §1.5's between-turn lane travels inside `view.payload()` already — it is part of the
+    // gated `TimelineView`. What does NOT travel with it is why the lane is empty when it
+    // is empty, which is this field.
+    //
+    // **It is `None` when the store was UNREADABLE**, and that is the whole care taken here.
+    // In that state the lane is empty because nothing could be read, so "nothing was
+    // recorded between turns" would be a claim the store never supported — the same
+    // substitution `UNREADABLE` exists to prevent, one level down. The state sentence above
+    // already speaks for the whole view.
+    let between_turns_sentence = match &state {
+        ThreadMachinery::Unreadable(_) => None,
+        _ if view.between_turns().is_empty() => Some(BETWEEN_TURNS_QUIET),
+        _ => None,
+    };
+
     Ok(json!({
         "threadId": thread_id,
         "state": state.as_str(),
         "rowCount": state.records().len(),
         "sentence": sentence,
         "reason": reason,
+        "betweenTurnsSentence": between_turns_sentence,
         "timeline": view.payload(),
     }))
 }

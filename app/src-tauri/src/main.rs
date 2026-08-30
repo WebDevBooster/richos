@@ -2458,7 +2458,17 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
 /// decides whether to ask.
 #[tauri::command]
 fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    machinery_payload(&state.spine.lock().unwrap(), &thread_id)
+    let mut spine = state.spine.lock().unwrap();
+    // PUMP, THEN READ (techy-mode §1.5). Between-turn traffic is parked by the ACP reader
+    // thread and lands in the journal only when the spine drains it. The turn boundaries do
+    // that, but opening the technical view is the other moment somebody actually wants to
+    // SEE it — and without this line the newest between-turn records would appear one turn
+    // late, which reads as the feature being broken rather than as a drain schedule.
+    //
+    // It takes the same lock the read takes, so nothing new can interleave, and it is a
+    // no-op costing one mutex and one `Vec::is_empty` when the lane is quiet.
+    spine.pump_between_turn();
+    machinery_payload(&spine, &thread_id)
 }
 
 /// §2.4's raw pane, one record at a time.

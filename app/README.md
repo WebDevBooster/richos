@@ -146,6 +146,16 @@ app/
     tests/acp_cancel_tests.rs 3 session/cancel tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake adapter the test writes itself), in two
                               variants: compliant, and deliberately deaf to session/cancel
+    tests/between_turn_tests.rs 3 tests for techy-mode §1.5 gap #1, also against a REAL
+                              CHILD PROCESS: the update the adapter emits at session start
+                              and after a prompt response — which used to hit no sink at
+                              all — is parked, deduplicated by the last_session_meta slot,
+                              and drained with turn_id: None
+    tests/between_turn_thread_tests.rs 6 tests for the same gap end to end: a real
+                              AcpCognition's session-start update reaching the journal and
+                              the technical view, re-prime machinery that is recorded and
+                              structurally cannot render, no session id on the lane's wire,
+                              the honest empty lane, and the retention window covering it
     tests/feedback_no_outbound_tests.rs 7 tests asserting an ABSENCE: no transport in the
                               module's shipping code, no network-capable dependency in the
                               crate, no other module consuming the feature, and an approval
@@ -493,7 +503,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 469 tests + 5 doc-tests
+cargo test -p richos-core                       # 484 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

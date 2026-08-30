@@ -986,6 +986,33 @@ module.exports = [
       "are no rows left to expand). Named rather than left unclassified.",
   },
   {
+    s: "Not part of any one exchange — this is what the session said with no turn running.",
+    c: "INFORMATIONAL",
+    fixture: "techy-on",
+    why:
+      "`index.html`'s `#between-turns-lede` — the lede over §1.5's between-turn lane. It " +
+      "exists because a section of rows placed OUTSIDE the conversation invites the " +
+      "question 'why are these not up there with everything else', and the answer is a " +
+      "fact about the records: they carry no turn (`turnId: None`, §1.4 G4), so they have " +
+      "no position in the conversation to be drawn at. Nothing for the CEO to do — it " +
+      "explains a layout, it does not ask for a decision.",
+  },
+  {
+    s: "Nothing was recorded between turns in this conversation. Rich started keeping this on 2026-08-30 — so in an older conversation that is a gap in the record, not proof the session was quiet.",
+    c: "INFORMATIONAL",
+    // `techy-empty`, not `techy-on`: the `acme` thread that `techy-on` opens HAS
+    // between-turn traffic, so the sentence correctly does not render there. The fixture
+    // that shows it is the conversation with nothing recorded at all — which is also the
+    // commonest way a CEO will meet it, since every thread older than 2026-08-30 is one.
+    fixture: "techy-empty",
+    why:
+      "`machinery_view.rs::BETWEEN_TURNS_QUIET`. The honest empty state for the lane, and " +
+      "shaped like `NOTHING_RECORDED` for the same reason: the lane is empty in two " +
+      "different situations and only one of them means the session was quiet. Nothing to " +
+      "act on — between-turn retention began on 2026-08-30 and what was never written down " +
+      "is unrecoverable, exactly as it is one level up.",
+  },
+  {
     s: "No machinery was recorded for this conversation. Retention started on 2026-08-28, and anything Rich did before that was never written down — so this is a gap in the record, not a quiet conversation.",
     c: "INFORMATIONAL",
     fixture: "techy-empty",
