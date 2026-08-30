@@ -14,9 +14,14 @@
 //!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
 //!   - `loro`      — the Tier-C READ seam, implemented: company memory compiled into a
-//!                   re-prime, with the cross-entity lane re-assertion on the finished slice.
+//!                   re-prime, with the cross-entity lane re-assertion on the finished
+//!                   slice — and the PROVENANCE of what was injected, retained so a later
+//!                   correction can name the record it is a correction of.
 //!   - `correction` — the loro WRITE loop: propose, ASK the CEO, then write. Never the
 //!                   other order — ceo-decisions.md §7, enforced by the state machine.
+//!   - `belief`    — the loro desk's PROPOSER: what makes an utterance a correction of a
+//!                   recorded BELIEF, and — the load-bearing half — which record it is a
+//!                   correction of. Resolves or stays silent; never guesses a ref.
 //!   - `spoken`    — the flywheel's AUTOMATIC TRIGGER: what makes an utterance a
 //!                   correction, decided from a repair frame + the shipped §7 term gate.
 //!                   Detects; never writes.
@@ -45,6 +50,7 @@
 //!                   Nothing in it sends anything, and its tests assert that.
 
 pub mod acp;
+pub mod belief;
 pub mod cognition;
 pub mod correction;
 pub mod config;
@@ -67,6 +73,7 @@ pub mod util;
 pub mod worker_events;
 pub mod worker_status;
 
+pub use belief::{BeliefAsk, BeliefDetection, BeliefRejection, ValueClass};
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
 pub use feedback::{
@@ -88,10 +95,13 @@ pub use live::{
 };
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 pub use correction::{
-    CliLoroWriter, CorrectionDesk, CorrectionError, LoroWriteBackend, Proposal, ProposalState,
-    ProposedWrite, WriteOutput,
+    CliLoroWriter, CorrectionDesk, CorrectionError, LoroWriteBackend, Proposal, ProposalObserver,
+    ProposalState, ProposedWrite, SharedCorrectionDesk, WriteOutput, EVENT_LORO_PROPOSED,
 };
-pub use loro::{CliContextCompiler, LaneMap, LoroError, LoroRoot, LoroTools, Slice};
+pub use loro::{
+    CliContextCompiler, InjectedSlice, LaneMap, LoroError, LoroRoot, LoroTools, SharedSliceProvenance,
+    Slice, SliceProvenance, SliceRecord,
+};
 pub use reprime::{LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest};
 pub use spine::{Spine, SpineError, WorkerEventsSource};
 pub use steering::{

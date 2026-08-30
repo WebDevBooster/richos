@@ -55,6 +55,7 @@ use crate::loro::{LoroRoot, LoroTools};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CorrectionError {
@@ -613,6 +614,33 @@ impl CorrectionDesk {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Behind an `Arc<Mutex<_>>`, so the SAME desk is reachable from the turn path (where
+    /// `belief.rs`'s trigger files a proposal) and from the answer path (where the CEO
+    /// confirms one) without either waiting on the other. The posture
+    /// `staging::CandidateDesk::shared` already takes, for the same reason: `send_message`
+    /// holds the spine lock for a whole turn, and a correction panel that froze until Rich
+    /// finished would not be used.
+    pub fn shared(self) -> SharedCorrectionDesk {
+        Arc::new(Mutex::new(self))
+    }
+}
+
+pub type SharedCorrectionDesk = Arc<Mutex<CorrectionDesk>>;
+
+/// The event a filed loro proposal is announced on.
+///
+/// A separate name from `staging::EVENT_CORRECTION_STAGED` because the two carry different
+/// payloads and a surface's subscription list is the proof of what it renders — but the
+/// same JOB: the proposal is already durable on the desk's own log before this fires, so a
+/// webview that missed it loses a badge update and never a record.
+pub const EVENT_LORO_PROPOSED: &str = "rich://loro-proposed";
+
+/// A sink for filed proposals — whatever renders the desk.
+pub trait ProposalObserver: Send {
+    /// MUST be non-blocking and infallible from the spine's view, for the reason
+    /// `staging::CorrectionObserver` must: a UI that is not listening never stalls a turn.
+    fn on_correction_proposed(&self, proposal: &Proposal);
 }
 
 #[cfg(test)]

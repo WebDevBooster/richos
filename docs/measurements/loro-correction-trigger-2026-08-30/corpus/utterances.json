@@ -1,0 +1,1408 @@
+{
+  "provenance": {
+    "note": "EVERY sentence and EVERY record in this file was invented for this measurement. No transcript of anyone appears, no line here is a real spoken sentence, and no record is a real loro record — the corpus is not in this repo and never will be. Every person, company, place and figure is fictional; the only non-fictional terms are `Deepgram`, `whisper.cpp`, `Postgres` and `MySQL`, which already appear in the public wiki as the doctrine's own worked examples.",
+    "shape": "Utterances as whisper.cpp renders them: sentence case, punctuated, one to two sentences. `slice` names the loro records injected into the session the utterance was said in — the provenance the detector resolves against (`loro::SliceProvenance`), never the whole corpus.",
+    "labels": "`correction` = the CEO is saying a RECORDED BELIEF is wrong and stating what is true instead, and a proposal against a NAMED record is the right outcome. `not-a-correction` = anything else: mishearings (the vocabulary desk's), questions, hedges, reports of somebody else's statement, sentences that merely share a value with a record, ambiguous references, and refs the writer cannot address.",
+    "scoring": "A proposal is a TRUE POSITIVE only if the ref, the rejected side and the asserted side are ALL right. A proposal with the wrong REF scores as a false positive, not as a partial hit: the ref is what gets superseded, and a proposal against the wrong record is a corruption the CEO would have to catch by reading --dry-run bytes.",
+    "base rate": "The negatives are ADVERSARIAL, not representative: the great majority carry a standalone `not` pivot on purpose, and most of them name a value that IS on one of the records. Precision measured here is therefore a LOWER bound on precision in use; recall is unaffected by the imbalance."
+  },
+  "slices": {
+    "desk": [
+      {
+        "ref": "rec:person/records/halstead-renewal",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Halstead renewal",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [commitment] Halstead renewal — The Halstead contract renews in February. (ref: rec:person/records/halstead-renewal)"
+      },
+      {
+        "ref": "rec:person/records/ship-date",
+        "kind": "decision",
+        "kindInferred": false,
+        "title": "Ship date",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [decision] Ship date — We ship on Thursday. (ref: rec:person/records/ship-date)"
+      },
+      {
+        "ref": "mem:company:q3-revenue",
+        "kind": "metric",
+        "kindInferred": false,
+        "title": "Q3 revenue",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [metric] Q3 revenue — Q3 revenue came in at 1.2 million. (ref: mem:company:q3-revenue)"
+      },
+      {
+        "ref": "rec:person/records/pricing-model",
+        "kind": "decision",
+        "kindInferred": false,
+        "title": "Pricing model",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [decision] Pricing model — Pricing moved to per-seat in June. (ref: rec:person/records/pricing-model)"
+      },
+      {
+        "ref": "rec:person/records/kestrel-review",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Kestral review",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [commitment] Kestral review — The Kestral review is booked. (ref: rec:person/records/kestrel-review)"
+      },
+      {
+        "ref": "mem:company:headcount",
+        "kind": "metric",
+        "kindInferred": true,
+        "title": "Engineering headcount",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [metric?] Engineering headcount — Engineering headcount is 40. (ref: mem:company:headcount)"
+      },
+      {
+        "ref": "wiki:strategy.md#positioning",
+        "kind": "passage",
+        "kindInferred": true,
+        "title": "Positioning",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [passage?] Positioning — We position against incumbents on speed. (ref: wiki:strategy.md#positioning)"
+      },
+      {
+        "ref": "rec:person/records/office-lease",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Office lease",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [commitment] Office lease — The lease runs to 2029. (ref: rec:person/records/office-lease)"
+      },
+      {
+        "ref": "rec:person/records/account-owner",
+        "kind": "fact",
+        "kindInferred": false,
+        "title": "Halstead account owner",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [fact] Halstead account owner — Marcus Webb owns the Halstead account. (ref: rec:person/records/account-owner)"
+      }
+    ],
+    "ambiguous": [
+      {
+        "ref": "rec:person/records/halstead-renewal",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Halstead renewal",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [commitment] Halstead renewal — The Halstead contract renews in February. (ref: rec:person/records/halstead-renewal)"
+      },
+      {
+        "ref": "rec:person/records/ship-date",
+        "kind": "decision",
+        "kindInferred": false,
+        "title": "Ship date",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [decision] Ship date — We ship on Thursday. (ref: rec:person/records/ship-date)"
+      },
+      {
+        "ref": "mem:company:q3-revenue",
+        "kind": "metric",
+        "kindInferred": false,
+        "title": "Q3 revenue",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [metric] Q3 revenue — Q3 revenue came in at 1.2 million. (ref: mem:company:q3-revenue)"
+      },
+      {
+        "ref": "rec:person/records/pricing-model",
+        "kind": "decision",
+        "kindInferred": false,
+        "title": "Pricing model",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [decision] Pricing model — Pricing moved to per-seat in June. (ref: rec:person/records/pricing-model)"
+      },
+      {
+        "ref": "rec:person/records/kestrel-review",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Kestral review",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [commitment] Kestral review — The Kestral review is booked. (ref: rec:person/records/kestrel-review)"
+      },
+      {
+        "ref": "mem:company:headcount",
+        "kind": "metric",
+        "kindInferred": true,
+        "title": "Engineering headcount",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [metric?] Engineering headcount — Engineering headcount is 40. (ref: mem:company:headcount)"
+      },
+      {
+        "ref": "wiki:strategy.md#positioning",
+        "kind": "passage",
+        "kindInferred": true,
+        "title": "Positioning",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [passage?] Positioning — We position against incumbents on speed. (ref: wiki:strategy.md#positioning)"
+      },
+      {
+        "ref": "rec:person/records/office-lease",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Office lease",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [commitment] Office lease — The lease runs to 2029. (ref: rec:person/records/office-lease)"
+      },
+      {
+        "ref": "rec:person/records/account-owner",
+        "kind": "fact",
+        "kindInferred": false,
+        "title": "Halstead account owner",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [fact] Halstead account owner — Marcus Webb owns the Halstead account. (ref: rec:person/records/account-owner)"
+      },
+      {
+        "ref": "rec:person/records/board-meeting",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Board meeting",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [commitment] Board meeting — The board meets in February. (ref: rec:person/records/board-meeting)"
+      },
+      {
+        "ref": "rec:person/records/audit-window",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Audit window",
+        "scope": "ceo-private",
+        "company": null,
+        "line": "• [commitment] Audit window — The audit window closes on Thursday. (ref: rec:person/records/audit-window)"
+      }
+    ],
+    "both-sides": [
+      {
+        "ref": "rec:person/records/ship-date",
+        "kind": "decision",
+        "kindInferred": false,
+        "title": "Ship date",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [decision] Ship date — We ship Thursday; Friday was floated and rejected. (ref: rec:person/records/ship-date)"
+      },
+      {
+        "ref": "rec:person/records/halstead-renewal",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Halstead renewal",
+        "scope": "org-shared",
+        "company": null,
+        "line": "• [commitment] Halstead renewal — The Halstead contract renews in February, or March if the option is taken. (ref: rec:person/records/halstead-renewal)"
+      }
+    ],
+    "title-only": [
+      {
+        "ref": "rec:person/records/halstead-renewal",
+        "kind": "commitment",
+        "kindInferred": false,
+        "title": "Halstead renewal in February",
+        "scope": "org-shared",
+        "company": null,
+        "line": null
+      }
+    ],
+    "none": []
+  },
+  "utterances": [
+    {
+      "id": "c01",
+      "label": "correction",
+      "utterance": "The Halstead contract renews in March, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      }
+    },
+    {
+      "id": "c02",
+      "label": "correction",
+      "utterance": "Halstead renews in March, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      }
+    },
+    {
+      "id": "c03",
+      "label": "correction",
+      "utterance": "No, the Halstead renewal is April, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "April"
+      }
+    },
+    {
+      "id": "c04",
+      "label": "correction",
+      "utterance": "Not February — the Halstead renewal is March.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      },
+      "note": "pivot-first"
+    },
+    {
+      "id": "c05",
+      "label": "correction",
+      "utterance": "You said February; the Halstead renewal is March, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      },
+      "note": "quoting Rich back is his own voice"
+    },
+    {
+      "id": "c06",
+      "label": "correction",
+      "utterance": "We ship Friday, not Thursday.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/ship-date",
+        "rejected": "Thursday",
+        "asserted": "Friday"
+      },
+      "note": "the archetypal change of mind the VOCABULARY gate refuses — a real correction here, because a record says Thursday"
+    },
+    {
+      "id": "c07",
+      "label": "correction",
+      "utterance": "The ship date is Friday, not Thursday.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/ship-date",
+        "rejected": "Thursday",
+        "asserted": "Friday"
+      }
+    },
+    {
+      "id": "c08",
+      "label": "correction",
+      "utterance": "We ship Tuesday, not Thursday.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/ship-date",
+        "rejected": "Thursday",
+        "asserted": "Tuesday"
+      }
+    },
+    {
+      "id": "c09",
+      "label": "correction",
+      "utterance": "Not Thursday — we ship Friday.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/ship-date",
+        "rejected": "Thursday",
+        "asserted": "Friday"
+      },
+      "note": "pivot-first"
+    },
+    {
+      "id": "c10",
+      "label": "correction",
+      "utterance": "Q3 revenue was 1.4 million, not 1.2.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:q3-revenue",
+        "rejected": "1.2",
+        "asserted": "1.4 million"
+      }
+    },
+    {
+      "id": "c11",
+      "label": "correction",
+      "utterance": "The Q3 revenue number is 1.45, not 1.2.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:q3-revenue",
+        "rejected": "1.2",
+        "asserted": "1.45"
+      }
+    },
+    {
+      "id": "c12",
+      "label": "correction",
+      "utterance": "Revenue in Q3 came in at 980000, not 1.2.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:q3-revenue",
+        "rejected": "1.2",
+        "asserted": "980000"
+      }
+    },
+    {
+      "id": "c13",
+      "label": "correction",
+      "utterance": "Pricing moved to per-seat in July, not June.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/pricing-model",
+        "rejected": "June",
+        "asserted": "July"
+      }
+    },
+    {
+      "id": "c14",
+      "label": "correction",
+      "utterance": "The pricing change was May, not June.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/pricing-model",
+        "rejected": "June",
+        "asserted": "May"
+      },
+      "note": "May is a month AND a modal — the belief extractor's one calendar carve-out"
+    },
+    {
+      "id": "c15",
+      "label": "correction",
+      "utterance": "Not June — the pricing model moved in July.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/pricing-model",
+        "rejected": "June",
+        "asserted": "July"
+      },
+      "note": "pivot-first"
+    },
+    {
+      "id": "c16",
+      "label": "correction",
+      "utterance": "Engineering headcount is 46, not 40.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:headcount",
+        "rejected": "40",
+        "asserted": "46"
+      }
+    },
+    {
+      "id": "c17",
+      "label": "correction",
+      "utterance": "The engineering headcount is 38, not 40.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:headcount",
+        "rejected": "40",
+        "asserted": "38"
+      }
+    },
+    {
+      "id": "c18",
+      "label": "correction",
+      "utterance": "Headcount in engineering is 52, not 40.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:headcount",
+        "rejected": "40",
+        "asserted": "52"
+      }
+    },
+    {
+      "id": "c19",
+      "label": "correction",
+      "utterance": "The lease runs to 2031, not 2029.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/office-lease",
+        "rejected": "2029",
+        "asserted": "2031"
+      }
+    },
+    {
+      "id": "c20",
+      "label": "correction",
+      "utterance": "Our office lease ends 2027, not 2029.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/office-lease",
+        "rejected": "2029",
+        "asserted": "2027"
+      }
+    },
+    {
+      "id": "c21",
+      "label": "correction",
+      "utterance": "Not 2029 — the office lease runs to 2031.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/office-lease",
+        "rejected": "2029",
+        "asserted": "2031"
+      },
+      "note": "pivot-first"
+    },
+    {
+      "id": "c22",
+      "label": "correction",
+      "utterance": "Priya Nair owns the Halstead account, not Marcus Webb.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/account-owner",
+        "rejected": "Marcus Webb",
+        "asserted": "Priya Nair"
+      }
+    },
+    {
+      "id": "c23",
+      "label": "correction",
+      "utterance": "The Halstead account owner is Dana Okonkwo, not Marcus Webb.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/account-owner",
+        "rejected": "Marcus Webb",
+        "asserted": "Dana Okonkwo"
+      }
+    },
+    {
+      "id": "c24",
+      "label": "correction",
+      "utterance": "Not Marcus Webb — Priya Nair owns the Halstead account.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/account-owner",
+        "rejected": "Marcus Webb",
+        "asserted": "Priya Nair"
+      },
+      "note": "pivot-first"
+    },
+    {
+      "id": "c25",
+      "label": "correction",
+      "utterance": "I said the Halstead renewal is March, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      },
+      "note": "first-person self-repair is his own voice"
+    },
+    {
+      "id": "c26",
+      "label": "correction",
+      "utterance": "Correction: we ship Friday, not Thursday.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/ship-date",
+        "rejected": "Thursday",
+        "asserted": "Friday"
+      }
+    },
+    {
+      "id": "c27",
+      "label": "correction",
+      "utterance": "That's out of date — the Halstead renewal is March, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      }
+    },
+    {
+      "id": "c28",
+      "label": "correction",
+      "utterance": "The renewal on Halstead moved to March, not February.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      }
+    },
+    {
+      "id": "c29",
+      "label": "correction",
+      "utterance": "Engineering headcount today is 41, not 40.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:headcount",
+        "rejected": "40",
+        "asserted": "41"
+      }
+    },
+    {
+      "id": "c30",
+      "label": "correction",
+      "utterance": "Q3 revenue is 1.35 million, not 1.2.",
+      "slice": "desk",
+      "expect": {
+        "ref": "mem:company:q3-revenue",
+        "rejected": "1.2",
+        "asserted": "1.35 million"
+      }
+    },
+    {
+      "id": "c31",
+      "label": "correction",
+      "utterance": "Our ship date is Monday, not Thursday.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/ship-date",
+        "rejected": "Thursday",
+        "asserted": "Monday"
+      }
+    },
+    {
+      "id": "c32",
+      "label": "correction",
+      "utterance": "The lease term runs to 2033, not 2029.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/office-lease",
+        "rejected": "2029",
+        "asserted": "2033"
+      }
+    },
+    {
+      "id": "c33",
+      "label": "correction",
+      "utterance": "Pricing went per-seat in August, not June.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/pricing-model",
+        "rejected": "June",
+        "asserted": "August"
+      }
+    },
+    {
+      "id": "c34",
+      "label": "correction",
+      "utterance": "The account owner on Halstead is Priya Nair, not Marcus Webb.",
+      "slice": "desk",
+      "expect": {
+        "ref": "rec:person/records/account-owner",
+        "rejected": "Marcus Webb",
+        "asserted": "Priya Nair"
+      }
+    },
+    {
+      "id": "a01",
+      "label": "not-a-correction",
+      "utterance": "Let's meet in March, not February.",
+      "slice": "desk",
+      "note": "contains the renewal's value, is about a meeting"
+    },
+    {
+      "id": "a02",
+      "label": "not-a-correction",
+      "utterance": "Book the flights for March, not February.",
+      "slice": "desk",
+      "note": "same value, no shared subject"
+    },
+    {
+      "id": "a03",
+      "label": "not-a-correction",
+      "utterance": "I'm in Lisbon Friday, not Thursday.",
+      "slice": "desk",
+      "note": "travel, not the ship date"
+    },
+    {
+      "id": "a04",
+      "label": "not-a-correction",
+      "utterance": "Call Priya on Friday, not Thursday.",
+      "slice": "desk",
+      "note": "a call, not the ship date"
+    },
+    {
+      "id": "a05",
+      "label": "not-a-correction",
+      "utterance": "Bring 1.4 million to the board, not 1.2.",
+      "slice": "desk",
+      "note": "a board figure, no Q3 subject word"
+    },
+    {
+      "id": "a06",
+      "label": "not-a-correction",
+      "utterance": "Put 46 chairs in the room, not 40.",
+      "slice": "desk",
+      "note": "furniture, not headcount"
+    },
+    {
+      "id": "a07",
+      "label": "not-a-correction",
+      "utterance": "Sign the Lisbon papers in 2031, not 2029.",
+      "slice": "desk",
+      "note": "a different document"
+    },
+    {
+      "id": "a08",
+      "label": "not-a-correction",
+      "utterance": "Introduce Priya Nair to the buyer, not Marcus Webb.",
+      "slice": "desk",
+      "note": "an introduction, not the account owner"
+    },
+    {
+      "id": "a09",
+      "label": "not-a-correction",
+      "utterance": "Send it in July, not June.",
+      "slice": "desk",
+      "note": "no pricing subject"
+    },
+    {
+      "id": "a10",
+      "label": "not-a-correction",
+      "utterance": "We landed in Porto Friday, not Thursday.",
+      "slice": "desk",
+      "note": "travel again"
+    },
+    {
+      "id": "a11",
+      "label": "not-a-correction",
+      "utterance": "Invoice for 1.4 million, not 1.2.",
+      "slice": "desk",
+      "note": "an invoice, not the Q3 record"
+    },
+    {
+      "id": "a12",
+      "label": "not-a-correction",
+      "utterance": "Order 52 laptops, not 40.",
+      "slice": "desk",
+      "note": "procurement, not headcount"
+    },
+    {
+      "id": "b01",
+      "label": "not-a-correction",
+      "utterance": "The Halstead renewal is March, not February.",
+      "slice": "ambiguous",
+      "note": "two records say February"
+    },
+    {
+      "id": "b02",
+      "label": "not-a-correction",
+      "utterance": "It's March, not February.",
+      "slice": "ambiguous",
+      "note": "two records, and no subject either"
+    },
+    {
+      "id": "b03",
+      "label": "not-a-correction",
+      "utterance": "We ship Friday, not Thursday.",
+      "slice": "ambiguous",
+      "note": "two records say Thursday"
+    },
+    {
+      "id": "b04",
+      "label": "not-a-correction",
+      "utterance": "The board meets in March, not February.",
+      "slice": "ambiguous",
+      "note": "the subject picks one but the VALUE is on two — resolution must not be rescued by topic"
+    },
+    {
+      "id": "b05",
+      "label": "not-a-correction",
+      "utterance": "Not February — March.",
+      "slice": "ambiguous",
+      "note": "pivot-first, still ambiguous"
+    },
+    {
+      "id": "b06",
+      "label": "not-a-correction",
+      "utterance": "The audit window closes Friday, not Thursday.",
+      "slice": "ambiguous",
+      "note": "two records say Thursday"
+    },
+    {
+      "id": "z01",
+      "label": "not-a-correction",
+      "utterance": "The kickoff is Wednesday, not Tuesday.",
+      "slice": "desk",
+      "note": "no record states Tuesday"
+    },
+    {
+      "id": "z02",
+      "label": "not-a-correction",
+      "utterance": "The number is 3.1, not 2.8.",
+      "slice": "desk",
+      "note": "no record states 2.8"
+    },
+    {
+      "id": "z03",
+      "label": "not-a-correction",
+      "utterance": "It renews in December, not November.",
+      "slice": "desk",
+      "note": "no record states November"
+    },
+    {
+      "id": "z04",
+      "label": "not-a-correction",
+      "utterance": "Headcount in sales is 12, not 9.",
+      "slice": "desk",
+      "note": "no record states 9"
+    },
+    {
+      "id": "z05",
+      "label": "not-a-correction",
+      "utterance": "The lease in Porto runs to 2035, not 2032.",
+      "slice": "desk",
+      "note": "no record states 2032"
+    },
+    {
+      "id": "z06",
+      "label": "not-a-correction",
+      "utterance": "Sofia Almeida owns that account, not Tomas Reis.",
+      "slice": "desk",
+      "note": "neither name is on file"
+    },
+    {
+      "id": "z07",
+      "label": "not-a-correction",
+      "utterance": "We land Sunday, not Saturday.",
+      "slice": "desk",
+      "note": "no record states Saturday"
+    },
+    {
+      "id": "z08",
+      "label": "not-a-correction",
+      "utterance": "Budget is 90000, not 75000.",
+      "slice": "desk",
+      "note": "neither figure is on file"
+    },
+    {
+      "id": "z09",
+      "label": "not-a-correction",
+      "utterance": "The review is on the ninth, not the eighth.",
+      "slice": "desk",
+      "note": "no record states either"
+    },
+    {
+      "id": "z10",
+      "label": "not-a-correction",
+      "utterance": "Use Postgres, not MySQL.",
+      "slice": "desk",
+      "note": "a technology decision, nothing on file"
+    },
+    {
+      "id": "z11",
+      "label": "not-a-correction",
+      "utterance": "Bring in Marcus, not Priya.",
+      "slice": "desk",
+      "note": "a staffing decision; neither bare name is a recorded value"
+    },
+    {
+      "id": "z12",
+      "label": "not-a-correction",
+      "utterance": "The office is in Braga, not Porto.",
+      "slice": "desk",
+      "note": "no record states Porto"
+    },
+    {
+      "id": "z13",
+      "label": "not-a-correction",
+      "utterance": "Ship it in Q4, not Q3.",
+      "slice": "desk",
+      "note": "an enumerator swap, and Q3 alone is not a stated value"
+    },
+    {
+      "id": "z14",
+      "label": "not-a-correction",
+      "utterance": "Run Phase 2, not Phase 1.",
+      "slice": "desk",
+      "note": "an enumerator swap with nothing on file"
+    },
+    {
+      "id": "z15",
+      "label": "not-a-correction",
+      "utterance": "Ask about Series B, not Series A.",
+      "slice": "desk",
+      "note": "an enumerator swap with nothing on file"
+    },
+    {
+      "id": "d01",
+      "label": "not-a-correction",
+      "utterance": "It's Kestrel, not Kestral.",
+      "slice": "desk",
+      "note": "one name spelled two ways — staging.rs's, not this desk's"
+    },
+    {
+      "id": "d02",
+      "label": "not-a-correction",
+      "utterance": "The Kestrel review is booked, not Kestral.",
+      "slice": "desk",
+      "note": "same pair with the subject present"
+    },
+    {
+      "id": "d03",
+      "label": "not-a-correction",
+      "utterance": "It's Deepgram, not deep graham.",
+      "slice": "desk",
+      "note": "a mishearing with nothing on file either"
+    },
+    {
+      "id": "d04",
+      "label": "not-a-correction",
+      "utterance": "Her name is Priya, not Briella.",
+      "slice": "desk",
+      "note": "the phonetic-leg pair from the vocabulary corpus"
+    },
+    {
+      "id": "d05",
+      "label": "not-a-correction",
+      "utterance": "Not Kestral — Kestrel.",
+      "slice": "desk",
+      "note": "pivot-first mishearing"
+    },
+    {
+      "id": "d06",
+      "label": "not-a-correction",
+      "utterance": "It's Kestrel Bay, not Kestral Bay.",
+      "slice": "desk",
+      "note": "multi-word mishearing"
+    },
+    {
+      "id": "d07",
+      "label": "not-a-correction",
+      "utterance": "Say Halstead, not Halsted.",
+      "slice": "desk",
+      "note": "a mishearing of a name that IS on file"
+    },
+    {
+      "id": "d08",
+      "label": "not-a-correction",
+      "utterance": "It's whisper.cpp, not whisper c p p.",
+      "slice": "desk",
+      "note": "a dotted term, still a mishearing"
+    },
+    {
+      "id": "e01",
+      "label": "not-a-correction",
+      "utterance": "Does the Halstead contract renew in March, not February?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "e02",
+      "label": "not-a-correction",
+      "utterance": "Do we ship Friday, not Thursday?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "e03",
+      "label": "not-a-correction",
+      "utterance": "Was Q3 revenue 1.4 million, not 1.2?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "e04",
+      "label": "not-a-correction",
+      "utterance": "Is headcount 46, not 40?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "e05",
+      "label": "not-a-correction",
+      "utterance": "Isn't the Halstead renewal March, not February?",
+      "slice": "desk",
+      "note": "a rhetorical question is still a question"
+    },
+    {
+      "id": "e06",
+      "label": "not-a-correction",
+      "utterance": "Should the lease run to 2031, not 2029?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "e07",
+      "label": "not-a-correction",
+      "utterance": "Who owns Halstead — Priya Nair, not Marcus Webb?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "e08",
+      "label": "not-a-correction",
+      "utterance": "Did pricing move in July, not June?",
+      "slice": "desk",
+      "note": "a question"
+    },
+    {
+      "id": "f01",
+      "label": "not-a-correction",
+      "utterance": "I think the Halstead renewal is March, not February.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f02",
+      "label": "not-a-correction",
+      "utterance": "Maybe we ship Friday, not Thursday.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f03",
+      "label": "not-a-correction",
+      "utterance": "It might be 1.4 million in Q3, not 1.2.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f04",
+      "label": "not-a-correction",
+      "utterance": "If headcount is 46, not 40, the plan changes.",
+      "slice": "desk",
+      "note": "conditional"
+    },
+    {
+      "id": "f05",
+      "label": "not-a-correction",
+      "utterance": "I assume the lease runs to 2031, not 2029.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f06",
+      "label": "not-a-correction",
+      "utterance": "Perhaps Priya Nair owns Halstead, not Marcus Webb.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f07",
+      "label": "not-a-correction",
+      "utterance": "I'm unsure whether pricing moved in July, not June.",
+      "slice": "desk",
+      "note": "hedged twice over"
+    },
+    {
+      "id": "f08",
+      "label": "not-a-correction",
+      "utterance": "It seems the Halstead renewal is March, not February.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f09",
+      "label": "not-a-correction",
+      "utterance": "I believe we ship Friday, not Thursday.",
+      "slice": "desk",
+      "note": "hedged"
+    },
+    {
+      "id": "f10",
+      "label": "not-a-correction",
+      "utterance": "Suppose Q3 was 1.4 million, not 1.2.",
+      "slice": "desk",
+      "note": "a hypothetical"
+    },
+    {
+      "id": "g01",
+      "label": "not-a-correction",
+      "utterance": "She said the Halstead renewal is March, not February.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g02",
+      "label": "not-a-correction",
+      "utterance": "Marcus said we ship Friday, not Thursday.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g03",
+      "label": "not-a-correction",
+      "utterance": "They told me Q3 was 1.4 million, not 1.2.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g04",
+      "label": "not-a-correction",
+      "utterance": "He claims headcount is 46, not 40.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g05",
+      "label": "not-a-correction",
+      "utterance": "Legal says the lease runs to 2031, not 2029.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g06",
+      "label": "not-a-correction",
+      "utterance": "Priya mentioned that she owns Halstead, not Marcus Webb.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g07",
+      "label": "not-a-correction",
+      "utterance": "The board said pricing moved in July, not June.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "g08",
+      "label": "not-a-correction",
+      "utterance": "Finance reckons Q3 was 1.4 million, not 1.2.",
+      "slice": "desk",
+      "note": "a report"
+    },
+    {
+      "id": "h01",
+      "label": "not-a-correction",
+      "utterance": "The Halstead renewal is Marcus Webb, not February.",
+      "slice": "desk",
+      "note": "a name for a month"
+    },
+    {
+      "id": "h02",
+      "label": "not-a-correction",
+      "utterance": "Q3 revenue is Halstead, not 1.2.",
+      "slice": "desk",
+      "note": "a name for a number"
+    },
+    {
+      "id": "h03",
+      "label": "not-a-correction",
+      "utterance": "Headcount is growing, not 40.",
+      "slice": "desk",
+      "note": "prose for a number"
+    },
+    {
+      "id": "h04",
+      "label": "not-a-correction",
+      "utterance": "The ship date is per-seat, not Thursday.",
+      "slice": "desk",
+      "note": "a nominal for a weekday"
+    },
+    {
+      "id": "h05",
+      "label": "not-a-correction",
+      "utterance": "The lease is Porto, not 2029.",
+      "slice": "desk",
+      "note": "a place for a year"
+    },
+    {
+      "id": "h06",
+      "label": "not-a-correction",
+      "utterance": "The account owner is 40, not Marcus Webb.",
+      "slice": "desk",
+      "note": "a number for a name"
+    },
+    {
+      "id": "i01",
+      "label": "not-a-correction",
+      "utterance": "We position on price, not speed.",
+      "slice": "desk",
+      "note": "a wiki: ref — prose, exit 5"
+    },
+    {
+      "id": "i02",
+      "label": "not-a-correction",
+      "utterance": "Our positioning is depth, not speed.",
+      "slice": "desk",
+      "note": "a wiki: ref"
+    },
+    {
+      "id": "i03",
+      "label": "not-a-correction",
+      "utterance": "Not speed — we position on reliability.",
+      "slice": "desk",
+      "note": "a wiki: ref, pivot-first"
+    },
+    {
+      "id": "i04",
+      "label": "not-a-correction",
+      "utterance": "We compete on service, not speed.",
+      "slice": "desk",
+      "note": "a wiki: ref"
+    },
+    {
+      "id": "i05",
+      "label": "not-a-correction",
+      "utterance": "Positioning is about trust, not speed.",
+      "slice": "desk",
+      "note": "a wiki: ref"
+    },
+    {
+      "id": "j01",
+      "label": "not-a-correction",
+      "utterance": "We ship Friday, not Thursday.",
+      "slice": "both-sides",
+      "note": "the record already names Friday"
+    },
+    {
+      "id": "j02",
+      "label": "not-a-correction",
+      "utterance": "The ship date is Friday, not Thursday.",
+      "slice": "both-sides",
+      "note": "the record already names Friday"
+    },
+    {
+      "id": "j03",
+      "label": "not-a-correction",
+      "utterance": "The Halstead renewal is March, not February.",
+      "slice": "both-sides",
+      "note": "the record already names March"
+    },
+    {
+      "id": "j04",
+      "label": "not-a-correction",
+      "utterance": "Halstead renews in March, not February.",
+      "slice": "both-sides",
+      "note": "the record already names March"
+    },
+    {
+      "id": "k01",
+      "label": "not-a-correction",
+      "utterance": "It's not a bug, it's a feature.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k02",
+      "label": "not-a-correction",
+      "utterance": "No, that's not what I asked for.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k03",
+      "label": "not-a-correction",
+      "utterance": "That's wrong.",
+      "slice": "desk",
+      "note": "names no value — the bare recall hole"
+    },
+    {
+      "id": "k04",
+      "label": "not-a-correction",
+      "utterance": "That's out of date.",
+      "slice": "desk",
+      "note": "names no value"
+    },
+    {
+      "id": "k05",
+      "label": "not-a-correction",
+      "utterance": "No, that's not right.",
+      "slice": "desk",
+      "note": "names no value"
+    },
+    {
+      "id": "k06",
+      "label": "not-a-correction",
+      "utterance": "I have not confirmed the Halstead renewal yet.",
+      "slice": "desk",
+      "note": "a mid-clause pivot"
+    },
+    {
+      "id": "k07",
+      "label": "not-a-correction",
+      "utterance": "Not now, later.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k08",
+      "label": "not-a-correction",
+      "utterance": "We are not shipping this week.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k09",
+      "label": "not-a-correction",
+      "utterance": "Do not change the Halstead record.",
+      "slice": "desk",
+      "note": "an instruction, and an ironic one"
+    },
+    {
+      "id": "k10",
+      "label": "not-a-correction",
+      "utterance": "That is not something I decided.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k11",
+      "label": "not-a-correction",
+      "utterance": "I would not put 1.2 in front of the board.",
+      "slice": "desk",
+      "note": "an opinion about a figure, no replacement stated"
+    },
+    {
+      "id": "k12",
+      "label": "not-a-correction",
+      "utterance": "Thursday is not going to work.",
+      "slice": "desk",
+      "note": "rejects without replacing"
+    },
+    {
+      "id": "k13",
+      "label": "not-a-correction",
+      "utterance": "The lease is not something we renegotiate.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k14",
+      "label": "not-a-correction",
+      "utterance": "Marcus Webb is not on that call.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "k15",
+      "label": "not-a-correction",
+      "utterance": "Headcount is not the constraint.",
+      "slice": "desk",
+      "note": "prose"
+    },
+    {
+      "id": "l01",
+      "label": "not-a-correction",
+      "utterance": "The Halstead renewal isn't February.",
+      "slice": "desk",
+      "note": "n't states no replacement"
+    },
+    {
+      "id": "l02",
+      "label": "not-a-correction",
+      "utterance": "We didn't say Thursday.",
+      "slice": "desk",
+      "note": "n't states no replacement"
+    },
+    {
+      "id": "l03",
+      "label": "not-a-correction",
+      "utterance": "Q3 wasn't 1.2 million.",
+      "slice": "desk",
+      "note": "n't states no replacement"
+    },
+    {
+      "id": "l04",
+      "label": "not-a-correction",
+      "utterance": "Headcount isn't 40 any more.",
+      "slice": "desk",
+      "note": "n't states no replacement"
+    },
+    {
+      "id": "l05",
+      "label": "not-a-correction",
+      "utterance": "Marcus Webb doesn't own Halstead.",
+      "slice": "desk",
+      "note": "n't states no replacement"
+    },
+    {
+      "id": "m01",
+      "label": "not-a-correction",
+      "utterance": "The Halstead contract renews in March, not February.",
+      "slice": "none",
+      "note": "no slice — a real correction with nothing to resolve against"
+    },
+    {
+      "id": "m02",
+      "label": "not-a-correction",
+      "utterance": "We ship Friday, not Thursday.",
+      "slice": "none",
+      "note": "no slice"
+    },
+    {
+      "id": "m03",
+      "label": "not-a-correction",
+      "utterance": "Q3 revenue was 1.4 million, not 1.2.",
+      "slice": "none",
+      "note": "no slice"
+    },
+    {
+      "id": "m04",
+      "label": "not-a-correction",
+      "utterance": "Priya Nair owns Halstead, not Marcus Webb.",
+      "slice": "none",
+      "note": "no slice"
+    },
+    {
+      "id": "n01",
+      "label": "correction",
+      "utterance": "The Halstead renewal is March, not February.",
+      "slice": "title-only",
+      "expect": {
+        "ref": "rec:person/records/halstead-renewal",
+        "rejected": "February",
+        "asserted": "March"
+      },
+      "note": "the line was lost to the budget cut; the TITLE still carries the value and the subject"
+    },
+    {
+      "id": "n02",
+      "label": "not-a-correction",
+      "utterance": "We ship Friday, not Thursday.",
+      "slice": "title-only",
+      "note": "the only record's title says nothing about Thursday"
+    },
+    {
+      "id": "o01",
+      "label": "not-a-correction",
+      "utterance": "Not February.",
+      "slice": "desk",
+      "note": "no replacement stated"
+    },
+    {
+      "id": "o02",
+      "label": "not-a-correction",
+      "utterance": "Not Thursday.",
+      "slice": "desk",
+      "note": "no replacement stated"
+    },
+    {
+      "id": "o03",
+      "label": "not-a-correction",
+      "utterance": "The Halstead renewal is not February.",
+      "slice": "desk",
+      "note": "rejects without replacing"
+    },
+    {
+      "id": "o04",
+      "label": "not-a-correction",
+      "utterance": "Not 1.2.",
+      "slice": "desk",
+      "note": "no replacement stated"
+    },
+    {
+      "id": "o05",
+      "label": "not-a-correction",
+      "utterance": "Not Marcus Webb.",
+      "slice": "desk",
+      "note": "no replacement stated"
+    }
+  ]
+}

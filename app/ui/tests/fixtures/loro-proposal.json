@@ -1,0 +1,19 @@
+{
+  "at": 0,
+  "entity_id": "femcboost",
+  "failure": null,
+  "id": "prop-1",
+  "outcome": null,
+  "preview": "---\nid: halstead-renewal-corrected-9b7d44\nkind: commitment\nscope: org-shared\nsupersedes: rec:person/records/halstead-renewal\n---\n\nThe Halstead contract renews in March, not February.\n",
+  "state": "awaiting-ceo",
+  "thread_id": "acme",
+  "why": "The Halstead contract renews in March, not February.",
+  "write": {
+    "body": "The Halstead contract renews in March, not February.",
+    "kind": "commitment",
+    "newId": "halstead-renewal-corrected-9b7d44",
+    "op": "supersede",
+    "recordRef": "rec:person/records/halstead-renewal",
+    "scope": "org-shared"
+  }
+}

@@ -1633,6 +1633,20 @@
       emit("rich://correction-staged", { candidates: [c], withheld: [] });
       return c;
     },
+    /// Replace the loro desk's proposals with EXACTLY these objects, byte for byte.
+    ///
+    /// The one seeding hook that does NOT compose anything, and that is the point: the
+    /// browser suite feeds it `ui/tests/fixtures/loro-proposal.json`, which is the proposal
+    /// `belief.rs` ACTUALLY files, checked against the Rust detector on every run by
+    /// `belief_trigger_tests::the_ui_fixture_is_the_proposal_the_detector_really_files`. A
+    /// hook that filled in its own `preview` — as `loro_propose_correction` does, because a
+    /// composer would have to — would let the screenshot show a card the backend would
+    /// never produce.
+    seedLoroProposals(list) {
+      proposals.length = 0;
+      for (const p of list || []) proposals.push(p);
+      proposalSeq = proposals.length + 1;
+    },
     /// Read-only views, so a test can assert on the DESK rather than only on the DOM.
     correctionDeskState() {
       return {

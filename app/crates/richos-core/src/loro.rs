@@ -34,6 +34,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 /// The slice schema this build understands. `CONTEXT-CONTRACT.md` §2's forward-compat rule:
 /// fields may be ADDED within a version and unknown ones must be ignored (which
@@ -264,7 +265,12 @@ pub struct Slice {
     pub notes: Vec<String>,
 }
 
+// `rename_all` is REQUIRED here, not cosmetic: the contract's field is `kindInferred` and
+// without it serde looks for `kind_inferred`, finds nothing, and silently defaults an
+// INFERRED kind to `false` — a guess flattened into a declaration by a missing attribute.
+// Every other field on this struct is a single word, so nothing else moves.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SliceItem {
     #[serde(default)]
     pub r#ref: String,
@@ -274,6 +280,12 @@ pub struct SliceItem {
     pub title: String,
     #[serde(default)]
     pub scope: String,
+    /// `true` = the kind was GUESSED from prose rather than declared by a promoted record
+    /// (`CONTEXT-CONTRACT.md` §2, `record.js` invariant 2). Read here, not merely ignored,
+    /// because a correction desk that proposed `kind: decision` off a guess would be
+    /// asserting an adjudicated claim the corpus never made.
+    #[serde(default)]
+    pub kind_inferred: bool,
     /// The item's LANE. `null` is the person layer — `CONTEXT-CONTRACT.md` §6c calls that
     /// "a legitimate permanent state, not an error".
     #[serde(default)]
@@ -346,6 +358,175 @@ impl Slice {
 }
 
 // ---------------------------------------------------------------------------
+// PROVENANCE — which record an assertion came from, retained because nothing else keeps it
+// ---------------------------------------------------------------------------
+
+/// One record that was actually PUT IN FRONT OF RICH, kept so a later correction can say
+/// which record it is a correction OF.
+///
+/// # Why this type exists at all
+///
+/// It closes a gap that was measured rather than assumed. A slice is compiled at re-prime
+/// time, `interpret` returns [`LoroTier::Slice`] carrying **only `slice.text`**, and
+/// `spine.rs` injects that string and drops it: the ledger records the priming turn as the
+/// literal placeholder `"[re-prime]"` (`Spine::prime_lease_if_needed`) precisely so a
+/// rotation stays invisible, so the slice survives nowhere. Meanwhile `items[]` — the ref,
+/// the kind, the scope of everything in that text — was parsed, used once for the lane
+/// re-assertion, and thrown away.
+///
+/// That is why `correction.rs`'s desk had no proposer. `CorrectionDesk::propose` takes a
+/// record reference, and **a proposal against the wrong record is a corruption the CEO
+/// would have to catch by reading `--dry-run` bytes.** Nothing in the app could supply that
+/// reference honestly, so nothing proposed. This is the minimum provenance the resolution
+/// needs and deliberately not one field more: no bodies, no corpus content beyond the line
+/// that was already going into the prompt, and nothing retained for a slice that was
+/// REFUSED — the recording happens after the lane re-assertion, never before it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceRecord {
+    /// The stable handle — `rec:…`, `mem:…`, `wiki:…`, `entity:…`. This is what a proposal
+    /// is filed against, and it is copied, never derived.
+    pub record_ref: String,
+    pub kind: String,
+    pub kind_inferred: bool,
+    pub title: String,
+    pub scope: String,
+    pub company: Option<String>,
+    /// The item AS RENDERED into the prompt — `• [kind] Title — body… (ref: id)`.
+    ///
+    /// `None` when the ref could not be found in `text`, which is a real state rather than
+    /// a defect: `slice.text` is truncated to the budget AS A WHOLE
+    /// (`loro/lib/compile.js` truncates the joined heading + lines), so the LAST line can
+    /// lose its own `(ref: …)` suffix. `items[]` is authoritative about what is in the
+    /// slice; the text is authoritative about what Rich actually read. When they disagree
+    /// the honest answer is that this record has no quotable line, and a resolver falls
+    /// back to the title rather than inventing one.
+    pub line: Option<String>,
+}
+
+impl SliceRecord {
+    /// The text a correction is matched against: the rendered line if there is one, the
+    /// title if there is not. Never both concatenated — a match must be attributable.
+    ///
+    /// **The machine furniture is stripped**, and that is not tidiness. `renderItem` writes
+    /// `• [kind] Title — body… (ref: id)`, so leaving it in would put the kind name and
+    /// every word of the record's own id into the text a correction resolves against: a
+    /// record filed at `rec:person/records/ship-date` would answer to the word "date", and
+    /// two records could collide on nothing but their storage paths. Rich asserts the
+    /// title and the body; he does not assert the ref.
+    pub fn matchable(&self) -> &str {
+        let Some(line) = self.line.as_deref() else { return &self.title };
+        let body = match line.find("] ") {
+            Some(i) if line.trim_start().starts_with('•') => &line[i + 2..],
+            _ => line,
+        };
+        match body.rfind(" (ref: ") {
+            Some(i) if body.ends_with(')') => body[..i].trim_end(),
+            _ => body.trim_end(),
+        }
+    }
+
+    /// The line AS RICH READ IT, machine furniture and all. This is what a surface quotes
+    /// back to the CEO, and it is deliberately not the same string as [`Self::matchable`]:
+    /// the ref is exactly what makes the evidence checkable by hand.
+    pub fn evidence(&self) -> &str {
+        self.line.as_deref().unwrap_or(&self.title)
+    }
+
+    /// Can the loro writer supersede this ref at all?
+    ///
+    /// `wiki:` and `entity:` cannot be written (`loro-writer.md`, "Which refs the writer
+    /// can address": a `wiki:` ref exits 5 — *"a machine rewriting the CEO's synthesis is
+    /// not a correction, it is a substitution"* — and `entity:` is generated vocabulary,
+    /// not a belief). A detector that proposed against one would produce a proposal
+    /// guaranteed to be refused at `--dry-run`, which is a false proposal with extra steps.
+    pub fn is_supersedable(&self) -> bool {
+        self.record_ref.starts_with("rec:") || self.record_ref.starts_with("mem:")
+    }
+}
+
+impl Slice {
+    /// The slice's items paired with the lines they were rendered as.
+    ///
+    /// The pairing key is the `(ref: …)` suffix `loro/lib/compile.js:renderItem` writes,
+    /// and it is exact rather than approximate: that function emits `rec.id`, and
+    /// `items[].ref` is the same `rec.id`, so the two agree by construction.
+    pub fn records(&self) -> Vec<SliceRecord> {
+        let lines: Vec<&str> = self.text.lines().collect();
+        self.items
+            .iter()
+            .map(|item| SliceRecord {
+                line: lines
+                    .iter()
+                    .find(|l| l.trim_end().ends_with(&format!("(ref: {})", item.r#ref)))
+                    .map(|l| l.trim().to_string()),
+                record_ref: item.r#ref.clone(),
+                kind: item.kind.clone(),
+                kind_inferred: item.kind_inferred,
+                title: item.title.clone(),
+                scope: item.scope.clone(),
+                company: item.company.clone(),
+            })
+            .collect()
+    }
+}
+
+/// The slice that was injected into one thread's session, and what it was compiled from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InjectedSlice {
+    pub thread_id: String,
+    pub entity_id: String,
+    /// The topic the slice was compiled for. Kept so a provenance can be recognised as
+    /// belonging to a different conversation rather than silently answering about one.
+    pub topic: String,
+    /// `corpus.fingerprint` and `compiler` — the two things `CONTEXT-CONTRACT.md` §2 says
+    /// to cache on, kept for the same reason: together they identify WHICH loro, compiled
+    /// by WHICH ranker, this memory came from.
+    pub fingerprint: String,
+    pub compiler: String,
+    pub at: u64,
+    pub records: Vec<SliceRecord>,
+}
+
+/// What memory Rich was actually given, per thread. One entry per thread, replaced whole on
+/// each compile — a slice is a snapshot, and two snapshots are not additive.
+#[derive(Debug, Clone, Default)]
+pub struct SliceProvenance {
+    by_thread: BTreeMap<String, InjectedSlice>,
+}
+
+impl SliceProvenance {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record what was injected. **Deliberately in-memory only.** This describes the
+    /// CURRENT session's prompt; a resolution made against a slice from a session that no
+    /// longer exists would attribute to Rich an assertion he was never given the memory to
+    /// make. It dies with the process, exactly like the priming payload it describes.
+    pub fn record(&mut self, injected: InjectedSlice) {
+        self.by_thread.insert(injected.thread_id.clone(), injected);
+    }
+
+    pub fn for_thread(&self, thread_id: &str) -> Option<&InjectedSlice> {
+        self.by_thread.get(thread_id)
+    }
+
+    /// The records currently resolvable for a thread — empty when nothing has been compiled
+    /// for it, which is the ordinary state of an install with no corpus.
+    pub fn records_for(&self, thread_id: &str) -> &[SliceRecord] {
+        self.by_thread.get(thread_id).map(|s| s.records.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn threads(&self) -> usize {
+        self.by_thread.len()
+    }
+}
+
+/// Shared the way `staging::SharedCandidateDesk` is, and for the same reason: the spine
+/// writes it during a re-prime and the correction trigger reads it during a turn.
+pub type SharedSliceProvenance = Arc<Mutex<SliceProvenance>>;
+
+// ---------------------------------------------------------------------------
 // the compiler
 // ---------------------------------------------------------------------------
 
@@ -371,11 +552,30 @@ pub struct CliContextCompiler {
     root: LoroRoot,
     lanes: LaneMap,
     audience: String,
+    /// Where the ITEMS of an accepted slice are retained, so a later correction can name
+    /// the record it corrects (see [`SliceProvenance`]). Absent by default: a build with no
+    /// correction trigger keeps nothing, and the read path is byte-identical either way.
+    provenance: Option<SharedSliceProvenance>,
 }
 
 impl CliContextCompiler {
     pub fn new(tools: LoroTools, root: LoroRoot, lanes: LaneMap) -> Self {
-        CliContextCompiler { tools, root, lanes, audience: REPRIME_AUDIENCE.to_string() }
+        CliContextCompiler {
+            tools,
+            root,
+            lanes,
+            audience: REPRIME_AUDIENCE.to_string(),
+            provenance: None,
+        }
+    }
+
+    /// Retain the items of every ACCEPTED slice here, keyed by thread.
+    ///
+    /// Attaching this changes nothing about what is compiled, what is injected or what is
+    /// refused — it only stops the answer to *"which record did that come from?"* being
+    /// thrown away one line after it was parsed.
+    pub fn set_provenance_sink(&mut self, sink: SharedSliceProvenance) {
+        self.provenance = Some(sink);
     }
 
     /// Build from the environment, or explain why not. `Ok(None)` = nothing configured,
@@ -520,6 +720,23 @@ impl CliContextCompiler {
             };
             return LoroTier::NothingRecorded(text);
         }
+        // PROVENANCE, recorded LAST — after the schema check, after the lane re-assertion,
+        // after the budget check. Everything above this line is a reason a slice must not be
+        // trusted, and a record retained from a slice that was refused could be resolved
+        // against later, which would file a proposal citing memory the CEO was never shown.
+        if let Some(sink) = self.provenance.as_ref() {
+            if let Ok(mut p) = sink.lock() {
+                p.record(InjectedSlice {
+                    thread_id: req.thread_id.to_string(),
+                    entity_id: req.entity_id.to_string(),
+                    topic: req.topic.to_string(),
+                    fingerprint: slice.corpus.fingerprint.clone(),
+                    compiler: slice.compiler.clone(),
+                    at: crate::util::now_millis(),
+                    records: slice.records(),
+                });
+            }
+        }
         LoroTier::Slice(slice.text)
     }
 }
@@ -597,6 +814,127 @@ mod tests {
         // anything the corpus then hands back.
         let wide = c.argv(&req("prospects", "how does pricing work"));
         assert!(!wide.contains(&"--company".to_string()), "{wide:?}");
+    }
+
+    /// A slice with two items, one of them the LAST line — the one the budget can truncate.
+    fn two_item_slice(last_line_intact: bool) -> String {
+        let items = concat!(
+            r#"{"ref":"rec:person/records/ship-date","kind":"decision","kindInferred":false,"#,
+            r#""title":"Ship date","scope":"org-shared","company":"fb"},"#,
+            r#"{"ref":"mem:company:renewal","kind":"commitment","kindInferred":true,"#,
+            r#""title":"Halstead renewal","scope":"ceo-private","company":"fb"}"#
+        );
+        let tail = if last_line_intact {
+            "• [commitment?] Halstead renewal — renews in February. (ref: mem:company:renewal)"
+        } else {
+            "• [commitment?] Halstead renewal — renews in Feb"
+        };
+        slice_json(
+            items,
+            false,
+            &format!(
+                "COMPANY MEMORY (loro) — bearing on: \"the quarter\"\n\
+                 • [decision] Ship date — We ship on Thursday. (ref: rec:person/records/ship-date)\n{tail}"
+            ),
+        )
+    }
+
+    /// INVARIANT: the provenance sink retains the ITEMS of an accepted slice, paired with
+    /// the lines they were rendered as. This is the whole of what makes a proposal able to
+    /// name a record, and every field it keeps is one `CorrectionDesk::propose` or the §7
+    /// gate actually needs.
+    #[test]
+    fn an_accepted_slice_leaves_provenance_a_correction_can_resolve_against() {
+        let mut c = compiler("femcboost=fb");
+        let sink: SharedSliceProvenance = Arc::new(Mutex::new(SliceProvenance::new()));
+        c.set_provenance_sink(Arc::clone(&sink));
+        assert!(matches!(
+            c.interpret(&two_item_slice(true), &req("femcboost", "the quarter")),
+            LoroTier::Slice(_)
+        ));
+
+        let held = sink.lock().unwrap();
+        let recs = held.records_for("t1");
+        assert_eq!(recs.len(), 2, "{recs:?}");
+        assert_eq!(recs[0].record_ref, "rec:person/records/ship-date");
+        assert_eq!(recs[0].scope, "org-shared", "the scope a correction must carry through");
+        assert!(!recs[0].kind_inferred);
+        assert_eq!(
+            recs[0].matchable(),
+            "Ship date — We ship on Thursday.",
+            "the kind label and the ref must not be matchable text"
+        );
+        assert!(recs[0].evidence().contains("(ref: rec:person/records/ship-date)"), "{:?}", recs[0].line);
+        // A GUESSED kind is carried as a guess, never flattened into a declaration.
+        assert!(recs[1].kind_inferred, "kindInferred was dropped");
+        assert!(recs[1].is_supersedable(), "a mem: ref is supersedable");
+        let injected = held.for_thread("t1").expect("recorded");
+        assert_eq!(injected.topic, "the quarter");
+        assert_eq!(injected.fingerprint, "sha256:abc");
+    }
+
+    /// INVARIANT: a slice REFUSED for any reason leaves NO provenance. A record retained
+    /// from a refused slice could be resolved against later, filing a proposal that cites
+    /// memory the CEO was never shown — which is the corruption this whole seam exists to
+    /// avoid. Checked on the lane refusal, because that is the one a foreign company's
+    /// memory arrives through.
+    #[test]
+    fn a_refused_slice_leaves_no_provenance_at_all() {
+        let mut c = compiler("femcboost=fb");
+        let sink: SharedSliceProvenance = Arc::new(Mutex::new(SliceProvenance::new()));
+        c.set_provenance_sink(Arc::clone(&sink));
+        let foreign = slice_json(
+            r#"{"ref":"rec:y","kind":"decision","title":"t","scope":"org-shared","company":"northwind"}"#,
+            false,
+            "COMPANY MEMORY (loro) — bearing on: \"x\"\n• [decision] t (ref: rec:y)",
+        );
+        assert!(matches!(c.interpret(&foreign, &req("femcboost", "x")), LoroTier::Unavailable(_)));
+        assert_eq!(sink.lock().unwrap().threads(), 0, "a refused slice was retained");
+
+        // ...and so does an unsupported schema, which never reaches the lane guard at all.
+        let future = two_item_slice(true).replace("\"schemaVersion\":1", "\"schemaVersion\":2");
+        assert!(matches!(c.interpret(&future, &req("femcboost", "x")), LoroTier::Unavailable(_)));
+        assert_eq!(sink.lock().unwrap().threads(), 0);
+    }
+
+    /// INVARIANT: an item whose rendered line lost its `(ref: …)` suffix to the budget cut
+    /// keeps NO line rather than borrowing a neighbour's. `items[]` says what is in the
+    /// slice; the text says what Rich read; when they disagree the resolver falls back to
+    /// the title, which is a weaker match and not a wrong one.
+    #[test]
+    fn a_truncated_last_line_loses_its_line_and_never_borrows_another() {
+        let mut c = compiler("femcboost=fb");
+        let sink: SharedSliceProvenance = Arc::new(Mutex::new(SliceProvenance::new()));
+        c.set_provenance_sink(Arc::clone(&sink));
+        assert!(matches!(
+            c.interpret(&two_item_slice(false), &req("femcboost", "the quarter")),
+            LoroTier::Slice(_)
+        ));
+        let held = sink.lock().unwrap();
+        let recs = held.records_for("t1");
+        assert_eq!(recs[1].line, None, "a truncated line must not resolve to one");
+        assert_eq!(recs[1].matchable(), "Halstead renewal", "and falls back to the title");
+        assert!(recs[0].line.is_some(), "the intact line is unaffected");
+    }
+
+    /// INVARIANT: the writer cannot address `wiki:` or `entity:` refs, so neither may ever
+    /// be proposed against. Asserted on the type rather than at the call site, because the
+    /// call site is where it would be forgotten.
+    #[test]
+    fn only_the_refs_the_writer_can_address_are_supersedable() {
+        let r = |rf: &str| SliceRecord {
+            record_ref: rf.into(),
+            kind: "decision".into(),
+            kind_inferred: false,
+            title: "t".into(),
+            scope: "ceo-private".into(),
+            company: None,
+            line: None,
+        };
+        assert!(r("rec:person/records/x").is_supersedable());
+        assert!(r("mem:company:x").is_supersedable());
+        assert!(!r("wiki:loro-structure.md#the-human-surface").is_supersedable());
+        assert!(!r("entity:halstead-group").is_supersedable());
     }
 
     #[test]

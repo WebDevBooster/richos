@@ -63,7 +63,11 @@ app/
                               path to a webview is view(mode), which drops what the mode may
                               not see and removes the technical detail it may not read)
     src/reprime.rs           re-prime payload + the LoroContextCompiler Tier-C seam contract
-    src/loro.rs              the Tier-C seam IMPLEMENTED: compile a slice, re-assert its lane
+    src/loro.rs              the Tier-C seam IMPLEMENTED: compile a slice, re-assert its lane —
+                              and RETAIN its provenance (SliceProvenance: which record each
+                              line of the injected memory came from), which is what lets a
+                              later correction name a record instead of guessing one. Nothing
+                              is retained for a slice that was refused
     src/correction.rs        the loro WRITE loop: propose, ASK the CEO, then write
     src/cognition.rs         the swappable compute-lease trait (+ MockCognition), LeaseFactory
     src/stream.rs            live UI-facing turn events (streaming deltas + turn/proactive state)
@@ -88,6 +92,14 @@ app/
                               carried as EVIDENCE not as a gate. Detects; never writes.
                               Measured: precision 1.000, recall 0.941 over 149 invented
                               utterances (docs/measurements/spoken-correction-trigger-2026-08-30/)
+    src/belief.rs            THE LORO DESK'S PROPOSER: what makes an utterance a correction of
+                              a recorded BELIEF, and — the load-bearing half — WHICH record it
+                              corrects. Same `not`-pivot frame as spoken.rs (one extractor,
+                              two gates) with a near-opposite judgement: a different VALUE
+                              rather than a mishearing, and a reference resolved to exactly
+                              one record or nothing filed. Detects; never writes.
+                              Measured: precision 1.000, recall 0.971 over 147 invented
+                              utterances (docs/measurements/loro-correction-trigger-2026-08-30/)
     src/staging.rs           where a detected correction LANDS: durable candidates
                               (append-only JSONL, fsync per record) and §7's three outcomes.
                               `confirm` is the only path to a vocabulary write, and it goes
@@ -142,6 +154,15 @@ app/
     tests/spoken_precision.rs THE MEASUREMENT, pinned as a test rather than quoted in a
                               brief: TP 32 / FP 0 / FN 2 / TN 115 over the invented corpus,
                               plus the anchor-as-a-gate counterfactual that demoted it
+    tests/belief_precision.rs THE OTHER MEASUREMENT, pinned the same way: TP 34 / FP 0 /
+                              FN 1 / TN 112 over 147 invented utterances, plus the
+                              topic-condition counterfactual that earns it (precision 1.000
+                              -> 0.739 with the condition off, recall unmoved)
+    tests/belief_trigger_tests.rs 6 tests for the loro completion criterion, driven through
+                              the REAL read seam: a slice -> CliContextCompiler::interpret ->
+                              SliceProvenance -> submit_prompt -> a proposal with the RIGHT
+                              ref on a real desk. Plus the fixture app/ui/ renders, checked
+                              against the live detector so a screenshot cannot go stale
     tests/spoken_gate_agreement.rs the ANTI-DRIFT pair: §7's gate has two implementations
                               (this crate and tools/richos-service/lib) writing into ONE
                               vocabulary, so both assert against one generated fixture
@@ -397,7 +418,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 375 tests + 5 doc-tests
+cargo test -p richos-core                       # 406 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

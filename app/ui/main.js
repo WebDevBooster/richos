@@ -2444,7 +2444,11 @@ window.addEventListener("resize", applyBreakpoint);
 // an honest account of which of the two desks is actually running.
 //
 // WHAT IS DELIBERATELY NOT HERE: a form for composing a correction.
-// `loro_propose_correction` is mocked and reachable, and nothing on this surface calls it.
+// `loro_propose_correction` is mocked and reachable, and nothing on this surface calls it —
+// nothing SHOULD. Since 2026-08-30 the proposals arrive on their own: `belief.rs` files one
+// when the CEO says a record is wrong, inside `Spine::submit_prompt`, and this surface hears
+// about it on `rich://loro-proposed`. The CEO corrects loro by TALKING, not by filling in a
+// form.
 // `loro-structure.md` is explicit about why — the pane's job is *inspection*, its primary
 // action is "this is wrong", *"which opens a conversation, not a form"*, and *"a browsable,
 // editable database invites the CEO to become a librarian"*. Detection (something noticing
@@ -2824,6 +2828,15 @@ el("desk-spoken-retry").addEventListener("click", () => refreshDesk().then(rende
 /// it loses a prompt and never a record — but the badge would otherwise not move until the
 /// next open, and an ask nobody can see is an ask that never happened.
 Bridge.listen("rich://correction-staged", () => {
+  refreshDesk();
+});
+
+/// The BELIEF trigger fired inside a turn (`belief.rs` -> `correction.rs` ->
+/// `TauriProposalEmitter`). Same contract as the line above and a separate event because
+/// the payload is a `Proposal` rather than a `Staged`: the proposal is already durable on
+/// the desk's own log before this exists, so a webview that missed it loses a badge move
+/// and never a record.
+Bridge.listen("rich://loro-proposed", () => {
   refreshDesk();
 });
 
