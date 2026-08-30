@@ -1,0 +1,154 @@
+# techy mode Phase 2 — mutation runs, 2026-08-30
+
+Every check in `app/ui/tests/techy.js` was run RED at least once by breaking the SHIPPED
+source, not the test. This is the record: the mutation, the file, and which checks noticed.
+
+A check that has never failed is a check nobody has verified. The suite reports 17/17 green
+against the real renderer, the real mock and the real Rust constants; the numbers below are
+what that green is worth.
+
+## How this was produced
+
+`/tmp/mutate.py` (transcribed at the foot of this file): for each mutation, read the file,
+write the mutated copy, run `node techy.js`, restore the original in a `finally`. One
+mutation live at a time, always restored, and `git diff` over `app/ui/main.js` and
+`app/ui/timeline.js` is empty afterwards.
+
+**A run of this sweep was killed by a two-minute command timeout partway through, and the
+next run baked the live mutation into the source** — which is why mutation 8's second-run
+result read "MUTATION DID NOT APPLY" while eleven unrelated checks went red under every
+other mutation. That is what the `finally` above is for; it was added after, and the whole
+sweep was re-run from a restored tree. Recorded rather than tidied away, because a mutation
+harness that can leave a mutation behind is a worse defect than any it finds.
+
+## The sweep
+
+| # | File | Mutation | Checks that went RED |
+|---|---|---|---|
+| 1 | main.js | `techyChipEl.hidden = !on` -> `= false` | 1, 8, 9, 11 |
+| 2 | mock.js | one word of `TECHY_UNREADABLE` changed | 2, 13 |
+| 3 | machinery_view.rs | `NOTHING_RECORDED` gains " Raw output is kept for 14 days." | 2, 3, 12, 17 |
+| 4 | timeline.js | `technicalLabel` prefers `item.summary` over `detail.title` | 4, 6, 14 |
+| 5 | timeline.js | `ACTIVITY_STATE_LABEL.unknown = "done"` | 5 |
+| 6 | timeline.js | `rollupActivity` drops the `!item.detail` clause | 6 |
+| 7 | timeline.js | `visible()` refuses `technical` in every mode | 7 |
+| 8 | main.js | the shortcut passes `enabled: null` instead of `enabled: next` | 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 |
+| 9 | mock.js | `techyModeOf` ignores `techyThreads` (no pin ever) | 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 |
+| 10 | mock.js | `set_techy_mode(null)` pins to `false` instead of clearing | 10 |
+| 11 | timeline.js | `applySnapshot`: `model.technical` survives the toggle off | 11 |
+| 12 | mock.js | an empty thread reports `not_retained` instead of `nothing_recorded` | 12 |
+| 13 | mock.js | an UNREADABLE thread reports `nothing_recorded` | 13 |
+| 14 | mock.js | `mach_a5` keeps a raw payload (the evicted state never renders) | 14 |
+| 15 | timeline.js | a `Re-run` button is appended to every technical row | 15 |
+| 16 | mock.js | an activity with `vendorKind: "agent_thought_chunk"` titled "thinking" | 16 |
+| 17 | mock.js | `get_machinery` drops the `rowCount` key | 17 |
+
+**16 of 17 covered by a targeted mutation; check 11 by mutation 11.** Mutations 8 and 9
+break the toggle itself, so almost everything downstream of it fails with them — that is
+correct and is not coverage for those checks, which is why 5, 10, 12, 13, 14, 15, 16 and 17
+each also have a mutation of their own that reddens THEM and nothing else.
+
+**One attempt did not go red and is recorded rather than replaced.** The first mutation 11
+dropped `renderTechyState(null)` from `loadTimeline`'s calm branch, expecting the state line
+to survive the toggle off. It did not: the thread under test HAS machinery, so its state
+line is already hidden and there was nothing to leave behind. The mutation that does reach
+check 11's actual claim is the one in the table.
+
+## The Rust half
+
+The browser suite cannot break Rust. The four-state distinction is the load-bearing claim
+in this slice, so it was mutated on the Rust side too, against
+`cargo test -p richos-core --lib journal` and `cargo run --example machinery_payload`:
+
+| Mutation | Result |
+|---|---|
+| `machinery_view.rs`: `NothingRecorded` returns `NOT_RETAINED`'s sentence | `machinery_payload` FAIL: *a thread from before routing: `nothing_recorded`* — got "Nothing has been recorded on this machine yet." |
+| `journal.rs`: `read_thread_checked` maps every `read_dir` error to `NothingRecorded` | `cargo test`: `a_directory_the_os_refuses_is_unreadable_and_is_never_reported_as_empty` FAILED (21 passed, 1 failed). `machinery_payload` FAIL x2: *a directory the OS refuses: `unreadable`, NOT empty* and *...and it names the path for whoever owns the fix*, both reporting the empty-state sentence with `reason: null` |
+
+Both restored; `cargo test -p richos-core` is 255 + 3 + 15 + 2 + 6 + 10 green and
+`machinery_payload` reports ALL ASSERTIONS PASS.
+
+## Raw output of the sweep
+
+### mutation 1  (app/ui/main.js)  exit 1
+      RED: 1. off: no technical row, no chip, no state line, no hint
+      RED: 8. the shortcut pins ONE conversation and leaves the others alone
+      RED: 9. Settings switches every conversation, and pins survive it
+      RED: 11. on and back off leaves the conversation BYTE-IDENTICAL
+### mutation 2  (app/ui/mock.js)  exit 1
+      RED: 2. the state sentences are the Rust constants, verbatim
+      RED: 13. a store that cannot be read is NOT reported as an empty one
+### mutation 3  (app/src-tauri/src/machinery_view.rs)  exit 1
+      RED: 2. the state sentences are the Rust constants, verbatim
+      RED: 3. no sentence names a retention duration (§7.2 stays his)
+      RED: 12. a conversation from before the routing commit says what was RECORDED
+      RED: 17. the mock's shape is the shape the real command emits
+### mutation 4  (app/ui/timeline.js)  exit 1
+      RED: 4. on: the tool calls that actually ran, one row each
+      RED: 6. three reads stay three commands, not `Read 3 files`
+      RED: 14. expanding a row shows the output, or says honestly why it cannot
+### mutation 5  (app/ui/timeline.js)  exit 1
+      RED: 5. every outcome is drawn as its own word, and `unknown` is never `done`
+### mutation 6  (app/ui/timeline.js)  exit 1
+      RED: 6. three reads stay three commands, not `Read 3 files`
+### mutation 7  (app/ui/timeline.js)  exit 1
+      RED: 7. the untyped vendor kind and the auto-approved permission are here, and only here
+### mutation 8  (app/ui/main.js)  exit 1
+      RED: 4. on: the tool calls that actually ran, one row each
+      RED: 5. every outcome is drawn as its own word, and `unknown` is never `done`
+      RED: 6. three reads stay three commands, not `Read 3 files`
+      RED: 7. the untyped vendor kind and the auto-approved permission are here, and only here
+      RED: 8. the shortcut pins ONE conversation and leaves the others alone
+      RED: 9. Settings switches every conversation, and pins survive it
+      RED: 10. a pinned conversation can be handed back to the default (§7.1 stays open)
+      RED: 11. on and back off leaves the conversation BYTE-IDENTICAL
+      RED: 12. a conversation from before the routing commit says what was RECORDED
+      RED: 13. a store that cannot be read is NOT reported as an empty one
+      RED: 14. expanding a row shows the output, or says honestly why it cannot
+### mutation 9  (app/ui/mock.js)  exit 1
+      RED: 4. on: the tool calls that actually ran, one row each
+      RED: 5. every outcome is drawn as its own word, and `unknown` is never `done`
+      RED: 6. three reads stay three commands, not `Read 3 files`
+      RED: 7. the untyped vendor kind and the auto-approved permission are here, and only here
+      RED: 8. the shortcut pins ONE conversation and leaves the others alone
+      RED: 9. Settings switches every conversation, and pins survive it
+      RED: 10. a pinned conversation can be handed back to the default (§7.1 stays open)
+      RED: 11. on and back off leaves the conversation BYTE-IDENTICAL
+      RED: 12. a conversation from before the routing commit says what was RECORDED
+      RED: 13. a store that cannot be read is NOT reported as an empty one
+      RED: 14. expanding a row shows the output, or says honestly why it cannot
+### mutation 10  (app/ui/mock.js)  exit 1
+      RED: 10. a pinned conversation can be handed back to the default (§7.1 stays open)
+### mutation 11  (app/ui/main.js)  exit 0
+      *** NOTHING WENT RED ***
+### mutation 12  (app/ui/mock.js)  exit 1
+      RED: 12. a conversation from before the routing commit says what was RECORDED
+### mutation 13  (app/ui/mock.js)  exit 1
+      RED: 13. a store that cannot be read is NOT reported as an empty one
+### mutation 14  (app/ui/mock.js)  exit 1
+      RED: 14. expanding a row shows the output, or says honestly why it cannot
+### mutation 15  (app/ui/timeline.js)  exit 1
+      RED: 15. techy mode adds no control of any kind
+### mutation 16  (app/ui/mock.js)  exit 1
+      RED: 16. no row exists for an event that provably never arrives
+### mutation 17  (app/ui/mock.js)  exit 1
+      RED: 17. the mock's shape is the shape the real command emits
+
+## Mutation 11, corrected, run on its own
+
+    exit 1
+      RED: 11. on and back off leaves the conversation BYTE-IDENTICAL
+
+## The harness
+
+```python
+M = [ (n, relative_path, old_text, new_text), ... ]   # 17 rows, one per mutation
+for n, rel, old, new in M:
+    src = open(path).read()
+    try:
+        open(path, "w").write(src.replace(old, new, 1))
+        r = subprocess.run(["node", "techy.js"], cwd=TESTS, capture_output=True, text=True)
+    finally:
+        open(path, "w").write(src)          # <- added after the killed run above
+    record(n, r.returncode, [l for l in r.stdout.splitlines() if l.startswith("  FAIL")])
+```

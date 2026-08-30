@@ -729,6 +729,9 @@ async function openThread(threadId) {
     threadId,
     activeContext ? activeContext.binding_revision : row.binding_revision
   );
+  // THIS thread's techy answer, read before the load that depends on it. A per-thread
+  // override is per thread, so it is never carried over from the one being left.
+  await refreshTechy(threadId);
   await loadTimeline();
   if (mainView !== "conversation") return; // loadTimeline fell into the unbound state
   restoreThreadViewState(threadId);
@@ -947,6 +950,16 @@ function flushRender() {
     // chip a button when this exists, so a build without the pane never draws a control
     // that does nothing.
     openWorker: openWorkerInspector,
+    // TECHY MODE (§3.4). All three are passed unconditionally: the renderer draws a
+    // technical row only for an item that CARRIES `detail`, which only the technical view
+    // supplies, so with the mode off these are never reached. Gating them on `techyOn()`
+    // would put the same decision in two places and let them disagree.
+    isMachineryExpanded: (id) => window.RichTimeline.isMachineryExpanded(timelineModel, id),
+    toggleMachinery: (id) => {
+      window.RichTimeline.toggleMachinery(timelineModel, id);
+      scheduleRender();
+    },
+    machineryRaw: fillMachineryRaw,
   });
   // The DOM was just rebuilt; re-mark the open worker's chip.
   markSelectedChip();
@@ -1068,10 +1081,25 @@ function renderFirstRun() {
 
 /// The reload path. Fails closed exactly like `get_messages` did: an unbound thread refuses
 /// rather than returning an empty conversation, and the calm §21 screen takes over.
+///
+/// TWO COMMANDS, ONE MODEL. With techy mode off this is `get_timeline`, byte for byte what
+/// it always was. With techy mode on for this thread it is `get_machinery`, whose payload
+/// wraps the SAME timeline projected at `ViewMode::Technical` — same items, same ids, same
+/// `(turn, slot, sequence)` order — plus the state line. The renderer is not told which one
+/// it got; it draws a technical row for any item that carries `detail`, and only the
+/// technical view supplies one (§3.3: the calm view is untouched because it cannot match).
 async function loadTimeline() {
+  const techy = techyOn();
   let snapshot;
   try {
-    snapshot = await Bridge.invoke("get_timeline", { threadId: activeThreadId });
+    if (techy) {
+      const machinery = await Bridge.invoke("get_machinery", { threadId: activeThreadId });
+      renderTechyState(machinery);
+      snapshot = machinery.timeline;
+    } else {
+      renderTechyState(null);
+      snapshot = await Bridge.invoke("get_timeline", { threadId: activeThreadId });
+    }
   } catch (e) {
     const msg = String(e);
     // The mock harness leaves some commands unwired; a genuine scope refusal is a different
@@ -3377,6 +3405,196 @@ feedbackOverlayEl.addEventListener("click", (e) => {
 el("feedback-history-retry").addEventListener("click", () => refreshFeedback().then(renderFeedback));
 
 // ---------------------------------------------------------------------------------------
+// TECHY MODE (techy-mode design §3.1/§3.3/§3.4) — the opt-in technical view
+//
+// Phase 1 (richos `48561e4`) routed every non-text ACP update into `rich://machinery` and
+// retained it in a per-thread day-sharded journal. **Retention runs ALWAYS and has no
+// setting** (§3.2) — that unconditional write is the only reason "show me the technical
+// view for a conversation I already had" is possible at all, and the toggle below controls
+// RENDERING and nothing else. Turning it off does not stop anything being written; turning
+// it on does not reach back before 2026-08-28.
+//
+// §3.3'S CONSTRAINT, AND HOW IT IS HELD. "With techy mode off the conversation surface is
+// byte-identical to today." So: `loadTimeline` calls the same `get_timeline` it always
+// did, `renderTechyState(null)` leaves `#techy-state` hidden and empty, `#techy-chip` stays
+// `hidden`, and the technical row in `timeline.js` cannot match because a CEO-view item
+// carries no `detail`. There is no chip, no chevron and no "show technical details" hint in
+// the conversation when the mode is off — a visible affordance IS a change to the default.
+//
+// FOUR OF THE CEO'S QUESTIONS ARE OPEN (§7 / open-items 1.4) AND NONE OF THEM IS ANSWERED
+// HERE. Each is left as a setting somebody chooses:
+//
+//   §7.1 global default vs per-thread — BOTH exist and both are reversible. The checkbox in
+//        Settings is the global switch; the shortcut pins ONE thread and leaves the switch
+//        alone; a pinned thread can be handed back with `set_techy_mode(enabled: null)`.
+//   §7.2 the raw-payload window — nothing on this surface knows it. An expanded pane shows
+//        the payload or says it is no longer kept, and it says so WITHOUT naming a
+//        duration: "14 days" in copy would answer the question in copy.
+//   §7.3 whether customers can find it — the v1 answer here is §3.3's: a shortcut and one
+//        Settings line, and NO conversation-surface affordance while it is off. Saying yes
+//        later costs one element; taking calm back once given away costs a lot.
+//   §7.4 whether deleting a thread deletes its machinery — no delete-thread command exists
+//        and this surface does not add one. Both halves of either answer are primitives
+//        already (`MachineryJournal::delete_thread`, `ConfigStore::forget_techy_thread`).
+//
+// WHAT THIS IS NOT: a cockpit. There is no interrupt, no approve/deny, no re-run anywhere
+// below. §5/§9 — techy mode is a window — and R2 business-action governance is deferred to
+// V2 by CEO decision for v1 and all 1.x.
+//
+// ONE LIMIT, NAMED RATHER THAN HIDDEN: this is a RELOAD path, not a live technical stream.
+// The `rich://machinery` event carries records the instant they happen, but the calm live
+// family (`rich://activity-upserted`) is CEO-shaped by construction, so while a turn is
+// running its rows appear WITHOUT their technical half and gain it when the turn ends —
+// `loadTimeline` already runs on `rich://turn-completed`. Subscribing to `rich://machinery`
+// here would give a live technical stream and would also make "the calm view does not
+// subscribe to this event" (STREAMING.md, §3.3's test (a)) a runtime branch instead of a
+// structural fact. That trade is not this slice's to make.
+// ---------------------------------------------------------------------------------------
+
+const techyChipEl = el("techy-chip");
+const techyChipLabelEl = el("techy-chip-label");
+const techyStateEl = el("techy-state");
+const techyDefaultInput = el("techy-default");
+const techyHintEl = el("techy-hint");
+
+/// The ACTIVE thread's resolved answer, from `techy_mode`. `null` before the first read and
+/// on an unwired bridge — treated as OFF, which is the only safe default: a wrong "on"
+/// changes the calm surface, a wrong "off" changes nothing.
+let techy = null;
+
+function techyOn() {
+  return !!(techy && techy.enabled);
+}
+
+/// Read this thread's answer from the backend. Never inferred from the previous thread's:
+/// a per-thread override is per thread.
+async function refreshTechy(threadId) {
+  const mode = await invokeQuiet("techy_mode", { threadId });
+  techy = mode || null;
+  renderTechyChip();
+  renderTechySettings();
+}
+
+/// §3.3's affordance rule, in one function: the chip exists only while the mode is ON.
+function renderTechyChip() {
+  const on = techyOn();
+  techyChipEl.hidden = !on;
+  if (!on) return;
+  // Which of the CEO's two switches is holding this thread on — so turning it off from
+  // here is a predictable act rather than a guess. §7.1 is open; this sentence is what
+  // makes both halves legible while it is.
+  techyChipLabelEl.textContent =
+    techy.source === "thread" ? "Technical view · this conversation" : "Technical view · everywhere";
+  techyChipEl.setAttribute(
+    "aria-label",
+    techy.source === "thread"
+      ? "Technical view is on for this conversation. Turn it off."
+      : "Technical view is on for every conversation. Turn it off here."
+  );
+}
+
+function renderTechySettings() {
+  if (!techyDefaultInput) return;
+  techyDefaultInput.checked = !!(techy && techy.default);
+  if (!techyHintEl) return;
+  const key = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "\u2318\u21e7T" : "Ctrl+Shift+T";
+  techyHintEl.textContent =
+    techy && techy.source === "thread"
+      ? `This conversation is set on its own. ${key} changes just this one.`
+      : `${key} shows it for one conversation only.`;
+}
+
+/// The four states from `get_machinery`, rendered as the three sentences Rust wrote
+/// (`src-tauri/src/machinery_view.rs`). Nothing is composed here — "no machinery was
+/// recorded for this conversation" and "I can't read it" are different statements, and a
+/// surface that picked between them locally would eventually pick wrong.
+function renderTechyState(payload) {
+  if (!payload || !payload.sentence) {
+    techyStateEl.hidden = true;
+    techyStateEl.textContent = "";
+    techyStateEl.removeAttribute("data-state");
+    return;
+  }
+  techyStateEl.textContent = payload.sentence;
+  techyStateEl.dataset.state = payload.state;
+  if (payload.reason) {
+    // The operator-facing reason, kept out of the sentence and visible anyway: the CEO is
+    // told plainly that it is not his to fix, and whoever set RichOS up gets the path.
+    const why = document.createElement("span");
+    why.className = "techy-reason";
+    why.textContent = payload.reason;
+    techyStateEl.appendChild(why);
+  }
+  techyStateEl.hidden = false;
+}
+
+/// §2.4's raw pane, filled after the node is mounted. Three answers, and every one of them
+/// is a sentence rather than a blank: the bytes, "not kept this long", or "I can't read
+/// it". `pane` is the element `timeline.js` created and is already in the document.
+async function fillMachineryRaw(machineryId, pane) {
+  let res;
+  try {
+    res = await Bridge.invoke("get_machinery_raw", { threadId: activeThreadId, machineryId });
+  } catch (e) {
+    pane.dataset.note = "unwired";
+    pane.textContent = String(e).startsWith("mock: no such command")
+      ? "The stored output isn't reachable in this build."
+      : String(e);
+    return;
+  }
+  if (res.state === "retained") {
+    delete pane.dataset.note;
+    pane.textContent = typeof res.payload === "string" ? res.payload : JSON.stringify(res.payload, null, 2);
+    if (res.note) {
+      // A truncated payload is a PREFIX. It is shown, and it is labelled, because a prefix
+      // that looks whole is worse than one that says it is not.
+      const note = document.createElement("div");
+      note.className = "tl-tech-note";
+      note.textContent = res.note;
+      pane.appendChild(note);
+    }
+    return;
+  }
+  pane.dataset.note = res.state;
+  pane.textContent = res.note || "";
+}
+
+/// Flip THIS conversation, and pin it — `set_techy_mode` writes a per-thread override, so
+/// the global switch can move afterwards without dragging this thread with it (§3.1).
+async function toggleTechyThread() {
+  if (!activeThreadId) return;
+  const next = !techyOn();
+  const mode = await invokeQuiet("set_techy_mode", { threadId: activeThreadId, enabled: next });
+  // An unwired bridge must not leave the surface claiming a state the backend does not
+  // have: no answer, no change. (`invokeQuiet` returns null on rejection.)
+  if (!mode) return;
+  techy = mode;
+  renderTechyChip();
+  renderTechySettings();
+  // §3.4: "Toggling re-renders the thread in place, from the journal. No reload, no
+  // navigation." The scroll position is the CEO's and is preserved across the swap.
+  const top = conversationEl.scrollTop;
+  await loadTimeline();
+  conversationEl.scrollTop = top;
+}
+
+/// The global switch (§3.1: "all" must be one switch, not N toggles). Threads the CEO
+/// pinned individually keep their own answer — that is what makes a pin mean anything, and
+/// it is the half of §7.1 a global-only build would lose.
+async function setTechyDefault(on) {
+  await invokeQuiet("set_techy_default", { enabled: on });
+  await refreshTechy(activeThreadId);
+  const top = conversationEl.scrollTop;
+  await loadTimeline();
+  conversationEl.scrollTop = top;
+}
+
+if (techyChipEl) techyChipEl.addEventListener("click", toggleTechyThread);
+if (techyDefaultInput) {
+  techyDefaultInput.addEventListener("change", () => setTechyDefault(techyDefaultInput.checked));
+}
+
+// ---------------------------------------------------------------------------------------
 // Keyboard (§18)
 // ---------------------------------------------------------------------------------------
 /// Arrow-key movement inside a list of buttons. Every control in the rail is a real
@@ -3410,6 +3628,14 @@ document.addEventListener("keydown", (e) => {
     startNewThreadFlow();
     return;
   }
+  // §3.3: "v1 access = a keyboard shortcut, plus one line in Settings." This is the
+  // shortcut, and it flips ONE conversation — the CEO's daily path. Shift is what keeps it
+  // clear of the new-thread binding above, which is deliberately `mod` WITHOUT shift.
+  if (mod && e.shiftKey && (e.key === "t" || e.key === "T")) {
+    e.preventDefault();
+    toggleTechyThread();
+    return;
+  }
   if (e.key === "Escape") {
     // §18: "Escape closes overlays and inspector detail."
     if (!threadMenuEl.hidden) return closeThreadMenu();
@@ -3436,6 +3662,9 @@ async function init() {
     railCompanyEl.textContent = COMPANY_LABEL_FALLBACK;
   }
   syncAssertivenessFromBackend();
+  // The GLOBAL techy default at launch, so the Settings line is honest before any thread is
+  // opened. The per-thread answer arrives with the thread (`openThread`).
+  await refreshTechy("");
 
   if (!/Mac|iPhone|iPad/.test(navigator.platform || "")) el("nav-search-kbd").textContent = "Ctrl+K";
 

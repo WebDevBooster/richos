@@ -10,6 +10,8 @@
  *   4. MERGE by timestamp   + fold in caption speaker labels -> verification.json
  *   3.7 DELETION DETECTOR   physical speech bursts with NO emitted word, adjudicated by isolated
  *                           re-decode -> DETECT-ONLY alarm (a deletion cannot be repaired here)
+ *   3.8 WORD-DENSITY        the class coverage scores as COVERED: a window of real speech carrying
+ *                           far fewer words than that much audio can hold -> DETECT-ONLY alarm
  *   5. loro-CORRECTION      P1 seam (identity pass); P4 wires the real corrector
  *   6. EMIT                 transcript.md + verification.json; pipeline.status="ready";
  *                           append the ingest ledger; RETAIN audio for re-transcription
@@ -36,6 +38,7 @@ import { appendLedger } from './ledger.js';
 import { MIN_TRANSCRIPT_WORDS, resolveTier, whisperArgs } from './config.js';
 import { guardTranscription, guardWarnings } from './repetition-guard.js';
 import { guardDeletions, deletionWarnings, DELETION_GUARD_DEFAULTS } from './deletion-guard.js';
+import { guardSubstitution, substitutionWarnings, SUBSTITUTION_GUARD_DEFAULTS } from './substitution-guard.js';
 import { diarizeOthers } from './diarize.js';
 import { log } from './log.js';
 
@@ -304,8 +307,14 @@ export function runPipeline(sessionDir, opts = {}) {
     // audio. `RICHOS_DELETION_GUARD=off` disables it; it changes no decode parameter either way.
     const deletionOn = String(opts.deletionGuard ?? process.env.RICHOS_DELETION_GUARD ?? 'on') !== 'off';
     const probeDir = path.join(sessionDir, '_deletion-probe');
-    /** Cut + level + isolated re-decode for one channel's suspect spans. The impure half. */
-    const makeProbe = (channel) => (spans) => {
+    /**
+     * Cut + level + isolated re-decode for one channel's suspect spans. The impure half, and it is
+     * ONE function for stages 3.7 and 3.8 on purpose: two detectors that cut, measured or decoded
+     * their evidence differently would eventually disagree about the same span, and the pipeline
+     * would have no way to say which of them was looking at the audio wrong. Only the paddings are
+     * a parameter, and both stages ship the same two.
+     */
+    const makeProbe = (channel, pads = DELETION_GUARD_DEFAULTS) => (spans) => {
       const wavPath = channelPaths[channel];
       fs.mkdirSync(probeDir, { recursive: true });
       const tightPaths = [];
@@ -313,10 +322,10 @@ export function runPipeline(sessionDir, opts = {}) {
       const levels = [];
       spans.forEach((s, i) => {
         tightPaths.push(
-          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-t.wav`), { padSec: DELETION_GUARD_DEFAULTS.probePadSec }),
+          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-t.wav`), { padSec: pads.probePadSec }),
         );
         widePaths.push(
-          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-w.wav`), { padSec: DELETION_GUARD_DEFAULTS.probeWidePadSec }),
+          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-w.wav`), { padSec: pads.probeWidePadSec }),
         );
         levels.push(measureSpanVolume(wavPath, s));
       });
@@ -395,6 +404,106 @@ export function runPipeline(sessionDir, opts = {}) {
       );
     } else if (deletionOn) {
       log.alarm(`${sessionId} — deletion detector SKIPPED: no speech-burst grid, so nothing physical to compare the transcript against`);
+    }
+
+    // ---- Stage 3.8: WORD-DENSITY INSTRUMENT (P5) -------------------------------------------------
+    // The class stage 3.7 structurally cannot see, named in its own header: SUBSTITUTION scores as
+    // perfect COVERAGE, because something is there. This stage asks the other question — is there
+    // ENOUGH? — by measuring emitted words against the physical speech budget of the audio under
+    // them. See lib/substitution-guard.js for the discriminator, the six-condition precision rule,
+    // and what it deliberately does not claim (it can say words are MISSING; it can never say the
+    // words that are present are WRONG).
+    //
+    // It runs AFTER 3.7 and consumes it: every span 3.7 confirmed as a deletion is excluded from
+    // this stage's budget, so one failure is never reported twice under two names, and a hole
+    // another instrument already owns cannot inflate this one's deficit.
+    //
+    // Same two stages and the same economics as 3.7: stage A is arithmetic over the burst grid
+    // already in memory, stage B re-decodes only the windows stage A found thin, through the same
+    // one-invocation clip decoder. DETECT-ONLY. `RICHOS_SUBSTITUTION_GUARD=off` disables it; it
+    // changes no decode parameter either way.
+    const densityOn = String(opts.substitutionGuard ?? process.env.RICHOS_SUBSTITUTION_GUARD ?? 'on') !== 'off';
+    let substitutionReport = {
+      detected: false,
+      probeAvailable: false,
+      coverageUnit: null,
+      windows: 0,
+      candidates: 0,
+      probed: 0,
+      sparseSpans: 0,
+      sparseSeconds: 0,
+      unprobedSpans: 0,
+      channelsBelowFloor: [],
+      findings: [],
+      rejected: [],
+      unprobed: [],
+      byChannel: {},
+      enabled: densityOn,
+    };
+    if (densityOn && speechBursts) {
+      try {
+        const t0 = Date.now();
+        const excludeSpans = { me: [], others: [] };
+        for (const d of deletionReport.deletions || []) {
+          if (excludeSpans[d.channel]) excludeSpans[d.channel].push({ startMs: d.startMs, endMs: d.endMs });
+        }
+        const sub = guardSubstitution(
+          // The same post-diarization timeline stage 3.7 judged, for the same reason: the detector
+          // must measure the transcript that actually ships.
+          { me: asrGuarded.me, others: dia.segments },
+          {
+            speechBursts,
+            peaks: { me: silence.me.maxDb, others: silence.others.maxDb },
+            excludeSpans,
+            probe: (spans, channel) => makeProbe(channel, SUBSTITUTION_GUARD_DEFAULTS)(spans),
+          },
+        );
+        substitutionReport = { ...sub.report, enabled: true, elapsedMs: Date.now() - t0 };
+      } catch (err) {
+        // A failed probe must never fail the pipeline, and must never look like a clean result.
+        log.alarm(`${sessionId} — word-density instrument could not run; this transcript is NOT checked for lost words`, {
+          error: String(err && err.message ? err.message : err),
+        });
+        substitutionReport = {
+          ...substitutionReport,
+          probeAvailable: false,
+          error: String(err && err.message ? err.message : err),
+        };
+      } finally {
+        try {
+          fs.rmSync(probeDir, { recursive: true, force: true });
+        } catch {
+          /* the clips are inside the session dir, which already holds the full audio */
+        }
+      }
+      for (const f of substitutionReport.findings) {
+        // NOT repaired, on purpose — see the module header. The transcript below is still thin here.
+        log.alarm(`${sessionId} — SPEECH UNDER-TRANSCRIBED (detect-only class): the audio holds more words than the transcript does`, {
+          channel: f.channel,
+          fromMs: f.startMs,
+          toMs: f.endMs,
+          speechSeconds: f.speechSec,
+          emittedWords: f.emittedWords,
+          wordsPerSecond: f.density,
+          isolatedDecodeWords: f.probeWords,
+          recovered: f.recovered,
+          remedy: 're-transcribe (audio is retained); whether the words PRESENT are wrong cannot be decided without a reference',
+        });
+      }
+      for (const c of substitutionReport.channelsBelowFloor) {
+        log.alarm(`${sessionId} — the WHOLE "${c.channel}" channel is below the conversational word-density floor`, {
+          medianWordsPerSecond: c.medianDensity,
+          floorWordsPerSecond: c.floorWordsPerSec,
+          windows: c.windows,
+          remedy: 're-transcribe this channel, optionally with a different model; a per-window comparison cannot see this',
+        });
+      }
+      log.info(
+        `${sessionId} — word-density instrument: ${substitutionReport.windows} window(s), ${substitutionReport.candidates} candidate(s), ` +
+          `${substitutionReport.probed} probed, ${substitutionReport.sparseSpans} under-transcribed span(s) / ${substitutionReport.sparseSeconds}s`,
+      );
+    } else if (densityOn) {
+      log.alarm(`${sessionId} — word-density instrument SKIPPED: no speech-burst grid, so there is no physical speech budget to measure the transcript against`);
     }
 
     // ---- Stage 4: MERGE + caption fold-in -------------------------------------------------------
@@ -482,6 +591,32 @@ export function runPipeline(sessionDir, opts = {}) {
       unprobed: deletionReport.unprobed,
       byChannel: deletionReport.byChannel,
     };
+    record.pipeline.substitutionGuard = {
+      enabled: substitutionReport.enabled,
+      // Same discipline as the deletion record: "0 findings", "never looked" and "looked at part of
+      // it" are three different answers. `windows` and `byChannel[*].analyzedSpeechSec` say how much
+      // of the channel had a measurable budget at all; a stretch too sparse in wall time to form a
+      // window is never examined, and this record has to admit that rather than imply a clean sweep.
+      probeAvailable: substitutionReport.probeAvailable,
+      coverageUnit: substitutionReport.coverageUnit,
+      elapsedMs: substitutionReport.elapsedMs ?? null,
+      detected: substitutionReport.detected,
+      windows: substitutionReport.windows,
+      candidates: substitutionReport.candidates,
+      probed: substitutionReport.probed,
+      sparseSpans: substitutionReport.sparseSpans,
+      sparseSeconds: substitutionReport.sparseSeconds,
+      // Detect-only: every one of these is STILL thin in transcript.md. Same vocabulary as the
+      // other two detect-only classes.
+      unrepaired: substitutionReport.sparseSpans,
+      findings: substitutionReport.findings,
+      // The channel-level answer a per-window comparison cannot give: when most of a channel is
+      // destroyed, its own median IS the failure and every window looks normal beside its neighbours.
+      channelsBelowFloor: substitutionReport.channelsBelowFloor,
+      rejected: substitutionReport.rejected,
+      unprobed: substitutionReport.unprobed,
+      byChannel: substitutionReport.byChannel,
+    };
     record.pipeline.diarization = {
       method: dia.method,
       remoteTurns: dia.turns,
@@ -491,11 +626,16 @@ export function runPipeline(sessionDir, opts = {}) {
     const verification = verify(finalMerged, { me: asrGuarded.me, others: asrGuarded.others }, captions, record);
     verification.repetitionGuard = record.pipeline.repetitionGuard;
     verification.deletionGuard = record.pipeline.deletionGuard;
+    verification.substitutionGuard = record.pipeline.substitutionGuard;
     // A detect-only class leaves fabricated text in transcript.md, and the deletion class leaves a
     // HOLE in it. verification.json must say both in plain English, or "enabled: true" reads as
     // "hallucination: handled" and a missing clause reads as a pause. ONE warnings vocabulary for
     // both classes, deliberately: a reader should meet one way of being told this is not clean.
-    verification.warnings = [...guardWarnings(repetitionReport), ...deletionWarnings(deletionReport)];
+    verification.warnings = [
+      ...guardWarnings(repetitionReport),
+      ...deletionWarnings(deletionReport),
+      ...substitutionWarnings(substitutionReport),
+    ];
     const totalWords = verification.channels.totalWords;
 
     if (totalWords < MIN_TRANSCRIPT_WORDS) {

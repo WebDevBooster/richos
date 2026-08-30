@@ -1,0 +1,22 @@
+{
+ "me": {
+  "channel": "me",
+  "peakDb": -0.9,
+  "meanDb": -34.6,
+  "noiseDb": -34.9,
+  "durationSec": 5536.81,
+  "bursts": 681,
+  "speechSeconds": 1259.3,
+  "elapsedMs": 299
+ },
+ "others": {
+  "channel": "others",
+  "peakDb": -1.2,
+  "meanDb": -30.5,
+  "noiseDb": -35.2,
+  "durationSec": 5536.33,
+  "bursts": 861,
+  "speechSeconds": 2286.5,
+  "elapsedMs": 275
+ }
+}

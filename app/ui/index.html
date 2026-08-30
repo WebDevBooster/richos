@@ -82,6 +82,18 @@
           <label class="popover-option"><input type="radio" name="assertiveness" value="balanced" /> Balanced</label>
           <label class="popover-option"><input type="radio" name="assertiveness" value="urgent-only" /> Only when it's urgent</label>
 
+          <!-- §3.3: "v1 access = a keyboard shortcut, plus one line in Settings." This is
+               the line. The switch is the GLOBAL default (§3.1 — the CEO said "some or ALL
+               of their conversations", and "all" has to be one switch); a single
+               conversation is the keyboard shortcut, which pins that thread and leaves this
+               where it was. §7.1 is his open question and both halves are reachable. -->
+          <div class="popover-divider" role="presentation"></div>
+          <p class="popover-title">Show the technical view</p>
+          <label class="popover-option">
+            <input type="checkbox" id="techy-default" /> In every conversation
+          </label>
+          <p class="popover-hint" id="techy-hint"></p>
+
           <!-- THE OPENING SCREEN'S OFF SWITCH, shipped in the same commit as the screen it
                turns off, and put where a CEO would look for it: behind the same gear as the
                only other preference this product has.
@@ -123,6 +135,17 @@
             <span id="scope-sep" class="scope-sep" aria-hidden="true">/</span>
             <span id="scope-thread" class="scope-thread"></span>
           </div>
+
+          <!-- TECHY MODE'S ONLY CONVERSATION-SURFACE AFFORDANCE, and it exists ONLY while
+               the mode is ON (techy-mode design §3.3: "No affordance in the conversation,
+               at all, when off. A visible affordance IS a change to the default
+               experience."). It is a state indicator with a way out, not a discovery hint;
+               §7.3 — whether customers should be able to FIND techy mode in v1 — is the
+               CEO's open question, and removing this `hidden` on a second element is what
+               answering it "yes" would cost. -->
+          <button id="techy-chip" type="button" hidden aria-pressed="true">
+            <span aria-hidden="true">&#9673;</span><span id="techy-chip-label">Technical view</span>
+          </button>
         </header>
 
         <!-- THE CONVERSATION TIMELINE (§5). `role="log"` per §18, and `aria-live="off"`
@@ -133,6 +156,12 @@
              through #live-region below, one at a time, from main.js's `announce()`. -->
         <div id="conversation" role="log" aria-live="off" tabindex="0">
           <div id="scroll-sentinel-top"></div>
+          <!-- WHY THERE IS NO MACHINERY, when there is none. Four states, three sentences,
+               all of them written in Rust (`src-tauri/src/machinery_view.rs`) and rendered
+               verbatim here — "no machinery was recorded for this conversation" and "I
+               can't read it" are different statements and this surface never substitutes
+               one for the other. Empty unless techy mode is on AND there is nothing. -->
+          <div id="techy-state" hidden></div>
           <div id="messages"></div>
         </div>
 
