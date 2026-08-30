@@ -207,8 +207,16 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the other two. Every one of those merges conflicted HERE. That is the whole
 # value of a typed count beside a derived one: the derivation absorbs a new
 # guard silently, and this line refuses to.
-if [ "$REGISTERED_N" -eq 26 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 26 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+#
+# 26 -> 27 on 2026-08-30: guard-idle-land.sh was wired on Stop — the SECOND
+# guard that reads the orchestrator's turn rather than the repository, and the
+# first that refuses a turn for what it did NOT do. The tripwire went red on
+# the change, as designed, and this paragraph is a human having looked. Sixth
+# firing. It has now caught every guard added since it was written; nothing
+# else in this engine has that record, which is why nobody should ever be
+# tempted to derive this line too.
+if [ "$REGISTERED_N" -eq 27 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 27 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

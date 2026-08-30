@@ -221,6 +221,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-idle-land.sh",
+            "timeout": 20
+          }
+        ]
       }
     ]
   }
