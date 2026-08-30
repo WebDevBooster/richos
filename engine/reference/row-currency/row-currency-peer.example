@@ -1,0 +1,32 @@
+# THE PEER FORM — copy this to `.row-currency` at the root of a repository
+# where the WORK lives but the RECORD does not.
+#
+# Most teams keep the record and the code apart, and often one of the two is
+# private while the other is published. No commit can touch two repositories,
+# so "the merge that changes the work must also edit the row" is not a rule
+# that can be enforced literally. What can be enforced is the thing that
+# actually matters:
+#
+#     AT THE INSTANT THIS REPOSITORY'S TREE CHANGES, IS THE ROW THAT DESCRIBES
+#     THE CHANGED WORK STILL PINNED TO THE BYTES IT WAS WRITTEN ABOUT?
+#
+# The guard reads the record from the repository named below, computes the tree
+# this commit or merge is about to create, and refuses the landing if a row now
+# describes something that is not there any more.
+#
+# IF THAT REPOSITORY IS NOT ON THIS MACHINE, NOTHING IS ENFORCED, THE GUARD
+# SAYS SO ON STDERR EVERY TIME, AND IT BLOCKS NOTHING. Somebody who clones a
+# published repository without its private sibling gets a loud stand-down, not
+# a wedged commit — a guard that bricks a stranger's clone is a guard that gets
+# deleted, and then it protects nobody.
+#
+# DRIFT IS CHECKED IN BOTH DIRECTIONS. This pointer and the record's own
+# artifact-root map are two statements about one relationship. The record must
+# declare a root that resolves back to this repository, or the contract is
+# reported BROKEN — half a contract enforces nothing.
+#
+# ONE KEY, AND ONLY ONE. The sections, the vocabulary and the claim words are
+# declared where the record is, and read from there.
+
+# Relative to this repository's main checkout, or absolute.
+ROW_RECORD_REPO="../your-record-repo"
