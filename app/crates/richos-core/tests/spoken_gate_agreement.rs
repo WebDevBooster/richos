@@ -41,6 +41,29 @@ struct Fixture {
     floors: Floors,
     pairs: Vec<Pair>,
     spans: Vec<Span>,
+    edits: Vec<Edit>,
+}
+
+/// One heard/sent pair and the REPLACE HUNKS `capture.js` reduces it to. Added 2026-08-30
+/// with `heard.rs`: the hunk reduction now has two implementations as well, and a
+/// divergence there is worse than a divergence about the gate — it changes WHICH PAIR gets
+/// learned rather than whether to ask about it. `Rich Hand` -> `Rich Hanna` and
+/// `Hand` -> `Hanna` are both "asks"; only one of them is safe.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Edit {
+    heard: String,
+    sent: String,
+    hunks: Vec<FixtureHunk>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FixtureHunk {
+    from: String,
+    to: String,
+    core_from: String,
+    core_to: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,6 +182,30 @@ fn the_rust_port_gives_the_shipped_javascript_answers() {
         );
     }
 
+    for e in &f.edits {
+        let a: Vec<&str> = e.heard.split_whitespace().collect();
+        let b: Vec<&str> = e.sent.split_whitespace().collect();
+        let got = richos_core::heard::token_replace_hunks(&a, &b);
+        assert_eq!(
+            got.len(),
+            e.hunks.len(),
+            "hunk COUNT disagrees on {:?} -> {:?}: rust {:?}, js {:?}",
+            e.heard,
+            e.sent,
+            got.iter().map(|h| (&h.core_from, &h.core_to)).collect::<Vec<_>>(),
+            e.hunks.iter().map(|h| (&h.core_from, &h.core_to)).collect::<Vec<_>>()
+        );
+        for (r, j) in got.iter().zip(e.hunks.iter()) {
+            assert_eq!(
+                (&r.from, &r.to, &r.core_from, &r.core_to),
+                (&j.from, &j.to, &j.core_from, &j.core_to),
+                "hunk disagrees on {:?} -> {:?}",
+                e.heard,
+                e.sent
+            );
+        }
+    }
+
     assert!((f.floors.ask_min_orthographic - richos_core::spoken::ASK_MIN_ORTHOGRAPHIC).abs() < TOL);
     assert!((f.floors.ask_min_phonetic - richos_core::spoken::ASK_MIN_PHONETIC).abs() < TOL);
     assert!((f.floors.ask_lone_token_min - richos_core::spoken::ASK_LONE_TOKEN_MIN).abs() < TOL);
@@ -173,6 +220,7 @@ fn the_fixture_carries_the_verdicts_it_is_supposed_to() {
     let f = fixture();
     assert!(f.pairs.len() >= 16, "the fixture shrank to {} pairs", f.pairs.len());
     assert!(f.spans.len() >= 14, "the fixture shrank to {} spans", f.spans.len());
+    assert!(f.edits.len() >= 12, "the fixture shrank to {} edits", f.edits.len());
 
     let find = |from: &str| f.pairs.iter().find(|p| p.from == from).expect("pair missing");
 
@@ -195,4 +243,32 @@ fn the_fixture_carries_the_verdicts_it_is_supposed_to() {
     let yes = f.spans.iter().filter(|s| s.looks_like_term).count();
     let no = f.spans.len() - yes;
     assert!(yes >= 5 && no >= 5, "the span fixture is one-sided: {yes} terms, {no} prose");
+
+    // The edits carry the two verdicts the hunk reduction is argued from, or the agreement
+    // above is comparing a list of trivial one-token swaps.
+    let expanded = f
+        .edits
+        .iter()
+        .flat_map(|e| &e.hunks)
+        .find(|h| h.core_from == "Hand")
+        .expect("the expansion case (Rich Hand -> Rich Hanna) left the fixture");
+    assert_eq!(
+        (expanded.from.as_str(), expanded.to.as_str()),
+        ("Rich Hand", "Rich Hanna"),
+        "the proper-noun expansion stopped producing the whole name"
+    );
+    // And the SENTENCE-BOUNDARY refusal, pinned because it is a known defect
+    // (`heard.rs`'s `c08`): the same name mid-sentence expands, at the start it does not.
+    let at_start = f
+        .edits
+        .iter()
+        .flat_map(|e| &e.hunks)
+        .find(|h| h.core_from == "Web")
+        .expect("the sentence-boundary case (Marcus Web -> Marcus Webb) left the fixture");
+    assert_eq!(
+        (at_start.from.as_str(), at_start.to.as_str()),
+        ("Web", "Webb"),
+        "the sentence-boundary guard changed in one implementation — if that is deliberate, \
+         it changes what heard.rs's measured false positive is and must be re-measured"
+    );
 }

@@ -39,7 +39,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { normalizeTerm, similarity } from '../lib/correct.js';
-import { looksLikeTerm } from '../lib/capture.js';
+import { looksLikeTerm, tokenReplaceHunks } from '../lib/capture.js';
 import {
   phoneticKey,
   phoneticSimilarity,
@@ -87,6 +87,34 @@ const SPANS = [
   '',
 ];
 
+/**
+ * Heard/sent pairs chosen to span the DECISIONS `tokenReplaceHunks` makes, not to be pretty.
+ * The hunk reduction is now ported too — `richos_core::heard::token_replace_hunks` — and it
+ * is what turns a silent edit into a candidate, so a divergence here is a divergence about
+ * WHAT PAIR gets learned, which is worse than a divergence about whether to ask.
+ *
+ * Each row is a rule: a plain substitution, an expansion left, an expansion right, an
+ * expansion refused at a sentence boundary (the `Marcus Web` defect, pinned so it cannot
+ * change silently in either implementation), a pure insertion, a pure deletion, a
+ * multi-hunk edit, and one where the delta opens the body.
+ */
+const EDITS = [
+  ['Send the Kestral deck to Marla.', 'Send the Kestrel deck to Marla.'],
+  ['I met Rich Hand about it.', 'I met Rich Hanna about it.'],
+  ['Route it through Saint Aubin Partners.', 'Route it through Saint Auburn Partners.'],
+  ['Marcus Web owns that account now.', 'Marcus Webb owns that account now.'],
+  ['Marla Kestral signed off this morning.', 'Marla Kestrel signed off this morning.'],
+  ['Send the Kestrel deck to Marla today please.', 'Send the Kestrel deck to Marla.'],
+  ['Send the Kestrel deck to Marla.', 'Send the Kestrel deck to Marla before Friday.'],
+  ['Northgate and Brightmore signed. Ship it Thursday.', 'Northgate and Brightmoor signed. Ship it Friday.'],
+  ['Kestral is the account I care about.', 'Kestrel is the account I care about.'],
+  ['The deep graham contract is signed.', 'The Deepgram contract is signed.'],
+  ['Your welcome to join the Kestrel review.', "You're welcome to join the Kestrel review."],
+  ['Move the Halstead review to the Brightmore room.', 'Move the Halstead review to the Brightmoor room.'],
+];
+
+const words = (s) => String(s || '').split(/\s+/).filter(Boolean);
+
 const fixture = {
   note:
     'Generated from tools/richos-service/lib by test/gate-fixture.mjs. The SHARED contract of '
@@ -112,10 +140,22 @@ const fixture = {
     key: askKey(from, to),
   })),
   spans: SPANS.map((text) => ({ text, looksLikeTerm: looksLikeTerm(text) })),
+  edits: EDITS.map(([heard, sent]) => ({
+    heard,
+    sent,
+    hunks: tokenReplaceHunks(words(heard), words(sent)).map((h) => ({
+      from: h.from,
+      to: h.to,
+      coreFrom: h.coreFrom,
+      coreTo: h.coreTo,
+    })),
+  })),
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = process.argv[2] ? process.argv[2] : join(here, 'fixtures', 'correction-gate.json');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, `${JSON.stringify(fixture, null, 2)}\n`);
-console.log(`wrote ${out} — ${fixture.pairs.length} pairs, ${fixture.spans.length} spans`);
+console.log(
+  `wrote ${out} — ${fixture.pairs.length} pairs, ${fixture.spans.length} spans, ${fixture.edits.length} edits`
+);

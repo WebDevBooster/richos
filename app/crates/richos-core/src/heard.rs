@@ -64,7 +64,12 @@
 //!    earns its keep**; the counterfactual is in `tests/heard_precision.rs`.
 //! 2. **Something was SUBSTITUTED** — [`token_replace_hunks`], the same LCS reduction
 //!    `capture.js` uses, ported. A pure insertion or a pure deletion is never a hunk, which
-//!    is how a trim and an afterthought stay silent without a rule of their own.
+//!    is how most trims and afterthoughts stay silent without a rule of their own.
+//!    **Most, not all:** a trim that reaches the end of a sentence turns the neighbouring
+//!    token into a substitution against its own punctuated form (*"…to Marla today
+//!    please."* -> *"…to Marla."* is one hunk, not three deletions), so condition 3 is what
+//!    actually silences three of the corpus's ten trims. Stated here because "insert and
+//!    delete are ignored" reads like a complete account of trims and is not one.
 //! 3. **Neither side of the change is a grammar word** — the structural refusal above.
 //! 4. **The pair clears §7's gate** — [`spoken::gate`], the shipped one, run on the
 //!    **core** of the hunk rather than on the expanded span, because the expansion wraps
@@ -111,9 +116,14 @@
 //!   TP 35   FP 18   FN 3                precision 0.660   recall 0.921
 //! ```
 //!
-//! Seventeen false positives, and recall does not move at all. That comparison is itself an
-//! assertion in the test, so if a future change ever makes the condition free, the claim
-//! that it is not will fail rather than this paragraph going quietly stale.
+//! Seventeen false positives, and recall does not move at all. **Fourteen of the seventeen
+//! are typo fixes** — `Your`/`You're` (0.67 spelling, 1.00 sound), `Its`/`It's`,
+//! `Their`/`They're`, `Then`/`When`, `To`/`Two`, `Wont`/`Won't` — every one of them
+//! capitalized, term-shaped, and comfortably through §7's gate. **The other three are
+//! trims** whose leading filler collided with the sentence (`Actually, book` -> `Book`).
+//! That comparison is itself an assertion in the test, so if a future change ever makes the
+//! condition free, the claim that it is not will fail rather than this paragraph going
+//! quietly stale.
 //!
 //! **One condition earns nothing measurable on this corpus, and is kept anyway.** Offering
 //! all 156 sends against every OTHER row's dictation — 24,058 wrong answers available — the
@@ -761,7 +771,11 @@ mod tests {
     }
 
     /// INVARIANT: a pure insertion or a pure deletion is never a substitution. This is what
-    /// makes a trim and an afterthought silent WITHOUT a rule of their own.
+    /// makes a trim and an afterthought silent WITHOUT a rule of their own — when the trim
+    /// does not run into the sentence's punctuation. When it does
+    /// (`"…to Marla today please."` -> `"…to Marla."`) it IS one hunk, and condition 3 is
+    /// what refuses it; `a_trim_that_collides_with_the_full_stop_is_refused_by_condition_3`
+    /// is that case, kept separate so this one cannot be read as covering it.
     #[test]
     fn a_trim_and_an_afterthought_are_not_substitutions() {
         assert!(detect(
@@ -774,6 +788,22 @@ mod tests {
             "Send the Kestrel deck to Marla before the board call."
         )
         .is_silent());
+    }
+
+    /// The trim that DOES become a substitution, and what actually stops it. Named so the
+    /// test above cannot be misread as proving more than it does.
+    #[test]
+    fn a_trim_that_collides_with_the_full_stop_is_refused_by_condition_3() {
+        let d = detect(
+            "Send the Kestrel deck to Marla today please.",
+            "Send the Kestrel deck to Marla.",
+        );
+        assert!(d.is_silent());
+        assert_eq!(
+            d.rejected.iter().map(|r| r.reason.as_str()).collect::<Vec<_>>(),
+            vec![GATE_GRAMMAR_WORD],
+            "the trim was silenced by something other than the grammar-word condition"
+        );
     }
 
     /// INVARIANT: condition 3. A composer message opens with a capital letter, so without
