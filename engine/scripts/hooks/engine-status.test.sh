@@ -198,8 +198,17 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # merge the lander ran the suites and not the check. Third firing, third
 # acknowledgement; the tripwire has now caught every guard added since it was
 # written, which is the only evidence that it works.
-if [ "$REGISTERED_N" -eq 25 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 25 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+# 23 -> 24 on 2026-08-30: guard-unresolved-claims.sh was wired on Stop — the
+# first guard here that reads the orchestrator's own turn rather than the
+# repository's state. Tripwire fired, acknowledged.
+#
+# 25 -> 26 on 2026-08-30: THREE guards were wired on one day by three
+# engineers, and each of them bumped this line to 24 without knowing about
+# the other two. Every one of those merges conflicted HERE. That is the whole
+# value of a typed count beside a derived one: the derivation absorbs a new
+# guard silently, and this line refuses to.
+if [ "$REGISTERED_N" -eq 26 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 26 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

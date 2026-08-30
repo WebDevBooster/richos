@@ -211,6 +211,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-unresolved-claims.sh",
+            "timeout": 20
+          }
+        ]
+      }
     ]
   }
 }
