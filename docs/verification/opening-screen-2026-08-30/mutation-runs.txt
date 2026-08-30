@@ -1,0 +1,284 @@
+THE OPENING SCREEN — THE THIRTEEN RUNS THAT PROVE THE SUITE CAN FAIL
+====================================================================
+
+`app/ui/tests/splash.js` reports 13/13 against the tree as it stands. That number is worth
+nothing on its own: a check that has never failed has proven nothing, and this repository
+has produced both kinds of green in one week — a scanner reporting CLEAN over an empty
+corpus, and a `run.js` reporting "all 4 suites passed" over a suite it was not running.
+
+So every check was run RED, once, by breaking the thing it guards in the SHIPPED source
+(`app/ui/splash.js`, `app/ui/splash-library.js`, `app/ui/splash.css`, `app/ui/main.js`,
+`app/crates/richos-core/src/config.rs`) and watching the suite say so.
+
+The driver applied exactly one edit per run, REFUSED to proceed unless the target string
+matched exactly once, restored the file from a copy taken before the edit whether the run
+passed or failed, and `git status` was clean of stray modifications afterwards.
+
+
+THREE OF THESE DESERVE A NOTE
+-----------------------------
+
+  * MUTATION 1 EXPOSED A REAL DEFECT IN THE SUITE, AND THE SUITE WAS FIXED RATHER THAN THE
+    MUTATION ABANDONED. Making the library file contain a function — `"round": "8.1"` to
+    `"round": String("8.1")`, valid JavaScript and invalid JSON — did not turn check 1 red
+    on its first attempt. It turned the WHOLE SUITE into a crash before check 1 existed,
+    because `libraryFromDisk()` parsed at module load and threw there. `run.js`'s evidence
+    gate would have caught that correctly as a suite producing no evidence — but the check
+    written to catch exactly this could never have been shown to go red, which is the
+    defect this directory's whole gate exists to refuse. The parse now catches its own
+    failure into `LIBRARY_ERROR` and check 1 asserts on it. Mutation 1 also reddens checks
+    3, 5, 6 and 8, which is the right answer rather than noise: with no library there is
+    nothing to draw, nothing to photograph and nothing to strike.
+
+  * MUTATION 3 WAS A BAD MUTATION ON ITS FIRST RUN. Adding a misspelled token
+    (`"surface_TYPO"`) alongside a correct `"surface"` left the entry perfectly valid, so
+    check 3 stayed green — correctly. The mutation was corrected to RENAME the real token,
+    which removes it, and the check went red naming the entry.
+
+  * MUTATION 13 WAS A BAD MUTATION ON ITS FIRST RUN, and the reason is the interesting one.
+    A 40ms busy-wait placed at the top of `start()` ran on BOTH arms of the measurement,
+    including the one where the splash is switched off and returns immediately — so it
+    delayed both launches equally and the DELTA did not move. That is the measurement
+    working: it times the splash's own cost, not the machine's. Moved below the switch
+    check, where only a launch that actually draws pays it, the same 40ms turns check 13
+    red at once.
+
+
+THE NUMBERS THE SUITE PRODUCES ON THE UNMUTATED TREE
+----------------------------------------------------
+
+  check 4   12 real launches, 7 distinct compositions, 0 immediate repeats
+  check 13  cold: 32.0ms with the splash, 29.0ms without  →  +3.0ms
+            warm:  9.0ms with the splash,  8.0ms without  →  +1.0ms
+            12 runs per cell, medians. One frame at 60Hz is 16.7ms, which is the bar.
+
+
+THE RUNS
+========
+
+MUTATION FOR CHECK 1 — splash-library.js
+--------------------------------------------------------------------------
+  replaced:
+    - "round": "8.1",
+  with:
+    + "round": String("8.1"),
+
+  target check 1: FAIL   (every check red this run: [1, 3, 5, 6, 8])
+
+  FAIL  1  the library is DATA — it parses as JSON, so it cannot contain code
+  splash-library.js is not JSON
+  expected null
+  actual   "Unexpected token 'S', ...\" \"round\": String(\"8.\"... is not valid JSON"
+  FAIL  3  every entry the library ships actually draws
+  the drawable pool is not the shipped library
+  expected []
+  actual   ["round-8.1/v0","round-8.1/v1","round-8.1/v2","round-8.1/v3","round-8.1/v4","round-8.1/v5","round-8.1/v6"]
+  FAIL  5  two launches, two compositions, photographed
+  Cannot read properties of undefined (reading 'id')
+  FAIL  6  the palette study is left behind — no chips, no hexes, no labels
+  Cannot read properties of undefined (reading 'id')
+  PASS  7  nothing here can catch his hand
+  24 nodes, all pointer-events:none · a click at centre reaches div#conversation
+  FAIL  8  the ceremony is cut, the mark never is
+  no colour-strike entry in the library to test the pin against
+  PASS  9  an unusable library is a normal launch, never a half-drawn frame
+  no library at all → "no usable variation in the library" · an empty library → "no usable variation in the library" · every entry malformed → "no usable variation in the library"
+
+
+MUTATION FOR CHECK 2 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    - var GILD_ID = "richos-splash-gild";
+  with:
+    + var GILD_ID = "richos-splash-gild";
+    +   var MUTANT_GOLD = "#C2A35C";
+
+  target check 2: FAIL   (every check red this run: [2])
+
+  FAIL  2  the RENDERER carries no variation value — not one colour literal
+  hex colour literal(s) in splash.js
+  expected []
+  actual   ["#C2A35C"]
+
+
+MUTATION FOR CHECK 3 — splash-library.js
+--------------------------------------------------------------------------
+  replaced:
+    - "surface": "#15203A",
+  with:
+    + "surface_TYPO": "#15203A",
+
+  target check 3: FAIL   (every check red this run: [3])
+
+  FAIL  3  every entry the library ships actually draws
+  nothing drawn for round-8.1/v3
+  PASS  4  he meets a different one — real launches, no immediate repeat
+  12 launches, 6 distinct compositions, 0 immediate repeats: round-8.1/v2 → round-8.1/v0 → round-8.1/v5 → round-8.1/v6 → round-8.1/v0 → round-8.1/v6 → round-8.1/v1 → round-8.1/v4 → round-8.1/v5 → round-8.1/v6 → round-8.1/v5 → round-8.1/v2
+
+
+MUTATION FOR CHECK 4 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     var last = read(KEY_LAST);
+    -     var eligible = candidates;
+  with:
+    +     var last = read(KEY_LAST);
+    +     var eligible = candidates;
+    +     return candidates[0];
+
+  target check 4: FAIL   (every check red this run: [4])
+
+  FAIL  4  he meets a different one — real launches, no immediate repeat
+  12 launches produced one composition: round-8.1/v0
+  PASS  5  two launches, two compositions, photographed
+  splash-01-round-8-1-v0.png (1280x800, 284 distinct colors) — mat rgb(20, 30, 52) · splash-02-round-8-1-v6.png (1280x800, 863 distinct colors) — mat rgb(21, 32, 58)
+
+
+MUTATION FOR CHECK 5 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    - s.setProperty("--splash-surface", t.surface);
+  with:
+    + /* mutated away */
+
+  target check 5: FAIL   (every check red this run: [5])
+
+  FAIL  5  two launches, two compositions, photographed
+  round-8.1/v0: the mat is not the entry's own surface colour
+  expected "rgb(20, 30, 52)"
+  actual   "rgba(0, 0, 0, 0)"
+
+
+MUTATION FOR CHECK 6 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     root.appendChild(div("splash-lamp"));
+  with:
+    +     root.appendChild(div("splash-corner"));
+    +     root.appendChild(div("splash-lamp"));
+
+  target check 6: FAIL   (every check red this run: [6])
+
+  FAIL  6  the palette study is left behind — no chips, no hexes, no labels
+  elements the composition is not made of
+  expected []
+  actual   ["splash-corner"]
+
+
+MUTATION FOR CHECK 7 — splash.css
+--------------------------------------------------------------------------
+  replaced:
+    -   z-index: 200;
+    -   pointer-events: none;
+  with:
+    +   z-index: 200;
+    +   pointer-events: auto;
+
+  target check 7: FAIL   (every check red this run: [7])
+
+  FAIL  7  nothing here can catch his hand
+  some part of the curtain is not click-through
+  expected ["none"]
+  actual   ["auto","none"]
+
+
+MUTATION FOR CHECK 8 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     node.classList.add("splash--settled");
+  with:
+    +     /* mutated away */
+
+  target check 8: FAIL   (every check red this run: [8])
+
+  FAIL  8  the ceremony is cut, the mark never is
+  the surface did not pin itself on the way out
+  PASS  9  an unusable library is a normal launch, never a half-drawn frame
+  no library at all → "no usable variation in the library" · an empty library → "no usable variation in the library" · every entry malformed → "no usable variation in the library"
+
+
+MUTATION FOR CHECK 9 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     var out = [];
+    -     for (var i = 0; i < lib.variations.length; i++) {
+    -       if (valid(lib.variations[i])) out.push(lib.variations[i]);
+    -     }
+    -     return out;
+  with:
+    +     return lib.variations;
+
+  target check 9: FAIL   (every check red this run: [9])
+
+  FAIL  9  an unusable library is a normal launch, never a half-drawn frame
+  every entry malformed: something was left on screen
+  expected 0
+  actual   2
+
+
+MUTATION FOR CHECK 10 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     ceiling = setTimeout(function () {
+    -       yieldNow("ceiling");
+    -     }, CEILING_MS);
+  with:
+    +     /* mutated away */
+
+  target check 10: FAIL   (every check red this run: [10])
+
+  FAIL  10  a launch that never reports ready still clears
+  the curtain was still up 4.4s after a launch that never reported ready
+  expected false
+  actual   true
+
+
+MUTATION FOR CHECK 11 — main.js
+--------------------------------------------------------------------------
+  replaced:
+    -     writeSplashEnabled(on);
+    -     Bridge.invoke("set_splash_enabled"
+  with:
+    +     Bridge.invoke("set_splash_enabled"
+
+  target check 11: FAIL   (every check red this run: [11])
+
+  FAIL  11  the switch is where he would look, and off stays off
+  it came back after being switched off
+  expected 0
+  actual   1
+
+
+MUTATION FOR CHECK 12 — config.rs
+--------------------------------------------------------------------------
+  replaced:
+    - fn splash_default() -> bool {
+    -     true
+    - }
+  with:
+    + fn splash_default() -> bool {
+    +     false
+    + }
+
+  target check 12: FAIL   (every check red this run: [12])
+
+  FAIL  12  the switch is durable in Rust, and both sides agree absent means ON
+  config.rs's splash default is not `true`
+  PASS  13  the splash costs the launch less than one frame — cold and warm
+  cold: 36.5ms with, 33.0ms without → +3.5ms · warm: 10.0ms with, 9.5ms without → +0.5ms · 12 runs each, medians, one frame = 16.7ms
+
+
+MUTATION FOR CHECK 13 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     var entry = pick(candidates);
+  with:
+    +     var entry = pick(candidates);
+    +     var __t = Date.now();
+    +     while (Date.now() - __t < 40) {}
+
+  target check 13: FAIL   (every check red this run: [13])
+
+  FAIL  13  the splash costs the launch less than one frame — cold and warm
+  cold launch is slower by 48.5ms, which is a frame or more — cold: 82.5ms with, 34.0ms without → +48.5ms · warm: 51.0ms with, 9.0ms without → +42.0ms · 12 runs each, medians, one frame = 16.7ms
+
