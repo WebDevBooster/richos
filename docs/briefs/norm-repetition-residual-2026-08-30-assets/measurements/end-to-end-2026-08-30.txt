@@ -1,0 +1,34 @@
+=== end-to-end through ALL FOUR classes, the 72 hand-verified findings ===
+TEXT-ONLY (pre 08-29)          genuineDeliveriesDeleted= 10  findings= 6  extraCopiesLeft=  26  segmentsRemoved=2383
+grid, minW 3 (shipped 08-29)   genuineDeliveriesDeleted=  5  findings= 5  extraCopiesLeft= 181  segmentsRemoved=2260
+grid, minW 1, NO class-3 hand-off genuineDeliveriesDeleted=  9  findings= 6  extraCopiesLeft= 102  segmentsRemoved=2363
+grid, minW 1 (this change)     genuineDeliveriesDeleted=  4  findings= 4  extraCopiesLeft= 232  segmentsRemoved=2208
+
+still losing genuine speech under TEXT-ONLY (pre 08-29):
+  turbo me 829.9-833.9 x6 w=1 real=2 survivors=1 lost=1
+  turbo others 5103.4-5114 x3 w=9 real=2 survivors=1 lost=1
+  turbo others 5501.2-5536.2 x3 w=13 real=3 survivors=1 lost=2
+  q5 others 2142.4-2190.4 x5 w=20 real=2 survivors=1 lost=1
+  q5 others 2261.4-2331.4 x7 w=17 real=5 survivors=1 lost=4
+  q5 others 4643.2-4699.2 x3 w=35 real=3 survivors=2 lost=1
+
+still losing genuine speech under grid, minW 3 (shipped 08-29):
+  turbo me 829.9-833.9 x6 w=1 real=2 survivors=1 lost=1
+  turbo me 1739.9-1746.9 x7 w=1 real=1 survivors=0 lost=1
+  turbo me 4885.2-4915.2 x7 w=2 real=1 survivors=0 lost=1
+  q5 me 2916.8-2936.8 x9 w=1 real=1 survivors=0 lost=1
+  q5 others 441.7-462.2 x5 w=1 real=1 survivors=0 lost=1
+
+still losing genuine speech under grid, minW 1, NO class-3 hand-off:
+  turbo me 1739.9-1746.9 x7 w=1 real=1 survivors=0 lost=1
+  turbo me 4885.2-4915.2 x7 w=2 real=1 survivors=0 lost=1
+  q5 me 2916.8-2936.8 x9 w=1 real=1 survivors=0 lost=1
+  q5 others 441.7-462.2 x5 w=1 real=1 survivors=0 lost=1
+  q5 others 2261.4-2331.4 x7 w=17 real=5 survivors=1 lost=4
+  q5 others 4936.2-4975.2 x22 w=7 real=1 survivors=0 lost=1
+
+still losing genuine speech under grid, minW 1 (this change):
+  turbo me 1739.9-1746.9 x7 w=1 real=1 survivors=0 lost=1
+  turbo me 4885.2-4915.2 x7 w=2 real=1 survivors=0 lost=1
+  q5 me 2916.8-2936.8 x9 w=1 real=1 survivors=0 lost=1
+  q5 others 441.7-462.2 x5 w=1 real=1 survivors=0 lost=1

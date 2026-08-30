@@ -8,6 +8,9 @@
  *   2. NORMALIZE (ffmpeg)   stereo contract -> me.wav / others.wav @ 16 kHz mono
  *   3. TRANSCRIBE (whisper) large-v3-turbo per channel, with timestamps
  *   4. MERGE by timestamp   + fold in caption speaker labels -> verification.json
+ *   3.5 HALLUCINATION GUARD four decode-failure classes; loop / stutter / silence-fabrication are
+ *                           repaired, and the ordinal-insertion class is repaired PER MARKER where
+ *                           an isolated re-decode shows the audio never carried the numeral
  *   3.7 DELETION DETECTOR   physical speech bursts with NO emitted word, adjudicated by isolated
  *                           re-decode -> DETECT-ONLY alarm (a deletion cannot be repaired here)
  *   3.8 WORD-DENSITY        the class coverage scores as COVERED: a window of real speech carrying
@@ -172,12 +175,18 @@ export function runPipeline(sessionDir, opts = {}) {
     // The post-decode HALF of the hallucination defense, model-agnostic, across FOUR measured
     // decode-failure classes (see lib/repetition-guard.js): a repetition LOOP, a sliding-overlap
     // STUTTER and a SILENCE FABRICATION are removed before they reach the merge/transcript; a
-    // persistent ordinal INSERTION is DETECT-ONLY (removing it would delete real speech) and
-    // therefore has to be LOUD instead.
+    // persistent ordinal INSERTION is repaired PER MARKER, and only where an isolated re-decode of
+    // that segment's own audio fails to return the numeral — because one marker in the captured
+    // artifact is a real spoken "Zero." and a blanket strip deletes it. Anything the probe does not
+    // clear stays in the text and stays LOUD.
     // Runs on every tier (cheap, precision-guarded); the safety net that lets large-v3 be opt-in.
     let asrGuarded = { me: asr.me, others: asr.others };
     /** @type {{me: object[], others: object[]}|null} the physical evidence the loop class needs */
     let speechBursts = null;
+    // Was the insertion class given a way to REPAIR, or could it only ever detect? Recorded on every
+    // run, not only the runs where the class fires — otherwise the one transcript that needed the
+    // probe is the only place anyone would find out the wiring had come loose.
+    let insertionProbeAvailable = false;
     let repetitionReport = {
       removed: 0,
       detected: false,
@@ -215,10 +224,78 @@ export function runPipeline(sessionDir, opts = {}) {
         error: String(err && err.message ? err.message : err),
       });
     }
+    const probeDir = path.join(sessionDir, '_probe');
+    /**
+     * Cut + level + isolated re-decode for one channel's suspect spans. The impure half, and it is
+     * ONE function for stages 3.5, 3.7 and 3.8 on purpose: three detectors that cut, measured or
+     * decoded their evidence differently would eventually disagree about the same span, and the
+     * pipeline would have no way to say which of them was looking at the audio wrong. Only the
+     * paddings and the clip tag are parameters, and all three stages ship the same two paddings.
+     *
+     * Defined HERE, above stage 3.5, because the insertion class now needs it too. It costs
+     * nothing until a stage actually calls it, and every stage that does gets the same cut.
+     */
+    const makeProbe = (channel, pads = DELETION_GUARD_DEFAULTS, tag = 'del') => (spans) => {
+      const wavPath = channelPaths[channel];
+      fs.mkdirSync(probeDir, { recursive: true });
+      const tightPaths = [];
+      const widePaths = [];
+      const levels = [];
+      spans.forEach((s, i) => {
+        tightPaths.push(
+          cutSpan(wavPath, s, path.join(probeDir, `${tag}-${channel}-${i}-t.wav`), { padSec: pads.probePadSec }),
+        );
+        widePaths.push(
+          cutSpan(wavPath, s, path.join(probeDir, `${tag}-${channel}-${i}-w.wav`), { padSec: pads.probeWidePadSec }),
+        );
+        levels.push(measureSpanVolume(wavPath, s));
+      });
+      // One invocation for BOTH paddings of every span: the model loads once for the whole channel.
+      const texts = transcribeClips([...tightPaths, ...widePaths], { model, extraArgs: decodeArgs });
+      const finite = (x) => (Number.isFinite(x) ? x : null);
+      return spans.map((s, i) => ({
+        tight: texts[i] || '',
+        wide: texts[spans.length + i] || '',
+        maxDb: finite(levels[i].maxDb),
+        meanDb: finite(levels[i].meanDb),
+      }));
+    };
     if (tier.repetitionGuard !== false) {
-      const guarded = guardTranscription({ me: asr.me, others: asr.others }, speechBursts ? { speechBursts } : {});
+      // The insertion class's probe. Costs NOTHING unless that class's four detection conditions
+      // fire, which they have done on exactly one artifact ever — and when they do, this is what
+      // lets the class repair instead of only shouting: each suspect marker is adjudicated against
+      // an isolated re-decode of its own audio, and stripped only where the numeral does not come
+      // back. Same cut, same paddings, same one-invocation decode as stages 3.7 and 3.8.
+      let insertionProbeFailed = null;
+      const guarded = guardTranscription(
+        { me: asr.me, others: asr.others },
+        {
+          ...(speechBursts ? { speechBursts } : {}),
+          probe: (spans, channel) => {
+            try {
+              return makeProbe(channel, DELETION_GUARD_DEFAULTS, 'ins')(spans);
+            } catch (err) {
+              insertionProbeFailed = String(err && err.message ? err.message : err);
+              throw err;
+            }
+          },
+        },
+      );
+      try {
+        fs.rmSync(probeDir, { recursive: true, force: true });
+      } catch {
+        /* the clips are inside the session dir, which already holds the full audio */
+      }
+      if (insertionProbeFailed) {
+        log.alarm(`${sessionId} — the insertion class could not re-decode; fabricated markers are NOT repaired and stay in the transcript`, {
+          error: insertionProbeFailed,
+        });
+      }
       asrGuarded = { me: guarded.me, others: guarded.others };
       repetitionReport = guarded.report;
+      // What the GUARD received, not what this file meant to hand it. A flag set here beside the
+      // call would stay true through any wiring mistake on the line above.
+      insertionProbeAvailable = repetitionReport.insertionProbe === true;
       if (repetitionReport.preserved && repetitionReport.preserved.length) {
         log.info(`${sessionId} — ${repetitionReport.preserved.length} repeated run(s) PRESERVED: the audio contains a speech burst for every repetition`, {
           preserved: repetitionReport.preserved.map((p) => ({ channel: p.channel, count: p.count, text: p.text.slice(0, 60) })),
@@ -269,15 +346,34 @@ export function runPipeline(sessionDir, opts = {}) {
         });
       }
       for (const ins of repetitionReport.insertions) {
-        // NOT repaired, on purpose. The transcript below still contains the fabricated markers.
-        log.alarm(`${sessionId} — FABRICATED TEXT LEFT IN THE TRANSCRIPT (detect-only class)`, {
+        const left = Number(ins.keptSpoken || 0) + Number(ins.unprobed || 0);
+        if (!ins.repaired) {
+          // No probe reached this class, so it could only detect. The transcript still has them all.
+          log.alarm(`${sessionId} — FABRICATED TEXT LEFT IN THE TRANSCRIPT (this class could not re-decode)`, {
+            channel: ins.channel,
+            kind: ins.kind,
+            count: ins.count,
+            fromMs: ins.startMs,
+            toMs: ins.endMs,
+            sample: ins.sample,
+            remedy: 're-transcribe with another model (audio is retained); with no isolated re-decode the guard will not rewrite text',
+          });
+          continue;
+        }
+        // Repaired — and the alarm still fires, because a fabrication this size reaching the decode
+        // at all is the operational fact, and because what was NOT repaired belongs beside it.
+        log.alarm(`${sessionId} — fabricated ${ins.kind} insertion(s) found and REPAIRED on physical evidence`, {
           channel: ins.channel,
-          kind: ins.kind,
           count: ins.count,
+          removed: ins.stripped,
+          keptBecauseTheAudioSaysTheSpeakerSaidIt: ins.keptSpoken,
+          notAdjudicated: ins.unprobed,
           fromMs: ins.startMs,
           toMs: ins.endMs,
           sample: ins.sample,
-          remedy: 're-transcribe with another model (audio is retained); the guard does not rewrite text here',
+          remedy: left
+            ? 'the unadjudicated/kept markers are still in the transcript — check the span, or re-transcribe'
+            : 'none; every marker was adjudicated against its own audio',
         });
       }
     }
@@ -306,39 +402,6 @@ export function runPipeline(sessionDir, opts = {}) {
     // is a named span in the alarm and in verification.json, and re-transcription against retained
     // audio. `RICHOS_DELETION_GUARD=off` disables it; it changes no decode parameter either way.
     const deletionOn = String(opts.deletionGuard ?? process.env.RICHOS_DELETION_GUARD ?? 'on') !== 'off';
-    const probeDir = path.join(sessionDir, '_deletion-probe');
-    /**
-     * Cut + level + isolated re-decode for one channel's suspect spans. The impure half, and it is
-     * ONE function for stages 3.7 and 3.8 on purpose: two detectors that cut, measured or decoded
-     * their evidence differently would eventually disagree about the same span, and the pipeline
-     * would have no way to say which of them was looking at the audio wrong. Only the paddings are
-     * a parameter, and both stages ship the same two.
-     */
-    const makeProbe = (channel, pads = DELETION_GUARD_DEFAULTS) => (spans) => {
-      const wavPath = channelPaths[channel];
-      fs.mkdirSync(probeDir, { recursive: true });
-      const tightPaths = [];
-      const widePaths = [];
-      const levels = [];
-      spans.forEach((s, i) => {
-        tightPaths.push(
-          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-t.wav`), { padSec: pads.probePadSec }),
-        );
-        widePaths.push(
-          cutSpan(wavPath, s, path.join(probeDir, `${channel}-${i}-w.wav`), { padSec: pads.probeWidePadSec }),
-        );
-        levels.push(measureSpanVolume(wavPath, s));
-      });
-      // One invocation for BOTH paddings of every span: the model loads once for the whole channel.
-      const texts = transcribeClips([...tightPaths, ...widePaths], { model, extraArgs: decodeArgs });
-      const finite = (x) => (Number.isFinite(x) ? x : null);
-      return spans.map((s, i) => ({
-        tight: texts[i] || '',
-        wide: texts[spans.length + i] || '',
-        maxDb: finite(levels[i].maxDb),
-        meanDb: finite(levels[i].meanDb),
-      }));
-    };
     let deletionReport = {
       detected: false,
       probeAvailable: false,
@@ -562,9 +625,20 @@ export function runPipeline(sessionDir, opts = {}) {
       // "Nothing found" and "never looked" are different answers: class 4 needs the burst grid.
       silenceProbed: repetitionReport.silenceProbed,
       silenceUnit: repetitionReport.silenceUnit,
-      // Detect-only: these are still IN the transcript. Never let "enabled: true" imply "clean".
+      // Class 2. REPAIRED per marker where an isolated re-decode proved the audio never carried the
+      // numeral, and only there — so `unrepaired` counts what is STILL in the transcript (a numeral
+      // the audio backs, or a marker nothing looked at), never the whole finding. Never let
+      // "enabled: true" imply "clean", and never let "repaired" imply "all of it".
       insertions: repetitionReport.insertions,
-      unrepaired: repetitionReport.insertions.reduce((n, i) => n + i.count, 0),
+      // "This class could have repaired" vs "this class can only detect" — a property of the WIRING,
+      // true even on a clean transcript where the class never fires.
+      insertionProbeAvailable,
+      insertionsRepaired: repetitionReport.insertionsRepaired || 0,
+      insertionsKeptSpoken: repetitionReport.insertionsKeptSpoken || 0,
+      unrepaired: repetitionReport.insertions.reduce(
+        (n, i) => n + (i.repaired ? Number(i.keptSpoken || 0) + Number(i.unprobed || 0) : i.count),
+        0,
+      ),
     };
     record.pipeline.deletionGuard = {
       enabled: deletionReport.enabled,

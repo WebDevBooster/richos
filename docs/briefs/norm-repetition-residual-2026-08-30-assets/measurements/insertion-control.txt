@@ -1,0 +1,8 @@
+seg 17 marker="1. " value=1
+  tight: "close. 1. Exponential backoff with jitter, shipped in 2.7.4. 2. The runbook now links the Q-Depth dashboard"
+  wide : "All three are closed: 1. Exponential backoff with jitter, shipped in 2.7.4 2. The runbook now links the queue depth dashboard first"
+  numeral recovered? tight=true wide=true  => REFUSED (correct)
+seg 18 marker="3. " value=3
+  tight: "Dashboard first. 3. We added a synthetic canary jaw that runs the same extract path every 15 minutes against a 5-file sample."
+  wide : "Q-DEP dashboard first. Three, we added a synthetic canary jaw that runs the same extract path every 15 minutes against a five-file sample."
+  numeral recovered? tight=true wide=true  => REFUSED (correct)

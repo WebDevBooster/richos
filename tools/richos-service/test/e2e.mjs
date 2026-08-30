@@ -222,6 +222,18 @@ if (realEntities.entities.length > 0) {
     + 'The product treats this as an empty memory and a clean identity correction, by design.');
 }
 
+// Stage 3.5, the DEFAULT-WIRING invariant, and it needs a real pipeline run to mean anything: the
+// insertion class can only repair a fabricated ordinal if the pipeline hands it an isolated-decode
+// probe, and that wiring is invisible to every pure test in run.js — which can call the guard with a
+// probe of its own and pass while `pipeline.js` passes none. The class fires on a channel-level
+// four-condition verdict that no synthetic session produces, so what is asserted here is that the
+// PROBE WAS THERE, on an ordinary clean run, whether or not anything needed it.
+check('the insertion class was wired with a way to REPAIR, not only to detect',
+  rec.pipeline.repetitionGuard.insertionProbeAvailable === true,
+  `insertionProbeAvailable=${rec.pipeline.repetitionGuard.insertionProbeAvailable}`);
+check('and a clean sample gives it nothing to repair', rec.pipeline.repetitionGuard.unrepaired === 0,
+  `unrepaired=${rec.pipeline.repetitionGuard.unrepaired}`);
+
 check('ingest ledger has a line for this session', fs.existsSync(ingestLedgerPath(zone)) &&
   fs.readFileSync(ingestLedgerPath(zone), 'utf8').includes(sessionId));
 

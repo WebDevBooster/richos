@@ -81,6 +81,9 @@ import {
   burstCapacity,
   burstOverlapMs,
   guardSilenceFabrication,
+  numeralInText,
+  adjudicateInsertionMarker,
+  selectInsertionProbes,
   REPETITION_GUARD_DEFAULTS,
 } from '../lib/repetition-guard.js';
 import {
@@ -89,6 +92,7 @@ import {
   GENUINE_SPOKEN_ENUMERATION,
   LARGE_V3_SLIDING_STUTTER,
   CLEAN_NO_BOUNDARY_OVERLAP,
+  TURBO_NUMERAL_INSERTION_ISOLATED_DECODES,
 } from './fixtures/captured-hallucinations.js';
 import { diarizeOthers, readTurn, SPEAKER_TURN_MARKER } from '../lib/diarize.js';
 import {
@@ -1088,20 +1092,46 @@ test('the veto collapses PARTIALLY when the audio holds some deliveries but not 
   assert.equal(r.loops[0].burstCapacity, 2);
 });
 
-test('the veto is inert on short phrases, where a burst ceiling carries no signal', () => {
-  // "Okay." fits in any burst; using capacity there would veto every short collapse. Documented
-  // residual: a short genuine repetition can still be collapsed.
+test('a SHORT repeated phrase is clamped to what the audio holds — the 2026-08-30 residual, closed', () => {
+  // The SHAPE of `turbo#2` in the 72 hand-verified findings: whisper emitted a one-word phrase six
+  // times at 829.9-833.9 s and the man said it TWICE. Under the old 3-word veto floor this collapsed
+  // to one and destroyed a real delivery — the last surviving false positive of the eight.
+  // The word below is INVENTED, like every other fixture line in this file: what the test turns on
+  // is the phrase's LENGTH and the burst structure under it, never which word it was. The corpus is
+  // the CEO's private webinar and it does not get quoted here.
+  const segs = [0, 1, 2, 3, 4, 5].map((i) => ({
+    startMs: 829900 + i * 600, endMs: 829900 + i * 600 + 500, text: 'Anyway...', speaker: 'me',
+  }));
+  const bursts = [{ startMs: 829900, endMs: 831200 }, { startMs: 832100, endMs: 833900 }];
+  const r = guardChannel(segs, { speechBursts: bursts });
+  assert.equal(r.loops[0].burstCapacity, 2, 'the audio starts twice in this span, so it holds at most two');
+  assert.equal(r.loops[0].kept, 2, 'both real deliveries survive');
+  assert.equal(r.removed, 4, 'and the four the model invented do not');
+});
+
+test('a short phrase over SILENCE still collapses to one — the clamp is a ceiling, not an amnesty', () => {
   const segs = [0, 1, 2, 3, 4, 5].map((i) => ({ startMs: i * 4000, endMs: i * 4000 + 3000, text: 'Okay.', speaker: 'me' }));
-  const bursts = segs.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
-  const withProbe = guardChannel(segs, { speechBursts: bursts });
-  const without = guardChannel(segs);
-  assert.equal(withProbe.removed, without.removed, 'short runs keep the old text-only behavior');
+  assert.equal(guardChannel(segs, { speechBursts: [] }).removed, 5, 'no bursts, no protection');
+  // One burst that covers the whole span is ONE speech event, so one delivery — not six.
+  const one = guardChannel(segs, { speechBursts: [{ startMs: 0, endMs: 23000 }] });
+  assert.equal(one.removed, 5);
+  assert.equal(one.loops[0].kept, 1);
 });
 
 test('the veto can only REFUSE a collapse, never cause one (strictly more conservative)', () => {
   // Burst capacity is a ceiling, not proof of delivery, so adding the probe must never remove more.
-  for (const fixture of [largeV3Hallucination, REAL_RETAKE_X3]) {
-    for (const bursts of [[], REAL_RETAKE_BURSTS, [{ startMs: 0, endMs: 60000 }]]) {
+  // SHORT phrases are in this loop since 2026-08-30, when the veto's 3-word floor was removed: the
+  // safety of that change is not a measurement, it is `keep = max(1, min(runLen, capacity)) >= 1`,
+  // and this is the assertion that holds the property at every phrase length the file has.
+  const shortRun = [0, 1, 2, 3, 4, 5].map((i) => ({
+    startMs: i * 4000, endMs: i * 4000 + 3000, text: 'Okay.', speaker: 'me',
+  }));
+  const oneWordRetake = [0, 1].map((i) => ({
+    startMs: 829900 + i * 600, endMs: 829900 + i * 600 + 500, text: 'Anyway...', speaker: 'me',
+  }));
+  for (const fixture of [largeV3Hallucination, REAL_RETAKE_X3, shortRun, oneWordRetake]) {
+    for (const bursts of [[], REAL_RETAKE_BURSTS, [{ startMs: 0, endMs: 60000 }],
+      shortRun.map((s) => ({ startMs: s.startMs, endMs: s.endMs }))]) {
       const withProbe = guardChannel(fixture, { speechBursts: bursts });
       const without = guardChannel(fixture);
       assert.ok(withProbe.removed <= without.removed,
@@ -1215,6 +1245,116 @@ test('opting into stripping would delete a real word: the speaker\'s "Zero." at 
 
 test('POSITIVE CONTROL for the negatives below: the same detector fires on the artifact', () => {
   assert.equal(guardInsertions(TURBO_NUMERAL_INSERTION).insertions.length, 1);
+});
+
+// ---- class 2, the REPAIR (2026-08-30) ---------------------------------------------------------
+// The probe is DATA in these tests, never a call: the fixture holds the real isolated re-decodes.
+
+/** The recorded isolated decodes, in the order `guardInsertions` probes its suspect markers. */
+const isolatedProbe = () => (spans) =>
+  spans.map((s) => {
+    const seg = TURBO_NUMERAL_INSERTION.findIndex((x) => x.startMs === s.startMs && x.endMs === s.endMs);
+    const row = TURBO_NUMERAL_INSERTION_ISOLATED_DECODES.find((x) => x.index === seg);
+    assert.ok(row, `no recorded isolated decode for segment ${seg}`);
+    return { tight: row.tight, wide: row.wide };
+  });
+
+test('numeralInText reads a numeral in EITHER form, anywhere, and says "empty" rather than "absent"', () => {
+  assert.equal(numeralInText('Three, we added a synthetic canary job', 3), true, 'the word form');
+  assert.equal(numeralInText(' 3. We added a synthetic canary job', 3), true, 'the digit form');
+  assert.equal(numeralInText('my worry the whole time zero we ran a full checksum', 0), true, 'seven words in');
+  assert.equal(numeralInText('It pages after two consecutive failures', 3), false);
+  assert.equal(numeralInText('   ', 7), null, 'an empty decode is absence of evidence');
+  // Deliberately generous, and it can only ever PROTECT: "3.1.0" counts as a 3, so a marker whose
+  // segment happens to quote a version number is kept rather than stripped. Zero of 57 on the real
+  // artifact — a false negative here leaves fabrication in and says so; the other error deletes a word.
+  assert.equal(numeralInText('build 3.1.0 ships next month', 3), true);
+});
+
+test('a marker is only ever stripped on POSITIVE, agreeing evidence from both paddings', () => {
+  const m = { value: 7 };
+  assert.equal(adjudicateInsertionMarker(m, { tight: 'no numeral here', wide: 'nor here' }).verdict, 'fabricated');
+  assert.equal(adjudicateInsertionMarker(m, { tight: 'seven of them', wide: 'nor here' }).verdict, 'spoken');
+  assert.equal(adjudicateInsertionMarker(m, { tight: 'no numeral here', wide: '7 of them' }).verdict, 'spoken');
+  assert.equal(adjudicateInsertionMarker(m, { tight: '', wide: 'nothing' }).verdict, 'unprobed');
+  assert.equal(adjudicateInsertionMarker(m, null).verdict, 'unprobed');
+});
+
+test('THE REPAIR, on the real artifact and its real isolated decodes: 56 of 57 stripped, the spoken "Zero." kept', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: isolatedProbe() });
+  const f = r.insertions[0];
+  assert.equal(f.count, 57, 'the same 57 suspect markers as before');
+  assert.equal(r.stripped, 56, '56 markers the audio never carried');
+  assert.equal(r.kept, 1, 'and exactly one it did');
+  assert.equal(r.unprobed, 0, 'every marker was adjudicated');
+  // The whole reason this class was detect-only for two days.
+  const zero = r.segments.find((s) => s.startMs === 205260);
+  assert.ok(zero.text.trim().startsWith('0. We ran a full checksum'), 'the speaker\'s "Zero." is still there');
+  const spoken = f.adjudicated.find((a) => a.verdict === 'spoken');
+  assert.equal(spoken.index, 24);
+});
+
+test('the repair takes the marker and NOTHING else — every other word of all 88 segments is untouched', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: isolatedProbe() });
+  const strip = (t) => String(t).replace(/^\s*\d{1,3}\s*[.)]\s+/, ' ').replace(/\s+/g, ' ').trim();
+  assert.equal(r.segments.length, TURBO_NUMERAL_INSERTION.length);
+  TURBO_NUMERAL_INSERTION.forEach((before, i) => {
+    assert.equal(strip(r.segments[i].text), strip(before.text), `segment ${i} lost or gained words`);
+    assert.equal(r.segments[i].startMs, before.startMs);
+    assert.equal(r.segments[i].endMs, before.endMs);
+  });
+});
+
+test('the repair is one-directional: a probe can refuse a strip, never cause one', () => {
+  // Whatever the probe says, the set of markers it can touch is the same suspect set text alone
+  // already chose, and any numeral it recovers only ever SUBTRACTS from what gets stripped.
+  const all = guardInsertions(TURBO_NUMERAL_INSERTION, { stripInsertions: true }).stripped;
+  for (const probe of [
+    () => (spans) => spans.map(() => ({ tight: 'nothing at all', wide: 'nothing at all' })),
+    () => (spans) => spans.map(() => ({ tight: 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen', wide: 'same' })),
+    isolatedProbe,
+  ]) {
+    const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: probe() });
+    assert.ok(r.stripped <= all, 'the probe never strips more than the unadjudicated strip would');
+  }
+});
+
+test('NO PROBE, NO REPAIR: without an isolated re-decode the class is byte-for-byte detect-only', () => {
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION);
+  assert.equal(flat(r.segments), flat(TURBO_NUMERAL_INSERTION));
+  assert.equal(r.stripped, 0);
+  assert.equal(r.insertions[0].repaired, false, 'and the report says which of "clean" and "never looked" this is');
+});
+
+test('a probe that returns nothing, or throws, leaves the text alone and reports it unadjudicated', () => {
+  const empty = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: (spans) => spans.map(() => ({ tight: '', wide: '' })) });
+  assert.equal(empty.stripped, 0, 'an empty decode is not evidence of fabrication');
+  assert.equal(empty.unprobed, 57);
+  assert.equal(flat(empty.segments), flat(TURBO_NUMERAL_INSERTION));
+  const threw = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: () => { throw new Error('whisper died'); } });
+  assert.equal(threw.stripped, 0, 'a failed probe must never look like a clean result');
+  assert.equal(threw.unprobed, 57);
+  assert.equal(flat(threw.segments), flat(TURBO_NUMERAL_INSERTION));
+});
+
+test('the probe BUDGET caps the decodes and the markers past it stay in the text, named', () => {
+  const { probe, unprobed } = selectInsertionProbes(new Array(120).fill(0).map((_, i) => ({ index: i, value: 1 })));
+  assert.equal(probe.length, REPETITION_GUARD_DEFAULTS.insertionProbeBudget);
+  assert.equal(unprobed.length, 120 - REPETITION_GUARD_DEFAULTS.insertionProbeBudget);
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, { probe: isolatedProbe(), insertionProbeBudget: 10 });
+  assert.equal(r.probed, 10, 'ten markers got a verdict');
+  assert.equal(r.unprobed, 47, 'and the rest are named as unadjudicated, not as clean');
+  assert.equal(r.stripped, 9, 'only what was actually looked at');
+  assert.equal(r.kept, 1, 'and the real "Zero." is the fifth of them, so the budget still spares it');
+});
+
+test('the genuine spoken enumeration is never probed at all — it is not in the suspect set', () => {
+  let calls = 0;
+  const r = guardInsertions(TURBO_NUMERAL_INSERTION, {
+    probe: (spans) => { calls += spans.length; return spans.map(() => ({ tight: 'x', wide: 'x' })); },
+  });
+  assert.equal(calls, 57, 'the two real "1." "3." list markers are not among them');
+  assert.deepEqual(r.insertions[0].genuinePrefix, ['1.', '3.']);
 });
 
 test('SILENT on real speech carrying the same surface feature — a genuinely spoken "1. 2. 3." list', () => {
@@ -1551,6 +1691,62 @@ test('the known-silence span stays silent: class 4 removes the filler, the delet
 // ---------------------------------------------------------------------------------------
 group('P5 hallucination guard — all four classes through the one pipeline seam');
 
+// The 2026-08-30 end-to-end pass found class 3 undoing class 1's veto: K identical consecutive
+// segments are, to a word-exact boundary rule, a stutter chain, so the copies the burst grid had
+// just protected were collapsed one stage later. It bit at K >= 4 (3 copies make only 2 links, and
+// minChainLinks is 3), which is why the shipping world's one genuine 3x retake never showed it.
+const FOUR_TAKES = [0, 1, 2, 3].map((i) => ({
+  // INVENTED, like every fixture line here: what this turns on is four identical consecutive
+  // segments over four qualifying bursts, never which sentence it was.
+  startMs: 100000 + i * 10000,
+  endMs: 100000 + i * 10000 + 8000,
+  text: 'the runbook pointed at the wrong dashboard and cost us twenty extra minutes of downtime',
+  speaker: 'me',
+}));
+const FOUR_BURSTS = FOUR_TAKES.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
+
+test('class 3 does NOT collapse the deliveries class 1 preserved on the audio', () => {
+  const kept = guardChannelAll(FOUR_TAKES, { speechBursts: FOUR_BURSTS });
+  assert.equal(kept.preserved.length, 1, 'the burst grid holds all four, so class 1 preserves them');
+  assert.equal(kept.segments.length, 4, 'and all four are still in the transcript afterwards');
+  assert.equal(kept.stutterRemoved, 0);
+  assert.equal(kept.removed, 0);
+});
+
+test('a CLAMPED run is handed over too, not only a fully preserved one', () => {
+  // The shape that cost four deliveries: 7 emitted copies over 5 qualifying bursts. Class 1 clamps
+  // to 5 — a partial collapse, so the run is reported under `loops` and not under `preserved`, and
+  // a hand-off that only covered `preserved` would leave class 3 free to take the other four.
+  const line = FOUR_TAKES[0].text;
+  const segs = [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+    startMs: 200000 + i * 10000, endMs: 200000 + i * 10000 + 8000, text: line, speaker: 'others',
+  }));
+  const bursts = [0, 1, 2, 3, 4].map((i) => ({ startMs: 200000 + i * 10000, endMs: 200000 + i * 10000 + 8000 }));
+  const r = guardChannelAll(segs, { speechBursts: bursts });
+  assert.equal(r.loops.length, 1);
+  assert.equal(r.loops[0].kept, 5, 'class 1 clamps to what the audio holds');
+  assert.equal(r.preserved.length, 0, 'and reports it as a collapse, not as a preservation');
+  assert.equal(r.stutterRemoved, 0, 'class 3 must not then take the other four');
+  assert.equal(r.segments.filter((x) => x.text === line).length, 5);
+});
+
+test('the hand-off is scoped to the protected span — a real stutter outside one is still caught', () => {
+  const before = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER);
+  const after = guardOverlapStutter(LARGE_V3_SLIDING_STUTTER, {
+    protectedSpans: [{ startMs: 0, endMs: 1 }],
+  });
+  assert.ok(before.removed > 0, 'the captured stutter is caught');
+  assert.equal(after.removed, before.removed, 'and an unrelated protected span changes nothing');
+  assert.equal(after.stutters.length, before.stutters.length);
+});
+
+test('without the burst grid class 1 keeps one copy, so class 3 has nothing left to eat', () => {
+  const textOnly = guardChannelAll(FOUR_TAKES);
+  assert.equal(textOnly.segments.length, 1, 'text-only behaviour is unchanged by the hand-off');
+  assert.equal(textOnly.loops[0].removed, 3);
+});
+
+
 test('guardTranscription reports the insertion class from the real turbo artifact', () => {
   const r = guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION });
   assert.equal(r.report.detected, true);
@@ -1597,6 +1793,53 @@ test('a DETECTED-BUT-UNREPAIRED class becomes a plain-English verification warni
   assert.ok(/STILL IN the transcript/.test(w[0]), 'it says the fabricated text was NOT removed');
   assert.ok(/re-transcribe/.test(w[0]), 'and names the remedy');
   assert.ok(/57 fabricated/.test(w[0]) && /"others" channel/.test(w[0]));
+});
+
+test('the report says whether a probe REACHED the guard — "detect-only" and "clean" never merge', () => {
+  assert.equal(guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION }).report.insertionProbe, false);
+  assert.equal(
+    guardTranscription({ me: [], others: TURBO_NUMERAL_INSERTION }, { probe: (s) => s.map(() => ({ tight: 'x', wide: 'x' })) }).report.insertionProbe,
+    true,
+  );
+});
+
+test('the insertion probe is routed PER CHANNEL — it is told which wav to cut', () => {
+  const seen = [];
+  const r = guardTranscription(
+    { me: [], others: TURBO_NUMERAL_INSERTION },
+    { probe: (spans, channel) => { seen.push(channel); return spans.map(() => ({ tight: 'nothing', wide: 'nothing' })); } },
+  );
+  assert.deepEqual(seen, ['others'], 'only the channel that carries a finding costs a decode');
+  assert.equal(r.report.insertionsRepaired, 57);
+  assert.equal(r.report.insertionsKeptSpoken, 0);
+});
+
+test('a repaired insertion says what it removed AND what it left, and the two never merge', () => {
+  const r = guardTranscription(
+    { me: [], others: TURBO_NUMERAL_INSERTION },
+    {
+      probe: (spans) => spans.map((s) => (s.startMs === 205260
+        ? { tight: 'zero we ran a full checksum comparison', wide: 'Zero. We ran a full checksum comparison' }
+        : { tight: 'no numeral here at all', wide: 'nor here' })),
+    },
+  );
+  assert.equal(r.report.insertionsRepaired, 56);
+  assert.equal(r.report.insertionsKeptSpoken, 1);
+  assert.equal(r.report.insertionsUnprobed, 0);
+  const w = guardWarnings(r.report);
+  assert.equal(w.length, 1);
+  assert.ok(/were KEPT/.test(w[0]), 'the kept numeral is named as a refusal, not as a defect');
+  assert.ok(/no action needed/.test(w[0]));
+});
+
+test('an insertion NOTHING adjudicated warns that it was not adjudicated — never that it was clean', () => {
+  const r = guardTranscription(
+    { me: [], others: TURBO_NUMERAL_INSERTION },
+    { probe: (spans) => spans.map(() => ({ tight: '', wide: '' })) },
+  );
+  const w = guardWarnings(r.report);
+  assert.ok(w.some((x) => /57 of 57/.test(x) && /NOT adjudicated/.test(x)));
+  assert.equal(flat(r.others), flat(TURBO_NUMERAL_INSERTION), 'and not one character moved');
 });
 
 test('a REPAIRED class produces no warning — the transcript no longer contains it', () => {

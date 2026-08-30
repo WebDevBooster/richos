@@ -1,0 +1,28 @@
+=== the 72 hand-verified findings, transcripts -mc -1 (the world the verdicts were assigned in) ===
+configuration                   findings  removed  preserved  genuineDeliveriesDeleted  FP-findings  extraFabricatedSurviving
+TEXT-ONLY (pre 2026-08-29)           72     2376          0                        13            8                         0
+grid, minW 3 (shipped 08-29)         70     2207          2                         1            1                       156
+grid, minW 1 (this change)           70     2155          2                         0            0                       207
+
+grid, minW 3 (shipped 08-29): genuine deliveries RECOVERED 12 of 13; still destroying real speech:
+   turbo me 829.9s x6 real=2 kept=1 stillDeleted=1
+grid, minW 1 (this change): genuine deliveries RECOVERED 13 of 13; still destroying real speech:
+   (none)
+
+=== FULL SWEEP, same metric ===
+minW slack | genuineDeliveriesDeleted (was 13) | extraFabricatedSurviving (of 2376 text-only removals)
+  1   0.6  |   0  |   207   (total removed 2155)
+  1   0.8  |   1  |   174   (total removed 2190)
+  1   1.0  |   3  |   145   (total removed 2221)
+  2   0.6  |   1  |   161   (total removed 2202)
+  2   0.8  |   2  |   131   (total removed 2234)
+  2   1.0  |   4  |   107   (total removed 2260)
+  3   0.6  |   1  |   156   (total removed 2207)
+  3   0.8  |   2  |   126   (total removed 2239)
+  3   1.0  |   4  |   103   (total removed 2264)
+  4   0.6  |   2  |   154   (total removed 2211)
+  4   0.8  |   3  |   124   (total removed 2242)
+  4   1.0  |   5  |   102   (total removed 2266)
+  5   0.6  |   2  |   154   (total removed 2211)
+  5   0.8  |   3  |   124   (total removed 2242)
+  5   1.0  |   5  |   102   (total removed 2266)
