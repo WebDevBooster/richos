@@ -792,7 +792,14 @@ async function main() {
   console.log("  non-text indicators      " + t.indicators + " considered, " + t.indicatorsChecked + " with a boundary of their own to check");
   console.log("  resolved by ancestor     " + t.ancestor + "  (off-viewport: no hit test, so no occlusion proof)");
   console.log("  measured through a veil  " + t.veiled);
-  console.log("  UNRESOLVABLE             " + seen.unresolvable.length + "  (a failure to prove, not a pass)");
+  // DEDUPED, because the same unprovable colour is met once per walk and the summary read
+  // "UNRESOLVABLE 2" against check 13's "1 declared-unprovable colour(s)" — two true numbers
+  // that look like a discrepancy. The count that means something is distinct colours.
+  const distinctUnresolvable = new Set(seen.unresolvable.map((u) => u.split(": ").slice(1).join(": ")));
+  console.log(
+    "  UNRESOLVABLE             " + distinctUnresolvable.size + "  (a failure to prove, not a pass; met " +
+      seen.unresolvable.length + " time(s) across the walks)"
+  );
   console.log("  declared exempt          " + seen.exemptions.length);
   console.log("  <canvas> seen            " + seen.canvas + "   svg <text> seen  " + seen.svgText);
 
