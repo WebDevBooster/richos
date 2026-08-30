@@ -476,6 +476,107 @@
     setTimeout(next, 900 + Math.random() * 400);
   }
 
+  // =======================================================================================
+  // THE TWO CORRECTION DESKS (§7 "ask, never infer") — `correction.rs` and `staging.rs`
+  // =======================================================================================
+  //
+  // Fourteen Tauri commands, mocked with the SAME state machine the Rust desks enforce,
+  // because a preview harness that let `confirm` succeed twice, or let a proposal be
+  // confirmed while suppressed, would rehearse a product that does not exist.
+  //
+  //   * `confirm` is the only path to a write, and refuses anything not awaiting an answer
+  //     (`correction.rs:541`) — a double click must not write twice.
+  //   * a decline is NOT permanent and the item stays re-askable (§7).
+  //   * a permanent decline suppresses by REF/KEY, on a list that reads back and lifts.
+  //   * `propose` refuses an empty `why` before anything is started, and refuses a
+  //     suppressed target.
+  //
+  // THE TWO "NOT HERE" SENTENCES ARE COPIED VERBATIM from `app/src-tauri/src/main.rs`
+  // (`desk()` and `spoken_desk()`), the way `_notConnected` copies
+  // `LEASE_UNAVAILABLE_MESSAGE`. `corrections.js` asserts each is byte-identical to the
+  // Rust const, so this preview can never rehearse a sentence the product no longer says.
+  const LORO_DESK_ABSENT =
+    "No loro corpus is configured for this install, so there is nothing to read or correct. " +
+    "That is a statement about this install, not about what is recorded.";
+  const SPOKEN_DESK_ABSENT =
+    "I can't record corrections right now — my correction log could not be opened. " +
+    "Nothing you say is being lost from the conversation itself.";
+
+  // Written the way `loro-write --dry-run --json` writes it: front matter plus body, byte
+  // for byte, because that IS what the CEO approves (`correction.rs:366-369`).
+  const LORO_RECORD_NOW =
+    "---\nid: decision-ship-thursday\nkind: decision\nscope: ceo-private\n---\n\n" +
+    "We ship on Thursday.\n";
+  const LORO_PREVIEW =
+    "---\nid: decision-ship-date\nkind: decision\nscope: ceo-private\nsupersedes: rec:person/records/decision-ship-thursday\n---\n\n" +
+    "No ship date is decided. Thursday was floated and never agreed.\n";
+
+  let loroDeskOn = true;
+  let spokenDeskOn = true;
+  // A desk that IS there and refuses to answer — the transient half, which the surface
+  // must render differently from "not installed" because only one of them has a retry.
+  let loroReadFailure = null;
+  let spokenReadFailure = null;
+
+  let proposalSeq = 2;
+  const proposals = [
+    {
+      id: "prop-1",
+      at: now() - 1000 * 60 * 12,
+      entity_id: "femcboost",
+      thread_id: "acme",
+      write: {
+        op: "supersede",
+        recordRef: "rec:person/records/decision-ship-thursday",
+        newId: "decision-ship-date",
+        kind: "decision",
+        scope: "ceo-private",
+        body: "No ship date is decided. Thursday was floated and never agreed.",
+      },
+      why: "we never decided Thursday, that was Sara thinking out loud",
+      preview: LORO_PREVIEW,
+      state: "awaiting-ceo",
+      outcome: null,
+      failure: null,
+    },
+  ];
+  const loroSuppressed = [];
+
+  const candidates = [
+    {
+      key: "deep gram|Deepgram",
+      at: now() - 1000 * 60 * 4,
+      threadId: "acme",
+      turnId: "turn_mock_spoken",
+      utterance: "it's Deepgram, not deep gram",
+      ask: {
+        from: "deep gram",
+        to: "Deepgram",
+        key: "deep gram|Deepgram",
+        frame: "pivot-first",
+        orthographic: 0.89,
+        phonetic: 1,
+        leg: "both",
+        anchor: "I'll get deep gram to transcribe the call",
+      },
+      declinedBefore: 0,
+      // Verbatim from `staging.rs`'s `prompt_for` — the sentence §7 asks for, built in one
+      // place so every surface asks it the same way.
+      prompt: 'Add "Deepgram" to your vocabulary?',
+    },
+  ];
+  const spokenSuppressed = [];
+  /// How many times each pair has been plainly declined. §7: the next ask must say so,
+  /// "or it reads as the system having forgotten".
+  const declinedCounts = {};
+
+  const loroGate = () => (loroDeskOn ? loroReadFailure : LORO_DESK_ABSENT);
+  const spokenGate = () => (spokenDeskOn ? spokenReadFailure : SPOKEN_DESK_ABSENT);
+
+  function refOf(write) {
+    return write && (write.recordRef || write.record_ref) ? write.recordRef || write.record_ref : null;
+  }
+
   window.RichBridge = {
     isMock: true,
 
@@ -684,6 +785,151 @@
           simulateTurn(activeThreadId, args.text);
           return messagesByThread[activeThreadId];
         }
+
+        // ---- the loro correction desk (`correction.rs`) -------------------------------
+        case "loro_available":
+          return loroDeskOn;
+        case "loro_pending_corrections": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          return proposals.filter((p) => p.state === "awaiting-ceo");
+        }
+        case "loro_suppressed_records": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          return loroSuppressed.slice();
+        }
+        case "loro_show_record": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          const ref = args.recordRef ?? args.record_ref;
+          if (ref !== "rec:person/records/decision-ship-thursday")
+            return Promise.reject('loro write: no record with ref "' + ref + '"');
+          return { op: "show", dryRun: false, ref, file: "loro/person/records/decision-ship-thursday.md", text: LORO_RECORD_NOW, changed: [] };
+        }
+        case "loro_propose_correction": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          const why = String(args.why || "").trim();
+          // Refused before a process is started: a correction with no stated reason is the
+          // shape an INFERRED one takes (`correction.rs:496-500`).
+          if (!why) return Promise.reject("a correction needs the CEO's own words for what was wrong (--why)");
+          const target = refOf(args.write);
+          if (target && loroSuppressed.includes(target))
+            return Promise.reject('"' + target + '" was permanently declined for correction — clear the suppression to propose again');
+          const p = {
+            id: "prop-" + proposalSeq++,
+            at: now(),
+            entity_id: "femcboost",
+            thread_id: args.threadId ?? args.thread_id ?? "",
+            write: args.write,
+            why,
+            preview: LORO_PREVIEW,
+            state: "awaiting-ceo",
+            outcome: null,
+            failure: null,
+          };
+          proposals.push(p);
+          return p;
+        }
+        case "loro_confirm_correction": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          const p = proposals.find((x) => x.id === args.id);
+          if (!p) return Promise.reject("no proposal " + args.id);
+          // A double click must not write twice (`correction.rs:541-543`).
+          if (p.state !== "awaiting-ceo")
+            return Promise.reject("proposal " + p.id + " is " + p.state + ", not awaiting the CEO — it cannot be confirmed twice");
+          if (window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._loroWriterRefusal) {
+            p.state = "failed";
+            p.failure = window.__RICHOS_MOCK__._loroWriterRefusal;
+            return p;
+          }
+          p.state = "written";
+          p.outcome = {
+            op: "supersede",
+            dryRun: false,
+            ref: "rec:person/records/decision-ship-date",
+            supersededRef: refOf(p.write),
+            file: "loro/person/records/decision-ship-date.md",
+            text: LORO_PREVIEW,
+            changed: [],
+          };
+          return p;
+        }
+        case "loro_decline_correction": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          const p = proposals.find((x) => x.id === args.id);
+          if (!p) return Promise.reject("no proposal " + args.id);
+          if (p.state !== "awaiting-ceo")
+            return Promise.reject("proposal " + p.id + " is " + p.state + ", not awaiting the CEO — it cannot be confirmed twice");
+          p.state = "declined";
+          const target = refOf(p.write);
+          if (args.permanent && target && !loroSuppressed.includes(target)) loroSuppressed.push(target);
+          return null;
+        }
+        case "loro_unsuppress_record": {
+          const gate = loroGate();
+          if (gate) return Promise.reject(gate);
+          const ref = args.recordRef ?? args.record_ref;
+          const at = loroSuppressed.indexOf(ref);
+          if (at >= 0) loroSuppressed.splice(at, 1);
+          return null;
+        }
+
+        // ---- the spoken correction desk (`staging.rs`) --------------------------------
+        case "spoken_corrections_available":
+          return spokenDeskOn;
+        case "spoken_pending_corrections": {
+          const gate = spokenGate();
+          if (gate) return Promise.reject(gate);
+          return candidates.slice();
+        }
+        case "spoken_suppressed_terms": {
+          const gate = spokenGate();
+          if (gate) return Promise.reject(gate);
+          return spokenSuppressed.slice();
+        }
+        case "spoken_confirm_correction": {
+          const gate = spokenGate();
+          if (gate) return Promise.reject(gate);
+          const at = candidates.findIndex((c) => c.key === args.key);
+          if (at < 0) return Promise.reject("no correction " + args.key + " is awaiting an answer");
+          if (window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._noVocabulary) {
+            // `staging.rs:74`: RichOS will not report a term as learned when nothing wrote
+            // it, and the candidate stays answerable.
+            return Promise.reject(
+              "no vocabulary backend is attached — RichOS will not report a term as learned when nothing wrote it"
+            );
+          }
+          const c = candidates.splice(at, 1)[0];
+          const already = window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__._vocabularyAlreadyKnew;
+          return { file: "loro/entities.json", changed: !already, created: false, version: "2026-08-30T09:12:00Z" };
+        }
+        case "spoken_decline_correction": {
+          const gate = spokenGate();
+          if (gate) return Promise.reject(gate);
+          const at = candidates.findIndex((c) => c.key === args.key);
+          if (at < 0) return Promise.reject("no correction " + args.key + " is awaiting an answer");
+          const c = candidates.splice(at, 1)[0];
+          if (args.permanent) {
+            if (!spokenSuppressed.includes(c.key)) spokenSuppressed.push(c.key);
+          } else {
+            // §7: a plain decline is re-asked on the very next repeat, and the second ask
+            // has to SAY it was asked before. The count is kept, not the card.
+            declinedCounts[c.key] = (declinedCounts[c.key] || 0) + 1;
+          }
+          return null;
+        }
+        case "spoken_unsuppress_term": {
+          const gate = spokenGate();
+          if (gate) return Promise.reject(gate);
+          const at = spokenSuppressed.indexOf(args.key);
+          if (at >= 0) spokenSuppressed.splice(at, 1);
+          return null;
+        }
+
         default:
           // Unwired-yet commands (voice capture, worker status, assertiveness persistence)
           // reject exactly like a real Tauri call to an unregistered command would — main.js
@@ -1336,5 +1582,70 @@
       window.__RICHOS_MOCK__._notConnected = v;
     },
     _notConnected: false,
+
+    // ---- the two correction desks --------------------------------------------------
+    /// `loro_available` / `spoken_corrections_available` are SEPARATE FACTS about one
+    /// install, and each one false is an ordinary machine (no corpus, no service binary),
+    /// not a fault. Driving them independently is how the surface's "state the reason"
+    /// path gets exercised without deleting anything from disk.
+    setLoroAvailable(v) { loroDeskOn = v !== false; },
+    setSpokenCorrectionsAvailable(v) { spokenDeskOn = v !== false; },
+    /// A desk that IS there and refuses to answer — a poisoned lock, an unreadable log.
+    /// Different from the above and rendered differently, because this one has a retry.
+    setLoroReadFailure(message) { loroReadFailure = message || null; },
+    setSpokenReadFailure(message) { spokenReadFailure = message || null; },
+    /// The writer refused the confirmed write (exit 5, "that is a PROSE section"). The
+    /// proposal lands in `failed` with the reason kept, exactly as `correction.rs` does.
+    setLoroWriterRefusal(message) { window.__RICHOS_MOCK__._loroWriterRefusal = message || null; },
+    _loroWriterRefusal: null,
+    /// `StagingError::NoVocabulary`: a confirm with no service configured, which must
+    /// refuse loudly rather than report a term learned that nothing wrote.
+    setNoVocabulary(v) { window.__RICHOS_MOCK__._noVocabulary = v === true; },
+    _noVocabulary: false,
+    /// `changed: false` — the vocabulary already knew the pair. A different fact from a
+    /// refusal, and the CEO is entitled to both (`staging.rs:141-144`).
+    setVocabularyAlreadyKnew(v) { window.__RICHOS_MOCK__._vocabularyAlreadyKnew = v === true; },
+    _vocabularyAlreadyKnew: false,
+    /// The staging trigger firing mid-turn — `TauriCorrectionEmitter` -> the webview.
+    /// `withheld` carries the repeats that were NOT staged because the pair is suppressed;
+    /// they are reported rather than dropped (`staging.rs`, `Withheld`).
+    stageSpokenCorrection(candidate) {
+      const c = Object.assign(
+        {
+          key: "loro|Loro",
+          at: now(),
+          threadId: activeThreadId,
+          turnId: uid("turn"),
+          utterance: "it's Loro, not loro",
+          ask: { from: "loro", to: "Loro", key: "loro|Loro", frame: "pivot-first", orthographic: 0.8, phonetic: 1, leg: "both", anchor: null },
+          declinedBefore: 0,
+          prompt: 'Add "Loro" to your vocabulary?',
+        },
+        candidate || {}
+      );
+      if (spokenSuppressed.includes(c.key)) {
+        emit("rich://correction-staged", { candidates: [], withheld: [{ key: c.key, from: c.ask.from, to: c.ask.to, reason: "permanently declined" }] });
+        return null;
+      }
+      c.declinedBefore = declinedCounts[c.key] || 0;
+      if (c.declinedBefore > 0) c.prompt = 'Add "' + c.ask.to + '" to your vocabulary? (you corrected this before)';
+      candidates.push(c);
+      emit("rich://correction-staged", { candidates: [c], withheld: [] });
+      return c;
+    },
+    /// Read-only views, so a test can assert on the DESK rather than only on the DOM.
+    correctionDeskState() {
+      return {
+        loroAvailable: loroDeskOn,
+        spokenAvailable: spokenDeskOn,
+        proposals: proposals.map((p) => ({ id: p.id, state: p.state })),
+        candidates: candidates.map((c) => c.key),
+        loroSuppressed: loroSuppressed.slice(),
+        spokenSuppressed: spokenSuppressed.slice(),
+        declinedCounts: Object.assign({}, declinedCounts),
+      };
+    },
+    LORO_DESK_ABSENT,
+    SPOKEN_DESK_ABSENT,
   };
 })();
