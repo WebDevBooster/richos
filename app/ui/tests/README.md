@@ -36,10 +36,13 @@ for; the filenames and the suite's SCREENSHOT INVENTORY say which and why.
 | `inspector.js` | §7.2 the read-only inspector, §7.3 the background-work summary and §20's three breakpoints — through the REAL shell (`index.html` + `main.js` + `mock.js`). |
 | `realbytes.js` | The join the other suites cannot make: the payload `cargo run --example timeline_payload` prints from a real ledger on disk, rendered by the real renderer. Catches field-name and shape drift between backend and UI. |
 | `memory-strategy.js` | §26's sixteen-step fixture, driven end to end through the REAL SHELL by typing the prompt and pressing Enter. Injected clock (the two-hour turn runs in under a millisecond), the nine required screenshots, and the negative half: every §26 step this runtime cannot produce is asserted ABSENT. |
+| `affordances.js` | THE RULE: a state the user could change must render the control that changes it. The state inventory is derived from source every run (`lib/state-strings.js`), classified in `lib/state-registry.js`, and the two sets must be EQUAL — a new user-visible string that nobody has classified fails the suite. Every ACTIONABLE state is then driven up in the real shell and its control asserted present, visible, enabled and interactive. Carries a negative control (the scrape examined 112 states, not zero) and four positive controls (a missing, a hidden, and a fake control, and an unclassified state, must each be flagged). |
+| `lib/state-strings.js` | The derivation. Comment-stripping scanners for JS and Rust, HTML text nodes and human-readable attributes, `+`-concatenation folding, and four named blind spots. `node lib/state-strings.js` prints the inventory with file:line. |
+| `lib/state-registry.js` | The classification, one row per state, each with its reasoning. Annotation only — the inventory above is the authority. |
 | `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner. |
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
 
-## Three rules, each one a thing an earlier slice got wrong
+## Four rules, each one a thing an earlier slice got wrong
 
 **1. The real renderer, never a copy.** Every page loads `../timeline.js` and `../style.css`
 from disk. A test that re-implements a rule proves the test.
@@ -50,7 +53,15 @@ way: pressing Tab from a focused button lands on `BODY`, because macOS ships "Fu
 Access" off and WebKit honours it. That is a system preference, not a renderer defect — and
 it applies to every button in the app, not just the new ones.
 
-**3. No faked screenshots.** `screencapture` on this machine has returned an all-black
+**3. Nothing that only runs when somebody remembers.** `affordances.js` derives its own
+inventory from disk on every run and refuses to report green over an empty one. The rule it
+enforces is the one thing in this directory that has to outlive the pass that wrote it: a
+rule with nothing enforcing it is the defect this project has found eleven times in two
+days. Its part 5 is deliberately REPORT-ONLY and prints the number that made that call
+(precision 70.8%, recall 54.8%, measured over all 112 states) — a check that cries wolf gets
+deleted within a day, and then the CEO is worse off than before it existed.
+
+**4. No faked screenshots.** `screencapture` on this machine has returned an all-black
 1920x1080 PNG for three slices running (display locked). Every screenshot here comes out of
 WebKit's own compositor, which does not depend on a display server — and every one is
 decoded and pixel-counted before it counts as evidence. A shot with fewer than 8 distinct

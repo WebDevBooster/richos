@@ -45,8 +45,14 @@ pub enum PlayoutError {
 }
 
 impl PlayoutError {
+    /// NAMES WHAT HE CAN DO. The old line stated the fault and the fallback and stopped
+    /// there, which reads as "nothing to be done" — but every variant of this error is a
+    /// missing or unusable OUTPUT device, and plugging one in is squarely the CEO's to do.
+    /// A state he could change has to be rendered with the way to change it.
     pub fn ceo_message(&self) -> String {
-        "I can't reach the speakers on this machine — I'll keep answering in text.".into()
+        "I can't reach the speakers on this machine, so I'll keep answering in text. Plug in \
+         headphones or speakers and tap ◉ again if you want me talking."
+            .into()
     }
 }
 

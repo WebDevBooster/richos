@@ -229,21 +229,62 @@ fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json:
 #[tauri::command(async)]
 fn send_message(state: State<AppState>, text: String) -> Result<Vec<Message>, String> {
     if !state.lease_ready {
-        return Err(
-            "I'm not connected to my thinking right now — check that the Claude CLI is signed in, \
-             then restart me."
-                .into(),
-        );
+        return Err(LEASE_UNAVAILABLE_MESSAGE.into());
     }
     let mut spine = state.spine.lock().unwrap();
     spine.submit_prompt(&text, Source::Text).map_err(|e| e.to_string())?;
-    let thread = spine.active_thread().ok_or("no active thread")?.to_string();
+    // "no active thread" used to be the whole sentence here, and it went straight onto the
+    // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
+    // nor an actor. The prompt IS already submitted by this line, so the sentence must not
+    // claim the message was lost, and must not promise it will reappear — nothing here knows
+    // that.
+    let thread = spine
+        .active_thread()
+        .ok_or(
+            "I've taken that down, but I haven't got a thread open to show it in. Quit RichOS \
+             and open it again; if it still isn't here, whoever set RichOS up needs to look.",
+        )?
+        .to_string();
     spine.messages(&thread).map_err(|e| e.to_string())
 }
+
+/// What the CEO is told when there is no lease to think with.
+///
+/// WHAT IT USED TO SAY, AND WHY IT IS THE EXACT DEFECT THIS PASS EXISTS TO REMOVE:
+///
+///     "I'm not connected to my thinking right now — check that the Claude CLI is signed
+///      in, then restart me."
+///
+/// "The Claude CLI" is a thing the CEO has never seen. "Restart me" names no control, and
+/// there is no restart control in this app to name. So the app reported a condition that
+/// required a human action while rendering neither the action nor the actor — a request
+/// wearing a status's clothes, which is precisely how a landed-but-inert guard got reported
+/// as a date instead of a five-second fix.
+///
+/// It now offers the one thing he can genuinely do (quit and reopen — no key combination is
+/// quoted, because Windows packaging is still an open gap in the architecture doc §4.4 and
+/// a hard-coded ⌘Q would become a lie the day it ships), and names who owns the rest.
+///
+/// THREE COPIES EXIST and that is one problem this commit only halves: the two Rust sites
+/// now share this const, and `app/ui/mock.js` carries a fourth-wall copy for the browser
+/// preview's `_notConnected` switch. The affordance suite asserts the two are identical, so
+/// they cannot drift silently.
+const LEASE_UNAVAILABLE_MESSAGE: &str =
+    "I'm not connected to my thinking right now, so I can't take that on. Quit RichOS and \
+     open it again — that clears it most of the time. If it keeps happening, whoever set \
+     RichOS up has to sign me back in; that part isn't yours to fix.";
 
 /// What the CEO is told when the repository root does not deterministically select one
 /// entity. UX §21 "Entity binding failure": state that Rich cannot safely determine which
 /// entity the work belongs to, and require an explicit choice. Never default.
+///
+/// NOT REACHABLE FROM THE SHIPPED UI TODAY, and left alone deliberately. The only commands
+/// that raise it — `create_thread` and the three `loro_*` drill-downs — are registered but
+/// never invoked by `app/ui/main.js`; its live audience is the `eprintln!` at boot, i.e. the
+/// operator, for whom `RICHOS_ENTITY` is the correct and actionable instruction. The day a
+/// slice wires one of those commands to a button, this sentence becomes a terminal
+/// instruction addressed to a man who does not open terminals, and it needs the same
+/// treatment `LEASE_UNAVAILABLE_MESSAGE` just got.
 const ENTITY_UNRESOLVED_MESSAGE: &str =
     "I can't safely tell which entity area this belongs to, so I won't guess. \
      Set RICHOS_ENTITY to one of femcboost, deeply, prospects or richos, or launch me from \
@@ -716,7 +757,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
             let _ = submit_app.emit(
                 richos_voice::event::EVENT_VOICE_ERROR,
                 serde_json::json!({
-                    "message": "I'm not connected to my thinking right now — check that the Claude CLI is signed in, then restart me.",
+                    "message": LEASE_UNAVAILABLE_MESSAGE,
                     "at": richos_voice::controller::now_millis(),
                 }),
             );

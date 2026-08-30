@@ -60,6 +60,7 @@ const voiceListeningEl = el("voice-state-listening");
 const voiceNoAudioEl = el("voice-state-no-audio");
 const voiceSpeakingEl = el("voice-state-speaking");
 const bargeInBtn = el("voice-barge-in");
+const voiceRetryBtn = el("voice-retry");
 const slideoverEl = el("slideover");
 const slideoverBackdrop = el("slideover-backdrop");
 const slideoverBody = el("slideover-body");
@@ -483,9 +484,16 @@ function showUnboundView(row, rawError) {
     "I can't open this one. It has no entity home — it predates entity scoping, and I won't guess " +
     "which entity this work belongs to. Filing it under the wrong one would mix up two companies' " +
     "records, and that's not a mistake worth risking to save you a question.";
+  // WHO CHANGES THIS, AND WHAT HAPPENS NEXT. The old sentence ended at "Binding it is an
+  // explicit operator decision and there is no control for it in the app yet" — true, and
+  // useless to the man reading it: it named no party, offered no next step, and left him
+  // on the one screen in the app with nothing to press. A state he cannot fix has to say
+  // who can. "Operator" is not a word he uses, so it says who that is in his terms.
   el("unbound-view-detail").textContent =
     (navTree.unbound_explanation || rawError || "") +
-    " Binding it is an explicit operator decision and there is no control for it in the app yet.";
+    " Filing it under a company is a job for whoever set RichOS up — there is no control for" +
+    " it in the app yet, so it will not sort itself out. Meanwhile the button above starts a" +
+    " fresh thread wherever you say, and I'll carry on there.";
   sendBlockedReason = "This thread has no entity home, so I can't take a message in it.";
   composerBlockedEl.textContent = sendBlockedReason;
   composerBlockedEl.hidden = false;
@@ -558,8 +566,16 @@ function showEntityView(entityId, mode) {
   // app, and the entity registry is `EntityRegistry::dogfood()` — hard-coded on purpose so
   // a missing or edited config file cannot silently move a privacy boundary. Saying so is
   // better than an empty panel that implies the data is merely missing today.
+  // NAMES THE PARTY. It used to read "Priorities and entity editing aren't wired yet —
+  // this area is defined in code, not settings." Every clause is true and every clause is
+  // addressed to an engineer: "wired", "defined in code" and "settings" all describe a
+  // place the CEO cannot go, and no sentence said whose job it was, so the note read as a
+  // thing he might be expected to fix. This is a NEEDS-SOMEONE-ELSE state and it now says
+  // who, and that there is nothing here for him.
   el("entity-view-note").textContent =
-    "Priorities and entity editing aren't wired yet — this area is defined in code, not settings.";
+    "I can't show priorities for this area yet, and the area itself is set up inside RichOS " +
+    "rather than in settings — whoever set RichOS up is the one who changes it. Nothing here " +
+    "needs you.";
 
   composerScopeEl.textContent =
     (mode === "new" ? "New thread in " : "Talk to Rich about ") + entity.display_name;
@@ -1080,7 +1096,16 @@ async function send() {
     try {
       newId = await Bridge.invoke("create_thread_in", { entityId, title: provisionalTitle(text) });
     } catch (e) {
-      composerBlockedEl.textContent = typeof e === "string" ? e : String(e);
+      // WAS: `composerBlockedEl.textContent = String(e)` — a raw Rust error string dropped
+      // straight under the composer. Whatever `create_thread_in` refused with is machinery
+      // ("scope mismatch on thread …", "stale binding on thread …"), and §21's own rule for
+      // this class is that the reason is not shown (timeline.js `renderFailureCard`:
+      // "`cognition io: broken pipe` is implementation machinery"). The words were already
+      // put back in the box, which was the right half; the sentence never said so, and never
+      // named the control that sends them.
+      composerBlockedEl.textContent =
+        "I couldn't start that thread just now. Your words are still in the box below —" +
+        " press Send to try again.";
       composerBlockedEl.hidden = false;
       inputEl.value = text; // never swallow the CEO's words
       autoGrow();
@@ -1096,7 +1121,7 @@ async function send() {
   // surface." It carries a synthetic id until `rich://turn-status` names the turn, then it
   // is RE-KEYED onto `{turnId}:user` — the same id the ledger derives — so the CEO's one
   // sentence is never drawn twice.
-  window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
+  const pendingId = window.RichTimeline.addPendingUserMessage(timelineModel, text, Date.now());
   followBottom = true;
   scheduleRender();
 
@@ -1107,11 +1132,37 @@ async function send() {
     // fire for this attempt). A turn that started and then failed is resolved by
     // `rich://turn-status: failed`, not here.
     if (anyLiveTurn()) return;
+
+    // WHAT THIS USED TO DO, AND WHY IT WAS THE WORST STATE IN THE APP. It said
+    // "Something went sideways on my end — one moment, I'll sort it." and then left the
+    // optimistic bubble on screen. Two lies in one row: nothing was going to sort it (no
+    // turn exists, so no retry, no timer, no event will ever fire for this attempt), and
+    // the bubble sat there looking exactly like a message that had gone. The CEO's only
+    // correct move — send it again — was the one thing neither the copy nor the screen
+    // offered, and his words were no longer in the box to send.
+    //
+    // So the bubble is WITHDRAWN, the words go back where he can see and edit them, and
+    // the sentence names the control: Send. This is the same shape `steer()` below has
+    // used since §9.2 landed; there is no reason the two paths should differ.
+    //
+    // THE BACKEND'S OWN SENTENCE IS KEPT WHERE THERE IS ONE, and kept FIRST. `send_message`
+    // has exactly one authored refusal today — "I'm not connected to my thinking right now"
+    // (main.rs:199) — and it is a different statement from a generic failure, with a
+    // different thing for the CEO to do about it. Swallowing it for one house sentence
+    // would delete the only diagnosis the app has. What is added is the half it never
+    // carried: what happened to his words, and which control sends them again.
+    window.RichTimeline.dropPendingUserMessage(timelineModel, pendingId);
+    const reason = typeof e === "string" && e.trim() ? e.trim().replace(/\s*$/, "") : null;
     window.RichTimeline.addLocalNotice(
       timelineModel,
-      typeof e === "string" ? e : "Something went sideways on my end — one moment, I'll sort it.",
+      (reason || "I couldn't get that to my desk just now, and nothing is running.") +
+        " Your words are back in the box below, word for word — press Send when you want me" +
+        " to try again.",
       Date.now()
     );
+    inputEl.value = text; // never swallow the CEO's words
+    autoGrow();
+    syncComposerMode();
     scheduleRender();
   }
 }
@@ -1182,9 +1233,16 @@ async function stopTurn() {
       scheduleRender();
     }
   } catch (e) {
+    // NAMES THE CONTROL. The old sentence stopped at "so I haven't acted on it" — true,
+    // and it left the CEO with a fact and no instruction while the button that would fix
+    // it sat three inches below, unmentioned. `syncComposerMode()` in the `finally` below
+    // re-enables Stop before this is read, and Stop is visible for as long as the turn is
+    // live, so the sentence names something that is on screen at the moment it is read.
     window.RichTimeline.addLocalNotice(
       timelineModel,
-      typeof e === "string" ? e : "I couldn't record that stop, so I haven't acted on it.",
+      typeof e === "string"
+        ? e + " Press Stop again and I'll have another go."
+        : "I couldn't record that stop, so I haven't acted on it. Press Stop again and I'll have another go.",
       Date.now()
     );
     scheduleRender();
@@ -1268,6 +1326,9 @@ stopBtn.addEventListener("click", (e) => {
 });
 
 el("rail-new-thread").addEventListener("click", startNewThreadFlow);
+// §21's way out of the unbound screen — the SAME §3.3 flow the rail's button runs, not a
+// second one. The picker always opens, so this never guesses an entity either.
+el("unbound-new-thread").addEventListener("click", startNewThreadFlow);
 el("nav-search").addEventListener("click", openSearch);
 jumpLatestBtn.addEventListener("click", jumpToLatest);
 
@@ -1786,6 +1847,43 @@ bargeInBtn.addEventListener("click", () => {
   // The instant override while AEC is interim (the UX direction §4.1). The panel is NOT flipped here —
   // rich://voice-state reports what actually happened to the audio.
   Bridge.invoke("voice_barge_in").catch(() => {});
+});
+
+/// The no-audio row's CONTROL. `#voice-state-no-audio` says "check your mic isn't muted",
+/// which is a state the CEO can change — and until this handler existed the app then gave
+/// him nothing to press once he had changed it. A state the user could change that renders
+/// without the control that changes it is not a status, it is a request.
+///
+/// Re-opening capture is the only recovery this app can actually perform (a muted mic, or a
+/// device another app grabbed and released, are both fixed by a fresh `start_voice_capture`),
+/// so it is the only thing offered. Nothing here claims to unmute anything.
+///
+/// THE HOT-MIC INVARIANT IS PRESERVED. `renderVoiceState("listening", false)` runs only
+/// AFTER `start_voice_capture` resolves, exactly as `enterVoiceMode` does it; if the mic
+/// still refuses to open, voice mode is torn down rather than left showing a listening dot
+/// over a dead device.
+voiceRetryBtn.addEventListener("click", async () => {
+  if (voiceRetryBtn.disabled) return;
+  voiceRetryBtn.disabled = true;
+  try {
+    try {
+      await Bridge.invoke("stop_voice_capture", { threadId: activeThreadId });
+    } catch (_e) {
+      /* already down — the restart below is what matters */
+    }
+    await Bridge.invoke("start_voice_capture", { threadId: activeThreadId });
+    renderVoiceState("listening", false);
+    renderVoiceLevel(0);
+  } catch (e) {
+    exitVoiceMode();
+    richVoiceSays(
+      Bridge.isMock || String(e).startsWith("mock:")
+        ? "Talking out loud needs the desktop app — here in the preview, type to me."
+        : "The mic still won't open. I've switched us back to typing — tap ◉ when you want to try voice again."
+    );
+  } finally {
+    voiceRetryBtn.disabled = false;
+  }
 });
 
 Bridge.listen("rich://voice-state", ({ payload }) => {

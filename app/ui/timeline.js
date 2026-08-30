@@ -765,6 +765,26 @@
     }
   }
 
+  /// WITHDRAW an optimistic bubble that will never become a turn.
+  ///
+  /// The counterpart to `adoptPendingUserMessage`, and it exists because `send()` can be
+  /// refused BEFORE any turn starts: no lease, so no `turn-status` will ever name a turn
+  /// for it and no snapshot will ever replace it. Left in place, the bubble sits on screen
+  /// looking exactly like a message that went — which is the app telling the CEO his words
+  /// were delivered when they were not.
+  ///
+  /// Only ever applied to the id `addPendingUserMessage` returned, and only while it is
+  /// still `pending`: an adopted bubble belongs to a real turn and must never be removed
+  /// by this path.
+  function dropPendingUserMessage(model, id) {
+    const item = model.items.get(id);
+    if (!item || !item.pending) return false;
+    model.items.delete(id);
+    const at = model.pendingUser.indexOf(id);
+    if (at >= 0) model.pendingUser.splice(at, 1);
+    return true;
+  }
+
   /// Drop every trace of a turn — items, record and order slot. Used only by the
   /// supersession merge below.
   function dropTurn(model, turnId) {
@@ -1609,6 +1629,45 @@
     return card;
   }
 
+  /// §14's other card: a turn that was still in flight when the app last closed, whose
+  /// outcome nothing recorded.
+  ///
+  /// UNTIL THIS COMMIT IT SAID "Send it again if you still need it." AND CARRIED NO BUTTON.
+  /// That sentence is an instruction to act, addressed to a reader whose message is no
+  /// longer in the composer — the app had cleared it on send and the turn it belonged to
+  /// never came back. So the one thing the card asked for was the one thing it did not
+  /// offer. A state the user could change, rendered apart from the control that changes it,
+  /// is not a status; it is a request.
+  ///
+  /// It borrows the FAILURE card's control verbatim — same class, same verb, same handler —
+  /// because the CEO's job here is identical (get my words back so I can decide) and two
+  /// phrasings for one action is two things to learn. `opts.retry` puts the text back in
+  /// the composer and focuses it; it does NOT resend. Resending is an action with side
+  /// effects and it is his to take (main.js `retryTurn`).
+  ///
+  /// NO BUTTON WHEN THERE IS NOTHING TO PUT BACK. A turn first witnessed mid-flight has no
+  /// `turn.user.text`, and a control labelled "Pick it back up" that picks up nothing is
+  /// worse than no control — so the note says what is true instead and claims nothing.
+  function renderUnknownCard(turn, opts) {
+    const card = elem("aside", "tl-intervention tl-intervention--quiet");
+    card.setAttribute("role", "note");
+    card.appendChild(elem("p", "tl-intervention-body",
+      "This turn was still running the last time RichOS was open, and I can't tell you how it ended."));
+    const canRetry = !!(turn.user && turn.user.text);
+    card.appendChild(elem("p", "tl-intervention-note",
+      canRetry
+        ? "Anything I'd written is above. Your message is safe — I'll put it back in the box for you."
+        : "Anything I'd written is above. Nothing of yours was lost."));
+    if (canRetry) {
+      const retry = elem("button", "tl-intervention-action", "Pick it back up");
+      retry.type = "button";
+      retry.id = "resume:" + turn.turnId;
+      retry.addEventListener("click", () => opts.retry(turn));
+      card.appendChild(retry);
+    }
+    return card;
+  }
+
   /// One turn: CEO bubble, then the duration row, then the lane.
   ///
   /// LAYOUT DECISION, AND ITS LIMIT. §5.4 wants the final response "separated from work
@@ -1687,15 +1746,7 @@
       section.appendChild(lane);
 
       if (row.tone === "stopped") section.appendChild(renderFailureCard(turn, opts));
-      if (row.tone === "unknown") {
-        const card = elem("aside", "tl-intervention tl-intervention--quiet");
-        card.setAttribute("role", "note");
-        card.appendChild(elem("p", "tl-intervention-body",
-          "This turn was still running the last time RichOS was open, and I can't tell you how it ended."));
-        card.appendChild(elem("p", "tl-intervention-note",
-          "Anything I'd written is above. Send it again if you still need it."));
-        section.appendChild(card);
-      }
+      if (row.tone === "unknown") section.appendChild(renderUnknownCard(turn, opts));
     }
 
     frag.appendChild(section);
@@ -1779,6 +1830,7 @@
     accepts,
     applySnapshot,
     addPendingUserMessage,
+    dropPendingUserMessage,
     markStopping,
     addLocalNotice,
     onTurnStatus,
