@@ -1,0 +1,256 @@
+{
+  "_source": "app/src-tauri/examples/machinery_payload.rs — regenerate with `cargo run --example machinery_payload -- --write-fixture`",
+  "nothingRecorded": {
+    "reason": null,
+    "rowCount": 0,
+    "sentence": "No machinery was recorded for this conversation. Retention started on 2026-08-28, and anything Rich did before that was never written down — so this is a gap in the record, not a quiet conversation.",
+    "state": "nothing_recorded",
+    "threadId": "thr_c9c84da6ff73449e87401f69cb157c47",
+    "timeline": {
+      "entityId": "richos",
+      "items": [
+        {
+          "bindingRevision": 3,
+          "createdAt": 1788092248618,
+          "entityId": "richos",
+          "id": "turn_a3c53ecd759d4979a8e317026cf71c0d:user",
+          "kind": "user_message",
+          "sequence": null,
+          "slot": "opening",
+          "source": "text",
+          "text": "how did the partner review land?",
+          "threadId": "thr_c9c84da6ff73449e87401f69cb157c47",
+          "turnId": "turn_a3c53ecd759d4979a8e317026cf71c0d",
+          "visibility": "ceo"
+        },
+        {
+          "bindingRevision": 3,
+          "createdAt": 1788092248631,
+          "entityId": "richos",
+          "id": "turn_a3c53ecd759d4979a8e317026cf71c0d:text:0",
+          "kind": "rich_message",
+          "phase": "unknown",
+          "sequence": 0,
+          "slot": "stream",
+          "text": "Two partners pushed back on the carry split.",
+          "threadId": "thr_c9c84da6ff73449e87401f69cb157c47",
+          "turnId": "turn_a3c53ecd759d4979a8e317026cf71c0d",
+          "visibility": "ceo"
+        },
+        {
+          "activeMs": 0,
+          "bindingRevision": 3,
+          "createdAt": 1788092248618,
+          "detail": {
+            "stopReason": "end_turn"
+          },
+          "endedAt": 1788092248631,
+          "entityId": "richos",
+          "id": "turn_a3c53ecd759d4979a8e317026cf71c0d:duration",
+          "kind": "work_duration",
+          "sequence": null,
+          "slot": "terminal",
+          "startedAt": 1788092248631,
+          "state": "completed",
+          "threadId": "thr_c9c84da6ff73449e87401f69cb157c47",
+          "turnId": "turn_a3c53ecd759d4979a8e317026cf71c0d",
+          "visibility": "ceo"
+        }
+      ],
+      "mode": "technical",
+      "threadId": "thr_c9c84da6ff73449e87401f69cb157c47"
+    }
+  },
+  "recorded": {
+    "reason": null,
+    "rowCount": 5,
+    "sentence": null,
+    "state": "recorded",
+    "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+    "timeline": {
+      "entityId": "richos",
+      "items": [
+        {
+          "bindingRevision": 1,
+          "createdAt": 1788092248589,
+          "entityId": "richos",
+          "id": "turn_6d140f2c7f094ba4b49f799ca65be3c6:user",
+          "kind": "user_message",
+          "sequence": null,
+          "slot": "opening",
+          "source": "text",
+          "text": "check whether the ACP client drops tool calls",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "ceo"
+        },
+        {
+          "bindingRevision": 1,
+          "createdAt": 1788092248613,
+          "entityId": "richos",
+          "id": "turn_6d140f2c7f094ba4b49f799ca65be3c6:text:0",
+          "kind": "rich_message",
+          "phase": "unknown",
+          "sequence": 0,
+          "slot": "stream",
+          "text": "Checking the client now.",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "ceo"
+        },
+        {
+          "activityType": "command",
+          "bindingRevision": 1,
+          "completedAt": 1788092248614,
+          "createdAt": 1788092248613,
+          "detail": {
+            "locations": [],
+            "summary": "1.0.0",
+            "title": "cat engine/VERSION"
+          },
+          "detailRef": "mach_0ee4020480a0448c83d9de7145c461df",
+          "entityId": "richos",
+          "id": "mach_0ee4020480a0448c83d9de7145c461df",
+          "kind": "activity",
+          "sequence": 1,
+          "slot": "stream",
+          "startedAt": 1788092248613,
+          "state": "completed",
+          "summary": "Ran a command",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "updatedAt": 1788092248614,
+          "visibility": "ceo"
+        },
+        {
+          "activityType": "command",
+          "bindingRevision": 1,
+          "completedAt": 1788092248614,
+          "createdAt": 1788092248614,
+          "detail": {
+            "locations": [],
+            "summary": "Exit code 1",
+            "title": "cat /Users/alex/no-such-file-richos-probe-xyz.txt"
+          },
+          "detailRef": "mach_46c8ceeb101f40e1a891ad08e408019b",
+          "entityId": "richos",
+          "id": "mach_46c8ceeb101f40e1a891ad08e408019b",
+          "kind": "activity",
+          "sequence": 4,
+          "slot": "stream",
+          "startedAt": 1788092248614,
+          "state": "failed",
+          "summary": "Ran a command",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "ceo"
+        },
+        {
+          "activityType": "patch",
+          "bindingRevision": 1,
+          "completedAt": 1788092248614,
+          "createdAt": 1788092248614,
+          "detail": {
+            "locations": [
+              "/tmp/richos-acp-probe-write-target.txt"
+            ],
+            "summary": "File created successfully at: /tmp/richos-acp-probe-write-target.txt (file state is …",
+            "title": "Write /tmp/richos-acp-probe-write-target.txt"
+          },
+          "detailRef": "mach_f4db123b1ef443e3b9dce06788bcd829",
+          "entityId": "richos",
+          "id": "mach_f4db123b1ef443e3b9dce06788bcd829",
+          "kind": "activity",
+          "sequence": 7,
+          "slot": "stream",
+          "startedAt": 1788092248614,
+          "state": "completed",
+          "summary": "Edited a file",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "ceo"
+        },
+        {
+          "activityType": "command",
+          "bindingRevision": 1,
+          "createdAt": 1788092248614,
+          "detail": {
+            "locations": [],
+            "summary": "grep -rn \"sessionUpdate\" app | wc -l",
+            "title": "grep -rn \"sessionUpdate\" app | wc -l"
+          },
+          "detailRef": "mach_5224f60ca1f04eaa90f4aa03f9a9e833",
+          "entityId": "richos",
+          "id": "mach_5224f60ca1f04eaa90f4aa03f9a9e833",
+          "kind": "activity",
+          "sequence": 10,
+          "slot": "stream",
+          "startedAt": 1788092248614,
+          "state": "queued",
+          "summary": "Ran a command",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "updatedAt": 1788092248615,
+          "visibility": "ceo"
+        },
+        {
+          "activityType": "other",
+          "bindingRevision": 1,
+          "createdAt": 1788092248615,
+          "detail": {
+            "locations": [],
+            "title": "usage_update",
+            "vendorKind": "usage_update"
+          },
+          "detailRef": "mach_32da255e69cf4dc6a80d165f393d825d",
+          "entityId": "richos",
+          "id": "mach_32da255e69cf4dc6a80d165f393d825d",
+          "kind": "activity",
+          "sequence": 12,
+          "slot": "stream",
+          "startedAt": 1788092248615,
+          "state": "unknown",
+          "summary": "Worked",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "technical"
+        },
+        {
+          "bindingRevision": 1,
+          "createdAt": 1788092248615,
+          "entityId": "richos",
+          "id": "turn_6d140f2c7f094ba4b49f799ca65be3c6:text:1",
+          "kind": "rich_message",
+          "phase": "unknown",
+          "sequence": 13,
+          "slot": "stream",
+          "text": "It does — line 145 routes only agent_message_chunk and drops the rest.",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "ceo"
+        },
+        {
+          "activeMs": 2,
+          "bindingRevision": 1,
+          "createdAt": 1788092248589,
+          "detail": {
+            "stopReason": "end_turn"
+          },
+          "endedAt": 1788092248615,
+          "entityId": "richos",
+          "id": "turn_6d140f2c7f094ba4b49f799ca65be3c6:duration",
+          "kind": "work_duration",
+          "sequence": null,
+          "slot": "terminal",
+          "startedAt": 1788092248613,
+          "state": "completed",
+          "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9",
+          "turnId": "turn_6d140f2c7f094ba4b49f799ca65be3c6",
+          "visibility": "ceo"
+        }
+      ],
+      "mode": "technical",
+      "threadId": "thr_5ca985adee4445a0ae2e5b24c85de6a9"
+    }
+  }
+}

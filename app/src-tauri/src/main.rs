@@ -10,7 +10,7 @@ mod events;
 
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
-use richos_core::config::{Assertiveness, ConfigStore};
+use richos_core::config::{Assertiveness, ConfigStore, TechyMode};
 use richos_core::correction::{
     CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite, SharedCorrectionDesk,
     WriteOutput, EVENT_LORO_PROPOSED,
@@ -47,6 +47,12 @@ mod nav;
 /// can include the SAME source and print the exact JSON the webview receives.
 mod timeline_view;
 use timeline_view::timeline_payload;
+
+/// The `get_machinery` command body — techy mode's read path. Its own file for the same
+/// reason `timeline_view` is: an example includes the SAME source and prints the exact
+/// JSON the webview receives.
+mod machinery_view;
+use machinery_view::machinery_payload;
 
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
@@ -768,7 +774,13 @@ fn main() {
             feedback_taxonomy,
             feedback_preview,
             feedback_record,
-            feedback_history
+            feedback_history,
+            // --- techy mode Phase 2 (2026-08-30) — appended, never reordered ---
+            get_machinery,
+            get_machinery_raw,
+            techy_mode,
+            set_techy_mode,
+            set_techy_default
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -2391,4 +2403,113 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
             serde_json::json!({ "entry": e, "shown": shown })
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------------------
+// TECHY MODE, Phase 2 (techy-mode design §3.1/§3.4) — the renderer's five commands.
+//
+// Appended at the END for the reason the block above says: a parallel branch appending its
+// own glue merges without touching a line this one also touched.
+//
+// PHASE 1 ROUTED AND RETAINED AND HAD NO CALLER. `Spine::machinery_journal()` and
+// `rich://machinery` shipped 2026-08-28 complete and tested, and `grep -rn machinery
+// app/ui/` returned three comments. These five commands are the door.
+//
+// WHAT IS DELIBERATELY NOT HERE: any control. No interrupt, no approve/deny, no re-run.
+// Techy mode is a window, not a cockpit (§5, §9) — R2 business-action governance is
+// deferred to V2 by CEO decision for v1 and all 1.x, and a button here is how that gets
+// un-deferred by accident.
+// ---------------------------------------------------------------------------------------
+
+/// One thread's machinery, for the technical view (§3.4).
+///
+/// See `machinery_view.rs` for why this is a second command rather than a `mode` argument
+/// on `get_timeline` — the calm command stays byte-for-byte what it was, and its gate stays
+/// structural rather than becoming a branch.
+///
+/// **The toggle is NOT read here.** §3.2's rule is that routing and retention run always
+/// and the toggle controls RENDERING only; making the read conditional on the flag would
+/// put policy in two places, and the second one would eventually disagree. The renderer
+/// decides whether to ask.
+#[tauri::command]
+fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
+    machinery_payload(&state.spine.lock().unwrap(), &thread_id)
+}
+
+/// §2.4's raw pane, one record at a time.
+///
+/// Three answers, and the middle one is the point: `retained` with the payload,
+/// `not_retained` when the Tier-B window has passed over it (**the record still renders —
+/// structure, title, status, paths, summary — and the pane says so; an honest degrade,
+/// never a silent blank**), and `unreadable` when the store refused.
+///
+/// `truncated: true` means §2.4's 32 KB per-record cap fired and the payload is a
+/// char-boundary-safe prefix as a JSON *string* rather than the object — a visibly
+/// different shape, so nothing can mistake it for the whole thing.
+///
+/// **§7.2 is not answered here.** How long raw payloads survive is the CEO's open question;
+/// nothing in this path consults the window. Whatever he chooses — 14 days, 2 GB, or
+/// forever — this returns what is on disk and the two states stay the same two states.
+#[tauri::command]
+fn get_machinery_raw(
+    state: State<AppState>,
+    thread_id: String,
+    machinery_id: String,
+) -> Result<serde_json::Value, String> {
+    let spine = state.spine.lock().unwrap();
+    let Some(journal) = spine.machinery_journal() else {
+        return Ok(serde_json::json!({ "state": "not_retained", "payload": null, "truncated": false }));
+    };
+    match journal.raw_payload(&thread_id, &machinery_id) {
+        Ok(Some((payload, truncated))) => {
+            Ok(serde_json::json!({ "state": "retained", "payload": payload, "truncated": truncated }))
+        }
+        Ok(None) => {
+            Ok(serde_json::json!({ "state": "not_retained", "payload": null, "truncated": false }))
+        }
+        Err(why) => {
+            Ok(serde_json::json!({ "state": "unreadable", "payload": null, "truncated": false, "reason": why }))
+        }
+    }
+}
+
+/// This thread's resolved techy-mode state, with its provenance (§3.1).
+///
+/// `source` is `"thread"` when the CEO pinned this conversation and `"default"` when it
+/// follows the global switch — so the surface can say *"follows your default"* instead of
+/// implying a choice he did not make, and so clearing a pin is a visible, reversible act.
+#[tauri::command]
+fn techy_mode(state: State<AppState>, thread_id: String) -> TechyMode {
+    state.config.lock().unwrap().techy_mode(&thread_id)
+}
+
+/// Pin or unpin ONE thread (§3.1). `enabled: null` clears the override and hands the
+/// thread back to the global default.
+///
+/// **The `null` arm is what keeps §7.1 open** (global default vs per-thread only — the
+/// CEO's, unanswered). Without it a pin is one-way, "all of their conversations" stops
+/// reaching any thread he ever touched, and the product has answered his question for him.
+#[tauri::command]
+fn set_techy_mode(
+    state: State<AppState>,
+    thread_id: String,
+    enabled: Option<bool>,
+) -> Result<TechyMode, String> {
+    let mut config = state.config.lock().unwrap();
+    match enabled {
+        Some(on) => config.set_techy_thread(&thread_id, on).map_err(|e| e.to_string())?,
+        None => config.clear_techy_thread(&thread_id).map_err(|e| e.to_string())?,
+    }
+    Ok(config.techy_mode(&thread_id))
+}
+
+/// The one switch for "all of their conversations" (§3.1, the CEO's own words).
+///
+/// Threads he pinned individually are untouched — that is what makes a pin mean something,
+/// and it is the half of §7.1 a global-only build would lose.
+#[tauri::command]
+fn set_techy_default(state: State<AppState>, enabled: bool) -> Result<bool, String> {
+    let mut config = state.config.lock().unwrap();
+    config.set_techy_default(enabled).map_err(|e| e.to_string())?;
+    Ok(config.techy_default())
 }
