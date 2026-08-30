@@ -1,0 +1,256 @@
+/* THE OPENING SCREEN — structure only.
+ *
+ * Not one colour, radius, shadow, duration or delay is written in this file. Every one of
+ * them arrives as a custom property that `splash.js` sets from an entry in
+ * `splash-library.js`, which is why adding a variation is adding data. The only literals
+ * here are the ones that are the same in every approved composition and therefore are not
+ * variation at all: the mark's proportions, the centring, and the stacking order.
+ *
+ * POINTER-EVENTS: NONE, EVERYWHERE, DELIBERATELY. The app underneath is live from its first
+ * frame and this is a curtain in front of it, not a door in front of it. A splash that can
+ * swallow the CEO's first click has cost him the thing he opened the app for — and there is
+ * nothing here to click by design (`richos-splash-micro-game-2026-08-30.md` §5.5: nothing
+ * clickable, dismissible or delaying).
+ *
+ * z-index 200 clears the whole shell: the highest thing in `style.css` is 70.
+ */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: var(--splash-ground);
+  background-image: var(--splash-atmosphere);
+  color: var(--splash-ink);
+  font-family: "Söhne", "Soehne", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  opacity: 1;
+}
+
+/* The yield. `splash.js` adds this, then removes the element when the transition ends —
+ * and on a timer as well, because `transitionend` does not fire if the element is never
+ * composited (a launch that completes while the window is still hidden). */
+.splash.splash--yielding {
+  opacity: 0;
+  transition: opacity var(--splash-fade) linear;
+}
+
+/* Layers, in the mockups' own order: the lamp under the vignette under the grain. The lamp
+ * is STATIC. In the studies it tracked the pointer; a splash has no pointer, so it is drawn
+ * at the rest position those studies open at. */
+.splash-lamp,
+.splash-vignette,
+.splash-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.splash-lamp {
+  z-index: 3;
+  mix-blend-mode: soft-light;
+  background: radial-gradient(var(--splash-lamp-radius) circle at 40% 40%, var(--splash-lamp), rgba(0, 0, 0, 0) var(--splash-lamp-stop));
+}
+.splash-vignette {
+  z-index: 2;
+  background: var(--splash-vignette);
+}
+.splash-grain {
+  z-index: 4;
+  opacity: var(--splash-grain-opacity);
+  mix-blend-mode: overlay;
+  background-size: 260px 260px;
+  /* The studies' own fractal-noise tile, inline so the surface never waits on a file. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.splash-stage {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+.splash-plinth {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(44px, 6.4vh, 72px) clamp(56px, 6.5vw, 104px) clamp(40px, 5.6vh, 60px);
+  background: var(--splash-surface);
+  border-radius: var(--splash-plinth-radius);
+  box-shadow: var(--splash-plinth-shadow);
+  outline: 1px solid var(--splash-plinth-outline);
+  outline-offset: -1px;
+}
+
+/* THE INNER KEYLINE, and TIER 3's SEAM. v3 rewove this line in faint gold thread, which is
+ * exactly where `richos-splash-micro-game-2026-08-30.md` §4 puts a hallmark: "added to the
+ * plinth's inner keyline… it never leaves". Marks would be absolutely-positioned children
+ * of `.splash-plinth` sitting ON this rectangle. Nothing is built for them here — the seam
+ * is that they need no change to the composition, only a new child. */
+.splash-plinth::after {
+  content: "";
+  position: absolute;
+  inset: var(--splash-keyline-inset);
+  border-radius: var(--splash-keyline-radius);
+  border: 1px solid var(--splash-keyline-color);
+  pointer-events: none;
+}
+
+/* v4's sheen — a warm pool on the mat itself. Static, for the same reason the lamp is. */
+.splash-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: var(--splash-sheen);
+}
+
+.splash svg {
+  display: block;
+}
+.splash-logo {
+  width: clamp(150px, 24vh, 224px);
+}
+.splash-wordmark {
+  width: clamp(330px, 34vw, 480px);
+  margin-top: clamp(28px, 5vh, 48px);
+}
+.splash-ink {
+  fill: var(--splash-ink);
+}
+.splash-signal {
+  fill: var(--splash-signal);
+}
+.splash-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.splash-rule {
+  width: var(--splash-rule-width);
+  height: 2px;
+  background: var(--splash-rule);
+  margin-top: clamp(26px, 4.6vh, 42px);
+}
+
+/* THE LINE UNDER THE RULE, and TIER 2's SEAM. Today it holds the product's own line, which
+ * is in every approved composition. §2 requires that anything the splash says is legible
+ * from its FIRST frame, "not delivered at the end of a timeline that may be cut" — so a
+ * true line about his record replaces or joins this text in the same slot, arriving with
+ * the rule, and needs no new geometry. */
+.splash-line {
+  margin-top: 16px;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--splash-tagline);
+  white-space: nowrap;
+}
+
+/* The settle. Four stages, the studies' own curve. */
+.splash-rise {
+  animation: splash-rise var(--splash-rise-duration) cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--splash-rise-shift));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.splash-rise--1 { animation-delay: var(--splash-rise-d1); }
+.splash-rise--2 { animation-delay: var(--splash-rise-d2); }
+.splash-rise--3 { animation-delay: var(--splash-rise-d3); }
+.splash-rise--4 { animation-delay: var(--splash-rise-d4); }
+
+/* THE STRIKE. Two shapes, because they are not interchangeable: `fill` animates the colour
+ * of flat paint, which a gilded gradient has none of, and `bloom` lights whatever metal is
+ * already there. `splash.js` refuses an entry that asks for `fill` while gilded rather than
+ * drawing a mark whose gold never arrives. */
+.splash--strike-fill .splash-signal {
+  animation: splash-strike-fill var(--splash-strike-duration) cubic-bezier(0.25, 0.6, 0.35, 1) var(--splash-strike-delay) both;
+}
+@keyframes splash-strike-fill {
+  0% { fill: var(--splash-strike-from); }
+  60% { fill: var(--splash-strike-peak); }
+  100% { fill: var(--splash-signal); }
+}
+.splash--strike-bloom .splash-signal {
+  animation: splash-strike-bloom var(--splash-strike-duration) cubic-bezier(0.25, 0.6, 0.35, 1) var(--splash-strike-delay) both;
+}
+@keyframes splash-strike-bloom {
+  0% { filter: brightness(0.32) saturate(0.35); }
+  60% { filter: brightness(1.32) saturate(1.05); }
+  100% { filter: brightness(1) saturate(1); }
+}
+.splash--strike-fill .splash-rule,
+.splash--strike-bloom .splash-rule {
+  animation: splash-rule-draw var(--splash-strike-duration) cubic-bezier(0.22, 0.61, 0.36, 1) var(--splash-strike-delay) both;
+}
+@keyframes splash-rule-draw {
+  from { width: 0; }
+  to { width: var(--splash-rule-width); }
+}
+
+/* SETTLED — the state the surface is pinned to the instant the app is ready.
+ *
+ * §2's rule is that the splash yields mid-animation, unfinished, the moment the app is
+ * up. Taken literally that leaves the ceremonial versions showing an arrow of unlit steel
+ * and a rule of zero width on a fast launch — a half-drawn mark, which is the one thing
+ * this surface must never show. So yielding CANCELS the ceremony and pins every element to
+ * where it was going: the performance is cut, the mark never is. */
+.splash--settled .splash-rise,
+.splash--settled .splash-signal,
+.splash--settled .splash-rule {
+  animation: none !important;
+}
+.splash--settled .splash-rise {
+  opacity: 1;
+  transform: none;
+}
+.splash--settled .splash-signal {
+  fill: var(--splash-signal);
+  filter: none;
+}
+.splash--settled .splash-rule {
+  width: var(--splash-rule-width);
+}
+
+/* §18's stance, and the studies' own: no motion for anyone who has asked for none. The
+ * composition is drawn settled, immediately. */
+@media (prefers-reduced-motion: reduce) {
+  .splash .splash-rise,
+  .splash .splash-signal,
+  .splash .splash-rule {
+    animation: none !important;
+  }
+  .splash .splash-rise {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------
+   The off switch's own chrome.
+
+   It lives in this file rather than in `style.css` for one reason: the separator and the
+   second heading exist only because the splash gave the settings popover a second group.
+   The feature brings its own furniture and takes it away with it.
+--------------------------------------------------------------------------------------- */
+.popover-rule {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 10px 0;
+}
+.popover-rule + .popover-title {
+  margin-top: 0;
+}
