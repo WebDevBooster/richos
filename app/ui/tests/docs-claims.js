@@ -10,7 +10,7 @@
 //                          machinery_tests.rs is 14                         ACTUAL 15
 //                          steering_tests.rs is 11                          ACTUAL 16
 //                          timeline_tests.rs is 7                           ACTUAL 12
-//     app/README.md named  8 of the 12 richos-core test files; four whole suites — 48 of
+//     app/README.md named  9 of richos-core's 12 test files; three whole suites — 40 of
 //                          its 153 integration tests — appeared in no document at all
 //     app/STREAMING.md     documents 12 of the 16 `rich://` event names the app DECLARES.
 //                          `rich://proactive-message` — Rich speaking unprompted, which is
