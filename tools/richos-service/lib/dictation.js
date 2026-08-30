@@ -69,7 +69,14 @@ const PHONETIC_CLASS = {
  *
  * Worked, and these are the pairs the orthographic gate alone gets wrong:
  *   "Deke Graham" -> "32265"   "Deepgram" -> "31265"   (similarity 0.80 — ASK)
- *   "Thursday"    -> "3623"    "Friday"   -> "163"     (similarity 0.25 — SILENT, a change of mind)
+ *   "Thursday"    -> "3623"    "Friday"   -> "163"     (similarity 0.50 — SILENT, a change of mind)
+ *
+ * That 0.50 read 0.25 here until 2026-08-30, when it was re-derived rather than trusted:
+ * levenshtein("3623","163") is 2, not 3, so the value is 1 - 2/4. The VERDICT was always
+ * right — 0.50 is under ASK_LONE_TOKEN_MIN — but the MARGIN on §7's archetypal change-of-mind
+ * pair is 0.10, not the 0.35 the old number implied. Four times thinner than this file said,
+ * on the one pair the whole decision is argued from. Check with:
+ *   node -e "import('./lib/dictation.js').then(m=>console.log(m.phoneticSimilarity('Thursday','Friday')))"
  *
  * @param {string} s
  * @returns {string} a digit string; '' for input with no classifiable consonant
