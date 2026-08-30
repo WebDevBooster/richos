@@ -2614,6 +2614,16 @@ body.bp-narrow .tl-user-bubble {
   color: var(--ink-soft);
 }
 
+/* THE REPORT IS NOT PUT IN A BOX HE HAS TO SCROLL. `.desk-preview` caps at 240px because a
+   loro record can be arbitrarily long and the CEO is checking a diff; here the whole point is
+   that he reads ALL of it before approving, and the first screenshot of this state caught the
+   last two lines below the fold of a nested scroller. It grows instead, and `.desk-body` — one
+   column, no pagination — is the only thing that scrolls. */
+#feedback-preview,
+.feedback-entry .desk-preview {
+  max-height: none;
+}
+
 /* A control that cannot be pressed yet is DISABLED and looks it, rather than being hidden:
    "show me what you'd say" with nothing chosen would refuse in the backend, and a button
    that appears and then refuses teaches him the surface is unreliable. */

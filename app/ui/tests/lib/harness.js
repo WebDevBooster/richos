@@ -210,6 +210,44 @@ function createRun(label) {
   };
 }
 
+/// The verbatim body of a `const NAME: &str = "…";` in Rust source, with rustc's
+/// line-continuation rules applied — the same way `lib/state-strings.js` reads them, and for
+/// the same reason: every CEO-facing sentence in `main.rs` is written across two or three
+/// lines with a trailing backslash.
+///
+/// It lives here because two suites now join `mock.js`'s copy of a product sentence to the
+/// const the product ships (`corrections.js` check 12, `feedback.js` check 8), and a
+/// subtle parser copied into both is the drift those checks exist to catch, one level out.
+///
+/// `marker` is any text inside the literal. The scan goes BACKWARD to the literal's opening
+/// quote: forward would find its CLOSING one and read the code after it, which is what the
+/// first version of this did — it reported `.to_string() }) .map(|d| d.lock()…` as the
+/// sentence the CEO sees.
+function rustSentenceAfter(src, marker) {
+  const at = src.indexOf(marker);
+  assert(at >= 0, "marker not found in the Rust source: " + marker);
+  const open = src.lastIndexOf('"', at);
+  assert(open >= 0, "no opening quote before the marker: " + marker);
+  let out = "";
+  for (let i = open + 1; i < src.length; i++) {
+    const c = src[i];
+    if (c === "\\") {
+      const n = src[i + 1];
+      if (n === "\n") {
+        i++;
+        while (src[i + 1] === " " || src[i + 1] === "\t") i++;
+        continue;
+      }
+      out += n;
+      i++;
+      continue;
+    }
+    if (c === '"') break;
+    out += c;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
@@ -220,4 +258,14 @@ function assertEqual(actual, expected, msg) {
   if (a !== e) throw new Error(`${msg}\n          expected ${e}\n          actual   ${a}`);
 }
 
-module.exports = { loadPlaywright, openFixture, shot, createRun, assert, assertEqual, UI_DIR, SHOT_DIR };
+module.exports = {
+  loadPlaywright,
+  openFixture,
+  shot,
+  createRun,
+  assert,
+  assertEqual,
+  rustSentenceAfter,
+  UI_DIR,
+  SHOT_DIR,
+};

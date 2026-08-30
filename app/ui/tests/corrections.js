@@ -29,7 +29,15 @@
 
 const fs = require("fs");
 const path = require("path");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const {
+  loadPlaywright,
+  shot,
+  createRun,
+  assert,
+  assertEqual,
+  rustSentenceAfter: rustSentence,
+  UI_DIR,
+} = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
@@ -107,36 +115,11 @@ async function settledShot(page, name, dir) {
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colours)";
 }
 
-/// The verbatim body of a `const NAME: &str = "…";` in main.rs, with rustc's line-
-/// continuation rules applied — the same way `lib/state-strings.js` reads them, and for the
-/// same reason: every CEO-facing sentence in that file is written across two or three lines.
+/// The verbatim body of a `const NAME: &str = "…";` in main.rs. The parser moved to
+/// `lib/harness.js` when `feedback.js` needed the same join — a subtle scanner copied into
+/// two suites is the drift these checks exist to catch, one level out.
 function rustSentenceAfter(marker) {
-  const src = fs.readFileSync(MAIN_RS, "utf8");
-  const at = src.indexOf(marker);
-  assert(at >= 0, "marker not found in main.rs: " + marker);
-  // BACKWARD to the literal's opening quote. Forward would find its CLOSING one and read
-  // the code after it — which is exactly what the first version of this function did, and
-  // it reported `.to_string() }) .map(|d| d.lock()…` as the sentence the CEO sees.
-  const open = src.lastIndexOf('"', at);
-  assert(open >= 0, "no opening quote before the marker: " + marker);
-  let out = "";
-  for (let i = open + 1; i < src.length; i++) {
-    const c = src[i];
-    if (c === "\\") {
-      const n = src[i + 1];
-      if (n === "\n") {
-        i++;
-        while (src[i + 1] === " " || src[i + 1] === "\t") i++;
-        continue;
-      }
-      out += n;
-      i++;
-      continue;
-    }
-    if (c === '"') break;
-    out += c;
-  }
-  return out.replace(/\s+/g, " ").trim();
+  return rustSentence(fs.readFileSync(MAIN_RS, "utf8"), marker);
 }
 
 // ---------------------------------------------------------------------------------------

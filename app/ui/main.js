@@ -3005,7 +3005,11 @@ function renderFeedbackKeys() {
   if (!feedback.wording) return;
   const answered = feedback.phase === "answered";
   for (const r of feedback.wording.ratings) {
-    const b = feedbackButton(r.key + ": " + r.label, r.key === "3" ? "confirm" : null);
+    // NO KEY IS STYLED AS THE PRIMARY ONE. A filled `3: Good` reads as the selected answer,
+    // and the first screenshot of the preview state caught it doing exactly that: the block
+    // on screen said `rating: 1` while the Good button sat highlighted above it. There is no
+    // recommended answer to this question.
+    const b = feedbackButton(r.key + ": " + r.label);
     b.dataset.key = r.key;
     b.disabled = answered;
     b.addEventListener("click", () => answerFeedback(r.key, r.invitesReport === true));

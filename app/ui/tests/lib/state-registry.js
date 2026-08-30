@@ -891,7 +891,7 @@ module.exports = [
       "No path in the shipped UI reaches it: the only callers of `feedback_preview` and " +
       "`feedback_record` are the four buttons `renderFeedbackKeys` builds from " +
       "`feedback_wording.ratings` plus its `dismiss`, and each carries its own key. It is " +
-      "the guard for a caller that is not this file, and `feedback.js` check 9 invokes the " +
+      "the guard for a caller that is not this file, and `feedback.js` check 7b invokes the " +
       "command directly to prove it refuses rather than inventing a dismissal.",
   },
   {
@@ -903,7 +903,7 @@ module.exports = [
       "`Disclosure::approve`, which cannot exist without having rendered its text. That does " +
       "not survive an IPC boundary, so the command re-renders and compares. `main.js` holds " +
       "the rendered block verbatim in `feedback.shown` and posts it back unmodified, so no " +
-      "path in the shipped UI produces a mismatch; `feedback.js` check 8 invokes the command " +
+      "path in the shipped UI produces a mismatch; `feedback.js` check 7 invokes the command " +
       "with altered text to prove the guard is real rather than decorative.",
   },
   {
