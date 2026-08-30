@@ -668,6 +668,90 @@ write_case "ordinary prose still writes cleanly with the corpus widened" 0 Write
 rm -rf "$SB_CL"
 
 # ---------------------------------------------------------------------------
+# (i2) MEDIA PROVENANCE — the FIRST rendering of a recording.
+#
+# THE HOLE THESE CASES PIN, measured 2026-08-30. The shape filter admits a
+# transcript that LOOKS like one; the closure admits another rendering of
+# something already admitted. Neither can admit the first and only rendering of
+# a recording that was transcribed straight to plain text — whisper `.txt` has
+# no timestamps and no speaker labels, so it has zero transcript-shaped lines,
+# and the closure can only EXTEND a seed, never create one.
+#
+# On the real private record that left three podcast transcripts of two named
+# third-party guests — 5,713, 6,424 and 22,375 words — entirely outside a corpus
+# that held ten files. A 6,000-character extract of one of them was written into
+# the publication-bound repository and BOTH guards returned exit 0 in silence:
+# the commit guard, which exists precisely to catch what the write hook misses,
+# runs the same predicate and missed it identically.
+#
+# The signal is provenance, not content: the transcript sits next to the
+# recording it came from, under a name derived from it. The three refusal cases
+# below are the precision controls, and they are the point — the WIDER rule
+# ("any text file in a directory holding media") reaches the same corpus on the
+# real tree by admitting a mixed 51 KB worksheet on a coincidence of directory,
+# and admitting mixed documents on weak evidence is what once put engineering
+# boilerplate into the private corpus and blocked LICENSE files.
+# ---------------------------------------------------------------------------
+SB_MP="$(make_default_sandbox)"
+mkdir -p "$SB_MP/private/recordings"
+# The media fixtures are never read — only their NAMES are — so a few bytes of
+# ASCII stand in for audio and nothing here carries a recording.
+printf 'not audio, only a name\n' > "$SB_MP/private/recordings/interview-002.mp3"
+printf 'not audio, only a name\n' > "$SB_MP/private/recordings/audio.mp3"
+
+# A plain-text rendering: real prose, and NOT ONE transcript-shaped line.
+PLAIN="$(make_speech_lines 30 30 4242 | tf)"
+cp "$PLAIN" "$SB_MP/private/recordings/interview-002 transcript.txt"
+
+MP_QUOTE="$({ printf 'Notes from the session:\n\n'; head -1 "$PLAIN"; } | tf)"
+msg_case "plain-text transcript beside its recording joins the corpus" \
+    "reproduces private source material verbatim" Write \
+    "$SB_MP/docs/session.md" "$SB_MP" "$MP_QUOTE"
+write_case "  ... and the write is refused" 2 Write \
+    "$SB_MP/docs/session.md" "$SB_MP" "$MP_QUOTE"
+
+# CONTROL 1 — same directory, same media, UNRELATED stem. Provenance is the
+# stem relation; sharing a directory with an mp3 is a coincidence, and a
+# coincidence must not make an ordinary document private.
+UNREL="$(make_speech_lines 30 30 909 | tf)"
+cp "$UNREL" "$SB_MP/private/recordings/project-notes-and-decisions.txt"
+UNREL_Q="$({ printf 'Notes:\n\n'; head -1 "$UNREL"; } | tf)"
+write_case "an unrelated stem beside the same media does NOT join" 0 Write \
+    "$SB_MP/docs/unrelated.md" "$SB_MP" "$UNREL_Q"
+
+# CONTROL 2 — the stem floor. `audio` is five characters: a generic word that
+# matches by accident rather than by naming, so it is below MEDIA_STEM_MIN_CHARS
+# and does not seed. This case is what pins that constant.
+SHORTSTEM="$(make_speech_lines 30 30 313 | tf)"
+cp "$SHORTSTEM" "$SB_MP/private/recordings/audio.txt"
+SHORT_Q="$({ printf 'Notes:\n\n'; head -1 "$SHORTSTEM"; } | tf)"
+write_case "a stem below the floor does NOT join on a name collision" 0 Write \
+    "$SB_MP/docs/shortstem.md" "$SB_MP" "$SHORT_Q"
+
+# CONTROL 3 — no media at all beside it. Plain prose in a private tree is not
+# speech, and the corpus must not bootstrap itself out of ordinary documents.
+mkdir -p "$SB_MP/private/plain"
+ORPHAN="$(make_speech_lines 30 30 5150 | tf)"
+cp "$ORPHAN" "$SB_MP/private/plain/interview-002 transcript.txt"
+ORPHAN_Q="$({ printf 'Notes:\n\n'; head -1 "$ORPHAN"; } | tf)"
+write_case "the same name with NO media beside it does NOT join" 0 Write \
+    "$SB_MP/docs/orphan.md" "$SB_MP" "$ORPHAN_Q"
+
+write_case "ordinary source still writes cleanly with media seeding on" 0 Write \
+    "$SB_MP/src/config.js" "$SB_MP" "$CODE"
+
+# The commit arm runs the same predicate, and the 2026-08-30 probe proved it
+# fails in exactly the same place — so it is asserted here rather than assumed.
+cp "$MP_QUOTE" "$SB_MP/docs/session.md"
+git -C "$SB_MP" add docs/session.md >/dev/null 2>&1
+if bash_payload "git commit -m notes" "$SB_MP" | "$COMMIT_HOOK" >/dev/null 2>&1; then
+    bad "the commit arm refuses the same plain-text rendering"
+else
+    ok "the commit arm refuses the same plain-text rendering"
+fi
+rm -rf "$SB_MP"
+
+# ---------------------------------------------------------------------------
 # (j) FAIL-OPEN / FAIL-CLOSED conventions.
 # ---------------------------------------------------------------------------
 rc=0; printf 'not json at all' | "$WRITE_HOOK" >/dev/null 2>&1 || rc=$?
