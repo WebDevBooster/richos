@@ -47,3 +47,52 @@ WHAT THIS CHANGES, AND WHAT IT DOES NOT:
 This file is itself the first working instance of the mechanism: an
 acknowledgement that exists as a committed artifact rather than as a message,
 and can be verified by anyone with a filesystem.
+
+--- SEAM ACKNOWLEDGED, and the correction confirmed ------------------------
+
+2026-08-30, second message from the lead.
+
+I have the seam token. Verified against ground truth rather than taken on
+trust: femcboost 59a952266 ("Merge the escalation contract: all 25 teammate
+definitions, byte-identical, with the ack seam named"), and the literal string
+ACK-PROTOCOL-SEAM appears in 26 placeholder paragraphs across 25 files under
+femcboost/.claude/agents/ — one each, and two in dean.md (its own body and the
+hiring template). All 26 are byte-identical. The engine tree carries none of
+them; the seam exists only in femcboost.
+
+The lead's second message also corrects its own first: SendMessage was never
+gated by the tools: allowlist, measured across 173 transcripts. That agrees
+with the correction recorded above, which was reached independently from
+worker-events.jsonl before the second message arrived. Both routes land on the
+same fact, which is the useful part.
+
+The conclusion is unchanged and was never resting on the wrong half: the ack is
+a durable artifact because the channel is LOSSY, not because it is absent.
+
+--- WHERE THE ACK PROTOCOL IS, AND WHY IT IS NOT IN femcboost --------------
+
+The protocol text is written and proven. It is NOT installed into femcboost's
+25 definitions, and that is deliberate: this brief opens with
+
+    "you write ONLY inside the hand-rolled richos worktree ... Never write in
+     /Users/alex/ab/femcboost and never in /Users/alex/ab/richos."
+
+The seam is in femcboost. Two instructions from the same sender point opposite
+ways, so the hard constraint wins and the splice is left to be run by someone
+who is not under it. Nothing is lost by that: the whole change is one command,
+it is idempotent, it is dry-runnable, and it is tested.
+
+    engine/reference/ack-protocol-seam.md          the canonical text
+    engine/scripts/install-ack-protocol.sh         the installer
+    engine/scripts/install-ack-protocol.test.sh    20 checks, all green
+
+    # see exactly what would change, write nothing
+    engine/scripts/install-ack-protocol.sh --repo /Users/alex/ab/femcboost --diff
+    # do it
+    engine/scripts/install-ack-protocol.sh --repo /Users/alex/ab/femcboost
+    # prove it stayed done
+    engine/scripts/install-ack-protocol.sh --repo /Users/alex/ab/femcboost --check
+
+Proven on a COPY of femcboost's 25 definitions in a scratch directory: 26 seams
+filled, block byte-identical across all of them, second run a no-op, --check
+green, and a hand-edited block detected as drift and repaired.

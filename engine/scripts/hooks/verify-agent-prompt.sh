@@ -30,10 +30,11 @@
 #                                  only if you adopt a device/install-fresh
 #                                  pipeline (see reference/advanced-tier/).
 #   6. ack-contract-missing      — a spawn that gets a worktree must carry the
-#                                  in-flight ack contract in its PROMPT, or an
-#                                  auditable `no-inflight-ack:` line. The
-#                                  instruction cannot travel in the message it
-#                                  exists to make verifiable.
+#                                  in-flight ack contract in its PROMPT (the
+#                                  helper name OR the ack path), or an auditable
+#                                  `no-inflight-ack:` line. The instruction
+#                                  cannot travel in the message it exists to
+#                                  make verifiable.
 
 set -eo pipefail
 
@@ -413,12 +414,22 @@ fi
 # left behind by a land, because they are the ones holding a snapshot. A
 # read-only or synchronous subagent holds nothing and is owed nothing.
 #
-# HOW TO SATISFY IT: name scripts/inflight-ack.sh in the prompt. One line:
+# HOW TO SATISFY IT: name either the helper (`inflight-ack.sh`) or the ack path
+# (`inflight-acks/`) in the prompt. One line:
 #
 #   If I message you saying main moved, acknowledge it durably — I cannot rely
 #   on a reply reaching me. Run: scripts/inflight-ack.sh --sha <sha> --impact
 #   <conflict|stale-record|grew-scope|none> --detail "<your own words>"
 #   --paths "<paths or none>"
+#
+# BOTH FORMS ARE ACCEPTED because the FORMAT is the contract, not the script.
+# The engine is loaded by reference, so `scripts/inflight-ack.sh` is not a path
+# that exists inside the governed repository — a teammate reaches the helper at
+# ~/.claude/richos-engine/scripts/inflight-ack.sh, and only if the operator has
+# installed it. A prompt that spells out the ack FILE instead
+# (<worktree>/.claude/inflight-acks/<sha12>.ack and its four keys) has satisfied
+# the requirement completely, and a check that insisted on the script name would
+# be refusing the more robust of the two.
 #
 # HOW TO OPT OUT: a live prompt line starting  no-inflight-ack: <reason>
 # Auditable, visible in the prompt itself, and never silent — the same shape as
@@ -430,10 +441,10 @@ if [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
     ACK_APPLIES=1
   fi
   if [ "$ACK_APPLIES" -eq 1 ]; then
-    if ! printf '%s' "$PROMPT" | grep -qF 'inflight-ack.sh' \
+    if ! printf '%s' "$PROMPT" | grep -qE 'inflight-ack\.sh|inflight-acks/' \
        && ! printf '%s' "$(sanitized_prompt)" | grep -qiE '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
       FAIL=1
-      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — name scripts/inflight-ack.sh and how to run it — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
+      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.ack with its sha/impact/detail/paths keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
     fi
   fi
 fi

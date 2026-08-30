@@ -137,6 +137,10 @@ run_case "worktree spawn without the ack contract"  2 \
     "$(json_agent 'Build the feature in your worktree and commit there.' '{"isolation":"worktree"}')"
 run_case "worktree spawn naming inflight-ack.sh"    0 \
     "$(json_agent 'Build the feature and commit. If I message you that main moved under you, run scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail "..." --paths "..." — I cannot rely on a reply reaching me.' '{"isolation":"worktree"}')"
+# The FORMAT is the contract, not the script — and the script is not even at a
+# path that exists inside a governed repo, because the engine loads by reference.
+run_case "worktree spawn spelling out the ack FILE, no script named" 0 \
+    "$(json_agent 'Build the feature and commit. If main moves under you, write <your worktree>/.claude/inflight-acks/<sha12>.ack with sha/impact/detail/paths — I cannot rely on a reply reaching me.' '{"isolation":"worktree"}')"
 run_case "hand-rolled worktree prompt, no contract" 2 \
     "$(json_agent 'Work only inside the hand-rolled worktree at /tmp/wt/foo and never in the main checkout.')"
 run_case "worktree spawn with the audited opt-out"  0 \
