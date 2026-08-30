@@ -1,0 +1,95 @@
+MUTATION RUNS — app/ui/tests/scale.js
+=====================================
+
+A check that cannot fail proves nothing. Every one of the twelve checks in `scale.js` was
+run RED at least once by breaking the thing it guards IN THE SHIPPED SOURCE — never by
+editing the test — and the file was restored with `git checkout --` after each run.
+
+Engine: WebKit Version/26.5 (Playwright 1.61.1, webkit-2311). Date: 2026-08-30.
+
+THE FOUR THAT DID NOT GO RED THE FIRST TIME, AND WHAT THAT COST
+---------------------------------------------------------------
+This section is the reason the file exists. Four mutations passed, and three of them were
+defects in the CHECKS, not in the mutations:
+
+  * `overflow-y: hidden` on `#conversation` left the scroll check GREEN. `scrollTop` can be
+    set on a container that does not scroll, so a timing-only check passes perfectly on a
+    timeline the CEO cannot scroll at all. The check now asserts the computed `overflow-y`
+    and that the history overflows the viewport by 10x before it times anything.
+
+  * The projection budget was 60ms and the BASELINE it exists to catch was 34ms — it would
+    have passed on the very code it was written against. Now 20ms.
+
+  * Replacing the steering predicate's top-two maximum with a plain maximum left the check
+    GREEN, because every turn in the mix had its prompt written before its own span opened
+    and so the exclusion never had to be decided. Turn `j` was added — prompt ON its own
+    start — which is the only shape in which the guard does any work.
+
+  * `M11` was a broken mutation (guarded by an undefined flag), not a weak check; rewritten
+    to raise a genuine uncaught page error.
+
+THE RUNS
+--------
+
+M1   app/ui/timeline.js — render only the first 500 of the projected turns
+     RED  the fixture really is a 10,000-item thread   turn sections: expected 1000, got 500
+     RED  STRUCTURAL: the other 999 turns keep...      turn count: expected 1000, got 500
+     RED  a streamed delta reaches a reused turn       the prose node must still be on screen
+     RED  NO PAGINATION                                mounted: expected 1000, got 500
+
+M2   app/ui/timeline.js — restore the unconditional teardown before the render loop
+     RED  ONE new activity row does not rebuild        JS half took 70ms (budget 20ms)
+     RED  STRUCTURAL: the other 999 turns keep...      rebuilt ["turn_0","turn_1",... all 1000]
+
+M3   app/ui/timeline.js — the turn signature stops covering `turn.stream`
+     RED  STRUCTURAL: the other 999 turns keep...      rebuilt [] — nothing was rebuilt at all
+     RED  CORRECTNESS: byte-identical to a fresh render  diverges at character 2897790
+     RED  a streamed delta reaches a reused turn       stale prose on screen
+
+M4   app/ui/timeline.js — `onMessageDelta` mutates the item in place again
+     RED  a streamed delta reaches a reused turn       stale prose: "...rather than asserted."
+
+M5   app/ui/style.css — `#conversation { overflow-y: hidden }`
+     RED  scrolling stays at frame rate                not a scroll container — overflow-y is hidden
+
+M5b  app/ui/style.css — `.tl-turn { filter: blur(1px) }` (an expensive paint per turn)
+     RED  scrolling stays at frame rate                p95 8239ms (budget 30ms)
+     RED  opening the thread paints                    first paint 5332ms (budget 900ms)
+
+M6   app/ui/timeline.js — `turnRecord`'s order guard back on every call (per ITEM)
+     GREEN alone: 10,000 items x 1,000 turns is 1e7, which fits inside the budget.
+M6b  app/ui/timeline.js — `orderKey` back to `turnOrder.indexOf` inside the comparator
+     GREEN alone.
+M6+M6b — both, which is the state the branch started from
+     RED  opening the thread paints / not quadratic    model + projection 30ms (budget 20ms)
+
+M7   app/ui/timeline.js — the steering cue keeps the running MAXIMUM, not the top two
+     RED  §9.2's steering cue agrees with the scan     turn_j: fast says steering, brute says not
+
+M8   app/ui/timeline.js — `turnRecord` stops placing a new turn in the order
+     RED  the fixture really is a 10,000-item thread   turns in the model: expected 1000, got 0
+     RED  a turn with a record is always in the order  ["after snapshot: t1", ...]
+
+M9   app/ui/timeline.js — a `Page 1 of 20` control drawn above every turn
+     RED  NO PAGINATION                                page-control wording: ["Page 1"]
+
+M10  app/src-tauri/src/main.rs — the 10,000-entity test renamed away
+     RED  the OTHER promised number has a test         ...is gone from app/src-tauri/src/main.rs
+
+M11  app/ui/timeline.js — `renderTurn` raises an uncaught error on the page
+     RED  no page errors anywhere in this suite        ["Error: mutation M11"]
+
+COVERAGE
+--------
+  1  the fixture really is a 10,000-item thread ........ M1, M8
+  2  ONE new activity row does not rebuild the thread .. M2
+  3  the other 999 turns keep their DOM nodes .......... M2, M3
+  4  byte-identical to a from-scratch render ........... M3
+  5  a streamed delta reaches a reused turn ............ M4
+  6  scrolling stays at frame rate ..................... M5, M5b
+  7  first paint, and the projection is not quadratic .. M5b, M6+M6b
+  8  the steering cue agrees with the scan ............. M7
+  9  a turn with a record is always in the order ....... M8
+ 10  NO PAGINATION ..................................... M1, M9
+ 11  the OTHER promised number has a test .............. M10
+ 12  no page errors .................................... M11

@@ -1674,6 +1674,92 @@ mod navigation_tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// §25 Accessibility and performance: *"A 10,000-entity seeded index remains searchable
+    /// and bounded."*
+    ///
+    /// THE SECOND HALF OF THE ROW THE TIMELINE'S SCALE WORK OPENED, AND IT LIVES HERE, NOT
+    /// IN THE RENDERER. The claim sits in a UX document beside "a 10,000-item thread history
+    /// remains smooth", and the two are different components: the thread history is
+    /// `app/ui/timeline.js` (pinned by `app/ui/tests/scale.js`), the entity index is
+    /// `run_search` above. Neither had a test at either number until 2026-08-30.
+    ///
+    /// SEEDED, NOT ASSUMED. The shipping registry is `EntityRegistry::dogfood()` — FOUR
+    /// entities, hard-coded, because it IS the current registry rather than a default. So
+    /// 10,000 is a scale the product cannot reach today, and this test SEEDS it through
+    /// `Spine::set_entity_registry`, which exists for exactly this. That is stated plainly
+    /// rather than left for a reader to infer from a passing test.
+    ///
+    /// BOUNDED means the RESULT, and that is what is asserted: `hits.truncate(limit)` and
+    /// `limit.clamp(1, 200)` cap what crosses the IPC boundary however many entities match.
+    /// The intermediate work is NOT bounded — steps 1 and 2 push a hit per matching entity
+    /// and per matching thread before the truncate — and this test measures that cost rather
+    /// than claiming it away.
+    #[test]
+    fn a_ten_thousand_entity_index_stays_searchable_and_the_result_stays_bounded() {
+        use richos_core::entity::Entity;
+
+        let (mut spine, path) = spine_from_real_ledger("scale");
+        let mut entities = Vec::with_capacity(10_000);
+        for i in 0..10_000u32 {
+            let root = format!("/Users/alex/ab/seeded/client-{i:05}");
+            // Every one of them matches the query below, which is the worst case: the
+            // truncate is the ONLY thing standing between 10,000 matches and the renderer.
+            entities.push(
+                Entity::new(
+                    &format!("client-{i:05}"),
+                    &format!("Client {i:05}"),
+                    &[root.as_str()],
+                )
+                .unwrap(),
+            );
+        }
+        let seeded = EntityRegistry::new(entities).expect("10,000 distinct ids");
+        assert_eq!(seeded.entities().len(), 10_000);
+        spine.set_entity_registry(seeded);
+
+        let empty = nav::NavState::default();
+
+        let started = std::time::Instant::now();
+        let hits = run_search(&spine, &empty, "client", 40);
+        let elapsed = started.elapsed();
+
+        // SEARCHABLE: 10,000 matching entities and it still answers.
+        assert!(!hits.is_empty(), "a 10,000-entity index must still be searchable");
+        assert!(hits.iter().all(|h| h.kind == "entity"));
+
+        // BOUNDED: the cap holds however many matched.
+        assert_eq!(hits.len(), 40, "the default limit is the ceiling, not a suggestion");
+        assert_eq!(run_search(&spine, &empty, "client", 1).len(), 1);
+        assert_eq!(
+            run_search(&spine, &empty, "client", 100_000).len(),
+            200,
+            "`limit.clamp(1, 200)` caps a caller that asks for everything"
+        );
+
+        // A one-entity query is still exact at this scale — the cap is not a filter.
+        let one = run_search(&spine, &empty, "client-07231", 40);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].entity_label, "Client 07231");
+
+        // The measured number, on demand: `cargo test -- --nocapture`. Captured by default,
+        // so a green run stays silent and the figure is still one flag away.
+        eprintln!(
+            "10,000-entity index: run_search(\"client\", 40) -> {} hits in {:?} (debug build)",
+            hits.len(),
+            elapsed
+        );
+
+        // The number, not an adjective. This runs in debug (`cargo test` builds unoptimized),
+        // so the budget is generous on purpose; it exists to catch an order-of-magnitude
+        // regression such as a per-hit registry rescan, not to police milliseconds.
+        assert!(
+            elapsed.as_millis() < 2_000,
+            "10,000-entity search took {elapsed:?} — that is not `searchable`"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn search_folding_is_index_aligned_so_excerpts_are_not_sliced_in_the_wrong_place() {
         // U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE lowercases to TWO chars
