@@ -71,11 +71,16 @@
 # THE WHOLE TREE, EVERY TIME — MEASURED, NOT ASSUMED
 # ===========================================================================
 # The obvious economy is to check only what the commit touches. It was
-# rejected on the measurement, and the measurement is the argument:
+# rejected on the measurement, and the measurement is the argument. richos
+# @ 6d835be, 589 tracked files, 171 .md/.txt, best-of-5 end to end:
 #
-#   full check, richos @ 6d835be, 589 tracked files, 171 .md/.txt
-#     cold  0.37-0.48s        warm  0.18s
-#   guard-publication-commits.sh, same repository, for comparison   0.151s
+#   a Bash call that is neither a commit nor a push          0.014s
+#   a commit in femcboost / richos-hq (stand-down)           0.076s
+#   a bare commit in richos (full whole-tree check)          0.288s
+#   `git add -A && git commit` (+ the scratch index)         0.302s
+#   a push in richos (full whole-tree check)                 0.275s
+#     of which the predicate itself is                       0.20s
+#   guard-publication-commits.sh here, for comparison        0.091s
 #
 # A scoped check would have bought roughly nothing and cost the only thing that
 # matters here. THREE OF THE FOUR CHECKS ARE NOT DIFFABLE EVEN IN PRINCIPLE:
@@ -88,9 +93,9 @@
 #     definition — it is in the OTHER repository.
 #
 # Scoping to the diff would have produced a guard that passes the commit that
-# introduces the defect and never mentions it again. At 0.18s there is no trade
-# to make, so none is made, and this guard has no "what a scoped check cannot
-# catch" section because it is not scoped.
+# introduces the defect and never mentions it again. At three tenths of a second
+# there is no trade to make, so none is made, and this guard has no "what a
+# scoped check cannot catch" section because it is not scoped.
 #
 # COST DISCIPLINE, so this stays true on a tree ten times the size: the guard
 # times itself and, past COMPLETENESS_SOFT_BUDGET_S, says so on stderr EVEN WHEN
@@ -99,6 +104,34 @@
 # timeout the host kills it, and a killed hook is a SILENT one — which is the
 # defect this file exists to remove, so the advisory fires at a fraction of the
 # timeout rather than at it.
+#
+# ===========================================================================
+# `git add -A && git commit` IS ONE BASH CALL, AND THE HOOK RUNS FIRST
+# ===========================================================================
+# This is not a detail; it is the difference between this guard working and
+# this guard being decorative, and it was found by writing the suite rather
+# than by reading. A PreToolUse hook fires BEFORE the command, so in the
+# dominant commit idiom here — stage and commit in one call — the new files are
+# still UNTRACKED at decision time. `git ls-files` does not list them. The
+# checker is right to define the published tree as what git tracks, and reading
+# it naively at that instant audits the tree MINUS everything the commit is
+# about to add.
+#
+# THE FLYWHEEL README WAS A NEW FILE. Read naively, this guard would have
+# reported today's defect clean and let it through — the failure it exists to
+# prevent, wearing the costume of a green tick.
+#
+# So when the command stages, the checker is handed a SCRATCH INDEX with the
+# staging already applied. See "THE TREE THAT IS ABOUT TO EXIST" below for how,
+# and for why a failure to build that view refuses rather than falls back.
+#
+# NOTED, BECAUSE IT IS NOT MINE TO FIX HERE: guard-publication-commits.sh reads
+# `git diff --cached` at the same instant, so on `git add -A && git commit` it
+# sees an EMPTY staged set and exits 0. That is the LEAK guard — the one that
+# refuses private material — and the hole is in the same place for the same
+# reason. It is reported in this branch's handoff rather than patched, because
+# that file is being edited by another agent this session and a blind cross-edit
+# is how two correct fixes become one broken merge.
 #
 # ===========================================================================
 # THE COST THIS DOES IMPOSE, STATED PLAINLY
@@ -253,10 +286,23 @@ elif re.search(r"\bgit\b[^\n;|&]*\bpush\b", unquoted):
 if not verb:
     print("PASS"); raise SystemExit
 
+# DOES THIS COMMAND STAGE ANYTHING BEFORE IT COMMITS? This is the difference
+# between auditing the tree that exists and auditing the tree that is about to.
+# `git add -A && git commit -m x` is ONE Bash call, and a PreToolUse hook runs
+# BEFORE any of it — so at decision time the new file is still untracked, absent
+# from the index, and invisible to a checker that (correctly) defines the
+# published tree as what git tracks. The flywheel README was a NEW file. Read
+# naively, this guard would have reported it clean and let it through, which is
+# the failure it exists to prevent, wearing the costume of a green tick.
+stages = bool(re.search(r"\bgit\b[^\n;|&]*\badd\b", unquoted)) or \
+         bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)) or \
+         bool(re.search(r"(?:^|\s)--all\b", unquoted))
+
 # An explicit -C names the repository; otherwise the session cwd does. Read
 # from the ORIGINAL command, because a quoted path is a real path.
 m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
-print("%s\t%s" % (verb, m.group(1).strip("\"'") if m else ""))
+print("%s\t%s\t%s" % (verb, m.group(1).strip("\"'") if m else "",
+                      "1" if stages else "0"))
 PYEOF
 
 CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
@@ -266,6 +312,7 @@ case "$VERB" in
   *) exit 0 ;;
 esac
 REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
+STAGES="$(printf '%s' "$CLASS" | cut -f3)"
 
 PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
 try:
@@ -312,6 +359,59 @@ if [ ! -f "$CHECKER" ]; then
     exit 2
 fi
 
+# --- THE TREE THAT IS ABOUT TO EXIST ---------------------------------------
+# When the command stages (`git add …`, or a `-a` commit), the set of published
+# files after it runs is not the set before it. The checker asks git what the
+# tree is, so it is given a SCRATCH INDEX with the staging already applied:
+#
+#   copy the real index -> a temp file
+#   GIT_INDEX_FILE=<temp> git add -A -N
+#
+# `-N` records INTENT only: the path enters the index, no blob is written for
+# it, and the real index is never touched — `git status` afterwards is what it
+# was. `-A` is used rather than replaying the command's own pathspecs because
+# re-executing fragments of somebody's command line is a worse idea than being
+# slightly over-inclusive, and the over-inclusion is honest: an untracked,
+# un-ignored file in a published repository is a file on its way in. It also
+# picks up the reverse case, which is the subtler one — `rm docs/x.md` followed
+# by `git commit -a` leaves x.md in the real index, so a citation of it would
+# still "resolve" against a file that is being deleted.
+#
+# IF THE AUGMENTATION FAILS, THIS REFUSES. Falling back to the plain index
+# would quietly narrow the guard's scope to exactly the blind spot described
+# above, and report a green tick over it.
+if [ "$STAGES" = "1" ]; then
+    CC_IDX="$(mktemp -t completeness-index.XXXXXX 2>/dev/null || true)"
+    CC_REAL_IDX="$(git -C "$CC_REPO" rev-parse --git-path index 2>/dev/null || true)"
+    case "$CC_REAL_IDX" in
+        /*) ;;
+        "") ;;
+        *) CC_REAL_IDX="$CC_REPO/$CC_REAL_IDX" ;;
+    esac
+    if [ -n "$CC_IDX" ] && [ -n "$CC_REAL_IDX" ] && [ -f "$CC_REAL_IDX" ] \
+       && cp "$CC_REAL_IDX" "$CC_IDX" 2>/dev/null \
+       && GIT_INDEX_FILE="$CC_IDX" git -C "$CC_REPO" add -A -N >/dev/null 2>&1; then
+        export GIT_INDEX_FILE="$CC_IDX"
+        trap 'rm -f "$CC_IDX"' EXIT
+    else
+        rm -f "$CC_IDX" 2>/dev/null || true
+        {
+            echo "=== PUBLICATION COMPLETENESS: BROKEN — REFUSING (fail-closed) ==="
+            echo ""
+            echo "  repository : $CC_REPO"
+            echo ""
+            echo "  This command stages files, so the tree to audit is the one that"
+            echo "  exists AFTER it runs, and building that view (a scratch index"
+            echo "  copy plus 'git add -A -N') failed. Carrying on against the"
+            echo "  un-staged index would check a smaller tree than the one about"
+            echo "  to be committed and report a green tick over the difference —"
+            echo "  which is precisely the shape of the defect this guard exists"
+            echo "  to catch. Refusing instead."
+        } >&2
+        exit 2
+    fi
+fi
+
 # ONE PREDICATE, TWO CALLERS. ci-verify.sh step 7 and this hook run the SAME
 # script with the SAME arguments. A second, hook-shaped reimplementation would
 # be the defect class this engine keeps finding in itself — a predicate in two
@@ -327,7 +427,7 @@ OUT="$(printf '%s\n' "$OUT" | sed $'s/\033\\[[0-9;]*m//g')"
 if [ "$ELAPSED" -ge "$COMPLETENESS_SOFT_BUDGET_S" ]; then
     {
         echo "NOTE: guard-completeness-commits.sh took ${ELAPSED}s on $CC_REPO."
-        echo "  Measured at 0.18s warm on a 589-file tree. Past the hooks.json"
+        echo "  Measured at 0.29s on a 589-file tree. Past the hooks.json"
         echo "  timeout the host KILLS this hook, and a killed hook is a silent"
         echo "  one — which is the exact failure this guard was built to remove."
         echo "  Raise the timeout in hooks.json deliberately, or find out what"
