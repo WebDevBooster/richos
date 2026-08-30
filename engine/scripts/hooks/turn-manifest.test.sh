@@ -427,8 +427,42 @@ else bad "f1. empty corpus" "expected 0, got '${EXAMINED0:-<none>}'"; fi
 run "$(payload "$MIXED_TR" "$PID" true)"
 is_empty "g1. stop_hook_active renders NOTHING, so it cannot re-render on a retry"
 
+# g2 WAS MISNAMED, AND THE MISNAMING HID A GAP.
+#
+# It set RICHOS_ENTITY_ROOT to an unadopted directory and expected silence,
+# under the title "a repository that has not adopted the engine". The resolver
+# does not agree: an EXPLICIT root override that carries no orchestration.config
+# resolves to status `broken`, with the reason "an explicitly declared root MUST
+# be an adopted engine root; the resolver will NOT quietly substitute a
+# different one." So this case never exercised the not-adopted path at all — it
+# exercised the hard-failure path, and asserted that a hard failure says nothing
+# the operator can see. It passed only because the banner went to stderr and the
+# harness discards stderr.
+#
+# Split in two, because the two paths must behave OPPOSITELY:
+#   g2  a misconfigured root is a HARD FAILURE and is announced.
+#   g2a a genuinely unadopted directory is NOT APPLICABLE and stays silent.
+# Without g2a, "announce on root failure" could quietly start nagging every
+# session opened outside an adopted repo, which is the noise trap.
 run "$(payload "$MIXED_TR")" "$UNADOPTED"
-is_empty "g2. a repository that has not adopted the engine gets no manifest"
+has "UNAVAILABLE" "g2. a root override pointing at an unadopted directory is a hard failure, and says so where the operator reads"
+
+# g2a — no override at all, and a payload cwd that carries no marker. This is
+# the real not-adopted path: not applicable, therefore silent.
+UNADOPTED_CWD="$SANDBOX/unadopted-cwd"
+mkdir -p "$UNADOPTED_CWD"
+printf '{"session_id":"feedface-0000-4000-8000-000000000000","transcript_path":"%s","cwd":"%s","prompt_id":"%s","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"done"}' \
+    "$MIXED_TR" "$UNADOPTED_CWD" "$PID" > "$SANDBOX/g2a-payload.json"
+# The hook's own working directory has to be unadopted too. `pwd` is the last
+# candidate the resolver tries, and this suite runs from the engine checkout —
+# which IS adopted, so leaving the cwd alone resolves successfully and the case
+# would silently test something else entirely. Caught exactly that way on the
+# first run: it reached the RENDERER and complained about a missing prompt_id.
+LAST_OUT="$(cd "$UNADOPTED_CWD" && env -u RICHOS_ENTITY_ROOT -u CLAUDE_PROJECT_DIR \
+    "$HOOK" < "$SANDBOX/g2a-payload.json" 2>/dev/null)"
+LAST_RC=$?
+[ "$LAST_RC" -eq 0 ] || NON_ZERO_EXITS="$NON_ZERO_EXITS rc=$LAST_RC"
+is_empty "g2a. a genuinely unadopted directory stays silent — not-applicable is not a failure"
 
 LAST_OUT="$(printf 'not json at all' | RICHOS_ENTITY_ROOT="$ENTITY" "$HOOK" 2>/dev/null)"
 LAST_RC=$?

@@ -97,6 +97,31 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- NOTICE CHANNEL --------------------------------------------------------
+# A Stop hook's stand-down and cannot-run notices go to the OPERATOR, never to
+# stderr. The measurement behind that, and the argument for announcing on state
+# change rather than every turn, are in scripts/lib/stop-hook-notice.sh. This
+# block is byte-identical in every Stop hook and stop-hook-visibility.test.sh
+# asserts it, for the reason Layer R asserts the same of the root bootstrap: a
+# divergent copy is one hook disagreeing with its siblings about how it tells
+# you it has stopped working.
+_SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
+if [ -f "$_SHN_LIB" ]; then
+    # shellcheck source=../lib/stop-hook-notice.sh
+    . "$_SHN_LIB"
+else
+    # The helper is the thing that makes these notices visible, so its absence
+    # must not make them invisible. The hook then announces EVERY turn,
+    # undeduplicated, and says why. Degrading toward noise is recoverable by an
+    # operator who can read it; degrading toward silence rebuilds the defect.
+    stop_notice_init() { :; }
+    stop_notice_normal() { :; }
+    stop_notice_abnormal() {
+        printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"NOTICE HELPER MISSING at $_SHN_LIB, so this is unconditional and undeduplicated: ${2:-}\"}"
+        return 0
+    }
+fi
+
 INPUT="$(cat)"
 
 # Resolve the governed repository. All three outcomes end the turn.
@@ -105,6 +130,14 @@ if resolve_entity_root "$INPUT"; then
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
     exit 0
 else
+    # No entity root, so no ledger: this one announces every turn, and should.
+    # A renderer that cannot tell which repository it is describing has nothing
+    # to describe, and a missing manifest looks exactly like a turn that ran no
+    # tools. The full banner still goes to stderr, where the transcript keeps
+    # it for forensics; the operator gets the one line.
+    stop_notice_init "turn-manifest.sh" "" "$INPUT"
+    stop_notice_abnormal "root-failure" \
+        "TURN MANIFEST — UNAVAILABLE: could not resolve which repository it governs, so this turn's tool statuses were not rendered. This is a GAP IN THE RECORD, not a turn that ran nothing. $HOOK_TAG"
     root_failure_banner "scripts/hooks/turn-manifest.sh" >&2
     exit 0
 fi
@@ -112,6 +145,8 @@ fi
 CONFIG="$ENTITY_ROOT/orchestration.config"
 [ -f "$CONFIG" ] && . "$CONFIG"
 : "${SHOW_TURN_MANIFEST:=1}"
+
+stop_notice_init "turn-manifest.sh" "$ENTITY_ROOT" "$INPUT"
 
 # A stand-down is ANNOUNCED THROUGH THE SAME CHANNEL the manifest uses, never
 # on stderr. MEASURED, not assumed: a Stop hook exiting 0 that wrote a unique
@@ -122,8 +157,17 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 # So a stderr notice here would be an opt-out nobody can see: a defence that
 # decays into a rumour, which is the failure the sibling guards warn about in
 # words and this one would have committed in silence.
+#
+# The channel was already right; the CADENCE was not. This notice fired under
+# every turn, and identical text under every turn is text the eye stops reading
+# — at which point the operator has a line on screen reporting the stand-down
+# and no longer reads it, which buys exactly what the stderr notice bought. It
+# now announces on STATE CHANGE, including the change back to normal, so his
+# last-seen notice is always the current state. The argument in full is in
+# scripts/lib/stop-hook-notice.sh.
 if [ "$SHOW_TURN_MANIFEST" = "0" ]; then
-    printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"TURN MANIFEST — STOOD DOWN by SHOW_TURN_MANIFEST=0 in $CONFIG. This turn's tool statuses were not rendered. $HOOK_TAG\"}"
+    stop_notice_abnormal "stood-down" \
+        "TURN MANIFEST — STOOD DOWN by SHOW_TURN_MANIFEST=0 in $CONFIG. This session's tool statuses are not being rendered. $HOOK_TAG"
     exit 0
 fi
 
@@ -131,13 +175,15 @@ fi
 # operator is told, because a manifest that is silently absent looks exactly
 # like a turn that ran no tools.
 if ! command -v python3 >/dev/null 2>&1; then
-    printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"TURN MANIFEST — UNAVAILABLE: python3 is not on PATH, so this turn's tool statuses could not be rendered. This is a GAP IN THE RECORD, not a turn that ran nothing. $HOOK_TAG\"}"
+    stop_notice_abnormal "no-python3" \
+        "TURN MANIFEST — UNAVAILABLE: python3 is not on PATH, so this session's tool statuses cannot be rendered. This is a GAP IN THE RECORD, not turns that ran nothing. $HOOK_TAG"
     exit 0
 fi
 
 RENDERER="$SCRIPT_DIR/turn-manifest.py"
 if [ ! -f "$RENDERER" ]; then
-    printf '%s\n' "{\"suppressOutput\":true,\"systemMessage\":\"TURN MANIFEST — UNAVAILABLE: the renderer is missing at $RENDERER. This is a GAP IN THE RECORD, not a turn that ran nothing. $HOOK_TAG\"}"
+    stop_notice_abnormal "no-renderer" \
+        "TURN MANIFEST — UNAVAILABLE: the renderer is missing at $RENDERER, so this session's tool statuses cannot be rendered. This is a GAP IN THE RECORD, not turns that ran nothing. $HOOK_TAG"
     exit 0
 fi
 
@@ -150,7 +196,35 @@ OUT="$(printf '%s' "$INPUT" | RICHOS_MANIFEST_ENTITY_ROOT="$ENTITY_ROOT" \
 RC=$?
 set -e
 
-if [ "$RC" = "0" ] && [ -n "$OUT" ]; then
-    printf '%s\n' "$OUT"
+if [ "$RC" = "0" ]; then
+    # RC 0 AND NO OUTPUT IS A DESIGNED PATH, NOT A FAILURE. The renderer
+    # deliberately prints nothing on a `stop_hook_active` re-fire, so that a
+    # blocked turn does not re-render its manifest on every retry. An earlier
+    # draft of this stanza treated empty-with-rc-0 as a crash and announced
+    # "the renderer produced nothing" on exactly that path; the suite's case g1
+    # caught it. Only a NON-ZERO rc is a failure here.
+    #
+    # Silent on purpose, and with NO recovery message. Every other Stop hook
+    # gets one, because its healthy state produces no output and the operator
+    # who was told it was off has no other way to learn it came back. This one
+    # is different: the manifest itself is per-turn evidence that it ran, so
+    # the line below IS the recovery notice. Emitting a second systemMessage
+    # alongside it would also mean two JSON documents on one hook's stdout,
+    # which is not a shape the host is known to accept.
+    stop_notice_normal
+    # An explicit `if`, not `[ -n "$OUT" ] && printf`: under `set -e` the
+    # short-circuiting form returns 1 on the empty branch and would end the
+    # hook with rc 1 instead of 0.
+    if [ -n "$OUT" ]; then
+        printf '%s\n' "$OUT"
+    fi
+    exit 0
 fi
+
+# The renderer CRASHED. This used to end the turn in silence, which contradicts
+# this file's own contract at the top — "the one thing it will not do quietly
+# is DEGRADE" — because a missing manifest is indistinguishable from a turn
+# that ran no tools. It is a gap in the record and it is now named as one.
+stop_notice_abnormal "renderer-failed" \
+    "TURN MANIFEST — UNAVAILABLE: the renderer exited $RC, so this session's tool statuses are not being rendered. This is a GAP IN THE RECORD, not turns that ran nothing. $HOOK_TAG"
 exit 0
