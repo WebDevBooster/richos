@@ -1,0 +1,31 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { guardDeletions } from '/Users/alex/ab/richos-wt/norm-substitution-2026-08-30/tools/richos-service/lib/deletion-guard.js';
+import { guardTranscription } from '/Users/alex/ab/richos-wt/norm-substitution-2026-08-30/tools/richos-service/lib/repetition-guard.js';
+import { cutSpan, measureSpanVolume, measureVolume } from '/Users/alex/ab/richos-wt/norm-substitution-2026-08-30/tools/richos-service/lib/normalize.js';
+import { transcribeClips, parseWhisperJson } from '/Users/alex/ab/richos-wt/norm-substitution-2026-08-30/tools/richos-service/lib/transcribe.js';
+const SP='/private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/sub';
+const [run,ch,mode]=process.argv.slice(2);
+const raw=JSON.parse(fs.readFileSync(`${SP}/results/${run}/${ch}.json`,'utf8'));
+const parsed=parseWhisperJson(raw,ch);
+const grid=JSON.parse(fs.readFileSync(`${SP}/results/bursts_${ch}.json`,'utf8'));
+const wav=`${SP}/audio/${ch}.wav`; const peak=measureVolume(wav).maxDb;
+let segs=parsed;
+if(mode==='guarded'){const g=guardTranscription({me:ch==='me'?parsed:[],others:ch==='others'?parsed:[]},{speechBursts:{me:ch==='me'?grid.speech:[],others:ch==='others'?grid.speech:[]}});segs=ch==='me'?g.me:g.others;}
+const dir=`${SP}/clips/del_${run}_${ch}_${mode}`;
+const cachePath=`${SP}/results/delcache_${run}_${ch}.json`;
+const cache=fs.existsSync(cachePath)?JSON.parse(fs.readFileSync(cachePath,'utf8')):{};
+const probe=(spans)=>{const key=(s)=>`${s.startMs}-${s.endMs}`;
+ if(spans.every(s=>cache[key(s)])) return spans.map(s=>cache[key(s)]);
+ fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
+ const t=[],w=[],l=[];
+ spans.forEach((s,i)=>{t.push(cutSpan(wav,s,path.join(dir,`${i}-t.wav`),{padSec:0.3}));w.push(cutSpan(wav,s,path.join(dir,`${i}-w.wav`),{padSec:0.75}));l.push(measureSpanVolume(wav,s));});
+ const texts=transcribeClips([...t,...w],{model:run.startsWith('q5')?'large-v3-turbo-q5_0':'large-v3-turbo'});
+ const fin=(x)=>Number.isFinite(x)?x:null;
+ const res=spans.map((s,i)=>({tight:texts[i]||'',wide:texts[spans.length+i]||'',maxDb:fin(l[i].maxDb),meanDb:fin(l[i].meanDb)}));
+ spans.forEach((s,i)=>{cache[key(s)]=res[i];});fs.writeFileSync(cachePath,JSON.stringify(cache));
+ return res;};
+const {report}=guardDeletions({me:ch==='me'?segs:[],others:ch==='others'?segs:[]},
+ {speechBursts:{me:ch==='me'?grid.speech:[],others:ch==='others'?grid.speech:[]},peaks:{me:peak,others:peak},probe});
+console.log(JSON.stringify({run,ch,mode,segments:segs.length,candidates:report.candidates,probed:report.probed,deletedSpans:report.deletedSpans,deletedSeconds:report.deletedSeconds,unprobed:report.unprobedSpans}));
+fs.rmSync(dir,{recursive:true,force:true});

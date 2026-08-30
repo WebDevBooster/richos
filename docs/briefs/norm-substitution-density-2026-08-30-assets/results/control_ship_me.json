@@ -1,0 +1,402 @@
+{
+ "run": "ship",
+ "ch": "me",
+ "model": "large-v3-turbo",
+ "targets": 8,
+ "fired": 8,
+ "spuriousFindings": 1,
+ "candidates": 12,
+ "probed": 12,
+ "rejected": 3,
+ "rows": [
+  {
+   "startSec": 0,
+   "speechSec": 7,
+   "originalWords": 18,
+   "originalDensity": 2.57,
+   "fired": true
+  },
+  {
+   "startSec": 366.8,
+   "speechSec": 5.4,
+   "originalWords": 14,
+   "originalDensity": 2.6,
+   "fired": true
+  },
+  {
+   "startSec": 977.2,
+   "speechSec": 7.8,
+   "originalWords": 25,
+   "originalDensity": 3.22,
+   "fired": true
+  },
+  {
+   "startSec": 1484.6,
+   "speechSec": 4.2,
+   "originalWords": 16,
+   "originalDensity": 3.77,
+   "fired": true
+  },
+  {
+   "startSec": 1867.5,
+   "speechSec": 4.4,
+   "originalWords": 16,
+   "originalDensity": 3.6,
+   "fired": true
+  },
+  {
+   "startSec": 2754.3,
+   "speechSec": 5.2,
+   "originalWords": 16,
+   "originalDensity": 3.09,
+   "fired": true
+  },
+  {
+   "startSec": 3412,
+   "speechSec": 6.4,
+   "originalWords": 19,
+   "originalDensity": 2.98,
+   "fired": true
+  },
+  {
+   "startSec": 4287.6,
+   "speechSec": 8.4,
+   "originalWords": 29,
+   "originalDensity": 3.44,
+   "fired": true
+  }
+ ],
+ "spurious": [
+  {
+   "startSec": 3386.5,
+   "speechSec": 4.43,
+   "words": 2,
+   "d": 0.451
+  }
+ ],
+ "wholeTranscriptEcho": [
+  {
+   "startSec": 0,
+   "probeWords": 17,
+   "wholeRun": 2,
+   "wholeRatio": 0.6
+  },
+  {
+   "startSec": 366.8,
+   "probeWords": 12,
+   "wholeRun": 5,
+   "wholeRatio": 0.87
+  },
+  {
+   "startSec": 977.2,
+   "probeWords": 19,
+   "wholeRun": 2,
+   "wholeRatio": 0.67
+  },
+  {
+   "startSec": 1484.6,
+   "probeWords": 12,
+   "wholeRun": 2,
+   "wholeRatio": 0.67
+  },
+  {
+   "startSec": 1867.5,
+   "probeWords": 12,
+   "wholeRun": 5,
+   "wholeRatio": 0.89
+  },
+  {
+   "startSec": 2754.3,
+   "probeWords": 11,
+   "wholeRun": 3,
+   "wholeRatio": 0.79
+  },
+  {
+   "startSec": 3386.5,
+   "probeWords": 13,
+   "wholeRun": 2,
+   "wholeRatio": 0.69
+  },
+  {
+   "startSec": 3412,
+   "probeWords": 13,
+   "wholeRun": 3,
+   "wholeRatio": 0.68
+  },
+  {
+   "startSec": 4287.6,
+   "probeWords": 23,
+   "wholeRun": 6,
+   "wholeRatio": 0.69
+  }
+ ],
+ "rejectedRows": [
+  {
+   "startSec": 375.7,
+   "verdict": "matches-audio",
+   "words": 4,
+   "probeWords": 8,
+   "d": 0.942
+  },
+  {
+   "startSec": 3438.5,
+   "verdict": "matches-audio",
+   "words": 4,
+   "probeWords": 4,
+   "d": 0.798
+  },
+  {
+   "startSec": 3927.8,
+   "verdict": "matches-audio",
+   "words": 2,
+   "probeWords": 1,
+   "d": 0.326
+  }
+ ],
+ "report": {
+  "detected": true,
+  "probeAvailable": true,
+  "coverageUnit": "word-times",
+  "windows": 199,
+  "candidates": 12,
+  "probed": 12,
+  "sparseSpans": 9,
+  "sparseSeconds": 53.3,
+  "unprobedSpans": 0,
+  "channelsBelowFloor": [],
+  "findings": [
+   {
+    "channel": "me",
+    "startMs": 0,
+    "endMs": 7973,
+    "speechSec": 7.01,
+    "emittedWords": 4,
+    "density": 0.571,
+    "expectedWords": 8.4,
+    "deficitWords": 4.4,
+    "maxDb": -14.7,
+    "verdict": "under-transcribed",
+    "reason": "7.01s of physically detected speech carries only 4 emitted word(s) (0.571 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 17 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 17,
+    "recoveryRatio": 4.25,
+    "echoWords": 1,
+    "echoRatio": 0.05
+   },
+   {
+    "channel": "me",
+    "startMs": 366845,
+    "endMs": 374289,
+    "speechSec": 5.39,
+    "emittedWords": 4,
+    "density": 0.743,
+    "expectedWords": 6.4,
+    "deficitWords": 2.4,
+    "maxDb": -8.9,
+    "verdict": "under-transcribed",
+    "reason": "5.39s of physically detected speech carries only 4 emitted word(s) (0.743 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 12 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 12,
+    "recoveryRatio": 3,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 977208,
+    "endMs": 985389,
+    "speechSec": 7.77,
+    "emittedWords": 5,
+    "density": 0.643,
+    "expectedWords": 9.3,
+    "deficitWords": 4.3,
+    "maxDb": -11.5,
+    "verdict": "under-transcribed",
+    "reason": "7.77s of physically detected speech carries only 5 emitted word(s) (0.643 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 19 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 19,
+    "recoveryRatio": 3.8,
+    "echoWords": 1,
+    "echoRatio": 0.04
+   },
+   {
+    "channel": "me",
+    "startMs": 1484625,
+    "endMs": 1493933,
+    "speechSec": 4.24,
+    "emittedWords": 4,
+    "density": 0.944,
+    "expectedWords": 5.1,
+    "deficitWords": 1.1,
+    "maxDb": -10.7,
+    "verdict": "under-transcribed",
+    "reason": "4.24s of physically detected speech carries only 4 emitted word(s) (0.944 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 12 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 12,
+    "recoveryRatio": 3,
+    "echoWords": 2,
+    "echoRatio": 0.25
+   },
+   {
+    "channel": "me",
+    "startMs": 1867512,
+    "endMs": 1888178,
+    "speechSec": 4.44,
+    "emittedWords": 4,
+    "density": 0.901,
+    "expectedWords": 5.3,
+    "deficitWords": 1.3,
+    "maxDb": -4.9,
+    "verdict": "under-transcribed",
+    "reason": "4.44s of physically detected speech carries only 4 emitted word(s) (0.901 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 12 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 12,
+    "recoveryRatio": 3,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 2754255,
+    "endMs": 2759441,
+    "speechSec": 5.19,
+    "emittedWords": 4,
+    "density": 0.771,
+    "expectedWords": 6.2,
+    "deficitWords": 2.2,
+    "maxDb": -10.6,
+    "verdict": "under-transcribed",
+    "reason": "5.19s of physically detected speech carries only 4 emitted word(s) (0.771 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 11 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 11,
+    "recoveryRatio": 2.75,
+    "echoWords": 3,
+    "echoRatio": 0.57
+   },
+   {
+    "channel": "me",
+    "startMs": 3386511,
+    "endMs": 3411527,
+    "speechSec": 4.43,
+    "emittedWords": 2,
+    "density": 0.451,
+    "expectedWords": 5.3,
+    "deficitWords": 3.3,
+    "maxDb": -11.2,
+    "verdict": "under-transcribed",
+    "reason": "4.43s of physically detected speech carries only 2 emitted word(s) (0.451 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 13 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 13,
+    "recoveryRatio": 6.5,
+    "echoWords": 2,
+    "echoRatio": 0.15
+   },
+   {
+    "channel": "me",
+    "startMs": 3411962,
+    "endMs": 3422295,
+    "speechSec": 6.37,
+    "emittedWords": 4,
+    "density": 0.628,
+    "expectedWords": 7.6,
+    "deficitWords": 3.6,
+    "maxDb": -10.3,
+    "verdict": "under-transcribed",
+    "reason": "6.37s of physically detected speech carries only 4 emitted word(s) (0.628 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 13 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 13,
+    "recoveryRatio": 3.25,
+    "echoWords": 2,
+    "echoRatio": 0.16
+   },
+   {
+    "channel": "me",
+    "startMs": 4287611,
+    "endMs": 4298354,
+    "speechSec": 8.43,
+    "emittedWords": 4,
+    "density": 0.475,
+    "expectedWords": 10.1,
+    "deficitWords": 6.1,
+    "maxDb": -10.6,
+    "verdict": "under-transcribed",
+    "reason": "8.43s of physically detected speech carries only 4 emitted word(s) (0.475 w/s against this channel's 2.658 w/s), and decoding the window on its own returns 23 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 23,
+    "recoveryRatio": 5.75,
+    "echoWords": 1,
+    "echoRatio": 0.04
+   }
+  ],
+  "rejected": [
+   {
+    "channel": "me",
+    "startMs": 375659,
+    "endMs": 381971,
+    "speechSec": 4.25,
+    "emittedWords": 4,
+    "density": 0.942,
+    "expectedWords": 5.1,
+    "deficitWords": 1.1,
+    "maxDb": -7.8,
+    "verdict": "matches-audio",
+    "reason": "decoded on its own this window returns 8 content word(s) against the 4 the transcript already emits — short of the 1.75x / +5-word recovery floor. The audio here really is this sparse: a slow or emphatic delivery, a long pause inside a burst, or speech the model refuses twice. A thin transcript over thin speech is not a defect",
+    "probeWords": 8
+   },
+   {
+    "channel": "me",
+    "startMs": 3438476,
+    "endMs": 3444693,
+    "speechSec": 5.01,
+    "emittedWords": 4,
+    "density": 0.798,
+    "expectedWords": 6,
+    "deficitWords": 2,
+    "maxDb": -9.4,
+    "verdict": "matches-audio",
+    "reason": "decoded on its own this window returns 4 content word(s) against the 4 the transcript already emits — short of the 1.75x / +5-word recovery floor. The audio here really is this sparse: a slow or emphatic delivery, a long pause inside a burst, or speech the model refuses twice. A thin transcript over thin speech is not a defect",
+    "probeWords": 4
+   },
+   {
+    "channel": "me",
+    "startMs": 3927793,
+    "endMs": 3941126,
+    "speechSec": 6.14,
+    "emittedWords": 2,
+    "density": 0.326,
+    "expectedWords": 7.3,
+    "deficitWords": 5.3,
+    "maxDb": -0.9,
+    "verdict": "matches-audio",
+    "reason": "decoded on its own this window returns 1 content word(s) against the 2 the transcript already emits — short of the 1.75x / +5-word recovery floor. The audio here really is this sparse: a slow or emphatic delivery, a long pause inside a burst, or speech the model refuses twice. A thin transcript over thin speech is not a defect",
+    "probeWords": 1
+   }
+  ],
+  "unprobed": [],
+  "byChannel": {
+   "me": {
+    "bursts": 681,
+    "burstSeconds": 1259.3,
+    "analyzedSpeechSec": 1146.5,
+    "emittedWords": 3569,
+    "windows": 199,
+    "candidates": 12,
+    "probed": 12,
+    "sparseSpans": 9,
+    "sparseSeconds": 53.3,
+    "unprobedSpans": 0,
+    "medianDensity": 2.658,
+    "thresholdWordsPerSec": 1.196,
+    "baselineBelowFloor": false,
+    "probeAvailable": true
+   },
+   "others": {
+    "bursts": 0,
+    "burstSeconds": 0,
+    "analyzedSpeechSec": 0,
+    "emittedWords": 0,
+    "windows": 0,
+    "candidates": 0,
+    "probed": 0,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unprobedSpans": 0,
+    "medianDensity": null,
+    "thresholdWordsPerSec": null,
+    "baselineBelowFloor": false,
+    "probeAvailable": false
+   }
+  }
+ }
+}
