@@ -179,7 +179,7 @@ journalled as the real record shape, measured on disk.
 | what the 2 GB ceiling would hold | 19 hours of dictation |
 
 **The posture, and why.** It reuses the shape and the exact numbers the techy-mode journal already
-committed to (`docs/plans/richos-techy-mode-2026-08-26.md` §2.4) rather than inventing a third thing
+committed to (the techy-mode plan §2.4, in the private record `richos-hq`, not this repository) rather than inventing a third thing
 to reason about:
 
 - **Tier A, the text**: a rolling window, **14 days OR 5,000 records**, whichever binds first,
