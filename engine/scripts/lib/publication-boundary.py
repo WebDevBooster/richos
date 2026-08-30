@@ -17,6 +17,7 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
         "corpus_max_files": 4000,
         "corpus_max_bytes": 67108864,
         "items_max_files": 5000,
+        "corpus_may_be_empty": false,
         "sources": ["/abs/path/to/private/tree", ...],
         "items":   [{"label": "docs/x.md", "path": "/tmp/blob"},
                     {"label": "docs/y.md", "text": "inline content"},
@@ -34,6 +35,22 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
       BLOCK <TAB> label <TAB> detector <TAB> evidence
       BROKEN <TAB> reason
       CLEAN
+
+  plus, as the LAST line of every completed analysis, what the run examined:
+
+      CORPUS <TAB> member-files <TAB> corpus-words
+
+  That trailer is the oracle for "this verdict was reached by looking". A CLEAN
+  from a scanner whose corpus was empty is indistinguishable, from the outside,
+  from a CLEAN that examined 130,000 words — and a regression test can pass for
+  precisely the reason the scanner failed. It is emitted last because both
+  shell callers dispatch on `head -1 | cut -f1` and pb_refusal skips non-BLOCK
+  lines, so it extends the contract without altering it.
+
+  An EMPTY corpus is not a CLEAN. When sources were declared and resolved and
+  none of their files qualified as private speech, the answer is BROKEN — see
+  the vacuity floor in main(). CORPUS_MAY_BE_EMPTY in the declaration is the
+  committed way to state that a repository has no private corpus yet.
 
   Any other output shape is a contract violation the caller treats as
   fail-closed. Exit status is 0 for a completed analysis (clean or blocking),
@@ -646,6 +663,52 @@ def main():
         print("BROKEN\t%s" % exc)
         return 2
 
+    # --- THE VACUITY FLOOR ---------------------------------------------------
+    # A scan that read NOTHING must never report CLEAN.
+    #
+    # Everything below this line is conditional on the corpus. `corpus_index` is
+    # an empty set when the corpus is empty, verbatim_run returns None on an
+    # empty index, and the run prints CLEAN — a guard reporting that it found no
+    # private material when it never had any private material to compare
+    # against. That is the same shape as the "no media committed" check this
+    # whole mechanism replaced, and as the "18/18 suites" tally that described a
+    # glob instead of an inventory: a claim whose scope quietly excluded the
+    # thing it was supposed to cover.
+    #
+    # It has already bitten once, silently. pb_resolve_sources documents it: in
+    # a linked worktree `../richos-hq` resolved to a path that does not exist,
+    # the corpus detector went inert in exactly the place all the work happens,
+    # and the only symptom was one honest line in a message nobody reads on a
+    # PASS. That fix made the path resolve. This makes the SILENCE impossible.
+    #
+    # The condition is derived, not chosen: sources were declared AND they
+    # resolved to trees that exist AND not one file in them qualified as private
+    # speech. A declared source that is simply not on this machine is skipped
+    # upstream and never reaches here, which is deliberate and documented.
+    #
+    # Deliberately NOT a size threshold. "Unexpectedly small" cannot be derived
+    # from anything — any word count would be a magic number that either never
+    # fires or fires on a legitimate small private record — and this file's own
+    # rule is that a number nobody measured does not ship. Empty is the one
+    # threshold that means something on its own.
+    #
+    # The way through is CORPUS_MAY_BE_EMPTY in the declaration: committed,
+    # diffable, reviewed by whoever lands it — the same affordance ALLOWLIST is,
+    # for the same reason, and pointedly not an in-the-moment override.
+    if sources and not members and not job.get('corpus_may_be_empty'):
+        print("BROKEN\tthe declared PRIVATE_SOURCES resolved to %d tree(s) on "
+              "this machine, and NOT ONE file in them qualified as private "
+              "speech. The derived-from-private detector — the only one that "
+              "catches speech quoted inside ordinary prose — therefore had "
+              "nothing to compare against and would have reported this content "
+              "clean without examining a single private word. Refusing to scan "
+              "an empty corpus and report the result as clean. Either point "
+              "PRIVATE_SOURCES at the trees that actually hold recordings, or "
+              "set CORPUS_MAY_BE_EMPTY=1 in the declaration to state on the "
+              "record that this repository has no private corpus yet."
+              % len(sources))
+        return 2
+
     corpus_index = index_corpus(corpus, min_quote) if corpus else set()
 
     findings = []
@@ -684,11 +747,28 @@ def main():
                 '%d+ timestamped speaker lines / caption cues' % n,
             ))
 
+    # --- THE ORACLE ---------------------------------------------------------
+    # What this run actually examined, emitted on every completed analysis so a
+    # caller — or a test — can assert that a CLEAN verdict was reached by
+    # LOOKING rather than by reading nothing.
+    #
+    # A regression test for a scanner can pass for the same reason the scanner
+    # can fail: because the corpus was empty and there was nothing to find. That
+    # is the exact defect this file is about, and a suite with no way to tell the
+    # two apart would be the defect reproduced one level up — which has happened
+    # here before, in this suite's own tally and its own fixture filenames.
+    #
+    # Emitted LAST, never first: both shell callers dispatch on `head -1 | cut
+    # -f1`, and pb_refusal skips every line that is not a BLOCK, so a trailing
+    # line is additive to the contract rather than a change to it.
+    trailer = "CORPUS\t%d\t%d" % (len(members), len(corpus.split()))
     if not findings:
         print("CLEAN")
+        print(trailer)
         return 0
     for row in findings:
         print('\t'.join(row))
+    print(trailer)
     return 0
 
 

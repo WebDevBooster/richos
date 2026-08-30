@@ -752,6 +752,108 @@ fi
 rm -rf "$SB_MP"
 
 # ---------------------------------------------------------------------------
+# (i3) THE VACUITY FLOOR — a scan that read NOTHING must never report CLEAN.
+#
+# The derived-from-private detector is conditional on the corpus: an empty
+# corpus means an empty index, verbatim_run returns None, and the run prints
+# CLEAN. A guard announcing it found no private material when it never had any
+# private material to compare against — the "no media committed" check wearing
+# a different hat, and the "18/18 suites" tally that described a glob instead
+# of an inventory.
+#
+# This is not a hypothetical either: pb_resolve_sources records the day
+# `../richos-hq` resolved, inside a linked worktree, to a path that does not
+# exist. The sharpest detector this mechanism has went inert in exactly the
+# place all the work happens, and the only symptom was one honest line in a
+# message nobody reads on a PASS. That fix made the path resolve. These cases
+# make the silence impossible.
+#
+# The LAST case is the negative control for this entire suite: it asserts the
+# scanner reports what it examined, so a green run cannot mean "every case
+# passed because the corpus was empty" — which is the very failure under test.
+# ---------------------------------------------------------------------------
+SB_V="$(make_sandbox "$(default_declaration)")"
+rm -f "$SB_V/private/recording.transcript.txt"
+make_speech_lines 30 30 2024 > "$SB_V/private/ordinary-engineering-notes.md"
+
+write_case "a declared private tree with no speech in it is BROKEN" 2 Write \
+    "$SB_V/docs/anything.md" "$SB_V" "$HELLO"
+msg_case "  ... and it says it refuses to scan an empty corpus" \
+    "Refusing to scan an empty corpus" Write \
+    "$SB_V/docs/anything.md" "$SB_V" "$HELLO"
+msg_case "  ... and it names the way through" \
+    "CORPUS_MAY_BE_EMPTY=1" Write \
+    "$SB_V/docs/anything.md" "$SB_V" "$HELLO"
+
+# The commit arm shares the predicate, so it shares the floor.
+cp "$HELLO" "$SB_V/docs/anything.md"
+git -C "$SB_V" add docs/anything.md >/dev/null 2>&1
+if bash_payload "git commit -m x" "$SB_V" | "$COMMIT_HOOK" >/dev/null 2>&1; then
+    bad "the commit arm also refuses an empty corpus"
+else
+    ok "the commit arm also refuses an empty corpus"
+fi
+git -C "$SB_V" reset -q >/dev/null 2>&1
+rm -rf "$SB_V"
+
+# The sanctioned way through is committed and diffable, like ALLOWLIST and
+# unlike an in-prompt token — the failure being fixed here was in-the-moment
+# judgment, so there is no in-the-moment override.
+SB_VE="$(make_sandbox "$(default_declaration)" 'CORPUS_MAY_BE_EMPTY=1')"
+rm -f "$SB_VE/private/recording.transcript.txt"
+write_case "CORPUS_MAY_BE_EMPTY=1 is the committed way through" 0 Write \
+    "$SB_VE/docs/anything.md" "$SB_VE" "$HELLO"
+rm -rf "$SB_VE"
+
+SB_VB="$(make_sandbox "$(default_declaration)" 'CORPUS_MAY_BE_EMPTY=maybe')"
+write_case "a non-boolean CORPUS_MAY_BE_EMPTY is BROKEN" 2 Write \
+    "$SB_VB/docs/anything.md" "$SB_VB" "$HELLO"
+msg_case "  ... and it says so by name" "CORPUS_MAY_BE_EMPTY must be 0 or 1" \
+    Write "$SB_VB/docs/anything.md" "$SB_VB" "$HELLO"
+rm -rf "$SB_VB"
+
+# --- THE NEGATIVE CONTROL --------------------------------------------------
+# Every case above asserts a VERDICT. A verdict is exactly what an empty corpus
+# produces for free, so the suite also asserts the scan looked at something:
+# the scanner reports its corpus size on the last line of every completed
+# analysis, and these two cases read it.
+SB_OR="$(make_default_sandbox)"
+scan_corpus_trailer() { # <sources-dir> <content-file> -> "files<TAB>words"
+    local job
+    job="$(mktemp "$SCRATCH/job.XXXXXX")"
+    PB_SRC_DIR="$1" PB_TXT="$2" PB_JOB="$job" python3 -c '
+import json, os
+job = {"min_speech_lines": 8, "min_quote_words": 10,
+       "sources": [os.environ["PB_SRC_DIR"]],
+       "items": [{"label": "probe", "path": os.environ["PB_TXT"]}]}
+open(os.environ["PB_JOB"], "w", encoding="utf-8").write(json.dumps(job))
+'
+    python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$job" \
+        | grep '^CORPUS' | cut -f2,3
+}
+
+TRAILER="$(scan_corpus_trailer "$SB_OR/private" "$CODE")"
+TR_FILES="$(printf '%s' "$TRAILER" | cut -f1)"
+TR_WORDS="$(printf '%s' "$TRAILER" | cut -f2)"
+if [ -n "$TR_FILES" ] && [ "$TR_FILES" -ge 1 ] 2>/dev/null &&
+   [ -n "$TR_WORDS" ] && [ "$TR_WORDS" -gt 0 ] 2>/dev/null; then
+    ok "a CLEAN verdict reports the non-empty corpus it examined"
+else
+    bad "a CLEAN verdict reports the non-empty corpus it examined (got files='$TR_FILES' words='$TR_WORDS')"
+fi
+
+# And the same trailer on a BLOCKING run, so the oracle is not itself
+# conditional on the verdict.
+TRANSCRIPT_F="$(make_transcript | tf)"
+TRAILER_B="$(scan_corpus_trailer "$SB_OR/private" "$TRANSCRIPT_F")"
+if [ -n "$TRAILER_B" ]; then
+    ok "a BLOCKING verdict reports its corpus too"
+else
+    bad "a BLOCKING verdict reports its corpus too (no CORPUS line)"
+fi
+rm -rf "$SB_OR"
+
+# ---------------------------------------------------------------------------
 # (j) FAIL-OPEN / FAIL-CLOSED conventions.
 # ---------------------------------------------------------------------------
 rc=0; printf 'not json at all' | "$WRITE_HOOK" >/dev/null 2>&1 || rc=$?

@@ -527,6 +527,7 @@ JOB="$WORK/job.json"
 PB_MANIFEST="$WORK/manifest" PB_JOB="$JOB" \
   PB_MIN_SPEECH="$PB_MIN_SPEECH_LINES" PB_MIN_QUOTE="$PB_MIN_QUOTE_WORDS" \
   PB_MAX_FILES="$PB_CORPUS_MAX_FILES" PB_MAX_BYTES="$PB_CORPUS_MAX_BYTES" \
+  PB_MAY_BE_EMPTY="$PB_CORPUS_MAY_BE_EMPTY" \
   PB_SOURCES_RAW="$PB_SOURCES_OK" \
   python3 -c '
 import json, os
@@ -543,6 +544,7 @@ job = {
     "min_quote_words": int(os.environ.get("PB_MIN_QUOTE", "10")),
     "corpus_max_files": int(os.environ.get("PB_MAX_FILES", "4000")),
     "corpus_max_bytes": int(os.environ.get("PB_MAX_BYTES", "67108864")),
+    "corpus_may_be_empty": os.environ.get("PB_MAY_BE_EMPTY", "0") == "1",
     "sources": [s for s in os.environ.get("PB_SOURCES_RAW", "").split("\t") if s],
     "items": items,
 }

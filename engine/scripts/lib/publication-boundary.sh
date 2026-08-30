@@ -192,7 +192,7 @@ _PB_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Every key the declaration may carry. A key outside this set is a typo, and a
 # typo that silently does nothing is the defect class this whole file exists to
 # remove — so it is refused, loudly, by name.
-_PB_KNOWN_KEYS="PRIVATE_RECORD PRIVATE_SOURCES MIN_SPEECH_LINES MIN_QUOTE_WORDS ALLOWLIST CORPUS_MAX_FILES CORPUS_MAX_BYTES"
+_PB_KNOWN_KEYS="PRIVATE_RECORD PRIVATE_SOURCES MIN_SPEECH_LINES MIN_QUOTE_WORDS ALLOWLIST CORPUS_MAX_FILES CORPUS_MAX_BYTES CORPUS_MAY_BE_EMPTY"
 
 # ---------------------------------------------------------------------------
 # pb_physical <path>
@@ -272,6 +272,11 @@ pb_load_declaration() {
     PB_ALLOWLIST=""
     PB_CORPUS_MAX_FILES="4000"
     PB_CORPUS_MAX_BYTES="67108864"
+    # An empty corpus is BROKEN, not CLEAN — see the vacuity floor in
+    # publication-boundary.py. This is the committed way to say "this
+    # repository genuinely has no private corpus yet", in the spirit of
+    # ALLOWLIST and pointedly not an in-the-moment override.
+    PB_CORPUS_MAY_BE_EMPTY="0"
     PB_BROKEN_REASON=""
 
     [ -n "$root" ] || return 1
@@ -324,6 +329,7 @@ pb_load_declaration() {
             ALLOWLIST)        PB_ALLOWLIST="$val" ;;
             CORPUS_MAX_FILES) PB_CORPUS_MAX_FILES="$val" ;;
             CORPUS_MAX_BYTES) PB_CORPUS_MAX_BYTES="$val" ;;
+            CORPUS_MAY_BE_EMPTY) PB_CORPUS_MAY_BE_EMPTY="$val" ;;
         esac
     done < "$f"
 
@@ -340,6 +346,12 @@ pb_load_declaration() {
         PB_BROKEN_REASON="MIN_SPEECH_LINES=$PB_MIN_SPEECH_LINES is below the floor of 3"
         return 2
     fi
+    case "$PB_CORPUS_MAY_BE_EMPTY" in
+        0|1) ;;
+        *)
+            PB_BROKEN_REASON="CORPUS_MAY_BE_EMPTY must be 0 or 1, not '$PB_CORPUS_MAY_BE_EMPTY'. It switches off the refusal to scan an empty corpus, so a value this guard cannot read is not something to guess at."
+            return 2 ;;
+    esac
     return 0
 }
 
