@@ -80,6 +80,11 @@ app/
                               the proactive-attention seam + stop settlement at the boundary
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
+    src/feedback.rs          the in-app feedback channel, LOCAL HALF ONLY: the 1/2/3/0 rating
+                              prompt, its one-file store, and the VERSIONED CLOSED VOCABULARY a
+                              report is assembled from — FeedbackPayload has no String field at
+                              any depth, so a user's specifics are unrepresentable rather than
+                              filtered. Nothing in it sends anything and there is no queue
     examples/acp_roundtrip.rs      headless proof of the real ACP round-trip
     examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
@@ -103,6 +108,11 @@ app/
     tests/acp_cancel_tests.rs 3 session/cancel tests against a REAL CHILD PROCESS over real
                               stdio (a POSIX-sh fake adapter the test writes itself), in two
                               variants: compliant, and deliberately deaf to session/cancel
+    tests/feedback_no_outbound_tests.rs 4 tests asserting an ABSENCE: no transport in the
+                              module's shipping code, no network-capable dependency in the
+                              crate, no other module consuming the feature, and an approval
+                              that lands in one file with no sibling left for anything to
+                              pick up. Each proven to FAIL when broken
     tests/timeline_tests.rs  7 typed-timeline tests: the cross-entity machinery NEGATIVE
                               CONTROL (both clauses proven failing when removed — one leaks
                               a row, one leaks THROUGH the toolCallId merge), the one shared
@@ -205,11 +215,56 @@ Three limits, stated rather than discovered later:
 Not built here, deliberately: the per-thread toggle, `techy_default`, any renderer, and any
 control whatsoever. Techy mode is a window, not a cockpit.
 
+## Feedback channel — the local half (v1)
+
+RichOS asks `How is RichOS doing this session?` with four keys — `1` Bad, `2` OK but
+could be better, `3` Good, `0` Dismiss. On `1` or `2` it offers to let Rich tell the
+RichOS developers, **fully anonymized and generically**, what annoyed the user and why it
+happened. Before that could ever travel, the user sees exactly what would be said.
+
+**This version has no outbound half at all.** No transport, no endpoint, and deliberately
+no queue for a later version to find and flush. `tests/feedback_no_outbound_tests.rs`
+asserts that four ways rather than promising it in a comment.
+
+**The taxonomy is the feature, and it is a type problem rather than a filter problem.**
+A filter reads free text and decides whether it is safe. `FeedbackPayload` has no `String`
+field at any depth: a report is assembled from a closed, versioned vocabulary of terms
+that were authored once and compiled in, so there is nowhere for the user's specifics to
+sit. It is the same move as `Timeline` refusing to implement `Serialize` — the unsafe
+thing does not exist, rather than being caught.
+
+Why a filter would not have done, on the reference case this was built against: one of its
+negative controls contains **no proper nouns at all** and is still disqualifying, because
+it discloses what the user does for a living. It reads "generic" both to the model that
+wrote it and to the human asked to approve it. Nothing that inspects prose catches that
+class reliably.
+
+What is pinned, and where:
+
+| Claim | Held by |
+|---|---|
+| Free text cannot enter a payload | two `compile_fail` doctests on `FeedbackPayload`, with a positive control beside them |
+| Prose is refused at the JSON boundary in every smuggling shape | `negative_control_*` tests (diagnosis field, term list, condition list, failure class, and an extra field) |
+| The reference case's target payload IS expressible | `positive_control_the_reference_cases_target_payload_is_expressible` — without it the rejection tests could pass by rejecting everything |
+| The rendered report matches the target byte for byte | `the_reference_case_target_payload_renders_exactly_this` |
+| Everything the feature can say is a finite word set | all 60,960 expressible reports are rendered and every token checked against the vocabulary |
+| A change to the vocabulary needs a version bump | `vocabulary_fingerprint()` pinned in a test |
+| The user cannot be asked to consent to a report he was never shown | `ApprovedReport` has a private field; the only public constructor is `Disclosure::approve()` |
+
+Two limits, stated rather than discovered later:
+
+1. **The prompt is the fallback, not the capture mechanism.** In the reference case all
+   five moments of real annoyance were volunteered mid-work, unprompted; none arrived at
+   session end. A prompt fired at a chosen moment would have caught none of them at the
+   moment they were felt. Catching what is already being said is a larger, later piece.
+2. **No UI.** This is the spine's half: the prompt's wording, the persistence, the
+   vocabulary and the renderer. Nothing in `app/ui/` or `app/src-tauri/` calls it yet.
+
 ## Build & test
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 97/97 green
+cargo test -p richos-core                       # 342/342 green (lib + tests/ + doctests)
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 121/121 green

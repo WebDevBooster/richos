@@ -32,12 +32,18 @@
 //!   - `worker_events` — the CONSUMER of the engine's worker-lifecycle stream: the four
 //!                     states it can witness, and the three it refuses to invent.
 //!   - `worker_status` — the optional AI-worker drill-down, read from the engine's event logs.
+//!   - `feedback`  — the in-app feedback channel's LOCAL half: the rating prompt, its
+//!                   on-disk persistence, and the VERSIONED CLOSED VOCABULARY a report is
+//!                   assembled from — a payload with no free-text field anywhere in it, so
+//!                   the user's specifics are unrepresentable rather than filtered out.
+//!                   Nothing in it sends anything, and its tests assert that.
 
 pub mod acp;
 pub mod cognition;
 pub mod correction;
 pub mod config;
 pub mod entity;
+pub mod feedback;
 pub mod journal;
 pub mod ledger;
 pub mod loro;
@@ -55,6 +61,12 @@ pub mod worker_status;
 
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
+pub use feedback::{
+    render_disclosure, ApprovedReport, ContributingCondition, DiagnosisTerm, Disclosure,
+    FailureClass, FeedbackEntry, FeedbackPayload, FeedbackStore, Occurrences, PromptOutcome,
+    Rating, ReportDecision, TaxonomyError, TaxonomyVersion, DISCLOSURE_HEADING, PROMPT_OPTIONS,
+    PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
+};
 pub use entity::{
     Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
     ThreadBinding, ThreadEntity,
