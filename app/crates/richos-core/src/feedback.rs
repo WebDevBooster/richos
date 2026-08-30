@@ -746,8 +746,8 @@ pub fn vocabulary_fingerprint() -> u64 {
 /// The second sentence is the honest state of this version and must be corrected, not
 /// deleted, on the day a transport exists.
 pub const DISCLOSURE_HEADING: &str = "This is exactly what your Rich would report. \
-In this version it is written to this machine and nowhere else — RichOS has no way to \
-transmit it.";
+In this version it is written to this machine and nowhere else; nothing in RichOS can \
+carry it any further.";
 
 /// The width the folded blocks wrap to, chosen to read comfortably in a narrow panel.
 const WRAP_COLUMNS: usize = 76;
