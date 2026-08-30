@@ -77,7 +77,7 @@ pub mod worker_status;
 pub use belief::{BeliefAsk, BeliefDetection, BeliefRejection, ValueClass};
 pub use heard::{DictationEntry, DictationJournal, HeardMatch, HeardReview, HeardSource};
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
-pub use config::{Assertiveness, ConfigStore};
+pub use config::{Assertiveness, ConfigStore, TechyMode, TechySource};
 pub use feedback::{
     render_disclosure, ApprovedReport, ContributingCondition, DiagnosisTerm, Disclosure,
     FailureClass, FeedbackEntry, FeedbackPayload, FeedbackStore, Occurrences, PromptOutcome,
