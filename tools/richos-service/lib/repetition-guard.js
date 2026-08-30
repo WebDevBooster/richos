@@ -83,25 +83,43 @@
  *     deliberate: it is the same doctrine as the rest of this file (a guard that eats legitimate
  *     speech is worse than none), applied where the evidence is one-sided.
  *
- *     It is also deliberately NOT used on phrases shorter than `minWordsForBurstVeto` words. A
- *     1-2 word phrase ("Okay." "Yeah." "Thank you.") fits inside any burst, so the ceiling carries
- *     no signal there and would veto everything; short runs keep the old text-only behavior and
- *     the old `minRunShort` protection. A short genuine repetition can therefore still be
- *     collapsed — that is a KNOWN residual, not an oversight.
+ *     THERE IS NO LONGER A WORD FLOOR ON THE VETO, and the floor that used to be here was removed
+ *     on measurement rather than on argument (2026-08-30). It read `minWordsForBurstVeto: 3`,
+ *     because a 1-2 word phrase ("Okay." "Yeah.") fits inside any burst, so the DURATION half of
+ *     the ceiling carries no signal there. That much is true. What it missed is that the ceiling
+ *     has a second half which does not depend on phrase length at all: a burst is a separate
+ *     speech EVENT, and K deliveries need K of them inside the run's own span however short the
+ *     phrase is. Below three words the ceiling stops being "does it fit?" and becomes "how many
+ *     times did this channel start speaking in here?" — looser, but still a ceiling, and still
+ *     one-directional.
+ *
+ *     Measured on the 31 findings of the 72 that sit below the old floor: the clamp preserves the
+ *     last genuine delivery the veto was still deleting, and it preserves ZERO runs outright — the
+ *     old prediction that the ceiling "would veto everything" below three words does not happen at
+ *     `burstFitSlack: 0.6`, because these runs sit over spans holding 0-2 bursts, not 6-47.
+ *
+ *     AND THE CHANGE CANNOT COST A FALSE POSITIVE, by construction rather than by luck. Below the
+ *     old floor the guard's behavior was exactly `keep = 1`; with the clamp it is
+ *     `keep = max(1, min(runLen, capacity)) >= 1`. Every phrase length is now strictly more
+ *     conservative than, or identical to, what shipped. Only false NEGATIVES can grow, and the CEO
+ *     constraint this guard lives under prices those as the cheap failure.
  *
  *     Both veto parameters were swept against the 72 hand-verified findings rather than asserted
  *     (`minWordsForBurstVeto` x `burstFitSlack`, genuine deliveries still deleted of the 13 the
- *     shipped guard destroyed / extra fabricated segments that survive out of 2,376 removed):
+ *     text-only guard destroyed / extra fabricated segments that survive out of 2,376 removed):
  *
  *                 slack 0.6      slack 0.8      slack 1.0
- *       minW 3     1 / 156        2 / 126        4 / 103
- *       minW 4     2 / 154        3 / 124        5 / 102
- *       minW 5+    2 / 154        3 / 124        5 / 102     (no 4-5 word finding in the corpus)
+ *       minW 1     0 / 220        1 / 186        3 / 154     <- shipped
+ *       minW 2     1 / 173        2 / 143        4 / 111
+ *       minW 3     1 / 168        2 / 138        4 / 106
+ *       minW 4+    2 / 165        3 / 135        5 / 105     (no 4-5 word finding in the corpus)
  *
- *     3 / 0.6 is chosen: the most protective corner. The right-hand cost column is measured in the
- *     PRE-fix world (`-mc -1`, 2,376 collapsed segments) which is no longer shipped; in the
- *     post-fix world the same four channels produce two findings total, both genuine retakes, so
- *     that cost is ~zero and only the protection is left. See
+ *     1 / 0.6 is chosen: the most protective corner, and the only cell in the grid that deletes NO
+ *     genuine speech at all. The right-hand cost column is measured in the PRE-fix world
+ *     (`-mc -1`, 2,376 collapsed segments) which is no longer shipped; in the post-fix world the
+ *     same four channels produce two findings total, both genuine retakes, and the extra cost of
+ *     minW 1 over minW 3 there is ZERO segments. See
+ *     `docs/briefs/norm-brief-repetition-residual-2026-08-30.md` and
  *     `docs/briefs/norm-brief-longform-fix-2026-08-29.md` §4.
  *
  *     AND NOTE WHAT THE DECODE FIX DID TO THIS CLASS. Since `MAX_CONTEXT_TOKENS = 0`
@@ -214,7 +232,9 @@ const DEFAULT_OPTS = {
   speechBursts: null, // {startMs,endMs}[] for THIS channel, time-ordered
   maxWordsPerSecond: 3.3, // 198 wpm — a deliberately GENEROUS ceiling, so `needSec` is a hard floor
   burstFitSlack: 0.6, // silencedetect clips burst edges; accept a burst at 60% of the floor
-  minWordsForBurstVeto: 3, // a 1-2 word phrase fits in any burst, so the ceiling carries no signal
+  // No word floor: below three words the ceiling is a count of separate speech events rather than a
+  // duration fit, which is looser but still one-directional. Swept, not asserted — see the header.
+  minWordsForBurstVeto: 1,
 
   // ---- class 2: persistent ordinal-marker insertion -------------------------------------------
   // ALL FOUR must hold before the channel is called contaminated. The captured artifact clears each

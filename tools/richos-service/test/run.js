@@ -1088,20 +1088,46 @@ test('the veto collapses PARTIALLY when the audio holds some deliveries but not 
   assert.equal(r.loops[0].burstCapacity, 2);
 });
 
-test('the veto is inert on short phrases, where a burst ceiling carries no signal', () => {
-  // "Okay." fits in any burst; using capacity there would veto every short collapse. Documented
-  // residual: a short genuine repetition can still be collapsed.
+test('a SHORT repeated phrase is clamped to what the audio holds — the 2026-08-30 residual, closed', () => {
+  // The SHAPE of `turbo#2` in the 72 hand-verified findings: whisper emitted a one-word phrase six
+  // times at 829.9-833.9 s and the man said it TWICE. Under the old 3-word veto floor this collapsed
+  // to one and destroyed a real delivery — the last surviving false positive of the eight.
+  // The word below is INVENTED, like every other fixture line in this file: what the test turns on
+  // is the phrase's LENGTH and the burst structure under it, never which word it was. The corpus is
+  // the CEO's private webinar and it does not get quoted here.
+  const segs = [0, 1, 2, 3, 4, 5].map((i) => ({
+    startMs: 829900 + i * 600, endMs: 829900 + i * 600 + 500, text: 'Anyway...', speaker: 'me',
+  }));
+  const bursts = [{ startMs: 829900, endMs: 831200 }, { startMs: 832100, endMs: 833900 }];
+  const r = guardChannel(segs, { speechBursts: bursts });
+  assert.equal(r.loops[0].burstCapacity, 2, 'the audio starts twice in this span, so it holds at most two');
+  assert.equal(r.loops[0].kept, 2, 'both real deliveries survive');
+  assert.equal(r.removed, 4, 'and the four the model invented do not');
+});
+
+test('a short phrase over SILENCE still collapses to one — the clamp is a ceiling, not an amnesty', () => {
   const segs = [0, 1, 2, 3, 4, 5].map((i) => ({ startMs: i * 4000, endMs: i * 4000 + 3000, text: 'Okay.', speaker: 'me' }));
-  const bursts = segs.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
-  const withProbe = guardChannel(segs, { speechBursts: bursts });
-  const without = guardChannel(segs);
-  assert.equal(withProbe.removed, without.removed, 'short runs keep the old text-only behavior');
+  assert.equal(guardChannel(segs, { speechBursts: [] }).removed, 5, 'no bursts, no protection');
+  // One burst that covers the whole span is ONE speech event, so one delivery — not six.
+  const one = guardChannel(segs, { speechBursts: [{ startMs: 0, endMs: 23000 }] });
+  assert.equal(one.removed, 5);
+  assert.equal(one.loops[0].kept, 1);
 });
 
 test('the veto can only REFUSE a collapse, never cause one (strictly more conservative)', () => {
   // Burst capacity is a ceiling, not proof of delivery, so adding the probe must never remove more.
-  for (const fixture of [largeV3Hallucination, REAL_RETAKE_X3]) {
-    for (const bursts of [[], REAL_RETAKE_BURSTS, [{ startMs: 0, endMs: 60000 }]]) {
+  // SHORT phrases are in this loop since 2026-08-30, when the veto's 3-word floor was removed: the
+  // safety of that change is not a measurement, it is `keep = max(1, min(runLen, capacity)) >= 1`,
+  // and this is the assertion that holds the property at every phrase length the file has.
+  const shortRun = [0, 1, 2, 3, 4, 5].map((i) => ({
+    startMs: i * 4000, endMs: i * 4000 + 3000, text: 'Okay.', speaker: 'me',
+  }));
+  const oneWordRetake = [0, 1].map((i) => ({
+    startMs: 829900 + i * 600, endMs: 829900 + i * 600 + 500, text: 'Anyway...', speaker: 'me',
+  }));
+  for (const fixture of [largeV3Hallucination, REAL_RETAKE_X3, shortRun, oneWordRetake]) {
+    for (const bursts of [[], REAL_RETAKE_BURSTS, [{ startMs: 0, endMs: 60000 }],
+      shortRun.map((s) => ({ startMs: s.startMs, endMs: s.endMs }))]) {
       const withProbe = guardChannel(fixture, { speechBursts: bursts });
       const without = guardChannel(fixture);
       assert.ok(withProbe.removed <= without.removed,
