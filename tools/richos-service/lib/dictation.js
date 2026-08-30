@@ -171,6 +171,28 @@ export const MATCH_WINDOW_MS = 10 * 60 * 1000;
 // ---------------------------------------------------------------------------------------------------
 
 /**
+ * **The side of a journal record a diff must be taken against: what was PASTED.**
+ *
+ * A record carries `text` (what the recogniser produced) AND `emitted` (what actually reached the
+ * field, after the shared vocabulary corrected a name on the way out — `dictation-flywheel.patch`:
+ * *"Keeping BOTH is the whole point"*). `emitted` is what the CEO SAW and therefore what he edited.
+ *
+ * This function was added 2026-08-30 because the port measured the alternative and it is wrong:
+ * diffing `text` re-proposes the pair the vocabulary ALREADY HOLDS, as a question, at the moment he
+ * changed nothing at all — four spurious asks over the corpus's four `emitted-*` rows
+ * (`docs/measurements/heard-vs-sent-trigger-2026-08-30/README.md` §6). Every function below reads
+ * the entry through this one, so the CLI and `richos_core::heard` cannot answer differently.
+ *
+ * A record with no `emitted` (an older one, or one written before patch 3) falls back to `text`,
+ * which is exactly the behaviour that shipped before this existed.
+ * @param {{text?:string, emitted?:string}} entry
+ */
+export function heardSide(entry) {
+  const emitted = String(entry?.emitted ?? '');
+  return emitted.trim() ? emitted : String(entry?.text ?? '');
+}
+
+/**
  * Which journal entry, if any, is this text a corrected version of?
  *
  * PRECISION IS THE WHOLE JOB HERE. A wrong match invents a "correction" out of two unrelated pieces
@@ -200,7 +222,7 @@ export function matchHeard(journal, sentText, opts = {}) {
     if (e.consumed) continue;
     const age = now - Number(e.at || 0);
     if (!(age >= 0 && age <= windowMs)) continue;
-    const sim = similarity(normalizeTerm(e.text), sent);
+    const sim = similarity(normalizeTerm(heardSide(e)), sent);
     if (sim < min) continue;
     // Tie-break toward the MORE RECENT entry: two similar dictations in one window are near-certainly
     // the same sentence said twice, and the one he is looking at is the last one.
@@ -401,10 +423,11 @@ export function answerAsk(ledger, ask, answer) {
 export function reviewSent(journal, sentText, ledger = {}, opts = {}) {
   const m = matchHeard(journal, sentText, opts);
   if (!m) return { matched: false, entry: null, prompts: [], suppressed: [], rejected: [], reason: 'no dictation within the window resembles this text — treated as typed' };
-  if (normalizeTerm(m.entry.text) === normalizeTerm(sentText)) {
+  const heard = heardSide(m.entry);
+  if (normalizeTerm(heard) === normalizeTerm(sentText)) {
     return { matched: true, entry: m.entry, similarity: m.similarity, prompts: [], suppressed: [], rejected: [], reason: 'sent unchanged — nothing was corrected' };
   }
-  const { asks, rejected } = askCandidates(m.entry.text, sentText);
+  const { asks, rejected } = askCandidates(heard, sentText);
   const { prompts, suppressed } = applyLedger(asks, ledger);
   return { matched: true, entry: m.entry, similarity: m.similarity, prompts, suppressed, rejected, reason: null };
 }

@@ -241,5 +241,191 @@
       "text": "",
       "looksLikeTerm": false
     }
+  ],
+  "edits": [
+    {
+      "heard": "Send the Kestral deck to Marla.",
+      "sent": "Send the Kestrel deck to Marla.",
+      "hunks": [
+        {
+          "from": "Kestral",
+          "to": "Kestrel",
+          "coreFrom": "Kestral",
+          "coreTo": "Kestrel"
+        }
+      ]
+    },
+    {
+      "heard": "I met Rich Hand about it.",
+      "sent": "I met Rich Hanna about it.",
+      "hunks": [
+        {
+          "from": "Rich Hand",
+          "to": "Rich Hanna",
+          "coreFrom": "Hand",
+          "coreTo": "Hanna"
+        }
+      ]
+    },
+    {
+      "heard": "Route it through Saint Aubin Partners.",
+      "sent": "Route it through Saint Auburn Partners.",
+      "hunks": [
+        {
+          "from": "Saint Aubin Partners.",
+          "to": "Saint Auburn Partners.",
+          "coreFrom": "Aubin",
+          "coreTo": "Auburn"
+        }
+      ]
+    },
+    {
+      "heard": "Marcus Web owns that account now.",
+      "sent": "Marcus Webb owns that account now.",
+      "hunks": [
+        {
+          "from": "Web",
+          "to": "Webb",
+          "coreFrom": "Web",
+          "coreTo": "Webb"
+        }
+      ]
+    },
+    {
+      "heard": "Marla Kestral signed off this morning.",
+      "sent": "Marla Kestrel signed off this morning.",
+      "hunks": [
+        {
+          "from": "Kestral",
+          "to": "Kestrel",
+          "coreFrom": "Kestral",
+          "coreTo": "Kestrel"
+        }
+      ]
+    },
+    {
+      "heard": "Send the Kestrel deck to Marla today please.",
+      "sent": "Send the Kestrel deck to Marla.",
+      "hunks": [
+        {
+          "from": "Marla today please.",
+          "to": "Marla.",
+          "coreFrom": "Marla today please.",
+          "coreTo": "Marla."
+        }
+      ]
+    },
+    {
+      "heard": "Send the Kestrel deck to Marla.",
+      "sent": "Send the Kestrel deck to Marla before Friday.",
+      "hunks": [
+        {
+          "from": "Marla.",
+          "to": "Marla before Friday.",
+          "coreFrom": "Marla.",
+          "coreTo": "Marla before Friday."
+        }
+      ]
+    },
+    {
+      "heard": "Northgate and Brightmore signed. Ship it Thursday.",
+      "sent": "Northgate and Brightmoor signed. Ship it Friday.",
+      "hunks": [
+        {
+          "from": "Brightmore",
+          "to": "Brightmoor",
+          "coreFrom": "Brightmore",
+          "coreTo": "Brightmoor"
+        },
+        {
+          "from": "Thursday.",
+          "to": "Friday.",
+          "coreFrom": "Thursday.",
+          "coreTo": "Friday."
+        }
+      ]
+    },
+    {
+      "heard": "Kestral is the account I care about.",
+      "sent": "Kestrel is the account I care about.",
+      "hunks": [
+        {
+          "from": "Kestral",
+          "to": "Kestrel",
+          "coreFrom": "Kestral",
+          "coreTo": "Kestrel"
+        }
+      ]
+    },
+    {
+      "heard": "The deep graham contract is signed.",
+      "sent": "The Deepgram contract is signed.",
+      "hunks": [
+        {
+          "from": "deep graham",
+          "to": "Deepgram",
+          "coreFrom": "deep graham",
+          "coreTo": "Deepgram"
+        }
+      ]
+    },
+    {
+      "heard": "Your welcome to join the Kestrel review.",
+      "sent": "You're welcome to join the Kestrel review.",
+      "hunks": [
+        {
+          "from": "Your",
+          "to": "You're",
+          "coreFrom": "Your",
+          "coreTo": "You're"
+        }
+      ]
+    },
+    {
+      "heard": "Move the Halstead review to the Brightmore room.",
+      "sent": "Move the Halstead review to the Brightmoor room.",
+      "hunks": [
+        {
+          "from": "Brightmore",
+          "to": "Brightmoor",
+          "coreFrom": "Brightmore",
+          "coreTo": "Brightmoor"
+        }
+      ]
+    },
+    {
+      "heard": "The deal closed. Northgate Brightmore signed.",
+      "sent": "The deal closed. Northgate Brightmoor signed.",
+      "hunks": [
+        {
+          "from": "Brightmore",
+          "to": "Brightmoor",
+          "coreFrom": "Brightmore",
+          "coreTo": "Brightmoor"
+        }
+      ]
+    },
+    {
+      "heard": "Ship it to Brightmore. Marla Kestrel signs.",
+      "sent": "Ship it to Brightmoor. Marla Kestrel signs.",
+      "hunks": [
+        {
+          "from": "Brightmore.",
+          "to": "Brightmoor.",
+          "coreFrom": "Brightmore.",
+          "coreTo": "Brightmoor."
+        }
+      ]
+    },
+    {
+      "heard": "Ask Priya to please review the page.",
+      "sent": "Ask Priya to review the page.",
+      "hunks": []
+    },
+    {
+      "heard": "Ask Priya to review the page.",
+      "sent": "Ask Priya to please review the page.",
+      "hunks": []
+    }
   ]
 }

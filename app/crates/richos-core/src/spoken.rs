@@ -335,7 +335,8 @@ pub const GRAMMAR_WORDS: &[&str] = &[
     "want", "wants", "need", "needs", "think", "thinks", "know", "knows", "let", "lets", "go",
     "goes", "going", "gonna", "get", "gets", "got", "look", "looks", "listen", "also", "again",
     "still", "the", "a", "an", "of", "to", "for", "with", "from", "in", "on", "at", "by", "as",
-    "if", "when", "where", "what", "who", "whom", "why", "how", "which", "about", "into", "over",
+    "if", "when", "where", "what", "who", "whom", "whos", "whose", "why", "how", "which",
+    "about", "into", "over",
     "under", "up", "down", "out", "off", "one", "two", "three", "first", "second", "last", "next",
     // Contractions, collapsed by `grammar_core` — `isn't` arrives here as `isnt`.
     "dont", "doesnt", "didnt", "isnt", "wasnt", "arent", "werent", "wont", "wouldnt", "shouldnt",
@@ -351,6 +352,16 @@ pub enum Frame {
     Contrast,
     /// `not <rejected>, <asserted>` — the pivot leads and the asserted term follows it.
     PivotFirst,
+    /// **No construction at all.** The CEO said nothing: he dictated, the recogniser
+    /// mis-heard, and he fixed it silently before sending. [`FrameExtractor`] can never
+    /// produce this — `heard.rs` does, from a token diff of what was heard against what was
+    /// sent, and it is a variant rather than a second ask type so that all three triggers
+    /// land on the one desk `staging::CandidateDesk` already owns.
+    ///
+    /// It is kept DISTINCT rather than folded into `Contrast` because the surface must not
+    /// say *"because you said"* over a sentence he never spoke — the evidence for this
+    /// candidate is what he CHANGED, not what he uttered.
+    SilentEdit,
 }
 
 impl Frame {
@@ -358,6 +369,7 @@ impl Frame {
         match self {
             Frame::Contrast => "contrast",
             Frame::PivotFirst => "pivot-first",
+            Frame::SilentEdit => "silent-edit",
         }
     }
 }
@@ -482,6 +494,15 @@ pub fn grammar_core(tok: &str) -> String {
 /// nothing at all, because there a month is the very thing being corrected. The switch is
 /// narrow on purpose: lowercase `may` is still the modal, and every other grammar word is
 /// still a grammar word in both configurations.
+/// **May a term span contain this token, under the VOCABULARY configuration?** Public so
+/// `heard.rs` runs exactly this rule rather than a paraphrase of it, for the same reason
+/// [`gate`] is public: the diff trigger has no extractor, so the structural refusal every
+/// other caller gets for free from span scanning has to be applied to a diff hunk by hand,
+/// and a hand-written copy of this list is where the two would drift.
+pub fn is_span_token(tok: &str) -> bool {
+    span_token_with(tok, false)
+}
+
 fn span_token_with(tok: &str, allow_calendar: bool) -> bool {
     let core = grammar_core(tok);
     if core.is_empty() {

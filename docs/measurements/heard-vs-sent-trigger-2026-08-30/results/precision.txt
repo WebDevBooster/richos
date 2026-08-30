@@ -1,0 +1,101 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/heard_precision.rs (target/debug/deps/heard_precision-a06930e36ac3164f)
+
+running 5 tests
+test the_corpus_carries_the_cases_it_is_supposed_to ... ok
+test the_emitted_side_is_what_he_edited ... 
+  diffing `emitted` (shipped): 1 asks
+  diffing `text` (the JS path):  5 asks
+  asked only by the `text` path — pairs the vocabulary ALREADY holds:
+    emitted-01: deep graham -> Deepgram
+    emitted-02: Kestral -> Kestrel
+    emitted-03: Rich Hand -> Rich Hanna
+    emitted-04: Rich Hand -> Rich Hanna
+
+ok
+test the_pairing_condition_is_what_keeps_a_typed_message_silent ... 
+  156 sends offered against 24058 dictations they did NOT come from
+
+  pairing ON  (0.60 floor):  52 of 156 sends claimed a foreign dictation, 15 questions
+  pairing OFF (0.00 floor):  156 of 156 sends claimed a foreign dictation, 15 questions
+
+  ON   c25: sent "Tell Sabel Ridge we are still interested." matched "Tell Sable Ridge we are interested." -> asked Sable Ridge -> Sabel Ridge
+  ON   near-09: sent "Loop in Yusuf Adeyemi on the renewal." matched "Loop in Yusef Adeyemi on the migration." -> asked Yusef Adeyemi -> Yusuf Adeyemi
+  ON   reword-07: sent "Add the Cannery Street lease to the agenda." matched "Put the Canery Street lease on the agenda." -> asked Canery Street -> Cannery Street
+  ON   trim-02: sent "Book a call with Dana Okonkwo for Tuesday." matched "Book a call with Dana Okonko for Tuesday." -> asked Dana Okonko -> Dana Okonkwo
+  ON   trim-04: sent "I met Rich Hanna about the transcription work." matched "I met Rich Hand about the transcription work." -> asked Rich Hand -> Rich Hanna
+  ON   trim-05: sent "Northgate and Brightmoor both signed this week." matched "Northgate and Brightmore both signed this week." -> asked Brightmore -> Brightmoor
+  ON   trim-08: sent "Put the Cannery Street lease on the agenda." matched "Put the Canery Street lease on the agenda." -> asked Canery Street -> Cannery Street
+  ON   trim-10: sent "Loop in Yusuf Adeyemi on the migration." matched "Loop in Yusef Adeyemi on the migration." -> asked Yusef Adeyemi -> Yusuf Adeyemi
+  ON   add-01: sent "Send the Kestrel deck to Marla before Friday." matched "Send the Kestral deck to Marla before Friday." -> asked Kestral -> Kestrel
+  ON   add-02: sent "Book a call with Dana Okonkwo for Tuesday." matched "Book a call with Dana Okonko for Tuesday." -> asked Dana Okonko -> Dana Okonkwo
+  ON   add-07: sent "Move the Halstead review to the Brightmoor room." matched "Move the Halstead review to the Brightmore room." -> asked Brightmore -> Brightmoor
+  ON   punct-02: sent "The Halstead renewal is the one I care about." matched "The Halsted renewal is the one I care about." -> asked Halsted -> Halstead
+  ON   punct-03: sent "Ask Priya Nair to review the pricing page." matched "Ask Priya Nayar to review the pricing page." -> asked Priya Nayar -> Priya Nair
+  ON   punct-05: sent "Marcus Webb owns that account now." matched "Marcus Web owns that account now." -> asked Web -> Webb
+  ON   punct-06: sent "Everlock wants a two-year term." matched "Ever Lock wants a two-year term." -> asked Ever Lock -> Everlock
+
+ok
+test the_trigger_is_measured_and_the_numbers_are_pinned ... 
+=== heard-vs-sent trigger, measured over 156 invented heard/sent pairs ===
+
+          c01  ASK  Kestral            -> Kestrel            both      orth 0.86  phon 1.00
+          c02  ASK  Rich Hand          -> Rich Hanna         spelling  orth 0.60  phon 0.50
+          c03  ASK  Dana Okonko        -> Dana Okonkwo       both      orth 0.86  phon 1.00
+          c04  ASK  Halsted            -> Halstead           both      orth 0.88  phon 1.00
+          c05  ASK  Priya Nayar        -> Priya Nair         both      orth 0.60  phon 1.00
+          c06  ASK  Brightmore         -> Brightmoor         both      orth 0.80  phon 1.00
+          c07  ASK  Everlok            -> Everlock           both      orth 0.88  phon 1.00
+          c08  WRONG PAIR  Web -> Webb  (expected Some(Expect { from: "Marcus Web", to: "Marcus Webb" }))
+          c09  ASK  Canery Street      -> Cannery Street     both      orth 0.86  phon 1.00
+          c10  ASK  Yusef Adeyemi      -> Yusuf Adeyemi      both      orth 0.80  phon 1.00
+          c11  ASK  Thalberg           -> Thalburg           both      orth 0.88  phon 1.00
+          c12  ASK  Anneke Vos         -> Annika Vos         both      orth 0.67  phon 1.00
+          c13  ASK  deep graham        -> Deepgram           both      orth 0.73  phon 1.00
+          c14  ASK  Deke Graham        -> Deepgram           both      orth 0.64  phon 0.80
+          c15  ASK  Briella            -> Priya              sound     orth 0.43  phon 0.67
+          c16  ASK  whisper dot cpp    -> whisper.cpp        both      orth 0.73  phon 0.71
+          c17  ASK  Cael               -> Kyle               sound     orth 0.00  phon 1.00
+          c18  ASK  Jorj               -> George             sound     orth 0.33  phon 1.00
+          c19  ASK  Nor Gate           -> Northgate          both      orth 0.78  phon 0.80
+          c20  ASK  Ever Lock          -> EverLock           both      orth 0.89  phon 1.00
+          c21  ASK  Loro               -> Lorro              both      orth 0.80  phon 1.00
+          c22  ASK  Kestrell           -> Kestrel            both      orth 0.88  phon 1.00
+          c23  ASK  Brightmore         -> Brightmoor         both      orth 0.80  phon 1.00
+          c24  ASK  Vandermeer         -> Vandermeir         both      orth 0.90  phon 1.00
+          c25  ASK  Sable Ridge        -> Sabel Ridge        both      orth 0.60  phon 1.00
+          c26  ASK  Orinda             -> Orrinda            both      orth 0.86  phon 1.00
+          c27  ASK  Ashgrove           -> Ashgrave           both      orth 0.88  phon 1.00
+          c28  ASK  Tanaka             -> Tanaca             both      orth 0.83  phon 1.00
+          c29  ASK  Kestral            -> Kestrel            both      orth 0.86  phon 1.00
+          c30  ASK  Marcus Web         -> Marcus Webb        both      orth 0.75  phon 1.00
+          c31  ASK  Saint Aubin Partners -> Saint Auburn Partners both      orth 0.67  phon 0.67
+          c32  ASK  Halstead Grier     -> Halstead Greer     both      orth 0.80  phon 1.00
+          c33  ASK  Rich Hand          -> Rich Hanna         spelling  orth 0.60  phon 0.50
+          c34  ASK  Ever lock          -> EverLock           both      orth 0.89  phon 1.00
+          c36  ASK  Mac Kinnon         -> MacKinnon          both      orth 0.90  phon 1.00
+   emitted-04  ASK  Northgate          -> Northgait          both      orth 0.78  phon 1.00
+
+    buried-01  MISSED
+               heard "Send the Kestral deck to Marla before Friday."
+               sent  "Marla needs the Kestrel deck before Friday, ideally today."
+               no dictation within the window resembles this text — treated as typed
+               note: a real name fix buried inside a heavy rewrite — the rewrite drops the pair below the pairing floor and the correction is lost. The named recall hole, measured.
+    buried-02  MISSED
+               heard "The Halsted renewal is the one I care about."
+               sent  "Halstead is the only renewal that actually matters this quarter."
+               no dictation within the window resembles this text — treated as typed
+               note: same hole: rewritten around a corrected name
+    buried-03  MISSED
+               heard "Book a call with Dana Okonko for Tuesday."
+               sent  "Get thirty minutes with Dana Okonkwo early next week."
+               no dictation within the window resembles this text — treated as typed
+               note: same hole: rewritten around a corrected name
+
+  SHIPPED                          TP 35  FP 1  FN 3  TN 117   precision 0.972   recall 0.921
+  COUNTERFACTUAL grammar-word OFF  TP 35  FP 18  FN 3          precision 0.660   recall 0.921
+ok
+test the_window_is_not_what_is_being_measured ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.85s
+

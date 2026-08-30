@@ -2208,6 +2208,39 @@ test('reviewSent asks the exact sentence §7 specifies', () => {
   assert.equal(r.prompts[0].askedBefore, false);
 });
 
+test('the diff is taken against what was PASTED, not the recogniser\'s raw output', () => {
+  // The shared vocabulary corrected `deep graham` on the way to the field, so `emitted` is
+  // already right and he changed NOTHING. Diffing `text` would ask him to confirm a pair the
+  // vocabulary already holds, at the one moment he did nothing wrong. Measured, not argued:
+  // docs/measurements/heard-vs-sent-trigger-2026-08-30/README.md §6.
+  const now = 1_700_000_000_000;
+  const entry = {
+    id: 'a',
+    at: now - 5000,
+    text: 'The deep graham contract is signed.',
+    emitted: 'The Deepgram contract is signed.',
+  };
+  const unchanged = reviewSent([entry], 'The Deepgram contract is signed.', {}, { now });
+  assert.equal(unchanged.matched, true, 'the pasted text must still pair with its own dictation');
+  assert.deepEqual(unchanged.prompts, [], 'a pair the vocabulary already holds was asked again');
+  assert.equal(unchanged.reason, 'sent unchanged — nothing was corrected');
+
+  // And when he DOES edit it, the ask is his edit — not the hop the vocabulary already made.
+  const edited = reviewSent([entry], 'The Deepgram contract is signed by Marla Kestrel.', {}, { now });
+  assert.equal(edited.matched, true);
+  assert.ok(
+    !edited.prompts.some((p) => normalizeTerm(p.from) === 'deep graham'),
+    'the already-learned pair leaked into the ask'
+  );
+
+  // POSITIVE PROBE: with no `emitted` the behaviour is exactly what shipped before — the
+  // fallback is a fallback, not a second silence.
+  const older = { id: 'b', at: now - 5000, text: 'The deep graham contract is signed.' };
+  const r = reviewSent([older], 'The Deepgram contract is signed.', {}, { now });
+  assert.equal(r.prompts.length, 1, 'an older record with no `emitted` stopped producing its ask');
+  assert.equal(r.prompts[0].to, 'Deepgram');
+});
+
 test('NO route out of reviewSent carries a learn — the review cannot change what the system believes', () => {
   const now = 1_700_000_000_000;
   const journal = [{ id: 'a', at: now - 5000, text: 'The deep graham contract is signed.' }];

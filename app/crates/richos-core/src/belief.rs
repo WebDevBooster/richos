@@ -246,6 +246,12 @@ fn align(asserted: &str, want: ValueClass, width: usize, frame: Frame) -> Option
         return Some(match frame {
             Frame::Contrast => toks[toks.len() - w..].join(" "),
             Frame::PivotFirst => toks[..w].join(" "),
+            // `FrameExtractor` cannot produce `SilentEdit` — it is `heard.rs`'s, and that
+            // trigger is a token DIFF with no pivot to sit against, so there is no "which
+            // end" to answer here. Falling back to the whole span rather than guessing an
+            // end keeps this arm honest instead of inventing a third alignment rule for a
+            // frame this module never sees.
+            Frame::SilentEdit => asserted.to_string(),
         });
     }
     for start in (0..toks.len()).rev() {

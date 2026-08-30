@@ -1,0 +1,1234 @@
+{
+  "provenance": {
+    "note": "EVERY heard/sent pair in this file was invented for this measurement. No recording of anyone was consulted, no dictation of anyone appears, and no line here is a real dictated sentence. Every person, company, product and place name is fictional; the only non-fictional terms are `Deepgram`, `whisper.cpp`, `Postgres` and `MySQL`, which already appear in the public wiki as the doctrine's own worked examples.",
+    "shape": "`heard` is what was PASTED into the composer (the journal's `emitted`). `heardRaw`, when present, is what the recogniser produced BEFORE the shared vocabulary corrected it on the way out (the journal's `text`) — the rows that measure which of the two a diff must be taken against. `sent` is what the CEO actually pressed send on.",
+    "labels": "`correction` = he silently fixed a word the recogniser got wrong, and a vocabulary entry is the right outcome. `not-a-correction` = every other reason a sent message differs from a dictation, plus messages he simply typed.",
+    "base rate": "The negatives are ADVERSARIAL, not representative. Twelve are freshly typed messages that RESEMBLE a dictation in the window, fifteen are typo fixes on words that are capitalized and term-shaped, and twenty are changes of mind. Precision measured here is therefore a LOWER bound on precision in use; recall is unaffected by the imbalance.",
+    "how it is run": "Each row is offered to `heard::review` as a ONE-ENTRY journal stamped 30 s before the send, so the pairing condition is measured with the rest and not assumed away. See `app/crates/richos-core/tests/heard_precision.rs`.",
+    "recall holes": "Two are in the corpus as rows rather than as a sentence in a README: `buried-*` are real name fixes made inside a wholesale rewrite, which drops the pair below the pairing floor and loses the correction; `c35` is a correction the normalized vocabulary cannot hold at all."
+  },
+  "pairs": [
+    {
+      "id": "c01",
+      "label": "correction",
+      "heard": "Send the Kestral deck to Marla before Friday.",
+      "sent": "Send the Kestrel deck to Marla before Friday.",
+      "expect": {
+        "from": "Kestral",
+        "to": "Kestrel"
+      }
+    },
+    {
+      "id": "c02",
+      "label": "correction",
+      "heard": "I met Rich Hand about the transcription work.",
+      "sent": "I met Rich Hanna about the transcription work.",
+      "expect": {
+        "from": "Rich Hand",
+        "to": "Rich Hanna"
+      },
+      "note": "the expansion learns the whole name, never the lone delta Hand -> Hanna"
+    },
+    {
+      "id": "c03",
+      "label": "correction",
+      "heard": "Book a call with Dana Okonko for Tuesday.",
+      "sent": "Book a call with Dana Okonkwo for Tuesday.",
+      "expect": {
+        "from": "Dana Okonko",
+        "to": "Dana Okonkwo"
+      }
+    },
+    {
+      "id": "c04",
+      "label": "correction",
+      "heard": "The Halsted renewal is the one I care about.",
+      "sent": "The Halstead renewal is the one I care about.",
+      "expect": {
+        "from": "Halsted",
+        "to": "Halstead"
+      }
+    },
+    {
+      "id": "c05",
+      "label": "correction",
+      "heard": "Ask Priya Nayar to review the pricing page.",
+      "sent": "Ask Priya Nair to review the pricing page.",
+      "expect": {
+        "from": "Priya Nayar",
+        "to": "Priya Nair"
+      }
+    },
+    {
+      "id": "c06",
+      "label": "correction",
+      "heard": "Northgate and Brightmore both signed this week.",
+      "sent": "Northgate and Brightmoor both signed this week.",
+      "expect": {
+        "from": "Brightmore",
+        "to": "Brightmoor"
+      }
+    },
+    {
+      "id": "c07",
+      "label": "correction",
+      "heard": "Everlok is still the strongest of the three.",
+      "sent": "Everlock is still the strongest of the three.",
+      "expect": {
+        "from": "Everlok",
+        "to": "Everlock"
+      }
+    },
+    {
+      "id": "c08",
+      "label": "correction",
+      "heard": "Marcus Web owns that account now.",
+      "sent": "Marcus Webb owns that account now.",
+      "expect": {
+        "from": "Marcus Web",
+        "to": "Marcus Webb"
+      },
+      "note": "the name OPENS the sentence, so the shared expansion rule (`capture.js`'s `startsSentence` guard) cannot absorb `Marcus` and the pair collapses to the lone delta `Web` -> `Webb` — which as a vocabulary entry corrupts the ordinary word \"web\". Measured as a FALSE POSITIVE rather than rounded to a partial hit."
+    },
+    {
+      "id": "c09",
+      "label": "correction",
+      "heard": "Put the Canery Street lease on the agenda.",
+      "sent": "Put the Cannery Street lease on the agenda.",
+      "expect": {
+        "from": "Canery Street",
+        "to": "Cannery Street"
+      }
+    },
+    {
+      "id": "c10",
+      "label": "correction",
+      "heard": "Loop in Yusef Adeyemi on the migration.",
+      "sent": "Loop in Yusuf Adeyemi on the migration.",
+      "expect": {
+        "from": "Yusef Adeyemi",
+        "to": "Yusuf Adeyemi"
+      }
+    },
+    {
+      "id": "c11",
+      "label": "correction",
+      "heard": "The Thalberg report lands Monday morning.",
+      "sent": "The Thalburg report lands Monday morning.",
+      "expect": {
+        "from": "Thalberg",
+        "to": "Thalburg"
+      }
+    },
+    {
+      "id": "c12",
+      "label": "correction",
+      "heard": "Confirm with Anneke Vos before we commit.",
+      "sent": "Confirm with Annika Vos before we commit.",
+      "expect": {
+        "from": "Anneke Vos",
+        "to": "Annika Vos"
+      }
+    },
+    {
+      "id": "c13",
+      "label": "correction",
+      "heard": "The deep graham contract is signed.",
+      "sent": "The Deepgram contract is signed.",
+      "expect": {
+        "from": "deep graham",
+        "to": "Deepgram"
+      }
+    },
+    {
+      "id": "c14",
+      "label": "correction",
+      "heard": "Deke Graham quoted us for the whole year.",
+      "sent": "Deepgram quoted us for the whole year.",
+      "expect": {
+        "from": "Deke Graham",
+        "to": "Deepgram"
+      }
+    },
+    {
+      "id": "c15",
+      "label": "correction",
+      "heard": "Send it over to Briella when you can.",
+      "sent": "Send it over to Priya when you can.",
+      "expect": {
+        "from": "Briella",
+        "to": "Priya"
+      },
+      "note": "0.43 by spelling, 0.67 by sound — the lone-token case the orthographic gate alone loses"
+    },
+    {
+      "id": "c16",
+      "label": "correction",
+      "heard": "Check whether whisper dot cpp handles that.",
+      "sent": "Check whether whisper.cpp handles that.",
+      "expect": {
+        "from": "whisper dot cpp",
+        "to": "whisper.cpp"
+      }
+    },
+    {
+      "id": "c17",
+      "label": "correction",
+      "heard": "We should call Cael about the lease.",
+      "sent": "We should call Kyle about the lease.",
+      "expect": {
+        "from": "Cael",
+        "to": "Kyle"
+      }
+    },
+    {
+      "id": "c18",
+      "label": "correction",
+      "heard": "Have Jorj send the revised terms.",
+      "sent": "Have George send the revised terms.",
+      "expect": {
+        "from": "Jorj",
+        "to": "George"
+      }
+    },
+    {
+      "id": "c19",
+      "label": "correction",
+      "heard": "The Nor Gate account renews in spring.",
+      "sent": "The Northgate account renews in spring.",
+      "expect": {
+        "from": "Nor Gate",
+        "to": "Northgate"
+      }
+    },
+    {
+      "id": "c20",
+      "label": "correction",
+      "heard": "Ever Lock wants a two-year term.",
+      "sent": "EverLock wants a two-year term.",
+      "expect": {
+        "from": "Ever Lock",
+        "to": "EverLock"
+      }
+    },
+    {
+      "id": "c21",
+      "label": "correction",
+      "heard": "We are shipping Loro next quarter.",
+      "sent": "We are shipping Lorro next quarter.",
+      "expect": {
+        "from": "Loro",
+        "to": "Lorro"
+      }
+    },
+    {
+      "id": "c22",
+      "label": "correction",
+      "heard": "The Kestrell integration is nearly done.",
+      "sent": "The Kestrel integration is nearly done.",
+      "expect": {
+        "from": "Kestrell",
+        "to": "Kestrel"
+      }
+    },
+    {
+      "id": "c23",
+      "label": "correction",
+      "heard": "Move the Halstead review to the Brightmore room.",
+      "sent": "Move the Halstead review to the Brightmoor room.",
+      "expect": {
+        "from": "Brightmore",
+        "to": "Brightmoor"
+      }
+    },
+    {
+      "id": "c24",
+      "label": "correction",
+      "heard": "Get me the Vandermeer numbers before noon.",
+      "sent": "Get me the Vandermeir numbers before noon.",
+      "expect": {
+        "from": "Vandermeer",
+        "to": "Vandermeir"
+      }
+    },
+    {
+      "id": "c25",
+      "label": "correction",
+      "heard": "Tell Sable Ridge we are still interested.",
+      "sent": "Tell Sabel Ridge we are still interested.",
+      "expect": {
+        "from": "Sable Ridge",
+        "to": "Sabel Ridge"
+      }
+    },
+    {
+      "id": "c26",
+      "label": "correction",
+      "heard": "The Orinda pilot starts on the fifteenth.",
+      "sent": "The Orrinda pilot starts on the fifteenth.",
+      "expect": {
+        "from": "Orinda",
+        "to": "Orrinda"
+      }
+    },
+    {
+      "id": "c27",
+      "label": "correction",
+      "heard": "I want Ashgrove included in the shortlist.",
+      "sent": "I want Ashgrave included in the shortlist.",
+      "expect": {
+        "from": "Ashgrove",
+        "to": "Ashgrave"
+      }
+    },
+    {
+      "id": "c28",
+      "label": "correction",
+      "heard": "Forward the Tanaka memo to the board.",
+      "sent": "Forward the Tanaca memo to the board.",
+      "expect": {
+        "from": "Tanaka",
+        "to": "Tanaca"
+      }
+    },
+    {
+      "id": "c29",
+      "label": "correction",
+      "heard": "Marla Kestral signed off this morning.",
+      "sent": "Marla Kestrel signed off this morning.",
+      "expect": {
+        "from": "Kestral",
+        "to": "Kestrel"
+      },
+      "note": "the name opens the sentence, so the expansion cannot absorb `Marla` — the safe lone pair is what is learned"
+    },
+    {
+      "id": "c30",
+      "label": "correction",
+      "heard": "Add Dana Okonkwo and Marcus Web to the thread.",
+      "sent": "Add Dana Okonkwo and Marcus Webb to the thread.",
+      "expect": {
+        "from": "Marcus Web",
+        "to": "Marcus Webb"
+      }
+    },
+    {
+      "id": "c31",
+      "label": "correction",
+      "heard": "Route it through Saint Aubin Partners.",
+      "sent": "Route it through Saint Auburn Partners.",
+      "expect": {
+        "from": "Saint Aubin Partners",
+        "to": "Saint Auburn Partners"
+      },
+      "note": "the expansion reaches RIGHT across `Partners`, so the whole company name is learned"
+    },
+    {
+      "id": "c32",
+      "label": "correction",
+      "heard": "The Halstead Grier account is up for renewal.",
+      "sent": "The Halstead Greer account is up for renewal.",
+      "expect": {
+        "from": "Halstead Grier",
+        "to": "Halstead Greer"
+      }
+    },
+    {
+      "id": "c33",
+      "label": "correction",
+      "heard": "Copy Priya Nair and Rich Hand on that.",
+      "sent": "Copy Priya Nair and Rich Hanna on that.",
+      "expect": {
+        "from": "Rich Hand",
+        "to": "Rich Hanna"
+      }
+    },
+    {
+      "id": "c34",
+      "label": "correction",
+      "heard": "Does Ever lock support single sign-on?",
+      "sent": "Does EverLock support single sign-on?",
+      "expect": {
+        "from": "Ever lock",
+        "to": "EverLock"
+      }
+    },
+    {
+      "id": "c35",
+      "label": "not-a-correction",
+      "heard": "Benchmark it against whisper cpp first.",
+      "sent": "Benchmark it against whisper.cpp first.",
+      "note": "he really did fix it, and it is STILL not a vocabulary entry: `whisper cpp` and `whisper.cpp` normalize to the same key, and `correct.js:131-132` skips any mangling whose normalized form equals the canonical's. A pair the corrector would never apply is not something to ask about. Labelled by the OUTCOME, which is what the labels mean."
+    },
+    {
+      "id": "c36",
+      "label": "correction",
+      "heard": "The Mac Kinnon estimate came in low.",
+      "sent": "The MacKinnon estimate came in low.",
+      "expect": {
+        "from": "Mac Kinnon",
+        "to": "MacKinnon"
+      }
+    },
+    {
+      "id": "typed-01",
+      "label": "not-a-correction",
+      "heard": "Send the Kestrel deck to Marla before Friday.",
+      "sent": "What time is the board call?",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-02",
+      "label": "not-a-correction",
+      "heard": "The Halstead renewal is the one I care about.",
+      "sent": "Can you pull last quarter's churn numbers?",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-03",
+      "label": "not-a-correction",
+      "heard": "Book a call with Dana Okonkwo for Tuesday.",
+      "sent": "Remind me to sign the lease.",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-04",
+      "label": "not-a-correction",
+      "heard": "I met Rich Hanna about the transcription work.",
+      "sent": "Draft a reply to the Northgate email.",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-05",
+      "label": "not-a-correction",
+      "heard": "Northgate and Brightmoor both signed this week.",
+      "sent": "What's on my calendar tomorrow?",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-06",
+      "label": "not-a-correction",
+      "heard": "Ask Priya Nair to review the pricing page.",
+      "sent": "Summarise the Everlock contract for me.",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-07",
+      "label": "not-a-correction",
+      "heard": "Marcus Webb owns that account now.",
+      "sent": "How many seats are we at?",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-08",
+      "label": "not-a-correction",
+      "heard": "Put the Cannery Street lease on the agenda.",
+      "sent": "Who is running the migration?",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-09",
+      "label": "not-a-correction",
+      "heard": "The Deepgram contract is signed.",
+      "sent": "Set up a review for Thursday.",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-10",
+      "label": "not-a-correction",
+      "heard": "Loop in Yusuf Adeyemi on the migration.",
+      "sent": "Give me the headcount by team.",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-11",
+      "label": "not-a-correction",
+      "heard": "Confirm with Annika Vos before we commit.",
+      "sent": "What did we agree on pricing?",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "typed-12",
+      "label": "not-a-correction",
+      "heard": "Move the Halstead review to the Brightmoor room.",
+      "sent": "Cancel my two o'clock.",
+      "note": "typed, unrelated"
+    },
+    {
+      "id": "near-01",
+      "label": "not-a-correction",
+      "heard": "Send the Kestrel deck to Marla.",
+      "sent": "Send the Northgate deck to Marla.",
+      "note": "a different deck, typed fresh — the names are not one name spelled twice"
+    },
+    {
+      "id": "near-02",
+      "label": "not-a-correction",
+      "heard": "Book a call with Dana Okonkwo for Tuesday.",
+      "sent": "Book a call with Marcus Webb for Tuesday.",
+      "note": "a different person"
+    },
+    {
+      "id": "near-03",
+      "label": "not-a-correction",
+      "heard": "Ask Priya Nair to review the pricing page.",
+      "sent": "Ask Priya Nair to review the landing page.",
+      "note": "a different page"
+    },
+    {
+      "id": "near-04",
+      "label": "not-a-correction",
+      "heard": "The Halstead renewal is the one I care about.",
+      "sent": "The Northgate renewal is the one I care about.",
+      "note": "a different account"
+    },
+    {
+      "id": "near-05",
+      "label": "not-a-correction",
+      "heard": "Move the Halstead review to the Brightmoor room.",
+      "sent": "Move the Halstead review to the Cannery room.",
+      "note": "a different room"
+    },
+    {
+      "id": "near-06",
+      "label": "not-a-correction",
+      "heard": "Forward the Tanaka memo to the board.",
+      "sent": "Forward the Tanaka memo to the partners.",
+      "note": "a different audience"
+    },
+    {
+      "id": "near-07",
+      "label": "not-a-correction",
+      "heard": "Send the Everlock quote to Marcus Webb.",
+      "sent": "Send the Everlock invoice to Marcus Webb.",
+      "note": "a different document"
+    },
+    {
+      "id": "near-08",
+      "label": "not-a-correction",
+      "heard": "Tell Sable Ridge we are still interested.",
+      "sent": "Tell Sable Ridge we are not interested.",
+      "note": "the opposite decision"
+    },
+    {
+      "id": "near-09",
+      "label": "not-a-correction",
+      "heard": "Loop in Yusuf Adeyemi on the migration.",
+      "sent": "Loop in Yusuf Adeyemi on the renewal.",
+      "note": "a different workstream"
+    },
+    {
+      "id": "near-10",
+      "label": "not-a-correction",
+      "heard": "The Orinda pilot starts on the fifteenth.",
+      "sent": "The Orinda pilot starts on the sixteenth.",
+      "note": "a different date"
+    },
+    {
+      "id": "near-11",
+      "label": "not-a-correction",
+      "heard": "Get me the Vandermeer numbers before noon.",
+      "sent": "Get me the Vandermeer numbers before Friday.",
+      "note": "a different deadline"
+    },
+    {
+      "id": "near-12",
+      "label": "not-a-correction",
+      "heard": "Copy Priya Nair and Rich Hanna on that.",
+      "sent": "Copy Priya Nair and Marcus Webb on that.",
+      "note": "a different person added"
+    },
+    {
+      "id": "reword-01",
+      "label": "not-a-correction",
+      "heard": "Send the Kestrel deck to Marla.",
+      "sent": "Ship the Kestrel deck to Marla.",
+      "note": "same instruction, different verb"
+    },
+    {
+      "id": "reword-02",
+      "label": "not-a-correction",
+      "heard": "Ask Priya to look at the pricing page.",
+      "sent": "Ask Priya to review the pricing page.",
+      "note": "same instruction, different verb"
+    },
+    {
+      "id": "reword-03",
+      "label": "not-a-correction",
+      "heard": "I think we should wait on the Halstead renewal.",
+      "sent": "I think we ought to wait on the Halstead renewal.",
+      "note": "register"
+    },
+    {
+      "id": "reword-04",
+      "label": "not-a-correction",
+      "heard": "Get me the Vandermeer numbers before noon.",
+      "sent": "Fetch me the Vandermeer numbers before noon.",
+      "note": "same instruction, different verb"
+    },
+    {
+      "id": "reword-05",
+      "label": "not-a-correction",
+      "heard": "The Everlock deal is nearly closed.",
+      "sent": "The Everlock deal is almost closed.",
+      "note": "adverb"
+    },
+    {
+      "id": "reword-06",
+      "label": "not-a-correction",
+      "heard": "Tell Marcus the lease is signed.",
+      "sent": "Tell Marcus the lease is executed.",
+      "note": "a synonym, and a lowercase one"
+    },
+    {
+      "id": "reword-07",
+      "label": "not-a-correction",
+      "heard": "Put the Cannery Street lease on the agenda.",
+      "sent": "Add the Cannery Street lease to the agenda.",
+      "note": "reworded around the same noun"
+    },
+    {
+      "id": "reword-08",
+      "label": "not-a-correction",
+      "heard": "We need to decide on Northgate this week.",
+      "sent": "We must decide on Northgate this week.",
+      "note": "modal"
+    },
+    {
+      "id": "reword-09",
+      "label": "not-a-correction",
+      "heard": "Marla wants the deck before the board call.",
+      "sent": "Marla needs the deck before the board call.",
+      "note": "verb"
+    },
+    {
+      "id": "reword-10",
+      "label": "not-a-correction",
+      "heard": "Can you check the Halstead numbers?",
+      "sent": "Could you check the Halstead numbers?",
+      "note": "modal"
+    },
+    {
+      "id": "reword-11",
+      "label": "not-a-correction",
+      "heard": "That is fine by me.",
+      "sent": "That is good by me.",
+      "note": "adjective"
+    },
+    {
+      "id": "reword-12",
+      "label": "not-a-correction",
+      "heard": "Set up a review with Priya on Thursday.",
+      "sent": "Arrange a review with Priya on Thursday.",
+      "note": "verb phrase"
+    },
+    {
+      "id": "reword-13",
+      "label": "not-a-correction",
+      "heard": "The Brightmoor pilot went well.",
+      "sent": "The Brightmoor pilot went fine.",
+      "note": "adjective"
+    },
+    {
+      "id": "reword-14",
+      "label": "not-a-correction",
+      "heard": "Send Marcus a note about the renewal.",
+      "sent": "Send Marcus a message about the renewal.",
+      "note": "noun"
+    },
+    {
+      "id": "reword-15",
+      "label": "not-a-correction",
+      "heard": "Let me know what Dana says.",
+      "sent": "Let me know what Dana thinks.",
+      "note": "verb"
+    },
+    {
+      "id": "trim-01",
+      "label": "not-a-correction",
+      "heard": "Send the Kestrel deck to Marla today please.",
+      "sent": "Send the Kestrel deck to Marla.",
+      "note": "trailing trim"
+    },
+    {
+      "id": "trim-02",
+      "label": "not-a-correction",
+      "heard": "Actually, book a call with Dana Okonkwo for Tuesday.",
+      "sent": "Book a call with Dana Okonkwo for Tuesday.",
+      "note": "leading filler removed"
+    },
+    {
+      "id": "trim-03",
+      "label": "not-a-correction",
+      "heard": "Um, the Halstead renewal is the one I care about.",
+      "sent": "The Halstead renewal is the one I care about.",
+      "note": "disfluency removed"
+    },
+    {
+      "id": "trim-04",
+      "label": "not-a-correction",
+      "heard": "I met Rich Hanna about the transcription work yesterday.",
+      "sent": "I met Rich Hanna about the transcription work.",
+      "note": "trailing trim"
+    },
+    {
+      "id": "trim-05",
+      "label": "not-a-correction",
+      "heard": "So Northgate and Brightmoor both signed this week.",
+      "sent": "Northgate and Brightmoor both signed this week.",
+      "note": "leading filler"
+    },
+    {
+      "id": "trim-06",
+      "label": "not-a-correction",
+      "heard": "Ask Priya Nair to please review the pricing page.",
+      "sent": "Ask Priya Nair to review the pricing page.",
+      "note": "interior deletion"
+    },
+    {
+      "id": "trim-07",
+      "label": "not-a-correction",
+      "heard": "Marcus Webb, I think, owns that account now.",
+      "sent": "Marcus Webb owns that account now.",
+      "note": "parenthetical removed"
+    },
+    {
+      "id": "trim-08",
+      "label": "not-a-correction",
+      "heard": "Put the Cannery Street lease on the agenda for next week.",
+      "sent": "Put the Cannery Street lease on the agenda.",
+      "note": "trailing trim"
+    },
+    {
+      "id": "trim-09",
+      "label": "not-a-correction",
+      "heard": "You know, the Everlock deal is nearly closed.",
+      "sent": "The Everlock deal is nearly closed.",
+      "note": "leading filler"
+    },
+    {
+      "id": "trim-10",
+      "label": "not-a-correction",
+      "heard": "Loop in Yusuf Adeyemi on the migration if you can.",
+      "sent": "Loop in Yusuf Adeyemi on the migration.",
+      "note": "trailing trim"
+    },
+    {
+      "id": "add-01",
+      "label": "not-a-correction",
+      "heard": "Send the Kestrel deck to Marla.",
+      "sent": "Send the Kestrel deck to Marla before Friday.",
+      "note": "afterthought appended"
+    },
+    {
+      "id": "add-02",
+      "label": "not-a-correction",
+      "heard": "Book a call with Dana Okonkwo.",
+      "sent": "Book a call with Dana Okonkwo for Tuesday.",
+      "note": "afterthought appended"
+    },
+    {
+      "id": "add-03",
+      "label": "not-a-correction",
+      "heard": "The Halstead renewal matters.",
+      "sent": "The Halstead renewal really matters.",
+      "note": "intensifier inserted"
+    },
+    {
+      "id": "add-04",
+      "label": "not-a-correction",
+      "heard": "Ask Priya to review the pricing page.",
+      "sent": "Ask Priya to review the pricing page and the FAQ.",
+      "note": "afterthought appended"
+    },
+    {
+      "id": "add-05",
+      "label": "not-a-correction",
+      "heard": "Marcus owns that account.",
+      "sent": "Marcus Webb owns that account.",
+      "note": "surname added, not a mishearing of anything"
+    },
+    {
+      "id": "add-06",
+      "label": "not-a-correction",
+      "heard": "Tell Sable Ridge we are interested.",
+      "sent": "Tell Sable Ridge we are still interested.",
+      "note": "adverb inserted"
+    },
+    {
+      "id": "add-07",
+      "label": "not-a-correction",
+      "heard": "Move the review to the Brightmoor room.",
+      "sent": "Move the Halstead review to the Brightmoor room.",
+      "note": "qualifier inserted"
+    },
+    {
+      "id": "add-08",
+      "label": "not-a-correction",
+      "heard": "Get me the numbers before noon.",
+      "sent": "Get me the Vandermeer numbers before noon.",
+      "note": "qualifier inserted"
+    },
+    {
+      "id": "mind-01",
+      "label": "not-a-correction",
+      "heard": "Ship it Thursday.",
+      "sent": "Ship it Friday.",
+      "note": "the wiki's own archetype"
+    },
+    {
+      "id": "mind-02",
+      "label": "not-a-correction",
+      "heard": "Let's do it Tuesday.",
+      "sent": "Let's do it Wednesday.",
+      "note": "weekday swap that scores 0.75 by sound"
+    },
+    {
+      "id": "mind-03",
+      "label": "not-a-correction",
+      "heard": "We are going with Postgres.",
+      "sent": "We are going with MySQL.",
+      "note": "two different products — a decision"
+    },
+    {
+      "id": "mind-04",
+      "label": "not-a-correction",
+      "heard": "Run Phase 1 first.",
+      "sent": "Run Phase 2 first.",
+      "note": "an enumerator swap"
+    },
+    {
+      "id": "mind-05",
+      "label": "not-a-correction",
+      "heard": "Send it to the Series A investors.",
+      "sent": "Send it to the Series B investors.",
+      "note": "an enumerator swap"
+    },
+    {
+      "id": "mind-06",
+      "label": "not-a-correction",
+      "heard": "The Q3 number was one point two million.",
+      "sent": "The Q3 number was one point four million.",
+      "note": "a value, and belief.rs's desk not this one"
+    },
+    {
+      "id": "mind-07",
+      "label": "not-a-correction",
+      "heard": "Book it for March.",
+      "sent": "Book it for April.",
+      "note": "a month"
+    },
+    {
+      "id": "mind-08",
+      "label": "not-a-correction",
+      "heard": "Give it to Priya.",
+      "sent": "Give it to Marcus.",
+      "note": "two different people"
+    },
+    {
+      "id": "mind-09",
+      "label": "not-a-correction",
+      "heard": "We should acquire Everlock.",
+      "sent": "We should acquire Northgate.",
+      "note": "two different companies"
+    },
+    {
+      "id": "mind-10",
+      "label": "not-a-correction",
+      "heard": "Move the review to Monday.",
+      "sent": "Move the review to Tuesday.",
+      "note": "a weekday"
+    },
+    {
+      "id": "mind-11",
+      "label": "not-a-correction",
+      "heard": "Let's meet in the Cannery room.",
+      "sent": "Let's meet in the Brightmoor room.",
+      "note": "two different rooms"
+    },
+    {
+      "id": "mind-12",
+      "label": "not-a-correction",
+      "heard": "Ask for a two-year term.",
+      "sent": "Ask for a three-year term.",
+      "note": "a number word"
+    },
+    {
+      "id": "mind-13",
+      "label": "not-a-correction",
+      "heard": "I want Dana to run it.",
+      "sent": "I want Marla to run it.",
+      "note": "two different people"
+    },
+    {
+      "id": "mind-14",
+      "label": "not-a-correction",
+      "heard": "Do the Halstead review first.",
+      "sent": "Do the Northgate review first.",
+      "note": "two different accounts"
+    },
+    {
+      "id": "mind-15",
+      "label": "not-a-correction",
+      "heard": "Set the price at forty thousand.",
+      "sent": "Set the price at fifty thousand.",
+      "note": "a value"
+    },
+    {
+      "id": "mind-16",
+      "label": "not-a-correction",
+      "heard": "Schedule it for September.",
+      "sent": "Schedule it for October.",
+      "note": "a month"
+    },
+    {
+      "id": "mind-17",
+      "label": "not-a-correction",
+      "heard": "Use the Kestrel template.",
+      "sent": "Use the Everlock template.",
+      "note": "two different templates"
+    },
+    {
+      "id": "mind-18",
+      "label": "not-a-correction",
+      "heard": "Send it on the first.",
+      "sent": "Send it on the second.",
+      "note": "an ordinal"
+    },
+    {
+      "id": "mind-19",
+      "label": "not-a-correction",
+      "heard": "Reply to Marcus tonight.",
+      "sent": "Reply to Marcus tomorrow.",
+      "note": "a relative day word"
+    },
+    {
+      "id": "mind-20",
+      "label": "not-a-correction",
+      "heard": "Try the Brightmoor approach.",
+      "sent": "Try the Northgate approach.",
+      "note": "two different approaches"
+    },
+    {
+      "id": "typo-01",
+      "label": "not-a-correction",
+      "heard": "Your welcome to join the Kestrel review.",
+      "sent": "You're welcome to join the Kestrel review.",
+      "note": "your/you're — 0.80 orthographic, capitalized, term-shaped without the grammar-word refusal"
+    },
+    {
+      "id": "typo-02",
+      "label": "not-a-correction",
+      "heard": "Its going to be a long week.",
+      "sent": "It's going to be a long week.",
+      "note": "its/it's"
+    },
+    {
+      "id": "typo-03",
+      "label": "not-a-correction",
+      "heard": "Their sending the contract today.",
+      "sent": "They're sending the contract today.",
+      "note": "their/they're"
+    },
+    {
+      "id": "typo-04",
+      "label": "not-a-correction",
+      "heard": "There numbers came in low.",
+      "sent": "Their numbers came in low.",
+      "note": "there/their"
+    },
+    {
+      "id": "typo-05",
+      "label": "not-a-correction",
+      "heard": "Who's deck is this?",
+      "sent": "Whose deck is this?",
+      "note": "who's/whose"
+    },
+    {
+      "id": "typo-06",
+      "label": "not-a-correction",
+      "heard": "Then we can close Northgate.",
+      "sent": "When we can close Northgate.",
+      "note": "then/when"
+    },
+    {
+      "id": "typo-07",
+      "label": "not-a-correction",
+      "heard": "To of them are already signed.",
+      "sent": "Two of them are already signed.",
+      "note": "to/two"
+    },
+    {
+      "id": "typo-08",
+      "label": "not-a-correction",
+      "heard": "Wont be able to make the call.",
+      "sent": "Won't be able to make the call.",
+      "note": "an apostrophe"
+    },
+    {
+      "id": "typo-09",
+      "label": "not-a-correction",
+      "heard": "Cant get the Halstead numbers until Monday.",
+      "sent": "Can't get the Halstead numbers until Monday.",
+      "note": "an apostrophe"
+    },
+    {
+      "id": "typo-10",
+      "label": "not-a-correction",
+      "heard": "Lets get Priya on the call.",
+      "sent": "Let's get Priya on the call.",
+      "note": "an apostrophe"
+    },
+    {
+      "id": "typo-11",
+      "label": "not-a-correction",
+      "heard": "Is the Everlock deal done yet.",
+      "sent": "Was the Everlock deal done yet.",
+      "note": "tense fix"
+    },
+    {
+      "id": "typo-12",
+      "label": "not-a-correction",
+      "heard": "Have Marcus called the lender?",
+      "sent": "Has Marcus called the lender?",
+      "note": "agreement fix"
+    },
+    {
+      "id": "typo-13",
+      "label": "not-a-correction",
+      "heard": "Thats the Brightmoor proposal.",
+      "sent": "That's the Brightmoor proposal.",
+      "note": "an apostrophe"
+    },
+    {
+      "id": "typo-14",
+      "label": "not-a-correction",
+      "heard": "Weve signed the Cannery Street lease.",
+      "sent": "We've signed the Cannery Street lease.",
+      "note": "an apostrophe"
+    },
+    {
+      "id": "typo-15",
+      "label": "not-a-correction",
+      "heard": "Youve got the Kestrel deck already.",
+      "sent": "You've got the Kestrel deck already.",
+      "note": "an apostrophe"
+    },
+    {
+      "id": "punct-01",
+      "label": "not-a-correction",
+      "heard": "Send the kestrel deck to marla.",
+      "sent": "Send the Kestrel deck to Marla.",
+      "note": "capitalisation only — nothing a vocabulary could hold"
+    },
+    {
+      "id": "punct-02",
+      "label": "not-a-correction",
+      "heard": "the halstead renewal is the one i care about",
+      "sent": "The Halstead renewal is the one I care about.",
+      "note": "casing and a full stop"
+    },
+    {
+      "id": "punct-03",
+      "label": "not-a-correction",
+      "heard": "Ask priya nair to review the pricing page.",
+      "sent": "Ask Priya Nair to review the pricing page.",
+      "note": "capitalisation only"
+    },
+    {
+      "id": "punct-04",
+      "label": "not-a-correction",
+      "heard": "Northgate, and Brightmoor both signed.",
+      "sent": "Northgate and Brightmoor both signed.",
+      "note": "a comma"
+    },
+    {
+      "id": "punct-05",
+      "label": "not-a-correction",
+      "heard": "Marcus Webb owns that account now",
+      "sent": "Marcus Webb owns that account now.",
+      "note": "a full stop"
+    },
+    {
+      "id": "punct-06",
+      "label": "not-a-correction",
+      "heard": "everlock wants a two-year term.",
+      "sent": "Everlock wants a two-year term.",
+      "note": "capitalisation only"
+    },
+    {
+      "id": "prose-01",
+      "label": "not-a-correction",
+      "heard": "It is not a bug, it is a feature.",
+      "sent": "It is not a bug, it is a choice.",
+      "note": "prose"
+    },
+    {
+      "id": "prose-02",
+      "label": "not-a-correction",
+      "heard": "The meeting was useful.",
+      "sent": "The meeting was useless.",
+      "note": "prose, and a near-miss by spelling"
+    },
+    {
+      "id": "prose-03",
+      "label": "not-a-correction",
+      "heard": "That approach is faster.",
+      "sent": "That approach is safer.",
+      "note": "prose adjectives, close in spelling"
+    },
+    {
+      "id": "prose-04",
+      "label": "not-a-correction",
+      "heard": "We should wait.",
+      "sent": "We should weight.",
+      "note": "a homophone that is still prose"
+    },
+    {
+      "id": "prose-05",
+      "label": "not-a-correction",
+      "heard": "The deal is done.",
+      "sent": "The deal is dead.",
+      "note": "prose, close in spelling"
+    },
+    {
+      "id": "prose-06",
+      "label": "not-a-correction",
+      "heard": "Send the final draft.",
+      "sent": "Send the finals draft.",
+      "note": "prose, one character apart"
+    },
+    {
+      "id": "prose-07",
+      "label": "not-a-correction",
+      "heard": "He said he would call.",
+      "sent": "He said he could call.",
+      "note": "modal, close in spelling"
+    },
+    {
+      "id": "prose-08",
+      "label": "not-a-correction",
+      "heard": "Take the earlier flight.",
+      "sent": "Take the earliest flight.",
+      "note": "prose, close in spelling"
+    },
+    {
+      "id": "prose-09",
+      "label": "not-a-correction",
+      "heard": "The report is late.",
+      "sent": "The report is later.",
+      "note": "prose, close in spelling"
+    },
+    {
+      "id": "prose-10",
+      "label": "not-a-correction",
+      "heard": "I want a quick answer.",
+      "sent": "I want a quiet answer.",
+      "note": "prose, one character apart"
+    },
+    {
+      "id": "rewrite-01",
+      "label": "not-a-correction",
+      "heard": "Send the Kestrel deck to Marla before Friday.",
+      "sent": "Marla needs whatever we have on Kestrel, ideally today.",
+      "note": "rewritten from scratch"
+    },
+    {
+      "id": "rewrite-02",
+      "label": "not-a-correction",
+      "heard": "The Halstead renewal is the one I care about.",
+      "sent": "Halstead is the only renewal that actually matters this quarter.",
+      "note": "rewritten from scratch"
+    },
+    {
+      "id": "rewrite-03",
+      "label": "not-a-correction",
+      "heard": "Book a call with Dana Okonkwo for Tuesday.",
+      "sent": "Get thirty minutes with Dana some time early next week.",
+      "note": "rewritten from scratch"
+    },
+    {
+      "id": "rewrite-04",
+      "label": "not-a-correction",
+      "heard": "Northgate and Brightmoor both signed this week.",
+      "sent": "Two closes this week — the pipeline is in better shape than it looked.",
+      "note": "rewritten from scratch"
+    },
+    {
+      "id": "rewrite-05",
+      "label": "not-a-correction",
+      "heard": "Ask Priya Nair to review the pricing page.",
+      "sent": "Pricing page needs a second pair of eyes before it ships.",
+      "note": "rewritten from scratch"
+    },
+    {
+      "id": "emitted-01",
+      "label": "not-a-correction",
+      "heard": "Send the Deepgram contract to Marla.",
+      "sent": "Send the Deepgram contract to Marla.",
+      "note": "the shared vocabulary corrected `deep graham` on the way to the composer and he changed nothing — diffing `text` would ask about a pair the vocabulary already holds",
+      "heardRaw": "Send the deep graham contract to Marla."
+    },
+    {
+      "id": "emitted-02",
+      "label": "not-a-correction",
+      "heard": "The Kestrel review is on Thursday.",
+      "sent": "The Kestrel review is on Thursday.",
+      "note": "corrected on the way out, sent unchanged",
+      "heardRaw": "The Kestral review is on Thursday."
+    },
+    {
+      "id": "emitted-03",
+      "label": "not-a-correction",
+      "heard": "Copy Rich Hanna on the Northgate thread.",
+      "sent": "Copy Rich Hanna on the Northgate thread.",
+      "note": "corrected on the way out, sent unchanged",
+      "heardRaw": "Copy Rich Hand on the Northgate thread."
+    },
+    {
+      "id": "emitted-04",
+      "label": "correction",
+      "heard": "Copy Rich Hanna on the Northgate thread.",
+      "sent": "Copy Rich Hanna on the Northgait thread.",
+      "expect": {
+        "from": "Northgate",
+        "to": "Northgait"
+      },
+      "heardRaw": "Copy Rich Hand on the Northgate thread.",
+      "note": "corrected on the way out AND then edited — the edit is the ask, the already-learned pair is not"
+    },
+    {
+      "id": "buried-01",
+      "label": "correction",
+      "heard": "Send the Kestral deck to Marla before Friday.",
+      "sent": "Marla needs the Kestrel deck before Friday, ideally today.",
+      "expect": {
+        "from": "Kestral",
+        "to": "Kestrel"
+      },
+      "note": "a real name fix buried inside a heavy rewrite — the rewrite drops the pair below the pairing floor and the correction is lost. The named recall hole, measured."
+    },
+    {
+      "id": "buried-02",
+      "label": "correction",
+      "heard": "The Halsted renewal is the one I care about.",
+      "sent": "Halstead is the only renewal that actually matters this quarter.",
+      "expect": {
+        "from": "Halsted",
+        "to": "Halstead"
+      },
+      "note": "same hole: rewritten around a corrected name"
+    },
+    {
+      "id": "buried-03",
+      "label": "correction",
+      "heard": "Book a call with Dana Okonko for Tuesday.",
+      "sent": "Get thirty minutes with Dana Okonkwo early next week.",
+      "expect": {
+        "from": "Dana Okonko",
+        "to": "Dana Okonkwo"
+      },
+      "note": "same hole: rewritten around a corrected name"
+    }
+  ]
+}

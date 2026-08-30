@@ -302,6 +302,10 @@ pub struct Spine {
     /// `SharedCandidateDesk` (an `Arc<Mutex<_>>`) rather than owned, so answering §7's
     /// question never waits on the turn lock — see `staging::SharedCandidateDesk`.
     candidates: Option<SharedCandidateDesk>,
+    /// The dictation journal the heard-vs-sent trigger reads. `None` on every install
+    /// without a journalling dictation app, and on every install where the CEO has not
+    /// switched the trigger on — see [`Spine::set_heard_source`].
+    heard: Option<Box<dyn crate::heard::HeardSource>>,
     /// THE LORO DESK, and the memory it resolves against (`belief.rs` + `loro.rs`).
     /// Optional as a PAIR: a build with a desk and no provenance can resolve nothing, and a
     /// build with provenance and no desk has nowhere to file. Both absent is the ordinary
@@ -413,6 +417,7 @@ impl Spine {
             machinery_observer: None,
             live: None,
             candidates: None,
+            heard: None,
             correction_observer: None,
             correction_desk: None,
             loro_provenance: None,
@@ -602,6 +607,26 @@ impl Spine {
 
     pub fn set_candidate_desk(&mut self, desk: SharedCandidateDesk) {
         self.candidates = Some(desk);
+    }
+
+    /// Attach the dictation journal — the "heard" side of the DIFF trigger.
+    ///
+    /// **Optional, and OFF unless something calls this.** Two independent reasons, and the
+    /// second is the one that matters:
+    ///
+    /// 1. Most installs have no journalling dictation app at all, so there is nothing to
+    ///    read. `heard.rs`'s trigger cannot fire without a journal, which is an honest
+    ///    degradation rather than a failure.
+    /// 2. **It is the only one of the three triggers that did not measure precision
+    ///    1.000.** It measured 0.972 over 156 invented pairs, and the single false positive
+    ///    is a pair that would corrupt an ordinary English word in every future decode
+    ///    (`heard.rs`, "the one false positive"). It also fires on an edit the CEO never
+    ///    volunteered, so a wrong question here is more expensive than in either trigger
+    ///    before it. Until that defect is repaired in the SHARED expansion rule where it
+    ///    lives, this stays behind a deliberate switch rather than on by default, and the
+    ///    shell honours `RICHOS_HEARD_TRIGGER` rather than deciding for him.
+    pub fn set_heard_source(&mut self, source: Box<dyn crate::heard::HeardSource>) {
+        self.heard = Some(source);
     }
 
     /// Attach the sink that renders §7's ask. Optional and independent of the desk: the
@@ -1173,6 +1198,9 @@ impl Spine {
         //      utterance passes through, and a correction family reached by a different
         //      route would be a correction family with different rules about when it runs.
         self.stage_belief_correction(&binding, text, source);
+        // (1d) AND THE THIRD, which is the only one that watches rather than listens: what
+        //      he DICTATED against what he actually sent. Same seam, same reason.
+        self.stage_heard_correction(&binding, &turn_id, text, source);
 
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
@@ -1264,6 +1292,69 @@ impl Spine {
             }
             // A disk failure here loses ONE question. It must not lose the turn.
             Err(e) => eprintln!("[richos] correction could not be staged: {e}"),
+        }
+    }
+
+    /// Examine one SENT message against what was DICTATED, and if he silently fixed a
+    /// mis-heard word, write the question down.
+    ///
+    /// **Infallible from the turn's point of view**, the same posture and for the same
+    /// reason as the two triggers above: a staged correction is a QUESTION, and losing the
+    /// chance to ask one must never cost the CEO the sentence he actually said.
+    ///
+    /// **`Source::Text` only** — one narrower than the other two, and deliberately. A
+    /// `Jam` turn is live voice: `rich://voice-transcript` goes straight into the thread as
+    /// a turn, so there is no composer, no edit, and nothing to diff. Running this on a Jam
+    /// turn would diff a fresh utterance against an unrelated open-wispr dictation, which
+    /// is precisely the wrong-match failure `heard::MATCH_MIN_SIMILARITY` exists to stop —
+    /// and would be asking it to stop something we could simply not do.
+    ///
+    /// **Nothing is written by this** beyond the desk record. `CandidateDesk::confirm` — a
+    /// human answer — remains the only path to a vocabulary write, and there is no argument
+    /// this function could pass to skip it.
+    fn stage_heard_correction(
+        &mut self,
+        binding: &ThreadBinding,
+        turn_id: &str,
+        text: &str,
+        source: Source,
+    ) {
+        if !matches!(source, Source::Text) {
+            return;
+        }
+        let (Some(src), Some(desk)) = (self.heard.as_ref(), self.candidates.as_ref()) else {
+            return;
+        };
+        let now = crate::util::now_millis();
+        // Only the window the pairing condition can claim anyway, so the journal read is
+        // bounded by the same number the match is — one policy, not two.
+        let journal = src.recent(now.saturating_sub(crate::heard::MATCH_WINDOW_MS));
+        if journal.is_empty() {
+            return;
+        }
+        let review = crate::heard::review(&journal, text, now);
+        if review.detection.asks.is_empty() {
+            return;
+        }
+        let thread_id = binding.thread_id().to_string();
+        let Ok(mut desk) = desk.lock() else {
+            eprintln!("[richos] correction desk lock is poisoned — the question is dropped, the turn is not");
+            return;
+        };
+        match desk.stage(&review.detection, &thread_id, turn_id, text) {
+            Ok(staged) => {
+                // Released before the observer runs, for the reason the spoken path does
+                // it: a surface that blocks must not hold the desk shut against the CEO's
+                // own answer.
+                drop(desk);
+                if let Some(obs) = self.correction_observer.as_deref() {
+                    if !staged.is_empty() {
+                        obs.on_correction_staged(&staged);
+                    }
+                }
+            }
+            // A disk failure here loses ONE question. It must not lose the turn.
+            Err(e) => eprintln!("[richos] a dictation correction could not be staged: {e}"),
         }
     }
 

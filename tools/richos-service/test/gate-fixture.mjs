@@ -39,7 +39,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { normalizeTerm, similarity } from '../lib/correct.js';
-import { looksLikeTerm } from '../lib/capture.js';
+import { looksLikeTerm, tokenReplaceHunks } from '../lib/capture.js';
 import {
   phoneticKey,
   phoneticSimilarity,
@@ -87,6 +87,50 @@ const SPANS = [
   '',
 ];
 
+/**
+ * Heard/sent pairs chosen to span the DECISIONS `tokenReplaceHunks` makes, not to be pretty.
+ * The hunk reduction is now ported too — `richos_core::heard::token_replace_hunks` — and it
+ * is what turns a silent edit into a candidate, so a divergence here is a divergence about
+ * WHAT PAIR gets learned, which is worse than a divergence about whether to ask.
+ *
+ * Each row is a rule: a plain substitution, an expansion left, an expansion right, an
+ * expansion refused at a sentence boundary (the `Marcus Web` defect, pinned so it cannot
+ * change silently in either implementation), a pure insertion, a pure deletion, a
+ * multi-hunk edit, and one where the delta opens the body.
+ */
+const EDITS = [
+  ['Send the Kestral deck to Marla.', 'Send the Kestrel deck to Marla.'],
+  ['I met Rich Hand about it.', 'I met Rich Hanna about it.'],
+  ['Route it through Saint Aubin Partners.', 'Route it through Saint Auburn Partners.'],
+  ['Marcus Web owns that account now.', 'Marcus Webb owns that account now.'],
+  ['Marla Kestral signed off this morning.', 'Marla Kestrel signed off this morning.'],
+  ['Send the Kestrel deck to Marla today please.', 'Send the Kestrel deck to Marla.'],
+  ['Send the Kestrel deck to Marla.', 'Send the Kestrel deck to Marla before Friday.'],
+  ['Northgate and Brightmore signed. Ship it Thursday.', 'Northgate and Brightmoor signed. Ship it Friday.'],
+  ['Kestral is the account I care about.', 'Kestrel is the account I care about.'],
+  ['The deep graham contract is signed.', 'The Deepgram contract is signed.'],
+  ['Your welcome to join the Kestrel review.', "You're welcome to join the Kestrel review."],
+  ['Move the Halstead review to the Brightmore room.', 'Move the Halstead review to the Brightmoor room.'],
+  // The sentence guard on the LEFT: `Northgate` is term-shaped AND opens a sentence, so the
+  // expansion must stop dead rather than absorb a word capitalized by position. Without this
+  // row the guard is unmeasured on the left, because every other row's block starts too
+  // early for the loop to reach it.
+  ['The deal closed. Northgate Brightmore signed.', 'The deal closed. Northgate Brightmoor signed.'],
+  // The same guard on the RIGHT, and it has to be reachable: the change must sit at the END
+  // of a sentence with a term-shaped token opening the next one, or the right loop breaks on
+  // an ordinary word before `startsSentence` is ever consulted. (Found by mutation M8b,
+  // which the first version of this row did not catch.)
+  ['Ship it to Brightmore. Marla Kestrel signs.', 'Ship it to Brightmoor. Marla Kestrel signs.'],
+  // A GENUINELY pure deletion and a genuinely pure insertion — interior, so neither collides
+  // with the sentence's full stop. Without these two rows "insert and delete are never a
+  // substitution" is asserted nowhere: every other trim in the fixture reaches the end of the
+  // sentence and becomes a substitution against its own punctuated form.
+  ['Ask Priya to please review the page.', 'Ask Priya to review the page.'],
+  ['Ask Priya to review the page.', 'Ask Priya to please review the page.'],
+];
+
+const words = (s) => String(s || '').split(/\s+/).filter(Boolean);
+
 const fixture = {
   note:
     'Generated from tools/richos-service/lib by test/gate-fixture.mjs. The SHARED contract of '
@@ -112,10 +156,22 @@ const fixture = {
     key: askKey(from, to),
   })),
   spans: SPANS.map((text) => ({ text, looksLikeTerm: looksLikeTerm(text) })),
+  edits: EDITS.map(([heard, sent]) => ({
+    heard,
+    sent,
+    hunks: tokenReplaceHunks(words(heard), words(sent)).map((h) => ({
+      from: h.from,
+      to: h.to,
+      coreFrom: h.coreFrom,
+      coreTo: h.coreTo,
+    })),
+  })),
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = process.argv[2] ? process.argv[2] : join(here, 'fixtures', 'correction-gate.json');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, `${JSON.stringify(fixture, null, 2)}\n`);
-console.log(`wrote ${out} — ${fixture.pairs.length} pairs, ${fixture.spans.length} spans`);
+console.log(
+  `wrote ${out} — ${fixture.pairs.length} pairs, ${fixture.spans.length} spans, ${fixture.edits.length} edits`
+);
