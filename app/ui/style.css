@@ -1793,7 +1793,11 @@ body.bp-narrow .tl-user-bubble {
   color: var(--ink-faint);
 }
 
-.tl-intervention-action {
+/* `.pane-action` is the §21 unbound screen's way out. Same object as an intervention
+   action — a quiet bordered control offering the one thing the CEO can do about a state he
+   did not cause — so it is the same rule rather than a second look for the same job. */
+.tl-intervention-action,
+.pane-action {
   margin-top: 4px;
   background: none;
   border: 1px solid var(--line);
@@ -1805,11 +1809,13 @@ body.bp-narrow .tl-user-bubble {
   cursor: pointer;
 }
 
-.tl-intervention-action:hover {
+.tl-intervention-action:hover,
+.pane-action:hover {
   background: var(--bg-hover);
 }
 
-.tl-intervention-action:focus-visible {
+.tl-intervention-action:focus-visible,
+.pane-action:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

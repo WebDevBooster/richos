@@ -484,9 +484,16 @@ function showUnboundView(row, rawError) {
     "I can't open this one. It has no entity home — it predates entity scoping, and I won't guess " +
     "which entity this work belongs to. Filing it under the wrong one would mix up two companies' " +
     "records, and that's not a mistake worth risking to save you a question.";
+  // WHO CHANGES THIS, AND WHAT HAPPENS NEXT. The old sentence ended at "Binding it is an
+  // explicit operator decision and there is no control for it in the app yet" — true, and
+  // useless to the man reading it: it named no party, offered no next step, and left him
+  // on the one screen in the app with nothing to press. A state he cannot fix has to say
+  // who can. "Operator" is not a word he uses, so it says who that is in his terms.
   el("unbound-view-detail").textContent =
     (navTree.unbound_explanation || rawError || "") +
-    " Binding it is an explicit operator decision and there is no control for it in the app yet.";
+    " Filing it under a company is a job for whoever set RichOS up — there is no control for" +
+    " it in the app yet, so it will not sort itself out. Meanwhile the button above starts a" +
+    " fresh thread wherever you say, and I'll carry on there.";
   sendBlockedReason = "This thread has no entity home, so I can't take a message in it.";
   composerBlockedEl.textContent = sendBlockedReason;
   composerBlockedEl.hidden = false;
@@ -1269,6 +1276,9 @@ stopBtn.addEventListener("click", (e) => {
 });
 
 el("rail-new-thread").addEventListener("click", startNewThreadFlow);
+// §21's way out of the unbound screen — the SAME §3.3 flow the rail's button runs, not a
+// second one. The picker always opens, so this never guesses an entity either.
+el("unbound-new-thread").addEventListener("click", startNewThreadFlow);
 el("nav-search").addEventListener("click", openSearch);
 jumpLatestBtn.addEventListener("click", jumpToLatest);
 

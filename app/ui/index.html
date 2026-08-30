@@ -110,11 +110,22 @@
         </section>
 
         <!-- ENTITY BINDING FAILURE (§21). What a pre-entity thread looks like: calm,
-             explained in Rich's own words, send blocked. Never a stack trace. -->
+             explained in Rich's own words, send blocked. Never a stack trace.
+
+             AND A WAY OUT. This screen is the only one in the app that ends in a dead
+             stop: send is off, the composer is disabled, and the fix (binding the thread
+             to an entity) is an operator decision with no control anywhere in the app. For
+             three slices it therefore rendered a state the CEO could do nothing about and
+             named nobody who could — weather, not a status. It now says WHO changes it and
+             offers the one thing he CAN do, which is start the work again where it belongs.
+             The button is the existing §3.3 flow, not a new one. -->
         <section id="unbound-view" class="pane-view" hidden aria-labelledby="unbound-view-title">
           <div class="pane-inner">
             <h1 id="unbound-view-title" class="pane-title"></h1>
             <p id="unbound-view-body" class="pane-line"></p>
+            <button id="unbound-new-thread" class="pane-action" type="button">
+              Start a new thread instead
+            </button>
             <p id="unbound-view-detail" class="pane-note"></p>
           </div>
         </section>
