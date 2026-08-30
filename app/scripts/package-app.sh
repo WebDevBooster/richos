@@ -504,7 +504,7 @@ say "  Gatekeeper assessment (spctl): $(spctl -a -vv "$app_bundle" 2>&1 | sed -n
 
 if [ "$sign_mode" = "adhoc" ]; then
   say ""
-  say "OK: $(basename "$app_bundle") is bundled, ad-hoc signed and verified — real icons, cdhash ${BUNDLE_CDHASH}, microphone usage string present; NOT notarized, and its permission grants die on the next rebuild. Path: $app_bundle"
+  say "OK: $(basename "$app_bundle") is bundled, ad-hoc signed and verified — real icons, cdhash ${BUNDLE_CDHASH}, microphone usage string present; NOT notarized, Gatekeeper rejects it, and its permission grants die on the next build that changes a shipped byte. Path: $app_bundle"
 elif [ "${RICHOS_NOTARIZE:-}" = "1" ]; then
   say ""
   say "OK: $(basename "$app_bundle") is bundled, Developer ID signed, notarized and verified — real icons, cdhash ${BUNDLE_CDHASH}, hardened runtime, microphone entitlement and usage string present. Path: $app_bundle"
