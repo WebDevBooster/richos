@@ -37,6 +37,53 @@
 #
 # NO SILENT DEGRADATION: finding zero suites is a hard failure, not "0/0 green".
 #
+# ===========================================================================
+# WHY THIS ONE STAYS IN CI, AND WHAT THAT COSTS — measured 2026-08-30
+# ===========================================================================
+# Every other honour-system check in this engine has now been moved to a
+# PreToolUse chokepoint, because a check that runs when somebody remembers is a
+# rule enforced by attention. The obvious next question is whether this runner
+# should join them. THE ANSWER IS NO, AND IT IS ARITHMETIC RATHER THAN TASTE.
+#
+#   28 suites, one full sequential run, this machine:   439s  (7m19s)
+#   the two that dominate it:
+#     scripts/hooks/contract-integrity.test.sh          313s   (98 cases, each
+#                                                              building a whole
+#                                                              sandbox repo)
+#     scripts/hooks/by-reference.test.sh                106s   (48 cases, each
+#                                                              building TWO)
+#   everything else, all 26 suites together:            ~40s
+#
+# A seven-minute pause before every `git commit` is not a guard, it is an
+# outage. The engineer would remove the hook within the hour, and then NOTHING
+# would run the suites — strictly worse than the honour system it replaced. A
+# guard people disable protects nothing.
+#
+# THE 40-SECOND SUBSET IS ALSO REJECTED, and this is the less obvious half. It
+# is affordable, and it is exactly the wrong 26: the two suites it would drop
+# are the two that verify the guard REGISTRATION SURFACE — that the hooks are
+# wired, once each, on the right event, present, executable and hash-matched.
+# Those are the checks that answer "is the enforcement actually on?", which is
+# the only question a commit-time gate has any business asking. A subset that
+# skips them is the "18/18 suites" defect rebuilt on purpose: a fast, green,
+# reassuring fraction over the set that does not include the thing most worth
+# checking.
+#
+# SO THE COST OF LEAVING IT IN CI, STATED RATHER THAN GLOSSED: a red suite can
+# reach `main` and sit there until CI runs. That risk is bounded by what the
+# suites are FOR — they verify the engine's own machinery, which changes only
+# when somebody is deliberately editing the engine, and that person is running
+# the suite they are editing. It is NOT the risk that bit us on 2026-08-30:
+# publication-completeness went red on a DOCS merge, by an author who had no
+# reason to think any check applied to them. That is the class a chokepoint
+# fixes, and it is now fixed — see guard-completeness-commits.sh.
+#
+# WHAT WOULD CHANGE THIS ANSWER, so it can be re-decided on evidence rather
+# than re-argued: get contract-integrity.test.sh and by-reference.test.sh under
+# ~10s combined (their cost is sandbox construction, which is cacheable), and
+# the whole runner becomes chokepoint-affordable. Until then it stays in
+# ci-verify.sh step 3, which is where the numbers say it belongs.
+#
 # Usage:
 #   scripts/run-all-tests.sh            run everything, quiet on success
 #   scripts/run-all-tests.sh --verbose  stream every suite's full output

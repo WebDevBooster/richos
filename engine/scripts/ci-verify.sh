@@ -60,7 +60,18 @@
 #      the customer receive it". It is HERE, and not in a checklist, because
 #      all four defects it was built from were found by hand on the same day,
 #      and a rule enforced by someone's attention lasts exactly as long as
-#      their attention. In a repository with no .publication-boundary it exits
+#      their attention.
+#
+#      AND HERE IS NOT ENOUGH, proven the next day: on 2026-08-30 this contract
+#      was RED ON main and nobody knew, because after a docs merge the lander
+#      ran the suites and not this. CI catches it on the next push; it does not
+#      stop it reaching main. So the same predicate now also runs at
+#      PreToolUse[Bash] on `git commit` and `git push`, through
+#      scripts/hooks/guard-completeness-commits.sh — the SAME script, with the
+#      same arguments, so the hook and this step can never drift into
+#      disagreeing about what "complete" means. This step stays: CI is the arm
+#      that still fires for a commit made outside any governed session.
+#      In a repository with no .publication-boundary it exits
 #      2 as NOT APPLICABLE and this step is skipped — adoption is declared,
 #      never inferred, so an adopter who does not publish is not held to it.
 #
