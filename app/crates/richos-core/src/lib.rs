@@ -57,6 +57,7 @@ pub mod config;
 pub mod entity;
 pub mod feedback;
 pub mod journal;
+pub mod heard;
 pub mod ledger;
 pub mod loro;
 pub mod live;
@@ -74,6 +75,7 @@ pub mod worker_events;
 pub mod worker_status;
 
 pub use belief::{BeliefAsk, BeliefDetection, BeliefRejection, ValueClass};
+pub use heard::{DictationEntry, DictationJournal, HeardMatch, HeardReview, HeardSource};
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
 pub use feedback::{
