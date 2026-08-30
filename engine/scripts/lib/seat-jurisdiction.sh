@@ -100,6 +100,42 @@ _sj_once() {
 }
 
 # ---------------------------------------------------------------------------
+# _sj_physical <path>
+# ---------------------------------------------------------------------------
+# A path with every symlink resolved, working from the nearest EXISTING
+# ancestor so a not-yet-created leaf still physicalises.
+#
+# THIS IS NOT PEDANTRY, IT IS THE BUG. On macOS /var IS A SYMLINK to
+# /private/var, so the same directory arrives as two different strings
+# depending on who produced it: a hook payload carries the logical form, while
+# anything that has been through `cd && pwd` carries the physical one. Compare
+# them as strings and a repository is not itself. Caught by case 2f of this
+# file's test suite, where a linked worktree of the seat was reported as
+# belonging to a different repository — the FALSE POSITIVE that teaches a
+# reader to ignore the notice. scripts/lib/publication-boundary.sh carries
+# pb_physical for precisely the same reason.
+_sj_physical() {
+    local p="${1:-}" dir rest
+    [ -n "$p" ] || return 1
+    if [ -d "$p" ]; then
+        ( cd "$p" 2>/dev/null && pwd -P ) && return 0
+        printf '%s' "$p"; return 0
+    fi
+    dir="$(dirname "$p")"
+    rest="$(basename "$p")"
+    while [ -n "$dir" ] && [ "$dir" != "/" ] && [ ! -d "$dir" ]; do
+        rest="$(basename "$dir")/$rest"
+        dir="$(dirname "$dir")"
+    done
+    if [ -d "$dir" ]; then
+        dir="$( (cd "$dir" 2>/dev/null && pwd -P) || printf '%s' "$dir" )"
+        printf '%s/%s' "${dir%/}" "$rest"
+        return 0
+    fi
+    printf '%s' "$p"
+}
+
+# ---------------------------------------------------------------------------
 # richos_repo_of <path>
 # ---------------------------------------------------------------------------
 # The repository a path belongs to: its git top-level, normalised to the MAIN
@@ -114,12 +150,26 @@ richos_repo_of() {
     local p="${1:-}" dir top
     [ -n "$p" ] || return 1
     if [ -d "$p" ]; then dir="$p"; else dir="$(dirname "$p")"; fi
+
+    # WALK UP TO THE NEAREST EXISTING ANCESTOR. `git -C <dir>` fails outright on
+    # a directory that does not exist, and for a Write that is the ORDINARY
+    # case: creating src/new/deep/file.txt means neither `deep` nor `new` is
+    # there yet. Without this walk the answer was "in no repository at all",
+    # which in a linked worktree of the seat produced a false OUT OF
+    # JURISDICTION notice on perfectly legitimate work — and a notice that fires
+    # on legitimate work is one the reader learns to ignore, which is how a real
+    # signal gets lost. Caught by case 2f of this file's own test suite.
+    while [ -n "$dir" ] && [ "$dir" != "/" ] && [ ! -d "$dir" ]; do
+        dir="$(dirname "$dir")"
+    done
+    [ -d "$dir" ] || return 1
+
     top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
     [ -n "$top" ] || return 1
     if command -v resolve_main_checkout >/dev/null 2>&1; then
         top="$(resolve_main_checkout "$top" "$top" 2>/dev/null || printf '%s' "$top")"
     fi
-    ( cd "$top" 2>/dev/null && pwd ) || printf '%s\n' "$top"
+    ( cd "$top" 2>/dev/null && pwd -P ) || printf '%s\n' "$top"
 }
 
 # ---------------------------------------------------------------------------
@@ -136,6 +186,13 @@ richos_repo_of() {
 richos_in_jurisdiction() {
     local seat="${1:-}" target="${2:-}"
     [ -n "$seat" ] && [ -n "$target" ] || return 2
+
+    # BOTH SIDES PHYSICALISED, ONCE, BEFORE ANY COMPARISON. Physicalising only
+    # one side is worse than physicalising neither: it turns a repository into
+    # a stranger to itself, and the resulting false notice is the kind a reader
+    # learns to scroll past.
+    seat="$(_sj_physical "$seat")"
+    target="$(_sj_physical "$target")"
     seat="${seat%/}"
 
     case "$target" in
