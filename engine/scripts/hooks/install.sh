@@ -293,6 +293,15 @@ HOOK_FILES+=(
     # would check the lock and ignore the key.
     "$REPO_ROOT/scripts/lib/ceo-todos.sh"
     "$REPO_ROOT/scripts/lib/ceo-todos.py"
+    # The publication-COMPLETENESS predicate, in both its halves. Not hooks, and
+    # not under scripts/lib/ either — they are also CI's step 7, which is the
+    # point: guard-completeness-commits.sh runs THIS script rather than carrying
+    # a second copy of the contract, so the hook and CI can never drift into
+    # disagreeing about what "complete" means. Same sentence as above: hashing
+    # the guard and leaving the thing that decides unverified checks the lock
+    # and ignores the key.
+    "$REPO_ROOT/scripts/publication-completeness.sh"
+    "$REPO_ROOT/scripts/publication-completeness.py"
     # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
     # and compared by the guard, so this file is not documentation — it is part
     # of the decision. Edit a question and every transcript on file stops
