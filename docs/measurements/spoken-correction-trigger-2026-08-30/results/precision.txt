@@ -1,0 +1,42 @@
+=== spoken-correction trigger, measured over 149 invented utterances ===
+
+   p01  STAGED   deep graham      -> Deepgram         both        orth 0.73  phon 1.00  anchored
+   p02  STAGED   Kestral          -> Kestrel          both        orth 0.86  phon 1.00  anchored
+   p03  STAGED   Briella          -> Priya            sound       orth 0.43  phon 0.67  anchored
+   p04  STAGED   Ever Lock        -> Everlock         both        orth 0.89  phon 1.00  anchored
+   p05  STAGED   Nakimura         -> Nakamura         both        orth 0.88  phon 1.00  anchored
+   p06  STAGED   Corvain          -> Corvane          both        orth 0.71  phon 1.00  anchored
+   p07  STAGED   Brightmoor       -> Brightmore       both        orth 0.80  phon 1.00  anchored
+   p08  STAGED   whisper C P P    -> whisper.cpp      both        orth 0.85  phon 1.00  anchored
+   p09  STAGED   Hollys           -> Hollis           both        orth 0.83  phon 1.00  anchored
+   p10  STAGED   Sarah            -> Sarai            both        orth 0.80  phon 1.00  anchored
+   p11  STAGED   Quill Arbor      -> Quill Harbor     both        orth 0.92  phon 1.00  anchored
+   p12  STAGED   Talon            -> Thalen           both        orth 0.67  phon 1.00  anchored
+   p13  STAGED   Vex Ray          -> Vexray           both        orth 0.86  phon 1.00  anchored
+   p14  STAGED   Ada Z            -> Adaeze           both        orth 0.67  phon 1.00  anchored
+   p15  STAGED   Mary Sol         -> Marisol          both        orth 0.75  phon 1.00  anchored
+   p16  STAGED   Ostrund          -> Ostrand          both        orth 0.86  phon 1.00  anchored
+   p17  STAGED   Loom Sight       -> Loomsight        both        orth 0.90  phon 1.00  anchored
+   p18  STAGED   Fenimore         -> Fennimore        both        orth 0.89  phon 1.00  anchored
+   p19  STAGED   Grayson Vale     -> Greyson Vale     both        orth 0.92  phon 1.00  anchored
+   p20  STAGED   Pelle            -> Pell             both        orth 0.80  phon 1.00  anchored
+   p21  STAGED   Raven Crest      -> Ravencrest       both        orth 0.91  phon 1.00  anchored
+   p22  STAGED   Ilse             -> Elsa             sound       orth 0.50  phon 1.00  anchored
+   p24  STAGED   Serene           -> Ceren            both        orth 0.67  phon 1.00  anchored
+   p25  STAGED   O'Connell        -> Okonkwo          both        orth 0.33  phon 0.67  anchored
+   p26  STAGED   Ashbee           -> Ashby            both        orth 0.67  phon 1.00  anchored
+   p28  STAGED   Round Tree       -> Rowntree         both        orth 0.70  phon 1.00  anchored
+   p29  STAGED   Della Croix      -> Delacroix        both        orth 0.82  phon 1.00  anchored
+   p30  STAGED   Zef              -> Zeph             sound       orth 0.50  phon 1.00  anchored
+   p31  STAGED   John             -> Jon              both        orth 0.75  phon 1.00  anchored
+   p32  STAGED   Kestral Bay      -> Kestrel Bay      both        orth 0.91  phon 1.00  anchored
+   p33  STAGED   Ambroze          -> Ambrose          both        orth 0.86  phon 1.00  unanchored
+   p34  STAGED   Hallorann        -> Halloran         both        orth 0.89  phon 1.00  unanchored
+
+   p23  MISSED   "It's Yaro, not Jarrow."
+        EXPECTED MISS. `y` carries no consonant class, so the phonetic key collapses to a single digit and both legs fall short.
+   p27  MISSED   "no not deep graham deepgram"
+        EXPECTED MISS. Unpunctuated: no clause boundary, so the two spans cannot be separated.
+
+  SHIPPED (anchor = evidence)   TP 32  FP 0  FN 2  TN 115   precision 1.000   recall 0.941
+  COUNTERFACTUAL (anchor = gate) TP 30  FP 0  FN 4          precision 1.000   recall 0.882
