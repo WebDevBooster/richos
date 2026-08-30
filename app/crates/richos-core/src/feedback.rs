@@ -141,12 +141,50 @@ pub struct FeedbackEntry {
     /// append-and-flush is), per the engine's freshness doctrine.
     pub recorded_at_millis: u64,
     pub outcome: PromptOutcome,
+    /// What the user answered when offered the chance to report. `#[serde(default)]` so
+    /// entries written before this field existed still read back as what they were —
+    /// prompts that were answered before any offer was ever made.
+    #[serde(default)]
+    pub report: ReportDecision,
 }
 
 impl FeedbackEntry {
-    /// A record of what the user pressed, stamped now.
+    /// A record of what the user pressed, stamped now, with no report attached.
     pub fn new(outcome: PromptOutcome) -> Self {
-        FeedbackEntry { recorded_at_millis: crate::util::now_millis(), outcome }
+        FeedbackEntry {
+            recorded_at_millis: crate::util::now_millis(),
+            outcome,
+            report: ReportDecision::NotOffered,
+        }
+    }
+
+    /// Attach the user's answer to the report offer.
+    ///
+    /// Refused if the outcome never invited an offer (a `3` or a dismissal), and refused
+    /// if the approved report disagrees with the rating that was given — a report is
+    /// about the session the user just rated, and a record where those two differ is not
+    /// a thing that happened.
+    pub fn with_report(mut self, report: ReportDecision) -> Result<Self, TaxonomyError> {
+        let invited = self.outcome.rating().map(|r| r.invites_report()).unwrap_or(false);
+        match (&report, invited) {
+            (ReportDecision::NotOffered, _) => {}
+            (_, false) => {
+                let key = self.outcome.rating().map(|r| r.key()).unwrap_or('0');
+                return Err(TaxonomyError::RatingDoesNotInviteReport(key));
+            }
+            (ReportDecision::Approved(a), true) => {
+                let rated = self.outcome.rating().expect("invited implies rated");
+                if a.payload().rating() != rated {
+                    return Err(TaxonomyError::ReportContradictsRating {
+                        rated: rated.key(),
+                        reported: a.payload().rating().key(),
+                    });
+                }
+            }
+            (ReportDecision::Declined, true) => {}
+        }
+        self.report = report;
+        Ok(self)
     }
 }
 
@@ -527,6 +565,9 @@ pub enum TaxonomyError {
     /// which for an out-of-vocabulary term enumerates the terms that DO exist.
     #[error("not expressible in taxonomy {version}: {detail}")]
     OutsideVocabulary { version: &'static str, detail: String },
+    /// The approved report is about a different rating than the one the user gave.
+    #[error("the user rated '{rated}' but the report claims '{reported}'")]
+    ReportContradictsRating { rated: char, reported: char },
 }
 
 /// **The report.** Every field is a term drawn from the vocabulary above; there is no
@@ -694,6 +735,164 @@ pub fn vocabulary_fingerprint() -> u64 {
         eat(t.sentence());
     }
     h
+}
+
+// ---------------------------------------------------------------------------
+// THE DISCLOSURE — "the user must get to see exactly what his RichOS is about to send"
+// ---------------------------------------------------------------------------
+
+/// What the user is told above the rendered report.
+///
+/// The second sentence is the honest state of this version and must be corrected, not
+/// deleted, on the day a transport exists.
+pub const DISCLOSURE_HEADING: &str = "This is exactly what your Rich would report. \
+In this version it is written to this machine and nowhere else — RichOS has no way to \
+transmit it.";
+
+/// The width the folded blocks wrap to, chosen to read comfortably in a narrow panel.
+const WRAP_COLUMNS: usize = 76;
+
+/// Render a payload as the exact text the user is shown.
+///
+/// **Deterministic and total.** The same payload always renders the same bytes, and
+/// every payload renders — so the text a user approved is recoverable from the stored
+/// payload alone, and the record does not have to keep a second, free-text copy of what
+/// he saw. (Keeping one would have put an unvalidated `String` into the durable record,
+/// which is the exact channel this design exists to close.)
+pub fn render_disclosure(payload: &FeedbackPayload) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("taxonomy_version: {}\n", payload.taxonomy_version().wire()));
+    out.push_str(&format!("rating: {}\n", payload.rating().key()));
+    out.push_str(&format!("failure_class: {}\n", payload.failure_class().wire()));
+    out.push_str(&format!(
+        "occurrences_this_session: {}\n",
+        payload.occurrences_this_session().wire()
+    ));
+
+    let diagnosis: Vec<&str> = payload.generic_diagnosis().iter().map(|t| t.sentence()).collect();
+    out.push_str("generic_diagnosis: >\n");
+    out.push_str(&fold(&diagnosis.join(" ")));
+
+    // Omitted entirely when empty, rather than shown as an empty key: the user is being
+    // shown what WOULD be reported, and a key with nothing under it is not part of it.
+    if !payload.contributing_condition().is_empty() {
+        let conditions: Vec<&str> =
+            payload.contributing_condition().iter().map(|t| t.sentence()).collect();
+        out.push_str("contributing_condition: >\n");
+        out.push_str(&fold(&conditions.join(" ")));
+    }
+    out
+}
+
+/// Greedy word wrap into a two-space-indented folded block. Words are never split, so
+/// every token in the output is a token from the vocabulary.
+fn fold(text: &str) -> String {
+    let mut out = String::new();
+    let mut line = String::from("  ");
+    for word in text.split_whitespace() {
+        if line.len() > 2 && line.len() + 1 + word.len() > WRAP_COLUMNS {
+            out.push_str(&line);
+            out.push('\n');
+            line = String::from("  ");
+        }
+        if line.len() > 2 {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if line.len() > 2 {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+/// A payload together with the text a user is being shown for it.
+///
+/// This type exists to make the CEO's "he must see exactly what is about to be sent" a
+/// structural property rather than a step somebody remembers. [`ApprovedReport`] has a
+/// private field and no public constructor, so **the only way to obtain an approval is
+/// [`Disclosure::approve`]** — and a `Disclosure` cannot exist without having rendered
+/// the text. There is no code path that records consent for a report the user was never
+/// shown.
+pub struct Disclosure {
+    payload: FeedbackPayload,
+    text: String,
+}
+
+impl Disclosure {
+    /// Render a payload for review.
+    pub fn of(payload: FeedbackPayload) -> Self {
+        let text = render_disclosure(&payload);
+        Disclosure { payload, text }
+    }
+
+    /// The heading and the report, as one block ready to put on screen.
+    pub fn full_text(&self) -> String {
+        format!("{DISCLOSURE_HEADING}\n\n{}", self.text)
+    }
+
+    /// Just the report.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn payload(&self) -> &FeedbackPayload {
+        &self.payload
+    }
+
+    /// The user said yes, having seen [`Self::text`].
+    pub fn approve(self) -> ReportDecision {
+        ReportDecision::Approved(ApprovedReport { payload: self.payload })
+    }
+
+    /// The user said no. The payload is dropped; nothing about it is recorded, because a
+    /// declined report is not a report.
+    pub fn decline(self) -> ReportDecision {
+        ReportDecision::Declined
+    }
+}
+
+/// A report the user approved after seeing it.
+///
+/// Constructible only through [`Disclosure::approve`] — the field is private and there is
+/// no public constructor. Deserialization can also produce one, which is correct and
+/// unavoidable: reading back this machine's own file is reading back approvals that were
+/// already shown and given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ApprovedReport {
+    payload: FeedbackPayload,
+}
+
+impl ApprovedReport {
+    pub fn payload(&self) -> &FeedbackPayload {
+        &self.payload
+    }
+
+    /// Re-render exactly what the user was shown when he approved it. Deterministic from
+    /// the payload, so no second copy of the text has to be stored.
+    pub fn as_shown(&self) -> String {
+        render_disclosure(&self.payload)
+    }
+}
+
+/// What the user answered when offered the chance to report — **an answer, kept locally.
+/// Not a job, not a queue entry, not a thing owed to anybody.**
+///
+/// There is deliberately no `Pending`, no `sent_at`, no `attempts`. A future version that
+/// grows a transport must add that state deliberately and visibly; it cannot inherit a
+/// half-built outbox from this one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case", tag = "decision", content = "report")]
+pub enum ReportDecision {
+    /// The offer was never made — the rating was `3`, or the prompt was dismissed.
+    #[default]
+    NotOffered,
+    /// The offer was made and the user said no.
+    Declined,
+    /// The offer was made, the user read the rendered report, and said yes.
+    Approved(ApprovedReport),
 }
 
 #[cfg(test)]
@@ -1098,6 +1297,230 @@ mod tests {
                 );
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // THE DISCLOSURE
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn the_reference_case_target_payload_renders_exactly_this() {
+        // THE ACCEPTANCE FIXTURE. Compared as bytes, not by eye — every field name and
+        // value matches the target payload in the reference case, and the two prose
+        // blocks are assembled from vocabulary terms rather than written.
+        let text = render_disclosure(&reference_case_payload());
+        assert_eq!(
+            text,
+            "\
+taxonomy_version: v1
+rating: 1
+failure_class: unprepared-task-handed-to-user
+occurrences_this_session: 3
+generic_diagnosis: >
+  The assistant asked the user to carry out a manual verification task more
+  than once in a single session without preparing the artifact the task
+  required. No input file was named. No locations within it were specified.
+  No method was given. No acceptance criterion was stated. In the same
+  session the assistant produced detailed, self-contained briefs for its
+  automated sub-agents. The asymmetry is the defect: the human executor
+  received the least prepared instruction.
+contributing_condition: >
+  The durable task record contained a section for items awaiting the user,
+  which made relaying an item feel equivalent to preparing it. No
+  user-facing item carried an acceptance criterion.
+"
+        );
+    }
+
+    #[test]
+    fn what_the_user_sees_is_derived_from_the_payload_and_nothing_else() {
+        let payload = reference_case_payload();
+        let disclosure = Disclosure::of(payload.clone());
+        // Same bytes, twice, from two paths — the text shown and the text a reader would
+        // reconstruct from the stored payload cannot differ.
+        assert_eq!(disclosure.text(), render_disclosure(&payload));
+        let approved = match disclosure.approve() {
+            ReportDecision::Approved(a) => a,
+            other => panic!("approve() produced {other:?}"),
+        };
+        assert_eq!(approved.as_shown(), render_disclosure(&payload));
+        assert!(approved.payload().generic_diagnosis().contains(&DiagnosisTerm::NoMethodGiven));
+    }
+
+    #[test]
+    fn the_heading_tells_the_user_the_truth_about_this_version() {
+        let full = Disclosure::of(reference_case_payload()).full_text();
+        assert!(full.starts_with(DISCLOSURE_HEADING));
+        assert!(DISCLOSURE_HEADING.contains("nowhere else"));
+        assert!(full.contains("failure_class: unprepared-task-handed-to-user"));
+    }
+
+    #[test]
+    fn an_empty_condition_list_is_omitted_rather_than_shown_as_an_empty_key() {
+        let p = FeedbackPayload::assemble(
+            Rating::OkButCouldBeBetter,
+            FailureClass::SchedulingHandedToUser,
+            Occurrences::Once,
+            vec![DiagnosisTerm::NoMethodGiven],
+            vec![],
+        )
+        .unwrap();
+        let text = render_disclosure(&p);
+        assert!(!text.contains("contributing_condition"), "showed a key with nothing under it");
+        assert!(text.ends_with("  No method was given.\n"));
+    }
+
+    #[test]
+    fn everything_this_feature_is_capable_of_saying_is_this_finite_set_of_words() {
+        // The strongest statement available about a closed vocabulary: enumerate the
+        // ENTIRE space of expressible reports — every rating that invites one, every
+        // failure class, every occurrence term, every non-empty diagnosis subset, every
+        // condition subset — render each, and assert that not one token in any of them
+        // comes from outside the compiled-in vocabulary.
+        let mut allowed: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for key in [
+            "taxonomy_version:",
+            "rating:",
+            "failure_class:",
+            "occurrences_this_session:",
+            "generic_diagnosis:",
+            "contributing_condition:",
+            ">",
+            "1",
+            "2",
+            "v1",
+        ] {
+            allowed.insert(key);
+        }
+        for t in FailureClass::ALL {
+            allowed.insert(t.wire());
+        }
+        for t in Occurrences::ALL {
+            allowed.insert(t.wire());
+        }
+        let mut sentences: Vec<&str> = Vec::new();
+        sentences.extend(DiagnosisTerm::ALL.iter().map(|t| t.sentence()));
+        sentences.extend(ContributingCondition::ALL.iter().map(|t| t.sentence()));
+        for s in &sentences {
+            for w in s.split_whitespace() {
+                allowed.insert(w);
+            }
+        }
+
+        let mut rendered = 0usize;
+        for rating in [Rating::Bad, Rating::OkButCouldBeBetter] {
+            for class in FailureClass::ALL {
+                for occ in Occurrences::ALL {
+                    for dmask in 1u32..(1 << DiagnosisTerm::ALL.len()) {
+                        for cmask in 0u32..(1 << ContributingCondition::ALL.len()) {
+                            let diagnosis: Vec<DiagnosisTerm> = DiagnosisTerm::ALL
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| dmask & (1 << i) != 0)
+                                .map(|(_, t)| *t)
+                                .collect();
+                            let conditions: Vec<ContributingCondition> =
+                                ContributingCondition::ALL
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(i, _)| cmask & (1 << i) != 0)
+                                    .map(|(_, t)| *t)
+                                    .collect();
+                            let p = FeedbackPayload::assemble(
+                                rating, *class, *occ, diagnosis, conditions,
+                            )
+                            .unwrap();
+                            for token in render_disclosure(&p).split_whitespace() {
+                                assert!(
+                                    allowed.contains(token),
+                                    "a report could say {token:?}, which is not in the vocabulary"
+                                );
+                            }
+                            rendered += 1;
+                        }
+                    }
+                }
+            }
+        }
+        // 2 ratings x 5 classes x 6 occurrences x 127 diagnosis subsets x 8 condition
+        // subsets. If this number changes, the expressible space changed.
+        assert_eq!(rendered, 60_960);
+    }
+
+    // -----------------------------------------------------------------------
+    // THE ANSWER, KEPT LOCALLY
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn an_approval_is_recorded_locally_and_reads_back_as_what_was_shown() {
+        let path = tmp_path("approval");
+        let store = FeedbackStore::open(&path).unwrap();
+        let payload = reference_case_payload();
+        let decision = Disclosure::of(payload.clone()).approve();
+        let entry = FeedbackEntry::new(PromptOutcome::Rated(Rating::Bad))
+            .with_report(decision)
+            .unwrap();
+        store.record(&entry).unwrap();
+
+        let back = FeedbackStore::open(&path).unwrap().entries().unwrap();
+        assert_eq!(back.len(), 1);
+        match &back[0].report {
+            ReportDecision::Approved(a) => {
+                assert_eq!(a.payload(), &payload);
+                assert_eq!(a.as_shown(), render_disclosure(&payload));
+            }
+            other => panic!("read back {other:?}"),
+        }
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn declining_records_the_no_and_keeps_nothing_about_the_report() {
+        let decision = Disclosure::of(reference_case_payload()).decline();
+        assert_eq!(decision, ReportDecision::Declined);
+        let json = serde_json::to_string(&decision).unwrap();
+        assert_eq!(json, "{\"decision\":\"declined\"}");
+        assert!(!json.contains("unprepared"), "a declined report left traces");
+    }
+
+    #[test]
+    fn a_report_cannot_be_attached_to_a_rating_that_never_invited_one() {
+        let decision = Disclosure::of(reference_case_payload()).approve();
+        let err = FeedbackEntry::new(PromptOutcome::Rated(Rating::Good))
+            .with_report(decision)
+            .unwrap_err();
+        assert_eq!(err, TaxonomyError::RatingDoesNotInviteReport('3'));
+
+        let err = FeedbackEntry::new(PromptOutcome::Dismissed)
+            .with_report(ReportDecision::Declined)
+            .unwrap_err();
+        assert_eq!(err, TaxonomyError::RatingDoesNotInviteReport('0'));
+    }
+
+    #[test]
+    fn a_report_that_disagrees_with_the_rating_the_user_gave_is_refused() {
+        // He pressed 2; the report claims 1. Nobody did that.
+        let payload = FeedbackPayload::assemble(
+            Rating::Bad,
+            FailureClass::AssuranceHandedToUser,
+            Occurrences::Once,
+            vec![DiagnosisTerm::NoMethodGiven],
+            vec![],
+        )
+        .unwrap();
+        let err = FeedbackEntry::new(PromptOutcome::Rated(Rating::OkButCouldBeBetter))
+            .with_report(Disclosure::of(payload).approve())
+            .unwrap_err();
+        assert_eq!(err, TaxonomyError::ReportContradictsRating { rated: '2', reported: '1' });
+    }
+
+    #[test]
+    fn an_entry_written_before_the_offer_existed_still_reads_back() {
+        // The stage-1 shape, with no `report` field at all.
+        let old = "{\"recorded_at_millis\":1,\"outcome\":{\"kind\":\"rated\",\"value\":\"bad\"}}";
+        let entry: FeedbackEntry = serde_json::from_str(old).unwrap();
+        assert_eq!(entry.outcome, PromptOutcome::Rated(Rating::Bad));
+        assert_eq!(entry.report, ReportDecision::NotOffered);
     }
 
     #[test]

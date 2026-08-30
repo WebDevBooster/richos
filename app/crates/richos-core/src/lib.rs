@@ -62,9 +62,10 @@ pub mod worker_status;
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
 pub use feedback::{
-    ContributingCondition, DiagnosisTerm, FailureClass, FeedbackEntry, FeedbackPayload,
-    FeedbackStore, Occurrences, PromptOutcome, Rating, TaxonomyError, TaxonomyVersion,
-    PROMPT_OPTIONS, PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
+    render_disclosure, ApprovedReport, ContributingCondition, DiagnosisTerm, Disclosure,
+    FailureClass, FeedbackEntry, FeedbackPayload, FeedbackStore, Occurrences, PromptOutcome,
+    Rating, ReportDecision, TaxonomyError, TaxonomyVersion, DISCLOSURE_HEADING, PROMPT_OPTIONS,
+    PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
 };
 pub use entity::{
     Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
