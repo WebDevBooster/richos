@@ -125,7 +125,7 @@ fn rig(
     (spine, dir, journal_root, desk, seen, written)
 }
 
-/// **THE COMPLETION CRITERION.** He dictates, the recogniser mishears, he fixes it in the
+/// **THE COMPLETION CRITERION.** He dictates, the recognizer mishears, he fixes it in the
 /// composer, he sends. Nothing is said about it, and the question is on the desk.
 #[test]
 fn a_silently_edited_dictation_puts_a_candidate_on_the_desk() {

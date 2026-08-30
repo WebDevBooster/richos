@@ -72,19 +72,19 @@ const T0 = 1_700_000_000_000;
 // ---------------------------------------------------------------------------------------
 group('platform detection');
 
-test('recognises a Google Meet meeting URL but not the Meet home page', () => {
+test('recognizes a Google Meet meeting URL but not the Meet home page', () => {
   assert.equal(detectPlatform('https://meet.google.com/abc-defg-hij')?.id, 'meet');
   assert.equal(detectPlatform('https://meet.google.com/abc-defg-hij?hs=1')?.id, 'meet');
   assert.equal(detectPlatform('https://meet.google.com/'), null);
 });
 
-test('recognises the Zoom web client and extracts the meeting number', () => {
+test('recognizes the Zoom web client and extracts the meeting number', () => {
   const zoom = detectPlatform('https://us02web.zoom.us/wc/81234567890/join');
   assert.equal(zoom?.id, 'zoom-web');
   assert.equal(zoom?.slug, '81234567890');
 });
 
-test('recognises Teams web meetings and Whereby rooms', () => {
+test('recognizes Teams web meetings and Whereby rooms', () => {
   assert.equal(detectPlatform('https://teams.microsoft.com/v2/?meetingjoin=true')?.id, 'teams-web');
   assert.equal(detectPlatform('https://teams.live.com/l/meetup-join/xyz')?.id, 'teams-web');
   assert.equal(detectPlatform('https://whereby.com/richos-room')?.id, 'whereby');
@@ -107,7 +107,7 @@ group('auto-arm decisions');
 
 const armSettings = { ...CAPTURE_DEFAULTS };
 
-test('a recognised call URL arms even before any audio (a silent lobby must not be missed)', () => {
+test('a recognized call URL arms even before any audio (a silent lobby must not be missed)', () => {
   const decision = shouldAutoArm(
     { url: 'https://meet.google.com/abc-defg-hij', audible: false, openedAt: T0 - 5000 },
     armSettings,
@@ -555,7 +555,7 @@ test('server-driven (SDUI) caption markup extracts the same shape via data-attri
   assert.equal(rows[0].text, 'a nanosecond is about a foot');
 });
 
-test('structural fallback: an unrecognised row still yields text (name inferred from the first line)', () => {
+test('structural fallback: an unrecognized row still yields text (name inferred from the first line)', () => {
   // No known speaker/text classes at all — the adapter must still recover the caption rather
   // than degrade to zero (fail soft), losing only precise attribution.
   const region = el('div', {
@@ -694,7 +694,7 @@ group('captions-only vs the UNCHANGED red paths — no existing failure alarm wa
 
 test('awaiting-tab-audio (mic + captions ALREADY running, only tab audio missing) is still amber via evaluateHealth — unrelated to, and unchanged by, the captions-only split', () => {
   // Re-assert the pre-existing invariant (also covered above) so a regression here is caught in
-  // the same file as the new captions-only behaviour, side by side.
+  // the same file as the new captions-only behavior, side by side.
   const state = healthyState();
   state.awaitingTabAudio = true;
   state.tabEnabled = false;

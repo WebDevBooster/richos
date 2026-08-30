@@ -1087,7 +1087,7 @@ test('the veto is inert on short phrases, where a burst ceiling carries no signa
   const bursts = segs.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
   const withProbe = guardChannel(segs, { speechBursts: bursts });
   const without = guardChannel(segs);
-  assert.equal(withProbe.removed, without.removed, 'short runs keep the old text-only behaviour');
+  assert.equal(withProbe.removed, without.removed, 'short runs keep the old text-only behavior');
 });
 
 test('the veto can only REFUSE a collapse, never cause one (strictly more conservative)', () => {
@@ -2157,7 +2157,7 @@ test('matchHeard claims a recent, similar dictation', () => {
   const now = 1_700_000_000_000;
   const journal = [{ id: 'a', at: now - 5000, text: 'Send the deep graham numbers to Marla.' }];
   const m = matchHeard(journal, 'Send the Deepgram numbers to Marla.', { now });
-  assert.ok(m, 'the sent text is recognisably that dictation, corrected');
+  assert.ok(m, 'the sent text is recognizably that dictation, corrected');
   assert.equal(m.entry.id, 'a');
 });
 
@@ -2208,7 +2208,7 @@ test('reviewSent asks the exact sentence §7 specifies', () => {
   assert.equal(r.prompts[0].askedBefore, false);
 });
 
-test('the diff is taken against what was PASTED, not the recogniser\'s raw output', () => {
+test('the diff is taken against what was PASTED, not the recognizer\'s raw output', () => {
   // The shared vocabulary corrected `deep graham` on the way to the field, so `emitted` is
   // already right and he changed NOTHING. Diffing `text` would ask him to confirm a pair the
   // vocabulary already holds, at the one moment he did nothing wrong. Measured, not argued:
@@ -2233,7 +2233,7 @@ test('the diff is taken against what was PASTED, not the recogniser\'s raw outpu
     'the already-learned pair leaked into the ask'
   );
 
-  // POSITIVE PROBE: with no `emitted` the behaviour is exactly what shipped before — the
+  // POSITIVE PROBE: with no `emitted` the behavior is exactly what shipped before — the
   // fallback is a fallback, not a second silence.
   const older = { id: 'b', at: now - 5000, text: 'The deep graham contract is signed.' };
   const r = reviewSent([older], 'The Deepgram contract is signed.', {}, { now });

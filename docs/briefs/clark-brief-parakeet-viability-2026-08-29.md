@@ -4,7 +4,7 @@
 **Requested by:** Rich, on behalf of the CEO, who asked directly: *"what about NVIDIA's Parakeet?"*
 **Base:** richos `main` @ `290560a` (the commit carrying Norm's 92-minute real-audio measurement).
 **Scope:** a viability verdict for **RichOS specifically** — architecture, Apple-Silicon runnability,
-licence, pipeline fit, language coverage.
+license, pipeline fit, language coverage.
 
 **This is desk research. Nothing was installed, downloaded or benchmarked.** Every number below is
 somebody else's measurement, attributed to its source, with its hardware named. There is **no
@@ -20,9 +20,9 @@ tested; nothing touched an emulator, simulator or device; no model was downloade
 
 ### VIABLE LATER — and "later" is one measurement away, not one quarter away.
 
-Every gate that could have killed it is clean. The licence is plain CC-BY-4.0 with no appended
+Every gate that could have killed it is clean. The license is plain CC-BY-4.0 with no appended
 term (§5). The Apple-Silicon path exists, is actively maintained, and is measured at 110–210×
-realtime on an M4 Pro (§4). Word and segment timestamps, punctuation and capitalisation are all
+realtime on an M4 Pro (§4). Word and segment timestamps, punctuation and capitalization are all
 present, and our per-channel design needs no diarization (§6). English is covered by two model
 versions (§7). The architectural claim the CEO is asking about is **real**: the specific failure
 Norm measured — a decoder writing 709 copies of one phrase over 18 minutes of real speech — is
@@ -147,7 +147,7 @@ open or recently-closed defects on primary trackers, not speculation.
 - **[NVIDIA-NeMo/Speech #15757][nemo15757]** (OPEN, assigned to a maintainer): `parakeet-tdt-0.6b-v3`
   transcribes a 2.2 s speech segment correctly, but **the same segment with 400 ms of trailing
   silence appended decodes to an empty string.** Cause: the silence is treated as valid audio and
-  changes the per-utterance log-mel normalisation. Relevant to us: our channels are 44.2% "neither
+  changes the per-utterance log-mel normalization. Relevant to us: our channels are 44.2% "neither
   speaker active" (`norm-brief` §6), so silence-adjacent segments are the normal case, not an edge
   case.
 - **[FluidAudio #865, #838][fa865]**: pause-delimited speech spans decoding to all-blank; an isolated
@@ -177,7 +177,7 @@ Greedy is also the default everywhere.** This is a settings note, not a risk.
 ### 2.4 Multilingual cross-talk in v3
 
 **[FluidAudio #842][fa842]** (closed): spontaneous Spanish decoded through an English lexicon, and
-the reporter attributes it to **upstream model behaviour, not the CoreML port**. The window-global
+the reporter attributes it to **upstream model behavior, not the CoreML port**. The window-global
 language state in the multilingual v3 is also the mechanism behind #850 above. **The English-only
 v2 does not have this failure mode and is also more accurate on English** (§7).
 
@@ -220,7 +220,7 @@ by parakeet.cpp today, and both are English-only.
 
 **Honest bottom line for §1: the architectural difference is real and it does eliminate the specific
 709-repetition failure class. It does not make the model robust in general, and no published source
-measures Parakeet's failure behaviour at 60+ minutes on real conversational audio. That gap is why
+measures Parakeet's failure behavior at 60+ minutes on real conversational audio. That gap is why
 the verdict is "later" and not "now".**
 
 ---
@@ -243,7 +243,7 @@ fine for a post-call pipeline. Correctness is the only reason.
 ## 4. Apple Silicon, local, offline — the constraint the CEO called decisive
 
 RichOS is a local-first Tauri desktop app. Nothing may depend on a cloud API or an NVIDIA GPU.
-NeMo itself (PyTorch/CUDA, Apache-2.0, and NVIDIA's own card lists only NVIDIA datacentre GPUs and
+NeMo itself (PyTorch/CUDA, Apache-2.0, and NVIDIA's own card lists only NVIDIA datacenter GPUs and
 "Linux preferred") is **not a candidate for the shipping product**. But three independent
 Apple-Silicon runtimes exist, and the CEO's premise that this is where it dies turns out to be
 wrong — the path exists and is maintained. The question is *which* path, and each has a distinct
@@ -354,13 +354,13 @@ code path (issue #869, closed).
 Two real costs:
 
 1. **Swift, and no prebuilt binary.** The CLI is invoked as `swift run fluidaudiocli transcribe
-   audio.wav`; the releases carry **no binary assets**. Bundling it into a signed, notarised Tauri
+   audio.wav`; the releases carry **no binary assets**. Bundling it into a signed, notarized Tauri
    `.app` means adding a Swift toolchain to our build and shipping a second native binary — a
    packaging change, on a product whose signing story is already a v1 blocker
    (`wiki/packaging-and-signing.md`).
 2. **A punctuation caveat I could not resolve.** FluidAudio's own benchmark doc describes TDT v3 as
    "multilingual, no punctuation" and says its English-only Unified model "wins on WER, throughput,
-   **and punctuation**". NVIDIA's card claims automatic punctuation and capitalisation for v3.
+   **and punctuation**". NVIDIA's card claims automatic punctuation and capitalization for v3.
    These may simply be describing a WER harness that strips punctuation, or a genuine gap in the
    CoreML port. **I could not determine which, and it is a five-minute check for whoever runs §8.**
 
@@ -370,7 +370,7 @@ Two real costs:
 
 | | parakeet.cpp | parakeet-mlx | FluidAudio |
 |---|---|---|---|
-| Licence (code) | MIT | Apache-2.0 | Apache-2.0 |
+| License (code) | MIT | Apache-2.0 | Apache-2.0 |
 | Runtime dependency | **none** (C++/Metal binary) | Python + MLX | Swift + CoreML |
 | Prebuilt macOS arm64 binary | **yes** | n/a (pip) | **no** |
 | Handles 92 min today | **NO — fails ~5 min** | yes (120 s chunks) | yes (15 s windows) |
@@ -386,9 +386,9 @@ mature, and proven at our file length. That is a sequencing problem, not a disqu
 
 ---
 
-## 5. Licence — the hard v1 gate
+## 5. License — the hard v1 gate
 
-`open-source-strategy.md` makes the licence a hard v1 gate, and we were burned before by S1-mini's
+`open-source-strategy.md` makes the license a hard v1 gate, and we were burned before by S1-mini's
 appended attribution term. I checked the model card source directly rather than a summary.
 
 **Model weights: CC-BY-4.0, and that is the whole of it.** From
@@ -399,29 +399,29 @@ appended attribution term. I checked the model card source directly rather than 
 
 The card states the model "is ready for commercial/non-commercial use", Deployment Geography
 "Global", and lists Licensing again in its trustworthiness table as the same single CC-BY-4.0 line.
-Use-Case Restrictions: "Abide by CC-BY-4.0". **There is no second licence, no appended attribution
-clause beyond CC-BY's own, no NVIDIA-specific open-model licence, no acceptable-use rider, no field-
+Use-Case Restrictions: "Abide by CC-BY-4.0". **There is no second license, no appended attribution
+clause beyond CC-BY's own, no NVIDIA-specific open-model license, no acceptable-use rider, no field-
 of-use limit.** `parakeet-tdt-0.6b-v2` carries the identical single term. This is materially cleaner
 than the S1-mini situation.
 
-CC-BY-4.0 does impose a real, ongoing obligation: **attribution, a link to the licence, and an
+CC-BY-4.0 does impose a real, ongoing obligation: **attribution, a link to the license, and an
 indication if changes were made.** For an open-core product that ships, that is a NOTICE entry
 naming NVIDIA and the model, and — if we ever ship converted weights (GGUF, CoreML, MLX) — a
 statement that the weights were converted. It is not copyleft; it does not reach our source code.
 
 **Inference stack:** parakeet.cpp MIT · parakeet-mlx Apache-2.0 · FluidAudio Apache-2.0 · NeMo
-Apache-2.0. All compatible with an open-core product under any licence we are likely to choose.
+Apache-2.0. All compatible with an open-core product under any license we are likely to choose.
 
 **Conversions inherit correctly.** `mlx-community/parakeet-tdt-0.6b-v3`,
 `FluidInference/parakeet-tdt-0.6b-v3-coreml` and `mudler/parakeet-cpp-gguf` are all published under
-**cc-by-4.0** — I checked each repo's licence field directly.
+**cc-by-4.0** — I checked each repo's license field directly.
 
 **One trap, flagged because parakeet.cpp advertises it prominently.** parakeet.cpp also supports
 `nvidia/nemotron-3.5-asr-streaming-0.6b` (40+ locales, streaming). That model is **not CC-BY-4.0** —
-its HF licence field is `other`, and parakeet.cpp's own table names it **OpenMDW-1.1**.
+its HF license field is `other`, and parakeet.cpp's own table names it **OpenMDW-1.1**.
 `nvidia/parakeet_realtime_eou_120m-v1` is likewise `other`. **If anyone reaches for a "newer, better"
-NVIDIA model, the licence gate must be re-run from scratch.** Do not let "it's the same family"
-carry a licence claim.
+NVIDIA model, the license gate must be re-run from scratch.** Do not let "it's the same family"
+carry a license claim.
 
 **§5 verdict: PASSES the v1 gate for `parakeet-tdt-0.6b-v2` and `-v3` and for all three inference
 stacks. The only work item is a NOTICE file.**
@@ -435,7 +435,7 @@ I read our pipeline rather than assuming it.
 | our requirement | source | Parakeet |
 |---|---|---|
 | **Segment timestamps** — `parseWhisperJson` reads only `offsets.from` / `offsets.to`; `merge.js` interleaves the two channels by those offsets | `transcribe.js:24-34`, `merge.js` | **Yes.** The card advertises char, word and segment timestamps. parakeet.cpp emits per-word start/end + confidence in `--json` at 0.08 s frame resolution, matching NeMo exactly. parakeet-mlx emits sentence + token timestamps. **Our bar is the lower one** — we do not currently use word timestamps at all. |
-| **Punctuation + capitalisation** | consumed downstream by loro correction | **Yes** per the model card ("Automatic punctuation and capitalization"). One unresolved caveat on the FluidAudio CoreML port — §4.3. |
+| **Punctuation + capitalization** | consumed downstream by loro correction | **Yes** per the model card ("Automatic punctuation and capitalization"). One unresolved caveat on the FluidAudio CoreML port — §4.3. |
 | **Per-channel model** — one mono 16 kHz WAV per speaker, `{me, others}` | `normalize.js`, `transcribe.js:transcribeChannel` | **Yes.** All three runtimes take one mono 16 kHz WAV and return one transcript. Parakeet's native input format is 16 kHz mono `.wav`/`.flac` — **identical to our existing `ffmpeg -ac 1 -ar 16000` normalize step. No pipeline change.** |
 | **Diarization** | `diarize.js` defaults to `method: 'none'` | **Not needed, and I am saying so explicitly rather than leaving it ambiguous.** We record one speaker per track; Norm measured zero cross-talk bleed (idle channel at its own noise floor, envelope correlation −0.176), so the `{me, others}` assumption holds physically. Parakeet has no built-in diarization and **this costs us nothing.** FluidAudio bundles diarization separately if we ever want the multi-remote-speaker case that `diarize.js` documents as a seam — a bonus, not a requirement. |
 | **Binary invoked as a subprocess** | `resolveBinary()` — env override → PATH → well-known dirs | **parakeet.cpp: perfect fit** (prebuilt macOS arm64 Metal binary, `--json`). parakeet-mlx: fine via CLI. FluidAudio: needs a bundled Swift build. |
@@ -502,7 +502,7 @@ Run over the same two channels of the same 92-minute recording, at greedy decode
 | 1 | **Coverage.** What fraction of real speech time produces *no* transcript? | Norm's `silencedetect` burst structure is model-free ground truth. Every burst with no overlapping segment is a candidate deletion. **This is the number that matters most and Whisper was never scored on it.** |
 | 2 | **Fabrication.** Does any span of the output sit over silence or over different speech? | `repguard.mjs`, unchanged, over the Parakeet transcripts. Expect near-zero; a non-zero result is the most interesting possible outcome. |
 | 3 | **Retakes.** Are the 40+ genuine repeated deliveries preserved, or collapsed/amplified? | The eight known false-positive spans from `norm-brief` §5.1 have per-burst isolated-decode ground truth already established. Direct comparison, no new adjudication needed. |
-| 4 | **Length behaviour.** Does quality decay across the 10-minute buckets? | Norm's `decay.mjs` bucket table, rerun. Whisper's `q5_0` hit 95–100% corrupted in the last 30 minutes; a flat Parakeet curve is the headline result. |
+| 4 | **Length behavior.** Does quality decay across the 10-minute buckets? | Norm's `decay.mjs` bucket table, rerun. Whisper's `q5_0` hit 95–100% corrupted in the last 30 minutes; a flat Parakeet curve is the headline result. |
 | 5 | **Cost on the CEO's actual machine.** Wall time and peak RSS at 92 minutes. | `/usr/bin/time -l`, same as the four Whisper runs, so it is directly comparable to 2.83 GB / 441–525 s. |
 
 **Still no WER**, and none should be reported — there is still no human-verified reference
@@ -518,9 +518,9 @@ exact feedback path §1.1 identifies as the amplifier. `norm-brief` §7 lists it
 unmeasured: *"`-mc 0` was never run over a full 92-minute file and no such claim is made."*
 
 **Run `large-v3-turbo -mc 0` over the same two channels.** It is one flag, zero new dependencies,
-zero new licences, and it isolates how much of our catastrophe is the feedback path versus the
+zero new licenses, and it isolates how much of our catastrophe is the feedback path versus the
 architecture. If `-mc 0` alone collapses the 44.1% corruption to near zero, the cheapest fix in this
-entire brief is a one-line change to `MODEL_TIERS` and Parakeet becomes an optimisation rather than
+entire brief is a one-line change to `MODEL_TIERS` and Parakeet becomes an optimization rather than
 a rescue. **If it does not, that is the strongest possible argument for the architecture swap.**
 Either way we learn something we currently do not know, and the CEO gets a real answer instead of a
 migration.
@@ -577,7 +577,7 @@ model.** That is a gap in the record, not a Parakeet problem.
 ## 10. Recommendation
 
 1. **Run §8.2 first — it is free.** `large-v3-turbo -mc 0` over the same 92 minutes. One flag. It may
-   make this entire question an optimisation instead of a migration.
+   make this entire question an optimization instead of a migration.
 2. **Run §8.1 in the same pass** — `parakeet-tdt-0.6b-v2` via parakeet-mlx over the same corpus,
    Norm's harness unchanged, scored on **coverage first**. One engineer-day.
 3. **Do not adopt on §1 alone.** The architecture argument is real and it is not sufficient.
@@ -594,13 +594,13 @@ model.** That is a gap in the record, not a Parakeet problem.
 ## Sources
 
 **Primary — model cards and repository metadata (checked live 2026-08-29):**
-- [`nvidia/parakeet-tdt-0.6b-v3`][mc-v3] model card — licence, architecture, 25 languages, 24 min
+- [`nvidia/parakeet-tdt-0.6b-v3`][mc-v3] model card — license, architecture, 25 languages, 24 min
   full attention / 3 h local attention, timestamps, punctuation, 2 GB RAM floor, 11.66% WER at 0 dB
   SNR, release 2025-08-14. Plus its `.eval_results/open_asr_leaderboard.yaml`: `mean_wer` 6.32,
   `rtfx` 3332.74, `earnings22_wer` 11.19, `ami_wer` 11.39.
 - [`nvidia/parakeet-tdt-0.6b-v2`][mc-v2] model card — English-only, 6.05% avg WER, RTFx 3386, SNR
   curve 6.95%→20.26%, release 2025-05-01, same single CC-BY-4.0 governing term.
-- Hugging Face API licence fields for `mlx-community/parakeet-tdt-0.6b-v3`,
+- Hugging Face API license fields for `mlx-community/parakeet-tdt-0.6b-v3`,
   `FluidInference/parakeet-tdt-0.6b-v3-coreml`, `mudler/parakeet-cpp-gguf` (all `cc-by-4.0`) and
   `nvidia/nemotron-3.5-asr-streaming-0.6b`, `nvidia/parakeet_realtime_eou_120m-v1` (both `other`).
 
@@ -627,7 +627,7 @@ model.** That is a gap in the record, not a Parakeet problem.
 - [FluidAudio #850][fa850] — mixed-language window deletes the entire English opening, confidence
   0.993, deterministic 3/3, M3 Max.
 - [FluidAudio #842][fa842] — spontaneous Spanish through an English lexicon; attributed to **upstream
-  model behaviour**, not the port. [#855][fa855] — seam phantoms on repetitive speech. [#865][fa865],
+  model behavior**, not the port. [#855][fa855] — seam phantoms on repetitive speech. [#865][fa865],
   #838 — pause-delimited spans decoding all-blank.
 - [k2-fsa/sherpa-onnx #3267][sherpa] — NeMo TDT beam search hallucinates or returns empty ~20% of the
   time; greedy is fine.
@@ -653,7 +653,7 @@ model.** That is a gap in the record, not a Parakeet problem.
   this question. §4.1 (wall time, 2.83 GB peak RSS), §4.2 (decay buckets), §4.3 (length is the cause,
   proven), §5 (the guard's 8 false positives), §6 (zero cross-talk bleed), §7 (`-mc 0` unmeasured).
 - `wiki/call-transcription-approach.md` — the claims this brief touches.
-- `wiki/open-source-strategy.md` — the licence as a hard v1 gate (§5 answers it).
+- `wiki/open-source-strategy.md` — the license as a hard v1 gate (§5 answers it).
 - `tools/richos-service/lib/config.js` (`MODEL_TIERS`, `resolveBinary`), `transcribe.js`
   (`parseWhisperJson` — segment offsets only), `merge.js` (timestamp interleave), `diarize.js`
   (`method: 'none'` default), `normalize.js` (`-ac 1 -ar 16000`, the `silencedetect` seam).

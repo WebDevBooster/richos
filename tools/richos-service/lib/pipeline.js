@@ -166,7 +166,7 @@ export function runPipeline(sessionDir, opts = {}) {
     log.info(`${sessionId} — transcribed: me=${asr.me.length} seg, others=${asr.others.length} seg`);
 
     // ---- Stage 3.5: HALLUCINATION GUARD (P5) ----------------------------------------------------
-    // The post-decode HALF of the hallucination defence, model-agnostic, across FOUR measured
+    // The post-decode HALF of the hallucination defense, model-agnostic, across FOUR measured
     // decode-failure classes (see lib/repetition-guard.js): a repetition LOOP, a sliding-overlap
     // STUTTER and a SILENCE FABRICATION are removed before they reach the merge/transcript; a
     // persistent ordinal INSERTION is DETECT-ONLY (removing it would delete real speech) and
@@ -199,7 +199,7 @@ export function runPipeline(sessionDir, opts = {}) {
     // whether or not the repetition classes are enabled, and because "which stage owns the audio
     // probe" is exactly the kind of hidden coupling that goes wrong later.
     // Best-effort: if ffmpeg cannot produce it, the repetition guard falls back to its old text-only
-    // behaviour and the deletion detector reports honestly that it could not look.
+    // behavior and the deletion detector reports honestly that it could not look.
     try {
       const b = {
         me: detectSpeechBursts(channelPaths.me, { peakDb: silence.me.maxDb }).speech,

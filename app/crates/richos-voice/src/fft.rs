@@ -3,11 +3,11 @@
 //! ## Why hand-rolled rather than a crate
 //!
 //! `richos-voice` ships with exactly one third-party native dependency (`cpal`). RichOS is
-//! going to be open-sourced and `wiki/open-source-strategy.md` treats the licence of every
-//! vendored artefact as a v1 gate, so the cheapest licence is the one we do not have to
+//! going to be open-sourced and `wiki/open-source-strategy.md` treats the license of every
+//! vendored artefact as a v1 gate, so the cheapest license is the one we do not have to
 //! audit. This file is ~120 lines of textbook Cooley–Tukey; pulling in `rustfft` (and its
 //! `num-complex`/`num-traits`/`primal-check`/`strength_reduce` tail) to get it would trade
-//! that for four more licences to name and four more crates to vendor into a signed bundle.
+//! that for four more licenses to name and four more crates to vendor into a signed bundle.
 //!
 //! It is also the *right* size. The canceller uses ONE transform length — 512 — so the
 //! twiddle factors and the bit-reversal permutation are computed once at construction and

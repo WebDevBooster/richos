@@ -103,7 +103,7 @@ _sj_once() {
 # richos_physical <path>
 # ---------------------------------------------------------------------------
 # A path with every symlink resolved, working from the nearest EXISTING
-# ancestor so a not-yet-created leaf still physicalises.
+# ancestor so a not-yet-created leaf still physicalizes.
 #
 # THIS IS NOT PEDANTRY, IT IS THE BUG. On macOS /var IS A SYMLINK to
 # /private/var, so the same directory arrives as two different strings
@@ -138,11 +138,11 @@ richos_physical() {
 # ---------------------------------------------------------------------------
 # richos_repo_of <path>
 # ---------------------------------------------------------------------------
-# The repository a path belongs to: its git top-level, normalised to the MAIN
+# The repository a path belongs to: its git top-level, normalized to the MAIN
 # checkout so a linked worktree answers with the checkout it shares. Prints
 # nothing (rc 1) when the path is in no repository at all.
 #
-# Normalisation matters here for the same reason it matters in resolve-roots.sh:
+# Normalization matters here for the same reason it matters in resolve-roots.sh:
 # an agent editing inside .claude/worktrees/<x>/ IS editing the seat's
 # repository, and a jurisdiction check that said otherwise would fire on every
 # legitimate worktree edit and train people to ignore it.
@@ -187,8 +187,8 @@ richos_in_jurisdiction() {
     local seat="${1:-}" target="${2:-}"
     [ -n "$seat" ] && [ -n "$target" ] || return 2
 
-    # BOTH SIDES PHYSICALISED, ONCE, BEFORE ANY COMPARISON. Physicalising only
-    # one side is worse than physicalising neither: it turns a repository into
+    # BOTH SIDES PHYSICALIZED, ONCE, BEFORE ANY COMPARISON. Physicalizing only
+    # one side is worse than physicalizing neither: it turns a repository into
     # a stranger to itself, and the resulting false notice is the kind a reader
     # learns to scroll past.
     seat="$(richos_physical "$seat")"

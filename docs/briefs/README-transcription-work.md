@@ -40,7 +40,7 @@ while the sensitive payload went in as text. **The privacy question is what the
 bytes SAY, not what format they are in.**
 
 **Two things the podcast-corpus measurement adds to that lesson**, because they
-generalise beyond one incident:
+generalize beyond one incident:
 
 1. **Result files are speech.** A measurement JSON that carries decoded span text
    is as disclosing as a transcript, and it arrives looking like data. That

@@ -49,10 +49,10 @@
 //! 2. A `tool_call` OPEN event carries `rawInput: {}` and a placeholder `title`
 //!    (`"Terminal"`, `"Preparing file…"`, `"Read File"`). The real title and arguments
 //!    arrive on a LATER `tool_call_update`, so §1.4 G2's merge is mandatory, not an
-//!    optimisation.
+//!    optimization.
 //! 3. The observed lifecycle is `pending → (no status field ×2–3) → completed | failed`.
 //!    34 of 58 observed tool events carried NO `status`, and `in_progress` never appeared.
-//!    `ToolStatus::Other` exists so an unrecognised wire status is retained rather than
+//!    `ToolStatus::Other` exists so an unrecognized wire status is retained rather than
 //!    silently becoming `None`.
 //! 4. Payload fields are `rawInput`/`rawOutput`, not `input`/`output`.
 
@@ -97,7 +97,7 @@ impl MachineryKind {
 }
 
 /// A tool call's lifecycle status. The four the ACP schema declares, plus `Other` so an
-/// unrecognised wire value is RETAINED rather than silently dropped (§1.4 G5's rule
+/// unrecognized wire value is RETAINED rather than silently dropped (§1.4 G5's rule
 /// applied one level down, to a field instead of a kind).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolStatus {
@@ -428,7 +428,7 @@ fn tool_summary(update: &Value) -> Option<String> {
 }
 
 /// §2.4's summary rule, lifted as an IDEA from t3code (`session-logic.ts:1487-1518`) and
-/// written from scratch in Rust — no vendored lines, so the open-source licence gate
+/// written from scratch in Rust — no vendored lines, so the open-source license gate
 /// (`wiki/open-source-strategy.md`) stays unencumbered (§4.2).
 ///
 /// First non-empty line, capped at 84 chars; `"N lines"` when there is no non-empty line

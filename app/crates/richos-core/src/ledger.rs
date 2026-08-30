@@ -232,7 +232,7 @@ pub enum Event {
         /// ledger write comes first and the drain marker second, because a crash between
         /// them must re-present the CEO's words rather than lose them. Re-presenting them
         /// would create a SECOND turn with the same text, and this is what lets the drain
-        /// recognise its own earlier work and skip it.
+        /// recognize its own earlier work and skip it.
         ///
         /// `#[serde(default)]` ⇒ `None` for every turn written before steering existed,
         /// and for every ordinary typed message, which never passes through the intake.
@@ -274,7 +274,7 @@ pub enum Event {
     /// Recorded AS the action happens (not at turn-end) so replay can't double-execute (§5.4).
     /// `turn_id` is `None` for actions that are not turn-scoped — lease rotation and
     /// re-prime injection happen AT a turn boundary, BETWEEN turns, and claiming them
-    /// against an arbitrary neighbouring turn would be a fabricated association.
+    /// against an arbitrary neighboring turn would be a fabricated association.
     /// Both new fields are `#[serde(default)]` so records written before they existed
     /// still replay (`visibility` defaults to `CeoFacing`, their original meaning).
     ActionRecorded {
@@ -1008,7 +1008,7 @@ impl Ledger {
     /// says the store rejects an UNSCOPED event: persisting first and scoping second would
     /// mean the crash window contains exactly the record the model forbids. Nothing is
     /// lost by refusing — the send is blocked with the caller still holding the text,
-    /// which is the behaviour UX §21 "Entity binding failure" prescribes.
+    /// which is the behavior UX §21 "Entity binding failure" prescribes.
     pub fn record_prompt_received(
         &mut self,
         binding: &ThreadBinding,
@@ -1020,7 +1020,7 @@ impl Ledger {
 
     /// As above, stamping the `steering::IntakeLog` record this turn was drained from
     /// (UX §9.2). Use [`turn_for_intake`](Self::turn_for_intake) before calling it: the
-    /// drain is at-least-once and this is the key that makes a replay recognisable.
+    /// drain is at-least-once and this is the key that makes a replay recognizable.
     pub fn record_prompt_received_from_intake(
         &mut self,
         binding: &ThreadBinding,
@@ -1060,7 +1060,7 @@ impl Ledger {
     ///
     /// The drain writes the LEDGER first and the drain marker second, deliberately: a
     /// crash between the two must re-present the CEO's words rather than lose them. That
-    /// makes the drain at-least-once, and this is how the second attempt recognises the
+    /// makes the drain at-least-once, and this is how the second attempt recognizes the
     /// first one's work instead of filing the same sentence twice.
     pub fn turn_for_intake(&self, intake_id: u64) -> Option<&Turn> {
         self.turns.iter().find(|t| t.intake_id == Some(intake_id))
@@ -1363,7 +1363,7 @@ impl Ledger {
     /// faked, and §3.5 forbids it explicitly ("A write has one home entity").
     ///
     /// Scoping by ENTITY, not by thread, is deliberate: threads are views over one shared
-    /// substrate WITHIN an entity, so this is strictly narrower than the old behaviour
+    /// substrate WITHIN an entity, so this is strictly narrower than the old behavior
     /// only across entities. Nothing that used to be visible inside an entity disappears,
     /// so no new false-denial risk is introduced.
     ///

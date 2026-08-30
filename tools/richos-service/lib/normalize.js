@@ -253,7 +253,7 @@ export function normalizeSession(sessionDir, opts = {}) {
  * Cut one span out of a channel as its own WAV, padded, for an ISOLATED re-decode.
  *
  * The deletion detector's adjudicator (`deletion-guard.js`) needs the audio of a suspect span with
- * no prior context, no chunk seam and no neighbouring repetition — which is a clip, cut here
+ * no prior context, no chunk seam and no neighboring repetition — which is a clip, cut here
  * because ffmpeg lives in this module. Fast-seek (`-ss` before `-i`) so the cost is independent of
  * how far into a 92-minute file the span sits.
  *

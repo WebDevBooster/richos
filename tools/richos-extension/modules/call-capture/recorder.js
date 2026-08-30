@@ -6,7 +6,7 @@
  * Two sources, one 2-channel Opus stream:
  *   left  = microphone (you)
  *   right = tab audio (everyone else)
- * which gives free "me vs them" separation for transcription, with no diarisation model.
+ * which gives free "me vs them" separation for transcription, with no diarization model.
  *
  * Every `chunkMs` the MediaRecorder hands us a chunk and we WAIT for it to be committed to
  * IndexedDB before acknowledging. So a tab crash, a service-worker eviction, an extension

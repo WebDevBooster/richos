@@ -6,7 +6,7 @@
 # most-repeated defect." A suite of green ticks is evidence of nothing until
 # somebody shows it turning red for the right reason. So this harness takes the
 # shipped engine, MUTATES ONE FIX OUT OF IT AT A TIME — restoring, as exactly as
-# a sed can, the pre-contract behaviour — and asserts that:
+# a sed can, the pre-contract behavior — and asserts that:
 #
 #   1. the corresponding suite FAILS, and
 #   2. the SPECIFIC named case fails (not merely "something went red"), and
@@ -228,7 +228,7 @@ open(p, "w").write(s.replace(old, '''    2) printf ''; return 0 ;;'''))
 PY
 }
 
-# M9. engine-status.sh reports ACTIVE regardless — a defence that says it is on
+# M9. engine-status.sh reports ACTIVE regardless — a defense that says it is on
 # without checking. Named explicitly because it is the exact shape of all three
 # incidents this contract answers.
 m_status_always_active() {

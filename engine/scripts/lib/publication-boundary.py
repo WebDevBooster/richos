@@ -26,7 +26,7 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
 
   An item whose "path" is a DIRECTORY is expanded to the files beneath it and
   every one is scanned. It is spelled out in the contract because the opposite
-  behaviour is what a scanner does by accident: `open()` on a directory raises,
+  behavior is what a scanner does by accident: `open()` on a directory raises,
   the unreadable-path branch skips it, and the run reports CLEAN having read
   ZERO BYTES. See expand_items for the shape that walked past this.
 
@@ -250,7 +250,7 @@ def _stem_key(filename):
     """A filename's stem, reduced to lowercase alphanumerics.
 
     Reduced rather than compared raw so that `002 Liz Harris podcast.mp3` and
-    `002_liz_harris_podcast.txt` are recognised as the same name — separators
+    `002_liz_harris_podcast.txt` are recognized as the same name — separators
     are an export-tool detail, not a difference in provenance.
     """
     return ''.join(c for c in os.path.splitext(filename)[0].lower() if c.isalnum())

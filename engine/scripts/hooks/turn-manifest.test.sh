@@ -8,7 +8,7 @@
 #   tool returned. Every way it could stop being that is a way it becomes a
 #   second, more convincing version of the failure it was built to end — a
 #   reassuring list that does not describe reality. So the cases below are
-#   organised around the four ways that happens: wrong scope, silent
+#   organized around the four ways that happens: wrong scope, silent
 #   truncation, a gap that reads as an absence, and a fixture that proves
 #   nothing.
 #
@@ -57,7 +57,7 @@
 #     (g4) unparseable payload -> exit 0
 #     (g5) broken install (resolve-roots.sh absent) -> exit 0
 #     (g6) SHOW_TURN_MANIFEST=0 -> exit 0 + a VISIBLE stand-down, because a
-#          stand-down nobody can see is a defence that decays into a rumour
+#          stand-down nobody can see is a defense that decays into a rumour
 #   THE OUTPUT CONTRACT
 #     (h)  whenever it renders, stdout is valid JSON carrying systemMessage
 #          and suppressOutput — the only shape the host will show the operator
@@ -322,7 +322,7 @@ echo "=== turn-manifest.sh — statuses rendered from results, never written ===
 run "$(payload "$MIXED_TR")"
 has "queued" "a.  a SendMessage that returned 'queued' renders QUEUED"
 has "Message queued for delivery to norm-opus-c1 at its next tool round." \
-    "a1. the tool's own sentence is reproduced verbatim, not summarised"
+    "a1. the tool's own sentence is reproduced verbatim, not summarized"
 # The failure was reading success:true and reporting "I've told him". A
 # manifest that rendered the flag would be committing the same error.
 lacks "success" "a2. the success flag is NOT rendered as the status"

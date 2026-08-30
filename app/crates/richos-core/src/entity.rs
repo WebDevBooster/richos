@@ -237,7 +237,7 @@ impl EntityRegistry {
     /// arriving here (ECS §10.2: "Worktrees resolve through their Git common directory or
     /// registered parent repo, never by path-name guessing"). A worktree path that happens
     /// to sit under a registered root resolves correctly by containment; one that does not
-    /// fails closed rather than guessing, which is the intended behaviour.
+    /// fails closed rather than guessing, which is the intended behavior.
     pub fn resolve_root(&self, path: &Path) -> Result<&Entity, EntityResolveError> {
         if !path.is_absolute() {
             return Err(EntityResolveError::NotAbsolute(path.to_path_buf()));

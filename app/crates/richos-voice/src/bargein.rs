@@ -23,7 +23,7 @@
 //! `vad.rs`'s tests and again below.
 //!
 //! **This is a workaround, not a fix.** It makes Rich effectively uninterruptible in casual
-//! conversation (finish-your-thought behaviour). The instant override is the explicit "tap to
+//! conversation (finish-your-thought behavior). The instant override is the explicit "tap to
 //! stop" control in the UI, which calls [`BargeInMonitor::force`] — the manual half of the
 //! interim, exactly as the pilot's mute button was.
 //!

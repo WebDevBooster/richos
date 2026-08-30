@@ -140,7 +140,7 @@ fn cancel(reference: &[f32], mic: &[f32]) -> Vec<f32> {
 }
 
 /// Lower-case, strip everything that is not a letter, digit or space. Whisper's punctuation
-/// and capitalisation are not what we are measuring.
+/// and capitalization are not what we are measuring.
 fn normalise(s: &str) -> Vec<String> {
     s.to_lowercase()
         .chars()
@@ -204,7 +204,7 @@ fn main() {
         match say(&rich_voice, line, &scratch, &format!("rich-{i}")) {
             Some(a) => rich.extend_from_slice(&a),
             None => {
-                eprintln!("could not synthesise Rich's voice — is `say -v {rich_voice}` installed?");
+                eprintln!("could not synthesize Rich's voice — is `say -v {rich_voice}` installed?");
                 std::process::exit(1);
             }
         }
@@ -218,7 +218,7 @@ fn main() {
 
     for (i, line) in CEO_LINES.iter().enumerate() {
         let Some(ceo) = say(&ceo_voice, line, &scratch, &format!("ceo-{i}")) else {
-            eprintln!("could not synthesise the CEO's voice — is `say -v {ceo_voice}` installed?");
+            eprintln!("could not synthesize the CEO's voice — is `say -v {ceo_voice}` installed?");
             std::process::exit(1);
         };
         // Pad so the canceller has time to converge before the CEO starts talking: 8 s of

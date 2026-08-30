@@ -175,7 +175,7 @@ class Tree:
 #   says, in prose: "Cross-file path references still point at the original
 #   layout and will not resolve here — that is expected for reference
 #   material." The CITATION_EXEMPT key makes that existing declaration
-#   machine-readable. It is not a new licence; it is the one already granted.
+#   machine-readable. It is not a new license; it is the one already granted.
 # ---------------------------------------------------------------------------
 
 CITE_TOKEN = re.compile(r"`([^`\n]{2,200})`|\]\(([^)\s]{2,200})\)")

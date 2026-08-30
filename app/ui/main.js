@@ -227,7 +227,7 @@ function buildStatusMark(row) {
   const spec = STATUS_MARKS[key];
   const mark = document.createElement("span");
   mark.className = "nav-status nav-status--" + key;
-  // Shape first, colour second: §18 requires status never rely on colour alone, and the
+  // Shape first, color second: §18 requires status never rely on color alone, and the
   // six glyphs above are visually distinct without it.
   mark.setAttribute("aria-hidden", "true");
   mark.textContent = spec.glyph;
@@ -1923,7 +1923,7 @@ Bridge.listen("rich://voice-state", ({ payload }) => {
 
 Bridge.listen("rich://voice-transcript", ({ payload }) => {
   if (!voiceMode) return;
-  // What the CEO said appears in the thread the moment it is recognised — voice and text are
+  // What the CEO said appears in the thread the moment it is recognized — voice and text are
   // one conversation, so this is an ordinary user turn, not a call artefact. The reconciled
   // ledger snapshot replaces it when the turn completes.
   // The same optimistic path a typed send takes: a synthetic id, re-keyed onto the real
@@ -2331,7 +2331,7 @@ searchOverlayEl.addEventListener("click", (e) => {
 });
 
 // ---------------------------------------------------------------------------------------
-// Rail width, collapse and responsive behaviour (§2.1, §20)
+// Rail width, collapse and responsive behavior (§2.1, §20)
 //
 // Bounds are UX §2.1's: 300px default, 224px minimum, 420px maximum. They are enforced in
 // RUST as well (nav.rs `clamp_width`) and `set_sidebar_width` returns the value the store
@@ -2641,7 +2641,7 @@ function renderProposalCard(p) {
 /// "Because you said:" is true. `heard.rs` fires on a dictation he SILENTLY EDITED before
 /// pressing send — he said nothing at all — so the same heading over the same layout would
 /// put words in his mouth, and the evidence he actually needs is the CHANGE: what the
-/// recogniser heard, against what he sent. `ask.frame` is what tells them apart
+/// recognizer heard, against what he sent. `ask.frame` is what tells them apart
 /// (`spoken.rs`'s `Frame`, kebab-cased over the wire), and it is read rather than guessed
 /// from the shape of the payload.
 function renderCandidateCard(c) {

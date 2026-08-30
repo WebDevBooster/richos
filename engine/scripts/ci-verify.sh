@@ -86,10 +86,10 @@
 #
 # Measured on the engine's first-ever Linux run (2026-08-29): with no identity,
 # `git commit` in a fixture exits 128, the fixture ends up with no branch, and
-# suites fail with messages about worktree normalisation and reap scope that
+# suites fail with messages about worktree normalization and reap scope that
 # point nowhere near the actual cause. The probe's Layer Q was worse — it
 # degraded to "FUNCTIONAL CANARY DID NOT RUN", which is honest but means the
-# reaper's behaviour goes unverified in a run that otherwise looks complete.
+# reaper's behavior goes unverified in a run that otherwise looks complete.
 #
 # So this script REFUSES to start without one, and names the two lines that fix
 # it. It does not set the identity itself: silently rewriting a developer's

@@ -280,7 +280,7 @@ chmod +x "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh"
 # root from the SESSION — so the sandbox needs both the library and an explicit
 # declaration. Without the library it refuses to start; without the declaration
 # it would write the log into the launching session's repository, which is the
-# very behaviour under repair.
+# very behavior under repair.
 cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SANDBOX/scripts/lib/"
 printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$SANDBOX/orchestration.config"
 printf '%s' "$(json_agent 'worker' 'worker-sonnet-log1' '' $'Do the task.\nmain-checkout-run: needs main checkout for X.')" \
@@ -382,7 +382,7 @@ else
 fi
 
 # (j1b) a spawn this guard allowed but a LATER hook blocked must be re-issuable
-# under the SAME name. This is the burn, stated as a behaviour.
+# under the SAME name. This is the burn, stated as a behavior.
 printf '%s' "$FRESH_JSON" | "$HOOK" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 0 ] && { PASS=$((PASS+1)); printf '  PASS  reuse: a name this guard approved but never executed is re-issuable\n'; } \

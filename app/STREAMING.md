@@ -264,7 +264,7 @@ product defect, not a cosmetic one.**
 
 **What a renderer should do:** render an `"unknown"` message as Rich's prose in sequence
 order — no "final answer" treatment, no distinct final-response styling, no
-collapse-the-commentary behaviour — until a real phase signal exists. `phase` is always
+collapse-the-commentary behavior — until a real phase signal exists. `phase` is always
 present in the JSON precisely so nobody writes `phase ?? "final"`.
 
 **One phase is real**: a proactive message (Rich speaking unprompted) is emitted as

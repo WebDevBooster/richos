@@ -15,22 +15,22 @@ Everything required here is DERIVED from `tauri.conf.json`'s `bundle.icon` array
 which is Tauri's own source of truth for what gets bundled. Adding a size to that
 array automatically makes it required; it cannot leave the check silently passing.
 An entry whose filename we cannot decode is a hard ERROR, never a skip — silence on
-an unrecognised entry is exactly how a check rots into decoration.
+an unrecognized entry is exactly how a check rots into decoration.
 
 The Rust build gate (`app/src-tauri/build.rs`) derives the SAME requirements
 INDEPENDENTLY from the SAME config. That duplication is deliberate: two independent
 readers agreeing is a stronger guarantee than one shared helper, and if this
 generator's derivation ever drifts from the gate's, the gate fails the build.
 
-TOOL AND LICENCE
+TOOL AND LICENSE
 ----------------
 Pillow, SPDX `MIT-CMU` (confirmed from the installed distribution's
 `License-Expression` metadata, Pillow 12.3.0). Permissive, no copyleft, no
 attribution burden on the generated output. Nothing from Pillow is linked into or
 shipped inside the signed `.app`: it runs at authoring time only, and the sole
 artefacts that ship are pixels derived from the CEO's own artwork. That keeps the
-licence question entirely clear of the signing/notarisation path, which is why it
-passes the v1 licence gate.
+license question entirely clear of the signing/notarization path, which is why it
+passes the v1 license gate.
 
 macOS `.icns` is written by `/usr/bin/iconutil`, Apple's own tool, which ships with
 macOS. It is preferred over Pillow's ICNS writer for a measured reason:
@@ -210,8 +210,8 @@ def load_and_validate_source(path: Path, allow_full_bleed: bool = False):
         raise SourceError(
             f"{path.name}: SVG is not supported by this pipeline. Export a flat PNG at "
             f"{SOURCE_MIN_PX}x{SOURCE_MIN_PX} or larger with a transparent background "
-            f"and supply that instead. (Rasterising SVG would need an extra engine "
-            f"whose licence is not vetted for this signed bundle.)"
+            f"and supply that instead. (Rasterizing SVG would need an extra engine "
+            f"whose license is not vetted for this signed bundle.)"
         )
 
     try:
@@ -226,10 +226,10 @@ def load_and_validate_source(path: Path, allow_full_bleed: bool = False):
             f"channel, so the icon would ship with an opaque rectangle behind it."
         )
 
-    # --- colour space -----------------------------------------------------
+    # --- color space -----------------------------------------------------
     if im.mode in ("CMYK", "LAB", "YCbCr"):
         errors.append(
-            f"colour space is {im.mode}; app icons must be RGB/sRGB. Re-export as "
+            f"color space is {im.mode}; app icons must be RGB/sRGB. Re-export as "
             f"sRGB (8 bits per channel) with an alpha channel."
         )
 
@@ -261,7 +261,7 @@ def load_and_validate_source(path: Path, allow_full_bleed: bool = False):
     if errors:
         raise SourceError("\n".join(f"  - {path.name}: {e}" for e in errors))
 
-    # --- normalise to sRGB RGBA ------------------------------------------
+    # --- normalize to sRGB RGBA ------------------------------------------
     icc = im.info.get("icc_profile")
     if icc:
         try:
@@ -277,7 +277,7 @@ def load_and_validate_source(path: Path, allow_full_bleed: bool = False):
                 )
                 warnings.append(
                     f"source carried a non-sRGB ICC profile ({src_name!r}); converted "
-                    f"to sRGB. Colours in the icon may differ slightly from your art "
+                    f"to sRGB. Colors in the icon may differ slightly from your art "
                     f"tool's preview — supply sRGB directly to avoid the conversion."
                 )
         except Exception as e:  # pragma: no cover - depends on local littleCMS build

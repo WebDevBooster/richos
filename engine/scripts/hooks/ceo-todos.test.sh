@@ -866,7 +866,7 @@ run_lint "$FRESH"
 if [ "$LRC" -eq 0 ]; then
     ok "...and it is lint-clean immediately — the machinery is live, not inert"
 else
-    bad "a freshly initialised repo should be lint-clean (rc=$LRC): $LOUT"
+    bad "a freshly initialized repo should be lint-clean (rc=$LRC): $LOUT"
 fi
 IOUT="$("$BASH_BIN" "$INIT" "$FRESH" --no-cold-open 2>&1)"; IRC=$?
 if [ "$IRC" -eq 2 ] && printf '%s' "$IOUT" | grep -qF 'already declares'; then

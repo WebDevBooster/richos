@@ -19,7 +19,7 @@
 # The guards were fine. The sentence was not even false. What was missing is
 # that a deferred activation had been reported as a forecast instead of a
 # request, so nobody acted on it. Hence the rule this hook exists to make
-# unforgettable, stated so it generalises past hooks:
+# unforgettable, stated so it generalizes past hooks:
 #
 #   A DEFERRED ACTIVATION MUST NAME THE ACTOR AND THE ACTION.
 #   Never "this arms at the next session" — always "restart the session to arm
@@ -156,7 +156,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/notice-hook-staleness.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 0

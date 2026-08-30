@@ -16,7 +16,7 @@ output, and tells you plainly whether it worked.
 | Shape | **Exactly square** | Nothing crops or letterboxes it; a non-square source gets squashed at every size |
 | Size | **At least 1024 × 1024** | The largest macOS icon layer is 1024px. Smaller means upscaling the one layer people see biggest. Larger (2048, 4096) is fine |
 | Background | **Transparent**, with a margin | macOS clips every app icon to a rounded rectangle. Artwork that runs edge to edge gets its corners cut off |
-| Colour | **sRGB, 8-bit** | Anything else is converted, and the colours may shift from what your design tool showed you |
+| Color | **sRGB, 8-bit** | Anything else is converted, and the colors may shift from what your design tool showed you |
 | Effects | **No rounded corners, no drop shadow** | macOS and Windows each apply their own. Baked-in ones get applied twice and look wrong |
 
 **On the margin:** Apple draws the icon body inside 824 of 1024 pixels — about
@@ -139,6 +139,6 @@ Full reasoning, tool licensing, layer-coverage measurements against
   and the build gate with no code change.
 - Tooling is **Pillow (SPDX `MIT-CMU`)** plus Apple's own `/usr/bin/iconutil`.
   Both are authoring-time only — nothing from either is linked into or shipped
-  inside the signed `.app`, so neither touches the signing/notarisation path.
+  inside the signed `.app`, so neither touches the signing/notarization path.
 - To re-check an existing icon set without regenerating:
   `python3 app/scripts/lib/app_icons.py verify`

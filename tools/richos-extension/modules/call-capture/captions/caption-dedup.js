@@ -2,7 +2,7 @@
  * RichOS — caption de-duplication / revision aggregation (PURE module, node-testable).
  *
  * The DOM adapter (or any future platform adapter) observes caption *rows* that MUTATE in
- * place: a Meet caption line grows word-by-word as someone talks, then finalises. If we wrote
+ * place: a Meet caption line grows word-by-word as someone talks, then finalizes. If we wrote
  * every mutation we would flood `captions.ndjson`; if we wrote only the final state we would
  * lose timing. This module is the middle ground, and — crucially — it is where the caption
  * COUNT comes from, so the number shown anywhere matches exactly what gets persisted (the

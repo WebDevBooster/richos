@@ -192,8 +192,8 @@ fi
 # The test is "same REPOSITORY?", not "same path". A path comparison alone
 # calls the engine "by reference" when the probe is merely invoked from a
 # LINKED WORKTREE of the engine's own repo — ENGINE_ROOT is then the worktree
-# while REPO_ROOT normalises to the shared main checkout. Same repository, both
-# of them; still seated. So normalise the engine root to ITS main checkout
+# while REPO_ROOT normalizes to the shared main checkout. Same repository, both
+# of them; still seated. So normalize the engine root to ITS main checkout
 # before comparing.
 PROBE_MODE="seated"
 _ENGINE_MAIN="$(resolve_main_checkout "$ENGINE_ROOT" "$ENGINE_ROOT" 2>/dev/null || printf '%s' "$ENGINE_ROOT")"
@@ -301,7 +301,7 @@ run_layer_R() {
     # R3 the bootstrap block is byte-identical across them — a divergent copy is the
     # original defect in miniature, one hook disagreeing with its siblings about
     # what the root is. R4 engine-status.sh is registered, because it is the only
-    # thing in the system that answers "is this defence actually on?".
+    # thing in the system that answers "is this defense actually on?".
     R_LIB="$ENGINE_ROOT/scripts/lib/resolve-roots.sh"
     R_OK=1
 
@@ -349,7 +349,7 @@ run_layer_R() {
         # The bootstrap runs from the '# --- ROOT RESOLUTION' banner to the
         # resolve_engine_root assignment. Everything in between is fixed text apart
         # from the hook's own name in the diagnostic and the exit code, so both are
-        # normalised out before comparison — the point is that the MECHANISM is
+        # normalized out before comparison — the point is that the MECHANISM is
         # identical, not that the messages are.
         blk="$(sed -n '/^# --- ROOT RESOLUTION ---/,/^ENGINE_ROOT="\$(resolve_engine_root/p' "$f" 2>/dev/null \
                | sed -e 's|scripts/hooks/[a-z-]*\.sh|<HOOK>|' -e 's|^    exit [0-9]*$|    exit <RC>|')"
@@ -470,7 +470,7 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # repository while the operator's registration points at the shared main
     # checkout. BR6 needs the main-checkout TWIN of the audited directory —
     # note twin, not repository root: resolve_main_checkout() answers "which
-    # checkout?", and a nested engine at <repo>/engine normalises to <repo>,
+    # checkout?", and a nested engine at <repo>/engine normalizes to <repo>,
     # which is not an engine and never resolves against any plugin source.
     # (First live run named the repository root for an engine that lives one
     # directory further down. Same conflation as ENGINE_ROOT vs ENTITY_ROOT,
@@ -1967,7 +1967,7 @@ if [ "$M_OK" -eq 1 ] && [ -x "$CANARY_GUARD" ] && command -v mktemp >/dev/null 2
         [ "$M_OK" -eq 1 ] && emit_warn "M. registration uniqueness verified, but the SINGLE-FIRE CANARY DID NOT RUN — no sandbox directory could be created. Nothing here proves the resume-guard append path is single-fire; a double-appending guard would not be caught by this run."
     fi
 elif [ "$M_OK" -eq 1 ]; then
-    emit_warn "M. registration uniqueness verified, but the SINGLE-FIRE CANARY DID NOT RUN — the guard is missing/non-executable, mktemp is unavailable, or a prior M check already failed. Wiring is verified; BEHAVIOUR IS NOT."
+    emit_warn "M. registration uniqueness verified, but the SINGLE-FIRE CANARY DID NOT RUN — the guard is missing/non-executable, mktemp is unavailable, or a prior M check already failed. Wiring is verified; BEHAVIOR IS NOT."
 fi
 
 # --- Layer N — canonical settings.local.json is GIT-TRACKED --------------
@@ -2209,7 +2209,7 @@ if [ "$P_OK" -eq 1 ] && [ -x "$CANONICAL_DRIFTGUARD_HOOK" ] && [ -x "$CANONICAL_
         emit_warn "P. definition-drift pair is wired and hashed, but the BLOCK/ALLOW CANARIES DID NOT RUN — no sandbox directory could be created. Nothing here proves the guard actually blocks a drifted definition or allows a clean one; a gutted guard would not be caught by this run."
     fi
 elif [ "$P_OK" -eq 1 ]; then
-    emit_warn "P. definition-drift pair is wired and hashed, but the BLOCK/ALLOW CANARIES DID NOT RUN — a half is missing/non-executable, mktemp is unavailable, or a prior P check already failed. Wiring is verified; BEHAVIOUR IS NOT."
+    emit_warn "P. definition-drift pair is wired and hashed, but the BLOCK/ALLOW CANARIES DID NOT RUN — a half is missing/non-executable, mktemp is unavailable, or a prior P check already failed. Wiring is verified; BEHAVIOR IS NOT."
 fi
 
 # --- Layer Q: WORKTREE-REAPER CHAIN wired exactly once + path-confined +
@@ -2335,14 +2335,14 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
                 emit_pass "Q. worktree-reaper chain wired exactly once (SessionStart wrapper + reap-stale-worktrees.sh) + reaps a merged/clean tree (reaped=1) + REFUSES a dirty one (skipped=1) — path-confined, manifest-matched"
             fi
         else
-            emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway git sandbox could not be built, so nothing here proves the reaper actually reaps a clean tree or refuses a dirty one. Wiring and hashes are verified; BEHAVIOUR IS NOT. A gutted reaper would not be caught by this run."
+            emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway git sandbox could not be built, so nothing here proves the reaper actually reaps a clean tree or refuses a dirty one. Wiring and hashes are verified; BEHAVIOR IS NOT. A gutted reaper would not be caught by this run."
         fi
         rm -rf "$Q_DIR" 2>/dev/null || true
     else
-        emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — no sandbox directory could be created (mktemp). Wiring and hashes are verified; BEHAVIOUR IS NOT."
+        emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — no sandbox directory could be created (mktemp). Wiring and hashes are verified; BEHAVIOR IS NOT."
     fi
 elif [ "$Q_OK" -eq 1 ]; then
-    emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOUR IS NOT."
+    emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOR IS NOT."
 fi
 
 # --- Layer S: WORKTREE-REMOVAL guard wired exactly once + path-confined +
@@ -2440,7 +2440,7 @@ if [ "$S_OK" -eq 1 ] && command -v python3 >/dev/null 2>&1; then
         emit_pass "S. worktree-removal guard wired exactly once + BLOCKS a raw 'git worktree remove' + ALLOWS 'git worktree list'; sanctioned helper (remove-agent-worktree.sh) present, executable and manifest-matched"
     fi
 elif [ "$S_OK" -eq 1 ]; then
-    emit_warn "S. FUNCTIONAL CANARY DID NOT RUN — python3 unavailable, so nothing here proves the worktree-removal guard still blocks a raw removal or still allows a read. Wiring, the helper and both hashes are verified; BEHAVIOUR IS NOT."
+    emit_warn "S. FUNCTIONAL CANARY DID NOT RUN — python3 unavailable, so nothing here proves the worktree-removal guard still blocks a raw removal or still allows a read. Wiring, the helper and both hashes are verified; BEHAVIOR IS NOT."
 fi
 
 run_layer_R

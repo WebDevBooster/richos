@@ -55,7 +55,7 @@
 #   0  migration (or no-op) succeeded
 #   1  unexpected error
 #   2  canonical `.claude/settings.local.json` missing/unreadable or missing a
-#      critical config key, or an unrecognised command-line argument
+#      critical config key, or an unrecognized command-line argument
 
 set -eo pipefail
 
@@ -77,7 +77,7 @@ while [ "$#" -gt 0 ]; do
         --force-engine-pointer)
             FORCE_ENGINE_POINTER=1 ;;
         *)
-            echo "ERROR: install.sh: unrecognised argument '$1'. Usage: install.sh [--force-engine-pointer]" >&2
+            echo "ERROR: install.sh: unrecognized argument '$1'. Usage: install.sh [--force-engine-pointer]" >&2
             exit 2 ;;
     esac
     shift
@@ -392,14 +392,14 @@ echo "✓ refreshed hook sha256 manifests"
 # an obituary, not a guard.
 #
 # --force-engine-pointer is the deliberate escape hatch, because there is a
-# legitimate case (exercising pointer behaviour itself) and because an opt-in
+# legitimate case (exercising pointer behavior itself) and because an opt-in
 # flag leaves a record in shell history that an env var or a silent default
 # does not.
 #
 # Detection is git's own definition of a linked worktree — a private --git-dir
 # that differs from the shared --git-common-dir — not a path heuristic. If git
 # is absent, or this is not a checkout at all (a vendored engine copy, a test
-# sandbox), the answer is "not a worktree" and behaviour is byte-identical to
+# sandbox), the answer is "not a worktree" and behavior is byte-identical to
 # before this paragraph existed.
 POINTER_IN_WORKTREE=0
 POINTER_MAIN_HINT=""

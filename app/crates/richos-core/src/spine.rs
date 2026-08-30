@@ -655,7 +655,7 @@ impl Spine {
     /// attach, so after a rotation the shell's stop button held the DEAD child's cancel
     /// handle. And `set_lease_session` (new) is what the worker path derives its team
     /// directory from, so a stale value there is a false-attribution channel of exactly the
-    /// kind this commit removes. Centralising the assignment is what makes both true by
+    /// kind this commit removes. Centralizing the assignment is what makes both true by
     /// construction rather than by remembering.
     fn install_lease(&mut self, lease: Box<dyn Cognition>) {
         // Published BEFORE the lease can be handed a turn. A lease with no cancel story
@@ -1086,7 +1086,7 @@ impl Spine {
     /// shell serializes every call behind one `Mutex<Spine>`), so there is no concurrent
     /// in-process holder that can actually go stale today. This is the seam the Tauri
     /// command layer and any future async writer must call, and it is exercised by test
-    /// rather than merely declared — but it is defence in depth, not a bug being fixed.
+    /// rather than merely declared — but it is defense in depth, not a bug being fixed.
     pub fn verify_active_binding(&self, binding: &ThreadBinding) -> Result<(), SpineError> {
         let active = self.active.as_ref().ok_or(SpineError::NoActiveThread)?;
         if binding.thread_id() != active.thread_id() || binding.entity_id() != active.entity_id() {
@@ -1167,7 +1167,7 @@ impl Spine {
     ///
     /// Nothing is lost by refusing. The caller still holds the CEO's text and the send is
     /// blocked with an explanation, which is precisely UX §21's "Entity binding failure"
-    /// behaviour: *"Block send. State that Rich cannot safely determine which entity the
+    /// behavior: *"Block send. State that Rich cannot safely determine which entity the
     /// work belongs to. Require an explicit entity choice."* The alternative — persisting
     /// an unscoped turn and sorting it out later — is how a message ends up rendered in
     /// the wrong entity, which is a privacy incident rather than an inconvenience.

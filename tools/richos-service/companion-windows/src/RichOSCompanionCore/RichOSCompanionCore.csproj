@@ -6,7 +6,7 @@
     JSON, and the coordination parser. This is the exact peer of the macOS companion's
     `RichOSCompanionCore` SwiftPM target — no WASAPI, no COM, no Windows-audio API — so it is unit
     tested deterministically by `dotnet test` and compiles on ANY .NET host (Windows/Linux/macOS),
-    maximising what CI verifies without audio hardware or a permission grant.
+    maximizing what CI verifies without audio hardware or a permission grant.
   -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>

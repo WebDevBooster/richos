@@ -40,7 +40,7 @@ first decisive given the no-local-compile reality:
    two-line, fully-standard workflow with the SDK preinstalled — far less brittle than bootstrapping a
    CMake/MSBuild + Windows-SDK + WinRT C++ project I can't smoke-test locally. When the only
    correctness gate before the CEO is remote CI, the toolchain with the least CI ceremony wins.
-2. **Portable-logic testability, maximised.** The pure core (`RichOSCompanionCore`) is a plain `net8.0`
+2. **Portable-logic testability, maximized.** The pure core (`RichOSCompanionCore`) is a plain `net8.0`
    class library with **zero** Windows-audio dependencies, so contract writing, channel L/R mapping,
    WAV, mix/failover, and coordination parsing are unit-tested by `dotnet test` with no audio hardware
    and no permission — exactly the macOS `RichOSCompanionCore` split. The library even compiles on

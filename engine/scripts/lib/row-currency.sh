@@ -287,7 +287,7 @@ rc_resolve_record() {
             *)  abs="$main/$spec" ;;
         esac
         if [ ! -d "$abs" ]; then
-            RC_STANDDOWN_REASON="the record repository declared as '$spec' is not on this machine (looked at $abs). Nothing here can be checked against a record nobody has, and refusing every commit in this repository over an absent sibling would be a defect, not a defence."
+            RC_STANDDOWN_REASON="the record repository declared as '$spec' is not on this machine (looked at $abs). Nothing here can be checked against a record nobody has, and refusing every commit in this repository over an absent sibling would be a defect, not a defense."
             return 1
         fi
         RC_RECORD_REPO="$(ct_repo_root "$abs")" || {

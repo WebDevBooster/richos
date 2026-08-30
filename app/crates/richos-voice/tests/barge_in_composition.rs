@@ -190,7 +190,7 @@ fn tap_to_stop_cuts_instantly_and_rescues_the_utterance_in_flight() {
 }
 
 /// The ordinary case: Rich is silent, the CEO says something, it becomes a turn. Nothing
-/// about the echo defences may interfere with the thing the feature is actually for.
+/// about the echo defenses may interfere with the thing the feature is actually for.
 #[test]
 fn an_ordinary_utterance_while_rich_is_silent_becomes_a_turn_untouched() {
     let mut brain = CaptureBrain::new();
@@ -245,7 +245,7 @@ fn speech_starting_just_before_rich_falls_silent_is_not_treated_as_echo() {
         }
     }
     // This is the DOCUMENTED cost of shipping without AEC, asserted so it is a known,
-    // deliberate behaviour rather than a surprise: speech that begins inside Rich's playout
+    // deliberate behavior rather than a surprise: speech that begins inside Rich's playout
     // and never reaches the debounce IS discarded. Real AEC removes this.
     assert!(
         tainted_discard,
@@ -366,7 +366,7 @@ fn thirty_seconds_of_a_live_room_with_nobody_talking_never_warns() {
 }
 
 /// INVARIANT: no warning while Rich is talking, even into a genuinely dead microphone. This
-/// is the half-duplex taint rule's neighbour: evidence gathered during playout is worthless
+/// is the half-duplex taint rule's neighbor: evidence gathered during playout is worthless
 /// (on speakers his own voice proves the mic "live"; on headphones it does not), and a
 /// warning interrupting his sentence is the "annoying" failure the CEO ruled out.
 #[test]

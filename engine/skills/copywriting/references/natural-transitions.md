@@ -16,9 +16,9 @@ Adapted from: University of Manchester Academic Phrasebank (2023), Plain English
 - Indicating Similarity
 - Indicating Cause and Effect
 - Giving Examples
-- Emphasising Key Points
+- Emphasizing Key Points
 - Providing Evidence (neutral attribution, expert quotes, supporting claims)
-- Summarising Sections
+- Summarizing Sections
 - Concluding Content
 - Question-Based Transitions
 - List Introductions
@@ -141,7 +141,7 @@ Use to connect ideas and reinforce key points:
 
 ---
 
-## Emphasising Key Points
+## Emphasizing Key Points
 
 - Here's the key takeaway:...
 - The important thing is...
@@ -178,7 +178,7 @@ Use when citing sources, data, or expert opinions:
 
 ---
 
-## Summarising Sections
+## Summarizing Sections
 
 - To recap,...
 - Here's the short version:...

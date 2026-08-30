@@ -107,7 +107,7 @@ while [ "$#" -gt 0 ]; do
         --verbose|-v) VERBOSE=1 ;;
         --list)       LIST_ONLY=1 ;;
         *)
-            echo "ERROR: run-all-tests.sh: unrecognised argument '$1'. Usage: run-all-tests.sh [--verbose] [--list]" >&2
+            echo "ERROR: run-all-tests.sh: unrecognized argument '$1'. Usage: run-all-tests.sh [--verbose] [--list]" >&2
             exit 2 ;;
     esac
     shift

@@ -8,12 +8,12 @@
 //!
 //! `say` is AVSpeechSynthesizer on the command line: already present on every Mac, offline,
 //! free, zero bytes to bundle, and — the part that matters for a conversation — fast.
-//! Measured on this M4: a 4.358 s sentence synthesises to 48 kHz PCM in **0.324 s**, a
+//! Measured on this M4: a 4.358 s sentence synthesizes to 48 kHz PCM in **0.324 s**, a
 //! real-time factor of **0.074**, i.e. ~13.5x faster than it plays. That headroom is exactly
 //! what makes gapless sentence pipelining work: sentence N+1 is always ready before sentence
 //! N finishes.
 //!
-//! What it costs: the compact system voices are recognisably synthetic next to a modern
+//! What it costs: the compact system voices are recognizably synthetic next to a modern
 //! neural voice. Two upgrade paths, neither of which touches this pipeline:
 //! 1. **Free, no code:** the CEO installs an Enhanced/Premium variant in System Settings ->
 //!    Accessibility -> Spoken Content. [`pick_voice`] already prefers those variants, so the
@@ -71,7 +71,7 @@ impl std::fmt::Display for TtsError {
     }
 }
 
-/// One synthesised sentence: mono f32 at the rate that was asked for, plus the measurement.
+/// One synthesized sentence: mono f32 at the rate that was asked for, plus the measurement.
 #[derive(Debug, Clone)]
 pub struct Speech {
     pub samples: Vec<f32>,
@@ -101,7 +101,7 @@ impl Speech {
 /// The replaceable synthesizer. A bundled neural voice implements this and nothing else in
 /// the crate changes.
 pub trait SpeechSynth: Send + Sync {
-    /// Synthesise one sentence as mono f32 at `target_rate` (the output device's rate, so
+    /// Synthesize one sentence as mono f32 at `target_rate` (the output device's rate, so
     /// playout never resamples Rich's voice).
     fn synthesize(&self, text: &str, target_rate: u32, scratch_dir: &Path) -> Result<Speech, TtsError>;
     /// Honest identity for logs and the brief — never shown to the CEO.
@@ -244,7 +244,7 @@ mod tests {
         assert!(VOICE_PREFERENCE[..3].iter().all(|v| v.starts_with("Daniel")));
     }
 
-    /// INVARIANT: `say -v '?'` lines parse into names, including the parenthesised ones that
+    /// INVARIANT: `say -v '?'` lines parse into names, including the parenthesized ones that
     /// a naive "first token" split would truncate.
     #[test]
     fn voice_lines_parse_including_parenthesised_names() {
@@ -298,7 +298,7 @@ mod tests {
         let synth = MacSay::new();
         let speech = synth
             .synthesize("Acme signed at 4.5 million. I would push back.", 48_000, &dir)
-            .expect("say should synthesise");
+            .expect("say should synthesize");
         assert_eq!(speech.sample_rate, 48_000);
         assert!(speech.duration_secs() > 1.0, "suspiciously short: {}", speech.duration_secs());
         assert!(
@@ -308,7 +308,7 @@ mod tests {
         );
         // Real audio, not a silent file.
         let peak = speech.samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-        assert!(peak > 0.05, "synthesised audio is silent (peak {peak})");
+        assert!(peak > 0.05, "synthesized audio is silent (peak {peak})");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

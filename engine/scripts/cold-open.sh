@@ -11,7 +11,7 @@
 # of the file and false of his experience, and his reply was one sentence:
 # "Why am I not IMMEDIATELY seeing my queue in the repo?"
 #
-# The cause generalises, and that is why this file exists rather than a fix to
+# The cause generalizes, and that is why this file exists rather than a fix to
 # that one page. EVERY ACCEPTANCE CRITERION IN THAT LANDING WAS INTERNAL: lint
 # exit codes, guard tests, probe layers, git state. Each one was checked by the
 # person who had just written the thing being checked, using knowledge only he
@@ -31,7 +31,7 @@
 #
 # A boolean would be the same mistake one level up: it would compress the one
 # output that carries information (what confused him) into the one that does
-# not (pass/fail), and it would immediately be optimised for.
+# not (pass/fail), and it would immediately be optimized for.
 #
 # ===========================================================================
 # WHERE THIS CAN HONESTLY LIVE — and where it CANNOT
@@ -115,7 +115,7 @@
 #
 #   --reader-cmd "<cmd>"  the reader. Gets the prompt on STDIN, runs with the
 #                         repository as its working directory, prints its answer
-#                         on stdout. Default: a fresh, customisation-free Claude
+#                         on stdout. Default: a fresh, customization-free Claude
 #                         Code process. Any program honouring that contract works
 #                         — this is a seam, not a vendor lock.
 #   --model <alias>       model for the default reader (default: sonnet)
@@ -157,7 +157,7 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             sed -n '108,140p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
-        -*) die "unrecognised argument '$1'" ;;
+        -*) die "unrecognized argument '$1'" ;;
         *)
             [ -z "$TARGET" ] || die "one target only"
             TARGET="$1" ;;
@@ -302,7 +302,7 @@ if [ "$MODE" = "record" ]; then
     cp "$FROM" "$ANSWER"
 else
     # --- --run: a reader with no context, BY CONSTRUCTION --------------------
-    # A brand-new process with an empty context window and every customisation
+    # A brand-new process with an empty context window and every customization
     # off: no CLAUDE.md, no plugins, no hooks, no skills, no agents, no MCP, no
     # session history. It cannot know what this repository is, who built it, or
     # what it was supposed to become, because there is nowhere for it to have

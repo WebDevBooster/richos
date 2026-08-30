@@ -17,7 +17,7 @@
 //! `RICHOS_VOICE_INPUT_WAV` and logs loudly on stderr when it is in use.
 //!
 //! **Machine note (2026-08-24 morning, this Mac mini — NOW SUPERSEDED, kept because the
-//! failure signature is worth recognising):** `system_profiler SPAudioDataType` listed
+//! failure signature is worth recognizing):** `system_profiler SPAudioDataType` listed
 //! three devices — BenQ GC2870, External Headphones, Mac mini Speakers — and **every one of
 //! them was output-only; there were zero input channels on this host.** cpal's
 //! `default_input_device()` returned a device whose `default_input_config()` failed with

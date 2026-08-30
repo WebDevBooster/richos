@@ -394,7 +394,7 @@ async function main() {
         pulses: document.querySelectorAll(".tl-chip-pulse").length,
         animation: st.animationName,
         chipTransition: getComputedStyle(chip).transitionDuration,
-        // Status must never rely on colour alone (§18): the state word is real text.
+        // Status must never rely on color alone (§18): the state word is real text.
         stateWord: chip.querySelector(".tl-chip-state").textContent,
       };
     }, F.threeWorkers());

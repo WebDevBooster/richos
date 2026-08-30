@@ -18,7 +18,7 @@
 //!
 //! Everything in this module is pure. No devices, no clock, no synthesizer.
 
-/// A chunk shorter than this (after sanitising, in characters) is held back and merged with
+/// A chunk shorter than this (after sanitizing, in characters) is held back and merged with
 /// the next one rather than spoken on its own — prevents one-word stutter.
 pub const MIN_CHUNK_CHARS: usize = 2;
 

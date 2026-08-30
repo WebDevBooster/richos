@@ -415,7 +415,7 @@ async function main() {
     swSession,
     `(async () => { const s = await globalThis.__richos.callCapture.getStatus(); return JSON.stringify({tabs: s.callTabsOpen, active: s.active}); })()`,
   );
-  check('platform detection recognises it as a Google Meet call tab', /Google Meet/.test(JSON.stringify(detected)), JSON.stringify(detected));
+  check('platform detection recognizes it as a Google Meet call tab', /Google Meet/.test(JSON.stringify(detected)), JSON.stringify(detected));
 
   // Independent control: measure the fake microphone from the PAGE, using the same
   // AnalyserNode technique the recorder uses. This distinguishes "Chrome's fake device is
@@ -747,7 +747,7 @@ async function main() {
     `${recorderStatus.chunkCount} → ${stillRecording.chunkCount} chunks`,
   );
 
-  // 10. Close the call tab — the real end-of-call signal. The session must finalise itself.
+  // 10. Close the call tab — the real end-of-call signal. The session must finalize itself.
   await cdp.send('Target.closeTarget', { targetId: tabTargetId });
   await sleep(9000);
 
@@ -756,7 +756,7 @@ async function main() {
     swSession,
     `(async () => JSON.stringify(await globalThis.__richos.callCapture.getStatus()))()`,
   );
-  check('closing the call tab finalises the session', afterClose.active === false, JSON.stringify(afterClose.lastSession || {}));
+  check('closing the call tab finalizes the session', afterClose.active === false, JSON.stringify(afterClose.lastSession || {}));
 
   // 11. Verify the drop zone on disk.
   const found = [];

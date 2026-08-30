@@ -65,7 +65,7 @@
 //! the Claude Code harness, and **whether those are the same id space has never been
 //! measured** — the adapter is not installed in this checkout
 //! ([`crate::spine::Spine::set_worker_events`] states it). If they differ, every row is
-//! refused, every `Task` call stays an ordinary activity row, and the behaviour is exactly
+//! refused, every `Task` call stays an ordinary activity row, and the behavior is exactly
 //! what it was before this event existed — safe, but silent.
 //!
 //! The reload path REPORTS that case as

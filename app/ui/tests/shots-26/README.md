@@ -4,9 +4,9 @@ The first visual record this UI has ever had.
 
 Produced by `node memory-strategy.js` (see `../README.md`), out of WebKit's own compositor —
 the engine Tauri ships on macOS — at 1440x960, full page. **Not** by `screencapture`, which
-on this machine has returned a valid, several-kilobyte, single-colour (0,0,0) PNG for three
+on this machine has returned a valid, several-kilobyte, single-color (0,0,0) PNG for three
 slices running because the display is locked. Every file below was decoded and pixel-counted
-before it was allowed to count as evidence; a shot with fewer than 8 distinct colours throws.
+before it was allowed to count as evidence; a shot with fewer than 8 distinct colors throws.
 
 Re-running the suite overwrites all nine. They are committed — unlike `.shots/`, which is the
 per-run scratch every suite writes and gitignores — because §26 names them as deliverables.
@@ -18,7 +18,7 @@ JSON across three constructions from one anchor, and the measured duration is ex
 happened to settle at, so a re-run can differ by a few bytes without anything having changed.
 Do not treat a diff here as a regression signal; read the suite's exit code.
 
-| # | File | Distinct colours | §26 asked for | What it is |
+| # | File | Distinct colors | §26 asked for | What it is |
 |---|---|---|---|---|
 | 1 | `ms-01-just-after-send.png` | 253 | just after send | As asked. The prompt in its quiet right-aligned bubble, clamped at §5.1's 18 lines with `Show more`, and §6.1's bare `Working` — no number invented under one second. |
 | 2 | `ms-02-working-for-18s.png` | 335 | active at `Working for 18s` | As asked, and exact. Also `Read 7 files` (seven rows rolled into one summary) and `Searched`. |

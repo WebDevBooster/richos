@@ -39,7 +39,7 @@ struct Case {
     label: String,
     /// What was PASTED — the journal's `emitted`.
     heard: String,
-    /// What the recogniser produced, when the shared vocabulary changed it on the way out.
+    /// What the recognizer produced, when the shared vocabulary changed it on the way out.
     #[serde(default)]
     heard_raw: Option<String>,
     sent: String,
@@ -71,14 +71,14 @@ impl Case {
         }
     }
 
-    /// The journal as our open-wispr patch writes it: `text` is the recogniser's output,
+    /// The journal as our open-wispr patch writes it: `text` is the recognizer's output,
     /// `emitted` is what was pasted.
     fn journal(&self) -> Vec<DictationEntry> {
         vec![self.entry()]
     }
 
     /// The same journal with NO `emitted` — what a diff sees when it is taken against the
-    /// recogniser's raw output instead of against what he actually edited.
+    /// recognizer's raw output instead of against what he actually edited.
     fn journal_raw_only(&self) -> Vec<DictationEntry> {
         vec![DictationEntry {
             id: format!("d-{}", self.id),
@@ -320,7 +320,7 @@ fn the_pairing_condition_is_what_keeps_a_typed_message_silent() {
     // WHAT THE FLOOR ACTUALLY BUYS, asserted rather than claimed: it stops most sends from
     // claiming a dictation they did not come from AT ALL. It does not, on this corpus, stop
     // a QUESTION — every question this probe produces is a CORRECT vocabulary pair found
-    // against a genuinely similar earlier dictation, which is the behaviour we want and not
+    // against a genuinely similar earlier dictation, which is the behavior we want and not
     // a false positive. So the condition's keep rests on the first number; the README says
     // so rather than claiming the second for it.
     assert!(
@@ -331,7 +331,7 @@ fn the_pairing_condition_is_what_keeps_a_typed_message_silent() {
 
 /// THE OTHER COUNTERFACTUAL — which SIDE of the journal a diff is taken against.
 ///
-/// `reviewSent` in the shipped JavaScript diffs `entry.text`, the recogniser's raw output.
+/// `reviewSent` in the shipped JavaScript diffs `entry.text`, the recognizer's raw output.
 /// This asserts what that costs: a pair the shared vocabulary already corrected on the way
 /// to the composer becomes a question at the moment the CEO changed nothing at all.
 #[test]
@@ -362,7 +362,7 @@ fn the_emitted_side_is_what_he_edited() {
     );
     assert!(
         raw_asks > shipped_asks,
-        "diffing the recogniser's raw output no longer costs anything on this corpus — \
+        "diffing the recognizer's raw output no longer costs anything on this corpus — \
          if that is real, `heard_side` can be simplified and this test says so"
     );
     assert!(

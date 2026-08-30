@@ -12,13 +12,13 @@ export const CAPTURE_DEFAULTS = {
   /** Master switch for this module. */
   enabled: true,
   /**
-   * 'auto'   — try to arm the moment a call tab is recognised, and escalate loudly if
+   * 'auto'   — try to arm the moment a call tab is recognized, and escalate loudly if
    *            Chrome refuses without an extension invocation (see README §Arming).
    * 'manual' — only ever arm on the toolbar click or the keyboard shortcut.
    */
   armMode: 'auto',
   /**
-   * Hybrid auto-start: the moment a call tab is recognised, start MICROPHONE + CAPTION capture
+   * Hybrid auto-start: the moment a call tab is recognized, start MICROPHONE + CAPTION capture
    * with ZERO user gesture, so a detected call is never fully uncaptured. Only tab-audio (the
    * ground-truth channel) still needs the one invocation/click. On = the click merely UPGRADES
    * an already-running mic+captions session to full tab audio.
@@ -28,7 +28,7 @@ export const CAPTURE_DEFAULTS = {
   captureCaptions: true,
   /** Also treat ANY audible tab as a call (noisy: video sites count as audible). */
   armUnknownAudible: false,
-  /** How long a recognised call URL must stay open before auto-arming. */
+  /** How long a recognized call URL must stay open before auto-arming. */
   armDelayMs: 3000,
   /** Record the microphone (you) on its own channel — left = you, right = everyone else. */
   captureMic: true,
@@ -120,7 +120,7 @@ export const THRESHOLDS = {
   recoverMaxAttempts: 5,
   /** Minimum spacing between two recovery attempts for the same signal. */
   recoverBackoffMs: 5000,
-  /** An unarmed, recognised call tab is an alarm this fast. */
+  /** An unarmed, recognized call tab is an alarm this fast. */
   unarmedAlarmMs: 10000,
   /**
    * Captions-only mode (`mode: 'captions-only'`, no audio source exists at all): grace period

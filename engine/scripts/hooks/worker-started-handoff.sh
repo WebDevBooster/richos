@@ -27,7 +27,7 @@
 #
 # NOT ONLY TEAMMATES. SubagentStart fires for every subagent the host runs,
 # including short read-only helpers that are not delegated "AI workers" in the
-# UX-design sense. This hook does not editorialise about which is which — it
+# UX-design sense. This hook does not editorialize about which is which — it
 # records agent_type verbatim and leaves the classification to the consumer,
 # because a filter applied here would be an opinion baked into an evidence log.
 #

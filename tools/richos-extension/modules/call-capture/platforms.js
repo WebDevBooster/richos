@@ -97,7 +97,7 @@ export function detectPlatform(url) {
  * Should this tab be armed automatically right now?
  *
  * Bias: arming a lobby or a few seconds of silence costs nothing; NOT arming a call is the
- * cardinal sin. So a recognised call URL arms on sight (after `armDelayMs`), audible or not.
+ * cardinal sin. So a recognized call URL arms on sight (after `armDelayMs`), audible or not.
  *
  * @param {{url?: string, audible?: boolean, openedAt?: number}} tab
  * @param {{armMode: string, armUnknownAudible: boolean, armDelayMs: number}} settings
@@ -127,7 +127,7 @@ export function shouldAutoArm(tab, settings, now) {
 }
 
 /**
- * A recognised call tab that is NOT being captured is itself a failure — this is the
+ * A recognized call tab that is NOT being captured is itself a failure — this is the
  * check that turns "I forgot to arm" from a post-call discovery into an in-call alarm.
  * @param {{url?: string, audible?: boolean}} tab
  * @returns {boolean}

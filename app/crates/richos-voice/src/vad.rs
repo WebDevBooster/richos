@@ -131,7 +131,7 @@ impl Vad {
     }
 
     /// Classify one frame. Frames shorter/longer than [`VAD_FRAME_SAMPLES`] are accepted
-    /// (RMS is length-normalised) but the caller should be feeding exact frames so the
+    /// (RMS is length-normalized) but the caller should be feeding exact frames so the
     /// debounce frame math means what it says.
     pub fn push_frame(&mut self, frame: &[f32]) -> bool {
         let r = rms(frame);

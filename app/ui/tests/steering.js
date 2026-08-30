@@ -522,7 +522,7 @@ async function main() {
     const s = await composerState(page);
     // 18000ms under §6.2: `18s`, which is the doc's own worked example.
     assert(labels.includes("You stopped after 18s"), `expected the §6.1 row, got ${JSON.stringify(labels)}`);
-    assertEqual(s.stopHidden, true, "§9.3 step 6: normal send behaviour is restored");
+    assertEqual(s.stopHidden, true, "§9.3 step 6: normal send behavior is restored");
     assertEqual(s.sendHidden, false, "send is back");
     assertEqual(s.placeholder, "Talk to Rich…", "the §9.1 placeholder is restored");
     assertEqual(s.mode, "idle");
@@ -597,7 +597,7 @@ async function main() {
       stop.focus();
       const focused = document.activeElement === stop;
       // A real <button>, so Enter and Space activate it natively — asserted through the
-      // element's own semantics rather than by synthesising a click.
+      // element's own semantics rather than by synthesizing a click.
       return { focused, tag: stop.tagName, type: stop.type, label: stop.getAttribute("aria-label") };
     });
     assertEqual(r.tag, "BUTTON", "a real button, not a div with a click handler");

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# session-start-reap-worktrees.test.sh — behavioural tests for the SessionStart
+# session-start-reap-worktrees.test.sh — behavioral tests for the SessionStart
 # worktree-reaper wrapper (scripts/hooks/session-start-reap-worktrees.sh).
 #
 # The wrapper is thin, but it is the trigger for the only hook-reachable code in

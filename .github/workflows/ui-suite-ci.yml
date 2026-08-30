@@ -48,7 +48,7 @@ name: ui-suite-ci
 #     through Playwright, not through the Tauri shell, so Phase 6 is exactly as unproven
 #     after this workflow as before it. Nothing here closes it and nothing here should be
 #     read as closing it.
-#   - Anything about the backend's own behaviour. That is `cargo test -p richos-core`, in the
+#   - Anything about the backend's own behavior. That is `cargo test -p richos-core`, in the
 #     workflow next to this one.
 #
 # WHAT THIS RUN HAS NEVER DONE. This file has not executed. It was written and exercised on

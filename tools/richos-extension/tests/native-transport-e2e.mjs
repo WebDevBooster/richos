@@ -331,7 +331,7 @@ async function runNativeLeg(workDir, speechB64) {
   const closed = await waitFor('session to finalize', async () => {
     const s = await evalJson(cdp, swSession, getStatusExpr); return s.active === false ? s : null;
   }, { timeout: 15000, interval: 500 }).catch(() => null);
-  check('LEG1: closing the call tab finalised the native session', Boolean(closed), '');
+  check('LEG1: closing the call tab finalized the native session', Boolean(closed), '');
 
   // Host session.json should now be closed with real audio accounting.
   await waitFor('host to close session.json', () => {

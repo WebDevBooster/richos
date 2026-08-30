@@ -5,9 +5,9 @@ no caller in `app/ui/`, and what the CEO now sees instead.
 
 Produced by `node corrections.js` (see `../README.md`), out of WebKit's own compositor — the
 engine Tauri ships on macOS — at 1400x950. **Not** by `screencapture`, which on this machine
-returns a valid, several-kilobyte, single-colour (0,0,0) PNG because the display is locked.
+returns a valid, several-kilobyte, single-color (0,0,0) PNG because the display is locked.
 Every file below was decoded and pixel-counted in the browser that painted it before it was
-allowed to count as evidence; a shot with fewer than 8 distinct colours throws.
+allowed to count as evidence; a shot with fewer than 8 distinct colors throws.
 
 **Each one is taken 300ms after the state settles.** `.overlay-panel` fades in over 160ms,
 and the first shot taken while building this pass came out as a dimmed page with no panel on

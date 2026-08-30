@@ -173,9 +173,9 @@ export const DEFAULT_MODEL = 'large-v3-turbo';
  * OWN defaults (verify with `whisper-cli --help`), so they changed nothing. Measured 2026-08-29:
  * a full 92-minute q5_0 run with `-mc 0` alone and one with `-mc 0 -et 2.4 -lpt -1.0 -nth 0.6`
  * produced BYTE-IDENTICAL JSON (sha256 07ad0d16b1e94e99bb66da32a6a1588701aed9629c4c2e7653c6791e87ae961b).
- * They are dropped rather than left in place implying a defence that was never running.
+ * They are dropped rather than left in place implying a defense that was never running.
  *
- * AND `-nth` IS NOT A DEFENCE AT ANY VALUE, NOT ONLY AT ITS DEFAULT — measured 2026-08-29 (second
+ * AND `-nth` IS NOT A DEFENSE AT ANY VALUE, NOT ONLY AT ITS DEFAULT — measured 2026-08-29 (second
  * pass), because "no-speech-thold" is the parameter anyone looking at whisper hallucinating over
  * silence reaches for first, and reaching for it here is a dead end. On a 700 s slice of a real
  * host channel holding 14 segments emitted over MEASURED SILENCE, six full decodes at
@@ -329,7 +329,7 @@ export function resolveModel(modelId = DEFAULT_MODEL) {
  * cross-window consistency of spelling, casing and punctuation, and all of the evidence above is
  * long-form (92 min) on ONE recording. No measurement exists of what -mc 0 costs on a SHORT (<5 min)
  * call, and none is claimed. `RICHOS_WHISPER_MAX_CONTEXT` is the escape hatch; set it to -1 to
- * restore whisper.cpp's own behaviour.
+ * restore whisper.cpp's own behavior.
  */
 export const MAX_CONTEXT_TOKENS = 0;
 

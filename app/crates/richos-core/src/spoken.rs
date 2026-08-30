@@ -82,7 +82,7 @@
 //! fall short) and one unpunctuated utterance.
 //!
 //! **And it still asks, because a precision of 1.000 measured by the author of the corpus
-//! is a lower bound on the SHAPE of the errors, not a licence.** §7 already ruled on this
+//! is a lower bound on the SHAPE of the errors, not a license.** §7 already ruled on this
 //! and the ruling is not mine to re-open:
 //!
 //! > *"Inference cannot tell 'ship Thursday' → 'ship Friday' (a change of mind) from 'deep
@@ -352,7 +352,7 @@ pub enum Frame {
     Contrast,
     /// `not <rejected>, <asserted>` — the pivot leads and the asserted term follows it.
     PivotFirst,
-    /// **No construction at all.** The CEO said nothing: he dictated, the recogniser
+    /// **No construction at all.** The CEO said nothing: he dictated, the recognizer
     /// mis-heard, and he fixed it silently before sending. [`FrameExtractor`] can never
     /// produce this — `heard.rs` does, from a token diff of what was heard against what was
     /// sent, and it is a variant rather than a second ask type so that all three triggers
@@ -674,7 +674,7 @@ pub struct FrameExtractor {
 }
 
 impl FrameExtractor {
-    /// The vocabulary configuration — byte-for-byte the behaviour that measured
+    /// The vocabulary configuration — byte-for-byte the behavior that measured
     /// TP 32 / FP 0 / FN 2 / TN 115, and `tests/spoken_precision.rs` is what keeps it so.
     pub const fn spoken() -> Self {
         FrameExtractor { allow_calendar: false, symmetric_width: true, pivot_first_scans_to_the_end: false }
@@ -1069,7 +1069,7 @@ mod tests {
 
     /// INVARIANT: the symmetric width cap is the second, and last, difference. It is right
     /// for a term substitution and wrong for a value one, and both readings are pinned so a
-    /// future tidy-up cannot quietly give one config the other's behaviour.
+    /// future tidy-up cannot quietly give one config the other's behavior.
     #[test]
     fn the_asserted_width_cap_is_the_other_configured_difference() {
         let u = "The Q3 number was 1.4 million, not 1.2.";

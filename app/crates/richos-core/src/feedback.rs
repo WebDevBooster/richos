@@ -110,7 +110,7 @@ pub enum PromptOutcome {
 
 impl PromptOutcome {
     /// Map a keypress to an outcome. Anything that is not one of the four keys is
-    /// `None` — an unrecognised key is not a dismissal, it is not an answer at all, and
+    /// `None` — an unrecognized key is not a dismissal, it is not an answer at all, and
     /// silently recording it as one would put invented data in the store.
     pub fn from_key(key: char) -> Option<PromptOutcome> {
         match key {
@@ -223,7 +223,7 @@ impl FeedbackStore {
     /// **The unterminated-tail repair is not incidental.** A crash mid-append leaves a
     /// half-written line with no newline on it; the next append then lands on that same
     /// line and the torn record takes the *following* record down with it. That was
-    /// observed, not theorised — `a_torn_line_costs_that_line_and_not_the_history`
+    /// observed, not theorized — `a_torn_line_costs_that_line_and_not_the_history`
     /// failed 1-of-2 before this existed. So a write that finds an unterminated tail
     /// closes it first, and the damage stays bounded to the one interrupted record.
     pub fn record(&self, entry: &FeedbackEntry) -> io::Result<()> {

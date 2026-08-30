@@ -932,7 +932,7 @@ fn a_delegation_reaches_the_webview_during_the_turn_not_after_it() {
     // in main.js, so the only route a worker row had to the screen was a `get_timeline`
     // snapshot. The assertion here is POSITIONAL, not merely existential: every worker
     // event must land before the turn's terminal status, because "after the turn" is
-    // precisely the behaviour that was wrong.
+    // precisely the behavior that was wrong.
     let stream = write_worker_stream(
         "during",
         &[
@@ -970,7 +970,7 @@ fn a_delegation_reaches_the_webview_during_the_turn_not_after_it() {
     assert!(
         first_worker < last_status,
         "the worker rows arrived at or after the turn's terminal status — that is the \
-         snapshot-only behaviour this slice exists to remove: {names:?}"
+         snapshot-only behavior this slice exists to remove: {names:?}"
     );
 
     let workers = live.of("rich://worker-upserted");

@@ -2,7 +2,7 @@
  * RichOS extension — service worker (shell).
  *
  * The shell owns nothing but wiring: it registers modules, routes messages and boots.
- * All capture behaviour lives in `modules/call-capture/`; the next module
+ * All capture behavior lives in `modules/call-capture/`; the next module
  * (`modules/chatgpt-export/`) registers the same way and reuses core settings/output/alerts.
  *
  * MV3 note: every listener below is registered in the first turn of worker evaluation, so an

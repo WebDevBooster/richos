@@ -11,7 +11,7 @@ outside Downloads, and watch the browser from outside it:
 
 1. **Native-messaging host** — Chrome hands audio/health/caption/heartbeat/lifecycle messages to the
    local service over stdio; the host writes the contract directory **directly into the loro drop
-   zone** and triggers the pipeline. Outside-the-browser watchdog + EOF finalisation included.
+   zone** and triggers the pipeline. Outside-the-browser watchdog + EOF finalization included.
 2. **Drop-zone watcher + reconcile guard** — detects finished sessions and runs the pipeline; a
    captured session that yields no transcript is a **loud anomaly, never silent** (reuses the
    extension's `sync/reconcile.js` verbatim, plus a transcript-SLA and silent-capture guard).
@@ -227,7 +227,7 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
   - `quantized` — quantized turbo (`large-v3-turbo-q5_0`, ~574 MB vs 1.6 GB; build once with
     `whisper-quantize`) for low-resource Apple Silicon.
 - **Hallucination guard (`lib/repetition-guard.js`, pipeline stage 3.5), model-agnostic:** the
-  post-decode half of the hallucination defence, over **four measured decode-failure classes**, each
+  post-decode half of the hallucination defense, over **four measured decode-failure classes**, each
   with a fixture built from the real captured artifact (`test/fixtures/captured-hallucinations.js`,
   sha256 of every source JSON baked in). Findings are recorded in
   `session.json.pipeline.repetitionGuard` + `verification.json`.

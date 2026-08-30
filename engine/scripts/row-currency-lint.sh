@@ -44,7 +44,7 @@ while [ "$#" -gt 0 ]; do
         --message-file) MSG_FILE="${2:-}"; shift 2 ;;
         --explain)      EXPLAIN=1; shift ;;
         -h|--help)      sed -n '2,30p' "$0"; exit 0 ;;
-        -*)             echo "ERROR: row-currency-lint.sh: unrecognised argument '$1'" >&2; exit 2 ;;
+        -*)             echo "ERROR: row-currency-lint.sh: unrecognized argument '$1'" >&2; exit 2 ;;
         *)              [ -n "$REPO" ] && { echo "ERROR: row-currency-lint.sh: more than one repository given" >&2; exit 2; }
                         REPO="$1"; shift ;;
     esac
@@ -54,7 +54,7 @@ done
 
 rc_require_ceo_todos_lib || { rc_broken_banner "row-currency-lint.sh" "$RC_BROKEN_REASON" >&2; exit 2; }
 
-# The root AS GIVEN — never normalised to the main checkout. Run by hand inside
+# The root AS GIVEN — never normalized to the main checkout. Run by hand inside
 # a worktree, the answer must be about the tree you are standing in; the guard
 # is the thing that insists on a main checkout, and it does that separately.
 ROOT="$(ct_repo_root "$REPO")" || { echo "ERROR: row-currency-lint.sh: $REPO is not inside a repository" >&2; exit 2; }

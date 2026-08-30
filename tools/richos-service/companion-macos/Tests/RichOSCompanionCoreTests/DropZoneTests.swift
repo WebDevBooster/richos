@@ -74,7 +74,7 @@ final class DropZoneTests: XCTestCase {
             try DropZone.resolve(explicit: repo, env: [:], home: home, productRepo: repo))
     }
 
-    /// `..` must not walk back in unnoticed — the check is lexical, so it has to normalise first.
+    /// `..` must not walk back in unnoticed — the check is lexical, so it has to normalize first.
     func testRefusesAZoneThatReachesBackIntoTheRepoViaDotDot() {
         XCTAssertThrowsError(
             try DropZone.resolve(

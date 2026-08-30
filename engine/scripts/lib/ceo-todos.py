@@ -95,7 +95,7 @@ import sys
 # --- Grammar ---------------------------------------------------------------
 # Deliberately narrow. A heading in a CEO section that does not match is a
 # VIOLATION, not a skip: the way this mechanism dies is by someone writing an
-# item in a shape the parser does not recognise and the lint reporting CLEAN
+# item in a shape the parser does not recognize and the lint reporting CLEAN
 # over it. There is no shape that is silently not-an-item.
 
 SECTION_RE = re.compile(r"^##\s+(?P<num>\d+)\.\s+(?P<title>.*)$")
@@ -422,7 +422,7 @@ def front_door_fingerprint(view_name, rendered, readme_text):
         describes a door that is no longer there;
       * the view's NAVIGATIONAL SHAPE — everything before the first item, plus
         the section headings. The counts, the total, the explanation of what
-        the page is and how it is organised: exactly the material a cold reader
+        the page is and how it is organized: exactly the material a cold reader
         uses to answer "what am I supposed to do, where do I start, how long";
       * the head of the repo-root README — the front door itself.
 

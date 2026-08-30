@@ -3,7 +3,7 @@
 //!
 //! This is a TEST rather than a one-off script on purpose. A precision number quoted in a
 //! brief is a claim about a build that has since changed; a precision number asserted here
-//! fails the suite the moment the detector's behaviour moves, and whoever moved it has to
+//! fails the suite the moment the detector's behavior moves, and whoever moved it has to
 //! re-measure and re-state it. The confusion matrix is pinned exactly — not `>= some
 //! floor` — because a floor lets recall be traded away silently.
 //!

@@ -10,7 +10,7 @@
 //! |---|---|---|
 //! | **utterance** | *says* a word was wrong — *"It's Kestrel, not Kestral"* | [`crate::spoken`] |
 //! | **belief** | *says* a record is wrong — *"the Q3 number was 1.4, not 1.2"* | [`crate::belief`] |
-//! | **diff** (here) | **says nothing.** He dictated, the recogniser mis-heard, and he fixed it before pressing send | this module |
+//! | **diff** (here) | **says nothing.** He dictated, the recognizer mis-heard, and he fixed it before pressing send | this module |
 //!
 //! The first two are stated. This one is not: the evidence is an edit he made for his own
 //! reasons and never volunteered. That is what makes it the highest-quality correction
@@ -41,7 +41,7 @@
 //! # Two things the shipped JavaScript gets wrong for this trigger, both measured
 //!
 //! **1. It diffs against the wrong side of the journal.** A journal record carries `text`
-//! (what the recogniser produced) AND `emitted` (what was actually pasted, after the shared
+//! (what the recognizer produced) AND `emitted` (what was actually pasted, after the shared
 //! vocabulary corrected it on the way out — `dictation-flywheel.patch`, "Keeping BOTH is
 //! the whole point"). `reviewSent` uses `text`. But `emitted` is what was in the composer
 //! and therefore what he edited; diffing `text` re-proposes the pair the vocabulary
@@ -65,7 +65,7 @@
 //! 2. **Something was SUBSTITUTED** — [`token_replace_hunks`], the same LCS reduction
 //!    `capture.js` uses, ported. A pure insertion or a pure deletion is never a hunk, which
 //!    is how most trims and afterthoughts stay silent without a rule of their own.
-//!    **Most, not all:** a trim that reaches the end of a sentence turns the neighbouring
+//!    **Most, not all:** a trim that reaches the end of a sentence turns the neighboring
 //!    token into a substitution against its own punctuated form (*"…to Marla today
 //!    please."* -> *"…to Marla."* is one hunk, not three deletions), so condition 3 is what
 //!    actually silences three of the corpus's ten trims. Stated here because "insert and
@@ -129,7 +129,7 @@
 //! all 156 sends against every OTHER row's dictation — 24,058 wrong answers available — the
 //! pairing floor cuts the sends that claim a foreign dictation from **156 to 52**, and cuts
 //! the QUESTIONS from 15 to 15: every one of those fifteen is a *correct* vocabulary pair
-//! found against a genuinely similar earlier dictation, which is the behaviour we want. So
+//! found against a genuinely similar earlier dictation, which is the behavior we want. So
 //! [`MATCH_MIN_SIMILARITY`]'s keep rests on the first number and on doctrine — this trigger
 //! is about a dictation he corrected, and a diff against an unrelated sentence is not one —
 //! not on the second, and saying so here is what stops the second being claimed for it.
@@ -154,7 +154,7 @@
 //! - **It does not widen dictation retention.** It READS the journal
 //!   (`dictation-store.js`: text 14 days, audio off by default) and writes nothing back to
 //!   it. Row 3.4's posture is unchanged by this module's existence.
-//! - **It does not bias the recogniser.** Prompt biasing was measured and rejected
+//! - **It does not bias the recognizer.** Prompt biasing was measured and rejected
 //!   (inert at `-mc 0`; in dictation it invented a third spelling), and nothing here
 //!   revisits that.
 //! - **It does not detect an edit that REPLACES a whole sentence.** A rewrite scores below
@@ -180,7 +180,7 @@ pub struct DictationEntry {
     pub id: String,
     /// Milliseconds since the epoch — the same clock `crate::util::now_millis` reports.
     pub at: u64,
-    /// What the RECOGNISER produced, before the shared vocabulary touched it.
+    /// What the RECOGNIZER produced, before the shared vocabulary touched it.
     pub text: String,
     /// What was actually PASTED into the field. Differs from `text` exactly when the shared
     /// vocabulary corrected a name on the way out. Absent on an older record.
@@ -195,7 +195,7 @@ pub struct DictationEntry {
 /// **The side of the journal a diff must be taken against: what was PASTED.**
 ///
 /// `emitted` is what the CEO saw in his composer and therefore what he edited. `text` is
-/// the recogniser's raw output, which the shared vocabulary may already have corrected on
+/// the recognizer's raw output, which the shared vocabulary may already have corrected on
 /// the way to the field — and diffing against THAT asks him to confirm a pair the
 /// vocabulary already holds, at a moment when he changed nothing. The shipped
 /// `reviewSent` uses `text`; this is a deliberate divergence and
@@ -359,7 +359,7 @@ struct Op {
 /// yields the whole NAME rather than the dangerous lone delta — and the expansion **stops
 /// at a sentence boundary**, or it absorbs a word that is capitalized by grammar.
 ///
-/// Byte-for-byte the behaviour of `capture.js`'s `tokenReplaceHunks`;
+/// Byte-for-byte the behavior of `capture.js`'s `tokenReplaceHunks`;
 /// `tests/heard_gate_agreement.rs` holds it to the shipped JavaScript's own answers.
 pub fn token_replace_hunks(a: &[&str], b: &[&str]) -> Vec<Hunk> {
     let (n, m) = (a.len(), b.len());
@@ -583,7 +583,7 @@ impl HeardReview {
 /// **heard + sent -> what to ask.** The whole path, minus disk.
 ///
 /// Pure: `now` is passed in. Returns no asks whatsoever when the sent text is not
-/// recognisably a corrected dictation.
+/// recognizably a corrected dictation.
 pub fn review(journal: &[DictationEntry], sent: &str, now: u64) -> HeardReview {
     review_with(journal, sent, now, MATCH_WINDOW_MS, MATCH_MIN_SIMILARITY)
 }
@@ -844,7 +844,7 @@ mod tests {
         assert!(r.is_silent());
     }
 
-    /// INVARIANT: the diff is taken against what was PASTED, not against the recogniser's
+    /// INVARIANT: the diff is taken against what was PASTED, not against the recognizer's
     /// raw output. Otherwise a pair the vocabulary already fixed is asked about again.
     #[test]
     fn the_diff_is_taken_against_what_was_pasted() {

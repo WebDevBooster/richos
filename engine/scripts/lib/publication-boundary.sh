@@ -236,7 +236,7 @@ pb_repo_root() {
         d="$(dirname "$d")"
     done
     [ -d "$d" ] || return 1
-    # Physicalised, so this answer and any path compared against it agree.
+    # Physicalized, so this answer and any path compared against it agree.
     local top
     top="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" || return 1
     [ -n "$top" ] || return 1
@@ -463,7 +463,7 @@ pb_allowlisted() {
     local root="${1:-}" p="${2:-}" rel entry
     [ -n "$root" ] && [ -n "$p" ] || return 1
     [ -n "$PB_ALLOWLIST" ] || return 1
-    # Both sides physicalised before the prefix test — see pb_physical for the
+    # Both sides physicalized before the prefix test — see pb_physical for the
     # symlinked-/var incident this exists to stop repeating.
     root="$(pb_physical "$root")"
     p="$(pb_physical "$p")"
@@ -565,7 +565,7 @@ pb_broken_banner() {
     echo "  reason : $reason"
     echo "  This guard decides whether private material may enter a repository that"
     echo "  gets published. It cannot answer that from a declaration it does not"
-    echo "  understand, and it will not carry on quietly — a defence that reports"
+    echo "  understand, and it will not carry on quietly — a defense that reports"
     echo "  'on' while protecting nothing is worse than none."
     echo "======================================================================="
 }

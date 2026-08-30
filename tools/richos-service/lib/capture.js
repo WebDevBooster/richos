@@ -5,7 +5,7 @@
  * loro-correction stage (lib/correct.js) uses to fix names/terms a generic ASR mangles. This module
  * is the OTHER direction of the flywheel: corrections the CEO makes inside our OWN artifacts are
  * folded back INTO that vocabulary, so both dictation and call transcription get more accurate over
- * time — Wispr-Flow's learn-from-corrections behaviour, but LOCAL and SHARED (one file, both flows).
+ * time — Wispr-Flow's learn-from-corrections behavior, but LOCAL and SHARED (one file, both flows).
  *
  * Two intake paths, split by difficulty (the loro architecture notes, §"The correction flywheel"):
  *

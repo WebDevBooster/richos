@@ -44,7 +44,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/guard-publication-writes.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 2
@@ -124,7 +124,7 @@ case "$FILE_PATH" in
 esac
 
 # --- SCOPE: which repository, and is this path publication-bound? -----------
-# Physicalised once, here, so every later comparison (repo containment, the
+# Physicalized once, here, so every later comparison (repo containment, the
 # ALLOWLIST prefix test, check-ignore) is asking about the same path. See
 # pb_physical for the /var-vs-/private/var failure this prevents.
 FILE_PATH="$(pb_physical "$FILE_PATH")"

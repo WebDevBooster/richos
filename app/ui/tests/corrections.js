@@ -112,7 +112,7 @@ async function settledShot(page, name, dir) {
   fs.mkdirSync(into, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
   fs.copyFileSync(s.file, path.join(into, name + ".png"));
-  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colours)";
+  return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
 }
 
 /// The verbatim body of a `const NAME: &str = "…";` in main.rs. The parser moved to
@@ -331,7 +331,7 @@ async function main() {
     const reason = await page.textContent("#desk-loro-broke-reason");
     assertEqual(reason, "the correction desk is busy — try that again", "the backend's words, verbatim");
     // The control that changes it, in the same view — the affordance rule, checked here on
-    // the behaviour rather than only on the registry's selector.
+    // the behavior rather than only on the registry's selector.
     const retry = await page.$("#desk-loro-broke .desk-btn");
     assert(retry !== null, "a transient failure must render its retry");
     // Photographed in the FAILED state, before the retry — a shot of the recovered desk
@@ -665,7 +665,7 @@ async function main() {
     const labels = await page2.$$eval(card + ".desk-label", (n) => n.map((x) => x.textContent));
     assertEqual(labels, ["I heard:", "You sent:"], "the silent-edit card must not claim he said anything");
     const quotes = await page2.$$eval(card + ".desk-card-quote", (n) => n.map((x) => x.textContent));
-    assertEqual(quotes[0], filed.ask.anchor, "the first quote must be what the recogniser heard");
+    assertEqual(quotes[0], filed.ask.anchor, "the first quote must be what the recognizer heard");
     assertEqual(quotes[1], filed.utterance, "the second must be what he actually sent");
     assertEqual(
       await page2.textContent(card + ".desk-card-pair"),
@@ -766,7 +766,7 @@ main().catch((e) => {
 //        -> the silent edit renders under "Because you said:" over a sentence he never
 //           uttered, and the heard side disappears entirely
 // 15   main.js `renderCandidateCard`: swap the two quote lines (sent first, heard second)
-//        -> the card reads as if the recogniser corrected HIM
+//        -> the card reads as if the recognizer corrected HIM
 // 15   main.js `renderCandidateCard`: drop the `!silentEdit &&` from the anchor line
 //        -> the heard sentence is rendered twice, once as evidence and once as grey noise
 // 15   heard.rs `detect`: `frame: Frame::Contrast`

@@ -37,5 +37,5 @@ and it inherits, without duplicating any of it:
   `manifest.json` under `content_scripts` — the shell manifest is shared by all modules.
 - Its download logic must move to `core/output.js` so there is still exactly one place that
   writes bytes out of the browser.
-- Keep its deliberate slow-download pacing; that behaviour is a feature, not a defect.
+- Keep its deliberate slow-download pacing; that behavior is a feature, not a defect.
 - Bump the extension `version` in `manifest.json` in the same commit as the port.

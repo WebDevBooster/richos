@@ -270,9 +270,9 @@ pub enum RichMessagePhase {
 /// 34 of the 58 tool events measured on 2026-08-28
 /// (`docs/verification/acp-emission-probe-2026-08-28.md`, and `machinery.rs`'s deviation
 /// 3) carried NO `status` field at all, and `in_progress` never appeared once. A record
-/// whose merged status is absent, or is a vendor status we do not recognise, has an
+/// whose merged status is absent, or is a vendor status we do not recognize, has an
 /// unknown state — it is not "completed", and `ToolStatus::is_terminal` already refuses to
-/// call an unrecognised status terminal. §22 lists completion state under "must not be
+/// call an unrecognized status terminal. §22 lists completion state under "must not be
 /// faked".
 ///
 /// `Stopped` has no source: nothing in this runtime can stop a tool call on the CEO's
@@ -889,7 +889,7 @@ impl Timeline {
         machinery: &[MachineryRecord],
     ) -> Result<Timeline, LedgerError> {
         // No worker stream supplied: every `Task` call stays an ordinary `Activity`, which
-        // is exactly slice 2a's behaviour. The honest degrade when the engine's lifecycle
+        // is exactly slice 2a's behavior. The honest degrade when the engine's lifecycle
         // hooks are not registered (they are snapshotted at session start, so a freshly
         // installed emitter produces its first row only in the NEXT session).
         //
@@ -1010,7 +1010,7 @@ impl Timeline {
             let internal_turn = turn.source == Source::Internal || turn.superseded_by.is_some();
             // A `Task` call joined BY IDENTITY to the lifecycle stream becomes a worker
             // row. No id, or an id with no in-session rows, falls through to the ordinary
-            // activity row — the pre-signal behaviour, unchanged.
+            // activity row — the pre-signal behavior, unchanged.
             let delegated = row.tool_call_id.as_ref().and_then(|id| agent_ids.get(id));
             let joined =
                 delegated.and_then(|agent_id| worker_activity(agent_id, &row.session_id, worker_events));
@@ -1403,7 +1403,7 @@ fn activity_state_of(row: &MachineryRecord) -> ActivityState {
             Some(ToolStatus::InProgress) => ActivityState::Running,
             Some(ToolStatus::Completed) => ActivityState::Completed,
             Some(ToolStatus::Failed) => ActivityState::Failed,
-            // An unrecognised vendor status is not a claim that the work finished
+            // An unrecognized vendor status is not a claim that the work finished
             // (`ToolStatus::is_terminal` says the same thing one level down)...
             Some(ToolStatus::Other(_)) => ActivityState::Unknown,
             // ...and 34 of 58 measured tool events carried no status at all.
@@ -1442,7 +1442,7 @@ fn activity_type_of(row: &MachineryRecord, types: &HashMap<String, ActivityType>
 /// A CEO-safe semantic line (§5.3's vocabulary), built from the TYPE alone.
 ///
 /// Never the command, never the output, never a vendor string — those are technical-mode
-/// content and live in [`ActivityDetail`]. Counting and pluralisation (*"Read 8 files"*)
+/// content and live in [`ActivityDetail`]. Counting and pluralization (*"Read 8 files"*)
 /// is the renderer's rollup over these rows; a single row says what a single row did.
 fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> String {
     let files = row.locations.len();
@@ -1461,7 +1461,7 @@ fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> Strin
         // WHAT ACTUALLY HAPPENED: a tool asked, the client answered by itself, nobody
         // decided. Every word is checked against that.
         //
-        // "Answered" states what RichOS did and is not an authorisation verb — unlike
+        // "Answered" states what RichOS did and is not an authorization verb — unlike
         // "Approved"/"Allowed"/"Granted", each of which names a governance act and implies
         // an actor entitled to perform it. "a permission prompt" is the protocol's own
         // noun (`session/request_permission`), correct in a technical row and free of the
@@ -1472,7 +1472,7 @@ fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> Strin
         // reports its own outcome in its own row, and this one must not pre-empt it.
         // Rejected: "Requested approval" (the request was answered, not left open, and
         // "approval" names a decision nobody took); "Approved a tool automatically"
-        // (Frank's option 2 — factual, but "Approved" still asserts an authorisation);
+        // (Frank's option 2 — factual, but "Approved" still asserts an authorization);
         // "Auto-approved" (same objection, compressed); "Skipped a permission check"
         // (false — the check ran and was answered).
         //
@@ -1667,7 +1667,7 @@ pub(crate) fn extract_agent_id(payload: &Value) -> Option<String> {
 }
 
 /// Classify one raw ACP tool payload. The vendor's real tool name first (it is specific),
-/// then the coarse ACP `kind`. Anything unrecognised returns `None` rather than a guess,
+/// then the coarse ACP `kind`. Anything unrecognized returns `None` rather than a guess,
 /// and `None` becomes `Other`.
 pub(crate) fn classify(payload: &Value) -> Option<ActivityType> {
     if let Some(name) =
@@ -1904,7 +1904,7 @@ mod tests {
         // The measured majority: a tool_call_update with no status field at all.
         let r = record(0, json!({"toolCallId":"t","sessionUpdate":"tool_call_update","title":"x"}));
         assert_eq!(activity_state_of(&r), ActivityState::Unknown);
-        // An unrecognised vendor status is not completion either.
+        // An unrecognized vendor status is not completion either.
         let r = record(0, json!({"toolCallId":"t","sessionUpdate":"tool_call_update","status":"quiesced"}));
         assert_eq!(activity_state_of(&r), ActivityState::Unknown);
         for (wire, want) in [
@@ -1950,7 +1950,7 @@ mod tests {
         // lifecycle signal existed. The signal landed at d14bc54, so the invariant is now
         // sharper and conditional: a Task call becomes a worker row when, and only when, it
         // can be joined BY IDENTITY to that stream. This half pins the unjoinable case,
-        // which is byte-for-byte the old behaviour.
+        // which is byte-for-byte the old behavior.
         let r = record(
             0,
             json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T","sessionUpdate":"tool_call",

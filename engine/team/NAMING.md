@@ -20,7 +20,7 @@ Every teammate name MUST be:
 - **Easy to say and easy to type** — no awkward clusters, no homophone traps, no names a
   human stumbles over when talking to the orchestrator about the team.
 - **Distinct first letters across the roster, as much as possible** — so a name can be
-  recognised from its initial and two teammates rarely collide on a glance. This is a strong
+  recognized from its initial and two teammates rarely collide on a glance. This is a strong
   preference, not a hard uniqueness rule. Where a collision is genuinely unavoidable, it
   carries an obligation: the colliding names must then be **very distinct from each other
   overall** — unmistakable in full even though they share an initial. The standard roster

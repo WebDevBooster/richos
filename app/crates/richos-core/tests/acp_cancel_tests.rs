@@ -22,7 +22,7 @@ use std::path::PathBuf;
 /// A fake ACP adapter in POSIX sh. `comply=true` answers `session/cancel`; `false` ignores
 /// it, which is the whole point of the second test.
 ///
-/// The `case` patterns match the exact bytes `AcpClient` writes: `serde_json` serialises a
+/// The `case` patterns match the exact bytes `AcpClient` writes: `serde_json` serializes a
 /// `json!` object through a `BTreeMap`, so keys come out alphabetically and
 /// `"method":"session/cancel"` is a stable substring rather than a hopeful one.
 fn fake_adapter(tag: &str, comply: bool) -> PathBuf {

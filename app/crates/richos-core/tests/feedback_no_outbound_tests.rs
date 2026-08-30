@@ -24,7 +24,7 @@
 //!    else that already talks to a subprocess, so there is no existing pipe for a report
 //!    to be handed to.
 //!
-//! And one behavioural claim: recording an approval touches exactly one file and leaves
+//! And one behavioral claim: recording an approval touches exactly one file and leaves
 //! no second artefact — no spool, no marker, no "unsent" shard that a later version could
 //! find and flush.
 
@@ -198,7 +198,7 @@ fn no_other_module_in_the_crate_consumes_the_feedback_feature() {
 
 #[test]
 fn an_approved_report_lands_in_one_local_file_and_leaves_nothing_else_behind() {
-    // The behavioural half. Whatever the source says, this watches the filesystem: one
+    // The behavioral half. Whatever the source says, this watches the filesystem: one
     // file, containing the payload, with no sibling for anything to pick up later.
     let dir = std::env::temp_dir().join(format!(
         "richos-feedback-outbound-{}-{}",

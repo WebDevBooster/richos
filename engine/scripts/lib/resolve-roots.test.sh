@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# resolve-roots.test.sh — behavioural tests for the root-resolution contract
+# resolve-roots.test.sh — behavioral tests for the root-resolution contract
 # (scripts/lib/resolve-roots.sh).
 #
 # THE PROPERTY UNDER TEST, in one sentence: when the engine's code lives in
@@ -135,7 +135,7 @@ else
 fi
 
 # 1c POSITIVE CONTROL for 1b — prove the assertion in 1b can fail. Simulate the
-# old behaviour by DECLARING the engine's enclosing repo as the root, and
+# old behavior by DECLARING the engine's enclosing repo as the root, and
 # confirm the contract reports it BROKEN rather than either accepting it or
 # quietly substituting the (perfectly valid) session repo that is also on the
 # candidate list. An explicit declaration is exclusive: honour it or fail. If
@@ -191,7 +191,7 @@ else
 fi
 
 # ===========================================================================
-# 3. Linked worktrees normalise to the MAIN checkout.
+# 3. Linked worktrees normalize to the MAIN checkout.
 # A guard invoked from inside an agent worktree must still write state to, and
 # read config from, the ONE shared checkout.
 # ===========================================================================
@@ -199,9 +199,9 @@ WT="$SESSREPO/.claude/worktrees/agent-deadbeef"
 git -C "$SESSREPO" worktree add -q -b wt-test "$WT" main >/dev/null 2>&1
 R="$(CLAUDE_PROJECT_DIR="$WT" probe "$ELIB" '')"
 if [ "$(f_root "$R")" = "$SESSREPO" ]; then
-    ok "3a POSITIVE  a linked worktree normalises to its main checkout"
+    ok "3a POSITIVE  a linked worktree normalizes to its main checkout"
 else
-    bad "3a worktree normalisation (got $(f_root "$R"), wanted $SESSREPO)"
+    bad "3a worktree normalization (got $(f_root "$R"), wanted $SESSREPO)"
 fi
 # 3b NEGATIVE — and specifically NOT the worktree path itself, which is what a
 # naive $PWD-based resolver would return.
@@ -213,10 +213,10 @@ fi
 
 # ===========================================================================
 # 3bis. NESTING. A candidate that is a SUBDIRECTORY of a repository stands for
-# ITSELF; a candidate that is the TOP LEVEL of a working tree normalises.
+# ITSELF; a candidate that is the TOP LEVEL of a working tree normalizes.
 #
 # Getting this backwards is not a theoretical risk — the first version of this
-# resolver normalised unconditionally, which turned `<repo>/engine` into
+# resolver normalized unconditionally, which turned `<repo>/engine` into
 # `<repo>`, threw the nesting away, and made every hook refuse to start with
 # "no orchestration.config at its main checkout". The two shapes look identical
 # ("a path inside a git repo") and behave oppositely, so both are pinned here.

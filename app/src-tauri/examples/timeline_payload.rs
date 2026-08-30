@@ -94,7 +94,7 @@ impl Cognition for ScriptedLease {
 
 /// `status` is OPTIONAL here on purpose. Corrected by running this example rather than
 /// reasoning about it: with `status: "pending"` on the opening event the merge keeps that
-/// value and the row projects as `queued` — correct behaviour, but it means a fixture that
+/// value and the row projects as `queued` — correct behavior, but it means a fixture that
 /// always sends one never reproduces the measured status-less case at all. 34 of the 58
 /// tool events on 2026-08-28 carried no `status` on ANY of their updates.
 fn tool_open(id: &str, tool: &str, title: &str, kind: &str, status: Option<&str>) -> serde_json::Value {

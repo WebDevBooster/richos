@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # guard-unresolved-claims.sh — BLOCKING Stop hook. The first enforcement point
-# in this engine that observes the ORCHESTRATOR'S BEHAVIOUR rather than the
+# in this engine that observes the ORCHESTRATOR'S BEHAVIOR rather than the
 # repository's state.
 #
 # WHY A Stop HOOK, AND WHAT WAS VERIFIED BEFORE BUILDING ON IT
@@ -61,7 +61,7 @@
 #   and shown to the operator NOWHERE. So this guard could be switched off and
 #   the operator's only evidence that it was protecting him was that it was
 #   quiet — which is also exactly what being disabled looks like. Its own
-#   header called that "a defence that decays into a rumour" and then built
+#   header called that "a defense that decays into a rumour" and then built
 #   one. The notices now go through scripts/lib/stop-hook-notice.sh, on the one
 #   channel proven to reach him. engine-status.sh announces BROKEN at session
 #   start as well, but it speaks once, at startup, about a different question.
@@ -102,7 +102,7 @@ if [ ! -f "$_RR_LIB" ]; then
         echo "  hook: scripts/hooks/guard-unresolved-claims.sh"
         echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
         echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
-        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  It will not guess, and it will not carry on quietly — a defense"
         echo "  that reports 'on' while protecting nothing is worse than none."
     } >&2
     exit 0
@@ -163,7 +163,7 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 stop_notice_init "guard-unresolved-claims.sh" "$ENTITY_ROOT" "$INPUT"
 
 if [ "$CHECK_UNRESOLVED_CLAIMS" = "0" ]; then
-    # Never a silent permission: an opt-out that cannot be seen is a defence
+    # Never a silent permission: an opt-out that cannot be seen is a defense
     # that decays into a rumour. This line used to write that sentence to
     # STDERR, which the operator cannot see — the guard could be switched off
     # and his only evidence it was protecting him was that it was quiet, which

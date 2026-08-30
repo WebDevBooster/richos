@@ -33,7 +33,7 @@ const PROMPT = process.env.PROBE_PROMPT || [
   '2. Grep for the string "sessionUpdate" under /Users/alex/ab/richos/app and tell me how many matches you find.',
   "3. Run the shell command: echo hello-from-acp-probe && uname -s",
   `4. Write exactly the single line probe-write-ok to the file ${WRITE_TARGET} (this path is outside every repo; overwriting it is fine).`,
-  "5. Finish with one short sentence summarising what you found.",
+  "5. Finish with one short sentence summarizing what you found.",
 ].join("\n");
 
 const bin = path.resolve(__dirname, "node_modules/.bin/claude-agent-acp");

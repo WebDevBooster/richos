@@ -93,7 +93,7 @@ async function applyCoreSideEffects() {
  * Chrome requires the extension to have been *invoked* for a tab (toolbar click, keyboard
  * shortcut, context menu) before it hands over that tab's audio. That is a browser security
  * boundary and we do not attempt to work around it — we make forgetting impossible instead:
- * a recognised call tab that is not being captured is alarmed within seconds.
+ * a recognized call tab that is not being captured is alarmed within seconds.
  *
  * @param {number} tabId
  * @returns {Promise<{ok: boolean, streamId?: string, needsInvocation?: boolean, error?: string}>}
@@ -109,7 +109,7 @@ async function mintStreamId(tabId) {
 }
 
 /**
- * Serialise all arm attempts. Captions can arrive faster than a session can be created, and each
+ * Serialize all arm attempts. Captions can arrive faster than a session can be created, and each
  * one may trigger an auto-start; without this, two concurrent starts would race and double-build
  * the recorder. Every entry point (scan, popup, shortcut, caption) goes through this chain.
  * @type {Promise<any>}
@@ -580,7 +580,7 @@ function streamChunkToHost(sessionId, seq, part) {
 /**
  * The local service became unreachable mid-call. Flip to the Downloads path so capture continues
  * with NO lost audio (every chunk is already durable in IndexedDB; the full session is exported to
- * Downloads at finalise). Write session.json to Downloads now, since native mode had not.
+ * Downloads at finalize). Write session.json to Downloads now, since native mode had not.
  * @param {string} reason
  */
 async function demoteToDownloads(reason) {
@@ -834,7 +834,7 @@ async function recreateOffscreenAndRestart() {
   }
 }
 
-/** Alarm when a recognised call tab is open and NOT being captured. */
+/** Alarm when a recognized call tab is open and NOT being captured. */
 async function watchUnarmedCallTabs() {
   const settings = await getModuleSettings(MODULE_ID);
   if (!settings.enabled) return;
@@ -911,7 +911,7 @@ async function scanTabs() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Finalisation + export
+// Finalization + export
 // ---------------------------------------------------------------------------------------
 
 /**
@@ -927,11 +927,11 @@ export async function finalize(reason) {
   try {
     return await runFinalize(record, reason);
   } catch (err) {
-    // Finalisation must never wedge: a half-finished close would leave the badge stuck and
+    // Finalization must never wedge: a half-finished close would leave the badge stuck and
     // the next call unable to arm. Alarm loudly and clear the state either way — the audio
     // itself is still in IndexedDB and gets exported by orphan recovery on the next boot.
     const detail = String((err && err.stack) || err);
-    record.notes.push(`finalisation failed: ${detail}`);
+    record.notes.push(`finalization failed: ${detail}`);
     await raiseAlert({
       code: 'finalise-failed',
       level: 'red',
@@ -948,10 +948,10 @@ export async function finalize(reason) {
 }
 
 /**
- * Dispatch finalisation to the transport that captured this session. Native-messaging sessions are
- * closed over the wire (the host finalises the contract dir + runs the pipeline); Downloads sessions
+ * Dispatch finalization to the transport that captured this session. Native-messaging sessions are
+ * closed over the wire (the host finalizes the contract dir + runs the pipeline); Downloads sessions
  * assemble from IndexedDB as before. A native session that degraded mid-call already flipped
- * `active.sink` to `downloads`, so it finalises the Downloads way from the same durable chunks.
+ * `active.sink` to `downloads`, so it finalizes the Downloads way from the same durable chunks.
  * @param {any} record
  * @param {string} reason
  */
@@ -1047,7 +1047,7 @@ async function runFinalizeDownloads(record, reason) {
   if (stopped?.micOnlyFailover) record.notes.push('finished in microphone-only failover');
 
   // exportSession returns the audio accounting itself — reading `.audio` off it threw
-  // mid-finalise and left the session `open` on disk (caught by the live harness).
+  // mid-finalize and left the session `open` on disk (caught by the live harness).
   record.audio = await exportSession(record);
   // The secondary caption channel is written on its own durable file, and its count comes from
   // the same records — captions never inflate or vanish relative to what is on disk.
@@ -1073,7 +1073,7 @@ async function runFinalizeDownloads(record, reason) {
     try {
       await deleteBySession(DB.stores.captions, record.sessionId);
     } catch {
-      /* leaving caption rows behind is harmless; never let cleanup break finalisation */
+      /* leaving caption rows behind is harmless; never let cleanup break finalization */
     }
   }
 
@@ -1149,7 +1149,7 @@ async function exportCaptions(record) {
   try {
     rows = await getAll(DB.stores.captions, 'bySession', IDBKeyRange.only(record.sessionId));
   } catch (err) {
-    record.notes.push(`caption read failed at finalise: ${String((err && err.message) || err)}`);
+    record.notes.push(`caption read failed at finalize: ${String((err && err.message) || err)}`);
     return 0;
   }
   rows.sort((a, b) => a.seq - b.seq);
@@ -1190,7 +1190,7 @@ async function dropRoot() {
 }
 
 /**
- * Write `session.json`. Called at START (status `open`) and again at finalisation.
+ * Write `session.json`. Called at START (status `open`) and again at finalization.
  * @param {any} record
  * @param {{overwrite?: boolean}} [opts]
  */
@@ -1239,7 +1239,7 @@ async function persistActive() {
       audioActive: active.audioActive,
       captions: active.captions,
       // Informational only: a restarted worker cannot restore a native port, so recovery always
-      // finalises via the Downloads fallback from the durable IndexedDB chunks.
+      // finalizes via the Downloads fallback from the durable IndexedDB chunks.
       sink: active.sink,
       savedAt: Date.now(),
     },
@@ -1361,7 +1361,7 @@ async function recoverOrphans() {
   }
 
   // Captions-only orphans: caption rows with no chunks and no live session — a call that
-  // produced captions but never any audio (never armed, or browser died before finalise). These
+  // produced captions but never any audio (never armed, or browser died before finalize). These
   // must NOT be silently lost; recover them as flagged captions-only sessions.
   await recoverCaptionOnlyOrphans(new Set([...ids, busySessionId, active?.record.sessionId].filter(Boolean)));
 

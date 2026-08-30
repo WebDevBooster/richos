@@ -293,7 +293,7 @@ fn an_explicit_override_outranks_the_derivation_and_does_not_fall_back() {
 
 #[test]
 fn the_source_carries_no_mtime_selection_primitive() {
-    // The behavioural tests above catch a restored fallback by its OUTPUT. This catches it
+    // The behavioral tests above catch a restored fallback by its OUTPUT. This catches it
     // by its INGREDIENTS, one step earlier, and it is the cheap half of Frank's F3 point:
     // an invariant held by a comment is not held.
     //

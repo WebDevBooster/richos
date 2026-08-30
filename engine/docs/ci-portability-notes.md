@@ -79,7 +79,7 @@ does not create one.**
 
 With none, `git commit` inside a fixture exits 128, the fixture never gets a
 branch, and the failures surface far from their cause: `resolve-roots.test.sh`
-reported a worktree-normalisation mismatch, `session-start-reap-worktrees.test.sh`
+reported a worktree-normalization mismatch, `session-start-reap-worktrees.test.sh`
 reported `reaped=0 skipped=1`, and `by-reference.test.sh` and
 `contract-integrity.test.sh` simply exited 128 having printed every case as PASS.
 
@@ -89,7 +89,7 @@ downgraded to:
 ```
 ⚠ Q. FUNCTIONAL CANARY DID NOT RUN — the throwaway git sandbox could not be
      built, so nothing here proves the reaper actually reaps a clean tree or
-     refuses a dirty one. Wiring and hashes are verified; BEHAVIOUR IS NOT.
+     refuses a dirty one. Wiring and hashes are verified; BEHAVIOR IS NOT.
 ```
 
 Honest, self-naming, and still exactly the shape of defect this repository spent
@@ -107,8 +107,8 @@ in the fixtures would contradict the documented reason they inherit one.
 - `pgrep -f` — present and behaves the same. (`procps` is installed on
   `ubuntu-latest`; the reaper already guards with `command -v pgrep` regardless.)
 - `timeout` — absent on stock macOS, present on Linux. The engine never calls it.
-- The `/var` -> `/private/var` symlink physicalisation is a macOS-only hazard;
-  the `pwd -P` normalisation that exists for it is harmless on Linux, where
+- The `/var` -> `/private/var` symlink physicalization is a macOS-only hazard;
+  the `pwd -P` normalization that exists for it is harmless on Linux, where
   `/tmp` is already real.
 - Wall-clock: the 24 suites take ~7 min on the dev Mac and are the dominant cost
   of the run. The job's `timeout-minutes: 45` is set with room, not to the mark.
@@ -123,7 +123,7 @@ green on Linux.** See the run linked from the branch that landed this.
 The integrity probe's **BY-REFERENCE layer set (BR1-BR10)** does not run in CI.
 Those layers verify that an operator's user-scope `~/.claude` plugin registration
 resolves to *this* engine — a property of a workstation, not of a repository, and
-there is no honest way to synthesise it on a runner. In CI the engine is its own
+there is no honest way to synthesize it on a runner. In CI the engine is its own
 subject, so the probe runs its **SEATED** layer set (A-S, plus R).
 
 That is a stated exclusion, not a silent one, and it is not a coverage hole:
@@ -165,7 +165,7 @@ BSD-vs-GNU trip-wires. Everything in this section survived execution unchanged.
   GitHub Actions ships (`ubuntu-latest` runs a modern bash 5.x) and on modern
   macOS bash/Homebrew bash alike. **But see finding 1:** this check asked
   whether new features were available and never asked whether a chosen NAME
-  collides with one the newer shell reserves. It does not generalise to
+  collides with one the newer shell reserves. It does not generalize to
   "bash version differences are handled".
 - **`git rev-parse --path-format=absolute --git-common-dir`**
   (`scripts/lib/resolve-main-checkout.sh`) — requires git >= 2.31 (Feb 2021).

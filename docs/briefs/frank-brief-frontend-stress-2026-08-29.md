@@ -48,7 +48,7 @@ the `created`/`run_ended` arithmetic, the refusal to infer from mtimes or idle l
 row filter — all correct, and all applied *after* a directory chosen by an mtime. `SessionScope` scopes
 rows to the name of the directory it was given, which is circular: it cannot detect that the whole
 directory belongs to someone else. `worker_status.rs:221-227` defends the mtime read against the Phase-4
-gate ("directory SELECTION, not state inference"). That defence is correct about the gate's wording and
+gate ("directory SELECTION, not state inference"). That defense is correct about the gate's wording and
 beside the point: the *attribution* — these workers are Rich's — is the inference, and it is made from a
 file timestamp.
 
@@ -124,14 +124,14 @@ constructor (`timeline.rs:629-636`). The refusals held; the noun leaked past the
 
 **The line, stated so it can be held.** Machinery is CEO-facing when it is a *semantic statement of work
 done* ("Ran a command", "Read 8 files"). It becomes governance the moment it names a **decision, an
-authorisation, or an actor**. "Requested approval" does all three. "A window, not a cockpit" (§5) is
+authorization, or an actor**. "Requested approval" does all three. "A window, not a cockpit" (§5) is
 defensible under real use — but only if the window's captions stop narrating decisions.
 
 ### 1.2 Is stop really session control? — **Yes, the classification is right. Two of its claims are not.**
 
 Rich's judgement holds and I tried hard to break it. Stop cancels a compute lease
 (`AcpCancelHandle::cancel`, `acp.rs:481`), records a terminal state, and stops the *queued* turns behind
-it (`settle_stop_claim`, `spine.rs:1114`). It **authorises nothing and creates no external effect**. R2
+it (`settle_stop_claim`, `spine.rs:1114`). It **authorizes nothing and creates no external effect**. R2
 governance is about gating actions with real-world consequence; stop only *withholds*, which is the safe
 direction, and a withhold-only control is not a business action. Classification: **correct, keep it.**
 
@@ -304,11 +304,11 @@ last event predates the current lease's start is `unknown`, not `active` — tha
 
 **F7 — Sage's item 6 (latency) is still unmeasured, and the hot path is heavier than the design assumed.**
 Per machinery record, on the streaming loop that also persists the CEO's assistant deltas:
-`cap_payload` (`machinery.rs:444-453`) serialises the whole payload **just to measure its length**, then
+`cap_payload` (`machinery.rs:444-453`) serializes the whole payload **just to measure its length**, then
 deep-clones it; `journal.append` (`journal.rs:116-140`) does a `create_dir_all`, clones the record again,
-and serialises **twice** more into two separately-opened files. That is three serialisations, two deep
+and serializes **twice** more into two separately-opened files. That is three serialisations, two deep
 clones and up to three syscalls per record, ~4,600 records/day measured. The no-fsync call (§2.2) is
-**right** and I am not attacking it. The open-per-append and the measure-by-serialise are not defended
+**right** and I am not attacking it. The open-per-append and the measure-by-serialize are not defended
 anywhere and were never measured, which is precisely what Sage asked for. **Low / medium.**
 
 **F8 — Three code comments still assert facts this session falsified, and six cite a purged SHA.**
@@ -329,7 +329,7 @@ Everything I flagged in August about the *client subsystem* has been built and, 
 than I asked for:
 
 - **Permission requests are answered** (`acp.rs:184-205`), so Rich does not hang. Built.
-- **Clean output was rebuilt on the direct-ACP topology, and made structural rather than behavioural.**
+- **Clean output was rebuilt on the direct-ACP topology, and made structural rather than behavioral.**
   Machinery is not a `StreamEvent` at all; `Timeline` deliberately does not implement `Serialize` and
   carries a compile-fail doctest; `view(ViewMode::Ceo)` **removes** technical bytes rather than masking
   them, so `get_timeline` never holds them. This is a stronger answer than the one I asked for — I asked
@@ -444,7 +444,7 @@ The correct correction is not more review. It is that a slice which documents a 
 
 ## 6. What I could not test, and what I refuse to claim
 
-- **No live ACP turn was run.** Everything about `session/cancel` behaviour under a real adapter,
+- **No live ACP turn was run.** Everything about `session/cancel` behavior under a real adapter,
   `CANCEL_GRACE_MS = 3000` (`acp.rs:53`, explicitly unmeasured by its own author), and the F2 race window
   is read from source and from the committed probe artifacts. **The first live stop should measure the
   cancel turnaround and replace that constant with a p99, as the comment asks.**

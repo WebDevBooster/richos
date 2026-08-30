@@ -326,7 +326,7 @@ pub fn probe_host(pid: u32) -> HostLiveness {
     if stderr.contains("No such process") {
         HostLiveness::Dead
     } else {
-        // EPERM ("Operation not permitted") and anything unrecognised. See the module doc.
+        // EPERM ("Operation not permitted") and anything unrecognized. See the module doc.
         HostLiveness::Unknown
     }
 }

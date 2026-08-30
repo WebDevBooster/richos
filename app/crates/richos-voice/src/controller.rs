@@ -150,7 +150,7 @@ impl Default for VoiceOptions {
 pub enum CapMsg {
     /// The CEO started talking. `tainted` = it began while Rich was audible.
     Started { tainted: bool },
-    /// An utterance completed and is worth recognising.
+    /// An utterance completed and is worth recognizing.
     Utterance(Box<Utterance>),
     /// An utterance completed but was discarded (too short, or tainted echo).
     Discarded { tainted: bool },
@@ -338,7 +338,7 @@ impl CaptureBrain {
         // (which knows the room's adaptive noise floor) and the canceller's near-end verdict
         // (which knows how much residual echo to expect at this reference level). Requiring
         // both is what lets the debounce drop from 5.008 s to 0.400 s without Rich cutting
-        // himself off. Without a confident canceller this is exactly the old behaviour.
+        // himself off. Without a confident canceller this is exactly the old behavior.
         let interrupting = match near_end {
             Some(n) if confident => is_speech && n,
             _ => is_speech,
@@ -441,7 +441,7 @@ impl VoiceController {
     /// a missing microphone is one calm message at the toggle rather than a failure in the
     /// middle of a sentence.
     ///
-    /// `submit` receives each recognised utterance and is expected to run a spine turn with
+    /// `submit` receives each recognized utterance and is expected to run a spine turn with
     /// it — the SAME path typed text takes. It is called on a dedicated thread and may block
     /// for the whole turn.
     pub fn start(
@@ -953,7 +953,7 @@ mod tests {
     }
 
     /// INVARIANT: the generation counter is what makes a barge-in stick. A sentence
-    /// synthesised across an interruption must be discarded, not played late.
+    /// synthesized across an interruption must be discarded, not played late.
     #[test]
     fn a_sentence_synthesised_across_a_barge_in_is_discarded() {
         let gen = AtomicU64::new(7);
@@ -1036,7 +1036,7 @@ mod tests {
             "stop latency implausible: {stop_latency:.4} s"
         );
         // The device must genuinely fall silent and STAY silent — a queue that refills would
-        // mean a sentence synthesised across the cut still got through.
+        // mean a sentence synthesized across the cut still got through.
         std::thread::sleep(Duration::from_millis(600));
         assert_eq!(ctl.queued_speech_secs(), 0.0, "Rich started talking again after being cut");
         assert_eq!(ctl.state(), VoiceState::Listening, "state did not return to listening");

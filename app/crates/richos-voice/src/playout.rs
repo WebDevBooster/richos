@@ -1,6 +1,6 @@
 //! Playout — Rich's voice out of the speakers, and the thing barge-in has to be able to cut.
 //!
-//! Rich's audio does NOT go through an external player. Synthesised sentences are pushed as
+//! Rich's audio does NOT go through an external player. Synthesized sentences are pushed as
 //! samples into ONE continuous cpal output stream. That buys three things the pipeline
 //! genuinely needs:
 //!
@@ -189,7 +189,7 @@ impl Playout {
         Ok(Playout { shared, _stream: stream, device_rate: rate, channels, device_label: label })
     }
 
-    /// Queue one synthesised sentence (mono, already at [`Playout::device_rate`]).
+    /// Queue one synthesized sentence (mono, already at [`Playout::device_rate`]).
     pub fn queue(&self, mono: &[f32]) {
         if let Ok(mut q) = self.shared.queue.lock() {
             q.extend(mono.iter().copied());
