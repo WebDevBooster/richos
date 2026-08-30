@@ -1216,9 +1216,16 @@ async function stopTurn() {
       scheduleRender();
     }
   } catch (e) {
+    // NAMES THE CONTROL. The old sentence stopped at "so I haven't acted on it" — true,
+    // and it left the CEO with a fact and no instruction while the button that would fix
+    // it sat three inches below, unmentioned. `syncComposerMode()` in the `finally` below
+    // re-enables Stop before this is read, and Stop is visible for as long as the turn is
+    // live, so the sentence names something that is on screen at the moment it is read.
     window.RichTimeline.addLocalNotice(
       timelineModel,
-      typeof e === "string" ? e : "I couldn't record that stop, so I haven't acted on it.",
+      typeof e === "string"
+        ? e + " Press Stop again and I'll have another go."
+        : "I couldn't record that stop, so I haven't acted on it. Press Stop again and I'll have another go.",
       Date.now()
     );
     scheduleRender();
