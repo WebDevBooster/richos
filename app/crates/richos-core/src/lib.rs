@@ -95,8 +95,8 @@ pub use live::{
 };
 pub use machinery::{MachineryKind, MachineryObserver, MachineryRecord, ToolStatus, EVENT_MACHINERY};
 pub use correction::{
-    CliLoroWriter, CorrectionDesk, CorrectionError, LoroWriteBackend, Proposal, ProposalState,
-    ProposedWrite, WriteOutput,
+    CliLoroWriter, CorrectionDesk, CorrectionError, LoroWriteBackend, Proposal, ProposalObserver,
+    ProposalState, ProposedWrite, SharedCorrectionDesk, WriteOutput, EVENT_LORO_PROPOSED,
 };
 pub use loro::{
     CliContextCompiler, InjectedSlice, LaneMap, LoroError, LoroRoot, LoroTools, SharedSliceProvenance,

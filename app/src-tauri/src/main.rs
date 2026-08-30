@@ -11,11 +11,14 @@ mod events;
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore};
-use richos_core::correction::{CliLoroWriter, CorrectionDesk, Proposal, ProposedWrite, WriteOutput};
+use richos_core::correction::{
+    CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite, SharedCorrectionDesk,
+    WriteOutput, EVENT_LORO_PROPOSED,
+};
 use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
-use richos_core::loro::CliContextCompiler;
+use richos_core::loro::{CliContextCompiler, SharedSliceProvenance, SliceProvenance};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::staging::{
@@ -68,6 +71,23 @@ struct TauriCorrectionEmitter {
 impl CorrectionObserver for TauriCorrectionEmitter {
     fn on_correction_staged(&self, staged: &Staged) {
         let _ = self.app.emit(EVENT_CORRECTION_STAGED, staged);
+    }
+}
+
+/// The LORO-PROPOSAL sink (`belief.rs` -> `correction.rs`): forwards a filed proposal to
+/// the webview on `rich://loro-proposed`.
+///
+/// A FIFTH observer, and a separate event from `rich://correction-staged` because the two
+/// carry different payloads and a subscription list is the proof of what a surface renders.
+/// Best-effort like the others: the proposal is durable on the desk's own log before this
+/// runs, so a webview that is not listening loses a badge update and never a record.
+struct TauriProposalEmitter {
+    app: AppHandle,
+}
+
+impl ProposalObserver for TauriProposalEmitter {
+    fn on_correction_proposed(&self, proposal: &Proposal) {
+        let _ = self.app.emit(EVENT_LORO_PROPOSED, proposal);
     }
 }
 
@@ -146,7 +166,7 @@ struct AppState {
     /// what loro believes and confirming a correction are things the CEO does while Rich
     /// may be mid-turn, and `send_message` holds the spine lock for the whole of a turn.
     /// A correction UI that froze until Rich finished would be a UI nobody uses.
-    correction: Option<Mutex<CorrectionDesk>>,
+    correction: Option<SharedCorrectionDesk>,
     /// THE SPOKEN-CORRECTION DESK — the flywheel's automatic trigger (`spoken.rs` +
     /// `staging.rs`). The SAME `Arc` the spine holds, reached WITHOUT the spine lock, for
     /// exactly the reason `control` is: `send_message` holds the spine mutex for the whole
@@ -429,10 +449,19 @@ fn main() {
             // `RICHOS_LORO_DIR` names the tools; with either unset the app boots with
             // `LoroTier::NotWired`, which the priming prompt states as a fact about THIS
             // INSTALL rather than as a claim about what is recorded.
+            //
+            // PROVENANCE. The compiler retains the ITEMS of every accepted slice here, and
+            // the spine reads them when the CEO says a record is wrong — see `belief.rs`.
+            // Without this the loro desk has no proposer, because `propose` takes a record
+            // reference and nothing in the app could supply one honestly.
+            let loro_provenance: SharedSliceProvenance =
+                std::sync::Arc::new(Mutex::new(SliceProvenance::new()));
             match CliContextCompiler::from_env() {
-                Ok(Some(compiler)) => {
+                Ok(Some(mut compiler)) => {
                     eprintln!("[richos] loro Tier C: compiling from {}", compiler.root().path().display());
+                    compiler.set_provenance_sink(std::sync::Arc::clone(&loro_provenance));
                     spine.set_loro_context_compiler(Box::new(compiler));
+                    spine.set_loro_provenance(std::sync::Arc::clone(&loro_provenance));
                 }
                 Ok(None) => eprintln!("[richos] loro Tier C: no corpus configured — re-primes carry no company memory"),
                 Err(e) => eprintln!("[richos] loro Tier C: configured but unusable, continuing without it: {e}"),
@@ -503,7 +532,7 @@ fn main() {
             // happened — the same rule `TurnControl`'s intake log follows.
             let correction = match CliLoroWriter::from_env() {
                 Ok(Some(writer)) => match CorrectionDesk::open(data_dir.join("loro-corrections.jsonl"), Box::new(writer)) {
-                    Ok(desk) => Some(Mutex::new(desk)),
+                    Ok(desk) => Some(desk.shared()),
                     Err(e) => {
                         // Refuse rather than pretend. A desk that cannot record a proposal
                         // durably would lose the CEO's answer across a relaunch, which is
@@ -555,6 +584,25 @@ fn main() {
                     None
                 }
             };
+            // THE BELIEF TRIGGER, wired at the SAME seam as the spoken one: the desk the
+            // Tauri commands answer through is the desk the turn path files into, one
+            // `Arc`, so a proposal raised inside a two-hour turn is answerable during it.
+            //
+            // Attached only when BOTH halves exist. With a desk and no provenance nothing
+            // can be resolved and the trigger would be silent anyway; saying so at boot is
+            // better than a capability that looks wired and never fires.
+            if let Some(desk) = &correction {
+                spine.set_correction_desk(std::sync::Arc::clone(desk));
+                spine.set_proposal_observer(Box::new(TauriProposalEmitter { app: app.handle().clone() }));
+                if !spine.has_loro_context_compiler() {
+                    eprintln!(
+                        "[richos] loro correction desk is open but no context compiler is \
+                         configured — nothing was ever put in front of Rich, so no correction \
+                         can name a record and the trigger will stay silent"
+                    );
+                }
+            }
+
             if let Some(desk) = &spoken {
                 spine.set_candidate_desk(desk.clone());
                 spine.set_correction_observer(Box::new(TauriCorrectionEmitter {

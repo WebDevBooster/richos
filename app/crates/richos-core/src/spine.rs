@@ -29,6 +29,8 @@ use crate::reprime::{
     LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest, DEFAULT_LORO_BUDGET_CHARS,
     DEFAULT_TAIL_TURNS,
 };
+use crate::correction::{ProposalObserver, SharedCorrectionDesk};
+use crate::loro::SharedSliceProvenance;
 use crate::staging::{CorrectionObserver, SharedCandidateDesk};
 use crate::steering::{ActiveTurn, IntakeRecord, StopClaim, TurnControl};
 use crate::stream::{StreamEvent, TurnObserver};
@@ -300,6 +302,13 @@ pub struct Spine {
     /// `SharedCandidateDesk` (an `Arc<Mutex<_>>`) rather than owned, so answering §7's
     /// question never waits on the turn lock — see `staging::SharedCandidateDesk`.
     candidates: Option<SharedCandidateDesk>,
+    /// THE LORO DESK, and the memory it resolves against (`belief.rs` + `loro.rs`).
+    /// Optional as a PAIR: a build with a desk and no provenance can resolve nothing, and a
+    /// build with provenance and no desk has nowhere to file. Both absent is the ordinary
+    /// state of an install with no corpus.
+    correction_desk: Option<SharedCorrectionDesk>,
+    loro_provenance: Option<SharedSliceProvenance>,
+    proposal_observer: Option<Box<dyn ProposalObserver>>,
     /// Where a staged correction is announced. A FOURTH family, separate from the other
     /// three for the reason `machinery_observer` is separate from `observer`.
     correction_observer: Option<Box<dyn CorrectionObserver>>,
@@ -405,6 +414,9 @@ impl Spine {
             live: None,
             candidates: None,
             correction_observer: None,
+            correction_desk: None,
+            loro_provenance: None,
+            proposal_observer: None,
             worker_events: WorkerEventsSource::Disabled,
         }
     }
@@ -570,6 +582,24 @@ impl Spine {
     /// automatic**: with a desk attached, every CEO utterance is examined as it is
     /// submitted, and a correction is written down without a command being typed. With no
     /// desk attached this file behaves exactly as it did before the desk existed.
+    /// Attach the loro correction desk the belief trigger files into. The SAME `Arc` the
+    /// Tauri commands hold, so a proposal filed inside a turn is answerable during it.
+    pub fn set_correction_desk(&mut self, desk: SharedCorrectionDesk) {
+        self.correction_desk = Some(desk);
+    }
+
+    /// Attach the provenance of what memory Rich was actually given. The SAME `Arc` the
+    /// context compiler writes to (`CliContextCompiler::set_provenance_sink`) — without it
+    /// the belief trigger can resolve nothing and stays silent, which is the honest
+    /// degradation rather than a guessed reference.
+    pub fn set_loro_provenance(&mut self, prov: SharedSliceProvenance) {
+        self.loro_provenance = Some(prov);
+    }
+
+    pub fn set_proposal_observer(&mut self, observer: Box<dyn ProposalObserver>) {
+        self.proposal_observer = Some(observer);
+    }
+
     pub fn set_candidate_desk(&mut self, desk: SharedCandidateDesk) {
         self.candidates = Some(desk);
     }
@@ -1138,6 +1168,11 @@ impl Spine {
         //      spoken while Rich is working is recorded the moment he says it rather than
         //      whenever the turn ahead of it finishes.
         self.stage_spoken_correction(&binding, &turn_id, text, source);
+        // (1c) THE SAME SEAM, for the OTHER correction family. Both live here rather than
+        //      one here and one in the shell, because this is the one function every CEO
+        //      utterance passes through, and a correction family reached by a different
+        //      route would be a correction family with different rules about when it runs.
+        self.stage_belief_correction(&binding, text, source);
 
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
@@ -1229,6 +1264,70 @@ impl Spine {
             }
             // A disk failure here loses ONE question. It must not lose the turn.
             Err(e) => eprintln!("[richos] correction could not be staged: {e}"),
+        }
+    }
+
+    /// Examine one CEO utterance for a correction of a recorded BELIEF and, if it resolves
+    /// to exactly one loro record, file a proposal on the correction desk.
+    ///
+    /// **Infallible from the turn's point of view**, the same posture and for a stronger
+    /// version of the reason [`Self::stage_spoken_correction`] is: a proposal is a
+    /// QUESTION, and losing the chance to ask one must never cost the CEO the sentence he
+    /// actually said. Every error path below logs and returns.
+    ///
+    /// **Nothing is written by this.** `CorrectionDesk::propose` runs the loro writer with
+    /// `--dry-run` and stores what WOULD be written; `confirm` — a human answer — remains
+    /// the only path to a loro write, and there is no argument this function could pass to
+    /// skip it (`correction.rs`, ceo-decisions.md §7).
+    ///
+    /// Runs on `Text` and `Jam` only, for exactly the reason the spoken trigger does:
+    /// `Internal` is a re-prime or a handoff-summary request the CEO never wrote, and
+    /// `Proactive` is Rich speaking. Detecting a "correction" inside RichOS's own priming
+    /// payload would be the system correcting its own memory from a copy of it.
+    fn stage_belief_correction(&mut self, binding: &ThreadBinding, text: &str, source: Source) {
+        if !matches!(source, Source::Text | Source::Jam) {
+            return;
+        }
+        let (Some(desk), Some(prov)) = (self.correction_desk.as_ref(), self.loro_provenance.as_ref())
+        else {
+            return;
+        };
+        let thread_id = binding.thread_id().to_string();
+        // The records Rich was ACTUALLY given for this thread. Cloned out from under the
+        // lock rather than held across detection: the compiler writes this same map on a
+        // re-prime, and detection must not be able to stall a rotation.
+        let records = match prov.lock() {
+            Ok(p) => p.records_for(&thread_id).to_vec(),
+            Err(_) => {
+                eprintln!("[richos] the loro provenance lock is poisoned — the question is dropped, the turn is not");
+                return;
+            }
+        };
+        if records.is_empty() {
+            return;
+        }
+        let detection = crate::belief::detect(text, &records);
+        if detection.asks.is_empty() {
+            return;
+        }
+        let entity = binding.entity_id().as_str().to_string();
+        for ask in &detection.asks {
+            let Ok(mut d) = desk.lock() else {
+                eprintln!("[richos] the correction desk lock is poisoned — the proposal is dropped, the turn is not");
+                return;
+            };
+            let filed = d.propose(&entity, &thread_id, ask.proposed_write(), ask.why());
+            drop(d);
+            match filed {
+                Ok(p) => {
+                    if let Some(obs) = self.proposal_observer.as_deref() {
+                        obs.on_correction_proposed(&p);
+                    }
+                }
+                // A suppressed record, a writer refusal at --dry-run, or a disk failure
+                // loses ONE proposal. None of them may lose the turn.
+                Err(e) => eprintln!("[richos] a loro correction could not be proposed: {e}"),
+            }
         }
     }
 
