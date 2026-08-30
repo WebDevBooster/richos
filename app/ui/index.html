@@ -38,6 +38,18 @@
             <span class="rail-action-label">Corrections</span>
             <span id="nav-corrections-count" class="rail-count" hidden></span>
           </button>
+          <!-- THE FEEDBACK CHANNEL's door, and DELIBERATELY NOT A BADGE.
+
+               `feedback.rs`'s own module doc measured this: in the reference case all five
+               moments of real annoyance were volunteered mid-work, unprompted, and none
+               arrived at session end — so a prompt fired at a moment of RichOS's choosing
+               would have caught none of them. Nothing waits here, nothing counts up, and
+               nothing interrupts him; the control is simply always where he left it. The
+               Corrections button beside it carries a count because something there IS
+               waiting on him. This one never will. -->
+          <button id="nav-feedback" class="rail-action" type="button" aria-haspopup="dialog" aria-expanded="false">
+            <span class="rail-action-label">Feedback</span>
+          </button>
         </div>
 
         <!-- Built by main.js from `navigation_tree`, which returns threads ALREADY inside
@@ -347,6 +359,98 @@
                 <h3 class="desk-sub-title">Never ask again</h3>
                 <div id="desk-spoken-suppressed-list" class="desk-suppressed-list"></div>
               </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- THE FEEDBACK CHANNEL (`feedback.rs`) — RICH-TODOs row 5.
+           Six Tauri commands existed for one day with nothing in `app/ui/` calling any of
+           them, which is exactly the shape rows 5b/5c/5d closed: a right, tested core with
+           no caller is not a property of the product the CEO uses.
+
+           WHEN THIS APPEARS: when he opens it, and at no other time. The module's own doc
+           measured why — all five moments of real annoyance in the reference case were
+           volunteered mid-work and unprompted, and none arrived at session end, so a prompt
+           fired at a chosen moment would have caught none of them. A prompt that interrupts
+           at the wrong moment does not merely miss; it teaches dismissal, after which the
+           fallback catches nothing either.
+
+           NOTHING HERE SENDS ANYTHING. The heading above the report says so in the
+           product's own words, and `feedback_no_outbound_tests.rs` asserts it of this
+           surface's code rather than trusting this comment.
+
+           NO PAGINATION. One scrolling column, however long the history gets. -->
+      <div id="feedback-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+        <div class="overlay-panel overlay-panel--desk">
+          <header class="desk-head">
+            <p id="feedback-title" class="overlay-title">Feedback</p>
+            <button id="feedback-close" class="rail-icon-btn" type="button" aria-label="Close feedback">✕</button>
+          </header>
+
+          <!-- Where a refusal lands. Every one of the six commands returns
+               `Result<_, String>` and the backend's sentence is relayed VERBATIM — the
+               store-unavailable sentence names who owns the fix, and paraphrasing it would
+               lose that. -->
+          <p id="feedback-notice" class="desk-notice" role="status" hidden></p>
+
+          <div id="feedback-body" class="desk-body">
+            <section class="desk-section" aria-labelledby="feedback-question">
+              <!-- Filled from `feedback_wording`, never typed here: `feedback.rs` holds the
+                   CEO's wording in constants precisely so a UI cannot paraphrase it. Empty
+                   in the markup is the honest default — a hard-coded question would render
+                   even on a build whose backend says something else. -->
+              <h2 id="feedback-question" class="desk-section-title"></h2>
+
+              <!-- The store would not open. He is told, and the four keys are NOT offered:
+                   asking him what he thinks and dropping the answer is worse than not
+                   asking. The backend's own sentence, which names the party. -->
+              <p id="feedback-unavailable" class="desk-unavailable" hidden></p>
+
+              <!-- The four keys, built from `feedback_wording.ratings` + its `dismiss`. -->
+              <div id="feedback-keys" class="desk-card-actions"></div>
+
+              <!-- THE OFFER, made only after 1 or 2 — and that rule crosses the bridge as
+                   `Rating::invites_report`, never re-derived here. -->
+              <div id="feedback-offer" hidden>
+                <p id="feedback-offer-text" class="feedback-offer-text"></p>
+                <div id="feedback-offer-actions" class="desk-card-actions"></div>
+              </div>
+
+              <!-- THE VOCABULARY, and the whole of what a report can say. Built from
+                   `feedback_taxonomy`, which iterates each term type's own `ALL` — there is
+                   no free-text field anywhere in here, because there is no field in the
+                   payload for one to fill. -->
+              <div id="feedback-choose" hidden></div>
+
+              <!-- THE PREVIEW. Exactly what would be said, rendered from the same structure
+                   that gets recorded. The heading and the block below it are the two halves
+                   of the string sent back with the approval, so what he approves is what he
+                   read, byte for byte. -->
+              <div id="feedback-preview-block" hidden>
+                <p id="feedback-disclosure-heading" class="feedback-disclosure"></p>
+                <pre id="feedback-preview" class="desk-preview"></pre>
+                <div id="feedback-preview-actions" class="desk-card-actions"></div>
+              </div>
+            </section>
+
+            <section class="desk-section" aria-labelledby="feedback-history-title">
+              <h2 id="feedback-history-title" class="desk-section-title">What's on this machine</h2>
+              <!-- THREE DIFFERENT FACTS, three different elements. A store that would not
+                   open, a store that refused a read, and a store that opened and is empty
+                   are not the same thing, and one empty list serving all three would say
+                   "nothing to see" on a machine where the file is broken. -->
+              <p id="feedback-history-off" class="desk-unavailable" hidden></p>
+              <div id="feedback-history-broke" class="desk-broke" hidden>
+                <p class="desk-broke-line">I couldn't read that just now. Nothing has changed.</p>
+                <p id="feedback-history-broke-reason" class="desk-reason"></p>
+                <button id="feedback-history-retry" class="desk-btn" type="button">Try again</button>
+              </div>
+              <p id="feedback-history-empty" class="desk-empty" hidden>
+                Nothing is recorded here yet. RichOS never puts the question to you on its own — this
+                panel is the only place it is asked.
+              </p>
+              <div id="feedback-history-list" class="desk-list"></div>
             </section>
           </div>
         </div>

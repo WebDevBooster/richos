@@ -1,0 +1,111 @@
+[
+  {
+    "full": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.\n\ntaxonomy_version: v1\nrating: 1\nfailure_class: unprepared-task-handed-to-user\noccurrences_this_session: 3\ngeneric_diagnosis: >\n  The assistant asked the user to carry out a manual verification task more\n  than once in a single session without preparing the artifact the task\n  required. No input file was named. No locations within it were specified.\n  No method was given. No acceptance criterion was stated. In the same\n  session the assistant produced detailed, self-contained briefs for its\n  automated sub-agents. The asymmetry is the defect: the human executor\n  received the least prepared instruction.\ncontributing_condition: >\n  The durable task record contained a section for items awaiting the user,\n  which made relaying an item feel equivalent to preparing it. No\n  user-facing item carried an acceptance criterion.\n",
+    "key": "1",
+    "name": "the reference case",
+    "selection": {
+      "contributing_condition": [
+        "record-section-for-items-awaiting-the-user",
+        "no-user-facing-item-carried-an-acceptance-criterion"
+      ],
+      "failure_class": "unprepared-task-handed-to-user",
+      "generic_diagnosis": [
+        "request-repeated-without-preparation",
+        "no-input-artifact-named",
+        "no-location-within-input-specified",
+        "no-method-given",
+        "no-acceptance-criterion-stated",
+        "automated-executors-received-self-contained-briefs",
+        "human-executor-received-the-least-prepared-instruction"
+      ],
+      "occurrences_this_session": "3"
+    },
+    "text": "taxonomy_version: v1\nrating: 1\nfailure_class: unprepared-task-handed-to-user\noccurrences_this_session: 3\ngeneric_diagnosis: >\n  The assistant asked the user to carry out a manual verification task more\n  than once in a single session without preparing the artifact the task\n  required. No input file was named. No locations within it were specified.\n  No method was given. No acceptance criterion was stated. In the same\n  session the assistant produced detailed, self-contained briefs for its\n  automated sub-agents. The asymmetry is the defect: the human executor\n  received the least prepared instruction.\ncontributing_condition: >\n  The durable task record contained a section for items awaiting the user,\n  which made relaying an item feel equivalent to preparing it. No\n  user-facing item carried an acceptance criterion.\n"
+  },
+  {
+    "full": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.\n\ntaxonomy_version: v1\nrating: 2\nfailure_class: scheduling-handed-to-user\noccurrences_this_session: 1\ngeneric_diagnosis: >\n  No method was given.\n",
+    "key": "2",
+    "name": "the smallest report there is",
+    "selection": {
+      "contributing_condition": [],
+      "failure_class": "scheduling-handed-to-user",
+      "generic_diagnosis": [
+        "no-method-given"
+      ],
+      "occurrences_this_session": "1"
+    },
+    "text": "taxonomy_version: v1\nrating: 2\nfailure_class: scheduling-handed-to-user\noccurrences_this_session: 1\ngeneric_diagnosis: >\n  No method was given.\n"
+  },
+  {
+    "full": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.\n\ntaxonomy_version: v1\nrating: 1\nfailure_class: checking-handed-to-user\noccurrences_this_session: more-than-5\ngeneric_diagnosis: >\n  The assistant asked the user to carry out a manual verification task more\n  than once in a single session without preparing the artifact the task\n  required.\n",
+    "key": "1",
+    "name": "one long term alone, which has to wrap on its own",
+    "selection": {
+      "contributing_condition": [],
+      "failure_class": "checking-handed-to-user",
+      "generic_diagnosis": [
+        "request-repeated-without-preparation"
+      ],
+      "occurrences_this_session": "more-than-5"
+    },
+    "text": "taxonomy_version: v1\nrating: 1\nfailure_class: checking-handed-to-user\noccurrences_this_session: more-than-5\ngeneric_diagnosis: >\n  The assistant asked the user to carry out a manual verification task more\n  than once in a single session without preparing the artifact the task\n  required.\n"
+  },
+  {
+    "full": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.\n\ntaxonomy_version: v1\nrating: 2\nfailure_class: assurance-handed-to-user\noccurrences_this_session: 5\ngeneric_diagnosis: >\n  No acceptance criterion was stated.\ncontributing_condition: >\n  The durable task record contained a section for items awaiting the user,\n  which made relaying an item feel equivalent to preparing it. No\n  user-facing item carried an acceptance criterion. The rule that would have\n  prevented this was enforced by attention rather than by machinery.\n",
+    "key": "2",
+    "name": "every contributing condition",
+    "selection": {
+      "contributing_condition": [
+        "record-section-for-items-awaiting-the-user",
+        "no-user-facing-item-carried-an-acceptance-criterion",
+        "rule-enforced-by-attention-rather-than-machinery"
+      ],
+      "failure_class": "assurance-handed-to-user",
+      "generic_diagnosis": [
+        "no-acceptance-criterion-stated"
+      ],
+      "occurrences_this_session": "5"
+    },
+    "text": "taxonomy_version: v1\nrating: 2\nfailure_class: assurance-handed-to-user\noccurrences_this_session: 5\ngeneric_diagnosis: >\n  No acceptance criterion was stated.\ncontributing_condition: >\n  The durable task record contained a section for items awaiting the user,\n  which made relaying an item feel equivalent to preparing it. No\n  user-facing item carried an acceptance criterion. The rule that would have\n  prevented this was enforced by attention rather than by machinery.\n"
+  },
+  {
+    "full": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.\n\ntaxonomy_version: v1\nrating: 1\nfailure_class: unprepared-task-handed-to-user\noccurrences_this_session: 3\ngeneric_diagnosis: >\n  The assistant asked the user to carry out a manual verification task more\n  than once in a single session without preparing the artifact the task\n  required. No input file was named. No locations within it were specified.\n  No method was given. No acceptance criterion was stated. In the same\n  session the assistant produced detailed, self-contained briefs for its\n  automated sub-agents. The asymmetry is the defect: the human executor\n  received the least prepared instruction.\ncontributing_condition: >\n  The durable task record contained a section for items awaiting the user,\n  which made relaying an item feel equivalent to preparing it. No\n  user-facing item carried an acceptance criterion.\n",
+    "key": "1",
+    "name": "the same terms in reverse, which must render identically",
+    "selection": {
+      "contributing_condition": [
+        "no-user-facing-item-carried-an-acceptance-criterion",
+        "record-section-for-items-awaiting-the-user"
+      ],
+      "failure_class": "unprepared-task-handed-to-user",
+      "generic_diagnosis": [
+        "human-executor-received-the-least-prepared-instruction",
+        "automated-executors-received-self-contained-briefs",
+        "no-acceptance-criterion-stated",
+        "no-method-given",
+        "no-location-within-input-specified",
+        "no-input-artifact-named",
+        "request-repeated-without-preparation"
+      ],
+      "occurrences_this_session": "3"
+    },
+    "text": "taxonomy_version: v1\nrating: 1\nfailure_class: unprepared-task-handed-to-user\noccurrences_this_session: 3\ngeneric_diagnosis: >\n  The assistant asked the user to carry out a manual verification task more\n  than once in a single session without preparing the artifact the task\n  required. No input file was named. No locations within it were specified.\n  No method was given. No acceptance criterion was stated. In the same\n  session the assistant produced detailed, self-contained briefs for its\n  automated sub-agents. The asymmetry is the defect: the human executor\n  received the least prepared instruction.\ncontributing_condition: >\n  The durable task record contained a section for items awaiting the user,\n  which made relaying an item feel equivalent to preparing it. No\n  user-facing item carried an acceptance criterion.\n"
+  },
+  {
+    "full": "This is exactly what your Rich would report. In this version it is written to this machine and nowhere else; nothing in RichOS can carry it any further.\n\ntaxonomy_version: v1\nrating: 2\nfailure_class: decision-handed-to-user\noccurrences_this_session: 2\ngeneric_diagnosis: >\n  No input file was named. No locations within it were specified.\ncontributing_condition: >\n  The rule that would have prevented this was enforced by attention rather\n  than by machinery.\n",
+    "key": "2",
+    "name": "a decision handed back, twice",
+    "selection": {
+      "contributing_condition": [
+        "rule-enforced-by-attention-rather-than-machinery"
+      ],
+      "failure_class": "decision-handed-to-user",
+      "generic_diagnosis": [
+        "no-input-artifact-named",
+        "no-location-within-input-specified"
+      ],
+      "occurrences_this_session": "2"
+    },
+    "text": "taxonomy_version: v1\nrating: 2\nfailure_class: decision-handed-to-user\noccurrences_this_session: 2\ngeneric_diagnosis: >\n  No input file was named. No locations within it were specified.\ncontributing_condition: >\n  The rule that would have prevented this was enforced by attention rather\n  than by machinery.\n"
+  }
+]

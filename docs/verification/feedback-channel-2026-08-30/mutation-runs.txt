@@ -1,0 +1,196 @@
+THE FEEDBACK CHANNEL — THE TWENTY-FIVE RUNS THAT PROVE THE SUITE CAN FAIL
+=========================================================================
+
+`app/ui/tests/feedback.js` reports 24/24 and 111 assertions against the tree as it stands.
+That number is worth nothing on its own: a check that has never failed has proven nothing,
+and this repository has produced both kinds of green in one week — a scanner reporting
+CLEAN over an empty corpus, and a `run.js` reporting "all 4 suites passed" over a suite it
+was not running.
+
+So every check in the suite was run RED, once, by breaking the thing it guards in the
+SHIPPED source (`app/ui/index.html`, `app/ui/main.js`, `app/ui/style.css`,
+`app/ui/mock.js`, `app/src-tauri/src/main.rs`) and watching the suite say so.
+
+The driver applied exactly one edit per run, REFUSED to proceed unless the target string
+matched exactly once, restored the file from a copy taken before the edit whether the run
+passed or failed, and `git status` was clean of stray files at the end. The mutations are
+also listed inside `feedback.js` itself, against their check numbers, so the two cannot
+drift silently.
+
+The mutation TAGS below are the driver's and were fixed before the suite's checks were
+renumbered (there was no check 5; 6 became 5, 10 became 8, and so on). The FAIL lines are
+the suite's own output at the numbering that shipped, so each block names both.
+
+
+THREE OF THESE DESERVE A NOTE
+-----------------------------
+
+  * MUTATION 6b WAS A BAD MUTATION ON ITS FIRST RUN, AND THE CHECK WAS STRENGTHENED RATHER
+    THAN THE MUTATION ABANDONED. Removing the sort from `mock.js`'s `feedbackAssemble` left
+    check 5b GREEN. The reason is worth writing down: `chosen()` reads
+    `querySelectorAll('input[name=…]:checked')`, which returns DOM order, so the surface
+    hands the assembler vocabulary order no matter what order the CEO clicked in — ticking
+    the boxes in reverse can never detect an unsorted assemble. The check now does that AND
+    posts the reversed selection through the bridge, which is the only path that reaches
+    the assembler; the same mutation then turns it red. What the DOM half proves is still
+    worth keeping and is now stated as what it is: the surface cannot reorder a selection.
+
+  * MUTATION 4 (dropping the contributing-condition group) turns FIVE checks red, and that
+    is the right answer rather than noise. The reference selection includes two conditions,
+    so with the group gone it cannot be made at all and everything downstream of it — the
+    preview, the reverse-order case, the approval and the refusal — fails with it. A
+    mutation that only ever turns one check red is not automatically a better mutation; one
+    that turns EVERY check red is (see the note in the correction desk's own record, where
+    an unbalanced `if` stopped `main.js` parsing and proved nothing about anything).
+
+  * MUTATION 14 (dropping `closeFeedback()` from the Escape chain) turns check 3c red as
+    well as check 12, because 3c presses Escape to prove that CLOSING the panel records
+    nothing. That is a real dependency and it is listed rather than engineered away: 3c's
+    claim is about the dismissal, and it needs a working close to make it.
+
+
+THE RUNS
+--------
+
+MUTATION 1  [ui/index.html]  a count badge on the feedback control
+  exit 1; 1 check(s) red
+    FAIL  1  a permanent control that NEVER counts up at him
+MUTATION 2  [ui/main.js]  the surface paraphrases PROMPT_QUESTION
+  exit 1; 1 check(s) red
+    FAIL  2  the question and the four keys are the RUST constants, byte for byte
+MUTATION 2b  [ui/mock.js]  mock.js rehearses a term label the product does not use
+  exit 1; 1 check(s) red
+    FAIL  2b mock.js rehearses the wording and the vocabulary this build SHIPS
+MUTATION 3  [ui/main.js]  the surface paraphrases REPORT_OFFER
+  exit 1; 1 check(s) red
+    FAIL  3  only 1 and 2 raise the offer to report
+MUTATION 3b  [ui/main.js]  a 3 is offered the report its own rating refuses
+  exit 1; 1 check(s) red
+    FAIL  3b a GOOD rating is recorded straight away and never offered a report
+MUTATION 3c  [ui/main.js]  0 is treated as closing the panel, and the dismissal is never recorded
+  exit 1; 1 check(s) red
+    FAIL  3c a DISMISSAL is an answer; closing the panel is not
+MUTATION 4  [ui/main.js]  a whole term type is missing from the choice
+  exit 1; 5 check(s) red
+    FAIL  4  the whole vocabulary is on screen, and there is nowhere to type
+    FAIL  5  what is on screen is what the RUST renderer produces, byte for byte
+    FAIL  5b the same terms in any order render the same bytes
+    FAIL  6  approving records exactly what he read, and it reads back
+    FAIL  6b refusing keeps the rating and nothing about the report
+MUTATION 4b  [ui/main.js]  the preview is offered over a selection that cannot be assembled
+  exit 1; 1 check(s) red
+    FAIL  4b the preview cannot be asked for until the report could be assembled
+MUTATION 6  [ui/main.js]  the block on screen is not the block the approval carries
+  exit 1; 3 check(s) red
+    FAIL  5  what is on screen is what the RUST renderer produces, byte for byte
+    FAIL  5b the same terms in any order render the same bytes
+    FAIL  5c a report with no conditions omits the key rather than showing it empty
+MUTATION 6-clip  [ui/style.css]  the report is clipped inside its own scroller
+  exit 1; 1 check(s) red
+    FAIL  5  what is on screen is what the RUST renderer produces, byte for byte
+MUTATION 6b  [ui/mock.js]  the same terms in a different order render different bytes
+  exit 1; 1 check(s) red
+    FAIL  5b the same terms in any order render the same bytes
+MUTATION 6c  [ui/mock.js]  an empty condition list renders as a key with nothing under it
+  exit 1; 1 check(s) red
+    FAIL  5c a report with no conditions omits the key rather than showing it empty
+MUTATION 7  [ui/main.js]  approve does not record the approval
+  exit 1; 1 check(s) red
+    FAIL  6  approving records exactly what he read, and it reads back
+MUTATION 7b  [ui/main.js]  refusing records the report anyway
+  exit 1; 1 check(s) red
+    FAIL  6b refusing keeps the rating and nothing about the report
+MUTATION 8  [ui/mock.js]  consent is recorded for text he was never shown
+  exit 1; 1 check(s) red
+    FAIL  7  an approval for text he was NOT shown is refused, not recorded
+MUTATION 9  [ui/mock.js]  an unrecognised key is silently recorded as a dismissal
+  exit 1; 1 check(s) red
+    FAIL  7b a key that is not one of the four is refused, never taken as a dismissal
+MUTATION 10  [ui/main.js]  the four keys are offered over a store that cannot keep an answer
+  exit 1; 1 check(s) red
+    FAIL  8  a file that would not open says so, and the keys are NOT offered
+MUTATION 10-verbatim  [ui/mock.js]  the harness rehearses a sentence the product does not say
+  exit 1; 1 check(s) red
+    FAIL  8  a file that would not open says so, and the keys are NOT offered
+MUTATION 10b  [ui/main.js]  a transient read failure is reported as an uninstalled feature
+  exit 1; 1 check(s) red
+    FAIL  8b a store that IS there and refused a read is a different state, with a retry
+MUTATION 10c  [ui/index.html]  an empty history no longer says why it is empty
+  exit 1; 1 check(s) red
+    FAIL  8c an empty store says WHY it is empty
+MUTATION 11  [ui/main.js]  a row with no report is shown carrying one
+  exit 1; 1 check(s) red
+    FAIL  9  stored answers the BACKEND really writes render as history rows
+MUTATION 12  [ui/main.js]  a refusal dies in the console
+  exit 1; 1 check(s) red
+    FAIL  10 a refusal reaches the screen and never dies in a console
+MUTATION 13  [ui/style.css]  forty answers with no way to reach the fortieth
+  exit 1; 1 check(s) red
+    FAIL  11 NO PAGINATION, at any length
+MUTATION 14  [ui/main.js]  the panel cannot be dismissed from the keyboard
+  exit 1; 2 check(s) red
+    FAIL  3c a DISMISSAL is an answer; closing the panel is not
+    FAIL  12 the panel opens and closes by keyboard, and returns focus where it was
+MUTATION 15  [src-tauri/src/main.rs]  a registered command disappears and nothing notices
+  exit 1; 1 check(s) red
+    FAIL  13 all six commands are reachable from the shipped UI layer
+
+
+THE THREE ASSERTIONS ADDED TO `feedback_no_outbound_tests.rs`, AND THE SIX RUNS THAT
+PROVE THEY CAN FAIL
+====================================================================================
+
+The four original tests in that suite were written when `feedback.rs` had no caller.
+"There is no transport in the module" was then the whole of the claim, because the module
+was the whole of the feature. Six Tauri commands and a web surface changed that, so the
+claim was EXTENDED — three new tests in the same file, joining the family rather than
+sitting beside it.
+
+Two of these mutations found a real defect in the checks themselves on their first run,
+before this transcript: seeding the call-graph walk on the name prefix `feedback_` swept in
+`feedback_store`, a private helper, and made the registered-command count wrong by one; and
+the web-layer needle `<form` fired on the composer, which is the right element for "type a
+sentence and press Enter" and posts nowhere. The first was fixed by seeding on
+`generate_handler!` — the actual authority over what a webview can call — and the second by
+banning the DESTINATION rather than the element, with a separate assertion pinning the
+composer as the only form there is. Both are recorded in the source at the point of the
+change.
+
+MUTATION N1  [src-tauri/src/main.rs]  a subprocess appears in a private HELPER, not in a command — the call-graph walk has to reach it
+  exit 101; 2 test(s) red
+    test the_feedback_commands_and_everything_they_call_contain_no_transport ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N2  [src-tauri/src/main.rs]  the shown-text comparison is deleted and consent can be recorded for text nobody read
+  exit 101; 2 test(s) red
+    test the_command_that_records_an_approval_still_checks_what_the_user_was_shown ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N3  [ui/main.js]  a transport appears in the shipped web layer
+  exit 101; 2 test(s) red
+    test the_shipped_web_layer_contains_no_network_primitive_at_all ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+MUTATION N4  [src-tauri/src/main.rs]  a command leaves the registration list
+  exit 101; 2 test(s) red
+    test the_feedback_commands_and_everything_they_call_contain_no_transport ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N5  [ui/index.html]  the composer grows a destination
+  exit 101; 2 test(s) red
+    test the_shipped_web_layer_contains_no_network_primitive_at_all ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+MUTATION N6  [ui/index.html]  a second form appears in the shipped markup
+  exit 101; 2 test(s) red
+    test the_shipped_web_layer_contains_no_network_primitive_at_all ... FAILED
+    test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+ONE MORE THING THE RUNS TAUGHT, AND IT IS NOT ABOUT THE PRODUCT
+---------------------------------------------------------------
+
+`include_str!` bakes a file into the test binary at COMPILE time, and the driver restores
+each mutated file with `shutil.move` from a `copy2` backup — which preserves the ORIGINAL
+mtime. So after run N6 the sources were correct on disk and cargo, seeing a file older than
+its last build, did not rebuild: the suite went on failing against a mutation that had
+already been reverted, and `git status` was clean while the test was red.
+
+That is worth writing down because the false conclusion was available and tempting — "the
+restore did not work" or "the check is flaky". Neither. `touch` on the four included
+sources, one rebuild, 442 green. Any future mutation run against an `include_str!` suite
+has to end with a touch, or its last result is a measurement of nothing.

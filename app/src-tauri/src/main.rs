@@ -16,6 +16,11 @@ use richos_core::correction::{
     WriteOutput, EVENT_LORO_PROPOSED,
 };
 use richos_core::entity::{EntityId, EntityRegistry};
+use richos_core::feedback::{
+    ContributingCondition, DiagnosisTerm, Disclosure, FailureClass, FeedbackEntry, FeedbackPayload,
+    FeedbackStore, Occurrences, PromptOutcome, Rating, ReportDecision, DISCLOSURE_HEADING,
+    PROMPT_OPTIONS, PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
+};
 use richos_core::journal::{MachineryJournal, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::loro::{CliContextCompiler, SharedSliceProvenance, SliceProvenance};
@@ -178,6 +183,17 @@ struct AppState {
     /// `None` when the desk's own log could not be opened — the commands then say so
     /// rather than failing obscurely.
     spoken: Option<SharedCandidateDesk>,
+    /// THE FEEDBACK CHANNEL'S LOCAL STORE (`feedback.rs`). One file beside the ledger, and
+    /// that is the whole storage layer this feature has.
+    ///
+    /// Behind its OWN mutex and NOT the spine's, for the third time and the same reason:
+    /// `send_message` holds the spine lock for the whole of a turn, and "how is RichOS
+    /// doing this session?" is a question about a session that may still be running.
+    ///
+    /// `None` when the file could not be opened. The commands then REFUSE rather than
+    /// pretend — asking the CEO what he thinks and dropping the answer on the floor is
+    /// worse than saying the capability is not available.
+    feedback: Option<Mutex<FeedbackStore>>,
 }
 
 #[tauri::command]
@@ -652,6 +668,26 @@ fn main() {
                 }
             }
 
+            // THE FEEDBACK CHANNEL'S ONE FILE (`feedback.rs`), beside the ledger, the intake
+            // log and the two correction desks — same durability posture, and deliberately
+            // NOT in the ledger: what the CEO thinks of a session is not evidence of
+            // anything that happened in it.
+            //
+            // ONE FILE, NOT A DIRECTORY, and that is the module's own testable property: a
+            // directory invites a second file beside the first — a spool, an "unsent"
+            // shard, a marker — and `feedback_no_outbound_tests.rs` asserts that recording
+            // produces exactly one file and nothing else.
+            let feedback = match FeedbackStore::open(data_dir.join("feedback.jsonl")) {
+                Ok(store) => Some(Mutex::new(store)),
+                Err(e) => {
+                    eprintln!(
+                        "[richos] feedback store unavailable, the feedback surface will refuse \
+                         rather than take an answer it cannot keep: {e}"
+                    );
+                    None
+                }
+            };
+
             app.manage(AppState {
                 spine: Mutex::new(spine),
                 lease_ready,
@@ -661,6 +697,7 @@ fn main() {
                 control,
                 correction,
                 spoken,
+                feedback,
             });
             Ok(())
         })
@@ -724,7 +761,14 @@ fn main() {
             // --- Codex-UX slice 6 (2026-08-29): steering and stop (§9.2/§9.3) ---
             stop_turn,
             steer_message,
-            running_turn
+            running_turn,
+            // --- the feedback channel, local half (2026-08-30) — appended, never reordered ---
+            feedback_available,
+            feedback_wording,
+            feedback_taxonomy,
+            feedback_preview,
+            feedback_record,
+            feedback_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -1980,4 +2024,285 @@ fn spoken_suppressed_terms(state: State<AppState>) -> Result<Vec<String>, String
 #[tauri::command]
 fn spoken_unsuppress_term(state: State<AppState>, key: String) -> Result<(), String> {
     spoken_desk(&state)?.unsuppress(&key).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// THE FEEDBACK CHANNEL — the local half, made reachable (RICH-TODOs row 5)
+// ---------------------------------------------------------------------------------------
+//
+// `feedback.rs` landed complete on 2026-08-30: the CEO's wording in constants, the four
+// keys, the versioned taxonomy, the local store, the disclosure, and four tests in
+// `tests/feedback_no_outbound_tests.rs` asserting there is no way off this machine. And
+// `grep -n feedback src-tauri/src/main.rs` returned nothing, which is row 5b's defect in a
+// second costume: a capability the CEO can only reach by writing Rust is not a property of
+// the product he uses.
+//
+// **NOTHING HERE SENDS ANYTHING, AND NOTHING HERE MAY.** These six commands are a window
+// onto one local file. There is no transport, no endpoint, no address, no background job
+// and no queue — and `feedback_no_outbound_tests.rs` now reads THESE FUNCTIONS' bodies as
+// well as the module's, so a later "just wire it up" commit fails a test rather than a
+// review.
+//
+// THIS LAYER AUTHORS NO WORDING. Every sentence the CEO reads on this surface is a
+// constant or a term from `feedback.rs` — `PROMPT_QUESTION`, `PROMPT_OPTIONS`,
+// `REPORT_OFFER`, `DISCLOSURE_HEADING`, and the `label()`/`sentence()` of every term. The
+// module puts them in one place precisely so a UI cannot paraphrase them, so this file
+// projects them and adds none of its own. The one exception is the sentence below, which
+// is about THIS INSTALL and has nowhere else to live.
+//
+// They take their own mutex, never the spine's — a question about a session is asked while
+// the session is still running.
+
+/// What the CEO is told when the one file cannot be opened.
+///
+/// The register the other two desks use: it says what it will not do, it names who owns the
+/// fix, and it invents no control, because there genuinely is none in the app. Asking him
+/// what he thinks and then dropping the answer would be worse than not asking.
+const FEEDBACK_STORE_UNAVAILABLE: &str =
+    "I can't keep an answer right now — the file I record them in wouldn't open, and I'm \
+     not going to ask you what you think and then lose it. That one is for whoever set \
+     RichOS up to look at; it isn't yours to fix.";
+
+/// What he is told if a key that is not one of the four ever reaches the store.
+///
+/// `PromptOutcome::from_key` returns `None` for anything else, and this is that `None` said
+/// out loud: an unrecognised key is not a dismissal, it is not an answer at all, and
+/// recording it as one would put invented data in the store.
+const FEEDBACK_KEY_NOT_ONE_OF_FOUR: &str =
+    "That isn't one of the four answers, so I haven't written anything down.";
+
+/// What he is told if the text he approved is not the text this build would report.
+///
+/// The CEO's own rule — *he sees exactly what his RichOS would say, before any of it could
+/// ever travel* — is a STRUCTURAL property in `feedback.rs` (`ApprovedReport` has no public
+/// constructor; the only way to one is `Disclosure::approve`, and a `Disclosure` cannot
+/// exist without having rendered its text). That property is enforced inside one process.
+/// This command sits on the other side of an IPC boundary, so it re-renders and compares:
+/// an approval whose text does not match what this build would say is refused rather than
+/// recorded, and the mismatch is the one case where consent could be recorded for something
+/// he was never shown.
+const FEEDBACK_PREVIEW_MISMATCH: &str =
+    "I won't record that. What you were shown isn't what I would say now, so approving it \
+     would be approving something you haven't read. Ask me to show it again.";
+
+/// The store, or the sentence to show the CEO when there isn't one.
+fn feedback_store<'a>(
+    state: &'a State<AppState>,
+) -> Result<std::sync::MutexGuard<'a, FeedbackStore>, String> {
+    let store = state.feedback.as_ref().ok_or(FEEDBACK_STORE_UNAVAILABLE)?;
+    store.lock().map_err(|_| FEEDBACK_STORE_UNAVAILABLE.to_string())
+}
+
+/// Can an answer be kept at all? A surface that cannot tell "nothing recorded yet" from
+/// "the file would not open" would render an empty history over a broken store and call it
+/// calm — the same distinction both correction desks draw.
+#[tauri::command]
+fn feedback_available(state: State<AppState>) -> bool {
+    state.feedback.is_some()
+}
+
+/// THE PROMPT, THE KEYS AND THE OFFER, verbatim from `feedback.rs`.
+///
+/// Projected rather than re-typed: the module holds the CEO's wording in constants
+/// specifically so the UI cannot paraphrase it, and `invitesReport` comes from
+/// `Rating::invites_report` so the "only 1 and 2" rule is not re-derived on the other side
+/// of the bridge.
+#[tauri::command]
+fn feedback_wording() -> serde_json::Value {
+    // Every rating there is. Not a list this file keeps: `Rating` has exactly three
+    // variants and `0` is deliberately not one of them, so a fourth would be a compile
+    // error here rather than a silently missing button.
+    let ratings: Vec<serde_json::Value> = [Rating::Bad, Rating::OkButCouldBeBetter, Rating::Good]
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "key": r.key().to_string(),
+                "label": r.label(),
+                // The value serde ACTUALLY writes for this rating, so a surface reading an
+                // entry back off disk can match it without transforming the label into a
+                // wire name and hoping the two agree.
+                "wire": serde_json::to_value(r).unwrap_or(serde_json::Value::Null),
+                "invitesReport": r.invites_report(),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "question": PROMPT_QUESTION,
+        "options": PROMPT_OPTIONS,
+        "reportOffer": REPORT_OFFER,
+        "disclosureHeading": DISCLOSURE_HEADING,
+        "taxonomyVersion": TAXONOMY_VERSION.wire(),
+        "ratings": ratings,
+        // `0` is deliberately not a `Rating` — dismissing is the absence of a rating, not a
+        // fourth value of one — so it is carried separately and its label is read out of
+        // the options line the module wrote, never typed here.
+        "dismiss": { "key": "0", "label": "Dismiss" },
+    })
+}
+
+/// THE WHOLE VOCABULARY a report can be assembled from, iterated from each term's own
+/// `ALL`. Nothing here is a list this file maintains: adding a term in `feedback.rs` puts
+/// it on screen, and removing one takes it off.
+#[tauri::command]
+fn feedback_taxonomy() -> serde_json::Value {
+    let failure_class: Vec<serde_json::Value> = FailureClass::ALL
+        .iter()
+        .map(|t| serde_json::json!({ "wire": t.wire(), "label": t.label() }))
+        .collect();
+    let occurrences: Vec<serde_json::Value> = Occurrences::ALL
+        .iter()
+        .map(|t| serde_json::json!({ "wire": t.wire(), "label": t.label() }))
+        .collect();
+    let diagnosis: Vec<serde_json::Value> = DiagnosisTerm::ALL
+        .iter()
+        .map(|t| serde_json::json!({ "wire": t.wire(), "sentence": t.sentence() }))
+        .collect();
+    let conditions: Vec<serde_json::Value> = ContributingCondition::ALL
+        .iter()
+        .map(|t| serde_json::json!({ "wire": t.wire(), "sentence": t.sentence() }))
+        .collect();
+    serde_json::json!({
+        "version": TAXONOMY_VERSION.wire(),
+        "failureClass": failure_class,
+        "occurrences": occurrences,
+        "diagnosis": diagnosis,
+        "conditions": conditions,
+    })
+}
+
+/// What the CEO chose, in the payload's OWN field names.
+///
+/// `deny_unknown_fields` for the reason `FeedbackPayload` carries it: prose arrives beside a
+/// payload as often as inside it, and serde's default is to ignore what it does not know.
+/// A `notes` field posted from the webview would otherwise be silently dropped here and
+/// then, one careless commit later, silently kept.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Selection {
+    failure_class: FailureClass,
+    occurrences_this_session: Occurrences,
+    generic_diagnosis: Vec<DiagnosisTerm>,
+    #[serde(default)]
+    contributing_condition: Vec<ContributingCondition>,
+}
+
+/// What he answered when offered the chance to report.
+///
+/// There is no `Pending` and no `Later`, mirroring `ReportDecision`: an answer is an answer,
+/// and a half-state here is the seam a future outbox would grow from.
+#[derive(serde::Deserialize)]
+#[serde(tag = "decision", rename_all = "snake_case", deny_unknown_fields)]
+enum ReportChoice {
+    /// `3`, or a dismissal — the offer was never made.
+    NotOffered,
+    /// The offer was made and he said no. The payload is dropped and nothing about it is
+    /// recorded, because a declined report is not a report.
+    Declined,
+    /// He read the rendered report and said yes. `shown` is the exact block he read, and it
+    /// is checked against what this build renders before any consent is recorded.
+    Approved { selection: Selection, shown: String },
+}
+
+/// Assemble a disclosure from a rating and a selection. The ONLY route to a payload in this
+/// file, so the preview command and the record command cannot render two different things.
+fn disclosure_for(rating: Rating, sel: &Selection) -> Result<Disclosure, String> {
+    let payload = FeedbackPayload::assemble(
+        rating,
+        sel.failure_class,
+        sel.occurrences_this_session,
+        sel.generic_diagnosis.clone(),
+        sel.contributing_condition.clone(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(Disclosure::of(payload))
+}
+
+fn rating_from_key(key: &str) -> Result<Rating, String> {
+    let outcome = outcome_from_key(key)?;
+    outcome.rating().ok_or_else(|| FEEDBACK_KEY_NOT_ONE_OF_FOUR.to_string())
+}
+
+fn outcome_from_key(key: &str) -> Result<PromptOutcome, String> {
+    let mut chars = key.chars();
+    let (first, rest) = (chars.next(), chars.next());
+    match (first, rest) {
+        (Some(c), None) => {
+            PromptOutcome::from_key(c).ok_or_else(|| FEEDBACK_KEY_NOT_ONE_OF_FOUR.to_string())
+        }
+        _ => Err(FEEDBACK_KEY_NOT_ONE_OF_FOUR.to_string()),
+    }
+}
+
+/// **THE PREVIEW.** Exactly what would be said, rendered from the same structure that gets
+/// recorded — never a description of it.
+///
+/// Nothing is stored by this command and nothing is consented to by calling it. It exists
+/// so the CEO reads the report BEFORE he is asked to approve it, which is the half of his
+/// design that the type system cannot carry across an IPC boundary on its own.
+#[tauri::command]
+fn feedback_preview(key: String, selection: Selection) -> Result<serde_json::Value, String> {
+    let rating = rating_from_key(&key)?;
+    let disclosure = disclosure_for(rating, &selection)?;
+    Ok(serde_json::json!({
+        // The heading and the report separately, so a surface can lay them out, AND the two
+        // together in one block — which is the string an approval is checked against, so
+        // there is no arrangement of the parts the UI could get wrong.
+        "heading": DISCLOSURE_HEADING,
+        "text": disclosure.text(),
+        "full": disclosure.full_text(),
+    }))
+}
+
+/// **THE ANSWER, KEPT LOCALLY.** One line appended to one file, and that is the entire
+/// effect of this command.
+///
+/// The report half re-renders from the selection and compares against the block the CEO was
+/// shown. `Disclosure::approve` is then the only route to the `ApprovedReport` that goes in,
+/// and `FeedbackEntry::with_report` refuses a report attached to a rating that never invited
+/// one, or one that disagrees with the rating he gave. Every one of those rules lives in
+/// `feedback.rs`; none of them is re-implemented here.
+#[tauri::command]
+fn feedback_record(
+    state: State<AppState>,
+    key: String,
+    report: ReportChoice,
+) -> Result<FeedbackEntry, String> {
+    let outcome = outcome_from_key(&key)?;
+    let decision = match &report {
+        ReportChoice::NotOffered => ReportDecision::NotOffered,
+        ReportChoice::Declined => ReportDecision::Declined,
+        ReportChoice::Approved { selection, shown } => {
+            let rating = outcome.rating().ok_or_else(|| FEEDBACK_KEY_NOT_ONE_OF_FOUR.to_string())?;
+            let disclosure = disclosure_for(rating, selection)?;
+            if disclosure.full_text() != *shown {
+                return Err(FEEDBACK_PREVIEW_MISMATCH.to_string());
+            }
+            disclosure.approve()
+        }
+    };
+    let entry = FeedbackEntry::new(outcome).with_report(decision).map_err(|e| e.to_string())?;
+    let store = feedback_store(&state)?;
+    store.record(&entry).map_err(|e| e.to_string())?;
+    Ok(entry)
+}
+
+/// What is on this machine, oldest first.
+///
+/// Each approved entry carries `shown` — the text he read when he approved it, re-rendered
+/// from the stored payload. `render_disclosure` is deterministic and total, so no second
+/// free-text copy of what he saw has to be kept in the record; keeping one would have put an
+/// unvalidated `String` into the durable file, which is the exact channel this design closes.
+#[tauri::command]
+fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let entries = feedback_store(&state)?.entries().map_err(|e| e.to_string())?;
+    Ok(entries
+        .into_iter()
+        .map(|e| {
+            let shown = match &e.report {
+                ReportDecision::Approved(a) => Some(a.as_shown()),
+                _ => None,
+            };
+            serde_json::json!({ "entry": e, "shown": shown })
+        })
+        .collect())
 }
