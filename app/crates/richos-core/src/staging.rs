@@ -61,6 +61,7 @@ use crate::util::now_millis;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StagingError {
@@ -455,7 +456,28 @@ impl CandidateDesk {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Hand the desk to the spine and to the shell as one shared object.
+    pub fn shared(self) -> SharedCandidateDesk {
+        Arc::new(Mutex::new(self))
+    }
 }
+
+/// The desk as the SHELL holds it — and as the spine holds it, which is the same object.
+///
+/// **It is deliberately NOT inside the spine's mutex.** `Spine::submit_prompt` takes
+/// `&mut self` and does not return until the turn is over, so anything behind that lock is
+/// unreachable for the length of a turn (`steering.rs` opens with the measurement:
+/// §6.2's own example is `Worked for 2h 17m 50s`). Answering §7's question is something the
+/// CEO does WHILE Rich is working — that is the entire point of a non-activating HUD — so a
+/// desk behind the turn lock would be a prompt he cannot answer until the work it
+/// interrupted has already finished. Same `Arc`-beside-the-lock shape as `TurnControl`, and
+/// for the same measured reason.
+///
+/// The lock ordering is one-way and trivial: the trigger takes the spine lock and then this
+/// one, briefly; the answer commands take only this one. Nothing takes the spine lock while
+/// holding this.
+pub type SharedCandidateDesk = Arc<Mutex<CandidateDesk>>;
 
 /// The event a staged correction is announced on. A FOURTH family beside `stream.rs`,
 /// `live.rs` and `machinery.rs`, and separate from all three for the reason

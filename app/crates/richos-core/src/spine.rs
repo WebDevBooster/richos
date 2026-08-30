@@ -29,7 +29,7 @@ use crate::reprime::{
     LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest, DEFAULT_LORO_BUDGET_CHARS,
     DEFAULT_TAIL_TURNS,
 };
-use crate::staging::{CandidateDesk, CorrectionObserver};
+use crate::staging::{CorrectionObserver, SharedCandidateDesk};
 use crate::steering::{ActiveTurn, IntakeRecord, StopClaim, TurnControl};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
@@ -296,8 +296,10 @@ pub struct Spine {
     /// listens only to them is unaffected by anything on this one.
     live: Option<Box<dyn LiveObserver>>,
     /// THE FLYWHEEL'S AUTOMATIC TRIGGER (`spoken.rs` + `staging.rs`). Optional: a build
-    /// with no desk attached behaves exactly as this file did before it existed.
-    candidates: Option<CandidateDesk>,
+    /// with no desk attached behaves exactly as this file did before it existed. Held as a
+    /// `SharedCandidateDesk` (an `Arc<Mutex<_>>`) rather than owned, so answering §7's
+    /// question never waits on the turn lock — see `staging::SharedCandidateDesk`.
+    candidates: Option<SharedCandidateDesk>,
     /// Where a staged correction is announced. A FOURTH family, separate from the other
     /// three for the reason `machinery_observer` is separate from `observer`.
     correction_observer: Option<Box<dyn CorrectionObserver>>,
@@ -568,7 +570,7 @@ impl Spine {
     /// automatic**: with a desk attached, every CEO utterance is examined as it is
     /// submitted, and a correction is written down without a command being typed. With no
     /// desk attached this file behaves exactly as it did before the desk existed.
-    pub fn set_candidate_desk(&mut self, desk: CandidateDesk) {
+    pub fn set_candidate_desk(&mut self, desk: SharedCandidateDesk) {
         self.candidates = Some(desk);
     }
 
@@ -579,13 +581,10 @@ impl Spine {
         self.correction_observer = Some(observer);
     }
 
-    /// Read access for the surface that answers §7's three outcomes.
-    pub fn candidate_desk(&self) -> Option<&CandidateDesk> {
+    /// The shared handle, for the surface that answers §7's three outcomes. It is a handle
+    /// rather than a borrow precisely so the answer path does not go through this struct.
+    pub fn candidate_desk(&self) -> Option<&SharedCandidateDesk> {
         self.candidates.as_ref()
-    }
-
-    pub fn candidate_desk_mut(&mut self) -> Option<&mut CandidateDesk> {
-        self.candidates.as_mut()
     }
 
     pub fn attach_lease(&mut self, lease: Box<dyn Cognition>) {
@@ -1210,9 +1209,18 @@ impl Spine {
         if detection.asks.is_empty() {
             return;
         }
-        let desk = self.candidates.as_mut().expect("checked above");
+        let desk = self.candidates.as_ref().expect("checked above");
+        // A poisoned desk lock loses the QUESTION, never the turn — same posture as the
+        // disk-failure arm below, and stated rather than unwrapped.
+        let Ok(mut desk) = desk.lock() else {
+            eprintln!("[richos] correction desk lock is poisoned — the question is dropped, the turn is not");
+            return;
+        };
         match desk.stage(&detection, &thread_id, turn_id, text) {
             Ok(staged) => {
+                // Released before the observer runs: a surface that blocks must not hold
+                // the desk shut against the CEO's own answer.
+                drop(desk);
                 if let Some(obs) = self.correction_observer.as_deref() {
                     if !staged.is_empty() {
                         obs.on_correction_staged(&staged);

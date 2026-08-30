@@ -14,7 +14,10 @@ use richos_core::cognition::MockCognition;
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::spine::Spine;
-use richos_core::staging::{CandidateDesk, CorrectionObserver, LearnOutcome, Staged, StagingError, VocabularyBackend};
+use richos_core::staging::{
+    CandidateDesk, CorrectionObserver, LearnOutcome, SharedCandidateDesk, Staged, StagingError,
+    VocabularyBackend,
+};
 use std::sync::{Arc, Mutex};
 
 fn femcboost() -> EntityId {
@@ -58,7 +61,7 @@ impl VocabularyBackend for Vocabulary {
 fn rig(
     tag: &str,
     replies: Vec<&str>,
-) -> (Spine, std::path::PathBuf, Arc<Mutex<Vec<Staged>>>, Arc<Mutex<Vec<(String, String)>>>) {
+) -> (Spine, std::path::PathBuf, SharedCandidateDesk, Arc<Mutex<Vec<Staged>>>, Arc<Mutex<Vec<(String, String)>>>) {
     let dir = tmp(tag);
     let ledger = Ledger::open(dir.join("ledger.jsonl")).unwrap();
     let mut spine = Spine::new(ledger);
@@ -69,27 +72,29 @@ fn rig(
     let written = Arc::new(Mutex::new(Vec::new()));
     let mut desk = CandidateDesk::open(dir.join("candidates.jsonl")).unwrap();
     desk.set_vocabulary(Box::new(Vocabulary(written.clone())));
-    spine.set_candidate_desk(desk);
+    let desk = desk.shared();
+    spine.set_candidate_desk(desk.clone());
     spine.set_correction_observer(Box::new(Hud(seen.clone())));
-    (spine, dir, seen, written)
+    (spine, dir, desk, seen, written)
 }
 
 /// THE COMPLETION CRITERION. He speaks; it is recorded; nothing was typed at a terminal.
 #[test]
 fn speaking_a_correction_records_it_with_no_command_typed() {
-    let (mut spine, dir, seen, written) = rig(
+    let (mut spine, dir, desk, seen, written) = rig(
         "speaks",
         vec!["I have put the Kestral review in for the fourteenth.", "Noted — Kestrel."],
     );
 
     spine.submit_prompt("What is on for the Kestral account?", Source::Jam).unwrap();
     // Nothing to correct yet.
-    assert!(spine.candidate_desk().unwrap().pending().is_empty());
+    assert!(desk.lock().unwrap().pending().is_empty());
 
     // He speaks the correction. This is the ONLY call made.
     spine.submit_prompt("No, it's Kestrel, not Kestral.", Source::Jam).unwrap();
 
-    let pending = spine.candidate_desk().unwrap().pending();
+    let guard = desk.lock().unwrap();
+    let pending = guard.pending();
     assert_eq!(pending.len(), 1, "the correction was not recorded: {pending:?}");
     assert_eq!(pending[0].ask.from, "Kestral");
     assert_eq!(pending[0].ask.to, "Kestrel");
@@ -102,6 +107,7 @@ fn speaking_a_correction_records_it_with_no_command_typed() {
         "the anchor did not quote the line the wrong word appeared on"
     );
 
+    drop(guard);
     // The HUD was told, once.
     assert_eq!(seen.lock().unwrap().len(), 1);
 
@@ -115,13 +121,14 @@ fn speaking_a_correction_records_it_with_no_command_typed() {
 /// turn ends. Proven by reading the file from a second desk, not by reading memory.
 #[test]
 fn the_record_is_on_disk_before_anything_renders() {
-    let (mut spine, dir, _, _) = rig("durable", vec!["Ravencrest is booked."]);
+    let (mut spine, dir, _desk, _, _) = rig("durable", vec!["Ravencrest is booked."]);
     spine.submit_prompt("It's Ravencrest, not Raven Crest.", Source::Jam).unwrap();
 
     let reopened = CandidateDesk::open(dir.join("candidates.jsonl")).unwrap();
-    assert_eq!(reopened.pending().len(), 1);
-    assert_eq!(reopened.pending()[0].ask.to, "Ravencrest");
-    assert!(!reopened.pending()[0].turn_id.is_empty());
+    let pending = reopened.pending();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].ask.to, "Ravencrest");
+    assert!(!pending[0].turn_id.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -142,7 +149,8 @@ fn a_correction_is_recorded_before_the_turn_is_delivered_at_all() {
     spine.create_thread("General", &femcboost()).unwrap();
     let mut desk = CandidateDesk::open(dir.join("candidates.jsonl")).unwrap();
     desk.set_vocabulary(Box::new(Vocabulary(Arc::new(Mutex::new(Vec::new())))));
-    spine.set_candidate_desk(desk);
+    let desk = desk.shared();
+    spine.set_candidate_desk(desk.clone());
 
     // A lease whose reply arrives only when the turn runs; we never let it run. With no
     // lease attached at all, `submit_prompt` fails at DELIVERY — after the staging step —
@@ -151,7 +159,7 @@ fn a_correction_is_recorded_before_the_turn_is_delivered_at_all() {
     assert!(err.is_err(), "expected the delivery to fail with no lease");
 
     assert_eq!(
-        spine.candidate_desk().unwrap().pending().len(),
+        desk.lock().unwrap().pending().len(),
         1,
         "the correction was lost because the turn did not complete"
     );
@@ -162,9 +170,9 @@ fn a_correction_is_recorded_before_the_turn_is_delivered_at_all() {
 /// here so the modality split is a stated fact rather than an accident of testing.
 #[test]
 fn a_typed_correction_is_caught_by_the_same_wire() {
-    let (mut spine, dir, _, _) = rig("typed", vec!["Understood."]);
+    let (mut spine, dir, desk, _, _) = rig("typed", vec!["Understood."]);
     spine.submit_prompt("It's Loomsight, not Loom Sight.", Source::Text).unwrap();
-    assert_eq!(spine.candidate_desk().unwrap().pending().len(), 1);
+    assert_eq!(desk.lock().unwrap().pending().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -173,9 +181,9 @@ fn a_typed_correction_is_caught_by_the_same_wire() {
 /// itself its own mistakes.
 #[test]
 fn internal_and_proactive_traffic_is_never_mined_for_corrections() {
-    let (mut spine, dir, seen, _) = rig("internal", vec!["ok", "ok"]);
+    let (mut spine, dir, desk, seen, _) = rig("internal", vec!["ok", "ok"]);
     spine.submit_prompt("It's Kestrel, not Kestral.", Source::Internal).unwrap();
-    assert!(spine.candidate_desk().unwrap().pending().is_empty(), "an internal prompt was mined");
+    assert!(desk.lock().unwrap().pending().is_empty(), "an internal prompt was mined");
     assert!(seen.lock().unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -185,7 +193,7 @@ fn internal_and_proactive_traffic_is_never_mined_for_corrections() {
 /// ignored, which is worse than not asking".
 #[test]
 fn ordinary_conversation_stages_nothing_and_notifies_nobody() {
-    let (mut spine, dir, seen, _) = rig(
+    let (mut spine, dir, desk, seen, _) = rig(
         "quiet",
         vec!["Thursday is clear.", "I have moved it.", "Noted.", "Both are open."],
     );
@@ -197,7 +205,7 @@ fn ordinary_conversation_stages_nothing_and_notifies_nobody() {
     ] {
         spine.submit_prompt(line, Source::Jam).unwrap();
     }
-    assert!(spine.candidate_desk().unwrap().pending().is_empty());
+    assert!(desk.lock().unwrap().pending().is_empty());
     assert!(seen.lock().unwrap().is_empty(), "the HUD was woken by ordinary conversation");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -207,9 +215,10 @@ fn ordinary_conversation_stages_nothing_and_notifies_nobody() {
 /// very sentence that rejected it.
 #[test]
 fn a_correction_never_anchors_to_its_own_sentence() {
-    let (mut spine, dir, _, _) = rig("selfanchor", vec!["Understood."]);
+    let (mut spine, dir, desk, _, _) = rig("selfanchor", vec!["Understood."]);
     spine.submit_prompt("It's Ambrose, not Ambroze.", Source::Jam).unwrap();
-    let pending = spine.candidate_desk().unwrap().pending();
+    let guard = desk.lock().unwrap();
+    let pending = guard.pending();
     assert_eq!(pending.len(), 1);
     assert_eq!(
         pending[0].ask.anchor, None,
@@ -224,21 +233,21 @@ fn a_correction_never_anchors_to_its_own_sentence() {
 /// only thing in this file that writes anything.
 #[test]
 fn the_whole_loop_speak_then_confirm_reaches_the_vocabulary() {
-    let (mut spine, dir, _, written) = rig("loop", vec!["The Nakimura pilot starts Monday."]);
+    let (mut spine, dir, desk, _, written) = rig("loop", vec!["The Nakimura pilot starts Monday."]);
     spine.submit_prompt("When does the Nakimura pilot start?", Source::Jam).unwrap();
     spine.submit_prompt("It's Nakamura, not Nakimura.", Source::Jam).unwrap();
 
-    let key = spine.candidate_desk().unwrap().pending()[0].key.clone();
+    let key = desk.lock().unwrap().pending()[0].key.clone();
     assert!(written.lock().unwrap().is_empty(), "learned before he answered");
 
-    let outcome = spine.candidate_desk_mut().unwrap().confirm(&key).unwrap();
+    let outcome = desk.lock().unwrap().confirm(&key).unwrap();
     assert!(outcome.changed);
     assert_eq!(
         written.lock().unwrap().as_slice(),
         &[("Nakamura".to_string(), "Nakimura".to_string())],
         "canonical and mangled reached the vocabulary the wrong way round"
     );
-    assert!(spine.candidate_desk().unwrap().pending().is_empty());
+    assert!(desk.lock().unwrap().pending().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

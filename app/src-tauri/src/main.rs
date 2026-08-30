@@ -18,6 +18,10 @@ use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::loro::CliContextCompiler;
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
+use richos_core::staging::{
+    Candidate, CandidateDesk, CliVocabulary, CorrectionObserver, LearnOutcome, SharedCandidateDesk,
+    Staged, EVENT_CORRECTION_STAGED,
+};
 use richos_core::steering::{IntakeRecord, StopOutcome, TurnControl};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
@@ -46,6 +50,24 @@ impl TurnObserver for TauriEmitter {
     fn on_event(&self, event: &StreamEvent) {
         // Best-effort: a dropped/absent webview never affects the turn (ledger is truth).
         let _ = self.app.emit(event.event_name(), event.payload());
+    }
+}
+
+/// The SPOKEN-CORRECTION sink (`staging.rs`): forwards §7's ask to the webview on
+/// `rich://correction-staged`.
+///
+/// A FOURTH observer, separate from the other three for the reason the machinery sink is
+/// separate: a surface's subscription list is the proof of what it carries, and the calm
+/// conversation view must be able to ignore this entirely. Best-effort, like the others —
+/// the question is already durable on disk before this runs, so a webview that is not
+/// listening loses a prompt and never a record.
+struct TauriCorrectionEmitter {
+    app: AppHandle,
+}
+
+impl CorrectionObserver for TauriCorrectionEmitter {
+    fn on_correction_staged(&self, staged: &Staged) {
+        let _ = self.app.emit(EVENT_CORRECTION_STAGED, staged);
     }
 }
 
@@ -125,6 +147,16 @@ struct AppState {
     /// may be mid-turn, and `send_message` holds the spine lock for the whole of a turn.
     /// A correction UI that froze until Rich finished would be a UI nobody uses.
     correction: Option<Mutex<CorrectionDesk>>,
+    /// THE SPOKEN-CORRECTION DESK — the flywheel's automatic trigger (`spoken.rs` +
+    /// `staging.rs`). The SAME `Arc` the spine holds, reached WITHOUT the spine lock, for
+    /// exactly the reason `control` is: `send_message` holds the spine mutex for the whole
+    /// of a turn, and answering "Add \"Kestrel\" to your vocabulary?" is something the CEO
+    /// does WHILE Rich is working. A HUD that froze until the turn finished would be a HUD
+    /// nobody answers, and an unanswered ask is a lost correction.
+    ///
+    /// `None` when the desk's own log could not be opened — the commands then say so
+    /// rather than failing obscurely.
+    spoken: Option<SharedCandidateDesk>,
 }
 
 #[tauri::command]
@@ -427,6 +459,49 @@ fn main() {
                 }
             };
 
+            // THE FLYWHEEL'S AUTOMATIC TRIGGER (`spoken.rs` + `staging.rs`). Its log sits
+            // beside the ledger, the intake log and the loro desk, same durability posture
+            // and deliberately NOT in the ledger: a question the CEO has not answered is
+            // not evidence of anything that happened.
+            //
+            // The desk is attached to the SPINE (so every utterance is examined as it is
+            // submitted, with no command typed) and kept in `AppState` as the same `Arc`
+            // (so answering it never waits on the turn lock).
+            let spoken = match CandidateDesk::open(data_dir.join("spoken-corrections.jsonl")) {
+                Ok(mut desk) => {
+                    // The vocabulary writer. Absent on an ordinary install with no local
+                    // service configured — detection and staging still work, and only the
+                    // CONFIRM step reports that it has nowhere to write. It never claims a
+                    // term was learned when nothing wrote it.
+                    match CliVocabulary::from_env() {
+                        Some(v) => desk.set_vocabulary(Box::new(v)),
+                        None => eprintln!(
+                            "[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded \
+                             and asked, and confirming one will report that there is no vocabulary \
+                             to write to"
+                        ),
+                    }
+                    let shared = desk.shared();
+                    Some(shared)
+                }
+                Err(e) => {
+                    // Refuse rather than pretend, exactly as the loro desk does above: a
+                    // desk that cannot record durably would lose the CEO's correction
+                    // across a relaunch, which is worse than saying so.
+                    eprintln!(
+                        "[richos] spoken-correction desk unavailable, corrections will not be \
+                         recorded: {e}"
+                    );
+                    None
+                }
+            };
+            if let Some(desk) = &spoken {
+                spine.set_candidate_desk(desk.clone());
+                spine.set_correction_observer(Box::new(TauriCorrectionEmitter {
+                    app: app.handle().clone(),
+                }));
+            }
+
             app.manage(AppState {
                 spine: Mutex::new(spine),
                 lease_ready,
@@ -435,6 +510,7 @@ fn main() {
                 nav: Mutex::new(nav_store),
                 control,
                 correction,
+                spoken,
             });
             Ok(())
         })
@@ -469,6 +545,13 @@ fn main() {
             voice_turn_ended,
             voice_barge_in,
             voice_diagnostics,
+            // --- spoken corrections (2026-08-30) — appended, never reordered ---
+            spoken_corrections_available,
+            spoken_pending_corrections,
+            spoken_confirm_correction,
+            spoken_decline_correction,
+            spoken_suppressed_terms,
+            spoken_unsuppress_term,
             // --- entity + thread navigation (Codex-UX slice 4, 2026-08-29) ---
             // Appended at the END so a parallel timeline branch appending its own glue
             // merges without touching a line this branch also touched.
@@ -1653,4 +1736,98 @@ fn loro_suppressed_records(state: State<AppState>) -> Result<Vec<String>, String
 #[tauri::command]
 fn loro_unsuppress_record(state: State<AppState>, record_ref: String) -> Result<(), String> {
     desk(&state)?.unsuppress(&record_ref).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// SPOKEN CORRECTIONS (2026-08-30) — the flywheel's automatic trigger, answered
+// ---------------------------------------------------------------------------------------
+//
+// Nothing here DETECTS anything and nothing here decides anything. The trigger runs inside
+// `Spine::submit_prompt` on every utterance the CEO speaks or types, and it only ever
+// STAGES — ceo-decisions.md §7: "Nothing is ever learned silently." These commands are the
+// other half: the surface through which he gives the answer §7 requires, and the only route
+// by which a term reaches the vocabulary.
+//
+// Every one of them goes through `state.spoken`, which is the same `Arc` the spine holds
+// and is NOT behind the spine mutex — so a question raised during a two-hour turn can be
+// answered during that turn rather than after it.
+
+/// The desk, or the sentence to show the CEO when there isn't one.
+fn spoken_desk<'a>(
+    state: &'a State<'a, AppState>,
+) -> Result<std::sync::MutexGuard<'a, CandidateDesk>, String> {
+    let desk = state.spoken.as_ref().ok_or(
+        "I can't record corrections right now — my correction log could not be opened. \
+         Nothing you say is being lost from the conversation itself.",
+    )?;
+    desk.lock().map_err(|_| "the correction desk is busy — try that again".to_string())
+}
+
+/// Is the trigger live at all? A UI that cannot tell "nothing to ask" from "the desk is
+/// broken" would render a permanently empty HUD and call it calm.
+#[tauri::command]
+fn spoken_corrections_available(state: State<AppState>) -> bool {
+    state.spoken.is_some()
+}
+
+/// Everything awaiting §7's one-keystroke answer. Each carries the CEO's own sentence, the
+/// pair, the prompt to show, and — when the wrong form was found on the record — the line
+/// it appeared on, so the ask can quote him rather than assert at him.
+#[tauri::command]
+fn spoken_pending_corrections(state: State<AppState>) -> Result<Vec<Candidate>, String> {
+    Ok(spoken_desk(&state)?.pending().to_vec())
+}
+
+/// **He says yes.** The ONLY path from a staged correction to the vocabulary.
+///
+/// A confirm with no local service configured returns the writer's honest refusal rather
+/// than a cheerful nothing — reporting "learned" when nothing wrote is the one outcome that
+/// would make him stop correcting the term.
+///
+/// The ledger write is best-effort and never fails the answer, the same posture
+/// `loro_confirm_correction` takes: what the CEO decided is already durable on the desk's
+/// own log, and the action-ledger row is a record OF that decision, not the decision.
+#[tauri::command]
+fn spoken_confirm_correction(state: State<AppState>, key: String) -> Result<LearnOutcome, String> {
+    let (outcome, canonical, mangled) = {
+        let mut desk = spoken_desk(&state)?;
+        let pair = desk
+            .pending()
+            .iter()
+            .find(|c| c.key == key)
+            .map(|c| (c.ask.to.clone(), c.ask.from.clone()))
+            .ok_or_else(|| format!("no correction {key} is awaiting an answer"))?;
+        let outcome = desk.confirm(&key).map_err(|e| e.to_string())?;
+        (outcome, pair.0, pair.1)
+    };
+    let _ = state.spine.lock().unwrap().record_ceo_action(
+        "vocabulary_learn",
+        &format!("learned \"{canonical}\" (heard as \"{mangled}\")"),
+    );
+    Ok(outcome)
+}
+
+/// He says no. `permanent` is his explicit "don't ask for this term again". A plain decline
+/// is NOT permanent and the pair is asked again on its very next repeat — §7: repetition is
+/// the evidence, and waiting dilutes it.
+#[tauri::command]
+fn spoken_decline_correction(
+    state: State<AppState>,
+    key: String,
+    permanent: bool,
+) -> Result<(), String> {
+    spoken_desk(&state)?.decline(&key, permanent).map_err(|e| e.to_string())
+}
+
+/// The suppression list, inspectable — §7 requires it, "or a term silently refuses to learn
+/// with no way to see why".
+#[tauri::command]
+fn spoken_suppressed_terms(state: State<AppState>) -> Result<Vec<String>, String> {
+    Ok(spoken_desk(&state)?.suppressed().to_vec())
+}
+
+/// ...and liftable. A list you can see and cannot clear is only half of inspectable.
+#[tauri::command]
+fn spoken_unsuppress_term(state: State<AppState>, key: String) -> Result<(), String> {
+    spoken_desk(&state)?.unsuppress(&key).map_err(|e| e.to_string())
 }
