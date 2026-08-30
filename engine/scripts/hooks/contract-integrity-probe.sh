@@ -328,7 +328,7 @@ run_layer_R() {
     guard-row-currency-commits \
     guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
-    turn-manifest"
+    turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
@@ -533,7 +533,7 @@ worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted
 guard-unresolved-claims.sh|Stop
-turn-manifest.sh|Stop"
+turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
