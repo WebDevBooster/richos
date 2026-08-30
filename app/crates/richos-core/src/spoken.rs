@@ -316,7 +316,12 @@ pub fn ask_key(from: &str, to: &str) -> String {
 /// Words that are capitalized (or present) by GRAMMAR rather than because they name
 /// anything. Scanning for a term span stops dead at one of these, which is what keeps
 /// *"It's not a bug, it's a feature"* from offering `It's` as a name.
-const GRAMMAR_WORDS: &[&str] = &[
+///
+/// Public because `belief.rs` needs the same list to decide which words in an utterance
+/// CARRY topic — a shared content word is what ties a correction to the record it is a
+/// correction of — and a second copy would disagree about `then`/`still`/`also` on the day
+/// somebody added one.
+pub const GRAMMAR_WORDS: &[&str] = &[
     "i", "im", "id", "ill", "ive", "it", "its", "that", "thats", "this", "these", "those",
     "there", "theres", "here", "we", "us", "our", "ours", "you", "your", "youre", "he", "hes",
     "she", "shes", "they", "them", "their", "theyre", "his", "her", "my", "mine",
@@ -456,7 +461,7 @@ fn trim_edge(s: &str) -> String {
 /// apostrophe into a SPACE: `It's` normalizes to `it s`, which is in no list, so the first
 /// build of this module happily offered `It's Deepgram` as the name to learn. Contractions
 /// have to collapse (`It's` → `its`, `let's` → `lets`) or every clause opener is a name.
-fn grammar_core(tok: &str) -> String {
+pub fn grammar_core(tok: &str) -> String {
     tok.chars()
         .flat_map(char::to_lowercase)
         .map(fold)
