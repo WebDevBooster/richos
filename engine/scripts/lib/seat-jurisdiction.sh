@@ -100,7 +100,7 @@ _sj_once() {
 }
 
 # ---------------------------------------------------------------------------
-# _sj_physical <path>
+# richos_physical <path>
 # ---------------------------------------------------------------------------
 # A path with every symlink resolved, working from the nearest EXISTING
 # ancestor so a not-yet-created leaf still physicalises.
@@ -114,7 +114,7 @@ _sj_once() {
 # belonging to a different repository — the FALSE POSITIVE that teaches a
 # reader to ignore the notice. scripts/lib/publication-boundary.sh carries
 # pb_physical for precisely the same reason.
-_sj_physical() {
+richos_physical() {
     local p="${1:-}" dir rest
     [ -n "$p" ] || return 1
     if [ -d "$p" ]; then
@@ -191,8 +191,8 @@ richos_in_jurisdiction() {
     # one side is worse than physicalising neither: it turns a repository into
     # a stranger to itself, and the resulting false notice is the kind a reader
     # learns to scroll past.
-    seat="$(_sj_physical "$seat")"
-    target="$(_sj_physical "$target")"
+    seat="$(richos_physical "$seat")"
+    target="$(richos_physical "$target")"
     seat="${seat%/}"
 
     case "$target" in

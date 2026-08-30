@@ -138,20 +138,51 @@ esac
 # richos/app. Reloading the config from the governing root makes the protected
 # trees belong to the same repository as the path they are matched against.
 if ! GOVERNING_ROOT="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}")"; then
-    richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh" \
-        "neither this file's repository nor the session's seat has adopted the engine, so no repository's PROTECTED_PATHS govern this write"
+    # TWO DIFFERENT PROBLEMS, TWO DIFFERENT MESSAGES, because they need
+    # different actions from the reader and a banner that names the wrong
+    # repository is barely better than no banner:
+    #
+    #   out of jurisdiction  the file lives in ANOTHER repository. The notice
+    #                        must name BOTH, or the reader cannot tell which
+    #                        tree is the unguarded one.
+    #   not adopted          the file is inside the seat, and the seat has
+    #                        adopted nothing. Naming the one repository is
+    #                        right, and the fix is to adopt it.
+    #
+    # richos_assert_jurisdiction returns 0 when the file IS inside the seat, so
+    # this reads as "if it was mine and I still cannot govern it, that is a
+    # non-adoption problem".
+    if richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
+           "${ENTITY_ROOT}" "$FILE_PATH" "file"; then
+        richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh" \
+            "this repository has adopted nothing, so no PROTECTED_PATHS govern this write"
+    fi
     exit 0
 fi
-if [ "$GOVERNING_ROOT" != "$ENTITY_ROOT" ]; then
+
+# BOTH SIDES PHYSICALISED BEFORE THE PREFIX TEST BELOW. On macOS /var is a
+# symlink to /private/var, so the seat arrives logical (from the payload) while
+# the governing root arrives physical (it has been through `cd && pwd`). Compare
+# those two strings and a repository is not itself: the guard silently reloads
+# a config it already had, and then matches PROTECTED_PATHS against a path with
+# the other spelling and never fires. Caught by case 2a of
+# scripts/lib/seat-jurisdiction.test.sh — the POSITIVE control, which is exactly
+# the case that exists to notice a guard that has gone inert.
+SEAT_PHYS="$(richos_physical "${ENTITY_ROOT:-}")"
+FILE_PATH="$(richos_physical "$FILE_PATH")"
+
+if [ "$GOVERNING_ROOT" != "$SEAT_PHYS" ]; then
+    # A different repository governs this file than the one this session sits
+    # in. Say so once, then judge it by ITS rules rather than the seat's.
     richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
         "$ENTITY_ROOT" "$FILE_PATH" "file" || true
-    ENTITY_ROOT="$GOVERNING_ROOT"
     PROTECTED_PATHS=""
-    CONFIG="$ENTITY_ROOT/orchestration.config"
+    CONFIG="$GOVERNING_ROOT/orchestration.config"
     # shellcheck disable=SC1090
     [ -f "$CONFIG" ] && . "$CONFIG"
     : "${PROTECTED_PATHS:=}"
 fi
+ENTITY_ROOT="$GOVERNING_ROOT"
 
 # Sensible failure: with no protected paths configured, the guard cannot know
 # what to protect. Surface it loudly (never silently) and allow the write.
