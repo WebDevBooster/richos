@@ -120,6 +120,15 @@ ALL_ROOT_SCRIPTS=(
     # guard-row-currency-commits.sh refuses to start without row-currency.sh.
     scripts/lib/row-currency.sh
     scripts/lib/row-currency.py
+    # The Stop-hook notice channel. It is on this list for a DIFFERENT reason
+    # from the predicates above, and the difference is worth stating. Those
+    # guards REFUSE TO START without their predicate, so a sandbox missing one
+    # models an engine that cannot run. The Stop hooks do not refuse — absent
+    # this file they fall back to announcing every turn, undeduplicated. So a
+    # sandbox without it would not look broken; it would look FINE while
+    # modelling a different engine from the one that ships. That is the harder
+    # failure to notice, which is why it is carried too.
+    scripts/lib/stop-hook-notice.sh
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
