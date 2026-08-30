@@ -48,8 +48,16 @@ pub enum TtsError {
 }
 
 impl TtsError {
+    /// NAMES THE PARTY. Speech synthesis failing is not something the CEO can fix from
+    /// inside the app, and the old line did not say so — it read as a fault he might be
+    /// expected to chase. Naming the owner is what a NEEDS-SOMEONE-ELSE state owes its
+    /// reader. ("text" is load-bearing here: this file's own
+    /// `a_synthesis_failure_degrades_to_text_without_leaking_machinery` asserts the CEO is
+    /// told the conversation continues.)
     pub fn ceo_message(&self) -> String {
-        "My voice isn't working on this machine — I'll keep answering in text.".into()
+        "My voice isn't working on this machine — whoever set RichOS up would need to look at \
+         that. I'll keep answering in text."
+            .into()
     }
 }
 
