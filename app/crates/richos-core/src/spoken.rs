@@ -335,7 +335,8 @@ pub const GRAMMAR_WORDS: &[&str] = &[
     "want", "wants", "need", "needs", "think", "thinks", "know", "knows", "let", "lets", "go",
     "goes", "going", "gonna", "get", "gets", "got", "look", "looks", "listen", "also", "again",
     "still", "the", "a", "an", "of", "to", "for", "with", "from", "in", "on", "at", "by", "as",
-    "if", "when", "where", "what", "who", "whom", "why", "how", "which", "about", "into", "over",
+    "if", "when", "where", "what", "who", "whom", "whos", "whose", "why", "how", "which",
+    "about", "into", "over",
     "under", "up", "down", "out", "off", "one", "two", "three", "first", "second", "last", "next",
     // Contractions, collapsed by `grammar_core` — `isn't` arrives here as `isnt`.
     "dont", "doesnt", "didnt", "isnt", "wasnt", "arent", "werent", "wont", "wouldnt", "shouldnt",

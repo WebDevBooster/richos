@@ -74,15 +74,60 @@
 //! (`Hand` → `Hanna`, which as a vocabulary entry would corrupt the ordinary word). **The
 //! gate judges the core; the vocabulary learns the span** — `capture.js`'s rule, kept.
 //!
-//! # How I know it is not a false positive
+//! # How I know it is not a false positive — and the one time it is
 //!
-//! Measured over 152 invented heard/sent pairs, 116 of them NOT corrections and every one
-//! of those an edit he really would make — rewordings, trims, afterthoughts, changes of
-//! mind, typo fixes, and freshly typed messages offered against a live journal
-//! (`tests/heard_precision.rs`, corpus and table in
-//! `docs/measurements/heard-vs-sent-trigger-2026-08-30/`). The numbers are pinned exactly
-//! in that test rather than to a floor, and a candidate whose PAIR is wrong scores as a
-//! false positive rather than as a partial hit.
+//! **Measured over 156 invented heard/sent pairs, 117 of them NOT corrections and every one
+//! of those an edit he really would make** — rewordings, trims, afterthoughts, changes of
+//! mind, typo fixes, casing fixes, and freshly typed messages offered against a live
+//! journal (`tests/heard_precision.rs`, corpus and full table in
+//! `docs/measurements/heard-vs-sent-trigger-2026-08-30/`):
+//!
+//! ```text
+//!   TP 35   FP 1   FN 3   TN 117      precision 0.972   recall 0.921
+//! ```
+//!
+//! **This is the first of the three triggers that does not measure 1.000, and the miss is
+//! named rather than rounded away.** `c08` — *"Marcus Web owns that account now."* corrected
+//! to *"Marcus Webb …"* — puts the name at the START of the sentence, where `capture.js`'s
+//! `startsSentence` guard forbids the expansion from absorbing `Marcus` (a sentence-initial
+//! capital is not evidence of a name). The pair therefore collapses to the naked delta
+//! `Web` -> `Webb`, which as a vocabulary entry rewrites the ordinary word *"web"* in every
+//! future decode — the exact harm the expansion exists to prevent, defeated by position.
+//! **The defect is in the SHARED rule, so `capture.js`'s call-transcript path has it too**,
+//! and it is reported rather than patched around here: the two repairs available inside
+//! this module are to refuse every hunk whose expansion was blocked at a sentence boundary
+//! (which also loses `Marla | Kestral` -> `Kestrel`, a perfectly safe pair, at −1 recall for
+//! −1 false positive) or to invent a length threshold to fit one row. Neither is worth
+//! doing quietly.
+//!
+//! **Because of that, this trigger ships OFF BY DEFAULT** — see
+//! [`Spine::set_heard_source`](crate::spine::Spine::set_heard_source) and
+//! `RICHOS_HEARD_TRIGGER`.
+//!
+//! **The condition that earns the number is the grammar-word refusal**, and it is measured
+//! rather than argued. The same corpus with condition 3 removed:
+//!
+//! ```text
+//!   TP 35   FP 18   FN 3                precision 0.660   recall 0.921
+//! ```
+//!
+//! Seventeen false positives, and recall does not move at all. That comparison is itself an
+//! assertion in the test, so if a future change ever makes the condition free, the claim
+//! that it is not will fail rather than this paragraph going quietly stale.
+//!
+//! **One condition earns nothing measurable on this corpus, and is kept anyway.** Offering
+//! all 156 sends against every OTHER row's dictation — 24,058 wrong answers available — the
+//! pairing floor cuts the sends that claim a foreign dictation from **156 to 52**, and cuts
+//! the QUESTIONS from 15 to 15: every one of those fifteen is a *correct* vocabulary pair
+//! found against a genuinely similar earlier dictation, which is the behaviour we want. So
+//! [`MATCH_MIN_SIMILARITY`]'s keep rests on the first number and on doctrine — this trigger
+//! is about a dictation he corrected, and a diff against an unrelated sentence is not one —
+//! not on the second, and saying so here is what stops the second being claimed for it.
+//!
+//! The three misses are named too: `buried-01..03`, a real name fix made inside a wholesale
+//! rewrite, which drops the pair below the pairing floor and loses the correction outright.
+//! They are ROWS in the corpus rather than a sentence in a README, so the hole cannot go
+//! stale.
 //!
 //! # This module cannot write anything
 //!
@@ -104,7 +149,11 @@
 //!   revisits that.
 //! - **It does not detect an edit that REPLACES a whole sentence.** A rewrite scores below
 //!   [`MATCH_MIN_SIMILARITY`] and is read as a different message. That is a real recall
-//!   hole, it is in the corpus as `rewrite-*`, and it is measured rather than assumed away.
+//!   hole, it is in the corpus as `buried-*`, and it is measured rather than assumed away.
+//! - **It does not ask about a pair the vocabulary could not hold.** `whisper cpp` ->
+//!   `whisper.cpp` is a correction he really made, and both sides normalize to one key, so
+//!   `correct.js:131-132` would never apply it. Refused as "casing/punctuation only", which
+//!   is the right answer for the wrong-sounding reason; `c35` in the corpus carries it.
 
 use crate::spoken::{self, Detection, Frame, SpokenAsk, SpokenRejection};
 use serde::{Deserialize, Serialize};
@@ -547,7 +596,15 @@ pub fn review_with(
             ),
         };
     };
-    if spoken::normalize_term(&m.heard) == spoken::normalize_term(sent) {
+    // RAW equality, not normalized. "He sent it unchanged" is a claim about the bytes: if a
+    // single character differs he DID change it, and the change is `detect`'s to judge and
+    // refuse with a reason rather than this line's to swallow. Normalized equality was the
+    // shipped JS rule and it silently loses an edit that only moves punctuation INSIDE a
+    // term — `whisper cpp` -> `whisper.cpp` normalizes to one string, so the one correction
+    // in the corpus that is purely a dot went unseen (`c35`). A casing-only or
+    // punctuation-only edit still stays silent, one layer down, where `spoken::gate` refuses
+    // it by name ("casing/punctuation only — nothing a vocabulary could hold").
+    if m.heard.trim() == sent.trim() {
         return HeardReview {
             matched: Some(m),
             detection: Detection::default(),
