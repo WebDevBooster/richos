@@ -601,13 +601,21 @@
     return !item || item.visibility === undefined || item.visibility === "ceo";
   }
 
+  /// THE ORDER GUARD IS ON THE CREATE BRANCH, AND THAT IS NOT A SHORTCUT. Every site that
+  /// removes a turn id from `turnOrder` removes its record in the same breath (`dropTurn`,
+  /// and `onTurnStatus`'s merge, which re-inserts it), so `model.turns.has(id)` implies
+  /// `turnOrder` already carries it — and re-scanning the array for an id we have just been
+  /// handed a record for cost O(turns) per ITEM. On the 10,000-item thread the design record
+  /// promises that was 271 ms of `applySnapshot` before a single node existed
+  /// (`docs/verification/timeline-scale-2026-08-30/baseline.txt`). `scale.js` pins the
+  /// implication itself, not just the timing.
   function turnRecord(model, turnId) {
     let t = model.turns.get(turnId);
     if (!t) {
       t = { status: "queued", startedAt: null, activeMs: null, live: false, mergedFrom: [] };
       model.turns.set(turnId, t);
+      if (!model.turnOrder.includes(turnId)) model.turnOrder.push(turnId);
     }
-    if (!model.turnOrder.includes(turnId)) model.turnOrder.push(turnId);
     return t;
   }
 
@@ -934,7 +942,13 @@
       });
       return { structural: true, rejected: false, textOnly: null };
     }
-    existing.text += p.textDelta;
+    // REPLACED, NEVER MUTATED. `render` now reuses the DOM of a turn whose items are the
+    // same OBJECTS it drew last time, so an item that changes its contents behind that
+    // reference would keep a stale node on screen — a delta appended in place, and the
+    // prose frozen at whatever the last structural render happened to catch. Every other
+    // write in this file already goes through `putItem`, which builds a new object; this
+    // was the one exception, and it was the one that fires 52 times a turn.
+    model.items.set(p.messageId, Object.assign({}, existing, { text: existing.text + p.textDelta }));
     // Not structural: the caller updates this one node's text in place, so streaming never
     // rebuilds the timeline and never moves focus (§18, §15's "coalesce tiny deltas").
     return { structural: false, rejected: false, textOnly: p.messageId };
@@ -1036,8 +1050,12 @@
   /// `(turn, slot, sequence)` — the same key `TimelineBase::order_key` uses, with the turn
   /// order carried by first appearance. An UNPOSITIONED stream item sorts after every
   /// positioned one, because claiming it came first would be a claim (timeline.rs).
-  function orderKey(model, item) {
-    const turnIdx = model.turnOrder.indexOf(item.turnId);
+  /// `turnIndex` is a `turnId -> position` map built once per projection. It used to be
+  /// `model.turnOrder.indexOf(...)`, evaluated inside a sort comparator — O(turns) per
+  /// comparison, on every structural render. The KEY is unchanged; only the lookup is.
+  function orderKey(model, item, turnIndex) {
+    const idx = turnIndex ? turnIndex.get(item.turnId) : model.turnOrder.indexOf(item.turnId);
+    const turnIdx = idx === undefined || idx === null || idx < 0 ? -1 : idx;
     const slot = SLOT_RANK[item.slot] !== undefined ? SLOT_RANK[item.slot] : 1;
     const positioned = typeof item.sequence === "number" ? 0 : 1;
     const seq = typeof item.sequence === "number" ? item.sequence : 0;
@@ -1060,8 +1078,14 @@
       list.push(item);
       byTurn.set(item.turnId, list);
     }
+    const turnIndex = new Map();
     const ids = model.turnOrder.slice();
-    for (const id of byTurn.keys()) if (!ids.includes(id)) ids.push(id);
+    for (let i = 0; i < ids.length; i++) turnIndex.set(ids[i], i);
+    for (const id of byTurn.keys()) {
+      if (turnIndex.has(id)) continue;
+      turnIndex.set(id, ids.length);
+      ids.push(id);
+    }
 
     // §9.2's "Added while Rich was working" cue, DERIVED rather than flagged.
     //
@@ -1082,14 +1106,68 @@
       if (end === null) continue; // ended, but when was never recorded — claims nothing
       spans.push({ id, from: t.startedAt, to: end });
     }
-    const addedWhileWorking = (item) =>
-      typeof item.createdAt === "number" &&
-      spans.some((s) => s.id !== item.turnId && item.createdAt >= s.from && item.createdAt <= s.to);
+    // The predicate above reads `spans.some(...)`, evaluated once per turn over every
+    // turn's span. That is quadratic, and it cost 249 ms of projection on a 10,000-turn
+    // thread — on EVERY structural render, i.e. once per activity row while Rich works.
+    //
+    // The same answer in O(log turns), and it is the EXCLUSION that makes it interesting.
+    // Spans sorted by `from`: every span that could contain a timestamp `t` starts at or
+    // before it, so the candidates are a prefix, and "does any candidate reach `t`" is a
+    // running maximum of `to`. But a turn's OWN span always reaches its own prompt, so a
+    // plain maximum answers "yes" for every message and skips nothing — the first version
+    // of this was exactly that, and measured identical to the scan it replaced.
+    //
+    // So the running maximum keeps its TOP TWO, and their ids. Span ids are turn ids and
+    // are unique, so the runner-up is by construction a different turn: if the best
+    // candidate is the message's own turn, the second-best decides, and otherwise the best
+    // does. Exactly the old predicate, never an approximation of it — `scale.js` check 7
+    // runs both over a scripted mix of overlapping, nested, live and non-steering turns and
+    // requires the two to agree message for message.
+    const sorted = spans.slice().sort((a, b) => a.from - b.from);
+    const bestTo = new Array(sorted.length);
+    const bestId = new Array(sorted.length);
+    const nextTo = new Array(sorted.length);
+    let b = -Infinity;
+    let bid = null;
+    let n = -Infinity;
+    for (let i = 0; i < sorted.length; i++) {
+      const sp = sorted[i];
+      if (sp.to > b) {
+        n = b;
+        b = sp.to;
+        bid = sp.id;
+      } else if (sp.to > n) {
+        n = sp.to;
+      }
+      bestTo[i] = b;
+      bestId[i] = bid;
+      nextTo[i] = n;
+    }
+    const addedWhileWorking = (item) => {
+      const t = item.createdAt;
+      if (typeof t !== "number") return false;
+      let lo = 0;
+      let hi = sorted.length - 1;
+      let at = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (sorted[mid].from <= t) {
+          at = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      if (at < 0) return false;
+      return bestId[at] === item.turnId ? nextTo[at] >= t : bestTo[at] >= t;
+    };
 
     return ids
       .filter((id) => byTurn.has(id) || model.turns.has(id))
       .map((turnId) => {
-        const items = (byTurn.get(turnId) || []).slice().sort((a, b) => cmpKey(orderKey(model, a), orderKey(model, b)));
+        const items = (byTurn.get(turnId) || [])
+          .slice()
+          .sort((a, b) => cmpKey(orderKey(model, a, turnIndex), orderKey(model, b, turnIndex)));
         return {
           turnId,
           record: model.turns.get(turnId) || null,
@@ -1753,13 +1831,99 @@
     return frag;
   }
 
+  // -------------------------------------------------------------------------------------
+  // TURN REUSE — why `render` is no longer `innerHTML = ""`
+  // -------------------------------------------------------------------------------------
+  //
+  // MEASURED, NOT ASSUMED. `render` is called on every STRUCTURAL change: every activity
+  // row, every worker upsert, every turn-status transition. It used to empty the container
+  // and rebuild every turn. On the 10,000-item thread three design documents promise
+  // ("A 10,000-item thread history remains smooth"), in the WebKit Tauri ships on, that
+  // cost **256 ms per new row** — a fifteen-frame stall, once per tool call, for the whole
+  // of a long turn. The numbers, all six shapes, are in
+  // `docs/verification/timeline-scale-2026-08-30/baseline.txt` and `scale.js` pins them.
+  //
+  // So a turn whose rendered inputs are unchanged keeps the nodes it already has. The
+  // signature below is what "unchanged" means, and it is deliberately built from OBJECT
+  // IDENTITY rather than a field list: every write to an item goes through `putItem` (or,
+  // since this commit, the delta path), both of which REPLACE the object, so a new field on
+  // any item kind invalidates its turn without anyone remembering to add it here. A field
+  // list is the thing that rots.
+  //
+  // THE ONE CONTRACT THIS PLACES ON CALLERS: the `opts` callbacks (`copy`, `retry`,
+  // `toggle`, `openWorker`, `rerender`) must be behaviourally stable between renders,
+  // because a reused node keeps the listeners bound when it was built. `main.js` passes
+  // module-level functions and the harness passes equivalent closures. Everything a
+  // callback closes over that CAN change — the item, the group, the expanded set, the
+  // `expandedMessages` membership of a clamped bubble — is in the signature.
+  //
+  // NOT DONE HERE, AND NAMED RATHER THAN IMPLIED: this does not window the DOM. Every turn
+  // is still MOUNTED. What keeps that affordable is `content-visibility: auto` on `.tl-turn`
+  // (style.css), which is the engine's own virtualization — offscreen turns are skipped for
+  // layout and paint. Both halves were needed: the CSS alone left 136 ms of teardown and
+  // style recalc per row, and the reuse alone left a 51,000-node layout on every scroll.
+  const renderCache = new WeakMap(); // container -> { model, sections: Map<turnId, entry> }
+  const itemTokens = new WeakMap(); // item object -> stable identity token
+  let itemTokenSeq = 0;
+
+  function tokenOf(obj) {
+    if (!obj) return "0";
+    let t = itemTokens.get(obj);
+    if (t === undefined) {
+      t = ++itemTokenSeq;
+      itemTokens.set(obj, t);
+    }
+    return t;
+  }
+
+  /// Everything `renderTurn` reads, in one string. `avatarIn` is part of it because the
+  /// Rich Hand mark is a once-per-SESSION decision that runs THROUGH the turns in order: a
+  /// turn that would draw the avatar renders differently from the same turn after some
+  /// earlier turn has drawn it.
+  function turnSignature(model, turn, opts, avatarIn) {
+    const parts = [
+      avatarIn ? "a1" : "a0",
+      opts.isExpanded && opts.isExpanded(turn.turnId) ? "e1" : "e0",
+      opts.openWorker ? "w1" : "w0",
+      // The turn RECORD is mutated in place (`t.status`, `t.live`, `t.activeMs`), so it is
+      // the one thing here that cannot be signed by identity.
+      turn.record ? JSON.stringify(turn.record) : "r0",
+    ];
+    if (turn.user) {
+      // `turn.user` is a fresh projection object every call; the ITEM behind it is not.
+      parts.push(
+        "u" +
+          tokenOf(model.items.get(turn.user.id)) +
+          (turn.user.steering ? "s" : "") +
+          (turn.user.pending ? "p" : "") +
+          (opts.expandedMessages && opts.expandedMessages.has(turn.user.id) ? "x" : "")
+      );
+    } else {
+      parts.push("u0");
+    }
+    for (const item of turn.stream) parts.push(tokenOf(item));
+    return parts.join("|");
+  }
+
   /// Full render into `container`. Called on every STRUCTURAL change; streaming text and
   /// the one-second timer tick both bypass it (see `updateProse` / `updateTimers`), so a
   /// turn that streams for two hours rebuilds the DOM once per new item, not once per
   /// token (§15's "coalesce tiny deltas to avoid layout thrash").
   function render(model, container, opts) {
     const turns = turnsOf(model);
-    container.innerHTML = "";
+
+    let cache = renderCache.get(container);
+    if (!cache || cache.model !== model) {
+      // A different model is a different thread (or a different fixture). Nothing carries
+      // over — including whatever `renderFirstRun` or a previous caller put in here.
+      cache = { model: model, sections: new Map() };
+      renderCache.set(container, cache);
+      container.textContent = "";
+    }
+    const previous = cache.sections;
+    const sections = new Map();
+    const nodes = [];
+
     let avatarShown = opts.avatarAlreadyShown === true;
     const renderOpts = Object.assign({}, opts, {
       showAvatar: () => {
@@ -1769,6 +1933,15 @@
       },
     });
     for (const turn of turns) {
+      const avatarIn = avatarShown;
+      const sig = turnSignature(model, turn, opts, avatarIn);
+      const hit = previous.get(turn.turnId);
+      if (hit && hit.sig === sig && hit.node.parentNode === container) {
+        avatarShown = hit.avatarOut;
+        sections.set(turn.turnId, hit);
+        nodes.push(hit.node);
+        continue;
+      }
       // One Rich identity per TURN. The avatar is still once per SESSION (the Rich Hand mark
       // is a greeting, not a speaker label), so the two counters are separate on purpose.
       let identityShown = false;
@@ -1779,7 +1952,27 @@
           return true;
         },
       });
-      container.appendChild(renderTurn(model, turn, turnOpts));
+      const node = renderTurn(model, turn, turnOpts).firstElementChild;
+      sections.set(turn.turnId, { node: node, sig: sig, avatarOut: avatarShown });
+      nodes.push(node);
+    }
+    cache.sections = sections;
+
+    // Place `nodes` in order, moving what is already right into place and removing whatever
+    // is left over. Everything before `cursor` is already correct, so a node that needs to
+    // move can only be AFTER it — one `insertBefore` per mismatch, no second pass.
+    let cursor = container.firstChild;
+    for (const node of nodes) {
+      if (cursor === node) {
+        cursor = cursor.nextSibling;
+        continue;
+      }
+      container.insertBefore(node, cursor);
+    }
+    while (cursor) {
+      const next = cursor.nextSibling;
+      container.removeChild(cursor);
+      cursor = next;
     }
     return turns;
   }
