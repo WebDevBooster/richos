@@ -43,8 +43,15 @@ const SHOTS = path.join(__dirname, "shots-splash");
 /// names them by that repository rather than by a relative path. Check 18 photographs the
 /// shipping renderer either way; it can only put the study beside it on a machine that has
 /// one, and it says which of the two it did.
-const STUDIES = path.join(process.env.RICHOS_HQ || path.join(os.homedir(), "ab", "richos-hq"),
-                          "design", "mockups", "rounds", "round-8.1");
+const HQ = process.env.RICHOS_HQ || path.join(os.homedir(), "ab", "richos-hq");
+
+/// The study an ENTRY says it came from. Reading it out of `source` rather than rebuilding
+/// it from the id is the point: `source` stops being a comment and becomes a claim that
+/// check 18 goes and tests.
+function studyOf(entry) {
+  const m = /^richos-hq (\S+)$/.exec(entry.source);
+  return m ? path.join(HQ, m[1]) : null;
+}
 
 /// The library, read the way check 1 proves it can be read: as JSON.
 ///
@@ -961,7 +968,7 @@ async function main() {
     // would be four times the bytes to show the same thing twice.
     const added = LIBRARY.variations.filter((v) => v.tokens.materials.length);
     assert(added.length >= 11, "only " + added.length + " material versions to photograph");
-    const haveStudies = fs.existsSync(STUDIES);
+    const haveStudies = fs.existsSync(HQ);
     fs.mkdirSync(SHOTS, { recursive: true });
     const cmp = await browser.newContext({ viewport: { width: 400, height: 300 } });
     const judge = await cmp.newPage();
@@ -972,7 +979,8 @@ async function main() {
       const ship = await matShot(browser, v.id, false);
       let study = null;
       if (haveStudies) {
-        const file = path.join(STUDIES, slug, "index.html");
+        const file = studyOf(v);
+        assert(file, slug + ': its `source` does not name a study in the studies repository — "' + v.source + '"');
         assert(fs.existsSync(file), slug + ": the entry names a study that is not there — " + v.source);
         const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
         const page = await newPage(ctx);
@@ -993,7 +1001,7 @@ async function main() {
     }
     await cmp.close();
     return `${made.length} pairs — each the whole mat at half scale over the same corner at native scale` +
-      (haveStudies ? " — shipping renderer LEFT, study RIGHT" : " — SHIPPING SIDE ONLY: no study repository at " + STUDIES);
+      (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ);
   });
 
   await browser.close();
