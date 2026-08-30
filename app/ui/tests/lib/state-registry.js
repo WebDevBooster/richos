@@ -523,15 +523,15 @@ module.exports = [
   // UNREACHABLE / NOT-RENDERED
   // -------------------------------------------------------------------------------------
   {
-    s: "I can't safely tell which entity area this belongs to, so I won't guess. Set RICHOS_ENTITY to one of femcboost, deeply, prospects or richos, or launch me from that entity's repository root.",
+    s: "I can't tell which company this work belongs to, so I won't guess — filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. It isn't something you can set from in here: whoever set RichOS up has to tell me which company this copy of me works for.",
     c: "UNREACHABLE",
     why:
-      "A terminal instruction, and NOT reachable from the shipped UI: the only commands that " +
-      "raise it are `create_thread` and the three `loro_*` drill-downs, none of which main.js " +
-      "invokes (checked by enumerating every `Bridge.invoke(\"…\")` in main.js). Its live " +
-      "audience is the eprintln! at boot — the operator, for whom RICHOS_ENTITY is exactly the " +
-      "right instruction. A doc comment at main.rs:246 records what must change the day a " +
-      "slice wires one of those commands to a button.",
+      "Rewritten in this commit for the CEO rather than for a terminal, because the correction " +
+      "desk is about to wire three of the commands that raise it. STILL UNREACHABLE AT THIS " +
+      "COMMIT and classified as what is true now: main.js invokes none of them yet (checked by " +
+      "enumerating every `Bridge.invoke(\"…\")` in main.js). The RICHOS_ENTITY instruction did " +
+      "not disappear — it moved to the boot `eprintln!`, whose audience is the operator it " +
+      "names. Reclassified when a surface renders it.",
   },
   {
     s: "I couldn't read that audio file.",

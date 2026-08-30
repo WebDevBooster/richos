@@ -278,17 +278,28 @@ const LEASE_UNAVAILABLE_MESSAGE: &str =
 /// entity. UX §21 "Entity binding failure": state that Rich cannot safely determine which
 /// entity the work belongs to, and require an explicit choice. Never default.
 ///
-/// NOT REACHABLE FROM THE SHIPPED UI TODAY, and left alone deliberately. The only commands
-/// that raise it — `create_thread` and the three `loro_*` drill-downs — are registered but
-/// never invoked by `app/ui/main.js`; its live audience is the `eprintln!` at boot, i.e. the
-/// operator, for whom `RICHOS_ENTITY` is the correct and actionable instruction. The day a
-/// slice wires one of those commands to a button, this sentence becomes a terminal
-/// instruction addressed to a man who does not open terminals, and it needs the same
-/// treatment `LEASE_UNAVAILABLE_MESSAGE` just got.
+/// THAT DAY IS TODAY. This sentence used to end "Set RICHOS_ENTITY to one of femcboost,
+/// deeply, prospects or richos, or launch me from that entity's repository root", and it
+/// carried its own note saying it was safe only because nothing in `app/ui/main.js`
+/// invoked a command that raises it — *"the day a slice wires one of those commands to a
+/// button, this sentence becomes a terminal instruction addressed to a man who does not
+/// open terminals"*. The correction desk wires three of them
+/// (`loro_pending_corrections`, `loro_propose_correction`, `loro_confirm_correction`), so
+/// the sentence is now rewritten to the register `LEASE_UNAVAILABLE_MESSAGE` already uses:
+/// it says what it will not do and why, it names who owns the fix, and it invents no
+/// control — because there genuinely is none in the app. An environment variable is not an
+/// action the CEO can take, and telling him to take it would be the same request-wearing-a-
+/// status's-clothes defect one more time.
+///
+/// The operator has NOT lost the instruction. `RICHOS_ENTITY` is still exactly right for
+/// whoever set RichOS up, and it is still printed at boot — beside this sentence, at the
+/// one site whose audience is a terminal (see the `eprintln!` in `setup`). Two audiences,
+/// two sentences, one condition.
 const ENTITY_UNRESOLVED_MESSAGE: &str =
-    "I can't safely tell which entity area this belongs to, so I won't guess. \
-     Set RICHOS_ENTITY to one of femcboost, deeply, prospects or richos, or launch me from \
-     that entity's repository root.";
+    "I can't tell which company this work belongs to, so I won't guess — filing it under \
+     the wrong one would mix two companies' records together, and that's not a mistake \
+     worth risking to save you a question. It isn't something you can set from in here: \
+     whoever set RichOS up has to tell me which company this copy of me works for.";
 
 /// Resolve this launch's entity area (ECS §3.3/§10.2), deterministically and fail-closed.
 ///
@@ -347,7 +358,15 @@ fn main() {
                 Some(entity) => {
                     spine.ensure_active_thread_in(entity).expect("ensure thread");
                 }
-                None => eprintln!("[richos] {ENTITY_UNRESOLVED_MESSAGE}"),
+                // THE OPERATOR'S HALF of the same condition. The const above is written for
+                // the CEO and deliberately names no environment variable; this line is read
+                // by whoever it names, in a terminal, where `RICHOS_ENTITY` is the correct
+                // and actionable instruction.
+                None => eprintln!(
+                    "[richos] {ENTITY_UNRESOLVED_MESSAGE}\n\
+                     [richos] operator: set RICHOS_ENTITY to one of femcboost, deeply, \
+                     prospects or richos, or launch from that entity's repository root."
+                ),
             }
 
             // Attach the live UI sink: streamed reply deltas + turn-state events flow to
