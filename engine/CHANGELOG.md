@@ -12,6 +12,83 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Mid-session hook staleness — a landed guard says so, and says restarting is
+  yours to do** (`scripts/hooks/snapshot-enforcing-hooks.sh`,
+  `scripts/hooks/notice-hook-staleness.sh`,
+  `registered_hook_rows()` in `scripts/lib/registered-hooks.sh`) — MINOR.
+
+  Six guards were landed in one day. The lander knew they were inert until the
+  session restarted and said so, in the form *"they arm at next session start"*.
+  That sentence names a date. It names no actor and no action. The operator read
+  it as something that would happen **to** him rather than something he could do,
+  in five seconds, at any moment — nobody ever told him restarting was an
+  available move. He was then hit by a failure three of those six guards would
+  have caught.
+
+  Nothing was wrong with the guards, and the sentence was not even false. The
+  defect was that a deferred activation had been reported as a **forecast**
+  instead of a **request**, so nobody acted on it. That generalises well past
+  hooks, so it is stated to generalise:
+
+  > **A deferred activation must name the actor and the action.** Never "this
+  > arms at the next session" — always "restart the session to arm this; that is
+  > the operator's to do." A state change that requires a human action is not a
+  > date, it is a request.
+
+  The pair mirrors the definition-drift pair exactly, because it is the same
+  problem one object over: something the host loads ONCE at session start, with
+  no baseline against which anyone could prove it had gone stale.
+  `snapshot-enforcing-hooks.sh` records the registrations this session actually
+  booted with; `notice-hook-staleness.sh` re-derives them at the end of a turn
+  and, when they differ, tells the **operator** — naming the inert guards,
+  saying they are enforcing nothing right now, and saying that restarting arms
+  them and that this is his to do. A notice that reported drift without naming
+  the remedy would have rebuilt the original failure in a new place.
+
+  Four decisions, each made against a real alternative and each settled by
+  measurement rather than by argument:
+
+  1. **Only the plugin surface is compared, and that was measured.** Probed
+     against the shipping binary, each run gated on a negative control that had
+     to fire first: a hook added mid-session to a loaded plugin's
+     `hooks/hooks.json` **never fired** (control: a hook already in that table
+     fired three times in the same run), while a hook appended mid-session to
+     `.claude/settings.local.json` **fired on the very next tool call**. So the
+     obvious "check both surfaces for completeness" would have produced a
+     confident, well-formatted false positive on every settings edit. Guard
+     script BODIES are excluded for the same reason: a registration names
+     `bash <path>`, re-executed per event, so a body edit is live immediately.
+     Only the registration is frozen, so only the registration is compared.
+  2. **Stop, and `systemMessage`, because that is the channel that reaches the
+     party who can act.** A Stop hook exiting 0 with `{"systemMessage": ...}`
+     surfaces live as `{"type":"system","content":"Stop says: ..."}`;
+     `additionalContext` and stderr reach only the model, which is precisely the
+     party that **cannot** restart a session. Announcing this at the next session
+     start instead would be a status line about a problem that had already
+     solved itself.
+  3. **Once per session, again only if the delta grows.** A notice on every turn
+     is noise, noise gets muted, and a muted notice is worse than none.
+  4. **It never blocks.** A stale hook set is not a reason to refuse work; it is
+     a reason to tell the operator to restart.
+
+  Zero false positives is structural here rather than hoped for: both sides are
+  derived from the same file by the same parser, so there is no threshold and
+  nothing to tune — a design for this that needed a threshold had taken a wrong
+  branch. A session in which the table did not change prints **nothing at all**,
+  and that is a test rather than a claim. Separately, a green run must prove it
+  read something: the baseline's `rows=` must agree with the rows parsed out of
+  it and be non-zero, the current derivation must be non-zero, and the engine
+  paths must match — otherwise the hook says it **cannot check** instead of
+  passing quietly. This operation has already shipped one scanner that reported
+  CLEAN over an empty corpus and one reporting layer that was dead for weeks;
+  that control is there so there is not a third.
+
+  **This mechanism is itself inert in the session that lands it**, and pretending
+  otherwise is the one joke it cannot afford to play straight. It is a hook. To
+  arm it: re-run `scripts/hooks/install.sh`, then **restart the session** — the
+  actor is the operator and the action is the restart, which is the whole rule
+  above, applied to itself.
+
 - **Row currency — the working record stops going stale by itself**
   (`scripts/lib/row-currency.{sh,py}`,
   `scripts/hooks/guard-row-currency-commits.sh`,

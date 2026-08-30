@@ -37,6 +37,15 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/snapshot-enforcing-hooks.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -228,6 +237,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/turn-manifest.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-hook-staleness.sh",
+            "timeout": 10
           }
         ]
       }
