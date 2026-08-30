@@ -1,9 +1,12 @@
 in-flight sweep — mutation run
-captured 2026-08-30 from scripts/hooks/inflight-notify.mutation.sh
+captured 2026-08-30 from engine/scripts/hooks/inflight-notify.mutation.sh
 
 Each mutant removes ONE property from the SHIPPED source, in a throwaway
-copy, and asserts the suite goes red AT THE NAMED CASE. A mutant that
-survives is a property no test was actually checking.
+copy of the engine subtree, and asserts the suite goes red AT THE NAMED
+CASE. A mutant that survives is a property no test was actually checking —
+three did survive on the first run (ambiguous-recipient crediting, the
+main-checkout scope test, and a stale sha inside a correctly named ack),
+and each one bought a case the suite did not have.
 
 === in-flight sweep: every property, proven load-bearing by removing it ===
   PASS  notice-ignores-sha — removing it turns 3a. red
