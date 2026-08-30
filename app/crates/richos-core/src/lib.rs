@@ -33,8 +33,10 @@
 //!                     states it can witness, and the three it refuses to invent.
 //!   - `worker_status` — the optional AI-worker drill-down, read from the engine's event logs.
 //!   - `feedback`  — the in-app feedback channel's LOCAL half: the rating prompt, its
-//!                   on-disk persistence, and (next) the versioned closed vocabulary a
-//!                   report would be assembled from. Nothing in it sends anything.
+//!                   on-disk persistence, and the VERSIONED CLOSED VOCABULARY a report is
+//!                   assembled from — a payload with no free-text field anywhere in it, so
+//!                   the user's specifics are unrepresentable rather than filtered out.
+//!                   Nothing in it sends anything, and its tests assert that.
 
 pub mod acp;
 pub mod cognition;
@@ -60,8 +62,9 @@ pub mod worker_status;
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
 pub use config::{Assertiveness, ConfigStore};
 pub use feedback::{
-    FeedbackEntry, FeedbackStore, PromptOutcome, Rating, PROMPT_OPTIONS, PROMPT_QUESTION,
-    REPORT_OFFER,
+    ContributingCondition, DiagnosisTerm, FailureClass, FeedbackEntry, FeedbackPayload,
+    FeedbackStore, Occurrences, PromptOutcome, Rating, TaxonomyError, TaxonomyVersion,
+    PROMPT_OPTIONS, PROMPT_QUESTION, REPORT_OFFER, TAXONOMY_VERSION,
 };
 pub use entity::{
     Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
