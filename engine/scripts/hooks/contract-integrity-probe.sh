@@ -323,7 +323,7 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
-    guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
+    guard-publication-writes guard-publication-commits guard-ceo-todos-commits guard-completeness-commits \
     guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
@@ -517,6 +517,7 @@ guard-bash-main-writes.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-publication-commits.sh|PreToolUse
 guard-ceo-todos-commits.sh|PreToolUse
+guard-completeness-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
@@ -1817,6 +1818,11 @@ CANON = [
     # predicate twice per commit and print its refusal twice, which reads as two
     # separate defects in one record.
     "guard-ceo-todos-commits.sh",
+    # Also a BLOCKING Bash-matcher guard, and the one with a cost worth counting:
+    # it walks the whole published tree. Registered twice it would walk it twice
+    # per commit AND print the same findings twice, which reads as two separate
+    # defects in one tree.
+    "guard-completeness-commits.sh",
     "guard-resume-isolation.sh",
     "detect-nonnative-worktree.sh",
     "teammate-idle-handoff.sh",

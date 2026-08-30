@@ -81,6 +81,7 @@ ALL_HOOKS=(
     guard-publication-writes.sh
     guard-publication-commits.sh
     guard-ceo-todos-commits.sh
+    guard-completeness-commits.sh
     guard-resume-isolation.sh
     guard-workflow-ban.sh
     detect-nonnative-worktree.sh
