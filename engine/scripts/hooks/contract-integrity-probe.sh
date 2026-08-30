@@ -324,6 +324,7 @@ run_layer_R() {
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
+    guard-row-currency-commits \
     guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
@@ -517,6 +518,7 @@ guard-bash-main-writes.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-publication-commits.sh|PreToolUse
 guard-ceo-todos-commits.sh|PreToolUse
+guard-row-currency-commits.sh|PreToolUse
 guard-workflow-ban.sh|PreToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
@@ -1817,6 +1819,9 @@ CANON = [
     # predicate twice per commit and print its refusal twice, which reads as two
     # separate defects in one record.
     "guard-ceo-todos-commits.sh",
+    # Same argument, same event, same cost: registered twice it would refuse a
+    # landing twice and print the same stale row as two separate defects.
+    "guard-row-currency-commits.sh",
     "guard-resume-isolation.sh",
     "detect-nonnative-worktree.sh",
     "teammate-idle-handoff.sh",

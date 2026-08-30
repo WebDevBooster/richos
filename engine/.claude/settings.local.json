@@ -144,6 +144,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-ceo-todos-commits.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-row-currency-commits.sh",
+            "timeout": 20
           }
         ]
       },
