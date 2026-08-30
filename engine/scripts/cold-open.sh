@@ -206,6 +206,24 @@ PROMPT_FP="$(ct_sha256 "$PROMPT_FILE")"
 COLD_DIR="$REPO/$CT_COLD_OPEN_DIR"
 TRANSCRIPT="$COLD_DIR/$(date +%Y-%m-%d)-${FP:0:12}.md"
 
+# A SECOND READING OF THE SAME FRONT DOOR ON THE SAME DAY IS NOT A MISTAKE, AND
+# IT MUST NOT DESTROY THE FIRST. Date plus fingerprint collides exactly when a
+# repository is being worked on hard: two landings in one day that both leave
+# the CEO page's shape alone, each correctly running a reading. Observed on
+# 2026-08-30, where a second run silently overwrote a transcript filed hours
+# earlier — and the FINDING is the entire product of this exercise, so losing
+# one is worse than never having run it. The suffix is added only on collision,
+# so the ordinary name is unchanged and every transcript already on file keeps
+# its own.
+if [ "$MODE" != "check" ] && [ -e "$TRANSCRIPT" ]; then
+    _CO_N=2
+    while [ -e "$COLD_DIR/$(date +%Y-%m-%d)-${FP:0:12}-$_CO_N.md" ]; do
+        _CO_N=$((_CO_N + 1))
+        [ "$_CO_N" -le 99 ] || die "99 readings of the same front door on one day — refusing to guess a hundredth name."
+    done
+    TRANSCRIPT="$COLD_DIR/$(date +%Y-%m-%d)-${FP:0:12}-$_CO_N.md"
+fi
+
 # --- --check ---------------------------------------------------------------
 if [ "$MODE" = "check" ]; then
     if printf '%s\n' "$VERDICT" | grep -q "COLD-OPEN-"; then

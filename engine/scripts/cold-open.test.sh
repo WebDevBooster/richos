@@ -167,6 +167,21 @@ else
     bad "the prompt should name the repository"
 fi
 
+# A SECOND READING OF THE SAME FRONT DOOR ON THE SAME DAY MUST NOT DESTROY THE
+# FIRST. Date plus fingerprint collides exactly when a repository is being
+# worked on hard, and it did on 2026-08-30: a run silently overwrote a
+# transcript filed hours earlier. The finding is the entire product of this
+# exercise, so losing one is worse than never having run it.
+FIRST_T="$(ls "$R/docs/cold-open"/*.md 2>/dev/null | head -1)"
+FIRST_BYTES="$(cat "$FIRST_T" 2>/dev/null)"
+OUT="$("$BASH_BIN" "$CO" --run "$R" --reader-cmd "$STUB" --reader "second stub" 2>&1)"; RC=$?
+N_AFTER="$(ls "$R/docs/cold-open"/*.md 2>/dev/null | wc -l | tr -d " ")"
+if [ "$RC" -eq 0 ] && [ "$N_AFTER" -eq 2 ] && [ "$(cat "$FIRST_T" 2>/dev/null)" = "$FIRST_BYTES" ]; then
+    ok "a second reading of the same front door on the same day is filed BESIDE the first, never over it"
+else
+    bad "a same-day second reading clobbered or failed (rc=$RC, files=$N_AFTER): $OUT"
+fi
+
 T="$(ls "$R/docs/cold-open"/*.md 2>/dev/null | head -1)"
 for field in Surface-fingerprint Prompt-fingerprint Reader Run-by Date; do
     if grep -q "^- \*\*$field:\*\* .\+" "$T"; then
