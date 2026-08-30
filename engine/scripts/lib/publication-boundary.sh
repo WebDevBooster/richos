@@ -76,18 +76,44 @@
 #                          of the real incident no shape rule can see.
 #
 #                          The corpus is itself DERIVED, never listed: walk the
-#                          declared PRIVATE_SOURCES trees and keep only the
-#                          files that trip the recorded-speech detector below.
+#                          declared PRIVATE_SOURCES trees and keep the files
+#                          that trip the recorded-speech detector below, PLUS
+#                          the files that are another RENDERING of one of them.
 #                          So the operator declares WHERE private material
 #                          lives (a fact only they know) and the machine works
 #                          out WHICH files it is (a fact it can check). A dated
 #                          list of transcript paths would have gone stale by
 #                          the next recording; this cannot.
 #
-#                          Composing the detectors this way also buys the
-#                          precision: only actual transcripts enter the corpus,
-#                          so a shared boilerplate sentence between two ordinary
-#                          engineering documents can never collide with it.
+#                          THE SECOND CLAUSE WAS MEASURED INTO EXISTENCE. On
+#                          2026-08-30 the real private record held 481 candidate
+#                          text files and the shape filter kept TWO — while
+#                          seven more two-channel transcripts of the CEO's own
+#                          recordings sat in the same tree, invisible, because
+#                          whisper's plain `.txt` output carries no timestamps
+#                          and no speaker labels. The detector that catches
+#                          quotes inside prose was matching against one
+#                          recording. A file now also joins when it reproduces
+#                          the corpus IN BULK — at least 400 distinct
+#                          MIN_QUOTE_WORDS-runs AND at least 8% of its own runs
+#                          — which is the difference between another copy of a
+#                          recording and a document that quotes one. Corpus:
+#                          2 files / 26,339 words -> 10 files / 83,793 words.
+#
+#                          Composing the detectors this way is what buys the
+#                          precision: only speech, and renderings of speech,
+#                          enter the corpus, so a shared boilerplate sentence
+#                          between two ordinary engineering documents can never
+#                          collide with it. Measured both ways, across 5,333
+#                          tracked text files in eleven repositories: the
+#                          widened corpus blocks the same 8 files the narrow one
+#                          did — every one a genuine reproduction of the
+#                          recorded talk, in a repository that declares no
+#                          boundary — and ZERO files in the publication-bound
+#                          repository itself, before and after. The full sweep,
+#                          including the two widenings that were REJECTED for
+#                          false positives, is in publication-boundary.py above
+#                          the closure constants.
 #
 #   recorded-speech        A structural shape: >= MIN_SPEECH_LINES lines of
 #                          `[timestamp] Speaker: prose`, or SRT/WebVTT cues, or
@@ -116,6 +142,16 @@
 #     MIN_QUOTE_WORDS, or from a recording whose transcript is nowhere on this
 #     machine, a quoted phrase is indistinguishable from ordinary prose. The
 #     corpus detector is only as wide as PRIVATE_SOURCES.
+#   * THE CEO'S OWN WORDS, TYPED, QUOTED NOWHERE ELSE. A sentence he said that
+#     lives only inside a private wiki page — never recorded, never transcribed
+#     — is in no corpus member, so reproducing it here is invisible to both
+#     detectors. This is the widening that was tried and REJECTED WITH NUMBERS,
+#     not an oversight: harvesting every quoted prose run out of every private
+#     file yields 1,339 runs and blocks 98 of 5,333 public files, 23 of them in
+#     the publication-bound repository itself — its README, its WALKTHROUGH, two
+#     agent definitions. Doctrine sentences live in both trees on purpose, so
+#     that corpus cannot tell a reproduction from a shared rule. An honest
+#     measured limit beats a guard nobody trusts; this is the limit.
 #   * Paraphrase. Reproducing the SUBSTANCE of a private conversation in the
 #     author's own words matches nothing. That is a judgment call and it stays
 #     one.

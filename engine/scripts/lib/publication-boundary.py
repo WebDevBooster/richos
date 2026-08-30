@@ -170,16 +170,112 @@ class BrokenCorpus(Exception):
     pass
 
 
-def build_corpus(sources, min_speech_lines, max_files, max_bytes):
-    """Walk the declared private trees and keep ONLY files that are themselves
-    recorded speech.
+# --- the derived-rendering closure -----------------------------------------
+#
+# WHY THE SHAPE FILTER ALONE IS NOT THE CORPUS.
+#
+# Measured on the real private record on 2026-08-30: 481 candidate text files
+# under the declared PRIVATE_SOURCES, and the shape filter kept TWO. The
+# verbatim-quote detector — the half that catches speech quoted inside ordinary
+# prose, which is how 28 quotes reached the public tree on 2026-08-29 — was
+# matching against 26,339 words, one recording, while the same private tree
+# held SEVEN MORE two-channel transcripts of the CEO's real recordings that the
+# shape filter cannot see: whisper `.txt` output carries no timestamps and no
+# speaker labels, so it has zero transcript-shaped lines. 3,764 to 13,880 words
+# of private speech each, invisible.
+#
+# THE RULE. A private file joins the corpus when it is ANOTHER RENDERING of
+# speech already in the corpus — not when it merely quotes it. Two conditions,
+# both required, because each alone fails in a direction that was measured:
+#
+#   CLOSURE_MIN_WINDOWS    at least this many DISTINCT non-overlapping
+#                          min_quote_words-windows of the file appear in the
+#                          corpus. Absolute, so a document that quotes one
+#                          sentence cannot join; distinct, so a file that repeats
+#                          the same quoted line — which is exactly what a
+#                          transcript with a hallucination loop looks like —
+#                          cannot accumulate its way in on one phrase.
+#   CLOSURE_MIN_COVERAGE   and that many as a FRACTION of the file's own
+#                          windows. Scale-free, so a large document cannot
+#                          accumulate its way in on boilerplate either.
+#
+# NON-OVERLAPPING is a cost decision, stated because it is a real approximation.
+# Hashing every position of every candidate is 10x the work and measured at
+# +0.8s on every single Write, Edit and commit in the repository — a guard that
+# taxes every keystroke is a guard someone turns off, which is the same failure
+# as one that blocks ordinary work. Every tenth position is an unbiased estimate
+# of the same ratio, it is deterministic rather than sampled, and it left the
+# admitted set and the margins where they were.
+#
+# MEASURED, not chosen. Against the real private record:
+#
+#   admitted (8 files)   73 - 269 shared windows, 25% - 45% coverage. Every one
+#                        a genuine transcript of a real recording: two channels
+#                        x two recordings x two model runs.
+#   nearest EXCLUDED     14 windows / 2.8% coverage — an engineering brief that
+#                        QUOTES the transcript. 2.9x below the gate; the lowest
+#                        admission is 1.8x above it, and has to clear the
+#                        coverage condition as well.
+#
+# and the reason that margin matters is the direction this fails in. An earlier
+# draft admitted any file sharing ONE 10-word run. That pulled 251 private
+# engineering documents into the "private" corpus, whose ordinary boilerplate
+# then blocked 206 of 5,333 files across the real public trees — including
+# LICENSE files, .gitignore and package.json. Admitting one mixed brief is
+# enough to do damage: at a 40-word inbound threshold the corpus took in a
+# single brief and its header line ("...requested by Rich on behalf of the
+# CEO") and a scratchpad PATH promptly blocked five legitimate public files,
+# one of them the technology evaluation .publication-boundary names as
+# deliberately public. Under the rule above, both of those documents are
+# excluded and the false-positive count across those same 5,333 public files is
+# ZERO — unchanged from the narrow corpus.
+#
+# WHAT WAS REJECTED, with its numbers, so nobody re-proposes it as an
+# improvement: harvesting every quoted prose run out of every private file
+# (1,339 runs) raises recall on the one shape this cannot see — the CEO's typed
+# words in a private wiki page, quoted nowhere else — and blocks 98 public
+# files, 23 of them in the publication-bound repository itself, including its
+# README, its WALKTHROUGH and two agent definitions. Doctrine sentences live in
+# both trees on purpose. That widening is not available at any threshold and
+# the gap it leaves is stated in the header of publication-boundary.sh.
+CLOSURE_MIN_WINDOWS = 40
+CLOSURE_MIN_COVERAGE = 0.08
+# Rounds, not one pass: on the real tree a fourth transcript only crossed the
+# gate once the three renderings of ITS recording were themselves in the corpus
+# (round 2). The cap is a bound on work, and it is never a silent truncation —
+# the loop stops when a round admits nothing, which is what happened at round 3.
+CLOSURE_MAX_ROUNDS = 3
+
+
+def _gram_hashes(words, n, stride=1):
+    """The n-word windows of `words`, as a set of hashes.
+
+    stride=1 for the corpus side, where every position must be present or a
+    genuine reproduction could slip between two windows. stride=n for the
+    candidate side, where the question is a RATIO and every tenth window
+    estimates it at a tenth of the cost.
+
+    Same fast-path-not-verdict discipline as index_corpus: a collision here can
+    only over-count a file's overlap by one window out of dozens, and admission
+    needs CLOSURE_MIN_WINDOWS of them and a coverage fraction besides.
+    """
+    return {hash(tuple(words[i:i + n])) for i in range(0, len(words) - n + 1, stride)}
+
+
+def build_corpus(sources, min_speech_lines, max_files, max_bytes,
+                 min_quote_words=10):
+    """Walk the declared private trees and keep the files that ARE private
+    speech: the ones that look like a recording, plus the ones that are another
+    rendering of a recording already kept.
 
     This is the composition that buys the precision. The operator declares
     WHERE private material lives — a fact only they know. The machine works out
     WHICH files it is — a fact it can check. A dated list of transcript paths
-    would be stale by the next recording; this cannot be. And because only
-    actual transcripts enter the corpus, a boilerplate sentence shared between
-    two ordinary engineering documents can never collide with it.
+    would be stale by the next recording; this cannot be. And because a file
+    enters only by looking like speech or by REPRODUCING speech already in the
+    corpus, a boilerplate sentence shared between two ordinary engineering
+    documents can never collide with it — see the closure constants above for
+    the measurement that pins that claim.
 
     Hitting a bound is BROKEN, never a quiet truncation: a corpus that silently
     stopped short would let the guard pass content it simply never looked at,
@@ -187,6 +283,11 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes):
     """
     parts = []
     members = []
+    # Non-member candidates, kept as gram hashes only. A file is a possible
+    # rendering only if it is long enough to reach CLOSURE_MIN_RUNS at all, so
+    # the eligibility test is arithmetic rather than a guess, and short files
+    # cost nothing.
+    pending = {}
     files = 0
     total = 0
     for src in sources:
@@ -227,9 +328,51 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes):
             except OSError:
                 continue
             if speech_lines(blob, cap=min_speech_lines) < min_speech_lines:
+                words = normalise(blob)
+                # Arithmetic, not a guess: below this length the file cannot
+                # reach CLOSURE_MIN_WINDOWS non-overlapping windows even if
+                # every one of them matched, so it never needs hashing.
+                if len(words) >= (CLOSURE_MIN_WINDOWS + 1) * min_quote_words:
+                    pending[p] = _gram_hashes(words, min_quote_words,
+                                              stride=min_quote_words)
                 continue
             members.append(p)
             parts.append(' '.join(normalise(blob)))
+
+    # --- the closure ------------------------------------------------------
+    # Nothing to be derived FROM means nothing to derive: with no shape-detected
+    # speech the corpus stays empty rather than bootstrapping itself out of
+    # ordinary documents.
+    if parts and pending:
+        index = set()
+        for part in parts:
+            index |= _gram_hashes(part.split(), min_quote_words)
+        for _round in range(CLOSURE_MAX_ROUNDS):
+            admitted = []
+            for p, grams in pending.items():
+                if not grams:
+                    continue
+                shared = len(grams & index)
+                if shared >= CLOSURE_MIN_WINDOWS and \
+                        shared / len(grams) >= CLOSURE_MIN_COVERAGE:
+                    admitted.append(p)
+            if not admitted:
+                break
+            for p in admitted:
+                index |= pending.pop(p)
+                # Re-read rather than cache every candidate's word list: the
+                # admitted set is a handful of files and the blob is in the OS
+                # cache, while holding the tokens of every candidate would put
+                # the whole private tree in memory for the 99% of runs that
+                # admit nothing.
+                try:
+                    with open(p, encoding='utf-8', errors='ignore') as fh:
+                        blob = fh.read(8_000_000)
+                except OSError:
+                    continue
+                members.append(p)
+                parts.append(' '.join(normalise(blob)))
+
     # The double space is a barrier token: it stops a run from being matched
     # across the seam between two unrelated transcripts.
     return '  '.join(parts), members
@@ -366,6 +509,7 @@ def main():
             sources, min_speech,
             int(job.get('corpus_max_files', 4000)),
             int(job.get('corpus_max_bytes', 67108864)),
+            min_quote,
         )
     except BrokenCorpus as exc:
         print("BROKEN\t%s" % exc)

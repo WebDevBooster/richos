@@ -49,10 +49,12 @@
 #       bytes behind it; and a pathspec or `-a` commit records the WORKTREE
 #       copy, not the index copy. Every one of those passed before, with the
 #       controls that keep ordinary `git add src/newmod && git commit` clean.
-#       The same walk-past one level down: the shared predicate handed a
-#       DIRECTORY read zero bytes and came back CLEAN.
-#   (i) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
-#   (j) REGISTRATION on BOTH surfaces plus the probe's oracle.
+#   (i) THE CORPUS CLOSURE. A second rendering of a recording — whisper's plain
+#       text output, no timestamps — joins the corpus; a brief that merely
+#       QUOTES the recording does not, so its boilerplate never becomes
+#       "private" and never blocks ordinary work.
+#   (j) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
+#   (k) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
 # Run directly: scripts/hooks/publication-boundary.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
@@ -142,6 +144,49 @@ make_srt() {
     for i in 1 2 3 4 5 6 7 8 9 10; do
         printf '%d\n00:0%d:00,000 --> 00:0%d:05,000\nsome caption text here\n\n' \
             "$i" "$((i % 10))" "$((i % 10))"
+    done
+}
+
+# make_speech_lines <lines> <words-per-line> <seed> — deterministic pseudo-random
+# sentences drawn from an ordinary word pool.
+#
+# VARIED ON PURPOSE. The corpus closure counts DISTINCT word-runs shared with
+# the corpus, so a fixture built by repeating one sentence with a changing number
+# in it collapses to a handful of distinct runs in a set and would prove nothing
+# about a threshold of hundreds. A pseudo-random walk over a 64-word pool makes
+# essentially every 10-word window unique, which is what real speech is like.
+#
+# Still invented, still assembled at run time — the same rule the whole fixture
+# section follows: this suite never carries a line of anybody's real speech.
+make_speech_lines() {
+    awk -v lines="$1" -v per="$2" -v seed="$3" 'BEGIN {
+        split("the and but so then when where because after before while about \
+into over under again really maybe always never people number reason system \
+change moment question answer problem morning evening meeting minute matter \
+whole point thing piece order price value market signal window record message \
+window driver builder holder keeper marker anchor pattern segment version \
+handle bridge ladder circle corner border member letter picture", pool, " ");
+        n = 0; for (k in pool) n++;
+        srand(seed);
+        for (i = 1; i <= lines; i++) {
+            out = "";
+            for (j = 1; j <= per; j++) {
+                w = pool[int(rand() * n) + 1];
+                out = (j == 1) ? w : out " " w;
+            }
+            print out;
+        }
+    }'
+}
+
+# A transcript in the whisper "[timestamp] Speaker:" shape, long enough to be a
+# corpus member several hundred distinct runs deep.
+make_long_transcript() {
+    local n=0 who
+    while IFS= read -r line; do
+        if [ $((n % 2)) -eq 0 ]; then who="Dana"; else who="Ellis"; fi
+        printf '%s00%s%02d%s %s%s %s\n' '[' ':' "$((n % 60))" ']' "$who" ':' "$line"
+        n=$((n + 1))
     done
 }
 
@@ -567,7 +612,63 @@ scan_case "a directory of binary files scans clean, never fails closed on it" \
 rm -rf "$SB_D"
 
 # ---------------------------------------------------------------------------
-# (i) FAIL-OPEN / FAIL-CLOSED conventions.
+# (i) THE CORPUS CLOSURE — another RENDERING of a recording is the recording.
+#
+# Measured on the real private record 2026-08-30: 481 candidate files, and the
+# shape filter kept TWO, while seven more two-channel transcripts of real
+# recordings sat in the same tree carrying no timestamps and no speaker labels
+# — whisper's plain `.txt` output. The verbatim-quote detector, which is the
+# half that catches speech quoted inside prose, was matching against one
+# recording.
+#
+# The closure admits a private file that REPRODUCES corpus speech in bulk, and
+# refuses one that merely QUOTES it. Both halves are asserted below, because the
+# second is what keeps the corpus clean: admitting a mixed engineering document
+# puts its BOILERPLATE into the private corpus, and measured on the real tree
+# that blocked LICENSE files, .gitignore, package.json and a brief the
+# declaration itself names as deliberately public.
+# ---------------------------------------------------------------------------
+SB_CL="$(make_default_sandbox)"
+WORDS_A="$(make_speech_lines 40 30 7 | tf)"      # the recording
+WORDS_B="$(make_speech_lines 12 30 91 | tf)"     # only in the second rendering
+make_long_transcript < "$WORDS_A" > "$SB_CL/private/long.transcript.txt"
+cat "$WORDS_A" "$WORDS_B" > "$SB_CL/private/long.txt"
+
+TAIL_ONLY="$({ printf '# Notes\n\n'; head -3 "$WORDS_B"; } | tf)"
+write_case "text only in the untimestamped rendering is refused" 2 Write \
+    "$SB_CL/docs/tail.md" "$SB_CL" "$TAIL_ONLY"
+
+# The brief QUOTES one line of the recording and is otherwise its own prose. It
+# must NOT join the corpus, so its own sentences stay ordinary work.
+{
+    printf '# Measurement notes\n\n'
+    printf 'The parakeet loader keeps its own segment schema, which is the only\n'
+    printf 'reason the integration cost is a loader and not a rewrite.\n\n> '
+    head -1 "$WORDS_A"
+} > "$SB_CL/private/brief.md"
+
+BOILER="$({
+    printf '# Viability\n\n'
+    printf 'The parakeet loader keeps its own segment schema, which is the only\n'
+    printf 'reason the integration cost is a loader and not a rewrite.\n'
+} | tf)"
+write_case "a private brief that only QUOTES does not join the corpus" 0 Write \
+    "$SB_CL/docs/viability.md" "$SB_CL" "$BOILER"
+
+QUOTED_LINE="$({ printf 'As recorded:\n\n> '; head -1 "$WORDS_A"; } | tf)"
+write_case "and the line it quoted is still caught, from the transcript" 2 Write \
+    "$SB_CL/docs/quote.md" "$SB_CL" "$QUOTED_LINE"
+
+# A file with a single shared run is a quotation, not a rendering: 400 distinct
+# shared runs and 8% coverage are both required, and both were measured.
+SHORT_ECHO="$({ printf 'One line only:\n\n'; head -1 "$WORDS_A"; printf '\nand then ordinary engineering prose about loaders and schemas.\n'; } | tf)"
+cp "$SHORT_ECHO" "$SB_CL/private/echo.md"
+write_case "ordinary prose still writes cleanly with the corpus widened" 0 Write \
+    "$SB_CL/src/config.js" "$SB_CL" "$CODE"
+rm -rf "$SB_CL"
+
+# ---------------------------------------------------------------------------
+# (j) FAIL-OPEN / FAIL-CLOSED conventions.
 # ---------------------------------------------------------------------------
 rc=0; printf 'not json at all' | "$WRITE_HOOK" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 0 ]; then ok "malformed payload fails OPEN (sibling convention)"
@@ -623,7 +724,7 @@ fi
 rm -rf "$TMPENG"
 
 # ---------------------------------------------------------------------------
-# (j) REGISTRATION — both surfaces, or the engine ships a guard nobody loads.
+# (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads.
 # ---------------------------------------------------------------------------
 for g in guard-publication-writes.sh guard-publication-commits.sh; do
     if grep -q "$g" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then
