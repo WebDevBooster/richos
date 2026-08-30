@@ -72,6 +72,35 @@ pub const PAYLOAD_MAX_BYTES: usize = 32 * 1024;
 /// `"N lines"` fallback.
 pub const SUMMARY_MAX_CHARS: usize = 84;
 
+/// The four `sessionUpdate` kinds §1.2 routes to `SessionMeta`, **last value wins**.
+///
+/// Named here rather than inline at the one call site because the *reason* they are a set
+/// is a property of the vendor's update family, not of the caller: they are small,
+/// near-static, and repeated verbatim once per turn — measured 2026-08-28 as exactly one
+/// `available_commands_update` and one `session_info_update` per turn, in 5 of 5 runs
+/// (`docs/verification/acp-emission-probe-2026-08-28.md` §4.2). `current_mode_update` and
+/// `config_option_update` were NOT observed on adapter 0.70.0; they are listed because
+/// §1.2 lists them, and an unobserved kind arriving tomorrow must land on the last-value
+/// rule rather than on the repeat-forever one.
+pub const SESSION_META_KINDS: [&str; 4] = [
+    "available_commands_update",
+    "current_mode_update",
+    "config_option_update",
+    "session_info_update",
+];
+
+/// Whether a vendor `sessionUpdate` kind belongs to the last-value-wins SessionMeta family.
+pub fn is_session_meta(wire_kind: &str) -> bool {
+    SESSION_META_KINDS.contains(&wire_kind)
+}
+
+/// The title carried by the marker record that reports a between-turn buffer overflow.
+///
+/// A vendor kind never has this spelling, so it cannot collide with a real update, and it
+/// is a CONSTANT because the JS suite and the Rust test both assert on it and two spellings
+/// is how a marker stops being findable.
+pub const BETWEEN_TURN_OVERFLOW: &str = "between_turn_overflow";
+
 /// Our normalized kind. Deliberately NOT one-to-one with the vendor's `sessionUpdate` —
 /// see the module doc for what Phase 1 types and what falls to `Unknown`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -368,6 +397,91 @@ impl MachineryRecord {
         }
     }
 
+    /// Normalize ONE update that arrived while NO turn was in flight (§1.5's first gap).
+    ///
+    /// Between-turn traffic is not a different KIND of traffic — it is the same vendor
+    /// updates arriving at a moment when `current_prompt` is `None`, which until now meant
+    /// they hit no sink at all (`acp.rs`'s named hole). So this delegates to
+    /// [`MachineryRecord::from_acp_update`] and differs from it in exactly two places, both
+    /// forced by the absence of a turn:
+    ///
+    ///   1. **`agent_message_chunk` is RETAINED here**, where in-turn it is `None`. In a
+    ///      turn it is the clean-output text path and a machinery copy would be a second
+    ///      source of truth for the reply. Between turns there is no turn to attach text
+    ///      to and no clean-output path to carry it, so the choice is retain-as-machinery
+    ///      or drop, and §1.4 G5 forbids the drop. It still never reaches
+    ///      `StreamEvent::Chunk`: this returns a `MachineryRecord`, which travels on the
+    ///      other family entirely.
+    ///   2. **`user_message_chunk` is still `None`** — the ONE deliberate drop (§1.2), and
+    ///      it does not become less deliberate for arriving between turns.
+    ///
+    /// `turn_id` stays `None` and the caller stamps the thread: §1.4 G4, `turn_id: None` is
+    /// a first-class state.
+    pub fn from_between_turn_update(update: &Value, session_id: &str, seq: u64) -> Option<MachineryRecord> {
+        let wire_kind = update.get("sessionUpdate").and_then(|v| v.as_str()).unwrap_or("");
+        if wire_kind == "user_message_chunk" {
+            return None;
+        }
+        if wire_kind == "agent_message_chunk" {
+            let text = update
+                .get("content")
+                .and_then(|c| c.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
+            let (payload, truncated) = cap_payload(update);
+            return Some(MachineryRecord {
+                machinery_id: new_id("mach"),
+                thread_id: String::new(),
+                turn_id: None,
+                session_id: session_id.to_string(),
+                seq,
+                at: now_millis(),
+                // Deliberately NOT a typed kind. This is the vendor's text arriving where
+                // nothing can attribute it, which is precisely what `Unknown` is for —
+                // retained verbatim, one dim line, no claim about what it was.
+                kind: MachineryKind::Unknown,
+                tool_call_id: None,
+                status: None,
+                title: wire_kind.to_string(),
+                summary: summarize(text),
+                locations: Vec::new(),
+                internal: false,
+                payload,
+                truncated,
+            });
+        }
+        MachineryRecord::from_acp_update(update, session_id, seq)
+    }
+
+    /// The marker record for updates the between-turn buffer could not hold.
+    ///
+    /// A bounded buffer that silently forgets its overflow is the silent drop §1.4 G5
+    /// exists to forbid, one level down. So the overflow is itself a record: it says how
+    /// many updates were refused and it renders as an ordinary technical row, which means
+    /// the hole is visible in the same place the traffic would have been.
+    pub fn between_turn_overflow(dropped: u64, session_id: &str, seq: u64) -> MachineryRecord {
+        let (payload, truncated) = cap_payload(&serde_json::json!({ "dropped": dropped }));
+        MachineryRecord {
+            machinery_id: new_id("mach"),
+            thread_id: String::new(),
+            turn_id: None,
+            session_id: session_id.to_string(),
+            seq,
+            at: now_millis(),
+            kind: MachineryKind::Unknown,
+            tool_call_id: None,
+            status: None,
+            title: BETWEEN_TURN_OVERFLOW.to_string(),
+            summary: Some(format!(
+                "{dropped} update(s) arrived between turns and were not kept"
+            )),
+            locations: Vec::new(),
+            internal: false,
+            payload,
+            truncated,
+        }
+    }
+
     /// Stamp the fields only the spine knows (§1.5's `internal` rule included).
     pub fn stamp(mut self, thread_id: &str, turn_id: Option<&str>, internal: bool) -> MachineryRecord {
         self.thread_id = thread_id.to_string();
@@ -558,6 +672,41 @@ pub fn project(records: Vec<MachineryRecord>) -> Vec<MachineryRecord> {
 
     let turn_rank = |t: &Option<String>| turn_order.iter().position(|x| x == t).unwrap_or(usize::MAX);
     out.sort_by(|a, b| turn_rank(&a.turn_id).cmp(&turn_rank(&b.turn_id)).then(a.seq.cmp(&b.seq)));
+    out
+}
+
+/// Fold the records that carry NO turn — §1.5's between-turn lane.
+///
+/// The SAME merge rule as [`project`] (§1.4 G2, via [`merge_into`]), and a DIFFERENT order.
+/// The difference is measured, not stylistic:
+///
+/// [`project`] sorts by `(turn, seq)` because `seq` is the one per-TURN counter that text
+/// and machinery share (§1.4 G1). A between-turn record has no turn, and its counter is
+/// per LEASE — a rotation installs a fresh `AcpClient` whose between-turn counter restarts
+/// at 0 — so sorting this lane by `seq` would place a successor's first records before its
+/// predecessor's last ones. Journal append order is chronological and is already the
+/// authority `project` leans on for turn order (§1.4 G6), so it is the order kept here,
+/// and `seq` is carried for identity rather than used for sorting.
+///
+/// The caller has already excluded `internal: true` — see [`crate::journal::MachineryJournal`].
+pub fn project_between_turns(records: Vec<MachineryRecord>) -> Vec<MachineryRecord> {
+    let mut out: Vec<MachineryRecord> = Vec::new();
+    let mut by_tool: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for r in records {
+        let mergeable = r.kind == MachineryKind::ToolCall && r.tool_call_id.is_some();
+        if !mergeable {
+            out.push(r);
+            continue;
+        }
+        let key = r.tool_call_id.clone().unwrap();
+        match by_tool.get(&key) {
+            Some(&idx) => merge_into(&mut out[idx], r),
+            None => {
+                by_tool.insert(key, out.len());
+                out.push(r);
+            }
+        }
+    }
     out
 }
 

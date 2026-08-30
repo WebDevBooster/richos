@@ -110,6 +110,166 @@ enum ChunkMsg {
     Cancel,
 }
 
+// ===========================================================================================
+// THE BETWEEN-TURN LANE (design §1.5, gap #1)
+//
+// `dispatch` delivers an update to the prompt channel only while `current_prompt` is
+// `Some`. Anything the adapter emits at session start, or after a prompt response has
+// already been returned, used to hit NO SINK AT ALL — the hole this file named in a comment
+// and left open for Phase 2. This is Phase 2's half of it.
+//
+// It is deliberately NOT a second `Sender`. A channel would need a receiver parked
+// somewhere, and there is no drain loop running between turns by definition; the one thing
+// that IS guaranteed to happen is that the spine comes back — to start the next turn, or
+// because the CEO opened the technical view. So the lane is a BUFFER the reader thread
+// fills and the spine drains, and the drain point is where `seq` is assigned, exactly as
+// §1.4's feasibility argument requires for the in-turn path.
+// ===========================================================================================
+
+/// How many un-drained between-turn items the buffer holds before it starts refusing.
+///
+/// Sized against measurement, not taste. The probe (2026-08-28, five runs) saw exactly TWO
+/// between-turn updates per turn — one `available_commands_update`, one
+/// `session_info_update` — and the SessionMeta slot below collapses repeats of both to
+/// nothing. 256 is therefore ~128 turns of un-drained traffic in the shape actually
+/// observed, against a drain that happens at every turn boundary and every technical-view
+/// open. An overflow is a marker record, never a silent forget — see
+/// [`MachineryRecord::between_turn_overflow`].
+const BETWEEN_TURN_MAX: usize = 256;
+
+/// One item the reader thread parked because no turn was in flight to route it to.
+///
+/// Mirrors the three routable arms of [`ChunkMsg`] and none of its control arms: `Done` and
+/// `Cancel` are statements about a turn, and there is no turn here.
+enum BetweenItem {
+    Update(Value),
+    Permission { params: Value, chosen: String },
+    FsCall { method: String, params: Value },
+}
+
+impl BetweenItem {
+    /// The same item as a streamed [`ChunkMsg`], for the case where a turn IS in flight.
+    ///
+    /// It CLONES rather than moving, and that is the deliberate trade. `Sender::send`
+    /// consumes its argument, so a moving conversion would need an inverse to recover the
+    /// item when the receiver has already hung up — an inverse whose `_` arm (`Done`,
+    /// `Cancel`) is unreachable by construction and would therefore have to invent a record
+    /// or panic on the reader thread. One `Value` clone per client-directed request buys
+    /// away that whole arm. Measured cost: 7 permission requests and 0 `fs/*` calls across
+    /// the five probe runs of 2026-08-28.
+    fn to_chunk(&self) -> ChunkMsg {
+        match self {
+            BetweenItem::Update(u) => ChunkMsg::Update(u.clone()),
+            BetweenItem::Permission { params, chosen } => {
+                ChunkMsg::Permission { params: params.clone(), chosen: chosen.clone() }
+            }
+            BetweenItem::FsCall { method, params } => {
+                ChunkMsg::FsCall { method: method.clone(), params: params.clone() }
+            }
+        }
+    }
+}
+
+/// The buffer plus §1.5's `last_session_meta` slot.
+#[derive(Default)]
+pub(crate) struct BetweenTurn {
+    queue: Vec<BetweenItem>,
+    /// §1.5's slot, and §1.2's *"last value wins"* made real: the last payload seen for
+    /// each SessionMeta kind. An identical repeat is SUPPRESSED rather than queued —
+    /// which is what bounds a long session, because the measured traffic repeats these
+    /// two kinds verbatim once per turn and *"retaining every repeat is waste; retaining
+    /// the last is enough to reconstruct"* (§1.2).
+    ///
+    /// **Per client, so per lease.** A rotation installs a fresh `AcpClient` with an empty
+    /// slot, and the successor's first `available_commands_update` is therefore recorded
+    /// again. That is correct and not an oversight: it is a different session's statement
+    /// about itself, and suppressing it would make the record claim the predecessor's
+    /// commands were the successor's.
+    last_meta: std::collections::HashMap<String, Value>,
+    /// Identical SessionMeta repeats not queued. Counted, not rendered — the record it
+    /// would produce says nothing the retained one does not.
+    suppressed: u64,
+    /// Items refused because the buffer was full. Reported as a marker record at the next
+    /// drain, then reset.
+    dropped: u64,
+    /// The lane's own counter. NOT §1.4 G1's shared per-turn counter and deliberately not
+    /// pretending to be: there is no turn here and no text to interleave with, so this
+    /// numbers the lane and nothing else. It is assigned at DRAIN (single-threaded, in the
+    /// spine's call) rather than at `offer` (the reader thread), which is the same
+    /// discipline §1.4 argues for on the in-turn path.
+    next_seq: u64,
+}
+
+impl BetweenTurn {
+    /// Park one update the reader thread could not route.
+    fn offer_update(&mut self, update: Value) {
+        let kind = update.get("sessionUpdate").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        // The ONE deliberate drop (§1.2), and it does not become less deliberate for
+        // arriving between turns: the ledger already holds the CEO's words verbatim and
+        // fsync'd, and a second copy would create two sources of truth for the one thing
+        // that must have exactly one.
+        if kind == "user_message_chunk" {
+            return;
+        }
+        if crate::machinery::is_session_meta(&kind) {
+            if self.last_meta.get(&kind) == Some(&update) {
+                self.suppressed += 1;
+                return;
+            }
+            self.last_meta.insert(kind, update.clone());
+        }
+        self.push(BetweenItem::Update(update));
+    }
+
+    fn push(&mut self, item: BetweenItem) {
+        if self.queue.len() >= BETWEEN_TURN_MAX {
+            self.dropped += 1;
+            return;
+        }
+        self.queue.push(item);
+    }
+
+    /// Take everything parked, normalized, in arrival order. `thread_id` / `internal` are
+    /// still unstamped — only the spine knows those (§1.5).
+    fn drain(&mut self, session_id: &str) -> Vec<MachineryRecord> {
+        let mut out = Vec::new();
+        for item in std::mem::take(&mut self.queue) {
+            let seq = self.next_seq;
+            let record = match item {
+                BetweenItem::Update(u) => {
+                    MachineryRecord::from_between_turn_update(&u, session_id, seq)
+                }
+                BetweenItem::Permission { params, chosen } => Some(
+                    MachineryRecord::from_permission_request(&params, &chosen, session_id, seq),
+                ),
+                BetweenItem::FsCall { method, params } => {
+                    Some(MachineryRecord::from_client_fs_call(&method, &params, session_id, seq))
+                }
+            };
+            // A dropped item consumes no position, exactly as `prompt`'s loop does not
+            // advance `seq` for the `user_message_chunk` it drops.
+            if let Some(record) = record {
+                self.next_seq += 1;
+                out.push(record);
+            }
+        }
+        if self.dropped > 0 {
+            let seq = self.next_seq;
+            self.next_seq += 1;
+            out.push(MachineryRecord::between_turn_overflow(self.dropped, session_id, seq));
+            self.dropped = 0;
+        }
+        out
+    }
+
+    /// Identical SessionMeta repeats suppressed by the slot, for the whole life of this
+    /// client. Diagnostic: it is the number the "last value wins" rule saved, and a test
+    /// asserts on it rather than on the absence of rows.
+    fn suppressed(&self) -> u64 {
+        self.suppressed
+    }
+}
+
 /// A live ACP session to a `claude-agent-acp` child.
 pub struct AcpClient {
     child: Child,
@@ -119,6 +279,9 @@ pub struct AcpClient {
     pending: Arc<Mutex<std::collections::HashMap<i64, Sender<Value>>>>,
     /// The currently in-flight prompt turn: its request id + a sink for streamed chunks.
     current_prompt: Arc<Mutex<Option<(i64, Sender<ChunkMsg>)>>>,
+    /// §1.5's machinery sink INDEPENDENT of the prompt channel. Everything the adapter
+    /// says while `current_prompt` is `None` lands here instead of nowhere.
+    between: Arc<Mutex<BetweenTurn>>,
     _reader: JoinHandle<()>,
     _stderr: JoinHandle<()>,
 }
@@ -140,6 +303,7 @@ impl AcpClient {
         let pending: Arc<Mutex<std::collections::HashMap<i64, Sender<Value>>>> =
             Arc::new(Mutex::new(std::collections::HashMap::new()));
         let current_prompt: Arc<Mutex<Option<(i64, Sender<ChunkMsg>)>>> = Arc::new(Mutex::new(None));
+        let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
 
         // Drain stderr so the adapter never blocks on a full pipe. Adapter diagnostics
         // are machinery — they NEVER reach the CEO; kept only for developer debugging.
@@ -155,6 +319,7 @@ impl AcpClient {
         let reader_stdin = Arc::clone(&stdin);
         let reader_pending = Arc::clone(&pending);
         let reader_current = Arc::clone(&current_prompt);
+        let reader_between = Arc::clone(&between);
         let reader_handle = std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
@@ -166,7 +331,7 @@ impl AcpClient {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-                Self::dispatch(msg, &reader_stdin, &reader_pending, &reader_current);
+                Self::dispatch(msg, &reader_stdin, &reader_pending, &reader_current, &reader_between);
             }
             // stdout closed: fail any waiters so callers don't hang forever.
             reader_pending.lock().unwrap().clear();
@@ -181,6 +346,7 @@ impl AcpClient {
             next_id: AtomicI64::new(1),
             pending,
             current_prompt,
+            between,
             _reader: reader_handle,
             _stderr: stderr_handle,
         })
@@ -193,25 +359,30 @@ impl AcpClient {
         stdin: &Arc<Mutex<ChildStdin>>,
         pending: &Arc<Mutex<std::collections::HashMap<i64, Sender<Value>>>>,
         current: &Arc<Mutex<Option<(i64, Sender<ChunkMsg>)>>>,
+        between: &Arc<Mutex<BetweenTurn>>,
     ) {
         let is_request = msg.get("method").is_some() && msg.get("id").is_some();
         let is_notification = msg.get("method").is_some() && msg.get("id").is_none();
 
         if is_request {
-            Self::handle_agent_request(&msg, stdin, current);
+            Self::handle_agent_request(&msg, stdin, current, between);
             return;
         }
         if is_notification {
             if msg["method"] == "session/update" {
                 if let Some(update) = msg.get("params").and_then(|p| p.get("update")) {
                     let kind = update.get("sessionUpdate").and_then(|s| s.as_str()).unwrap_or("");
-                    if kind == "agent_message_chunk" {
-                        if let Some(text) = update.get("content").and_then(|c| c.get("text")).and_then(|t| t.as_str()) {
-                            if let Some((_, sink)) = current.lock().unwrap().as_ref() {
-                                let _ = sink.send(ChunkMsg::Text(text.to_string()));
-                            }
-                        }
-                    } else if let Some((_, sink)) = current.lock().unwrap().as_ref() {
+                    // The message this update BELONGS to, if a turn is in flight. Building
+                    // it first, then routing it in one place, is what makes the fallback
+                    // below total: there is exactly one `else`, so no kind can acquire a
+                    // path that skips it.
+                    let msg = if kind == "agent_message_chunk" {
+                        update
+                            .get("content")
+                            .and_then(|c| c.get("text"))
+                            .and_then(|t| t.as_str())
+                            .map(|text| ChunkMsg::Text(text.to_string()))
+                    } else {
                         // ROUTED, not dropped (techy-mode design §1.2). This replaces the
                         // comment that used to sit here: "Every other update kind
                         // (tool_call, usage, commands, thought) is MACHINERY and is
@@ -219,16 +390,33 @@ impl AcpClient {
                         // implemented as DROP rather than ROUTE; this is the route.
                         // Normalization (including the one deliberate `user_message_chunk`
                         // drop) happens at the drain point, where `seq` lives.
-                        let _ = sink.send(ChunkMsg::Update(update.clone()));
+                        Some(ChunkMsg::Update(update.clone()))
+                    };
+                    // ROUTED WHEN THERE IS A TURN, PARKED WHEN THERE IS NOT (§1.5, gap #1).
+                    //
+                    // This used to be the file's named hole: an update arriving while
+                    // `current_prompt` is None — at session start, or after the prompt
+                    // response has already been returned — hit no sink at all. Measured
+                    // 2026-08-28: exactly one `available_commands_update` and one
+                    // `session_info_update` per turn, in 5 of 5 runs
+                    // (docs/verification/acp-emission-probe-2026-08-28.md §4.2). It is now
+                    // parked in the between-turn buffer and drained by the spine at the
+                    // next boundary, with `turn_id: None` — attached to the THREAD, not to
+                    // a turn (§1.4 G4).
+                    //
+                    // A FAILED SEND FALLS THROUGH TO THE SAME PLACE, on purpose: a closed
+                    // receiver means the drain loop has already returned, which is the same
+                    // fact as "no turn is in flight" arriving one instant later.
+                    let routed = match (msg, current.lock().unwrap().as_ref()) {
+                        (Some(m), Some((_, sink))) => sink.send(m).is_ok(),
+                        // No text on an `agent_message_chunk` — nothing to route and
+                        // nothing to park.
+                        (None, _) => true,
+                        (Some(_), None) => false,
+                    };
+                    if !routed {
+                        between.lock().unwrap().offer_update(update.clone());
                     }
-                    // NOT ROUTED, named so it is a known hole rather than a silent one: an
-                    // update arriving while `current_prompt` is None — at session start, or
-                    // after the prompt response has already been returned — hits no sink at
-                    // all. Measured 2026-08-28: exactly one `available_commands_update` and
-                    // one `session_info_update` per turn, in 5 of 5 runs
-                    // (docs/verification/acp-emission-probe-2026-08-28.md §4.2). §1.5
-                    // designs the fix (a machinery sink independent of the prompt channel);
-                    // §5 schedules it for PHASE 2, and this commit is Phase 1.
                 }
             }
             return;
@@ -267,11 +455,16 @@ impl AcpClient {
         msg: &Value,
         stdin: &Arc<Mutex<ChildStdin>>,
         current: &Arc<Mutex<Option<(i64, Sender<ChunkMsg>)>>>,
+        between: &Arc<Mutex<BetweenTurn>>,
     ) {
         let id = msg["id"].clone();
         let method = msg["method"].as_str().unwrap_or("");
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
-        let mut machinery: Option<ChunkMsg> = None;
+        // Built as a `BetweenItem` rather than a `ChunkMsg`, because it is the arm that
+        // survives BOTH outcomes: the routed path converts it (one move, no clone), and the
+        // parked path stores it as it stands. Building the `ChunkMsg` first would mean
+        // cloning `params` for a fallback that usually does not fire.
+        let mut machinery: Option<BetweenItem> = None;
         let result = match method {
             "session/request_permission" => {
                 let opts = msg["params"]["options"].as_array().cloned().unwrap_or_default();
@@ -282,15 +475,15 @@ impl AcpClient {
                     .and_then(|o| o["optionId"].as_str())
                     .unwrap_or("allow")
                     .to_string();
-                machinery = Some(ChunkMsg::Permission { params, chosen: chosen.clone() });
+                machinery = Some(BetweenItem::Permission { params, chosen: chosen.clone() });
                 json!({ "outcome": { "outcome": "selected", "optionId": chosen } })
             }
             "fs/read_text_file" => {
-                machinery = Some(ChunkMsg::FsCall { method: method.to_string(), params });
+                machinery = Some(BetweenItem::FsCall { method: method.to_string(), params });
                 json!({ "content": "" })
             }
             "fs/write_text_file" => {
-                machinery = Some(ChunkMsg::FsCall { method: method.to_string(), params });
+                machinery = Some(BetweenItem::FsCall { method: method.to_string(), params });
                 Value::Null
             }
             _ => json!({}),
@@ -299,9 +492,16 @@ impl AcpClient {
         // is never worth a millisecond of the CEO's turn latency.
         let response = json!({ "jsonrpc": "2.0", "id": id, "result": result });
         let _ = Self::write_line(stdin, &response);
+        // Same fallback as `dispatch`'s, for the same reason: a client-directed request can
+        // arrive between turns too. The adapter's answer went out above either way — the
+        // routing decision below is only about where the RECORD goes, never about latency.
         if let Some(m) = machinery {
-            if let Some((_, sink)) = current.lock().unwrap().as_ref() {
-                let _ = sink.send(m);
+            let routed = match current.lock().unwrap().as_ref() {
+                Some((_, sink)) => sink.send(m.to_chunk()).is_ok(),
+                None => false,
+            };
+            if !routed {
+                between.lock().unwrap().push(m);
             }
         }
     }
@@ -347,6 +547,29 @@ impl AcpClient {
             .and_then(|s| s.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| AcpError::Protocol("session/new returned no sessionId".into()))
+    }
+
+    /// Take everything the adapter said while no turn was in flight (§1.5, gap #1).
+    ///
+    /// **`turn_id` stays `None` and the caller stamps the thread.** These records attach to
+    /// the THREAD, not to a turn, because there is no turn they belong to — and inventing
+    /// one (the previous turn, the next turn) would be a false attribution, which is the
+    /// one thing a record of what happened must not do. §1.4 G4: `turn_id: None` is a
+    /// first-class state.
+    ///
+    /// Takes `&self` so a caller holding the lease immutably can pump the lane; the buffer
+    /// is behind its own `Mutex` and is never held across a turn.
+    pub fn drain_between_turn(&self, session_id: &str) -> Vec<MachineryRecord> {
+        self.between.lock().unwrap().drain(session_id)
+    }
+
+    /// How many identical SessionMeta repeats the §1.5 slot has suppressed on this client.
+    ///
+    /// Exposed for the test that proves *"last value wins"* is doing work — the absence of
+    /// rows is not evidence of suppression, since it is equally consistent with the adapter
+    /// never having repeated itself.
+    pub fn suppressed_between_turn_repeats(&self) -> u64 {
+        self.between.lock().unwrap().suppressed()
     }
 
     /// A handle that can cancel the CURRENTLY IN-FLIGHT prompt from another thread.
@@ -558,5 +781,97 @@ impl Cognition for AcpCognition {
 
     fn cancel_handle(&self) -> Option<Arc<dyn TurnCancel>> {
         Some(self.client.cancel_handle(&self.session_id))
+    }
+
+    fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
+        self.client.drain_between_turn(&self.session_id)
+    }
+}
+
+#[cfg(test)]
+mod between_turn_buffer_tests {
+    use super::*;
+
+    fn meta(kind: &str, commands: &[&str]) -> Value {
+        json!({ "sessionUpdate": kind, "availableCommands": commands })
+    }
+
+    #[test]
+    fn the_last_value_slot_suppresses_an_identical_session_meta_repeat() {
+        // The measured shape: `available_commands_update` arrives once per turn and the
+        // payload does not change (probe 2026-08-28 §4.2). §1.2 — "retaining every repeat
+        // is waste; retaining the last is enough to reconstruct".
+        let mut lane = BetweenTurn::default();
+        lane.offer_update(meta("available_commands_update", &["compact"]));
+        lane.offer_update(meta("available_commands_update", &["compact"]));
+        lane.offer_update(meta("available_commands_update", &["compact"]));
+        let drained = lane.drain("sess");
+        assert_eq!(drained.len(), 1, "three identical repeats are one record");
+        assert_eq!(lane.suppressed(), 2);
+        assert_eq!(drained[0].turn_id, None, "§1.4 G4 — a between-turn record has no turn");
+    }
+
+    #[test]
+    fn a_changed_session_meta_value_is_kept_because_it_is_a_different_statement() {
+        let mut lane = BetweenTurn::default();
+        lane.offer_update(meta("available_commands_update", &["compact"]));
+        lane.offer_update(meta("available_commands_update", &["compact", "rewind"]));
+        let drained = lane.drain("sess");
+        assert_eq!(drained.len(), 2, "the second says something the first did not");
+        assert_eq!(lane.suppressed(), 0);
+        // 0 then 1 — the lane's own counter, assigned at DRAIN.
+        assert_eq!(drained.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![0, 1]);
+    }
+
+    #[test]
+    fn the_lane_counter_continues_across_drains_rather_than_restarting() {
+        let mut lane = BetweenTurn::default();
+        lane.offer_update(meta("available_commands_update", &["a"]));
+        assert_eq!(lane.drain("sess")[0].seq, 0);
+        lane.offer_update(meta("session_info_update", &[]));
+        assert_eq!(lane.drain("sess")[0].seq, 1, "a drain is not a reset");
+    }
+
+    #[test]
+    fn a_user_message_chunk_is_still_the_one_deliberate_drop() {
+        let mut lane = BetweenTurn::default();
+        lane.offer_update(json!({"sessionUpdate":"user_message_chunk","content":{"text":"hi"}}));
+        assert!(lane.drain("sess").is_empty());
+        // And it consumed no position: the NEXT record is still 0.
+        lane.offer_update(json!({"sessionUpdate":"plan"}));
+        assert_eq!(lane.drain("sess")[0].seq, 0);
+    }
+
+    #[test]
+    fn an_overflow_is_a_marker_record_and_never_a_silent_forget() {
+        let mut lane = BetweenTurn::default();
+        // BETWEEN_TURN_MAX + 3 non-mergeable, non-meta updates. `plan` is not SessionMeta,
+        // so nothing is collapsed and the cap is what bites.
+        for i in 0..(BETWEEN_TURN_MAX + 3) {
+            lane.offer_update(json!({"sessionUpdate":"plan","n":i}));
+        }
+        let drained = lane.drain("sess");
+        // 256 kept + 1 marker = 257. Re-derived here rather than trusted: the cap refuses
+        // the 257th onwards, so 259 offered - 256 kept = 3 dropped.
+        assert_eq!(drained.len(), BETWEEN_TURN_MAX + 1);
+        let marker = drained.last().unwrap();
+        assert_eq!(marker.title, crate::machinery::BETWEEN_TURN_OVERFLOW);
+        assert_eq!(marker.payload.as_ref().unwrap()["dropped"], 3);
+        // Reported once, then reset — a second drain does not re-accuse.
+        assert!(lane.drain("sess").is_empty());
+    }
+
+    #[test]
+    fn between_turn_text_is_retained_as_machinery_and_never_as_a_chunk() {
+        // In a turn this is the clean-output path and has no machinery record. Between
+        // turns there is no turn to attach it to, so §1.4 G5 says retain rather than drop —
+        // and it travels on the machinery family, never `StreamEvent::Chunk`.
+        let mut lane = BetweenTurn::default();
+        lane.offer_update(json!({"sessionUpdate":"agent_message_chunk","content":{"text":"orphan"}}));
+        let drained = lane.drain("sess");
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].kind, crate::machinery::MachineryKind::Unknown);
+        assert_eq!(drained[0].title, "agent_message_chunk");
+        assert_eq!(drained[0].summary.as_deref(), Some("orphan"));
     }
 }
