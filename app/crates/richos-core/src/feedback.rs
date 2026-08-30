@@ -16,8 +16,10 @@
 //! flush.** An approval recorded by this module is a recorded *answer*, not a pending
 //! *task*: nothing in the stored shape marks a record as owed to anybody, because a
 //! field like that is exactly the seam a future "just wire it up" commit would reach
-//! for. The `no_outbound_path` tests in this module assert that mechanically rather
-//! than trusting this paragraph.
+//! for. The seven tests in `crates/richos-core/tests/feedback_no_outbound_tests.rs`
+//! assert that mechanically rather than trusting this paragraph — they live one
+//! directory over, deliberately, because their list of banned tokens would otherwise
+//! sit inside the text they scan.
 //!
 //! # Why the prompt is not the interesting half
 //!
