@@ -34,6 +34,12 @@ const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
 const SHOTS = path.join(__dirname, "shots-5b");
+/// The proposal `belief.rs` ACTUALLY files, written by
+/// `belief_trigger_tests::the_ui_fixture_is_the_proposal_the_detector_really_files` and
+/// re-checked against the live detector on every `cargo test` run. Nothing in this file
+/// composes a proposal; check 14 renders THAT one.
+const DETECTED = path.join(__dirname, "fixtures", "loro-proposal.json");
+const SHOTS_5D = path.join(__dirname, "shots-5d");
 
 // ---------------------------------------------------------------------------------------
 // Shell driving — the REAL shell, with nothing stubbed that mock.js does not already own
@@ -85,11 +91,12 @@ const visibleText = (page) =>
 /// window is a photograph of an animation — the first one taken while writing this suite
 /// came out as a dimmed page with no panel on it at all, which would have been filed as
 /// evidence of a broken surface.
-async function settledShot(page, name) {
+async function settledShot(page, name, dir) {
   await page.waitForTimeout(300);
-  fs.mkdirSync(SHOTS, { recursive: true });
+  const into = dir || SHOTS;
+  fs.mkdirSync(into, { recursive: true });
   const s = await shot(page, name, { fullPage: false });
-  fs.copyFileSync(s.file, path.join(SHOTS, name + ".png"));
+  fs.copyFileSync(s.file, path.join(into, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colours)";
 }
 
@@ -584,6 +591,65 @@ async function main() {
     return registered.length + " commands: " + registered.join(", ");
   });
 
+  // ---- 14. the trigger's own output, on the real desk -----------------------------------
+
+  await run.check("14 a proposal the DETECTOR filed renders on this desk, with the right ref", async () => {
+    // RICH-TODOs row 5d. Until 2026-08-30 every proposal on this surface was one a fixture
+    // invented, because nothing in the product called `loro_propose_correction` — which is
+    // exactly what row 5d says. This check renders the artefact `belief.rs` produces when
+    // the CEO says a record is wrong, read off disk rather than typed here, and pinned to
+    // the Rust detector by a cargo test that regenerates it.
+    const filed = JSON.parse(fs.readFileSync(DETECTED, "utf8"));
+    assertEqual(filed.write.op, "supersede", "a wrong belief is superseded, never appended over");
+    assertEqual(
+      filed.write.recordRef,
+      "rec:person/records/halstead-renewal",
+      "the ref is the whole point of the feature"
+    );
+    // Nothing was composed: the body IS the CEO's sentence, and the reason is that sentence.
+    assertEqual(filed.write.body, filed.why, "the superseding body must be his own words");
+
+    // The bytes on disk are the bytes rendered: the file's own text crosses into the page
+    // and is parsed there, so nothing in this file can retype a proposal into a nicer one.
+    const page2 = await openApp(browser);
+    await page2.evaluate((raw) => {
+      window.__RICHOS_MOCK__.seedLoroProposals([JSON.parse(raw)]);
+    }, fs.readFileSync(DETECTED, "utf8"));
+    await page2.click("#nav-corrections");
+    await page2.waitForSelector("#desk-loro-list .desk-card");
+
+    const target = await page2.textContent("#desk-loro-list .desk-card-target");
+    assertEqual(
+      target,
+      "supersede · rec:person/records/halstead-renewal",
+      "the card must name the record the detector resolved, not a different one"
+    );
+    const quote = await page2.textContent("#desk-loro-list .desk-card-quote");
+    assertEqual(quote, filed.why, "the card quotes the CEO's own sentence back");
+    const preview = await page2.textContent("#desk-loro-list .desk-preview");
+    assertEqual(preview, filed.preview, "and shows the writer's bytes, byte for byte");
+    assert(
+      preview.indexOf("supersedes: rec:person/records/halstead-renewal") >= 0,
+      "the bytes must name what they supersede: " + preview
+    );
+    assert(preview.indexOf("scope: org-shared") >= 0, "the record's scope is carried through, not narrowed");
+
+    // THE EVIDENCE, taken while the card is still on screen — a shot of the desk AFTER the
+    // answer is a photograph of an empty list, which is what the first run of this check
+    // filed.
+    const shotName = await settledShot(page2, "5d-01-detector-filed-proposal", SHOTS_5D);
+
+    // He can still answer it — a rendered proposal nobody can decline is not a desk.
+    const said = await answer(page2, "#desk-loro-list .desk-btn:nth-child(2)");
+    assert(said.length > 0, "a decline said nothing");
+    const st = await deskState(page2);
+    assertEqual(st.loroSuppressed, [], "a plain decline must not suppress — §7");
+    await settledShot(page2, "5d-02-after-a-plain-decline", SHOTS_5D);
+    bump(8);
+    await page2.close();
+    return "the detector's own proposal, rendered and answerable — " + shotName;
+  });
+
   await run.check("NEGATIVE CONTROL: this suite asserted a non-zero number of things", async () => {
     assert(
       assertions >= 40,
@@ -652,3 +718,10 @@ main().catch((e) => {
 //        -> the preview rehearses a sentence the product does not say
 //  13  main.rs: remove `loro_show_record` from `generate_handler!`
 //        -> 13 registered, and the count assertion names it
+//  14  belief.rs `detect`: take `hits[0]` instead of requiring `hits.len() == 1`, then
+//      regenerate the fixture with RICHOS_WRITE_FIXTURES=1 against a two-February slice
+//        -> the card names the board-meeting record and the ref assertion fails
+//  14  belief.rs `BeliefAsk::proposed_write`: `scope: None`
+//        -> the preview says `scope: ceo-private` and the carry-through assertion fails
+//  14  mock.js `seedLoroProposals`: `proposals.push({...p, preview: LORO_PREVIEW})`
+//        -> the rendered bytes are the fixture's, not the detector's
