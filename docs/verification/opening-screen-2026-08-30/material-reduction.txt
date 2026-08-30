@@ -1,0 +1,367 @@
+THE OPENING SCREEN — THE TWELVE MATERIAL STUDIES, VERSION BY VERSION
+====================================================================
+
+`round-8.1/v7`-`v18` landed in `richos-hq` at `c1efae3` after the splash shipped. They are
+NOT what `v1`-`v6` are. `v1`-`v6` differ from `v0` in a closed set of CSS VALUES — diff the
+`<style>` blocks and there is nothing else — which is exactly why a flat token list covered
+them and why `mutation-runs.txt` could describe the extraction as mechanical.
+
+`v7`-`v18` differ in the MATERIAL. Nap that answers a stroke. Generated saddle stitching
+with a pitch and needle holes. Pebble grain lit by a distant light. Two stripe fields
+displaced into moire. A field of hammer facets each carrying its own surface normal. Several
+of them are not "v0 with different values" in any sense, and the whole question this record
+answers is which ones reduce faithfully, which needed the token set widened, and which one
+could not be carried at all.
+
+  ELEVEN ADDED. ONE LEFT OUT, NAMED, WITH THE REASON.
+
+The library is 18 entries. `app/ui/tests/splash.js` is 18 checks; `node run.js` is 14 suites
+and 262 checks. Every check added here was run RED at least once — the runs are at the
+bottom of this file.
+
+
+THE THREE THINGS THAT COULD NOT COME ACROSS AS THEY ARE
+=======================================================
+
+Named first, because they are the whole cost of this round and burying them in a per-version
+table would be the wrong shape for a reader.
+
+1. GENERATED GEOMETRY. Three studies build shapes in JavaScript against the mat's MEASURED
+   box: v7's saddle stitching (196 stitches, seeded jitter), v14's blind-debossed frame (one
+   stroked, filtered rect), v18's planished facet field (~270 shaded quads). A JSON library
+   cannot hold a generator, and `tests/splash.js` check 1 exists to keep it that way.
+
+     v14 needed no generator at all — the study's SVG rect is a bordered div once you
+     account for an SVG stroke straddling its path where a CSS border sits inside its box.
+     v7's stitching was RUN ONCE and its output baked (see below).
+     v18's could not be, and v18 is not here.
+
+2. POINTER TRACKING. v10, v13, v15 and v16 move a specular with the pointer; v17 warms its
+   picture light as the pointer approaches; v12 parallaxes a glow; v7 lets you brush the nap.
+   NOBODY MOVES A POINTER OVER A SPLASH SCREEN. It is up for about a quarter of a second and
+   it is `pointer-events: none` for all of it. So each of these is pinned at its rest
+   position, which is what `splash.css` already does to the lamp for the same reason.
+
+     WHERE "REST" IS, derived rather than eyeballed. The splash's lamp is drawn at 40%/40%
+     of the VIEWPORT and the plinth is centred, so the lamp's position ON THE MAT is
+     (0.40 x W - left) / width. Measured under WebKit:
+
+       1280 x 800   plinth 601.56 x 496.30 at (339.22, 151.84)  ->  28.7% / 33.9%
+       1680 x 1050  plinth 688.00 x 581.75 at (496.00, 234.13)  ->  25.6% / 32.0%
+       1024 x 700   plinth 481.25 x 431.59 at (271.38, 134.20)  ->  28.7% / 33.8%
+
+     Written as `29% 34%`. The studies open their speculars at a DIFFERENT point — 59.6% /
+     33.9% at 1280x800 — for one reason only: their mat is pushed left by the 348px palette
+     rail, so the same viewport-relative lamp lands somewhere else on it. Reproducing the
+     study's number would have put the highlight where the shipping lamp is not, which is
+     worse than not moving it.
+
+3. A GENERATOR'S OUTPUT IS DATA; A GENERATOR IS NOT. v7's stitching was produced by running
+   the study's OWN generator once, verbatim — same `mulberry32(41)`, same 10.5px pitch, same
+   7px corner radius, same 14px inset, same per-stitch jitter of length, angle and position —
+   at the mat's measured size (601.5625 x 496.296875 at 1280x800, rounded to 602 x 496), and
+   the 196 stitches it produced are what the entry carries. It scales with the mat under
+   `background-size: 100% 100%`, exactly as the logo and the wordmark already do under
+   `clamp()`.
+
+     Cost: 20,262 B as three separate stroked paths. Written once into a `<defs>` and
+     `<use>`d three times at three offsets — the dark under-thread, the gold, and the light
+     on its top edge — it is 5,064 B. The needle holes (398 dots at r=1.05, drawn UNDER a
+     2.5px under-thread that covers them) were dropped and are the difference between those
+     two figures plus 6.4 KB.
+
+
+PER VERSION
+===========
+
+v7   MIDNIGHT SUEDE, SADDLE-STITCHED                                 ADDED (token set widened)
+     THE CEO'S OWN, and the one he will look for.
+     Reduces: the nap is three flat layers (two fractal-noise fields at 640x520 and 220x220,
+       one directional sheen) — pure CSS in the study and pure data here. The plinth loses
+       its inner keyline entirely (`keylineWidth: 0px`); the stitching replaces it.
+     Widened: `materials`, `keylineWidth`.
+     NOT CARRIED, and visible: the BRUSH PREWASH — sixteen seeded canvas strokes 26-56px wide
+       at 5-9% alpha that mottle the nap diagonally. Compare the corner crops in
+       `material-v7.png` and the study's diagonal streaking is there and the shipping mat's
+       is not. The suede is slightly more even than the study's. The nap itself is intact.
+     NOT CARRIED, and not visible: the needle holes, per above.
+
+v8   BRIDLE LEATHER, THE MARK BLOCKED IN                             ADDED (token set widened)
+     Reduces cleanly: four flat layers (a `feDiffuseLighting` grain at 720x600, a fine
+       overlay, a broad mottle, a top shine), and the blocked groove as two 1px rings — the
+       dark one and a light one a pixel below it, written as an asymmetric inset
+       (`9px 8px 7px 8px`) rather than a transform, because an inset is a value.
+     Widened: `materials`, `surfaceImage` (its mat is a radial gradient), `relief`.
+     The blocked mark is an INNER shadow plus an inner light band. There is no CSS filter
+       function for an inner shadow on an SVG shape; that is why `relief` exists.
+
+v9   BUCKRAM BOOKCLOTH, FOIL-STAMPED                                 ADDED (token set widened)
+     Reduces cleanly: warp, weft, two slub fields and a fine cloth overlay, all CSS.
+     Differs in ONE structural way, named: the four corner lozenges are four rotated 5px
+       elements in the study and ONE layer here carrying the same diamond four times as
+       background images at the same four positions. Same shape, same places, one element.
+
+v10  URUSHI LACQUER, MAKI-E GOLD                                     ADDED (token set widened)
+     Reduces: depth gradient and window reflection are CSS; the maki-e dust is a `relief`
+       with a noise field and no bands, on the SIGNAL only.
+     Pinned static: `#spec`, two stacked speculars (90px tight, 430px soft), now at 29%/34%.
+
+v11  HONED SLATE, GILT-ENGRAVED                                      ADDED (token set widened)
+     Reduces cleanly: veining at two scales, a mica field with its own `filter:
+     contrast(3) brightness(.6)` (a layer property, so still data), and the incised inner
+     line as a ring inset 13px shifted 1px down.
+
+v12  CRUSHED VELVET, BULLION-EMBROIDERED                             ADDED (token set widened)
+     Reduces: crush, pile and pool are CSS; the keyline is a `border-image` of gold chevrons;
+     the bullion mark is a `relief` with a horizontally-stretched turbulence field AND an
+     OUTER shadow band, which is why `placement` exists.
+     NOT CARRIED, and not visible: `#pool`'s pointer parallax, which at rest is a
+     translate of 2.8px x 1.8px on a 420px-radius soft glow.
+
+v13  BLUED STEEL, GOLD INLAY                                         ADDED (token set widened)
+     Reduces cleanly. Its mark filter is `feDropShadow dx=0 dy=0 std=.7`, which IS a CSS
+     `drop-shadow()` — so it uses `signalFilter`, a plain string, and needs no `relief`.
+     Pinned static: `#aniso`, an 820x64 anisotropic streak, now at 29%/34%.
+
+v14  LETTERPRESS COTTON, PRESSED DEEP                                ADDED (token set widened)
+     THE ONE THAT LOOKED LIKE IT NEEDED A GENERATOR AND DID NOT. The study draws its
+     blind-debossed frame as an SVG rect inset 13 with rx 5 and a 7px stroke in the paper's
+     own colour, run through the same press filter as the mark. An SVG stroke is CENTRED on
+     its path; a CSS border sits INSIDE its box. So the same line is a layer inset
+     13 - 7/2 = 9.5px with a 7px border and a radius of 5 + 7/2 = 8.5px, and the border's
+     centreline lands exactly where the rect's path was. `relief: true` on that layer points
+     it at the same filter the mark uses, which is what the study does too.
+     Its title says "the light rakes with the pointer" — the raking is the shared lamp; the
+     press filter's own offsets are static in the study's stylesheet and static here.
+
+v15  WATERED SILK, WOVEN GOLD                                        ADDED (token set widened)
+     Reduces cleanly: the moire is two stripe patterns run through `feDisplacementMap`
+     INSIDE a data-URI SVG, so it is already one string. Satin sheen, selvedge ring, and a
+     `relief` noise field on the gold.
+     Pinned static: `#sheen`, a 560x300 pool, now at 29%/34%.
+
+v16  GUILLOCHÉ UNDER MIDNIGHT ENAMEL                                 ADDED (token set widened)
+     Reduces cleanly: engine-turning as two `repeating-radial-gradient`s, a glaze, a gloss,
+     and a second brighter engine-turning field MASKED to a pool of light — which is why a
+     layer may carry a `mask`. Keyline is a vertical gold `border-image`.
+     Pinned static: the `#gspec` mask, now at 29%/34%. Note the study's stylesheet defaults
+     that mask to `-400px -400px`, i.e. OFF, and its first `paint()` moves it — so its
+     static appearance and its rest appearance were already two different things.
+
+v17  OIL AND GOLD LEAF, UNDER A PICTURE LIGHT                        ADDED (token set widened)
+     The most elaborate, and it reduces. Its own ground (#070C17) and its own vignette are
+     existing tokens. The gold-leaf frame is the plinth's `surfaceImage` plus its inset
+     shadow rings; the frame's rabbet is `keylineShadow` with `keylineWidth: 0px`; the canvas
+     is one layer with three background images and a `background-blend-mode` list.
+     Differs in ONE structural way, named: THE PICTURE LIGHT is an element with two
+     pseudo-elements in the study (bar, stem, spill) and three layers here, because an entry
+     cannot describe a pseudo-element. Same three geometries, written as insets so they hold
+     on a mat that resizes: the bar `-17px 32% auto 32%` x 8px; the stem
+     `-25px calc(50% - 13px) auto calc(50% - 13px)` x 8px; the spill at 8% of the bar's own
+     36% width, so 32% + (0.08 x 36%) = 34.88%.
+     Pinned static: `#lamppool`'s opacity. At rest the pointer is 150.9px from the mat's
+     centre — `hypot(640-512, 400-320)` at 1280x800 — and the study's own formula
+     `max(.78, min(1, 1 - (d - 320)/900))` returns 1.0 there, so the pool is at full strength
+     and nothing was chosen by eye.
+
+v18  PLANISHED BRONZE, MIDNIGHT PATINA                               *** LEFT OUT ***
+     ITS MATERIAL IS A LIGHTING SOLVE, NOT A TEXTURE. The study builds ~270 jittered quads
+     over the mat and shades each one against a light position:
+
+         nz = sqrt(1 - nx^2 - ny^2)
+         b  = .24 + 1.02 * max(0, (nx*dx + ny*dy + nz*dz) / |d|)
+
+     per facet, with a per-facet tone offset and a three-segment tone ramp that turns warm
+     above b = .6. There is no CSS or SVG primitive for a per-facet normal.
+
+     THE TWO WAYS IT COULD HAVE BEEN FAKED, and why neither was taken:
+       * BAKE THE FIELD as a polygon SVG, the way v7's stitching was baked. v7's stitching is
+         a ONE-DIMENSIONAL run along an edge and survives scaling; a facet field is a
+         two-dimensional lighting solution computed for ONE plinth size, and the plinth is
+         `clamp()`-sized (481px wide at 1024x700, 688px at 1680x1050). The baked speculars
+         would keep pointing at a light that is no longer where they were solved for, and it
+         would cost roughly 33 KB in a 60 KB library, parsed on every launch including the
+         seventeen launches that draw something else.
+       * DROP THE FACETS and keep the rest. What remains is a flat #0D1526 mat with a 2px
+         dotted gold keyline and a chased mark. That is v0 with a different name, and
+         shipping it as v18 would be a lie about what the CEO chose.
+
+     A MISSING VARIATION IS BETTER THAN A LYING ONE. If v18 is wanted, the honest route is a
+     WebGL or canvas layer in the renderer, which is a different decision from this round's —
+     it puts drawing code back into `splash.js` and the whole contract that check 1 and
+     check 2 defend exists to keep it out.
+
+
+WHAT THE WIDENING ACTUALLY ADDED, AND WHY IT IS STILL DATA
+==========================================================
+
+  surfaceImage    the mat's paint when it is a gradient (v8, v10, v13, v15, v16, v17)
+  keylineWidth    the inner keyline's width, style, border-image and shadow — enough for a
+  keylineStyle      gold thread (v8-v11, v13, v15), a chevron or vertical gold border-image
+  keylineImage      (v12, v16), a dotted chase, the rabbet shadow of a picture frame (v17),
+  keylineShadow     or its removal (v7, v14)
+  materials       an ordered stack of flat layers over the mat, each one a `background`, a
+                  blend mode, an opacity, an inset, a radius, a border, a mask
+  markFilter      a CSS filter string the entry writes out (unused today)
+  signalFilter    the same, on the gold alone (v13, v16)
+  relief          an SVG filter described as VALUES
+
+`relief` is the one that deserves the argument. `splash.js` fixes its SHAPE — a noise field
+clipped inside the mark, then any number of bands, then a merge order of
+`outer bands -> SourceGraphic -> noise -> inner bands` — and the entry supplies every number.
+That is the SAME division the gilding gradient has lived under since the first seven entries:
+`gilding()` writes the offsets and the vector, the library writes the stops.
+
+The order is deliberately NOT data. Any other order draws a shadow on top of the thing
+casting it, and check 16 asserts it against the entry's own band placements.
+
+The guards are unchanged and still hold:
+  check 1  JSON-parses this library, so it cannot contain a function
+  check 2  greps splash.js and splash.css for a colour literal, and finds none
+  check 14 refuses an entry whose material stack carries a key the renderer does not know
+
+
+AND THE SEVEN APPROVED ENTRIES DID NOT MOVE
+===========================================
+
+They were re-emitted with every new key at its default. `splash-01-round-8-1-v0.png` and
+`splash-02-round-8-1-v6.png` came back BYTE-IDENTICAL to the ones committed at `92753bf`
+(`cmp -s` against `git show HEAD:...`), which is the only form of "nothing changed" worth
+having.
+
+The library grew from 15,192 B to 60,396 B. Check 13, which is the constraint the whole
+surface turns on, moved from +3.0ms to +4.0ms cold and +1.0ms to +2.0ms warm. One frame at
+60Hz is 16.7ms; +4.0ms is under a quarter of it.
+
+
+THE SIX RUNS THAT PROVE THE NEW CHECKS CAN FAIL
+===============================================
+
+Same discipline as `mutation-runs.txt`: exactly one edit per run to the SHIPPED source, the
+target string had to match, the tree was restored with `git checkout -- app/ui` after each
+run whether it passed or failed, and `git status` was clean afterwards.
+
+
+MUTATION FOR CHECK 6 (the widening) — splash.js
+--------------------------------------------------------------------------
+  Check 6 already had a mutation in `mutation-runs.txt`. This one proves the WIDENING: that
+  it now sweeps every entry rather than v6 alone. The stray class is put on the material
+  layers, which v6 does not have — so on the old check this would have gone green.
+
+  replaced:
+    -     var el = div("splash-material");
+  with:
+    +     var el = div("splash-material splash-chip");
+
+  target check 6: FAIL   (every check red this run: [6])
+
+  FAIL  6  the palette study is left behind — no chips, no hexes, no labels
+          round-8.1/v7: elements the composition is not made of
+          expected []
+          actual   ["splash-chip"]
+
+
+MUTATION FOR CHECK 14 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -         if (!LAYER_PROPS.hasOwnProperty(k) && LAYER_KEYS.indexOf(k) < 0) return false;
+  with:
+    +   (the line deleted)
+
+  target check 14: FAIL   (every check red this run: [14])
+
+  FAIL  14  a material layer may use only the vocabulary the renderer knows
+          round-8.1/v7 was still drawable with a key the renderer ignores
+
+
+MUTATION FOR CHECK 15 — splash.js
+--------------------------------------------------------------------------
+  replaced:
+    -     for (var m = 0; m < t.materials.length; m++) plinth.appendChild(materialLayer(t.materials[m]));
+  with:
+    +   (the line deleted)
+
+  target check 15: FAIL   (every check red this run: [15])
+
+  FAIL  15  the material REACHES the mat — no version is v0 under a different name
+          round-8.1/v7: emptying its material stack changed only 0.00% of the mat — the material is not reaching the screen
+
+  0.00% is the right number and worth stating: with the layers never appended, the entry
+  and the same entry with its material emptied are the SAME PICTURE. That is precisely the
+  failure this check exists to name — a library that validates perfectly and paints nothing.
+
+
+MUTATION FOR CHECK 16 — splash.js
+--------------------------------------------------------------------------
+  The one thing in the relief that is not data.
+
+  replaced:
+    -     var order = under.concat(["SourceGraphic"], over);
+  with:
+    +     var order = ["SourceGraphic"].concat(under, over);
+
+  target check 16: FAIL   (every check red this run: [16])
+
+  FAIL  16  the mark's relief is built from the ENTRY's numbers, in an order that cannot be data
+          round-8.1/v12: the merge order
+          expected ["band0","SourceGraphic","grain"]
+          actual   ["SourceGraphic","band0","grain"]
+
+  v12 is the entry that catches it, and it is the only one that could: it is the only entry
+  with an OUTER band, so it is the only entry for which the order is observable at all.
+
+
+MUTATION FOR CHECK 17 — splash.css
+--------------------------------------------------------------------------
+  The regression this check was written for, put back.
+
+  replaced:
+    -   filter: var(--splash-signal-filter);      (inside `.splash--settled .splash-signal`)
+  with:
+    +   filter: none;
+
+  target check 17: FAIL   (every check red this run: [17])
+
+  FAIL  17  the ceremony is cut, and the MATERIAL still is not
+          round-8.1/v8: pinning the composition flattened the gold's relief
+
+
+MUTATION FOR CHECK 18 — splash-library.js
+--------------------------------------------------------------------------
+  THIS MUTATION FAILED TO GO RED ON ITS FIRST RUN, AND THE CHECK WAS FIXED RATHER THAN THE
+  MUTATION ABANDONED. Check 18's first form derived the study's path from the entry's ID, so
+  the `source` field was decoration — renaming v7's source to a version that does not exist
+  changed nothing and the check stayed green. It now PARSES `source` and goes there, which
+  turns that field from a comment into a claim the suite tests. Same defect as mutation 3 in
+  `mutation-runs.txt`: a mutation that stays green is telling you what the check is really
+  looking at.
+
+  replaced:
+    -       "source": "richos-hq design/mockups/rounds/round-8.1/v7/index.html",
+  with:
+    +       "source": "richos-hq design/mockups/rounds/round-8.1/v19/index.html",
+
+  target check 18: FAIL   (every check red this run: [18])
+
+  FAIL  18  every version the round added is photographed by the SHIPPING renderer, beside its study
+          v7: the entry names a study that is not there — richos-hq design/mockups/rounds/round-8.1/v19/index.html
+
+
+THE NUMBERS ON THE UNMUTATED TREE
+=================================
+
+  library    18 entries, 60,396 B, 47 material layers, 7 reliefs
+  check 4    12 real launches, 8-9 distinct compositions, 0 immediate repeats
+  check 13   cold: 35.0ms with the splash, 31.0ms without  ->  +4.0ms
+             warm: 10.0ms with the splash,  8.0ms without  ->  +2.0ms
+             12 runs per cell, medians. One frame at 60Hz is 16.7ms.
+  check 15   mat pixels changed when an entry's material stack is emptied / vs v0's mat,
+             floor 25%:
+               v7  64% / 77%      v12 83% / 82%
+               v8  85% / 89%      v13 80% / 73%
+               v9  59% / 82%      v14 78% / 50%
+               v10 52% / 74%      v15 80% / 81%
+               v11 85% / 88%      v16 49% / 75%
+                                  v17 77% / 80%
+  check 18   11 pairs in `app/ui/tests/shots-splash/material-v7.png` … `material-v17.png`
+  run.js     14 discovered, 14 ran, 0 skipped, 262 checks observed against 224 declared

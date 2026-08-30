@@ -18,7 +18,7 @@ was built, installed, rendered or tested; nothing touched an emulator, simulator
 **Privacy.** This brief and its assets are in `richos`, which is PUBLISHED, so they contain **no
 transcribed speech at all** — not a quoted sentence, not a recovered clause, not a fixture line.
 Every span below is a time offset, a level and a count. The committed results were passed through
-`tools/redact.mjs`, which deletes `recovered` / `text` / `nearbyText` recursively and reports the
+`norm-substitution-density-2026-08-30-assets/tools/redact.mjs`, which deletes `recovered` / `text` / `nearbyText` recursively and reports the
 byte delta so a redactor that removed nothing would be visible. `engine/scripts/lib/publication-boundary.py`
 was then run by hand over every changed file against the declaration's own `PRIVATE_SOURCES` —
 because Claude Code snapshots hooks at session start, so "the hook did not block it" is evidence of
@@ -196,7 +196,7 @@ one that reaches `transcript.md`.
 
 The invented short-call corpus from the 2026-08-29 WER work — 6 two-speaker calls, 47–174 s, 1,852
 words, every sentence, person and company invented — regenerates byte for byte from
-`corpus/calls.json` with `say`. `tools/build-corpus-timed.mjs` is that builder with **one addition**:
+`corpus/calls.json` with `say`. `norm-substitution-density-2026-08-30-assets/tools/build-corpus-timed.mjs` is that builder with **one addition**:
 `reference-timeline.json`, the start, end and word count of every synthesized turn. That file is
 what makes this corpus a reference for a DENSITY instrument and not only for WER — the true
 words-per-second of every span is known because nobody spoke and nobody transcribed.
@@ -321,7 +321,7 @@ in the 92-minute transcript**.
 
 A green suite proves nothing on its own. Each of 24 mutations removes or inverts ONE load-bearing
 behaviour of `substitution-guard.js`; the whole suite runs against each; **all 28 new tests went red
-at least once, and every one of the 24 mutations was caught by at least one test.** `tools/mutate.py` re-runs the battery and fails
+at least once, and every one of the 24 mutations was caught by at least one test.** `norm-substitution-density-2026-08-30-assets/tools/mutate.py` re-runs the battery and fails
 if any test survives every mutation. The list, by what each breaks:
 
 | mutation | what it breaks |

@@ -57,14 +57,41 @@
   var STRING_TOKENS = [
     "ground", "atmosphere", "vignette", "grainOpacity",
     "lamp", "lampRadius", "lampStop",
-    "surface", "plinthRadius", "plinthShadow", "plinthOutline",
+    "surface", "surfaceImage", "plinthRadius", "plinthShadow", "plinthOutline",
     "keylineInset", "keylineRadius", "keylineColor",
+    "keylineWidth", "keylineStyle", "keylineImage", "keylineShadow",
     "ink", "signal", "rule", "ruleWidth", "tagline",
     "riseDuration", "riseShift",
     "strike", "strikeDelay", "strikeDuration"
   ];
   var STRIKES = ["none", "fill", "bloom"];
   var GILD_ID = "richos-splash-gild";
+  var RELIEF_ID = "richos-splash-relief";
+
+  // A MATERIAL LAYER'S VOCABULARY. Every key an entry may put on one layer of the stack,
+  // and the CSS property it lands on. The list is the whole contract: a layer is a flat
+  // rectangle over the mat with these paint properties and nothing else, so `materials` can
+  // describe suede, bookcloth, slate or moire without the renderer knowing that any of
+  // those exist. An unknown key is refused rather than ignored — a typo has to fail loudly,
+  // not silently drop the layer that was the point of the entry.
+  var LAYER_PROPS = {
+    background: "background",
+    imageBlend: "background-blend-mode",
+    blend: "mix-blend-mode",
+    opacity: "opacity",
+    inset: "inset",
+    height: "height",
+    radius: "border-radius",
+    border: "border",
+    borderImage: "border-image",
+    shadow: "box-shadow",
+    filter: "filter",
+    z: "z-index"
+  };
+  // `mask` sets two properties, and `relief` sets none directly - it points the layer at
+  // the filter this entry described. Both are checked, so they belong in the key list.
+  var LAYER_KEYS = ["mask", "relief"];
+  var PLACEMENTS = ["inner", "outer"];
 
   // The mark. Verbatim geometry from the approved compositions, and NOT in the library
   // because it is not a variation: it is identical in every version of every round, and a
@@ -123,6 +150,61 @@
   // The library
   // -------------------------------------------------------------------------------------
 
+  /// The material stack, checked key by key. A layer that carries a key this renderer does
+  /// not know is a layer whose author expected something to happen that will not — so the
+  /// ENTRY is dropped, not the key. Silently ignoring it is how a suede mat ships as a
+  /// plain one.
+  function validMaterials(layers) {
+    if (!Array.isArray(layers)) return false;
+    for (var i = 0; i < layers.length; i++) {
+      var l = layers[i];
+      if (!l || typeof l !== "object" || Array.isArray(l)) return false;
+      if (typeof l.background !== "string" || !l.background) return false;
+      for (var k in l) {
+        if (!l.hasOwnProperty(k)) continue;
+        if (k === "relief") {
+          if (typeof l.relief !== "boolean") return false;
+          continue;
+        }
+        if (!LAYER_PROPS.hasOwnProperty(k) && LAYER_KEYS.indexOf(k) < 0) return false;
+        if (typeof l[k] !== "string" || !l[k]) return false;
+      }
+    }
+    return true;
+  }
+
+  /// The relief spec, which is an SVG filter written as values rather than as markup. The
+  /// SHAPE of the filter is fixed below in `relief()` — a noise field clipped inside the
+  /// mark, and any number of shadow or light bands laid inside or outside it. What each
+  /// band is made of is the entry's to say. This is the same division the gilding gradient
+  /// already lives under: the structure is the renderer's, the values are the library's.
+  function validRelief(spec) {
+    if (spec === null) return true;
+    if (typeof spec !== "object" || Array.isArray(spec)) return false;
+    if (spec.target !== "mark" && spec.target !== "signal") return false;
+    if (typeof spec.region !== "string" || spec.region.trim().split(/\s+/).length !== 4) return false;
+    if (spec.noise !== null) {
+      var n = spec.noise;
+      if (!n || typeof n !== "object") return false;
+      var keys = ["type", "baseFrequency", "octaves", "seed"];
+      for (var i = 0; i < keys.length; i++) {
+        if (typeof n[keys[i]] !== "string" || !n[keys[i]]) return false;
+      }
+      if (typeof spec.matrix !== "string" || !spec.matrix) return false;
+    }
+    if (!Array.isArray(spec.bands)) return false;
+    for (var j = 0; j < spec.bands.length; j++) {
+      var b = spec.bands[j];
+      if (!b || typeof b !== "object") return false;
+      if (PLACEMENTS.indexOf(b.placement) < 0) return false;
+      var bk = ["color", "opacity", "dx", "dy", "blur"];
+      for (var m = 0; m < bk.length; m++) {
+        if (typeof b[bk[m]] !== "string" || !b[bk[m]]) return false;
+      }
+    }
+    return true;
+  }
+
   function valid(entry) {
     if (!entry || typeof entry !== "object") return false;
     if (typeof entry.id !== "string" || !entry.id) return false;
@@ -138,6 +220,10 @@
     }
     if (t.gild !== null && !(Array.isArray(t.gild) && t.gild.length === 3)) return false;
     if (t.sheen !== null && typeof t.sheen !== "string") return false;
+    if (t.markFilter !== null && typeof t.markFilter !== "string") return false;
+    if (t.signalFilter !== null && typeof t.signalFilter !== "string") return false;
+    if (!validMaterials(t.materials)) return false;
+    if (!validRelief(t.relief)) return false;
     if (t.strike === "fill") {
       // A colour strike on a gradient fill has no colour to animate: the gold would simply
       // never arrive. Refuse the entry rather than draw a mark that stays unlit.
@@ -179,13 +265,18 @@
 
   var SVG_NS = "http://www.w3.org/2000/svg";
 
-  function svgMark(mark, className, gilded) {
+  function svgMark(mark, className, gilded, reliefSpec) {
     var svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("viewBox", mark.viewBox);
     svg.setAttribute("class", className);
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
-    if (gilded) svg.appendChild(gilding(gilded));
+    if (gilded || reliefSpec) {
+      var defs = document.createElementNS(SVG_NS, "defs");
+      if (gilded) defs.appendChild(gilding(gilded));
+      if (reliefSpec) defs.appendChild(relief(reliefSpec));
+      svg.appendChild(defs);
+    }
     for (var i = 0; i < mark.paths.length; i++) {
       var p = document.createElementNS(SVG_NS, "path");
       p.setAttribute("d", mark.paths[i].d);
@@ -199,7 +290,6 @@
   /// once, inside the first mark; `url(#id)` resolves document-wide, which is exactly how
   /// the studies do it.
   function gilding(stops) {
-    var defs = document.createElementNS(SVG_NS, "defs");
     var grad = document.createElementNS(SVG_NS, "linearGradient");
     grad.setAttribute("id", GILD_ID);
     grad.setAttribute("x1", "0");
@@ -213,8 +303,108 @@
       stop.setAttribute("stop-color", stops[i]);
       grad.appendChild(stop);
     }
-    defs.appendChild(grad);
-    return defs;
+    return grad;
+  }
+
+  /// THE RELIEF FILTER — the mark's material, built from the entry's own numbers.
+  ///
+  /// Its SHAPE is fixed here and its VALUES all arrive in `spec`, which is the same
+  /// division `gilding()` above already lives under. Two ingredients, either of which may
+  /// be absent:
+  ///
+  ///   * a NOISE FIELD, coloured through a matrix and clipped to the mark's own alpha —
+  ///     what makes maki-e gold dust sit in the lacquered arrow and bullion thread run
+  ///     across the mark in strands;
+  ///   * any number of BANDS, each a flood of one colour clipped against a blurred, offset
+  ///     copy of the mark. `inner` leaves the band inside the glyph, which is a letter
+  ///     pressed INTO the material; `outer` leaves it outside, which is one sitting proud
+  ///     of it. There is no CSS filter function for the inner case, which is why this is
+  ///     an SVG filter and not a `drop-shadow()` list.
+  ///
+  /// The merge order is the one thing that is not negotiable and so is not data: outer
+  /// bands under the mark, the mark, then the noise and the inner bands over it. Any other
+  /// order draws a shadow on top of the thing casting it.
+  function relief(spec) {
+    var f = document.createElementNS(SVG_NS, "filter");
+    f.setAttribute("id", RELIEF_ID);
+    var region = spec.region.trim().split(/\s+/);
+    f.setAttribute("x", region[0]);
+    f.setAttribute("y", region[1]);
+    f.setAttribute("width", region[2]);
+    f.setAttribute("height", region[3]);
+
+    function prim(tag, attrs) {
+      var n = document.createElementNS(SVG_NS, tag);
+      for (var k in attrs) {
+        if (attrs.hasOwnProperty(k)) n.setAttribute(k, attrs[k]);
+      }
+      f.appendChild(n);
+      return n;
+    }
+
+    var under = [];
+    var over = [];
+
+    if (spec.noise) {
+      prim("feTurbulence", {
+        type: spec.noise.type,
+        baseFrequency: spec.noise.baseFrequency,
+        numOctaves: spec.noise.octaves,
+        seed: spec.noise.seed,
+        result: "n"
+      });
+      prim("feColorMatrix", { in: "n", type: "matrix", values: spec.matrix, result: "nc" });
+      prim("feComposite", { in: "nc", in2: "SourceAlpha", operator: "in", result: "grain" });
+      over.push("grain");
+    }
+
+    for (var i = 0; i < spec.bands.length; i++) {
+      var b = spec.bands[i];
+      var id = "band" + i;
+      prim("feFlood", { "flood-color": b.color, "flood-opacity": b.opacity, result: id + "f" });
+      prim("feOffset", { in: "SourceAlpha", dx: b.dx, dy: b.dy, result: id + "o" });
+      prim("feGaussianBlur", { in: id + "o", stdDeviation: b.blur, result: id + "g" });
+      if (b.placement === "outer") {
+        prim("feComposite", { in: id + "f", in2: id + "g", operator: "in", result: id + "m" });
+        prim("feComposite", { in: id + "m", in2: "SourceAlpha", operator: "out", result: id });
+        under.push(id);
+      } else {
+        prim("feComposite", { in: id + "f", in2: "SourceAlpha", operator: "in", result: id + "m" });
+        prim("feComposite", { in: id + "m", in2: id + "g", operator: "out", result: id });
+        over.push(id);
+      }
+    }
+
+    var merge = prim("feMerge", {});
+    var order = under.concat(["SourceGraphic"], over);
+    for (var j = 0; j < order.length; j++) {
+      var node = document.createElementNS(SVG_NS, "feMergeNode");
+      node.setAttribute("in", order[j]);
+      merge.appendChild(node);
+    }
+    return f;
+  }
+
+  /// One layer of the material stack. Every property it paints with comes off the entry;
+  /// this function knows only where a layer sits and which CSS property each key drives.
+  function materialLayer(spec) {
+    var el = div("splash-material");
+    for (var k in spec) {
+      if (!spec.hasOwnProperty(k)) continue;
+      if (k === "relief") {
+        if (spec.relief) el.style.setProperty("filter", "url(#" + RELIEF_ID + ")");
+        continue;
+      }
+      if (k === "mask") {
+        // WebKit still wants the prefixed property; setting both is what makes the same
+        // entry look the same under the engine Tauri ships and under the one it does not.
+        el.style.setProperty("-webkit-mask-image", spec.mask);
+        el.style.setProperty("mask-image", spec.mask);
+        continue;
+      }
+      el.style.setProperty(LAYER_PROPS[k], spec[k]);
+    }
+    return el;
   }
 
   function div(className) {
@@ -239,12 +429,17 @@
     s.setProperty("--splash-lamp-radius", t.lampRadius);
     s.setProperty("--splash-lamp-stop", t.lampStop);
     s.setProperty("--splash-surface", t.surface);
+    s.setProperty("--splash-surface-image", t.surfaceImage);
     s.setProperty("--splash-plinth-radius", t.plinthRadius);
     s.setProperty("--splash-plinth-shadow", t.plinthShadow);
     s.setProperty("--splash-plinth-outline", t.plinthOutline);
     s.setProperty("--splash-keyline-inset", t.keylineInset);
     s.setProperty("--splash-keyline-radius", t.keylineRadius);
     s.setProperty("--splash-keyline-color", t.keylineColor);
+    s.setProperty("--splash-keyline-width", t.keylineWidth);
+    s.setProperty("--splash-keyline-style", t.keylineStyle);
+    s.setProperty("--splash-keyline-image", t.keylineImage);
+    s.setProperty("--splash-keyline-shadow", t.keylineShadow);
     s.setProperty("--splash-ink", t.ink);
     // Gilded gold is a paint server with the flat colour as its fallback, exactly as the
     // studies write it (`fill: url(#gild) <the flat gold>` — the hex itself deliberately
@@ -268,6 +463,15 @@
     s.setProperty("--splash-strike-from", t.strikeFrom || t.signal);
     s.setProperty("--splash-strike-peak", t.strikePeak || t.signal);
     s.setProperty("--splash-fade", FADE_MS + "ms");
+    // The mark's relief, resolved once. A `relief` spec aimed at the whole mark reaches the
+    // gold too — the studies write it as `.logo path, .wordmark path`, which is every path
+    // there is — while one aimed at `signal` leaves the ink flat. A plain CSS filter the
+    // entry wrote out wins over both, because an entry that says exactly what it wants is
+    // not asking to be interpreted.
+    var reliefUrl = t.relief ? "url(#" + RELIEF_ID + ")" : "none";
+    var onMark = t.relief && t.relief.target === "mark";
+    s.setProperty("--splash-mark-filter", t.markFilter || (onMark ? reliefUrl : "none"));
+    s.setProperty("--splash-signal-filter", t.signalFilter || (t.relief ? reliefUrl : "none"));
     if (t.strike !== "none") root.classList.add("splash--strike-" + t.strike);
 
     root.appendChild(div("splash-lamp"));
@@ -277,14 +481,17 @@
     var stage = div("splash-stage");
     var frame = div("splash-rise splash-rise--1");
     var plinth = div("splash-plinth");
+    // The material first, in the entry's own order, then the sheen — the one layer the
+    // approved seven use — then the composition on top of both.
+    for (var m = 0; m < t.materials.length; m++) plinth.appendChild(materialLayer(t.materials[m]));
     if (t.sheen) plinth.appendChild(div("splash-sheen"));
 
     var logoWrap = div("splash-rise splash-rise--2");
-    logoWrap.appendChild(svgMark(LOGO, "splash-logo", t.gild));
+    logoWrap.appendChild(svgMark(LOGO, "splash-logo", t.gild, t.relief));
     plinth.appendChild(logoWrap);
 
     var wordWrap = div("splash-rise splash-rise--3");
-    wordWrap.appendChild(svgMark(WORDMARK, "splash-wordmark", null));
+    wordWrap.appendChild(svgMark(WORDMARK, "splash-wordmark", null, null));
     plinth.appendChild(wordWrap);
 
     var footWrap = div("splash-rise splash-rise--4");

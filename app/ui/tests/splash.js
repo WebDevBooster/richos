@@ -26,6 +26,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -36,6 +37,21 @@ const MAIN_JS = path.join(UI_DIR, "main.js");
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
 const CONFIG_RS = path.resolve(UI_DIR, "..", "crates", "richos-core", "src", "config.rs");
 const SHOTS = path.join(__dirname, "shots-splash");
+
+/// WHERE THE STUDIES LIVE, and why this is a lookup rather than a path. The round-8.1
+/// mockups are in a DIFFERENT REPOSITORY (`richos-hq`), which is why every entry's `source`
+/// names them by that repository rather than by a relative path. Check 18 photographs the
+/// shipping renderer either way; it can only put the study beside it on a machine that has
+/// one, and it says which of the two it did.
+const HQ = process.env.RICHOS_HQ || path.join(os.homedir(), "ab", "richos-hq");
+
+/// The study an ENTRY says it came from. Reading it out of `source` rather than rebuilding
+/// it from the id is the point: `source` stops being a comment and becomes a claim that
+/// check 18 goes and tests.
+function studyOf(entry) {
+  const m = /^richos-hq (\S+)$/.exec(entry.source);
+  return m ? path.join(HQ, m[1]) : null;
+}
 
 /// The library, read the way check 1 proves it can be read: as JSON.
 ///
@@ -136,7 +152,7 @@ async function launch(browser, opts) {
   if (opts.off) await page.addInitScript(() => window.localStorage.setItem("richos.splash.enabled", "false"));
   if (opts.hold) await page.addInitScript(HOLD_OPEN);
   if (opts.force) await page.addInitScript(FORCE, opts.force);
-  if (opts.init) await page.addInitScript(opts.init);
+  if (opts.init) await page.addInitScript(opts.init, opts.initArg);
   await page.goto(APP);
   page.__ctx = ctx;
   return page;
@@ -160,6 +176,135 @@ async function settledShot(page, name) {
   fs.copyFileSync(s.file, path.join(SHOTS, name + ".png"));
   return name + ".png (" + s.width + "x" + s.height + ", " + s.distinct + " distinct colors)";
 }
+
+/// A photograph of the MAT ALONE, and what was laid on it. `mute` empties the entry's
+/// material stack and changes nothing else — which is what makes check 15's comparison a
+/// comparison of the material rather than of two different versions.
+async function matShot(browser, id, mute) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await newPage(ctx);
+  await page.addInitScript(HOLD_OPEN);
+  await page.addInitScript((o) => {
+    let lib;
+    Object.defineProperty(window, "RichSplashLibrary", {
+      configurable: true,
+      get: () => lib,
+      set: (x) => {
+        lib = {
+          schemaVersion: x.schemaVersion,
+          round: x.round,
+          variations: x.variations.filter((v) => v.id === o.id).map((v) => {
+            const c = JSON.parse(JSON.stringify(v));
+            if (o.mute) c.tokens.materials = [];
+            return c;
+          }),
+        };
+      },
+    });
+  }, { id, mute });
+  await page.goto(APP);
+  await page.waitForTimeout(2200);
+  const r = await page.evaluate(() => {
+    const n = document.querySelector("#splash .splash-plinth");
+    const q = n.getBoundingClientRect();
+    const kids = Array.from(n.children);
+    const mats = kids.filter((c) => c.classList.contains("splash-material"));
+    const rises = kids.filter((c) => c.classList.contains("splash-rise"));
+    const first = rises.length ? kids.indexOf(rises[0]) : Number.POSITIVE_INFINITY;
+    return {
+      clip: { x: Math.round(q.x), y: Math.round(q.y), width: Math.round(q.width), height: Math.round(q.height) },
+      layers: mats.length,
+      above: mats.filter((m) => kids.indexOf(m) > first).length,
+    };
+  });
+  const png = (await page.screenshot({ clip: r.clip })).toString("base64");
+  assert(page.__errors.length === 0, id + " errors: " + page.__errors.join("; "));
+  await ctx.close();
+  return { png, layers: r.layers, above: r.above };
+}
+
+/// Two PNGs, decoded by the same engine that painted them and compared pixel for pixel. A
+/// channel has to move by MORE THAN 3 to count, so subpixel antialiasing noise cannot
+/// manufacture a difference; mismatched sizes report 0% rather than throwing, which fails
+/// the check that called this rather than the run.
+const DIFF = async (pair) => {
+  const load = (s) =>
+    new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error("a PNG did not decode"));
+      i.src = "data:image/png;base64," + s;
+    });
+  const [ia, ib] = await Promise.all([load(pair[0]), load(pair[1])]);
+  const px = (i) => {
+    const c = document.createElement("canvas");
+    c.width = i.naturalWidth;
+    c.height = i.naturalHeight;
+    const x = c.getContext("2d");
+    x.drawImage(i, 0, 0);
+    return x.getImageData(0, 0, c.width, c.height).data;
+  };
+  const A = px(ia);
+  const B = px(ib);
+  if (A.length !== B.length) return { changed: 0, sampled: 0, pct: 0 };
+  let n = 0;
+  let s = 0;
+  for (let i = 0; i < A.length; i += 4) {
+    s++;
+    if (Math.abs(A[i] - B[i]) > 3 || Math.abs(A[i + 1] - B[i + 1]) > 3 || Math.abs(A[i + 2] - B[i + 2]) > 3) n++;
+  }
+  return { changed: n, sampled: s, pct: (100 * n) / s };
+};
+
+/// Two mats into one picture, drawn by the same engine that painted both, with a label over
+/// each so the file says what it is without a caption anywhere else. `b` may be null on a
+/// machine that does not have the study repository — the shipping side is still the
+/// evidence, and the label says so.
+const SIDE_BY_SIDE = async (o) => {
+  const load = (s) =>
+    new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error("a PNG did not decode"));
+      i.src = "data:image/png;base64," + s;
+    });
+  const a = await load(o.a);
+  const b = o.b ? await load(o.b) : null;
+  const GAP = 14;
+  const BAR = 24;
+  // THE WHOLE MAT AT HALF SCALE, AND A CORNER OF IT AT FULL. Both are needed and neither is
+  // enough: half scale shows the material across the mat and loses the pitch of a stitch,
+  // and a native crop shows the stitch and loses the mat. Together they are 38% of the
+  // pixels of a native-scale pair, which matters because these are rewritten on every run
+  // and a megabyte of grain is a megabyte of binary diff every time.
+  const S = 0.5;
+  const CW = 300;
+  const CH = 220;
+  const halfW = Math.round(a.naturalWidth * S);
+  const halfH = Math.round(a.naturalHeight * S);
+  const w = Math.max(halfW * (b ? 2 : 1) + (b ? GAP : 0), CW * (b ? 2 : 1) + (b ? GAP : 0));
+  const h = BAR + halfH + BAR + CH;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const x = c.getContext("2d");
+  x.fillStyle = "rgb(8,12,22)";
+  x.fillRect(0, 0, w, h);
+  x.imageSmoothingEnabled = true;
+  x.drawImage(a, 0, BAR, halfW, halfH);
+  if (b) x.drawImage(b, halfW + GAP, BAR, Math.round(b.naturalWidth * S), Math.round(b.naturalHeight * S));
+  // The corner: native pixels, from the same place in both, where the keyline, the corner
+  // treatment and the material field all are.
+  x.drawImage(a, 0, 0, CW, CH, 0, BAR + halfH + BAR, CW, CH);
+  if (b) x.drawImage(b, 0, 0, CW, CH, CW + GAP, BAR + halfH + BAR, CW, CH);
+  x.fillStyle = "rgb(150,168,200)";
+  x.font = "12px -apple-system, Helvetica, Arial, sans-serif";
+  x.fillText(o.left + " — whole mat, half scale", 2, 16);
+  if (b) x.fillText(o.right + " — whole mat, half scale", halfW + GAP + 2, 16);
+  x.fillText(o.left + " — top-left corner, native", 2, BAR + halfH + 16);
+  if (b) x.fillText(o.right + " — top-left corner, native", CW + GAP + 2, BAR + halfH + 16);
+  return c.toDataURL("image/png").split(",")[1];
+};
 
 /// The median of a list of numbers, which is what every launch figure below is reported as:
 /// one slow run on a loaded laptop must not be able to move the answer.
@@ -315,12 +460,20 @@ async function main() {
     const ALLOWED = new Set([
       "splash", "splash-lamp", "splash-vignette", "splash-grain", "splash-stage",
       "splash-rise", "splash-rise--1", "splash-rise--2", "splash-rise--3", "splash-rise--4",
-      "splash-plinth", "splash-sheen", "splash-logo", "splash-wordmark", "splash-ink",
-      "splash-signal", "splash-foot", "splash-rule", "splash-line",
+      "splash-plinth", "splash-sheen", "splash-material", "splash-logo", "splash-wordmark",
+      "splash-ink", "splash-signal", "splash-foot", "splash-rule", "splash-line",
       "splash--strike-fill", "splash--strike-bloom", "splash--settled", "splash--yielding",
     ]);
-    const page = await launch(browser, { hold: true, force: LIBRARY.variations[6].id });
-    const r = await page.evaluate(() => {
+    // EVERY entry, not one. This check used to inspect v6 alone, which was enough when the
+    // library was seven colour variations of one composition and is not enough now: v7-v17
+    // each carry a material stack lifted from a study that also carries a rail of chips, a
+    // hint line and three corner labels, and the entry that let one of those across would
+    // be exactly the entry nobody looked at.
+    const swept = [];
+    let r = null;
+    for (const v of LIBRARY.variations) {
+    const page = await launch(browser, { hold: true, force: v.id });
+    r = await page.evaluate(() => {
       const n = document.getElementById("splash");
       const classes = [];
       const tags = [];
@@ -338,14 +491,16 @@ async function main() {
       };
     });
     const stray = r.classes.filter((c) => !ALLOWED.has(c));
-    assertEqual(stray, [], "elements the composition is not made of");
-    assertEqual(r.buttons, 0, "the study's five clickable chips came across");
-    assertEqual(r.text, "The AI Operating System for CEOs", "the only text on the surface");
+    assertEqual(stray, [], v.id + ": elements the composition is not made of");
+    assertEqual(r.buttons, 0, v.id + ": the study's five clickable chips came across");
+    assertEqual(r.text, "The AI Operating System for CEOs", v.id + ": the only text on the surface");
     // Which also settles it: nothing here reads as a hex value, a role name or a round
     // number, because nothing here reads as anything but that one line.
-    assert(!/[0-9]/.test(r.text), "a digit reached the surface: " + r.text);
+    assert(!/[0-9]/.test(r.text), v.id + ": a digit reached the surface: " + r.text);
+    swept.push(v.id);
     await page.__ctx.close();
-    return `${r.classes.length} class names, all from the composition · tags: ${r.tags.join(", ")} · text: "${r.text}"`;
+    }
+    return `${swept.length} entries swept, ${r.classes.length} class names on the last, all from the composition · tags: ${r.tags.join(", ")} · text: "${r.text}"`;
   });
 
   await run.check("7  nothing here can catch his hand", async () => {
@@ -611,6 +766,242 @@ async function main() {
     assert(dCold < FRAME_MS, "cold launch is slower by " + fmt(dCold) + "ms, which is a frame or more — " + detail);
     assert(dWarm < FRAME_MS, "warm launch is slower by " + fmt(dWarm) + "ms, which is a frame or more — " + detail);
     return detail;
+  });
+
+  // ---- the material, which is the whole of v7 onwards --------------------------------------
+
+  await run.check("14  a material layer may use only the vocabulary the renderer knows", async () => {
+    // The widening's own guard rail. `materials` is the one token that is a structure rather
+    // than a string, so it is the one place a library could quietly grow an expectation the
+    // renderer has never heard of — a `shine` key that nobody implements, sitting in the
+    // entry that was supposed to be suede. The vocabulary is read OFF THE RENDERER, not
+    // typed here, so the two cannot drift; and an entry using a key outside it is DROPPED,
+    // which is the only behaviour that makes the mistake visible.
+    const src = fs.readFileSync(RENDERER_FILE, "utf8");
+    const props = src.slice(src.indexOf("var LAYER_PROPS = {"), src.indexOf("var LAYER_KEYS"));
+    const known = new Set((props.match(/^\s{4}(\w+):/gm) || []).map((m) => m.trim().replace(":", "")));
+    for (const k of (src.match(/var LAYER_KEYS = \[([^\]]*)\]/) || ["", ""])[1].match(/"(\w+)"/g) || []) {
+      known.add(k.replace(/"/g, ""));
+    }
+    assert(known.size >= 10, "the renderer's layer vocabulary did not parse: " + known.size + " keys");
+
+    let layers = 0;
+    const used = new Set();
+    for (const v of LIBRARY.variations) {
+      for (const l of v.tokens.materials) {
+        layers++;
+        for (const k of Object.keys(l)) {
+          assert(known.has(k), v.id + ': a material layer uses "' + k + '", which the renderer does not know');
+          used.add(k);
+        }
+      }
+    }
+    // And the refusal itself, driven rather than described: one shipped layer grows one key
+    // outside the vocabulary and the whole entry has to leave the pool.
+    const victim = LIBRARY.variations.find((v) => v.tokens.materials.length);
+    assert(victim, "no entry carries a material stack to test the refusal against");
+    const page = await launch(browser, {
+      hold: true,
+      initArg: victim.id,
+      init: (wanted) => {
+        let l;
+        Object.defineProperty(window, "RichSplashLibrary", { configurable: true, get: () => l, set: (x) => {
+          l = { schemaVersion: x.schemaVersion, round: x.round, variations: x.variations.map((v) => {
+            const c = JSON.parse(JSON.stringify(v));
+            if (c.id === wanted) c.tokens.materials[0].shine = "1";
+            return c;
+          }) };
+        } });
+      },
+    });
+    const pool = await page.evaluate(() => window.RichSplash.pool().map((v) => v.id));
+    assert(pool.indexOf(victim.id) < 0, victim.id + " was still drawable with a key the renderer ignores");
+    assertEqual(pool.length, LIBRARY.variations.length - 1, "exactly one entry should have been refused");
+    await page.__ctx.close();
+    return `${layers} layers across ${LIBRARY.variations.length} entries, every key in the renderer's own vocabulary (${Array.from(used).sort().join(", ")}) · one added key drops its entry from the pool`;
+  });
+
+  await run.check("15  the material REACHES the mat — no version is v0 under a different name", async () => {
+    // THE CONSTRAINT THIS WHOLE ROUND TURNS ON, measured rather than eyeballed. v7-v17 vary
+    // the MATERIAL, and a suede that renders as a flat navy rectangle is not v7 — it is v0
+    // with a different name, and shipping it as v7 would be a lie about what the CEO chose.
+    //
+    // So each entry is photographed twice at the mat: as it ships, and with its material
+    // stack emptied and NOTHING else touched. The second is precisely "this version minus
+    // the thing that is the point of it", and the two have to differ over a large part of
+    // the mat. The same photograph is then compared against v0's mat, which is the other
+    // half of the claim: not merely different from itself, different from the one it would
+    // otherwise be a rename of.
+    const FLOOR = 25;
+    const withMaterial = LIBRARY.variations.filter((v) => v.tokens.materials.length);
+    assert(withMaterial.length >= 11, "only " + withMaterial.length + " entries carry a material stack");
+    const v0 = await matShot(browser, LIBRARY.variations[0].id, false);
+    const cmp = await browser.newContext({ viewport: { width: 400, height: 300 } });
+    const judge = await cmp.newPage();
+    await judge.goto("about:blank");
+    const told = [];
+    for (const v of withMaterial) {
+      const on = await matShot(browser, v.id, false);
+      const off = await matShot(browser, v.id, true);
+      const a = await judge.evaluate(DIFF, [on.png, off.png]);
+      const b = await judge.evaluate(DIFF, [on.png, v0.png]);
+      assert(a.pct >= FLOOR, v.id + ": emptying its material stack changed only " + a.pct.toFixed(2) + "% of the mat — the material is not reaching the screen");
+      assert(b.pct >= FLOOR, v.id + ": its mat is " + b.pct.toFixed(2) + "% different from v0's — that is v0 under a different name");
+      // The layers are also there, in the entry's own order, under the composition and
+      // click-through — the stack is data the renderer laid out, not a coincidence.
+      assertEqual(on.layers, v.tokens.materials.length, v.id + ": the stack in the DOM is not the stack in the entry");
+      assertEqual(on.above, 0, v.id + ": a material layer is painting over the mark");
+      told.push(v.id.replace("round-8.1/", "") + " " + a.pct.toFixed(0) + "%/" + b.pct.toFixed(0) + "%");
+    }
+    await cmp.close();
+    return `mat pixels changed vs the same entry with its material emptied / vs v0, floor ${FLOOR}%: ` + told.join(" · ");
+  });
+
+  await run.check("16  the mark's relief is built from the ENTRY's numbers, in an order that cannot be data", async () => {
+    // `relief` is an SVG filter written as values. The renderer fixes its SHAPE — outer
+    // bands under the mark, the mark, then the noise field and the inner bands over it —
+    // because any other order draws a shadow on top of the thing casting it. Everything
+    // else comes off the entry, and this joins each number in the filter WebKit built back
+    // to the number in the library it came from.
+    const told = [];
+    for (const v of LIBRARY.variations) {
+      const t = v.tokens;
+      const page = await launch(browser, { hold: true, force: v.id });
+      const f = await page.evaluate(() => {
+        const n = document.querySelector("#splash filter#richos-splash-relief");
+        const cs = (sel) => getComputedStyle(document.querySelector("#splash " + sel)).filter;
+        return {
+          present: !!n,
+          region: n ? [n.getAttribute("x"), n.getAttribute("y"), n.getAttribute("width"), n.getAttribute("height")].join(" ") : null,
+          floods: n ? Array.from(n.querySelectorAll("feFlood")).map((e) => e.getAttribute("flood-color") + "@" + e.getAttribute("flood-opacity")) : [],
+          offsets: n ? Array.from(n.querySelectorAll("feOffset")).map((e) => e.getAttribute("dx") + "," + e.getAttribute("dy")) : [],
+          blurs: n ? Array.from(n.querySelectorAll("feGaussianBlur")).map((e) => e.getAttribute("stdDeviation")) : [],
+          noise: n && n.querySelector("feTurbulence")
+            ? ["type", "baseFrequency", "numOctaves", "seed"].map((a) => n.querySelector("feTurbulence").getAttribute(a)).join(" ")
+            : null,
+          merge: n ? Array.from(n.querySelectorAll("feMerge feMergeNode")).map((e) => e.getAttribute("in")) : [],
+          ink: cs(".splash-ink"),
+          signal: cs(".splash-signal"),
+          // What the ENTRY asked for, as opposed to what is on the element right now: v5
+          // and v6 are mid-strike at this instant and the strike is a `filter` animation,
+          // so the computed value there is the ceremony, not the entry's answer.
+          inkVar: document.getElementById("splash").style.getPropertyValue("--splash-mark-filter"),
+          signalVar: document.getElementById("splash").style.getPropertyValue("--splash-signal-filter"),
+        };
+      });
+      if (!t.relief) {
+        assertEqual(f.present, false, v.id + ": a relief filter was built for an entry that asked for none");
+        assertEqual(f.inkVar, t.markFilter || "none", v.id + ": the ink's filter is not what the entry asked for");
+        assertEqual(f.signalVar, t.signalFilter || "none", v.id + ": the gold's filter is not what the entry asked for");
+        if (t.signalFilter) assert(f.signal !== "none", v.id + ": its CSS signal filter did not reach the gold");
+        // A composition that is not performing a strike has nothing else that could be
+        // putting a filter on its paths, so there had better not be one.
+        else if (!t.markFilter && t.strike === "none") assertEqual(f.signal, "none", v.id + ": the gold carries a filter it did not ask for");
+        await page.__ctx.close();
+        continue;
+      }
+      assert(f.present, v.id + ": it asked for a relief and none was built");
+      assertEqual(f.region, t.relief.region, v.id + ": the filter region");
+      assertEqual(f.floods, t.relief.bands.map((b) => b.color + "@" + b.opacity), v.id + ": the bands' floods");
+      assertEqual(f.offsets, t.relief.bands.map((b) => b.dx + "," + b.dy), v.id + ": the bands' offsets");
+      assertEqual(f.blurs, t.relief.bands.map((b) => b.blur), v.id + ": the bands' blurs");
+      assertEqual(f.noise, t.relief.noise
+        ? [t.relief.noise.type, t.relief.noise.baseFrequency, t.relief.noise.octaves, t.relief.noise.seed].join(" ")
+        : null, v.id + ": the noise field");
+      // The order. Outer bands, then the mark, then the noise and the inner bands.
+      const outer = t.relief.bands.map((b, i) => [b, i]).filter(([b]) => b.placement === "outer").map(([, i]) => "band" + i);
+      const inner = t.relief.bands.map((b, i) => [b, i]).filter(([b]) => b.placement === "inner").map(([, i]) => "band" + i);
+      const want = outer.concat(["SourceGraphic"], t.relief.noise ? ["grain"] : [], inner);
+      assertEqual(f.merge, want, v.id + ": the merge order");
+      assert(f.signal.indexOf("richos-splash-relief") >= 0, v.id + ": the relief did not reach the gold");
+      if (t.relief.target === "mark") assert(f.ink.indexOf("richos-splash-relief") >= 0, v.id + ": a mark relief did not reach the ink");
+      else assertEqual(f.ink, "none", v.id + ": a signal-only relief reached the ink");
+      told.push(v.id.replace("round-8.1/", "") + " " + t.relief.target + "/" + t.relief.bands.length + "band" + (t.relief.noise ? "+noise" : ""));
+      await page.__ctx.close();
+    }
+    // The check has to have exercised something: every entry the library says carries a
+    // relief was reached, and there is more than a token number of them. The count is read
+    // off the library rather than typed, so removing an entry cannot quietly weaken this.
+    const declared = LIBRARY.variations.filter((x) => x.tokens.relief).length;
+    assertEqual(told.length, declared, "entries with a relief that this check actually reached");
+    assert(declared >= 5, "only " + declared + " entries carry a relief — this check is barely exercising anything");
+    return `${declared} of ${LIBRARY.variations.length} entries carry one: ` + told.join(" · ");
+  });
+
+  await run.check("17  the ceremony is cut, and the MATERIAL still is not", async () => {
+    // Check 8's rule, one layer deeper. Yielding pins the composition where it was going,
+    // and it used to do that by setting `filter: none` on the gold — which was right when
+    // the only filter there was the bloom strike and wrong the moment an entry can give the
+    // mark a relief: pinning would have flattened the metal the version is made of, on
+    // exactly the fast launches the CEO sees most.
+    const v = LIBRARY.variations.find((x) => x.tokens.relief && x.tokens.relief.target === "mark");
+    assert(v, "no mark-relief entry in the library to test the pin against");
+    const page = await launch(browser, { hold: true, force: v.id });
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(() => getComputedStyle(document.querySelector("#splash .splash-signal")).filter);
+    await page.keyboard.press("a");
+    const after = await page.evaluate(() => {
+      const n = document.getElementById("splash");
+      return {
+        settled: n.classList.contains("splash--settled"),
+        signal: getComputedStyle(n.querySelector(".splash-signal")).filter,
+        ink: getComputedStyle(n.querySelector(".splash-ink")).filter,
+      };
+    });
+    assert(after.settled, "the surface did not pin itself on the way out");
+    assert(before.indexOf("richos-splash-relief") >= 0, v.id + ": the relief was not on the gold to begin with");
+    assert(after.signal.indexOf("richos-splash-relief") >= 0, v.id + ": pinning the composition flattened the gold's relief");
+    assert(after.ink.indexOf("richos-splash-relief") >= 0, v.id + ": pinning the composition flattened the ink's relief");
+    await page.__ctx.close();
+    return `${v.id}: relief on the gold at 300ms and still on it after his first keystroke (${after.signal})`;
+  });
+
+  await run.check("18  every version the round added is photographed by the SHIPPING renderer, beside its study", async () => {
+    // THE COMPLETION CRITERION FOR THIS ROUND, and it is deliberately not "the entry
+    // validates". v7-v17 vary the MATERIAL, and the only honest way to say a material
+    // survived the reduction from a 20 KB study to a JSON entry is to put the two mats next
+    // to each other and look. So: the mat as the SHIPPED renderer draws it, beside the mat
+    // the study draws, in one file per version.
+    //
+    // The mats only, at native scale — the composition either side of them is identical by
+    // construction (same geometry, same ink, same gold, same rule) and a full-window pair
+    // would be four times the bytes to show the same thing twice.
+    const added = LIBRARY.variations.filter((v) => v.tokens.materials.length);
+    assert(added.length >= 11, "only " + added.length + " material versions to photograph");
+    const haveStudies = fs.existsSync(HQ);
+    fs.mkdirSync(SHOTS, { recursive: true });
+    const cmp = await browser.newContext({ viewport: { width: 400, height: 300 } });
+    const judge = await cmp.newPage();
+    await judge.goto("about:blank");
+    const made = [];
+    for (const v of added) {
+      const slug = v.id.replace("round-8.1/", "");
+      const ship = await matShot(browser, v.id, false);
+      let study = null;
+      if (haveStudies) {
+        const file = studyOf(v);
+        assert(file, slug + ': its `source` does not name a study in the studies repository — "' + v.source + '"');
+        assert(fs.existsSync(file), slug + ": the entry names a study that is not there — " + v.source);
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+        const page = await newPage(ctx);
+        await page.goto("file://" + file);
+        await page.waitForTimeout(2200);
+        const clip = await page.evaluate(() => {
+          const q = document.querySelector(".plinth").getBoundingClientRect();
+          return { x: Math.round(q.x), y: Math.round(q.y), width: Math.round(q.width), height: Math.round(q.height) };
+        });
+        study = (await page.screenshot({ clip })).toString("base64");
+        await ctx.close();
+      }
+      const png = await judge.evaluate(SIDE_BY_SIDE, { a: ship.png, b: study, left: "SHIPPING RENDERER", right: "THE STUDY" });
+      const out = path.join(SHOTS, "material-" + slug + ".png");
+      fs.writeFileSync(out, Buffer.from(png, "base64"));
+      made.push("material-" + slug + ".png");
+      shotNames.push("material-" + slug + ".png");
+    }
+    await cmp.close();
+    return `${made.length} pairs — each the whole mat at half scale over the same corner at native scale` +
+      (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ);
   });
 
   await browser.close();
