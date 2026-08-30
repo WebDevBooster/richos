@@ -1,0 +1,26 @@
+=== AFTER (branch echo/timeline-scale-2026-08-30) ===
+
+Same tool, same engine, same machine as baseline.txt. `struct` is now reported as total
+AND JS separately: turn reuse removed the JS, and what remains is WebKit re-measuring a
+1,000-child flex column when one child changes height — a floor imposed by MOUNTING every
+turn, which is the NO PAGINATION rule and therefore stays.
+
+WebKit Version/26.5 Safari/605.1.15
+expanded transcripts: false
+
+10 turns x 10      items=   100 turns=   10 | apply     0ms | turnsOf     0ms | render     3ms | layout     3ms | firstPaint    10ms | struct     1ms (js    0ms) | frame p50  17 p95  19 max  20 | dom    320 nodes, 4977px
+100 turns x 10     items=  1000 turns=  100 | apply     0ms | turnsOf     0ms | render     6ms | layout    19ms | firstPaint    40ms | struct     3ms (js    1ms) | frame p50  17 p95  18 max  20 | dom   3200 nodes, 49189px
+500 turns x 10     items=  5000 turns=  500 | apply     1ms | turnsOf     0ms | render    26ms | layout    89ms | firstPaint   145ms | struct    11ms (js    1ms) | frame p50  17 p95  18 max  18 | dom  16000 nodes, 245689px
+1000 turns x 10    items= 10000 turns= 1000 | apply     1ms | turnsOf     1ms | render    49ms | layout   175ms | firstPaint   276ms | struct    24ms (js    2ms) | frame p50  17 p95  19 max  19 | dom  32000 nodes, 491314px
+10000 turns x 1    items= 20000 turns=10000 | apply    71ms | turnsOf     3ms | render   300ms | layout   655ms | firstPaint  1112ms | struct    81ms (js    9ms) | frame p50  95 p95 104 max 106 | dom 130002 nodes, 1776002px
+2000 turns x 5     items= 10000 turns= 2000 | apply     3ms | turnsOf     1ms | render    76ms | layout   232ms | firstPaint   359ms | struct    27ms (js    3ms) | frame p50  17 p95  18 max  18 | dom  44000 nodes, 601689px
+
+WebKit Version/26.5 Safari/605.1.15
+expanded transcripts: true
+
+10 turns x 10      items=   100 turns=   10 | apply     0ms | turnsOf     0ms | render     3ms | layout     5ms | firstPaint    24ms | struct     1ms (js    1ms) | frame p50  17 p95  18 max  20 | dom    530 nodes, 6343px
+100 turns x 10     items=  1000 turns=  100 | apply     0ms | turnsOf     0ms | render     7ms | layout    28ms | firstPaint    67ms | struct     5ms (js    1ms) | frame p50  17 p95  18 max  20 | dom   5120 nodes, 61491px
+500 turns x 10     items=  5000 turns=  500 | apply     0ms | turnsOf     1ms | render    31ms | layout   137ms | firstPaint   260ms | struct    25ms (js    1ms) | frame p50  18 p95  21 max  22 | dom  25520 nodes, 306591px
+1000 turns x 10    items= 10000 turns= 1000 | apply     2ms | turnsOf     0ms | render    62ms | layout   275ms | firstPaint   522ms | struct    51ms (js    2ms) | frame p50  26 p95  27 max  37 | dom  51020 nodes, 612966px
+10000 turns x 1    items= 20000 turns=10000 | apply    73ms | turnsOf     4ms | render   301ms | layout   649ms | firstPaint  1121ms | struct    84ms (js   10ms) | frame p50  99 p95 113 max 116 | dom 130021 nodes, 1776139px
+2000 turns x 5     items= 10000 turns= 2000 | apply     3ms | turnsOf     2ms | render    83ms | layout   307ms | firstPaint   577ms | struct    49ms (js    3ms) | frame p50  30 p95  32 max  33 | dom  58020 nodes, 675841px

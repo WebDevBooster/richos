@@ -84,16 +84,24 @@ async function measure(page, snapshot, expanded) {
       await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
       const firstPaintMs = performance.now() - f0;
 
+      // ONE new activity row on the NEWEST turn — the live path, and the number that
+      // matters. Split into JS and layout because the two move independently: reusing the
+      // other turns' nodes removes the JS, and the layout that remains is the flex column
+      // re-measuring its children when one of them changes height.
       const lastTurnId = snap.items[snap.items.length - 1].turnId;
       const struct = [];
+      const structJs = [];
       for (let i = 0; i < 5; i++) {
         window.RichTimeline.onActivityUpserted(model, window.__oneMore(lastTurnId, i));
         const s0 = performance.now();
         window.RichTimeline.render(model, messages, opts);
+        const js = performance.now() - s0;
         void conv.scrollHeight;
         struct.push(performance.now() - s0);
+        structJs.push(js);
       }
       struct.sort((a, b) => a - b);
+      structJs.sort((a, b) => a - b);
 
       conv.scrollTop = conv.scrollHeight;
       await new Promise((res) => requestAnimationFrame(res));
@@ -118,6 +126,7 @@ async function measure(page, snapshot, expanded) {
         layoutMs,
         firstPaintMs,
         structMs: struct[2],
+        structJsMs: structJs[2],
         domNodes: messages.getElementsByTagName("*").length,
         scrollPx: conv.scrollHeight,
         p50: frames[30],
@@ -167,7 +176,7 @@ async function main() {
       `${label.padEnd(18)} items=${String(snap.items.length).padStart(6)} turns=${String(r.turns).padStart(5)}` +
         ` | apply ${r.applyMs.toFixed(0).padStart(5)}ms | turnsOf ${r.turnsOfMs.toFixed(0).padStart(5)}ms` +
         ` | render ${r.renderMs.toFixed(0).padStart(5)}ms | layout ${r.layoutMs.toFixed(0).padStart(5)}ms` +
-        ` | firstPaint ${r.firstPaintMs.toFixed(0).padStart(5)}ms | struct ${r.structMs.toFixed(0).padStart(5)}ms` +
+        ` | firstPaint ${r.firstPaintMs.toFixed(0).padStart(5)}ms | struct ${r.structMs.toFixed(0).padStart(5)}ms (js ${r.structJsMs.toFixed(0).padStart(4)}ms)` +
         ` | frame p50 ${r.p50.toFixed(0).padStart(3)} p95 ${r.p95.toFixed(0).padStart(3)} max ${r.max.toFixed(0).padStart(3)}` +
         ` | dom ${String(r.domNodes).padStart(6)} nodes, ${r.scrollPx}px`
     );

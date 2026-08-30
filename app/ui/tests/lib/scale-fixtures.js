@@ -96,21 +96,24 @@ function makeSnapshot(turns, itemsPerTurn) {
 
 /// One more activity row arriving on `turnId` — the STRUCTURAL change that costs a render.
 /// This is the event the CEO generates dozens of times in a single working turn.
+///
+/// THE PAYLOAD IS THE ITEM, plus `at`. Not an envelope around one: `onActivityUpserted`
+/// does `putItem(model, p)` on the payload itself (STREAMING.md — "the payload IS the
+/// timeline item a reload projects"). Wrapping it in `{ item: ... }` produces an item with
+/// no `id` and no `turnId`, which lands under the key `undefined` and draws an EXTRA,
+/// empty turn section. That is how the first version of this file read, and `scale.js`
+/// check 1 caught it by counting turns.
 function oneMoreActivity(turnId, n) {
   const at = T0 + 999_000_000;
-  return {
-    entityId: ENTITY,
-    threadId: THREAD,
-    bindingRevision: 1,
-    item: Object.assign(base(turnId, "scale:new:" + n, { sequence: 9000 + n, createdAt: at + n }), {
-      kind: "activity",
-      activityType: "read",
-      state: "completed",
-      summary: "Read one more file (" + n + ")",
-      detailRef: "scale:new:" + n,
-      startedAt: at + n,
-    }),
-  };
+  return Object.assign(base(turnId, "scale:new:" + n, { sequence: 9000 + n, createdAt: at + n }), {
+    kind: "activity",
+    activityType: "read",
+    state: "completed",
+    summary: "Read one more file (" + n + ")",
+    detailRef: "scale:new:" + n,
+    startedAt: at + n,
+    at: at + n,
+  });
 }
 
 module.exports = { makeSnapshot, oneMoreActivity, ENTITY, THREAD, T0, TURN_SPACING_MS, TURN_ACTIVE_MS };
