@@ -1,0 +1,157 @@
+RESTART / MULTI-THREAD / SCOPE — THE TEN RUNS THAT PROVE THE SUITE CAN FAIL
+==========================================================================
+
+app/ui/tests/restart-scope.js reports 12/12 against the tree as it stands. That number is
+worth nothing on its own: a check that cannot fail is a check that examined nothing, and
+this repository has produced both kinds in one week — a scanner reporting CLEAN over an
+empty corpus, and a reporting layer dead for weeks because its fixtures were missing one
+field.
+
+So every check in that suite was run RED, once, by breaking the thing it guards in the
+SHIPPED source and watching the suite say so. Below is each mutation, the checks it turned
+red, and the words the suite printed. Every mutation was reverted immediately; the file
+was restored from a copy taken before the edit, and `git status` is clean.
+
+The mutation driver applied exactly one edit per run, refused to proceed unless the target
+string matched exactly once, and restored the file whether the run passed or failed.
+
+Two of these deserve a note.
+
+  * MUTATION 5 (the fence's threadId clause) turns TWO checks red, and it took a second
+    pass to make it turn the first one red at all. The scope check originally streamed a
+    turn from another ENTITY, which the fence's separate entityId clause catches on its
+    own — so deleting the threadId clause left it green. The same-entity half (`hiring`
+    and `acme` are both FemcBoost) was added because of that run.
+
+  * MUTATION 10 (`supersedesTurnId`) is the reason the crash check samples the whole
+    recovery window instead of reading the end state. The reconciliation reload at turn
+    end re-projects from the durable snapshot, where a superseded turn contributes
+    nothing — so the end state is correct even with the renderer's merge disabled, and the
+    first version of that check passed under this mutation. What the CEO would actually
+    have seen is two turn sections DURING the recovery, which is now what is measured.
+
+===============================================================================
+MUTATION 1 — app/ui/main.js — the `rich://turn-started` rail listener only records the SELECTED thread
+  result: 10 PASS, 2 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §25 a working thread stays visibly active while another thread is selected
+          page.waitForFunction: Timeout 5000ms exceeded.
+  FAIL  SCREENSHOT: a background thread working while another is on screen
+          page.waitForFunction: Timeout 5000ms exceeded.
+
+===============================================================================
+MUTATION 2 — app/ui/main.js — `reviveLiveTurns` returns immediately
+  result: 10 PASS, 2 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §2 returning to a running thread resumes its timer — it does not restart it
+          no live turn on screen after returning: ["Worked for 18s","Worked for 2s","Status unavailable"]
+  FAIL  SCOPE: a turn streaming in another entity's thread renders nothing here
+          the sibling thread's stream changed what this thread says
+          expected {"ceo":["what's the status on Acme?","draft it, keep it firm","check the Acme numbers"],"rich":["Rich said\nRich\nTheir counter came in this morning — 8% below list. I've pulled comparables and it's within range. Want me to draft a response or do you want to see the comps first?\nCopy\n","Rich said\nRich\nDone — firm counter drafted, holding at list minus 3%. Sitting in your review queue.\nCopy\n","Rich said\nRich\n each\nCopy\n"]}
+          actual   {"ceo":["what's the status on Acme?","draft it, keep it firm","check the Acme numbers"],"rich":["Rich said\nRich\nTheir counter came in this morning — 8% below list. I've pulled comparables and it's within range. Want me to draft a response or do you want to see the comps first?\nCopy\n","Rich said\nRich\nDone — firm counter drafted, holding at list minus 3%. Sitting in your review queue.\nCopy\n","Rich said\nRich\npulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line\nCopy\n"]}
+
+===============================================================================
+MUTATION 3 — app/ui/main.js — the composer is refilled from ANY draft rather than this thread's
+  result: 11 PASS, 1 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §3.1/§9.2 a draft belongs to one thread and never follows the CEO out of its entity
+          FemcBoost's half-written sentence appeared in Deeply's composer
+          expected ""
+          actual   "our walk-away number on Acme is"
+
+===============================================================================
+MUTATION 4 — app/ui/main.js — the queued scroll restore is never consumed (the fix's consuming half removed)
+  result: 11 PASS, 1 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §15 each thread keeps its own scroll position across a switch
+          acme came back at a different scroll position
+          expected 0
+          actual   250
+
+===============================================================================
+MUTATION 5 — app/ui/timeline.js — the fence's `threadId` clause is deleted
+  result: 10 PASS, 2 FAIL
+-------------------------------------------------------------------------------
+  FAIL  SCOPE: a turn streaming in another entity's thread renders nothing here
+          the sibling thread's stream changed what this thread says
+          expected {"ceo":["what's the status on Acme?","draft it, keep it firm","check the Acme numbers"],"rich":["Rich said\nRich\nTheir counter came in this morning — 8% below list. I've pulled comparables and it's within range. Want me to draft a response or do you want to see the comps first?\nCopy\n","Rich said\nRich\nDone — firm counter drafted, holding at list minus 3%. Sitting in your review queue.\nCopy\n","Rich said\nRich\npulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line\nCopy\n","Rich said\nRich\n now and\nCopy\n"]}
+          actual   {"ceo":["what's the status on Acme?","draft it, keep it firm","check the Acme numbers"],"rich":["Rich said\nRich\nTheir counter came in this morning — 8% below list. I've pulled comparables and it's within range. Want me to draft a response or do you want to see the comps first?\nCopy\n","Rich said\nRich\nDone — firm counter drafted, holding at list minus 3%. Sitting in your review queue.\nCopy\n","Rich said\nRich\npulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line\nCopy\n","Rich said\nRich\n now and checking each line pulling the comparables now and checking each line pulling the comparables now and checking each line pulling the comparables\nCopy\n","Rich said\nRich\npulling the comparables now and checking each line pulling the comparables now and checking each\nCopy\n"]}
+  FAIL  §25 the fence is on EVERY live handler — inventory derived, never typed
+          onActivityUpserted ACCEPTED a payload for another thread
+
+===============================================================================
+MUTATION 6 — app/ui/timeline.js — `onMessageDelta` loses its `accepts()` call
+  result: 10 PASS, 2 FAIL
+-------------------------------------------------------------------------------
+  FAIL  SCOPE: a turn streaming in another entity's thread renders nothing here
+          FemcBoost's streamed reply rendered inside Deeply's thread
+  FAIL  §25 the fence is on EVERY live handler — inventory derived, never typed
+          6 exported handlers but 5 `accepts(model, p)` call sites in timeline.js — one of them does not apply the fence
+          expected 5
+          actual   6
+
+===============================================================================
+MUTATION 7 — app/ui/timeline.js — the activity upsert stops being keyed by `id`
+  result: 11 PASS, 1 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §25 duplicate events render once
+          15 events, 2 distinct ids — the model holds 6
+          expected 2
+          actual   6
+
+===============================================================================
+MUTATION 8 — app/ui/main.js — the reconciliation reload on `rich://turn-completed` is removed
+  result: 10 PASS, 2 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §25 missing stream events recover from the durable snapshot
+          page.waitForFunction: Timeout 20000ms exceeded.
+  FAIL  §25 a mid-turn crash draws the CEO's prompt exactly once
+          page.waitForFunction: Timeout 20000ms exceeded.
+
+===============================================================================
+MUTATION 9 — app/ui/main.js — a thread with a turn still in flight on disk gets no status mark
+  result: 11 PASS, 1 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §14 a turn that was in flight when the app closed is unknown, never finished
+          §14: a record that stops mid-turn must read as unknown, and say so in the accessible name
+          expected "ECS architecture, outcome unknown — a turn never finished"
+          actual   "ECS architecture"
+
+===============================================================================
+MUTATION 10 — app/ui/timeline.js — `supersedesTurnId` stops being a merge instruction
+  result: 11 PASS, 1 FAIL
+-------------------------------------------------------------------------------
+  FAIL  §25 a mid-turn crash draws the CEO's prompt exactly once
+          two turn sections were on screen at once during the recovery
+          expected 1
+          actual   2
+
+===============================================================================
+COVERAGE — which mutation turned which check red
+===============================================================================
+
+  SCOPE: a turn streaming in another entity's thread renders nothing here  M2, M5, M6
+  SCREENSHOT: a background thread working while another is on screen       M1
+  §14 a turn that was in flight when the app closed is unknown, never finished M9
+  §15 each thread keeps its own scroll position across a switch            M4
+  §2 returning to a running thread resumes its timer — it does not restart it M2
+  §25 a mid-turn crash draws the CEO's prompt exactly once                 M8, M10
+  §25 a working thread stays visibly active while another thread is selected M1
+  §25 duplicate events render once                                         M7
+  §25 missing stream events recover from the durable snapshot              M8
+  §25 the fence is on EVERY live handler — inventory derived, never typed  M5, M6
+  §3.1/§9.2 a draft belongs to one thread and never follows the CEO out of its entity M3
+
+NOT COVERED, stated rather than left to be noticed:
+
+  "no page errors anywhere in this suite" has no mutation of its own. It is a tripwire over
+  the whole run rather than a check of one behaviour, and any of the ten would have tripped
+  it had they thrown; none did, because each mutation produced a WRONG RENDER rather than an
+  exception, which is the failure mode worth having a suite for.
+
+ONE CASCADE, so it is not read as more coverage than it is:
+
+  MUTATION 2 also turns the SCOPE check red, and not because anything leaked. With
+  `reviveLiveTurns` dead, `waitIdle` sees no live row and stops waiting, so the scope probe
+  starts against a thread that is still streaming and its before/after comparison moves for
+  a reason that has nothing to do with scope. SCOPE's real demonstrations are M5 and M6.
