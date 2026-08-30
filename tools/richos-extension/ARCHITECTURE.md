@@ -79,7 +79,7 @@ or the port dies mid-call, the controller falls back to the Downloads path uncha
 committed to IndexedDB on **both** transports (the durability backbone), and each chunk streamed to
 the host is read back from that exact IndexedDB record — so the bytes that cross native messaging are
 byte-identical to what the Downloads path would assemble (collector-path parity), and a service that
-vanishes at any point loses no audio (the full session is exported to Downloads at finalise).
+vanishes at any point loses no audio (the full session is exported to Downloads at finalize).
 
 ### Load-bearing details
 
@@ -87,7 +87,7 @@ vanishes at any point loses no audio (the full session is exported to Downloads 
   CEO stops hearing the meeting the instant capture arms. The microphone is *never* connected
   there (that would echo into the call).
 - **Two channels, not a mix.** Left = microphone, right = tab. Free "me vs them" separation for
-  transcription with no diarisation model.
+  transcription with no diarization model.
 - **Chunks are awaited.** `persistChunk` commits to IndexedDB before acknowledging, so the
   crash window is one `chunkMs` (default 3 s), not "whatever was buffered".
 - **Parts.** Every recovery starts a new `audio-part-NN.webm`. Each part is a self-contained
@@ -95,8 +95,8 @@ vanishes at any point loses no audio (the full session is exported to Downloads 
   exported together — the first chunk carries the header. (Violating this produced an
   unplayable fragment during development; orphan recovery now refuses to export a session the
   recorder still has open.)
-- **Levels come from an AudioWorklet, not a polled analyser.** The recorder lives in a hidden
-  document and Chrome throttles timers there; a polled analyser measured exactly 0.000 for an
+- **Levels come from an AudioWorklet, not a polled analyzer.** The recorder lives in a hidden
+  document and Chrome throttles timers there; a polled analyzer measured exactly 0.000 for an
   entire session while the recording was at −20 dB. The worklet sees every 128-sample block.
 - **The numbers shown are the numbers written.** Byte and chunk counts in the popup, the health
   evaluator and `session.json` all come from the recorder that performed the writes — never a
@@ -142,9 +142,9 @@ three-tiered, driven by `armMode: 'auto'` + `autoStartMicCaptions`:
   existing `reattach-tab` (or, for `captions-only`, starts the recorder fresh) — capture is never
   restarted from zero, so the seconds before the click are already captured.
 
-All arm entry points are serialised through a single promise chain (`armChain`), because captions
+All arm entry points are serialized through a single promise chain (`armChain`), because captions
 can arrive faster than a session can be created and each one may trigger an auto-start; without
-serialisation two concurrent starts would double-build the recorder. The mode, `awaitingTabAudio`
+serialization two concurrent starts would double-build the recorder. The mode, `awaitingTabAudio`
 and `audioActive` flags are persisted with the active session so a service-worker restart restores
 the exact state.
 
@@ -156,7 +156,7 @@ running; it is not the degraded-but-working state below.
 A `captions-only` session has no recorder at all, so `tick()` skips audio evaluation entirely and
 delegates to `evaluateCaptionsOnlyHealth` (`modules/call-capture/health.js`) — the single source of
 truth for the CEO decision of 2026-08-23: this state must not share the red badge with true
-failure. It splits `ARM` into two colours:
+failure. It splits `ARM` into two colors:
 
 - **amber `ARM`** — captions ARE landing (or the session is still inside the warmup grace period),
   i.e. "degraded, but working — get ground truth". This is the ordinary shape of a captions-only
@@ -195,7 +195,7 @@ accuracy cross-check.
 - **One collector path for the count.** `caption-dedup.js` (`CaptionAggregator`) turns the stream
   of in-place caption mutations into append-only revision events; the content script sends only
   those to the SW, which persists each to the `captions` IndexedDB store and increments the count
-  **only on a successful write**. `captions.ndjson` is written from those exact rows at finalise,
+  **only on a successful write**. `captions.ndjson` is written from those exact rows at finalize,
   and `session.json`'s `captions.count` is set from the same read — so the number shown in the
   popup, the number in `session.json`, and the line count on disk are one number (the LinkedIn
   rule). The live harness asserts this parity on disk.
@@ -210,7 +210,7 @@ accuracy cross-check.
 
 A call that produced **captions but no audio** (tab audio never armed, or capture failed for the
 whole call) is neither silent success nor silent loss — captions prove a call happened, so the
-missing audio is a first-class anomaly. `verifySession` flags it specifically at finalise;
+missing audio is a first-class anomaly. `verifySession` flags it specifically at finalize;
 `sync/reconcile.js` (shared by the CLI and the tests) flags it at sync and refuses to treat the
 session as complete; and orphan recovery on the next boot writes a flagged `captions-only`
 recovered session and alerts the CEO. Nothing about captions is ever silently accepted or dropped.
@@ -233,7 +233,7 @@ controller as the default transport (above), with the Downloads path as the auto
 fallback. Scope, in priority order, with status:
 
 1. **Outside-the-browser watchdog.** ✅ Built. The host holds its own heartbeat timer; a browser that
-   stops talking becomes an alarm the browser cannot suppress, and open sessions are finalised
+   stops talking becomes an alarm the browser cannot suppress, and open sessions are finalized
    `interrupted` on pipe EOF (`tools/richos-service/lib/host-handlers.js`).
 2. **Direct writes to the loro repo**, removing the Downloads hop and the sync command. ✅ Built. On
    the native transport the host writes the contract dir straight into loro; the Downloads hop + sync

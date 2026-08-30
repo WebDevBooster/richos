@@ -64,7 +64,7 @@ index fe7ebc2..adad736 100644
 -                let text = (self.config.spokenPunctuation?.value ?? false) ? TextPostProcessor.process(raw) : raw
 +                let heard = (self.config.spokenPunctuation?.value ?? false) ? TextPostProcessor.process(raw) : raw
 +                // THE SHARED VOCABULARY REACHES DICTATION HERE, and nowhere else. Between the
-+                // recogniser and the paste, running the same corrector the call pipeline runs.
++                // recognizer and the paste, running the same corrector the call pipeline runs.
 +                // It returns `heard` unchanged on any failure, so this line cannot cost a dictation.
 +                let text = LoroCorrection.correct(heard)
                  if maxRecordings > 0 {
@@ -97,7 +97,7 @@ index fcf7135..7a25cd3 100644
      public var audioInputDeviceID: UInt32?
      public var audioInputDeviceUID: String?
 +    /// Journal what was heard, so a correction has something to be a correction OF. Default on;
-+    /// setting it false returns dictation to the pre-flywheel behaviour of transcribe-paste-forget.
++    /// setting it false returns dictation to the pre-flywheel behavior of transcribe-paste-forget.
 +    /// Retention is not this app's business — it appends, the RichOS local service sweeps.
 +    public var dictationJournal: FlexBool?
 +    /// Absolute path to `richos-service`'s CLI. When it resolves, a dictation is run through the
@@ -185,7 +185,7 @@ index 0000000..02e7b0e
 +/// rewrite of the CEO's speech, and this writer only ever APPENDS. One process appends, another
 +/// sweeps, and neither edits what the other wrote.
 +public enum DictationJournal {
-+    /// One dictation. `text` is what the recogniser produced; `emitted` is what was actually pasted,
++    /// One dictation. `text` is what the recognizer produced; `emitted` is what was actually pasted,
 +    /// which differs when the shared vocabulary corrected a name on the way out. Keeping BOTH is the
 +    /// whole point: the flywheel needs to know what the machine heard, not only what reached the app.
 +    public struct Record: Codable, Equatable {
@@ -306,7 +306,7 @@ index 0000000..48d395a
 +/// `loro/entities.json` is one shared vocabulary by design and, until this patch, a single-reader
 +/// file in fact — only the call-transcription pipeline read it. So a term the CEO taught the system
 +/// once was spelled right in his call transcripts and wrong in everything he dictated. This runs the
-+/// recognised text through `richos-service correct-text` before it is pasted, which closes that.
++/// recognized text through `richos-service correct-text` before it is pasted, which closes that.
 +///
 +/// **IT SHELLS OUT ON PURPOSE, AND THE ALTERNATIVE WAS WORSE.** The corrector is 240 lines of
 +/// carefully guarded matching — curated manglings, a fuzzy pass with a stopword list, a
@@ -331,7 +331,7 @@ index 0000000..48d395a
 +    public static var nodePath: String = "/usr/bin/env"
 +
 +    /// How long the corrector may take before the dictation goes out uncorrected. This sits between
-+    /// the recogniser and the paste, so it has a hard ceiling: a hung subprocess must cost the CEO a
++    /// the recognizer and the paste, so it has a hard ceiling: a hung subprocess must cost the CEO a
 +    /// correction, never his sentence.
 +    public static var timeout: TimeInterval = 2.0
 +
@@ -438,7 +438,7 @@ index 0000000..48d395a
 +    }
 +
 +    /// **A VOCABULARY REPLACES NAMES. IT NEVER REWRITES A SENTENCE.** So whatever comes back must
-+    /// still be recognisably the thing he said, and this is the last guard between a misbehaving
++    /// still be recognizably the thing he said, and this is the last guard between a misbehaving
 +    /// subprocess and the CEO's cursor.
 +    ///
 +    /// Found by test, not by reasoning: a stand-in for an OLD richos-service — one that resolves,

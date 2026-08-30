@@ -173,7 +173,7 @@ export const MATCH_WINDOW_MS = 10 * 60 * 1000;
 /**
  * **The side of a journal record a diff must be taken against: what was PASTED.**
  *
- * A record carries `text` (what the recogniser produced) AND `emitted` (what actually reached the
+ * A record carries `text` (what the recognizer produced) AND `emitted` (what actually reached the
  * field, after the shared vocabulary corrected a name on the way out — `dictation-flywheel.patch`:
  * *"Keeping BOTH is the whole point"*). `emitted` is what the CEO SAW and therefore what he edited.
  *
@@ -184,7 +184,7 @@ export const MATCH_WINDOW_MS = 10 * 60 * 1000;
  * the entry through this one, so the CLI and `richos_core::heard` cannot answer differently.
  *
  * A record with no `emitted` (an older one, or one written before patch 3) falls back to `text`,
- * which is exactly the behaviour that shipped before this existed.
+ * which is exactly the behavior that shipped before this existed.
  * @param {{text?:string, emitted?:string}} entry
  */
 export function heardSide(entry) {
@@ -269,7 +269,7 @@ function trimEdge(s) {
  * REJECTIONS ARE RETURNED, NOT DISCARDED. A silent filter cannot be audited, and "prove the system
  * stays silent where it should" is only provable if the silence is explained.
  *
- * @param {string} heardText what the recogniser produced
+ * @param {string} heardText what the recognizer produced
  * @param {string} correctedText what the CEO sent
  * @returns {{asks:{from:string,to:string,key:string,orthographic:number,phonetic:number,leg:string}[],
  *            rejected:{from:string,to:string,reason:string}[]}}
@@ -345,7 +345,7 @@ export function askCandidates(heardText, correctedText) {
  * Apply the ask LEDGER to a fresh candidate list: drop what the CEO permanently suppressed, and mark
  * what he has declined before so the prompt can say so.
  *
- * §7, verbatim in behaviour: a decline is NOT permanent, and the re-ask happens on the very NEXT
+ * §7, verbatim in behavior: a decline is NOT permanent, and the re-ask happens on the very NEXT
  * repeat — there is no threshold and no cool-off, because repetition IS the evidence and waiting
  * dilutes it.
  *
@@ -411,7 +411,7 @@ export function answerAsk(ledger, ask, answer) {
 
 /**
  * The whole dictation-side pipeline, minus disk: heard + sent + ledger -> what to ask.
- * Returns `{matched:false}` — and NO asks whatsoever — when the sent text is not recognisably a
+ * Returns `{matched:false}` — and NO asks whatsoever — when the sent text is not recognizably a
  * corrected dictation. That is the typed-message case, and staying silent there is the property that
  * keeps the ask meaningful.
  *

@@ -150,7 +150,7 @@ const fixture = {
     phoneticKeyFrom: phoneticKey(from),
     phoneticKeyTo: phoneticKey(to),
     // Orthographic similarity is scored on the NORMALIZED forms; phonetic on the raw ones.
-    // That asymmetry is the shipped behaviour and is part of what the port has to match.
+    // That asymmetry is the shipped behavior and is part of what the port has to match.
     orthographic: similarity(normalizeTerm(from), normalizeTerm(to)),
     phonetic: phoneticSimilarity(from, to),
     key: askKey(from, to),

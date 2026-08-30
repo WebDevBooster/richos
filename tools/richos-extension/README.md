@@ -54,7 +54,7 @@ A pure MV3 extension can protect a lot, but not everything. This table is delibe
 
 | Failure | Handled? | What actually happens | Worst-case loss |
 |---|---|---|---|
-| Meeting tab reloads or navigates away | **Yes** | Session finalises and exports; a new tab arms again | 0 (up to one chunk) |
+| Meeting tab reloads or navigates away | **Yes** | Session finalizes and exports; a new tab arms again | 0 (up to one chunk) |
 | Meeting tab crashes | **Yes** | Tab-audio track ends → mic-only failover + red alarm; audio already on disk | ≤ one chunk on that channel |
 | Service worker evicted (routine in MV3) | **Yes** | The next heartbeat wakes it; it re-attaches to the running recorder | 0 |
 | Extension reloaded / updated mid-call | **Yes** | Chunks survive in IndexedDB; recovered and exported on next boot, loudly | ≤ one chunk |
@@ -62,7 +62,7 @@ A pure MV3 extension can protect a lot, but not everything. This table is delibe
 | Tab audio stream ends | **Yes** | Re-attach attempted; otherwise microphone-only failover + red alarm | Other party's audio until recovered |
 | Audio stops flowing while everything "looks fine" | **Yes** | Chunk-arrival, byte-growth, audio-graph-state and per-channel level signals all alarm | 0 (alarmed in ≤15 s) |
 | Caption feature breaks (Meet DOM/protocol change) | **Yes (soft)** | Captions degrade; the audio path is untouched and no hard alarm fires | Enrichment only — never the call |
-| Call captured captions but never any audio | **Flagged** | A specific anomaly at finalise and at sync (captions prove a call happened) | You are told; the captions are still saved |
+| Call captured captions but never any audio | **Flagged** | A specific anomaly at finalize and at sync (captions prove a call happened) | You are told; the captions are still saved |
 | Digital silence (wrong input, muted at OS level) | **Yes** | Red alarm in ≤20 s | You are told *during* the call |
 | Disk full / storage write fails | **Yes** | Chunk write error alarms immediately | Alarmed at once |
 | Browser is quit or killed mid-call | **Partly** | Everything already committed is recovered and exported on next launch, with an alarm | ≤ one chunk, plus the rest of the call is not captured until you re-arm |
@@ -104,7 +104,7 @@ Extension has not been invoked for the current page (see activeTab permission).
 
 So the hybrid automatic flow is:
 
-- RichOS recognises a call tab (Meet, Zoom web, Teams web, Whereby, Slack/Discord/Webex when
+- RichOS recognizes a call tab (Meet, Zoom web, Teams web, Whereby, Slack/Discord/Webex when
   audible) and **immediately starts recording your microphone and collecting captions — no
   click.** Your microphone needs a one-time permission grant (below); after that, mic + captions
   start on every call with zero gesture.
@@ -136,7 +136,7 @@ other party or appear in a screenshare.
 
 `ARM` no longer means "nothing is recorded" — in the hybrid flow your microphone and the captions
 are already being captured; the click adds the other side's tab audio. In captions-only mode, the
-badge colour itself tells you whether captions are actually landing (amber) or whether nothing is
+badge color itself tells you whether captions are actually landing (amber) or whether nothing is
 being captured at all (red). Click the icon for the exact state (including live caption count and
 speaker labels).
 
@@ -160,7 +160,7 @@ result of the last call.
 notifications · failure alerts · failure chime · audio retention (advisory, used by the sync
 helper).
 
-**Call capture:** enabled · arming mode (automatic / manual) · also arm unrecognised audible
+**Call capture:** enabled · arming mode (automatic / manual) · also arm unrecognized audible
 tabs · record microphone on its own channel · microphone DSP · chunk size · bitrate · maximum
 session length · participant disclosure banner + text · keep raw chunks after export.
 
@@ -185,7 +185,7 @@ Downloads/richos-capture/2026-08-23T14-05-02Z--meet--abc-defg-hij/
 ```
 
 Two channels rather than a mix means free "me vs them" speaker separation for transcription,
-with no diarisation model involved.
+with no diarization model involved.
 
 `session.json` carries the schema version, extension version, platform, timings, capture
 settings, per-part byte/chunk accounting, the health tally (green/amber/red seconds), every
@@ -232,7 +232,7 @@ There are now **two transports**, chosen automatically at call start:
   into the drop zone exactly as before, and the sync helper moves finished sessions into loro's
   `raw/meetings/`. Every chunk is committed to IndexedDB regardless of transport, so a service that
   disappears at any point **never loses audio** — the full session is exported to Downloads at
-  finalise. This is a belt-and-suspenders cutover: the new path is the default, the old path is the
+  finalize. This is a belt-and-suspenders cutover: the new path is the default, the old path is the
   safety net.
 
 Post-call transcription is the *right* default either way: transcription is a pure function of the
@@ -298,7 +298,7 @@ alarm fire — see [TEST-PROTOCOL.md](TEST-PROTOCOL.md).
 manifest.json            MV3 shell (name: RichOS)
 background.js            service worker: registers modules, routes messages
 core/                    shared by every module
-  constants.js           product identity, storage keys, badge colours, core settings
+  constants.js           product identity, storage keys, badge colors, core settings
   settings.js            namespaced settings + defaults
   idb.js                 IndexedDB helpers
   offscreen-host.js      the single offscreen document's lifecycle

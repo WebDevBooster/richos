@@ -33,7 +33,7 @@ export const MEET_ADAPTER_VERSION = '1.0.0';
 
 /**
  * Caption REGION candidates, most-specific first. The accessibility label is the most stable
- * anchor (it is user-facing and localisation-keyed, so it survives visual restyles better than
+ * anchor (it is user-facing and localization-keyed, so it survives visual restyles better than
  * obfuscated class names), so it leads; obfuscated classes are last-resort.
  */
 export const REGION_SELECTORS = [

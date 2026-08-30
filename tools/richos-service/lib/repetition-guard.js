@@ -1,7 +1,7 @@
 /**
  * RichOS local service — P5 pipeline stage 3.5: the post-decode HALLUCINATION GUARD.
  *
- * The model-agnostic half of the accuracy tier's hallucination defence (the decode-parameter half
+ * The model-agnostic half of the accuracy tier's hallucination defense (the decode-parameter half
  * lives in `config.js#MODEL_TIERS`). Named `repetition-guard` for the first class it caught; it now
  * covers FOUR measured decode-failure classes, all of them reproduced from captured artifacts:
  *
@@ -85,7 +85,7 @@
  *
  *     It is also deliberately NOT used on phrases shorter than `minWordsForBurstVeto` words. A
  *     1-2 word phrase ("Okay." "Yeah." "Thank you.") fits inside any burst, so the ceiling carries
- *     no signal there and would veto everything; short runs keep the old text-only behaviour and
+ *     no signal there and would veto everything; short runs keep the old text-only behavior and
  *     the old `minRunShort` protection. A short genuine repetition can therefore still be
  *     collapsed — that is a KNOWN residual, not an oversight.
  *
@@ -335,7 +335,7 @@ export function burstCapacity(bursts, startMs, endMs, needSec, slack) {
  * With `opts.speechBursts` supplied the collapse is bounded by what the AUDIO can hold (see
  * `burstCapacity` and the module header): a run of K identical segments over K qualifying bursts is
  * left completely alone, and a run over fewer bursts is collapsed to that many rather than to one.
- * Without it the behaviour is unchanged, so every existing caller and fixture is unaffected.
+ * Without it the behavior is unchanged, so every existing caller and fixture is unaffected.
  *
  * @param {Segment[]} segments time-ordered segments for a single channel
  * @param {Partial<typeof DEFAULT_OPTS>} [opts]
@@ -645,7 +645,7 @@ export function guardOverlapStutter(segments, opts = {}) {
     const stat = stutters.find((s) => k >= s.firstIndex && k <= s.lastIndex);
     const ov = boundaryOverlap(prevWords, words[k], cap);
     if (ov >= words[k].length) {
-      // Wholly re-emitted: no new words at all. Drop it, fold its time into the kept neighbour.
+      // Wholly re-emitted: no new words at all. Drop it, fold its time into the kept neighbor.
       const prev = out[out.length - 1];
       if (prev) prev.endMs = Math.max(Number(prev.endMs || 0), Number(cur.endMs || 0));
       removed += 1;

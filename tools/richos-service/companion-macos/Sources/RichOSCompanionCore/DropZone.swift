@@ -105,7 +105,7 @@ public enum DropZone {
         return resolution
     }
 
-    /// Is `path` `root` itself, or under it? Both sides are lexically normalised first; neither is
+    /// Is `path` `root` itself, or under it? Both sides are lexically normalized first; neither is
     /// required to exist, because a zone is routinely created by the very run being checked.
     public static func isInside(_ path: String, _ root: String) -> Bool {
         let a = (path as NSString).standardizingPath

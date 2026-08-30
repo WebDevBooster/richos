@@ -145,7 +145,7 @@ consumers), verifying exact byte size and GGML magic before installing. Total
 `large-v3-turbo` alone. A missing model is otherwise downloaded on first use by
 open-wispr's own `ModelDownloader`.
 
-### Upgrade behaviour on the CEO's live install
+### Upgrade behavior on the CEO's live install
 
 His `~/.config/open-wispr/config.json` predates the toggle (`modelSize:
 "small.en"`, no `accurateModel`/`fastModel` keys). On first launch of a patched
@@ -170,13 +170,13 @@ everything he dictated.
 New:
 - `Sources/OpenWisprLib/DictationJournal.swift` — one JSON line per dictation, appended to
   a UTC day file under `~/.config/open-wispr/dictation-journal/`. Keeps **both** what the
-  recogniser produced and what was actually pasted, because the flywheel needs the
+  recognizer produced and what was actually pasted, because the flywheel needs the
   difference, not the result.
-- `Sources/OpenWisprLib/LoroCorrection.swift` — runs the recognised text through
+- `Sources/OpenWisprLib/LoroCorrection.swift` — runs the recognized text through
   `richos-service correct-text` before the paste, plus a capability probe and a
   plausibility guard on what comes back.
 - `Tests/OpenWisprTests/DictationFlywheelTests.swift` — **18 tests**: the JSONL line
-  format as a cross-language contract, append-only behaviour, UTC day keys, the
+  format as a cross-language contract, append-only behavior, UTC day keys, the
   never-cost-a-dictation failure posture in five forms, service resolution with no
   hardcoded home, config round-trip and default-on migration, and one live
   integration test that runs the real service (skipped, never failed, when RichOS is not
@@ -191,7 +191,7 @@ Modified (minimal):
 ### Three properties worth stating
 
 1. **It cannot cost a dictation.** A missing service, an old service, a crash, a timeout,
-   an empty or implausible result — every one returns the recognised text unchanged, and
+   an empty or implausible result — every one returns the recognized text unchanged, and
    a journal write that fails is logged and swallowed. Correction is an accuracy
    enhancement; it is never a dependency of getting the words out.
 2. **One corrector, not two.** It shells out to `correct-text`, which calls the exact
@@ -312,7 +312,7 @@ designated requirement is `cdhash H"..."` and nothing else, so there is no
 click-free, rebuild-durable option. See runbook §11 — this is why RichOS must ship
 Developer ID signed. Until then the app blocks at
 `Waiting for Accessibility permission...` and dictation does not work at all — the
-hotkey is not registered yet. The HUD says so, bottom-centre.
+hotkey is not registered yet. The HUD says so, bottom-center.
 
 ## Rollback (one command, offline, tested)
 

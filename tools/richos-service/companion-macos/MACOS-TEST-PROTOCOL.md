@@ -206,7 +206,7 @@ ever been granted — or even asked for — system-audio recording. That is exac
 
 Reading the columns:
 
-- `auth_value` — **`2` = allowed**, `0` = denied. (Consistent with observed behaviour here: every
+- `auth_value` — **`2` = allowed**, `0` = denied. (Consistent with observed behavior here: every
   app that records audio on this Mac has `2`.)
 - `client_type` — `0` = the client is a **bundle identifier**, `1` = an **absolute path**. Which one
   appears after you grant is load-bearing; see 2.5.

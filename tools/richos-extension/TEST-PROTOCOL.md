@@ -37,12 +37,12 @@ RICHOS_FAKE_AUDIO_FILE=1 RICHOS_SILENCE_TEST=1 node tests/live-capture.mjs
 
 - the extension loads with no manifest error and the service worker boots clean;
 - it logs no errors and throws no uncaught exceptions for a whole session;
-- a real Meet URL is recognised by the real platform-detection code;
+- a real Meet URL is recognized by the real platform-detection code;
 - `session.json` is on disk *before* any audio is;
 - audio chunks are written continuously and are durable in IndexedDB;
 - per-second health records carry real, non-zero levels from a live audio device;
 - a service-worker restart re-attaches to the running recorder and audio keeps flowing;
-- closing the call tab finalises the session, exports it, and self-verifies it;
+- closing the call tab finalizes the session, exports it, and self-verifies it;
 - files land at `richos-capture/<session>/{session.json,audio-part-00.webm,health.ndjson}`
   and the directory recorded inside `session.json` matches the folder on disk;
 - the exported file decodes as 2-channel Opus and measures −20 dB, i.e. it contains sound.
@@ -117,7 +117,7 @@ extension, that is a bug and the guarantee is not met.
 | 3 | **Digital silence** | Mute the microphone at the OS level (not in the meeting app) | Red "digital silence on your microphone" within ~20 s. |
 | 4 | **Service worker eviction** | `chrome://serviceworker-internals` → find RichOS → **Stop**. Or just wait; MV3 evicts routinely | Recording continues; badge stays green; chunk count keeps climbing. This is the routine case and must be invisible. |
 | 5 | **Extension reload mid-call** | `chrome://extensions` → reload RichOS while recording | On reload: red alert "a recording was interrupted"; the audio recorded up to that moment appears in the drop zone. Re-arm to continue the call. |
-| 6 | **Tab crash** | Open `chrome://crash` in the call tab? No — instead close the call tab abruptly | Session finalises and exports; last-call result visible in the popup. |
+| 6 | **Tab crash** | Open `chrome://crash` in the call tab? No — instead close the call tab abruptly | Session finalizes and exports; last-call result visible in the popup. |
 | 7 | **Browser killed** | Quit Chrome (or kill it from Task Manager / Activity Monitor) mid-call | On next launch: red alert about an interrupted recording, and the captured audio appears in the drop zone. Everything after the kill is gone — this is the documented ceiling. |
 | 8 | **Never armed** | Join a call and deliberately do nothing | Red `ARM` badge + alert within ~10 s, repeating. You must not be able to sit through a whole call unaware. |
 | 9 | **Drop-zone write blocked** | Point the drop folder at something invalid in Settings | Alert "cannot write to the drop zone"; capture continues in the browser. |
@@ -149,7 +149,7 @@ second OS is enough to confirm parity:
 7. Run drill #4 (stop the service worker) and confirm recording continues.
 8. `node tests/run.js` — the pure harness runs anywhere node does.
 
-Report per step: pass/fail, the badge behaviour you saw, and the contents of the session
+Report per step: pass/fail, the badge behavior you saw, and the contents of the session
 folder.
 
 ---
@@ -159,7 +159,7 @@ folder.
 ```
 Environment: <OS + version> / Chrome <version> / extension <manifest version>
 Part A:  tests/run.js <n> passed · live-capture <n> passed · silence test <n> passed
-Part B:  platform used, arming behaviour, badge states seen, could I still hear the meeting?
+Part B:  platform used, arming behavior, badge states seen, could I still hear the meeting?
 Drills:  1..10 → pass/fail + what you observed
 Files:   session dir listing, session.json status + verification, volumedetect result
 Anything the other party noticed: <should be "nothing">

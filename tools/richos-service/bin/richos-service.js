@@ -309,7 +309,7 @@ function main() {
       console.log(JSON.stringify({
         journal: root,
         matched: res.matched,
-        // What was PASTED, which is what he edited — not the recogniser's raw output. See
+        // What was PASTED, which is what he edited — not the recognizer's raw output. See
         // `heardSide`: reporting `text` here would name a sentence he never saw.
         entry: res.entry ? { id: res.entry.id, at: res.entry.at, heard: heardSide(res.entry) } : null,
         similarity: res.similarity ?? null,

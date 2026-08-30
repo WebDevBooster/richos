@@ -44,7 +44,7 @@ export const DB = {
   },
 };
 
-/** Health-indicator colours (extension action badge). CEO-only: never participant-facing. */
+/** Health-indicator colors (extension action badge). CEO-only: never participant-facing. */
 export const BADGE = {
   green: '#1a7f37',
   amber: '#bf8700',
