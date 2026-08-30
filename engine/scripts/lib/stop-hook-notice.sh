@@ -99,6 +99,34 @@
 # repository it governs is not a guard, and it is not entitled to be quiet.
 #
 # ===========================================================================
+# ONE PATH IS STILL INVISIBLE, AND IT IS NAMED RATHER THAN GLOSSED
+# ===========================================================================
+# Every notice a Stop hook raises AFTER its root bootstrap now comes through
+# here. One notice is raised BEFORE it: the "BROKEN INSTALL — ENFORCEMENT IS
+# NOT ACTIVE" banner a hook prints when scripts/lib/resolve-roots.sh itself is
+# missing. That one still goes to stderr, so it still reaches nobody.
+#
+# It was left alone deliberately, not overlooked. That banner lives inside the
+# root-resolution bootstrap block, which contract-integrity-probe.sh Layer R
+# asserts is BYTE-IDENTICAL across all 21 rooted hooks. Changing it in the two
+# Stop hooks alone turns Layer R red; changing it correctly means one
+# coordinated edit to 21 files on every event, several of which other engineers
+# are in right now. That is a different change with a different blast radius,
+# and smuggling it in beside this one would be the wrong trade.
+#
+# What the gap actually costs, stated honestly rather than minimised: if
+# resolve-roots.sh is missing then EVERY guard on EVERY event is off, not just
+# these two — so the correct fix is engine-wide by nature. It is also the case
+# that this helper lives in the same directory as resolve-roots.sh, so an
+# install broken enough to lose one has probably lost the other; that path
+# needs a fully inline announcement, which is a further reason it belongs in
+# the coordinated change rather than here. engine-status.sh announces at
+# SessionStart, but it carries the identical bootstrap, so it would be mute in
+# exactly this scenario too. NOT VERIFIED EITHER WAY: whether a SessionStart
+# hook's stderr reaches the operator's scroll. That was measured for Stop and
+# only for Stop; do not assume it transfers.
+#
+# ===========================================================================
 # USAGE
 # ===========================================================================
 #     stop_notice_init "<hook-basename.sh>" "<entity-root-or-empty>" "<payload>"
