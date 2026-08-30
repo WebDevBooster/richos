@@ -258,9 +258,9 @@ impl AcpClient {
     /// minimally. None of this is CEO-visible.
     /// Auto-satisfy the agent's client-directed requests, AND route them as machinery.
     ///
-    /// The auto-approval behaviour is UNCHANGED — same first-`allow*` option, same
+    /// The auto-approval behavior is UNCHANGED — same first-`allow*` option, same
     /// response bytes. Design §1.2: *"Recording the auto-approval is a fact, not a policy.
-    /// It changes no behaviour."* Gap #1 (this client auto-approving every permission
+    /// It changes no behavior."* Gap #1 (this client auto-approving every permission
     /// request) stays deferred and is only OBSERVED here, never governed: no approve/deny
     /// control exists, by design — techy mode is a window, not a cockpit (§5, §9).
     fn handle_agent_request(
@@ -355,7 +355,7 @@ impl AcpClient {
     /// control never holds the `Mutex<Spine>` the running turn is holding, so it can never
     /// queue behind it. `stdin` was already an `Arc<Mutex<ChildStdin>>` (the reader thread
     /// writes responses to agent requests through it), so writing one more notification
-    /// from a third thread needs no new synchronisation.
+    /// from a third thread needs no new synchronization.
     pub fn cancel_handle(&self, session_id: &str) -> Arc<AcpCancelHandle> {
         Arc::new(AcpCancelHandle {
             stdin: Arc::clone(&self.stdin),

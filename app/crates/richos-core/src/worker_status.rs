@@ -188,7 +188,7 @@ pub enum Unattributed {
     /// correct state of a session that has dispatched no workers.
     NoTeamDirForSession,
     /// `RICHOS_TEAM_DIR` was set to a path that is not a directory. An explicit override
-    /// that does not resolve is an operator error, not a licence to fall back.
+    /// that does not resolve is an operator error, not a license to fall back.
     OverrideNotADirectory,
 }
 

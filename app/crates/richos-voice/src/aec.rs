@@ -20,11 +20,11 @@
 //! This is the same family of algorithm as `speexdsp`'s MDF and the linear stage of WebRTC's
 //! AEC3, re-derived rather than vendored.
 //!
-//! - *Licence.* Nothing is vendored, so there is nothing to name in the open-source audit.
+//! - *License.* Nothing is vendored, so there is nothing to name in the open-source audit.
 //!   This file is Apache-2.0 with the rest of the crate. `webrtc-audio-processing` would have
-//!   brought BSD-3-Clause C++ plus a meson/autotools build into a signed, notarised bundle;
-//!   `speexdsp` would have brought BSD-3-Clause C. Both are perfectly usable licences — the
-//!   cost is not the licence text, it is the build system and the audit surface.
+//!   brought BSD-3-Clause C++ plus a meson/autotools build into a signed, notarized bundle;
+//!   `speexdsp` would have brought BSD-3-Clause C. Both are perfectly usable licenses — the
+//!   cost is not the license text, it is the build system and the audit surface.
 //! - *Testability.* Every line here runs under `cargo test -p richos-voice` with no device,
 //!   so ERLE is a reproducible CI number rather than a story about a room.
 //! - *Portability.* Windows is a named v1 packaging target. This works there unchanged.
@@ -182,7 +182,7 @@ pub const DELAY_HISTORY_BLOCKS: usize = 256;
 /// 64 blocks x 256 / 16 000 = 1.024 s.
 pub const DELAY_REESTIMATE_BLOCKS: u32 = 64;
 
-/// Normalised LMS step size. `0 < mu < 2` is the stability range for a per-bin normalised
+/// Normalized LMS step size. `0 < mu < 2` is the stability range for a per-bin normalized
 /// frequency-domain update. 0.5 was chosen by measurement, not taste: it is the value at
 /// which the rig's steady-state ERLE stops improving, and going higher buys nothing while
 /// costing robustness against the double-talk this whole module exists to survive.
@@ -421,11 +421,11 @@ pub struct AecMetrics {
     pub delay_blocks: usize,
     /// The same delay in milliseconds, derived.
     pub delay_ms: f32,
-    /// Normalised correlation of the winning delay lag, 0..1. Below ~0.3 the estimate is not
+    /// Normalized correlation of the winning delay lag, 0..1. Below ~0.3 the estimate is not
     /// trustworthy and the canceller says so rather than pretending.
     pub delay_confidence: f32,
     /// **Typical** residual level while Rich is audible — how much echo still gets through,
-    /// averaged rather than minimised. This is the number `CONFIDENT_LEAK_RMS` is compared
+    /// averaged rather than minimized. This is the number `CONFIDENT_LEAK_RMS` is compared
     /// against, and the number that has to sit below the VAD's speech floor for the short
     /// barge-in window to be allowed.
     pub leak_floor_rms: f32,
@@ -726,7 +726,7 @@ impl EchoCanceller {
         self.ref_line.get(i).copied().unwrap_or(0.0)
     }
 
-    /// Normalised cross-correlation of the two block envelopes; picks the lag at which the
+    /// Normalized cross-correlation of the two block envelopes; picks the lag at which the
     /// microphone envelope best follows the reference envelope.
     ///
     /// Envelope correlation rather than sample correlation on purpose: it is immune to the
@@ -976,7 +976,7 @@ impl EchoCanceller {
             let suspicion = e_rms > ADAPT_FREEZE_MARGIN * predicted_echo && e_rms > speech_floor;
             // The hold-over is only armed once there is a converged filter to protect — see
             // `ADAPT_PROTECT_ERLE_DB`. Until then a suspicion stops adaptation for exactly the
-            // block it occurred on, which is the behaviour that converges.
+            // block it occurred on, which is the behavior that converges.
             // LATCHED. Once the filter has proven itself worth protecting it stays protected
             // until it is reset, because `erle_db()` only accumulates on blocks where the
             // filter is NOT frozen — so an un-latched gate disarms itself exactly when
@@ -1023,7 +1023,7 @@ impl EchoCanceller {
 
         // ---- leak gain: minimum statistics ------------------------------------------------
         // Fast down, very slow up. Convergence is tracked immediately; near-end speech barely
-        // moves it, which is what stops the detector from de-sensitising itself against the
+        // moves it, which is what stops the detector from de-sensitizing itself against the
         // very voice it exists to detect.
         if far_env {
             self.far_end_blocks += 1;
@@ -1130,7 +1130,7 @@ impl EchoCanceller {
         self.near_end
     }
 
-    /// One normalised frequency-domain LMS update.
+    /// One normalized frequency-domain LMS update.
     fn adapt(&mut self, residual: &[f32]) {
         // E = FFT([0 ... 0, e]) — the zero-padded first half is the overlap-save gradient
         // constraint on the ERROR side, and it has to be exactly zero (see the fft tests).
@@ -1151,8 +1151,8 @@ impl EchoCanceller {
         //
         //     dY = sum_p dW_p . X_p = step * E * sum_p |X_p|^2 = step * E * Px
         //
-        // Normalising by `Px = sum_p |X_p|^2` therefore gives `dY = mu * E` exactly, which is
-        // stable for `0 < mu < 2`. Normalising by anything SMALLER overshoots by the ratio.
+        // Normalizing by `Px = sum_p |X_p|^2` therefore gives `dY = mu * E` exactly, which is
+        // stable for `0 < mu < 2`. Normalizing by anything SMALLER overshoots by the ratio.
         //
         // That is the bug this `max` exists to prevent. A plain first-order smoother starts at
         // zero, so on the first adapting block `smoothed = 0.1 * Px` and the effective step is

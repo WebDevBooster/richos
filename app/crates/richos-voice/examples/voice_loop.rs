@@ -11,7 +11,7 @@
 //! # 2. speak into the real microphone, if the host has one:
 //! cargo run -p richos-voice --example voice_loop
 //!
-//! # 3. or inject a recorded/synthesised utterance — the ONLY option on a host with no
+//! # 3. or inject a recorded/synthesized utterance — the ONLY option on a host with no
 //! #    input device, and how this was proved on the 2026-08-24 Mac mini:
 //! say -v Samantha -o /tmp/ceo.wav --data-format=LEI16@16000 "Rich, are you there?"
 //! cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav

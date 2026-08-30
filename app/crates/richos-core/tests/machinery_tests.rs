@@ -469,7 +469,7 @@ fn no_governance_vocabulary_reaches_the_calm_view() {
     // And the words that are wrong are wrong in BOTH views: the client answered, it did not
     // decide, and there is no one to have approved anything.
     assert!(!technical.contains("Requested approval"), "the old string must be gone: {technical}");
-    assert!(!technical.contains("Approved"), "no authorisation verb anywhere: {technical}");
+    assert!(!technical.contains("Approved"), "no authorization verb anywhere: {technical}");
 
     // The work the request belonged to is unaffected — nothing was hidden, only reclassified.
     assert!(

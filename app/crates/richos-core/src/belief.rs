@@ -73,7 +73,7 @@
 //!
 //! A [`ProposedWrite::Supersede`] whose **body is the CEO's own sentence, verbatim**, whose
 //! `kind` and `scope` are CARRIED THROUGH from the record being corrected, and whose `why`
-//! is that same sentence. Nothing is composed, summarised or reworded, because
+//! is that same sentence. Nothing is composed, summarized or reworded, because
 //! `loro-writer.md`'s standing refusal is that *"a machine rewriting the CEO's synthesis is
 //! not a correction, it is a substitution"* — and a machine-written replacement body would
 //! be exactly that, one layer in.

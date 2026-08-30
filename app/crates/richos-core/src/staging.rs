@@ -10,7 +10,7 @@
 //! confirmation… **Nothing is ever learned silently.**"* The trigger measured at precision
 //! 1.000 on an adversarial corpus (`tests/spoken_precision.rs`) and it *still* only stages,
 //! because a precision measured by the author of the corpus is evidence about the shape of
-//! the errors, not a licence to skip the ask.
+//! the errors, not a license to skip the ask.
 //!
 //! So there is no function here that learns a term. There is [`CandidateDesk::stage`],
 //! which writes down what the CEO appears to have corrected; and there is

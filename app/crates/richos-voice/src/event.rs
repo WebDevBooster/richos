@@ -8,7 +8,7 @@
 //! | event | when | payload |
 //! |---|---|---|
 //! | `rich://voice-state` | the mic state changed, a new input level is available, or the input went silent/came back | `{ state, level, bargeInArmed, noAudio, at }` |
-//! | `rich://voice-transcript` | an utterance was recognised and submitted as a turn | `{ text, durationMs, latencyMs, at }` |
+//! | `rich://voice-transcript` | an utterance was recognized and submitted as a turn | `{ text, durationMs, latencyMs, at }` |
 //! | `rich://voice-error` | voice mode could not start or had to stop | `{ message, at }` |
 //!
 //! `message` on `voice-error` is ALWAYS a calm, Rich-voiced line. Device names, exit codes
@@ -33,7 +33,7 @@ pub enum VoiceEvent {
     /// clear by itself the moment audio returns, and it belongs in context next to the mic
     /// state the CEO is already looking at.
     State { state: VoiceState, level: f32, barge_in_armed: bool, no_audio: bool, at: u64 },
-    /// What the CEO said, as recognised, already submitted to the spine as a turn.
+    /// What the CEO said, as recognized, already submitted to the spine as a turn.
     /// `duration_ms` is the captured audio length; `latency_ms` is end-of-speech to
     /// transcript — both measured, never estimated.
     Transcript { text: String, duration_ms: u64, latency_ms: u64, at: u64 },

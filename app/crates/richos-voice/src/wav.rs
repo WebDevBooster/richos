@@ -215,7 +215,7 @@ pub struct RateConverter {
     pos: f64,
     /// Retained input, enough for the pre-filter window plus interpolation.
     hist: Vec<f32>,
-    /// Box pre-filter width, and how much of it sits before the centre sample.
+    /// Box pre-filter width, and how much of it sits before the center sample.
     taps: usize,
     half: usize,
 }
@@ -304,7 +304,7 @@ impl RateConverter {
 
         loop {
             let i0 = self.pos.floor() as i64;
-            // Interpolating between i0 and i0+1 through a `taps`-wide centred window needs
+            // Interpolating between i0 and i0+1 through a `taps`-wide centered window needs
             // input up to (i0 + 1) + (taps - half - 1).
             let needed = i0 + 1 + (self.taps - self.half) as i64;
             if needed >= end {
@@ -328,7 +328,7 @@ impl RateConverter {
     }
 }
 
-/// Centred moving average of `taps` samples. `taps <= 1` is a no-op.
+/// Centered moving average of `taps` samples. `taps <= 1` is a no-op.
 fn box_filter(input: &[f32], taps: usize) -> Vec<f32> {
     if taps <= 1 {
         return input.to_vec();
@@ -475,7 +475,7 @@ mod tests {
     }
 
     /// INVARIANT: what we write is what whisper reads back — a full round trip within
-    /// 16-bit quantisation error (1/32768 = 3.05e-5).
+    /// 16-bit quantization error (1/32768 = 3.05e-5).
     #[test]
     fn a_wav_round_trip_preserves_the_audio_within_quantisation_error() {
         let src = sine(440.0, 16_000, 4000);
@@ -572,7 +572,7 @@ mod tests {
 
     /// INVARIANT: out-of-band energy is attenuated instead of folding into the speech band.
     /// A 20 kHz tone decimated 48k->16k without filtering would alias to |20000-16000| =
-    /// 4000 Hz — dead centre of speech. The box pre-filter must knock it down by >= 6 dB.
+    /// 4000 Hz — dead center of speech. The box pre-filter must knock it down by >= 6 dB.
     #[test]
     fn out_of_band_energy_is_attenuated_rather_than_aliased_into_speech() {
         let src = sine(20_000.0, 48_000, 48_000);

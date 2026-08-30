@@ -475,7 +475,7 @@ impl Slice {
 pub struct InjectedSlice {
     pub thread_id: String,
     pub entity_id: String,
-    /// The topic the slice was compiled for. Kept so a provenance can be recognised as
+    /// The topic the slice was compiled for. Kept so a provenance can be recognized as
     /// belonging to a different conversation rather than silently answering about one.
     pub topic: String,
     /// `corpus.fingerprint` and `compiler` — the two things `CONTEXT-CONTRACT.md` §2 says
@@ -898,7 +898,7 @@ mod tests {
     }
 
     /// INVARIANT: an item whose rendered line lost its `(ref: …)` suffix to the budget cut
-    /// keeps NO line rather than borrowing a neighbour's. `items[]` says what is in the
+    /// keeps NO line rather than borrowing a neighbor's. `items[]` says what is in the
     /// slice; the text says what Rich read; when they disagree the resolver falls back to
     /// the title, which is a weaker match and not a wrong one.
     #[test]

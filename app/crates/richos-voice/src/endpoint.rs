@@ -15,7 +15,7 @@
 //! table cannot drift from the code.
 //!
 //! A **pre-roll** ring keeps the 0.304 s of audio immediately BEFORE onset, because the VAD
-//! only recognises speech a few frames in and the first consonant lives in those frames. Cut
+//! only recognizes speech a few frames in and the first consonant lives in those frames. Cut
 //! it and whisper hears "…orning" instead of "morning".
 
 use crate::vad::frames_to_secs;
