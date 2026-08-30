@@ -9,15 +9,23 @@ This is the whole contract the UI needs — **no Rust reading required.** The Ru
 truth is `app/crates/richos-core/src/stream.rs` (event names as constants) +
 `app/src-tauri/src/main.rs` (`TauriEmitter`).
 
-> **THREE FAMILIES, and this document covers all three.** The four events below are the
+> **FOUR FAMILIES, and this document covers all four.** The five events below are the
 > shipping calm view and are **unchanged**. `rich://machinery` (further down) is the
 > opt-in technical family. [The additive live-work family](#the-additive-live-work-family-13)
-> — six typed §13 events — was added on 2026-08-29 and is what a Codex-style timeline
-> renderer should be written against. **A UI that subscribes only to the four events
-> below keeps working exactly as it does today**, asserted byte-for-byte by
-> `crates/richos-core/tests/live_event_tests.rs`. Clean output is guaranteed by the spine:
+> — seven typed §13 events — was added on 2026-08-29 and is what a Codex-style timeline
+> renderer should be written against. [Voice mode](#voice-mode-richvoice-) is the fourth,
+> emitted by a different crate and subscribed only while the mic is open. **A UI that
+> subscribes only to the events below keeps working exactly as it does today**, asserted
+> byte-for-byte by `crates/richos-core/tests/live_event_tests.rs`. Clean output is
+> guaranteed by the spine:
 **only assistant-message text is ever emitted on the events below** — never tool calls,
 worker chatter, shell, or hook output.
+
+*(Both counts above were wrong until 2026-08-30 — "three families" and "six typed events",
+written when each was true and left behind by the two commits that changed them, and the
+voice family was not mentioned at all. `app/ui/tests/docs-claims.js` now joins this
+document's event names to the constants the Rust source declares, so a family cannot be
+added without appearing here.)*
 
 That guarantee is **structural, not a convention**: machinery is not a `StreamEvent` at
 all. It is a second, separate family on its own event name — see
@@ -36,12 +44,27 @@ turn (and ignore anything for a thread it isn't showing). Timestamps `at` are ep
 | `rich://chunk`          | One assistant-text delta arrived. Append `textDelta` to the live bubble for `turnId`. | `{ threadId, turnId, seq, textDelta, at }` |
 | `rich://turn-completed` | The turn ended cleanly. Finalize the bubble; clear the working state. | `{ threadId, turnId, stopReason, at }` |
 | `rich://turn-error`     | The turn ended by error/interrupt (e.g. the compute lease died). Show a calm, Rich-voiced failure; clear the working state. | `{ threadId, turnId, reason, at }` |
+| `rich://proactive-message` | **Rich spoke unprompted.** A proactive turn was written to the ledger atomically — there is no `turn-started` and there are no chunks. Re-read the thread (`get_messages` / the typed timeline); do not try to assemble it from a stream that never happened. | `{ threadId, turnId, tier, at }` |
+
+`tier` is `interrupt_now | digest | silent` (`AttentionTier`, `ledger.rs`). §5.1 of the
+front-end UX direction governs what each one may do: `interrupt_now` is rare and may notify;
+`digest` is the normal batched message; **`silent` never appears in the conversation and
+never notifies** — it exists in the ledger for a CEO who goes looking, and there is no
+activity view for it yet.
+
+**This event was undocumented here until 2026-08-30**, while this page called itself the
+whole contract the UI needs. It has been declared in `stream.rs` beside the other four since
+the proactive seam landed, and `app/ui/main.js` has always subscribed to it. Nothing was
+broken by the omission; a second UI written from this page alone would simply never have
+heard Rich speak first.
 
 ### Ordering & guarantees
 
 - For one turn the UI receives **exactly one** `rich://turn-started`, then **zero or more**
   `rich://chunk` events, then **exactly one** terminal event (`rich://turn-completed` **or**
-  `rich://turn-error`) — never both.
+  `rich://turn-error`) — never both. **A proactive turn is the one exception and is not a
+  stream at all**: it is written atomically and announces itself with a single
+  `rich://proactive-message`, with no started, chunk or terminal event of its own.
 - `seq` is a **strictly increasing** per-turn counter starting at 0. Concatenating
   `textDelta` in `seq` order reproduces the full reply that the ledger holds for that turn
   — so a UI that missed the stream can fall back to `get_messages` (or `send_message`'s
@@ -405,5 +428,39 @@ transitions only, so it always carries a real `turnId`.
 cargo run -p richos-core --example live_events_roundtrip -- <engine_dir> "your message"
 ```
 
-Prints both families side by side against a real ACP turn — `old>` for the four events
-above, `NEW>` for these six, payloads verbatim.
+Prints both families side by side against a real ACP turn — `old>` for the calm-view events
+at the top of this document, `NEW>` for the seven here, payloads verbatim.
+
+---
+
+## Voice mode: `rich://voice-*`
+
+The fourth family, and the only one emitted by a different crate:
+`app/crates/richos-voice/src/event.rs` declares the names and payloads;
+`TauriVoiceEmitter` in `app/src-tauri/src/main.rs` relays them to the webview verbatim.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://voice-state` | The mic state changed, a new input level is available, or the input went silent / came back. | `{ state, level, bargeInArmed, noAudio, at }` |
+| `rich://voice-transcript` | An utterance was recognized and **already submitted to the spine as a turn**. | `{ text, durationMs, latencyMs, at }` |
+| `rich://voice-error` | Voice mode could not start, or had to stop. | `{ message, at }` |
+
+Four things a renderer of this family has to know, all of them structural rather than
+stylistic:
+
+1. **`state` is the mic's real state, never an optimistic one.** It is one of
+   `off | listening | hearing | thinking | speaking`, and the panel is driven only by this
+   event — pressing the toggle does not turn the dot on, the device reporting open does.
+2. **`noAudio` is a FIELD of the state event, not an error.** It is the post-open silent
+   input verdict: the stream is open and healthy but has delivered nothing above -80.00 dBFS
+   for 3.008 s. It is not fatal and it clears by itself the moment audio returns.
+3. **A transcript is not a request to send anything.** By the time it arrives the words are
+   already a turn on the same thread, through the same `Spine::submit_prompt` typed text
+   uses — so voice and text are one durable conversation, and the reply arrives on the calm
+   family above like any other. `durationMs` and `latencyMs` are measured, never estimated.
+4. **`message` on `voice-error` is always a calm, Rich-voiced line.** Device names, exit
+   codes and file paths go to stderr and never to the CEO.
+
+There is **no live partial transcript**: `whisper-cli` has no partial-hypothesis stream, so
+nothing arrives between the start of an utterance and its finished text. That is a stated
+deviation from the UX direction §4.1 sketch, not an omission here.

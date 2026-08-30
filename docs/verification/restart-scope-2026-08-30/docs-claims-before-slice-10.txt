@@ -1,0 +1,34 @@
+app/ui/tests/docs-claims.js — THE RUN THAT MADE SLICE 10 NECESSARY
+==================================================================
+
+This is the suite's first run, against `main` as it stood before slice 10 corrected the
+documents. It is the demonstrated failure for five of its six checks, and unlike the ten
+mutations recorded beside it, nothing here was broken on purpose: every finding is real
+drift that had accumulated in the tree.
+
+Command, from app/ui/tests/:
+
+    node docs-claims.js
+
+
+== app/ documents vs the tree they describe — derived, never typed ==
+  FAIL  app/README.md names every Rust test file, and no file it names is gone
+          test files that exist and are documented nowhere in app/README.md
+          expected []
+          actual   ["live_event_tests.rs","loro_reprime_tests.rs","worker_attribution_tests.rs"]
+  FAIL  every per-file test count in app/README.md is the count in that file
+          stale test counts in app/README.md
+          expected []
+          actual   ["rotation_tests.rs: README says 12, the file has 22","machinery_tests.rs: README says 14, the file has 15","steering_tests.rs: README says 11, the file has 16","timeline_tests.rs: README says 7, the file has 12"]
+  FAIL  every `cargo test -p <crate>` total in app/README.md is the tree's own total
+          EMPTY INVENTORY: the README states no crate total in the form `# <N> tests`
+  FAIL  app/ui/tests/README.md's table is exactly the inventory run.js discovers
+          suites that run.js runs and the README does not describe
+          expected []
+          actual   ["docs-claims.js","restart-scope.js","steering.js"]
+  FAIL  app/STREAMING.md documents every `rich://` event the app declares
+          STREAMING.md calls itself the whole contract the UI needs, and these reach the webview without appearing in it
+          expected []
+          actual   ["rich://proactive-message (declared in crates/richos-core/src/stream.rs)","rich://voice-error (declared in crates/richos-voice/src/event.rs)","rich://voice-state (declared in crates/richos-voice/src/event.rs)","rich://voice-transcript (declared in crates/richos-voice/src/event.rs)"]
+  PASS  app/STREAMING.md names no event the app does not have, unless it says so
+          16 names in the document: 12 backed by a constant, 4 declared DEFERRED
