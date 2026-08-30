@@ -136,13 +136,23 @@ else
         "hooks.json: $(printf '%s' "$SET_A" | tr '\n' ' ') vs settings.local.json: $(printf '%s' "$SET_B" | tr '\n' ' ')"
 fi
 
-# 1c. THE REGISTRATION TRAP, on both surfaces.
+# 1c. THE REGISTRATION TRAP, on both surfaces — EXACTLY ONCE.
 #
-# Two "command" keys in ONE hook object is valid JSON and silently keeps only
-# the last. That unregistered a guard on both surfaces today with no error. So
-# the check is made against the PARSED structure — where a shadowed key has
-# already vanished and can be counted as the absence it is — and every Stop
-# script must appear exactly once.
+# The trap is that two "command" KEYS in ONE hook entry is valid JSON and
+# silently keeps only the last, which unregisters a guard with no error. The
+# check is made against the PARSED structure, where a shadowed key has already
+# vanished and shows up as the absence it is: every Stop script must appear
+# exactly once, once shadowing has done its worst.
+#
+# AN EARLIER VERSION OF THIS CASE ALSO DEMANDED ONE SCRIPT PER HOOK OBJECT, AND
+# THAT WAS WRONG. A single entry's "hooks" ARRAY holding several commands is a
+# supported, working shape — PreToolUse[Agent] has used it for four guards all
+# along, and it was confirmed live here: turn-manifest.sh and
+# notice-hook-staleness.sh share one Stop entry and BOTH fired in a real
+# session, each with its own hook_success attachment. Asserting otherwise would
+# have flagged two engineers' correct work as a defect, which is a false
+# positive in a suite whose whole claim is that it has none. The array is not
+# the trap; the duplicate KEY is, and 1d owns that.
 TRAP_OUT="$(python3 - "$HOOKS_JSON" "$SETTINGS_JSON" <<'PY'
 import json, re, sys
 problems = []
@@ -157,18 +167,12 @@ for path in sys.argv[1:]:
     for entry in (doc.get("hooks", {}) or {}).get("Stop", []) or []:
         if not isinstance(entry, dict):
             continue
-        cmds = [h for h in (entry.get("hooks") or []) if isinstance(h, dict)]
-        named = [c for c in cmds
-                 if isinstance(c.get("command"), str)
-                 and re.search(r"scripts/hooks/[A-Za-z0-9._+-]+\.sh", c["command"])]
-        if len(named) > 1:
-            problems.append("%s: one hook OBJECT carries %d script commands (%s) — each belongs in its own object"
-                            % (path, len(named), ", ".join(
-                                re.search(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", c["command"]).group(1)
-                                for c in named)))
-        for c in named:
-            n = re.search(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", c["command"]).group(1)
-            counts[n] = counts.get(n, 0) + 1
+        for c in (entry.get("hooks") or []):
+            if not isinstance(c, dict) or not isinstance(c.get("command"), str):
+                continue
+            m = re.search(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", c["command"])
+            if m:
+                counts[m.group(1)] = counts.get(m.group(1), 0) + 1
     for n, k in sorted(counts.items()):
         if k != 1:
             problems.append("%s: %s appears %d times in the parsed Stop table (expected exactly 1)" % (path, n, k))
@@ -176,7 +180,7 @@ print("\n".join(problems))
 PY
 )"
 if [ -z "$TRAP_OUT" ]; then
-    ok "1c. on BOTH surfaces every Stop script appears exactly once in the PARSED table, one per hook object"
+    ok "1c. on BOTH surfaces every Stop script appears exactly once in the PARSED table"
 else
     bad "1c. registration trap" "$TRAP_OUT"
 fi
@@ -264,20 +268,38 @@ else
     bad "2a. shared notice channel" "missing: $NOTICE_LIB"
 fi
 
+# WHAT IS ENFORCED HERE, AND WHAT DELIBERATELY IS NOT.
+#
+# The requirement is BEHAVIOURAL — a Stop hook that cannot run must reach the
+# operator — and section 3 enforces exactly that, for every derived hook, with
+# no exceptions and no opt-out. Using this particular helper is NOT the
+# requirement, and an earlier version of this section demanded it. That flagged
+# notice-hook-staleness.sh, which reached the same design independently
+# (`announce_once`, session-scoped, on systemMessage) and passes section 3
+# cleanly. Failing a correct hook for not sharing an implementation is enforcing
+# style, and a style rule dressed as a safety check is how a suite starts
+# producing the false positives it advertises it has none of.
+#
+# So: the ADOPTERS are named and required to agree with each other, the
+# hand-rollers are named so the choice is visible rather than silent, and
+# whether either group actually speaks is settled in section 3.
 BLOCK_REF=""
-BLOCK_MISSING=""
+BLOCK_ADOPTERS=""
+BLOCK_HANDROLLED=""
 BLOCK_DIVERGENT=""
+BLOCK_ABSENT=""
 for h in $STOP_HOOKS; do
     f="$ENGINE_ROOT/scripts/hooks/$h"
     if [ ! -f "$f" ]; then
-        BLOCK_MISSING="$BLOCK_MISSING $h(absent)"
+        BLOCK_ABSENT="$BLOCK_ABSENT $h"
         continue
     fi
     blk="$(sed -n '/^# --- NOTICE CHANNEL ---/,/^fi$/p' "$f" 2>/dev/null)"
     if [ -z "$blk" ]; then
-        BLOCK_MISSING="$BLOCK_MISSING $h"
+        BLOCK_HANDROLLED="$BLOCK_HANDROLLED $h"
         continue
     fi
+    BLOCK_ADOPTERS="$BLOCK_ADOPTERS $h"
     if [ -z "$BLOCK_REF" ]; then
         BLOCK_REF="$blk"
     elif [ "$blk" != "$BLOCK_REF" ]; then
@@ -285,18 +307,21 @@ for h in $STOP_HOOKS; do
     fi
 done
 
-if [ -n "$BLOCK_MISSING" ]; then
-    bad "2b. every Stop hook carries the notice channel" \
-        "no NOTICE CHANNEL block in:$BLOCK_MISSING. A Stop hook without it has no way to tell the operator it has stopped working."
-elif [ "$STOP_N" -gt 0 ]; then
-    ok "2b. all $STOP_N Stop hook(s) carry the NOTICE CHANNEL block"
+if [ -n "$BLOCK_ABSENT" ]; then
+    bad "2b. every registered Stop hook is present on disk" \
+        "registered but missing:$BLOCK_ABSENT — the host would load nothing for these."
+elif [ -n "$BLOCK_ADOPTERS" ]; then
+    ok "2b. the shared notice channel is used by:$BLOCK_ADOPTERS${BLOCK_HANDROLLED:+ (hand-rolled, and asserted by 3a instead:$BLOCK_HANDROLLED)}"
+else
+    bad "2b. the shared notice channel is used by something" \
+        "no Stop hook sources scripts/lib/stop-hook-notice.sh — the helper is dead code shipping as protection."
 fi
 
 if [ -n "$BLOCK_DIVERGENT" ]; then
     bad "2c. the notice channel block is byte-identical" \
         "diverged in:$BLOCK_DIVERGENT — the same failure Layer R catches in the root bootstrap, one level over."
-elif [ -z "$BLOCK_MISSING" ] && [ "$STOP_N" -gt 0 ]; then
-    ok "2c. the NOTICE CHANNEL block is byte-identical across all $STOP_N of them"
+else
+    ok "2c. the NOTICE CHANNEL block is byte-identical across every hook that carries it"
 fi
 
 # ===========================================================================
@@ -371,8 +396,21 @@ done
 # channel. That is a control passing for the wrong reason, which is worth less
 # than no control. It now runs from a mirror whose scripts/lib is the real one,
 # and the failure REASON is asserted rather than merely the failure.
-FIRST_HOOK="$(printf '%s\n' "$STOP_HOOKS" | head -1)"
-if [ -n "$FIRST_HOOK" ] && [ -f "$ENGINE_ROOT/scripts/hooks/$FIRST_HOOK" ]; then
+#
+# The subject is chosen by CONTENT, not by sort order. It was `head -1` of the
+# derived set, which broke the moment a fourth Stop hook landed whose name sorts
+# first and which carries no stop_notice_abnormal call to mutate: the "mutation"
+# changed nothing and the case reported a control it had not performed.
+FIRST_HOOK=""
+for h in $STOP_HOOKS; do
+    if grep -q 'stop_notice_abnormal ' "$ENGINE_ROOT/scripts/hooks/$h" 2>/dev/null; then
+        FIRST_HOOK="$h"
+        break
+    fi
+done
+if [ -z "$FIRST_HOOK" ]; then
+    bad "3b. negative control" "no derived Stop hook carries a stop_notice_abnormal call to mutate — 3a's results are unproven"
+elif [ -f "$ENGINE_ROOT/scripts/hooks/$FIRST_HOOK" ]; then
     mkdir -p "$SANDBOX/mirror/scripts/hooks"
     ln -sfn "$ENGINE_ROOT/scripts/lib" "$SANDBOX/mirror/scripts/lib"
     MUT="$SANDBOX/mirror/scripts/hooks/mutant.sh"
