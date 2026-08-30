@@ -295,6 +295,28 @@ async function loadSnapshot(page, snap) {
   await page.waitForSelector(".tl-turn");
 }
 
+/// Open the correction desk through the rail button the CEO uses, after driving `mock.js`'s
+/// own desk into whatever state this fixture is about. Nothing here writes into the DOM.
+async function openDesk(browser, setup) {
+  const page = await openApp(browser);
+  if (setup) await page.evaluate("(" + setup.toString() + ")(window.__RICHOS_MOCK__)");
+  await page.click("#nav-corrections");
+  await page.waitForSelector("#corrections-overlay:not([hidden])");
+  return page;
+}
+
+/// Press one of the desk's answer buttons and wait for the re-read that follows it. The
+/// notice is the observable: every answer either states its outcome or relays a refusal,
+/// and this waits for whichever it was rather than for a fixed delay.
+async function deskAnswer(page, selector) {
+  await page.click(selector);
+  await page.waitForFunction(
+    () => !document.getElementById("corrections-notice").hidden,
+    { timeout: 5000 }
+  );
+  return page;
+}
+
 const FIXTURES = {
   /// The app as it opens. Proves the controls that the voice instructions NAME are on the
   /// screen those instructions render on.
@@ -428,6 +450,120 @@ const FIXTURES = {
   async "rail-mark"(browser) {
     return openApp(browser);
   },
+
+
+  // -------------------------------------------------------------------------------------
+  // THE CORRECTION DESK. Every one of these opens the REAL panel through the REAL rail
+  // button and drives its state through `mock.js`'s own desk, which enforces the same
+  // state machine `correction.rs` and `staging.rs` do — a fixture that let `confirm`
+  // succeed twice would prove a product that does not exist.
+  // -------------------------------------------------------------------------------------
+
+  /// Both desks running, one loro proposal and one spoken candidate waiting.
+  async corrections(browser) {
+    return openDesk(browser);
+  },
+
+  /// Neither desk is installed. `loro_available` and `spoken_corrections_available` both
+  /// return false and every read refuses with the backend's own sentence about THIS
+  /// install — the state that must never render as an empty list.
+  async "corrections-off"(browser) {
+    return openDesk(browser, (m) => {
+      m.setLoroAvailable(false);
+      m.setSpokenCorrectionsAvailable(false);
+    });
+  },
+
+  /// The desk IS there and a read refused. Driven with the entity sentence, because that
+  /// is the real one: `loro_pending_corrections` resolves the entity before it touches the
+  /// desk, so on a launch with no entity `loro_available` is true and the read is what
+  /// fails.
+  async "corrections-read-failed"(browser) {
+    return openDesk(browser, (m) => {
+      m.setLoroReadFailure(
+        "I can't tell which company this work belongs to, so I won't guess — filing it under " +
+          "the wrong one would mix two companies' records together, and that's not a mistake " +
+          "worth risking to save you a question. It isn't something you can set from in here: " +
+          "whoever set RichOS up has to tell me which company this copy of me works for."
+      );
+    });
+  },
+
+  /// Both desks readable, nothing waiting — answered rather than absent.
+  async "corrections-empty"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, "#desk-loro-list .desk-btn--never");
+    await deskAnswer(page, "#desk-spoken-list .desk-btn--never");
+    // ...and then lifted again, so the empty lines are the only thing on the section.
+    await deskAnswer(page, "#desk-loro-suppressed-list .desk-btn--lift");
+    await deskAnswer(page, "#desk-spoken-suppressed-list .desk-btn--lift");
+    await page.waitForSelector("#desk-loro-empty:not([hidden])");
+    return page;
+  },
+
+  async "corrections-written"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, "#desk-loro-list .desk-btn--confirm");
+    return page;
+  },
+
+  /// The writer refused the confirmed write — exit 5, a prose section. The proposal lands
+  /// in `failed` with the reason kept, and the reason is an instruction to the CEO.
+  async "corrections-write-failed"(browser) {
+    const page = await openDesk(browser, (m) => {
+      m.setLoroWriterRefusal(
+        'the loro writer refused (exit 5): loro write: "wiki:loro-structure.md#the-human-surface" is a PROSE section — edit the page'
+      );
+    });
+    await deskAnswer(page, "#desk-loro-list .desk-btn--confirm");
+    return page;
+  },
+
+  async "corrections-loro-declined"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, '#desk-loro-list .desk-btn:not(.desk-btn--confirm):not(.desk-btn--never):not(.desk-btn--show)');
+    return page;
+  },
+
+  async "corrections-loro-never"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, "#desk-loro-list .desk-btn--never");
+    await page.waitForSelector("#desk-loro-suppressed:not([hidden])");
+    return page;
+  },
+
+  async "corrections-learned"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, "#desk-spoken-list .desk-btn--confirm");
+    return page;
+  },
+
+  async "corrections-already-knew"(browser) {
+    const page = await openDesk(browser, (m) => m.setVocabularyAlreadyKnew(true));
+    await deskAnswer(page, "#desk-spoken-list .desk-btn--confirm");
+    return page;
+  },
+
+  async "corrections-spoken-declined"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, '#desk-spoken-list .desk-btn:not(.desk-btn--confirm):not(.desk-btn--never)');
+    return page;
+  },
+
+  async "corrections-spoken-never"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, "#desk-spoken-list .desk-btn--never");
+    await page.waitForSelector("#desk-spoken-suppressed:not([hidden])");
+    return page;
+  },
+
+  async "corrections-lifted"(browser) {
+    const page = await openDesk(browser);
+    await deskAnswer(page, "#desk-loro-list .desk-btn--never");
+    await page.waitForSelector("#desk-loro-suppressed-list .desk-btn--lift");
+    await deskAnswer(page, "#desk-loro-suppressed-list .desk-btn--lift");
+    return page;
+  },
 };
 
 /// Which fixtures actually put the state's own words on screen. `shell` does not — the
@@ -436,6 +572,22 @@ const FIXTURES = {
 /// names is present and usable on the screen the sentence appears on. Said here rather than
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
+  // Every correction-desk fixture renders its own words — there is no hardware behind any
+  // of them, so the weaker control-presence-only proof would be a choice rather than a
+  // limit.
+  "corrections",
+  "corrections-off",
+  "corrections-read-failed",
+  "corrections-empty",
+  "corrections-written",
+  "corrections-write-failed",
+  "corrections-loro-declined",
+  "corrections-loro-never",
+  "corrections-learned",
+  "corrections-already-knew",
+  "corrections-spoken-declined",
+  "corrections-spoken-never",
+  "corrections-lifted",
   "unbound",
   "unknown-turn",
   "failed-turn",

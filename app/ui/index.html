@@ -29,6 +29,15 @@
           <button id="rail-new-thread" class="rail-action" type="button">
             <span class="rail-action-label">+ New thread</span>
           </button>
+          <!-- THE CORRECTION DESK's door. `loro-structure.md` calls the property this
+               protects the one that must not be lost: "a human can read what the system
+               believes and correct it when it is wrong". The count is the whole reason a
+               permanent control lives in the rail rather than a toast that scrolls away —
+               an unanswered ask that only ever appeared once is an ask he never saw. -->
+          <button id="nav-corrections" class="rail-action" type="button" aria-haspopup="dialog" aria-expanded="false">
+            <span class="rail-action-label">Corrections</span>
+            <span id="nav-corrections-count" class="rail-count" hidden></span>
+          </button>
         </div>
 
         <!-- Built by main.js from `navigation_tree`, which returns threads ALREADY inside
@@ -270,6 +279,76 @@
         <div class="overlay-panel overlay-panel--compact">
           <p id="entity-picker-title" class="overlay-title">Which entity is this work in?</p>
           <div id="entity-picker-list" class="picker-list" role="listbox" aria-labelledby="entity-picker-title"></div>
+        </div>
+      </div>
+
+      <!-- THE CORRECTION DESK (§7 "ask, never infer"; `correction.rs`, `staging.rs`).
+           Fourteen Tauri commands existed for one day with nothing in `app/ui/` calling
+           any of them, which is RICH-TODOs row 5b: a capability the CEO can only reach
+           through a terminal is not a property of the product he uses.
+
+           TWO FAMILIES, ONE SURFACE, AND THE SAME STATE MACHINE IN BOTH. loro corrections
+           are about a BELIEF (a date, a decision) and are confirmed against the writer's
+           own `--dry-run` bytes; spoken corrections are about a WORD and are confirmed
+           against the CEO's own sentence. §7's three outcomes govern both — confirm,
+           decline (still re-askable, because a decline is ambiguous and a repeat is
+           evidence), decline permanently (suppressed, on a list that is visible here and
+           can be lifted here).
+
+           NO PAGINATION. One scrolling column, however long it gets.
+
+           EACH FAMILY OWNS ITS OWN UNAVAILABLE STATE, and that is the point of the layout:
+           `loro_available` and `spoken_corrections_available` are separate facts, and a
+           single empty list spanning both would say "nothing to correct" on a machine where
+           one desk simply is not there — the exact distinction loro itself draws between
+           "nothing recorded bears on this" and a fabricated answer. -->
+      <div id="corrections-overlay" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="corrections-title">
+        <div class="overlay-panel overlay-panel--desk">
+          <header class="desk-head">
+            <p id="corrections-title" class="overlay-title">Corrections</p>
+            <button id="corrections-close" class="rail-icon-btn" type="button" aria-label="Close corrections">✕</button>
+          </header>
+
+          <!-- WHERE A REFUSAL LANDS. Every one of the fourteen commands returns
+               `Result<_, String>`, and `affordances.js` enforces that a refusal never dies
+               in a console. The backend's sentence is relayed VERBATIM: a writer refusal
+               like "that is a PROSE section, corrected by editing the page" is an
+               instruction to the CEO and paraphrasing it would lose the path he needs. -->
+          <p id="corrections-notice" class="desk-notice" role="status" hidden></p>
+
+          <div id="corrections-body" class="desk-body">
+            <section class="desk-section" aria-labelledby="desk-loro-title">
+              <h2 id="desk-loro-title" class="desk-section-title">What I believe</h2>
+              <p id="desk-loro-off" class="desk-unavailable" hidden></p>
+              <div id="desk-loro-broke" class="desk-broke" hidden>
+                <p class="desk-broke-line">I couldn't read that just now. Nothing has changed.</p>
+                <p id="desk-loro-broke-reason" class="desk-reason"></p>
+                <button id="desk-loro-retry" class="desk-btn" type="button">Try again</button>
+              </div>
+              <p id="desk-loro-empty" class="desk-empty" hidden>Nothing about the company record is waiting on you.</p>
+              <div id="desk-loro-list" class="desk-list"></div>
+              <div id="desk-loro-suppressed" class="desk-suppressed" hidden>
+                <h3 class="desk-sub-title">Never ask again</h3>
+                <div id="desk-loro-suppressed-list" class="desk-suppressed-list"></div>
+              </div>
+            </section>
+
+            <section class="desk-section" aria-labelledby="desk-spoken-title">
+              <h2 id="desk-spoken-title" class="desk-section-title">Words I may have got wrong</h2>
+              <p id="desk-spoken-off" class="desk-unavailable" hidden></p>
+              <div id="desk-spoken-broke" class="desk-broke" hidden>
+                <p class="desk-broke-line">I couldn't read that just now. Nothing has changed.</p>
+                <p id="desk-spoken-broke-reason" class="desk-reason"></p>
+                <button id="desk-spoken-retry" class="desk-btn" type="button">Try again</button>
+              </div>
+              <p id="desk-spoken-empty" class="desk-empty" hidden>No word is waiting on you.</p>
+              <div id="desk-spoken-list" class="desk-list"></div>
+              <div id="desk-spoken-suppressed" class="desk-suppressed" hidden>
+                <h3 class="desk-sub-title">Never ask again</h3>
+                <div id="desk-spoken-suppressed-list" class="desk-suppressed-list"></div>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
 

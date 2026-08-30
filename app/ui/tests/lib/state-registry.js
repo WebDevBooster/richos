@@ -519,19 +519,241 @@ module.exports = [
   { s: "headphones recommended · tap", c: "FRAGMENT", why: "Voice footnote, completed by the ◉ glyph." },
   { s: "to end voice", c: "FRAGMENT", why: "The tail of the same footnote." },
 
+
+  // -------------------------------------------------------------------------------------
+  // THE CORRECTION DESK (§7 "ask, never infer") — RICH-TODOs row 5b
+  //
+  // Two families on one surface, and the classification turns on a distinction the desk
+  // itself is built around: `loro_available` false is a statement about THIS INSTALL that
+  // nobody in the app can change (NEEDS-SOMEONE-ELSE), while a desk that is present and
+  // did not answer is transient and carries a retry (ACTIONABLE). Rendering either as an
+  // empty list would say "nothing to correct", which is the one thing neither means.
+  // -------------------------------------------------------------------------------------
+  {
+    s: "No loro corpus is configured for this install, so there is nothing to read or correct. That is a statement about this install, not about what is recorded.",
+    c: "NEEDS-SOMEONE-ELSE",
+    explainedBy: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
+    fixture: "corrections-off",
+    why:
+      "The loro desk's own refusal (main.rs, `desk()`), relayed verbatim and never reworded. " +
+      "It names no party by itself, so the surface appends the owner line in the SAME " +
+      "paragraph rather than paraphrasing the backend — the backend says what is missing, " +
+      "the UI says who can do something about it, and neither guesses the other's half.",
+  },
+  {
+    s: "I can't record corrections right now — my correction log could not be opened. Nothing you say is being lost from the conversation itself.",
+    c: "NEEDS-SOMEONE-ELSE",
+    explainedBy: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
+    fixture: "corrections-off",
+    why: "The spoken desk's refusal (main.rs, `spoken_desk()`), same relay and same owner line.",
+  },
+  {
+    s: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
+    c: "NEEDS-SOMEONE-ELSE",
+    fixture: "corrections-off",
+    why:
+      "The owner half of both sentences above, and the only part of an unavailable desk this " +
+      "UI authors. It names the party the regex requires and promises no control, because " +
+      "configuring a corpus or a service binary is not reachable from any screen in the app.",
+  },
+  {
+    s: "I couldn't read that just now. Nothing has changed.",
+    c: "ACTIONABLE",
+    control: ".desk-broke:not([hidden]) .desk-btn",
+    fixture: "corrections-read-failed",
+    why:
+      "The other unavailable state: the desk said it was there (`loro_available` true) and " +
+      "then a read refused. Transient in the common case, so the retry sits inside the block; " +
+      "where the reason is NOT transient the backend's own sentence renders directly beneath " +
+      "and names its owner (see the entity row above).",
+  },
+  {
+    s: "Nothing about the company record is waiting on you.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-empty",
+    why:
+      "A readable desk with nothing pending — and it renders ONLY when the read succeeded, " +
+      "which is why it is a different element from the two unavailable states rather than " +
+      "the same empty list serving all three.",
+  },
+  {
+    s: "No word is waiting on you.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-empty",
+    why: "The spoken half of the same fact, under its own availability check.",
+  },
+  {
+    s: "What I believe",
+    c: "INFORMATIONAL",
+    fixture: "corrections",
+    why: "Section heading over the loro family — what the company record says, in the CEO's terms rather than 'loro'.",
+  },
+  {
+    s: "Words I may have got wrong",
+    c: "INFORMATIONAL",
+    fixture: "corrections",
+    why: "Section heading over the spoken family — a word Rich mis-transcribed, not a belief.",
+  },
+  {
+    s: "Never ask again",
+    c: "ACTIONABLE",
+    control: ".desk-suppressed:not([hidden]) .desk-btn--lift",
+    fixture: "corrections-loro-never",
+    why:
+      "§7 requires the suppression list to be inspectable 'or a term silently refuses to " +
+      "learn with no way to see why', and a list you can see and cannot clear is only half " +
+      "of that. Every row under this heading carries its own lift button, so the heading is " +
+      "classified by what the CEO can still do about what is under it.",
+  },
+  {
+    s: "Because you said:",
+    c: "INFORMATIONAL",
+    fixture: "corrections",
+    why:
+      "Labels the CEO's OWN words — the loro proposal's `why`, or the utterance the spoken " +
+      "trigger fired on. A correction with no stated reason is the shape an inferred one " +
+      "takes, so this label is what makes the difference visible on the card.",
+  },
+  {
+    s: "What would be written, exactly:",
+    c: "INFORMATIONAL",
+    fixture: "corrections",
+    why:
+      "Labels the writer's own `--dry-run` bytes. 'Exactly' is a claim the card can make " +
+      "because the preview is `WriteOutput.text` and not a description of it " +
+      "(`correction.rs:366-369`).",
+  },
+  {
+    s: "Yes, that's right",
+    c: "CONTROL",
+    fixture: "corrections",
+    why: "The confirm button on a loro proposal — the only path in this application to a loro write.",
+  },
+  {
+    s: "Never ask about this record",
+    c: "CONTROL",
+    fixture: "corrections",
+    why: "§7's third outcome on a loro proposal: suppress this ref, on a list that reads back and lifts.",
+  },
+  {
+    s: "Show me what's on record now",
+    c: "CONTROL",
+    fixture: "corrections",
+    why:
+      "`loro_show_record`. Reading is not correcting (`correction.rs:592-595`), so it needs " +
+      "no proposal — and it is absent on an append, where there is no prior record to show.",
+  },
+  {
+    s: "Yes, learn it",
+    c: "CONTROL",
+    fixture: "corrections",
+    why: "The confirm button on a spoken candidate — the only path from a staged pair to the vocabulary.",
+  },
+  {
+    s: "Never ask about this term",
+    c: "CONTROL",
+    fixture: "corrections",
+    why: "§7's third outcome on a spoken candidate.",
+  },
+  {
+    s: "Ask about this again",
+    c: "CONTROL",
+    fixture: "corrections-loro-never",
+    why: "Lifts one suppression. The half of 'inspectable' that a read-only list would be missing.",
+  },
+  {
+    s: "Done. That's what I have on record now.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-written",
+    why:
+      "The confirmed write landed. Said only when the returned proposal is in state `written` " +
+      "— never optimistically, because the same call can come back `failed`.",
+  },
+  {
+    s: "I said yes to that and the write didn't land, so nothing changed. Here is exactly what my writer said:",
+    c: "INFORMATIONAL",
+    fixture: "corrections-write-failed",
+    why:
+      "He confirmed and the writer refused. Nothing to press: `confirm` refuses a proposal " +
+      "that is not awaiting an answer (`correction.rs:541`), so the card is spent. The " +
+      "writer's own sentence follows verbatim on the next line and is often an instruction to " +
+      "HIM ('that is a PROSE section — edit the page'), which is exactly why it is relayed " +
+      "rather than reworded.",
+  },
+  {
+    s: "Left it alone. I'll ask again if it comes up.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-loro-declined",
+    why:
+      "§7: a plain decline is NOT permanent, because a decline is ambiguous — not a record / " +
+      "not now / misclicked — while a repeat is the evidence. The sentence says so rather " +
+      "than letting him assume he has settled it.",
+  },
+  {
+    s: "I won't ask about that record again. It's in the list below if you change your mind.",
+    c: "ACTIONABLE",
+    control: "#desk-loro-suppressed-list .desk-btn--lift",
+    fixture: "corrections-loro-never",
+    why:
+      "A permanent decline that vanished would be a lost correction. It names where the " +
+      "suppression went, and the lift control is in that list in the same view.",
+  },
+  {
+    s: "Learned. I'll write it that way from now on.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-learned",
+    why: "`LearnOutcome.changed` true — the pair reached the vocabulary.",
+  },
+  {
+    s: "I already had that one, so nothing changed.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-already-knew",
+    why:
+      "`changed: false` — the vocabulary already knew the pair. A DIFFERENT fact from a " +
+      "refusal, and `staging.rs:141-144` says he is entitled to both, so the two are not " +
+      "collapsed into one cheerful sentence.",
+  },
+  {
+    s: "Left it alone. I'll ask again the next time you say it.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-spoken-declined",
+    why:
+      "The spoken half of the same outcome, and more specific because §7 is more specific " +
+      "for words: re-ask on the very next repeat, no threshold and no cool-off, because " +
+      "repetition IS the evidence and waiting dilutes it.",
+  },
+  {
+    s: "I won't ask about that word again. It's in the list below if you change your mind.",
+    c: "ACTIONABLE",
+    control: "#desk-spoken-suppressed-list .desk-btn--lift",
+    fixture: "corrections-spoken-never",
+    why: "The spoken suppression, and its way back out, in the same view.",
+  },
+  {
+    s: "Back on the table. I'll ask about it if it comes up again.",
+    c: "INFORMATIONAL",
+    fixture: "corrections-lifted",
+    why:
+      "A suppression was lifted. It promises a future ask rather than an immediate one, " +
+      "because nothing here re-proposes — something has to raise the correction again.",
+  },
+
   // -------------------------------------------------------------------------------------
   // UNREACHABLE / NOT-RENDERED
   // -------------------------------------------------------------------------------------
   {
     s: "I can't tell which company this work belongs to, so I won't guess — filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. It isn't something you can set from in here: whoever set RichOS up has to tell me which company this copy of me works for.",
-    c: "UNREACHABLE",
+    c: "NEEDS-SOMEONE-ELSE",
+    fixture: "corrections-read-failed",
     why:
-      "Rewritten in this commit for the CEO rather than for a terminal, because the correction " +
-      "desk is about to wire three of the commands that raise it. STILL UNREACHABLE AT THIS " +
-      "COMMIT and classified as what is true now: main.js invokes none of them yet (checked by " +
-      "enumerating every `Bridge.invoke(\"…\")` in main.js). The RICHOS_ENTITY instruction did " +
-      "not disappear — it moved to the boot `eprintln!`, whose audience is the operator it " +
-      "names. Reclassified when a surface renders it.",
+      "REACHABLE AS OF THIS COMMIT, which is what its own doc comment predicted. " +
+      "`loro_pending_corrections` resolves the entity BEFORE it touches the desk " +
+      "(main.rs:1712), so on a launch with no entity `loro_available` is still true and the " +
+      "pending read refuses with this sentence — which is exactly the desk's `readFailed` " +
+      "branch, where it renders verbatim beneath \"I couldn't read that just now\". It names " +
+      "its party (\"whoever set RichOS up\") and offers no control, because there is none: " +
+      "the environment variable it used to quote is now printed only at the boot `eprintln!`, " +
+      "for the operator it names.",
   },
   {
     s: "I couldn't read that audio file.",
@@ -544,31 +766,14 @@ module.exports = [
     why: "raise_proactive_message's Err. Registered, never invoked by main.js.",
   },
   {
-    s: "No loro corpus is configured for this install, so there is nothing to read or correct. That is a statement about this install, not about what is recorded.",
-    c: "NOT-RENDERED",
-    why:
-      "The loro correction desk's own refusal (main.rs, `desk()`). SURFACED BY THE SCRAPE FIX " +
-      "IN THIS COMMIT, not by a new sentence: main.rs carries an inline `#[cfg(test)] mod " +
-      "navigation_tests` at :1378-:1563 and 311 lines of shipping command code after it, and " +
-      "the extractor used to skip from the first `#[cfg(test)]` to EOF. NOT-RENDERED is the " +
-      "true classification of THIS tree and it is exactly RICH-TODOs row 5b: no file in " +
-      "app/ui/ invokes any of the eight `loro_*` commands, so nothing can reach the DOM. It " +
-      "is reclassified the moment a surface renders it.",
-  },
-  {
-    s: "I can't record corrections right now — my correction log could not be opened. Nothing you say is being lost from the conversation itself.",
-    c: "NOT-RENDERED",
-    why:
-      "The spoken correction desk's refusal (main.rs, `spoken_desk()`), surfaced by the same " +
-      "scrape fix and NOT-RENDERED for the same reason: no caller in app/ui/ invokes any of " +
-      "the six `spoken_*` commands. Row 5b's other half.",
-  },
-  {
     s: "no correction {key} is awaiting an answer",
-    c: "NOT-RENDERED",
+    c: "INFORMATIONAL",
     why:
-      "`spoken_confirm_correction`'s refusal when the key names no pending candidate. Nothing " +
-      "in app/ui/ invokes that command, so the sentence has no route to a screen.",
+      "`spoken_confirm_correction`'s refusal when the key names no pending candidate. It DOES " +
+      "reach the DOM now — the desk relays every rejection verbatim into #corrections-notice — " +
+      "but only from a card that is already stale, and the desk re-reads both families after " +
+      "every answer, so the row it names is gone by the time the sentence is on screen. " +
+      "Nothing to press, and the `{key}` hole means it never renders in this literal form.",
   },
   {
     s: "nothing to add",

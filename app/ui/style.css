@@ -2278,3 +2278,244 @@ body.bp-narrow .tl-user-bubble {
     box-shadow: none;
   }
 }
+
+/* =======================================================================================
+   THE CORRECTION DESK (§7 "ask, never infer")
+
+   The calm paper palette, unchanged. This surface asks the CEO to read exact bytes and
+   then say yes or no, so the only two things it adds are a monospace block for the
+   writer's own output and one attention colour for a refusal — `--attention`, already in
+   the palette, never a red alert. A desk that shouted would be answered less often.
+   ======================================================================================= */
+
+.rail-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.overlay-panel--desk {
+  width: min(760px, 94vw);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px 18px;
+}
+
+.desk-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.desk-head .overlay-title {
+  margin: 0;
+}
+
+.desk-notice {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: 13px;
+  color: var(--ink);
+  /* The writer's refusal arrives as its own sentence on its own line. */
+  white-space: pre-line;
+}
+
+.desk-notice--attention {
+  border-color: var(--attention);
+  color: var(--attention);
+}
+
+/* ONE SCROLLING COLUMN. No pagination anywhere in this app — however many corrections are
+   waiting, they are all in here and the scrollbar is the only thing that moves. */
+.desk-body {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.desk-section + .desk-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+/* NO `text-transform: uppercase` ON EITHER OF THESE, and that is a testability decision
+   rather than a taste one. `lib/state-strings.js` derives the state inventory from the
+   SOURCE literal and `affordances.js` compares it against `innerText`, which in WebKit
+   returns the TRANSFORMED text — so an uppercased heading renders a string that exists
+   nowhere in the source and can never be classified. The rest of the app's eyebrow labels
+   (`.result-group`, `.entity-block-title`) are uppercased and get away with it only
+   because their text is dynamic. Weight, size and colour carry the same hierarchy here. */
+.desk-section-title {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-faint);
+}
+
+.desk-sub-title {
+  margin: 16px 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-faint);
+}
+
+.desk-unavailable,
+.desk-empty,
+.desk-broke-line {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.desk-unavailable {
+  color: var(--ink);
+}
+
+.desk-broke {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.desk-reason {
+  margin: 0;
+  font-size: 12px;
+  color: var(--attention);
+  line-height: 1.45;
+}
+
+.desk-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 13px 14px;
+}
+
+.desk-card + .desk-card {
+  margin-top: 12px;
+}
+
+.desk-card-target,
+.desk-card-pair,
+.desk-card-anchor {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.desk-card-prompt {
+  margin: 0 0 10px;
+  font-size: 14.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.desk-label {
+  margin: 0 0 3px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.desk-card-quote {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.5;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+/* The writer's own `--dry-run` bytes. Monospace and unwrapped-per-line because this is a
+   record file, not prose about one — what he approves here is what lands. */
+.desk-preview,
+.desk-record {
+  margin: 0 0 12px;
+  padding: 10px 11px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.desk-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.desk-btn {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.desk-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.desk-btn--confirm {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.desk-btn--confirm:hover {
+  color: #fff;
+  opacity: 0.92;
+}
+
+.desk-btn--never:hover {
+  border-color: var(--attention);
+  color: var(--attention);
+}
+
+.desk-btn:focus-visible,
+#corrections-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.desk-suppressed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.desk-suppressed-id {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
