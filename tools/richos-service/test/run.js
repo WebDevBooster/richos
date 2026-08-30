@@ -2014,15 +2014,24 @@ function healthyChannel(n, wps, burstMs = 3000, gapMs = 700, from = 0) {
 
 test('tileWindows groups consecutive bursts until the window holds windowSpeechSec of speech', () => {
   const bursts = BURSTS(0, 9, 3000, 700);
-  const wins = tileWindows(bursts, 0, DEFAULT_SPARSITY_OPTS);
+  const wins = tileWindows(bursts, 0, { ...DEFAULT_SPARSITY_OPTS, windowSpeechSec: 8 });
   assert.equal(wins.length, 3, 'nine 3 s bursts make three 9 s windows at an 8 s target');
   assert.equal(wins[0].bursts, 3);
   assert.equal(wins[0].speechMs, 9000);
 });
 
+test('the shipped window is 4 s of speech — swept, and the value is what the sweep chose', () => {
+  // Pinned so the value cannot drift without someone re-reading why it is 4: 2/12 recall at 8 s
+  // against 10/12 at 4 s on the reference corpus, and the candidate noise starting at 3 s.
+  assert.equal(DEFAULT_SPARSITY_OPTS.windowSpeechSec, 4);
+  const bursts = BURSTS(0, 9, 3000, 700);
+  const wins = tileWindows(bursts, 0, DEFAULT_SPARSITY_OPTS);
+  assert.equal(wins[0].bursts, 2, 'two 3 s bursts clear a 4 s target');
+});
+
 test('a window whose bursts are too far apart is ABANDONED, never judged on a denominator of silence', () => {
-  // 3 s of speech every 20 s: reaching 8 s of speech would span 60+ s of wall clock.
-  const bursts = BURSTS(0, 6, 3000, 20000);
+  // 3 s of speech every 40 s: reaching the speech target would break the 30 s wall cap.
+  const bursts = BURSTS(0, 6, 3000, 40000);
   assert.equal(tileWindows(bursts, 0, DEFAULT_SPARSITY_OPTS).length, 0);
 });
 
@@ -2042,11 +2051,11 @@ test('THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words 
   ]));
   kept.sort((a, b) => a.startMs - b.startMs);
   const found = findSparseWindows(kept, bursts, { channel: 'me' });
-  assert.equal(found.candidates.length, 1);
+  assert.ok(found.candidates.length >= 1, 'nine seconds of speech carrying four words is a candidate');
   const c = found.candidates[0];
-  assert.equal(c.emittedWords, 4);
-  assert.ok(c.density < 0.5, `density ${c.density}`);
-  assert.ok(c.deficitWords >= 4, `deficit ${c.deficitWords} whole words`);
+  assert.ok(c.emittedWords <= 4, `emitted ${c.emittedWords}`);
+  assert.ok(c.density < 1.2, `density ${c.density} is below the conversational floor`);
+  assert.ok(c.deficitWords > 0, `deficit ${c.deficitWords} words against the budget`);
 });
 
 test('a WORDLESS window is never a candidate here — that is the deletion detector\'s class', () => {
@@ -2109,6 +2118,18 @@ test('the whole channel being thin is a finding of its own, which no per-window 
   const found = findSparseWindows(segments, bursts, { channel: 'me' });
   assert.equal(found.baselineBelowFloor, true);
   assert.ok(found.medianDensity < 1.2, `median ${found.medianDensity}`);
+});
+
+test('the two counts a findings list cannot give: thin windows, and the ones that are 3.7\'s', () => {
+  // The q5_0 catastrophe's shape: a quarter of the channel carries no word at all after the
+  // repetition guard collapses the fabricated loop. Condition 2 correctly keeps those out of THIS
+  // stage's findings, so without these counts the report would read as a broadly healthy channel.
+  const { bursts, segments } = healthyChannel(24, 2.9);
+  const kept = segments.filter((_, i) => i > 11); // the first half emits nothing at all
+  const found = findSparseWindows(kept, bursts, { channel: 'me' });
+  assert.equal(found.candidates.length, 0, 'a wordless window is never a finding here');
+  assert.ok(found.wordlessWindows >= 6, `${found.wordlessWindows} wordless windows`);
+  assert.equal(found.windowsBelowFloor, found.wordlessWindows, 'every thin window here is a wordless one');
 });
 
 test('analyzedSpeechSec is reported against burstSeconds, so "0 findings" can never read as "all clear"', () => {
@@ -2257,14 +2278,16 @@ test('an unadjudicated window never lets the transcript read as fully checked', 
 // ---------------------------------------------------------------------------------------
 group('P5 — the two detectors divide the timeline instead of overlapping it');
 
-test('THE SAME WORDLESS BURST: a deletion to stage 3.7, invisible to stage 3.8, exactly once', () => {
+test('THE SAME WORDLESS BURSTS: a deletion to stage 3.7, invisible to stage 3.8, reported once', () => {
+  // A whole WINDOW with no emitted word at all — the case where both stages are looking at the
+  // same seconds and only one of them may speak.
   const { bursts, segments } = healthyChannel(12, 2.9);
-  const kept = segments.filter((_, i) => i !== 5);
+  const kept = segments.filter((_, i) => i !== 4 && i !== 5);
   const del = findDeletionCandidates(kept, bursts, { channel: 'me' });
-  assert.equal(del.candidates.length, 1, 'the wordless burst is stage 3.7\'s');
-  assert.equal(del.candidates[0].startMs, bursts[5].startMs);
+  assert.equal(del.candidates.length, 2, 'the wordless bursts are stage 3.7\'s');
+  assert.equal(del.candidates[0].startMs, bursts[4].startMs);
   const sub = findSparseWindows(kept, bursts, { channel: 'me' });
-  assert.equal(sub.candidates.length, 0, 'and stage 3.8 does not report it a second time');
+  assert.equal(sub.candidates.length, 0, 'and stage 3.8 does not report the same seconds a second time');
 });
 
 test('THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot', () => {

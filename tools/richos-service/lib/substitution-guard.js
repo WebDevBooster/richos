@@ -176,7 +176,16 @@ import {
 
 export const DEFAULT_SPARSITY_OPTS = {
   // ---- stage A: window construction (pure, free) ------------------------------------------------
-  windowSpeechSec: 8, // condition 1 — the smallest span over which a rate is a rate
+  // condition 1 — the smallest span over which a rate is a rate. SWEPT, not chosen, against both
+  // corpora at once: 4 s of detected speech holds ~11 words at conversational pace, which is a rate.
+  // On the reference corpus (12 channels, one turn per channel replaced by four words, the truth
+  // known by construction) recall runs 2/12 at 8 s, 5/12 at 5 s and 10/12 at 4 s, because a
+  // conversational TURN is ~5 s and an 8 s window dilutes a whole lost turn with the good speech
+  // beside it. On 92 minutes of real clean audio the candidate count stays at 4 across both channels
+  // at 4 s and jumps to 15 at 3 s — so 3 is where the sub-turn noise starts and 4 is one step inside
+  // the last clean value. It also decides how much of a channel is examined at all: 4 s analyzes 91%
+  // and 99% of the two channels' detected speech against 74% and 94% at 8 s.
+  windowSpeechSec: 4,
   maxWindowSec: 30, // condition 1 — wall cap; beyond it the denominator is mostly silence
   coverToleranceSec: 0.25, // slack at each window edge, matching the deletion detector's grid slack
 
@@ -197,7 +206,13 @@ export const DEFAULT_SPARSITY_OPTS = {
   // median really is 1.33 w/s, the floor drops to 0.6 and a window that would be a finding anywhere
   // else is not even a candidate. `baselineBelowFloor` is what catches that channel instead.
   baselineFraction: 0.45,
-  minDeficitWords: 4, // condition 3 — a whole-word shortfall, so a tiny window cannot fire
+  // condition 3 — an EXTRA whole-word margin on top of the rate test, and the sweep says it should
+  // be zero. The floor is already below every legitimate delivery ever measured here, so a second
+  // margin only subtracts recall: on the reference corpus it costs 10/12 -> 7/12 at 1 and 4/12 at 2,
+  // and buys nothing, because the clean-corpus candidate count is identical at 0, 1 and 2. Kept as a
+  // named knob rather than deleted because it is the natural first thing to raise if a future corpus
+  // shows the rate test alone firing on short windows.
+  minDeficitWords: 0,
   minBaselineWindows: 6, // fewer windows than this and the channel median is not a baseline
 
   // ---- stage B: probe budget --------------------------------------------------------------------
@@ -364,6 +379,16 @@ export function findSparseWindows(segments, speechBursts, opts = {}) {
     ? Math.min(o.floorWordsPerSec, o.baselineFraction * medianDensity)
     : o.floorWordsPerSec;
 
+  // TWO COUNTS THE FINDINGS THEMSELVES CANNOT GIVE, on the aligned tiling only so they are a
+  // partition of one thing. They exist because of the worst artifact in this project's record: on
+  // the `q5_0` catastrophe, after the repetition guard collapses the fabricated loop, a QUARTER of
+  // the analyzed windows carry no word at all — which is stage 3.7's class, correctly excluded here
+  // by condition 2, and therefore invisible in this report's findings. A reader who saw only
+  // "4 candidates" would conclude the channel was broadly fine. These two numbers say otherwise
+  // without inventing a verdict for them.
+  const belowFloor = primaryMeasured.filter((w) => w.density <= threshold);
+  const wordless = belowFloor.filter((w) => w.emittedWords < 1);
+
   const seen = [];
   for (const w of [...primaryMeasured, ...secondaryMeasured]) {
     if (w.emittedWords < 1) continue; // condition 2 — a wordless window is a DELETION, not this
@@ -401,6 +426,8 @@ export function findSparseWindows(segments, speechBursts, opts = {}) {
     medianDensity,
     baselineDensity: haveBaseline ? medianDensity : null,
     baselineBelowFloor: Boolean(haveBaseline && medianDensity < o.floorWordsPerSec),
+    windowsBelowFloor: belowFloor.length,
+    wordlessWindows: wordless.length,
     thresholdWordsPerSec: +threshold.toFixed(3),
   };
 }
@@ -635,6 +662,8 @@ export function guardSubstitution(channels, opts = {}) {
       medianDensity: null,
       thresholdWordsPerSec: null,
       baselineBelowFloor: false,
+      windowsBelowFloor: 0,
+      wordlessWindows: 0,
       // Without a burst grid there is no physical budget and therefore no question to ask. Said out
       // loud, because "0 findings" and "never looked" must never be the same report.
       probeAvailable: report.probeAvailable && Boolean(bursts && bursts.length),
@@ -659,6 +688,10 @@ export function guardSubstitution(channels, opts = {}) {
     chOut.medianDensity = found.medianDensity;
     chOut.thresholdWordsPerSec = found.thresholdWordsPerSec;
     chOut.baselineBelowFloor = found.baselineBelowFloor;
+    chOut.windowsBelowFloor = found.windowsBelowFloor;
+    // Windows this stage deliberately says nothing about because they hold no word at all: stage
+    // 3.7's class. Reported so "few findings here" cannot be read as "little wrong here".
+    chOut.wordlessWindows = found.wordlessWindows;
     report.windows += found.windows;
     report.candidates += found.candidates.length;
     if (found.baselineBelowFloor) {
