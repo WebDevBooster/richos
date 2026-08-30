@@ -40,6 +40,61 @@
 #   this can see are in the module docstring of guard-idle-land.py, which is the
 #   analysis half. READ THAT FILE; this one is the wiring.
 #
+# MEASURED BEFORE IT WAS TRUSTED — 1,082 real orchestrator turns, six sessions
+#   Replayed by rebuilding each turn's Stop payload against the transcript AS IT
+#   STOOD at that turn, and running this hook against the real repositories.
+#
+#     305  turns ran a `git merge` or `git push` at all
+#     276  of those were CONFIRMED by identity (the merged tip is an ancestor of
+#          HEAD, or HEAD equals the remote-tracking ref)
+#      29  ran the command and were NOT confirmed. That is term 1's identity
+#          check earning its place on its own: 29 turns where the message could
+#          have said "landed" and the repository did not agree.
+#
+#   Of the 276 confirmed landings:
+#      95  dispatched an Agent in the same turn        -> silent, correct
+#     101  still had an agent running                  -> silent, correct
+#       0  were held by the operator                   -> the hold suppressor
+#                                                         never fired once; it
+#                                                         is a backstop that
+#                                                         term 4 usually beats
+#      80  landed, started nothing, nothing running    -> BLOCKED  (29%)
+#
+#   TERM 4 IS DECISIVE AND IS NOT RECONSTRUCTABLE. `background_tasks` comes
+#   from the payload — ground truth at run time — and a transcript does not
+#   record it. So the replay BRACKETED it, and the bracket is wide enough to be
+#   worth stating rather than hiding:
+#     presume every agent whose completion notice is missing is still running
+#       (over-suppresses; notices are lost, agents get shut down)   ->  10 blocks
+#     presume nothing is ever running (never suppresses)            -> 174 blocks
+#     count an agent as running only if it demonstrably notified
+#       later in the session — the tightest retrospective answer    ->  80 blocks
+#   80 is the figure above and the one to argue with.
+#
+#   READ BY HAND: 14 of the 80. THE MECHANICAL TERMS WERE CORRECT IN ALL 14 —
+#   every one really landed, really called no Agent, really had a derivable
+#   unblocked row. ZERO cases where the gate misread ground truth.
+#     11  the target failure exactly: land, report, stop, and the operator's
+#         next message opens a new topic or asks what is next. One of them is
+#         literally "yes, clean up the stale richos worktrees. what's next?"
+#      3  ended by putting a decision or a click to the operator. Correct BY THE
+#         RULE — those rows belong in the CEO's record — but they are the ones
+#         that will feel like friction until the deferral route is used.
+#
+# WHY IT SHIPS BLOCKING AT A 29% FIRE RATE, WHICH IS THE OBVIOUS OBJECTION
+#   Because the cost is bounded at ONE EXTRA TURN, structurally. `stop_hook_active`
+#   is true on the re-fire, and this gate stands itself down on it — so it can
+#   refuse a given turn AT MOST ONCE. The worst case is not a wedged session or a
+#   retry storm; it is one more assistant turn, in which the answer is either to
+#   dispatch the row or to move it. Both are things that should have happened.
+#   And 29% is not the gate being noisy: it is the failure rate the operator has
+#   been reporting out loud for two days, now with a number on it.
+#
+#   IDLE_LAND_ENFORCE=0 in orchestration.config runs it report-only, for an
+#   adopter whose record has a different shape and who wants their own numbers
+#   before arming it. That key is committed and diffable, like every other
+#   stand-down in this engine.
+#
 # NO LIVE OVERRIDE TOKEN
 #   Deliberately. The escape is legitimate and already exists: move the row into
 #   the CEO's record, which is a committed, diffable act. An in-the-moment token
