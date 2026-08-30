@@ -457,6 +457,21 @@ impl CandidateDesk {
     }
 }
 
+/// The event a staged correction is announced on. A FOURTH family beside `stream.rs`,
+/// `live.rs` and `machinery.rs`, and separate from all three for the reason
+/// `MachineryObserver` is separate: a subscription list is the proof of what a surface
+/// carries. §13 lists eleven live events and this is none of them, so it does not go in
+/// that family — inventing a twelfth §13 event would misrepresent the brief.
+pub const EVENT_CORRECTION_STAGED: &str = "rich://correction-staged";
+
+/// A sink for staged corrections — the mini-HUD §7 describes, whatever renders it.
+pub trait CorrectionObserver: Send {
+    /// MUST be non-blocking and infallible from the spine's view. A UI that is not
+    /// listening never stalls or fails a turn: the question is already durable on disk
+    /// before this is called, so a dropped notification costs a prompt, never a record.
+    fn on_correction_staged(&self, staged: &Staged);
+}
+
 /// §7's sentence, plus the memory that keeps a second ask from reading as amnesia.
 fn prompt_for(canonical: &str, declined_before: u32) -> String {
     if declined_before > 0 {

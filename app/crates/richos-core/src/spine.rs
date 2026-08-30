@@ -29,6 +29,7 @@ use crate::reprime::{
     LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest, DEFAULT_LORO_BUDGET_CHARS,
     DEFAULT_TAIL_TURNS,
 };
+use crate::staging::{CandidateDesk, CorrectionObserver};
 use crate::steering::{ActiveTurn, IntakeRecord, StopClaim, TurnControl};
 use crate::stream::{StreamEvent, TurnObserver};
 use crate::thread::{summaries, ThreadSummary};
@@ -216,6 +217,17 @@ impl ContextSource {
 /// phrase somebody typed twice.
 pub const STOPPED_BY_CEO: &str = "stopped_by_ceo";
 
+/// How far back the correction trigger looks for the wrong form it is being asked to fix.
+///
+/// Eight messages is four exchanges. It is a WINDOW rather than the whole thread for the
+/// same reason `dictation.js`'s `MATCH_MIN_SIMILARITY` pairing has a ten-minute one: a
+/// correction is made while the wrong word is still on screen, and matching against an
+/// unbounded history turns an old coincidence into fresh "evidence". It is also the reason
+/// the anchor is not a gate — see `spoken.rs` and the measurement: the window necessarily
+/// misses a name he can still see but that scrolled past eight messages ago, and a gate
+/// would have thrown that correction away rather than merely quoting nothing.
+pub const ANCHOR_WINDOW_MESSAGES: usize = 8;
+
 pub struct Spine {
     ledger: Ledger,
     lease: Option<Box<dyn Cognition>>,
@@ -283,6 +295,12 @@ pub struct Spine {
     /// `observer` on purpose — the four `stream.rs` events are unchanged and a UI that
     /// listens only to them is unaffected by anything on this one.
     live: Option<Box<dyn LiveObserver>>,
+    /// THE FLYWHEEL'S AUTOMATIC TRIGGER (`spoken.rs` + `staging.rs`). Optional: a build
+    /// with no desk attached behaves exactly as this file did before it existed.
+    candidates: Option<CandidateDesk>,
+    /// Where a staged correction is announced. A FOURTH family, separate from the other
+    /// three for the reason `machinery_observer` is separate from `observer`.
+    correction_observer: Option<Box<dyn CorrectionObserver>>,
     /// THE CEO'S TWO MID-TURN CONTROLS (UX §9.2/§9.3), and the only thing in this struct
     /// that is reachable while a turn is running.
     ///
@@ -383,6 +401,8 @@ impl Spine {
             machinery_journal: None,
             machinery_observer: None,
             live: None,
+            candidates: None,
+            correction_observer: None,
             worker_events: WorkerEventsSource::Disabled,
         }
     }
@@ -542,6 +562,30 @@ impl Spine {
     /// nothing listening, and per §2.2 a UI that isn't listening never stalls a turn.
     pub fn set_machinery_observer(&mut self, observer: Box<dyn MachineryObserver>) {
         self.machinery_observer = Some(observer);
+    }
+
+    /// Attach the correction-staging desk. **This is what makes the flywheel's trigger
+    /// automatic**: with a desk attached, every CEO utterance is examined as it is
+    /// submitted, and a correction is written down without a command being typed. With no
+    /// desk attached this file behaves exactly as it did before the desk existed.
+    pub fn set_candidate_desk(&mut self, desk: CandidateDesk) {
+        self.candidates = Some(desk);
+    }
+
+    /// Attach the sink that renders §7's ask. Optional and independent of the desk: the
+    /// question is durable on disk BEFORE this is called, so a surface that is not
+    /// listening loses the prompt, never the record.
+    pub fn set_correction_observer(&mut self, observer: Box<dyn CorrectionObserver>) {
+        self.correction_observer = Some(observer);
+    }
+
+    /// Read access for the surface that answers §7's three outcomes.
+    pub fn candidate_desk(&self) -> Option<&CandidateDesk> {
+        self.candidates.as_ref()
+    }
+
+    pub fn candidate_desk_mut(&mut self) -> Option<&mut CandidateDesk> {
+        self.candidates.as_mut()
     }
 
     pub fn attach_lease(&mut self, lease: Box<dyn Cognition>) {
@@ -1087,6 +1131,15 @@ impl Spine {
         self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
         self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
 
+        // (1b) THE FLYWHEEL'S AUTOMATIC TRIGGER. Here, and not in the shell, because this
+        //      is the ONE function every CEO utterance passes through — voice mode calls
+        //      it with `Source::Jam` (`src-tauri/src/main.rs`) and the composer calls it
+        //      with `Source::Text`, so a correction is caught by SPEAKING it with no
+        //      command typed. Placed before the queue/deliver branch so a correction
+        //      spoken while Rich is working is recorded the moment he says it rather than
+        //      whenever the turn ahead of it finishes.
+        self.stage_spoken_correction(&binding, &turn_id, text, source);
+
         // (2) if a turn is already running, queue it (never interrupt / never kill workers).
         //     The BINDING rides along, so a context switch while it waits cannot re-scope it.
         if self.turn_in_progress {
@@ -1103,6 +1156,72 @@ impl Spine {
         self.after_turn_boundary(&binding)?;
         self.drain_queue()?;
         Ok(turn_id)
+    }
+
+    /// Examine one CEO utterance for a spoken correction and, if it is one, write it down.
+    ///
+    /// **Infallible from the turn's point of view, deliberately.** `journal.rs` establishes
+    /// the rule this follows: a machinery write failure never fails a turn, because
+    /// machinery is not truth. The same holds here for a stronger reason — a staged
+    /// correction is a QUESTION, and losing the chance to ask one must never cost the CEO
+    /// the sentence he actually said. Every error path below logs and returns.
+    ///
+    /// Runs on `Text` and `Jam` and on nothing else: `Internal` is a re-prime or a
+    /// handoff-summary request that the CEO never wrote, and `Proactive` is Rich speaking.
+    /// Neither is a person correcting anything, and detecting a "correction" in RichOS's
+    /// own priming payload would be the system teaching itself its own mistakes.
+    fn stage_spoken_correction(
+        &mut self,
+        binding: &ThreadBinding,
+        turn_id: &str,
+        text: &str,
+        source: Source,
+    ) {
+        if !matches!(source, Source::Text | Source::Jam) {
+            return;
+        }
+        if self.candidates.is_none() {
+            return;
+        }
+        let thread_id = binding.thread_id().to_string();
+
+        // The record the correction is spoken AGAINST — the anchor's evidence. THE
+        // UTTERANCE ITSELF IS EXCLUDED: it was journalled a few lines above, and a
+        // correction that anchors to its own sentence would report evidence it invented.
+        let record: Vec<String> = match self.ledger.messages(&thread_id) {
+            Ok(msgs) => {
+                let mut kept: Vec<String> = msgs
+                    .into_iter()
+                    .filter(|m| m.turn_id != turn_id)
+                    .map(|m| m.text)
+                    .collect();
+                if kept.len() > ANCHOR_WINDOW_MESSAGES {
+                    kept.drain(..kept.len() - ANCHOR_WINDOW_MESSAGES);
+                }
+                kept
+            }
+            Err(e) => {
+                eprintln!("[richos] correction trigger could not read the record: {e}");
+                Vec::new()
+            }
+        };
+
+        let detection = crate::spoken::detect(text, &record);
+        if detection.asks.is_empty() {
+            return;
+        }
+        let desk = self.candidates.as_mut().expect("checked above");
+        match desk.stage(&detection, &thread_id, turn_id, text) {
+            Ok(staged) => {
+                if let Some(obs) = self.correction_observer.as_deref() {
+                    if !staged.is_empty() {
+                        obs.on_correction_staged(&staged);
+                    }
+                }
+            }
+            // A disk failure here loses ONE question. It must not lose the turn.
+            Err(e) => eprintln!("[richos] correction could not be staged: {e}"),
+        }
     }
 
     /// Deliver one already-journaled turn to the current lease. Each assistant delta is
