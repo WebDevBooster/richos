@@ -259,6 +259,71 @@ version heading with Added / Changed / Fixed groupings.
   that matches no file — the same class as the NUL-by-byte-count test three
   lines below it.
 
+- **The corpus could not see a recording whose only rendering was plain text**
+  (`scripts/lib/publication-boundary.py`) — PATCH, and it was a live leak, not a
+  theoretical one.
+
+  A 6,000-character extract of a real private podcast transcript was written
+  into the publication-bound repository and BOTH guards returned exit 0 in
+  silence. The commit guard — the backstop that exists precisely to catch what
+  the write hook misses — runs the same predicate and missed it identically, so
+  neither arm held.
+
+  The corpus had two ways in and both are extensions of ONE seed. The shape
+  filter takes a file that looks like a recording; the closure takes another
+  RENDERING of something already taken. whisper's plain `.txt` output has no
+  timestamps and no speaker labels, so it has zero transcript-shaped lines and
+  the shape filter rejects it — and the closure can only EXTEND a seed, never
+  create one. A recording transcribed straight to plain text, with no
+  timestamped rendering anywhere, was therefore invisible to the corpus whole.
+  Three podcast transcripts of two named third-party guests — 5,713, 6,424 and
+  22,375 words — sat inside the declared `PRIVATE_SOURCES` while the corpus held
+  ten files, every one a rendering of the same webinar.
+
+  The fix is provenance rather than content, because there is no reliable
+  content shape for plain whisper output and every content-side widening was
+  already rejected with numbers. The tree knows what the bytes do not: the
+  transcript sits next to the recording it came from, under a name derived from
+  it. A text file whose stem extends the stem of a media file in the same
+  private directory now seeds the corpus. Measured across 5,353 tracked text
+  files in eleven repositories: admits exactly the three transcripts, after
+  which the closure takes a fourth on its own merits (a worksheet 80.9% covered
+  by them, 763 of 943 windows); corpus 10 files / 83,793 words -> 14 / 130,466;
+  costs ONE new colliding phrase in all eleven trees — a single 10-word run, 8
+  of its 10 words function words, at the `MIN_QUOTE_WORDS` floor, in four files
+  in a repository that declares no boundary — and ZERO in the publication-bound
+  repository, before and after. The wider rule ("any text file in a directory
+  holding media") reaches the same corpus by admitting a 51 KB mixed worksheet
+  directly on a coincidence of directory; admitting mixed documents on weak
+  evidence is what once blocked LICENSE files, so the narrow rule ships.
+
+- **A scan that read nothing reported CLEAN**
+  (`scripts/lib/publication-boundary.py`, `scripts/lib/publication-boundary.sh`,
+  both guards) — PATCH.
+
+  Everything after the corpus is conditional on the corpus: empty corpus, empty
+  index, `verbatim_run` returns `None`, verdict CLEAN. A guard announcing it
+  found no private material when it never had any to compare against — the "no
+  media committed" check wearing a different hat. It had already happened once,
+  silently: `../richos-hq` resolved inside a linked worktree to a path that does
+  not exist, and the only symptom was one honest line in a message nobody reads
+  on a PASS.
+
+  Declared sources that resolve to trees that exist but yield no corpus member
+  are now BROKEN, named, with the way through stated. NOT a size threshold —
+  "unexpectedly small" cannot be derived from anything, and a magic number
+  either never fires or fires on a legitimate small private record. The
+  sanctioned way through is `CORPUS_MAY_BE_EMPTY` in the declaration, committed
+  and diffable like `ALLOWLIST` and never an in-the-moment override. Note the
+  scope honestly: this would NOT have caught the leak above, whose corpus held
+  83,793 words. Vacuity and coverage are two different failures.
+
+  The scanner also now ends every completed analysis with
+  `CORPUS <TAB> files <TAB> words`, so a CLEAN can be told apart from a
+  CLEAN-because-nothing-was-read from the outside. It is the negative control
+  for the test suite itself: a regression test for a scanner can pass for the
+  very reason the scanner failed.
+
 - **The derived-from-private corpus was one recording deep**
   (`scripts/lib/publication-boundary.py`) — PATCH.
 
