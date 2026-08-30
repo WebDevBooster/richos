@@ -113,7 +113,14 @@
                binds first" is asking him to hold the implementation in his head. The hint
                below states the consequence in a sentence instead, including what the store
                costs right now, because "keep everything" is only a real choice if the person
-               making it can see the bill. -->
+               making it can see the bill.
+
+               The divider is not decoration: without it the toggle's own hint ("...for one
+               conversation only.") runs straight into this heading and the two controls read
+               as one. It is the LIGHTER `popover-divider` rather than the `popover-rule`
+               below, because these two belong to the same family — what the technical view
+               shows, and how long it is kept. -->
+          <div class="popover-divider" role="presentation"></div>
           <p class="popover-title">Keep the stored output</p>
           <label class="popover-option"><input type="radio" name="raw-retention" value="two-weeks" /> For two weeks</label>
           <label class="popover-option"><input type="radio" name="raw-retention" value="three-months" /> For three months</label>
