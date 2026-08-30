@@ -237,7 +237,7 @@ segments.
 
 Scoring end to end instead — for each of the 72 ground-truth spans, how many copies of the phrase
 survive `guardChannelAll` — the two numbers disagreed: 0 deliveries deleted at the class-1 seam, 8
-deleted by the time the transcript existed. `tools/attribute.mjs` walks a span through the four
+deleted by the time the transcript existed. `norm-repetition-residual-2026-08-30-assets/tools/attribute.mjs` walks a span through the four
 classes one at a time and names the one that took it.
 
 ### 2.2 What class 3 was doing
@@ -289,7 +289,7 @@ the suite has a check that goes red if it does.
 
 ### 3.1 The measurement
 
-`tools/siblings.mjs` takes the shipped guard **with** the old 3-word floor — the configuration that
+`norm-repetition-residual-2026-08-30-assets/tools/siblings.mjs` takes the shipped guard **with** the old 3-word floor — the configuration that
 deletes one of the two real deliveries at 829.9 s — and hands its output to stage 3.7's and stage
 3.8's stage-A candidate generation, on the channel and the grid the pipeline would use.
 
@@ -431,7 +431,7 @@ in a document. Sample C only; no private speech.
 ## 7. The mutations
 
 Every one applied to the shipped source, suite re-run, source restored (`/tmp/mutate2.py`
-reproduced in `tools/mutations.py`).
+reproduced in `norm-repetition-residual-2026-08-30-assets/tools/mutations.py`).
 
 | # | mutation applied to the shipped source | suite | result | first check to go red |
 |---|---|---|---|---|
