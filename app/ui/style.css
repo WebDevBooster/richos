@@ -467,7 +467,8 @@ button {
   }
 }
 
-.voice-barge-in {
+.voice-barge-in,
+.voice-retry {
   font-size: 12px;
   color: var(--ink-faint);
   background: none;
@@ -477,9 +478,15 @@ button {
   cursor: pointer;
 }
 
-.voice-barge-in:hover {
+.voice-barge-in:hover,
+.voice-retry:hover {
   color: var(--ink-soft);
   border-color: var(--ink-soft);
+}
+
+.voice-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .voice-footnote {

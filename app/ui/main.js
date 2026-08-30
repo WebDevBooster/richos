@@ -60,6 +60,7 @@ const voiceListeningEl = el("voice-state-listening");
 const voiceNoAudioEl = el("voice-state-no-audio");
 const voiceSpeakingEl = el("voice-state-speaking");
 const bargeInBtn = el("voice-barge-in");
+const voiceRetryBtn = el("voice-retry");
 const slideoverEl = el("slideover");
 const slideoverBackdrop = el("slideover-backdrop");
 const slideoverBody = el("slideover-body");
@@ -1786,6 +1787,43 @@ bargeInBtn.addEventListener("click", () => {
   // The instant override while AEC is interim (the UX direction §4.1). The panel is NOT flipped here —
   // rich://voice-state reports what actually happened to the audio.
   Bridge.invoke("voice_barge_in").catch(() => {});
+});
+
+/// The no-audio row's CONTROL. `#voice-state-no-audio` says "check your mic isn't muted",
+/// which is a state the CEO can change — and until this handler existed the app then gave
+/// him nothing to press once he had changed it. A state the user could change that renders
+/// without the control that changes it is not a status, it is a request.
+///
+/// Re-opening capture is the only recovery this app can actually perform (a muted mic, or a
+/// device another app grabbed and released, are both fixed by a fresh `start_voice_capture`),
+/// so it is the only thing offered. Nothing here claims to unmute anything.
+///
+/// THE HOT-MIC INVARIANT IS PRESERVED. `renderVoiceState("listening", false)` runs only
+/// AFTER `start_voice_capture` resolves, exactly as `enterVoiceMode` does it; if the mic
+/// still refuses to open, voice mode is torn down rather than left showing a listening dot
+/// over a dead device.
+voiceRetryBtn.addEventListener("click", async () => {
+  if (voiceRetryBtn.disabled) return;
+  voiceRetryBtn.disabled = true;
+  try {
+    try {
+      await Bridge.invoke("stop_voice_capture", { threadId: activeThreadId });
+    } catch (_e) {
+      /* already down — the restart below is what matters */
+    }
+    await Bridge.invoke("start_voice_capture", { threadId: activeThreadId });
+    renderVoiceState("listening", false);
+    renderVoiceLevel(0);
+  } catch (e) {
+    exitVoiceMode();
+    richVoiceSays(
+      Bridge.isMock || String(e).startsWith("mock:")
+        ? "Talking out loud needs the desktop app — here in the preview, type to me."
+        : "The mic still won't open. I've switched us back to typing — tap ◉ when you want to try voice again."
+    );
+  } finally {
+    voiceRetryBtn.disabled = false;
+  }
 });
 
 Bridge.listen("rich://voice-state", ({ payload }) => {

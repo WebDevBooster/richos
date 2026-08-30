@@ -166,12 +166,20 @@
               </div>
               <!-- The mic is open and healthy but delivering nothing (rich://voice-state
                    noAudio). Replaces the listening row rather than shouting over it: one
-                   quiet, actionable line, no modal, no alarm colour. -->
+                   quiet, actionable line, no modal, no alarm colour.
+
+                   AND A CONTROL, because this line names something the CEO can fix. It said
+                   "check your mic isn't muted" and then offered him nothing to press once he
+                   had: a state he could change, rendered without the control that changes
+                   it, which is a request wearing a status's clothes. Re-opening capture is
+                   the only recovery this app can genuinely perform, so it is the only thing
+                   offered — no settings deep-link is claimed that is not wired. -->
               <div class="voice-state" id="voice-state-no-audio" hidden>
                 <span class="voice-dot voice-dot--attention"></span>
                 <span class="voice-label voice-label--attention"
-                  >I can't hear anything — check your mic isn't muted.</span
+                  >I can't hear anything. Check your mic isn't muted, then try again.</span
                 >
+                <button id="voice-retry" type="button" class="voice-retry">try again</button>
               </div>
               <div class="voice-state" id="voice-state-speaking" hidden>
                 <span class="voice-dot voice-dot--speaking"></span>
