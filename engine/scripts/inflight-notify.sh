@@ -69,6 +69,7 @@ inflight_require || {
 
 TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
 TIMEOUT_MIN="$(inflight_timeout_min "$REPO")"
+inflight_register_repo "$TEAMS_DIR" "$(cd "$REPO" && git rev-parse --show-toplevel 2>/dev/null || printf %s "$REPO")"
 
 case "$CMD" in
     status)

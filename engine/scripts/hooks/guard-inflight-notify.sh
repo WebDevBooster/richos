@@ -267,6 +267,7 @@ inflight_require || {
 
 TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
 TIMEOUT_MIN="$(inflight_timeout_min "${SEAT_ROOT:-$REPO}")"
+inflight_register_repo "$TEAMS_DIR" "$REPO"
 
 # `set -e` is on, and a debt is signalled by exit 1 — so the status is captured
 # with `|| RC=$?` rather than a bare `$?`, which would end the hook on the very

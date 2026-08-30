@@ -326,10 +326,10 @@ run_layer_R() {
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-completeness-commits \
     guard-row-currency-commits \
-    guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
+    guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
-    snapshot-enforcing-hooks notice-hook-staleness \
+    snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
     guard-idle-land"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a

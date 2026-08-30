@@ -83,6 +83,26 @@ inflight_timeout_min() {
     printf '%s' "$v"
 }
 
+# inflight_register_repo <teams-dir> <repo> — remember that this repository is
+# one we sweep.
+#
+# The Stop-hook notice can only watch repositories it knows about, and a session
+# seated in one repository routinely lands in another (femcboost seat, richos
+# worktrees — the shape this was built in). So every consumer that looks at a
+# repository writes it down here, once, and the Stop hook reads the list. Best
+# effort by design: failing to record a repo must never fail a push.
+inflight_register_repo() {
+    local teams="${1:-}" repo="${2:-}" f
+    [ -n "$teams" ] && [ -n "$repo" ] || return 0
+    f="$teams/inflight-repos.txt"
+    mkdir -p "$teams" 2>/dev/null || return 0
+    if [ -f "$f" ] && grep -qxF "$repo" "$f" 2>/dev/null; then
+        return 0
+    fi
+    printf '%s\n' "$repo" >> "$f" 2>/dev/null || true
+    return 0
+}
+
 # inflight_assess <repo> <tip-or-empty> <teams-dir> <timeout-min> <format>
 inflight_assess() {
     local repo="${1:-}" tip="${2:-}" teams="${3:-}" tmo="${4:-30}" fmt="${5:-text}"
