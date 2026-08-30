@@ -899,9 +899,32 @@ is kept at `docs/verification/machinery-roundtrip-2026-08-28.txt`). The emission
 routing is built against was measured first, not assumed:
 `docs/verification/acp-emission-probe-2026-08-28.md`. Honest gaps: **retroactivity starts
 here and nothing earlier is recoverable**; `agent_thought_chunk` currently produces no data
-at all on `claude-agent-acp` 0.70.0; between-turn updates are still unrouted (Phase 2); and
-there is no toggle, no renderer and no controls — that is the rest of Phase 1 and it is
-deliberately not in this work.
+at all on `claude-agent-acp` 0.70.0; between-turn updates are still unrouted (Phase 2) —
+**CLOSED 2026-08-30, see below**; and there is no toggle, no renderer and no controls —
+that is the rest of Phase 1 and it is deliberately not in this work.
+
+**Between-turn traffic has somewhere to go (2026-08-30):** techy-mode §1.5's gap #1 —
+*"`acp.rs` delivers an update only if `current_prompt` is `Some`; anything the adapter emits
+at session start or between turns hits no sink at all"* — is closed. The ACP client keeps a
+buffer and §1.5's `last_session_meta` slot (last value wins, so a byte-identical repeat is
+suppressed rather than journaled once per turn forever); the spine drains it at every turn
+boundary and on every technical-view open, stamping `turn_id: None` — the records attach to
+the THREAD, because inventing a turn for them would be a false attribution. They render in
+their own section under the conversation, never inside it, since a record with no turn has
+no position in the conversation to be drawn at.
+
+The standing order is held by an ORDERING RULE rather than by an argument about which
+vendor kinds might give a rotation away: the lane is drained as honest traffic BEFORE an
+internal turn starts and as `internal: true` immediately after one finishes, so a re-prime,
+a handoff or a successor's residue can never render. Proven against a real child process
+(`tests/between_turn_tests.rs`, 3 tests; `tests/between_turn_thread_tests.rs`, 6 tests
+end to end through `AcpCognition`) and on the rendered surface (`app/ui/tests/techy.js`
+checks 18-21, shots `3-1-08` and `3-1-09`).
+
+Honest gaps that remain: the buffer is bounded at 256 items and an overflow is reported as
+a marker record rather than kept; `agent_message_chunk` arriving between turns is retained
+as an untyped record because there is no turn to attach text to; and the lane is a RELOAD
+path like the rest of techy mode, not a live stream.
 
 **The rotation watermark reads the wire (2026-08-29):** the trigger that decides WHEN a
 lease rotates is now the adapter's own `usage_update` `{used, size}`, consumed live off the
