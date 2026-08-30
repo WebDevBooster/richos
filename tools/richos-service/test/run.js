@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { upgradeRecord, CONTRACT_SCHEMA_VERSION, PIPELINE_STATUS, toAbsolute } from '../lib/contract.js';
 import { reconcilePipeline, analyzeSession } from '../lib/reconcile.js';
@@ -2389,6 +2390,74 @@ test('costPerHour is measured from real records, not estimated', () => {
   assert.equal(cost.spokenMs, 3_600_000, 'exactly one hour of dictation');
   assert.equal(cost.textBytesPerHour, cost.textBytes, 'so bytes/hour IS the measured byte total');
   assert.equal(cost.audioBytesPerHour, 0, 'Tier B off');
+});
+
+
+// ---------------------------------------------------------------------------------------
+// THE SHARED GATE FIXTURE — the other half of the anti-drift pair
+// ---------------------------------------------------------------------------------------
+//
+// ceo-decisions.md §7's gate now has TWO implementations: this one, and the Rust port in
+// `app/crates/richos-core/src/spoken.rs` that decides whether a SPOKEN utterance is worth
+// asking about. Both write into the same `loro/entities.json`, so a divergence does not
+// produce two answers — it produces one vocabulary poisoned by whichever half was wrong.
+//
+// Neither side owns the answer. `test/gate-fixture.mjs` writes the answers down once,
+// generated from THIS module, and both sides assert against the same bytes. These cases
+// are what goes red if the JS moves; `cargo test -p richos-core --test
+// spoken_gate_agreement` is what goes red if the Rust does.
+
+const GATE_FIXTURE = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'correction-gate.json'), 'utf8'),
+);
+
+test('the shipped gate still gives the answers both implementations are held to', () => {
+  assert.ok(GATE_FIXTURE.pairs.length >= 16, 'an empty fixture would pass every assertion below');
+  for (const p of GATE_FIXTURE.pairs) {
+    assert.equal(normalizeTerm(p.from), p.normalizedFrom, `normalizeTerm("${p.from}")`);
+    assert.equal(normalizeTerm(p.to), p.normalizedTo, `normalizeTerm("${p.to}")`);
+    assert.equal(phoneticKey(p.from), p.phoneticKeyFrom, `phoneticKey("${p.from}")`);
+    assert.equal(phoneticKey(p.to), p.phoneticKeyTo, `phoneticKey("${p.to}")`);
+    assert.equal(
+      similarity(normalizeTerm(p.from), normalizeTerm(p.to)),
+      p.orthographic,
+      `similarity("${p.from}","${p.to}")`,
+    );
+    assert.equal(phoneticSimilarity(p.from, p.to), p.phonetic, `phoneticSimilarity("${p.from}","${p.to}")`);
+    assert.equal(askKey(p.from, p.to), p.key, `askKey("${p.from}","${p.to}")`);
+  }
+  for (const s of GATE_FIXTURE.spans) {
+    assert.equal(looksLikeTerm(s.text), s.looksLikeTerm, `looksLikeTerm("${s.text}")`);
+  }
+  assert.equal(GATE_FIXTURE.floors.askMinPhonetic, ASK_MIN_PHONETIC, 'the phonetic floor moved');
+});
+
+test('the gate fixture is regenerable, and regenerating it reproduces it byte for byte', () => {
+  // A fixture nobody can rebuild is a set of magic numbers. This runs the generator and
+  // compares the bytes, so "regenerate it" stays a real instruction rather than a comment,
+  // and a generator that has rotted is caught here rather than the next time somebody
+  // needs it.
+  //
+  // IT WRITES TO A TEMP PATH, NEVER TO THE COMMITTED FIXTURE. The first version of this
+  // test invoked the generator with no argument, so a MOVED gate rewrote the committed
+  // file, failed this comparison once, and passed for ever afterwards against its own new
+  // answers. A test that repairs the evidence it is checking launders a regression into a
+  // pass.
+  const committed = path.join(import.meta.dirname, 'fixtures', 'correction-gate.json');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-gate-'));
+  const rebuilt = path.join(scratch, 'correction-gate.json');
+  try {
+    execFileSync(process.execPath, [path.join(import.meta.dirname, 'gate-fixture.mjs'), rebuilt], {
+      stdio: 'ignore',
+    });
+    assert.equal(
+      fs.readFileSync(rebuilt, 'utf8'),
+      fs.readFileSync(committed, 'utf8'),
+      'regenerating the fixture changed it — the gate has moved',
+    );
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------------------

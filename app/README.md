@@ -76,8 +76,22 @@ app/
                               spine lock (which a running turn holds for its whole length),
                               plus the lease cancel seam. Not a second source of truth —
                               every record either becomes a ledger event or is refused
+    src/spoken.rs            THE FLYWHEEL'S AUTOMATIC TRIGGER: what makes an utterance a
+                              correction — a `not`-pivot repair frame, the shipped
+                              ceo-decisions.md §7 term gate (ported), and a record anchor
+                              carried as EVIDENCE not as a gate. Detects; never writes.
+                              Measured: precision 1.000, recall 0.941 over 149 invented
+                              utterances (docs/measurements/spoken-correction-trigger-2026-08-30/)
+    src/staging.rs           where a detected correction LANDS: durable candidates
+                              (append-only JSONL, fsync per record) and §7's three outcomes.
+                              `confirm` is the only path to a vocabulary write, and it goes
+                              through `richos-service learn-term` rather than a second
+                              implementation. Held as an Arc BESIDE the spine lock, so an
+                              ask raised during a turn can be answered during that turn
     src/spine.rs             queue-not-interrupt + turn-boundary rotation + crash recovery +
                               the proactive-attention seam + stop settlement at the boundary
+                              + the correction trigger at submit_prompt step 1b (every CEO
+                              utterance, voice or typed, with no command typed)
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
     src/feedback.rs          the in-app feedback channel, LOCAL HALF ONLY: the 1/2/3/0 rating
@@ -113,6 +127,15 @@ app/
                               crate, no other module consuming the feature, and an approval
                               that lands in one file with no sibling left for anything to
                               pick up. Each proven to FAIL when broken
+    tests/spoken_precision.rs THE MEASUREMENT, pinned as a test rather than quoted in a
+                              brief: TP 32 / FP 0 / FN 2 / TN 115 over the invented corpus,
+                              plus the anchor-as-a-gate counterfactual that demoted it
+    tests/spoken_gate_agreement.rs the ANTI-DRIFT pair: §7's gate has two implementations
+                              (this crate and tools/richos-service/lib) writing into ONE
+                              vocabulary, so both assert against one generated fixture
+    tests/spoken_trigger_tests.rs 9 tests for the completion criterion — speaking a
+                              correction records it with no command typed, ordinary
+                              conversation stages nothing, internal traffic is never mined
     tests/timeline_tests.rs  7 typed-timeline tests: the cross-entity machinery NEGATIVE
                               CONTROL (both clauses proven failing when removed — one leaks
                               a row, one leaks THROUGH the toolCallId merge), the one shared
