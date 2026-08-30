@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for a Developer ID signed RichOS.app.
+
+  APPLIED ON ONE PATH ONLY, AND NOT TODAY. `app/scripts/package-app.sh` passes this
+  file to the bundler as a config overlay when, and only when, it runs with
+  `--sign developer-id`. It is referenced nowhere in `tauri.conf.json`, so an
+  ordinary `cargo tauri build` and the ad-hoc packaging path never see it. Whether
+  to enrol with Apple at all is an open CEO decision (1.1 in
+  richos-hq/wiki/ceo-decisions.md); this file is the half of that decision that can
+  be prepared without answering it.
+
+  WHY THE ONE ENTITLEMENT. `app/src-tauri/Info.plist` carries
+  NSMicrophoneUsageDescription, which is what macOS shows the user in the prompt.
+  Under the hardened runtime that string is not sufficient on its own: the process
+  also needs `com.apple.security.device.audio-input`, or CoreAudio hands it an
+  endless stream of zeros with nothing in any log. A notarized hardened-runtime app
+  needs BOTH — the requirement flagged in Info.plist's own comment and in
+  richos-hq/wiki/packaging-and-signing.md, "What RichOS specifically needs" item 2.
+
+  WHY NOTHING ELSE. Every added entitlement widens what the app is permitted to do
+  and what Apple scrutinises at notarization, so this list stays at what is
+  demonstrably needed rather than what might be. Deliberately absent:
+
+    - Accessibility (paste-at-cursor, the global hotkey) is a TCC grant obtained
+      through AXIsProcessTrusted. There is no entitlement for it and adding one
+      would be cargo cult.
+    - JIT (`com.apple.security.cs.allow-jit`) belongs to WKWebView's own
+      out-of-process content process, which carries its own entitlements from
+      Apple's framework. The host app does not need it.
+    - Library validation stays ON. It is only in the way once unsigned third-party
+      dylibs get loaded, which RichOS does not do.
+
+  WHAT WILL NEED REVISITING, named now rather than discovered later. When the
+  sidecars land — `claude-agent-acp`, a bundled Node runtime, `whisper.cpp`,
+  `ffmpeg` — each must be signed with the same identity and sealed into the bundle.
+  If any of them cannot be (a prebuilt binary that resists re-signing), the escape
+  hatch is `com.apple.security.cs.disable-library-validation`, which should be
+  argued for explicitly at that point and not pre-added here.
+
+  UNVERIFIED, and it cannot be verified until a signing identity exists: that this
+  entitlement set both notarizes and leaves voice mode working. No Developer ID
+  certificate exists on any machine here — `security find-identity -v -p codesigning`
+  reported 0 valid identities on 2026-08-24 and again on 2026-08-30. Nothing in this
+  file has ever been used to sign anything.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+  </dict>
+</plist>
