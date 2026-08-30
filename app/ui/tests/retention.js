@@ -342,38 +342,43 @@ main().catch((e) => {
 // THE MUTATIONS — every check above was run RED once, by breaking the SHIPPED source
 // =========================================================================================
 //
-//  1  index.html: delete the three `input[name="raw-retention"]` labels -> check 1 fails on
-//     "three choices" (0), and 2, 3, 4, 5, 6, 7 and 8 go with it. The setting stops being a
-//     setting, which is the whole item.
-//  2  config.rs `RetentionChoice::parse`: drop the `"three-months"` arm -> the radio is
-//     still on screen and still does nothing visible; check 2 fails on the set comparison.
-//     (This is the shape the check exists for: `invokeQuiet` swallows the refusal and the
-//     surface re-reads the unchanged store, so a browser looking only at the DOM sees a
-//     control that "worked".)
-//  3  config.rs: `THREE_MONTHS_DAYS = 30` -> the label still says three months; check 3
-//     fails on 90 and on the sentence. The label and the number live in different files,
-//     which is exactly why this join is not optional.
-//  4  main.js `renderRetention`: drop the `if (view.evicted > 0)` block -> the window still
-//     tightens, three days of stored output still go, and NOTHING says so. Check 4 fails on
-//     "Removed the stored output from 3 earlier days" and only check 4 — which is what makes
-//     it the right mutation for this claim.
-//  4b main.rs `set_raw_retention`: return `RetentionView::of(..., 0)` instead of the real
-//     count (i.e. evict, then report nothing) -> same red, from the other side of the wire.
-//  5  main.js `retentionWindowSentence`: return only the age clause for the two-axis case
-//     -> check 5 fails on "GB of output". A sentence naming only the limit he picked is a
-//     promise the other limit can break.
-//  6  main.js: drop the `if (!open) syncRetentionFromBackend();` line from the gear's click
-//     handler -> the popover keeps showing the last click and never notices the store
-//     disagreeing (which is what a hand-edited config.json looks like); check 6 fails on
-//     "two-weeks". Caching `view.choice` in localStorage and painting from it fails the
-//     empty-keys half of the same check.
-//  7  main.js `renderRetention`: `input.checked = input.value === (view.choice === "custom"
-//     ? "two-weeks" : view.choice)` — i.e. round a custom window onto the nearest button ->
-//     check 7 fails on `selected() === null`.
-//  8  main.rs `set_raw_retention`: accept an unknown choice by falling back to
-//     `RetentionChoice::TwoWeeks` instead of returning Err -> check 8 fails on both the
-//     selection and the hint. A command that deletes must not guess at its argument.
+// Recorded as run, including the two places a mutation did NOT redden the check I expected.
 //
-// The Rust half of the criterion — the survival counts at four windows, and the proof that
-// the default reproduces yesterday's behaviour — is in
-// `crates/richos-core/src/journal.rs`; its mutations are recorded in the branch's commits.
+//  1  index.html: delete the three `input[name="raw-retention"]` labels -> checks 1, 2, 3,
+//     4, 5, 6 and 8 fail. The setting stops being a setting, which is the whole item.
+//     CHECK 7 SURVIVES IT, and that is worth stating rather than hiding: with no radios at
+//     all `selected()` is legitimately null, and 7's other assertions are about the
+//     sentence, which still renders. It is reddened by mutations 6 and 7 instead.
+//  2  config.rs `RetentionChoice::parse`: drop the `"three-months"` arm -> check 2 alone.
+//     The radio is still on screen and still LOOKS like it works: the command refuses it,
+//     `invokeQuiet` swallows the refusal, and the surface re-reads the unchanged store. A
+//     browser looking only at the DOM sees a control that worked, which is exactly the
+//     shape this check exists for.
+//  3  config.rs: `THREE_MONTHS_DAYS = 30` -> check 3 alone. The label still says three
+//     months. The words and the number live in different files, which is why the join is
+//     not optional.
+//  4  main.js `renderRetention`: drop the `if (view.evicted > 0)` block -> check 4 alone.
+//     The window still tightens, three days of stored output still go, and NOTHING says so.
+//     One check, one claim — which is what makes it the right mutation for this one.
+//  4b mock.js `set_raw_retention`: evict, then `return retentionView(0)` -> check 4 alone,
+//     from the other side of the wire. The same silence, produced by the backend rather
+//     than by the renderer.
+//  5  main.js `retentionWindowSentence`: return only the age clause for the two-axis case
+//     -> check 5 alone. A sentence naming only the limit he picked is a promise the other
+//     limit can break.
+//  6  main.js: drop `if (!open) syncRetentionFromBackend();` from the gear's click handler
+//     -> checks 6 and 7. The popover keeps showing the last click and never notices the
+//     store disagreeing, which is what a hand-edited config.json looks like.
+//  7  main.js `renderRetention`: `input.checked = input.value === (view.choice === "custom"
+//     ? "two-weeks" : view.choice)` — round a custom window onto the nearest button ->
+//     check 7 alone.
+//  8  mock.js `set_raw_retention`: coerce an unknown choice to `two-weeks` instead of
+//     refusing it -> check 8 alone. A command that deletes must not guess at its argument.
+//
+// THE RUST HALF — the survival counts at four windows, the proof that the default
+// reproduces yesterday's behaviour, and the keep-never-delete rule for an unreadable
+// setting — is in `crates/richos-core/src/{journal,config}.rs`. Its eleven mutations are
+// recorded in this branch's commit messages; the two that matter most are `from_json`'s
+// unreadable arm returning `Of(0)` instead of `Forever` (an unreadable setting deletes
+// everything) and `saturating_mul` becoming `*` (the `u64::MAX`-as-forever sentinel panics
+// in debug and wraps to "delete everything" in release).
