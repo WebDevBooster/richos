@@ -26,11 +26,35 @@
 # expensive, dangerous remedy the 2026-08-29 removal commit had to defer. A
 # commit is free to refuse. A push is not.
 #
+# THE INDEX IS NOT THE WHOLE ANSWER — measured 2026-08-30. This hook runs
+# BEFORE the command it is inspecting, so for
+#
+#     git add docs/session-notes && git commit -m notes
+#
+# nothing is staged yet at the moment of the check. The first version read only
+# `git diff --cached`, found an empty set, and exited 0: `git add X && git
+# commit`, `git add -A && git commit` and `cd repo; git add . ; git commit` ALL
+# passed with a wholly-new directory of transcripts in the working tree. So did
+# `git commit -m x <path>`, which commits a tracked file's WORKTREE content
+# without it ever entering the index.
+#
+# So the set is derived from what the COMMAND will do, not only from what the
+# index already holds: every `git add` in the same command, before the commit,
+# in THIS repository, contributes its pathspecs, and so do pathspecs given to
+# `git commit` itself. That enumeration uses `git status --porcelain -z
+# --untracked-files=all`, and the `-uall` is load-bearing: without it git
+# reports a wholly-new directory as ONE entry (`?? docs/session-notes/`), which
+# is a path the scanner cannot read bytes out of. A new directory of
+# transcripts committed in one go must be refused, and one flag is the
+# difference between that and a clean report.
+#
 # WHAT THIS DOES NOT COVER, said plainly: `git merge`, `git cherry-pick`,
 # `git am` and `git rebase` create commits without running `git commit`.
 # Merge is the acceptable gap — the content it carries was gated when it was
 # committed on the source branch, which is the whole point of gating commits.
 # The others are genuine holes and they are named here rather than discovered.
+# A `git add` in a SEPARATE tool call is not a gap: by the time the commit runs,
+# its files are in the index and the index half sees them.
 #
 # NO LIVE OVERRIDE — DELIBERATELY. Every other Bash-matcher guard in this engine
 # offers an in-prompt escape token (worktree-remove-ack:, main-checkout-run:).
@@ -101,7 +125,7 @@ fi
 # 3.2 reason guard-worktree-removal.sh documents: a `)` inside a character
 # class mis-scans as the close of a $( ) substitution on macOS's /bin/bash.
 read -r -d '' _PC_CLASSIFIER <<'PYEOF' || true
-import json, os, re
+import json, os, re, shlex
 
 try:
     d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
@@ -118,6 +142,13 @@ if not re.search(r"\bgit\b[^\n;|&]*\bcommit\b", cmd):
     print("PASS"); raise SystemExit
 
 # An explicit -C names the repository; otherwise the session cwd does.
+#
+# This regex takes the FIRST -C in the whole command, which is the right answer
+# only when there is one git call in it. `git -C /other add -A && git -C /here
+# commit` resolves to /other — the repository that is NOT being committed to —
+# and the guard then judges the wrong tree. It is superseded below by the -C of
+# the `commit` itself whenever the command tokenises; this stays as the fallback
+# for a command that does not.
 m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
 repo_hint = ""
 if m:
@@ -136,17 +167,156 @@ unquoted = re.sub(r"'[^']*'", " ", unquoted)
 stage_all = bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)
                  or re.search(r"(?:^|\s)--all\b", unquoted))
 
+# --- WHAT THIS COMMAND WILL STAGE BEFORE IT COMMITS ------------------------
+# Everything above answers "is this a commit?". This answers "and what will be
+# in it?", because the index alone answers that only when the staging already
+# happened in an earlier tool call.
+#
+# Emitted as one ADD line per pathspec:
+#
+#     ADD <TAB> anchor-directory <TAB> pathspec-or-empty
+#
+# The anchor is the directory that `git add` would run in (its own -C, else the
+# cwd in effect at that point in the command). The shell resolves it to a
+# repository and DROPS anything that is not the repository being committed to,
+# so `git -C /other add -A && git -C /here commit` cannot drag a foreign tree
+# into this scan. An empty pathspec means "the whole repository" (-A/-u).
+#
+# A command this cannot tokenise emits nothing and the guard falls back to the
+# index alone — the behaviour it had before. Silently narrower, never wider.
+cwd = str(d.get("cwd", "") or "") or "."
+
+
+def _abs(base, p):
+    return p if p.startswith("/") else os.path.normpath(os.path.join(base, p))
+
+
+try:
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    tokens = list(lex)
+except Exception:
+    tokens = []
+
+segments = []
+current = []
+for t in tokens:
+    if t in ("&&", "||", ";", "|", "&", "\n"):
+        segments.append(current)
+        current = []
+    else:
+        current.append(t)
+segments.append(current)
+
+# Flags that CONSUME the next token, so their value is never mistaken for a
+# pathspec. Flags with an OPTIONAL attached value (-S, -u) are absent on
+# purpose: git only accepts those glued (`-Skeyid`, `-uall`), so the next token
+# is a pathspec and treating it as a value would silently narrow the scan.
+COMMIT_VALUE_FLAGS = {
+    "-m", "--message", "-F", "--file", "-C", "--reuse-message",
+    "-c", "--reedit-message", "--author", "--date", "-t", "--template",
+    "--cleanup", "--fixup", "--squash", "--trailer", "--pathspec-from-file",
+}
+
+adds = []
+commit_seen = False
+commit_anchor = ""
+for seg in segments:
+    if not seg:
+        continue
+    if seg[0] == "cd" and len(seg) > 1 and not seg[1].startswith("-"):
+        cwd = _abs(cwd, seg[1])
+        continue
+    if os.path.basename(seg[0]) != "git":
+        continue
+    # git's own options come before the subcommand.
+    i, anchor = 1, cwd
+    while i < len(seg):
+        a = seg[i]
+        if a in ("-C", "-c", "--git-dir", "--work-tree", "--namespace",
+                 "--exec-path", "--config-env"):
+            if a == "-C" and i + 1 < len(seg):
+                anchor = _abs(anchor, seg[i + 1])
+            i += 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        break
+    if i >= len(seg):
+        continue
+    sub = seg[i]
+    args = seg[i + 1:]
+    if sub == "commit":
+        if not commit_seen:
+            commit_anchor = anchor
+        commit_seen = True
+        # Pathspecs given to `git commit` itself: they commit the WORKTREE
+        # content of those paths, index or no index.
+        specs, j, after_ddash = [], 0, False
+        while j < len(args):
+            a = args[j]
+            if a == "--":
+                after_ddash = True
+                j += 1
+                continue
+            if not after_ddash and a in COMMIT_VALUE_FLAGS:
+                j += 2
+                continue
+            if not after_ddash and a.startswith("-"):
+                j += 1
+                continue
+            specs.append(a)
+            j += 1
+        for s in specs:
+            adds.append((anchor, _abs(anchor, s)))
+        continue
+    if sub in ("add", "stage") and not commit_seen:
+        whole = False
+        specs, after_ddash = [], False
+        for a in args:
+            if a == "--":
+                after_ddash = True
+                continue
+            if not after_ddash and a.startswith("--"):
+                if a in ("--all", "--update", "--no-ignore-removal"):
+                    whole = True
+                continue
+            if not after_ddash and a.startswith("-") and len(a) > 1:
+                if "A" in a[1:] or "u" in a[1:]:
+                    whole = True
+                continue
+            specs.append(a)
+        if whole or not specs:
+            adds.append((anchor, ""))
+        else:
+            for s in specs:
+                # `.` and `:/` are directories/magic for the whole tree; both
+                # resolve to a path git status can expand with -uall.
+                adds.append((anchor, "" if s in (":/", ":/.") else _abs(anchor, s)))
+
+# The commit's OWN anchor wins over the first -C in the line — see the note on
+# that regex above for the tree it judged by mistake.
+if commit_anchor:
+    repo_hint = commit_anchor
 print("COMMIT\t%s\t%s" % (repo_hint, "1" if stage_all else "0"))
+for anchor, spec in adds:
+    print("ADD\t%s\t%s" % (anchor, spec))
 PYEOF
 
 CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_PC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
-case "$(printf '%s' "$CLASS" | cut -f1)" in
+# The classifier answers on its FIRST line and may append ADD lines after it, so
+# every field read below is taken from that first line explicitly. `cut -f1` over
+# the whole blob would compare "COMMIT<newline>ADD..." against COMMIT and this
+# guard would stand down on exactly the commands it was extended to cover.
+CLASS_HEAD="$(printf '%s\n' "$CLASS" | head -1)"
+case "$(printf '%s' "$CLASS_HEAD" | cut -f1)" in
   COMMIT) ;;
   *) exit 0 ;;
 esac
 
-REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
-STAGE_ALL="$(printf '%s' "$CLASS" | cut -f3)"
+REPO_HINT="$(printf '%s' "$CLASS_HEAD" | cut -f2)"
+STAGE_ALL="$(printf '%s' "$CLASS_HEAD" | cut -f3)"
 
 PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
 try:
@@ -178,50 +348,178 @@ if ! pb_resolve_sources "$PB_REPO"; then
 fi
 
 # --- What is about to become history ---------------------------------------
-STAGED="$(git -C "$PB_REPO" diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)"
+# Three sources, because "what this commit will contain" has three answers and
+# only the first was ever consulted:
+#   1. the index, for staging that already happened;
+#   2. tracked modifications, when the commit itself is a `-a`;
+#   3. the working-tree paths this same command will stage first.
+#
+# The two are kept APART, because they answer with different BYTES. What the
+# index holds for a path and what the working tree holds for it are the same
+# thing only until someone edits the file after staging it — and a `-a` or a
+# `git commit -- <path>` commits the WORKING TREE version. Reading `git show
+# :path` for those, as the first version did for everything, scans bytes that
+# are not the ones becoming history.
+STAGED_INDEX="$(git -C "$PB_REPO" diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)"
+STAGED_WORKTREE=""
 if [ "$STAGE_ALL" = "1" ]; then
-    STAGED="$STAGED
-$(git -C "$PB_REPO" diff --name-only --diff-filter=ACMR 2>/dev/null || true)"
+    STAGED_WORKTREE="$(git -C "$PB_REPO" diff --name-only --diff-filter=ACMR 2>/dev/null || true)"
 fi
-STAGED="$(printf '%s\n' "$STAGED" | LC_ALL=C sort -u | sed '/^$/d')"
-[ -n "$STAGED" ] || exit 0
+
+# (3) — the ADD lines. Each names an anchor directory and a pathspec; an anchor
+# that resolves to a DIFFERENT repository is dropped, so an unrelated `git -C
+# elsewhere add -A` in the same command line cannot widen this scan.
+PB_SPECS=""
+PB_SPEC_ALL=0
+while IFS=$'\t' read -r _tag _anchor _spec; do
+    [ "$_tag" = "ADD" ] || continue
+    [ -n "$_anchor" ] || continue
+    _anchor_repo="$(pb_repo_root "$_anchor" 2>/dev/null || true)"
+    [ "$_anchor_repo" = "$PB_REPO" ] || continue
+    if [ -z "$_spec" ]; then
+        PB_SPEC_ALL=1
+    else
+        PB_SPECS="${PB_SPECS}${_spec}"$'\t'
+    fi
+done <<CLASS_EOF
+$CLASS
+CLASS_EOF
+
+if [ "$PB_SPEC_ALL" = "1" ] || [ -n "$PB_SPECS" ]; then
+    # -uall is the whole point: without it a wholly-new directory arrives as one
+    # entry ("?? docs/notes/") that has no bytes to scan. With it, git names
+    # every file under it. -z because a path may contain a space or a newline,
+    # and a path this guard cannot parse is a path it does not scan.
+    #
+    # A pathspec that matches nothing makes git exit non-zero; that is not a
+    # reason to refuse a commit, so the status call is allowed to fail and the
+    # index half still stands.
+    # The status output is PIPED into the parser and never stored in a shell
+    # variable on the way. Bash cannot hold a NUL byte, so a command
+    # substitution silently DROPS the -z record separators and every path
+    # concatenates into one unusable string — measured here on the first run,
+    # where two new transcripts arrived as a single path that matched no file
+    # and the guard passed. Same class as the NUL-by-byte-count test further
+    # down: the shell is the wrong place to carry binary framing.
+    _PB_STATUS_PARSER='
+import sys
+# Porcelain v1 -z: "XY path\0", and for a rename/copy the ORIGINAL path follows
+# as its own field. Deletions carry no content to scan.
+fields = sys.stdin.buffer.read().split(b"\0")
+i = 0
+while i < len(fields):
+    rec = fields[i]
+    i += 1
+    if len(rec) < 4:
+        continue
+    xy = rec[:2].decode("utf-8", "replace")
+    path = rec[3:].decode("utf-8", "replace")
+    if xy[0] in "RC":
+        i += 1          # consume the original path
+    if xy[0] == "D" or xy[1] == "D":
+        continue
+    if not path:
+        continue
+    if "\n" in path:
+        # This list travels to the manifest one path per line. A path with a
+        # newline in it cannot, and dropping it quietly would be a file that
+        # went unscanned while the run reported clean.
+        print("__PB_UNREPRESENTABLE_PATH__")
+        continue
+    print(path)
+'
+    if [ "$PB_SPEC_ALL" = "1" ]; then
+        PB_PENDING="$(git -C "$PB_REPO" status --porcelain -z --untracked-files=all 2>/dev/null \
+                      | python3 -c "$_PB_STATUS_PARSER" 2>/dev/null || true)"
+    else
+        PB_ARGS=()
+        while IFS= read -r _s; do
+            [ -n "$_s" ] || continue
+            PB_ARGS+=("$_s")
+        done <<SPEC_EOF
+$(printf '%s' "$PB_SPECS" | tr '\t' '\n')
+SPEC_EOF
+        PB_PENDING="$(git -C "$PB_REPO" status --porcelain -z --untracked-files=all -- "${PB_ARGS[@]}" 2>/dev/null \
+                      | python3 -c "$_PB_STATUS_PARSER" 2>/dev/null || true)"
+    fi
+    case "$PB_PENDING" in
+      *__PB_UNREPRESENTABLE_PATH__*)
+        pb_broken_banner "guard-publication-commits.sh" \
+            "a path in this repository's working tree contains a newline, and this guard passes paths to its scanner one per line. It will not scan the rest and report the result as clean. Rename the file, then commit." >&2
+        exit 2 ;;
+    esac
+    STAGED_WORKTREE="$STAGED_WORKTREE
+$PB_PENDING"
+fi
+
+STAGED_INDEX="$(printf '%s\n' "$STAGED_INDEX" | LC_ALL=C sort -u | sed '/^$/d')"
+STAGED_WORKTREE="$(printf '%s\n' "$STAGED_WORKTREE" | LC_ALL=C sort -u | sed '/^$/d')"
+[ -n "$STAGED_INDEX$STAGED_WORKTREE" ] || exit 0
 
 WORK="$(mktemp -d -t pub-boundary-commit.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Materialise each staged blob from the INDEX (`git show :path`) — the bytes
-# that would actually be committed, not whatever the worktree happens to hold
-# afterwards. Binary blobs are skipped by a NUL test: an image or an audio file
-# carries no reproducible speech text, and the old check already covered media.
 IDX=0
 : > "$WORK/manifest"
-while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
-    if pb_allowlisted "$PB_REPO" "$PB_REPO/$rel"; then
-        continue
-    fi
-    IDX=$((IDX + 1))
-    BLOB="$WORK/blob.$IDX"
-    if ! git -C "$PB_REPO" show ":$rel" > "$BLOB" 2>/dev/null; then
-        # Not in the index (the `-a` case) — read the worktree copy instead.
-        [ -f "$PB_REPO/$rel" ] || { IDX=$((IDX - 1)); continue; }
-        cp "$PB_REPO/$rel" "$BLOB" 2>/dev/null || { IDX=$((IDX - 1)); continue; }
-    fi
-    # NUL test, done by byte count rather than by grep: bash cannot carry a NUL
-    # in a variable and BSD grep has no portable binary-match flag, so a
-    # `grep $'\0'` here silently never matches and every binary blob would be
-    # handed to the text scanner.
-    _RAW="$(head -c 8192 "$BLOB" | wc -c | tr -d ' ')"
-    _TXT="$(head -c 8192 "$BLOB" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')"
-    if [ "$_RAW" != "$_TXT" ]; then
-        rm -f "$BLOB"
-        IDX=$((IDX - 1))
-        continue
-    fi
-    printf '%s\t%s\n' "$rel" "$BLOB" >> "$WORK/manifest"
-done <<STAGED_EOF
-$STAGED
-STAGED_EOF
+
+# pb_materialise <index|worktree> — read repository-relative paths on stdin and
+# write "<path><TAB><blob>" manifest rows for the ones this guard must scan.
+#
+# INDEX rows come from `git show :path`: the exact bytes a plain `git commit`
+# will record. WORKTREE rows come from the file on disk: the exact bytes a `-a`,
+# a pathspec commit, or a `git add` in this same command will record. A path
+# whose worktree copy is byte-identical to its index copy is skipped in the
+# worktree pass — it was already scanned once and a second finding for the same
+# file would make a refusal read as if two things were wrong.
+#
+# Binary blobs are skipped by a NUL test: an image or an audio file carries no
+# reproducible speech text, and the old check already covered media.
+pb_materialise() {
+    local mode="$1" rel BLOB _RAW _TXT
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        if pb_allowlisted "$PB_REPO" "$PB_REPO/$rel"; then
+            continue
+        fi
+        IDX=$((IDX + 1))
+        BLOB="$WORK/blob.$IDX"
+        if [ "$mode" = "index" ]; then
+            if ! git -C "$PB_REPO" show ":$rel" > "$BLOB" 2>/dev/null; then
+                IDX=$((IDX - 1)); continue
+            fi
+        else
+            # Tracked AND identical to the index copy -> already covered.
+            if git -C "$PB_REPO" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 &&
+               git -C "$PB_REPO" diff --quiet -- "$rel" 2>/dev/null; then
+                IDX=$((IDX - 1)); continue
+            fi
+            [ -f "$PB_REPO/$rel" ] || { IDX=$((IDX - 1)); continue; }
+            cp "$PB_REPO/$rel" "$BLOB" 2>/dev/null || { IDX=$((IDX - 1)); continue; }
+        fi
+        # NUL test, done by byte count rather than by grep: bash cannot carry a
+        # NUL in a variable and BSD grep has no portable binary-match flag, so a
+        # `grep $'\0'` here silently never matches and every binary blob would
+        # be handed to the text scanner.
+        _RAW="$(head -c 8192 "$BLOB" | wc -c | tr -d ' ')"
+        _TXT="$(head -c 8192 "$BLOB" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')"
+        if [ "$_RAW" != "$_TXT" ]; then
+            rm -f "$BLOB"
+            IDX=$((IDX - 1))
+            continue
+        fi
+        printf '%s\t%s\n' "$rel" "$BLOB" >> "$WORK/manifest"
+    done
+}
+
+# Piping into these would run them in a subshell and lose IDX; the heredocs keep
+# both passes in the shell that owns the counter — the same subshell trap this
+# mechanism's test suite documents at the top of its own file.
+pb_materialise index <<INDEX_EOF
+$STAGED_INDEX
+INDEX_EOF
+pb_materialise worktree <<WORKTREE_EOF
+$STAGED_WORKTREE
+WORKTREE_EOF
 
 [ -s "$WORK/manifest" ] || exit 0
 
