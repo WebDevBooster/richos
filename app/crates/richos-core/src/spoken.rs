@@ -468,6 +468,20 @@ fn grammar_core(tok: &str) -> String {
 /// allowed, because the REJECTED side of a mishearing is routinely lowercase ("deep
 /// graham") and must not be excluded by casing.
 fn span_token(tok: &str) -> bool {
+    span_token_with(tok, false)
+}
+
+/// The same rule, with ONE switch: `allow_calendar` lets a CAPITALIZED calendar word
+/// through even when it is also a grammar word.
+///
+/// The only word this actually moves is **`May`**, which is both a month and a modal and
+/// therefore sits in [`GRAMMAR_WORDS`]. For the vocabulary gate that is right and costs
+/// nothing — [`NOT_A_TERM`] refuses every month a line later anyway. For a correction of a
+/// BELIEF it is the difference between hearing *"we moved in June, not May"* and hearing
+/// nothing at all, because there a month is the very thing being corrected. The switch is
+/// narrow on purpose: lowercase `may` is still the modal, and every other grammar word is
+/// still a grammar word in both configurations.
+fn span_token_with(tok: &str, allow_calendar: bool) -> bool {
     let core = grammar_core(tok);
     if core.is_empty() {
         return false;
@@ -476,6 +490,12 @@ fn span_token(tok: &str) -> bool {
     // `I`. Without this, "not Series A." loses its `A` to the article and the pair becomes
     // `Series` -> `Series B`, which scores 0.75 and would have been asked.
     if core.len() <= 2 && tok.chars().filter(|c| c.is_alphabetic()).all(char::is_uppercase) {
+        return true;
+    }
+    if allow_calendar
+        && NOT_A_TERM.contains(&core.as_str())
+        && tok.chars().find(|c| c.is_alphabetic()).is_some_and(char::is_uppercase)
+    {
         return true;
     }
     !GRAMMAR_WORDS.contains(&core.as_str())
@@ -508,9 +528,16 @@ fn differs_only_by_enumerator(from: &str, to: &str) -> bool {
 /// With it, the span is `Phase 2` and the guard fires. (Never above the service's
 /// `MAX_ENTITY_TOKENS` of 4, whatever the rejected side's length.)
 fn trailing_span(clause: &[String], max: usize) -> Option<String> {
+    trailing_span_with(clause, max, false)
+}
+
+fn trailing_span_with(clause: &[String], max: usize, allow_calendar: bool) -> Option<String> {
     let max = max.min(4);
     let mut start = clause.len();
-    while start > 0 && span_token(&clause[start - 1]) && clause.len() - (start - 1) <= max {
+    while start > 0
+        && span_token_with(&clause[start - 1], allow_calendar)
+        && clause.len() - (start - 1) <= max
+    {
         start -= 1;
     }
     if start == clause.len() {
@@ -527,8 +554,12 @@ fn trailing_span(clause: &[String], max: usize) -> Option<String> {
 /// The longest run of span tokens starting at the BEGINNING of a slice, capped at four.
 /// This is the REJECTED side of `not <rejected>`.
 fn leading_span(tokens: &[String]) -> Option<String> {
+    leading_span_with(tokens, false)
+}
+
+fn leading_span_with(tokens: &[String], allow_calendar: bool) -> Option<String> {
     let mut end = 0;
-    while end < tokens.len() && end < 4 && span_token(&tokens[end]) {
+    while end < tokens.len() && end < 4 && span_token_with(&tokens[end], allow_calendar) {
         end += 1;
     }
     if end == 0 {
@@ -558,7 +589,12 @@ fn anchor_for(form: &str, record: &[String]) -> Option<String> {
 }
 
 /// Whole-word containment over two already-normalized (`[a-z0-9 ]`) strings.
-fn word_contains(hay: &str, needle: &str) -> bool {
+///
+/// Public because `belief.rs` resolves a record reference with the SAME rule. A second
+/// implementation of "does this form appear here" is a second opinion about what the CEO
+/// was talking about, and the two would drift on exactly the substring case this exists to
+/// refuse (`Kestral` must not match inside `Kestralization`).
+pub fn word_contains(hay: &str, needle: &str) -> bool {
     if needle.is_empty() || hay.len() < needle.len() {
         return false;
     }
@@ -570,6 +606,113 @@ fn word_contains(hay: &str, needle: &str) -> bool {
     })
 }
 
+// ---------------------------------------------------------------------------------------
+// THE SHARED FRAME EXTRACTOR — one doctrine, two gates
+// ---------------------------------------------------------------------------------------
+
+/// One repair frame, pulled out of an utterance STRUCTURALLY and before any gate has an
+/// opinion about it.
+///
+/// Extraction and judgement are separated here because RichOS has two correction families
+/// and they disagree about the JUDGEMENT while agreeing completely about the SHAPE. A
+/// mishearing (`spoken.rs`) and a wrong belief (`belief.rs`) are both stated with the same
+/// English construction — a `not` pivot, the rejected side under it — and are then told
+/// apart by whether the two sides sound alike (a mishearing) or name different values (a
+/// belief). Two extractors would be two opinions about what the CEO said; one extractor
+/// with two gates is one opinion about what he said and two about what it means.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepairFrame {
+    /// The span under `not` — what is being rejected, always.
+    pub rejected: String,
+    /// The span on the other side of the pivot — what is asserted instead.
+    pub asserted: String,
+    pub frame: Frame,
+}
+
+/// How to pull [`RepairFrame`]s out of an utterance. Two configurations ship, and no third
+/// is reachable from outside this module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameExtractor {
+    /// Let a CAPITALIZED calendar word open or close a span (see [`span_token_with`]).
+    allow_calendar: bool,
+    /// Cap the asserted side at the rejected side's token count.
+    ///
+    /// Right for a vocabulary correction — a repair substitutes one term for another, so
+    /// the asserted side is never longer than what it replaces, and without the cap
+    /// *"Run Phase 2, not Phase 1."* offers `Run Phase 2`. WRONG for a belief correction,
+    /// where the two sides are values rather than terms and routinely differ in width:
+    /// *"the Q3 number was 1.4 million, not 1.2"* has a one-token rejected side and a
+    /// two-token asserted one, and the symmetric cap returns `million`.
+    symmetric_width: bool,
+}
+
+impl FrameExtractor {
+    /// The vocabulary configuration — byte-for-byte the behaviour that measured
+    /// TP 32 / FP 0 / FN 2 / TN 115, and `tests/spoken_precision.rs` is what keeps it so.
+    pub const fn spoken() -> Self {
+        FrameExtractor { allow_calendar: false, symmetric_width: true }
+    }
+
+    /// The belief configuration: months are values rather than grammar, and the asserted
+    /// side is not capped by the rejected side's width. `belief.rs` applies its own
+    /// shape-alignment rule to the wider span rather than truncating it blindly.
+    pub const fn belief() -> Self {
+        FrameExtractor { allow_calendar: true, symmetric_width: false }
+    }
+
+    /// Every repair frame in one utterance, in the order they were said.
+    ///
+    /// Pure: no clock, no disk, no record. Duplicate pairs are NOT collapsed here — that is
+    /// the caller's identity to decide, and the two families key on different things.
+    pub fn extract(&self, utterance: &str) -> Vec<RepairFrame> {
+        let mut out = Vec::new();
+        let cl = clauses(utterance);
+        for (ci, clause) in cl.iter().enumerate() {
+            // The pivot: a standalone `not`. `n't` is a DIFFERENT construction — "that isn't
+            // Deepgram" states no replacement — and is deliberately not matched.
+            let Some(pi) = clause.iter().position(|t| normalize_term(t) == "not") else { continue };
+
+            let Some(rejected) = leading_span_with(&clause[pi + 1..], self.allow_calendar) else {
+                continue;
+            };
+            let width = if self.symmetric_width {
+                rejected.split(' ').filter(|t| !t.is_empty()).count()
+            } else {
+                4
+            };
+
+            // Frame 1: the asserted term sits before the pivot — in this clause, or in the
+            // one before it ("It's Deepgram, not deep graham." splits into two clauses).
+            //
+            // THE LOOK-BACK IS NARROW ON PURPOSE, and both narrowings were earned by a false
+            // positive the corpus produced rather than by taste:
+            //   - only when the pivot OPENS the clause. "…but I have not confirmed it" has
+            //     its pivot mid-clause with nothing term-shaped before it, and the unguarded
+            //     look-back reached back over the comma and paired `confirmed` with the name
+            //     from the previous clause.
+            //   - never across a SENTENCE boundary. A full stop ends the repair; "That's
+            //     Kestrel. Not really." is two statements, not one correction.
+            let asserted = trailing_span_with(&clause[..pi], width, self.allow_calendar).or_else(|| {
+                if pi == 0 && ci > 0 && !ends_sentence(&cl[ci - 1]) {
+                    trailing_span_with(&cl[ci - 1], width, self.allow_calendar)
+                } else {
+                    None
+                }
+            });
+            let (asserted, frame) = match asserted {
+                Some(a) => (a, Frame::Contrast),
+                // Frame 2: the pivot leads, so the asserted term is the NEXT clause.
+                None => match cl.get(ci + 1).and_then(|c| leading_span_with(c, self.allow_calendar)) {
+                    Some(a) => (a, Frame::PivotFirst),
+                    None => continue,
+                },
+            };
+            out.push(RepairFrame { rejected, asserted, frame });
+        }
+        out
+    }
+}
+
 /// **The trigger.** Given one thing the CEO just said and the recent record he said it
 /// against, return the corrections worth ASKING about — and, separately, every candidate
 /// that was refused, and why.
@@ -579,102 +722,52 @@ fn word_contains(hay: &str, needle: &str) -> bool {
 pub fn detect(utterance: &str, record: &[String]) -> Detection {
     let mut out = Detection::default();
     let mut seen: Vec<String> = Vec::new();
-    let cl = clauses(utterance);
 
-    for (ci, clause) in cl.iter().enumerate() {
-        // The pivot: a standalone `not`. `n't` is a DIFFERENT construction — "that isn't
-        // Deepgram" states no replacement — and is deliberately not matched.
-        let Some(pi) = clause.iter().position(|t| normalize_term(t) == "not") else { continue };
-
-        let Some(rejected) = leading_span(&clause[pi + 1..]) else { continue };
-        let width = rejected.split(' ').filter(|t| !t.is_empty()).count();
-
-        // Frame 1: the asserted term sits before the pivot — in this clause, or in the one
-        // before it ("It's Deepgram, not deep graham." splits into two clauses).
-        //
-        // THE LOOK-BACK IS NARROW ON PURPOSE, and both narrowings were earned by a false
-        // positive the corpus produced rather than by taste:
-        //   - only when the pivot OPENS the clause. "…but I have not confirmed it" has its
-        //     pivot mid-clause with nothing term-shaped before it, and the unguarded
-        //     look-back reached back over the comma and paired `confirmed` with the name
-        //     from the previous clause.
-        //   - never across a SENTENCE boundary. A full stop ends the repair; "That's
-        //     Kestrel. Not really." is two statements, not one correction.
-        let asserted = trailing_span(&clause[..pi], width).or_else(|| {
-            if pi == 0 && ci > 0 && !ends_sentence(&cl[ci - 1]) {
-                trailing_span(&cl[ci - 1], width)
-            } else {
-                None
-            }
-        });
-        let (asserted, frame) = match asserted {
-            Some(a) => (a, Frame::Contrast),
-            // Frame 2: the pivot leads, so the asserted term is the NEXT clause.
-            None => match cl.get(ci + 1).and_then(|c| leading_span(c)) {
-                Some(a) => (a, Frame::PivotFirst),
-                None => continue,
-            },
-        };
-
-        let key = ask_key(&rejected, &asserted);
+    for f in FrameExtractor::spoken().extract(utterance) {
+        let key = ask_key(&f.rejected, &f.asserted);
         if seen.contains(&key) {
             continue;
         }
         seen.push(key.clone());
-        push_gated(&mut out, rejected, asserted, key, frame, record);
+        push_gated(&mut out, f.rejected, f.asserted, key, f.frame, record);
     }
     out
 }
 
-/// The §7 gate, applied to one extracted pair. Split out so the measurement harness and the
-/// cross-implementation fixture exercise exactly the code the trigger runs.
-fn push_gated(
-    out: &mut Detection,
-    from: String,
-    to: String,
-    key: String,
-    frame: Frame,
-    record: &[String],
-) {
-    let (nfrom, nto) = (normalize_term(&from), normalize_term(&to));
+/// What the §7 gate decided about one pair: the two similarity legs and which of them let
+/// it through, or the sentence saying why it did not.
+pub struct GateVerdict {
+    pub orthographic: f64,
+    pub phonetic: f64,
+    pub leg: &'static str,
+}
+
+/// **The §7 gate itself**, applied to one extracted pair and returning the reason on
+/// refusal. Split out so three callers run EXACTLY this code and never a paraphrase of it:
+/// [`detect`], the cross-implementation fixture, and `belief.rs` — which asks the opposite
+/// question ("is this a mishearing, and therefore NOT mine?") and must get its answer from
+/// the shipped gate rather than from a second opinion about the same pair.
+pub fn gate(from: &str, to: &str) -> Result<GateVerdict, String> {
+    let (nfrom, nto) = (normalize_term(from), normalize_term(to));
     if nfrom == nto {
-        out.rejected.push(SpokenRejection {
-            from,
-            to,
-            reason: "casing/punctuation only — nothing a vocabulary could hold".into(),
-        });
-        return;
+        return Err("casing/punctuation only — nothing a vocabulary could hold".into());
     }
-    if !looks_like_term(&to) {
-        out.rejected.push(SpokenRejection {
-            from,
-            to,
-            reason: "not a term — the asserted side is ordinary prose".into(),
-        });
-        return;
+    if !looks_like_term(to) {
+        return Err("not a term — the asserted side is ordinary prose".into());
     }
     if NOT_A_TERM.contains(&nto.as_str()) || NOT_A_TERM.contains(&nfrom.as_str()) {
-        out.rejected.push(SpokenRejection {
-            from,
-            to,
-            reason:
-                "a day or month is capitalized by grammar, not because it is a name — a change of mind"
-                    .into(),
-        });
-        return;
+        return Err(
+            "a day or month is capitalized by grammar, not because it is a name — a change of mind"
+                .into(),
+        );
     }
     if differs_only_by_enumerator(&nfrom, &nto) {
-        out.rejected.push(SpokenRejection {
-            from,
-            to,
-            reason: "the two sides differ only by an enumerator (a letter or a number) — \
-                     a distinction between two things, not a mishearing of one"
-                .into(),
-        });
-        return;
+        return Err("the two sides differ only by an enumerator (a letter or a number) — \
+                    a distinction between two things, not a mishearing of one"
+            .into());
     }
     let orth = similarity(&nfrom, &nto);
-    let phon = phonetic_similarity(&from, &to);
+    let phon = phonetic_similarity(from, to);
     // Whitespace in the RAW span, not the normalized one — matching `dictation.js`'s
     // `!/\s/.test(coreFrom)` exactly. The two differ on a hyphenated form: normalization
     // turns `deep-graham` into `deep graham` and would call it multi-word, where the
@@ -684,33 +777,54 @@ fn push_gated(
     let phon_floor = if lone { ASK_LONE_TOKEN_MIN } else { ASK_MIN_PHONETIC };
     let (orth_ok, phon_ok) = (orth >= orth_floor, phon >= phon_floor);
     if !orth_ok && !phon_ok {
-        out.rejected.push(SpokenRejection {
-            reason: format!(
-                "neither close in spelling ({orth:.2} < {orth_floor}) nor in sound \
-                 ({phon:.2} < {phon_floor}){} — a change of mind, not a mishearing",
-                if lone { " — one ordinary word swapped for another" } else { "" }
-            ),
-            from,
-            to,
-        });
-        return;
+        return Err(format!(
+            "neither close in spelling ({orth:.2} < {orth_floor}) nor in sound \
+             ({phon:.2} < {phon_floor}){} — a change of mind, not a mishearing",
+            if lone { " — one ordinary word swapped for another" } else { "" }
+        ));
     }
-    let anchor = anchor_for(&from, record);
-    out.asks.push(SpokenAsk {
-        key,
-        frame,
+    Ok(GateVerdict {
         orthographic: (orth * 1000.0).round() / 1000.0,
         phonetic: (phon * 1000.0).round() / 1000.0,
         leg: match (orth_ok, phon_ok) {
             (true, true) => "both",
             (true, false) => "spelling",
             _ => "sound",
+        },
+    })
+}
+
+/// Would the VOCABULARY desk ask about this pair? The routing question, asked of the gate
+/// that actually ships rather than of a copy of its rules.
+pub fn would_ask(from: &str, to: &str) -> bool {
+    gate(from, to).is_ok()
+}
+
+/// The §7 gate, applied to one extracted pair and recorded on the detection.
+fn push_gated(
+    out: &mut Detection,
+    from: String,
+    to: String,
+    key: String,
+    frame: Frame,
+    record: &[String],
+) {
+    match gate(&from, &to) {
+        Err(reason) => out.rejected.push(SpokenRejection { from, to, reason }),
+        Ok(v) => {
+            let anchor = anchor_for(&from, record);
+            out.asks.push(SpokenAsk {
+                key,
+                frame,
+                orthographic: v.orthographic,
+                phonetic: v.phonetic,
+                leg: v.leg.into(),
+                anchor,
+                from,
+                to,
+            });
         }
-        .into(),
-        anchor,
-        from,
-        to,
-    });
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -898,6 +1012,35 @@ mod tests {
         let across = detect("That's Kestrel. Not really.", &[]);
         assert!(across.is_silent(), "{:?}", across.asks);
         assert!(across.rejected.is_empty(), "{:?}", across.rejected);
+    }
+
+    /// INVARIANT: the two extractor configurations differ ONLY where they say they do.
+    /// `May` is both a month and a modal, so the vocabulary config loses it to
+    /// `GRAMMAR_WORDS` and the belief config keeps it — measured here rather than asserted,
+    /// because it is the whole of `allow_calendar` and a silent widening of that switch
+    /// would let a grammar word open a span in the vocabulary path too.
+    #[test]
+    fn only_the_belief_extractor_hears_may_as_a_month() {
+        let u = "We moved in June, not May.";
+        assert!(FrameExtractor::spoken().extract(u).is_empty(), "the vocabulary config saw a frame");
+        let b = FrameExtractor::belief().extract(u);
+        assert_eq!(b.len(), 1, "{b:?}");
+        assert_eq!((b[0].rejected.as_str(), b[0].asserted.as_str()), ("May", "June"));
+        // ...and lowercase `may` is still the modal, in BOTH configurations.
+        assert!(FrameExtractor::belief().extract("We may ship in June, not may.").iter().all(|f| f.rejected != "may"));
+    }
+
+    /// INVARIANT: the symmetric width cap is the second, and last, difference. It is right
+    /// for a term substitution and wrong for a value one, and both readings are pinned so a
+    /// future tidy-up cannot quietly give one config the other's behaviour.
+    #[test]
+    fn the_asserted_width_cap_is_the_other_configured_difference() {
+        let u = "The Q3 number was 1.4 million, not 1.2.";
+        let spoken = FrameExtractor::spoken().extract(u);
+        assert_eq!(spoken[0].asserted, "million", "the symmetric cap is what it always was");
+        let belief = FrameExtractor::belief().extract(u);
+        assert_eq!(belief[0].asserted, "1.4 million", "the belief config keeps the whole value");
+        assert_eq!(belief[0].rejected, "1.2");
     }
 
     /// The worked examples in `dictation.js`'s module doc, re-derived here so a port error
