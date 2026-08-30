@@ -644,18 +644,33 @@ function stashThreadViewState() {
 /// thread. Prefixed so it can never collide with a thread id.
 const ENTITY_DRAFT_PREFIX = "entity:";
 
+/// A scroll position waiting for the DOM it belongs to. `{ threadId, top }`, or `top: null`
+/// for "land at the newest turn". Consumed by `flushRender` — see below for why it cannot
+/// be applied where it is set.
+let pendingScrollRestore = null;
+
 function restoreThreadViewState(threadId) {
   inputEl.value = drafts.get(threadId) || "";
   autoGrow();
   const top = scrollTops.get(threadId);
   // §15: "preserve each thread's scroll position during thread switching". A thread that
   // has never been opened lands at the bottom — the newest turn.
-  if (typeof top === "number") {
-    conversationEl.scrollTop = top;
-    followBottom = atBottom();
-  } else {
-    followBottom = true;
-  }
+  //
+  // THE POSITION IS QUEUED, NOT APPLIED. This function runs at the end of `openThread`,
+  // where `loadTimeline` has updated the MODEL but the render is still one animation frame
+  // away (§15: "at most once per animation frame") — so the pane on screen is still the
+  // PREVIOUS thread's DOM, at the previous thread's height. Writing the position here wrote
+  // it against the wrong document twice over: the browser clamped it to the old content's
+  // range, and then `flushRender`'s height anchor — which exists to hold content still when
+  // something ABOVE it changes height — added the difference between the two threads'
+  // heights on top.
+  //
+  // Measured before the fix, at 1200x420 with the seeded acme thread: parked at 0, restored
+  // to 121; parked at 50, restored to 171; parked at 200, restored to 250 (the bottom).
+  // A constant +121px = acme's scrollHeight minus the thread that was on screen when the
+  // position was written. `app/ui/tests/restart-scope.js` is the check that fails on it.
+  pendingScrollRestore = { threadId, top: typeof top === "number" ? top : null };
+  followBottom = typeof top === "number" ? false : true;
   updateJumpButton();
 }
 
@@ -944,7 +959,15 @@ function flushRender() {
     if (again) again.focus({ preventScroll: true });
   }
 
-  if (followBottom) {
+  if (pendingScrollRestore && pendingScrollRestore.threadId === timelineModel.threadId) {
+    // §15, applied to the thread's OWN rendered DOM. The height anchor below is deliberately
+    // skipped here: it measures a change in THIS thread's content, and across a thread
+    // switch the two heights belong to two different conversations.
+    const want = pendingScrollRestore.top;
+    pendingScrollRestore = null;
+    conversationEl.scrollTop = want === null ? conversationEl.scrollHeight : want;
+    followBottom = atBottom();
+  } else if (followBottom) {
     conversationEl.scrollTop = conversationEl.scrollHeight;
   } else {
     // Keep the same content under the CEO's eye when something above changed height.

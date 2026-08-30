@@ -41,8 +41,15 @@ for; the filenames and the suite's SCREENSHOT INVENTORY say which and why.
 | `lib/state-registry.js` | The classification, one row per state, each with its reasoning. Annotation only — the inventory above is the authority. |
 | `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner. |
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
+| `steering.js` | §25 "Steering and stop", criterion by criterion, through the real shell. The `You stopped after {duration}` row from the real wire bytes, the crash that is never attributed to the CEO, a stop that reached nothing saying so, and the stop control at §20's three widths. |
+| `restart-scope.js` | What happens BETWEEN threads, and what survives a restart. A working thread stays visibly active while another is selected and its timer resumes rather than restarts; drafts and scroll positions belong to one thread and never cross an entity; a turn streaming elsewhere renders nothing here, across entities and inside one; the fence is on every live handler, with the inventory derived from the shipped object and cross-checked against `timeline.js` on disk; duplicates render once; missed events recover from the snapshot; an in-flight turn survives a restart as unknown; a mid-turn crash draws the CEO's prompt once. |
+| `docs-claims.js` | The only suite that opens no browser. It joins the claims in `app/README.md`, `app/STREAMING.md` and this file to the tree they describe: per-file and per-crate test counts against `#[test]`, this table against the inventory `run.js` discovers, and every `rich://` name against the constants the Rust source declares. Nothing in it is typed — both sides of every join are read off disk. |
 
 ## Four rules, each one a thing an earlier slice got wrong
+**This table is checked, not maintained by memory.** `docs-claims.js` fails if a suite
+`run.js` runs has no row here, or a row names a suite that no longer exists. It was added
+because `steering.js` had shipped one slice earlier with no row — the same drift `run.js`'s
+own discovery exists to prevent, one level out in the documentation.
 
 **1. The real renderer, never a copy.** Every page loads `../timeline.js` and `../style.css`
 from disk. A test that re-implements a rule proves the test.
@@ -69,11 +76,31 @@ colours across the sample grid throws; the real app measures 175. That check was
 in `lib/harness.js` for one slice before it existed (the function measured file size, which
 is exactly what a valid all-black PNG passes), and now it runs.
 
+**4. A check that cannot fail proves nothing.** Every negative here carries a positive probe
+in the same run — the same content, correctly scoped, IS on screen — because "the foreign
+thread's text did not appear" passes perfectly on a page where nothing appears. Every
+derived inventory is asserted non-empty before it is compared, because a green run over an
+empty set is how a scanner in this repository reported CLEAN while walking nothing. And
+every check in `restart-scope.js` was additionally run RED once, by breaking the thing it
+guards in the shipped source: the ten runs are transcribed in
+`docs/verification/restart-scope-2026-08-30/mutation-runs.txt`, with a coverage map and the
+one check that has no mutation of its own named rather than left to be noticed.
+
+Two of those runs changed the tests rather than confirming them, which is the argument for
+doing it at all: deleting the fence's `threadId` clause left the scope check green (it was
+probing across ENTITIES, which a different clause catches), and disabling the renderer's
+supersession merge left the crash check green (the reload re-projects from a snapshot where
+the superseded turn contributes nothing, so the END STATE was right either way).
+
 ## What these tests do NOT cover
 
 They exercise the renderer and the shell. They say nothing about whether the backend emits
 what the renderer reads — that is
 `cargo run --example timeline_payload` in `app/src-tauri`, which prints the wire payload from
 a real ledger through the real command body, and `cargo test -p richos-core`.
+
+`docs-claims.js` is the one exception and does not use a browser at all: it reads documents
+and source files. It checks that the claims are TRUE OF THE TREE, never that the behaviour
+they describe works — that is what everything else here, and the Rust suites, are for.
 
 There is no CI runner wired to any of this yet. It runs when someone runs it.

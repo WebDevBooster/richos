@@ -3,8 +3,12 @@ name: app-spine-ci
 # THE PRODUCT'S OWN TESTS HAVE NEVER BEEN RUN BY ANY TOOLING.
 #
 # `app/README.md` has documented `cargo test -p richos-core` as the spine's gate
-# since the crate existed, and it is real — 342 tests, no network, no native
-# dependencies, a couple of seconds. But `grep -rn "cargo test"` across this
+# since the crate existed, and it is real — 375 tests plus 5 doctests, no
+# network, no native dependencies, a couple of seconds. (That number was 342
+# when this file was written and 375 by the end of the same day; it is checked
+# against the tree in app/ui/tests/docs-claims.js wherever a DOCUMENT states
+# it, which is why the authoritative copy lives in app/README.md and this
+# comment defers to it.) But `grep -rn "cargo test"` across this
 # repository's scripts and workflows returns README prose and nothing else. The
 # two workflows that existed verified the ENGINE and the Windows companion. The
 # runtime spine — ledger, entity scope, timeline visibility, ACP, and now the
