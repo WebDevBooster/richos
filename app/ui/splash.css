@@ -81,7 +81,8 @@
   flex-direction: column;
   align-items: center;
   padding: clamp(44px, 6.4vh, 72px) clamp(56px, 6.5vw, 104px) clamp(40px, 5.6vh, 60px);
-  background: var(--splash-surface);
+  background-color: var(--splash-surface);
+  background-image: var(--splash-surface-image);
   border-radius: var(--splash-plinth-radius);
   box-shadow: var(--splash-plinth-shadow);
   outline: 1px solid var(--splash-plinth-outline);
@@ -98,7 +99,9 @@
   position: absolute;
   inset: var(--splash-keyline-inset);
   border-radius: var(--splash-keyline-radius);
-  border: 1px solid var(--splash-keyline-color);
+  border: var(--splash-keyline-width) var(--splash-keyline-style) var(--splash-keyline-color);
+  border-image: var(--splash-keyline-image);
+  box-shadow: var(--splash-keyline-shadow);
   pointer-events: none;
 }
 
@@ -112,6 +115,30 @@
   background: var(--splash-sheen);
 }
 
+/* THE MATERIAL STACK. v7-v17 are not colour variations of one mat; they are different
+ * MATERIALS on it — nap, grain, weave, veining, moire, lacquer depth, gold leaf. Every one
+ * of them is a stack of flat layers over the mat, exactly as the studies build them, and
+ * every layer is one of these: absolutely positioned, click-through, inheriting the mat's
+ * corner, with each of its paint properties arriving from the entry. Not one of those
+ * properties is written here — this rule says where a layer IS, never what it looks like.
+ *
+ * `.splash-sheen` above is the same shape of thing, kept under its own name because the
+ * approved seven use it and check 6 knows it by that name. */
+.splash-material {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* The composition sits ON the material, not under it. Without this the layers — which are
+ * positioned — would paint over the mark, because the mark's wrappers are not. The studies
+ * write the same rule (`.plinth>.enter{position:relative;z-index:2}`). */
+.splash-plinth > .splash-rise {
+  position: relative;
+  z-index: 2;
+}
+
 .splash svg {
   display: block;
 }
@@ -122,11 +149,18 @@
   width: clamp(330px, 34vw, 480px);
   margin-top: clamp(28px, 5vh, 48px);
 }
+/* THE MARK'S RELIEF. In the studies the mark is not always flat paint on the mat: it is
+ * blocked into leather, stamped in foil, cut into slate, pressed into cotton, dusted with
+ * maki-e gold, couched in bullion thread. All of that is a filter on the paths, and which
+ * filter — an SVG one this entry described, a CSS one it wrote out, or none — is the
+ * entry's answer, arriving through these two properties. */
 .splash-ink {
   fill: var(--splash-ink);
+  filter: var(--splash-mark-filter);
 }
 .splash-signal {
   fill: var(--splash-signal);
+  filter: var(--splash-signal-filter);
 }
 .splash-foot {
   display: flex;
@@ -217,9 +251,12 @@
   opacity: 1;
   transform: none;
 }
+/* NOT `filter: none`. That was right when the only filter on the gold was the bloom
+ * strike; it is wrong now that an entry can give the mark a relief, because pinning the
+ * composition would flatten the metal it is made of. Pin it to the entry's own filter. */
 .splash--settled .splash-signal {
   fill: var(--splash-signal);
-  filter: none;
+  filter: var(--splash-signal-filter);
 }
 .splash--settled .splash-rule {
   width: var(--splash-rule-width);
