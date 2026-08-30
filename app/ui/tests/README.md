@@ -5,20 +5,32 @@ Slices 3, 5 and 7 each wrote one; only this one survived, and only because it ha
 directory.
 
 ```
-npm install          # once, in THIS directory
+npm install          # once, in THIS directory — installs Playwright AND downloads WebKit
 npm test             # every suite in this directory, discovered from disk
 node workers.js      # one suite, while you are working on it
 ```
 
-If Playwright is already installed elsewhere on the machine, skip the install and point at
-it — a browser engine per worktree is not free:
+That is the whole setup, from a clean checkout, with no path into any other repository. It
+was not, until 2026-08-30. **Playwright 1.61 ships no `postinstall` of its own**, so
+`npm install` here used to produce the JS API and not one browser engine — and the suites ran
+anyway, on this machine, because a webkit binary from an unrelated project was already sitting
+in the shared `~/Library/Caches/ms-playwright`. Six consecutive runs of this directory were
+launched with `RICHOS_PLAYWRIGHT` pointed into another repository's `node_modules`, and the
+line above said they did not need to be. `package.json` now carries
+`postinstall: playwright install webkit`, which downloads 77 MiB the first time on a machine
+and takes under a second on every worktree after that, because the cache is shared.
+
+If you would rather not have that download at all, the escape hatch is still there and is
+still supported — it is now an opt-out rather than the only way in:
 
 ```
 RICHOS_PLAYWRIGHT=/path/to/node_modules/playwright node run.js
 ```
 
-`node_modules/` and `.shots/` are gitignored. The tests are the artifact; those PNGs are
-evidence for one run.
+`node_modules/` and `.shots/` are gitignored; `package-lock.json` is COMMITTED, because
+`npm ci` is the only install command that refuses to resolve anything not already written
+down and it does not run without one. The tests are the artifact; those PNGs are evidence for
+one run.
 
 **`shots-26/` and `shots-5b/` are the exceptions and ARE committed.** §26 names nine screenshots as
 deliverables of the memory-strategy fixture, and until slice 8 this UI had no visual record

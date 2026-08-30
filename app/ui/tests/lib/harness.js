@@ -17,6 +17,17 @@
 // Playwright is a devDependency (`npm install` in this directory). It is resolved leniently
 // so the harness also runs from an existing install on the machine via NODE_PATH or
 // RICHOS_PLAYWRIGHT — installing a browser engine into every worktree is not free.
+//
+// `npm install` HAS TO INSTALL THE ENGINE TOO, and for a while it did not. Playwright 1.61
+// ships no `postinstall` script (its installed package.json has no `scripts` key at all), so
+// `npm install` here produced the JS API and zero browsers, and the only thing that made the
+// suites run was a webkit binary some OTHER project had already put in the shared
+// ~/Library/Caches/ms-playwright. That is why six consecutive runs of this directory needed
+// RICHOS_PLAYWRIGHT pointed into an unrelated repository: not a preference, a missing step.
+// `package.json` now carries `postinstall: playwright install webkit`, which is what makes
+// the README's one-command setup true. RICHOS_PLAYWRIGHT stays as what it was meant to be —
+// the deliberate opt-out for someone who does not want the download — and is no longer the
+// only way in.
 
 "use strict";
 
@@ -38,7 +49,8 @@ function loadPlaywright() {
     }
   }
   throw new Error(
-    "playwright not found. Run `npm install` in app/ui/tests, or point RICHOS_PLAYWRIGHT at an existing install."
+    "playwright not found. Run `npm install` in app/ui/tests (its postinstall fetches WebKit too), " +
+      "or point RICHOS_PLAYWRIGHT at an existing install."
   );
 }
 
