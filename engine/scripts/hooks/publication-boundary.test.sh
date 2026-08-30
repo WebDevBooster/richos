@@ -53,6 +53,20 @@
 #       text output, no timestamps — joins the corpus; a brief that merely
 #       QUOTES the recording does not, so its boilerplate never becomes
 #       "private" and never blocks ordinary work.
+#   (i2) MEDIA PROVENANCE. The FIRST rendering of a recording, when that
+#       rendering is plain text. The shape filter cannot see it and the closure
+#       can only extend a seed, never create one — so a recording transcribed
+#       straight to plain text was invisible to the corpus whole, and both
+#       guards passed 6,000 characters of one in silence. A text file named as a
+#       rendering of a media file beside it now seeds; an unrelated stem, a stem
+#       below the length floor, and the same name with no media beside it do
+#       not, and those three refusals are why the narrow rule was chosen.
+#   (i3) THE VACUITY FLOOR AND THE ORACLE. A corpus that is empty is BROKEN, not
+#       CLEAN, because everything after the corpus is conditional on it and a
+#       guard that reports clean having read nothing is this whole mechanism's
+#       defect in one line. Plus the negative control for THIS SUITE: the
+#       scanner reports the corpus it examined, so a green run cannot mean
+#       "every case passed because there was nothing to compare against".
 #   (j) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
 #   (k) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
