@@ -1,0 +1,190 @@
+THE CONTRAST GATE — THE TWENTY-TWO RUNS THAT PROVE THE SUITE CAN FAIL
+=====================================================================
+
+`app/ui/tests/contrast.js` reports 24 checks green over 15 declared, across ten surfaces
+in two themes. That number is worth nothing on its own. A checker that walks a DOM and
+finds nothing is indistinguishable, from the outside, from a checker that walks nothing —
+and this repository has produced both kinds of green in one week: a scanner reporting CLEAN
+over an empty corpus, and a `run.js` reporting "all 4 suites passed" over a suite it was
+not running.
+
+It matters more here than usual, because of what this gate is FOR. The CEO's order was
+"I don't want to repeat myself again or remind anyone that the contrast basics must be
+maintained." The answer to that order cannot be another sentence in another prompt. If this
+suite is green and wrong, the order has been answered with a lie that is harder to detect
+than the original silence.
+
+So every check was run RED, once, by breaking the thing it guards — mostly in the SHIPPED
+source (`app/ui/index.html`, `app/ui/style.css`), and where the check guards the gate's own
+arithmetic, in `app/ui/tests/lib/contrast.js`.
+
+The driver applied exactly one edit per run, refused to proceed unless the target string
+matched exactly, restored the file from a copy taken before the edit whether the run passed
+or failed, and `git status` was clean at the end. It is `scratchpad/mutate.py` from the
+session that produced this file; the mutations are also listed inside `contrast.js` itself,
+against their check numbers, so the two cannot drift silently.
+
+
+TWO RUNS DID NOT GO RED, AND ARE RECORDED AS RUNS THAT DID NOT GO RED
+--------------------------------------------------------------------
+
+  * MUTATION 11, FIRST ATTEMPT, WAS INERT. `stackFor`'s modal branch was changed from
+    `if (modal && !modal.contains(el))` to `if (modal)`, on the theory that a dialog's own
+    contents would then be filed as obscured behind the dialog they are inside, be measured
+    nowhere, and be caught as orphans. Nothing went red. The loop that line sits in only
+    iterates elements painted ABOVE the node, and a desk card inside the panel has none, so
+    the mutated line was never reached on any surface. It proves nothing about check 11.
+
+    Redone as a curtain: a `pointer-events: none`, `rgba(0,0,0,0.6)`, z-index-300 div left
+    over the whole app in `index.html`. That is blunt — it reds fifteen checks — and it is
+    the honest shape of the defect: the `obscured` bucket only becomes a hiding place when
+    something covers everything, and check 11 is what refuses to let a covered app read as
+    a clean one.
+
+  * MUTATION 13b, FIRST ATTEMPT, MISSED ITS ANCHOR. `.desk-card-target {` does not appear
+    in `style.css`; the rule is written `.desk-card-target,` at the head of a selector list.
+    The driver refused to proceed and recorded ANCHOR-MISSING rather than editing something
+    near it. That refusal is the reason an anchor miss here is a recorded non-run and not a
+    silent pass. Redone against the real anchor, it went red.
+
+
+ONE MUTATION IS WORTH SINGLING OUT
+----------------------------------
+
+MUTATION 10 is the only one that needed two simultaneous edits, and it is the one that
+matters most.
+
+Check 10 exists because the app ships ONE theme. There is no `prefers-color-scheme: dark`
+rule in `style.css` or `splash.css`, so the "dark" half of every walk is a same-palette
+re-check under a dark OS preference — not dark-mode coverage. Reporting that honestly is
+the easy branch, and it is not the branch worth proving.
+
+The branch worth proving is the other one: the day a dark theme lands, does this suite
+actually exercise it, or does it keep reporting green over a light palette while claiming
+both themes? So the mutation adds a real dark block to `style.css` AND removes
+`colorScheme` from the suite's own `newPage` call. The suite says:
+
+    1 `prefers-color-scheme: dark` block(s) are shipped, but the dark run produced the
+    identical palette — the emulation is not reaching them, so the dark half of every check
+    above is a fiction
+
+That is the sentence that has to exist for "both themes" to mean anything later.
+
+
+THE RUNS
+--------
+
+BASELINE   exit=0   24 checks, 0 failing
+
+[1] lib/contrast.js  srgbToLinear returns the raw channel, no gamma expansion   exit=1
+        FAIL  1  the ratio is WCAG's ratio — checked against WebAIM's own published values
+              #777777 on #ffffff: expected 4.48:1, computed 2.03:1
+        also red: 3, 8, and all nine driven surfaces
+
+[2] lib/contrast.js  pageScript drops round2 from the math shipped into the page   exit=1
+        FAIL  2  the math running in WebKit is the same source, not a second copy
+              page.evaluate: TypeError: M.round2 is not a function
+
+[3] lib/contrast.js  thresholdFor returns NORMAL unconditionally   exit=1
+        FAIL  3  4.5 normal, 3.0 at 24px or 18.66px bold, 3.0 for a declared indicator
+              only the 14px/400 node may fail: 24px, 19px-bold and the declared indicator
+              all clear 3.0
+
+[3b] lib/contrast.js  isLargeText: bold boundary 18px instead of 18.66px   exit=1
+        FAIL  3  the large-text boundary must be 24px, or 18.66px at weight >= 700
+
+[4] lib/contrast.js  the text loop passes every node regardless of its ratio   exit=1
+        FAIL  4  a deliberately-introduced failure is caught and NAMED, not just counted
+              the planted node must produce exactly one failure signature
+        also red: 3, 7, 8
+
+[4b] lib/contrast.js  the failure is filed with selector "(a node)"   exit=1
+        FAIL  4  the failure must name the node
+        also red: 3, 7, 8
+
+[5] lib/contrast.js  a declared exemption is honoured but never filed into out.exempt   exit=1
+        FAIL  5  a declared exemption passes, is NOT hidden, and carries its reason
+              and must not vanish either — it has to appear in the exempt list
+
+[5b] lib/contrast.js  exemptionFor reads the attribute on the node, not via closest()   exit=1
+        FAIL  5  a declared exemption must not fail the run
+              (the anchor inside the privacy notice is no longer covered by the notice)
+
+[6] lib/contrast.js  MIN_REASON = 0   exit=1
+        FAIL  6  an empty or one-word exemption is itself a failure — no mute button
+              neither may be honoured as an exemption
+
+[7] lib/contrast.js  resolveBackground stops refusing a background-image or gradient   exit=1
+        FAIL  7  a colour that cannot be resolved is a FAILURE TO PROVE, never a pass
+              each of the four must land in the unresolvable bucket
+
+[7b] lib/contrast.js  an unprovable node is skipped without being filed anywhere   exit=1
+        FAIL  7  each of the four must land in the unresolvable bucket
+
+[8] lib/contrast.js  stackFor returns the chain without the layers painted over it   exit=1
+        FAIL  8  a faint veil is measured THROUGH; only an aria-modal claim excuses
+              a 12% sheet with no inertness claim must be composited, not waved through
+
+[9] style.css  --ink-faint: #a5a297 -> #8f8c81   exit=1
+        FAIL  9.shell  20 NEW and 0 WORSENED contrast failure(s) on shell
+        also red: all nine driven surfaces, each naming its own moved pairings
+
+[9b] style.css  .nav-thread-title { display: none }   exit=1
+        FAIL  9.shell  shell measured only 66 node(s) across both themes but its floor is 80
+              — the surface still renders, but less of it can be measured than when the
+              floor was set
+        also red: 9.thread, 9.inspector, 9.technical-view, 9.unbound, 9.settings
+
+[10] style.css gains a dark block AND contrast.js stops passing colorScheme   exit=1
+        FAIL  10  1 `prefers-color-scheme: dark` block(s) are shipped, but the dark run
+              produced the identical palette — the emulation is not reaching them, so the
+              dark half of every check above is a fiction
+
+[11, FIRST ATTEMPT — INERT, SEE THE NOTE ABOVE]
+     lib/contrast.js  the modal branch drops its !modal.contains(el) half   exit=0
+        Nothing red. The mutated line is never reached. Proves nothing; recorded, not counted.
+
+[11, REDONE] index.html  a painted click-through curtain over the whole app   exit=1
+        FAIL  11  nothing disappears into `obscured` without being measured somewhere else
+              these node(s) were filed `obscured` on every surface that reaches them and
+              measured on none
+        also red: 3, 4, 5, 6, 7, 8 and all nine driven surfaces
+
+[12] index.html  data-contrast-exempt="x" on #rail-company   exit=1
+        FAIL  12  index.html declares data-contrast-exempt="x" — an exemption has to say
+              what it is claiming
+        also red: 6, 13
+
+[12b] index.html  a well-worded exemption against an exemptionCap of 0   exit=1
+        FAIL  12  1 exemptions are declared in the shipped source; the ledger's cap is 0.
+              Raise the cap deliberately, in the same commit that adds the exemption
+        also red: 5, 6
+
+[13] contrast-debt.json  cap 52 against 53 signatures in the file   exit=1
+        FAIL  13  53 signatures in contrast-debt.json against a cap of 52 — the ledger is
+              for what was already broken, not a place to put new work
+
+[13b, FIRST ATTEMPT — ANCHOR MISSED, SEE THE NOTE ABOVE]
+     style.css  `.desk-card-target {`   ANCHOR-MISSING, no run
+
+[13b, REDONE] style.css  .desk-card-target gets a linear-gradient background   exit=1
+        FAIL  13  colour(s) on the shipping surfaces that this gate cannot prove, and that
+              nobody has written down
+        also red: 9.corrections
+
+[14] index.html  <canvas width=10 height=10> in the conversation pane   exit=1
+        FAIL  14  a <canvas> appeared on a walked surface. Nothing in this suite can read a
+              pixel it painted, so its contrast is UNCHECKED and a green run here must not
+              be read as covering it
+        also red: 9.inspector (the canvas moves the layout)
+
+[15] index.html  <svg><text x=0 y=9>hi</text></svg> in the conversation pane   exit=1
+        FAIL  15  20 <svg><text> node(s) were found on the walked surfaces. This walk reads
+              `color`, not `fill`, so those are UNMEASURED and must not be read as passing
+
+
+AFTER
+-----
+
+`git status` clean apart from the suite's own new files. `node contrast.js` green.
+`node run.js` green: 16 suites, 298 checks over 251 declared.
