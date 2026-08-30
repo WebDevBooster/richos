@@ -2636,3 +2636,240 @@ body.bp-narrow .tl-user-bubble {
   border-color: var(--line);
   color: var(--ink-soft);
 }
+
+/* ---------------------------------------------------------------------------------------
+   TECHY MODE (techy-mode design §3.4) — the technical half of a work row.
+   Appended at the END so a parallel branch adding its own rules merges without touching a
+   line this one also touched.
+
+   §3.3's constraint is that the CALM DEFAULT is untouched, and it is: none of these rules
+   can match unless a row carries `detail`, which only `ViewMode::Technical` supplies. With
+   techy mode off, `.tl-tech` does not exist in the document.
+
+   The palette does not change. Techy mode is the SAME instrument showing more of itself,
+   not a developer console bolted to a calm app: same paper, same ink, same one accent, no
+   terminal green, no dark inversion. What changes is that the command is set in monospace,
+   because a command is a literal string whose characters have to be read exactly.
+--------------------------------------------------------------------------------------- */
+.tl-tech {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px; /* §17.2: activity 13–14px — unchanged from .tl-activity */
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.tl-tech-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tl-tech-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* The command itself. Monospace, and WRAPPED rather than truncated: §2.4 already bounded
+   what is stored, and an ellipsis through the middle of a command hides exactly the part
+   the CEO opened this view to read. `break-all` is deliberate — a long path has no spaces
+   to break at, and overflowing the reading column would be worse. */
+.tl-tech-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* An untyped vendor kind is ONE DIM LINE (§1.4 G5): it is an accounting update, not
+   something Rich did, and it must not read with the same weight as a command he ran. */
+.tl-tech[data-vendor] .tl-tech-title {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.tl-tech-chevron {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.tl-tech[data-state="failed"] .tl-activity-mark {
+  color: var(--danger);
+}
+
+.tl-tech[data-state="unknown"] .tl-activity-mark,
+.tl-tech[data-state="unknown"] .tl-activity-state {
+  color: var(--attention);
+}
+
+.tl-tech[data-state="completed"] .tl-activity-mark {
+  color: var(--success);
+}
+
+/* §2.4's normalized record: the bounded 84-char preview and the touched paths. These sit
+   under the head at ALL times, never behind the chevron — they are Tier A, they are never
+   evicted, and they are what still renders after the raw window has passed over the row. */
+.tl-tech-summary,
+.tl-tech-paths {
+  padding-left: 20px; /* aligns under the title, past the status glyph */
+  font-size: 12px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.tl-tech-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.tl-tech-path {
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+/* The raw pane (§5: "expands to the raw input and output"). Capped and scrollable: a single
+   Bash result is capped at 32 KB by §2.4, which is far more than fits on a screen, and
+   letting it push the conversation off the bottom would make the view unusable on the
+   turns that need it most. */
+.tl-tech-raw {
+  margin-left: 20px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--paper-rail);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The three sentences the raw pane can say, when it is saying something rather than
+   showing bytes. Not monospace — they are prose, and setting an explanation in a code face
+   is how "no longer retained" starts to read like output. */
+.tl-tech-raw[data-note] {
+  font-family: var(--font);
+  font-size: 12px;
+  font-style: italic;
+  white-space: normal;
+}
+
+/* ---------------------------------------------------------------------------------------
+   THE STATE LINE — what the CEO is told when there is no machinery to show.
+
+   Four states, three sentences, and the whole point is that they are DIFFERENT sentences
+   (machinery_view.rs). It sits above the conversation rather than inside a turn: it is a
+   fact about the thread, not about any one thing Rich did.
+--------------------------------------------------------------------------------------- */
+#techy-state {
+  /* STICKY inside the scroller, deliberately. It is a fact about the whole thread, and the
+     conversation opens scrolled to the BOTTOM — a line pinned above the first turn would
+     be the one thing the CEO never sees, in exactly the two states (nothing recorded, and
+     could not be read) where he most needs to be told something. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 auto;
+  max-width: var(--reading-width);
+  padding: 12px 28px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* An unreadable store is not an empty one, and it must not look like one. The one
+   non-accent state color the palette allows, and the same one an `unknown` outcome uses. */
+#techy-state[data-state="unreadable"] {
+  border-bottom-color: var(--attention);
+  box-shadow: inset 2px 0 0 var(--attention);
+  color: var(--ink);
+}
+
+#techy-state .techy-reason {
+  display: block;
+  margin-top: 6px;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+/* The one affordance techy mode adds to the conversation surface, and it appears ONLY when
+   the mode is ON (§3.3: "No affordance in the conversation, at all, when off. A visible
+   affordance IS a change to the default experience."). It says which mode you are in and
+   turns it off; it is not a discovery hint. */
+#techy-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+#techy-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+#techy-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The Settings line (§3.3: "v1 access = a keyboard shortcut, plus one line in Settings").
+   Whether a customer-facing affordance ever appears in the conversation is §7.3 — the
+   CEO's, unanswered — and adding one later is a `hidden` attribute on #techy-chip's
+   sibling, not a rewrite. */
+.popover-divider {
+  height: 1px;
+  margin: 10px -12px;
+  background: var(--line);
+}
+
+.popover-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+/* A note INSIDE the raw pane: today only the truncation notice, which sits under the prefix
+   it is about. A prefix that looks whole is worse than one that says it is not. */
+.tl-tech-note {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--attention);
+  white-space: normal;
+}

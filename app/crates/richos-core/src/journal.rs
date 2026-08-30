@@ -82,6 +82,60 @@ pub const RAW_MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 const MILLIS_PER_DAY: u64 = 86_400_000;
 
+/// WHY THERE IS NOTHING HERE — the four answers, kept apart on purpose.
+///
+/// The renderer this store was built for has to say something to the CEO when a thread
+/// shows no machinery, and *"no machinery was recorded for this conversation"* and
+/// *"this conversation had no machinery"* are different sentences. Only the first one is
+/// honest, and it is only honest when it is TRUE — which [`MachineryJournal::read_thread`]
+/// cannot tell you, because it returns an empty `Vec` for a thread that predates routing,
+/// for a directory the OS refused to open, and for an install where retention was never
+/// attached alike.
+///
+/// So the checked read distinguishes them, and the renderer says a different thing for
+/// each. An empty affordance is a lie about the system; so is an empty pane where the
+/// truth is "I could not read the file".
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThreadMachinery {
+    /// Records were read. Never empty — an empty result is [`Self::NothingRecorded`].
+    Recorded(Vec<MachineryRecord>),
+    /// The journal was readable and this thread has nothing in it. **The honest empty
+    /// state, and the only one of the four that may render as "nothing was recorded for
+    /// this conversation."** Every thread that ran before the routing commit lands here,
+    /// which is the unavoidable cost of the drop that preceded it (§5) and is pinned by
+    /// two existing tests.
+    NothingRecorded,
+    /// There is no machinery root at all: nothing on this install has ever been retained.
+    /// Different from the above because it is a fact about the INSTALL, not the thread —
+    /// a fresh machine, or a spine with no journal attached (`set_machinery_journal` is
+    /// optional, and the headless spine runs without one).
+    NotRetained,
+    /// The store is there and the OS refused to read it. **Never reported as empty.**
+    /// Carries the operator-facing reason; the CEO-facing sentence is the renderer's.
+    Unreadable(String),
+}
+
+impl ThreadMachinery {
+    /// The records, or an empty slice. For a caller that genuinely only wants rows —
+    /// never for one that has to TELL the CEO why there are none.
+    pub fn records(&self) -> &[MachineryRecord] {
+        match self {
+            ThreadMachinery::Recorded(v) => v,
+            _ => &[],
+        }
+    }
+
+    /// A stable wire tag for the four states.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThreadMachinery::Recorded(_) => "recorded",
+            ThreadMachinery::NothingRecorded => "nothing_recorded",
+            ThreadMachinery::NotRetained => "not_retained",
+            ThreadMachinery::Unreadable(_) => "unreadable",
+        }
+    }
+}
+
 /// The Tier-B sidecar line. Joined back to its Tier-A record by `machineryId`.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,6 +230,110 @@ impl MachineryJournal {
     pub fn project_thread(&self, thread_id: &str) -> Vec<MachineryRecord> {
         let records = self.read_thread(thread_id).into_iter().filter(|r| !r.internal).collect();
         crate::machinery::project(records)
+    }
+
+    /// [`Self::read_thread`], with the reason for an empty answer kept rather than
+    /// thrown away. See [`ThreadMachinery`] for why the four states are not one.
+    ///
+    /// An unparsable LINE is still skipped, exactly as `read_thread` skips it — a torn
+    /// line from a crash mid-append is not "the store is unreadable" and must not cost
+    /// the CEO the rest of the day (§2.2, this store is not truth). An unreadable
+    /// DIRECTORY or an unopenable SHARD is a different thing and is reported.
+    pub fn read_thread_checked(&self, thread_id: &str) -> ThreadMachinery {
+        // The root first: "this install has never retained anything" is a fact about the
+        // machine and must not be reported as a fact about the thread.
+        if let Err(e) = std::fs::read_dir(&self.root) {
+            return match e.kind() {
+                std::io::ErrorKind::NotFound => ThreadMachinery::NotRetained,
+                _ => ThreadMachinery::Unreadable(format!("{}: {e}", self.root.display())),
+            };
+        }
+        let dir = self.thread_dir(thread_id);
+        let days = match std::fs::read_dir(&dir) {
+            Ok(_) => self.day_shards(&dir),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return ThreadMachinery::NothingRecorded
+            }
+            Err(e) => return ThreadMachinery::Unreadable(format!("{}: {e}", dir.display())),
+        };
+
+        let mut out = Vec::new();
+        for day in days {
+            let raws = read_raw_shard(&dir.join(format!("{day}.raw.jsonl")));
+            let path = dir.join(format!("{day}.jsonl"));
+            let file = match File::open(&path) {
+                Ok(f) => f,
+                // The shard was listed one syscall ago, so a NotFound here is a shard that
+                // vanished under us (an eviction, a manual delete) — not a reason to
+                // refuse the rest of the thread.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return ThreadMachinery::Unreadable(format!("{}: {e}", path.display())),
+            };
+            for line in BufReader::new(file).lines().map_while(Result::ok) {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let Ok(mut rec) = serde_json::from_str::<MachineryRecord>(line) else { continue };
+                if let Some(raw) = raws.get(&rec.machinery_id) {
+                    rec.payload = Some(raw.0.clone());
+                    rec.truncated = raw.1;
+                }
+                out.push(rec);
+            }
+        }
+        if out.is_empty() {
+            // A thread directory that exists but holds nothing readable — an empty shard,
+            // or a day of torn lines. The store answered; there is nothing in it.
+            return ThreadMachinery::NothingRecorded;
+        }
+        ThreadMachinery::Recorded(out)
+    }
+
+    /// [`Self::project_thread`], checked. `internal: true` records are excluded here for
+    /// the same §1.5 reason — and note the consequence, which is correct and easy to
+    /// misread: a thread whose ONLY machinery is re-prime traffic reports
+    /// [`ThreadMachinery::NothingRecorded`], because from a thread view's point of view
+    /// nothing WAS recorded. Rotation machinery is retained for debugging and must never
+    /// surface, not even as a count.
+    pub fn project_thread_checked(&self, thread_id: &str) -> ThreadMachinery {
+        match self.read_thread_checked(thread_id) {
+            ThreadMachinery::Recorded(records) => {
+                let visible: Vec<MachineryRecord> = records.into_iter().filter(|r| !r.internal).collect();
+                if visible.is_empty() {
+                    return ThreadMachinery::NothingRecorded;
+                }
+                ThreadMachinery::Recorded(crate::machinery::project(visible))
+            }
+            other => other,
+        }
+    }
+
+    /// The Tier-B raw payload for ONE record, looked up by `machineryId` (§2.4's raw
+    /// pane), without materializing every payload in the thread.
+    ///
+    /// `Ok(None)` means **the raw window has passed over this record**: the normalized
+    /// record still renders — structure, title, status, paths, summary — and the raw pane
+    /// says so. An honest degrade, never a silent blank (§2.4).
+    ///
+    /// **Window-agnostic on purpose.** §7.2 (how long raw payloads survive) is the CEO's
+    /// open question, and nothing here reads the window: this returns what is on disk. Any
+    /// answer — 14 days, 2 GB, or forever — changes `evict_raw`'s arguments and changes
+    /// nothing about this function or about what the CEO sees.
+    pub fn raw_payload(&self, thread_id: &str, machinery_id: &str) -> Result<Option<(Value, bool)>, String> {
+        let dir = self.thread_dir(thread_id);
+        let days = match std::fs::read_dir(&dir) {
+            Ok(_) => self.day_shards(&dir),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("{}: {e}", dir.display())),
+        };
+        for day in days {
+            let raws = read_raw_shard(&dir.join(format!("{day}.raw.jsonl")));
+            if let Some(hit) = raws.get(machinery_id) {
+                return Ok(Some((hit.0.clone(), hit.1)));
+            }
+        }
+        Ok(None)
     }
 
     /// Day shards present for a thread, ascending. `YYYY-MM-DD` sorts lexicographically,
@@ -323,6 +481,147 @@ mod tests {
         let mut r = MachineryRecord::from_acp_update(&u, "sess", seq).unwrap().stamp(thread, turn, false);
         r.at = at;
         r
+    }
+
+    // ---- the four honest states (ThreadMachinery) --------------------------------
+
+    #[test]
+    fn an_install_that_has_never_retained_anything_says_so_and_does_not_say_empty() {
+        // A fact about the INSTALL, not about the thread. `read_thread` returns [] here
+        // and so cannot tell the renderer which sentence to say.
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        assert!(!root.exists(), "nothing written yet");
+        assert_eq!(j.read_thread_checked("thr_1"), ThreadMachinery::NotRetained);
+        assert_eq!(j.read_thread_checked("thr_1").as_str(), "not_retained");
+        assert_eq!(j.project_thread_checked("thr_1"), ThreadMachinery::NotRetained);
+    }
+
+    #[test]
+    fn a_thread_from_before_the_routing_commit_is_nothing_recorded_not_not_retained() {
+        // THE state the renderer must get right: the journal exists because OTHER threads
+        // ran, and this one predates routing. "No machinery was recorded for this
+        // conversation" is true here and only here.
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        j.append(&rec("thr_new", Some("turn_1"), 1, 1_756_425_600_000, 8)).unwrap();
+
+        assert!(matches!(j.read_thread_checked("thr_new"), ThreadMachinery::Recorded(v) if v.len() == 1));
+        assert_eq!(j.read_thread_checked("thr_old"), ThreadMachinery::NothingRecorded);
+        assert_eq!(j.project_thread_checked("thr_old").as_str(), "nothing_recorded");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_directory_the_os_refuses_is_unreadable_and_is_never_reported_as_empty() {
+        // The fourth state, and the one that is easiest to serve as a blank pane. Proven
+        // with a REAL chmod 000, not a mocked error: `read_thread` returns [] for this
+        // directory today, which would render as "nothing was recorded" over a thread
+        // whose machinery is sitting on disk one permission bit away.
+        use std::os::unix::fs::PermissionsExt;
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        j.append(&rec("thr_locked", Some("turn_1"), 1, 1_756_425_600_000, 8)).unwrap();
+        let dir = root.join("thr_locked");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        // The unchecked read cannot tell the difference — that is the defect this exists
+        // to fix, asserted rather than described.
+        assert!(j.read_thread("thr_locked").is_empty());
+
+        let checked = j.read_thread_checked("thr_locked");
+        assert_eq!(checked.as_str(), "unreadable");
+        match &checked {
+            ThreadMachinery::Unreadable(why) => {
+                assert!(why.contains("thr_locked"), "the reason names the path: {why}");
+                assert!(!why.is_empty());
+            }
+            other => panic!("expected Unreadable, got {other:?}"),
+        }
+        assert!(checked.records().is_empty(), "and it carries no rows to mistake for an answer");
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_thread_whose_only_machinery_is_reprime_traffic_reports_nothing_recorded() {
+        // §1.5: rotation machinery is retained for debugging and NEVER surfaces in a
+        // thread view — not even as a count, and not as a row the renderer then hides.
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        let mut internal = rec("thr_1", None, 1, 1_756_425_600_000, 8);
+        internal.internal = true;
+        j.append(&internal).unwrap();
+
+        assert!(matches!(j.read_thread_checked("thr_1"), ThreadMachinery::Recorded(v) if v.len() == 1),
+                "the raw read still sees it — it IS retained");
+        assert_eq!(j.project_thread_checked("thr_1"), ThreadMachinery::NothingRecorded,
+                   "but a thread view has nothing to show, and says the honest thing");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_torn_line_is_skipped_not_reported_as_an_unreadable_store() {
+        // §2.2: this store is not truth. One torn line from a crash mid-append must not
+        // cost the CEO the rest of the day, and must not be dressed up as an IO failure.
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        j.append(&rec("thr_1", Some("turn_1"), 1, 1_756_425_600_000, 8)).unwrap();
+        let shard = root.join("thr_1").join(format!("{}.jsonl", day_shard(1_756_425_600_000)));
+        let mut f = OpenOptions::new().append(true).open(&shard).unwrap();
+        f.write_all(b"{\"machineryId\":\"mach_tor").unwrap();
+        drop(f);
+
+        match j.read_thread_checked("thr_1") {
+            ThreadMachinery::Recorded(v) => assert_eq!(v.len(), 1, "the intact record survives"),
+            other => panic!("expected Recorded, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_empty_shard_file_is_nothing_recorded_not_recorded_with_zero_rows() {
+        // `Recorded(vec![])` would be a fifth state meaning the same as the second, and a
+        // renderer would eventually branch on the wrong one. It cannot be constructed.
+        let root = tmp();
+        std::fs::create_dir_all(root.join("thr_1")).unwrap();
+        std::fs::write(root.join("thr_1").join("2026-08-30.jsonl"), "").unwrap();
+        let j = MachineryJournal::new(&root);
+        assert_eq!(j.read_thread_checked("thr_1"), ThreadMachinery::NothingRecorded);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_raw_pane_can_tell_retained_from_evicted_without_knowing_the_window() {
+        // §2.4's honest degrade, and §7.2's shape: `raw_payload` reads what is on disk and
+        // never consults the retention window, so 14 days, 2 GB or forever all produce the
+        // same two answers here — the record, or "no longer retained".
+        let root = tmp();
+        let j = MachineryJournal::new(&root);
+        let at = 1_756_425_600_000;
+        let r = rec("thr_1", Some("turn_1"), 1, at, 8);
+        let id = r.machinery_id.clone();
+        j.append(&r).unwrap();
+
+        let got = j.raw_payload("thr_1", &id).unwrap();
+        assert!(got.is_some(), "retained while the Tier-B sibling is there");
+        assert_eq!(got.unwrap().1, false, "and not truncated at 8 bytes");
+
+        // Evict exactly the way `evict_raw` does: unlink the sibling. Tier A is untouched.
+        std::fs::remove_file(root.join("thr_1").join(format!("{}.raw.jsonl", day_shard(at)))).unwrap();
+        assert_eq!(j.raw_payload("thr_1", &id).unwrap(), None, "gone, and said so");
+        match j.read_thread_checked("thr_1") {
+            ThreadMachinery::Recorded(v) => {
+                assert_eq!(v.len(), 1, "the normalized record still renders");
+                assert_eq!(v[0].payload, None, "with no raw half");
+                assert_eq!(v[0].title, "Terminal", "structure, title and status survive");
+                assert_eq!(v[0].status, Some(ToolStatus::Pending));
+            }
+            other => panic!("expected Recorded, got {other:?}"),
+        }
+        assert_eq!(j.raw_payload("thr_never_existed", &id).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

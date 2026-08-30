@@ -378,9 +378,9 @@ This is deliberately the gap `engine/scripts/publication-completeness.sh` names 
 its reach: *"SEMANTIC honesty. Every path in a document can resolve while the sentence
 around it is false."* Every path in `app/README.md` did resolve the whole time.
 
-## Machinery routing (techy mode, Phase 1 — routing + retention only)
+## Machinery routing and the technical view (techy mode)
 
-Every non-text ACP update is now **routed**, not dropped, into a second event family
+Every non-text ACP update is **routed**, not dropped, into a second event family
 (`rich://machinery`) and retained in a separate per-thread journal at
 `<app-data>/machinery/<thread_id>/<YYYY-MM-DD>.jsonl`. Contract:
 `richos-hq/docs/plans/richos-techy-mode-2026-08-26.md`. UI contract: `app/STREAMING.md`.
@@ -388,23 +388,51 @@ Every non-text ACP update is now **routed**, not dropped, into a second event fa
 **Retention is unconditional and has no setting** — that is what makes it possible to turn
 the technical view on for a conversation that already happened.
 
-Three limits, stated rather than discovered later:
+**The technical view itself landed 2026-08-30.** `get_machinery` serves one thread's
+machinery as its timeline at `ViewMode::Technical` — the same items, the same ids and the
+same `(turn, slot, sequence)` order as the calm view, with the technical half of each row
+kept rather than removed. `app/ui/` renders it inline, one line per tool call, with the
+status each actually returned; `get_machinery_raw` fetches §2.4's raw pane on expand. The
+toggle is `techy_mode` / `set_techy_mode` / `set_techy_default`: ⌘⇧T pins one conversation,
+one line in Settings switches all of them. **With it off, the conversation surface is
+byte-identical to what shipped** — no chip, no chevron, no hint — and `tests/techy.js`
+check 11 asserts that by comparing `#messages` innerHTML across a round trip.
+
+Five limits, stated rather than discovered later:
 
 1. **Retroactivity begins at the routing commit.** A thread that ran before it has no
-   machinery at all, and the honest state is *"nothing was recorded for this
-   conversation."* Nothing earlier is recoverable, ever.
+   machinery at all, and the honest state is *"No machinery was recorded for this
+   conversation."* Nothing earlier is recoverable, ever. **That sentence is one of four**
+   (`machinery_view.rs`): `nothing_recorded`, `not_retained` (nothing on this install),
+   `unreadable` (the store is there and the OS refused it) and `recorded`. They are
+   deliberately not one sentence — an unreadable store served as an empty one is the
+   product lying about its own record.
 2. **`agent_thought_chunk` produces nothing today.** Measured across five probe runs of
    `claude-agent-acp` 0.70.0, including one built solely to elicit it: zero. The adapter
    guards the update on non-empty thinking text, and recent models omit it
    (`docs/verification/acp-emission-probe-2026-08-28.md` §4.1). The route exists so there
-   is no hole the day that changes; there is no thought data to render right now.
+   is no hole the day that changes; **no `● thinking` row is drawn**, because an
+   always-empty affordance says the model is not thinking when the truth is that the
+   adapter does not say. Same for `fs/read_text_file` / `fs/write_text_file`.
 3. **Between-turn updates are still dropped.** One `available_commands_update` at session
    start and one `session_info_update` after each turn ends reach no sink, because the
-   client only delivers updates while a prompt is in flight. §1.5 designs the fix; it is
-   Phase 2.
+   client only delivers updates while a prompt is in flight. §1.5 designs the fix.
+4. **The technical view is a RELOAD path, not a live technical stream.** While a turn runs
+   its rows arrive from the calm live family, which is CEO-shaped by construction, so they
+   gain their technical half when the turn ends. `rich://machinery` still has no UI
+   subscriber, and that is deliberate: subscribing would turn "the calm view does not
+   subscribe to this event" from a structural fact into a runtime branch.
+5. **No control of any kind.** No interrupt, no approve/deny, no re-run. Techy mode is a
+   window, not a cockpit — `tests/techy.js` check 15 asserts the only button inside a
+   technical row is its own disclosure.
 
-Not built here, deliberately: the per-thread toggle, `techy_default`, any renderer, and any
-control whatsoever. Techy mode is a window, not a cockpit.
+**The four §7 questions are the CEO's and are left open** (`richos-hq/wiki/open-items.md`
+1.4). Global default vs per-thread: both exist and both are reversible
+(`set_techy_mode(enabled: null)` hands a pinned thread back). The raw-payload window:
+nothing in the read path or the renderer consults it, and no sentence names a duration.
+Whether customers can find it: no conversation-surface affordance while it is off. Whether
+deleting a thread deletes its machinery: no delete-thread command is added, and both
+primitives exist (`MachineryJournal::delete_thread`, `ConfigStore::forget_techy_thread`).
 
 ## Feedback channel — the local half (v1)
 
@@ -465,7 +493,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 437 tests + 5 doc-tests
+cargo test -p richos-core                       # 451 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

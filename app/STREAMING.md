@@ -178,8 +178,30 @@ Five rules for whoever renders this:
    vendor's own kind name is in `title`. Render it as one dim line.
 
 **Retroactivity, stated honestly:** retention began at the routing commit. A thread that
-ran before it has no machinery at all, and the honest empty state is *"nothing was
-recorded for this conversation."* — not an error, and not a blank pane.
+ran before it has no machinery at all, and the honest empty state is *"No machinery was
+recorded for this conversation."* — not an error, and not a blank pane. It is one of
+**four** states, and they are deliberately not one sentence: `recorded`,
+`nothing_recorded`, `not_retained` (nothing on this install) and `unreadable` (the store
+is there and the OS refused it). Serving the second over the fourth is the product lying
+about its own record.
+
+### The technical view reads this store; it does not subscribe to this event
+
+**As of 2026-08-30 nothing in `app/ui/` listens to `rich://machinery`, and that is
+deliberate.** The opt-in technical view (techy mode) is served by three commands, not by
+this event:
+
+| Command | Answers |
+|---|---|
+| `get_machinery({threadId})` | `{threadId, state, rowCount, sentence, reason, timeline}` — `timeline` is the SAME projection `get_timeline` returns, at `ViewMode::Technical`: same items, same ids, same `(turn, slot, sequence)` order, with each row's `detail` kept rather than removed. `state` is one of the four above; `sentence` is `null` when there is machinery. |
+| `get_machinery_raw({threadId, machineryId})` | `{state, payload, truncated, note}` — §2.4's raw pane, one record at a time. `state` is `retained` \| `not_retained` \| `unreadable`; `note` is the sentence to show when there are no bytes. |
+| `techy_mode` / `set_techy_mode` / `set_techy_default` | The per-thread toggle and the global default. `set_techy_mode(enabled: null)` CLEARS a pin. |
+
+The reason to keep the reload path rather than subscribe: the sentence at the top of this
+section — *"the default conversation view does NOT subscribe to this event, and must
+not"* — is a structural fact today, and a renderer that subscribed conditionally would
+make it a runtime branch. The cost is named: while a turn is running, its rows arrive
+through the calm live family without their technical half and gain it when the turn ends.
 
 ---
 

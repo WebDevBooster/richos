@@ -951,4 +951,121 @@ module.exports = [
       "A genuine false positive of the prose filter, kept visible rather than special-cased " +
       "away — a filter with a hidden exception list is the next drift.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // TECHY MODE (open-items row 3.1, techy-mode design §3.1/§3.3/§3.4)
+  //
+  // The four state sentences answer ONE question — "why is there no machinery here?" — and
+  // they are deliberately four different answers. Two are INFORMATIONAL (there is genuinely
+  // nothing to do about a record that was never written) and two are NEEDS-SOMEONE-ELSE (a
+  // store the OS is refusing has an owner, and it is not the CEO). Collapsing them into one
+  // bucket would be the same mistake as collapsing them into one sentence.
+  // -------------------------------------------------------------------------------------
+  {
+    s: "I can't read the technical record for this conversation. It's on this machine and I haven't lost it — something is refusing to open it, and whoever set RichOS up needs to look.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: "techy-unreadable",
+    why:
+      "`machinery_view.rs::UNREADABLE`. Nothing to press: the CEO cannot chmod a directory " +
+      "from a conversation, and offering him a Retry over a permission bit would be a " +
+      "control that does nothing. It names the owner instead, and says plainly that the " +
+      "record is not lost — the state it must never be confused with is `nothing_recorded`, " +
+      "which claims the opposite.",
+  },
+  {
+    s: "I can't read the stored output for this one. It's on this machine and I haven't lost it — whoever set RichOS up needs to look.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    why:
+      "`main.rs::RAW_UNREADABLE`, the same fault one level down — the Tier-B raw shard for " +
+      "ONE record. No fixture: reaching it needs the raw sibling to be unreadable while the " +
+      "Tier-A shard is fine, which is a real filesystem state and not one this harness can " +
+      "produce, because `breakMachinery` takes the whole thread directory (and then there " +
+      "are no rows left to expand). Named rather than left unclassified.",
+  },
+  {
+    s: "No machinery was recorded for this conversation. Retention started on 2026-08-28, and anything Rich did before that was never written down — so this is a gap in the record, not a quiet conversation.",
+    c: "INFORMATIONAL",
+    fixture: "techy-empty",
+    why:
+      "`machinery_view.rs::NOTHING_RECORDED`. THE honest empty state, and there is nothing " +
+      "to do about it by construction: routing began at richos `48561e4` and dropped bytes " +
+      "are unrecoverable, forever. The second clause exists because the sentence would " +
+      "otherwise read as a claim about the CONVERSATION rather than about the RECORD.",
+  },
+  {
+    s: "Nothing has been recorded on this machine yet. The technical view reads a store that hasn't been written to — it fills up as Rich works.",
+    c: "INFORMATIONAL",
+    why:
+      "`machinery_view.rs::NOT_RETAINED` — a fact about the INSTALL, not the thread: no " +
+      "machinery root at all, or a spine with no journal attached. No fixture: the mock " +
+      "always has a journal, and faking the state would prove the mock. Nothing to do — " +
+      "retention is unconditional (§3.2) and starts the first time Rich uses a tool.",
+  },
+  {
+    s: "The full output isn't kept this long — what's above is the whole record that was.",
+    c: "INFORMATIONAL",
+    fixture: "techy-on",
+    why:
+      "`main.rs::RAW_NOT_RETAINED`. §2.4's honest degrade: the Tier-B window passed over " +
+      "this row and the normalized record above it is untouched. Nothing to do, and it " +
+      "deliberately names NO duration — how long raw payloads survive is §7.2, the CEO's " +
+      "open question, and a sentence saying '14 days' would answer it in copy.",
+  },
+  {
+    s: "This output was longer than RichOS keeps; you're seeing the start of it.",
+    c: "INFORMATIONAL",
+    fixture: "techy-on",
+    why:
+      "`main.rs::RAW_TRUNCATED` — §2.4's 32 KB per-record cap fired and what is on screen " +
+      "is a prefix. Nothing to do; the label exists because a prefix that looks whole is " +
+      "worse than one that says it is not.",
+  },
+  {
+    s: "The stored output isn't reachable in this build.",
+    c: "INFORMATIONAL",
+    why:
+      "main.js's fallback when `get_machinery_raw` is not a registered command — the mock " +
+      "harness, or a shell built without the techy commands. It states the limit rather " +
+      "than leaving an empty pane, and there is nothing for the CEO to do about which " +
+      "commands his build registered.",
+  },
+  {
+    s: "Technical view · this conversation",
+    c: "CONTROL",
+    why: "#techy-chip's label when a per-thread pin is holding it on. Pressing it turns it off.",
+  },
+  {
+    s: "Technical view · everywhere",
+    c: "CONTROL",
+    why: "#techy-chip's label when the global default is holding it on. Same button, different cause.",
+  },
+  {
+    s: "Technical view is on for this conversation. Turn it off.",
+    c: "CONTROL",
+    why: "#techy-chip's accessible name in the pinned case — the label plus what pressing it does.",
+  },
+  {
+    s: "Technical view is on for every conversation. Turn it off here.",
+    c: "CONTROL",
+    why: "#techy-chip's accessible name in the global case. 'here' because the switch it undoes is in Settings.",
+  },
+  { s: "Show the technical view", c: "CONTROL", why: "Settings popover title over #techy-default." },
+  { s: "In every conversation", c: "CONTROL", why: "#techy-default's checkbox label — §3.1's one switch for 'all'." },
+  {
+    s: "This conversation is set on its own. changes just this one.",
+    c: "CONTROL",
+    why:
+      "#techy-hint under the Settings switch, with the `${key}` shortcut hole folded out by " +
+      "the scraper — it renders as 'This conversation is set on its own. ⌘⇧T changes just " +
+      "this one.' It describes the KEYBOARD affordance and distinguishes it from the switch " +
+      "beside it, so it is a control's description rather than a state: there is no fault " +
+      "here and nothing has gone wrong.",
+  },
+  {
+    s: "shows it for one conversation only.",
+    c: "CONTROL",
+    why: "The other branch of #techy-hint, for a thread that is following the global default. Same hole, same job.",
+  },
 ];

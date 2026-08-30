@@ -77,7 +77,7 @@ pub mod worker_status;
 pub use belief::{BeliefAsk, BeliefDetection, BeliefRejection, ValueClass};
 pub use heard::{DictationEntry, DictationJournal, HeardMatch, HeardReview, HeardSource};
 pub use cognition::{Cognition, CognitionError, LeaseFactory};
-pub use config::{Assertiveness, ConfigStore};
+pub use config::{Assertiveness, ConfigStore, TechyMode, TechySource};
 pub use feedback::{
     render_disclosure, ApprovedReport, ContributingCondition, DiagnosisTerm, Disclosure,
     FailureClass, FeedbackEntry, FeedbackPayload, FeedbackStore, Occurrences, PromptOutcome,
@@ -88,7 +88,7 @@ pub use entity::{
     Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
     ThreadBinding, ThreadEntity,
 };
-pub use journal::MachineryJournal;
+pub use journal::{MachineryJournal, ThreadMachinery};
 pub use ledger::{AttentionTier, Ledger, Message, Source, TextRun, TurnState};
 pub use live::{
     EventFence, LiveEvent, LiveObserver, ThreadStatus, TurnStatus, EVENT_ACTIVITY_UPSERTED,
