@@ -1,0 +1,19 @@
+{
+  "ask": {
+    "anchor": "Send the Kestral deck to Marla before Friday.",
+    "frame": "silent-edit",
+    "from": "Kestral",
+    "key": "kestral=>kestrel",
+    "leg": "both",
+    "orthographic": 0.857,
+    "phonetic": 1.0,
+    "to": "Kestrel"
+  },
+  "at": 0,
+  "declinedBefore": 0,
+  "key": "kestral=>kestrel",
+  "prompt": "Add \"Kestrel\" to your vocabulary?",
+  "threadId": "femcboost:general",
+  "turnId": "turn_silent_edit",
+  "utterance": "Send the Kestrel deck to Marla before Friday."
+}
