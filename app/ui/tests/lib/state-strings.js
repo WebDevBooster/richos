@@ -372,6 +372,57 @@ function rustStringLiterals(src) {
 /// the very module written to stop it.
 const RUST_CEO_CONTEXT = /\bErr\(|\bok_or|const\s+[A-Z0-9_]+\s*:\s*&'?\w*\s*str\s*=|\.into\(\)/;
 
+/// The 0-based `[first, last]` line range of every `#[cfg(test)]` item in a Rust file.
+///
+/// Braces are counted from the item's opening `{`, with string and char literals and
+/// comments skipped so a `"}"` inside a fixture cannot close the module early. A
+/// `#[cfg(test)]` on something with no block at all (a `use`, a `const`) covers its own
+/// line only, which is what it should.
+function testModuleRanges(lines) {
+  const ranges = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*#\[cfg\(test\)\]/.test(lines[i])) continue;
+    // Walk forward to the block that attribute is attached to. An intervening attribute or
+    // a `mod x` written across lines is fine; a `;` before any `{` means there is no block.
+    let j = i;
+    let opened = false;
+    let depth = 0;
+    let end = i;
+    scan: for (; j < lines.length; j++) {
+      const line = lines[j];
+      for (let k = 0; k < line.length; k++) {
+        const c = line[k];
+        if (c === "/" && line[k + 1] === "/") break; // rest of the line is a comment
+        if (c === '"') {
+          k++;
+          while (k < line.length && line[k] !== '"') {
+            if (line[k] === "\\") k++;
+            k++;
+          }
+          continue;
+        }
+        if (c === "{") {
+          opened = true;
+          depth++;
+        } else if (c === "}") {
+          depth--;
+          if (opened && depth <= 0) {
+            end = j;
+            break scan;
+          }
+        } else if (c === ";" && !opened) {
+          end = j;
+          break scan;
+        }
+      }
+      end = j;
+    }
+    ranges.push([i, end]);
+    i = end;
+  }
+  return ranges;
+}
+
 function rustStrings() {
   const files = [];
   for (const r of RUST_ROOTS) walk(r, files);
@@ -381,15 +432,20 @@ function rustStrings() {
     const src = fs.readFileSync(f, "utf8");
     const lines = src.split("\n");
 
-    // Inline `#[cfg(test)] mod tests { … }` — test prose is not product prose, and a
+    // Inline `#[cfg(test)] mod … { … }` — test prose is not product prose, and a
     // directory-based exclusion cannot see a module that lives inside a shipped file.
-    let testStart = Infinity;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^\s*mod tests\s*\{/.test(lines[i]) || /^\s*#\[cfg\(test\)\]/.test(lines[i])) {
-        testStart = i + 1;
-        break;
-      }
-    }
+    //
+    // THE MODULE'S EXTENT IS COUNTED, NOT ASSUMED TO RUN TO EOF. Until 2026-08-30 this
+    // took the FIRST `#[cfg(test)]` line and skipped everything after it, which is only
+    // correct for a file whose test module is last. `src-tauri/src/main.rs` is not that
+    // file: `mod navigation_tests` sits at :1378-:1563 with 311 lines of SHIPPING command
+    // code after it, so both correction desks' CEO-facing refusals — the loro sentence at
+    // :1693 and the spoken one at :1800 — were invisible to this inventory and therefore
+    // to the affordance rule. That is the typed-list defect in its scanner costume: a
+    // boundary guessed once instead of derived, reporting a complete scrape over 83% of a
+    // file. The braces are now balanced from the module's opening `{`.
+    const testRanges = testModuleRanges(lines);
+    const inTests = (idx) => testRanges.some(([a, b]) => idx >= a && idx <= b);
 
     // The nearest preceding `fn NAME`, per line.
     const fnAt = [];
@@ -402,7 +458,7 @@ function rustStrings() {
 
     for (const lit of rustStringLiterals(src)) {
       const idx = lit.line - 1;
-      if (idx >= testStart) continue;
+      if (inTests(idx)) continue;
       if (!looksLikeProse(lit.text)) continue;
       const own = lines[idx] || "";
       if (/assert/.test(own)) continue;
@@ -468,6 +524,7 @@ function mockStrings() {
 
 module.exports = {
   inventory,
+  testModuleRanges,
   mockStrings,
   rustStrings,
   jsStringLiterals,

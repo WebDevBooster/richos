@@ -544,6 +544,50 @@ module.exports = [
     why: "raise_proactive_message's Err. Registered, never invoked by main.js.",
   },
   {
+    s: "No loro corpus is configured for this install, so there is nothing to read or correct. That is a statement about this install, not about what is recorded.",
+    c: "NOT-RENDERED",
+    why:
+      "The loro correction desk's own refusal (main.rs, `desk()`). SURFACED BY THE SCRAPE FIX " +
+      "IN THIS COMMIT, not by a new sentence: main.rs carries an inline `#[cfg(test)] mod " +
+      "navigation_tests` at :1378-:1563 and 311 lines of shipping command code after it, and " +
+      "the extractor used to skip from the first `#[cfg(test)]` to EOF. NOT-RENDERED is the " +
+      "true classification of THIS tree and it is exactly RICH-TODOs row 5b: no file in " +
+      "app/ui/ invokes any of the eight `loro_*` commands, so nothing can reach the DOM. It " +
+      "is reclassified the moment a surface renders it.",
+  },
+  {
+    s: "I can't record corrections right now — my correction log could not be opened. Nothing you say is being lost from the conversation itself.",
+    c: "NOT-RENDERED",
+    why:
+      "The spoken correction desk's refusal (main.rs, `spoken_desk()`), surfaced by the same " +
+      "scrape fix and NOT-RENDERED for the same reason: no caller in app/ui/ invokes any of " +
+      "the six `spoken_*` commands. Row 5b's other half.",
+  },
+  {
+    s: "no correction {key} is awaiting an answer",
+    c: "NOT-RENDERED",
+    why:
+      "`spoken_confirm_correction`'s refusal when the key names no pending candidate. Nothing " +
+      "in app/ui/ invokes that command, so the sentence has no route to a screen.",
+  },
+  {
+    s: "nothing to add",
+    c: "NOT-RENDERED",
+    why:
+      "`steer_message`'s empty-text refusal. Two independent reasons it never reaches the DOM: " +
+      "`send()` returns at main.js:1097 before any invoke when the trimmed text is empty, and " +
+      "`steer()`'s catch (main.js:1212-1219) replaces whatever the backend said with its own " +
+      "authored notice about the words being back in the box.",
+  },
+  {
+    s: "unexpected intake record: {other:?}",
+    c: "NOT-RENDERED",
+    why:
+      "A `{other:?}` Debug hole in `steer_message` — machinery for an engineer, and unreachable " +
+      "besides: `TurnControl::steer` (steering.rs:470-475) constructs `IntakeRecord::Steer` and " +
+      "returns nothing else. `steer()`'s catch would swallow it either way.",
+  },
+  {
     s: "mock: no such command",
     c: "NOT-RENDERED",
     why:
