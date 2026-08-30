@@ -178,7 +178,7 @@ mkdir -p "$ALLOW_CONFIG_ROOT/scripts/hooks"
 cp "$HOOK" "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh"
 chmod +x "$ALLOW_CONFIG_ROOT/scripts/hooks/scan-secrets.sh"
 mkdir -p "$ALLOW_CONFIG_ROOT/scripts/lib"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$ALLOW_CONFIG_ROOT/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/seat-jurisdiction.sh" "$ALLOW_CONFIG_ROOT/scripts/lib/"
 cat >"$ALLOW_CONFIG_ROOT/orchestration.config" <<'CFG'
 SECRET_SCAN_ALLOWLIST="AKIAABCDEFGHIJKLMNOP"
 CFG
@@ -229,7 +229,7 @@ ca_mkroot() { # <value>
     local d; d="$(mktemp -d "${TMPDIR:-/tmp}/scan-secrets-codeaware.XXXXXX")"
     mkdir -p "$d/scripts/hooks" "$d/scripts/lib"
     cp "$HOOK" "$d/scripts/hooks/scan-secrets.sh"; chmod +x "$d/scripts/hooks/scan-secrets.sh"
-    cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$d/scripts/lib/"
+    cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/seat-jurisdiction.sh" "$d/scripts/lib/"
     printf 'SECRET_SCAN_CODE_AWARE=%s\n' "$1" >"$d/orchestration.config"
     printf '%s' "$d"
 }

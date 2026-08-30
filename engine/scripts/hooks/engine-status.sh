@@ -203,9 +203,21 @@ case "$RICHOS_ROOT_STATUS" in
             "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE for ${RICHOS_ENTITY_ROOT_RESOLVED} (${GUARD_COUNT}/${GUARD_EXPECTED} guards, engine at ${ENGINE_ROOT}, root via ${RICHOS_ROOT_SOURCE}).${GUARD_NOTE}"
         ;;
     engine-self)
+        # THE NESTED-ENGINE CASE. When the engine is a subdirectory of a repo
+        # that never adopted, "governing ITSELF" is true and dangerously
+        # incomplete: it does not say that everything ELSE in the enclosing
+        # repository is unprotected. richos read this banner as ENFORCEMENT
+        # ACTIVE for a day while its product tree (richos/app/) took writes with
+        # no guard at all. Name the tree, or the banner is reassurance.
+        ENCL_MODEL=""
+        ENCL_OP=""
+        if [ -n "${RICHOS_ROOT_UNGOVERNED_ENCLOSING:-}" ]; then
+            ENCL_MODEL=" UNPROTECTED: the engine is NESTED inside ${RICHOS_ROOT_UNGOVERNED_ENCLOSING}, which has NOT adopted it. Every protected path is resolved against ${RICHOS_ENTITY_ROOT_RESOLVED}, so NOTHING under ${RICHOS_ROOT_UNGOVERNED_ENCLOSING} outside the engine is guarded — not its source trees, not its main-checkout writes. Adopt it by committing an orchestration.config at its root."
+            ENCL_OP=" UNPROTECTED: ${RICHOS_ROOT_UNGOVERNED_ENCLOSING} has NOT adopted the engine — nothing in it outside ${RICHOS_ENTITY_ROOT_RESOLVED} is guarded."
+        fi
         emit_context \
-            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards).${GUARD_NOTE} NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else." \
-            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/${GUARD_EXPECTED} guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else.${GUARD_NOTE}"
+            "RichOS engine ${VERSION} ACTIVE — governing ITSELF. Engine: ${ENGINE_ROOT}. Governing: ${RICHOS_ENTITY_ROOT_RESOLVED}. ${GUARD_COUNT}/${GUARD_EXPECTED} guards present (denominator derived from the engine's hooks/hooks.json registration; the status announcer itself is not counted among the guards).${GUARD_NOTE} NOTE: no repository in this session's candidate chain carries orchestration.config, so the guards are acting on the engine's own tree rather than on the session's project directory. That is correct when you are developing the engine and wrong for anything else.${ENCL_MODEL}" \
+            "RichOS engine ${VERSION}: ENFORCEMENT ACTIVE, governing ITSELF at ${ENGINE_ROOT} (${GUARD_COUNT}/${GUARD_EXPECTED} guards). No repository in this session's candidate chain carries orchestration.config — right when you are developing the engine, wrong for anything else.${ENCL_OP}${GUARD_NOTE}"
         ;;
     not-adopted)
         # Loud enough to be seen, calm enough not to be noise: this is the

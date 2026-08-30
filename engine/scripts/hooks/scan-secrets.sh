@@ -79,6 +79,30 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# --- JURISDICTION ----------------------------------------------------------
+# Deliberately BELOW the root-resolution bootstrap, never inside it: Layer R of
+# contract-integrity-probe.sh extracts that block verbatim and asserts it is
+# byte-identical across every rooted hook, so anything added inside it would
+# read as divergence.
+#
+# The seat resolved above answers "am I governed?". It does NOT answer "does
+# the artifact I was just handed belong to the repository I govern?" — and
+# until 2026-08-30 nothing asked. See scripts/lib/seat-jurisdiction.sh.
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/scan-secrets.sh"
+        echo "  scripts/lib/seat-jurisdiction.sh is missing at: $_SJ_LIB"
+        echo "  Without it this guard cannot tell whether the artifact it was"
+        echo "  handed belongs to the repository it governs, and a guard that"
+        echo "  cannot tell must not answer."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/seat-jurisdiction.sh
+. "$_SJ_LIB"
+
 # Read the payload BEFORE resolving, so the payload's `cwd` is available as a
 # resolution candidate. It is the only candidate a subagent session is
 # guaranteed to carry.
@@ -89,9 +113,23 @@ INPUT="$(cat)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
-    # This repository never adopted the engine, so there is no enforcement to
-    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
-    # stand-down into the orchestrator's own context at every session start.
+    # STAND DOWN — LOUDLY. And the loudness is the only thing that changed here,
+    # deliberately.
+    #
+    # I first made this arm carry on scanning, reasoning that a leaked
+    # credential is not less leaked because the directory it was written from
+    # never adopted the engine. root-contract.test.sh case 8b went red and it
+    # was right to. This plugin is enabled at USER SCOPE: it loads in EVERY
+    # directory on this machine, so "scan anyway" does not mean "one more
+    # repository protected", it means THIS ENGINE STARTS BLOCKING WRITES IN
+    # PROJECTS THAT NEVER OPTED IN. That is not a bug fix, it is a policy
+    # expansion, and it is the same class of decision as adoption itself —
+    # not one to take inside a fix for something else.
+    #
+    # The mandate was to make standing down LOUD, not to make enforcement
+    # universal. So: it stands down, and it says so, naming the repository.
+    richos_announce_stand_down "scripts/hooks/scan-secrets.sh" \
+        "this repository has not adopted the engine, so nothing written here is scanned for credentials"
     exit 0
 else
     # BROKEN: this guard believes it is governing something and cannot. Block.
@@ -99,6 +137,10 @@ else
     exit 2
 fi
 
+# The thresholds must come from the repository that governs the FILE, not from
+# wherever the session sits — an allowlist written for one repository has no
+# authority over another's secrets. This load covers the seat case; it is redone
+# below against the governing root when the two differ.
 CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
@@ -121,6 +163,38 @@ case "$TOOL_NAME" in
 esac
 
 FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); ti=d.get("tool_input",{}) or {}; print(ti.get("file_path") or ti.get("notebook_path") or "")' 2>/dev/null || true)"
+
+# --- JURISDICTION: ANNOUNCED, AND DELIBERATELY NOT SKIPPED -----------------
+# Every other diverging guard exits 0 when the artifact is not its own. This
+# one MUST NOT, and the asymmetry is the point.
+#
+# A secret written into someone else's repository is still a leaked secret. The
+# rule is "an artifact outside the seat is announced, never silently allowed" —
+# and here it is not allowed at all, it is scanned. Declining would move
+# enforcement in the LESS SAFE direction, which no jurisdiction rule is allowed
+# to do.
+#
+# What the announcement actually buys is the config mismatch: allowlist, minimum
+# length and entropy floor were loaded from the SEAT's orchestration.config and
+# are about to be applied to a file in a different repository, whose own
+# thresholds may be nothing like them. That is worth saying out loud once.
+richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+
+# Re-resolve the thresholds against the repository that actually governs this
+# file. No governing root is NOT a reason to stop scanning — it is a reason to
+# scan on the built-in defaults, which is exactly what the ':=' fallbacks are.
+SS_GOV=""
+SS_GOV="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}" 2>/dev/null || true)"
+if [ -n "$SS_GOV" ] && [ "$SS_GOV" != "$ENTITY_ROOT" ]; then
+    SECRET_SCAN_ALLOWLIST=""
+    # shellcheck disable=SC1090
+    [ -f "$SS_GOV/orchestration.config" ] && . "$SS_GOV/orchestration.config"
+    : "${SECRET_SCAN_MIN_LENGTH:=12}"
+    : "${SECRET_SCAN_MIN_ENTROPY:=3.0}"
+    : "${SECRET_SCAN_ALLOWLIST:=}"
+    : "${SECRET_SCAN_CODE_AWARE:=0}"
+    export SECRET_SCAN_MIN_LENGTH SECRET_SCAN_MIN_ENTROPY SECRET_SCAN_ALLOWLIST SECRET_SCAN_CODE_AWARE
+fi
 
 # The actual scan: extract every piece of NEW text this call would introduce
 # (Write: content; Edit: new_string; MultiEdit: each edits[].new_string;
