@@ -251,7 +251,16 @@ app/
     examples/timeline_payload.rs prints that payload from a real ledger (what realbytes.js
                               renders, so backend/UI field drift cannot go unnoticed)
     examples/stop_payload.rs the stop path's wire bytes, for the same reason
+    Info.plist               the macOS privacy strings (NSMicrophoneUsageDescription)
+    Entitlements.plist       hardened-runtime entitlements — used ONLY by the
+                              --sign developer-id path, referenced nowhere in
+                              tauri.conf.json, and never yet used to sign anything
     tauri.conf.json, capabilities/, icons/
+  scripts/
+    package-app.sh           the packaging entrypoint: builds, signs, VERIFIES, and
+                              refuses — the caller that arms build.rs's icon gate
+    generate-app-icons.sh    one artwork PNG in, every artefact tauri.conf.json declares out
+    lib/app_icons.py         the generator + verifier both of the above run
   ui/                        the web UI — the CEO-facing surface
     index.html               the shell: rail, header, timeline, inspector, composer
     main.js                  the WIRING — commands, the four families' listeners, the rail,
@@ -553,12 +562,21 @@ has yet.
 - `cargo check` / `cargo build` → **warnings only**, exit 0.
 - `RICHOS_REQUIRE_REAL_ICONS=1` → **panics**, refuses to build.
 
-**Nothing sets that variable yet.** Previous text here claimed it was "set by bundling
-and CI"; it is not, because this repository has no bundling script and no CI job that
-builds the app — `.github/workflows/` contains only `engine-self-verify.yml`. The
-mechanism works and is proven in both directions, but the caller that would arm it does
-not exist. **Whoever adds the packaging entrypoint must export
-`RICHOS_REQUIRE_REAL_ICONS=1`**, or a bundle can still ship a placeholder icon.
+**`app/scripts/package-app.sh` sets it** (2026-08-30). Two earlier versions of this
+paragraph were wrong in opposite directions: one claimed the variable was "set by
+bundling and CI" when nothing set it, and its correction then said
+`.github/workflows/` contained only `engine-self-verify.yml`. There are three
+workflows — `app-spine-ci.yml`, `engine-self-verify.yml`, `windows-companion-ci.yml`.
+The **conclusion** that sentence was drawn to support is nonetheless still true, and
+survives the correction: **no CI job builds this crate.** `app-spine-ci.yml`'s own
+header excludes `app/src-tauri` by name as "a deliberately detached workspace with the
+whole webview dependency tree behind it". So CI is not what arms the gate, and an
+ordinary `cargo build` must stay non-fatal.
+
+The packaging entrypoint is what arms it, and the pre-flight it runs first is
+convenience rather than the guarantee. Proven by deleting the pre-flight from the
+script and resizing `icons/32x32.png` to 16x16: the run still stopped at `build.rs`'s
+panic and exited 4 with nothing packaged.
 
 Verified on the committed placeholder set: 12 warnings and `Finished dev profile` in the
 first mode, a hard panic in the second, and — after a real generation run — strict mode
@@ -629,6 +647,138 @@ config and file agreed with each other and nothing noticed. Every standard gener
 emits `128x128@2x.png`, so the first real generation run would have written a file the
 config was not looking for. Fixed in `ad017b8`; the mangled form is now rejected by the
 derivation as an unsupported extension, so it cannot recur silently.
+
+## Packaging — one command, one line, and it refuses
+
+```sh
+app/scripts/package-app.sh                      # ad-hoc signed; what this machine can do today
+app/scripts/package-app.sh --sign developer-id  # needs RICHOS_SIGNING_IDENTITY; inert until one exists
+app/scripts/package-app.sh --verify-only path/to/RichOS.app
+```
+
+The last line is the whole report:
+
+```
+OK: RichOS.app is bundled, ad-hoc signed and verified — real icons, cdhash
+fc5051ac9ca8e4713ccaec6a7e02dd3b3efb16ce, microphone usage string present; NOT
+notarized, Gatekeeper rejects it, and its permission grants die on the next build
+that changes a shipped byte. Path: …/release/bundle/macos/RichOS.app
+```
+
+Anything else is a refusal that names its reason. Exit codes: `0` success, `1` the
+bundle failed verification, `2` refused before building, `3` a prerequisite is
+missing, `4` the build itself failed.
+
+### What it refuses on
+
+- **Placeholder icons.** It exports `RICHOS_REQUIRE_REAL_ICONS=1`, which is what makes
+  `build.rs`'s gate fatal, and it pre-checks the same set so the failure arrives in two
+  seconds rather than after a release compile. On the committed placeholder set it
+  refuses with eleven named problems and exits 2.
+- **A signing configuration that cannot work.** `--sign developer-id` with no
+  `RICHOS_SIGNING_IDENTITY`, or with one `security find-identity -v -p codesigning`
+  does not report, is a hard refusal. **There is no silent downgrade to ad-hoc**,
+  because a downgrade produces exactly the failure Developer ID was asked for.
+- **`RICHOS_NOTARIZE=1` without `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID`.** It names
+  the ones that are missing rather than producing something that would be called
+  notarized and would not be.
+- **A bundle that does not verify.** Checked on the artefact, not on the builder's exit
+  code: the executable named by `CFBundleExecutable` exists, `codesign --verify --deep
+  --strict` passes, the signature is the KIND that was asked for,
+  `Contents/Resources/icon.icns` is byte-identical to the icon this repository
+  generated, and `Contents/Info.plist` carries `NSMicrophoneUsageDescription`.
+  `--verify-only` runs that same set against an existing bundle, so the two paths
+  cannot drift apart.
+
+### Two answers this produced, both previously unverified
+
+`src-tauri/Info.plist`'s own comment asked "the packaging engineer (next round)" to
+check two things. Both are now measured, on a real bundle:
+
+- **Tauri's plist merge does land `NSMicrophoneUsageDescription` in
+  `RichOS.app/Contents/Info.plist`.** Confirmed with `plutil -p` on the built bundle;
+  it is now a permanent check rather than a one-off observation.
+- **The hardened-runtime entitlement it also asks about** is
+  `src-tauri/Entitlements.plist`, applied by the developer-id path as a config overlay
+  only. It has never signed anything — see below.
+
+### Ad-hoc is not what the bundler does. It is what the bundler skips.
+
+The first bundle this script ever produced carried
+`flags=0x20002(adhoc,linker-signed)`, `Sealed Resources=none`,
+`Identifier=richos_tauri-6a5998b21aa29388`, and `codesign --verify` **rejected it**:
+*"code has no resources but signature indicates they must be present"*. That is the
+arm64 linker's automatic ad-hoc signature on the executable, with the bundle around it
+unsigned — strictly worse than an ad-hoc-signed bundle, because nothing binds
+`Info.plist` or the icon to it and the signed identity is a mangled crate name rather
+than `com.richos.app`.
+
+So the script signs ad-hoc deliberately, and verifying `Signature=adhoc` is not
+enough — that string was true in the broken state too. It also refuses
+`linker-signed`, `Sealed Resources=none`, and a signature identifier that differs from
+`CFBundleIdentifier`.
+
+### What ad-hoc costs, measured rather than repeated
+
+After signing it prints the designated requirement macOS will store against every
+permission grant:
+
+```
+cdhash H"fc5051ac9ca8e4713ccaec6a7e02dd3b3efb16ce"
+```
+
+A hash of that build and nothing else — no bundle identifier, no team, nothing a later
+build can satisfy. It also prints Gatekeeper's own verdict (`spctl -a -vv` →
+`rejected`) rather than inferring it.
+
+**The common phrasing "every rebuild is a different application" is too strong, and
+this is the correction.** What moves the cdhash is the produced BYTES, not the act of
+rebuilding. Measured 2026-08-30: three consecutive runs over an unchanged tree — plus
+one whose only edit was a `const` the optimizer removed — all produced
+`fc5051ac9ca8e…`, i.e. the same application, grant intact. Changing one shipped string
+literal moved it to `27a561effd404…`. It is not a tax on rebuilding; it is a tax on
+every change worth shipping. That is still the whole argument for Developer ID, and it
+is why the number in this paragraph is a measurement and not a warning.
+
+### The Developer ID path is present, correct, and inert
+
+Whether to enrol with Apple is an **open CEO decision** (1.1 in
+`richos-hq/wiki/ceo-decisions.md`; the full cost and enrollment picture is in
+`richos-hq/wiki/packaging-and-signing.md`). Nothing here answers it:
+
+- The path **never selects itself** — not even if a signing identity appears on the
+  machine. Ad-hoc runs say so loudly in that case rather than quietly upgrading.
+- It has **never signed anything**. `security find-identity -v -p codesigning` reported
+  `0 valid identities found` on 2026-08-24 and again on 2026-08-30.
+- So every developer-id assertion below is **written and unexercised**: the hardened
+  runtime, the secure timestamp, the entitlement, and whether that entitlement set both
+  notarizes and leaves voice mode working. The checks for them were driven RED by
+  demanding `--verify-only --sign developer-id` of an ad-hoc bundle, which fails all
+  four; none has ever been seen GREEN.
+- Notarization is a further opt-in on top (`RICHOS_NOTARIZE=1`), and a build that is
+  not notarized says so in its final line.
+
+### Named gaps
+
+- **Bundle identifier.** Tauri warns on every build that `com.richos.app` ends in
+  `.app`, which it does not recommend. It is left as it is deliberately — the identifier
+  is pinned and must never change (`packaging-and-signing.md`, "What RichOS
+  specifically needs" item 3) — but it is worth deciding *before* a Developer ID
+  signature makes it load-bearing for grant continuity, not after.
+- **No sidecars are bundled.** `claude-agent-acp`, a Node runtime, `whisper.cpp` and
+  `ffmpeg` are not in the `.app`; the bundle is 17 MB and assumes them on the host.
+  When they land, each must be signed with the same identity and sealed in, or the
+  bundle seal breaks and takes the grants with it.
+- **`--bundles app` by default**, not the `"targets": "all"` in `tauri.conf.json`. The
+  `.app` is the artefact that matters; DMG creation is a separate, flakier downstream
+  step whose failure says nothing about whether the application is correct. Pass
+  `--bundles app,dmg` for the installer.
+- **macOS only.** It refuses on any other platform with the reason. No Windows bundle
+  has ever been built and there is no Windows signing certificate.
+- **No auto-update channel.** Not built, not wired, not claimed.
+- **The app has never been launched from a packaged bundle by this work.** The bundle
+  verifies from a fresh copy (`ditto` to a new path, `codesign --verify` still passes);
+  a launch was not performed here.
 
 ## Runtime config (env)
 
@@ -788,9 +938,11 @@ a magnitude-domain echo DETECTOR for the barge-in decision path (the linear canc
 landed; this is what would make barge-in work on hardware whose echo path is not linear —
 prototyped and measured at 0.7 % false positives / 73.6 % detection on a real recording, but
 not shipped: see `aec.rs`), a live partial transcript, a warm whisper daemon, a Windows
-`SpeechSynth`, and
-packaging (signed/notarized bundles, bundled Node + adapter + whisper + models — see the
-voice brief's size table). See the feasibility notes in the handoffs.
+`SpeechSynth`, and the rest of packaging — a NOTARIZED bundle (blocked on CEO decision
+1.1, no signing identity exists), the bundled Node + adapter + whisper + models (see the
+voice brief's size table), and an auto-update channel. The entrypoint itself now exists
+and produces a verified ad-hoc bundle: "Packaging" above. See the feasibility notes in
+the handoffs.
 
 **Delegated workers, live (2026-08-29):** the engine's worker-lifecycle stream now reaches
 the CEO *during* the turn. `rich://worker-upserted` — §13's eleventh event, deferred while

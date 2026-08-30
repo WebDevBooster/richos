@@ -167,12 +167,24 @@ fn report(failures: Vec<String>) {
     // indefinite wait. Warn on every build; fail hard only where the icon actually ships,
     // which callers signal with RICHOS_REQUIRE_REAL_ICONS=1.
     //
-    // HONEST STATUS: nothing in this repository sets that variable yet, because there
-    // is no bundling script and no CI job that builds the app — the only workflow is
-    // engine-self-verify.yml. The mechanism is here and proven in both directions; the
-    // caller that must set it does not exist. Whoever adds the packaging entrypoint
-    // has to export RICHOS_REQUIRE_REAL_ICONS=1, or a bundle can still ship a
-    // placeholder. Do not read this gate as protecting a release path today.
+    // THE CALLER NOW EXISTS (2026-08-30). `app/scripts/package-app.sh` exports
+    // RICHOS_REQUIRE_REAL_ICONS=1 before it bundles, and refuses rather than warns.
+    // It also runs the generator's own `verify` first, purely so a placeholder set
+    // costs two seconds instead of a full release compile — that pre-flight is
+    // convenience; THIS is the guarantee, and the difference was proven rather than
+    // asserted: with the pre-flight deleted from the script and `icons/32x32.png`
+    // resized to 16x16, the packaging run still stopped at the panic below and
+    // exited 4 with nothing packaged.
+    //
+    // STILL TRUE, and still why this is only a warning by default: no CI job builds
+    // this crate. `.github/workflows/` holds THREE workflows — `app-spine-ci.yml`,
+    // `engine-self-verify.yml`, `windows-companion-ci.yml` — and `app-spine-ci.yml`'s
+    // own header excludes `app/src-tauri` by name, as "a deliberately detached
+    // workspace with the whole webview dependency tree behind it". (The sentence this
+    // replaces said the only workflow was engine-self-verify.yml. That had been wrong
+    // since the other two landed, and its CONCLUSION — nothing builds the app —
+    // survived the correction.) So an ordinary `cargo build` here must stay
+    // non-fatal.
     let strict = std::env::var("RICHOS_REQUIRE_REAL_ICONS").as_deref() == Ok("1");
 
     if !strict {
@@ -183,8 +195,8 @@ fn report(failures: Vec<String>) {
             "cargo::warning=app icons are still placeholders — the binary builds, but a \
              bundle produced now would ship no real icon. Fix: \
              app/scripts/generate-app-icons.sh <artwork.png>. Set \
-             RICHOS_REQUIRE_REAL_ICONS=1 to make this fatal — the packaging \
-             entrypoint that should set it does not exist yet."
+             RICHOS_REQUIRE_REAL_ICONS=1 to make this fatal, which is what \
+             app/scripts/package-app.sh does before it bundles."
         );
         return;
     }
