@@ -30,7 +30,16 @@ will not be recorded. This measures the trigger that closes that.
 DIFF — what was heard against what was sent, which needs the composer wire or Accessibility
 read-back. This one is an UTTERANCE: the CEO says *"It's Kestrel, not Kestral"* and the pair is
 stated in the words. It needs no read-back of any foreign text field, which is why it could be built
-now and the other could not. The diff trigger remains open.
+now and the other could not.
+
+**The diff trigger was open when this was written and was built the same day** —
+`app/crates/richos-core/src/heard.rs`, measured at precision 0.972 over 156 invented heard/sent
+pairs and shipped behind `RICHOS_HEARD_TRIGGER=on` rather than on by default, because 0.972 is
+not 1.000 and the miss is a pair that would corrupt an ordinary English word. It took the
+composer wire, not the read-back: RichOS's own voice mode turned out not to be a source of
+"heard" text at all, because `rich://voice-transcript` goes straight into the thread with no
+window in which anything could be edited. See
+[`../heard-vs-sent-trigger-2026-08-30/README.md`](../heard-vs-sent-trigger-2026-08-30/README.md).
 
 ---
 

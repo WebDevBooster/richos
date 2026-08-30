@@ -227,6 +227,31 @@ human statement and is exactly as safe, but is not the mini-HUD §7 describes.
 > [`../spoken-correction-trigger-2026-08-30/README.md`](../spoken-correction-trigger-2026-08-30/README.md).
 > Still true above: no UI renders the ask, so the mini-HUD §7 describes is not built either way.
 
+> **CLOSED IN CODE 2026-08-30, AND NOT ON HIS MACHINE — read both halves.** The DIFF trigger
+> above is now built: `app/crates/richos-core/src/heard.rs`, wired into `Spine::submit_prompt`
+> beside the other two, staging into the same desk, with a card in `app/ui/` that renders a
+> silent edit as *what he changed* rather than as something he said. It is the composer wire,
+> not the Accessibility read-back — corrections made in Gmail or Slack are still open and still
+> need the read-back §7 defers.
+>
+> **It ships OFF BY DEFAULT (`RICHOS_HEARD_TRIGGER=on`), and that is a measurement, not
+> caution.** It is the only one of the three triggers that did not measure precision 1.000: TP
+> 35 / FP 1 / FN 3 / TN 117 over 156 invented pairs — precision 0.972, recall 0.921. Its one
+> false positive is `Marcus Web` → `Marcus Webb` at the start of a sentence, where the shared
+> expansion rule cannot absorb the forename and the pair collapses to `Web` → `Webb`, which as a
+> vocabulary entry would rewrite the ordinary word "web" in every future decode. **That defect is
+> in `capture.js`'s rule, so the call-transcript path above has it too.**
+>
+> **And the "heard" side does not exist on his machine yet.** `~/.config/open-wispr/` holds
+> `config.json`, `hud-backups`, `models` and `recordings` — and no `dictation-journal`. The
+> journal is written by patch 3 (`tools/richos-hud/dictation-flywheel.patch`), which is built and
+> documented but is not what is installed. Until it is, the trigger reads an empty directory and
+> is silent by construction. **Nothing about this work should be read as the loop turning on his
+> machine.**
+>
+> Detail, corpus, both counterfactuals and the false positive in full:
+> [`../heard-vs-sent-trigger-2026-08-30/README.md`](../heard-vs-sent-trigger-2026-08-30/README.md).
+
 **Real speech.** Every number here is measured on invented sentences, which is the correct way to
 measure it and is not the same as the CEO using it. One real dictation, journalled; one real
 correction, asked and confirmed; the next dictation spelling it his way — that is the test this
