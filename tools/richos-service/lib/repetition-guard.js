@@ -110,10 +110,13 @@
  *     text-only guard destroyed / extra fabricated segments that survive out of 2,376 removed):
  *
  *                 slack 0.6      slack 0.8      slack 1.0
- *       minW 1     0 / 220        1 / 186        3 / 154     <- shipped
- *       minW 2     1 / 173        2 / 143        4 / 111
- *       minW 3     1 / 168        2 / 138        4 / 106
- *       minW 4+    2 / 165        3 / 135        5 / 105     (no 4-5 word finding in the corpus)
+ *       minW 1     0 / 207        1 / 174        3 / 145     <- shipped
+ *       minW 2     1 / 161        2 / 131        4 / 107
+ *       minW 3     1 / 156        2 / 126        4 / 103
+ *       minW 4+    2 / 154        3 / 124        5 / 102     (no 4-5 word finding in the corpus)
+ *
+ *     The minW 3-5 rows are the 2026-08-29 brief's committed grid, cell for cell, which is what
+ *     makes the two new rows comparable rather than merely new.
  *
  *     1 / 0.6 is chosen: the most protective corner, and the only cell in the grid that deletes NO
  *     genuine speech at all. The right-hand cost column is measured in the PRE-fix world
@@ -197,8 +200,16 @@
  *     the AUDIO and this class is text-only, so where the burst grid says K separate speech events
  *     happened, a text rule does not get to overrule it. A boundary is not a link when BOTH its
  *     segments sit inside a span class 1 protected. One-directional like every other probe here: it
- *     can only ever remove links, never create them, so no stutter this class used to catch escapes
- *     through it — measured, and the 3 stutter findings of that corpus are unchanged.
+ *     can only ever remove links, never create them, so no stutter this class used to catch can
+ *     escape through it.
+ *
+ *     AND THE MEASUREMENT SAYS SOMETHING SHARPER THAN "it costs nothing". The 2026-08-29 real-audio
+ *     brief hand-verified this class as clean on that corpus: 3 findings, 3 true positives, 0
+ *     genuine words lost — measured on the TEXT-ONLY guard, before the burst veto existed. Add the
+ *     veto and the same four channels give this class 14 findings and 162 removals, because every
+ *     run the veto protects is a fresh chain for it to eat. With the hand-off it is 3 findings, 7
+ *     removals, 2 trims — the SAME THREE SPANS, by offset, that were hand-verified. The hand-off
+ *     does not merely avoid a cost; it puts the class back exactly where its verification left it.
  *
  *     THE RULE ITSELF: a link needs >= minOverlapWords (3) of word-exact suffix/prefix overlap
  *     across a segment boundary, and a chain needs >= minChainLinks (3) consecutive links. Measured
