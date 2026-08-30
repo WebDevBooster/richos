@@ -113,14 +113,24 @@ INPUT="$(cat)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
-    # DELIBERATELY NOT AN EXIT, and this is the widest of the seven holes: an
-    # unadopted seat meant NO SECRET SCANNING AT ALL, in any repository, for the
-    # whole session. A leaked credential is not less leaked because the
-    # directory it was written from never adopted the engine.
+    # STAND DOWN — LOUDLY. And the loudness is the only thing that changed here,
+    # deliberately.
     #
-    # So carry on with the built-in thresholds. The governing root resolved
-    # below refines them from the file's OWN repository if it has adopted.
-    ENTITY_ROOT=""
+    # I first made this arm carry on scanning, reasoning that a leaked
+    # credential is not less leaked because the directory it was written from
+    # never adopted the engine. root-contract.test.sh case 8b went red and it
+    # was right to. This plugin is enabled at USER SCOPE: it loads in EVERY
+    # directory on this machine, so "scan anyway" does not mean "one more
+    # repository protected", it means THIS ENGINE STARTS BLOCKING WRITES IN
+    # PROJECTS THAT NEVER OPTED IN. That is not a bug fix, it is a policy
+    # expansion, and it is the same class of decision as adoption itself —
+    # not one to take inside a fix for something else.
+    #
+    # The mandate was to make standing down LOUD, not to make enforcement
+    # universal. So: it stands down, and it says so, naming the repository.
+    richos_announce_stand_down "scripts/hooks/scan-secrets.sh" \
+        "this repository has not adopted the engine, so nothing written here is scanned for credentials"
+    exit 0
 else
     # BROKEN: this guard believes it is governing something and cannot. Block.
     root_failure_banner "scripts/hooks/scan-secrets.sh" >&2
