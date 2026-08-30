@@ -77,7 +77,7 @@ engineer"). It spawns a named teammate with the `Agent` tool, exactly per
     "subagent_type": "backend-engineer",
     "name": "be-sonnet-1",
     "isolation": "worktree",
-    "prompt": "Add a bulk CSV export button to the Orders list. Export every row matching the active filter (not just the current page), with a collision-safe file name. Commit on your worktree branch when done; do not merge, push, or deploy."
+    "prompt": "Add a bulk CSV export button to the Orders list. Export every row matching the active filter (not just the current page), with a collision-safe file name. Commit on your worktree branch when done; do not merge, push, or deploy. If I message you that main moved under you, acknowledge it durably — I cannot rely on a reply reaching me: scripts/inflight-ack.sh --sha <sha> --impact <conflict|stale-record|grew-scope|none> --detail \"<your own words>\" --paths \"<paths or none>\"."
   }
 }
 ```
@@ -87,8 +87,8 @@ mnemonic roster convention (short, distinctive, mnemonic where natural); the
 full `<role>-<model>-<identifier>` shape around it is guard-enforced, with the
 `<model>` token kept truthful to what the instance actually boots on.
 
-Three things are non-negotiable here, per doctrine, and the guard enforces
-all three:
+Four things are non-negotiable here, per doctrine, and the guards enforce
+all four:
 
 - **`isolation: "worktree"`** — every file-writing teammate spawn requires
   one (`CLAUDE.md` → Git Worktree Isolation).
@@ -96,6 +96,14 @@ all three:
   never reused, and the `<model>` token must name the model the instance boots on.
 - **The whole task in the spawn prompt** — the mailbox is lossy, so the
   prompt has to be self-contained (`CLAUDE.md` → How to Delegate).
+- **The in-flight ack contract in the prompt** — a worktree is a snapshot, so a
+  land can move `main` under this teammate and nothing will tell it. The lead
+  messages it; the teammate answers with a file the lead can `stat`, because a
+  reply travels the same lossy channel. The instruction has to ride in the
+  spawn prompt for the same reason: an instruction sent later is lost with the
+  message it exists to make verifiable. `verify-agent-prompt.sh` check 6
+  refuses a worktree spawn without it (opt out on the record with a live
+  `no-inflight-ack: <reason>` line). See `skills/rich-lander/SKILL.md` §8b.
 
 If any of these were missing, `scripts/hooks/guard-worktree-isolation.sh`
 would block the spawn before it ever reaches an agent — this is the exact
