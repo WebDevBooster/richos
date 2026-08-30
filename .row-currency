@@ -1,0 +1,39 @@
+# THE WORK IS HERE. THE ROWS THAT DESCRIBE IT ARE NOT.
+#
+# The presence of this file is the declaration, in its PEER form: it says that
+# landings in this repository are checked against a working record that lives
+# somewhere else. It switches on the RichOS engine's
+# guard-row-currency-commits.sh.
+#
+# WHY A POINTER RATHER THAN A CONTRACT
+# ------------------------------------
+# The record is a private record — it names people, decisions and unshipped
+# work — and this repository is published. So the two cannot be one repository,
+# and no single commit can ever touch both. That is exactly why "the merge that
+# changes the work must also edit the row" could not be the rule as stated: the
+# merge is here and the row is over there.
+#
+# What is checkable at this moment is simpler and stronger: at the instant this
+# repository's tree changes, is the row that describes the changed work still
+# pinned to the bytes it was written about? The engine reads the record from
+# the repository named below, computes the tree this commit or merge is about
+# to create, and refuses the landing if a row now describes something that is
+# no longer there.
+#
+# IF THAT REPOSITORY IS NOT ON THIS MACHINE, NOTHING IS ENFORCED AND THE GUARD
+# SAYS SO ON STDERR, EVERY TIME, AND BLOCKS NOTHING. Anyone who clones this
+# public repository without the private sibling gets a loud stand-down, never a
+# wedged commit. That is not a nicety; a guard that bricks a stranger's clone
+# is a guard that gets deleted, and then it protects nobody.
+#
+# DRIFT BETWEEN THE TWO IS CHECKED. This pointer and the record's own artifact
+# roots are two statements about one relationship. The record must declare a
+# root that resolves back to this repository, or the contract is BROKEN and
+# says so — half a contract enforces nothing.
+#
+# The full argument, the warrant grammar, the override decision and the honest
+# list of what none of it can see are in the engine's
+# scripts/lib/row-currency.sh.
+
+# Relative to this repository's main checkout.
+ROW_RECORD_REPO="../richos-hq"

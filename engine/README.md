@@ -617,6 +617,39 @@ all three, what was fixed, and the one layer set CI honestly cannot cover
 (BR1-BR10, which need an operator's `~/.claude` registration and are covered
 instead by `scripts/hooks/by-reference.test.sh`).
 
+## Keeping the working record honest — the row-currency contract
+
+A working list has rows; rows describe things; things change; nothing connects
+the two. On one real day, four rows of one record described work as unbuilt
+hours after it had landed, and every one was found by a person reading the page,
+because a person reading the page was the only detector there was.
+
+Create a **`.row-currency`** file at the root of the repository that owns your
+record and each governed row carries a **warrant** — a status word, and every
+path that row describes pinned to the object id it had when the row was written:
+
+```
+| 4.2 | prose about the work | **State:** `OPEN` — `<repo>/src/parser.rs`@`0a1b2c3d4e5f` |
+```
+
+`guard-row-currency-commits.sh` recomputes those ids out of the tree each
+landing is about to create. If one has moved and the row has not, the landing is
+refused by item id, and the refusal prints the warrant to paste. There is
+deliberately **no re-stamp command**: a tool that refreshed the pin would let the
+obligation be discharged with nobody reading the sentence beside it.
+
+It fires only at a landing — main checkout, attached HEAD, `git commit` or
+`git merge` — so branch work in a linked worktree is never blocked. A second,
+narrower check refuses a message that NAMES an item whose row did not change.
+Where the work lives in a different repository from the record, that repository
+carries a one-key peer form of the same file; if the record repository is not on
+the machine, the guard stands down loudly and blocks nothing.
+
+Run it by hand with `scripts/row-currency-lint.sh <repo>`, and
+`--explain --message "..."` to see the claim check's reasoning candidate by
+candidate. Both declaration forms, and the honest list of what the rule cannot
+see, are in [`reference/row-currency/`](./reference/row-currency/README.md).
+
 ## If your repository gets published — the two publication contracts
 
 Some repositories go public. If yours does, create a **`.publication-boundary`**

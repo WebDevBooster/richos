@@ -122,6 +122,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-completeness-commits.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-row-currency-commits.sh",
+            "timeout": 20
           }
         ]
       },

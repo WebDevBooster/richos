@@ -157,6 +157,12 @@ REGISTERED_N="$(grep -o 'scripts/hooks/[A-Za-z0-9._+-]*\.sh' "$HOOKS_JSON" \
 # nothing, and its own term could never be unsatisfied (no announcer, no
 # banner). engine-status.sh excludes it self-referentially, by its own
 # filename, so the exclusion cannot itself become a stale list.
+#
+# 24 -> 25 on 2026-08-30: guard-completeness-commits.sh and
+# guard-row-currency-commits.sh were wired on the same day, by two engineers who
+# each bumped this line to 24 without knowing about the other. The merge
+# conflicted here, which is the tripwire doing precisely its job: two additive
+# registrations that a careless union would have counted once. Fourth firing.
 EXPECT_N=$((REGISTERED_N - 1))
 # The three fractions the mutations below produce, derived from the same
 # reading rather than typed. They used to be literals, and every legitimate
@@ -179,6 +185,8 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # change and made the new count something a human had to acknowledge rather than
 # absorb.
 #
+# 23 -> 24 on 2026-08-29: guard-row-currency-commits.sh was wired, making "the
+# working record still describes the work" checkable at every landing.
 # 22 -> 23 on 2026-08-29: guard-ceo-todos-commits.sh was wired, making "waiting
 # on the CEO" a checkable claim instead of an unfalsifiable one. The tripwire
 # fired again, exactly as intended — this line is the acknowledgement.
@@ -190,8 +198,8 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # merge the lander ran the suites and not the check. Third firing, third
 # acknowledgement; the tripwire has now caught every guard added since it was
 # written, which is the only evidence that it works.
-if [ "$REGISTERED_N" -eq 24 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 24 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+if [ "$REGISTERED_N" -eq 25 ]; then
+    ok "1b  sanity: the shipped hooks.json registers 25 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

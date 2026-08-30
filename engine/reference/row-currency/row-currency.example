@@ -1,0 +1,60 @@
+# THE RECORD FORM — copy this to `.row-currency` at the root of the repository
+# that OWNS your working record.
+#
+# Its presence is the declaration. It switches on
+# scripts/hooks/guard-row-currency-commits.sh, and deleting it stands the
+# mechanism down in a diff somebody can see.
+#
+# WHAT PROBLEM THIS SOLVES
+# ------------------------
+# A working list has rows. Rows describe things. Things change. Nothing
+# connects the two, so a row goes on saying what was true last week and the
+# only detector is a person who happens to read it.
+#
+# The row's fix is always a manual step after the merge, and a step nobody is
+# forced to take is a step that gets skipped exactly when the day is busiest.
+#
+# HOW IT IS FIXED
+# ---------------
+# Each governed row's last cell carries a warrant: a status word, and every
+# path that row describes pinned to the object id it had when the row was
+# written.
+#
+#     | 4.2 | prose about the work | **State:** `OPEN` — `<repo>/src/parser.rs`@`0a1b2c3d4e5f` |
+#
+# The next landing recomputes those ids out of the tree the commit is about to
+# create. If one has moved and the row has not, the landing is refused and the
+# refusal prints the warrant to paste.
+#
+# THERE IS NO RE-STAMP COMMAND. That is the point: a tool that refreshes the
+# pin would let the obligation be discharged by a keystroke, with nobody
+# reading the sentence beside it.
+#
+# ONLY AT A LANDING: the main checkout, an attached HEAD, `git commit` or
+# `git merge`. Branch work in a linked worktree is a proposal and is never
+# blocked.
+#
+# THIS FILE DOES NOT SAY WHERE THE RECORD IS. That, and the artifact-root map,
+# are declared once in `.ceo-todos` and read from there. A second copy of a
+# fact is a second thing to keep true.
+
+# Which sections of the record carry governed rows. Space separated. Sections
+# that are already governed by the CEO-TODOs contract usually do not belong
+# here: that contract already checks their one claim (the artifact exists).
+ROW_SECTIONS="3"
+
+# The status vocabulary. Spelling is checked; meaning is yours. The token lives
+# inside the warrant, so it cannot be re-pinned without being re-typed.
+ROW_STATUS_TOKENS="OPEN BUILT BOUNDED BLOCKED-ON-RICH CLOSED"
+
+# Terminal states: finished work. Exempt from the pin, because a later change
+# to the work cannot make "this finished" false — and named in a note on every
+# run, because a finished row is not open work and should leave the page.
+ROW_TERMINAL_TOKENS="CLOSED"
+
+# OPTIONAL. The words that turn a number in a commit message into a claim about
+# an item, so that "we closed item 4.2" must come with a change to 4.2's row.
+# An allowlist, because the set of words that can precede a decimal number is
+# unbounded and the set of ways your team names an item is not. Omit it to take
+# the engine's default.
+ROW_CLAIM_WORDS="item items open-item open-items decision decisions"

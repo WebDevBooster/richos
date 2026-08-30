@@ -231,6 +231,44 @@ If the cold open cannot run (no network, no `claude` on PATH), init leaves
 That is deliberate: declaring it without a transcript on file would refuse every
 commit in the repository from that moment on.
 
+### Step 6b — Row currency (~5 min, and it is the other half of step 6)
+
+Step 6 makes the CEO's two sections honest. It leaves the WORKING section —
+section 3, the one the team lives in — enforced by nobody, and that is the
+section whose rows rot. Four of them did in a single day on this project.
+
+Create a **`.row-currency`** at the record repository's root from
+`reference/row-currency/row-currency.example`, and — if the work lives in a
+different repository from the record, which it usually does — the peer form from
+`row-currency-peer.example` at that repository's root. Then:
+
+```bash
+scripts/row-currency-lint.sh /path/to/their/record-repo
+```
+
+**Expected first run: a refusal, and that is correct.** It names every governed
+row that carries no warrant yet. Warranting them is the CEO's or Rich's work,
+one row at a time, and it is worth doing while somebody is watching, because
+writing the first warrant is what teaches the shape:
+
+```
+| 4.2 | prose about the work | **State:** `OPEN` — `<repo>/src/parser.rs`@`0a1b2c3d4e5f` |
+```
+
+Say two things out loud here:
+
+1. **The row is now pinned to the work.** When the work moves and the row does
+   not, the next landing is refused, by item id, with the exact warrant to
+   paste. Nobody has to remember anything.
+2. **There is no command that re-stamps a row.** That is deliberate. A refresh
+   button would let the row be corrected without anybody reading the sentence
+   next to it, which is precisely the failure being removed.
+
+If they do not have a section-3-style working list yet, skip this and come back
+to it — declaring it over a record with no governed rows would refuse every
+commit in the repository from that moment on, which is the same trap the cold
+open has in step 6.
+
 ### Step 7 — Orientation tour (~15-20 min)
 
 With a staffed team and a wiki that already has real content, walk the CEO

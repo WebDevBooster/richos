@@ -302,6 +302,11 @@ HOOK_FILES+=(
     # and ignores the key.
     "$REPO_ROOT/scripts/publication-completeness.sh"
     "$REPO_ROOT/scripts/publication-completeness.py"
+    # The row-currency predicate, both halves. Third time the same argument:
+    # guard-row-currency-commits.sh decides nothing itself, so hashing the
+    # guard and not the predicate would check the lock and ignore the key.
+    "$REPO_ROOT/scripts/lib/row-currency.sh"
+    "$REPO_ROOT/scripts/lib/row-currency.py"
     # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
     # and compared by the guard, so this file is not documentation — it is part
     # of the decision. Edit a question and every transcript on file stops
