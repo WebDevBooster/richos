@@ -126,13 +126,13 @@ import inflight
 
 repo = os.environ["IF_ARGS_REPO"]
 teams = os.environ["IF_ARGS_TEAMS"]
-target = os.path.abspath(os.environ["IF_ARGS_TARGET"].rstrip("/"))
+target = inflight.norm(os.environ["IF_ARGS_TARGET"])
 reason = os.environ["IF_ARGS_REASON"]
 res = inflight.assess(repo, os.environ["IF_ARGS_TIP"] or None, teams,
                       int(os.environ["IF_ARGS_TMO"]))
 match = None
 for wt in res["worktrees"]:
-    if os.path.abspath(wt["path"].rstrip("/")) == target:
+    if inflight.norm(wt["path"]) == target:
         match = wt
 if match is None:
     sys.stderr.write(

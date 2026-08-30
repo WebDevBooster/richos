@@ -102,6 +102,18 @@ _SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 _NATIVE_ID_RE = re.compile(r"^a(?P<name>[a-z0-9][a-z0-9-]*?)-[0-9a-f]{12,}$")
 
 ACK_DIR_REL = os.path.join(".claude", "inflight-acks")
+
+
+def norm(path):
+    """A path in the one form two of these comparisons can agree on.
+
+    macOS hands /var/folders/... to a caller and /private/var/folders/... back
+    out of git, because /var is a symlink. abspath does not resolve that, so a
+    waiver recorded against a worktree failed to match the same worktree ten
+    lines later — caught by inflight-notify.test.sh case 5j, not by reading."""
+    if not path:
+        return ""
+    return os.path.realpath(os.path.abspath(path)).rstrip("/")
 ACK_IMPACTS = ("conflict", "stale-record", "grew-scope", "none")
 ACK_MIN_DETAIL = 40
 
@@ -193,15 +205,23 @@ def pid_alive(pid):
 # --------------------------------------------------------------------------
 # identity
 # --------------------------------------------------------------------------
-def name_tokens(text):
+def name_tokens(text, strip_digits=True):
     """Identity tokens of a teammate name or a worktree basename.
 
-    'zach-opus-ackguard1'            -> {'zach', 'ackguard'}
-    'zach-ackguard-2026-08-30'       -> {'zach', 'ackguard'}
-    'agent-aecho-opus-splash1-9f..'  -> {'echo', 'splash'}
+    strict (strip_digits=False):
+        'zach-opus-ackguard1'       -> {'zach', 'ackguard1'}
+    loose (strip_digits=True):
+        'zach-opus-ackguard1'       -> {'zach', 'ackguard'}
+        'zach-ackguard-2026-08-30'  -> {'zach', 'ackguard'}
 
-    Trailing digits are stripped (r7 / r7b / splash1 are the same identity in
-    this house's naming), dates and model aliases are dropped."""
+    Dates and model aliases are dropped from both, because neither carries
+    identity. The digits are the difference, and BOTH readings are needed:
+    a hand-rolled worktree is named for a date while its teammate is named
+    'ackguard1', so only the loose reading joins them — but this house's own
+    naming rule turns 'mark-sonnet-f1' into 'mark-sonnet-f2' for the next
+    teammate, and under the loose reading those two are the same person. That
+    collision is not hypothetical; it is the convention. So the strict reading
+    is tried first and the loose one only breaks a tie nothing else could."""
     text = (text or "").lower()
     text = re.sub(r"\d{4}-\d{2}-\d{2}", " ", text)
     parts = [p for p in re.split(r"[^a-z0-9]+", text) if p]
@@ -209,7 +229,8 @@ def name_tokens(text):
     for p in parts:
         if _DATE_RE.match(p) or p.isdigit():
             continue
-        p = re.sub(r"\d+[a-z]?$", "", p)
+        if strip_digits:
+            p = re.sub(r"\d+[a-z]?$", "", p)
         if len(p) < 3 or p in _NOISE_TOKENS:
             continue
         toks.add(p)
@@ -275,19 +296,21 @@ def credit_notices(worktrees, notices, tip):
         to = note.get("to", "") or ""
         if not to:
             continue
-        exact = [w for w in worktrees if w.get("resolved_name") and w["resolved_name"] == to]
-        if len(exact) == 1:
-            hits = exact
-        else:
-            to_toks = name_tokens(to)
-            if not to_toks:
-                continue
-            hits = []
-            for w in worktrees:
-                w_toks = w["identity_tokens"]
-                shared = to_toks & w_toks
-                if len(shared) >= 2:
-                    hits.append(w)
+        # FOUR READINGS, STRICTEST FIRST. Each is tried only when the one
+        # before it produced no single answer, so a loose reading can never
+        # override a precise one.
+        hits = [w for w in worktrees if w.get("resolved_name") and w["resolved_name"] == to]
+        if len(hits) != 1:
+            hits = [w for w in worktrees
+                    if os.path.basename(w["path"].rstrip("/")) == to]
+        if len(hits) != 1:
+            strict = name_tokens(to, strip_digits=False)
+            hits = [w for w in worktrees
+                    if strict and len(strict & w["identity_tokens_strict"]) >= 2]
+        if len(hits) != 1:
+            loose = name_tokens(to)
+            hits = [w for w in worktrees
+                    if loose and len(loose & w["identity_tokens"]) >= 2]
         if len(hits) != 1:
             continue  # zero matches, or ambiguous — credit nothing
         wt = hits[0]
@@ -501,7 +524,7 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
 
     for entry in list_worktrees(root):
         path = entry["path"]
-        if os.path.abspath(path.rstrip("/")) == os.path.abspath(root.rstrip("/")):
+        if norm(path) == norm(root):
             continue  # the main checkout is not a teammate
         kind, agent_id, name, how = resolve_worktree_identity(path, name_index)
         wt = {
@@ -513,6 +536,8 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
             "resolved_name": name,
             "name_source": how,
             "identity_tokens": name_tokens(name or os.path.basename(path.rstrip("/"))),
+            "identity_tokens_strict": name_tokens(
+                name or os.path.basename(path.rstrip("/")), strip_digits=False),
             "present": os.path.isdir(path),
         }
 
@@ -573,9 +598,10 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
         for w in waivers:
             if w.get("tip", "").lower() != tip:
                 continue
-            if os.path.abspath(w.get("worktree", "").rstrip("/")) == os.path.abspath(wt["path"].rstrip("/")):
+            if norm(w.get("worktree", "")) == norm(wt["path"]):
                 wt["waiver"] = w
         wt["identity_tokens"] = sorted(wt["identity_tokens"])
+        wt["identity_tokens_strict"] = sorted(wt["identity_tokens_strict"])
 
         if not wt["live"]:
             wt["verdict"] = "NOT-LIVE"
