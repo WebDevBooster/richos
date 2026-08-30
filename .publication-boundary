@@ -65,6 +65,18 @@
 #                   nobody cloned) is skipped, and every refusal names what it
 #                   skipped so a block never overstates its own coverage.
 #
+# CORPUS_MAY_BE_EMPTY
+#                   0 by default, and it should stay 0 here. When PRIVATE_SOURCES
+#                   resolve to trees that exist but NOT ONE file in them
+#                   qualifies as private speech, the corpus is empty — and the
+#                   verbatim detector, the only one that catches speech quoted
+#                   inside ordinary prose, then has nothing to compare against
+#                   and would wave everything through while reporting clean.
+#                   That is refused as BROKEN rather than passed as CLEAN. Set
+#                   this to 1 only to state on the record that a repository
+#                   genuinely has no private corpus yet; like ALLOWLIST it is a
+#                   committed, diffable exemption and never an in-the-moment one.
+#
 # ALLOWLIST         Repository-relative path prefixes, space separated. The ONLY
 #                   way through, and deliberately a committed one: the failure
 #                   being fixed here was in-the-moment judgment, so there is no
@@ -85,3 +97,8 @@ MIN_SPEECH_LINES=8
 MIN_QUOTE_WORDS=10
 
 ALLOWLIST=""
+
+# 0 = an empty corpus is BROKEN. This repository has a private record, so an
+# empty corpus here means the guard lost sight of it, not that there is nothing
+# to see.
+CORPUS_MAY_BE_EMPTY=0

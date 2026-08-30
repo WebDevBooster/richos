@@ -17,6 +17,7 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
         "corpus_max_files": 4000,
         "corpus_max_bytes": 67108864,
         "items_max_files": 5000,
+        "corpus_may_be_empty": false,
         "sources": ["/abs/path/to/private/tree", ...],
         "items":   [{"label": "docs/x.md", "path": "/tmp/blob"},
                     {"label": "docs/y.md", "text": "inline content"},
@@ -34,6 +35,22 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
       BLOCK <TAB> label <TAB> detector <TAB> evidence
       BROKEN <TAB> reason
       CLEAN
+
+  plus, as the LAST line of every completed analysis, what the run examined:
+
+      CORPUS <TAB> member-files <TAB> corpus-words
+
+  That trailer is the oracle for "this verdict was reached by looking". A CLEAN
+  from a scanner whose corpus was empty is indistinguishable, from the outside,
+  from a CLEAN that examined 130,000 words — and a regression test can pass for
+  precisely the reason the scanner failed. It is emitted last because both
+  shell callers dispatch on `head -1 | cut -f1` and pb_refusal skips non-BLOCK
+  lines, so it extends the contract without altering it.
+
+  An EMPTY corpus is not a CLEAN. When sources were declared and resolved and
+  none of their files qualified as private speech, the answer is BROKEN — see
+  the vacuity floor in main(). CORPUS_MAY_BE_EMPTY in the declaration is the
+  committed way to state that a repository has no private corpus yet.
 
   Any other output shape is a contract violation the caller treats as
   fail-closed. Exit status is 0 for a completed analysis (clean or blocking),
@@ -151,6 +168,113 @@ TEXT_EXT = {
 
 SKIP_DIRS = {'.git', 'node_modules', '.venv', 'venv', 'dist', 'build',
              '__pycache__', '.next', 'target', 'Pods', '.gradle'}
+
+# --- media provenance: the third way into the corpus ------------------------
+#
+# THE HOLE THIS CLOSES, measured 2026-08-30. The two routes above are (1) the
+# recorded-speech SHAPE and (2) the closure, which admits another RENDERING of
+# something already admitted. Between them they cannot admit the FIRST
+# rendering of a recording that was only ever transcribed to plain text.
+#
+# whisper's plain `.txt` output carries no timestamps and no speaker labels, so
+# it has zero transcript-shaped lines and route 1 rejects it. Route 2 can only
+# EXTEND a seed, never create one — so a recording with no timestamped
+# rendering anywhere is invisible to the corpus entirely, whole.
+#
+# That was not hypothetical. Three real private podcast transcripts sat in the
+# declared PRIVATE_SOURCES — 5,713, 6,424 and 22,375 words of two named
+# third-party guests — and the corpus contained NONE of them: it held ten files,
+# every one a rendering of the same webinar, admitted because ONE timestamped
+# rendering of that webinar happened to exist. A 6,000-character extract of the
+# first of those transcripts was written into the publication-bound repository
+# and BOTH guards returned exit 0, silently. The write guard and the commit
+# guard share this predicate, so the commit chokepoint — the backstop that
+# exists precisely to catch what the write hook misses — missed it identically.
+#
+# THE SIGNAL, and why it is provenance rather than content. There is no
+# reliable content shape for plain whisper output: it is prose, and every
+# content-side widening tried against the real trees was rejected with numbers
+# (see the closure constants below). But the tree knows something the bytes do
+# not — the transcript is sitting NEXT TO THE RECORDING IT CAME FROM, under a
+# name derived from it:
+#
+#     002 Liz Harris podcast.mp3          <- the recording
+#     002 Liz Harris podcast transcript.txt   <- a rendering of it
+#
+# A text file in a declared-private directory whose stem extends the stem of a
+# media file in that same directory is a rendering of that recording. That is a
+# fact about the tree, not a heuristic about words, and it is the least
+# ambiguous case there is: the whole 2026-08-29 incident was "the audio was
+# correctly gitignored, the transcript was not".
+#
+# MEASURED, both directions, across 5,353 tracked text files in eleven
+# repositories:
+#
+#   admits              exactly the 3 podcast transcripts. The closure then
+#                       pulls in a fourth file on its own merits — a reference
+#                       worksheet 80.9% covered by them (763 of 943 windows),
+#                       i.e. genuinely another rendering. Corpus:
+#                       10 files / 83,793 words -> 14 files / 130,466 words.
+#   costs               ONE new colliding phrase across all eleven trees: a
+#                       single 10-word run, 8 of its 10 words function words,
+#                       sitting at the MIN_QUOTE_WORDS floor and extending no
+#                       further, which appears in 4 files in `deeply` — a
+#                       repository that declares no publication boundary, so no
+#                       guard ever runs there.
+#   in richos          ZERO, before and after. richos is the only repository on
+#                       this machine that declares a boundary, and the count of
+#                       legitimate files it would block is unchanged.
+#
+# THE WIDER RULE WAS REJECTED. "Any text file in a directory that holds media"
+# needs no stem match and reaches the SAME 14-file corpus — but it gets there by
+# admitting a 51 KB mixed reference worksheet DIRECTLY, on the strength of a
+# coincidence of directory rather than of derivation. Admitting mixed documents
+# on weak evidence is the exact move that put engineering boilerplate into the
+# "private" corpus and blocked LICENSE files (see below). The narrow rule
+# reaches the same place by the principled route and leaves the coincidence
+# unused, so the narrow rule is what ships.
+MEDIA_EXT = {'.mp3', '.mp4', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus',
+             '.mov', '.mkv', '.webm', '.avi', '.aiff', '.wma', '.m4v'}
+
+# The shorter of the two stems must be at least this many alphanumeric
+# characters. Below it a stem is a generic word — `notes`, `readme`, `audio`,
+# `part1` — that matches by coincidence rather than by naming, and a coincidence
+# is not provenance. Conservative rather than measured: on the real tree the
+# stems in play are 19 characters ("002lizharrispodcast"), so every value from 1
+# to 19 admits exactly the same files and the measurement above cannot
+# distinguish them. Said plainly rather than dressed up as a finding.
+MEDIA_STEM_MIN_CHARS = 8
+
+
+def _stem_key(filename):
+    """A filename's stem, reduced to lowercase alphanumerics.
+
+    Reduced rather than compared raw so that `002 Liz Harris podcast.mp3` and
+    `002_liz_harris_podcast.txt` are recognised as the same name — separators
+    are an export-tool detail, not a difference in provenance.
+    """
+    return ''.join(c for c in os.path.splitext(filename)[0].lower() if c.isalnum())
+
+
+def _renders_media(path, media_stems_by_dir):
+    """True when `path` is named as a rendering of a media file beside it.
+
+    The relation is prefix, in either direction, because both naming habits are
+    real: `recording.mp3` -> `recording.transcript.txt` extends the media stem,
+    and `interview.txt` -> `interview-part1.mp3` extends the text stem. Equality
+    is the degenerate prefix and is included.
+    """
+    stems = media_stems_by_dir.get(os.path.dirname(path))
+    if not stems:
+        return False
+    tk = _stem_key(os.path.basename(path))
+    if not tk:
+        return False
+    for mk in stems:
+        short, long_ = (tk, mk) if len(tk) <= len(mk) else (mk, tk)
+        if len(short) >= MEDIA_STEM_MIN_CHARS and long_.startswith(short):
+            return True
+    return False
 
 
 def normalise(text):
@@ -290,16 +414,32 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes,
     pending = {}
     files = 0
     total = 0
+    # Media stems per directory, collected in the SAME walk as the candidates —
+    # this costs no extra file reads and no extra stat calls, only the names
+    # os.walk already handed us. See _renders_media for what it is for.
+    media_stems = {}
     for src in sources:
         if os.path.isfile(src):
             candidates = [src]
+            d = os.path.dirname(src)
+            try:
+                siblings = os.listdir(d)
+            except OSError:
+                siblings = []
+            stems = {_stem_key(fn) for fn in siblings
+                     if os.path.splitext(fn)[1].lower() in MEDIA_EXT}
+            if stems:
+                media_stems.setdefault(d, set()).update(stems)
         else:
             candidates = []
             for dirpath, dirnames, filenames in os.walk(src):
                 dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
                 for fn in filenames:
-                    if os.path.splitext(fn)[1].lower() in TEXT_EXT:
+                    ext = os.path.splitext(fn)[1].lower()
+                    if ext in TEXT_EXT:
                         candidates.append(os.path.join(dirpath, fn))
+                    elif ext in MEDIA_EXT:
+                        media_stems.setdefault(dirpath, set()).add(_stem_key(fn))
         for p in candidates:
             files += 1
             if files > max_files:
@@ -327,7 +467,15 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes,
                     blob = fh.read(8_000_000)
             except OSError:
                 continue
-            if speech_lines(blob, cap=min_speech_lines) < min_speech_lines:
+            # Two independent ways to be a SEED: it looks like a recording, or
+            # it is named as a rendering of a recording sitting beside it. The
+            # second exists because whisper's plain .txt output satisfies
+            # neither the shape filter nor the closure, and a recording whose
+            # only rendering is plain text was therefore invisible to the corpus
+            # entirely — see MEDIA_EXT above for the three real transcripts this
+            # was measured against.
+            if speech_lines(blob, cap=min_speech_lines) < min_speech_lines and \
+                    not _renders_media(p, media_stems):
                 words = normalise(blob)
                 # Arithmetic, not a guess: below this length the file cannot
                 # reach CLOSURE_MIN_WINDOWS non-overlapping windows even if
@@ -515,6 +663,52 @@ def main():
         print("BROKEN\t%s" % exc)
         return 2
 
+    # --- THE VACUITY FLOOR ---------------------------------------------------
+    # A scan that read NOTHING must never report CLEAN.
+    #
+    # Everything below this line is conditional on the corpus. `corpus_index` is
+    # an empty set when the corpus is empty, verbatim_run returns None on an
+    # empty index, and the run prints CLEAN — a guard reporting that it found no
+    # private material when it never had any private material to compare
+    # against. That is the same shape as the "no media committed" check this
+    # whole mechanism replaced, and as the "18/18 suites" tally that described a
+    # glob instead of an inventory: a claim whose scope quietly excluded the
+    # thing it was supposed to cover.
+    #
+    # It has already bitten once, silently. pb_resolve_sources documents it: in
+    # a linked worktree `../richos-hq` resolved to a path that does not exist,
+    # the corpus detector went inert in exactly the place all the work happens,
+    # and the only symptom was one honest line in a message nobody reads on a
+    # PASS. That fix made the path resolve. This makes the SILENCE impossible.
+    #
+    # The condition is derived, not chosen: sources were declared AND they
+    # resolved to trees that exist AND not one file in them qualified as private
+    # speech. A declared source that is simply not on this machine is skipped
+    # upstream and never reaches here, which is deliberate and documented.
+    #
+    # Deliberately NOT a size threshold. "Unexpectedly small" cannot be derived
+    # from anything — any word count would be a magic number that either never
+    # fires or fires on a legitimate small private record — and this file's own
+    # rule is that a number nobody measured does not ship. Empty is the one
+    # threshold that means something on its own.
+    #
+    # The way through is CORPUS_MAY_BE_EMPTY in the declaration: committed,
+    # diffable, reviewed by whoever lands it — the same affordance ALLOWLIST is,
+    # for the same reason, and pointedly not an in-the-moment override.
+    if sources and not members and not job.get('corpus_may_be_empty'):
+        print("BROKEN\tthe declared PRIVATE_SOURCES resolved to %d tree(s) on "
+              "this machine, and NOT ONE file in them qualified as private "
+              "speech. The derived-from-private detector — the only one that "
+              "catches speech quoted inside ordinary prose — therefore had "
+              "nothing to compare against and would have reported this content "
+              "clean without examining a single private word. Refusing to scan "
+              "an empty corpus and report the result as clean. Either point "
+              "PRIVATE_SOURCES at the trees that actually hold recordings, or "
+              "set CORPUS_MAY_BE_EMPTY=1 in the declaration to state on the "
+              "record that this repository has no private corpus yet."
+              % len(sources))
+        return 2
+
     corpus_index = index_corpus(corpus, min_quote) if corpus else set()
 
     findings = []
@@ -553,11 +747,28 @@ def main():
                 '%d+ timestamped speaker lines / caption cues' % n,
             ))
 
+    # --- THE ORACLE ---------------------------------------------------------
+    # What this run actually examined, emitted on every completed analysis so a
+    # caller — or a test — can assert that a CLEAN verdict was reached by
+    # LOOKING rather than by reading nothing.
+    #
+    # A regression test for a scanner can pass for the same reason the scanner
+    # can fail: because the corpus was empty and there was nothing to find. That
+    # is the exact defect this file is about, and a suite with no way to tell the
+    # two apart would be the defect reproduced one level up — which has happened
+    # here before, in this suite's own tally and its own fixture filenames.
+    #
+    # Emitted LAST, never first: both shell callers dispatch on `head -1 | cut
+    # -f1`, and pb_refusal skips every line that is not a BLOCK, so a trailing
+    # line is additive to the contract rather than a change to it.
+    trailer = "CORPUS\t%d\t%d" % (len(members), len(corpus.split()))
     if not findings:
         print("CLEAN")
+        print(trailer)
         return 0
     for row in findings:
         print('\t'.join(row))
+    print(trailer)
     return 0
 
 

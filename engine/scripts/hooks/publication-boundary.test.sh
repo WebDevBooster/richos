@@ -53,6 +53,20 @@
 #       text output, no timestamps — joins the corpus; a brief that merely
 #       QUOTES the recording does not, so its boilerplate never becomes
 #       "private" and never blocks ordinary work.
+#   (i2) MEDIA PROVENANCE. The FIRST rendering of a recording, when that
+#       rendering is plain text. The shape filter cannot see it and the closure
+#       can only extend a seed, never create one — so a recording transcribed
+#       straight to plain text was invisible to the corpus whole, and both
+#       guards passed 6,000 characters of one in silence. A text file named as a
+#       rendering of a media file beside it now seeds; an unrelated stem, a stem
+#       below the length floor, and the same name with no media beside it do
+#       not, and those three refusals are why the narrow rule was chosen.
+#   (i3) THE VACUITY FLOOR AND THE ORACLE. A corpus that is empty is BROKEN, not
+#       CLEAN, because everything after the corpus is conditional on it and a
+#       guard that reports clean having read nothing is this whole mechanism's
+#       defect in one line. Plus the negative control for THIS SUITE: the
+#       scanner reports the corpus it examined, so a green run cannot mean
+#       "every case passed because there was nothing to compare against".
 #   (j) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
 #   (k) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
@@ -666,6 +680,192 @@ cp "$SHORT_ECHO" "$SB_CL/private/echo.md"
 write_case "ordinary prose still writes cleanly with the corpus widened" 0 Write \
     "$SB_CL/src/config.js" "$SB_CL" "$CODE"
 rm -rf "$SB_CL"
+
+# ---------------------------------------------------------------------------
+# (i2) MEDIA PROVENANCE — the FIRST rendering of a recording.
+#
+# THE HOLE THESE CASES PIN, measured 2026-08-30. The shape filter admits a
+# transcript that LOOKS like one; the closure admits another rendering of
+# something already admitted. Neither can admit the first and only rendering of
+# a recording that was transcribed straight to plain text — whisper `.txt` has
+# no timestamps and no speaker labels, so it has zero transcript-shaped lines,
+# and the closure can only EXTEND a seed, never create one.
+#
+# On the real private record that left three podcast transcripts of two named
+# third-party guests — 5,713, 6,424 and 22,375 words — entirely outside a corpus
+# that held ten files. A 6,000-character extract of one of them was written into
+# the publication-bound repository and BOTH guards returned exit 0 in silence:
+# the commit guard, which exists precisely to catch what the write hook misses,
+# runs the same predicate and missed it identically.
+#
+# The signal is provenance, not content: the transcript sits next to the
+# recording it came from, under a name derived from it. The three refusal cases
+# below are the precision controls, and they are the point — the WIDER rule
+# ("any text file in a directory holding media") reaches the same corpus on the
+# real tree by admitting a mixed 51 KB worksheet on a coincidence of directory,
+# and admitting mixed documents on weak evidence is what once put engineering
+# boilerplate into the private corpus and blocked LICENSE files.
+# ---------------------------------------------------------------------------
+SB_MP="$(make_default_sandbox)"
+mkdir -p "$SB_MP/private/recordings"
+# The media fixtures are never read — only their NAMES are — so a few bytes of
+# ASCII stand in for audio and nothing here carries a recording.
+printf 'not audio, only a name\n' > "$SB_MP/private/recordings/interview-002.mp3"
+printf 'not audio, only a name\n' > "$SB_MP/private/recordings/audio.mp3"
+
+# A plain-text rendering: real prose, and NOT ONE transcript-shaped line.
+PLAIN="$(make_speech_lines 30 30 4242 | tf)"
+cp "$PLAIN" "$SB_MP/private/recordings/interview-002 transcript.txt"
+
+MP_QUOTE="$({ printf 'Notes from the session:\n\n'; head -1 "$PLAIN"; } | tf)"
+msg_case "plain-text transcript beside its recording joins the corpus" \
+    "reproduces private source material verbatim" Write \
+    "$SB_MP/docs/session.md" "$SB_MP" "$MP_QUOTE"
+write_case "  ... and the write is refused" 2 Write \
+    "$SB_MP/docs/session.md" "$SB_MP" "$MP_QUOTE"
+
+# CONTROL 1 — same directory, same media, UNRELATED stem. Provenance is the
+# stem relation; sharing a directory with an mp3 is a coincidence, and a
+# coincidence must not make an ordinary document private.
+UNREL="$(make_speech_lines 30 30 909 | tf)"
+cp "$UNREL" "$SB_MP/private/recordings/project-notes-and-decisions.txt"
+UNREL_Q="$({ printf 'Notes:\n\n'; head -1 "$UNREL"; } | tf)"
+write_case "an unrelated stem beside the same media does NOT join" 0 Write \
+    "$SB_MP/docs/unrelated.md" "$SB_MP" "$UNREL_Q"
+
+# CONTROL 2 — the stem floor. `audio` is five characters: a generic word that
+# matches by accident rather than by naming, so it is below MEDIA_STEM_MIN_CHARS
+# and does not seed. This case is what pins that constant.
+SHORTSTEM="$(make_speech_lines 30 30 313 | tf)"
+cp "$SHORTSTEM" "$SB_MP/private/recordings/audio.txt"
+SHORT_Q="$({ printf 'Notes:\n\n'; head -1 "$SHORTSTEM"; } | tf)"
+write_case "a stem below the floor does NOT join on a name collision" 0 Write \
+    "$SB_MP/docs/shortstem.md" "$SB_MP" "$SHORT_Q"
+
+# CONTROL 3 — no media at all beside it. Plain prose in a private tree is not
+# speech, and the corpus must not bootstrap itself out of ordinary documents.
+mkdir -p "$SB_MP/private/plain"
+ORPHAN="$(make_speech_lines 30 30 5150 | tf)"
+cp "$ORPHAN" "$SB_MP/private/plain/interview-002 transcript.txt"
+ORPHAN_Q="$({ printf 'Notes:\n\n'; head -1 "$ORPHAN"; } | tf)"
+write_case "the same name with NO media beside it does NOT join" 0 Write \
+    "$SB_MP/docs/orphan.md" "$SB_MP" "$ORPHAN_Q"
+
+write_case "ordinary source still writes cleanly with media seeding on" 0 Write \
+    "$SB_MP/src/config.js" "$SB_MP" "$CODE"
+
+# The commit arm runs the same predicate, and the 2026-08-30 probe proved it
+# fails in exactly the same place — so it is asserted here rather than assumed.
+cp "$MP_QUOTE" "$SB_MP/docs/session.md"
+git -C "$SB_MP" add docs/session.md >/dev/null 2>&1
+if bash_payload "git commit -m notes" "$SB_MP" | "$COMMIT_HOOK" >/dev/null 2>&1; then
+    bad "the commit arm refuses the same plain-text rendering"
+else
+    ok "the commit arm refuses the same plain-text rendering"
+fi
+rm -rf "$SB_MP"
+
+# ---------------------------------------------------------------------------
+# (i3) THE VACUITY FLOOR — a scan that read NOTHING must never report CLEAN.
+#
+# The derived-from-private detector is conditional on the corpus: an empty
+# corpus means an empty index, verbatim_run returns None, and the run prints
+# CLEAN. A guard announcing it found no private material when it never had any
+# private material to compare against — the "no media committed" check wearing
+# a different hat, and the "18/18 suites" tally that described a glob instead
+# of an inventory.
+#
+# This is not a hypothetical either: pb_resolve_sources records the day
+# `../richos-hq` resolved, inside a linked worktree, to a path that does not
+# exist. The sharpest detector this mechanism has went inert in exactly the
+# place all the work happens, and the only symptom was one honest line in a
+# message nobody reads on a PASS. That fix made the path resolve. These cases
+# make the silence impossible.
+#
+# The LAST case is the negative control for this entire suite: it asserts the
+# scanner reports what it examined, so a green run cannot mean "every case
+# passed because the corpus was empty" — which is the very failure under test.
+# ---------------------------------------------------------------------------
+SB_V="$(make_sandbox "$(default_declaration)")"
+rm -f "$SB_V/private/recording.transcript.txt"
+make_speech_lines 30 30 2024 > "$SB_V/private/ordinary-engineering-notes.md"
+
+write_case "a declared private tree with no speech in it is BROKEN" 2 Write \
+    "$SB_V/docs/anything.md" "$SB_V" "$HELLO"
+msg_case "  ... and it says it refuses to scan an empty corpus" \
+    "Refusing to scan an empty corpus" Write \
+    "$SB_V/docs/anything.md" "$SB_V" "$HELLO"
+msg_case "  ... and it names the way through" \
+    "CORPUS_MAY_BE_EMPTY=1" Write \
+    "$SB_V/docs/anything.md" "$SB_V" "$HELLO"
+
+# The commit arm shares the predicate, so it shares the floor.
+cp "$HELLO" "$SB_V/docs/anything.md"
+git -C "$SB_V" add docs/anything.md >/dev/null 2>&1
+if bash_payload "git commit -m x" "$SB_V" | "$COMMIT_HOOK" >/dev/null 2>&1; then
+    bad "the commit arm also refuses an empty corpus"
+else
+    ok "the commit arm also refuses an empty corpus"
+fi
+git -C "$SB_V" reset -q >/dev/null 2>&1
+rm -rf "$SB_V"
+
+# The sanctioned way through is committed and diffable, like ALLOWLIST and
+# unlike an in-prompt token — the failure being fixed here was in-the-moment
+# judgment, so there is no in-the-moment override.
+SB_VE="$(make_sandbox "$(default_declaration)" 'CORPUS_MAY_BE_EMPTY=1')"
+rm -f "$SB_VE/private/recording.transcript.txt"
+write_case "CORPUS_MAY_BE_EMPTY=1 is the committed way through" 0 Write \
+    "$SB_VE/docs/anything.md" "$SB_VE" "$HELLO"
+rm -rf "$SB_VE"
+
+SB_VB="$(make_sandbox "$(default_declaration)" 'CORPUS_MAY_BE_EMPTY=maybe')"
+write_case "a non-boolean CORPUS_MAY_BE_EMPTY is BROKEN" 2 Write \
+    "$SB_VB/docs/anything.md" "$SB_VB" "$HELLO"
+msg_case "  ... and it says so by name" "CORPUS_MAY_BE_EMPTY must be 0 or 1" \
+    Write "$SB_VB/docs/anything.md" "$SB_VB" "$HELLO"
+rm -rf "$SB_VB"
+
+# --- THE NEGATIVE CONTROL --------------------------------------------------
+# Every case above asserts a VERDICT. A verdict is exactly what an empty corpus
+# produces for free, so the suite also asserts the scan looked at something:
+# the scanner reports its corpus size on the last line of every completed
+# analysis, and these two cases read it.
+SB_OR="$(make_default_sandbox)"
+scan_corpus_trailer() { # <sources-dir> <content-file> -> "files<TAB>words"
+    local job
+    job="$(mktemp "$SCRATCH/job.XXXXXX")"
+    PB_SRC_DIR="$1" PB_TXT="$2" PB_JOB="$job" python3 -c '
+import json, os
+job = {"min_speech_lines": 8, "min_quote_words": 10,
+       "sources": [os.environ["PB_SRC_DIR"]],
+       "items": [{"label": "probe", "path": os.environ["PB_TXT"]}]}
+open(os.environ["PB_JOB"], "w", encoding="utf-8").write(json.dumps(job))
+'
+    python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$job" \
+        | grep '^CORPUS' | cut -f2,3
+}
+
+TRAILER="$(scan_corpus_trailer "$SB_OR/private" "$CODE")"
+TR_FILES="$(printf '%s' "$TRAILER" | cut -f1)"
+TR_WORDS="$(printf '%s' "$TRAILER" | cut -f2)"
+if [ -n "$TR_FILES" ] && [ "$TR_FILES" -ge 1 ] 2>/dev/null &&
+   [ -n "$TR_WORDS" ] && [ "$TR_WORDS" -gt 0 ] 2>/dev/null; then
+    ok "a CLEAN verdict reports the non-empty corpus it examined"
+else
+    bad "a CLEAN verdict reports the non-empty corpus it examined (got files='$TR_FILES' words='$TR_WORDS')"
+fi
+
+# And the same trailer on a BLOCKING run, so the oracle is not itself
+# conditional on the verdict.
+TRANSCRIPT_F="$(make_transcript | tf)"
+TRAILER_B="$(scan_corpus_trailer "$SB_OR/private" "$TRANSCRIPT_F")"
+if [ -n "$TRAILER_B" ]; then
+    ok "a BLOCKING verdict reports its corpus too"
+else
+    bad "a BLOCKING verdict reports its corpus too (no CORPUS line)"
+fi
+rm -rf "$SB_OR"
 
 # ---------------------------------------------------------------------------
 # (j) FAIL-OPEN / FAIL-CLOSED conventions.
