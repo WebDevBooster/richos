@@ -40,6 +40,12 @@
 //       them buries the states in nouns.
 //   B4. mock.js. Its strings are SEEDED CONVERSATION DATA for the browser preview, not
 //       states the product can enter. Scanned separately and reported, never mixed in.
+//   B5. UNBOUNDED MACHINERY LEAK. `send()` prints `String(e)` from `send_message` into the
+//       timeline. If the failure came from inside richos-core rather than from the command
+//       layer's own authored refusal, that text is a Display impl — "cognition io: broken
+//       pipe", "the loro slice did not parse". Any error in the crate can reach that
+//       sentence, so the set is not enumerable and this module does not pretend to
+//       enumerate it. Reported as a finding, not folded into the inventory.
 //
 // A blind spot that is named is a bounded gap. A blind spot that is quietly omitted is the
 // defect this module exists to stop.
@@ -230,10 +236,21 @@ function looksLikeProse(s) {
 // Rust: the strings that cross the bridge into the UI (blind spot B2)
 // ---------------------------------------------------------------------------------------
 
+/// `src-tauri/src` is the command layer — the ONLY Rust the renderer calls, and the only
+/// place an authored `Err(String)` is written for the CEO to read. `crates/` is walked too,
+/// but only `ceo_message()` bodies inside it survive the filter below: richos-core's
+/// `Display` impls are machinery ("cognition io: broken pipe", "the loro slice did not
+/// parse"), and although one CAN leak through `String(e)` into a local notice, that surface
+/// is unbounded — see blind spot B5. An inventory that listed 37 core error strings as
+/// "states" would be inventing a set, not deriving one.
 const RUST_ROOTS = [
   path.resolve(UI_DIR, "..", "src-tauri", "src"),
   path.resolve(UI_DIR, "..", "crates"),
 ];
+
+/// Rust files whose authored `Err(String)` sentences the renderer relays. Outside these,
+/// only `ceo_message()` counts.
+const RUST_COMMAND_LAYER = path.resolve(UI_DIR, "..", "src-tauri", "src");
 
 function walk(dir, out) {
   let entries;
@@ -251,11 +268,109 @@ function walk(dir, out) {
   return out;
 }
 
-/// The Rust fields the UI prints VERBATIM. This scrape is narrower than the JS one on
-/// purpose: Rust is full of prose that is a log line, a panic, a test name or a doc
-/// comment, none of which the CEO can ever see. Only the named fields below are relayed
-/// into a rendered surface by `main.js`, and the registry records which surface prints each.
-const RUST_CEO_FIELDS = /(unbound_explanation|UnboundThread|display_message|ceo_message|company_name)/;
+/// Rust string literals with 1-based start lines. Comments dropped, `\`-at-end-of-line
+/// continuation resolved the way rustc resolves it (the newline AND the following
+/// indentation are swallowed), raw strings skipped whole, and `'a` lifetimes distinguished
+/// from `'a'` char literals.
+///
+/// A LINE-BASED GREP IS NOT ENOUGH HERE, and the first version of this file proved it: every
+/// CEO-facing sentence in main.rs is written across two or three lines with a trailing
+/// backslash, so a per-line regex saw only fragments — and it found the strings quoted in
+/// the TEST module instead of the const the app actually ships.
+function rustStringLiterals(src) {
+  const out = [];
+  let i = 0;
+  let line = 1;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "\n") { line++; i++; continue; }
+    if (c === "/" && src[i + 1] === "/") { while (i < n && src[i] !== "\n") i++; continue; }
+    if (c === "/" && src[i + 1] === "*") {
+      i += 2;
+      let depth = 1;
+      while (i < n && depth > 0) {
+        if (src[i] === "\n") line++;
+        else if (src[i] === "/" && src[i + 1] === "*") { depth++; i++; }
+        else if (src[i] === "*" && src[i + 1] === "/") { depth--; i++; }
+        i++;
+      }
+      continue;
+    }
+    // raw string: r"..." / r#"..."# — skipped whole, never CEO prose in this codebase.
+    if (c === "r" && (src[i + 1] === '"' || src[i + 1] === "#")) {
+      let j = i + 1;
+      let hashes = 0;
+      while (src[j] === "#") { hashes++; j++; }
+      if (src[j] === '"') {
+        const close = '"' + "#".repeat(hashes);
+        const end = src.indexOf(close, j + 1);
+        const stop = end < 0 ? n : end + close.length;
+        for (let k = i; k < stop; k++) if (src[k] === "\n") line++;
+        i = stop;
+        continue;
+      }
+    }
+    // char literal vs lifetime
+    if (c === "'") {
+      if (src[i + 1] === "\\") { i += 4; continue; }
+      if (src[i + 2] === "'") { i += 3; continue; }
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      const startLine = line;
+      let buf = "";
+      i++;
+      while (i < n) {
+        const d = src[i];
+        if (d === "\\") {
+          const e = src[i + 1];
+          if (e === "\n") {
+            // rustc: the newline and all following whitespace vanish.
+            line++;
+            i += 2;
+            while (i < n && (src[i] === " " || src[i] === "\t")) i++;
+            continue;
+          }
+          if (e === "n") buf += " ";
+          else if (e === "t") buf += " ";
+          else buf += e;
+          i += 2;
+          continue;
+        }
+        if (d === '"') { i++; break; }
+        if (d === "\n") line++;
+        buf += d;
+        i++;
+      }
+      out.push({ text: buf, line: startLine });
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/// WHICH RUST STRINGS CAN REACH THE CEO'S SCREEN.
+///
+/// Two paths, and both are structural rather than a list of blessed identifiers:
+///
+///   1. `ceo_message()` — richos-voice's own name for "the calm line the CEO sees"
+///      (controller.rs:73). Every literal inside a function of that name is CEO-facing by
+///      the codebase's own declaration.
+///   2. The `Err(String)` of a `#[tauri::command]`, and the `const … : &str` those errors
+///      are built from. `main.js` relays those verbatim: `String(e)` into the local notice
+///      (`send()`), into `#composer-blocked` (`create_thread_in`) and into
+///      `#unbound-view-detail` (`loadTimeline`). So a sentence written beside `Err(` or
+///      `ok_or` in a command is a sentence the CEO can read.
+///
+/// The first version of this scrape keyed on a typed list of field names, and it missed
+/// BOTH of the two worst states in the app — "I'm not connected to my thinking right now"
+/// and the RICHOS_ENTITY instruction — while confidently reporting the fragments that
+/// appear in main.rs's test assertions. That is the typed-list defect one more time, inside
+/// the very module written to stop it.
+const RUST_CEO_CONTEXT = /\bErr\(|\bok_or|const\s+[A-Z0-9_]+\s*:\s*&'?\w*\s*str\s*=|\.into\(\)/;
 
 function rustStrings() {
   const files = [];
@@ -263,15 +378,41 @@ function rustStrings() {
   const out = [];
   const repoRoot = path.resolve(UI_DIR, "..", "..");
   for (const f of files) {
-    const lines = fs.readFileSync(f, "utf8").split("\n");
+    const src = fs.readFileSync(f, "utf8");
+    const lines = src.split("\n");
+
+    // Inline `#[cfg(test)] mod tests { … }` — test prose is not product prose, and a
+    // directory-based exclusion cannot see a module that lives inside a shipped file.
+    let testStart = Infinity;
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^\s*(\/\/|#\[)/.test(line)) continue;
-      if (!RUST_CEO_FIELDS.test(line)) continue;
-      const m = line.match(/"((?:[^"\\]|\\.)*)"/);
-      if (m && looksLikeProse(m[1])) {
-        out.push({ text: m[1], file: path.relative(repoRoot, f), line: i + 1 });
+      if (/^\s*mod tests\s*\{/.test(lines[i]) || /^\s*#\[cfg\(test\)\]/.test(lines[i])) {
+        testStart = i + 1;
+        break;
       }
+    }
+
+    // The nearest preceding `fn NAME`, per line.
+    const fnAt = [];
+    let currentFn = "";
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/\bfn\s+([A-Za-z0-9_]+)/);
+      if (m) currentFn = m[1];
+      fnAt.push(currentFn);
+    }
+
+    for (const lit of rustStringLiterals(src)) {
+      const idx = lit.line - 1;
+      if (idx >= testStart) continue;
+      if (!looksLikeProse(lit.text)) continue;
+      const own = lines[idx] || "";
+      if (/assert/.test(own)) continue;
+      // The literal's own line plus the two above it — enough for `return Err(` or a
+      // `const … : &str =` that sits on the line before the sentence.
+      const ctx = [lines[idx - 2] || "", lines[idx - 1] || "", own].join("\n");
+      const inCommandLayer = f.startsWith(RUST_COMMAND_LAYER + path.sep);
+      const ceoFacing = fnAt[idx] === "ceo_message" || (inCommandLayer && RUST_CEO_CONTEXT.test(ctx));
+      if (!ceoFacing) continue;
+      out.push({ text: lit.text, file: path.relative(repoRoot, f), line: lit.line });
     }
   }
   return out;
