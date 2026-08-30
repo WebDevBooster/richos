@@ -1,0 +1,613 @@
+CLEAN-CHECKOUT RUN — the workflow's own steps, in order, on a tracked-files-only copy
+======================================================================================
+
+  copy:                       /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean
+                              `git archive` of the git tree object — tracked files only.
+                              No node_modules, no .env, nothing untracked.
+  PLAYWRIGHT_BROWSERS_PATH:   /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/finalcache
+                              created empty immediately before this run, so nothing here
+                              can borrow the webkit another project already downloaded —
+                              which is exactly what every previous run of this harness on
+                              this machine was silently doing.
+  RICHOS_PLAYWRIGHT:          removed from the environment with `env -u`, asserted below.
+  no path outside the repository is named anywhere in what follows, except that cache.
+
+--------------------------------------------------------------------------------------
+$ env | grep -c RICHOS_PLAYWRIGHT        # 0 = not in the environment at all
+0
+
+$ ls node_modules
+ls: node_modules: No such file or directory
+
+--------------------------------------------------------------------------------------
+STEP 'Toolchain'
+$ node --version && npm --version
+v25.5.0
+11.8.0
+
+--------------------------------------------------------------------------------------
+STEP 'Install'
+$ npm ci
+
+> richos-ui-tests@0.0.0 postinstall
+> playwright install webkit
+
+Downloading WebKit 26.5 (playwright webkit v2311) from https://cdn.playwright.dev/dbazure/download/playwright/builds/webkit/2311/webkit-mac-15-arm64.zip
+WebKit 26.5 (playwright webkit v2311) downloaded to /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/finalcache/webkit-2311
+Downloading FFmpeg (playwright ffmpeg v1011) from https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-mac-arm64.zip
+FFmpeg (playwright ffmpeg v1011) downloaded to /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/finalcache/ffmpeg-1011
+
+added 3 packages, and audited 4 packages in 9s
+
+found 0 vulnerabilities
+
+--------------------------------------------------------------------------------------
+STEP 'Prove WebKit is really here, before blaming any suite'
+WebKit 26.5 launched from this checkout's own node_modules
+exit 0
+
+--------------------------------------------------------------------------------------
+STEP 'Every browser suite, under WebKit, with its counts'
+$ npm test -- --allow-skip=realbytes.js
+
+> richos-ui-tests@0.0.0 test
+> node run.js --allow-skip=realbytes.js
+
+12 suite(s) discovered: affordances.js, corrections.js, docs-claims.js, feedback.js, inspector.js, live-workers.js, memory-strategy.js, realbytes.js, restart-scope.js, scale.js, steering.js, workers.js
+
+
+== the affordance rule — a state the user could change renders its control ==
+  PASS  NEGATIVE CONTROL: the scrape examined a real corpus, not an empty one
+          158 states derived from index.html, main.js, timeline.js and the Rust bridge scrape
+  PASS  every derived state is classified, and every classification is a real state
+          158/158 classified, 0 unclassified, 0 stale
+  PASS  no duplicate rows, and every class is one of the declared buckets
+          ACTIONABLE 23, NEEDS-SOMEONE-ELSE 17, INFORMATIONAL 57, CONTROL 39, FRAGMENT 15, UNREACHABLE 4, NOT-RENDERED 3
+  PASS  THE RULE: every ACTIONABLE state names a control
+          23 ACTIONABLE states, each naming a control
+  PASS  every NEEDS-SOMEONE-ELSE state names the party, or names what explains it
+          10 name a party in the sentence, 7 are explained by a state beside them
+  PASS  no INFORMATIONAL state is secretly an instruction
+          57 INFORMATIONAL states, none issuing an instruction
+  PASS  [unknown-turn] 2 state(s) render with a usable control
+          state text asserted present; .tl-intervention--quiet button.tl-intervention-action -> button#resume:turn_ok.tl-intervention-action
+  PASS  [failed-turn] 2 state(s) render with a usable control
+          state text asserted present; .tl-intervention button.tl-intervention-action -> button#retry:turn_ok.tl-intervention-action
+  PASS  [voice-no-audio] 1 state(s) render with a usable control
+          state text asserted present; #voice-retry -> button#voice-retry.voice-retry
+  PASS  [working-turn] 2 state(s) render with a usable control
+          control-presence only (state needs live hardware); #stop -> button#stop, #send -> button#send
+  PASS  [thread-create-refused] 1 state(s) render with a usable control
+          state text asserted present; #send -> button#send
+  PASS  [not-connected] 2 state(s) render with a usable control
+          state text asserted present; #send -> button#send
+  PASS  [search-empty] 1 state(s) render with a usable control
+          state text asserted present; #search-input -> input#search-input.overlay-input
+  PASS  [shell] 6 state(s) render with a usable control
+          control-presence only (state needs live hardware); #talk-toggle -> button#talk-toggle
+  PASS  [rail-mark] 5 state(s) render with a usable control
+          control-presence only (state needs live hardware); .nav-thread -> button.nav-thread, .nav-group--unbound .nav-thread -> button.nav-thread
+  PASS  [unbound] 5 state(s) render with a usable control
+          state text asserted present; #unbound-new-thread -> button#unbound-new-thread.pane-action
+  PASS  [entity-view] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-off] 3 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-read-failed] 2 state(s) render with a usable control
+          state text asserted present; .desk-broke:not([hidden]) .desk-btn -> button#desk-loro-retry.desk-btn, (no control by design)
+  PASS  [corrections-empty] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections] 9 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-loro-never] 3 state(s) render with a usable control
+          state text asserted present; .desk-suppressed:not([hidden]) .desk-btn--lift -> button.desk-btn, (no control by design), #desk-loro-suppressed-list .desk-btn--lift -> button.desk-btn
+  PASS  [corrections-written] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-write-failed] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-loro-declined] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-learned] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-already-knew] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-spoken-declined] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [corrections-spoken-never] 1 state(s) render with a usable control
+          state text asserted present; #desk-spoken-suppressed-list .desk-btn--lift -> button.desk-btn
+  PASS  [corrections-lifted] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-unavailable] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-choosing] 5 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-previewing] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-rated] 1 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-declined-report] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  [feedback-approved] 2 state(s) render with a usable control
+          state text asserted present; (no control by design)
+  PASS  NEGATIVE CONTROL: the browser half examined a non-zero number of states
+          70 states asserted against the real DOM under WebKit
+  PASS  the §21 way out actually goes somewhere
+          #unbound-new-thread opens the §3.3 picker with 4 entities, defaulting to none
+  PASS  a rail status mark can never render outside the control that acts on it
+          3/3 marks are inside the button that opens their thread
+  PASS  a refused send leaves no ghost bubble claiming the message went
+          bubble withdrawn, words restored verbatim, Send up
+  PASS  mock.js rehearses the SAME lease-down sentence the product ships
+          the const, the registry and the preview all carry one sentence
+  PASS  POSITIVE CONTROL: an ACTIONABLE state with no affordance IS flagged
+          flagged: ACTIONABLE state renders with NO control in the DOM at all.
+  PASS  POSITIVE CONTROL: a control that exists but is hidden IS flagged
+          flagged: ACTIONABLE state names a control that is in the DOM but NOT VISIBLE — a sentence pointing at something the CEO cannot see is worse than silence.
+  PASS  POSITIVE CONTROL: a paragraph dressed as a control IS flagged
+          flagged: the named control is not something anyone can press — no button, field, link or role=button matched.
+  PASS  POSITIVE CONTROL: an unclassified new state IS flagged
+          the comparator names the exact string and its site
+
+== part 5: heuristic second opinion — REPORT ONLY, and here is why ==
+  flagged 27, genuinely ACTIONABLE or NEEDS-SOMEONE-ELSE 21  ->  precision 77.8%, recall 52.5%
+  Roughly one flag in three is noise and it misses nearly half the real ones, so it does
+  NOT fail the run. A check that cries wolf is deleted within a day, and then nothing runs.
+  6 disagreement(s) with the registry, each with its recorded reason:
+    [INFORMATIONAL] "I'm Rich — your chief of staff. Tell me what you're working on and I'll ta"
+           First-run greeting. An invitation, not a state he could change — and it names both controls anyway (#input and
+    [CONTROL] "Pick it back up"
+           The retry button on both intervention cards.
+    [FRAGMENT] "Press Stop again and I'll have another go."
+           Appended to the backend's own sentence in the failed-stop notice.
+    [INFORMATIONAL] "Set up the environment"
+           §5.3 activity rollup label.
+    [FRAGMENT] "Set up the environment ( steps)"
+           Template hole: the step count.
+    [FRAGMENT] "headphones recommended · tap"
+           Voice footnote, completed by the ◉ glyph.
+
+the affordance rule holds.
+
+== the correction desk — §7's three outcomes, both families, clickable ==
+  PASS  1  the rail carries the count of what is waiting, from BOTH desks
+          badge 2 = 1 loro proposal + 1 spoken candidate
+  PASS  2  the loro card shows the WRITER's own --dry-run bytes, not a description
+          9 lines of record, byte-identical on screen
+  PASS  3  NOTHING is written until he clicks confirm, and then exactly once
+          awaiting-ceo -> written, one card left the list
+  PASS  3b the spoken confirm reaches the vocabulary, and says which outcome it got
+          changed:true -> "Learned. I'll write it that way from now on."; changed:false -> "I already had that one, so nothing changed."
+  PASS  4  a plain decline writes nothing, suppresses nothing, and stays re-askable
+          declined, 0 suppressed, decline counted for the re-ask
+  PASS  5  [loro] a permanent decline lands on a VISIBLE list and can be lifted
+          suppressed ["rec:person/records/decision-ship-thursday"] -> visible -> lifted -> []
+  PASS  5  [spoken] a permanent decline lands on a VISIBLE list and can be lifted
+          suppressed ["deep gram|Deepgram"] -> visible -> lifted -> []
+  PASS  6  with both desks absent the surface STATES WHY and shows no empty list
+          absent: reason shown, empty hidden. present+answered: empty shown, reason hidden.
+  PASS  6b a desk that IS there and did not answer is a DIFFERENT state, with a retry
+          broke -> retry -> the proposal is back
+  PASS  7  a refusal from ANY of the commands reaches the screen, never a console
+          "no vocabulary backend is attached — RichOS will not report a…"
+  PASS  7b he said yes, the writer refused, and the failure is NOT silent
+          failed, reason relayed in full, notice marked
+  PASS  8  he can read what is on record NOW, with no proposal and no confirmation
+          current record and proposed record on screen together, nothing answered
+  PASS  9  a correction staged mid-turn moves the count without the panel being open
+          2 -> 3, and the staged ask is on the desk
+  PASS  9b a suppressed pair that repeats is withheld, not re-asked
+          suppressed pair repeated: 0 new asks, the list still explains the silence
+  PASS  10 the desk opens and closes by keyboard, and returns focus where it was
+          Enter opens, Escape closes, focus returns to the rail button
+  PASS  11 NO PAGINATION, at any length
+          12 asks, one column, zero page controls
+  PASS  12 mock.js's two 'this desk is not here' sentences ARE the Rust ones
+          2 sentences, byte-identical across mock.js and main.rs
+  PASS  13 all fourteen commands are reachable from the shipped UI layer
+          14 commands: loro_available, loro_confirm_correction, loro_decline_correction, loro_pending_corrections, loro_propose_correction, loro_show_record, loro_suppressed_records, loro_unsuppress_record, spoken_confirm_correction, spoken_corrections_available, spoken_decline_correction, spoken_pending_corrections, spoken_suppressed_terms, spoken_unsuppress_term
+  PASS  14 a proposal the DETECTOR filed renders on this desk, with the right ref
+          the detector's own proposal, rendered and answerable — 5d-01-detector-filed-proposal.png (1400x950, 348 distinct colours)
+  PASS  15 a SILENT EDIT renders as what he changed, never as what he said
+          the silent edit the detector really filed, rendered as a CHANGE — 5c-01-silent-edit-on-the-desk.png (1400x950, 365 distinct colours)
+  PASS  NEGATIVE CONTROL: this suite asserted a non-zero number of things
+          98 assertions against the real DOM and the real desks under WebKit
+
+Screenshots: /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/shots-5b — every one decoded and pixel-counted before it counted as evidence.
+
+the correction ask is rendered, answerable, and honest about which desks are running.
+
+== app/ documents vs the tree they describe — derived, never typed ==
+  PASS  app/README.md names every Rust test file, and no file it names is gone
+          22 test files across 2 crates, all named
+  PASS  every per-file test count in app/README.md is the count in that file
+          17 per-file counts, all matching: entity_binding=10 spine=12 rotation=22 action_ledger=15 machinery=15 steering=16 acp_cancel=3 feedback_no_outbound=7 feedback_surface=3 belief_trigger=6 heard_trigger=7 spoken_trigger=9 timeline=12 live_event=20 loro_reprime=10 worker_attribution=10 watermark_cadence=8
+  PASS  every `cargo test -p <crate>` total in app/README.md is the tree's own total
+          richos-core=437+5 richos-voice=163+0
+  PASS  app/ui/tests/README.md's table is exactly the inventory run.js discovers
+          12 suites, all in the table: affordances.js, corrections.js, docs-claims.js, feedback.js, inspector.js, live-workers.js, memory-strategy.js, realbytes.js, restart-scope.js, scale.js, steering.js, workers.js
+  PASS  app/STREAMING.md documents every `rich://` event the app declares
+          18 declared event names, all documented
+  PASS  app/STREAMING.md names no event the app does not have, unless it says so
+          22 names in the document: 18 backed by a constant, 4 declared DEFERRED
+
+== the feedback channel — the local half, reachable, and honest about it ==
+  PASS  1  a permanent control that NEVER counts up at him
+          no badge, no timer, no trigger — it appears when he opens it
+  PASS  2  the question and the four keys are the RUST constants, byte for byte
+          4 keys, verbatim: 1: Bad | 2: OK, but could be better | 3: Good | 0: Dismiss
+  PASS  2b mock.js rehearses the wording and the vocabulary this build SHIPS
+          4 sentences + 21 terms, identical across mock.js and the Rust constants
+  PASS  3  only 1 and 2 raise the offer to report
+          2 ratings invite the offer
+  PASS  3b a GOOD rating is recorded straight away and never offered a report
+          3 -> rated good, report not_offered, no offer shown
+  PASS  3c a DISMISSAL is an answer; closing the panel is not
+          0 records a dismissal; Escape records nothing
+  PASS  4  the whole vocabulary is on screen, and there is nowhere to type
+          21 terms, 0 free-text fields
+  PASS  4b the preview cannot be asked for until the report could be assembled
+          disabled at 0, 1 and 2 of the three required choices; armed at 3
+  PASS  5  what is on screen is what the RUST renderer produces, byte for byte
+          17 lines, byte-identical to the Rust render
+  PASS  5b the same terms in any order render the same bytes
+          7 terms ticked in reverse AND posted in reverse — one block either way
+  PASS  5c a report with no conditions omits the key rather than showing it empty
+          no conditions chosen, no empty key rendered
+  PASS  6  approving records exactly what he read, and it reads back
+          one entry, terms not prose, and the same block back on screen
+  PASS  6b refusing keeps the rating and nothing about the report
+          rating kept, payload dropped, no report on the row
+  PASS  7  an approval for text he was NOT shown is refused, not recorded
+          one byte of drift refuses; the exact block is accepted
+  PASS  7b a key that is not one of the four is refused, never taken as a dismissal
+          4 unrecognised keys, 4 refusals, 0 entries
+  PASS  8  a file that would not open says so, and the keys are NOT offered
+          the backend's sentence, no keys, and no empty list pretending all is well
+  PASS  8b a store that IS there and refused a read is a different state, with a retry
+          read failure, its reason, a retry that works — and neither of the other two states
+  PASS  8c an empty store says WHY it is empty
+          empty, and honest about which of the three empties it is
+  PASS  9  stored answers the BACKEND really writes render as history rows
+          3 stored shapes, 3 distinct rows, the approval's text re-rendered
+  PASS  10 a refusal reaches the screen and never dies in a console
+          the backend's refusal, on screen, marked as a refusal
+  PASS  11 NO PAGINATION, at any length
+          40 answers, one column, zero page controls
+  PASS  12 the panel opens and closes by keyboard, and returns focus where it was
+          Enter opens, Escape closes, focus returns to the rail button
+  PASS  13 all six commands are reachable from the shipped UI layer
+          6 commands: feedback_available, feedback_history, feedback_preview, feedback_record, feedback_taxonomy, feedback_wording
+  PASS  NEGATIVE CONTROL: this suite asserted a non-zero number of things
+          111 assertions against the real DOM and the real store under WebKit
+
+Screenshots: /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/shots-5 — every one decoded and pixel-counted before it counted as evidence.
+
+he can ask, rate, read exactly what would be said, refuse it, and find his own answers on his own machine.
+
+== §7.2 inspector / §7.3 summary / §20 breakpoints — real shell, WebKit ==
+  PASS  the shell draws the delegated workers in a real seeded thread
+          "Delegated to Sage, Frank and Clark" — Sage/Starting, Frank/Working, Clark/Ended
+  PASS  §7.2 selecting a chip opens a SIBLING pane, not a modal
+          conversation 764px | inspector 336px, side by side
+  PASS  §7.2 the pane is READ-ONLY: no control R2 governs
+          2 controls total: Close, and one disclosure. State reads "Ended · outcome not recorded". R2 stays deferred to V2.
+  PASS  §7.2/§22 no elapsed active time is shown, and the absence is stated
+          First seen: Aug 29 at 5:00:02 AM | Last seen: Aug 29 at 5:07:31 AM | Lifecycle events: 5 | Time spent working: not recorded
+  PASS  §7.2 the worker result stays visible when its activity closes
+          activity closed, result still reads: "Pulled the platform-eng comparables from three sources"
+  PASS  §18 Escape closes the pane and returns focus to the chip
+          closed, focus restored to chip:agt_clark_1
+  PASS  §25 worker-pane width can be changed directly and survives relaunch
+          drag 336 -> 426px, persisted; ArrowRight -> 418px; rail untouched at 300px
+  PASS  §7.3 the background-work summary shows only counts with a source
+          active=1 done=1 liveness_unknown=1 needs_you=0 (never drawn)
+  PASS  SCREENSHOT: the inspector docked beside the conversation
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/inspector-docked-1400.png (128113 bytes)
+  PASS  no page errors in the real shell
+          0 uncaught errors, 0 console errors
+  PASS  §20 1180px and wider — docked
+          relative, inspector 336px, conversation 764px -> /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/inspector-1400.png
+  PASS  §20 820 to 1179 — overlays from the right
+          fixed, inspector 336px, conversation 700px -> /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/inspector-1000.png
+  PASS  §20 below 820 — full-height sheet
+          fixed, inspector 760px, conversation 760px -> /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/inspector-760.png
+
+== §7 live workers + §6.4 disclosure — WebKit ==
+  PASS  a delegation reaches the CEO live — 0 chips before the event, 3 after
+          before: 0 chips. after 3 live events: 3 chips in 1 group — "Sage, Frank and Clark started working"
+  PASS  a live turn needs no click to show its work (§6.4 first line)
+          aria-expanded=true with 3 chips, disclosure never clicked
+  PASS  the live DOM and the reloaded DOM are byte-identical
+          identical innerHTML and innerText across the live path and the snapshot path; 3 items, not 6
+  PASS  an upgraded row REPLACES its activity row rather than merging over it
+          "Worked" (0 chips) -> Clark (1 chip), 1 item throughout, 0 stale fields
+  PASS  CROSS-ENTITY: a live worker event from another entity never renders
+          guard on: rejected. guard off (entity clause deleted): admitted. Neither name nor authored words reached the DOM.
+  PASS  a live worker event below the activation revision is stale and refused
+          rev 2 refused (stale), rev 3 accepted, rev 9 accepted (a later activation)
+  PASS  §6.4: active is expanded, completed is collapsed — same turn, no clicks
+          active: expanded, 2 chips -> terminal status: still expanded (the transition survives) -> settled: collapsed, "Sage and Frank started working"
+  PASS  the CEO beats BOTH defaults, in both directions
+          default open -> CEO closes (holds across events) -> CEO opens -> completion leaves it open
+  PASS  a REPLAYED turn's disclosure state does not follow the dead turn id
+          collapse recorded -> turn superseded -> all three sets cleared; the replacement opens by default
+  PASS  SCREENSHOT: a live turn with its delegations on screen, unclicked
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/live-workers-during-a-turn.png — 1280x900, 90 distinct colours, 48067 bytes; Sage, Frank, Clark in frame
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+== §26 memory-strategy — real shell, real renderer, WebKit ==
+  PASS  §26.1-2 the CEO's prompt lands and the turn is accepted
+          22-line prompt, composer cleared, adopted onto turn_memory_01
+  PASS  §6.1 under one second the row reads `Working` — no number invented
+          "Working" at ~100ms of measured elapsed time
+  PASS  §5.1 the long prompt clamps with an accessible Show more
+          clamped -> Show more -> Show less -> clamped, aria-expanded tracked both ways
+  PASS  SCREENSHOT 1/9: just after send
+          ms-01-just-after-send.png — 1440x960, 258 distinct colours, 152117 bytes
+  PASS  §6.4 a LIVE turn's work transcript is expanded BY DEFAULT — and the CEO still wins
+          live turn: aria-expanded=true with 2 work rows, no click.
+          CEO collapse mid-turn holds across further live events.
+  PASS  §26.3-5 commentary, seven reads rolled into one summary, one search
+  PASS  §26 the clock reads exactly `Working for 18s` — injected, not waited for
+          startedAt = anchor + 600; Date.now() - startedAt = 18279ms -> "18s". No sleep, no patched Date.now.
+  PASS  SCREENSHOT 2/9: active at `Working for 18s`
+          ms-02-working-for-18s.png — 1440x960, 339 distinct colours, 179950 bytes
+  PASS  §26.6 three workers start — LIVE, and the reload says the same thing
+          live: Sage/architecture/Working, Frank/red team/Working, Clark/research/Working
+          after a get_timeline read: identical, same ids
+  PASS  SCREENSHOT 3/9: three workers active
+          ms-03-three-workers-active.png — 1440x960, 374 distinct colours, 183709 bytes
+  PASS  §26.7-9 states update INDEPENDENTLY and in place — one run, one row
+          Sage=Working, Frank=Ended (outcome not recorded), Clark=Working
+  PASS  §26.10-12 the run ends, Rich says only what was witnessed, a second run opens
+          2 groups; sage_1=Ended(outcome not recorded), sage_2=Working; recovery prose carries no failure claim
+  PASS  SCREENSHOT 4/9: the ended run with Rich's recovery commentary
+          ms-04-run-ended-with-recovery-commentary.png — 1440x960, 337 distinct colours, 178957 bytes
+  PASS  §7.2 worker detail opens BESIDE the thread, both panes readable
+          conversation 804px | inspector 336px, side by side, no invented diff
+  PASS  SCREENSHOT 5/9: worker detail beside the main thread
+          ms-05-worker-detail-beside-thread.png — 1440x960, 410 distinct colours, 212889 bytes
+  PASS  §26.13 NO PLAN IS DRAWN, at either step count
+          kinds on the wire: user_message, rich_message, activity, worker_activity, work_duration — no `plan`, and no plan copy in the DOM
+  PASS  §26.14-16 the turn completes at a MEASURED 2h 17m 50s
+          13. Plan update from step 2 of 5 to step 3 of 5 [unrepresentable] :: SKIPPED — no plan row emitted; step 13 is unrepresentable
+          14. Final Sage completion [partial] :: the replacement run ends -> `Ended · outcome not recorded`
+          15. Final Rich response with five questions [partial] :: final run: five questions, below the completed divider
+          16. Turn completion at a deterministic active duration of 2h 17m 50s [represented] :: completed; activeMs = 8270000 -> `Worked for 2h 17m 50s`
+          (2 x 3600) + (17 x 60) + 50 = 7200 + 1020 + 50 = 8270 s = 8270000 ms; endedAt - startedAt = 8270000 ms
+  PASS  §6.4 the transcript collapses, the five questions stay visible
+          collapsed to the duration row; five questions still on screen, below the divider
+  PASS  SCREENSHOT 6/9: final response with collapsed `Worked for 2h 17m 50s`
+          ms-06-final-collapsed.png — 1440x960, 376 distinct colours, 235450 bytes
+  PASS  §6.4 expanding restores the original chronology in place
+          4 chips, 4 activity rows, 3 prose runs, in order
+  PASS  SCREENSHOT 7/9: expanded completed activity
+          ms-07-expanded-completed-activity.png — 1440x960, 399 distinct colours, 232148 bytes
+  PASS  §25 both panes resize by keyboard and the widths persist
+          rail 300 -> 420px, worker pane 336 -> 432px, both persisted (nav_state agrees)
+  PASS  SCREENSHOT 8/9: resized left navigation and resized worker pane
+          ms-08-resized-panes.png — 1440x960, 376 distinct colours, 218710 bytes
+  PASS  §14/§26 the same thread, restored after an app reload
+          restored from get_timeline alone: "Worked for 2h 17m 50s", 4 worker runs under it
+  PASS  SCREENSHOT 9/9: same thread restored after app reload
+          ms-09-restored-after-reload.png — 1440x960, 328 distinct colours, 194941 bytes
+  PASS  DETERMINISM: the same anchor twice produces identical bytes
+          17 items, identical across three constructions from one anchor
+  PASS  §6.4 completion collapses the work transcript on its own
+          mid-turn: aria-expanded=true, 3 chips, never clicked -> after completion: collapsed by the 180ms settle; five questions still on screen
+  PASS  no page errors in the untouched pass
+          0 uncaught errors, 0 console errors
+  PASS  every one of §26's sixteen steps is represented or declared
+          5 represented, 9 partial, 2 unrepresentable
+          1. Long CEO prompt with file paths and two URLs [partial] — timeline.js:940,969
+          3. Rich commentary [partial] — live.rs:120, live.rs:42-62
+          5. One web search [partial] — timeline.rs:1400-1417
+          8. Frank completion [partial] — timeline.rs:394-403, worker_events.rs:147-153
+          9. Sage partial update [partial] — worker_events.rs:134-136
+          10. Sage failure [unrepresentable] — worker_events.rs:137-138, timeline.rs:361, timeline.rs:413-421
+          11. Rich recovery commentary [partial] — live.rs:120, timeline.rs:652-661
+          12. Sage replacement start [partial] — worker_events.rs:128-139
+          13. Plan update from step 2 of 5 to step 3 of 5 [unrepresentable] — timeline.rs:62, timeline.rs:466-469, timeline.rs:611-617, machinery.rs:556, live.rs:27
+          14. Final Sage completion [partial] — timeline.rs:394-403
+          15. Final Rich response with five questions [partial] — live.rs:120, timeline.rs:637-647, timeline.js:1416-1421
+  PASS  NEGATIVE CONTROL: no unwitnessable worker state reaches the wire or the DOM
+          observed: run_ended, updated -> states: running, unknown; chips: Ended, Ended, Working, Ended
+  PASS  SCREENSHOT INVENTORY
+          ms-01-just-after-send.png (258 colours) — §26 shot 1
+          ms-02-working-for-18s.png (339 colours) — §26 shot 2
+          ms-03-three-workers-active.png (374 colours) — §26 shot 3
+          ms-04-run-ended-with-recovery-commentary.png (337 colours) — §26 shot 4 asks for `Sage FAILED with Rich recovery commentary`. The failure half does not exist in this runtime, so this is the honest analogue: the run ended, the outcome was not recorded, and Rich's commentary says exactly that.
+          ms-05-worker-detail-beside-thread.png (410 colours) — §26 shot 5 asks for the file-change card too. §7.2 item 6 has no source — Phase 5 owns artifacts and changed files — so the pane shows the three things that are sourced and the card is absent, asserted absent above.
+          ms-06-final-collapsed.png (376 colours) — §26 shot 6
+          ms-07-expanded-completed-activity.png (399 colours) — §26 shot 7
+          ms-08-resized-panes.png (376 colours) — §26 shot 8
+          ms-09-restored-after-reload.png (328 colours) — §26 shot 9
+  PASS  no page errors
+          0 uncaught errors, 0 console errors
+
+== real backend bytes, real renderer, WebKit ==
+  PASS  the wire carries worker rows at all
+          Sage/pending_init, Frank/running, Clark/unknown
+  PASS  the renderer draws every worker the backend sent — none dropped
+          "Delegated to Sage, Frank and Clark" — Sage/Starting, Frank/Working, Clark/Ended
+  PASS  the field names agree: the renderer read every one it needed
+          Sage, architecture, Starting, open worker details
+          Frank, red team, Working, open worker details
+          Clark, research, Ended, outcome not recorded, latest update: Pulled 14 sources on Claude Code memory, open worker details
+  PASS  `run_ended` renders as the chosen wording, from real bytes
+          Clark: wire observedState="run_ended", state="unknown" -> "Ended · outcome not recorded"
+  PASS  the inspector reads the same bytes
+          Clark | research | ◇ | Ended | outcome not recorded | This run has ended. Nothing recorded whether the work finished, was cut short or failed — so I'm not going to call it either way. | LATEST UPDATE | Pulled 14 sources on Claude Code memory | ⌄ | What I saw | First seen | Aug 29 at 5:00:03 AM | Last seen | Aug 29 at 5:07:31 AM | Lifecycle events | 4 | Time spent working | not recorded | I don't have this worker's brief, its output or the files it touched — nothing records those yet, and I'd rather say so than show you a blank.
+  PASS  SCREENSHOT: the real payload, the real renderer
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/realbytes.png (86764 bytes)
+  PASS  no page errors
+          0 uncaught errors
+
+== §25 restart / multi-thread / scope — real shell, WebKit ==
+  PASS  §25 a working thread stays visibly active while another thread is selected
+          hiring: "Q4 hiring" -> "Q4 hiring, working" while acme is selected
+  PASS  §2 returning to a running thread resumes its timer — it does not restart it
+          left at 0s, returned at 3s, ticking (4s) — derived from the turn's own startedAt
+  PASS  §3.1/§9.2 a draft belongs to one thread and never follows the CEO out of its entity
+          two drafts, two threads, two entities — each restored to its own, neither seen by the other
+  PASS  §15 each thread keeps its own scroll position across a switch
+          acme scrollable by 252px, parked at 0, restored to 0; partner still at its own bottom (130)
+  PASS  SCOPE: a turn streaming in another entity's thread renders nothing here
+          contained across entities AND across threads inside one entity; present in its own
+  PASS  §25 the fence is on EVERY live handler — inventory derived, never typed
+          6 handlers, 6 fence call sites: onActivityUpserted, onMessageCompleted, onMessageDelta, onMessageStarted, onTurnStatus, onWorkerUpserted
+  PASS  §25 duplicate events render once
+          15 events / 3 distinct ids -> 2 items, 1 turn, 1 chip, 1 duration row (Ran a command · Sage started working)
+  PASS  §25 missing stream events recover from the durable snapshot
+          20 live events dropped, screen unchanged mid-turn, then the snapshot restored the whole exchange (live path proven first: 144 chars on screen)
+  PASS  §14 a turn that was in flight when the app closed is unknown, never finished
+          "ECS architecture, outcome unknown — a turn never finished" — the honest read of a record that stops mid-turn
+  PASS  §25 a mid-turn crash draws the CEO's prompt exactly once
+          crash -> recovering -> replay: peak 1 turn section, peak 1 CEO bubble on screen at any instant, 1 duration row, and 1 prompt after a re-read
+  PASS  SCREENSHOT: a background thread working while another is on screen
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/background-thread-working.png (1400x900, 240 distinct colours)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+== §25 the timeline at 10,000 items — WebKit ==
+  PASS  the fixture really is a 10,000-item thread, not a small one named 10,000
+          10000 items on the wire -> 9000 model items + 1000 turn records, 1000 mounted sections
+  PASS  ONE new activity row does not rebuild the thread
+          median of 5: 24ms total, 2ms of it JS (budgets 90/20ms; baseline 257ms total). The remainder is WebKit re-measuring 1000 mounted flex children.
+  PASS  STRUCTURAL: the other 999 turns keep the DOM nodes they already had
+          999/1000 sections identical by reference; rebuilt: turn_999
+  PASS  CORRECTNESS: the reused DOM is byte-identical to a from-scratch render
+          2899684 characters of markup, identical
+  PASS  a streamed delta reaches a turn whose nodes were reused
+          121 chars -> 151 on screen, tail present after a full render
+  PASS  scrolling the whole 10000-item history stays at frame rate
+          p50 17ms, p95 17ms, max 18ms over 491314px of history
+  PASS  opening the thread paints, and the projection is not quadratic
+          first paint 272ms (budget 900); apply 1ms + turnsOf 1ms (budget 20, was 34ms)
+  PASS  §9.2's steering cue: the fast predicate agrees with the scan it replaced
+          10 turns, 5 steering (turn_b,turn_c,turn_d,turn_h,turn_f), 5 not (turn_a,turn_g,turn_i,turn_j,turn_e) — both agree
+  PASS  a turn with a record is always in the turn order
+          t1,t2,t3,t4 created -> 3 after the supersede, 4 ordered ids, 5 checkpoints, 0 violations
+  PASS  NO PAGINATION: every turn is mounted and no page control exists
+          1000 turns mounted, 698142 characters scanned, 0 page controls, 0 page wording
+  PASS  the OTHER promised number has a test, and it is not in this file
+          app/src-tauri/src/main.rs::a_ten_thousand_entity_index_stays_searchable_and_the_result_stays_bounded — run it with `cargo test -p richos-tauri` (12ms, 40 hits, debug build)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+  evidence: /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/steering-stopped-row.png (55721B, 134 distinct colours)
+
+== §25 Steering and stop — real bytes + real shell, WebKit ==
+  PASS  §25 the terminal row reads `You stopped after 1s`, from the real wire bytes
+          tone=ceo-stopped  aria="You stopped after 1s. Active time from when Rich accepted the message to when the turn ended."
+  PASS  the stopped row is NOT painted as a failure
+          colour=rgb(165, 162, 151)  failure cards=0
+  PASS  NEGATIVE CONTROL: a crash is never attributed to the CEO
+          "Stopped after 1s" tone=stopped — same bytes, one field different
+  PASS  §25 the partial answer is on screen after the stop
+          35 of 120 scripted chunks rendered, ending at "part 34."
+  PASS  §25 the steering cue is DERIVED from durable timestamps, not a session flag
+          cue on the second message only; the first is not cued because its own turn's span excludes it. Rows: You stopped after 1s / You stopped it
+  PASS  §18 the stopped row's accessible name carries the attribution and the meaning
+          "You stopped after 1s. Active time from when Rich accepted the message to when the turn ended."
+  PASS  §18 status is never colour alone — the word `You` carries the attribution
+          "You stopped after 1s" (rgb(165, 162, 151))
+  PASS  §9.1 idle: no stop control exists when there is nothing to stop
+          a stop button with nothing to stop teaches the CEO the control is decorative
+  PASS  §25 the composer remains usable during work
+          placeholder="Add context or steer Rich…"  stop armed
+  PASS  §9.2 stop REPLACES send on an empty composer, and SITS BESIDE it once he types
+          he never has to choose between sending what he typed and stopping
+  PASS  §9.2 typing does not stop work
+          no stop_turn from any keystroke
+  PASS  §9.2 Enter during work steers — it does not open a second send path
+          steer_message("also check the invoice") — bubble up, composer clear
+  PASS  §9.2 words the intake refuses are given back, never swallowed
+          the sentence is returned to the composer with a calm explanation, no stack trace
+  PASS  §9.3 clicking stop calls stop_turn and the row moves to `Stopping`
+          "Stopping — 4s" — controls disabled, keyboard not taken away
+  PASS  §9.3 the authoritative `stopped` event replaces it with the §6.1 row
+          "You stopped after 18s" — composer back to idle
+  PASS  §9.3 a stop that reached nothing SAYS it reached nothing
+          turn_live_2: "Rich saidRichI've noted that you stopped this. I couldn't interrupt the work already in flight, …"
+  PASS  §9.3 stopping nothing says nothing
+          no announcement, no row, no change — the honest answer to stopping nothing
+  PASS  §18 the stop control works by keyboard and names itself
+          <button type="button" aria-label="Stop Rich"> — Enter activates it
+  PASS  §18 the stop glyph is decorative and never read aloud
+          the square is a picture of a stop, not the name of one
+  PASS  §18 reduced motion: the live/stopping mark is present and does not move
+          mark present, animation-name=none, opacity=0.7
+  PASS  §20 the stop control is reachable and unclipped at 1400px (1180px and wider)
+          40x40 inside a 574px composer — steering-composer-1400.png (101390B, 248 distinct colours)
+  PASS  §20 the stop control is reachable and unclipped at 1000px (820px to 1179px)
+          40x40 inside a 574px composer — steering-composer-1000.png (93141B, 277 distinct colours)
+  PASS  §20 the stop control is reachable and unclipped at 760px (below 820px)
+          40x40 inside a 574px composer — steering-composer-760.png (57195B, 253 distinct colours)
+  PASS  no page errors anywhere in the shell run
+          clean
+
+== §25 AI workers — WebKit ==
+  PASS  REGRESSION before/after: a delegated worker renders in the CEO timeline
+          before: 0 chips, 0 worker rows drawn; the three names appear nowhere in the render
+          after:  1 group, 3 chips — Sage, Frank, Clark
+          summary line: "Delegated to Sage, Frank and Clark"
+          states: Starting | Working | Ended
+  PASS  Sage, Frank and Clark can start concurrently
+          "Sage, Frank and Clark started working"
+  PASS  their states update independently
+          Sage=Starting Frank=Working Clark=Ended
+  PASS  grouped start and completion summaries avoid repetitive rows
+          start: "Sage, Frank and Clark started working"
+          end:   "Sage, Frank and Clark are no longer running"
+  PASS  no worker state is invented when the task source is unavailable
+          unknown -> "Ended · outcome not recorded"; the four unwitnessed states -> "Status unavailable"
+  PASS  `Ended` never carries a success, failure or broken word
+          checked 14 words that would imply success, failure or breakage
+  PASS  one worker can end and another restart without resetting the parent turn
+          Sage=Ended, Clark=Working; parent row identical with and without the ended worker: "Status unavailable" (unknown)
+  PASS  worker activity collapses with the rest of the work, prose does not
+          collapsed summary: "Delegated to Sage, Frank and Clark · Read a file"
+  PASS  §18: chips are buttons whose accessible name carries name, role and state
+          "Sage, architecture, Starting, open worker details"
+          "Frank, red team, Working, open worker details"
+          "Clark, research, Ended, outcome not recorded, latest update: Pulled 14 sources on Claude Code memory, open worker details"
+  PASS  §18: every chip is reachable and operable by keyboard alone
+          3 native buttons, no tabindex overrides, focus order == visual order; Enter and Space both activate.
+          Measured: Tab from a chip lands on BODY in headless WebKit — macOS Full Keyboard Access is a system
+          preference and no button in this app is tabbable without it, including pre-existing ones.
+  PASS  §18/§17.4: reduced motion replaces the pulse with a static mark
+          1 pulse, animation-name: none, transitions: 0s
+  PASS  CROSS-ENTITY: a worker row stamped with another entity never renders
+          guard on: rejected. guard off (entity clause deleted): admitted. Neither name nor authored update reached the DOM.
+  PASS  bindingRevision is a staleness fence, not an equality key
+          rev 3 accepted, rev 9 accepted (a later activation), rev 2 refused (stale)
+  PASS  SCREENSHOT: three workers, three states, real WebKit pixels
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/three-workers-expanded.png (56760 bytes)
+  PASS  SCREENSHOT: every run ended, and nothing claims how
+          /private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/clean/app/ui/tests/.shots/all-ended.png (49294 bytes)
+  PASS  no page errors anywhere in this suite
+          0 uncaught errors, 0 console errors
+
+== evidence ==
+  ok              affordances.js — 46 check(s) run, 16 declared, 0 failed (exit 0)
+  ok              corrections.js — 21 check(s) run, 20 declared, 0 failed (exit 0)
+  ok              docs-claims.js — 6 check(s) run, 6 declared, 0 failed (exit 0)
+  ok              feedback.js — 24 check(s) run, 24 declared, 0 failed (exit 0)
+  ok              inspector.js — 13 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              live-workers.js — 11 check(s) run, 11 declared, 0 failed (exit 0)
+  ok              memory-strategy.js — 32 check(s) run, 32 declared, 0 failed (exit 0)
+  ok              realbytes.js — 7 check(s) run, 7 declared, 0 failed (exit 0)
+  ok              restart-scope.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              scale.js — 12 check(s) run, 12 declared, 0 failed (exit 0)
+  ok              steering.js — 24 check(s) run, 22 declared, 0 failed (exit 0)
+  ok              workers.js — 16 check(s) run, 16 declared, 0 failed (exit 0)
+
+  12 discovered, 12 ran, 0 skipped, 224 checks observed against 189 declared
+  NOTE  --allow-skip=realbytes.js was passed and was not needed: realbytes.js ran here.
+
+all 12 suites passed — 224 checks over 12 suites, none skipped
+exit 0

@@ -123,4 +123,26 @@ a real ledger through the real command body, and `cargo test -p richos-core`.
 and source files. It checks that the claims are TRUE OF THE TREE, never that the behaviour
 they describe works — that is what everything else here, and the Rust suites, are for.
 
-There is no CI runner wired to any of this yet. It runs when someone runs it.
+## What runs this
+
+`.github/workflows/ui-suite-ci.yml`, on `macos-latest`, on a push that touches anything these
+suites read. It runs `npm ci` and `npm test` and nothing else clever; the counting that makes
+a green run mean something lives in `run.js`, so a developer typing `npm test` gets the same
+gate the runner does.
+
+**macOS, not Linux, and that is the expensive choice on purpose.** Playwright's Linux `webkit`
+is the WebKitGTK port with a different graphics stack; on macOS it is a build of Apple's
+WebKit, the engine family WKWebView renders through. An ubuntu runner would cost a tenth of
+the minutes and would be answering a different question than rule 2 asks.
+
+**`realbytes.js` may not run there**, and the workflow says so out loud with
+`--allow-skip=realbytes.js`. It needs `cargo run --example timeline_payload` from
+`app/src-tauri` — the detached workspace with the whole webview dependency tree behind it,
+which `app-spine-ci.yml` also keeps off its test path on purpose, and which measures 1.3 GB
+and about a quarter of an hour from cold. Allowed is not required: if the runner has cargo
+and the build fits the timeout, the suite runs and the run says the allowance went unused. A
+skip by any OTHER suite fails the run.
+
+**And these suites still drive WebKit through Playwright, not the Tauri shell.** §23 Phase 6
+— every acceptance state in the real shell — is not closed by any of this, and the workflow's
+name and output do not claim it is.

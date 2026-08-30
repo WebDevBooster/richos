@@ -1,0 +1,143 @@
+name: ui-suite-ci
+
+# TWELVE BROWSER SUITES, AND NOTHING HAS EVER RUN THEM BUT A PERSON TYPING THE COMMAND.
+#
+# `app/ui/tests/` is the only coverage the CEO's actual screen has — the timeline renderer,
+# the correction desk, the feedback channel's privacy guarantee, the affordance rule, the
+# 10,000-item scale promise, and the shell that assembles them. `app-spine-ci.yml` next to
+# this file covers the Rust spine and stops at the wire. `engine-self-verify.yml` covers the
+# engine. Between them there was nothing at all pointed at the front end, so the suites ran
+# when somebody remembered, which is the defect all three of these files exist to end.
+#
+# WHY macos-latest, WHICH IS TEN TIMES THE MINUTES. `lib/harness.js` rule 2: Tauri renders
+# through WKWebView on macOS, and "a green Chromium run says nothing about what the CEO
+# sees". That constraint survives being put on a runner. Playwright's LINUX `webkit` build is
+# the WebKitGTK port — a different WebKit with a different graphics stack — so an
+# ubuntu-latest job here would be cheap, green, and answering a question nobody asked. On
+# macOS, Playwright ships a build of Apple's WebKit, the engine family WKWebView renders
+# through. The suites take about four minutes; the bill is the price of the answer being
+# about the right engine.
+#
+# WHY NOT FOLD IT INTO app-spine-ci.yml, which is already a job in this repository. Because
+# that one is Rust on ubuntu and this one is Node on macOS: sharing a file would mean one of
+# the two runs on the wrong machine, and a matrix over two jobs with nothing in common is
+# ceremony. The same argument app-spine-ci.yml makes for not folding itself into the engine's
+# runner applies one level in.
+#
+# HOW THIS CANNOT REPORT A GREEN RUN IT DID NOT EARN. Discovery-from-disk (already in
+# `run.js`) fixes which suites are STARTED and says nothing about what they DID — and every
+# failure of this kind in this repository exited 0 honestly: the scanner that reported CLEAN
+# over an empty corpus really did run, and the `run.js` that reported "all 4 suites passed"
+# really did pass the four it knew about. So `run.js` now also gates on evidence: every suite
+# reports how many checks it ran, and a suite that reports none, or fewer than its own source
+# declares (`run.check(` counted off disk, both sides derived, no number typed anywhere),
+# fails the run whatever it exited. Zero total checks fails even if every process exited 0.
+# The step below prints those counts, so the numbers are in the log rather than in a claim.
+#
+# WHAT IT DELIBERATELY DOES NOT COVER, named rather than skipped:
+#   - realbytes.js, PROBABLY. It shells out to `cargo run --example timeline_payload` in
+#     `app/src-tauri` — the detached workspace with the entire webview dependency tree behind
+#     it, which app-spine-ci.yml also keeps off its test path on purpose. On a cold checkout
+#     that is a 1.3 GB build measured at roughly a quarter of an hour, which is why the job
+#     below is given 45 minutes rather than the 20 the browser suites need. The runner image
+#     may or may not carry cargo; either way the suite is ALLOWED to skip by name, on the
+#     command line below, where it is visible. Allowed is not required: if it runs, it runs,
+#     and the gate says the allowance went unused. An UNANNOUNCED skip, by any suite, fails
+#     the run.
+#   - §23 Phase 6, "every acceptance state in the real shell". These suites drive WebKit
+#     through Playwright, not through the Tauri shell, so Phase 6 is exactly as unproven
+#     after this workflow as before it. Nothing here closes it and nothing here should be
+#     read as closing it.
+#   - Anything about the backend's own behaviour. That is `cargo test -p richos-core`, in the
+#     workflow next to this one.
+#
+# WHAT THIS RUN HAS NEVER DONE. This file has not executed. It was written and exercised on
+# the machine that runs the suites locally — every command below was run against a pristine
+# copy of this tree with RICHOS_PLAYWRIGHT unset, and the transcript is in
+# `docs/verification/ui-suite-ci-2026-08-30/`. But no GitHub runner has ever fetched this
+# repository for it, installed a browser on a fresh macOS image, or opened WebKit there. The
+# first push is its first run and may well be red. It must not be described as "CI-verified"
+# until a run of THIS workflow is green on a SHA somebody can name — the same sentence
+# app-spine-ci.yml and windows-companion-ci.yml each carry, for the same reason, and one of
+# them is still waiting.
+
+on:
+  push:
+    paths:
+      # Every input the suites actually read. This is the one typed list in the file and it
+      # is unavoidable — a path filter is YAML, there is nowhere to derive it from. It is
+      # wider than app/ui because docs-claims.js joins app/README.md and app/STREAMING.md to
+      # the Rust tree they describe, and scale.js and steering.js read constants out of
+      # app/src-tauri/src. A miss here costs a run that should have happened, so it errs wide.
+      - "app/ui/**"
+      - "app/README.md"
+      - "app/STREAMING.md"
+      - "app/crates/**"
+      - "app/src-tauri/src/**"
+      - ".github/workflows/ui-suite-ci.yml"
+  pull_request:
+    paths:
+      - "app/ui/**"
+      - "app/README.md"
+      - "app/STREAMING.md"
+      - "app/crates/**"
+      - "app/src-tauri/src/**"
+      - ".github/workflows/ui-suite-ci.yml"
+  # So the gate can be demanded on a SHA without touching the tree — the first green run has
+  # to be attributable to a commit somebody names.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-suites:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: app/ui/tests
+    env:
+      # THE POINT OF THE WHOLE EXERCISE, asserted rather than assumed. Empty is falsy, so
+      # `loadPlaywright()` skips the override and resolves `playwright` from this directory's
+      # own node_modules. If the self-contained install is ever not self-contained again,
+      # this job fails instead of quietly borrowing something.
+      RICHOS_PLAYWRIGHT: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # macos-latest ships Node, so there is no setup action here and no third-party action
+      # in the chain — the same reasoning app-spine-ci.yml gives for having no rustup step.
+      # Playwright 1.61 needs >= 18; print it so a runner image bump that breaks that is
+      # legible in the log rather than as a stack trace.
+      - name: Toolchain
+        run: |
+          node --version
+          npm --version
+
+      # `npm ci`, not `npm install`: it refuses to resolve anything the committed lockfile
+      # does not already name. Its postinstall (`playwright install webkit`) is what fetches
+      # the engine — Playwright itself ships no postinstall, which is exactly why this
+      # harness spent its first six runs pointed at another repository's node_modules.
+      - name: Install
+        run: npm ci
+
+      # A bootstrap failure and a product failure must not look alike in the log. This opens
+      # WebKit and prints its version before any suite runs, so "the browser never installed"
+      # is a red step of its own rather than twelve confusing suite failures.
+      - name: Prove WebKit is really here, before blaming any suite
+        run: |
+          node -e "
+            const { webkit } = require('playwright');
+            webkit.launch().then(async (b) => {
+              console.log('WebKit ' + b.version() + ' launched from this checkout\'s own node_modules');
+              await b.close();
+            }).catch((e) => { console.error(e.message); process.exit(1); });
+          "
+
+      # The gate. --allow-skip names the one suite that cannot run here, on the command line,
+      # where it is visible in the log and in this file; any OTHER suite that skips, reports
+      # no checks, or reports fewer than its source declares fails the run.
+      - name: Every browser suite, under WebKit, with its counts
+        run: npm test -- --allow-skip=realbytes.js
