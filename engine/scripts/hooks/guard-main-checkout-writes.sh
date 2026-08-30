@@ -127,11 +127,30 @@ case "$FILE_PATH" in
   */.claude/worktrees/*) exit 0 ;;
 esac
 
-# --- JURISDICTION: is this artifact even mine? -----------------------------
-# Before this check the answer was decided by falling off the end of a loop.
-# A target in another repository produced exit 0 — the same byte as a pass.
-if ! richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" "${ENTITY_ROOT}" "$FILE_PATH" "file"; then
+# --- GOVERNANCE: resolved from the FILE, not from the seat -----------------
+# "Am I governed?" and "what am I inspecting?" are now the SAME question about
+# the SAME repository. The file's own repository governs it if it has adopted;
+# failing that the seat governs it, but only if the file is inside the seat.
+#
+# THIS IS THE LINE THAT WAS WRONG. PROTECTED_PATHS was joined onto whatever the
+# session happened to be seated in, so in richos the guard defended
+# richos/engine/app — WHICH DOES NOT EXIST — and allowed every write to the real
+# richos/app. Reloading the config from the governing root makes the protected
+# trees belong to the same repository as the path they are matched against.
+if ! GOVERNING_ROOT="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}")"; then
+    richos_announce_stand_down "scripts/hooks/guard-main-checkout-writes.sh" \
+        "neither this file's repository nor the session's seat has adopted the engine, so no repository's PROTECTED_PATHS govern this write"
     exit 0
+fi
+if [ "$GOVERNING_ROOT" != "$ENTITY_ROOT" ]; then
+    richos_assert_jurisdiction "scripts/hooks/guard-main-checkout-writes.sh" \
+        "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+    ENTITY_ROOT="$GOVERNING_ROOT"
+    PROTECTED_PATHS=""
+    CONFIG="$ENTITY_ROOT/orchestration.config"
+    # shellcheck disable=SC1090
+    [ -f "$CONFIG" ] && . "$CONFIG"
+    : "${PROTECTED_PATHS:=}"
 fi
 
 # Sensible failure: with no protected paths configured, the guard cannot know

@@ -113,21 +113,24 @@ INPUT="$(cat)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
-    # LOUD, once per repository per session. engine-status.sh announces the
-    # stand-down at SessionStart, which fires before any work happens and names
-    # no action; this fires at the MOMENT this guard declines, which is the only
-    # moment the absence costs anything.
-    richos_announce_stand_down "scripts/hooks/scan-secrets.sh"
-    # This repository never adopted the engine, so there is no enforcement to
-    # lose here. Stand down. NOT a silent skip: engine-status.sh announces the
-    # stand-down into the orchestrator's own context at every session start.
-    exit 0
+    # DELIBERATELY NOT AN EXIT, and this is the widest of the seven holes: an
+    # unadopted seat meant NO SECRET SCANNING AT ALL, in any repository, for the
+    # whole session. A leaked credential is not less leaked because the
+    # directory it was written from never adopted the engine.
+    #
+    # So carry on with the built-in thresholds. The governing root resolved
+    # below refines them from the file's OWN repository if it has adopted.
+    ENTITY_ROOT=""
 else
     # BROKEN: this guard believes it is governing something and cannot. Block.
     root_failure_banner "scripts/hooks/scan-secrets.sh" >&2
     exit 2
 fi
 
+# The thresholds must come from the repository that governs the FILE, not from
+# wherever the session sits — an allowlist written for one repository has no
+# authority over another's secrets. This load covers the seat case; it is redone
+# below against the governing root when the two differ.
 CONFIG="$ENTITY_ROOT/orchestration.config"
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
@@ -166,6 +169,22 @@ FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys
 # are about to be applied to a file in a different repository, whose own
 # thresholds may be nothing like them. That is worth saying out loud once.
 richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+
+# Re-resolve the thresholds against the repository that actually governs this
+# file. No governing root is NOT a reason to stop scanning — it is a reason to
+# scan on the built-in defaults, which is exactly what the ':=' fallbacks are.
+SS_GOV=""
+SS_GOV="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}" 2>/dev/null || true)"
+if [ -n "$SS_GOV" ] && [ "$SS_GOV" != "$ENTITY_ROOT" ]; then
+    SECRET_SCAN_ALLOWLIST=""
+    # shellcheck disable=SC1090
+    [ -f "$SS_GOV/orchestration.config" ] && . "$SS_GOV/orchestration.config"
+    : "${SECRET_SCAN_MIN_LENGTH:=12}"
+    : "${SECRET_SCAN_MIN_ENTROPY:=3.0}"
+    : "${SECRET_SCAN_ALLOWLIST:=}"
+    : "${SECRET_SCAN_CODE_AWARE:=0}"
+    export SECRET_SCAN_MIN_LENGTH SECRET_SCAN_MIN_ENTROPY SECRET_SCAN_ALLOWLIST SECRET_SCAN_CODE_AWARE
+fi
 
 # The actual scan: extract every piece of NEW text this call would introduce
 # (Write: content; Edit: new_string; MultiEdit: each edits[].new_string;

@@ -257,12 +257,12 @@ if resolve_entity_root "$INPUT"; then
     # divergence in its purest form.
     SEAT_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
 elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
-    # LOUD, once per repository per session. engine-status.sh announces the
-    # stand-down at SessionStart, which fires before any work happens and names
-    # no action; this fires at the MOMENT this guard declines, which is the only
-    # moment the absence costs anything.
-    richos_announce_stand_down "scripts/hooks/guard-completeness-commits.sh"
-    exit 0
+    # DELIBERATELY NOT AN EXIT. This guard reads its contract out of the TARGET
+    # repository, not out of the seat, so an unadopted seat is not a reason to
+    # stop — the artifact's own repository still gets to govern itself below
+    # by its own declaration. Exiting here is what made richos-hq's committed
+    # .row-currency and .ceo-todos readable by nothing at all.
+    SEAT_ROOT=""
 else
     root_failure_banner "scripts/hooks/guard-completeness-commits.sh" >&2
     exit 2
@@ -362,11 +362,21 @@ esac
 CC_REPO="$(pb_repo_root "$CC_ANCHOR" 2>/dev/null || true)"
 [ -n "$CC_REPO" ] || exit 0
 
-# --- JURISDICTION: is this artifact even mine? -----------------------------
-# Before this check the answer was decided by falling off the end of a loop.
-# A target in another repository produced exit 0 — the same byte as a pass.
-if ! richos_assert_jurisdiction "scripts/hooks/guard-completeness-commits.sh" "${SEAT_ROOT}" "$CC_REPO" "commit in"; then
-    exit 0
+# --- GOVERNANCE: the artifact's OWN repository decides ---------------------
+# "Am I governed?" and "what am I inspecting?" are the same question here, and
+# they are now asked of the SAME repository: the declaration loaded immediately
+# below is read out of $CC_REPO — which is also the thing being judged. Two
+# questions about one repository cannot disagree; that is the whole fix, and it
+# needs no extra comparison to hold.
+#
+# The seat is deliberately given NO VETO. It used to have one: an unadopted seat
+# exited before this point, which is exactly why richos-hq's committed
+# .row-currency and .ceo-todos were read by nothing at all while the repository
+# took 28 commits in a day. The seat is REPORTED when it differs from the
+# artifact's repository, and never obeyed — a guard that switched itself off on
+# a seat mismatch would have let through a merge that was correctly refused.
+if [ -n "${SEAT_ROOT}" ]; then
+    richos_assert_jurisdiction "scripts/hooks/guard-completeness-commits.sh" "${SEAT_ROOT}" "$CC_REPO" "commit in" || true
 fi
 
 # --- Adoption: ONE declaration, read by both contracts ---------------------

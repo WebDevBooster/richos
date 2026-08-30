@@ -540,7 +540,7 @@ rm -rf "$FAKEBIN"
 TMPENG="$(mktemp -d -t rctest-eng.XXXXXX)"
 mkdir -p "$TMPENG/scripts/hooks" "$TMPENG/scripts/lib"
 cp "$GUARD" "$TMPENG/scripts/hooks/"
-cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$TMPENG/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" "$TMPENG/scripts/lib/"
 rc=0
 out="$(printf '{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"git commit -m x"}}' \
        | "$BASH_BIN" "$TMPENG/scripts/hooks/guard-row-currency-commits.sh" 2>&1 >/dev/null)" || rc=$?

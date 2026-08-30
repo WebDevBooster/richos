@@ -253,6 +253,56 @@ richos_assert_jurisdiction() {
 }
 
 # ---------------------------------------------------------------------------
+# richos_governing_root <target> [seat]
+# ---------------------------------------------------------------------------
+# WHICH REPOSITORY'S RULES APPLY TO THIS ARTIFACT. Prints it, or nothing (rc 1)
+# when no repository governs it.
+#
+# THIS IS THE ACTUAL RESOLUTION FIX, and it is worth being precise about why the
+# obvious version is wrong.
+#
+# The obvious version is "if the artifact is not inside my seat, skip it". That
+# closes the divergence and it is a REGRESSION, which the test suites caught
+# within minutes: guard-row-currency-commits.sh and its four siblings read their
+# contract out of the TARGET repository — `.row-currency`, `.ceo-todos`,
+# `.publication-boundary` — and the seat contributes nothing to what they judge.
+# Skipping on a seat mismatch would have switched OFF a guard that was working:
+# a merge into richos-hq, refused that morning from an adopted seat, would have
+# sailed through. A jurisdiction rule is never allowed to move enforcement in
+# the less safe direction.
+#
+# So the two questions are not reconciled by adding a comparison. They are
+# reconciled by ASKING BOTH OF THE SAME REPOSITORY:
+#
+#   the artifact's own repository governs it, if it declares anything;
+#   otherwise the seat governs it, but only if the artifact is inside the seat;
+#   otherwise nothing governs it, and that is said out loud.
+#
+# Under that resolution "am I governed?" and "what am I inspecting?" cannot
+# disagree, because they are the same question about the same repository rather
+# than two questions about two.
+#
+# The marker is the same one adoption uses everywhere else — nothing new to
+# maintain, and no second definition of "governed" to drift.
+richos_governing_root() {
+    local target="${1:-}" seat="${2:-}" repo
+    [ -n "$target" ] || return 1
+
+    repo="$(richos_repo_of "$target" 2>/dev/null || true)"
+    if [ -n "$repo" ] && [ -f "$repo/${RICHOS_ADOPTION_MARKER:-orchestration.config}" ]; then
+        printf '%s' "$repo"
+        return 0
+    fi
+
+    if [ -n "$seat" ] && richos_in_jurisdiction "$seat" "$target"; then
+        printf '%s' "$seat"
+        return 0
+    fi
+
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # richos_announce_stand_down <hook> [reason]
 # ---------------------------------------------------------------------------
 # The LOUD stand-down. Called on the `not-adopted` arm, where every guard used
