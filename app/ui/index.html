@@ -94,6 +94,32 @@
           </label>
           <p class="popover-hint" id="techy-hint"></p>
 
+          <!-- §7.2's window, as a SETTING — open-items 1.4. The question "how long do raw
+               payloads survive?" is the CEO's and is NOT answered here; what is answered is
+               that every answer he could give now costs the same thing. It was
+               `RAW_RETENTION_DAYS` in journal.rs, so "14 days" was free and "forever" was a
+               developer, and a question whose status quo is the only free answer is not
+               really open.
+
+               IT IS HERE, under the technical-view group, because this is the retention of
+               exactly what that view shows — and it is a SEPARATE line rather than part of
+               the toggle above because retention runs ALWAYS (§3.2), whether the view is on
+               or off. That is the only reason "show me the technical view for a conversation
+               I already had" works at all, and a control that implied otherwise would
+               undersell it.
+
+               THREE NAMES, NOT TWO NUMBER FIELDS. The setting has two axes — a day window
+               and a byte ceiling — and asking a CEO to predict "90 days OR 2 GB, whichever
+               binds first" is asking him to hold the implementation in his head. The hint
+               below states the consequence in a sentence instead, including what the store
+               costs right now, because "keep everything" is only a real choice if the person
+               making it can see the bill. -->
+          <p class="popover-title">Keep the stored output</p>
+          <label class="popover-option"><input type="radio" name="raw-retention" value="two-weeks" /> For two weeks</label>
+          <label class="popover-option"><input type="radio" name="raw-retention" value="three-months" /> For three months</label>
+          <label class="popover-option"><input type="radio" name="raw-retention" value="forever" /> Forever</label>
+          <p class="popover-hint" id="retention-hint"></p>
+
           <!-- THE OPENING SCREEN'S OFF SWITCH, shipped in the same commit as the screen it
                turns off, and put where a CEO would look for it: behind the same gear as the
                only other preference this product has.

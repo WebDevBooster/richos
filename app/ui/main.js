@@ -2029,6 +2029,12 @@ settingsBtn.addEventListener("click", () => {
   const open = assertivenessPopover.hidden === false;
   assertivenessPopover.hidden = open;
   settingsBtn.setAttribute("aria-expanded", String(!open));
+  // Re-read the retention window every time the popover OPENS, not just at boot. It is the
+  // one preference in here that a person can also change by editing `config.json`, and the
+  // popover is the only screen that claims to say what it is — a stale claim about a setting
+  // that deletes is worse than no claim. The read is one command over a file of a few
+  // hundred bytes, off any hot path, on an explicit click.
+  if (!open) syncRetentionFromBackend();
 });
 document.addEventListener("click", (e) => {
   if (!assertivenessPopover.hidden && !assertivenessPopover.contains(e.target) && e.target !== settingsBtn) {
@@ -3559,6 +3565,101 @@ async function fillMachineryRaw(machineryId, pane) {
   pane.textContent = res.note || "";
 }
 
+// ---------------------------------------------------------------------------------------
+// THE RAW-RETENTION WINDOW (§7.2 — open-items 1.4), the surface half.
+//
+// §7.2 IS THE CEO'S QUESTION AND NOTHING HERE ANSWERS IT. This is the control that makes
+// each of his answers cost the same: three named choices, backed by `raw_retention` /
+// `set_raw_retention` (main.rs -> config.rs), durable, applied the moment he picks one.
+//
+// UNLIKE THE TWO PREFERENCES ABOVE, THIS ONE HAS NO `localStorage` MIRROR. The dial and the
+// splash switch cache locally because something has to paint before the async round trip
+// resolves. This control governs a DELETE, and a local cache of a delete setting is a second
+// answer that can disagree with the store — so there is exactly one source of truth, and
+// until it answers the surface shows nothing selected rather than a guess. On an unwired
+// bridge (the mock harness with these commands absent) the group stays empty and says so,
+// which is the honest state for a control whose backend is not there.
+// ---------------------------------------------------------------------------------------
+
+const retentionHintEl = el("retention-hint");
+const RETENTION_UNWIRED = "This build can't reach the retention setting.";
+
+/// Bytes, in the roundest unit that is still true. Deliberately decimal (MB = 1,000,000):
+/// the CEO reads this against what Finder tells him about his disk, and Finder is decimal.
+function formatBytes(n) {
+  if (typeof n !== "number" || !isFinite(n) || n < 0) return null;
+  if (n < 1000) return n + " bytes";
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1000;
+  let i = 0;
+  while (v >= 1000 && i < units.length - 1) {
+    v /= 1000;
+    i++;
+  }
+  return (v < 10 ? v.toFixed(1) : Math.round(v)) + " " + units[i];
+}
+
+/// The window in the CEO's words, from the two axes the backend reports — never from the
+/// choice name, so a hand-edited `config.json` describes itself instead of borrowing the
+/// nearest button's sentence.
+function retentionWindowSentence(view) {
+  const days = view.ageDays;
+  const bytes = view.totalBytes;
+  const age = days === "forever" ? null : days === 1 ? "1 day" : days + " days";
+  const cap = bytes === "forever" ? null : formatBytes(bytes);
+  if (!age && !cap) return "Nothing is ever removed.";
+  if (age && cap) return "Kept for " + age + ", or " + cap + " of output — whichever comes first.";
+  if (age) return "Kept for " + age + ". No size limit.";
+  return "Kept until it reaches " + cap + ", oldest first.";
+}
+
+/// What the popover says under the three choices: the window, what it costs today, and — on
+/// the one call that just deleted something — what it removed.
+///
+/// THE EVICTION SENTENCE IS THE POINT. `evict_raw` is an `unlink` and nothing else in this
+/// product would ever mention it. A CEO who tightens the window and is told "removed the
+/// stored output from 3 earlier days" has been told; one who is told nothing finds out by
+/// opening a row that is empty, weeks later, and cannot connect it to anything he did.
+function renderRetention(view) {
+  const inputs = assertivenessPopover.querySelectorAll('input[name="raw-retention"]');
+  if (!view) {
+    for (const input of inputs) input.checked = false;
+    if (retentionHintEl) retentionHintEl.textContent = RETENTION_UNWIRED;
+    return;
+  }
+  for (const input of inputs) input.checked = input.value === view.choice;
+  if (!retentionHintEl) return;
+  const parts = [retentionWindowSentence(view)];
+  const used = formatBytes(view.retainedBytes);
+  if (used) parts.push("Using " + used + " now.");
+  if (view.evicted > 0) {
+    parts.push(
+      "Removed the stored output from " +
+        (view.evicted === 1 ? "1 earlier day" : view.evicted + " earlier days") +
+        ". The records are still there; their output is not."
+    );
+  }
+  if (view.choice === "custom") {
+    parts.push("Set by hand in config.json, so none of the three is selected.");
+  }
+  retentionHintEl.textContent = parts.join(" ");
+}
+
+async function syncRetentionFromBackend() {
+  renderRetention(await invokeQuiet("raw_retention"));
+}
+
+/// Pick a window. Applied at once — the backend evicts against the new setting on this call
+/// rather than at the next launch — and the answer it returns is what gets rendered, so the
+/// surface never claims a window the store did not take.
+async function setRetentionChoice(choice) {
+  const view = await invokeQuiet("set_raw_retention", { choice });
+  // A refusal (an unknown choice, a write failure, an unwired bridge) must not leave the
+  // radio showing a setting nothing accepted. Re-read instead of assuming.
+  if (!view) return syncRetentionFromBackend();
+  renderRetention(view);
+}
+
 /// Flip THIS conversation, and pin it — `set_techy_mode` writes a per-thread override, so
 /// the global switch can move afterwards without dragging this thread with it (§3.1).
 async function toggleTechyThread() {
@@ -3592,6 +3693,9 @@ async function setTechyDefault(on) {
 if (techyChipEl) techyChipEl.addEventListener("click", toggleTechyThread);
 if (techyDefaultInput) {
   techyDefaultInput.addEventListener("change", () => setTechyDefault(techyDefaultInput.checked));
+}
+for (const input of assertivenessPopover.querySelectorAll('input[name="raw-retention"]')) {
+  input.addEventListener("change", () => setRetentionChoice(input.value));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -3734,6 +3838,10 @@ async function init() {
   // the CEO can see this launch, and neither may stand between him and a focused composer.
   syncSplashFromBackend();
   noteSplashShown();
+  // The retention window, beside them and for the same reason: it changes nothing the CEO
+  // can see this launch, and it must not stand between him and a focused composer. Read
+  // rather than cached — see the block comment over `renderRetention`.
+  syncRetentionFromBackend();
 }
 
 async function hydrateRunningTurn() {

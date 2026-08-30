@@ -817,6 +817,49 @@
 
   let techyDefault = false;
   const techyThreads = new Map(); // threadId -> bool  (ABSENT means "follows the default")
+
+  // ---- §7.2: the raw-retention window, modelled rather than stubbed ---------------------
+  //
+  // The window is a SETTING (`config.rs`'s `raw_retention`, `journal.rs`'s `RawRetention`),
+  // so the mock has to hold one — and it has to EVICT, because the sentence the surface says
+  // after a change ("removed the stored output from N earlier days") is the whole reason the
+  // control does not delete silently, and a mock that always returned 0 would let that
+  // sentence rot untested.
+  //
+  // A stand-in journal: one raw day-shard per entry, of a known age and size. `evicted`
+  // counts shards whose age is past the window, which is exactly what `evict_raw_within`
+  // does with `unlink` — and NOTHING here touches the records, because Tier A is never
+  // evicted at any setting.
+  const RETENTION_WINDOWS = {
+    "two-weeks": { ageDays: 14, totalBytes: 2147483648 },
+    "three-months": { ageDays: 90, totalBytes: 2147483648 },
+    forever: { ageDays: "forever", totalBytes: "forever" },
+  };
+  // STARTS AT `forever` DELIBERATELY, and this is the one place the mock is not a fresh
+  // install. A fresh install is `two-weeks` (`config.rs`, proven there), and under a
+  // two-week window a 120-day-old raw shard cannot exist — boot eviction removed it. So a
+  // `two-weeks` mock holding an aged store would be a state the product cannot produce, and
+  // the interesting state for a control that DELETES is the one where there is something to
+  // delete: a CEO who opened the window up and later tightens it.
+  let retentionChoice = "forever";
+  let rawShards = [
+    { ageDays: 120, bytes: 41_000_000 },
+    { ageDays: 60, bytes: 12_500_000 },
+    { ageDays: 20, bytes: 8_100_000 },
+    { ageDays: 9, bytes: 3_300_000 },
+    { ageDays: 0, bytes: 900_000 },
+  ];
+  /// The view the two commands return, in the shape `RetentionView` puts on the wire.
+  function retentionView(evicted) {
+    const w = RETENTION_WINDOWS[retentionChoice] || RETENTION_WINDOWS["two-weeks"];
+    return {
+      choice: retentionChoice,
+      ageDays: w.ageDays,
+      totalBytes: w.totalBytes,
+      retainedBytes: rawShards.reduce((n, s) => n + s.bytes, 0),
+      evicted: evicted || 0,
+    };
+  }
   /// Thread ids the OS would refuse to read. Not "empty" — a different state entirely.
   const machineryUnreadable = new Set();
 
@@ -955,6 +998,25 @@
         case "set_techy_default":
           techyDefault = !!args.enabled;
           return techyDefault;
+
+        // ---- §7.2: the raw-retention window ----------------------------------------
+        case "raw_retention":
+          return retentionView(0);
+        case "set_raw_retention": {
+          const next = String(args.choice);
+          // An unknown choice — `custom` included, which describes a hand-edited file and
+          // never instructs one — is REFUSED, exactly as the real command refuses it.
+          // Nothing set, nothing evicted: a bad argument to a command that deletes must do
+          // nothing at all.
+          if (!Object.prototype.hasOwnProperty.call(RETENTION_WINDOWS, next)) {
+            return Promise.reject("unknown retention choice: " + next);
+          }
+          retentionChoice = next;
+          const w = RETENTION_WINDOWS[next];
+          const before = rawShards.length;
+          if (w.ageDays !== "forever") rawShards = rawShards.filter((sh) => sh.ageDays <= w.ageDays);
+          return retentionView(before - rawShards.length);
+        }
 
         case "active_context":
           return activeContextOf();

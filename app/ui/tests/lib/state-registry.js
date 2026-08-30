@@ -1069,4 +1069,84 @@ module.exports = [
     c: "CONTROL",
     why: "The other branch of #techy-hint, for a thread that is following the global default. Same hole, same job.",
   },
+
+  // ---- §7.2: the raw-retention window, in the same Settings group ----------------------
+  //
+  // Every hint below follows the #techy-hint precedent two rows up: they sit under the
+  // control they describe, in the same popover, and they describe what it does rather than
+  // report a fault. Nothing here is a state the CEO is being asked to fix — the three radios
+  // are RIGHT THERE, and the sentence exists so that picking one is an informed act rather
+  // than a guess about what "whichever binds first" will do to his stored output.
+  { s: "Keep the stored output", c: "CONTROL", why: "Settings popover title over the raw-retention radio group." },
+  { s: "For two weeks", c: "CONTROL", why: "The `two-weeks` radio's label — the shipping default (`config.rs`)." },
+  { s: "For three months", c: "CONTROL", why: "The `three-months` radio's label." },
+  {
+    s: "Nothing is ever removed.",
+    c: "CONTROL",
+    why:
+      "#retention-hint when both axes are `forever`. It describes what the selected radio " +
+      "beside it means, and the whole point of saying it plainly is that eviction is an " +
+      "`unlink` nothing else in the product would ever mention.",
+  },
+  {
+    s: "of output — whichever comes first.",
+    c: "FRAGMENT",
+    why:
+      "The tail of #retention-hint's two-axis sentence, with the day and byte holes folded " +
+      "out by the scraper — it renders as 'Kept for 14 days, or 2.1 GB of output — whichever " +
+      "comes first.' Never on its own.",
+  },
+  {
+    s: "Kept until it reaches",
+    c: "FRAGMENT",
+    why:
+      "The head of the other #retention-hint branch — a byte ceiling with no day window, " +
+      "reachable only from a hand-edited config.json. Completed by the size and the row below.",
+  },
+  {
+    s: ", oldest first.",
+    c: "FRAGMENT",
+    why: "The tail of that same sentence. Says which end of the store the ceiling eats from.",
+  },
+  {
+    s: "Removed the stored output from",
+    c: "FRAGMENT",
+    why:
+      "The head of #retention-hint's announcement after a window change actually evicted, " +
+      "completed by the day count and 'The records are still there; their output is not.' " +
+      "IT IS THE SENTENCE THE WHOLE CONTROL EXISTS FOR: a delete that says nothing is how a " +
+      "CEO finds an empty row weeks later and cannot connect it to anything he did.",
+  },
+  {
+    s: "1 earlier day",
+    c: "FRAGMENT",
+    why: "The singular arm of that count. 'N earlier days' is the plural and is built from the number.",
+  },
+  {
+    s: "Set by hand in config.json, so none of the three is selected.",
+    c: "CONTROL",
+    why:
+      "#retention-hint when the stored window matches no menu entry (`RetentionChoice::Custom`). " +
+      "It explains why no radio is checked instead of checking the nearest one — rounding " +
+      "would misreport his setting AND the next click on any other control would write the " +
+      "rounded value back over it. The fix, if he wants one, is the radio group it sits under.",
+  },
+  {
+    s: "This build can't reach the retention setting.",
+    c: "INFORMATIONAL",
+    why:
+      "main.js's fallback when `raw_retention` is not a registered command — the mock harness, " +
+      "or a shell built without them. Same shape and same reasoning as 'The stored output " +
+      "isn't reachable in this build.' above: it states the limit rather than showing a radio " +
+      "group with nothing behind it, and there is nothing for the CEO to do about which " +
+      "commands his build registered.",
+  },
+  {
+    s: "unknown retention choice: {choice}",
+    c: "UNREACHABLE",
+    why:
+      "`set_raw_retention`'s Err. The only caller in the shipped UI is the change handler over " +
+      "`input[name=raw-retention]`, whose three values are exactly the three `RetentionChoice::parse` " +
+      "accepts — so the refusal arm is real, is tested in Rust, and no path in the webview reaches it.",
+  },
 ];
