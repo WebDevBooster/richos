@@ -566,8 +566,16 @@ function showEntityView(entityId, mode) {
   // app, and the entity registry is `EntityRegistry::dogfood()` — hard-coded on purpose so
   // a missing or edited config file cannot silently move a privacy boundary. Saying so is
   // better than an empty panel that implies the data is merely missing today.
+  // NAMES THE PARTY. It used to read "Priorities and entity editing aren't wired yet —
+  // this area is defined in code, not settings." Every clause is true and every clause is
+  // addressed to an engineer: "wired", "defined in code" and "settings" all describe a
+  // place the CEO cannot go, and no sentence said whose job it was, so the note read as a
+  // thing he might be expected to fix. This is a NEEDS-SOMEONE-ELSE state and it now says
+  // who, and that there is nothing here for him.
   el("entity-view-note").textContent =
-    "Priorities and entity editing aren't wired yet — this area is defined in code, not settings.";
+    "I can't show priorities for this area yet, and the area itself is set up inside RichOS " +
+    "rather than in settings — whoever set RichOS up is the one who changes it. Nothing here " +
+    "needs you.";
 
   composerScopeEl.textContent =
     (mode === "new" ? "New thread in " : "Talk to Rich about ") + entity.display_name;
