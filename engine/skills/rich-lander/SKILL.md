@@ -162,6 +162,52 @@ git branch -d worktree-<id>
 
 If work was rejected or abandoned, record why before removing.
 
+### 8b. SWEEP THE IN-FLIGHT TEAMMATES — the step that is forgotten
+
+**Added 2026-08-30, after it was forgotten twice in one day and cost two extra agents.**
+
+Landing moves `main`. Every teammate still working was cut from an older base and is
+now, silently, one revision behind. **Nothing tells them. You are the only thing that
+can.**
+
+Before this land is finished, enumerate every live worktree and ask, per teammate:
+
+1. **Did their base move under them in a way that touches their files?** If yes, they
+   will hit a merge conflict they could have avoided, or build on a fact that is no
+   longer true.
+2. **Did a record they were told to READ change?** A worktree is a snapshot: their copy
+   of a wiki page, a decision file or a plan is frozen at their base. A ruling landed
+   after they were cut does not exist for them.
+3. **Did the thing they are consuming grow?** New source material, more variations,
+   more entries — work sized to what existed at spawn time silently ships incomplete.
+
+**Where the answer is yes, MESSAGE THEM, in this land, before you report.** The mailbox
+is lossy, so a bare send is not enough:
+
+- Say what changed, name the SHA, and say which of their assumptions it breaks.
+- Ask for a reply that **only a teammate holding the new fact could write** — quote it
+  back, name the file, state the number. "Did you get it?" confirms nothing; a correct
+  restatement confirms content.
+- **Confirm the reply arrived.** No reply is not consent. If none comes and the fact is
+  load-bearing, escalate to a fresh spawn with a corrected brief.
+
+**`TaskStop` + respawn is the FALLBACK, not the first move.** It destroys whatever the
+teammate has written; it is free only when they have written nothing, and checking that
+first is luck management, not method. Message, confirm, and respawn only when
+confirmation does not arrive.
+
+**The two failures that produced this step, both on 2026-08-30, both mine:**
+
+- The techy renderer landed while a second agent built the splash screen from the same
+  base. Both were known to be in `app/`. Nothing was sent. Result: eight conflicting
+  hunks across five files and a whole extra agent to resolve them.
+- Twelve new design variations landed while an agent was building a library from the
+  seven that existed at its spawn. Nothing was sent. Result: the library shipped at 7 of
+  19 and needed another agent and another round to finish.
+
+Both were reported to the CEO as news. He had to point out that the message was never
+sent at all.
+
 ### 9. Strict serialization — process the next queued handoff
 
 One handoff at a time. When this land finishes, re-check `task-events.jsonl` /
