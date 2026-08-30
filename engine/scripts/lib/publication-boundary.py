@@ -16,10 +16,18 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
         "min_quote_words": 8,
         "corpus_max_files": 4000,
         "corpus_max_bytes": 67108864,
+        "items_max_files": 5000,
         "sources": ["/abs/path/to/private/tree", ...],
         "items":   [{"label": "docs/x.md", "path": "/tmp/blob"},
-                    {"label": "docs/y.md", "text": "inline content"}]
+                    {"label": "docs/y.md", "text": "inline content"},
+                    {"label": "docs/notes/", "path": "/repo/docs/notes"}]
       }
+
+  An item whose "path" is a DIRECTORY is expanded to the files beneath it and
+  every one is scanned. It is spelled out in the contract because the opposite
+  behaviour is what a scanner does by accident: `open()` on a directory raises,
+  the unreadable-path branch skips it, and the run reports CLEAN having read
+  ZERO BYTES. See expand_items for the shape that walked past this.
 
   stdout is one line per finding, tab-separated, and nothing else:
 
@@ -227,6 +235,73 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes):
     return '  '.join(parts), members
 
 
+# --- items: what the caller asked to be scanned ----------------------------
+
+def expand_items(items, max_files):
+    """Resolve every job item to something with BYTES behind it.
+
+    THE WALK-PAST THIS EXISTS TO CLOSE. `git status --porcelain` reports a
+    wholly-new directory as ONE entry — `?? docs/session-notes/` — and a caller
+    that passes that entry through hands this scanner a DIRECTORY. `open()` on a
+    directory raises IsADirectoryError, the unreadable-path branch in main()
+    treats it exactly like a deleted or binary file, and the scan reports CLEAN
+    having examined zero bytes. Every leak on 2026-08-29 was a file inside a
+    directory; a new directory of transcripts arriving in one go would have been
+    waved through by a guard reporting, on its own terms, the truth.
+
+    So a directory item is EXPANDED here, once, for every caller — the write
+    guard, the commit guard, and any by-hand run over a diff.
+
+    Binary files are skipped by a NUL test rather than by extension: an image or
+    an audio file carries no reproducible speech TEXT, and media was already
+    covered by the check this mechanism replaced. Oversized files are read up to
+    the same 8 MB bound the corpus uses.
+
+    Exceeding max_files is BROKEN, never a quiet truncation — half a directory
+    scanned and reported clean is the defect this whole file exists to end.
+    """
+    out = []
+    seen = 0
+    for item in items:
+        path = item.get('path')
+        if not path or not os.path.isdir(path):
+            out.append(item)
+            seen += 1
+            if seen > max_files:
+                raise BrokenCorpus(
+                    "the scan job names more than ITEMS_MAX_FILES=%d files. "
+                    "Refusing to scan part of it and report the result as "
+                    "clean." % max_files)
+            continue
+        label = item.get('label') or path
+        base = label.rstrip('/')
+        for dirpath, dirnames, filenames in os.walk(path):
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+            for fn in sorted(filenames):
+                fp = os.path.join(dirpath, fn)
+                if os.path.islink(fp):
+                    # A symlink's target is scanned in its own right if it is
+                    # inside the scanned set, and following it here would let one
+                    # directory item wander out of the tree it names.
+                    continue
+                try:
+                    with open(fp, 'rb') as fh:
+                        head = fh.read(8192)
+                except OSError:
+                    continue
+                if b'\0' in head:
+                    continue
+                seen += 1
+                if seen > max_files:
+                    raise BrokenCorpus(
+                        "expanding the directory items in this scan job passed "
+                        "ITEMS_MAX_FILES=%d files. Refusing to scan part of a "
+                        "directory and report the result as clean." % max_files)
+                rel = os.path.relpath(fp, path)
+                out.append({'label': '%s/%s' % (base, rel), 'path': fp})
+    return out
+
+
 def index_corpus(corpus, n):
     """Hash every n-word window of the corpus once.
 
@@ -279,6 +354,12 @@ def main():
     min_quote = int(job.get('min_quote_words', 10))
     sources = [s for s in job.get('sources', []) if s]
     items = job.get('items', [])
+
+    try:
+        items = expand_items(items, int(job.get('items_max_files', 5000)))
+    except BrokenCorpus as exc:
+        print("BROKEN\t%s" % exc)
+        return 2
 
     try:
         corpus, members = build_corpus(

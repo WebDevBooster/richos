@@ -49,6 +49,8 @@
 #       bytes behind it; and a pathspec or `-a` commit records the WORKTREE
 #       copy, not the index copy. Every one of those passed before, with the
 #       controls that keep ordinary `git add src/newmod && git commit` clean.
+#       The same walk-past one level down: the shared predicate handed a
+#       DIRECTORY read zero bytes and came back CLEAN.
 #   (i) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
 #   (j) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
@@ -526,6 +528,43 @@ commit_case "CONTROL: a new directory of binary files commits" 0 "$SB_S" \
     "git -C $SB_S add docs/media && git -C $SB_S commit -m media"
 rm -rf "$SB_S/docs/media"
 rm -rf "$SB_S"
+
+# --- the same walk-past, one level down: the scanner itself ----------------
+# Every caller shares one predicate, so the expansion lives there and not in a
+# hook. A directory handed to the scanner used to raise IsADirectoryError inside
+# the unreadable-path branch and come back CLEAN.
+scan_case() { # <name> <expect: BLOCK|CLEAN> <sandbox> <item-path> <label>
+    local name="$1" want="$2" sb="$3" ipath="$4" label="$5" job out got
+    job="$(mktemp "$SCRATCH/job.XXXXXX")"
+    PB_JOB="$job" PB_SRC="$sb/private" PB_PATH="$ipath" PB_LABEL="$label" python3 -c '
+import json, os
+json.dump({"min_speech_lines": 8, "min_quote_words": 10,
+           "corpus_max_files": 4000, "corpus_max_bytes": 67108864,
+           "sources": [os.environ["PB_SRC"]],
+           "items": [{"label": os.environ["PB_LABEL"], "path": os.environ["PB_PATH"]}]},
+          open(os.environ["PB_JOB"], "w"))'
+    # SCAN_OUT is left behind for the assertion that follows: the evidence a
+    # directory finding carries is as much the contract as the verdict.
+    SCAN_OUT="$(python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$job" 2>/dev/null)"
+    got="$(printf '%s' "$SCAN_OUT" | head -1 | cut -f1)"
+    if [ "$got" = "$want" ]; then ok "$name"; else bad "$name (expected $want, got '$got')"; fi
+}
+
+SB_D="$(make_default_sandbox)"
+new_dir_of_speech "$SB_D"
+scan_case "the scanner handed a DIRECTORY expands it and blocks" \
+    BLOCK "$SB_D" "$SB_D/docs/session-notes" "docs/session-notes/"
+if printf '%s' "$SCAN_OUT" | grep -q "docs/session-notes/part2.txt"; then
+    ok "and names the FILE inside it, not the directory"
+else
+    bad "a directory finding must name the file it came from"
+fi
+rm -rf "$SB_D/docs/session-notes"
+mkdir -p "$SB_D/docs/media"
+printf 'PK\003\004\000\000\000\000binary' > "$SB_D/docs/media/thing.bin"
+scan_case "a directory of binary files scans clean, never fails closed on it" \
+    CLEAN "$SB_D" "$SB_D/docs/media" "docs/media/"
+rm -rf "$SB_D"
 
 # ---------------------------------------------------------------------------
 # (i) FAIL-OPEN / FAIL-CLOSED conventions.
