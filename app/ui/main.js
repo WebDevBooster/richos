@@ -2635,19 +2635,40 @@ function renderProposalCard(p) {
 /// "(you corrected this before)" clause — §7 requires a second ask to say so, "or it reads
 /// as the system having forgotten", and rebuilding that sentence here is how the two
 /// surfaces start asking it differently.
+///
+/// TWO TRIGGERS FILE INTO THIS DESK AND THEY DO NOT GET THE SAME CARD. `spoken.rs` fires on
+/// a sentence he SAID ("It's Kestrel, not Kestral"), so the evidence is a quotation and
+/// "Because you said:" is true. `heard.rs` fires on a dictation he SILENTLY EDITED before
+/// pressing send — he said nothing at all — so the same heading over the same layout would
+/// put words in his mouth, and the evidence he actually needs is the CHANGE: what the
+/// recogniser heard, against what he sent. `ask.frame` is what tells them apart
+/// (`spoken.rs`'s `Frame`, kebab-cased over the wire), and it is read rather than guessed
+/// from the shape of the payload.
 function renderCandidateCard(c) {
   const card = document.createElement("article");
   card.className = "desk-card";
   card.dataset.key = c.key;
+  const silentEdit = !!(c.ask && c.ask.frame === "silent-edit");
+  card.dataset.frame = (c.ask && c.ask.frame) || "";
 
   card.appendChild(deskLine("desk-card-prompt", c.prompt));
-  card.appendChild(deskLine("desk-label", "Because you said:"));
-  card.appendChild(deskLine("desk-card-quote", c.utterance));
+  if (silentEdit) {
+    // No quotation, because there is nothing he said. The two lines ARE the evidence, and
+    // they are shown in the order they happened: heard first, sent second.
+    card.appendChild(deskLine("desk-label", "I heard:"));
+    card.appendChild(deskLine("desk-card-quote", (c.ask && c.ask.anchor) || ""));
+    card.appendChild(deskLine("desk-label", "You sent:"));
+    card.appendChild(deskLine("desk-card-quote", c.utterance));
+  } else {
+    card.appendChild(deskLine("desk-label", "Because you said:"));
+    card.appendChild(deskLine("desk-card-quote", c.utterance));
+  }
   if (c.ask) card.appendChild(deskLine("desk-card-pair", c.ask.from + " → " + c.ask.to));
   // EVIDENCE, not a gate (`spoken.rs:374-376`): `anchor` is where the rejected form was
   // found in the recent record. Absent means the pair is still asked and there is simply
-  // nothing to quote, so the line is omitted rather than filled in.
-  if (c.ask && c.ask.anchor) card.appendChild(deskLine("desk-card-anchor", c.ask.anchor));
+  // nothing to quote, so the line is omitted rather than filled in. For a silent edit the
+  // anchor IS the heard sentence and is already rendered above, so it is not repeated.
+  if (!silentEdit && c.ask && c.ask.anchor) card.appendChild(deskLine("desk-card-anchor", c.ask.anchor));
 
   const actions = document.createElement("div");
   actions.className = "desk-card-actions";

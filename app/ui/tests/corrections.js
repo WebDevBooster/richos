@@ -40,6 +40,13 @@ const SHOTS = path.join(__dirname, "shots-5b");
 /// composes a proposal; check 14 renders THAT one.
 const DETECTED = path.join(__dirname, "fixtures", "loro-proposal.json");
 const SHOTS_5D = path.join(__dirname, "shots-5d");
+/// The candidate `heard.rs` ACTUALLY files when a dictation is silently edited before
+/// sending, written by
+/// `heard_trigger_tests::the_ui_fixture_is_the_candidate_the_detector_really_files` and
+/// re-checked against the live detector + desk on every `cargo test` run. Nothing in this
+/// file composes a candidate; check 15 renders THAT one.
+const HEARD = path.join(__dirname, "fixtures", "heard-candidate.json");
+const SHOTS_5C = path.join(__dirname, "shots-5c");
 
 // ---------------------------------------------------------------------------------------
 // Shell driving — the REAL shell, with nothing stubbed that mock.js does not already own
@@ -650,6 +657,80 @@ async function main() {
     return "the detector's own proposal, rendered and answerable — " + shotName;
   });
 
+  await run.check("15 a SILENT EDIT renders as what he changed, never as what he said", async () => {
+    // RICH-TODOs row 5c. Two triggers file into this one desk and they must not get the
+    // same card: `spoken.rs` fires on a sentence he SAID, `heard.rs` on a dictation he
+    // silently fixed before pressing send and said nothing about. "Because you said:" over
+    // a sentence he never uttered is the surface putting words in his mouth.
+    const filed = JSON.parse(fs.readFileSync(HEARD, "utf8"));
+    assertEqual(filed.ask.frame, "silent-edit", "the fixture is not a silent-edit candidate");
+    assert(
+      filed.ask.anchor && filed.ask.anchor !== filed.utterance,
+      "the fixture's heard and sent sides are the same string, so this check would prove nothing"
+    );
+
+    // The bytes on disk cross into the page and are parsed there — nothing here retypes a
+    // candidate into a nicer one.
+    const page2 = await openApp(browser);
+    await page2.evaluate((raw) => {
+      window.__RICHOS_MOCK__.stageSpokenCorrection(JSON.parse(raw));
+    }, fs.readFileSync(HEARD, "utf8"));
+    await page2.click("#nav-corrections");
+    await page2.waitForSelector('#desk-spoken-list .desk-card[data-frame="silent-edit"]');
+
+    const card = '#desk-spoken-list .desk-card[data-frame="silent-edit"] ';
+    const labels = await page2.$$eval(card + ".desk-label", (n) => n.map((x) => x.textContent));
+    assertEqual(labels, ["I heard:", "You sent:"], "the silent-edit card must not claim he said anything");
+    const quotes = await page2.$$eval(card + ".desk-card-quote", (n) => n.map((x) => x.textContent));
+    assertEqual(quotes[0], filed.ask.anchor, "the first quote must be what the recogniser heard");
+    assertEqual(quotes[1], filed.utterance, "the second must be what he actually sent");
+    assertEqual(
+      await page2.textContent(card + ".desk-card-pair"),
+      filed.ask.from + " → " + filed.ask.to,
+      "the pair that would reach the vocabulary must be on the card"
+    );
+    assertEqual(
+      await page2.textContent(card + ".desk-card-prompt"),
+      filed.prompt,
+      "the ask sentence is staging.rs's, not this file's"
+    );
+    // The anchor is already rendered as "I heard:", so it must not appear a second time as
+    // a bare grey line — the first draft of this card showed the same sentence twice.
+    assertEqual(
+      await page2.$$eval(card + ".desk-card-anchor", (n) => n.length),
+      0,
+      "the heard sentence is rendered twice"
+    );
+
+    // And the OTHER trigger's card is unchanged on the same desk, or this branch has been
+    // made at the cost of the surface that already worked.
+    const spokenCard = '#desk-spoken-list .desk-card[data-frame="pivot-first"] ';
+    assertEqual(
+      await page2.$$eval(spokenCard + ".desk-label", (n) => n.map((x) => x.textContent)),
+      ["Because you said:"],
+      "the spoken card lost its heading"
+    );
+
+    // THE EVIDENCE HAS TO SHOW THE THING. The silent-edit card is the third on the desk
+    // and the first shot of it caught the panel scrolled to the top, with only the card's
+    // heading in frame — a photograph of two OTHER cards, filed as proof of this one.
+    await page2.$eval(
+      '#desk-spoken-list .desk-card[data-frame="silent-edit"]',
+      (n) => n.scrollIntoView({ block: "center", behavior: "instant" })
+    );
+    const shotName = await settledShot(page2, "5c-01-silent-edit-on-the-desk", SHOTS_5C);
+
+    // He can still answer it — a rendered question nobody can answer is not a desk.
+    const said = await answer(page2, card + ".desk-btn:nth-child(2)");
+    assert(said.length > 0, "a decline said nothing");
+    const st = await deskState(page2);
+    assertEqual(st.spokenSuppressed, [], "a plain decline must not suppress — §7");
+    await settledShot(page2, "5c-02-after-a-plain-decline", SHOTS_5C);
+    bump(10);
+    await page2.close();
+    return "the silent edit the detector really filed, rendered as a CHANGE — " + shotName;
+  });
+
   await run.check("NEGATIVE CONTROL: this suite asserted a non-zero number of things", async () => {
     assert(
       assertions >= 40,
@@ -698,6 +779,16 @@ main().catch((e) => {
 //        -> a permanent decline vanishes with nowhere to see it
 //  5   main.js `renderSuppressedRow`: omit the lift button
 //        -> the list is inspectable and not liftable, which is half of §7
+// 15   main.js `renderCandidateCard`: `const silentEdit = false`
+//        -> the silent edit renders under "Because you said:" over a sentence he never
+//           uttered, and the heard side disappears entirely
+// 15   main.js `renderCandidateCard`: swap the two quote lines (sent first, heard second)
+//        -> the card reads as if the recogniser corrected HIM
+// 15   main.js `renderCandidateCard`: drop the `!silentEdit &&` from the anchor line
+//        -> the heard sentence is rendered twice, once as evidence and once as grey noise
+// 15   heard.rs `detect`: `frame: Frame::Contrast`
+//        -> the fixture regenerates, the JSON no longer says silent-edit, and check 15's
+//           first assertion fails before the browser is even opened
 //  6   main.js `renderDeskFamily`: `empty.hidden = st.pending.length !== 0`
 //        -> an absent desk reads as "nothing to correct"
 //  6b  main.js `refreshDeskFamily`: set `st.available = false` on a read failure

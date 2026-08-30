@@ -873,6 +873,32 @@ mod tests {
         assert!(review(&[e], sent, 1_000_500).is_silent());
     }
 
+    /// INVARIANT: a punctuation-only edit is REFUSED WITH A REASON, not swallowed as
+    /// "he sent it unchanged". §7's suppression posture is that quiet must be explainable —
+    /// *"prove the system stays silent where it should"* is only provable if the silence is
+    /// accounted for — and the normalized comparison the shipped JS uses reports these as
+    /// "nothing was corrected", which is a claim about HIM rather than about the pair.
+    #[test]
+    fn a_casing_or_punctuation_edit_is_explained_rather_than_swallowed() {
+        let j = vec![entry("d1", 1_000_000, "Send the kestrel deck to marla.")];
+        let r = review(&j, "Send the Kestrel deck to Marla.", 1_000_500);
+        assert!(r.is_silent());
+        assert_ne!(
+            r.reason.as_deref(),
+            Some("sent unchanged — nothing was corrected"),
+            "he DID change it — reporting otherwise is a claim about him, not about the pair"
+        );
+        assert!(
+            !r.detection.rejected.is_empty()
+                && r.detection
+                    .rejected
+                    .iter()
+                    .all(|x| x.reason.contains("casing/punctuation only")),
+            "the silence was not explained: {:?}",
+            r.detection.rejected
+        );
+    }
+
     /// INVARIANT: a candidate says which trigger filed it. A surface that cannot tell a
     /// silent edit from an utterance would say "because you said" over a sentence he never
     /// spoke.

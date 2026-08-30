@@ -163,9 +163,24 @@ app/
                               SliceProvenance -> submit_prompt -> a proposal with the RIGHT
                               ref on a real desk. Plus the fixture app/ui/ renders, checked
                               against the live detector so a screenshot cannot go stale
+    tests/heard_precision.rs THE THIRD MEASUREMENT, and the first that is not 1.000:
+                              TP 35 / FP 1 / FN 3 / TN 117 over 156 invented heard/sent
+                              pairs, precision 0.972 / recall 0.921. Carries the
+                              grammar-word counterfactual that earns it (FP 1 -> 18 with the
+                              condition off, recall unmoved), the `emitted`-vs-`text`
+                              counterfactual, and a cross-match probe over 24,058 offers of
+                              a send against a dictation it did not come from
+    tests/heard_trigger_tests.rs 7 tests for the third completion criterion — a dictation
+                              silently edited before sending puts a candidate on the desk
+                              with nothing said, over a REAL journal on disk in the format
+                              tools/richos-hud/dictation-flywheel.patch writes. Plus the
+                              fixture app/ui/ renders, checked against the live detector
     tests/spoken_gate_agreement.rs the ANTI-DRIFT pair: §7's gate has two implementations
                               (this crate and tools/richos-service/lib) writing into ONE
-                              vocabulary, so both assert against one generated fixture
+                              vocabulary, so both assert against one generated fixture. It
+                              covers the HUNK REDUCTION too since 2026-08-30 — heard.rs
+                              ports capture.js's `tokenReplaceHunks`, and a divergence there
+                              changes WHICH PAIR is learned rather than whether to ask
     tests/spoken_trigger_tests.rs 9 tests for the completion criterion — speaking a
                               correction records it with no command typed, ordinary
                               conversation stages nothing, internal traffic is never mined
@@ -418,7 +433,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 406 tests + 5 doc-tests
+cargo test -p richos-core                       # 431 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

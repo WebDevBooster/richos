@@ -392,6 +392,40 @@
           "coreTo": "Brightmoor"
         }
       ]
+    },
+    {
+      "heard": "The deal closed. Northgate Brightmore signed.",
+      "sent": "The deal closed. Northgate Brightmoor signed.",
+      "hunks": [
+        {
+          "from": "Brightmore",
+          "to": "Brightmoor",
+          "coreFrom": "Brightmore",
+          "coreTo": "Brightmoor"
+        }
+      ]
+    },
+    {
+      "heard": "Ship it to Brightmore. Marla Kestrel signs.",
+      "sent": "Ship it to Brightmoor. Marla Kestrel signs.",
+      "hunks": [
+        {
+          "from": "Brightmore.",
+          "to": "Brightmoor.",
+          "coreFrom": "Brightmore.",
+          "coreTo": "Brightmoor."
+        }
+      ]
+    },
+    {
+      "heard": "Ask Priya to please review the page.",
+      "sent": "Ask Priya to review the page.",
+      "hunks": []
+    },
+    {
+      "heard": "Ask Priya to review the page.",
+      "sent": "Ask Priya to please review the page.",
+      "hunks": []
     }
   ]
 }

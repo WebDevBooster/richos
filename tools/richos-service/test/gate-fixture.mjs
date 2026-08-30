@@ -111,6 +111,22 @@ const EDITS = [
   ['The deep graham contract is signed.', 'The Deepgram contract is signed.'],
   ['Your welcome to join the Kestrel review.', "You're welcome to join the Kestrel review."],
   ['Move the Halstead review to the Brightmore room.', 'Move the Halstead review to the Brightmoor room.'],
+  // The sentence guard on the LEFT: `Northgate` is term-shaped AND opens a sentence, so the
+  // expansion must stop dead rather than absorb a word capitalized by position. Without this
+  // row the guard is unmeasured on the left, because every other row's block starts too
+  // early for the loop to reach it.
+  ['The deal closed. Northgate Brightmore signed.', 'The deal closed. Northgate Brightmoor signed.'],
+  // The same guard on the RIGHT, and it has to be reachable: the change must sit at the END
+  // of a sentence with a term-shaped token opening the next one, or the right loop breaks on
+  // an ordinary word before `startsSentence` is ever consulted. (Found by mutation M8b,
+  // which the first version of this row did not catch.)
+  ['Ship it to Brightmore. Marla Kestrel signs.', 'Ship it to Brightmoor. Marla Kestrel signs.'],
+  // A GENUINELY pure deletion and a genuinely pure insertion — interior, so neither collides
+  // with the sentence's full stop. Without these two rows "insert and delete are never a
+  // substitution" is asserted nowhere: every other trim in the fixture reaches the end of the
+  // sentence and becomes a substitution against its own punctuated form.
+  ['Ask Priya to please review the page.', 'Ask Priya to review the page.'],
+  ['Ask Priya to review the page.', 'Ask Priya to please review the page.'],
 ];
 
 const words = (s) => String(s || '').split(/\s+/).filter(Boolean);

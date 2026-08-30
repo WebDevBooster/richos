@@ -21,6 +21,7 @@ use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
 use richos_core::loro::{CliContextCompiler, SharedSliceProvenance, SliceProvenance};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
+use richos_core::heard::{DictationJournal, HeardSource};
 use richos_core::staging::{
     Candidate, CandidateDesk, CliVocabulary, CorrectionObserver, LearnOutcome, SharedCandidateDesk,
     Staged, EVENT_CORRECTION_STAGED,
@@ -608,6 +609,47 @@ fn main() {
                 spine.set_correction_observer(Box::new(TauriCorrectionEmitter {
                     app: app.handle().clone(),
                 }));
+
+                // THE THIRD TRIGGER — heard vs sent (`heard.rs`), the one that watches
+                // rather than listens, into the SAME desk. Opt-in, and this is the only
+                // place that decides it.
+                //
+                // WHY IT IS NOT ON BY DEFAULT, when the other two are. It measured
+                // precision 0.972 rather than 1.000 (156 invented pairs,
+                // `docs/measurements/heard-vs-sent-trigger-2026-08-30/`), and its one false
+                // positive is a pair that would rewrite an ordinary English word in every
+                // future dictation. It also fires on an edit the CEO never volunteered —
+                // he fixed his own text and moved on — so a wrong question here costs more
+                // than after a sentence he just spoke. Until the defect is repaired in
+                // `capture.js`'s shared expansion rule where it actually lives, the CEO
+                // turns this on deliberately or not at all. **No default is a judgement
+                // this file gets to make on his behalf.**
+                match std::env::var("RICHOS_HEARD_TRIGGER").as_deref() {
+                    Ok("on") | Ok("1") | Ok("true") => match DictationJournal::from_env() {
+                        Some(j) if j.present() => {
+                            eprintln!(
+                                "[richos] heard-vs-sent trigger ON — reading the dictation \
+                                 journal at {}",
+                                j.describe()
+                            );
+                            spine.set_heard_source(Box::new(j));
+                        }
+                        Some(j) => eprintln!(
+                            "[richos] heard-vs-sent trigger was switched on, but there is no \
+                             dictation journal at {} — the trigger has no \"heard\" side and \
+                             stays silent. Install the flywheel patch \
+                             (tools/richos-hud/dictation-flywheel.patch) or point \
+                             RICHOS_DICTATION_JOURNAL at the journal.",
+                            j.describe()
+                        ),
+                        None => eprintln!(
+                            "[richos] heard-vs-sent trigger was switched on, but no journal \
+                             location could be resolved (no $HOME and no \
+                             RICHOS_DICTATION_JOURNAL) — the trigger stays silent"
+                        ),
+                    },
+                    _ => {}
+                }
             }
 
             app.manage(AppState {

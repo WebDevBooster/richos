@@ -220,7 +220,7 @@ fn the_fixture_carries_the_verdicts_it_is_supposed_to() {
     let f = fixture();
     assert!(f.pairs.len() >= 16, "the fixture shrank to {} pairs", f.pairs.len());
     assert!(f.spans.len() >= 14, "the fixture shrank to {} spans", f.spans.len());
-    assert!(f.edits.len() >= 12, "the fixture shrank to {} edits", f.edits.len());
+    assert!(f.edits.len() >= 16, "the fixture shrank to {} edits", f.edits.len());
 
     let find = |from: &str| f.pairs.iter().find(|p| p.from == from).expect("pair missing");
 
@@ -271,4 +271,34 @@ fn the_fixture_carries_the_verdicts_it_is_supposed_to() {
         "the sentence-boundary guard changed in one implementation — if that is deliberate, \
          it changes what heard.rs's measured false positive is and must be re-measured"
     );
+    // The guard measured where it can actually be REACHED. `Marcus Web` is blocked by the
+    // `p > 0` bound before `startsSentence` is consulted at all, so pinning only that row
+    // left a mutation that removes the sentence check entirely passing green — found by
+    // running it (mutation M8). These two rows put a term-shaped token that OPENS a
+    // sentence on each side of the change.
+    for (heard, from, to) in [
+        ("The deal closed. Northgate Brightmore signed.", "Brightmore", "Brightmoor"),
+        ("Ship it to Brightmore. Marla Kestrel signs.", "Brightmore.", "Brightmoor."),
+    ] {
+        let e = f.edits.iter().find(|e| e.heard == heard).expect("the sentence-guard row left the fixture");
+        assert_eq!(e.hunks.len(), 1, "{heard:?} no longer yields exactly one hunk");
+        assert_eq!(
+            (e.hunks[0].from.as_str(), e.hunks[0].to.as_str()),
+            (from, to),
+            "the expansion absorbed a word that is capitalized by sentence position, not because \
+             it names anything — {heard:?}"
+        );
+    }
+    // And a GENUINELY pure deletion / insertion yields NO hunk. Every other trim in the
+    // fixture reaches the end of its sentence and becomes a substitution against its own
+    // punctuated form, so without these two rows "insert and delete are never a
+    // substitution" was asserted nowhere (mutation M9).
+    for heard in ["Ask Priya to please review the page.", "Ask Priya to review the page."] {
+        let e = f.edits.iter().find(|e| e.heard == heard).expect("the pure insert/delete row left the fixture");
+        assert!(
+            e.hunks.is_empty(),
+            "a pure insertion or deletion became a substitution: {heard:?} -> {:?}",
+            e.hunks
+        );
+    }
 }
