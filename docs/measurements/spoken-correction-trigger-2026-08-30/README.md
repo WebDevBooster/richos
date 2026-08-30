@@ -176,7 +176,7 @@ a performance target:
 
 There is no function in either module that writes a vocabulary without a human answer, at any
 threshold, at any setting. A precision measured by the author of the corpus is evidence about the
-*shape* of the errors, not a licence.
+*shape* of the errors, not a license.
 
 **It does not detect a correction of MEANING.** *"No, the Q3 number was 1.4 million, not 1.2"* is a
 correction of a belief and belongs to `correction.rs`'s loro write loop, not to a vocabulary.

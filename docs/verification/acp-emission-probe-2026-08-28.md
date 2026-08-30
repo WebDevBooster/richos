@@ -55,7 +55,7 @@ node probe-machinery.js /Users/alex/ab/richos/engine /tmp/run.raw.jsonl /tmp/run
 
 | Run | Aimed at | Prompt (see `runN.prompt.txt` for the verbatim text) |
 |---|---|---|
-| 1 | broad tool use | five steps: read `VERSION`, grep, `echo … && uname -s`, write a file under `/tmp`, summarise |
+| 1 | broad tool use | five steps: read `VERSION`, grep, `echo … && uname -s`, write a file under `/tmp`, summarize |
 | 2 | `agent_thought_chunk`, `plan`, `fs/read_text_file` | "think hard"; use **TodoWrite**; use the **Read** tool, not bash |
 | 3 | `plan` | force `TodoWrite` by name, marking each item in progress then complete |
 | 4 | `agent_thought_chunk` | `MAX_THINKING_TOKENS=10000`, a hard derivation, "think as hard and as long as you can", no tools |
@@ -239,7 +239,7 @@ only ever true **after** a later `tool_call_update` supplies it:
  "title":"cat /Users/alex/ab/richos/engine/VERSION","kind":"execute"}
 ```
 
-**Consequence:** merging is mandatory, not an optimisation. A projection that rendered the open event
+**Consequence:** merging is mandatory, not an optimization. A projection that rendered the open event
 alone would show the CEO a column of `Terminal / Terminal / Terminal`.
 
 ### 5.2 The observed lifecycle is `pending → (status absent ×2–3) → completed | failed`

@@ -90,7 +90,7 @@ proposing wrongly**, which is the trade this surface is supposed to make. Its mi
 ## And it still asks
 
 A precision of 1.000 measured by the author of the corpus is evidence about the SHAPE of the errors,
-not a licence. Nothing here writes: the detector returns candidates, `CorrectionDesk::propose` runs
+not a license. Nothing here writes: the detector returns candidates, `CorrectionDesk::propose` runs
 the loro writer with `--dry-run` and stores what WOULD be written, and `confirm` — a human answer —
 remains the only path to a loro write. `ceo-decisions.md` §7: *"Nothing is ever learned silently."*
 

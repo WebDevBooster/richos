@@ -40,7 +40,7 @@ The utterance trigger fires on *"It's Kestrel, not Kestral"*. The belief trigger
 number was 1.4, not 1.2"*. Both are things he **said**, and after either of them a question is an
 obvious follow-up to something he just volunteered.
 
-This one takes no statement at all. He dictated, the recogniser mis-heard, and **he fixed it
+This one takes no statement at all. He dictated, the recognizer mis-heard, and **he fixed it
 silently and moved on.** That is what makes it the highest-quality correction signal in the
 product — and it is why a false ask costs more here than in either trigger before it. After a
 spoken correction, a question is a reply. After a silent edit, a question is RichOS announcing
@@ -60,7 +60,7 @@ the trigger is silent.
 **2. Something was SUBSTITUTED.** `token_replace_hunks`, the LCS reduction `capture.js` already
 uses, ported. A pure insertion or a pure deletion is never a hunk — which is how most trims and
 afterthoughts stay silent with no rule of their own. **Most, not all:** a trim that runs into the
-end of a sentence turns the neighbouring token into a substitution against its own punctuated form
+end of a sentence turns the neighboring token into a substitution against its own punctuated form
 (*"…to Marla today please."* → *"…to Marla."* is **one hunk**, not three deletions), so three of
 the corpus's ten trims are actually silenced by condition 3.
 
@@ -150,7 +150,7 @@ worse than the disease:
   `Marla | Kestral` → `Kestrel`, a perfectly safe pair: **−1 recall for −1 false positive**;
 - invent a token-length threshold to fit one row.
 
-The behaviour is pinned in the shared fixture (`spoken_gate_agreement.rs`), so if either
+The behavior is pinned in the shared fixture (`spoken_gate_agreement.rs`), so if either
 implementation changes it, the number above stops being true and the suite says so.
 
 ---
@@ -167,7 +167,7 @@ all inside the window:
 
 The floor cuts wrong pairings by two thirds — and cuts the **questions** not at all, because all
 fifteen are *correct* vocabulary pairs found against a genuinely similar earlier dictation
-(`Kestral` → `Kestrel`, `Dana Okonko` → `Dana Okonkwo`), which is the behaviour we want. So the
+(`Kestral` → `Kestrel`, `Dana Okonko` → `Dana Okonkwo`), which is the behavior we want. So the
 condition's keep rests on the first number and on doctrine — this trigger is about a dictation he
 corrected, and a diff against an unrelated sentence is not one — **not** on the second. Saying so
 here is what stops the second being claimed for it.
@@ -177,7 +177,7 @@ here is what stops the second being claimed for it.
 ## 6. Two things the shipped JavaScript gets wrong for this trigger
 
 **It diffed the wrong side of the journal — now fixed in BOTH implementations.** A journal record
-carries `text` (what the recogniser produced) *and* `emitted` (what was actually pasted, after the
+carries `text` (what the recognizer produced) *and* `emitted` (what was actually pasted, after the
 shared vocabulary corrected it on the way out — `dictation-flywheel.patch`: *"Keeping BOTH is the
 whole point"*). `reviewSent` used `text`. But `emitted` is what he SAW and therefore what he
 edited. Measured over the corpus's `emitted-*` rows:

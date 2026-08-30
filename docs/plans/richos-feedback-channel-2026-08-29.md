@@ -71,7 +71,7 @@ own words at the moment he is dissatisfied, with no prompt and no new collection
   (`steering.rs:92-106`) — words the user typed *while Rich was working*, appended and `sync_all`'d
   **before** anything acts on them (`steering.rs:131-149`). This is literally the mid-work
   interjection CS-001 §4 is a table of.
-- `IntakeRecord::Stop { turn_id, at }` (`steering.rs:108`) — a stop press. Zero words, pure behaviour,
+- `IntakeRecord::Stop { turn_id, at }` (`steering.rs:108`) — a stop press. Zero words, pure behavior,
   and per `timeline.rs:313-321` it is now *sourced evidence of a user decision* rather than an
   inference.
 - Every ordinary user message is already durable in the ledger (`ledger.rs:460` `Message`,
@@ -93,7 +93,7 @@ no `hyper`, no `ureq`, no socket. **The premise is confirmed: this is the first 
 adding it adds an HTTP client to a product whose claim is that everything stays local.**
 
 **1.3 `"csp": null` in `app/src-tauri/tauri.conf.json:21`.** The webview has no content-security
-policy, so there is no second line of defence against a network call originating in JS. Today there is
+policy, so there is no second line of defense against a network call originating in JS. Today there is
 no injection sink to exploit — every `innerHTML` in `app/ui/main.js` and `app/ui/timeline.js` is a
 clear-to-empty, and rendering is `textContent` (`timeline.js:1235`). But Frank's F4(a) records that
 `TauriMachineryEmitter` (`src-tauri/src/main.rs:63-67`) pushes **full unredacted payloads** into the
@@ -134,8 +134,8 @@ lives, so its consent must be per-instance and bound to the exact bytes (§2.4).
 2. **Opt-in, default off, for both.** Not a preference — a positioning requirement. Opt-out telemetry
    in an open-source product is a recurring trust catastrophe in this category, and this product's
    stated promise is that everything stays local. Default-off costs response rate; default-on costs
-   the promise. `wiki/open-source-strategy.md` makes the licence a hard v1 gate; a channel that ships
-   default-on lands in the same release as the licence decision and contaminates it.
+   the promise. `wiki/open-source-strategy.md` makes the license a hard v1 gate; a channel that ships
+   default-on lands in the same release as the license decision and contaminates it.
 3. **A build-time removal path.** A cargo feature (`feedback`) that, when off, removes the module and
    the HTTP dependency entirely. Someone will fork this repo purely to delete telemetry, and a fork is
    a strictly worse outcome for everyone than a flag they can flip. The flag also gives self-hosters
@@ -468,7 +468,7 @@ what you build when the action space is open and each case must be judged. Here 
 action of one shape, so the answer is a type, not a policy — which is the same reason §0 lands where it
 does.
 
-**And the way it *would* reopen R2, stated so it can be held.** Not by existing. By generalising. The
+**And the way it *would* reopen R2, stated so it can be held.** Not by existing. By generalizing. The
 moment any of the following is true, R2 is live and this classification is void:
 
 - the HTTP client becomes a shared dependency any other module can reach
@@ -499,7 +499,7 @@ nothing to aggregate.
 
 Against shipping it in v1, three things:
 
-- **It is a new outbound channel in the release that also has to clear the licence gate**
+- **It is a new outbound channel in the release that also has to clear the license gate**
   (`wiki/open-source-strategy.md`) and the signing gate (`wiki/packaging-and-signing.md`). Both are
   trust-sensitive; stacking a telemetry channel on top adds trust surface at the worst moment.
 - **The value is zero until there is a population**, and a report from a population of one is a report
@@ -513,7 +513,7 @@ Against shipping it in v1, three things:
   decisions page, and — optionally, cheaply, and with real value — ship the **rating prompt writing to
   the local ledger only**. That dogfoods the timing question (§2.5) with exactly zero privacy risk and
   produces the calibration CS-001 §7 asks for.
-- **1.1: the channel**, gated on the licence being decided, the install-time opt-in, the closed
+- **1.1: the channel**, gated on the license being decided, the install-time opt-in, the closed
   vocabulary, the keystone test (§3.2), the CSP, and the review dialog.
 - **Because the vocabulary is versioned and the evidence is already durable, historical sessions can
   be classified retroactively against taxonomy v0 when the channel does ship.** The retroactivity
@@ -528,7 +528,7 @@ distinguishing property is that it collects nothing new, and that property is wo
 
 ## 7. The open-source surface
 
-`wiki/open-source-strategy.md` makes the licence a hard v1 gate and the business model open core. A
+`wiki/open-source-strategy.md` makes the license a hard v1 gate and the business model open core. A
 telemetry channel in that context is read as a betrayal unless every one of these is true:
 
 - **default off, opt-in, revocable in one place**
@@ -555,7 +555,7 @@ Stated here so nobody has to discover it, in the register the guard's own header
    place for this feature to become a trust failure, and it costs nothing to avoid.
 2. **The payload carries roughly twenty-plus bits about the failure.** That is a lot of entropy in the
    abstract, and it could weakly link two reports from an install with an idiosyncratic failure
-   pattern. The mitigation is that every axis is a property of *Rich's behaviour*, not of the user;
+   pattern. The mitigation is that every axis is a property of *Rich's behavior*, not of the user;
    plus no id, coarse dates, and the rate limit. **Weak, not zero — and I am not claiming zero.**
 3. **Selection is itself a low-bandwidth channel.** Which class the model picks, across many reports,
    carries a little information. Per-send human review and one report per day make it negligible. Not
