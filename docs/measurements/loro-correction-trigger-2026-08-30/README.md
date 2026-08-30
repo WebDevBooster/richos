@@ -66,6 +66,18 @@ being about something else entirely:
 That comparison is itself an assertion in the test, so if a future change ever makes the condition
 free, the claim that it is not fails rather than this paragraph going quietly stale.
 
+## The one condition that earns nothing here, kept anyway
+
+Removing the routing to the vocabulary desk — *"the two sides are one name spelled two ways, so
+this is a mishearing and belongs to `staging.rs`"* — leaves the matrix at **34/0/1/112 exactly**.
+The eight mishearing negatives are already refused by the topic condition or by "the record already
+states this", so on this corpus that condition removes zero false positives.
+
+It ships anyway, and its keep is **doctrine rather than measurement**: one utterance must never
+reach both desks, or the CEO is asked twice about one sentence and two desks disagree about what he
+meant. A unit test holds it, not this table — and this section exists so the corpus's number is not
+quietly claimed for it.
+
 ## The one miss, named
 
 `c22` — *"Priya Nair owns the Halstead account, not Marcus Webb."* The asserted name sits at the far

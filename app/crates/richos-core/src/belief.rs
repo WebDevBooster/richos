@@ -115,6 +115,15 @@
 //! future change ever makes the condition free, the claim that it is not will fail rather
 //! than this paragraph going quietly stale.
 //!
+//! **One condition earns nothing on this corpus, and it is kept anyway.** Removing the
+//! routing to the vocabulary desk (condition "the two sides are one name spelled two ways")
+//! leaves the matrix at 34/0/1/112 exactly: the eight mishearing negatives are already
+//! refused by the topic condition or by "the record already states this". It stays because
+//! its keep is DOCTRINE rather than measurement — one utterance must never reach both
+//! desks, or the CEO is asked twice about one sentence and two desks disagree about what he
+//! meant — and `a_mishearing_is_the_other_desks_and_is_refused_by_name` is what holds it.
+//! Saying so here is what stops the corpus's number being claimed for it.
+//!
 //! The single miss is named, not rounded away: *"Priya Nair owns the Halstead account, not
 //! Marcus Webb."* (`c22`) — the asserted name sits behind the article `the`, which stops the
 //! span scan, so the extractor offers `Halstead account` and condition 3 refuses it. The
