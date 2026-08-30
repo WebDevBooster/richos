@@ -1,0 +1,9 @@
+COST ONLY. The strip counts printed by insertion-probe.mjs use its own head-anchored rule and
+are NOT the shipped result — the three rules are scored in insertion-strip-rules.txt.
+Uncontended run; the machine was otherwise idle.
+
+suspect markers: 57; ground-truth REAL: 1 (index 24, "0.")
+114 isolated decodes in 135.8s (one whisper-cli invocation)
+
+determinism: this run re-cut and re-decoded all 114 clips from scratch and every row came
+back byte-identical to the committed fixture (57/57).

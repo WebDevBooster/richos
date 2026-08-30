@@ -1,0 +1,5 @@
+finding                      real  after-class4  after-class1  after-class3  taken by
+turbo/me  1739.9s w=1 x 7     1             0             0             0  class 4 (silence fabrication)
+turbo/me  4885.2s w=2 x 7     1             0             0             0  class 4 (silence fabrication)
+q5/me  2916.8s w=1 x 9     1             0             0             0  class 4 (silence fabrication)
+q5/others   441.7s w=1 x 5     1             0             0             0  class 4 (silence fabrication)

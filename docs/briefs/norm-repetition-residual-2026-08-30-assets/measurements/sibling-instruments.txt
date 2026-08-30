@@ -1,0 +1,10 @@
+deletion detector : 37 candidate(s) on this channel, 0 at 829.9-833.9s (unit=segment-extent)
+word-density      : 25 candidate(s) on this channel, 0 at 829.9-833.9s (unit=segment-extent)
+
+deletion-guard minProbeWords = 3: the deleted delivery is 1 informative word, below the floor
+deletion-guard maxEchoWords  = 2 / maxEchoRatio 0.7: the surviving copy of the phrase sits inside the same window, so a deleted RE-delivery is by construction an echo
+
+speech bursts inside the span: 3
+  828.31-829.37 (1.06s) coveredByASegmentExtent=true >=minGapSec(1)=true
+  830.03-830.65 (0.61s) coveredByASegmentExtent=true >=minGapSec(1)=false
+  831.71-832.56 (0.85s) coveredByASegmentExtent=true >=minGapSec(1)=false

@@ -1,0 +1,10 @@
+-mc -1 (the verdicts' world) without hand-off: 14 finding(s), 162 removed, 2 trimmed
+                             with    hand-off: 3 finding(s), 7 removed, 2 trimmed
+                             2026-08-29 baseline (text-only guard): 3 finding(s), 7 removed, 2 trimmed
+                             baseline spans : ["turbo/others 1030.1-1050.1","turbo/others 1674.0-1730.4","q5/others 4711.2-4723.2"]
+                             with-hand-off  : ["turbo/others 1030.1-1050.1","turbo/others 1674.0-1730.4","q5/others 4711.2-4723.2"]
+-mc 0 (shipped decode)       without hand-off: 0 finding(s), 0 removed, 0 trimmed
+                             with    hand-off: 0 finding(s), 0 removed, 0 trimmed
+                             2026-08-29 baseline (text-only guard): 0 finding(s), 0 removed, 0 trimmed
+                             baseline spans : []
+                             with-hand-off  : []

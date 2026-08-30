@@ -1,0 +1,9 @@
+rule                                results
+head 3 words                       stripped 57/57 | REAL WORDS DESTROYED 1 | fabricated markers left in  0 | no-evidence 0
+head 8 words                       stripped 56/57 | REAL WORDS DESTROYED 0 | fabricated markers left in  0 | no-evidence 0
+anywhere in either decode          stripped 56/57 | REAL WORDS DESTROYED 0 | fabricated markers left in  0 | no-evidence 0
+
+under "anywhere", the markers NOT stripped:
+ idx=24 value=0 real=true :: numeral present (tight=true wide=true)
+   seg  : " 0. We ran a full checksum comparison across all 140,000 objects. And every checksum match"
+   tight: "my worries the whole time zero we ran a full checksum comparison across all 140,000 object"
