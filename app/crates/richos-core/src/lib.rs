@@ -88,7 +88,7 @@ pub use entity::{
     Entity, EntityError, EntityId, EntityRegistry, EntityResolveError, EntityStatus, PersonId,
     ThreadBinding, ThreadEntity,
 };
-pub use journal::MachineryJournal;
+pub use journal::{MachineryJournal, ThreadMachinery};
 pub use ledger::{AttentionTier, Ledger, Message, Source, TextRun, TurnState};
 pub use live::{
     EventFence, LiveEvent, LiveObserver, ThreadStatus, TurnStatus, EVENT_ACTIVITY_UPSERTED,
