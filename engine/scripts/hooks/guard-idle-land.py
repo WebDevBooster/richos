@@ -449,10 +449,10 @@ def still_running(payload):
 # --------------------------------------------------------------------------
 
 HOLD_RE = re.compile(
-    r"(?:^|(?<=[.!?\n]))\s*(?:[a-z]{0,12}[,]?\s+)?"
-    r"(hold(?:\s+(?:on|off|everything|all|it|fire|the\s+line))?|"
+    r"\b(hold(?:\s+(?:on|off|everything|all|it|fire|the\s+line))?|"
     r"stand\s+down|stand\s+by|standby|"
-    r"pause(?:\s+(?:everything|all|the|it))?|freeze(?:\s+(?:everything|all))?|"
+    r"pause(?:\s+(?:everything|all|the|it|here))?|"
+    r"freeze(?:\s+(?:everything|all))?|"
     r"do\s+not\s+(?:dispatch|spawn|start|proceed|continue|land)|"
     r"don'?t\s+(?:dispatch|spawn|start|proceed|continue|land)|"
     r"no\s+more\s+(?:work|dispatches|dispatching|agents))\b", re.I)
@@ -470,12 +470,20 @@ def hold_signal(said):
     terms. ONE-DIRECTIONAL ERROR is what makes a heuristic acceptable here and
     is the only reason there is prose in this file at all.
 
-    Two narrowings, both earned on the replay rather than guessed:
-      * code spans are removed first -- `Freeze margin 1.5`, quoted inside an
-        agent's measurement, stood the gate down on the very turn it exists to
-        catch;
-      * the phrase must open a sentence. A hold is an imperative. "we are not
-        waiting on anything" and "the freeze margin" are not.
+    Two narrowings, both earned on the replay rather than guessed, and NOT a
+    third one that was tried and rejected:
+      * the text is the OPERATOR'S OWN PROMPTS only, never a host-written one
+        (read_turn does that filtering). A task notification carrying an
+        agent's handoff is not the operator speaking, and that is where the
+        real false positive came from;
+      * code spans are removed. `Freeze margin 1.5`, quoted inside an agent's
+        measurement, stood the gate down on the very turn it exists to catch.
+      * REJECTED: requiring the phrase to open a sentence. It is the obvious
+        third narrowing and it is wrong -- "Land what is finished and then
+        hold" is exactly how a hold is actually said, and the anchor threw it
+        away. Measured over the corpus, the unanchored form suppressed nothing
+        it should not have; the operator's own words are short and directive,
+        which is what makes the loose form safe HERE and nowhere else.
     """
     if not said:
         return None
