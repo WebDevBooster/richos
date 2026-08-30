@@ -258,11 +258,37 @@ fi
 # ===========================================================================
 # 3. THE FAILURE THIS EXISTS FOR — a guard landed mid-session
 # ===========================================================================
+# ---------------------------------------------------------------------------
+# 0f. The fixture sentinels are NOT real registrations.
+# ---------------------------------------------------------------------------
+# Without this, a fixture silently stops testing anything the day someone lands
+# a guard with the same name -- which is exactly what happened on 2026-08-30 and
+# cost four red cases that blamed the mechanism.
+_SENTINELS="zz-fixture-never-registered.sh zz-fixture-second-never-registered.sh"
+_SENT_BAD=""
+for _s in $_SENTINELS; do
+    if grep -q "$_s" "$ENGINE_ROOT/hooks/hooks.json" 2>/dev/null; then
+        _SENT_BAD="$_SENT_BAD $_s"
+    fi
+done
+if [ -z "$_SENT_BAD" ]; then
+    ok "0f  fixture sentinels are absent from the shipped registration (a fixture that names a real hook tests nothing)"
+else
+    bad "0f  fixture sentinels" "these fixture names ARE registered, so their cases prove nothing:$_SENT_BAD"
+fi
+
 R4="$(make_sandbox)"
 take_baseline "$R4"
-wire_hook "$R4/hooks.json" "Stop" "guard-idle-land.sh"
+# FIXTURE NAMES MUST NOT BE REAL REGISTRATIONS.
+# This read "guard-idle-land.sh" until 2026-08-30, when that guard actually
+# landed on Stop. The sandbox copies the shipped hooks.json, so wiring a name
+# that is ALREADY in it changes nothing -- and this check compares SETS, by
+# design -- so the notice correctly stayed silent and four cases went red
+# describing the mechanism as broken when it was working perfectly.
+# The sentinel below can never be a real hook, and case 0f asserts that.
+wire_hook "$R4/hooks.json" "Stop" "zz-fixture-never-registered.sh"
 OUT="$(run_notice "$R4")"
-if [ -n "$OUT" ] && printf '%s' "$OUT" | grep -q 'guard-idle-land.sh'; then
+if [ -n "$OUT" ] && printf '%s' "$OUT" | grep -q 'zz-fixture-never-registered.sh'; then
     ok "3   a guard landed mid-session is NAMED in the notice"
 else
     bad "3   landed guard is named" "(said: ${OUT:-<nothing>})"
@@ -298,10 +324,10 @@ else
     bad "4   second fire is silent" "(said: $OUT)"
 fi
 
-wire_hook "$R4/hooks.json" "Stop" "guard-turn-manifest.sh"
+wire_hook "$R4/hooks.json" "Stop" "zz-fixture-second-never-registered.sh"
 OUT="$(run_notice "$R4")"
-if printf '%s' "$OUT" | grep -q 'guard-turn-manifest.sh' \
-   && printf '%s' "$OUT" | grep -q 'guard-idle-land.sh'; then
+if printf '%s' "$OUT" | grep -q 'zz-fixture-second-never-registered.sh' \
+   && printf '%s' "$OUT" | grep -q 'zz-fixture-never-registered.sh'; then
     ok "4b  drift GROWS -> speaks again, naming both the new guard and the one already reported"
 else
     bad "4b  growth speaks again" "(said: ${OUT:-<nothing>})"
