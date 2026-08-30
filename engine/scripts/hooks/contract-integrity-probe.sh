@@ -323,7 +323,8 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
-    guard-publication-writes guard-publication-commits guard-ceo-todos-commits guard-completeness-commits \
+    guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
+    guard-completeness-commits \
     guard-resume-isolation guard-bash-main-writes guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions"
 
