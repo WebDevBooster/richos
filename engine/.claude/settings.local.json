@@ -248,6 +248,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/turn-manifest.sh",
+            "timeout": 20
+          }
+        ]
       }
     ]
   }
