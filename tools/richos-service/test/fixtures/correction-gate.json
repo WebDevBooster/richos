@@ -1,0 +1,245 @@
+{
+  "note": "Generated from tools/richos-service/lib by test/gate-fixture.mjs. The SHARED contract of ceo-decisions.md §7's gate, asserted by both implementations against these exact bytes. Every string here was invented for the fixture; none is a real spoken sentence.",
+  "generatedBy": "tools/richos-service/test/gate-fixture.mjs",
+  "floors": {
+    "askMinOrthographic": 0.28,
+    "askMinPhonetic": 0.6,
+    "askLoneTokenMin": 0.6
+  },
+  "pairs": [
+    {
+      "from": "deep graham",
+      "to": "Deepgram",
+      "normalizedFrom": "deep graham",
+      "normalizedTo": "deepgram",
+      "phoneticKeyFrom": "31265",
+      "phoneticKeyTo": "31265",
+      "orthographic": 0.7272727272727273,
+      "phonetic": 1,
+      "key": "deep graham=>deepgram"
+    },
+    {
+      "from": "Deke Graham",
+      "to": "Deepgram",
+      "normalizedFrom": "deke graham",
+      "normalizedTo": "deepgram",
+      "phoneticKeyFrom": "32265",
+      "phoneticKeyTo": "31265",
+      "orthographic": 0.6363636363636364,
+      "phonetic": 0.8,
+      "key": "deke graham=>deepgram"
+    },
+    {
+      "from": "Kestral",
+      "to": "Kestrel",
+      "normalizedFrom": "kestral",
+      "normalizedTo": "kestrel",
+      "phoneticKeyFrom": "22364",
+      "phoneticKeyTo": "22364",
+      "orthographic": 0.8571428571428572,
+      "phonetic": 1,
+      "key": "kestral=>kestrel"
+    },
+    {
+      "from": "Briella",
+      "to": "Priya",
+      "normalizedFrom": "briella",
+      "normalizedTo": "priya",
+      "phoneticKeyFrom": "164",
+      "phoneticKeyTo": "16",
+      "orthographic": 0.4285714285714286,
+      "phonetic": 0.6666666666666667,
+      "key": "briella=>priya"
+    },
+    {
+      "from": "Thursday",
+      "to": "Friday",
+      "normalizedFrom": "thursday",
+      "normalizedTo": "friday",
+      "phoneticKeyFrom": "3623",
+      "phoneticKeyTo": "163",
+      "orthographic": 0.5,
+      "phonetic": 0.5,
+      "key": "thursday=>friday"
+    },
+    {
+      "from": "Tuesday",
+      "to": "Wednesday",
+      "normalizedFrom": "tuesday",
+      "normalizedTo": "wednesday",
+      "phoneticKeyFrom": "323",
+      "phoneticKeyTo": "3523",
+      "orthographic": 0.5555555555555556,
+      "phonetic": 0.75,
+      "key": "tuesday=>wednesday"
+    },
+    {
+      "from": "MySQL",
+      "to": "Postgres",
+      "normalizedFrom": "mysql",
+      "normalizedTo": "postgres",
+      "phoneticKeyFrom": "524",
+      "phoneticKeyTo": "123262",
+      "orthographic": 0.125,
+      "phonetic": 0.16666666666666663,
+      "key": "mysql=>postgres"
+    },
+    {
+      "from": "Ever Lock",
+      "to": "Everlock",
+      "normalizedFrom": "ever lock",
+      "normalizedTo": "everlock",
+      "phoneticKeyFrom": "1642",
+      "phoneticKeyTo": "1642",
+      "orthographic": 0.8888888888888888,
+      "phonetic": 1,
+      "key": "ever lock=>everlock"
+    },
+    {
+      "from": "whisper C P P",
+      "to": "whisper.cpp",
+      "normalizedFrom": "whisper c p p",
+      "normalizedTo": "whisper cpp",
+      "phoneticKeyFrom": "21621",
+      "phoneticKeyTo": "21621",
+      "orthographic": 0.8461538461538461,
+      "phonetic": 1,
+      "key": "whisper c p p=>whisper cpp"
+    },
+    {
+      "from": "Ilse",
+      "to": "Elsa",
+      "normalizedFrom": "ilse",
+      "normalizedTo": "elsa",
+      "phoneticKeyFrom": "42",
+      "phoneticKeyTo": "42",
+      "orthographic": 0.5,
+      "phonetic": 1,
+      "key": "ilse=>elsa"
+    },
+    {
+      "from": "Jarrow",
+      "to": "Yaro",
+      "normalizedFrom": "jarrow",
+      "normalizedTo": "yaro",
+      "phoneticKeyFrom": "26",
+      "phoneticKeyTo": "6",
+      "orthographic": 0.5,
+      "phonetic": 0.5,
+      "key": "jarrow=>yaro"
+    },
+    {
+      "from": "Series A",
+      "to": "Series B",
+      "normalizedFrom": "series a",
+      "normalizedTo": "series b",
+      "phoneticKeyFrom": "262",
+      "phoneticKeyTo": "2621",
+      "orthographic": 0.875,
+      "phonetic": 0.75,
+      "key": "series a=>series b"
+    },
+    {
+      "from": "Raven Crest",
+      "to": "Ravencrest",
+      "normalizedFrom": "raven crest",
+      "normalizedTo": "ravencrest",
+      "phoneticKeyFrom": "6152623",
+      "phoneticKeyTo": "6152623",
+      "orthographic": 0.9090909090909091,
+      "phonetic": 1,
+      "key": "raven crest=>ravencrest"
+    },
+    {
+      "from": "O'Connell",
+      "to": "Okonkwo",
+      "normalizedFrom": "o connell",
+      "normalizedTo": "okonkwo",
+      "phoneticKeyFrom": "254",
+      "phoneticKeyTo": "252",
+      "orthographic": 0.33333333333333337,
+      "phonetic": 0.6666666666666667,
+      "key": "o connell=>okonkwo"
+    },
+    {
+      "from": "Ada Z",
+      "to": "Adaeze",
+      "normalizedFrom": "ada z",
+      "normalizedTo": "adaeze",
+      "phoneticKeyFrom": "32",
+      "phoneticKeyTo": "32",
+      "orthographic": 0.6666666666666667,
+      "phonetic": 1,
+      "key": "ada z=>adaeze"
+    },
+    {
+      "from": "great",
+      "to": "Grant",
+      "normalizedFrom": "great",
+      "normalizedTo": "grant",
+      "phoneticKeyFrom": "263",
+      "phoneticKeyTo": "2653",
+      "orthographic": 0.6,
+      "phonetic": 0.75,
+      "key": "great=>grant"
+    }
+  ],
+  "spans": [
+    {
+      "text": "Deepgram",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "whisper.cpp",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "EverLock",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "iPhone",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "Quill Harbor",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "the Bank of Kestrel",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "a bug",
+      "looksLikeTerm": false
+    },
+    {
+      "text": "a feature",
+      "looksLikeTerm": false
+    },
+    {
+      "text": "ship Friday",
+      "looksLikeTerm": false
+    },
+    {
+      "text": "It's",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "sixty",
+      "looksLikeTerm": false
+    },
+    {
+      "text": "1.4 million",
+      "looksLikeTerm": false
+    },
+    {
+      "text": "Series B",
+      "looksLikeTerm": true
+    },
+    {
+      "text": "",
+      "looksLikeTerm": false
+    }
+  ]
+}
