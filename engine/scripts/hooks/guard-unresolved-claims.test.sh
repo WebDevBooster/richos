@@ -37,6 +37,10 @@
 #          that was never spawned                           -> exit 2
 #     (p)  FAILURE 1: a turn naming the next step without
 #          taking it                                        -> exit 0 + report
+#     (p2) Agent called INSIDE this turn                    -> exit 0, silent
+#     (p3) Agent called only in an EARLIER turn             -> exit 0 + report
+#          (p2/p3 are the turn-scoping regression: a session-wide tool view
+#           silently disarmed the reporting layer after the first spawn)
 #   SAFETY — this gate must never strand a session
 #     (q)  stop_hook_active=true, violation present         -> exit 0
 #     (r)  repository has not adopted the engine            -> exit 0
@@ -118,6 +122,31 @@ AGENT_TR="$SANDBOX/agent-turn.jsonl"
 cat >"$AGENT_TR" <<'JSON'
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"name":"norm-opus-a1"}}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","content":"agent started"}]}}
+JSON
+
+# THE TURN-SCOPING FIXTURES. These exist because of a real bug: the tool-call
+# names were collected session-wide, so once ANY Agent call had happened the
+# reporting layer believed every later turn had dispatched something, and the
+# prose signal silently never fired again. Grounding wants the whole session;
+# "did THIS turn call Agent?" wants only this turn. Two scopes, one function,
+# and the suite must hold them apart.
+PROMPT_ID="11111111-2222-3333-4444-555555555555"
+
+# An Agent call INSIDE the turn -> the claim is backed, nothing to report.
+AGENT_IN_TURN="$SANDBOX/agent-in-turn.jsonl"
+cat >"$AGENT_IN_TURN" <<JSON
+{"type":"user","promptId":"$PROMPT_ID","message":{"content":"go"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"name":"norm-opus-a1"}}]}}
+JSON
+
+# An Agent call in an EARLIER turn only -> this turn dispatched nothing, and the
+# session-wide view that used to hide that must not come back.
+AGENT_EARLIER="$SANDBOX/agent-earlier.jsonl"
+cat >"$AGENT_EARLIER" <<JSON
+{"type":"user","promptId":"00000000-0000-4000-8000-000000000000","message":{"content":"earlier"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"name":"norm-opus-a1"}}]}}
+{"type":"user","promptId":"$PROMPT_ID","message":{"content":"now"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
 JSON
 
 # --- payload builder -------------------------------------------------------
@@ -232,6 +261,19 @@ run_case "o2.failure2-named-claim-blocks" 2 \
 # a decision point), so it is REPORTED, never blocked.
 run_case "p.failure1-next-step-named-not-taken" 0 \
     "$(payload 'That leaves the scanner hole. I am spawning someone on it right after this lands.' "$BASH_TR")" \
+    "in-flight dispatch claim"
+
+# Turn scoping (the regression above). Same message both times; only the
+# position of the Agent call moves.
+run_case "p2.agent-called-this-turn-nothing-to-report" 0 \
+    "$(payload 'Disjoint trees, so it goes now — dispatching it rather than queuing it.' "$AGENT_IN_TURN")"
+if printf '%s' "$LAST_ERR" | grep -qF "in-flight dispatch claim"; then
+    printf '  FAIL  p2.agent-called-this-turn-nothing-to-report (reported anyway)\n'
+    FAIL=$((FAIL + 1)); PASS=$((PASS - 1))
+fi
+
+run_case "p3.agent-called-only-in-an-earlier-turn-still-reports" 0 \
+    "$(payload 'Disjoint trees, so it goes now — dispatching it rather than queuing it.' "$AGENT_EARLIER")" \
     "in-flight dispatch claim"
 
 # --- SAFETY: never strand a session ----------------------------------------

@@ -302,8 +302,27 @@ def _flatten(content):
     return "\n".join(parts)
 
 
-def read_transcript(path, limit_bytes=48 * 1024 * 1024):
-    """Tool traffic for the whole session, plus this turn's tool-call names.
+def read_transcript(path, prompt_id=None, limit_bytes=48 * 1024 * 1024):
+    """Session-wide tool traffic, plus the tool-call names of THIS TURN ONLY.
+
+    The two scopes are deliberately different and conflating them is a bug that
+    silently disarms the reporting layer. GROUNDING wants everything the session
+    ever observed, because a citation recalled from an earlier turn is still
+    grounded. The "did this turn actually call Agent?" question wants only this
+    turn, because the orchestrator spawns agents constantly and a session-wide
+    answer is "yes" forever after the first spawn.
+
+    The turn is scoped by promptId, using the binary's own semantic: "UUID
+    correlating a user prompt with all subsequent events until the next prompt."
+    Assistant records carry no promptId, so the turn is the file-order span from
+    the first record bearing this prompt_id to the end of the file (at Stop time
+    there is no next prompt yet).
+
+    Absent a prompt_id the turn cannot be scoped, so the window opens at the
+    first record and every tool call in the session counts as this turn's. That
+    is the QUIET direction: the only consumer is "did this turn call Agent?",
+    and answering yes suppresses a report. Scoping to nothing would answer no
+    and manufacture one. When a reporting layer cannot tell, it says nothing.
 
     At Stop time the transcript already holds every tool_use and tool_result of
     the turn; it does NOT yet hold the final assistant text (verified against
@@ -312,6 +331,9 @@ def read_transcript(path, limit_bytes=48 * 1024 * 1024):
     traffic comes from here.
     """
     blob, tools = [], []
+    # No prompt_id -> no turn boundary -> count everything (see docstring:
+    # the wide answer is the quiet one for the only question asked of it).
+    turn_started = prompt_id is None
     if not path or not os.path.isfile(path):
         return "", []
     try:
@@ -329,12 +351,15 @@ def read_transcript(path, limit_bytes=48 * 1024 * 1024):
                     rec = json.loads(line)
                 except Exception:
                     continue
+                if prompt_id and rec.get("promptId") == prompt_id:
+                    turn_started = True
                 msg = rec.get("message") or {}
                 content = msg.get("content")
                 if isinstance(content, list):
                     for b in content:
                         if isinstance(b, dict) and b.get("type") == "tool_use":
-                            tools.append(b.get("name", ""))
+                            if turn_started:
+                                tools.append(b.get("name", ""))
                 flat = _flatten(content)
                 if flat:
                     blob.append(flat)
@@ -393,7 +418,8 @@ def main():
     extra_repos = os.environ.get("RICHOS_CLAIMS_EXTRA_REPOS", "")
     session_id = payload.get("session_id") or ""
 
-    blob, turn_tools = read_transcript(payload.get("transcript_path"))
+    blob, turn_tools = read_transcript(payload.get("transcript_path"),
+                                       payload.get("prompt_id"))
 
     names = agent_names(message)
     shas = sha_claims(message)
@@ -469,7 +495,7 @@ def main():
             if prose:
                 lines.append("  in-flight dispatch claim with no Agent call this turn:")
                 lines.append("    %s" % prose)
-                lines.append("  (this signal measures 17%% precision -- it is logged, never enforced)")
+                lines.append("  (this signal measures 17% precision -- it is logged, never enforced)")
             lines.append("  record: .claude/state/claim-checks.jsonl")
             sys.stderr.write("\n".join(lines) + "\n")
         return 0
