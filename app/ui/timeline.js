@@ -337,23 +337,37 @@
   /// Collapse a run of CONSECUTIVE activity items with the identical summary into one row.
   /// Consecutive only — an interleaved prose run or a different activity type breaks the
   /// group, so the rollup can never reorder the chronology it is summarizing.
+  ///
+  /// A ROW CARRYING `detail` IS NEVER ROLLED UP. That is techy mode (§3.4: *"one collapsed
+  /// line per tool call"*), and the rollup is the CEO view's answer to a different problem.
+  /// `Read a file` three times says the same thing three times, so "Read 3 files" loses
+  /// nothing; `cat engine/VERSION`, `cat partners.csv` and `cat notes.md` are three
+  /// different facts, and folding them into "Ran 3 commands" would delete exactly what the
+  /// technical view exists to show. Same data, same renderer, different question.
   function rollupActivity(items) {
     const out = [];
     for (const item of items) {
       const last = out[out.length - 1];
-      if (last && last.summary === item.summary && PLURALS[item.summary]) {
+      if (last && !last.technical && !item.detail && last.summary === item.summary && PLURALS[item.summary]) {
         last.members.push(item);
         continue;
       }
-      out.push({ summary: item.summary, activityType: item.activityType, members: [item] });
+      out.push({ summary: item.summary, activityType: item.activityType, members: [item], technical: !!item.detail });
     }
     return out.map((g) => ({
       key: g.members[0].id,
       count: g.members.length,
       activityType: g.activityType,
-      label: g.members.length === 1 ? g.summary : PLURALS[g.summary](g.members.length),
+      // In technical mode the LABEL is what actually ran. The CEO-safe semantic summary
+      // ("Ran a command") stays available on the member for the collapsed-turn line.
+      label: g.technical
+        ? technicalLabel(g.members[0])
+        : g.members.length === 1
+          ? g.summary
+          : PLURALS[g.summary](g.members.length),
       state: groupState(g.members.map((m) => m.state)),
       members: g.members,
+      technical: g.technical,
     }));
   }
 
@@ -559,6 +573,10 @@
       settled: new Set(), // turnIds whose post-completion settle has already run
       announcedWorking: new Set(),
       pendingUser: [], // optimistic CEO bubbles awaiting a turn id
+      /// Machinery ids whose RAW pane the CEO has opened (techy mode §3.4: "Expand for
+      /// input/output"). Held on the model, not in a render-local variable, so a stream of
+      /// new rows during a live turn does not close a pane he is reading.
+      expandedMachinery: new Set(),
     };
   }
 
@@ -1045,6 +1063,22 @@
     return !open;
   }
 
+  /// Whether ONE tool call's raw pane is open (techy mode §3.4).
+  ///
+  /// Default CLOSED, with no per-turn or per-liveness subtlety: unlike §6.4's work
+  /// transcript, there is no state in which the CEO is better served by every raw payload
+  /// on screen at once. A single Bash result can be 32 KB.
+  function isMachineryExpanded(model, machineryId) {
+    return model.expandedMachinery.has(machineryId);
+  }
+
+  function toggleMachinery(model, machineryId) {
+    const open = isMachineryExpanded(model, machineryId);
+    if (open) model.expandedMachinery.delete(machineryId);
+    else model.expandedMachinery.add(machineryId);
+    return !open;
+  }
+
   // ---- ordering ------------------------------------------------------------------------
 
   /// `(turn, slot, sequence)` — the same key `TimelineBase::order_key` uses, with the turn
@@ -1349,6 +1383,51 @@
     return art;
   }
 
+  // -------------------------------------------------------------------------------------
+  // TECHY MODE (techy-mode design §3.4) — the SAME rows, with their technical half shown
+  // -------------------------------------------------------------------------------------
+  //
+  // Not a second column and not a side panel. §3.4: *"Inline, in `seq` order, interleaved
+  // between the message bubbles of the same turn. A side panel would be tidier and would
+  // fail the requirement: the CEO is replacing a terminal, and a terminal is one
+  // interleaved stream."* So the interleaving is the one the CEO view already does — the
+  // shared per-turn counter (§1.4 G1) — and nothing here re-orders anything.
+  //
+  // WHAT ARRIVES, AND WHAT DOES NOT. A technical row is an ordinary `activity` item that
+  // carries a `detail` object (`{title, summary?, locations, vendorKind?}`), which
+  // `Timeline::view(ViewMode::Ceo)` REMOVES and `ViewMode::Technical` keeps. Two kinds of
+  // row appear here and nowhere else: a `permission_requested` row (auto-approved by the
+  // ACP client and recorded as a fact — NOT a decision awaiting anybody) and an untyped
+  // vendor kind, which renders as one dim line carrying its own kind name (§1.4 G5).
+  //
+  // ===== TWO ROWS THIS DELIBERATELY DOES NOT DRAW, AND THEY ARE NOT OVERSIGHTS ==========
+  //
+  //   ● thinking ⌄   — §5's day-one mockup opens with it. `agent_thought_chunk` fires ZERO
+  //                    times on `claude-agent-acp` 0.70.0, including in a probe run built
+  //                    for nothing else (`MAX_THINKING_TOKENS=10000`, no tools: 17 message
+  //                    chunks, 0 thought chunks). Recent models default `thinking.display`
+  //                    to "omitted". There is no thought data to render.
+  //   fs/read_text_file / fs/write_text_file — never fire either, with both capabilities
+  //                    declared and both tools exercised. `ClientFsCall` is real and inert.
+  //
+  // An affordance that is always empty is a lie about the system: it tells the CEO the
+  // model is not thinking and that Rich touched no files, when what is true is that this
+  // adapter does not say. Both ROUTES stay built in richos-core so there is no hole the day
+  // that changes; neither gets a chevron here today.
+  // =====================================================================================
+
+  /// What a technical row is LABELLED with: the merged tool-call title, which after the
+  /// §1.4 G2 merge is the real command (`cat engine/VERSION`), never the opening event's
+  /// placeholder (`Terminal`, `Preparing file…`).
+  ///
+  /// An untyped vendor kind has no command, so it is labelled with the vendor's own kind
+  /// name — which is what makes §1.4 G5's "one dim line" truthful rather than a shrug.
+  function technicalLabel(item) {
+    const d = item.detail || {};
+    if (d.vendorKind) return d.vendorKind;
+    return d.title || item.summary || "";
+  }
+
   /// §5.3 — one row per meaningful action cluster. Subdued, small, semantic.
   ///
   /// The row is a BUTTON because §5.3 says clicking it opens detail. In the CEO view there
@@ -1356,6 +1435,7 @@
   /// knows (its state) and says plainly that the particulars live in technical mode, rather
   /// than opening an empty pane.
   function renderActivityGroup(group, opts) {
+    if (group.technical) return renderTechnicalRow(group, opts);
     const row = elem("div", "tl-activity");
     row.dataset.state = group.state;
 
@@ -1374,6 +1454,79 @@
       row.appendChild(srOnly(ACTIVITY_STATE_LABEL[group.state] || ""));
     }
     return row;
+  }
+
+  /// ONE tool call, with its technical half (§3.4: *"One collapsed line per tool call:
+  /// status dot, title, path. Expand for input/output."*).
+  ///
+  /// The head is a `<button>` only when there is somewhere to expand TO. `opts.machineryRaw`
+  /// is the seam to §2.4's raw pane and it is supplied by `main.js`; a harness that renders
+  /// the same items without it gets the row and no chevron, rather than a control that does
+  /// nothing. Same rule the worker chip already follows for `opts.openWorker`.
+  ///
+  /// STATUS IS CARRIED BY GLYPH **AND** WORD, never by color alone (§18) — and every state
+  /// is spelled out here, not just the four the CEO view spells out. In technical mode
+  /// `done` is information the CEO is specifically looking at, and `outcome not recorded`
+  /// is the honest word for the measured majority case (34 of 58 tool events on 2026-08-28
+  /// carried no `status` at all). It is NEVER folded into `done`: "they all finished" is a
+  /// completion claim nobody made.
+  function renderTechnicalRow(group, opts) {
+    const item = group.members[0];
+    const detail = item.detail || {};
+    const wrap = elem("div", "tl-tech");
+    wrap.dataset.state = group.state;
+    if (detail.vendorKind) wrap.dataset.vendor = detail.vendorKind;
+
+    const expandable = typeof opts.machineryRaw === "function";
+    const expanded = expandable && typeof opts.isMachineryExpanded === "function" && opts.isMachineryExpanded(item.id);
+
+    const head = elem(expandable ? "button" : "div", "tl-tech-head");
+    if (expandable) {
+      head.type = "button";
+      head.id = "mach:" + item.id;
+      head.setAttribute("aria-expanded", String(expanded));
+      head.addEventListener("click", () => opts.toggleMachinery(item.id));
+    }
+
+    const mark = elem("span", "tl-activity-mark", ACTIVITY_GLYPH[group.state] || "\u00b7");
+    mark.setAttribute("aria-hidden", "true");
+    head.appendChild(mark);
+
+    // The command, in a monospace lane, and NEVER truncated by the renderer. §2.4 already
+    // bounded what is stored (an 84-char summary, a 32 KB payload); bounding it a second
+    // time here would hide the middle of a command the CEO is reading precisely because he
+    // wants to see all of it. Wrapping is style.css's job.
+    head.appendChild(elem("span", "tl-tech-title", technicalLabel(item)));
+    head.appendChild(elem("span", "tl-activity-state", ACTIVITY_STATE_LABEL[group.state] || "outcome not recorded"));
+    if (expandable) {
+      const chev = elem("span", "tl-tech-chevron", expanded ? "\u2303" : "\u2304");
+      chev.setAttribute("aria-hidden", "true");
+      head.appendChild(chev);
+    }
+    wrap.appendChild(head);
+
+    // The bounded preview and the touched paths sit UNDER the head at all times, not behind
+    // the chevron: they are §2.4's normalized record, they are never evicted, and they are
+    // the two things that still render after the raw window has passed over this row.
+    if (detail.summary) wrap.appendChild(elem("div", "tl-tech-summary", detail.summary));
+    if (detail.locations && detail.locations.length) {
+      const paths = elem("div", "tl-tech-paths");
+      for (const p of detail.locations) paths.appendChild(elem("span", "tl-tech-path", p));
+      wrap.appendChild(paths);
+    }
+
+    if (expanded) {
+      const pane = elem("div", "tl-tech-raw");
+      pane.id = "raw:" + item.id;
+      // A live region: the raw bytes arrive from a command AFTER this node is mounted, and
+      // the three answers it can give (retained / no longer retained / could not be read)
+      // are all sentences the CEO has to be told, not states he should have to notice.
+      pane.setAttribute("role", "status");
+      pane.textContent = "Reading\u2026";
+      wrap.appendChild(pane);
+      opts.machineryRaw(item.id, pane);
+    }
+    return wrap;
   }
 
   /// §7.1 — the delegated-worker group: one summary line, then one chip per worker.
@@ -1811,7 +1964,12 @@
       // §6.4: "The collapsed row shows a chevron and optionally one summary line."
       if (hasActivity && !expanded) {
         const groups = rollupWork(turn.stream.filter(isWork));
-        const summary = groups.map((g) => g.group.label).join(" · ");
+        // The SEMANTIC summary even in technical mode. §6.4 allows "optionally one summary
+        // line", and a collapsed turn joined from ten full shell commands is not a summary
+        // line — it is the expanded view with the newlines taken out.
+        const summary = groups
+          .map((g) => (g.group.technical ? g.group.members[0].summary : g.group.label))
+          .join(" · ");
         const line = elem("button", "tl-collapsed-summary", summary);
         line.type = "button";
         line.id = "summary:" + turn.turnId;
@@ -1901,7 +2059,15 @@
     } else {
       parts.push("u0");
     }
-    for (const item of turn.stream) parts.push(tokenOf(item));
+    for (const item of turn.stream) {
+      // The open/closed state of a raw pane is NOT a property of the item object, so it
+      // cannot ride in on `tokenOf`. Without this the CEO clicks a chevron, the turn's
+      // signature is unchanged, the cached node is reused and nothing happens — the exact
+      // class of bug the identity-based signature exists to avoid everywhere else.
+      const open = opts.isMachineryExpanded && opts.isMachineryExpanded(item.id) ? "+" : "";
+      parts.push(tokenOf(item) + open);
+    }
+    parts.push(opts.machineryRaw ? "m1" : "m0");
     return parts.join("|");
   }
 
@@ -2030,6 +2196,8 @@
     onMessageStarted,
     onMessageDelta,
     onMessageCompleted,
+    isMachineryExpanded,
+    toggleMachinery,
     onActivityUpserted,
     onWorkerUpserted,
     isTurnExpanded,
