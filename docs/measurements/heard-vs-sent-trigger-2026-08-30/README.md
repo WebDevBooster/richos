@@ -176,11 +176,11 @@ here is what stops the second being claimed for it.
 
 ## 6. Two things the shipped JavaScript gets wrong for this trigger
 
-**It diffs the wrong side of the journal.** A journal record carries `text` (what the recogniser
-produced) *and* `emitted` (what was actually pasted, after the shared vocabulary corrected it on
-the way out — `dictation-flywheel.patch`: *"Keeping BOTH is the whole point"*). `reviewSent` uses
-`text`. But `emitted` is what he SAW and therefore what he edited. Measured over the corpus's
-`emitted-*` rows:
+**It diffed the wrong side of the journal — now fixed in BOTH implementations.** A journal record
+carries `text` (what the recogniser produced) *and* `emitted` (what was actually pasted, after the
+shared vocabulary corrected it on the way out — `dictation-flywheel.patch`: *"Keeping BOTH is the
+whole point"*). `reviewSent` used `text`. But `emitted` is what he SAW and therefore what he
+edited. Measured over the corpus's `emitted-*` rows:
 
 ```text
   diffing `emitted` (shipped here): 1 ask
@@ -190,7 +190,17 @@ the way out — `dictation-flywheel.patch`: *"Keeping BOTH is the whole point"*)
 The four extra are pairs **the vocabulary already holds**, asked at a moment when he changed
 nothing at all.
 
-**It has no structural refusal**, because it never needed one — §3.
+Because that would have left the CLI and the app answering the same question differently — the
+exact drift `spoken_gate_agreement.rs` exists to prevent — `lib/dictation.js` now reads every
+record through a shared `heardSide()` and `richos-service dictation-review` reports the pasted
+side rather than the raw one. A record with no `emitted` (an older one, or one written before
+patch 3) falls back to `text`, which is exactly what shipped before; the fallback has its own
+positive probe in `test/run.js` so it cannot become a second silence.
+
+**It has no structural refusal**, because it never needed one — §3. That one is NOT ported back:
+`askCandidates` is also reached by the call-transcript path, whose spans do not open a composer
+message, and tightening a shared gate to fix a problem only one caller has is how a rule stops
+being one rule. `heard.rs` applies it, and says so.
 
 ---
 

@@ -33,7 +33,7 @@ import { ffmpegVersion } from '../lib/normalize.js';
 import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
 import { learnTerm, learnFromEdits, serializeEntitiesDoc } from '../lib/capture.js';
 import { correctText } from '../lib/correct.js';
-import { reviewSent, answerAsk, askKey, MATCH_WINDOW_MS } from '../lib/dictation.js';
+import { reviewSent, answerAsk, askKey, heardSide, MATCH_WINDOW_MS } from '../lib/dictation.js';
 import {
   journalRoot, loadJournal, loadLedger, saveLedger, markReconciled, withConsumed,
   surveyJournal, sweepRetention, costPerHour,
@@ -309,7 +309,9 @@ function main() {
       console.log(JSON.stringify({
         journal: root,
         matched: res.matched,
-        entry: res.entry ? { id: res.entry.id, at: res.entry.at, heard: res.entry.text } : null,
+        // What was PASTED, which is what he edited — not the recogniser's raw output. See
+        // `heardSide`: reporting `text` here would name a sentence he never saw.
+        entry: res.entry ? { id: res.entry.id, at: res.entry.at, heard: heardSide(res.entry) } : null,
         similarity: res.similarity ?? null,
         reason: res.reason,
         // These are QUESTIONS. Answer one with `dictation-answer --from ... --to ... --confirm`.
