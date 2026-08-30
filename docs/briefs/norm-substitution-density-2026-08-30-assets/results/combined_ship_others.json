@@ -1,0 +1,279 @@
+{
+ "run": "ship",
+ "ch": "others",
+ "model": "large-v3-turbo",
+ "deletion": {
+  "candidates": 14,
+  "probed": 14,
+  "deletedSpans": 0,
+  "deletedSeconds": 0,
+  "elapsedMs": 38382
+ },
+ "density": {
+  "windows": 317,
+  "candidates": 2,
+  "probed": 2,
+  "sparseSpans": 0,
+  "sparseSeconds": 0,
+  "unprobed": 0,
+  "rejected": 2,
+  "channelsBelowFloor": [],
+  "elapsedMs": 6649,
+  "medianDensity": 2.529,
+  "analyzedSpeechSec": 2255.9,
+  "burstSeconds": 2286.5
+ },
+ "inspection": {
+  "total": 0,
+  "missingEverywhere": 0,
+  "presentElsewhere": 0,
+  "deletionOverlap": 0
+ },
+ "findings": [],
+ "rejectedByVerdict": {
+  "matches-audio": 1,
+  "echoed": 1
+ },
+ "deletionReport": {
+  "detected": false,
+  "probeAvailable": true,
+  "coverageUnit": "word-times",
+  "candidates": 14,
+  "probed": 14,
+  "deletedSpans": 0,
+  "deletedSeconds": 0,
+  "unprobedSpans": 0,
+  "deletions": [],
+  "rejected": [
+   {
+    "channel": "others",
+    "startMs": 310793,
+    "endMs": 312634,
+    "durationSec": 1.84,
+    "maxDb": -6.5,
+    "verdict": "mistimed",
+    "reason": "6 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   },
+   {
+    "channel": "others",
+    "startMs": 1112754,
+    "endMs": 1113754,
+    "durationSec": 1,
+    "maxDb": -30.7,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned no lexical words"
+   },
+   {
+    "channel": "others",
+    "startMs": 1253226,
+    "endMs": 1254414,
+    "durationSec": 1.19,
+    "maxDb": -7.8,
+    "verdict": "mistimed",
+    "reason": "6 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   },
+   {
+    "channel": "others",
+    "startMs": 1559102,
+    "endMs": 1560351,
+    "durationSec": 1.25,
+    "maxDb": -7.5,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned 1 distinct informative word(s), below the 3-word floor for a >= 1s span (laughter, a breath and a repeated backchannel all land here)"
+   },
+   {
+    "channel": "others",
+    "startMs": 1560845,
+    "endMs": 1562791,
+    "durationSec": 1.95,
+    "maxDb": -5.9,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned 1 distinct informative word(s), below the 3-word floor for a >= 1s span (laughter, a breath and a repeated backchannel all land here)"
+   },
+   {
+    "channel": "others",
+    "startMs": 2405145,
+    "endMs": 2406819,
+    "durationSec": 1.67,
+    "maxDb": -11.7,
+    "verdict": "mistimed",
+    "reason": "4 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   },
+   {
+    "channel": "others",
+    "startMs": 2415842,
+    "endMs": 2417081,
+    "durationSec": 1.24,
+    "maxDb": -9.5,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned no lexical words"
+   },
+   {
+    "channel": "others",
+    "startMs": 2888448,
+    "endMs": 2890649,
+    "durationSec": 2.2,
+    "maxDb": -10.4,
+    "verdict": "mistimed",
+    "reason": "7 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   },
+   {
+    "channel": "others",
+    "startMs": 3250406,
+    "endMs": 3251957,
+    "durationSec": 1.55,
+    "maxDb": -12.6,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned 2 distinct informative word(s), below the 3-word floor for a >= 1s span (laughter, a breath and a repeated backchannel all land here)"
+   },
+   {
+    "channel": "others",
+    "startMs": 3427200,
+    "endMs": 3428917,
+    "durationSec": 1.72,
+    "maxDb": -8.3,
+    "verdict": "mistimed",
+    "reason": "5 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   },
+   {
+    "channel": "others",
+    "startMs": 3892600,
+    "endMs": 3894060,
+    "durationSec": 1.46,
+    "maxDb": -28.1,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned no lexical words"
+   },
+   {
+    "channel": "others",
+    "startMs": 4324595,
+    "endMs": 4325947,
+    "durationSec": 1.35,
+    "maxDb": -5.9,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned 1 distinct informative word(s), below the 3-word floor for a >= 1s span (laughter, a breath and a repeated backchannel all land here)"
+   },
+   {
+    "channel": "others",
+    "startMs": 4808162,
+    "endMs": 4809163,
+    "durationSec": 1,
+    "maxDb": -26,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned no lexical words"
+   },
+   {
+    "channel": "others",
+    "startMs": 5049974,
+    "endMs": 5051111,
+    "durationSec": 1.14,
+    "maxDb": -9.2,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned 0 distinct informative word(s), below the 3-word floor for a >= 1s span (laughter, a breath and a repeated backchannel all land here)"
+   }
+  ],
+  "unprobed": [],
+  "byChannel": {
+   "me": {
+    "bursts": 0,
+    "burstSeconds": 0,
+    "emittedWords": 0,
+    "candidates": 0,
+    "probed": 0,
+    "deletedSpans": 0,
+    "deletedSeconds": 0,
+    "unprobedSpans": 0,
+    "probeAvailable": false
+   },
+   "others": {
+    "bursts": 861,
+    "burstSeconds": 2286.5,
+    "emittedWords": 6133,
+    "candidates": 14,
+    "probed": 14,
+    "deletedSpans": 0,
+    "deletedSeconds": 0,
+    "unprobedSpans": 0,
+    "probeAvailable": true
+   }
+  }
+ },
+ "densityReport": {
+  "detected": false,
+  "probeAvailable": true,
+  "coverageUnit": "word-times",
+  "windows": 317,
+  "candidates": 2,
+  "probed": 2,
+  "sparseSpans": 0,
+  "sparseSeconds": 0,
+  "unprobedSpans": 0,
+  "channelsBelowFloor": [],
+  "findings": [],
+  "rejected": [
+   {
+    "channel": "others",
+    "startMs": 1112201,
+    "endMs": 1119347,
+    "speechSec": 5.63,
+    "emittedWords": 6,
+    "density": 1.065,
+    "expectedWords": 6.4,
+    "deficitWords": 0.4,
+    "maxDb": -6.1,
+    "verdict": "matches-audio",
+    "reason": "decoded on its own this window returns 7 content word(s) against the 6 the transcript already emits — short of the 1.75x / +5-word recovery floor. The audio here really is this sparse: a slow or emphatic delivery, a long pause inside a burst, or speech the model refuses twice. A thin transcript over thin speech is not a defect",
+    "probeWords": 7
+   },
+   {
+    "channel": "others",
+    "startMs": 5337205,
+    "endMs": 5343936,
+    "speechSec": 6.73,
+    "emittedWords": 6,
+    "density": 0.891,
+    "expectedWords": 7.7,
+    "deficitWords": 1.7,
+    "maxDb": -6.6,
+    "verdict": "echoed",
+    "reason": "16 consecutive words of the isolated re-decode already appear in the transcript around this window — the words are PRESENT (carrying the wrong timestamps, or collapsed from a repeated delivery). That is a timing or de-duplication question, not missing speech",
+    "probeWords": 14
+   }
+  ],
+  "unprobed": [],
+  "byChannel": {
+   "me": {
+    "bursts": 0,
+    "burstSeconds": 0,
+    "analyzedSpeechSec": 0,
+    "emittedWords": 0,
+    "windows": 0,
+    "candidates": 0,
+    "probed": 0,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unprobedSpans": 0,
+    "medianDensity": null,
+    "thresholdWordsPerSec": null,
+    "baselineBelowFloor": false,
+    "probeAvailable": false
+   },
+   "others": {
+    "bursts": 861,
+    "burstSeconds": 2286.5,
+    "analyzedSpeechSec": 2255.9,
+    "emittedWords": 6133,
+    "windows": 317,
+    "candidates": 2,
+    "probed": 2,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unprobedSpans": 0,
+    "medianDensity": 2.529,
+    "thresholdWordsPerSec": 1.138,
+    "baselineBelowFloor": false,
+    "probeAvailable": true
+   }
+  }
+ }
+}

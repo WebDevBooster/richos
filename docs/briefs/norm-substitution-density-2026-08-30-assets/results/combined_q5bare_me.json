@@ -1,0 +1,1835 @@
+{
+ "run": "q5bare",
+ "ch": "me",
+ "model": "large-v3-turbo-q5_0",
+ "deletion": {
+  "candidates": 160,
+  "probed": 40,
+  "deletedSpans": 37,
+  "deletedSeconds": 203.4,
+  "elapsedMs": 105905
+ },
+ "density": {
+  "windows": 163,
+  "candidates": 5,
+  "probed": 5,
+  "sparseSpans": 3,
+  "sparseSeconds": 18.1,
+  "unprobed": 0,
+  "rejected": 2,
+  "channelsBelowFloor": [],
+  "elapsedMs": 13408,
+  "medianDensity": 2.437,
+  "analyzedSpeechSec": 897.9,
+  "burstSeconds": 1259.3
+ },
+ "inspection": {
+  "total": 3,
+  "missingEverywhere": 1,
+  "presentElsewhere": 2,
+  "deletionOverlap": 0
+ },
+ "findings": [
+  {
+   "startSec": 1328.6,
+   "endSec": 1334.5,
+   "speechSec": 5.9,
+   "emittedWords": 1,
+   "density": 0.17,
+   "probeWords": 13,
+   "maxDb": -6.4,
+   "wholeTranscriptRun": 12,
+   "wholeTranscriptRatio": 1,
+   "inspection": "present-elsewhere"
+  },
+  {
+   "startSec": 1860,
+   "endSec": 1866.9,
+   "speechSec": 5.35,
+   "emittedWords": 2,
+   "density": 0.374,
+   "probeWords": 15,
+   "maxDb": -6.9,
+   "wholeTranscriptRun": 16,
+   "wholeTranscriptRatio": 1,
+   "inspection": "present-elsewhere"
+  },
+  {
+   "startSec": 4820.2,
+   "endSec": 4829.1,
+   "speechSec": 6.87,
+   "emittedWords": 1,
+   "density": 0.146,
+   "probeWords": 9,
+   "maxDb": -8.4,
+   "wholeTranscriptRun": 2,
+   "wholeTranscriptRatio": 0.53,
+   "inspection": "missing-everywhere"
+  }
+ ],
+ "rejectedByVerdict": {
+  "echoed": 2
+ },
+ "deletionReport": {
+  "detected": true,
+  "probeAvailable": true,
+  "coverageUnit": "word-times",
+  "candidates": 160,
+  "probed": 40,
+  "deletedSpans": 37,
+  "deletedSeconds": 203.4,
+  "unprobedSpans": 120,
+  "deletions": [
+   {
+    "channel": "me",
+    "startMs": 564121,
+    "endMs": 571179,
+    "durationSec": 7.06,
+    "maxDb": -7.7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 19,
+    "stableWords": 18,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 1176212,
+    "endMs": 1181103,
+    "durationSec": 4.89,
+    "maxDb": -9.7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 12,
+    "stableWords": 13,
+    "echoWords": 1,
+    "echoRatio": 0.08
+   },
+   {
+    "channel": "me",
+    "startMs": 1244463,
+    "endMs": 1249151,
+    "durationSec": 4.69,
+    "maxDb": -9.8,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 16,
+    "stableWords": 17,
+    "echoWords": 1,
+    "echoRatio": 0.18
+   },
+   {
+    "channel": "me",
+    "startMs": 2168484,
+    "endMs": 2173680,
+    "durationSec": 5.2,
+    "maxDb": -11.2,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 16,
+    "stableWords": 16,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 2619162,
+    "endMs": 2625360,
+    "durationSec": 6.2,
+    "maxDb": -7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 19,
+    "stableWords": 22,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 2648400,
+    "endMs": 2654610,
+    "durationSec": 6.21,
+    "maxDb": -5.1,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 19,
+    "stableWords": 22,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 3298957,
+    "endMs": 3304036,
+    "durationSec": 5.08,
+    "maxDb": -11.7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 10,
+    "stableWords": 11,
+    "echoWords": 2,
+    "echoRatio": 0.18
+   },
+   {
+    "channel": "me",
+    "startMs": 3329781,
+    "endMs": 3334743,
+    "durationSec": 4.96,
+    "maxDb": -13.1,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 14,
+    "stableWords": 16,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 3367091,
+    "endMs": 3372187,
+    "durationSec": 5.1,
+    "maxDb": -9.2,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 12,
+    "echoWords": 1,
+    "echoRatio": 0.15
+   },
+   {
+    "channel": "me",
+    "startMs": 3407724,
+    "endMs": 3411527,
+    "durationSec": 3.8,
+    "maxDb": -11.2,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 11,
+    "echoWords": 1,
+    "echoRatio": 0.09
+   },
+   {
+    "channel": "me",
+    "startMs": 3423242,
+    "endMs": 3427494,
+    "durationSec": 4.25,
+    "maxDb": -10.5,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 10,
+    "stableWords": 10,
+    "echoWords": 1,
+    "echoRatio": 0.18
+   },
+   {
+    "channel": "me",
+    "startMs": 3543906,
+    "endMs": 3549594,
+    "durationSec": 5.69,
+    "maxDb": -10.7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 18,
+    "stableWords": 20,
+    "echoWords": 1,
+    "echoRatio": 0.1
+   },
+   {
+    "channel": "me",
+    "startMs": 3604431,
+    "endMs": 3609016,
+    "durationSec": 4.58,
+    "maxDb": -7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 16,
+    "stableWords": 17,
+    "echoWords": 1,
+    "echoRatio": 0.12
+   },
+   {
+    "channel": "me",
+    "startMs": 3652534,
+    "endMs": 3657025,
+    "durationSec": 4.49,
+    "maxDb": -14.3,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 12,
+    "echoWords": 1,
+    "echoRatio": 0.08
+   },
+   {
+    "channel": "me",
+    "startMs": 3737574,
+    "endMs": 3741234,
+    "durationSec": 3.66,
+    "maxDb": -18.2,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 10,
+    "stableWords": 11,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 3742504,
+    "endMs": 3749028,
+    "durationSec": 6.52,
+    "maxDb": -12.8,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 19,
+    "stableWords": 21,
+    "echoWords": 1,
+    "echoRatio": 0.05
+   },
+   {
+    "channel": "me",
+    "startMs": 3795941,
+    "endMs": 3802061,
+    "durationSec": 6.12,
+    "maxDb": -14.7,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 16,
+    "stableWords": 17,
+    "echoWords": 1,
+    "echoRatio": 0.06
+   },
+   {
+    "channel": "me",
+    "startMs": 3877677,
+    "endMs": 3888194,
+    "durationSec": 10.52,
+    "maxDb": -9.1,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 18,
+    "stableWords": 24,
+    "echoWords": 1,
+    "echoRatio": 0.04
+   },
+   {
+    "channel": "me",
+    "startMs": 3923054,
+    "endMs": 3927072,
+    "durationSec": 4.02,
+    "maxDb": -11.8,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 10,
+    "echoWords": 1,
+    "echoRatio": 0.09
+   },
+   {
+    "channel": "me",
+    "startMs": 3953184,
+    "endMs": 3958346,
+    "durationSec": 5.16,
+    "maxDb": -9.9,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 9,
+    "stableWords": 9,
+    "echoWords": 1,
+    "echoRatio": 0.08
+   },
+   {
+    "channel": "me",
+    "startMs": 4007940,
+    "endMs": 4013914,
+    "durationSec": 5.97,
+    "maxDb": -11.8,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 13,
+    "echoWords": 1,
+    "echoRatio": 0.07
+   },
+   {
+    "channel": "me",
+    "startMs": 4193146,
+    "endMs": 4197572,
+    "durationSec": 4.43,
+    "maxDb": -13.1,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 10,
+    "stableWords": 10,
+    "echoWords": 1,
+    "echoRatio": 0.2
+   },
+   {
+    "channel": "me",
+    "startMs": 4198305,
+    "endMs": 4204683,
+    "durationSec": 6.38,
+    "maxDb": -4.4,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 14,
+    "echoWords": 2,
+    "echoRatio": 0.2
+   },
+   {
+    "channel": "me",
+    "startMs": 4291415,
+    "endMs": 4298354,
+    "durationSec": 6.94,
+    "maxDb": -10.6,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 18,
+    "stableWords": 20,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 4300424,
+    "endMs": 4304707,
+    "durationSec": 4.28,
+    "maxDb": -13,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 12,
+    "stableWords": 14,
+    "echoWords": 1,
+    "echoRatio": 0.07
+   },
+   {
+    "channel": "me",
+    "startMs": 4344567,
+    "endMs": 4349310,
+    "durationSec": 4.74,
+    "maxDb": -14,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 11,
+    "stableWords": 16,
+    "echoWords": 2,
+    "echoRatio": 0.13
+   },
+   {
+    "channel": "me",
+    "startMs": 4396092,
+    "endMs": 4399953,
+    "durationSec": 3.86,
+    "maxDb": -16,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 14,
+    "stableWords": 14,
+    "echoWords": 1,
+    "echoRatio": 0.14
+   },
+   {
+    "channel": "me",
+    "startMs": 4402087,
+    "endMs": 4410005,
+    "durationSec": 7.92,
+    "maxDb": -9.4,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 15,
+    "stableWords": 17,
+    "echoWords": 1,
+    "echoRatio": 0.12
+   },
+   {
+    "channel": "me",
+    "startMs": 4474449,
+    "endMs": 4478322,
+    "durationSec": 3.87,
+    "maxDb": -10,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 9,
+    "stableWords": 9,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 4554512,
+    "endMs": 4561628,
+    "durationSec": 7.12,
+    "maxDb": -8.4,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 19,
+    "stableWords": 21,
+    "echoWords": 1,
+    "echoRatio": 0.1
+   },
+   {
+    "channel": "me",
+    "startMs": 4562832,
+    "endMs": 4568340,
+    "durationSec": 5.51,
+    "maxDb": -9.2,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 14,
+    "stableWords": 15,
+    "echoWords": 1,
+    "echoRatio": 0.07
+   },
+   {
+    "channel": "me",
+    "startMs": 4944817,
+    "endMs": 4948668,
+    "durationSec": 3.85,
+    "maxDb": -12.4,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 13,
+    "stableWords": 13,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 5164169,
+    "endMs": 5167898,
+    "durationSec": 3.73,
+    "maxDb": -13.3,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 9,
+    "stableWords": 10,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 5289852,
+    "endMs": 5297116,
+    "durationSec": 7.26,
+    "maxDb": -13.2,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 19,
+    "stableWords": 25,
+    "echoWords": 1,
+    "echoRatio": 0.08
+   },
+   {
+    "channel": "me",
+    "startMs": 5396842,
+    "endMs": 5401878,
+    "durationSec": 5.04,
+    "maxDb": -7.9,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 13,
+    "stableWords": 14,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 5402345,
+    "endMs": 5406571,
+    "durationSec": 4.23,
+    "maxDb": -12.5,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 10,
+    "stableWords": 13,
+    "echoWords": 0,
+    "echoRatio": 0
+   },
+   {
+    "channel": "me",
+    "startMs": 5407792,
+    "endMs": 5417867,
+    "durationSec": 10.07,
+    "maxDb": -5.4,
+    "verdict": "deleted",
+    "reason": "a physically detected speech burst with no emitted word, whose isolated re-decode returns stable lexical speech that appears nowhere in the surrounding transcript",
+    "words": 28,
+    "stableWords": 30,
+    "echoWords": 1,
+    "echoRatio": 0.07
+   }
+  ],
+  "rejected": [
+   {
+    "channel": "me",
+    "startMs": 736509,
+    "endMs": 740258,
+    "durationSec": 3.75,
+    "maxDb": -10.6,
+    "verdict": "mistimed",
+    "reason": "8 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   },
+   {
+    "channel": "me",
+    "startMs": 3935422,
+    "endMs": 3941126,
+    "durationSec": 5.7,
+    "maxDb": -0.9,
+    "verdict": "not-speech",
+    "reason": "the isolated re-decode returned no lexical words"
+   },
+   {
+    "channel": "me",
+    "startMs": 4017614,
+    "endMs": 4022250,
+    "durationSec": 4.64,
+    "maxDb": -9.9,
+    "verdict": "mistimed",
+    "reason": "3 consecutive words of the isolated re-decode already appear in the transcript around this span — the speech is PRESENT and merely carries the wrong timestamps. A timing defect is not a deletion and must not be reported as one"
+   }
+  ],
+  "unprobed": [
+   {
+    "channel": "me",
+    "startMs": 274316,
+    "endMs": 275486,
+    "durationSec": 1.17,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 276821,
+    "endMs": 280283,
+    "durationSec": 3.46,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 294491,
+    "endMs": 296449,
+    "durationSec": 1.96,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 441882,
+    "endMs": 442965,
+    "durationSec": 1.08,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 573484,
+    "endMs": 574632,
+    "durationSec": 1.15,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 575296,
+    "endMs": 578770,
+    "durationSec": 3.47,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 740711,
+    "endMs": 743534,
+    "durationSec": 2.82,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 776862,
+    "endMs": 778297,
+    "durationSec": 1.44,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 853894,
+    "endMs": 855180,
+    "durationSec": 1.29,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1079014,
+    "endMs": 1080502,
+    "durationSec": 1.49,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1081014,
+    "endMs": 1083770,
+    "durationSec": 2.76,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1100838,
+    "endMs": 1102834,
+    "durationSec": 2,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1153276,
+    "endMs": 1156513,
+    "durationSec": 3.24,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1181581,
+    "endMs": 1184129,
+    "durationSec": 2.55,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1184634,
+    "endMs": 1186584,
+    "durationSec": 1.95,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1219350,
+    "endMs": 1222879,
+    "durationSec": 3.53,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1224274,
+    "endMs": 1225667,
+    "durationSec": 1.39,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1233995,
+    "endMs": 1235987,
+    "durationSec": 1.99,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1239364,
+    "endMs": 1241122,
+    "durationSec": 1.76,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1712775,
+    "endMs": 1714307,
+    "durationSec": 1.53,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1714785,
+    "endMs": 1715800,
+    "durationSec": 1.01,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1717646,
+    "endMs": 1719160,
+    "durationSec": 1.51,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1795805,
+    "endMs": 1797479,
+    "durationSec": 1.67,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1865341,
+    "endMs": 1866872,
+    "durationSec": 1.53,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1995791,
+    "endMs": 1997428,
+    "durationSec": 1.64,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 1998282,
+    "endMs": 2000413,
+    "durationSec": 2.13,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2166864,
+    "endMs": 2167986,
+    "durationSec": 1.12,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2371196,
+    "endMs": 2374439,
+    "durationSec": 3.24,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2423084,
+    "endMs": 2424343,
+    "durationSec": 1.26,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2612868,
+    "endMs": 2614518,
+    "durationSec": 1.65,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2616448,
+    "endMs": 2618262,
+    "durationSec": 1.81,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2643522,
+    "endMs": 2645223,
+    "durationSec": 1.7,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2645765,
+    "endMs": 2647684,
+    "durationSec": 1.92,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 2882127,
+    "endMs": 2883398,
+    "durationSec": 1.27,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3065380,
+    "endMs": 3066477,
+    "durationSec": 1.1,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3120461,
+    "endMs": 3122234,
+    "durationSec": 1.77,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3228257,
+    "endMs": 3229707,
+    "durationSec": 1.45,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3308522,
+    "endMs": 3311818,
+    "durationSec": 3.3,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3360456,
+    "endMs": 3362190,
+    "durationSec": 1.73,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3411962,
+    "endMs": 3413339,
+    "durationSec": 1.38,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3413933,
+    "endMs": 3415592,
+    "durationSec": 1.66,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3419795,
+    "endMs": 3422295,
+    "durationSec": 2.5,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3432161,
+    "endMs": 3434598,
+    "durationSec": 2.44,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3435042,
+    "endMs": 3437995,
+    "durationSec": 2.95,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3439954,
+    "endMs": 3441777,
+    "durationSec": 1.82,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3442464,
+    "endMs": 3444693,
+    "durationSec": 2.23,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3445596,
+    "endMs": 3447284,
+    "durationSec": 1.69,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3461680,
+    "endMs": 3464537,
+    "durationSec": 2.86,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3512214,
+    "endMs": 3513252,
+    "durationSec": 1.04,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3524605,
+    "endMs": 3525665,
+    "durationSec": 1.06,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3551418,
+    "endMs": 3553290,
+    "durationSec": 1.87,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3553812,
+    "endMs": 3554969,
+    "durationSec": 1.16,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3563656,
+    "endMs": 3564848,
+    "durationSec": 1.19,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3576938,
+    "endMs": 3578187,
+    "durationSec": 1.25,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3596485,
+    "endMs": 3597798,
+    "durationSec": 1.31,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3598769,
+    "endMs": 3601614,
+    "durationSec": 2.85,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3612846,
+    "endMs": 3615001,
+    "durationSec": 2.15,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3625487,
+    "endMs": 3627370,
+    "durationSec": 1.88,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3638733,
+    "endMs": 3640061,
+    "durationSec": 1.33,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3691810,
+    "endMs": 3692862,
+    "durationSec": 1.05,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3702449,
+    "endMs": 3704349,
+    "durationSec": 1.9,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3749973,
+    "endMs": 3753451,
+    "durationSec": 3.48,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3823403,
+    "endMs": 3824516,
+    "durationSec": 1.11,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3869242,
+    "endMs": 3870556,
+    "durationSec": 1.31,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3874207,
+    "endMs": 3876018,
+    "durationSec": 1.81,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3905630,
+    "endMs": 3907875,
+    "durationSec": 2.25,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3947539,
+    "endMs": 3949685,
+    "durationSec": 2.15,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3973143,
+    "endMs": 3976142,
+    "durationSec": 3,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 3984228,
+    "endMs": 3986303,
+    "durationSec": 2.08,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4014552,
+    "endMs": 4015609,
+    "durationSec": 1.06,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4056003,
+    "endMs": 4058619,
+    "durationSec": 2.62,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4074825,
+    "endMs": 4077041,
+    "durationSec": 2.22,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4091982,
+    "endMs": 4093370,
+    "durationSec": 1.39,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4119196,
+    "endMs": 4121094,
+    "durationSec": 1.9,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4122059,
+    "endMs": 4125186,
+    "durationSec": 3.13,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4126014,
+    "endMs": 4128532,
+    "durationSec": 2.52,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4171449,
+    "endMs": 4173850,
+    "durationSec": 2.4,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4174711,
+    "endMs": 4177864,
+    "durationSec": 3.15,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4178770,
+    "endMs": 4181540,
+    "durationSec": 2.77,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4206014,
+    "endMs": 4209676,
+    "durationSec": 3.66,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4221373,
+    "endMs": 4222881,
+    "durationSec": 1.51,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4252218,
+    "endMs": 4253900,
+    "durationSec": 1.68,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4260035,
+    "endMs": 4261896,
+    "durationSec": 1.86,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4287611,
+    "endMs": 4289099,
+    "durationSec": 1.49,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4305704,
+    "endMs": 4308727,
+    "durationSec": 3.02,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4342644,
+    "endMs": 4344054,
+    "durationSec": 1.41,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4393415,
+    "endMs": 4395368,
+    "durationSec": 1.95,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4400430,
+    "endMs": 4401589,
+    "durationSec": 1.16,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4464408,
+    "endMs": 4467182,
+    "durationSec": 2.77,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4467671,
+    "endMs": 4470464,
+    "durationSec": 2.79,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4470904,
+    "endMs": 4474038,
+    "durationSec": 3.13,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4496681,
+    "endMs": 4499224,
+    "durationSec": 2.54,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4549431,
+    "endMs": 4551465,
+    "durationSec": 2.03,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4552456,
+    "endMs": 4553949,
+    "durationSec": 1.49,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4583017,
+    "endMs": 4584325,
+    "durationSec": 1.31,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4681187,
+    "endMs": 4682728,
+    "durationSec": 1.54,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4808297,
+    "endMs": 4811599,
+    "durationSec": 3.3,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4818339,
+    "endMs": 4819730,
+    "durationSec": 1.39,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4878929,
+    "endMs": 4880131,
+    "durationSec": 1.2,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4942796,
+    "endMs": 4944333,
+    "durationSec": 1.54,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4949477,
+    "endMs": 4950959,
+    "durationSec": 1.48,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4951503,
+    "endMs": 4954312,
+    "durationSec": 2.81,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 4971851,
+    "endMs": 4973033,
+    "durationSec": 1.18,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5168648,
+    "endMs": 5171219,
+    "durationSec": 2.57,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5171761,
+    "endMs": 5174063,
+    "durationSec": 2.3,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5189748,
+    "endMs": 5191154,
+    "durationSec": 1.41,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5224758,
+    "endMs": 5226087,
+    "durationSec": 1.33,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5261375,
+    "endMs": 5262471,
+    "durationSec": 1.1,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5262904,
+    "endMs": 5265264,
+    "durationSec": 2.36,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5265878,
+    "endMs": 5267149,
+    "durationSec": 1.27,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5267686,
+    "endMs": 5269802,
+    "durationSec": 2.12,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5270592,
+    "endMs": 5273486,
+    "durationSec": 2.89,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5297625,
+    "endMs": 5301142,
+    "durationSec": 3.52,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5345844,
+    "endMs": 5347628,
+    "durationSec": 1.78,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5394064,
+    "endMs": 5396048,
+    "durationSec": 1.98,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5436241,
+    "endMs": 5437718,
+    "durationSec": 1.48,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5453652,
+    "endMs": 5455026,
+    "durationSec": 1.37,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5475921,
+    "endMs": 5478880,
+    "durationSec": 2.96,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5531697,
+    "endMs": 5533205,
+    "durationSec": 1.51,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   },
+   {
+    "channel": "me",
+    "startMs": 5534254,
+    "endMs": 5536810,
+    "durationSec": 2.56,
+    "maxDb": null,
+    "verdict": "unprobed",
+    "reason": "no isolated re-decode was performed for this span"
+   }
+  ],
+  "byChannel": {
+   "me": {
+    "bursts": 681,
+    "burstSeconds": 1259.3,
+    "emittedWords": 2648,
+    "candidates": 160,
+    "probed": 40,
+    "deletedSpans": 37,
+    "deletedSeconds": 203.4,
+    "unprobedSpans": 120,
+    "probeAvailable": true
+   },
+   "others": {
+    "bursts": 0,
+    "burstSeconds": 0,
+    "emittedWords": 0,
+    "candidates": 0,
+    "probed": 0,
+    "deletedSpans": 0,
+    "deletedSeconds": 0,
+    "unprobedSpans": 0,
+    "probeAvailable": false
+   }
+  }
+ },
+ "densityReport": {
+  "detected": true,
+  "probeAvailable": true,
+  "coverageUnit": "word-times",
+  "windows": 163,
+  "candidates": 5,
+  "probed": 5,
+  "sparseSpans": 3,
+  "sparseSeconds": 18.1,
+  "unprobedSpans": 0,
+  "channelsBelowFloor": [],
+  "findings": [
+   {
+    "channel": "me",
+    "startMs": 1328601,
+    "endMs": 1334500,
+    "speechSec": 5.9,
+    "emittedWords": 1,
+    "density": 0.17,
+    "expectedWords": 6.5,
+    "deficitWords": 5.5,
+    "maxDb": -6.4,
+    "verdict": "under-transcribed",
+    "reason": "5.9s of physically detected speech carries only 1 emitted word(s) (0.17 w/s against this channel's 2.437 w/s), and decoding the window on its own returns 13 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 13,
+    "recoveryRatio": 13,
+    "echoWords": 1,
+    "echoRatio": 0.14
+   },
+   {
+    "channel": "me",
+    "startMs": 1860034,
+    "endMs": 1866872,
+    "speechSec": 5.35,
+    "emittedWords": 2,
+    "density": 0.374,
+    "expectedWords": 5.9,
+    "deficitWords": 3.9,
+    "maxDb": -6.9,
+    "verdict": "under-transcribed",
+    "reason": "5.35s of physically detected speech carries only 2 emitted word(s) (0.374 w/s against this channel's 2.437 w/s), and decoding the window on its own returns 15 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 15,
+    "recoveryRatio": 7.5,
+    "echoWords": 2,
+    "echoRatio": 0.13
+   },
+   {
+    "channel": "me",
+    "startMs": 4820192,
+    "endMs": 4829071,
+    "speechSec": 6.87,
+    "emittedWords": 1,
+    "density": 0.146,
+    "expectedWords": 7.5,
+    "deficitWords": 6.5,
+    "maxDb": -8.4,
+    "verdict": "under-transcribed",
+    "reason": "6.87s of physically detected speech carries only 1 emitted word(s) (0.146 w/s against this channel's 2.437 w/s), and decoding the window on its own returns 9 content words that appear nowhere in the transcript around it — the audio holds more speech than the transcript does",
+    "probeWords": 9,
+    "recoveryRatio": 9,
+    "echoWords": 1,
+    "echoRatio": 0.07
+   }
+  ],
+  "rejected": [
+   {
+    "channel": "me",
+    "startMs": 270215,
+    "endMs": 280283,
+    "speechSec": 6.09,
+    "emittedWords": 5,
+    "density": 0.821,
+    "expectedWords": 6.7,
+    "deficitWords": 1.7,
+    "maxDb": -6.7,
+    "verdict": "echoed",
+    "reason": "7 consecutive words of the isolated re-decode already appear in the transcript around this window — the words are PRESENT (carrying the wrong timestamps, or collapsed from a repeated delivery). That is a timing or de-duplication question, not missing speech",
+    "probeWords": 14
+   },
+   {
+    "channel": "me",
+    "startMs": 2275070,
+    "endMs": 2282224,
+    "speechSec": 5.65,
+    "emittedWords": 6,
+    "density": 1.061,
+    "expectedWords": 6.2,
+    "deficitWords": 0.2,
+    "maxDb": -9.7,
+    "verdict": "echoed",
+    "reason": "17 consecutive words of the isolated re-decode already appear in the transcript around this window — the words are PRESENT (carrying the wrong timestamps, or collapsed from a repeated delivery). That is a timing or de-duplication question, not missing speech",
+    "probeWords": 16
+   }
+  ],
+  "unprobed": [],
+  "byChannel": {
+   "me": {
+    "bursts": 681,
+    "burstSeconds": 1259.3,
+    "analyzedSpeechSec": 897.9,
+    "emittedWords": 2648,
+    "windows": 163,
+    "candidates": 5,
+    "probed": 5,
+    "sparseSpans": 3,
+    "sparseSeconds": 18.1,
+    "unprobedSpans": 0,
+    "medianDensity": 2.437,
+    "thresholdWordsPerSec": 1.097,
+    "baselineBelowFloor": false,
+    "windowsBelowFloor": 42,
+    "wordlessWindows": 37,
+    "probeAvailable": true
+   },
+   "others": {
+    "bursts": 0,
+    "burstSeconds": 0,
+    "analyzedSpeechSec": 0,
+    "emittedWords": 0,
+    "windows": 0,
+    "candidates": 0,
+    "probed": 0,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unprobedSpans": 0,
+    "medianDensity": null,
+    "thresholdWordsPerSec": null,
+    "baselineBelowFloor": false,
+    "windowsBelowFloor": 0,
+    "wordlessWindows": 0,
+    "probeAvailable": false
+   }
+  }
+ }
+}

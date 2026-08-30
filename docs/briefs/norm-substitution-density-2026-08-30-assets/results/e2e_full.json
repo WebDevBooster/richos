@@ -1,0 +1,65 @@
+{
+ "tag": "full",
+ "status": "ready",
+ "wallSeconds": 588.9,
+ "deletionGuard": {
+  "elapsedMs": 74648,
+  "shareOfRun": 12.7,
+  "candidates": 35,
+  "probed": 35,
+  "deletedSpans": 2,
+  "deletedSeconds": 2.2
+ },
+ "substitutionGuard": {
+  "elapsedMs": 10020,
+  "shareOfRun": 1.7,
+  "windows": 515,
+  "candidates": 4,
+  "probed": 4,
+  "sparseSpans": 0,
+  "sparseSeconds": 0,
+  "channelsBelowFloor": [],
+  "coverageUnit": "word-times",
+  "byChannel": {
+   "me": {
+    "bursts": 681,
+    "burstSeconds": 1258.8,
+    "analyzedSpeechSec": 1140,
+    "emittedWords": 3762,
+    "windows": 198,
+    "candidates": 2,
+    "probed": 2,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unprobedSpans": 0,
+    "medianDensity": 2.803,
+    "thresholdWordsPerSec": 1.2,
+    "baselineBelowFloor": false,
+    "windowsBelowFloor": 2,
+    "wordlessWindows": 0,
+    "probeAvailable": true
+   },
+   "others": {
+    "bursts": 861,
+    "burstSeconds": 2286.5,
+    "analyzedSpeechSec": 2255.9,
+    "emittedWords": 6133,
+    "windows": 317,
+    "candidates": 2,
+    "probed": 2,
+    "sparseSpans": 0,
+    "sparseSeconds": 0,
+    "unprobedSpans": 0,
+    "medianDensity": 2.529,
+    "thresholdWordsPerSec": 1.138,
+    "baselineBelowFloor": false,
+    "windowsBelowFloor": 3,
+    "wordlessWindows": 1,
+    "probeAvailable": true
+   }
+  }
+ },
+ "warnings": 4,
+ "probeClipsLeftBehind": false,
+ "sessionDir": "/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-sub-e2e-M1psZP/2026-08-30T09-00-00Z--local--full"
+}

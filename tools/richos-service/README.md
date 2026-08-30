@@ -78,6 +78,8 @@ session dir (closed)
  3.6 DIARIZATION SEAM     opt-in; default identity
  3.7 DELETION DETECTOR    speech bursts the transcript never claims, adjudicated by isolated
                       re-decode → DETECT-ONLY alarm (a deletion cannot be repaired here)
+ 3.8 WORD DENSITY         emitted words against the audio's physical speech budget — the class 3.7
+                      scores as COVERED → DETECT-ONLY alarm (words missing, never "words wrong")
  4. MERGE             interleave by time; fold caption speaker NAMES onto far-side segments;
                       compute verification.json
  5. loro-CORRECTION   REAL corrector (P4): curated manglings + guarded fuzzy -> canonical, SAME
@@ -301,6 +303,47 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
     `unprobed` are separate fields. Blind spots — partial deletion inside a covered burst,
     substitution, speech under the burst floor, sub-second loss, a span the model also refuses in
     isolation — are enumerated in the module header.
+- **Word-density instrument (`lib/substitution-guard.js`, pipeline stage 3.8), the class the
+  detector above cannot see and says so in its own header:** SUBSTITUTION scores as **perfect
+  coverage** — something is there, at the right second, so 3.7 never asks a question. A span where
+  eight seconds of speech became four wrong words passes every coverage test there is. The only
+  quantity left that needs no reference transcript is **how much text, against how much audio**.
+  - **The budget is physical and it was measured, not chosen.** A speech burst of known duration can
+    carry only so many words: real conversational English runs **1.87–3.68 words per second of
+    detected speech** (2026-08-29 Parakeet coverage brief), the 92-minute corpus's own 8 s windows
+    sit at medians of 2.88 and 2.51 w/s, and the 133 synthesized turns of the invented short-call
+    corpus — whose rate is known **by construction** — run 1.34–4.40 w/s. The 1.2 w/s floor is below
+    every legitimate delivery in all three.
+  - **The discriminator:** a window holding **≥ 8 s of detected speech inside ≤ 30 s of wall clock**,
+    carrying **at least one** emitted word but far fewer than its budget, where decoding **that
+    window in isolation** returns substantially **more** words than the transcript claims, and those
+    words are **not already in the transcript beside it**. The isolated re-decode is the whole
+    instrument: a density deficit alone is not evidence of anything, because people pause, trail off
+    and deliver a line slowly for emphasis. **A slow, emphatic delivery re-decodes to the same few
+    words and is rejected by name** (`matches-audio`); a substituted span re-decodes to the sentence
+    that was spoken.
+  - **Six conditions, all required:** speech mass · ≥ 1 emitted word (a **wordless** window is a
+    DELETION and belongs to 3.7 — one failure is never reported twice) · a deficit below **both** an
+    absolute floor and 0.45× the **channel's own** median, by ≥ 4 whole words · level within 24 dB of
+    the channel peak (the burst grid cannot tell a voice from a chair) · the isolated decode
+    returning ≥ 1.75× and ≥ +5 words, surviving repadding · and no **echo** of those words in the
+    surrounding transcript (a collapsed retake and a timestamp defect are both `echoed`, neither is
+    missing speech).
+  - **It cannot say the words present are WRONG, and never claims to.** Without a reference, "the
+    transcript holds fewer words than the audio carries" is the whole finding — consistent with
+    substitution, with partial deletion inside a covered burst, and with a paraphrasing collapse.
+    All three are the same defect to the reader and have the same remedy, so the verdict noun is
+    `under-transcribed` and the word "substitution" appears in no verdict.
+  - **The channel-level answer a per-window comparison cannot give:** when most of a channel is
+    destroyed its own median IS the failure and every window looks normal beside its neighbours
+    (`q5_0` put 44.1% of one timeline inside a fabricated loop). `channelsBelowFloor` says that once,
+    loudly, as a channel.
+  - **DETECT-ONLY**, same precedent and same warnings vocabulary as 3.5 and 3.7.
+    `RICHOS_SUBSTITUTION_GUARD=off` disables it. It changes no decode parameter, no tier and no
+    `MODEL_TIERS` value. Blind spots — equal-length substitution, substitution that ADDS words,
+    anything shorter than a window, speech below the burst floor, and stretches too sparse in wall
+    time to form a window at all (`analyzedSpeechSec` vs `burstSeconds`, every run) — are enumerated
+    in the module header.
 - **Diarization seam (`lib/diarize.js`, opt-in via `--`/`RICHOS_DIARIZE`), honest scope:** default
   `none` (identity — one "Them", no wrong speaker counts). Opt-in `tinydiarize-turns` consumes
   whisper.cpp's **native** `[SPEAKER_TURN]` markers (local, no extra dependency) to split the far-side

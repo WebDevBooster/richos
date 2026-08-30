@@ -1,0 +1,258 @@
+{
+ "mutations": [
+  {
+   "mutation": "M1  window target 4 s -> 40 s (no window ever forms)",
+   "applied": true,
+   "testsRed": 10,
+   "tests": [
+    "the shipped window is 4 s of speech — swept, and the value is what the sweep chose",
+    "a window at ordinary conversational density is NOT a candidate",
+    "THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words IS a candidate",
+    "THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further",
+    "a confirmed DELETION is excluded from the budget — the exclusion can only remove findings",
+    "the whole channel being thin is a finding of its own, which no per-window comparison can see",
+    "the two counts a findings list cannot give: thin windows, and the ones that are 3.7's",
+    "guardSubstitution reports the span, the rate, the deficit and what the audio returned",
+    "NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed",
+    "THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot"
+   ]
+  },
+  {
+   "mutation": "M2  wall cap 30 s -> 100000 s (a denominator made of silence is allowed)",
+   "applied": true,
+   "testsRed": 2,
+   "tests": [
+    "a window whose bursts are too far apart is ABANDONED, never judged on a denominator of silence",
+    "analyzedSpeechSec is reported against burstSeconds, so \"0 findings\" can never read as \"all clear\""
+   ]
+  },
+  {
+   "mutation": "M3  condition 2 deleted (a WORDLESS window becomes a density candidate too)",
+   "applied": true,
+   "testsRed": 5,
+   "tests": [
+    "a WORDLESS window is never a candidate here — that is the deletion detector's class",
+    "THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further",
+    "the two counts a findings list cannot give: thin windows, and the ones that are 3.7's",
+    "guardSubstitution reports the span, the rate, the deficit and what the audio returned",
+    "THE SAME WORDLESS BURSTS: a deletion to stage 3.7, invisible to stage 3.8, reported once"
+   ]
+  },
+  {
+   "mutation": "M4  condition 3 relative half INVERTED (min -> max: the channel loosens its own floor)",
+   "applied": true,
+   "testsRed": 2,
+   "tests": [
+    "on a channel at conversational pace the relative half is INERT — the absolute floor binds",
+    "THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further"
+   ]
+  },
+  {
+   "mutation": "M5  floor 1.2 -> 5.0 w/s (above every real delivery: everything is a candidate)",
+   "applied": true,
+   "testsRed": 2,
+   "tests": [
+    "on a channel at conversational pace the relative half is INERT — the absolute floor binds",
+    "a confirmed DELETION is excluded from the budget — the exclusion can only remove findings"
+   ]
+  },
+  {
+   "mutation": "M6  condition 4 LEVEL deleted (near-silence counts as a speech budget)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "condition 4 — a thin window at near-silence level is NOT speech, so its budget was never real"
+   ]
+  },
+  {
+   "mutation": "M7  condition 5 RECOVERY floor deleted (any re-decode counts as recovery)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "condition 5 — A SLOW, EMPHATIC DELIVERY IS NOT A DEFECT: the audio agrees with the transcript"
+   ]
+  },
+  {
+   "mutation": "M8  condition 5 stability arm deleted (a padding-fragile recovery is accepted)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "condition 5 — a recovery that does not survive repadding is a property of the window"
+   ]
+  },
+  {
+   "mutation": "M9  condition 6 ECHO deleted (present-but-misplaced text is called missing)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "condition 6 — words already in the transcript beside the window are PRESENT, not missing"
+   ]
+  },
+  {
+   "mutation": "M10 probe words counted RAW instead of distinct-informative (laughter recovers)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "condition 5 — laughter cannot manufacture a recovery: eight \"words\", two of them informative"
+   ]
+  },
+  {
+   "mutation": "M11 excludeSpans ignored (a confirmed deletion still inflates this stage's deficit)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "a confirmed DELETION is excluded from the budget — the exclusion can only remove findings"
+   ]
+  },
+  {
+   "mutation": "M12 baselineBelowFloor hard-wired false (a wholly destroyed channel reports clean)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "the whole channel being thin is a finding of its own, which no per-window comparison can see"
+   ]
+  },
+  {
+   "mutation": "M13 the offset second tiling removed (a sparse stretch straddling a seam is diluted)",
+   "applied": true,
+   "testsRed": 5,
+   "tests": [
+    "THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words IS a candidate",
+    "THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further",
+    "a confirmed DELETION is excluded from the budget — the exclusion can only remove findings",
+    "guardSubstitution reports the span, the rate, the deficit and what the audio returned",
+    "NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed"
+   ]
+  },
+  {
+   "mutation": "M14 the unprobed warning removed (an unchecked transcript reads as a clean one)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "an unadjudicated window never lets the transcript read as fully checked"
+   ]
+  },
+  {
+   "mutation": "M15 the warning drops its refusal to claim the words present are wrong",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "the warning names the span in clock time AND refuses to claim the words present are wrong"
+   ]
+  },
+  {
+   "mutation": "M19 tileWindows never stops at the speech target (one window swallows the channel)",
+   "applied": true,
+   "testsRed": 10,
+   "tests": [
+    "tileWindows groups consecutive bursts until the window holds windowSpeechSec of speech",
+    "the shipped window is 4 s of speech — swept, and the value is what the sweep chose",
+    "THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words IS a candidate",
+    "THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further",
+    "a confirmed DELETION is excluded from the budget — the exclusion can only remove findings",
+    "the whole channel being thin is a finding of its own, which no per-window comparison can see",
+    "the two counts a findings list cannot give: thin windows, and the ones that are 3.7's",
+    "guardSubstitution reports the span, the rate, the deficit and what the audio returned",
+    "NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed",
+    "THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot"
+   ]
+  },
+  {
+   "mutation": "M20 the final verdict inverted: a window that clears all six conditions is called clean",
+   "applied": true,
+   "testsRed": 3,
+   "tests": [
+    "all six conditions satisfied -> UNDER-TRANSCRIBED, carrying what the audio returned",
+    "condition 6 — a three-word coincidence is NOT an echo, and that is why this floor is four",
+    "guardSubstitution reports the span, the rate, the deficit and what the audio returned"
+   ]
+  },
+  {
+   "mutation": "M21 echo floor 4 -> 2 (the deletion detector's clause-sized value, on window-sized probes)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "condition 6 — a three-word coincidence is NOT an echo, and that is why this floor is four"
+   ]
+  },
+  {
+   "mutation": "M22 a missing burst grid no longer disables the probe (never-looked reads as looked)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "no burst grid -> the instrument says it never looked, which is not the same as clean"
+   ]
+  },
+  {
+   "mutation": "M23 the channel-below-floor warning removed (a destroyed channel warns about nothing)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "a channel below the floor is warned about ONCE, as a channel, not as a window"
+   ]
+  },
+  {
+   "mutation": "M16 overlapping candidates from the two tilings no longer collapsed (one stretch, two findings)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot"
+   ]
+  },
+  {
+   "mutation": "M24 wordlessWindows always 0 (the windows stage 3.7 owns vanish from this stage's record)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "the two counts a findings list cannot give: thin windows, and the ones that are 3.7's"
+   ]
+  },
+  {
+   "mutation": "M17 analyzedSpeechSec reports the whole grid (the instrument overstates its own coverage)",
+   "applied": true,
+   "testsRed": 1,
+   "tests": [
+    "analyzedSpeechSec is reported against burstSeconds, so \"0 findings\" can never read as \"all clear\""
+   ]
+  },
+  {
+   "mutation": "M18 no probe is treated as a finding (an unadjudicated window becomes an alarm)",
+   "applied": true,
+   "testsRed": 2,
+   "tests": [
+    "no probe -> UNPROBED, and an unprobed window is never a finding",
+    "NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed"
+   ]
+  }
+ ],
+ "distinctTestsCaught": [
+  "NO PROBE -> every candidate is unprobed and NOTHING is called under-transcribed",
+  "THE COST OF THAT PROTECTION, asserted rather than hidden: a slow channel must collapse further",
+  "THE SAME COVERED BURST: invisible to stage 3.7, a finding for stage 3.8 — the named blind spot",
+  "THE SAME WORDLESS BURSTS: a deletion to stage 3.7, invisible to stage 3.8, reported once",
+  "THE WHOLE CLASS IN ONE ASSERTION: a window whose speech became four words IS a candidate",
+  "a WORDLESS window is never a candidate here — that is the deletion detector's class",
+  "a channel below the floor is warned about ONCE, as a channel, not as a window",
+  "a confirmed DELETION is excluded from the budget — the exclusion can only remove findings",
+  "a window at ordinary conversational density is NOT a candidate",
+  "a window whose bursts are too far apart is ABANDONED, never judged on a denominator of silence",
+  "all six conditions satisfied -> UNDER-TRANSCRIBED, carrying what the audio returned",
+  "an unadjudicated window never lets the transcript read as fully checked",
+  "analyzedSpeechSec is reported against burstSeconds, so \"0 findings\" can never read as \"all clear\"",
+  "condition 4 — a thin window at near-silence level is NOT speech, so its budget was never real",
+  "condition 5 — A SLOW, EMPHATIC DELIVERY IS NOT A DEFECT: the audio agrees with the transcript",
+  "condition 5 — a recovery that does not survive repadding is a property of the window",
+  "condition 5 — laughter cannot manufacture a recovery: eight \"words\", two of them informative",
+  "condition 6 — a three-word coincidence is NOT an echo, and that is why this floor is four",
+  "condition 6 — words already in the transcript beside the window are PRESENT, not missing",
+  "guardSubstitution reports the span, the rate, the deficit and what the audio returned",
+  "no burst grid -> the instrument says it never looked, which is not the same as clean",
+  "no probe -> UNPROBED, and an unprobed window is never a finding",
+  "on a channel at conversational pace the relative half is INERT — the absolute floor binds",
+  "the shipped window is 4 s of speech — swept, and the value is what the sweep chose",
+  "the two counts a findings list cannot give: thin windows, and the ones that are 3.7's",
+  "the warning names the span in clock time AND refuses to claim the words present are wrong",
+  "the whole channel being thin is a finding of its own, which no per-window comparison can see",
+  "tileWindows groups consecutive bursts until the window holds windowSpeechSec of speech"
+ ]
+}
