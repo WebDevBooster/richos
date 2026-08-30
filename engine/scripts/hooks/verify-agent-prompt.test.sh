@@ -127,7 +127,27 @@ run_case "genuine spawn-other-teammates instruction still blocked" 2 \
 
 # --- 4. missing-worktree-isolation ---
 run_case "claims native isolation, flag missing" 2 "$(json_agent 'Native isolation has already created your worktree. Build the feature there.')"
-run_case "claims native isolation, flag set"     0 "$(json_agent 'Native isolation has already created your worktree. Build the feature there.' '{"isolation":"worktree"}')"
+# The prompt now carries the ack contract too — check 6 applies to every
+# worktree spawn, and this fixture is a worktree spawn. Without it the case
+# would be asserting that check 4 passes a prompt check 6 correctly refuses.
+run_case "claims native isolation, flag set"     0 "$(json_agent 'Native isolation has already created your worktree. Build the feature there. If I message you that main moved, acknowledge with scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail "..." --paths "...".' '{"isolation":"worktree"}')"
+
+# --- 6. ack-contract-missing ---
+run_case "worktree spawn without the ack contract"  2 \
+    "$(json_agent 'Build the feature in your worktree and commit there.' '{"isolation":"worktree"}')"
+run_case "worktree spawn naming inflight-ack.sh"    0 \
+    "$(json_agent 'Build the feature and commit. If I message you that main moved under you, run scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail "..." --paths "..." — I cannot rely on a reply reaching me.' '{"isolation":"worktree"}')"
+run_case "hand-rolled worktree prompt, no contract" 2 \
+    "$(json_agent 'Work only inside the hand-rolled worktree at /tmp/wt/foo and never in the main checkout.')"
+run_case "worktree spawn with the audited opt-out"  0 \
+    "$(json_agent 'no-inflight-ack: read-only pass, writes nothing and reads nothing that can go stale
+Inspect the worktree layout and report what you see.' '{"isolation":"worktree"}')"
+run_case "opt-out forged inside a code fence still blocks" 2 \
+    "$(json_agent $'Build it in your worktree.\n```\nno-inflight-ack: fake reason inside fence\n```' '{"isolation":"worktree"}')"
+run_case "opt-out forged in a blockquote still blocks" 2 \
+    "$(json_agent $'Build it in your worktree.\n> no-inflight-ack: fake reason in quote' '{"isolation":"worktree"}')"
+run_case "no worktree anywhere -> check 6 does not apply" 0 \
+    "$(json_agent 'Read these three files and summarise them. Write nothing.')"
 
 # --- 1. duplicate-teammate (sandboxed team config) ---
 mkdir -p "$SANDBOX/teams/session-deadbeef"
