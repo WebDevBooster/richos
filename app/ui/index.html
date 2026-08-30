@@ -5,8 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RichOS</title>
     <link rel="stylesheet" href="style.css" />
+    <!-- The opening screen. Render-blocking on purpose: the composition has to be part
+         of the window's first paint, not something that arrives after it. -->
+    <link rel="stylesheet" href="splash.css" />
   </head>
   <body>
+    <!-- THE OPENING SCREEN, FIRST IN THE BODY AND SYNCHRONOUS.
+
+         Here rather than at the bottom because that is the whole point: these two files
+         run before the shell below is parsed, so the composition is in the first frame.
+         They cost the launch nothing - the library is a data literal, the renderer awaits
+         nothing, reads no file and issues no command, and the curtain it draws is
+         `pointer-events: none` for its whole life. The app boots underneath it and the
+         curtain leaves the moment `main.js` reports it usable. -->
+    <script src="splash-library.js"></script>
+    <script src="splash.js"></script>
+
     <div id="app">
       <!-- Backdrop for the rail when it is a full-height drawer (below 820px, §20). -->
       <div id="rail-scrim" hidden></div>
@@ -57,7 +71,7 @@
         <nav id="rail-nav" aria-label="Entity areas"></nav>
 
         <div id="rail-footer">
-          <button id="rail-settings" class="rail-settings-btn" type="button" aria-haspopup="true" aria-expanded="false" title="How much should Rich interrupt you?">⚙</button>
+          <button id="rail-settings" class="rail-settings-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Settings">⚙</button>
           <img id="rail-avatar" class="rail-avatar" src="assets/rich-hand.png" alt="" />
           <span class="rail-rich-label">Rich</span>
         </div>
@@ -67,6 +81,21 @@
           <label class="popover-option"><input type="radio" name="assertiveness" value="quiet" /> Quiet</label>
           <label class="popover-option"><input type="radio" name="assertiveness" value="balanced" /> Balanced</label>
           <label class="popover-option"><input type="radio" name="assertiveness" value="urgent-only" /> Only when it's urgent</label>
+
+          <!-- THE OPENING SCREEN'S OFF SWITCH, shipped in the same commit as the screen it
+               turns off, and put where a CEO would look for it: behind the same gear as the
+               only other preference this product has.
+
+               It is not a courtesy. The splash's failure mode is silent - nobody writes in
+               to say a splash screen was beneath them, they switch it off - so this control
+               is the only honest instrument we will ever have for knowing whether the
+               surface is wanted (`richos-splash-micro-game-2026-08-30.md` §7, richos-hq).
+               A splash without a switch cannot be measured and must not ship. -->
+          <hr class="popover-rule" />
+          <p class="popover-title">Opening screen</p>
+          <label class="popover-option"
+            ><input type="checkbox" id="splash-enabled" /> Show it when RichOS starts</label
+          >
         </div>
 
         <!-- Draggable divider (§2.1: both vertical dividers are user-draggable). Keyboard

@@ -2010,6 +2010,60 @@ document.addEventListener("click", (e) => {
 });
 
 // ---------------------------------------------------------------------------------------
+// The opening screen's off switch — the same shape as the dial above, for the same reason.
+//
+// `splash.js` has to know whether to draw BEFORE anything can be awaited, so it reads
+// `localStorage` synchronously; the Rust `ConfigStore` is the durable source of truth and
+// is reconciled here, after boot, exactly as `syncAssertivenessFromBackend` does. The two
+// sides agree on what an absent value means — ON — so a first launch cannot disagree with
+// itself (`config.rs`'s `splash_default`, and `splash.js`'s `enabled()`).
+//
+// The keys are read off `window.RichSplash` rather than retyped, so there is one place the
+// strings live.
+// ---------------------------------------------------------------------------------------
+const splashToggle = el("splash-enabled");
+function splashKey(name) {
+  return window.RichSplash ? window.RichSplash[name] : null;
+}
+function readSplashEnabled() {
+  const key = splashKey("KEY_ENABLED");
+  if (!key) return true;
+  return window.localStorage.getItem(key) !== "false";
+}
+function writeSplashEnabled(on) {
+  const key = splashKey("KEY_ENABLED");
+  if (key) window.localStorage.setItem(key, on ? "true" : "false");
+}
+if (splashToggle) {
+  splashToggle.checked = readSplashEnabled();
+  splashToggle.addEventListener("change", () => {
+    const on = splashToggle.checked;
+    writeSplashEnabled(on);
+    Bridge.invoke("set_splash_enabled", { enabled: on }).catch(() => {
+      // Unwired (the mock harness) or a genuine write failure. The local mirror already
+      // carries his choice and the next launch honours it; there is nothing here worth
+      // interrupting him about.
+    });
+  });
+}
+async function syncSplashFromBackend() {
+  try {
+    const backendValue = (await Bridge.invoke("splash_enabled")) !== false;
+    writeSplashEnabled(backendValue);
+    if (splashToggle) splashToggle.checked = backendValue;
+  } catch (_e) {
+    // Unwired (the mock harness): the localStorage-only value already painted correctly.
+  }
+}
+/// Tell the durable store the surface has been seen. Idempotent on the Rust side — only the
+/// first call in a store's life touches the disk — and it is the zero point time-to-disable
+/// is measured from. MEASUREMENT, never display: nothing reads it back to the CEO.
+function noteSplashShown() {
+  if (!window.RichSplash || !window.RichSplash.state.shown) return;
+  Bridge.invoke("splash_note_shown").catch(() => {});
+}
+
+// ---------------------------------------------------------------------------------------
 // PER-THREAD LIVE STATUS (§3.2)
 //
 // Appended listeners, registered ALONGSIDE the render listeners above rather than folded
@@ -3429,12 +3483,28 @@ async function init() {
   renderRail();
   syncComposerMode();
   inputEl.focus();
+  // THE OPENING SCREEN GETS OUT OF THE WAY, HERE AND NOWHERE ELSE.
+  //
+  // This is the line below which the CEO can work: the rail is drawn, the thread is open,
+  // the composer is armed and focused. Everything after it - the correction badge, the
+  // splash's own durable bookkeeping - happens with the app already usable, which is why
+  // the comment three lines down says so about the desk. The curtain leaves at exactly
+  // that point, mid-ceremony if the launch was quick, because a doorway that holds him
+  // back from his work has inverted the product.
+  //
+  // ONE CALL, NOT AWAITED. `yieldNow` starts a fade on an inert, click-through layer and
+  // returns; nothing in this boot path ever waits on the splash.
+  if (window.RichSplash) window.RichSplash.yieldNow("app-ready");
   // The correction badge, read at launch and LAST. A proposal the CEO has not answered
   // survives a crash, a rotation and a relaunch by design (`correction.rs`'s fsync'd log),
   // so the count is re-read on the way up rather than inferred from this session's events —
   // but six commands' worth of reads must not stand between him and a focused composer, so
   // it happens after the app is usable.
   await refreshDesk();
+  // The splash's durable bookkeeping, dead last on purpose: neither call affects anything
+  // the CEO can see this launch, and neither may stand between him and a focused composer.
+  syncSplashFromBackend();
+  noteSplashShown();
 }
 
 async function hydrateRunningTurn() {
