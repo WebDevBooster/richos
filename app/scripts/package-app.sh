@@ -27,7 +27,10 @@
 # asking for `developer-id` without a usable identity is a hard refusal, not a
 # quiet fall back to ad-hoc.
 #
-#   adhoc         (default) — no certificate needed. WHAT IT COSTS is printed at
+#   adhoc         (default) — no certificate needed. The bundler does NOT do this
+#                 for you: with no identity it leaves the .app unsigned around a
+#                 linker-signed executable, which `codesign --verify` rejects. So
+#                 this script signs ad-hoc deliberately. WHAT IT COSTS is printed at
 #                 the moment it is incurred: an ad-hoc bundle embeds no designated
 #                 requirement, so macOS's privacy database (TCC) binds microphone
 #                 and accessibility grants to the raw code hash. Every rebuild is a
@@ -142,6 +145,30 @@ verify_bundle() {
     adhoc)
       if ! printf '%s\n' "$desc" | grep -q '^Signature=adhoc'; then
         failures+=("expected an ad-hoc signature; codesign reports: $(printf '%s\n' "$desc" | grep -E '^(Signature|Authority)=' | tr '\n' '; ')")
+      fi
+      # `Signature=adhoc` ALONE IS NOT ENOUGH, and this is the trap this check
+      # exists for. An arm64 Mach-O gets an ad-hoc signature from the LINKER,
+      # automatically, and `codesign -dvvv` reports `Signature=adhoc` for it. But
+      # that signature covers the executable only: the surrounding bundle has no
+      # sealed resources, its identifier is the linker's mangled crate name
+      # (`richos_tauri-6a5998b21aa29388`) rather than CFBundleIdentifier, and
+      # `codesign --verify` REJECTS it outright — "code has no resources but
+      # signature indicates they must be present". Measured on the first bundle
+      # this script ever produced. So the three discriminators below are what
+      # separate a genuinely ad-hoc-signed bundle from an unsigned bundle wrapping
+      # a linker-signed binary.
+      if printf '%s\n' "$desc" | grep -qE '^CodeDirectory .*flags=.*linker-signed'; then
+        failures+=("this is the LINKER's automatic signature on the executable, not a signature over the bundle — the .app itself was never signed")
+      fi
+      if printf '%s\n' "$desc" | grep -q '^Sealed Resources=none'; then
+        failures+=("the bundle has no sealed resources, so nothing binds Info.plist or the icon to the signature — macOS rejects this bundle")
+      fi
+      local declared_id signed_id
+      declared_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+                       "$app/Contents/Info.plist" 2>/dev/null || true)"
+      signed_id="$(printf '%s\n' "$desc" | sed -n 's/^Identifier=//p' | head -1)"
+      if [ -n "$declared_id" ] && [ "$signed_id" != "$declared_id" ]; then
+        failures+=("the signature's identifier is '$signed_id' but the bundle declares '$declared_id' — the signed identity is not the app's identity")
       fi
       ;;
     developer-id)
@@ -364,12 +391,20 @@ if [ "$sign_mode" = "adhoc" ]; then
   say "SIGNING: ad-hoc. What that costs, every time:"
   say ""
   say "  An ad-hoc bundle embeds no designated requirement, so macOS stores the raw"
-  say "  code hash as the identity of every permission it grants. This build will be"
-  say "  a DIFFERENT APPLICATION to macOS than the last one, so its microphone and"
-  say "  accessibility grants start at zero — and toggling the switch in System"
-  say "  Settings provably does not migrate a grant (measured 2026-08-24,"
-  say "  richos-hq/wiki/packaging-and-signing.md). Voice mode and paste-at-cursor"
-  say "  will need granting again after installing this."
+  say "  code hash as the identity of every permission it grants — and nothing else."
+  say "  The moment this build differs by one shipped byte from the installed one, it"
+  say "  is A DIFFERENT APPLICATION to macOS: microphone and accessibility grants"
+  say "  start at zero, and toggling the switch in System Settings provably does not"
+  say "  migrate a grant (measured 2026-08-24, richos-hq/wiki/packaging-and-signing.md)."
+  say "  Voice mode and paste-at-cursor will need granting again after installing this."
+  say ""
+  say "  Measured here 2026-08-30, because the distinction matters: what moves the"
+  say "  hash is the BYTES, not the act of rebuilding. Three consecutive runs of this"
+  say "  script over an unchanged tree — and one over a tree whose only edit was dead"
+  say "  code the optimizer removed — all produced cdhash fc5051ac…, i.e. the same"
+  say "  application and a surviving grant. Changing ONE shipped string moved it to"
+  say "  27a561ef…. So this is not a tax on rebuilding; it is a tax on every change"
+  say "  you would actually ship."
   say ""
   say "  The fix is a Developer ID certificate, which is an open CEO decision (1.1)."
   say "  This script has a working --sign developer-id path waiting for it."
@@ -423,11 +458,49 @@ if [ -z "$app_bundle" ]; then
   exit 1
 fi
 
+# The bundler signs the bundle ONLY when it has an identity. With none it leaves the
+# .app unsigned around a linker-signed executable, which `codesign --verify` refuses
+# (measured — see verify_bundle's adhoc arm). So the ad-hoc path signs deliberately
+# and says it is doing so. This is the act that incurs the cost printed above.
+if [ "$sign_mode" = "adhoc" ]; then
+  say ""
+  say "ad-hoc signing the bundle (the bundler does not: it signs only with a real identity)..."
+  if ! codesign --force --sign - --timestamp=none "$app_bundle" 2>&1; then
+    warn "ad-hoc signing failed — refusing to report a bundle as signed when it is not."
+    exit 1
+  fi
+  # Show the cost rather than only describing it. macOS stores THIS expression as
+  # the identity of every permission it grants the app, so the CEO can read for
+  # himself that it is a hash of this build and nothing else — no bundle
+  # identifier, no team. A Developer ID signature would print
+  # `identifier "com.richos.app" and anchor apple generic and certificate
+  # leaf[subject.OU] = "<TEAMID>"` here, which every future build satisfies.
+  # codesign prints it commented, as `# designated => ...`.
+  say ""
+  say "  the designated requirement macOS will store against every grant:"
+  dr="$(codesign -d -r- "$app_bundle" 2>/dev/null | sed -n 's/^# *designated => //p' | head -1)"
+  if [ -n "$dr" ]; then
+    say "    $dr"
+    say "  — a hash of THIS build. No bundle identifier, no team, nothing a later"
+    say "    build can satisfy. That is the whole of the grant problem, in one line."
+  else
+    say "    (codesign printed no designated requirement)"
+  fi
+fi
+
 say ""
 say "verifying the artefact that was produced (not the builder's exit code)..."
 if ! verify_bundle "$app_bundle" "$sign_mode"; then
   exit 1
 fi
+
+# Gatekeeper's own verdict, reported rather than judged. An ad-hoc or un-notarized
+# bundle is REJECTED here and that is not a defect in the build — it is the
+# definition of not being notarized, and it is what a machine that DOWNLOADED this
+# app would do with it. Copying it locally is not the same test, which is why the
+# real verdict is printed instead of inferred.
+say ""
+say "  Gatekeeper assessment (spctl): $(spctl -a -vv "$app_bundle" 2>&1 | sed -n 's/^.*: //p' | head -1)"
 
 if [ "$sign_mode" = "adhoc" ]; then
   say ""
