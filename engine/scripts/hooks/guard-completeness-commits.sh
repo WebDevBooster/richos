@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+#
+# guard-completeness-commits.sh — BLOCKING PreToolUse guard on the Bash tool.
+#
+# Makes the PUBLICATION COMPLETENESS contract fire on its own, at `git commit`
+# and at `git push`, instead of waiting for somebody to remember it.
+#
+# ===========================================================================
+# WHY THIS FILE EXISTS
+# ===========================================================================
+# scripts/publication-completeness.sh answers the question the leak guards
+# cannot:
+#
+#       IS EVERYTHING THAT MUST BE THERE, THERE — AND USABLE BY SOMEONE WHO
+#       HAS ONLY THE PUBLIC REPOSITORY?
+#
+# It was built on 2026-08-29, it is correct, and it was wired into exactly two
+# places: CI, and an operator's memory. Ten guards in this engine fire at
+# PreToolUse without being asked. This check did not, and on 2026-08-30 the
+# difference was measured in the only way that counts:
+#
+#   THE CONTRACT WAS RED ON `main` AND NOBODY KNEW.
+#
+# docs/measurements/correction-flywheel-2026-08-29/README.md cited
+# `docs/plans/richos-techy-mode-2026-08-26.md`, a file that lives only in the
+# private record. A reader with nothing but the public repository was being
+# sent to a file they will never have. It was committed on a branch, merged to
+# main, and pushed. After the merge the lander ran the test suites — because
+# the suites are what he remembered — and not the completeness check, because
+# nothing made him. It sat on main until an unrelated question happened to
+# surface it. Every individual step was done carefully. The defect is not
+# carelessness; it is that
+#
+#   A CHECK THAT RUNS WHEN SOMEONE REMEMBERS IS A RULE ENFORCED BY ATTENTION,
+#   AND ATTENTION IS THE THING THIS ENGINE KEEPS PROVING IT CANNOT BUY.
+#
+# ===========================================================================
+# WHERE IT FIRES, AND WHY BOTH
+# ===========================================================================
+# `git commit` AND `git push`. Its two sibling contract guards fire only on
+# commit; this one needs the second arm, and the reason is specific rather than
+# belt-and-braces.
+#
+#   COMMIT is where the claim is AUTHORED. Run against the branch the flywheel
+#   README was written on, the commit is refused at the moment the author can
+#   still fix it in one keystroke, before it is anybody else's problem. This is
+#   also the arm that catches content no Write tool ever touched — `sed -i`, a
+#   heredoc, a generator, a rename — which is 137-of-140 of the way real files
+#   arrive here, measured by guard-publication-commits.sh's own header.
+#
+#   PUSH is where the claim becomes PUBLIC, and it is the only arm that can see
+#   a MERGE. `git merge` creates a commit without running `git commit`, so the
+#   commit arm never sees one; guard-publication-commits.sh names that gap and
+#   accepts it, correctly, because the BYTES a merge carries were already gated
+#   on the source branch. Completeness is not a property of bytes. It is a
+#   property of the WHOLE TREE, and a merge can manufacture a defect that
+#   exists on neither side of it: branch A moves a file, branch B cites the old
+#   path, both commit clean, the merge is broken. That is precisely "a claim
+#   that went stale because something else moved", and no per-commit check of
+#   either branch can ever see it.
+#
+#   The asymmetry with the boundary guard is deliberate and it is about the
+#   COST OF THE REMEDY, not about severity. Private bytes in history need a
+#   rewrite and a force-push, so the boundary must refuse before they exist and
+#   a push-time check would arrive too late to help. A dangling citation in
+#   history needs a follow-up commit. So gating the push is cheap, useful, and
+#   the last chokepoint before a public reader can hit it — which is exactly
+#   where today's miss escaped.
+#
+# ===========================================================================
+# THE WHOLE TREE, EVERY TIME — MEASURED, NOT ASSUMED
+# ===========================================================================
+# The obvious economy is to check only what the commit touches. It was
+# rejected on the measurement, and the measurement is the argument:
+#
+#   full check, richos @ 6d835be, 589 tracked files, 171 .md/.txt
+#     cold  0.37-0.48s        warm  0.18s
+#   guard-publication-commits.sh, same repository, for comparison   0.151s
+#
+# A scoped check would have bought roughly nothing and cost the only thing that
+# matters here. THREE OF THE FOUR CHECKS ARE NOT DIFFABLE EVEN IN PRINCIPLE:
+#
+#   * a citation goes stale when the file it names MOVES — the commit that
+#     breaks it does not touch the citing document at all;
+#   * "shipped inert" is a claim about the whole tree's onboarding set, so
+#     deleting one README paragraph anywhere breaks it;
+#   * a mechanism left behind in the private tree is not in the diff by
+#     definition — it is in the OTHER repository.
+#
+# Scoping to the diff would have produced a guard that passes the commit that
+# introduces the defect and never mentions it again. At 0.18s there is no trade
+# to make, so none is made, and this guard has no "what a scoped check cannot
+# catch" section because it is not scoped.
+#
+# COST DISCIPLINE, so this stays true on a tree ten times the size: the guard
+# times itself and, past COMPLETENESS_SOFT_BUDGET_S, says so on stderr EVEN WHEN
+# IT PASSES. Nobody has to discover that the guard has become the slowest thing
+# in their commit; the guard reports it. If it ever exceeds the hooks.json
+# timeout the host kills it, and a killed hook is a SILENT one — which is the
+# defect this file exists to remove, so the advisory fires at a fraction of the
+# timeout rather than at it.
+#
+# ===========================================================================
+# THE COST THIS DOES IMPOSE, STATED PLAINLY
+# ===========================================================================
+# A whole-tree gate means AN UNRELATED COMMIT CAN BE BLOCKED BY A FINDING
+# SOMEBODY ELSE LEFT. That is the same trade guard-ceo-todos-commits.sh makes
+# and for the same reason: the original failure was not a bad line being
+# written, it was a bad line SITTING there while everyone read past it. So the
+# refusal says which findings this change is implicated in and which were
+# already there, and it never pretends the second kind are the author's fault.
+#
+# THERE IS NO DEADLOCK, and that was checked rather than hoped: the checker
+# reads `git ls-files` (the INDEX — so a staged fix counts) and the WORKTREE's
+# bytes (so an edited fix counts). Fixing the citation, adding the missing
+# file, or writing a reviewed line into `.publication-completeness` all make
+# the very next commit pass. A guard you cannot commit your way out of would be
+# removed within the day, and would deserve to be.
+#
+# NO LIVE OVERRIDE — deliberately, and for its siblings' reason: what failed
+# was in-the-moment judgement about whether a particular claim was really
+# backed. An in-prompt escape token would rebuild exactly that. The way through
+# is `.publication-completeness` — committed, diffable, reviewed by whoever
+# lands it, and self-expiring, because an exemption that suppresses nothing is
+# itself a failure.
+#
+# ===========================================================================
+# WHAT THIS CANNOT CATCH
+# ===========================================================================
+# Everything scripts/publication-completeness.sh cannot catch, unchanged — that
+# list lives in ONE place, in that file's header, and is not copied here. Add
+# the four this chokepoint contributes:
+#
+#   * A merge, a cherry-pick, an `am` or a rebase in a repository nobody then
+#     pushes. Merge is covered in practice because the land sequence pushes; a
+#     merge left unpushed is not.
+#   * A commit or push from a session this engine does not govern, or from
+#     outside any session at all. Same hole every hook in this family has.
+#   * The PUSH arm checks the CURRENT WORKING TREE, not the refs being pushed.
+#     `git push origin some-other-branch` from a checkout of main audits main.
+#     Reading the pushed ref would mean checking out a tree behind the
+#     operator's back, which is a worse thing to do than to have this gap.
+#   * A capability with NO DECLARATION FILE AT ALL is invisible to the checker
+#     by construction, so it is invisible here too — automating a check does
+#     not widen it. richos-hq/RICH-TODOs.md is a live instance: an operator
+#     backlog with no template, no contract and no gate, and this guard changes
+#     nothing about it. It is queued separately, and it is the one hole a
+#     reader of this file should leave still knowing about.
+#
+# PRECISION: fires only on a command that actually contains `git commit` or
+# `git push`, and only in a repository that has declared itself publication-
+# bound. A repository with no `.publication-boundary` — which is every
+# repository on this machine except one — is untouched, at the cost of a
+# substring test.
+
+set -eo pipefail
+
+# --- ROOT RESOLUTION -------------------------------------------------------
+# TWO ROOTS, NEVER ONE. The full contract, and why the old single-root
+# resolution was wrong the moment the engine became loadable by reference,
+# is in scripts/lib/resolve-roots.sh. This bootstrap block is byte-identical
+# in every hook that needs a root; contract-integrity-probe.sh Layer R asserts
+# that, so a divergent copy is a probe failure rather than a surprise.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_RR_LIB="$SCRIPT_DIR/../lib/resolve-roots.sh"
+if [ ! -f "$_RR_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-completeness-commits.sh"
+        echo "  scripts/lib/resolve-roots.sh is missing at: $_RR_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY it governs."
+        echo "  It will not guess, and it will not carry on quietly — a defence"
+        echo "  that reports 'on' while protecting nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-roots.sh
+. "$_RR_LIB"
+ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
+
+INPUT="$(cat)"
+
+# --- The cheap door --------------------------------------------------------
+# Every Bash call in the session reaches this file. The overwhelming majority
+# are `ls`, `grep`, a test run — nothing this guard has any business costing.
+# One substring test over the raw payload retires them before a single
+# subprocess is spawned. It is deliberately OVER-inclusive (a commit MESSAGE
+# containing the word "push" gets past it and is then classified properly);
+# being over-inclusive can only cost time, never coverage.
+case "$INPUT" in
+    *commit*|*push*) ;;
+    *) exit 0 ;;
+esac
+
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: guard-completeness-commits.sh: python3 is required for payload parsing — refusing (fail-closed)" >&2; exit 2; }
+
+if resolve_entity_root "$INPUT"; then
+    :
+elif [ "$RICHOS_ROOT_STATUS" = "not-adopted" ]; then
+    exit 0
+else
+    root_failure_banner "scripts/hooks/guard-completeness-commits.sh" >&2
+    exit 2
+fi
+
+_PB_LIB="$SCRIPT_DIR/../lib/publication-boundary.sh"
+if [ ! -f "$_PB_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-completeness-commits.sh"
+        echo "  scripts/lib/publication-boundary.sh is missing at: $_PB_LIB"
+        echo "  Adoption of the completeness contract is declared by the SAME"
+        echo "  .publication-boundary file the leak guards read, through this"
+        echo "  library. Without it this guard cannot tell whether the tree it"
+        echo "  is looking at is published at all, and it will not guess."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/publication-boundary.sh
+. "$_PB_LIB"
+
+# --- Is this a commit or a push, and where? --------------------------------
+# Assigned via a quoted heredoc first for the bash 3.2 reason
+# guard-worktree-removal.sh documents: a `)` inside a character class
+# mis-scans as the close of a $( ) substitution on macOS's /bin/bash.
+read -r -d '' _CC_CLASSIFIER <<'PYEOF' || true
+import json, os, re
+
+try:
+    d = json.loads(os.environ.get("GUARD_PAYLOAD") or "{}")
+except Exception:
+    print("PASS"); raise SystemExit
+if not isinstance(d, dict) or d.get("tool_name") != "Bash":
+    print("PASS"); raise SystemExit
+ti = d.get("tool_input") or {}
+cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
+
+# QUOTED SPANS ARE STRIPPED FIRST, and this is not cosmetic. A commit whose
+# MESSAGE is "stop pushing to main" is not a push, and a classifier that
+# thought it was would audit the tree on a wholly unrelated verb. Its sibling
+# learned the same lesson on `-a`; the fix is the same and is applied before
+# any matching.
+unquoted = re.sub(r'"[^"]*"', " ", cmd)
+unquoted = re.sub(r"'[^']*'", " ", unquoted)
+
+# `git ... commit` / `git ... push`, tolerating -C/-c/flags in between but never
+# crossing a statement separator, so an unrelated later `git` cannot bleed in.
+verb = ""
+if re.search(r"\bgit\b[^\n;|&]*\bcommit\b", unquoted):
+    verb = "commit"
+elif re.search(r"\bgit\b[^\n;|&]*\bpush\b", unquoted):
+    verb = "push"
+if not verb:
+    print("PASS"); raise SystemExit
+
+# An explicit -C names the repository; otherwise the session cwd does. Read
+# from the ORIGINAL command, because a quoted path is a real path.
+m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
+print("%s\t%s" % (verb, m.group(1).strip("\"'") if m else ""))
+PYEOF
+
+CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
+VERB="$(printf '%s' "$CLASS" | cut -f1)"
+case "$VERB" in
+  commit|push) ;;
+  *) exit 0 ;;
+esac
+REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
+
+PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+    print(str(d.get("cwd", "") or "") if isinstance(d, dict) else "")
+except Exception:
+    print("")' 2>/dev/null || true)"
+
+CC_ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
+case "$CC_ANCHOR" in
+  /*) ;;
+  *) CC_ANCHOR="${PAYLOAD_CWD:-$PWD}/$CC_ANCHOR" ;;
+esac
+
+CC_REPO="$(pb_repo_root "$CC_ANCHOR" 2>/dev/null || true)"
+[ -n "$CC_REPO" ] || exit 0
+
+# --- Adoption: ONE declaration, read by both contracts ---------------------
+# `.publication-boundary` is what says "this repository gets published", and it
+# switches on the leak guards AND this one. A second file saying the same thing
+# would be a copy of a fact, and copies of facts are what this engine keeps
+# deleting. rc 1 is the stand-down for every repository that never goes public,
+# which is all of them but one.
+CC_DECL_RC=0
+pb_load_declaration "$CC_REPO" || CC_DECL_RC=$?
+case "$CC_DECL_RC" in
+  0) ;;
+  1) exit 0 ;;
+  *) pb_broken_banner "guard-completeness-commits.sh" "$PB_BROKEN_REASON" >&2; exit 2 ;;
+esac
+
+CHECKER="$ENGINE_ROOT/scripts/publication-completeness.sh"
+if [ ! -f "$CHECKER" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-completeness-commits.sh"
+        echo "  scripts/publication-completeness.sh is missing at: $CHECKER"
+        echo "  This guard is a CHOKEPOINT, not a predicate — the entire"
+        echo "  decision lives in that script, so that there is exactly one"
+        echo "  implementation of the contract and CI and this hook can never"
+        echo "  disagree about what 'complete' means. Without it there is"
+        echo "  nothing to run, and this guard will not invent a weaker answer."
+    } >&2
+    exit 2
+fi
+
+# ONE PREDICATE, TWO CALLERS. ci-verify.sh step 7 and this hook run the SAME
+# script with the SAME arguments. A second, hook-shaped reimplementation would
+# be the defect class this engine keeps finding in itself — a predicate in two
+# copies, drifting.
+OUT="$(bash "$CHECKER" --root "$CC_REPO" 2>&1)" && CC_RC=0 || CC_RC=$?
+ELAPSED="$SECONDS"
+
+# The checker paints its findings; a hook's stderr is read in a transcript, so
+# the escapes come off.
+OUT="$(printf '%s\n' "$OUT" | sed $'s/\033\\[[0-9;]*m//g')"
+
+: "${COMPLETENESS_SOFT_BUDGET_S:=5}"
+if [ "$ELAPSED" -ge "$COMPLETENESS_SOFT_BUDGET_S" ]; then
+    {
+        echo "NOTE: guard-completeness-commits.sh took ${ELAPSED}s on $CC_REPO."
+        echo "  Measured at 0.18s warm on a 589-file tree. Past the hooks.json"
+        echo "  timeout the host KILLS this hook, and a killed hook is a silent"
+        echo "  one — which is the exact failure this guard was built to remove."
+        echo "  Raise the timeout in hooks.json deliberately, or find out what"
+        echo "  got slow. This note is not a failure; it is the guard refusing"
+        echo "  to become slow quietly."
+    } >&2
+fi
+
+case "$CC_RC" in
+  0) exit 0 ;;
+  2)
+    # The checker uses 2 for BOTH "not publication-bound" and "broken". This
+    # guard already gated on the declaration, so NOT APPLICABLE here means the
+    # declaration moved between the two reads — a race, not a defect, and not
+    # something to block a commit over. Anything else is genuinely broken and
+    # fails closed, because a completeness checker that degrades quietly is the
+    # thing it exists to find.
+    if printf '%s' "$OUT" | grep -q 'NOT APPLICABLE'; then
+        exit 0
+    fi
+    {
+        echo "=== PUBLICATION COMPLETENESS: BROKEN — REFUSING (fail-closed) ==="
+        echo ""
+        echo "  repository : $CC_REPO"
+        echo "  checker    : $CHECKER"
+        echo ""
+        printf '%s\n' "$OUT" | sed 's/^/  /'
+        echo ""
+        echo "  The check did not run to completion, so nothing is known about"
+        echo "  whether this tree delivers what it claims. That is refused"
+        echo "  rather than waved through: a green tick over a check that did"
+        echo "  not finish is worse than no tick."
+    } >&2
+    exit 2 ;;
+esac
+
+# --- Blocked ---------------------------------------------------------------
+# WHOSE FINDING IS THIS? Derived, by intersecting the findings with what this
+# change actually touches, so the author is never told to fix somebody else's
+# stale row without being told that is what it is.
+CHANGED="$(git -C "$CC_REPO" diff --cached --name-only 2>/dev/null || true)
+$(git -C "$CC_REPO" diff --name-only 2>/dev/null || true)"
+CHANGED="$(printf '%s\n' "$CHANGED" | LC_ALL=C sort -u | sed '/^$/d')"
+
+YOURS=0
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if printf '%s' "$OUT" | grep -qF -- "$rel"; then
+        YOURS=$((YOURS + 1))
+    fi
+done <<CHANGED_EOF
+$CHANGED
+CHANGED_EOF
+
+{
+    echo "=== PUBLICATION COMPLETENESS: REFUSING THIS ${VERB} ==="
+    echo ""
+    echo "  repository : $CC_REPO"
+    echo ""
+    echo "  This tree is publication-bound (.publication-boundary), and it is"
+    echo "  claiming a capability it does not deliver. A reader who has only the"
+    echo "  public repository would be sent to something they will never have."
+    echo ""
+    printf '%s\n' "$OUT" | sed 's/^/  /'
+    echo ""
+    if [ "$YOURS" -gt 0 ]; then
+        _S=""; [ "$YOURS" -gt 1 ] && _S="s"
+        echo "  $YOURS file${_S} named above ${_S:+are}${_S:-is} touched by this ${VERB}, so at least"
+        echo "  part of this is yours to fix here and now."
+    else
+        echo "  NONE of the paths named above are files this ${VERB} touches. This"
+        echo "  finding was already on the tree before you started — which is"
+        echo "  the point: it sat there because nothing was looking. Fixing it"
+        echo "  is a small commit, and it is how it stops sitting there."
+    fi
+    echo ""
+    echo "  THREE WAYS THROUGH, all of them a normal edit — the checker reads the"
+    echo "  INDEX and the WORKTREE, so a fix counts the moment you make it:"
+    echo "    1. Fix the path, or name the private record in prose so the reader"
+    echo "       is told where it is instead of being sent nowhere."
+    echo "    2. Ship the missing thing — the template, the paragraph, the file."
+    echo "    3. Add a reviewed line to .publication-completeness. It is committed,"
+    echo "       diffable and self-expiring: an entry that suppresses nothing FAILS,"
+    echo "       so an exemption cannot outlive its reason."
+    echo ""
+    echo "  There is no in-prompt override, deliberately. What failed on"
+    echo "  2026-08-30 was in-the-moment judgement about whether a claim was"
+    echo "  backed; an override token would rebuild exactly that."
+    echo ""
+    echo "  Run it yourself: $CHECKER --explain"
+} >&2
+exit 2
