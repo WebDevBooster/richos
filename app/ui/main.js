@@ -1088,7 +1088,16 @@ async function send() {
     try {
       newId = await Bridge.invoke("create_thread_in", { entityId, title: provisionalTitle(text) });
     } catch (e) {
-      composerBlockedEl.textContent = typeof e === "string" ? e : String(e);
+      // WAS: `composerBlockedEl.textContent = String(e)` — a raw Rust error string dropped
+      // straight under the composer. Whatever `create_thread_in` refused with is machinery
+      // ("scope mismatch on thread …", "stale binding on thread …"), and §21's own rule for
+      // this class is that the reason is not shown (timeline.js `renderFailureCard`:
+      // "`cognition io: broken pipe` is implementation machinery"). The words were already
+      // put back in the box, which was the right half; the sentence never said so, and never
+      // named the control that sends them.
+      composerBlockedEl.textContent =
+        "I couldn't start that thread just now. Your words are still in the box below —" +
+        " press Send to try again.";
       composerBlockedEl.hidden = false;
       inputEl.value = text; // never swallow the CEO's words
       autoGrow();
