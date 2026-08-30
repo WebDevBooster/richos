@@ -1,0 +1,138 @@
+THE CORRECTION DESK — THE SEVENTEEN RUNS THAT PROVE THE SUITE CAN FAIL
+======================================================================
+
+`app/ui/tests/corrections.js` reports 18/18 and 71 assertions against the tree as it
+stands. That number is worth nothing on its own: a check that has never failed has proven
+nothing, and this repository has produced both kinds of green in one week — a scanner
+reporting CLEAN over an empty corpus, and a `run.js` reporting "all 4 suites passed" over a
+suite it was not running.
+
+So every check in the suite was run RED, once, by breaking the thing it guards in the
+SHIPPED source (`app/ui/main.js`, `app/ui/style.css`, `app/ui/mock.js`,
+`app/src-tauri/src/main.rs`) and watching the suite say so.
+
+The driver applied exactly one edit per run, refused to proceed unless the target string
+matched exactly, restored the file from a copy taken before the edit whether the run
+passed or failed, and `git status` was clean at the end. It is
+`scratchpad/mutate.py` from the session that produced this file; the mutations are also
+listed inside `corrections.js` itself, against their check numbers, so the two cannot
+drift silently.
+
+THREE OF THESE DESERVE A NOTE
+-----------------------------
+
+  * MUTATION 6b, FIRST ATTEMPT, WAS A BAD MUTATION AND IS RECORDED AS ONE. Replacing
+    `if (st.available) st.readFailed = String(e);` with a bare `st.available = false;`
+    left the `else st.offReason = String(e);` beneath it with no `if`, so `main.js` did not
+    parse and all seventeen checks went red. That is a red run, and it proves nothing about
+    check 6b. It was redone surgically as `if (false) st.readFailed = …`, which keeps the
+    file parsing and produces the actual defect — a transient read failure reported as an
+    uninstalled desk — and turned exactly one check red. The first attempt is left in this
+    transcript rather than deleted: a mutation that breaks everything is the mutation-
+    testing equivalent of a green run over an empty set.
+
+  * MUTATION 3 (dropping the `loro_confirm_correction` invoke) turns check 3 AND check 7b
+    red, which is the argument for 7b existing separately. Check 3 alone would have stayed
+    green under the OTHER confirm mutation — announcing "Done." without reading
+    `done.state` — because the write really did land in that fixture. It is 7b, driving a
+    writer refusal, that catches a surface reporting a refused write as done, and that is
+    the single outcome most likely to make the CEO stop correcting things.
+
+  * MUTATION 5-hidden turns check 9b red as well, and correctly: 9b asserts that after a
+    permanent decline the suppression list is STILL ON SCREEN explaining the silence when
+    the same pair repeats. Hiding the block removes the explanation, which is exactly §7's
+    "a term silently refuses to learn with no way to see why".
+
+THE RUNS
+--------
+
+[1] app/ui/main.js  renderDeskCount counts only deskState.loro.pending   exit=1
+        FAIL  1  the rail carries the count of what is waiting, from BOTH desks
+        FAIL  9  a correction staged mid-turn moves the count without the panel being open
+
+[2] app/ui/main.js  renderProposalCard prints p.why into the preview block   exit=1
+        FAIL  2  the loro card shows the WRITER's own --dry-run bytes, not a description
+
+[3] app/ui/main.js  answerLoro never invokes loro_confirm_correction   exit=1
+        FAIL  3  NOTHING is written until he clicks confirm, and then exactly once
+        FAIL  7b he said yes, the writer refused, and the failure is NOT silent
+
+[3b] app/ui/main.js  answerSpoken says "Learned." regardless of learned.changed   exit=1
+        FAIL  3b the spoken confirm reaches the vocabulary, and says which outcome it got
+
+[4] app/ui/main.js  answerLoro sends permanent: true for a plain decline   exit=1
+        FAIL  4  a plain decline writes nothing, suppresses nothing, and stays re-askable
+
+[5-hidden] app/ui/main.js  renderDeskFamily keeps the suppression block hidden   exit=1
+        FAIL  5  [loro] a permanent decline lands on a VISIBLE list and can be lifted
+        FAIL  5  [spoken] a permanent decline lands on a VISIBLE list and can be lifted
+        FAIL  9b a suppressed pair that repeats is withheld, not re-asked
+
+[5-nolift] app/ui/main.js  renderSuppressedRow omits the lift button   exit=1
+        FAIL  5  [loro] a permanent decline lands on a VISIBLE list and can be lifted
+        FAIL  5  [spoken] a permanent decline lands on a VISIBLE list and can be lifted
+
+[6] app/ui/main.js  empty.hidden ignores whether the read succeeded   exit=1
+        FAIL  6  with both desks absent the surface STATES WHY and shows no empty list
+        FAIL  6b a desk that IS there and did not answer is a DIFFERENT state, with a retry
+
+[6b, FIRST ATTEMPT — A BAD MUTATION, SEE THE NOTE ABOVE]
+     app/ui/main.js  st.available = false, leaving a dangling else -> main.js does not parse
+        exit=1, all 17 checks red. Proves nothing about 6b; recorded, not counted.
+
+[6b, REDONE SURGICALLY] app/ui/main.js  if (false) st.readFailed = String(e)   exit=1
+        FAIL  6b a desk that IS there and did not answer is a DIFFERENT state, with a retry
+
+[7-console] app/ui/main.js  answerSpoken's catch calls console.error instead of deskNotice   exit=1
+        FAIL  7  a refusal from ANY of the commands reaches the screen, never a console
+
+[7b] app/ui/main.js  the failure notice drops the writer's own sentence   exit=1
+        FAIL  7b he said yes, the writer refused, and the failure is NOT silent
+
+[8] app/ui/main.js  loro_show_record's result block is filled with p.preview   exit=1
+        FAIL  8  he can read what is on record NOW, with no proposal and no confirmation
+
+[9] app/ui/main.js  the rich://correction-staged listener is deleted   exit=1
+        FAIL  9  a correction staged mid-turn moves the count without the panel being open
+
+[10] app/ui/main.js  closeCorrections() removed from the Escape chain   exit=1
+        FAIL  10 the desk opens and closes by keyboard, and returns focus where it was
+
+[11] app/ui/style.css  .desk-body overflow-y: hidden   exit=1
+        FAIL  11 NO PAGINATION, at any length
+
+[12] app/ui/mock.js  one word changed in LORO_DESK_ABSENT   exit=1
+        FAIL  12 mock.js's two 'this desk is not here' sentences ARE the Rust ones
+
+[13] app/src-tauri/src/main.rs  loro_show_record removed from generate_handler!   exit=1
+        FAIL  13 all fourteen commands are reachable from the shipped UI layer
+
+COVERAGE
+--------
+
+Checks turned red by at least one mutation: 1, 2, 3, 3b, 4, 5 [loro], 5 [spoken], 6, 6b,
+7, 7b, 8, 9, 9b, 10, 11, 12, 13 — every check in the suite except the negative control,
+which is not a check about the product. It has no mutation of its own by design: its whole
+job is to fail when the OTHERS stop asserting, and mutation 6b's first attempt demonstrated
+it doing exactly that (assertions fell below the floor when main.js stopped parsing, and
+the negative control was among the seventeen that went red).
+
+THREE MORE MUTATIONS WERE ALSO RUN, against the affordance suite rather than this one, and
+are recorded here because they belong to the same surface:
+
+[A1] app/ui/tests/lib/state-strings.js  testModuleRanges pushes [i, lines.length - 1] —
+     the "runs to EOF" assumption this pass removed   exit=1
+        FAIL  every derived state is classified, and every classification is a real state
+              (the inventory falls 141 -> 136 and all five newly surfaced Rust states are
+               named as stale registry rows)
+
+[A2] app/ui/style.css  text-transform: uppercase on .desk-section-title   exit=1
+        FAIL  [corrections] the state does not render in this fixture: "What I believe…"
+              (found while writing this pass, not by inspection: WebKit's innerText returns
+               the TRANSFORMED text, so an uppercased heading renders a string that exists
+               nowhere in the source and can never be classified)
+
+[A3] a new user-visible string with no registry row   exit=1
+        FAIL  every derived state is classified — the comparator names the string and its
+              site (this one is `affordances.js`'s own shipped positive control, run every
+              time the suite runs, not a mutation of mine)

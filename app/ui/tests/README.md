@@ -20,12 +20,16 @@ RICHOS_PLAYWRIGHT=/path/to/node_modules/playwright node run.js
 `node_modules/` and `.shots/` are gitignored. The tests are the artifact; those PNGs are
 evidence for one run.
 
-**`shots-26/` is the one exception and IS committed.** §26 names nine screenshots as
+**`shots-26/` and `shots-5b/` are the exceptions and ARE committed.** §26 names nine screenshots as
 deliverables of the memory-strategy fixture, and until slice 8 this UI had no visual record
 at all — the display on this machine has been locked for three slices and `screencapture`
 returns a valid single-colour (0,0,0) PNG. `memory-strategy.js` writes those nine, out of
 WebKit's own compositor, pixel-verified. Two of the nine are deliberately not what §26 asked
-for; the filenames and the suite's SCREENSHOT INVENTORY say which and why.
+for; the filenames and the suite's SCREENSHOT INVENTORY say which and why. `shots-5b/` is
+the same arrangement for the correction desk: twelve states, written by `corrections.js`,
+with `shots-5b/README.md` naming what each one is evidence of. Both directories are
+overwritten on every run and neither is byte-stable; read the suite's exit code, not a
+`git diff` over a PNG.
 
 ## What is here
 
@@ -43,6 +47,7 @@ for; the filenames and the suite's SCREENSHOT INVENTORY say which and why.
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
 | `steering.js` | §25 "Steering and stop", criterion by criterion, through the real shell. The `You stopped after {duration}` row from the real wire bytes, the crash that is never attributed to the CEO, a stop that reached nothing saying so, and the stop control at §20's three widths. |
 | `restart-scope.js` | What happens BETWEEN threads, and what survives a restart. A working thread stays visibly active while another is selected and its timer resumes rather than restarts; drafts and scroll positions belong to one thread and never cross an entity; a turn streaming elsewhere renders nothing here, across entities and inside one; the fence is on every live handler, with the inventory derived from the shipped object and cross-checked against `timeline.js` on disk; duplicates render once; missed events recover from the snapshot; an in-flight turn survives a restart as unknown; a mid-turn crash draws the CEO's prompt once. |
+| `corrections.js` | THE CORRECTION DESK (§7 "ask, never infer"), both families, through the real shell — RICH-TODOs row 5b. Confirm reaching the Rust desk and nothing written before it; the preview asserted byte-identical to the writer's own `--dry-run` output; a plain decline suppressing nothing and staying re-askable; a permanent decline landing on a visible list that lifts; an absent desk stating its reason instead of rendering an empty list, with the present-and-empty case as its positive probe; four refusals relayed verbatim to the screen rather than a console; the fourteen registered commands joined to `main.js` and `mock.js` on disk. Writes `shots-5b/`. Every check run RED once — `docs/verification/correction-desk-2026-08-30/mutation-runs.txt`. |
 | `docs-claims.js` | The only suite that opens no browser. It joins the claims in `app/README.md`, `app/STREAMING.md` and this file to the tree they describe: per-file and per-crate test counts against `#[test]`, this table against the inventory `run.js` discovers, and every `rich://` name against the constants the Rust source declares. Nothing in it is typed — both sides of every join are read off disk. |
 
 ## Four rules, each one a thing an earlier slice got wrong
