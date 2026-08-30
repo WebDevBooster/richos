@@ -506,6 +506,61 @@ pub struct ActivityDetail {
     pub vendor_kind: Option<String>,
 }
 
+/// One record of what the lease said while NO turn was in flight (techy-mode §1.5, gap #1).
+///
+/// **A SEPARATE LANE, and not a [`TimelineItem`], for one structural reason.** Every
+/// `TimelineItem` carries a [`TimelineBase`] with a `turn_id`, and is placed in the
+/// timeline by that turn: the item list is turn-buckets end to end. A between-turn record
+/// has no turn — §1.4 G4 makes `turn_id: None` a first-class state — so putting it in that
+/// list would mean either giving `TimelineBase.turn_id` an absent case that 30-odd
+/// constructors and every consumer would have to re-decide, or inventing a turn for it. The
+/// second is a false attribution, which is the one thing a record of what happened must not
+/// do; the first buys nothing, because the item would still have no bucket to sit in and
+/// would have to be appended somewhere, which is a claim about position that nothing
+/// witnessed.
+///
+/// So the honest shape is the one the data has: these are thread-scoped, they are ordered
+/// among themselves, and they are not positioned in the conversation. The renderer shows
+/// them as their own section for exactly that reason.
+///
+/// **It is gated by the SAME [`Visibility`] the items are** — [`Timeline::view`] filters
+/// this lane through `renders_in` in the same pass — so there is one gate and one enum, not
+/// a second mechanism beside them.
+///
+/// **What it deliberately does NOT carry:** `sessionId`. Every `MachineryRecord` has one
+/// (rotation must stay reconstructible — `ledger.rs:170`), and no rendering type in this
+/// file has ever exposed it. A lane whose records arrive at session boundaries is precisely
+/// where a session identifier would become a rotation tell, so the omission is load-bearing
+/// here rather than incidental.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BetweenTurnItem {
+    /// The machinery id — already stable and already on disk, so a re-projection after a
+    /// restart yields the same id. Same rule as [`TimelineBase::id`].
+    pub id: String,
+    pub entity_id: EntityId,
+    pub thread_id: String,
+    pub binding_revision: u64,
+    /// The lane's own counter, carried for identity. **NOT a sort key**, and not §1.4 G1's
+    /// shared per-turn counter: the lane's counter is per LEASE and restarts on a rotation.
+    /// Order is journal append order — see [`crate::machinery::project_between_turns`].
+    pub sequence: u64,
+    /// Epoch millis. A LABEL, never the ordering key (§1.4 G3).
+    pub at: u64,
+    pub visibility: Visibility,
+    /// The vendor's own `sessionUpdate` kind. These records are technical by construction —
+    /// there is no CEO-safe semantic line for "the adapter restated its command list" —
+    /// so the vendor kind IS the row, which is §1.4 G5's "one dim line" said plainly.
+    pub vendor_kind: String,
+    /// The journal key for a drill-down into the raw payload (§12's `detailRef`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail_ref: Option<String>,
+    /// Technical-mode only, exactly like an activity row's. Removed outright by
+    /// [`TimelineItem::redacted`]'s counterpart in [`Timeline::view`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<ActivityDetail>,
+}
+
 /// The technical half of the duration row: the raw ACP stop reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -753,9 +808,19 @@ pub enum RejectionReason {
     /// this is the clause that catches machinery attached to a forged turn, because
     /// `MachineryRecord` carries a `thread_id` and no entity of its own.
     UnscopedTurn,
-    /// Legitimately not turn-scoped (`turn_id: None`): re-prime and between-turn traffic
-    /// (§1.5 G4). Excluded because a timeline item requires a turn — not a violation, and
-    /// deliberately still excluded, since that traffic is exactly what must never render.
+    /// Legitimately not turn-scoped (`turn_id: None`) **and internal**: re-prime, rotation
+    /// and handoff traffic (§1.5 G4). Not a violation, and still excluded.
+    ///
+    /// **NARROWED 2026-08-30, and the narrowing is the point.** This used to refuse every
+    /// `turn_id: None` record, which lumped two different things together: machinery from a
+    /// turn the CEO must never see, and the BETWEEN-TURN traffic §1.5 says should attach to
+    /// the thread. The second now has a home — [`Timeline::between_turns`] — and only the
+    /// first is refused here.
+    ///
+    /// So this reason now means exactly one thing: *machinery the standing order forbids
+    /// rendering*. It is refused at the GUARD, before an item exists, which is a layer
+    /// beneath [`Visibility::Internal`] rather than a replacement for it — an internal
+    /// record has no item to gate, and the gate would refuse it anyway if it did.
     NotTurnScoped,
     /// DIAGNOSTIC, not a violation and not an exclusion — the record still rendered, as an
     /// ordinary activity row.
@@ -839,6 +904,10 @@ pub struct Timeline {
     entity_id: EntityId,
     thread_id: String,
     items: Vec<TimelineItem>,
+    /// §1.5's between-turn lane: thread-scoped machinery with no turn. Separate from
+    /// `items` because a `TimelineItem` is placed by its turn and these have none — see
+    /// [`BetweenTurnItem`] for why that is the honest shape rather than a missing feature.
+    between_turns: Vec<BetweenTurnItem>,
     rejections: Vec<TimelineRejection>,
 }
 
@@ -951,6 +1020,7 @@ impl Timeline {
         // --- machinery: the guard, then the rows -----------------------------------
         let mut rejections = Vec::new();
         let mut kept: Vec<&MachineryRecord> = Vec::new();
+        let mut unturned: Vec<&MachineryRecord> = Vec::new();
         for r in machinery {
             if r.thread_id != thread_id {
                 rejections.push(TimelineRejection {
@@ -962,12 +1032,23 @@ impl Timeline {
                 continue;
             }
             match r.turn_id.as_deref() {
-                None => rejections.push(TimelineRejection {
+                // TURN-LESS, and the two cases are different things (§1.5).
+                //
+                // `internal: true` is re-prime, rotation or handoff machinery: refused
+                // HERE, before an item exists, because the standing order says it never
+                // renders and the cheapest way to guarantee that is to never build a row
+                // for it. That is a layer BENEATH `Visibility::Internal`, not a
+                // replacement — the gate would refuse it too if it got that far.
+                //
+                // Everything else turn-less is BETWEEN-TURN traffic, which §1.5 says
+                // attaches to the thread rather than to a turn. It goes to its own lane.
+                None if r.internal => rejections.push(TimelineRejection {
                     record_id: r.machinery_id.clone(),
                     thread_id: r.thread_id.clone(),
                     turn_id: None,
                     reason: RejectionReason::NotTurnScoped,
                 }),
+                None => unturned.push(r),
                 Some(turn_id) if rank.contains_key(turn_id) => kept.push(r),
                 Some(turn_id) => rejections.push(TimelineRejection {
                     record_id: r.machinery_id.clone(),
@@ -1055,7 +1136,17 @@ impl Timeline {
             items.append(&mut bucket);
         }
 
-        Ok(Timeline { entity_id: entity, thread_id, items, rejections })
+        // The between-turn lane. Merged by the same `toolCallId` rule (§1.4 G2) and
+        // deliberately NOT sorted: journal append order is chronological, while this lane's
+        // `seq` is per-lease and restarts on a rotation — see
+        // `machinery::project_between_turns`.
+        let between_turns: Vec<BetweenTurnItem> =
+            crate::machinery::project_between_turns(unturned.into_iter().cloned().collect())
+                .iter()
+                .map(|row| between_turn_item(row, &entity, binding.thread_id(), binding.binding_revision()))
+                .collect();
+
+        Ok(Timeline { entity_id: entity, thread_id, items, between_turns, rejections })
     }
 
     pub fn entity_id(&self) -> &EntityId {
@@ -1079,13 +1170,42 @@ impl Timeline {
             .cloned()
             .map(|i| if mode == ViewMode::Ceo { i.redacted() } else { i })
             .collect();
-        TimelineView { entity_id: self.entity_id.clone(), thread_id: self.thread_id.clone(), mode, items }
+        // THE SAME GATE, in the same pass, over the between-turn lane. One `renders_in`,
+        // one `Visibility` — a second mechanism here is exactly what §1.5 says not to
+        // build. `Technical` on every one of these means the CEO view gets an empty lane
+        // by construction rather than by a renderer remembering to skip it.
+        let between_turns: Vec<BetweenTurnItem> = self
+            .between_turns
+            .iter()
+            .filter(|b| b.visibility.renders_in(mode))
+            .cloned()
+            .map(|mut b| {
+                if mode == ViewMode::Ceo {
+                    b.detail = None;
+                }
+                b
+            })
+            .collect();
+        TimelineView {
+            entity_id: self.entity_id.clone(),
+            thread_id: self.thread_id.clone(),
+            mode,
+            items,
+            between_turns,
+        }
     }
 
     /// The RAW, UNGATED list, internal items included — the audit view. Named at length on
     /// purpose: every rendering path goes through [`Timeline::view`] instead.
     pub fn audit_including_internal(&self) -> &[TimelineItem] {
         &self.items
+    }
+
+    /// The between-turn lane, UNGATED. Named at the same length and for the same reason as
+    /// [`Self::audit_including_internal`]: every rendering path goes through
+    /// [`Timeline::view`].
+    pub fn between_turns_ungated(&self) -> &[BetweenTurnItem] {
+        &self.between_turns
     }
 
     /// Every refused record, including the non-violation exclusions.
@@ -1108,11 +1228,19 @@ pub struct TimelineView {
     pub thread_id: String,
     pub mode: ViewMode,
     pub items: Vec<TimelineItem>,
+    /// §1.5's between-turn lane, gated. **Always empty in `ViewMode::Ceo`**, because every
+    /// row in it is `Visibility::Technical` and `renders_in` says so — the calm view is
+    /// handed nothing to skip.
+    pub between_turns: Vec<BetweenTurnItem>,
 }
 
 impl TimelineView {
     pub fn items(&self) -> &[TimelineItem] {
         &self.items
+    }
+
+    pub fn between_turns(&self) -> &[BetweenTurnItem] {
+        &self.between_turns
     }
 
     pub fn len(&self) -> usize {
@@ -1268,37 +1396,25 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
 // MACHINERY -> ACTIVITY
 // ---------------------------------------------------------------------------
 
-/// One activity row from one merged machinery record.
+/// THE ONE VISIBILITY RULE FOR A MACHINERY RECORD, in one place.
 ///
-/// Takes the SCOPE explicitly rather than a `&Turn`, so the LIVE path (`live.rs`, which
-/// has a fence and a record but no folded `Turn` yet) and the RELOAD path (`project`,
-/// which has both) run the same function over the same rules. That is what makes the
-/// wire and a reload agree by construction instead of by two implementations agreeing to
-/// behave — see `tests/live_event_tests.rs::the_wire_and_the_reload_agree_on_every_field`.
+/// Extracted 2026-08-30 when the between-turn lane (§1.5, gap #1) became a second caller.
+/// It was previously inline in `activity_item`, which was fine while there was one caller
+/// and is exactly how two rules get born the moment there are two. The standing order that
+/// re-prime and rotation machinery never renders is held by the FIRST clause below, and
+/// mirroring it meant calling it rather than restating it.
 ///
-/// `internal_turn` folds the caller's two whole-turn demotions (an `Internal`-source turn,
-/// a superseded replay) into one flag; the record's own `internal` bit and its kind are
-/// still consulted below.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn activity_item(
-    row: &MachineryRecord,
-    entity: &EntityId,
-    thread_id: &str,
-    turn_id: &str,
-    revision: u64,
-    internal_turn: bool,
-    types: &HashMap<String, ActivityType>,
-    last_seen: &HashMap<String, u64>,
-) -> TimelineItem {
-    let activity_type = activity_type_of(row, types);
-    let state = activity_state_of(row);
-
+/// `internal_turn` folds the caller's whole-turn demotions (an `Internal`-source turn, a
+/// superseded replay) into one flag. The between-turn lane passes `false`: it has no turn,
+/// so it has no whole-turn demotion — its internal traffic is refused earlier, at the guard
+/// in `project_with_workers` (see [`RejectionReason::NotTurnScoped`]).
+pub(crate) fn machinery_visibility(row: &MachineryRecord, internal_turn: bool) -> Visibility {
     // A thought is model reasoning text, which §5.3 lists under "do not render". It is
     // kept as an item — dropping it would punch a hole in the shared sequence — at
     // `Internal`, so no mode can surface it.
     // An `internal` record (re-prime, rotation, handoff) is internal for the same reason
     // it is in machinery.rs: the CEO must never see that a rotation happened.
-    let visibility = if row.internal || row.kind == MachineryKind::Thought || internal_turn {
+    if row.internal || row.kind == MachineryKind::Thought || internal_turn {
         Visibility::Internal
     } else if row.kind == MachineryKind::PermissionRequested {
         // A PERMISSION REQUEST IS MACHINERY, NOT A CEO ROW.
@@ -1351,7 +1467,69 @@ pub(crate) fn activity_item(
         // command, the output preview, the paths) is carried in `detail` and removed
         // outright from a CEO view.
         Visibility::Ceo
-    };
+    }
+}
+
+/// One between-turn row from one merged turn-less machinery record (§1.5, gap #1).
+///
+/// The visibility comes from [`machinery_visibility`] — the SAME function the activity rows
+/// use — passing `internal_turn: false` because there is no turn to demote. In practice
+/// every record reaching here is already non-internal: `project_with_workers` refuses
+/// internal turn-less records at the guard. Calling the shared rule anyway is what stops
+/// this becoming a second opinion about what may be seen.
+pub(crate) fn between_turn_item(
+    row: &MachineryRecord,
+    entity: &EntityId,
+    thread_id: &str,
+    revision: u64,
+) -> BetweenTurnItem {
+    BetweenTurnItem {
+        id: row.machinery_id.clone(),
+        entity_id: entity.clone(),
+        // The BINDING's thread, not the record's — the guard proved they are equal, and
+        // stamping from the scope that was checked is the same discipline `activity_item`
+        // follows.
+        thread_id: thread_id.to_string(),
+        binding_revision: revision,
+        sequence: row.seq,
+        at: row.at,
+        visibility: machinery_visibility(row, false),
+        vendor_kind: row.title.clone(),
+        detail_ref: Some(row.machinery_id.clone()),
+        detail: Some(ActivityDetail {
+            title: row.title.clone(),
+            summary: row.summary.clone(),
+            locations: row.locations.clone(),
+            vendor_kind: Some(row.title.clone()),
+        }),
+    }
+}
+
+/// One activity row from one merged machinery record.
+///
+/// Takes the SCOPE explicitly rather than a `&Turn`, so the LIVE path (`live.rs`, which
+/// has a fence and a record but no folded `Turn` yet) and the RELOAD path (`project`,
+/// which has both) run the same function over the same rules. That is what makes the
+/// wire and a reload agree by construction instead of by two implementations agreeing to
+/// behave — see `tests/live_event_tests.rs::the_wire_and_the_reload_agree_on_every_field`.
+///
+/// `internal_turn` folds the caller's two whole-turn demotions (an `Internal`-source turn,
+/// a superseded replay) into one flag; the record's own `internal` bit and its kind are
+/// still consulted below.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn activity_item(
+    row: &MachineryRecord,
+    entity: &EntityId,
+    thread_id: &str,
+    turn_id: &str,
+    revision: u64,
+    internal_turn: bool,
+    types: &HashMap<String, ActivityType>,
+    last_seen: &HashMap<String, u64>,
+) -> TimelineItem {
+    let activity_type = activity_type_of(row, types);
+    let state = activity_state_of(row);
+    let visibility = machinery_visibility(row, internal_turn);
 
     let key = row.tool_call_id.clone().unwrap_or_else(|| row.machinery_id.clone());
     let updated = last_seen.get(&key).copied().filter(|&t| t > row.at);
