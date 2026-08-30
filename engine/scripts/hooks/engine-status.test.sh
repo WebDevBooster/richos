@@ -207,6 +207,12 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the other two. Every one of those merges conflicted HERE. That is the whole
 # value of a typed count beside a derived one: the derivation absorbs a new
 # guard silently, and this line refuses to.
+# NOT MOVED on 2026-08-30 by the seat/jurisdiction fix, and that is worth a
+# line: that change wired a jurisdiction check into seven EXISTING guards and
+# added no new hook, so the registration is still 26. A count that had drifted
+# there would have meant a guard was registered as a side effect of a fix
+# nobody described as adding one. The tripwire staying quiet is the correct
+# reading here, not an oversight.
 if [ "$REGISTERED_N" -eq 26 ]; then
     ok "1b  sanity: the shipped hooks.json registers 26 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
