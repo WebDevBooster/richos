@@ -180,8 +180,13 @@ window.RichSettings = (function () {
    *  The theme row is OMITTED, not disabled, when the theme is forced (§15's always-dark
    *  opening screen). A disabled control is a promise that it will work later; here it
    *  never will, and the ruling's floor is about what the button still DOES, not about
-   *  showing a dead switch. Likewise the Techy row appears only when a host has registered
-   *  the capability — on the opening screen there is no conversation to show machinery for.
+   *  showing a dead switch.
+   *
+   *  The Techy row appears only when a host has registered the capability, so a page with no
+   *  shell behind it carries no dead toggle. It DOES appear on the opening screen, and that
+   *  is correct rather than an oversight: what it moves is the GLOBAL default (§3.1 — "all"
+   *  has to be one switch), which is a real preference whether or not a conversation happens
+   *  to be open, and the shell is already live underneath the curtain.
    */
   function buildMenu() {
     var menu = elem("div", "setmenu", { id: "set-menu", "aria-label": "Settings", role: "menu" });
@@ -242,9 +247,17 @@ window.RichSettings = (function () {
 
   // ---- actions -------------------------------------------------------------------------
 
+  // NONE OF THESE THREE CALL `paint()`, AND THAT IS DELIBERATE.
+  //
+  // Every one of them moves state through `RichTheme`, which paints and then notifies its
+  // subscribers — and this file is a subscriber (see `mount`). A local `paint()` here as
+  // well is dead code that LOOKS load-bearing: deleting it changes nothing, so a future
+  // reader cannot tell from the source whether the row updates because of this line or in
+  // spite of it. Worse, it hides the real dependency. If the subscription breaks, the menu
+  // stops tracking the keyboard, and check 10 is the thing that says so — which it can only
+  // do if there is exactly one path.
   function applyTheme(pref) {
     if (T.setTheme(pref)) saveTheme(pref);
-    paint();
     close(true);
   }
   function saveTheme(pref) {
@@ -269,13 +282,11 @@ window.RichSettings = (function () {
   function stepFont(delta) {
     var next = T.stepScale(delta);
     saveScale(next);
-    paint();
     return next;
   }
   function resetFont() {
     T.setScale(T.DEFAULT_SCALE);
     saveScale(T.DEFAULT_SCALE);
-    paint();
     return T.DEFAULT_SCALE;
   }
 

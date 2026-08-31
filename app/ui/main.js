@@ -3811,8 +3811,8 @@ if (techyDefaultInput) {
 
 // The settings menu's Techy row, registered with the SAME read and the SAME write the rail
 // preference uses. Registering the capability is also what makes the row appear at all —
-// settings-button.js omits it until a host provides one, so on the opening screen, where
-// there is no conversation to show machinery for, there is no dead toggle.
+// settings-button.js omits it until a host provides one, so the component still works on a
+// page with no shell behind it and carries no dead toggle there.
 window.RichSettings.registerTechy({
   read: () => !!(techy && techy.default),
   write: (on) => setTechyDefault(on),

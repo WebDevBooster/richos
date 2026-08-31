@@ -530,7 +530,22 @@
     node = null;
   }
 
-  function onInput() {
+  /// The CEO's first keystroke or touch gets the curtain out of the way — with ONE
+  /// exception, and it is the settings button.
+  ///
+  /// That button is deliberately drawn ABOVE this curtain (z-index 300 against its 200)
+  /// because §15 requires it on every screen and its floor is "Bust a bug". If reaching it
+  /// counted as first input, the curtain would lift the instant it was touched — and the
+  /// bug report the CEO was opening would start from the shell instead of from the opening
+  /// screen he was actually looking at. That is precisely the outcome the ruling names:
+  /// "reporting a bug must never require navigating away from the screen the bug is on",
+  /// and the screen a first-run user is most likely to be stuck on is this one.
+  ///
+  /// Everything else still dismisses on first input, unchanged. The exception is exactly as
+  /// wide as the one control that is meant to float above the curtain.
+  function onInput(e) {
+    var t = e && e.target;
+    if (t && t.closest && t.closest(".settings")) return;
     yieldNow("first-input");
   }
 

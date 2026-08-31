@@ -1,0 +1,3695 @@
+/* RichOS v1 — a calm executive instrument. Built to the design lead's direction:
+   the v1 front-end UX direction. Bespoke, custom CSS by design (this is
+   NOT a client product UI — the Bootstrap/no-custom-CSS doctrine does not apply here).
+
+   One quiet accent, restrained type, generous whitespace, capped reading width. No
+   gradients, no playful shapes, no emoji-as-UI, no chat-app novelty. */
+
+/* =========================================================================================
+   THE TOKEN LAYER — two lightings, one geometry.
+
+   CEO ruling §14 (`richos-hq/wiki/ceo-decisions.md`): the DARK palette is `round-8.1/v0`
+   "Sovereign" — ground 0C1322, surface 141E34, light DFE4EE, signal C2A35C, trim 4C6087 —
+   and it governs "the actual colour palette for dark mode IN GENERAL as well as the overall
+   design of the page elements including the background". §15 completes it: the LIGHT palette
+   is `round-9/v1` "Daybreak", and **dark is what a new install opens in**. Both remain, in
+   his words, "subject to change later".
+
+   The values below are the ones the round-10.1 mockups actually express, INCLUDING the
+   corrections those mockups made to reach AA — they are not the raw round-8.1/round-9 swatch
+   lists. Three of those corrections are load-bearing and each is marked at its token:
+
+     * `--gold-text` is split from `--gold`. The accent that paints a 3:1 non-text indicator
+       is not automatically a 4.5:1 text colour, and in light mode it is NOT: `#9C7C34` on
+       the ivory ground computes 3.29:1. `--gold` paints, `--gold-text` reads.
+     * `--on-gold` is the ink that sits ON the accent, and it is the DARK ink in both themes.
+       This file previously wrote `color: #fff` over `background: var(--accent)`; white on
+       light-mode gold is 2.30:1.
+     * `--ink-faint` is an ALPHA, lifted until it cleared the floor on the darkest surface it
+       is ever painted on, rather than a fixed grey chosen against one background.
+
+   Every ratio in the comments below was computed, not eyeballed — the standing rule in
+   CLAUDE.md §"Contrast — WCAG AA, ALWAYS, BOTH THEMES", and `tests/contrast.js` is what
+   holds it. An eye adapts to the palette it has been staring at; arithmetic does not.
+   ========================================================================================= */
+
+:root {
+  /* ---- DARK — "Sovereign", the default a new install opens in (§14, §15) ---- */
+  --ground: #0c1322;
+  --rail-bg: #0a101b;
+  --surface-sunk: #0a1120;
+  --surface-raised: #141e34;
+  --card: #182440;
+
+  /* 14.55:1 on the ground. */
+  --ink: #dfe4ee;
+  /* 6.47:1 on the ground, 5.51:1 on the card. */
+  --ink-soft: rgba(223, 228, 238, 0.64);
+  /* 6.14:1 on the ground, 5.52:1 on the card. Lifted from .58 on 2026-08-31: at .58 it
+     computed 4.38:1 on the SELECTED search row (`--bg-selected` laid over the overlay
+     panel), which is a surface no single-background calculation reaches. A token
+     calibrated against the page ground is not calibrated against every ground. */
+  --ink-faint: rgba(223, 228, 238, 0.62);
+
+  --line-strong: rgba(76, 96, 135, 0.26);
+  --line-soft: rgba(76, 96, 135, 0.14);
+  /* THE BORDER OF A FORM CONTROL IS A NON-TEXT INDICATOR and owes 3:1, which `--line` does
+     not pay — `--line` is a divider colour, and a divider is decoration where a control's
+     boundary is the only thing on screen saying "this is where you type". Solid, not an
+     alpha: the same control sits on the ground, on the rail and on a card, and an alpha
+     that clears 3:1 over one of those does not clear it over the others (measured: .60
+     alpha gives 2.90 / 2.67 / 2.92). 3.79:1 at worst here, 4.69:1 on the rail. */
+  --line-control: #6b7ea8;
+  /* The ported settings component's tinted surfaces. The reference writes these as
+     `color-mix(in srgb, var(--gold) 12%, var(--card))`, and they are the PRE-MIXED values
+     of exactly those expressions (sRGB, same percentages). Pre-mixed because the contrast
+     walker reads `getComputedStyle().backgroundColor` and this WebKit hands back the
+     unresolved `color-mix(...)` string — an UNPROVABLE colour, which this gate correctly
+     treats as a failure to prove rather than a pass. A control whose background cannot be
+     read is a control nothing can vouch for, and the settings button is on every screen.
+     Structure and behaviour stay the reference's; only the notation changed. */
+  --tint-gold-weak: #293143;   /* gold 10% */
+  --tint-gold: #2c3343;        /* gold 12% */
+  --tint-gold-strong: #3a3d46; /* gold 20% */
+  /* The settings button's edge — see `.setbtn`. Dark needs no special striking: the scrim
+     darkens, so a light edge only gains contrast against it. 4.69:1 on the rail. */
+  --chrome-edge: #6b7ea8;
+
+  /* The signal. `--gold` paints; `--gold-text` reads. In DARK they coincide (7.68:1 on the
+     ground), which is exactly why the split has to be written down rather than discovered —
+     a single token looks correct here and fails the moment light mode arrives. */
+  --gold: #c2a35c;
+  --gold-text: #c2a35c;
+  --gold-soft: rgba(194, 163, 92, 0.13);
+  /* The ink that sits ON the accent — dark in BOTH themes. 7.68:1 over `--gold`. */
+  --on-gold: #0c1322;
+
+  --trim: #4c6087;
+  /* 5.91:1 on the ground, 4.90:1 on the card. */
+  --trim-text: #7e92b8;
+
+  /* The ONE non-accent state colour: something needs the CEO's hand. A muted amber that
+     belongs to the palette — deliberately not a red alert, and deliberately a different
+     hue from `--gold` so "needs you" never reads as "accent". 6.54:1 worst case. */
+  --attention: #e09a55;
+  /* `--danger` and `--success` were theme-BLIND (`#8a4944` / `#4f6d58`) and lived in a
+     second `:root` further down this file, which is exactly how they survived the first
+     pass: one token layer is searchable, two is a hiding place. On the midnight rail the
+     old danger computed 2.83:1 — the interrupted-thread mark, which is the one glyph in
+     the rail that means something went wrong. 5.84:1 / 6.73:1 worst case now. */
+  --danger: #e8837c;
+  --success: #7fb894;
+
+  /* Tints and veils. In dark these lift (white alpha); in light they press (black alpha).
+     A single `rgba(0,0,0,…)` hover tint is invisible on a midnight ground, which is how a
+     hover state silently stops existing in half the app. */
+  --tint-weakest: rgba(223, 228, 238, 0.03);
+  --tint-weak: rgba(223, 228, 238, 0.05);
+  --tint-soft: rgba(223, 228, 238, 0.07);
+  --scrim: rgba(3, 7, 15, 0.62);
+  --shadow-weak: rgba(0, 0, 0, 0.5);
+  --shadow-soft: rgba(0, 0, 0, 0.55);
+  --shadow-strong: rgba(0, 0, 0, 0.7);
+
+  --font: "Söhne", "Soehne", -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: 10px;
+
+  /* ---- Legacy names, kept as aliases ----------------------------------------------
+     This file carried `--paper` / `--paper-rail` / `--surface` / `--accent` before there
+     was a second theme, and ~100 declarations reference them. Aliasing rather than
+     find-and-replacing keeps the diff readable and means the theme override below sets
+     ONE list of values, not two. `--accent` is the PAINTING gold; anything that sets
+     `color:` uses `--accent-text`. */
+  --paper: var(--ground);
+  --paper-rail: var(--rail-bg);
+  --surface: var(--card);
+  --accent: var(--gold);
+  --accent-text: var(--gold-text);
+  --accent-soft: var(--gold-soft);
+  --line: var(--line-strong);
+}
+
+/* ---- LIGHT — "Daybreak" (round-9/v1, §15). Switchable at any time; never the default,
+       and it never reaches the opening screen (§15's one permanent exception). ---- */
+:root[data-theme="light"] {
+  --ground: #eae6dd;
+  --rail-bg: #e4dfd3;
+  --surface-sunk: #efebe0;
+  --surface-raised: #f7f5ef;
+  --card: #fdfcf8;
+
+  /* 14.90:1 on the ground. */
+  --ink: #0c1322;
+  /* 5.86:1 on the ground. */
+  --ink-soft: rgba(12, 19, 34, 0.68);
+  /* 4.85:1 on the rail — the darkest surface it paints on in this theme. Round 10 shipped
+     this token lower and `.rail-count` came out at 3.60:1; the CEO named it. */
+  --ink-faint: rgba(12, 19, 34, 0.63);
+
+  --line-strong: rgba(60, 70, 95, 0.24);
+  --line-soft: rgba(60, 70, 95, 0.12);
+  /* 3.14:1 at worst (on the rail), 4.06:1 on a card. Same reasoning as dark. */
+  --line-control: #767c8d;
+  /* Light needs a heavier tint to read as a control against the ivory card — the
+     reference's own light branch does the same. gold 14% / 17% / 26%. */
+  --tint-gold-weak: #efeadd;
+  --tint-gold: #ede6d7;
+  --tint-gold-strong: #e4dbc5;
+  /* 3.23:1 against the light scrim, which is the binding case; 7.02:1 on the plain ground. */
+  --chrome-edge: #454b58;
+
+  /* Here the split earns itself: `#9C7C34` is 3.29:1 on the ivory ground — fine as a rule,
+     a border or a filled chip, and a contrast failure as body text. `--gold-text` is struck
+     darker for reading: 5.13:1 on the rail, 6.65:1 on a card. */
+  --gold: #9c7c34;
+  --gold-text: #715715;
+  --gold-soft: rgba(156, 124, 52, 0.12);
+  /* Unchanged from dark, and that is the point: the ink on a gold chip is the dark ink in
+     both themes. 4.72:1 over light `--gold`. */
+  --on-gold: #0c1322;
+
+  --trim: #4c6087;
+  /* 5.90:1 on the ground, 5.53:1 on the rail. */
+  --trim-text: #44567a;
+
+  /* 5.08:1 worst case, and a different hue from `--gold-text` so the two never merge.
+     The previous `#8a6a2f` was 3.78:1 on the rail. */
+  --attention: #8c4a1b;
+  /* 6.27:1 / 5.64:1 worst case. */
+  --danger: #8a2f28;
+  --success: #3a5c46;
+
+  --tint-weakest: rgba(12, 19, 34, 0.025);
+  --tint-weak: rgba(12, 19, 34, 0.045);
+  --tint-soft: rgba(12, 19, 34, 0.06);
+  --scrim: rgba(43, 37, 22, 0.38);
+  --shadow-weak: rgba(46, 40, 22, 0.16);
+  --shadow-soft: rgba(46, 40, 22, 0.25);
+  --shadow-strong: rgba(46, 40, 22, 0.32);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Several toggled elements below also declare their own `display` (flex, etc.), which at
+   equal specificity beats the UA stylesheet's `[hidden]{display:none}`. Force it. */
+[hidden] {
+  display: none !important;
+}
+
+/* =========================================================================================
+   THE TYPE SCALE — two floors, a default, and one knob that moves all of it.
+
+   CEO ruling §15 ("The type scale — two floors and a default"), given after measuring
+   round 10, which failed both:
+
+     * 1.125rem / 18px — the DEFAULT for Rich's main answer text (`.tl-prose`). It was 15.5px.
+     * 1rem / 16px     — the MINIMUM for any text meant to be EASILY READABLE. This is the
+                         tier almost everything lands in. `.tl-user-text` was 15.5px and he
+                         named it.
+     * 0.875rem / 14px — the MINIMUM for text that is unimportant or skippable but still
+                         meant to be read. Nothing readable sits below it.
+
+   PLACING A NODE AT 0.875rem IS A CLAIM THAT IT IS SKIPPABLE, so every such node is listed
+   in `round-10.1/index.html` for the CEO to overrule rather than discover. The claims this
+   file makes are: the ⌘K keycap and the two rail tallies; the popover's fine print; the
+   turn digest and the "Worked for 18s" fold line; Rich's speaker label; the jump-to-latest
+   pill; the voice footnote; search and picker meta lines; the chip qualifier; the feedback
+   timestamp; the correction desk's record address and its from→to pair; and the technical
+   view's machine trail, which is the one view built for skimming.
+
+   OUTSIDE THE RULE, and only these: pure glyph boxes (carets, ✕, ⋯, ▷, the thread marks
+   △ ? ⊘) which carry no text to read, and all-caps micro-labels at 0.6875rem / 11px — rail
+   group names, desk section titles, search result groups. That is the CEO's own stated
+   class. Contrast still binds all of them; none is ≥4.5:1 by accident.
+
+   EVERYTHING IS rem, WHICH IS THE POINT. `--app-font-scale` below multiplies the root font
+   size, so ⌘/Ctrl +/−/0 and the Text size row in the settings menu move the WHOLE interface
+   and not a subset of it. A single px font-size anywhere is a node that would silently
+   refuse to scale — the four glyph boxes that keep a px-free fixed size do so because their
+   containers are fixed chrome, and they carry no text.
+   ========================================================================================= */
+
+html {
+  /* The one knob. `--app-font-scale` is set on :root by the font control (main.js) from the
+     durable preference in config.rs; absent, it is 1 and this is exactly 16px. It is written
+     here rather than on `body` because `rem` resolves against the ROOT element and nothing
+     else. */
+  font-size: calc(16px * var(--app-font-scale, 1));
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Rail — recessive. A quiet index of topics Rich is tracking, never a channel list.
+--------------------------------------------------------------------------------------- */
+#rail {
+  /* UX §2.1 desktop shell: 300px default, 224px min, 420px max. Driven by the custom
+     property main.js sets from the DURABLE width (nav.rs), so a relaunch restores it. */
+  width: var(--rail-width, 300px);
+  min-width: 224px;
+  max-width: 420px;
+  flex-shrink: 0;
+  background: var(--paper-rail);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px 14px;
+  position: relative;
+}
+
+#rail-header {
+  padding: 4px 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rail-company {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+  letter-spacing: 0.01em;
+}
+
+#rail-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.rail-thread {
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 7px 10px;
+  border-radius: 4px;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-thread:hover {
+  color: var(--ink-soft);
+  background: var(--tint-weakest);
+}
+
+.rail-thread.is-active {
+  color: var(--ink);
+  font-weight: 600;
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.rail-quiet-action {
+  align-self: flex-start;
+  margin: 10px 2px 4px;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.rail-quiet-action:hover {
+  color: var(--ink-soft);
+}
+
+#rail-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px 2px;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  position: relative;
+}
+
+.rail-settings-btn {
+  order: 1;
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 1.0625rem;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.rail-settings-btn:hover {
+  background: var(--tint-weak);
+  color: var(--ink-soft);
+}
+
+/* THE FOOT OF THE RAIL — the CEO's identity, not Rich's (his correction to round 10.1).
+   A filled circle of initials, then the name. `assets/rich-hand.png` is still Rich's
+   avatar in the conversation, where it belongs; it is only this nameplate that changed
+   hands. */
+.rail-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px 2px 2px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font);
+  text-align: left;
+  cursor: default;
+}
+/* Only an offer when there is something to accept — see `.is-unset` below. */
+.rail-identity.is-unset {
+  cursor: pointer;
+}
+.rail-identity.is-unset:hover {
+  background: var(--tint-weak);
+}
+.rail-identity:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rail-initials {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* UNSET: an EMPTY circle, drawn as an outline rather than a filled disc, because a filled
+   gold disc with nothing in it reads as a rendering failure. No letters at all — inventing
+   two is exactly what the correction forbids, and "??" is a placeholder pretending to be a
+   value. */
+.rail-identity.is-unset .rail-initials {
+  background: none;
+  border: 1px dashed var(--line);
+  color: transparent;
+}
+
+.rail-user-name {
+  font-size: 1rem;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The unset label is a real sentence the CEO is meant to read and act on, so it is tier 1
+   and it is `--ink-faint` rather than a whisper: 5.51:1 dark, 4.85:1 light. */
+.rail-identity.is-unset .rail-user-name {
+  color: var(--ink-faint);
+}
+
+/* THE WORDMARK in the rail header, inked per theme (§15). Height in rem so the font
+   control scales it with the rest of the interface; the viewBox is 3299.1x754.5, so a
+   1.375rem height is ~96px wide at 100% and fits the 300px rail with room to spare. */
+.rail-wordmark {
+  height: 1.375rem;
+  width: auto;
+  display: block;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+/* THE PREFERENCES POPOVER IS 330px WIDE, WHICH IS THE ROUND-10.1 SPEC AND NOT A PREFERENCE.
+
+   It was 208px, which was right when its labels were 11.5-13px. At the CEO's 16px readable
+   floor (§15) every option and hint in it wrapped, and the popover grew from 489px tall to
+   678px — tall enough to cover the rail's thread list, so opening preferences hid the
+   threads and made them unclickable. `techy.js` check 9 is what caught it: it flips the
+   global switch and then opens another conversation, which is a perfectly ordinary thing to
+   do and had stopped being possible.
+
+   A narrow popover at a large type size is a tower. The round-10.1 mockups already answer
+   this — `#app-settings` is 330px there — so this is the spec's width, adopted, not a number
+   picked to make a test pass. `max-height` + internal scroll is the belt: a preference list
+   that grows again must scroll rather than silently eat the rail, and scrolling is expressly
+   fine (the standing ban is on PAGINATION, not on overflow). */
+.popover {
+  position: absolute;
+  bottom: 46px;
+  /* ANCHORED LEFT, not right, and that is the mockup's own choice (`#app-settings` is
+     `left:10px` there). At 330px in a 300px rail an right-anchored popover hangs 22px off
+     the LEFT EDGE OF THE WINDOW — the retention radios and the opening-screen switch ended
+     up at x = -22 and were unclickable, which `splash.js` check 11 and `retention.js`
+     checks 3-5 caught within a minute of the widening. Anchored left it overhangs the
+     STAGE instead, which is empty space it is already drawn above. */
+  left: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px var(--shadow-weak);
+  width: 330px;
+  max-width: calc(100vw - 32px);
+  /* Only clamps when the popover would otherwise run off the TOP of the window — it is
+     anchored 46px from the bottom, so this leaves it everything above that minus a margin.
+     A tighter cap was tried and was wrong: it forced an internal scroll at 800px tall, where
+     the popover fits perfectly well, and put the retention radios outside the viewport. A
+     max-height is a last resort against overflow, not a layout tool. */
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  z-index: 20;
+}
+
+/* The name field. Same vocabulary as the rest of the popover — a quiet inset, not a form. */
+.popover-input {
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-control);
+  border-radius: 6px;
+  background: var(--surface-sunk);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 1rem;
+}
+.popover-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.popover-title {
+  font-size: 1rem;
+  color: var(--ink-faint);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.popover-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Stage — the conversation is the hero.
+--------------------------------------------------------------------------------------- */
+#stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--paper);
+}
+
+#conversation {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* The flat `.turn` chat-bubble rendering that used to live here is GONE. It modelled the
+   conversation as alternating user/assistant strings, which §12 explicitly forbids
+   ("Do not model the conversation as alternating `user` and `assistant` strings. Use typed
+   items."). Its replacement is the `.tl-*` timeline at the bottom of this file. The
+   `working-ellipsis` indicator went with it: §6 replaced "Rich is working…" with an honest
+   duration row, and two simultaneous "he is busy" affordances is exactly the multiple-
+   spinner noise §17.4 forbids. */
+
+.drill-chip {
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.drill-chip:hover {
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------------------------------
+   Composer — spare: text field, talk toggle, send. Nothing else.
+--------------------------------------------------------------------------------------- */
+#composer-zone {
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+#composer-row {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 16px 28px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+#composer {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+#input {
+  flex: 1;
+  resize: none;
+  /* Indicator grade, not divider grade — see `--line-control`. This boundary is the only
+     thing telling the CEO where the composer is. */
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--ink);
+  max-height: 112px;
+  overflow-y: auto;
+}
+
+#input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#input::placeholder {
+  color: var(--ink-faint);
+}
+
+#talk-toggle,
+#stop,
+#send {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-control);
+  background: var(--surface);
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+#talk-toggle:hover,
+#send:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* §9.3's stop. A SQUARE, which is the one glyph that means "stop" without a word — and it
+   is drawn in `--danger` because the control is destructive of work in progress, not
+   because the app is in an error state. Nothing else in the composer is red, so it reads
+   as "this ends something" at a glance. */
+.stop-glyph {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--danger);
+}
+
+#stop:hover {
+  border-color: var(--danger);
+}
+
+/* §11 `stopping`: "Composer disabled briefly". The CONTROLS go quiet; the text field does
+   not, because taking the keyboard away mid-sentence loses whatever he was typing. */
+#stop:disabled,
+#composer-row[data-mode="stopping"] #send {
+  color: var(--ink-faint);
+  border-color: var(--line-soft);
+  cursor: not-allowed;
+}
+
+#talk-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-gold);
+}
+
+.talk-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
+.send-glyph {
+  font-size: 0.8125rem;
+  transform: translateX(1px);
+}
+
+/* Voice panel — inline, replaces the text field. Never a separate call screen. Shares the
+   same flex slot in #composer-row that #composer occupies, so the talk-toggle button
+   never moves and is never hidden by the mode switch. */
+#voice-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.voice-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.voice-dot--listening {
+  background: var(--accent);
+  animation: soft-pulse 1.6s infinite ease-in-out;
+}
+
+/* Still, not pulsing. The listening dot pulses to say "alive"; this dot is telling him
+   nothing is arriving, so it holds — an animated warning reads as an alarm. */
+.voice-dot--attention {
+  background: var(--attention);
+}
+
+.voice-dot--speaking {
+  background: var(--ink-soft);
+  /* The UX direction §4.1 wants TWO unmistakable states. A static dot next to a pulsing one reads as
+     "nothing is happening", so Rich speaking gets the same visual grammar at a calmer
+     tempo — the existing keyframe, slower. No new visual language. */
+  animation: soft-pulse 2.4s infinite ease-in-out;
+}
+
+.voice-label {
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+
+/* Silent input on an OPEN mic. Full ink, because it is the one line here he must actually
+   read and act on — the weight comes from contrast, not from size or color temperature. */
+.voice-label--attention {
+  color: var(--ink);
+}
+
+.voice-level {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 14px;
+  margin-left: 2px;
+}
+
+.voice-level i {
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+  /* The resting pulse is a placeholder for "voice mode is on". The moment REAL input levels
+     arrive (rich://voice-state), main.js sets `animation: none` and drives height/opacity
+     from the measured level — a meter that moves when nothing is being said would be the
+     same lie as a fake listening dot. The transition keeps the 10 Hz event rate from
+     reading as a stutter. */
+  animation: level-pulse 1.2s infinite ease-in-out;
+  transition:
+    height 90ms linear,
+    opacity 90ms linear;
+}
+
+.voice-level i:nth-child(1) {
+  height: 5px;
+}
+.voice-level i:nth-child(2) {
+  height: 10px;
+  animation-delay: 0.1s;
+}
+.voice-level i:nth-child(3) {
+  height: 14px;
+  animation-delay: 0.2s;
+}
+.voice-level i:nth-child(4) {
+  height: 8px;
+  animation-delay: 0.3s;
+}
+.voice-level i:nth-child(5) {
+  height: 6px;
+  animation-delay: 0.4s;
+}
+
+@keyframes level-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.voice-barge-in,
+.voice-retry {
+  font-size: 1rem;
+  color: var(--ink-faint);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.voice-barge-in:hover,
+.voice-retry:hover {
+  color: var(--ink-soft);
+  border-color: var(--ink-soft);
+}
+
+.voice-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.voice-footnote {
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  margin: 2px 0 0;
+}
+
+.voice-footnote-glyph {
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------------------
+   Slide-over — read-only, summoned, never resident.
+--------------------------------------------------------------------------------------- */
+#slideover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 30;
+}
+
+#slideover {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 320px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 20px;
+  box-shadow: -14px 0 32px var(--shadow-weak);
+}
+
+.slideover-head {
+  margin-bottom: 16px;
+}
+
+.slideover-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+#slideover-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.slide-item {
+  font-size: 1rem;
+  color: var(--ink-soft);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.slide-item--needs_you {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.slideover-close {
+  margin-top: 14px;
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 13px;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.slideover-close:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* =======================================================================================
+   ENTITY AND THREAD NAVIGATION (Codex-UX slice 4, 2026-08-29)
+
+   `docs/design/richos-codex-inspired-conversation-ux-2026-08-28.md` §3 (left navigation),
+   §17 (visual system), §18 (accessibility), §20 (responsive), §21 (empty/error states).
+
+   The calm paper palette above is the base and is not replaced — §17.1 asks for better
+   legibility, not generic developer-tool styling. The tokens below extend it with the two
+   values §17.1 names that the v1 palette had no equivalent for (a selected surface and a
+   danger color), and nothing else.
+   ======================================================================================= */
+
+:root {
+  --rail-width: 300px;
+  --bg-selected: var(--gold-soft);
+  --bg-hover: var(--tint-weak);
+  /* `--danger` and `--success` USED TO BE DEFINED HERE, as two theme-blind literals, and
+     they are now in the token layer at the top of this file with a value per theme. Left
+     as a note rather than deleted silently: a second `:root` that quietly defines colour
+     tokens is how `#8a4944` reached the midnight rail at 2.83:1 while the palette above
+     looked complete. */
+}
+
+/* ---- rail chrome --------------------------------------------------------------------- */
+
+#rail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px 10px;
+}
+
+.rail-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.rail-action:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.rail-kbd {
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 15px;
+}
+
+.rail-icon-btn {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.rail-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+#rail-header .rail-icon-btn {
+  margin-left: auto;
+}
+
+#rail-nav {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 8px;
+}
+
+/* ---- entity groups (§3.1) ------------------------------------------------------------- */
+
+.nav-group {
+  margin-bottom: 10px;
+}
+
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 0;
+}
+
+.nav-disclosure {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  line-height: 1;
+  width: 18px;
+  height: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: transform 0.16s ease; /* §17.4: chevron rotation is explicitly allowed */
+}
+
+.nav-disclosure.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.nav-group-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-group-label.is-selectable {
+  cursor: pointer;
+}
+
+.nav-group-label.is-selectable:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.nav-group-count {
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  padding: 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-group-add {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 0.875rem;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  /* §3.1: "a quiet plus control on hover or focus" — quiet, but never invisible to the
+     keyboard, so it appears on focus-within as well as hover. */
+  opacity: 0;
+}
+
+.nav-group-head:hover .nav-group-add,
+.nav-group-head:focus-within .nav-group-add {
+  opacity: 1;
+}
+
+.nav-group-add:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.nav-threads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ---- thread rows (§3.1) --------------------------------------------------------------- */
+
+.nav-thread-row {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  border-left: 2px solid transparent;
+}
+
+.nav-thread-row:hover {
+  background: var(--bg-hover);
+}
+
+/* §3.1: "shows selection with a tonal background and a leading accent". */
+.nav-thread-row.is-active {
+  background: var(--bg-selected);
+  border-left-color: var(--accent);
+}
+
+.nav-thread {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 4px 6px 8px;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.nav-thread-row:hover .nav-thread {
+  color: var(--ink-soft);
+}
+
+.nav-thread-row.is-active .nav-thread {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* §3.1: "truncates to one line with the full title in a tooltip". */
+.nav-thread-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-thread-entity {
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.nav-thread-more {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 0.875rem;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.nav-thread-row:hover .nav-thread-more,
+.nav-thread-row:focus-within .nav-thread-more {
+  opacity: 1;
+}
+
+.nav-thread-more:hover {
+  background: var(--tint-soft);
+  color: var(--ink);
+}
+
+.nav-show-more {
+  background: none;
+  border: none;
+  padding: 5px 10px;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.nav-show-more:hover {
+  color: var(--ink-soft);
+  background: var(--bg-hover);
+}
+
+/* ---- status marks (§3.2) --------------------------------------------------------------
+   Shape carries the meaning; color only reinforces it (§18: status must never rely on
+   color alone). Each mark also ships a word in the row's accessible label — see
+   `buildThreadRow` in main.js. */
+
+.nav-status {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  line-height: 1;
+  width: 12px;
+  text-align: center;
+  color: var(--ink-faint);
+}
+
+.nav-status--working {
+  color: var(--accent-text);
+  /* §17.4: "one subtle pulse for active work" — one element, one animation. */
+  animation: nav-pulse 1.8s ease-in-out infinite;
+}
+
+.nav-status--unseen {
+  color: var(--success);
+}
+
+.nav-status--failed,
+.nav-status--interrupted {
+  color: var(--danger);
+}
+
+.nav-status--unknown {
+  color: var(--attention);
+  font-weight: 700;
+}
+
+.nav-status--unbound {
+  color: var(--attention);
+}
+
+@keyframes nav-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* §17.4 / §18: "In reduced motion mode, replace pulses with a static active mark." */
+@media (prefers-reduced-motion: reduce) {
+  .nav-status--working {
+    animation: none;
+    opacity: 1;
+  }
+  .nav-disclosure {
+    transition: none;
+  }
+}
+
+.nav-group--unbound .nav-group-label,
+.nav-group--unbound .nav-group-count {
+  color: var(--attention);
+}
+
+/* ---- resizable divider (§2.1) --------------------------------------------------------- */
+
+#rail-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 15;
+  background: transparent;
+}
+
+#rail-resizer:hover,
+#rail-resizer:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+#rail-resizer:focus-visible {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ---- scope header (§4) ----------------------------------------------------------------- */
+
+#stage-header {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.scope-crumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 1rem;
+}
+
+.scope-entity {
+  color: var(--ink-soft);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scope-sep {
+  color: var(--ink-faint);
+}
+
+.scope-thread {
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- entity overview and binding-failure panes (§3.5, §21) ----------------------------- */
+
+.pane-view {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.pane-inner {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 56px 28px 32px;
+}
+
+.pane-title {
+  font-size: 1.375rem;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+
+.pane-line {
+  font-size: 1rem;
+  line-height: 1.62;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+
+.pane-note {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-faint);
+  margin: 20px 0 0;
+}
+
+.entity-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 0 0 24px;
+  font-size: 1rem;
+}
+
+.entity-facts dt {
+  color: var(--ink-faint);
+}
+
+.entity-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.entity-block {
+  margin-bottom: 24px;
+}
+
+.entity-block-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 6px;
+}
+
+.entity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.entity-list .nav-thread-row {
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.entity-list .nav-thread-item:last-child .nav-thread-row {
+  border-bottom: none;
+}
+
+#unbound-view .pane-title {
+  color: var(--ink);
+}
+
+/* ---- composer scope + blocked lines (§3.3, §21) ---------------------------------------- */
+
+.composer-scope,
+.composer-blocked {
+  max-width: 680px;
+  margin: 0 auto 6px;
+  padding: 0 28px;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.composer-scope {
+  color: var(--ink-faint);
+}
+
+.composer-blocked {
+  color: var(--attention);
+}
+
+#input:disabled {
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+/* DISABLED, AND STILL LEGIBLE. `opacity: 0.35` put the ▷ at 1.87:1 dark and 1.68:1 light.
+   WCAG does exempt inactive controls, and claiming that exemption here would have been
+   cheap and wrong: this is the send affordance on the CEO's composer, the control he looks
+   at to know whether his message will go, and "I could not read it" is the failure mode
+   the exemption exists to tolerate elsewhere, not here. The state is carried by the muted
+   ink, the absent hover and the cursor instead — 5.52:1 dark, 5.35:1 light. */
+#send:disabled {
+  color: var(--ink-faint);
+  border-color: var(--line-soft);
+  cursor: not-allowed;
+}
+
+.nav-status {
+  /* wide enough that a glyph is never clipped at the row's right edge */
+  min-width: 14px;
+}
+
+/* ---- overlays: search palette and entity picker (§3.3, §3.4) --------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.overlay-panel {
+  width: min(620px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px var(--shadow-soft);
+  overflow: hidden;
+  animation: overlay-in 0.16s ease-out;
+}
+
+.overlay-panel--compact {
+  width: min(420px, 92vw);
+  padding: 16px;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-panel {
+    animation: none;
+  }
+}
+
+.overlay-input {
+  width: 100%;
+  border: none;
+  /* The search field's ONLY boundary, so it is indicator grade — the same reasoning as
+     `#input`. A one-sided rule is still the thing that says "type here". */
+  border-bottom: 1px solid var(--line-control);
+  padding: 14px 16px;
+  font-family: inherit;
+  font-size: 1.0625rem;
+  color: var(--ink);
+  background: transparent;
+  outline: none;
+}
+
+.overlay-results {
+  max-height: 48vh;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.overlay-empty {
+  padding: 14px 16px;
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+
+.overlay-title {
+  font-size: 1.0625rem;
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+
+.result-group {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 8px 10px 4px;
+}
+
+.result-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.result-item.is-active,
+.result-item:hover {
+  background: var(--bg-selected);
+}
+
+.result-title {
+  display: block;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.result-meta {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  margin-top: 1px;
+}
+
+.result-excerpt {
+  display: block;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.picker-item:hover,
+.picker-item:focus-visible {
+  background: var(--bg-selected);
+  outline: none;
+}
+
+.picker-name {
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.picker-meta {
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+}
+
+/* ---- thread overflow menu (§3.1) ------------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 176px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px var(--shadow-soft);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-item {
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--bg-hover);
+  color: var(--ink);
+  outline: none;
+}
+
+/* ---- focus visibility (§18: "visible focus rings") ------------------------------------- */
+
+.rail-action:focus-visible,
+.rail-icon-btn:focus-visible,
+.nav-disclosure:focus-visible,
+.nav-group-label.is-selectable:focus-visible,
+.nav-group-add:focus-visible,
+.nav-thread:focus-visible,
+.nav-thread-more:focus-visible,
+.nav-show-more:focus-visible,
+.result-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+
+/* ---- responsive (§20) ------------------------------------------------------------------
+   1180px and wider: sidebar persistent, width directly adjustable.
+   820px to 1179px:  sidebar collapsible; the conversation keeps its width.
+   Below 820px:      one visible pane at a time; the sidebar is a full-height drawer.
+   --------------------------------------------------------------------------------------- */
+
+#rail-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 25;
+}
+
+body.bp-wide #rail-scrim,
+body.bp-mid #rail-scrim {
+  display: none !important;
+}
+
+body.rail-closed #rail {
+  display: none;
+}
+
+body.bp-narrow #rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 30;
+  width: min(86vw, 320px);
+  max-width: 86vw;
+  box-shadow: 0 0 40px var(--shadow-strong);
+}
+
+body.bp-narrow #rail-resizer {
+  display: none;
+}
+
+body.bp-narrow #messages,
+body.bp-narrow .pane-inner {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+/* §20: below 820px "user bubble may use up to 92 percent width". Kept on the
+   `bp-narrow` class as well as the media query at the bottom of this file, because
+   `applyBreakpoint()` in main.js sets that class from the same 820px threshold and the
+   rail drawer state depends on it. */
+body.bp-narrow .tl-user-bubble {
+  max-width: 92%;
+}
+
+/* =======================================================================================
+   THE CODEX-INSPIRED WORKING TIMELINE — UX brief §5, §6, §15, §17, §18, §20 (slice 5)
+
+   Extends the calm paper palette above; it does not replace it. §17.1 asks for better
+   legibility, not generic developer-tool styling, and §27 forbids importing Codex's visual
+   language — so what is copied here is the interaction grammar (a quiet CEO surface, an
+   honest duration divider, subdued semantic activity, a disclosure at the turn boundary),
+   never a look.
+   ======================================================================================= */
+
+:root {
+  /* §17.1's named tokens the v1 palette had no equivalent for. `--bg-user` is the whole
+     point of §0.1's first superseded decision: the CEO's message is a QUIET highlighted
+     surface, not a saturated consumer-chat bubble. 7.5% of the accent over paper. */
+  --bg-user: var(--gold-soft);
+  --radius-user: 14px;
+  --reading-width: 800px;
+}
+
+/* §18: a screen-reader-only heading on every message ("You said" / "Rich said"), and the
+   announcement region. Clipped, not `display:none` — hidden content is not announced. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* §2.1: reading column 800px, max 880, centered in the main pane. §17.3: 24–32px side
+   padding, 56px top padding below the sticky header, 28–36px between completed turns. */
+#messages {
+  max-width: var(--reading-width);
+  margin: 0 auto;
+  padding: 56px 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+#conversation:focus-visible {
+  outline: none;
+}
+
+.tl-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 14px; /* §17.3: 14–18px between items inside one active turn */
+}
+
+/* ---- §5.1 the CEO's message ------------------------------------------------------------
+   Right aligned, quiet highlighted surface, capped at 80% of the reading column or 620px
+   (whichever is smaller), moderate radius, visually LIGHTER than Rich's prose, no
+   speech-tail shape and no bright blue or green. */
+
+.tl-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.tl-user-bubble {
+  position: relative;
+  max-width: min(80%, 620px);
+  background: var(--bg-user);
+  border-radius: var(--radius-user);
+  padding: 11px 15px; /* §17.3: 10–12 vertical, 14–16 horizontal */
+}
+
+.tl-user-text {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-soft); /* lighter than Rich's --ink: §5.1's weight hierarchy */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* §5.1: "show the first 16 to 20 lines … end with a subtle fade or ellipsis". 18 lines at
+   1.6 line-height on 15.5px type = 18 x 24.8px = 446px. */
+.tl-user-bubble.is-clamped .tl-user-text {
+  max-height: 446px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 380px, transparent 446px);
+  mask-image: linear-gradient(to bottom, #000 380px, transparent 446px);
+}
+
+.tl-more {
+  display: block;
+  margin-top: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 1rem;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.tl-more:hover {
+  text-decoration: underline;
+}
+
+/* §5.1: "Place timestamp and message actions just beneath the bubble's lower-right edge.
+   Revealing them must not change the bubble width or move surrounding content." The row is
+   ALWAYS in the layout; only its opacity changes, so nothing ever reflows. */
+.tl-user-actions,
+.tl-rich-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 18px;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.tl-rich-actions {
+  justify-content: flex-start;
+}
+
+.tl-user:hover .tl-user-actions,
+.tl-user:focus-within .tl-user-actions,
+.tl-rich:hover .tl-rich-actions,
+.tl-rich:focus-within .tl-rich-actions {
+  opacity: 1;
+}
+
+/* §9.2: "Steering messages render as CEO bubbles with a small `Added while Rich was
+   working` cue." Always visible — see the note in timeline.js about why it is not in the
+   hover-revealed actions row. Right-aligned with the bubble it belongs to. */
+.tl-steer-cue {
+  margin: 4px 0 0;
+  font-size: 1rem;
+  line-height: 1.3;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+.tl-stamp {
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-mini-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.tl-mini-btn:hover {
+  color: var(--ink-soft);
+}
+
+/* Optimistic, not yet acknowledged by the spine. One notch of transparency and nothing
+   else — no spinner, no "sending…" label that would be a claim about delivery. */
+.tl-user.is-pending .tl-user-bubble {
+  opacity: 0.72;
+}
+
+/* ---- §5.2 / §5.4 Rich's prose -----------------------------------------------------------
+   ONE treatment for every run, because `phase` is unknown. See timeline.js's header before
+   adding a second. Left aligned, unboxed, in the main reading column. */
+
+.tl-rich {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-start;
+}
+
+.tl-rich-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.875rem; /* §17.2: metadata 12px */
+  color: var(--ink-faint);
+}
+
+.tl-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.tl-who {
+  font-weight: 600;
+}
+
+.tl-whisper {
+  font-style: italic;
+}
+
+.tl-prose {
+  font-size: 1.125rem; /* §17.2: body 15.5–16 */
+  line-height: 1.62; /* §17.2: 1.55–1.65 */
+  color: var(--ink);
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Tier-1/2 proactive: the slim accent edge — the ONLY "this is more urgent" signal, and the
+   ONE phase that is real. */
+.tl-rich--proactive {
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+  margin-left: -16px;
+}
+
+/* ---- §6 the working-duration row ---------------------------------------------------------
+   "The smallest feature with the largest trust effect." A divider, a label and — when there
+   is work to show — a disclosure. */
+
+.tl-duration {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 2px;
+}
+
+.tl-duration-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.tl-duration-btn--static {
+  cursor: default;
+}
+
+.tl-duration-btn:not(.tl-duration-btn--static):hover {
+  color: var(--ink);
+}
+
+.tl-duration-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* §6.2: "Use stable tabular numerals." Without this the row jitters horizontally every
+   second as 1 replaces 8. */
+.tl-duration-label {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
+}
+
+.tl-chevron {
+  display: inline-block;
+  width: 10px;
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+  transition: transform 0.16s ease; /* §17.4: chevron rotation is allowed */
+}
+
+/* §17.4: ONE subtle pulse for active work, and only one. Never bouncing dots across
+   several rows, never multiple simultaneous spinners. */
+.tl-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.55;
+  animation: tl-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes tl-breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.tl-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line);
+}
+
+/* Tone is carried by weight and by the words, never by color alone (§18). */
+.tl-duration[data-tone="done"] .tl-duration-label {
+  color: var(--ink-faint);
+}
+
+.tl-duration[data-tone="stopped"] .tl-duration-label {
+  color: var(--danger);
+}
+
+/* §6.1 "You stopped after {duration}". DELIBERATELY NOT `--danger`, and this is the whole
+   point of giving it its own tone rather than reusing `stopped`: the CEO pressing his own
+   button is not a fault, and painting his decision in the failure color would tell him
+   something went wrong every time he changed his mind. It reads like the completed row,
+   because it is the same kind of statement — a fact about a turn that ended. The word
+   "You" carries the attribution, not the color (§18: status never relies on color). */
+.tl-duration[data-tone="ceo-stopped"] .tl-duration-label {
+  color: var(--ink-faint);
+}
+
+.tl-duration[data-tone="unknown"] .tl-duration-label {
+  color: var(--attention);
+}
+
+/* ---- §5.3 work activity ------------------------------------------------------------------
+   Subdued text, small marks, one row per meaningful action cluster. No raw commands, no
+   stdout, no per-file noise — the CEO view was never handed those bytes. */
+
+.tl-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tl-activity {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 1rem; /* §17.2: activity 13–14px */
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.tl-activity-mark {
+  flex: 0 0 auto;
+  width: 12px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+}
+
+.tl-activity[data-state="failed"] .tl-activity-mark {
+  color: var(--danger);
+}
+
+.tl-activity[data-state="unknown"] .tl-activity-mark {
+  color: var(--attention);
+}
+
+.tl-activity[data-state="completed"] .tl-activity-mark {
+  color: var(--success);
+}
+
+/* §18: "Status must never rely on color alone." The two states that are not self-evident
+   from the verb are spelled out in words next to it. */
+.tl-activity-state {
+  font-size: 1rem;
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.tl-activity[data-state="unknown"] .tl-activity-state {
+  color: var(--attention);
+}
+
+/* §6.4: "The collapsed row shows a chevron and optionally one summary line." */
+.tl-collapsed-summary {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.tl-collapsed-summary:hover {
+  color: var(--ink-soft);
+}
+
+.tl-collapsed-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---- §5.5 system interventions -------------------------------------------------------------
+   A bounded card. It states what happened, what is preserved and what happens next — and it
+   never shows the reason, because `cognition io: broken pipe` is machinery, not an
+   explanation. */
+
+.tl-intervention {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  max-width: 620px;
+}
+
+.tl-intervention--quiet {
+  border-left-color: var(--attention);
+}
+
+.tl-intervention-body {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.tl-intervention-note {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+
+/* `.pane-action` is the §21 unbound screen's way out. Same object as an intervention
+   action — a quiet bordered control offering the one thing the CEO can do about a state he
+   did not cause — so it is the same rule rather than a second look for the same job. */
+.tl-intervention-action,
+.pane-action {
+  margin-top: 4px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 10px);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tl-intervention-action:hover,
+.pane-action:hover {
+  background: var(--bg-hover);
+}
+
+.tl-intervention-action:focus-visible,
+.pane-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- §15 jump to latest ---------------------------------------------------------------- */
+
+#jump-latest {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 96px;
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--shadow-weak);
+}
+
+#jump-latest:hover {
+  color: var(--ink);
+}
+
+#jump-latest:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#stage {
+  position: relative;
+}
+
+#drill-chip-zone {
+  max-width: var(--reading-width);
+  margin: 0 auto;
+  padding: 0 28px 6px;
+}
+
+
+/* ---- §7.1 delegated AI workers: the group line and its chips ----------------------------
+   The group sits inside the collapsible work lane (§6.4 lists worker lifecycle rows there),
+   so it is styled as a sibling of `.tl-activity` rather than as a card: a delegation is one
+   more thing Rich did, not an announcement.
+
+   Status is glyph + word, never color alone (§18). The tone attributes below adjust
+   WEIGHT and one muted hue; removing all color leaves the row fully readable. */
+
+.tl-workers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.tl-workers-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.tl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 22px; /* aligns under the head's text, past its glyph */
+}
+
+.tl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-control, 10px);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.tl-chip[role="group"] {
+  cursor: default;
+}
+
+.tl-chip:hover {
+  background: var(--bg-hover);
+}
+
+.tl-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tl-chip.is-selected {
+  background: var(--bg-selected);
+  border-color: var(--accent);
+}
+
+.tl-chip-name {
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+
+.tl-chip-sep {
+  color: var(--ink-faint);
+}
+
+.tl-chip-role,
+.tl-chip-state,
+.tl-chip-qualifier {
+  white-space: nowrap;
+}
+
+.tl-chip-state {
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+
+/* The honest caveat that rides with `Ended`. Deliberately the same subdued treatment the
+   activity lane gives "outcome not recorded" — one phrase, learned once.
+
+   THE `opacity: 0.85` IS GONE. `--ink-faint` is a token calibrated to sit exactly on the
+   4.5:1 floor with a little room; multiplying it by a second factor here took "outcome not
+   recorded" — a phrase that tells the CEO a run's result is UNKNOWN — to 3.83:1 dark and
+   3.26:1 light. Subduing a colour by stacking an opacity on top of a calibrated alpha is
+   how a token stops being calibrated, and it is invisible in review because the token still
+   looks right everywhere else. Subdued is the token's job; this rule just uses it. */
+.tl-chip-qualifier {
+  color: var(--ink-faint);
+  font-size: 0.875rem;
+}
+
+/* §7.1's four treatments, for the three states that can occur. */
+.tl-chip[data-state="starting"] .tl-chip-mark {
+  color: var(--ink-faint);
+}
+
+.tl-chip[data-state="active"] {
+  border-color: var(--gold);
+}
+
+.tl-chip[data-state="active"] .tl-chip-state {
+  color: var(--accent-text);
+}
+
+/* `Ended` is NOT a failure and must not borrow the danger color. It is the calmest
+   treatment on the row: the run is over and nothing is being claimed about it.
+
+   Calm is now carried by the BORDER rather than by `opacity`, which faded the chip's text
+   along with its chrome — `.tl-chip-sep` came out at 4.24:1 in light for no reason anyone
+   intended. An opacity on a container is a contrast change applied to every descendant,
+   including the ones that were already at the floor. */
+.tl-chip[data-state="ended"] {
+  border-color: var(--line-soft);
+}
+
+.tl-chip[data-state="unknown"] .tl-chip-state {
+  color: var(--attention);
+}
+
+.tl-chip-pulse {
+  margin-left: 2px;
+}
+
+/* ---- §17.4 / §18 reduced motion -----------------------------------------------------------
+   "Respect prefers-reduced-motion. In reduced motion mode, replace pulses with a static
+   active mark." The mark stays — it is the status — it simply stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  .tl-pulse {
+    animation: none;
+    opacity: 0.7;
+  }
+  .tl-chevron,
+  .tl-user-actions,
+  .tl-rich-actions,
+  .tl-chip {
+    transition: none;
+  }
+}
+
+/* ---- §20 responsive ------------------------------------------------------------------------ */
+
+/* 820px to 1179px: the conversation keeps at least 620px; the reading column stays fluid. */
+@media (max-width: 1179px) {
+  #messages {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+
+/* Below 820px: one visible pane at a time; "user bubble may use up to 92 percent width";
+   the composer respects safe areas. */
+@media (max-width: 819px) {
+  #messages {
+    padding: 40px 20px 20px;
+    gap: 26px;
+  }
+  .tl-user-bubble {
+    max-width: 92%;
+  }
+  .tl-intervention {
+    max-width: 100%;
+  }
+  #jump-latest {
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ---- §7.2 the worker inspector: a SIBLING PANE, never a modal --------------------------
+   §20 governs the three shapes:
+     1180px and wider  — docked beside the conversation, divider draggable, width durable.
+     820px to 1179px   — overlays from the right, "because two readable columns no longer
+                         fit"; the conversation keeps at least 620px underneath it.
+     below 820px       — a full-height sheet, one visible pane at a time.
+
+   `#app` is a flex row, so the docked case is just a third flex child. The overlay cases
+   take it out of flow entirely rather than squeezing the conversation below its floor. */
+
+:root {
+  --inspector-width: 336px;
+}
+
+#inspector {
+  width: var(--inspector-width, 336px);
+  min-width: 280px;
+  max-width: 520px;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-rail);
+  border-left: 1px solid var(--line);
+  z-index: 20;
+}
+
+#inspector-resizer {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 21;
+  background: transparent;
+}
+
+#inspector-resizer:hover,
+#inspector-resizer:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+#inspector-resizer:focus-visible {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+/* THE TOP-RIGHT LANE IS RESERVED, AND THIS IS WHY.
+
+   The settings button is `position: fixed` at top 18 / right 18 with z-index 300, because
+   §15 requires it above every overlay on every screen. The inspector is a right-edge pane
+   whose close button lived at exactly those coordinates — so the settings button was
+   sitting on top of it, and `✕` had become unclickable. The contrast gate is what found it:
+   check 11 reported `button#inspector-close` as obscured on every surface that reaches it
+   and measured on none, which is the gate saying "this element is behind something
+   everywhere" — a statement about the pixels that happens to also be a statement about the
+   pointer.
+
+   `--chrome-lane` is the footprint the fixed button claims: its 40px box, its 18px inset
+   and 8px of air. Any pane that reaches the top-right edge adds it, and nothing else has
+   to know the settings button exists. */
+:root {
+  --chrome-lane: 66px;
+}
+
+.inspector-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 4px 8px;
+  padding: 16px 14px 12px 18px;
+  padding-right: calc(14px + var(--chrome-lane));
+  border-bottom: 1px solid var(--line);
+}
+
+.inspector-eyebrow {
+  grid-column: 1;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.inspector-title {
+  grid-column: 1;
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.inspector-head .rail-icon-btn {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.inspector-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.insp-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.insp-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.insp-role {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+
+.insp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.insp-label {
+  margin: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.insp-state-line {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 1rem;
+}
+
+.insp-state-word {
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.insp-state-qualifier {
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+}
+
+.insp-state[data-state="active"] .insp-state-word {
+  color: var(--accent-text);
+}
+
+/* `Ended` is calm on purpose: nothing failed as far as anyone knows. No danger color. */
+.insp-state[data-state="ended"] .insp-state-word {
+  color: var(--ink-soft);
+}
+
+.insp-state-note,
+.insp-note {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.insp-update-text {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.insp-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.insp-disclosure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.insp-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 2px 0 0;
+  font-size: 1rem;
+}
+
+.insp-facts dt {
+  color: var(--ink-faint);
+}
+
+.insp-facts dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The place a number would have gone if one existed. Deliberately not styled as an error. */
+.insp-absent {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.insp-gap {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  font-size: 1rem;
+}
+
+#inspector-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 19;
+}
+
+/* 820px to 1179px: "inspector overlays from the right because two readable columns no
+   longer fit". The conversation underneath keeps its full width and its scroll position. */
+@media (max-width: 1179px) {
+  #inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(var(--inspector-width, 336px), 92vw);
+    box-shadow: 0 0 40px var(--shadow-strong);
+  }
+  #inspector-resizer {
+    display: none;
+  }
+}
+
+/* Below 820px: "one visible pane at a time; inspector becomes a full-height sheet". */
+@media (max-width: 819px) {
+  #inspector {
+    width: 100%;
+    max-width: 100%;
+    box-shadow: none;
+  }
+}
+
+/* =======================================================================================
+   THE CORRECTION DESK (§7 "ask, never infer")
+
+   The calm paper palette, unchanged. This surface asks the CEO to read exact bytes and
+   then say yes or no, so the only two things it adds are a monospace block for the
+   writer's own output and one attention color for a refusal — `--attention`, already in
+   the palette, never a red alert. A desk that shouted would be answered less often.
+   ======================================================================================= */
+
+.rail-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-gold);
+  font-size: 0.875rem;
+  line-height: 17px;
+  text-align: center;
+}
+
+.overlay-panel--desk {
+  width: min(760px, 94vw);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px 18px;
+}
+
+.desk-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.desk-head .overlay-title {
+  margin: 0;
+}
+
+.desk-notice {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: 1rem;
+  color: var(--ink);
+  /* The writer's refusal arrives as its own sentence on its own line. */
+  white-space: pre-line;
+}
+
+.desk-notice--attention {
+  border-color: var(--attention);
+  color: var(--attention);
+}
+
+/* ONE SCROLLING COLUMN. No pagination anywhere in this app — however many corrections are
+   waiting, they are all in here and the scrollbar is the only thing that moves. */
+.desk-body {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.desk-section + .desk-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+/* NO `text-transform: uppercase` ON EITHER OF THESE, and that is a testability decision
+   rather than a taste one. `lib/state-strings.js` derives the state inventory from the
+   SOURCE literal and `affordances.js` compares it against `innerText`, which in WebKit
+   returns the TRANSFORMED text — so an uppercased heading renders a string that exists
+   nowhere in the source and can never be classified. The rest of the app's eyebrow labels
+   (`.result-group`, `.entity-block-title`) are uppercased and get away with it only
+   because their text is dynamic. Weight, size and color carry the same hierarchy here. */
+.desk-section-title {
+  margin: 0 0 10px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-faint);
+}
+
+.desk-sub-title {
+  margin: 16px 0 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-faint);
+}
+
+.desk-unavailable,
+.desk-empty,
+.desk-broke-line {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.desk-unavailable {
+  color: var(--ink);
+}
+
+.desk-broke {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.desk-reason {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--attention);
+  line-height: 1.45;
+}
+
+.desk-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 13px 14px;
+}
+
+.desk-card + .desk-card {
+  margin-top: 12px;
+}
+
+.desk-card-target,
+.desk-card-pair,
+.desk-card-anchor {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+}
+
+.desk-card-prompt {
+  margin: 0 0 10px;
+  font-size: 1.0625rem;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.desk-label {
+  margin: 0 0 3px;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+
+.desk-card-quote {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--ink);
+  line-height: 1.5;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+/* The writer's own `--dry-run` bytes. Monospace and unwrapped-per-line because this is a
+   record file, not prose about one — what he approves here is what lands. */
+.desk-preview,
+.desk-record {
+  margin: 0 0 12px;
+  padding: 10px 11px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.desk-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.desk-btn {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.desk-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.desk-btn--confirm {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-gold);
+}
+
+.desk-btn--confirm:hover {
+  color: var(--on-gold);
+  opacity: 0.92;
+}
+
+.desk-btn--never:hover {
+  border-color: var(--attention);
+  color: var(--attention);
+}
+
+.desk-btn:focus-visible,
+#corrections-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.desk-suppressed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.desk-suppressed-id {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+/* =======================================================================================
+   THE FEEDBACK CHANNEL (`feedback.rs`) — the local half, made reachable
+   =======================================================================================
+   Deliberately built out of the correction desk's existing vocabulary (`.overlay-panel--desk`,
+   `.desk-section`, `.desk-btn`, `.desk-preview`, `.desk-empty`, `.desk-broke`). Two panels
+   that ask the CEO for an answer and show him exactly what would be recorded should not look
+   like two different products, and a second set of near-identical rules is where they would
+   start to drift. Only what this surface genuinely adds is below.
+
+   NO PAGINATION — `.desk-body` already scrolls as one column, however long the history gets. */
+
+/* The offer, and the disclosure heading above the report. Both are the backend's own
+   sentences and both are prose the CEO reads carefully rather than skims, so they get
+   reading measure and line-height rather than the compact metrics of a label. */
+.feedback-offer-text,
+.feedback-disclosure {
+  margin: 14px 0 10px;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink);
+  max-width: 62ch;
+}
+
+.feedback-disclosure {
+  color: var(--ink-soft);
+  font-size: 1rem;
+}
+
+/* One choice from the vocabulary. A `<fieldset>` per term type, because a group of radios
+   with no accessible group name is a list of unlabelled circles to anyone not looking at
+   the screen (§18). */
+.feedback-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+  margin: 0 0 12px;
+}
+
+.feedback-group-legend {
+  padding: 0 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/* The terms themselves. Whole-sentence labels wrap, so the control and its sentence are
+   aligned at the top rather than centered against a three-line block. */
+.feedback-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.feedback-option input {
+  margin: 3px 0 0;
+  flex: none;
+}
+
+.feedback-option input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* An answer already on this machine. */
+.feedback-entry {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.feedback-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.feedback-entry-key {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+
+.feedback-entry-note {
+  margin: 6px 0 0;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+/* THE REPORT IS NOT PUT IN A BOX HE HAS TO SCROLL. `.desk-preview` caps at 240px because a
+   loro record can be arbitrarily long and the CEO is checking a diff; here the whole point is
+   that he reads ALL of it before approving, and the first screenshot of this state caught the
+   last two lines below the fold of a nested scroller. It grows instead, and `.desk-body` — one
+   column, no pagination — is the only thing that scrolls. */
+#feedback-preview,
+.feedback-entry .desk-preview {
+  max-height: none;
+}
+
+/* A control that cannot be pressed yet is DISABLED and looks it, rather than being hidden:
+   "show me what you'd say" with nothing chosen would refuse in the backend, and a button
+   that appears and then refuses teaches him the surface is unreliable. */
+.desk-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.desk-btn:disabled:hover {
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------------------------------
+   TECHY MODE (techy-mode design §3.4) — the technical half of a work row.
+   Appended at the END so a parallel branch adding its own rules merges without touching a
+   line this one also touched.
+
+   §3.3's constraint is that the CALM DEFAULT is untouched, and it is: none of these rules
+   can match unless a row carries `detail`, which only `ViewMode::Technical` supplies. With
+   techy mode off, `.tl-tech` does not exist in the document.
+
+   The palette does not change. Techy mode is the SAME instrument showing more of itself,
+   not a developer console bolted to a calm app: same paper, same ink, same one accent, no
+   terminal green, no dark inversion. What changes is that the command is set in monospace,
+   because a command is a literal string whose characters have to be read exactly.
+--------------------------------------------------------------------------------------- */
+.tl-tech {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 1rem; /* §17.2: activity 13–14px — unchanged from .tl-activity */
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.tl-tech-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tl-tech-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* The command itself. Monospace, and WRAPPED rather than truncated: §2.4 already bounded
+   what is stored, and an ellipsis through the middle of a command hides exactly the part
+   the CEO opened this view to read. `break-all` is deliberate — a long path has no spaces
+   to break at, and overflowing the reading column would be worse. */
+.tl-tech-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.6875rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* An untyped vendor kind is ONE DIM LINE (§1.4 G5): it is an accounting update, not
+   something Rich did, and it must not read with the same weight as a command he ran. */
+.tl-tech[data-vendor] .tl-tech-title {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.tl-tech-chevron {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+}
+
+.tl-tech[data-state="failed"] .tl-activity-mark {
+  color: var(--danger);
+}
+
+.tl-tech[data-state="unknown"] .tl-activity-mark,
+.tl-tech[data-state="unknown"] .tl-activity-state {
+  color: var(--attention);
+}
+
+.tl-tech[data-state="completed"] .tl-activity-mark {
+  color: var(--success);
+}
+
+/* §2.4's normalized record: the bounded 84-char preview and the touched paths. These sit
+   under the head at ALL times, never behind the chevron — they are Tier A, they are never
+   evicted, and they are what still renders after the raw window has passed over the row. */
+.tl-tech-summary,
+.tl-tech-paths {
+  padding-left: 20px; /* aligns under the title, past the status glyph */
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+.tl-tech-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.tl-tech-path {
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+/* The raw pane (§5: "expands to the raw input and output"). Capped and scrollable: a single
+   Bash result is capped at 32 KB by §2.4, which is far more than fits on a screen, and
+   letting it push the conversation off the bottom would make the view unusable on the
+   turns that need it most. */
+.tl-tech-raw {
+  margin-left: 20px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--paper-rail);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The three sentences the raw pane can say, when it is saying something rather than
+   showing bytes. Not monospace — they are prose, and setting an explanation in a code face
+   is how "no longer retained" starts to read like output. */
+.tl-tech-raw[data-note] {
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-style: italic;
+  white-space: normal;
+}
+
+/* ---------------------------------------------------------------------------------------
+   THE STATE LINE — what the CEO is told when there is no machinery to show.
+
+   Four states, three sentences, and the whole point is that they are DIFFERENT sentences
+   (machinery_view.rs). It sits above the conversation rather than inside a turn: it is a
+   fact about the thread, not about any one thing Rich did.
+--------------------------------------------------------------------------------------- */
+#techy-state {
+  /* STICKY inside the scroller, deliberately. It is a fact about the whole thread, and the
+     conversation opens scrolled to the BOTTOM — a line pinned above the first turn would
+     be the one thing the CEO never sees, in exactly the two states (nothing recorded, and
+     could not be read) where he most needs to be told something. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 auto;
+  max-width: var(--reading-width);
+  padding: 12px 28px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* An unreadable store is not an empty one, and it must not look like one. The one
+   non-accent state color the palette allows, and the same one an `unknown` outcome uses. */
+#techy-state[data-state="unreadable"] {
+  border-bottom-color: var(--attention);
+  box-shadow: inset 2px 0 0 var(--attention);
+  color: var(--ink);
+}
+
+#techy-state .techy-reason {
+  display: block;
+  margin-top: 6px;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+/* The one affordance techy mode adds to the conversation surface, and it appears ONLY when
+   the mode is ON (§3.3: "No affordance in the conversation, at all, when off. A visible
+   affordance IS a change to the default experience."). It says which mode you are in and
+   turns it off; it is not a discovery hint. */
+#techy-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+#techy-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+#techy-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The Settings line (§3.3: "v1 access = a keyboard shortcut, plus one line in Settings").
+   Whether a customer-facing affordance ever appears in the conversation is §7.3 — the
+   CEO's, unanswered — and adding one later is a `hidden` attribute on #techy-chip's
+   sibling, not a rewrite. */
+.popover-divider {
+  height: 1px;
+  margin: 10px -12px;
+  background: var(--line);
+}
+
+.popover-hint {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+/* A note INSIDE the raw pane: today only the truncation notice, which sits under the prefix
+   it is about. A prefix that looks whole is worse than one that says it is not. */
+.tl-tech-note {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-family: var(--font);
+  font-size: 0.875rem;
+  font-style: italic;
+  color: var(--attention);
+  white-space: normal;
+}
+
+/* ---------------------------------------------------------------------------------------
+   BETWEEN TURNS (techy-mode design §1.5) — the lane for machinery that has no turn.
+
+   Same paper, same ink, same 13px as `.tl-tech`, because it is the same kind of
+   information. What separates it is POSITION and a heading, not a second visual language:
+   these records genuinely do not belong to any one exchange, and the section says so once
+   rather than each row apologising for itself.
+
+   It sits BELOW `#messages` — after the conversation, not inside it — for the reason the
+   markup gives: a between-turn record has no position in the conversation, and drawing one
+   inside the stream would claim a position nothing witnessed.
+
+   With techy mode off this section is hidden AND emptied by `renderBetweenTurns(null)`, so
+   §3.3's "byte-identical when off" holds by absence rather than by a display rule.
+--------------------------------------------------------------------------------------- */
+#between-turns {
+  margin: 0 auto;
+  max-width: var(--reading-width);
+  padding: 20px 28px 32px;
+  border-top: 1px solid var(--line);
+}
+
+#between-turns-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+#between-turns-lede {
+  margin: 4px 0 12px;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+#between-turns-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* No status word and no chevron on these rows — a session update has no lifecycle, and an
+   `outcome not recorded` label would invent one for something that never had an outcome. */
+.bt-row .tl-activity-state,
+.bt-row .tl-tech-chevron {
+  display: none;
+}
+
+#between-turns-quiet {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* =========================================================================================
+   THE UNIVERSAL SETTINGS BUTTON — PORTED, NOT DESIGNED.
+
+   CEO ruling §15: "The switch and the 'Bust a bug' button are PORTED, not designed. They
+   must work the same way in the RichOS app and in the upcoming website as they do in
+   deeply's settled design — copy the structural elements and adapt them to RichOS
+   branding."
+
+   SOURCE OF RECORD, located 2026-08-30 and confirmed by the CEO the same day ("Yes,
+   `design/design-system/settings-button.reference.html` sounds right"):
+   `~/ab/deeply/design/design-system/settings-button.reference.html`, itself copied verbatim
+   from deeply's locked `round-16-final-v2.0/01-landing/v1.html`. Its settled corpus is
+   `round-104-final-v3.0`, founder-ratified 2026-07-28.
+
+   WHAT WAS COPIED, unchanged: every structural element and every state. The 40px grid-box
+   button with its 20px sliders glyph (a slider pair, NOT a cog); the hover/focus tooltip
+   chip that never shows while the menu is open; the 12px-radius popup with 6px inner
+   padding and rows that carry their own; the pill-track `.theme-seg` with icon-only
+   `.theme-opt` segments driven by `aria-pressed`; the full-row `.bugbtn` action with its
+   leading icon; the rise animation; the outside-pointerdown and Escape dismissals; the
+   focus-return on close. The 32px `.settings.in-bar` constraint-fit form is kept as the
+   reference defines it.
+
+   WHAT WAS ADAPTED, and it is only these two things:
+     * PALETTE — deeply's `--teal`/`--gold`/`--card`/`--ink-2` become RichOS's `--gold`,
+       `--gold-text`, `--surface`, `--ink`. The reference branches on
+       `:root[data-theme="dark"]`; RichOS's DEFAULT is dark (§15), so the base rules here
+       are the dark ones and `:root[data-theme="light"]` carries the branch. Same structure,
+       inverted default — which is what "dark is the default" means in CSS.
+     * TYPOGRAPHY — `var(--font)`, and the component's label tier is `1rem` rather than the
+       reference's flat 14px, because RichOS's readable floor is 16px (§15) and `.set-name`,
+       `.bugbtn` and the tooltip are all text meant to be read. `.setbtn` and `.theme-opt`
+       keep an explicit px font-size for exactly the reason the reference documents it: a
+       `<button>` does not inherit font-size, and both are fixed-size grid boxes whose only
+       children are px-sized SVGs, so the value moves no geometry and scales no text.
+
+   ONE DEVIATION FROM THE REFERENCE, and it is a constraint fit the reference anticipates:
+   z-index is 300, not 100. RichOS's opening-screen curtain sits at 200 and this button's
+   floor is "Bust a bug" from EVERY screen (§15) — including the one a first-run user is
+   most likely to be stuck on. A button that the splash paints over would satisfy the letter
+   of "it is on every page" and none of its point.
+   ========================================================================================= */
+
+.settings {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 300;
+  font-family: var(--font);
+}
+
+.setbtn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  /* See the header: a button resets font-size, and this box has no text of its own. */
+  font-size: 14px;
+  font-family: var(--font);
+  background: var(--tint-gold);
+  color: var(--gold-text);
+  /* THE REFERENCE CARRIES NO BORDER, AND THIS ONE HAS TO. deeply's `.setbtn` leans on its
+     tint alone, which works against deeply's card and does not work here: on the RichOS
+     ground the tint computes 1.47:1 dark and 1:1 light against what surrounds it, and a
+     control's boundary is a non-text indicator that owes 3:1. It is the same
+     `--line-control` every other control in this file takes, so the adaptation is the
+     palette adaptation the ruling permits and not a redesign — the geometry, the states and
+     the behaviour are untouched. It matters more here than anywhere: this is the button
+     that is on EVERY screen, and on the opening screen it is the only control there is.
+
+     Its own token, `--chrome-edge`, and not `--line-control`, for one reason: this button
+     floats ABOVE the overlay scrim, so its boundary is measured against the scrim as well
+     as against every surface. In light mode `--line-control` (#767c8d) computes 2.18:1 on
+     the scrimmed ground — the one place a mid-grey border has nothing to be lighter or
+     darker THAN. `--chrome-edge` is struck away from that midpoint: 3.23:1 on the scrim,
+     7.02:1 on the plain ground. Nothing else needs this, because nothing else is
+     deliberately painted on top of a veil. */
+  border: 1px solid var(--chrome-edge);
+  transition: background 0.2s, color 0.2s;
+}
+.setbtn:hover {
+  background: var(--tint-gold-strong);
+}
+.setbtn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.setbtn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+/* The quiet tooltip chip. Never while the menu is open — the reference's rule, kept. */
+.setbtn::after {
+  content: "Settings";
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform: translateY(-2px);
+  background: var(--surface);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px -22px var(--shadow-strong);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+  padding: 4px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease 0.2s, transform 0.15s ease 0.2s;
+}
+.settings:not(.open) .setbtn:hover::after,
+.settings:not(.open) .setbtn:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.setmenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 264px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 24px 60px -30px var(--shadow-strong);
+  animation: setrise 0.2s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+.setmenu[hidden] {
+  display: none !important;
+}
+@keyframes setrise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setmenu {
+    animation: none;
+  }
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 6px 5px 10px;
+  min-height: 36px;
+}
+.set-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+/* The 3-way theme segment: tinted track, icon-only segments, filled highlight. */
+.theme-seg {
+  display: inline-flex;
+  align-items: center;
+  background: var(--tint-gold-weak);
+  border-radius: 999px;
+  padding: 2px;
+}
+.theme-opt {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 14px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.theme-opt svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.theme-opt:hover {
+  color: var(--gold-text);
+}
+.theme-opt:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+.theme-opt[aria-pressed="true"] {
+  background: var(--gold);
+  color: var(--on-gold);
+}
+
+/* The Text size row's stepper. Same pill-track vocabulary as `.theme-seg` — it is the same
+   kind of thing (a small set of discrete choices), so it is the same control, not a new
+   one. The reading is `.font-val`, tabular so stepping does not make the row twitch. */
+.font-seg {
+  display: inline-flex;
+  align-items: center;
+  background: var(--tint-gold-weak);
+  border-radius: 999px;
+  padding: 2px;
+}
+.font-opt {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  font-family: var(--font);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.font-opt:hover:not(:disabled) {
+  color: var(--gold-text);
+}
+.font-opt:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+/* An end of the range is stated by the control, not discovered by clicking into silence. */
+.font-opt:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.font-val {
+  min-width: 52px;
+  text-align: center;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+/* The techy row's switch. A checkbox styled as a track, so it is a real form control with
+   real keyboard behaviour and a real `:checked` state rather than a div pretending. */
+.set-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--tint-gold-weak);
+  border: 1px solid var(--line);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.set-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.25, 1), background 0.18s;
+}
+.set-switch:checked {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+.set-switch:checked::after {
+  transform: translateX(16px);
+  background: var(--on-gold);
+}
+.set-switch:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Row 2 of the reference: a full-row tappable ACTION, not a toggle. */
+.bugbtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.bugbtn:hover {
+  background: var(--tint-gold);
+  color: var(--gold-text);
+}
+.bugbtn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+.bugbtn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ink-faint);
+}
+.bugbtn:hover svg {
+  color: currentColor;
+}
+
+/* The reference's constraint-fit form, kept verbatim in intent: the wrapper stops being
+   fixed and becomes an in-flow child of a host bar; only SIZE scales. */
+.settings.in-bar {
+  position: relative;
+  top: auto;
+  right: auto;
+}
+.settings.in-bar .setbtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.settings.in-bar .setbtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 520px) {
+  .settings {
+    top: 5px;
+    right: 5px;
+  }
+}
+
+/* THE OPENING SCREEN'S FORM (§15's one permanent exception).
+
+   While the curtain is up the screen is always dark, so the theme row is not rendered at
+   all — `settings-button.js` omits it rather than disabling it, because a disabled control
+   is a promise that it will work later and this one never will, here. What remains is the
+   button and Bust a bug, which is precisely the floor the ruling names: "even if the user
+   can't change the light/dark mode, the very least that settings button always provides
+   (from every page and every screen) is a quick access to the 'Bust a bug' button."
+
+   The curtain itself is `pointer-events: none` for its whole life and stays that way. This
+   wrapper is a SIBLING of it, not a child, so the splash remains the non-interactive
+   composition it was designed as while the one control the ruling requires sits above it. */
+.settings[data-force-dark="true"] {
+  color-scheme: dark;
+}
+
+/* The toast Bust a bug raises. Ported from the round-10.1 mockups' own answer, which is the
+   only part of "what Bust a bug opens" this round specifies — the report flow itself is
+   explicitly not designed yet. */
+#bug-toast {
+  position: fixed;
+  top: 70px;
+  right: 18px;
+  z-index: 301;
+  max-width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--gold);
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+  box-shadow: 0 24px 60px -30px var(--shadow-strong);
+  animation: setrise 0.3s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+#bug-toast.is-leaving {
+  transition: opacity 0.4s ease;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  #bug-toast {
+    animation: none;
+  }
+}
