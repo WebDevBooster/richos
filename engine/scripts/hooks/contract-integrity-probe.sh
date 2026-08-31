@@ -76,8 +76,15 @@
 #   R. THE ROOT-RESOLUTION CONTRACT is present, hashed, sourced by every rooted
 #      hook with a byte-identical bootstrap, and engine-status.sh is registered
 #      on both registration surfaces. Runs in BOTH modes.
+#   AL. THE AGENT-LIVENESS RESOLVER (scripts/lib/agent-liveness.{py,sh} and the
+#      operator CLI) is present, hashed, and BEHAVING: a worktree locked by a
+#      running pid resolves ALIVE, an absent one NOT-ALIVE, and an unqueryable
+#      repository INDETERMINATE — the third verdict asserted because collapsing
+#      it is the confusion the 2026-08-31 incident was made of. Three callers
+#      take their whole answer from that file, one of which DELETES worktrees.
+#      Runs in BOTH modes.
 #
-# BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R), because the
+# BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R + AL), because the
 # guards are then registered in the plugin's hooks/hooks.json and this
 # repository's settings file legitimately never mentions them. See the
 # "BY-REFERENCE LAYER SET" banner below for what each BR layer asserts.
@@ -333,6 +340,7 @@ run_layer_R() {
     notice-unstarted-rows \
     notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
     notice-unasked-deferral \
+    guard-agent-state-claims \
     guard-idle-land"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
@@ -400,6 +408,108 @@ run_layer_R() {
 
     if [ "$R_OK" -eq 1 ]; then
         emit_pass "R. root-resolution contract present + hashed + sourced by all $R_ROOTED_COUNT rooted hooks with a byte-identical bootstrap; engine-status.sh registered on both surfaces"
+    fi
+}
+
+# run_layer_AL — Layer AL, the LIVENESS RESOLVER, as a function.
+#
+# Mode-independent, for run_layer_R's reason one step over. Three callers now
+# delegate the whole question "is this agent alive?" to
+# scripts/lib/agent-liveness.{py,sh}: remove-agent-worktree.sh, which DELETES a
+# worktree on the answer; guard-agent-state-claims.sh, which contradicts the
+# lead's report on the answer; and scripts/agent-liveness.sh, the call an
+# operator makes before saying anything about an agent's state.
+#
+# On 2026-08-31 the lead told the CEO a LIVE agent had completed, because he
+# read a stale roster instead of this answer. A tampered or reverted resolver
+# would make that stale reading the correct one in all three places at once —
+# and would look exactly like nothing had happened. install.sh mints sidecars
+# for these files; without this layer nothing ever compares them, which is
+# minting a key and never checking the lock.
+#
+# MEASURED, and the reason this layer exists rather than a line in install.sh:
+# BR4 covers REGISTERED GUARD SCRIPTS only, and Layers Q and S name their own
+# files. Appending a byte to scripts/lib/agent-liveness.py and re-running the
+# probe was GREEN before this function existed — the sidecar was being minted
+# and never read.
+run_layer_AL() {
+    AL_OK=1
+    AL_FILES="scripts/lib/agent-liveness.py scripts/lib/agent-liveness.sh scripts/agent-liveness.sh"
+    AL_MISSING=""
+    AL_UNHASHED=""
+    AL_MISMATCH=""
+    for f in $AL_FILES; do
+        af="$ENGINE_ROOT/$f"
+        if [ ! -f "$af" ]; then
+            AL_MISSING="$AL_MISSING $f"
+            continue
+        fi
+        al_live="$(sha256_of "$af" 2>/dev/null || true)"
+        al_want="$(manifest_hash_of "$af" 2>/dev/null || true)"
+        if [ -z "$al_want" ]; then
+            AL_UNHASHED="$AL_UNHASHED $f"
+        elif [ -n "$al_live" ] && [ "$al_live" != "$al_want" ]; then
+            AL_MISMATCH="$AL_MISMATCH $f"
+        fi
+    done
+
+    if [ -n "$AL_MISSING" ]; then
+        emit_fail "AL. the agent-liveness resolver is MISSING:$AL_MISSING. remove-agent-worktree.sh, guard-agent-state-claims.sh and scripts/agent-liveness.sh all decide nothing themselves — without it the removal helper refuses every removal and the claim check stops running."
+        AL_OK=0
+    fi
+    if [ -n "$AL_UNHASHED" ]; then
+        emit_fail "AL. agent-liveness resolver unhashed:$AL_UNHASHED (.sha256 sidecar missing) — run scripts/hooks/install.sh to regenerate."
+        AL_OK=0
+    fi
+    if [ -n "$AL_MISMATCH" ]; then
+        emit_fail "AL. agent-liveness resolver MODIFIED since install:$AL_MISMATCH. Three callers take their answer from this file, including the one that deletes worktrees — review the change, then re-run scripts/hooks/install.sh."
+        AL_OK=0
+    fi
+
+    # FUNCTIONAL CANARY. A resolver gutted to "always NOT-ALIVE" passes every
+    # hash check above and turns the removal helper into a shredder. So the
+    # shipped file is asked three questions with known answers, in a throwaway
+    # repo whose worktree is locked by a pid this probe knows is running: its
+    # own. All three verdicts are asserted, because a resolver that only ever
+    # says one of them is broken in a way that no single question reveals.
+    if [ "$AL_OK" -eq 1 ] && command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+        AL_SB="$(mktemp -d 2>/dev/null || true)"
+        if [ -n "$AL_SB" ] && [ -d "$AL_SB" ]; then
+            AL_SB="$(cd "$AL_SB" && pwd -P)"
+            AL_E="$AL_SB/e"
+            mkdir -p "$AL_E" "$AL_SB/nohooks"
+            git -C "$AL_E" init -q -b main . >/dev/null 2>&1
+            git -C "$AL_E" config user.email p@p.p >/dev/null 2>&1
+            git -C "$AL_E" config user.name p >/dev/null 2>&1
+            git -C "$AL_E" config core.hooksPath "$AL_SB/nohooks" >/dev/null 2>&1
+            echo s > "$AL_E/s.txt"
+            git -C "$AL_E" add -A >/dev/null 2>&1
+            git -C "$AL_E" commit -qm s >/dev/null 2>&1
+            AL_WT="$AL_E/.claude/worktrees/agent-aprobe0000000001"
+            git -C "$AL_E" worktree add -q -b wt-probe "$AL_WT" >/dev/null 2>&1
+            git -C "$AL_E" worktree lock --reason "claude agent agent-aprobe0000000001 (pid $$ start now)" "$AL_WT" >/dev/null 2>&1
+            AL_PY="$ENGINE_ROOT/scripts/lib/agent-liveness.py"
+            AL_V_LIVE="$(python3 "$AL_PY" --entity "$AL_E" --owner aprobe0000000001 --format triple 2>/dev/null | cut -f1)"
+            AL_V_GONE="$(python3 "$AL_PY" --entity "$AL_E" --owner anevereverexisted1 --format triple 2>/dev/null | cut -f1)"
+            AL_V_IND="$(python3 "$AL_PY" --entity "$AL_SB/not-a-repo" --owner aprobe0000000001 --format triple 2>/dev/null | cut -f1)"
+            rm -rf "$AL_SB"
+            if [ "$AL_V_LIVE" != "ALIVE" ]; then
+                emit_fail "AL. FUNCTIONAL CANARY: a worktree locked by a RUNNING pid resolved '$AL_V_LIVE', not ALIVE. The resolver is gutted — remove-agent-worktree.sh would now delete a live teammate's workspace, and no claim about an agent's state is being checked against anything."
+                AL_OK=0
+            elif [ "$AL_V_GONE" != "NOT-ALIVE" ]; then
+                emit_fail "AL. FUNCTIONAL CANARY: an unregistered worktree resolved '$AL_V_GONE', not NOT-ALIVE. A resolver that never says NOT-ALIVE refuses every removal, and an operator who cannot remove anything reaches for the ack override."
+                AL_OK=0
+            elif [ "$AL_V_IND" != "INDETERMINATE" ]; then
+                emit_fail "AL. FUNCTIONAL CANARY: an unqueryable repository resolved '$AL_V_IND', not INDETERMINATE. The third outcome has been collapsed, so 'I could not tell' is now indistinguishable from an answer — which is the confusion the 2026-08-31 incident was made of."
+                AL_OK=0
+            else
+                emit_pass "AL. agent-liveness resolver present, hashed and behaving: a live lock -> ALIVE, an absent worktree -> NOT-ALIVE, an unqueryable repo -> INDETERMINATE (never collapsed)"
+            fi
+        else
+            emit_warn "AL. FUNCTIONAL CANARY DID NOT RUN — no sandbox directory (mktemp). Presence and hashes are verified; BEHAVIOR IS NOT, so a gutted resolver would not be caught by this run."
+        fi
+    elif [ "$AL_OK" -eq 1 ]; then
+        emit_warn "AL. FUNCTIONAL CANARY DID NOT RUN — git or python3 unavailable. Presence and hashes are verified; BEHAVIOR IS NOT."
     fi
 }
 
@@ -548,6 +658,7 @@ notice-inflight-acks.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop
+guard-agent-state-claims.sh|Stop
 guard-idle-land.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
@@ -1251,6 +1362,7 @@ PY
     # Layer R is the one mode-independent check: the root-resolution contract
     # is what makes a by-reference engine possible at all.
     run_layer_R
+    run_layer_AL
 
     if [ "$FAIL" -gt 0 ]; then
         cat >&2 <<'BREOF'
@@ -2490,6 +2602,7 @@ elif [ "$S_OK" -eq 1 ]; then
 fi
 
 run_layer_R
+run_layer_AL
 
 if [ "$FAIL" -gt 0 ]; then
     cat >&2 <<EOF

@@ -331,6 +331,20 @@ HOOK_FILES+=(
     # exactly what a healthy engine also looks like. Checking the lock and
     # ignoring the key, one more time.
     "$REPO_ROOT/scripts/lib/stop-hook-notice.sh"
+    # The LIVENESS RESOLVER, in both its halves, plus its operator CLI. Not
+    # hooks, and hashed for remove-agent-worktree.sh's reason turned up one
+    # notch: THREE callers now delegate the entire question "is this agent
+    # alive?" to these files — the removal helper (which deletes worktrees on
+    # the answer), guard-agent-state-claims.sh (which contradicts the lead's
+    # report on the answer), and the CLI an operator runs before saying
+    # anything about an agent's state. On 2026-08-31 the lead told the CEO a
+    # live agent had completed because he read a stale roster instead of this
+    # answer; a tampered or reverted resolver would make the stale reading the
+    # CORRECT one everywhere at once, and it would look like nothing happened.
+    # Check the lock, ignore the key — for the third time, and the widest.
+    "$REPO_ROOT/scripts/lib/agent-liveness.py"
+    "$REPO_ROOT/scripts/lib/agent-liveness.sh"
+    "$REPO_ROOT/scripts/agent-liveness.sh"
     # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
     # and compared by the guard, so this file is not documentation — it is part
     # of the decision. Edit a question and every transcript on file stops
