@@ -257,6 +257,122 @@ async function main() {
     return `acme scrollable by ${parked.bottom}px, parked at ${parked.top}, restored to ${restored}; partner still at its own bottom (${partnerTop.top})`;
   });
 
+  // ---- and all of that now survives a CRASH, which it did not before 2026-08-31 --------
+  //
+  // The two checks above prove the maps survive a thread SWITCH, which is all §3.1 asked
+  // of them. The CEO's splash ruling added a second requirement in its own right — "a
+  // crash-restart returns the user to exactly where they were" — and the maps were
+  // `new Map()`, so they died with the process. These two close that.
+
+  await run.check("CRASH: the sentence he was typing and the place he was reading survive the process", async () => {
+    // A SHARED CONTEXT, because that is what makes two pages the same install: one origin,
+    // one local store. `openApp` uses `browser.newPage()`, which gives each page its own
+    // context and therefore its own storage — right for every other check here, and exactly
+    // wrong for this one.
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
+    const before = await ctx.newPage();
+    await before.goto(APP);
+    await before.waitForSelector(".nav-thread", { state: "attached" });
+    await open(before, "acme");
+    const sentence = "our walk-away number on Acme is";
+    await before.fill("#input", sentence);
+    const parked = await before.evaluate(() => {
+      const c = document.getElementById("conversation");
+      c.scrollTop = 0;
+      c.dispatchEvent(new Event("scroll"));
+      return { top: c.scrollTop, bottom: c.scrollHeight - c.clientHeight };
+    });
+    assert(
+      parked.bottom > 48,
+      "VACUITY: this thread is not scrollable, so 'position survived' would pass trivially " + JSON.stringify(parked)
+    );
+    assert(parked.top !== parked.bottom, "VACUITY: parked at the bottom, where a fresh thread already lands");
+
+    // NOTHING RUNS ON THE WAY OUT, and that is the point rather than an aside. The first
+    // page is not closed, not navigated and not asked to tidy up — it is simply still there
+    // while a second one opens on the same store. So whatever the second page finds was
+    // written WHILE HE TYPED, which is the only kind of write a crash cannot skip.
+    await before.waitForTimeout(700); // > PARK_DEBOUNCE_MS
+
+    const after = await ctx.newPage();
+    await after.goto(APP);
+    await after.waitForSelector(".nav-thread", { state: "attached" });
+    await open(after, "acme");
+    await settle(after);
+    const restored = await after.evaluate(() => ({
+      draft: document.getElementById("input").value,
+      top: document.getElementById("conversation").scrollTop,
+    }));
+    assertEqual(restored.draft, sentence, "the half-written sentence did not survive");
+    assertEqual(restored.top, parked.top, "he came back at a different place in the conversation");
+
+    // The positive probe for the containment half: a thread he never touched is NOT given
+    // his draft. A single shared key would restore it into everything.
+    await open(after, "partner");
+    const foreign = await after.inputValue("#input");
+    assertEqual(foreign, "", "the restored draft leaked into another entity's composer");
+
+    await ctx.close();
+    return (
+      'draft "' + sentence + '" and scrollTop ' + parked.top + " of " + parked.bottom +
+      " both survived, restored into acme only, with nothing run on the way out"
+    );
+  });
+
+  await run.check("CRASH: nothing runs on the way out, and a sent sentence never comes back", async () => {
+    // THE FIRST HALF IS THE ARGUMENT the check above rests on, made against the source
+    // rather than inferred: if `main.js` ever grows an exit handler, "it survived a crash"
+    // quietly becomes "it survived a tidy shutdown", and the check above would keep passing.
+    //
+    // REGISTRATIONS, not mentions. The first version of this check matched the words and
+    // failed on `main.js`'s own comment explaining why there is no `beforeunload` — and on
+    // `visibilitychange`, which is a legitimate listener that recomputes the turn timers
+    // when the window comes back and has nothing to do with leaving. Matching the call site
+    // is the difference between a check and a word filter.
+    const src = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
+    const exitHooks = ["beforeunload", "pagehide", "unload"];
+    const registered = exitHooks.filter(
+      (h) => src.includes('addEventListener("' + h + '"') || src.includes("addEventListener('" + h + "'")
+    );
+    assertEqual(
+      registered,
+      [],
+      "main.js registers an exit handler — the crash guarantee above now rests on something a crash would skip"
+    );
+    // Guard the guard: the matcher must be able to see a registration at all, or it is a
+    // check that cannot fail. `visibilitychange` IS registered, and is not an exit hook.
+    assert(
+      src.includes('addEventListener("visibilitychange"'),
+      "the registration matcher found no listener of any kind — it is looking at the wrong shape"
+    );
+    // ...and the writes really are continuous, not one save someone put in `openThread`.
+    assert(src.includes("parkViewStateSoon();"), "nothing parks the view state as he types");
+
+    // THE SECOND HALF is the one restore that would be worse than none. Words he has
+    // already sent must not be handed back to him by a crash as though unsent.
+    const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
+    const before = await ctx.newPage();
+    await before.goto(APP);
+    await before.waitForSelector(".nav-thread", { state: "attached" });
+    await open(before, "acme");
+    await before.fill("#input", "half of a thought");
+    await before.waitForTimeout(700);
+    await before.fill("#input", "send this one");
+    await before.click("#send");
+    await before.waitForTimeout(700);
+    const boxAfterSend = await before.inputValue("#input");
+    assertEqual(boxAfterSend, "", "the composer kept the sent words");
+
+    const after = await ctx.newPage();
+    await after.goto(APP);
+    await after.waitForSelector(".nav-thread", { state: "attached" });
+    await open(after, "acme");
+    const restored = await after.inputValue("#input");
+    assertEqual(restored, "", "a sentence he had already sent came back into his composer");
+    await ctx.close();
+    return "no exit handler in main.js; a parked draft that was then SENT does not return";
+  });
+
   // =====================================================================================
   // 2. SCOPE — §25 Integrity, through the whole shell
   // =====================================================================================

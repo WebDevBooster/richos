@@ -36,6 +36,7 @@ const CSS_FILE = path.join(UI_DIR, "splash.css");
 const MAIN_JS = path.join(UI_DIR, "main.js");
 const MAIN_RS = path.resolve(UI_DIR, "..", "src-tauri", "src", "main.rs");
 const CONFIG_RS = path.resolve(UI_DIR, "..", "crates", "richos-core", "src", "config.rs");
+const LAUNCH_RS = path.resolve(UI_DIR, "..", "crates", "richos-core", "src", "launch.rs");
 const SHOTS = path.join(__dirname, "shots-splash");
 
 /// WHERE THE STUDIES LIVE, and why this is a lookup rather than a path. The round-8.1
@@ -1065,6 +1066,129 @@ async function main() {
     await cmp.close();
     return `${made.length} pairs — each the whole mat at half scale over the same corner at native scale` +
       (haveStudies ? " — shipping renderer LEFT, the study each entry NAMES right" : " — SHIPPING SIDE ONLY: no study repository at " + HQ);
+  });
+
+  // ---- WHICH LAUNCHES GET A CEREMONY (CEO ruling, 2026-08-31) --------------------------
+
+  await run.check("19  a fresh launch draws; a crash-restart and a second window do not", async () => {
+    // THE RULING, DRIVEN. "The splash screen is only for when the user starts the app fresh
+    // (after quitting." A crash-restart shows nothing — the app just died in front of him
+    // and a ceremony would be the wrong instrument at the worst moment — and a second window
+    // begins nothing at all.
+    //
+    // The verdict is injected the way the SHELL injects it: `window.__RICHOS_LAUNCH__`,
+    // frozen, before any of the page's own scripts. `addInitScript` runs at exactly the
+    // same point `WebviewWindowBuilder::initialization_script` does, which is the whole
+    // reason `tauri.conf.json` carries `"create": false`.
+    const seen = [];
+    for (const kind of ["fresh", "crash-restart", "second-window"]) {
+      const page = await launch(browser, {
+        hold: true,
+        init: (k) => {
+          window.__RICHOS_LAUNCH__ = Object.freeze({ kind: k });
+        },
+        initArg: kind,
+      });
+      const r = await splashState(page);
+      seen.push({ kind, present: r.present, reported: r.state.kind, declined: r.state.declined });
+      if (kind === "fresh") {
+        assert(r.present, "a fresh launch drew nothing");
+        assert(r.state.shown, "a fresh launch reports shown=false");
+        assertEqual(r.state.declined, null, "a fresh launch declined");
+      } else {
+        assert(!r.present, kind + " drew a splash");
+        assert(!r.state.shown, kind + " reports shown=true");
+        assert(
+          typeof r.state.declined === "string" && r.state.declined.includes(kind),
+          kind + " did not say why it declined: " + r.state.declined
+        );
+      }
+      assertEqual(r.state.kind, kind, "the surface misreports the kind it was told");
+      await page.__ctx.close();
+    }
+    return seen
+      .map((x) => x.kind + ": " + (x.present ? "SPLASH" : "no splash — " + x.declined))
+      .join(" · ");
+  });
+
+  await run.check("20  absent means fresh, and the wire strings are one set, not two", async () => {
+    // ABSENT MEANS FRESH is the same rule the off switch already follows, and it is what
+    // keeps `index.html` opened straight off disk, a webview the shell could not inject
+    // into, and this harness working. The opposite default would let a shell bug silently
+    // delete the feature and nobody would see a thing.
+    const page = await launch(browser, { hold: true });
+    const bare = await splashState(page);
+    assert(bare.present && bare.state.shown, "an uninjected launch drew nothing");
+    assertEqual(bare.state.kind, "fresh", "an uninjected launch is not reported as fresh");
+    // A nonsense verdict is NOT fresh: absent is an absent opinion, but a stated one that
+    // this build does not recognise is a stated opinion and must not be read as consent.
+    const odd = await launch(browser, {
+      hold: true,
+      init: () => {
+        window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "resumed-from-sleep" });
+      },
+    });
+    const oddState = await splashState(odd);
+    assert(!oddState.present, "an unrecognised kind drew a splash");
+    await odd.__ctx.close();
+
+    // AND THE TWO SIDES SPELL IT THE SAME WAY. `splash.js` compares against its own
+    // constant and `launch.rs` writes the string the shell injects; if those drift by one
+    // character every launch reads as unrecognised and the splash silently never appears
+    // again. Both are read off disk here rather than typed a third time.
+    const fresh = await page.evaluate(() => window.RichSplash.KIND_FRESH);
+    const rs = fs.readFileSync(LAUNCH_RS, "utf8");
+    const wire = (rs.match(/LaunchKind::\w+ => "([a-z-]+)"/g) || []).map((m) => m.match(/"([a-z-]+)"/)[1]);
+    assertEqual(wire, ["fresh", "crash-restart", "second-window"], "launch.rs's wire strings");
+    assert(wire.includes(fresh), "splash.js's KIND_FRESH (" + fresh + ") is not one of launch.rs's kinds");
+    assertEqual(fresh, "fresh", "the kind that draws");
+    await page.__ctx.close();
+    return "absent → fresh (drew) · unrecognised → no splash · wire set " + wire.join("/") + " shared by both sides";
+  });
+
+  await run.check("21  what was ON SCREEN reaches the recency ring, with his LOCAL calendar", async () => {
+    // The record's two live wires, driven end to end through the real bridge.
+    //
+    // THE RING TAKES `state.variationId`, which is set where the node is inserted — so it
+    // holds what was drawn, not what was chosen. `splash.js` has three paths that choose an
+    // entry and then decline to render it, and all three must leave the ring untouched.
+    const page = await launch(browser, { hold: true, force: "round-8.1/v3" });
+    await page.waitForFunction("window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__.launchCalls().stateReads.length > 0");
+    const drew = await page.evaluate(() => ({
+      calls: window.__RICHOS_MOCK__.launchCalls(),
+      shownId: window.RichSplash.state.variationId,
+      // The offset the browser itself would compute, derived here independently of main.js.
+      expectedOffset: -new Date().getTimezoneOffset(),
+    }));
+    assertEqual(drew.calls.splashShown, [drew.shownId], "the ring was not fed the id that was drawn");
+    assertEqual(drew.shownId, "round-8.1/v3", "the forced entry is the one recorded");
+    assertEqual(drew.calls.stateReads.length, 1, "the record was read once at boot");
+    // STORE UTC, BUCKET LOCAL. The offset handed to Rust is offset-from-UTC-positive-east,
+    // which is the NEGATION of getTimezoneOffset(). A missing minus sign puts every bucket
+    // boundary up to fourteen hours out and nothing looks broken.
+    assertEqual(
+      drew.calls.stateReads[0].utcOffsetMinutes,
+      drew.expectedOffset,
+      "the offset handed to the record is not this machine's local offset, negated"
+    );
+    await page.__ctx.close();
+
+    // AND A LAUNCH THAT DREW NOTHING FEEDS THE RING NOTHING — the crash-restart case, which
+    // is the whole reason the ring is fed from `shown` rather than from the draw.
+    const quiet = await launch(browser, {
+      hold: true,
+      init: () => {
+        window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "crash-restart" });
+      },
+    });
+    await quiet.waitForFunction("window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__.launchCalls().stateReads.length > 0");
+    const quietCalls = await quiet.evaluate(() => window.__RICHOS_MOCK__.launchCalls());
+    assertEqual(quietCalls.splashShown, [], "a crash-restart pushed something onto the ring");
+    await quiet.__ctx.close();
+    return (
+      "fresh: ring ← " + drew.shownId + ", offset " + drew.calls.stateReads[0].utcOffsetMinutes +
+      " min from UTC · crash-restart: ring ← nothing, record still read once"
+    );
   });
 
   await browser.close();

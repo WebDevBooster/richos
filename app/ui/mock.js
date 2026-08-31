@@ -1029,6 +1029,25 @@
     return write && (write.recordRef || write.record_ref) ? write.recordRef || write.record_ref : null;
   }
 
+  // ---- the launch record, RECORDED and never reimplemented -----------------------------
+  //
+  // The shell's two launch commands are answered here so the browser suite can prove the
+  // whole path — the id that was drawn reaching the recency ring, and the LOCAL offset
+  // reaching the buckets. What this deliberately does NOT do is bucket anything: a second
+  // implementation of "today / this week / this month" living in the mock is a second thing
+  // that can disagree with `launch.rs`, and the arithmetic is already proven there over all
+  // 292,194 days from 1600 to 2400. So the mock records the calls and returns a fixed
+  // record; the numbers are Rust's job.
+  const launchCalls = { splashShown: [], stateReads: [] };
+  const LAUNCH_STATE = {
+    kind: "fresh",
+    counts: { today: 1, thisWeek: 3, thisMonth: 12, thisYear: 47, total: 47 },
+    installedAt: 1788166800000,
+    recentSplashes: [],
+    readable: true,
+    schemaVersion: 1,
+  };
+
   window.RichBridge = {
     isMock: true,
 
@@ -1591,6 +1610,13 @@
             shown: e.report.decision === "approved" ? feedbackRender(e.report.report) : null,
           }));
         }
+
+        case "launch_state":
+          launchCalls.stateReads.push(args);
+          return { ...LAUNCH_STATE, recentSplashes: launchCalls.splashShown.slice().reverse().slice(0, 5) };
+        case "launch_note_splash_shown":
+          launchCalls.splashShown.push(args.id);
+          return null;
 
         default:
           // Unwired-yet commands (voice capture, worker status, assertiveness persistence)
@@ -2164,6 +2190,10 @@
 
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
+    /// Every `launch_state` read and every splash id handed to the recency ring, in order.
+    /// The suite asserts against these rather than against a re-derived count — see the
+    /// note over `launchCalls`.
+    launchCalls() { return { splashShown: launchCalls.splashShown.slice(), stateReads: launchCalls.stateReads.slice() }; },
     // ---- techy mode, driven the way the CEO drives it and the way the OS breaks it -----
     /// Make one thread's machinery unreadable — a real `chmod 000` in the product, a set
     /// membership here. The point of the control is that "unreadable" must never be served
