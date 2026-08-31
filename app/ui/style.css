@@ -329,17 +329,83 @@ button {
   color: var(--ink-soft);
 }
 
-.rail-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
+/* THE FOOT OF THE RAIL — the CEO's identity, not Rich's (his correction to round 10.1).
+   A filled circle of initials, then the name. `assets/rich-hand.png` is still Rich's
+   avatar in the conversation, where it belongs; it is only this nameplate that changed
+   hands. */
+.rail-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px 2px 2px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font);
+  text-align: left;
+  cursor: default;
+}
+/* Only an offer when there is something to accept — see `.is-unset` below. */
+.rail-identity.is-unset {
+  cursor: pointer;
+}
+.rail-identity.is-unset:hover {
+  background: var(--tint-weak);
+}
+.rail-identity:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.rail-rich-label {
+.rail-initials {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* UNSET: an EMPTY circle, drawn as an outline rather than a filled disc, because a filled
+   gold disc with nothing in it reads as a rendering failure. No letters at all — inventing
+   two is exactly what the correction forbids, and "??" is a placeholder pretending to be a
+   value. */
+.rail-identity.is-unset .rail-initials {
+  background: none;
+  border: 1px dashed var(--line);
+  color: transparent;
+}
+
+.rail-user-name {
   font-size: 1rem;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The unset label is a real sentence the CEO is meant to read and act on, so it is tier 1
+   and it is `--ink-faint` rather than a whisper: 5.51:1 dark, 4.85:1 light. */
+.rail-identity.is-unset .rail-user-name {
   color: var(--ink-faint);
+}
+
+/* THE WORDMARK in the rail header, inked per theme (§15). Height in rem so the font
+   control scales it with the rest of the interface; the viewBox is 3299.1x754.5, so a
+   1.375rem height is ~96px wide at 100% and fits the 300px rail with room to spare. */
+.rail-wordmark {
+  height: 1.375rem;
+  width: auto;
+  display: block;
+  color: var(--ink);
+  flex-shrink: 0;
 }
 
 .popover {
@@ -353,6 +419,23 @@ button {
   box-shadow: 0 8px 24px var(--shadow-weak);
   width: 208px;
   z-index: 20;
+}
+
+/* The name field. Same vocabulary as the rest of the popover — a quiet inset, not a form. */
+.popover-input {
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-sunk);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 1rem;
+}
+.popover-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .popover-title {

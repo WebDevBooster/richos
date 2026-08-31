@@ -12,6 +12,23 @@
   if (window.__TAURI__) return; // real shell present — this harness stays dormant.
 
   const now = () => Date.now();
+
+  // §15 appearance state, and the person. `mockTheme` starts DARK because that is the
+  // ruling's default for a fresh install, and `mockUserName` starts NULL because "nobody
+  // has said who this is" is the state the product actually ships in.
+  let mockTheme = "dark";
+  let mockFontScale = 100;
+  let mockUserName = null;
+  // `initials_from` in config.rs, mirrored: first and last, two letters at most, one
+  // letter for one token, and null rather than a guess when there is nothing to derive.
+  const mockInitials = (name) => {
+    if (!name) return null;
+    const t = String(name).split(/\s+/).filter(Boolean);
+    if (!t.length) return null;
+    const first = [...t[0]][0].toUpperCase();
+    if (t.length === 1) return first;
+    return first + [...t[t.length - 1]][0].toUpperCase();
+  };
   const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 
   // --- fixture state -------------------------------------------------------
@@ -1090,6 +1107,39 @@
         case "set_techy_default":
           techyDefault = !!args.enabled;
           return techyDefault;
+
+        // ---- §15: appearance, and the person at the foot of the rail ----------------
+        // The real store is `config.rs`; this harness stands in for it with the same
+        // shapes and the same honesty about the unset case. `mockUserName` starts as
+        // `null` ON PURPOSE — the unset state is what almost every install actually has,
+        // and it is the state the acceptance suite has to be able to reach without
+        // arranging anything.
+        case "get_appearance":
+          return { theme: mockTheme, font_scale: mockFontScale };
+        case "set_theme": {
+          const t = String(args.theme);
+          // Refused, not coerced, exactly as the real command refuses it: quietly writing
+          // "dark" over an unexpected string looks like the CEO changing his own mind.
+          if (t !== "dark" && t !== "light" && t !== "system") {
+            throw new Error(`unknown theme "${t}"`);
+          }
+          mockTheme = t;
+          return null;
+        }
+        case "set_font_scale": {
+          const steps = [80, 90, 100, 110, 120, 135, 150];
+          const want = Number(args.scale);
+          // Snapped, not rejected — `snap_font_scale` in config.rs, mirrored.
+          mockFontScale = steps.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a), 100);
+          return null;
+        }
+        case "get_user_identity":
+          return { name: mockUserName, initials: mockInitials(mockUserName) };
+        case "set_user_name": {
+          const n = String(args.name || "").trim();
+          mockUserName = n === "" ? null : n;
+          return null;
+        }
 
         // ---- §7.2: the raw-retention window ----------------------------------------
         case "raw_retention":

@@ -14,7 +14,8 @@
         "width": 960,
         "height": 720,
         "resizable": true,
-        "visible": true
+        "visible": true,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {

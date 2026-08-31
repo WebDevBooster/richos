@@ -34,6 +34,9 @@ const railToggleBtn = el("rail-toggle");
 const railDrawerCloseBtn = el("rail-drawer-close");
 const railResizerEl = el("rail-resizer");
 const railCompanyEl = el("rail-company");
+const railIdentityEl = el("rail-identity");
+const railInitialsEl = el("rail-initials");
+const railUserNameEl = el("rail-user-name");
 const scopeEntityEl = el("scope-entity");
 const scopeSepEl = el("scope-sep");
 const scopeThreadEl = el("scope-thread");
@@ -2036,6 +2039,16 @@ async function syncAssertivenessFromBackend() {
     // Unwired (mock harness): the localStorage-only value already painted correctly.
   }
 }
+/// Open the preferences popover, from the gear or from the unset identity row. Named
+/// because there are now two entrances and an inline listener cannot be one of them.
+function openAssertivenessPopover() {
+  if (assertivenessPopover.hidden === false) return;
+  assertivenessPopover.hidden = false;
+  settingsBtn.setAttribute("aria-expanded", "true");
+  syncRetentionFromBackend();
+  const name = el("user-name-input");
+  if (name) name.focus();
+}
 settingsBtn.addEventListener("click", () => {
   const open = assertivenessPopover.hidden === false;
   assertivenessPopover.hidden = open;
@@ -2048,6 +2061,7 @@ settingsBtn.addEventListener("click", () => {
   if (!open) syncRetentionFromBackend();
 });
 document.addEventListener("click", (e) => {
+  if (railIdentityEl && railIdentityEl.contains(e.target)) return;
   if (!assertivenessPopover.hidden && !assertivenessPopover.contains(e.target) && e.target !== settingsBtn) {
     assertivenessPopover.hidden = true;
     settingsBtn.setAttribute("aria-expanded", "false");
@@ -3511,6 +3525,13 @@ function renderTechyChip() {
 }
 
 function renderTechySettings() {
+  // §15 puts a Techy Mode toggle in the settings menu, "directly under" Text size. That is
+  // a SECOND ENTRANCE TO ONE STATE, not a second state: it reads `techy.default` and writes
+  // through `setTechyDefault`, exactly as the rail's own preference row does. Repainting it
+  // here — inside the one function that renders the other entrance — is what keeps the two
+  // from ever showing different answers, because there is no path that updates one without
+  // running this.
+  window.RichSettings.paint();
   if (!techyDefaultInput) return;
   techyDefaultInput.checked = !!(techy && techy.default);
   if (!techyHintEl) return;
@@ -3787,6 +3808,15 @@ if (techyChipEl) techyChipEl.addEventListener("click", toggleTechyThread);
 if (techyDefaultInput) {
   techyDefaultInput.addEventListener("change", () => setTechyDefault(techyDefaultInput.checked));
 }
+
+// The settings menu's Techy row, registered with the SAME read and the SAME write the rail
+// preference uses. Registering the capability is also what makes the row appear at all —
+// settings-button.js omits it until a host provides one, so on the opening screen, where
+// there is no conversation to show machinery for, there is no dead toggle.
+window.RichSettings.registerTechy({
+  read: () => !!(techy && techy.default),
+  write: (on) => setTechyDefault(on),
+});
 for (const input of assertivenessPopover.querySelectorAll('input[name="raw-retention"]')) {
   input.addEventListener("change", () => setRetentionChoice(input.value));
 }
@@ -3847,17 +3877,97 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------------------------------
+// APPEARANCE AND IDENTITY (CEO ruling §15, and his correction to round 10.1)
+// ---------------------------------------------------------------------------------------
+
+/// Reconcile the pre-paint mirror against the durable truth in config.rs.
+///
+/// `theme-boot.js` painted the first frame from `localStorage` because an async round trip
+/// cannot decide frame one. That mirror can be stale (a preference set on another launch)
+/// or absent (a webview that lost its storage). This is where the two are made to agree,
+/// and the direction is fixed: THE BACKEND WINS. A mirror that could overwrite the store
+/// would be a second place the decision is made, which is how a preference starts flipping
+/// between launches for no reason the CEO can see.
+async function syncAppearanceFromBackend() {
+  const durable = await invokeQuiet("get_appearance");
+  if (durable) window.RichTheme.sync(durable);
+  // Register the durable half only NOW, after the sync — registering earlier would let a
+  // keystroke during boot write the mirror's value back over the store's.
+  window.RichSettings.registerDurable({
+    saveTheme: (pref) => invokeQuiet("set_theme", { theme: pref }),
+    saveScale: (pct) => invokeQuiet("set_font_scale", { scale: pct }),
+  });
+  window.RichSettings.paint();
+}
+
+/// The foot of the rail: HIS initials, then HIS name.
+///
+/// THE UNSET STATE IS THE COMMON ONE and it is rendered honestly. There was no user-name
+/// preference in this product until today, so most installs have nothing here. The circle
+/// stays empty — no letters, because inventing two is the thing the correction forbids and
+/// "??" is a placeholder pretending to be a value — and the label says what is true. In
+/// that state the row is an OFFER (it opens the preferences popover, where the field is)
+/// rather than a dead end; once he has a name it is a nameplate and not a control.
+async function renderUserIdentity() {
+  if (!railIdentityEl) return;
+  const who = (await invokeQuiet("get_user_identity")) || { name: null, initials: null };
+  const field = el("user-name-input");
+  // Never clobber what he is mid-way through typing.
+  if (field && document.activeElement !== field) field.value = who.name || "";
+  const named = !!(who.name && who.name.trim());
+  railIdentityEl.classList.toggle("is-unset", !named);
+  railInitialsEl.textContent = named ? who.initials || "" : "";
+  railUserNameEl.textContent = named ? who.name : "Set your name";
+  railIdentityEl.setAttribute(
+    "aria-label",
+    named ? who.name : "No name is set. Open preferences to add yours."
+  );
+  // A nameplate is not a button. Only the unset state is actionable, so only the unset
+  // state advertises itself as one.
+  if (named) railIdentityEl.removeAttribute("aria-haspopup");
+  else railIdentityEl.setAttribute("aria-haspopup", "true");
+}
+
+const userNameInput = el("user-name-input");
+if (userNameInput) {
+  // Written on `change` (blur or Enter), not on every keystroke: the store rewrites the
+  // whole file on every set, and a per-keystroke write would put "A", "Al", "Ale" on disk
+  // on the way to "Alex".
+  userNameInput.addEventListener("change", async () => {
+    await invokeQuiet("set_user_name", { name: userNameInput.value });
+    await renderUserIdentity();
+  });
+  userNameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") userNameInput.blur();
+  });
+}
+
+if (railIdentityEl) {
+  railIdentityEl.addEventListener("click", () => {
+    if (railIdentityEl.classList.contains("is-unset")) openAssertivenessPopover();
+  });
+}
+
+// ---------------------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------------------
 async function init() {
-  // Company identity header (UX §2.1) — backed by `get_company_name`; the backend
-  // itself already carries a matching fallback ("My Company"), this catch only covers
-  // an unwired command (the mock harness) or a genuine invoke failure.
+  // The rail header is the WORDMARK now (§15), inlined in index.html — the company is a
+  // `rail-group` in the sidebar below. `get_company_name` and its store are untouched and
+  // still the source for anything that needs the company; this element is kept, hidden, so
+  // the name is still queryable rather than deleted from the surface entirely.
   try {
     railCompanyEl.textContent = await Bridge.invoke("get_company_name");
   } catch (_e) {
     railCompanyEl.textContent = COMPANY_LABEL_FALLBACK;
   }
+
+  // APPEARANCE (§15). `theme-boot.js` already painted the first frame from its synchronous
+  // mirror; this is the reconciliation, and config.rs wins. `RichTheme.sync` corrects the
+  // mirror when the two disagree — never the other way round — so a preference set on
+  // another launch, or a webview that lost its storage, lands on the durable answer.
+  await syncAppearanceFromBackend();
+  await renderUserIdentity();
   syncAssertivenessFromBackend();
   // The GLOBAL techy default at launch, so the Settings line is honest before any thread is
   // opened. The per-thread answer arrives with the thread (`openThread`).

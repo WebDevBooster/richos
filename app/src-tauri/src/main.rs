@@ -805,7 +805,13 @@ fn main() {
             // --- the opening screen and its off switch (2026-08-30) — appended, never reordered ---
             splash_enabled,
             set_splash_enabled,
-            splash_note_shown
+            splash_note_shown,
+            // --- appearance and the person at the foot of the rail (§15) — appended, never reordered ---
+            get_appearance,
+            set_theme,
+            set_font_scale,
+            get_user_identity,
+            set_user_name
         ])
         .run(tauri::generate_context!())
         .expect("error while running RichOS");
@@ -2701,4 +2707,93 @@ fn splash_note_shown(state: State<AppState>) -> Result<(), String> {
         .note_splash_shown(richos_core::util::now_millis())
         .map(|_wrote| ())
         .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// APPEARANCE, AND THE PERSON AT THE FOOT OF THE RAIL (CEO ruling §15, 2026-08-30)
+// ---------------------------------------------------------------------------------------
+//
+// Five commands, and NONE of them is on the launch path. The webview applies the CEO's
+// theme and type size from a synchronous mirror in `theme-boot.js` before its first paint —
+// an async round trip through this shell cannot decide frame one, and booting on the default
+// then correcting is a full-screen flash of the wrong palette on every launch. These
+// commands are what makes the preference DURABLE and what reconciles the mirror against the
+// truth once the app is up. The store they read was already opened in `setup()` for the
+// company name and the assertiveness dial, so this costs the boot nothing.
+//
+// WHO WINS A DISAGREEMENT: this side. `RichTheme.sync` in the webview takes what
+// `get_appearance` returns and corrects the mirror, never the other way round. The mirror is
+// a cache of a decision, not a second place the decision is made.
+//
+// ON ⌘/CTRL +/−/0 BEING THE APP'S: `zoomHotkeysEnabled` is now set to `false` EXPLICITLY in
+// tauri.conf.json rather than left to its default. That flag is precisely the seam — with it
+// on, Tauri injects a polyfill on macOS/Linux that zooms the webview 20% a step, and sets
+// WebView2's `IsZoomControlEnabled` on Windows. Webview zoom would scale the whole document
+// including fixed chrome, would not persist, and would be invisible to the Text size row:
+// two controls, two states, one of them a lie. The app's own handler (`settings-button.js`)
+// takes the keystroke with `preventDefault` and moves the single persisted number below.
+
+/// The two appearance preferences, in one call — the UI wants both at init and neither is
+/// useful without the other.
+#[derive(serde::Serialize)]
+struct Appearance {
+    /// "dark" | "light" | "system". The CHOICE, not the resolved palette: resolving
+    /// "system" needs the OS preference, which is observable in the webview and not here.
+    theme: String,
+    /// A percentage of the 16px root, always one of `FONT_SCALE_STEPS`.
+    font_scale: u16,
+}
+
+#[tauri::command]
+fn get_appearance(state: State<AppState>) -> Appearance {
+    let config = state.config.lock().unwrap();
+    Appearance { theme: config.theme().as_str().to_string(), font_scale: config.font_scale() }
+}
+
+/// Persist the CEO's lighting. An unparseable string is REFUSED rather than coerced to the
+/// default: silently writing "dark" because the UI sent something unexpected would look
+/// exactly like the CEO changing his mind, on his own machine, for no reason he can see.
+#[tauri::command]
+fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
+    let parsed = richos_core::config::Theme::parse(&theme)
+        .ok_or_else(|| format!("unknown theme {theme:?} — expected \"dark\", \"light\" or \"system\""))?;
+    state.config.lock().unwrap().set_theme(parsed).map_err(|e| e.to_string())
+}
+
+/// Persist the type size. Off-ladder values are snapped by `config.rs` rather than refused,
+/// for the reason stated there: rejecting would put a hand-edited file silently back to 100%.
+#[tauri::command]
+fn set_font_scale(state: State<AppState>, scale: u16) -> Result<(), String> {
+    state.config.lock().unwrap().set_font_scale(scale).map_err(|e| e.to_string())
+}
+
+/// The person, and his initials, or honest nulls.
+///
+/// BOTH FIELDS ARE NULLABLE AND THAT IS THE POINT. The CEO's correction to round 10.1 is
+/// that the foot of HIS rail carries HIS identity, not Rich's — and there was no user-name
+/// preference in this product until today, so "unset" is the overwhelmingly common state and
+/// has to be a real answer rather than an edge case. It is NOT `get_company_name`'s shape:
+/// that one has a fallback because a company with no name can honestly be called
+/// "My Company", and a person with no name cannot be called anything without inventing them.
+#[derive(serde::Serialize)]
+struct UserIdentity {
+    name: Option<String>,
+    initials: Option<String>,
+}
+
+#[tauri::command]
+fn get_user_identity(state: State<AppState>) -> UserIdentity {
+    let config = state.config.lock().unwrap();
+    UserIdentity {
+        name: config.user_name().map(|s| s.to_string()),
+        initials: config.user_initials(),
+    }
+}
+
+/// Set (or, with a blank string, clear) the CEO's name. Clearing returns the rail footer to
+/// its honest unset state rather than storing an empty string that would render as a circle
+/// with nothing in it.
+#[tauri::command]
+fn set_user_name(state: State<AppState>, name: String) -> Result<(), String> {
+    state.config.lock().unwrap().set_user_name(&name).map_err(|e| e.to_string())
 }
