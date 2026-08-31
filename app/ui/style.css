@@ -5,21 +5,145 @@
    One quiet accent, restrained type, generous whitespace, capped reading width. No
    gradients, no playful shapes, no emoji-as-UI, no chat-app novelty. */
 
+/* =========================================================================================
+   THE TOKEN LAYER — two lightings, one geometry.
+
+   CEO ruling §14 (`richos-hq/wiki/ceo-decisions.md`): the DARK palette is `round-8.1/v0`
+   "Sovereign" — ground 0C1322, surface 141E34, light DFE4EE, signal C2A35C, trim 4C6087 —
+   and it governs "the actual colour palette for dark mode IN GENERAL as well as the overall
+   design of the page elements including the background". §15 completes it: the LIGHT palette
+   is `round-9/v1` "Daybreak", and **dark is what a new install opens in**. Both remain, in
+   his words, "subject to change later".
+
+   The values below are the ones the round-10.1 mockups actually express, INCLUDING the
+   corrections those mockups made to reach AA — they are not the raw round-8.1/round-9 swatch
+   lists. Three of those corrections are load-bearing and each is marked at its token:
+
+     * `--gold-text` is split from `--gold`. The accent that paints a 3:1 non-text indicator
+       is not automatically a 4.5:1 text colour, and in light mode it is NOT: `#9C7C34` on
+       the ivory ground computes 3.29:1. `--gold` paints, `--gold-text` reads.
+     * `--on-gold` is the ink that sits ON the accent, and it is the DARK ink in both themes.
+       This file previously wrote `color: #fff` over `background: var(--accent)`; white on
+       light-mode gold is 2.30:1.
+     * `--ink-faint` is an ALPHA, lifted until it cleared the floor on the darkest surface it
+       is ever painted on, rather than a fixed grey chosen against one background.
+
+   Every ratio in the comments below was computed, not eyeballed — the standing rule in
+   CLAUDE.md §"Contrast — WCAG AA, ALWAYS, BOTH THEMES", and `tests/contrast.js` is what
+   holds it. An eye adapts to the palette it has been staring at; arithmetic does not.
+   ========================================================================================= */
+
 :root {
-  --paper: #f7f6f2;
-  --paper-rail: #f0efe9;
-  --surface: #ffffff;
-  --ink: #201f1b;
-  --ink-soft: #6c6a61;
-  --ink-faint: #a5a297;
-  --line: #e5e2d9;
-  --accent: #2f3a56;
-  --accent-soft: rgba(47, 58, 86, 0.08);
-  /* The ONE non-accent state color: something needs the CEO's hand. A muted ochre that
-     belongs to the paper palette — deliberately not a red alert. Nothing else uses it. */
-  --attention: #8a6a2f;
-  --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  /* ---- DARK — "Sovereign", the default a new install opens in (§14, §15) ---- */
+  --ground: #0c1322;
+  --rail-bg: #0a101b;
+  --surface-sunk: #0a1120;
+  --surface-raised: #141e34;
+  --card: #182440;
+
+  /* 14.55:1 on the ground. */
+  --ink: #dfe4ee;
+  /* 6.47:1 on the ground, 5.51:1 on the card. */
+  --ink-soft: rgba(223, 228, 238, 0.64);
+  /* 5.51:1 on the ground, 5.01:1 on the card — the darkest surface it ever paints on. */
+  --ink-faint: rgba(223, 228, 238, 0.58);
+
+  --line-strong: rgba(76, 96, 135, 0.26);
+  --line-soft: rgba(76, 96, 135, 0.14);
+
+  /* The signal. `--gold` paints; `--gold-text` reads. In DARK they coincide (7.68:1 on the
+     ground), which is exactly why the split has to be written down rather than discovered —
+     a single token looks correct here and fails the moment light mode arrives. */
+  --gold: #c2a35c;
+  --gold-text: #c2a35c;
+  --gold-soft: rgba(194, 163, 92, 0.13);
+  /* The ink that sits ON the accent — dark in BOTH themes. 7.68:1 over `--gold`. */
+  --on-gold: #0c1322;
+
+  --trim: #4c6087;
+  /* 5.91:1 on the ground, 4.90:1 on the card. */
+  --trim-text: #7e92b8;
+
+  /* The ONE non-accent state colour: something needs the CEO's hand. A muted amber that
+     belongs to the palette — deliberately not a red alert, and deliberately a different
+     hue from `--gold` so "needs you" never reads as "accent". 6.54:1 worst case. */
+  --attention: #e09a55;
+
+  /* Tints and veils. In dark these lift (white alpha); in light they press (black alpha).
+     A single `rgba(0,0,0,…)` hover tint is invisible on a midnight ground, which is how a
+     hover state silently stops existing in half the app. */
+  --tint-weakest: rgba(223, 228, 238, 0.03);
+  --tint-weak: rgba(223, 228, 238, 0.05);
+  --tint-soft: rgba(223, 228, 238, 0.07);
+  --scrim: rgba(3, 7, 15, 0.62);
+  --shadow-weak: rgba(0, 0, 0, 0.5);
+  --shadow-soft: rgba(0, 0, 0, 0.55);
+  --shadow-strong: rgba(0, 0, 0, 0.7);
+
+  --font: "Söhne", "Soehne", -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 10px;
+
+  /* ---- Legacy names, kept as aliases ----------------------------------------------
+     This file carried `--paper` / `--paper-rail` / `--surface` / `--accent` before there
+     was a second theme, and ~100 declarations reference them. Aliasing rather than
+     find-and-replacing keeps the diff readable and means the theme override below sets
+     ONE list of values, not two. `--accent` is the PAINTING gold; anything that sets
+     `color:` uses `--accent-text`. */
+  --paper: var(--ground);
+  --paper-rail: var(--rail-bg);
+  --surface: var(--card);
+  --accent: var(--gold);
+  --accent-text: var(--gold-text);
+  --accent-soft: var(--gold-soft);
+  --line: var(--line-strong);
+}
+
+/* ---- LIGHT — "Daybreak" (round-9/v1, §15). Switchable at any time; never the default,
+       and it never reaches the opening screen (§15's one permanent exception). ---- */
+:root[data-theme="light"] {
+  --ground: #eae6dd;
+  --rail-bg: #e4dfd3;
+  --surface-sunk: #efebe0;
+  --surface-raised: #f7f5ef;
+  --card: #fdfcf8;
+
+  /* 14.90:1 on the ground. */
+  --ink: #0c1322;
+  /* 5.86:1 on the ground. */
+  --ink-soft: rgba(12, 19, 34, 0.68);
+  /* 4.85:1 on the rail — the darkest surface it paints on in this theme. Round 10 shipped
+     this token lower and `.rail-count` came out at 3.60:1; the CEO named it. */
+  --ink-faint: rgba(12, 19, 34, 0.63);
+
+  --line-strong: rgba(60, 70, 95, 0.24);
+  --line-soft: rgba(60, 70, 95, 0.12);
+
+  /* Here the split earns itself: `#9C7C34` is 3.29:1 on the ivory ground — fine as a rule,
+     a border or a filled chip, and a contrast failure as body text. `--gold-text` is struck
+     darker for reading: 5.13:1 on the rail, 6.65:1 on a card. */
+  --gold: #9c7c34;
+  --gold-text: #715715;
+  --gold-soft: rgba(156, 124, 52, 0.12);
+  /* Unchanged from dark, and that is the point: the ink on a gold chip is the dark ink in
+     both themes. 4.72:1 over light `--gold`. */
+  --on-gold: #0c1322;
+
+  --trim: #4c6087;
+  /* 5.90:1 on the ground, 5.53:1 on the rail. */
+  --trim-text: #44567a;
+
+  /* 5.08:1 worst case, and a different hue from `--gold-text` so the two never merge.
+     The previous `#8a6a2f` was 3.78:1 on the rail. */
+  --attention: #8c4a1b;
+
+  --tint-weakest: rgba(12, 19, 34, 0.025);
+  --tint-weak: rgba(12, 19, 34, 0.045);
+  --tint-soft: rgba(12, 19, 34, 0.06);
+  --scrim: rgba(43, 37, 22, 0.38);
+  --shadow-weak: rgba(46, 40, 22, 0.16);
+  --shadow-soft: rgba(46, 40, 22, 0.25);
+  --shadow-strong: rgba(46, 40, 22, 0.32);
 }
 
 * {
@@ -110,7 +234,7 @@ button {
 
 .rail-thread:hover {
   color: var(--ink-soft);
-  background: rgba(0, 0, 0, 0.025);
+  background: var(--tint-weakest);
 }
 
 .rail-thread.is-active {
@@ -160,7 +284,7 @@ button {
 }
 
 .rail-settings-btn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--tint-weak);
   color: var(--ink-soft);
 }
 
@@ -185,7 +309,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(20, 19, 16, 0.1);
+  box-shadow: 0 8px 24px var(--shadow-weak);
   width: 208px;
   z-index: 20;
 }
@@ -314,7 +438,7 @@ button {
 #talk-toggle:hover,
 #send:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* §9.3's stop. A SQUARE, which is the one glyph that means "stop" without a word — and it
@@ -343,7 +467,7 @@ button {
 #talk-toggle[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-gold);
 }
 
 .talk-dot {
@@ -505,7 +629,7 @@ button {
 #slideover-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(20, 19, 16, 0.14);
+  background: var(--scrim);
   z-index: 30;
 }
 
@@ -521,7 +645,7 @@ button {
   display: flex;
   flex-direction: column;
   padding: 22px 20px;
-  box-shadow: -14px 0 32px rgba(20, 19, 16, 0.08);
+  box-shadow: -14px 0 32px var(--shadow-weak);
 }
 
 .slideover-head {
@@ -549,7 +673,7 @@ button {
 }
 
 .slide-item--needs_you {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -567,7 +691,7 @@ button {
 
 .slideover-close:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* =======================================================================================
@@ -584,8 +708,8 @@ button {
 
 :root {
   --rail-width: 300px;
-  --bg-selected: rgba(47, 58, 86, 0.1);
-  --bg-hover: rgba(32, 31, 27, 0.045);
+  --bg-selected: var(--gold-soft);
+  --bg-hover: var(--tint-weak);
   --danger: #8a4944;
   --success: #4f6d58;
 }
@@ -833,7 +957,7 @@ button {
 }
 
 .nav-thread-more:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--tint-soft);
   color: var(--ink);
 }
 
@@ -867,7 +991,7 @@ button {
 }
 
 .nav-status--working {
-  color: var(--accent);
+  color: var(--accent-text);
   /* §17.4: "one subtle pulse for active work" — one element, one animation. */
   animation: nav-pulse 1.8s ease-in-out infinite;
 }
@@ -1109,7 +1233,7 @@ button {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(32, 31, 27, 0.18);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -1121,7 +1245,7 @@ button {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: 0 18px 48px rgba(20, 19, 16, 0.16);
+  box-shadow: 0 18px 48px var(--shadow-soft);
   overflow: hidden;
   animation: overlay-in 0.16s ease-out;
 }
@@ -1272,7 +1396,7 @@ button {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(20, 19, 16, 0.12);
+  box-shadow: 0 10px 28px var(--shadow-soft);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -1321,7 +1445,7 @@ button {
 #rail-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(32, 31, 27, 0.22);
+  background: var(--scrim);
   z-index: 25;
 }
 
@@ -1342,7 +1466,7 @@ body.bp-narrow #rail {
   z-index: 30;
   width: min(86vw, 320px);
   max-width: 86vw;
-  box-shadow: 0 0 40px rgba(20, 19, 16, 0.18);
+  box-shadow: 0 0 40px var(--shadow-strong);
 }
 
 body.bp-narrow #rail-resizer {
@@ -1377,7 +1501,7 @@ body.bp-narrow .tl-user-bubble {
   /* §17.1's named tokens the v1 palette had no equivalent for. `--bg-user` is the whole
      point of §0.1's first superseded decision: the CEO's message is a QUIET highlighted
      surface, not a saturated consumer-chat bubble. 7.5% of the accent over paper. */
-  --bg-user: rgba(47, 58, 86, 0.075);
+  --bg-user: var(--gold-soft);
   --radius-user: 14px;
   --reading-width: 800px;
 }
@@ -1461,7 +1585,7 @@ body.bp-narrow .tl-user-bubble {
   border: none;
   padding: 2px 0;
   font-size: 13px;
-  color: var(--accent);
+  color: var(--accent-text);
   cursor: pointer;
 }
 
@@ -1837,7 +1961,7 @@ body.bp-narrow .tl-user-bubble {
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(32, 31, 27, 0.08);
+  box-shadow: 0 2px 8px var(--shadow-weak);
 }
 
 #jump-latest:hover {
@@ -1963,11 +2087,11 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .tl-chip[data-state="active"] {
-  border-color: rgba(47, 58, 86, 0.28);
+  border-color: var(--gold);
 }
 
 .tl-chip[data-state="active"] .tl-chip-state {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* `Ended` is NOT a failure and must not borrow the danger color. It is the calmest
@@ -2174,7 +2298,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .insp-state[data-state="active"] .insp-state-word {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* `Ended` is calm on purpose: nothing failed as far as anyone knows. No danger color. */
@@ -2250,7 +2374,7 @@ body.bp-narrow .tl-user-bubble {
 #inspector-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(32, 31, 27, 0.22);
+  background: var(--scrim);
   z-index: 19;
 }
 
@@ -2263,7 +2387,7 @@ body.bp-narrow .tl-user-bubble {
     right: 0;
     bottom: 0;
     width: min(var(--inspector-width, 336px), 92vw);
-    box-shadow: 0 0 40px rgba(20, 19, 16, 0.18);
+    box-shadow: 0 0 40px var(--shadow-strong);
   }
   #inspector-resizer {
     display: none;
@@ -2293,7 +2417,7 @@ body.bp-narrow .tl-user-bubble {
   padding: 0 5px;
   border-radius: 9px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-gold);
   font-size: 11px;
   line-height: 17px;
   text-align: center;
@@ -2479,17 +2603,17 @@ body.bp-narrow .tl-user-bubble {
 
 .desk-btn:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .desk-btn--confirm {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-gold);
 }
 
 .desk-btn--confirm:hover {
-  color: #fff;
+  color: var(--on-gold);
   opacity: 0.92;
 }
 
