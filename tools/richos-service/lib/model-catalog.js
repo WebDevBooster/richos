@@ -126,6 +126,24 @@ export function mb(bytes) {
 }
 
 /**
+ * A size a person can read, picking the unit rather than forcing one.
+ *
+ * Not cosmetic: "0.0 MB" is what a fixed-MB formatter says about 4 KB, and a failure message that
+ * reports the wrong number is worse than one that reports none. Models are 77 MB to 1.6 GB, but
+ * these same messages are what a test or a truncated partial produces, and those are small.
+ * @param {number} bytes
+ * @returns {string}
+ */
+export function human(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n)) return 'an unknown amount';
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)} GB`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)} kB`;
+  return `${n} bytes`;
+}
+
+/**
  * A one-line description of how much a pin is trusted, for the CLI and for review.
  * Single-witness pins are called out rather than presented as equal.
  * @param {ModelPin} pin

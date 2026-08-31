@@ -21,7 +21,7 @@
 
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { GGML_MAGIC_HEX, mb } from './model-catalog.js';
+import { GGML_MAGIC_HEX, human } from './model-catalog.js';
 
 /** How many leading bytes are enough to tell a model from a web page. */
 export const SNIFF_BYTES = 1024;
@@ -179,7 +179,7 @@ export function describe(finding, ctx = {}) {
         `Expected sha256 ${short(finding.want)}, got ${short(finding.have)}. Something between HuggingFace and this machine changed the file. It has been deleted and nothing was installed.`
       );
     case FAILURE.NO_SPACE:
-      return `Not enough free disk to download ${file}: it needs ${mb(finding.want)} MB free (the model plus 10% headroom) and this disk has ${mb(finding.have)} MB. Free up ${mb(Math.max(0, finding.want - finding.have))} MB and try again — nothing was started.`;
+      return `Not enough free disk to download ${file}: it needs ${human(finding.want)} free (the model plus 10% headroom) and this disk has ${human(finding.have)}. Free up ${human(Math.max(0, finding.want - finding.have))} and try again — nothing was started.`;
     default:
       return `${file} verified.`;
   }
