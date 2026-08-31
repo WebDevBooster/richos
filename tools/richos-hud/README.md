@@ -27,7 +27,14 @@ handled). CEO greenlit 2026-08-24 ("go ahead as recommended").
 - **Patch (upstream-ready, HUD-free):** [`device-change-listener.patch`](./device-change-listener.patch)
 - **Build:** [`build.sh`](./build.sh) — applies all three patches, in order
 - **Upstream drift:** [`check-upstream-drift.sh`](./check-upstream-drift.sh) — reports whether open-wispr has moved past the pinned base. The build cannot break from upstream movement (the pin is immutable); what movement means is that staying frozen has started costing something. Run it when you want to know, not on a schedule.
-- **Models:** [`fetch-dictation-models.sh`](./fetch-dictation-models.sh)
+- **Models:** [`fetch-dictation-models.sh`](./fetch-dictation-models.sh) — fetches both
+  dictation models and **verifies a pinned sha256** before installing either. Sizes and
+  hashes live in `../richos-service/lib/model-pins.json`, not in the script, so the script
+  and the service can never disagree about what a model is. Resumes a dropped download
+  (`curl -C -`) rather than starting a 574 MB transfer over; deletes anything that fails its
+  hash rather than leaving it where the app's model resolution would find it. Named failures
+  for a captive portal, a truncated file and a right-size-wrong-bytes file.
+  `--verify` checks what is installed without downloading; `--print-pins` prints the table.
 - **Stack:** native **Swift / SwiftPM / AppKit**, macOS 13+ (17 source files).
   The non-activating window is an `NSPanel` subclass with
   `canBecomeKey == false` — the native equivalent of murmur's
