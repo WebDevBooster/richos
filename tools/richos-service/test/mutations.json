@@ -50,8 +50,8 @@
   {
     "label": "catalog: drop the 10% disk headroom",
     "file": "tools/richos-service/lib/model-catalog.js",
-    "from": "return Math.ceil(requirePin(modelId).bytes * 1.1);",
-    "to": "return requirePin(modelId).bytes;"
+    "from": "return Math.ceil(requirePin(modelIdOrPin).bytes * 1.1);",
+    "to": "return requirePin(modelIdOrPin).bytes;"
   },
   {
     "label": "pins: serve models over plaintext http",
