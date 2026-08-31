@@ -488,11 +488,24 @@ fn the_offset_is_the_callers_and_the_shell_never_reads_a_timezone() {
     // parameter because the webview is the only layer that knows what local means; a shell
     // that reached for a timezone itself would be a second source of truth, and the two
     // would disagree the moment one of them was wrong.
+    // THE SIGNATURE, not the body. The first version of this matched `utc_offset_minutes`
+    // anywhere in the extracted text and a mutation that DELETED the parameter and declared
+    // `let utc_offset_minutes = 0;` inside the function turned nothing red — the check was
+    // reading the shadow of the thing it meant to guard. A parameter is a signature fact.
+    let signature = SHELL_SOURCE
+        .find("fn launch_state(")
+        .map(|i| &SHELL_SOURCE[i..i + SHELL_SOURCE[i..].find(')').expect("unclosed signature")])
+        .expect("launch_state is not in the shell");
+    assert!(
+        signature.contains("utc_offset_minutes: i32"),
+        "launch_state no longer TAKES the caller's offset as a parameter: {signature}"
+    );
     let body = function_body(SHELL_SOURCE, "launch_state").expect("launch_state is not in the shell");
     let flat: String = body.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        flat.contains("utc_offset_minutes"),
-        "launch_state no longer takes the caller's offset: {flat}"
+        !flat.contains("let utc_offset_minutes"),
+        "the offset is being shadowed inside the function rather than taken from the \
+         caller: {flat}"
     );
     let (_, _, code) = launch_reachable_source();
     for needle in ["localtime", "timezone", "tz_offset", "chrono", "local::now"] {
