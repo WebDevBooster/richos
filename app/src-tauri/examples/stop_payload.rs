@@ -17,10 +17,11 @@
 //!
 //! ## What it does NOT prove
 //!
-//! There is no ACP lease — `claude-agent-acp` is not installed in this checkout — so the
-//! lease is `CancellableMockCognition`, whose cancel seam sets a flag instead of writing
-//! `session/cancel` to a child. The ACP wire half is proven separately, against a real
-//! child process over real stdio, in `crates/richos-core/tests/acp_cancel_tests.rs`.
+//! There is no live lease — no `claude` child is spawned — so the lease is
+//! `CancellableMockCognition`, whose cancel seam sets a flag instead of writing a
+//! `control_request{interrupt}` to a child. The wire half is proven separately, against a
+//! real child process over real stdio, in
+//! `crates/richos-core/tests/native_cancel_tests.rs`.
 //!
 //! What is REAL here: the spine lock genuinely held for the whole turn, the stop taken
 //! without it, every durable write, the terminal state, the measured duration, the

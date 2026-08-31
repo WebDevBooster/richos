@@ -26,7 +26,9 @@
 //
 // Measured, not assumed (`docs/verification/acp-emission-probe-2026-08-28.md` §2, five
 // runs): 52 `agent_message_chunk`s and ZERO message-open, message-close or role updates.
-// Nothing on the ACP wire separates Rich thinking out loud from Rich answering. And
+// Nothing on the wire separates Rich thinking out loud from Rich answering — not the ACP
+// adapter's, and not the native binary's, whose `message_start`/`message_stop` bracket a
+// message and say nothing about what KIND of message it is. And
 // `rich://message-started` fires when the first delta is persisted — before the turn ends —
 // so even a perfect after-the-fact rule would not be available at emission time.
 // `richos_core::live::STREAMED_MESSAGE_PHASE` is a named constant equal to `Unknown`
@@ -207,7 +209,7 @@
       // writes only from a stop request that was fsync'd before anything was interrupted
       // (`steering.rs`). Slice 5 could not draw this label at all — `Interrupted` covered
       // a crash, a rotation and a cancel alike, so the sentence would have blamed the CEO
-      // for an ACP failure.
+      // for a compute-lease failure.
       case "stopped": {
         if (typeof t.activeMs !== "number") {
           // He stopped it before it was ever handed to a lease: there is no span to
@@ -1431,13 +1433,15 @@
   // carries a `detail` object (`{title, summary?, locations, vendorKind?}`), which
   // `Timeline::view(ViewMode::Ceo)` REMOVES and `ViewMode::Technical` keeps. Two kinds of
   // row appear here and nowhere else: a `permission_requested` row (auto-approved by the
-  // ACP client and recorded as a fact — NOT a decision awaiting anybody) and an untyped
+  // client and recorded as a fact — NOT a decision awaiting anybody) and an untyped
   // vendor kind, which renders as one dim line carrying its own kind name (§1.4 G5).
   //
   // ===== TWO ROWS THIS DELIBERATELY DOES NOT DRAW, AND THEY ARE NOT OVERSIGHTS ==========
   //
-  //   ● thinking ⌄   — §5's day-one mockup opens with it. `agent_thought_chunk` fires ZERO
-  //                    times on `claude-agent-acp` 0.70.0, including in a probe run built
+  //   ● thinking ⌄   — §5's day-one mockup opens with it. `agent_thought_chunk` fired ZERO
+  //                    times on `claude-agent-acp` 0.70.0, and the native wire is no better:
+  //                    7 `thinking` blocks across the 2026-08-31 captures, every one with
+  //                    EMPTY text and a signature only. Both paths, in a probe run built
   //                    for nothing else (`MAX_THINKING_TOKENS=10000`, no tools: 17 message
   //                    chunks, 0 thought chunks). Recent models default `thinking.display`
   //                    to "omitted". There is no thought data to render.

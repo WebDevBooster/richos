@@ -21,7 +21,7 @@
 //! the bytes this file produced from the live types.
 //!
 //! ## What it does NOT prove
-//! There is no ACP lease — `claude-agent-acp` is not installed in this checkout, so the
+//! There is no live lease — no `claude` child is spawned here, so the
 //! assistant text is scripted. What is REAL: every durable write, the shared per-turn `seq`,
 //! the `toolCallId` merge, the visibility gate, the four states and the JSON encoding.
 //!
@@ -45,9 +45,9 @@ use serde_json::json;
 struct ScriptedLease {
     session: String,
     script: Vec<Step>,
-    /// §1.5's between-turn lane: raw ACP updates the adapter emitted with NO turn in
+    /// §1.5's between-turn lane: raw native frames the agent emitted with NO turn in
     /// flight. Held as wire JSON and normalized in `drain_between_turn`, so the fixture's
-    /// rows come out of `MachineryRecord::from_between_turn_update` rather than out of a
+    /// rows come out of `MachineryRecord::from_native_between_turn` rather than out of a
     /// hand-built record.
     between: Vec<serde_json::Value>,
 }
@@ -70,7 +70,7 @@ impl Cognition for ScriptedLease {
             match step {
                 Step::Text(t) => on_item(TurnItem::Text { seq, text: t }),
                 Step::Machinery(v) => {
-                    if let Some(rec) = MachineryRecord::from_acp_update(v, &self.session, seq) {
+                    for rec in MachineryRecord::from_native_event(v, &self.session, seq) {
                         on_item(TurnItem::Machinery(rec));
                     }
                 }
@@ -81,84 +81,94 @@ impl Cognition for ScriptedLease {
     }
     fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
         let mut out = Vec::new();
-        for (i, u) in std::mem::take(&mut self.between).iter().enumerate() {
-            if let Some(r) = MachineryRecord::from_between_turn_update(u, &self.session, i as u64) {
-                out.push(r);
-            }
+        let mut seq = 0u64;
+        for f in std::mem::take(&mut self.between).iter() {
+            let records = MachineryRecord::from_native_between_turn(f, &self.session, seq);
+            seq += records.len() as u64;
+            out.extend(records);
         }
         out
     }
 }
 
-/// EVERY payload below is VERBATIM from `docs/verification/acp-emission-probe-2026-08-28/`,
-/// copied out of the raw JSONL by `n`, not paraphrased from the write-up. That matters
-/// because three of the five field-level facts the renderer depends on are only visible in
-/// the real bytes:
+/// EVERY frame below is VERBATIM from
+/// `docs/verification/native-claude-stream-json-2026-08-31/raw/` and
+/// `docs/verification/native-claude-tool-status-2026-08-31/raw/`, copied out of the raw
+/// JSONL by line, not paraphrased from the write-up. That matters because four of the
+/// field-level facts the renderer depends on are only visible in the real bytes:
 ///
-///   1. **The OPEN event's title is a placeholder** — `"Terminal"` for Bash,
-///      `"Preparing file…"` for Write (run1 n=11, n=26). The real command arrives on a
-///      LATER `tool_call_update` (n=12). A renderer that read only the open event would
-///      show the CEO a column of the word "Terminal".
-///   2. **The terminal event carries `status` + `rawOutput` and NO title** (n=16), so the
-///      §1.4 G2 merge — last-write-wins per field PRESENT — is what keeps the command text
-///      and the outcome on the same row.
-///   3. **`usage_update` is the second most frequent event on the wire** (50 across five
-///      runs) and has no typed route, so it lands as `Unknown` and renders here as one dim
-///      line with its vendor kind — and NOT at all on the calm view.
+///   1. **The OPEN frame carries `input: {}`** (`run9:5`). The arguments arrive on the
+///      following whole-message `assistant` frame (`run9:15`), so §1.4 G2's merge is what
+///      puts what-was-run on the row at all.
+///   2. **The CLOSING `tool_result` carries no tool name** (`run9:18`) — which is why the
+///      activity classification has to be resolved over the RAW records before the merge,
+///      and why the identity witness for a delegated call spans two frames.
+///   3. **Status is a POSITION, not a field.** There is no `status` string anywhere on this
+///      wire: `tool_use` opens `Pending`, `tool_progress` means `InProgress`, `tool_result`
+///      closes `Completed` or `Failed` from a BOOLEAN `is_error`.
+///   4. **`tool_progress`'s own `tool_use_id` is a synthetic `<real-id>-heartbeat-<n>`**
+///      that matches no row anywhere (`run13:22`). The row it belongs to is
+///      `parent_tool_use_id`. A consumer keying on the obvious field updates nothing,
+///      silently — and this fixture would show it, because the heartbeat row would never
+///      reach `running`.
 mod probe {
     use serde_json::{json, Value};
 
-    /// run1 n=11 — Bash opens. `rawInput: {}`, `title: "Terminal"`, `status: "pending"`.
-    pub fn bash_open(id: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":id,
-               "sessionUpdate":"tool_call","rawInput":{},"status":"pending",
-               "title":"Terminal","kind":"execute","content":[]})
+    /// `run9:5` — the row OPENS on the stream, with the real tool name and `input: {}`.
+    pub fn tool_open(id: &str, tool: &str) -> Value {
+        json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+               "content_block":{"type":"tool_use","id":id,"name":tool,"input":{},
+                                "caller":{"type":"direct"}}}})
     }
-    /// run1 n=12 — the real command arrives. No `status` on this event at all.
-    pub fn bash_command(id: &str, command: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":id,
-               "sessionUpdate":"tool_call_update","rawInput":{"command":command},
-               "title":command,"kind":"execute"})
+    /// `run9:15` — the complete arguments, on the whole-message frame. No status.
+    pub fn tool_args(id: &str, tool: &str, input: Value) -> Value {
+        json!({"type":"assistant","message":{"role":"assistant","content":[
+               {"type":"tool_use","id":id,"name":tool,"input":input}]}})
     }
-    /// run1 n=16 / run5 n=18 — the terminal event: status + rawOutput, no title.
-    pub fn bash_result(id: &str, status: &str, raw_output: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":id,
-               "sessionUpdate":"tool_call_update","status":status,"rawOutput":raw_output,
-               "content":[{"type":"content","content":{"type":"text",
-                          "text":format!("```console\n{raw_output}\n```")}}]})
+    /// `run9:18` — the terminal frame: an outcome, `is_error`, and NO tool name.
+    pub fn tool_result(id: &str, is_error: bool, output: &str) -> Value {
+        json!({"type":"user","message":{"role":"user","content":[
+               {"tool_use_id":id,"type":"tool_result","is_error":is_error,"content":output}]},
+               "tool_use_result":Value::Null})
     }
-    /// run1 n=26 — Write opens, with the OTHER placeholder title and an empty `locations`.
-    pub fn write_open(id: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Write"}},"toolCallId":id,
-               "sessionUpdate":"tool_call","rawInput":{},"status":"pending",
-               "title":"Preparing file\u{2026}","kind":"edit","content":[],"locations":[]})
-    }
-    /// run1 n=27 — the path arrives, as `[{path}]`. This is where `locations` comes from.
-    pub fn write_path(id: &str, path: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Write"}},"toolCallId":id,
-               "sessionUpdate":"tool_call_update","rawInput":{"file_path":path},
-               "title":format!("Write {path}"),"kind":"edit","locations":[{"path":path}]})
-    }
-    /// run1 n=36.
+    /// `run9:18`'s Write variant, which also carries the structured `tool_use_result` the
+    /// path in `locations` is recovered from.
     pub fn write_result(id: &str, path: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Write"}},"toolCallId":id,
-               "sessionUpdate":"tool_call_update","status":"completed",
-               "rawOutput":format!("File created successfully at: {path} (file state is current in your context \u{2014} no need to Read it back)")})
+        json!({"type":"user","message":{"role":"user","content":[
+               {"tool_use_id":id,"type":"tool_result","is_error":false,
+                "content":format!("File created successfully at: {path} (file state is current in your context \u{2014} no need to Read it back)")}]},
+               "tool_use_result":{"type":"create","filePath":path,"content":"RUSTOK"}})
     }
-    /// run5 n=8 — the accounting update. `size` was 1_000_000 in 50 of 50.
-    pub fn usage(used: u64) -> Value {
-        json!({"sessionUpdate":"usage_update","used":used,"size":1000000})
+    /// `run13:22` — THE HEARTBEAT, and its trap. Keyed on `parent_tool_use_id`; its own
+    /// `tool_use_id` is synthetic and matches nothing. Measured cadence: 30.002 s.
+    pub fn tool_progress(id: &str, tool: &str, elapsed: u64) -> Value {
+        json!({"type":"tool_progress","tool_use_id":format!("{id}-heartbeat-0"),
+               "tool_name":tool,"parent_tool_use_id":id,
+               "elapsed_time_seconds":elapsed,"heartbeat":true})
     }
-    /// run1 §4.2 — emitted once per turn, AFTER the prompt response, i.e. with no turn in
-    /// flight. This is the update §1.5 says "hits no sink at all"; it is here so the fixture
-    /// carries a real between-turn row rather than an invented one.
-    pub fn available_commands() -> Value {
-        json!({"sessionUpdate":"available_commands_update",
-               "availableCommands":[{"name":"compact"},{"name":"resume"},{"name":"rewind"}]})
+    /// `run9:19` — the accounting frame. Untyped, so it lands as `Unknown`; it is also the
+    /// frame the watermark numerator is summed from (2 + 25_737 + 3_603 = 29_342).
+    pub fn message_delta(cache_read: u64) -> Value {
+        json!({"type":"stream_event","event":{"type":"message_delta",
+               "delta":{"stop_reason":"tool_use"},
+               "usage":{"input_tokens":2,"cache_creation_input_tokens":3603,
+                        "cache_read_input_tokens":cache_read,"output_tokens":95}}})
     }
-    /// run1 §4.2 — the other one, same moment.
-    pub fn session_info(title: &str) -> Value {
-        json!({"sessionUpdate":"session_info_update","title":title})
+    /// `run9:1` — emitted once per turn. Big, near-static, and repeated with only a new
+    /// `uuid` — which is why the SessionMeta slot compares on `machinery::meta_identity`
+    /// rather than on the frame.
+    pub fn system_init() -> Value {
+        json!({"type":"system","subtype":"init","model":"claude-sonnet-5",
+               "cwd":"/Users/alex/ab/richos",
+               "tools":["Bash","Read","Write","Edit","Task"],
+               "slash_commands":["compact","resume","rewind"],
+               "permissionMode":"default","apiKeySource":"none",
+               "session_id":"sess_mach_1","uuid":"u-init-1"})
+    }
+    /// `run9:2` — the other once-per-turn frame, same moment.
+    pub fn system_status() -> Value {
+        json!({"type":"system","subtype":"status","status":"requesting",
+               "session_id":"sess_mach_1","uuid":"u-status-1"})
     }
 }
 
@@ -179,40 +189,60 @@ fn main() {
         session: "sess_mach_1".into(),
         // §1.5's between-turn traffic: what the adapter said with no turn running. It is
         // pumped below, BEFORE the turn, which is where `deliver` pumps it.
-        between: vec![probe::available_commands(), probe::session_info("Machinery payload proof")],
+        between: vec![probe::system_init(), probe::system_status()],
         script: vec![
             Step::Text("Checking the client now."),
-            // A Bash call that SUCCEEDED, exactly as run1 emitted it: open with a
-            // placeholder title, the command on a second event, the outcome on a third.
-            Step::Machinery(probe::bash_open("toolu_A")),
-            Step::Machinery(probe::bash_command("toolu_A", "cat engine/VERSION")),
-            Step::Machinery(probe::bash_result("toolu_A", "completed", "1.0.0")),
-            // A Bash call that FAILED — run5's, verbatim. The other terminal value the
-            // status dot has to draw.
-            Step::Machinery(probe::bash_open("toolu_B")),
-            Step::Machinery(probe::bash_command("toolu_B", "cat /Users/alex/no-such-file-richos-probe-xyz.txt")),
-            Step::Machinery(probe::bash_result(
-                "toolu_B", "failed",
+            // A Bash call that SUCCEEDED, exactly as run9 emitted it: open on the stream
+            // with no arguments, the command on the whole-message frame, the outcome on a
+            // `tool_result` that names no tool.
+            Step::Machinery(probe::tool_open("toolu_A", "Bash")),
+            Step::Machinery(probe::tool_args("toolu_A", "Bash", json!({"command":"cat engine/VERSION"}))),
+            Step::Machinery(probe::tool_result("toolu_A", false, "1.0.0")),
+            // A Bash call that FAILED. `is_error: true` is the whole difference — the other
+            // terminal value the status dot has to draw.
+            Step::Machinery(probe::tool_open("toolu_B", "Bash")),
+            Step::Machinery(probe::tool_args(
+                "toolu_B", "Bash",
+                json!({"command":"cat /Users/alex/no-such-file-richos-probe-xyz.txt"}),
+            )),
+            Step::Machinery(probe::tool_result(
+                "toolu_B", true,
                 "Exit code 1\ncat: /Users/alex/no-such-file-richos-probe-xyz.txt: No such file or directory",
             )),
-            // A Write, so `locations` is not empty on every row.
-            Step::Machinery(probe::write_open("toolu_C")),
-            Step::Machinery(probe::write_path("toolu_C", "/tmp/richos-acp-probe-write-target.txt")),
-            Step::Machinery(probe::write_result("toolu_C", "/tmp/richos-acp-probe-write-target.txt")),
-            // A call that is STILL OPEN when the turn ends: the merge never sees a terminal
-            // status, so it stays `pending` -> `queued`. Not a completion, and not an error.
-            Step::Machinery(probe::bash_open("toolu_D")),
-            Step::Machinery(probe::bash_command("toolu_D", "grep -rn \"sessionUpdate\" app | wc -l")),
-            // The accounting update. Untyped vendor kind => TECHNICAL: absent from the calm
+            // A Write, so `locations` is not empty on every row. On this wire the path is
+            // recovered from the tool's own `input` and from `tool_use_result.filePath` —
+            // there is no `locations` array (deviation 4).
+            Step::Machinery(probe::tool_open("toolu_C", "Write")),
+            Step::Machinery(probe::tool_args(
+                "toolu_C", "Write",
+                json!({"file_path":"/tmp/richos-native-probe-write-target.txt","content":"RUSTOK"}),
+            )),
+            Step::Machinery(probe::write_result("toolu_C", "/tmp/richos-native-probe-write-target.txt")),
+            // A LONG call that is still RUNNING when the turn ends. Two things at once:
+            // `ActivityState::Running` is reachable for the first time (the ACP path never
+            // once emitted `in_progress` across five runs), and the heartbeat is keyed on
+            // `parent_tool_use_id` — key it on `tool_use_id` and this row silently stays
+            // `queued`.
+            Step::Machinery(probe::tool_open("toolu_D", "Bash")),
+            Step::Machinery(probe::tool_args(
+                "toolu_D", "Bash", json!({"command":"grep -rn \"tool_use\" app | wc -l"}),
+            )),
+            Step::Machinery(probe::tool_progress("toolu_D", "Bash", 30)),
+            // ...and a call that is still open with NO heartbeat either, which is what a
+            // sub-30s tool looks like when the turn ends first. It must stay `queued`:
+            // not a completion, not an error, and not a claim that it is running.
+            Step::Machinery(probe::tool_open("toolu_E", "Read")),
+            Step::Machinery(probe::tool_args("toolu_E", "Read", json!({"file_path":"/abs/notes.md"}))),
+            // The accounting frame. Untyped vendor frame => TECHNICAL: absent from the calm
             // view (slice 3 fixed a live 6:1 noise defect there), present here as one dim
-            // line carrying its own kind name (§1.4 G5).
-            Step::Machinery(probe::usage(41991)),
-            Step::Text("It does — line 145 routes only agent_message_chunk and drops the rest."),
+            // line carrying its own frame name (§1.4 G5).
+            Step::Machinery(probe::message_delta(41991)),
+            Step::Text("It does not — every non-text frame is routed, and only six are dropped."),
         ],
     }));
     // The lane, drained the way `Spine::deliver` and `get_machinery` drain it.
     let pumped = spine.pump_between_turn();
-    let t1 = spine.submit_prompt("check whether the ACP client drops tool calls", Source::Text).expect("turn 1");
+    let t1 = spine.submit_prompt("check whether the client drops tool calls", Source::Text).expect("turn 1");
 
     // ---- a thread that ran BEFORE routing: prose, and no machinery directory, ever -----
     let old_thread = spine.create_thread("Before the routing commit", &entity).expect("old thread");
@@ -300,15 +330,23 @@ fn main() {
     say("a call still open at turn end is `queued`, NEVER `completed`",
         acts.iter().any(|a| a["state"] == "queued"),
         format!("{:?}", acts.iter().map(|a| (a["detail"]["title"].clone(), a["state"].clone())).collect::<Vec<_>>()));
+    // NEW ON THIS WIRE, and it is the one thing the ACP path could never show: a long tool
+    // reports `running` from its own 30s heartbeat. `machinery.rs`'s own measurement of the
+    // ACP path says `in_progress` NEVER appeared across five runs, so `ActivityState::Running`
+    // was a branch that existed and was not taken. Keying the heartbeat on `tool_use_id`
+    // instead of `parent_tool_use_id` makes this row silently fall back to `queued`.
+    say("a long tool reports `running` from its 30s heartbeat",
+        acts.iter().any(|a| a["state"] == "running"),
+        "unreachable on the ACP path: in_progress never appeared in five runs".into());
     say("a failed tool call is `failed`",
         acts.iter().any(|a| a["state"] == "failed"), "the status dot's other terminal value".into());
-    say("the untyped vendor kind IS here, with its kind name (§1.4 G5)",
-        acts.iter().any(|a| a["detail"]["vendorKind"] == "usage_update"),
+    say("the untyped vendor frame IS here, with its frame name (§1.4 G5)",
+        acts.iter().any(|a| a["detail"]["vendorKind"] == "stream_event:message_delta"),
         "absent from the calm view, one dim line here".into());
     say("NOTHING internal reaches even the technical view",
         items.iter().all(|i| i["visibility"] != "internal"),
         "`Visibility::renders_in` is false for Internal in EVERY mode".into());
-    say("no thought row (agent_thought_chunk fires zero times on 0.70.0)",
+    say("no thought row (thinking text is empty on every observed frame)",
         !acts.iter().any(|a| a["detail"]["vendorKind"] == "agent_thought_chunk"),
         "an always-empty affordance is a lie about the system".into());
     say("ordering is (turn, slot, sequence) and never the clock",
@@ -328,8 +366,8 @@ fn main() {
 
     eprintln!("\n[machinery] --- §1.5's between-turn lane ---");
     let lane = payload["timeline"]["betweenTurns"].as_array().cloned().unwrap_or_default();
-    say("the update that used to hit no sink is on the wire",
-        lane.iter().any(|r| r["vendorKind"] == "available_commands_update"),
+    say("the frame that used to hit no sink is on the wire",
+        lane.iter().any(|r| r["vendorKind"] == "system:init"),
         format!("kinds: {:?}", lane.iter().map(|r| r["vendorKind"].clone()).collect::<Vec<_>>()));
     say("every lane row is TECHNICAL, so a CEO view is handed an empty lane",
         !lane.is_empty() && lane.iter().all(|r| r["visibility"] == "technical"),

@@ -1359,7 +1359,7 @@ async function send() {
 /// feature. §25 asks that "a steering message joins the active turn in durable order".
 /// What actually happens: the words are fsync'd to the intake log before this call returns,
 /// they are ordered by that log, and they reach Rich at the next turn boundary. They do NOT
-/// join the running ACP turn — ACP runs one `session/prompt` at a time, and the continuity
+/// join the running turn — the agent runs one turn at a time, and the continuity
 /// design's turn-boundary controller is queue-not-interrupt by construction (§3.1).
 ///
 /// So the UI never implies the message landed mid-thought. The bubble goes up with the
@@ -3611,7 +3611,7 @@ el("feedback-history-retry").addEventListener("click", () => refreshFeedback().t
 // ---------------------------------------------------------------------------------------
 // TECHY MODE (techy-mode design §3.1/§3.3/§3.4) — the opt-in technical view
 //
-// Phase 1 (richos `48561e4`) routed every non-text ACP update into `rich://machinery` and
+// Phase 1 (richos `48561e4`) routed every non-text agent frame into `rich://machinery` and
 // retained it in a per-thread day-sharded journal. **Retention runs ALWAYS and has no
 // setting** (§3.2) — that unconditional write is the only reason "show me the technical
 // view for a conversation I already had" is possible at all, and the toggle below controls

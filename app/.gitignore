@@ -2,7 +2,9 @@
 target/
 Cargo.lock
 
-# ACP protocol probe deps (adapter is installed on demand; probe.js + package.json kept as repro)
+# The ACP adapter is GONE (wiki/ceo-decisions.md §16, 2026-08-31). This rule is kept for one
+# release so a stale checkout that still has the directory does not commit its node_modules;
+# there is no npm in the shipped app any more.
 acp-adapter/node_modules/
 
 # Tauri build / node UI deps

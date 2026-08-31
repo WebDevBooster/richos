@@ -1,14 +1,14 @@
 // RichOS desktop shell (Tauri). A THIN surface over the richos-core spine.
 //
 // Doctrine: clean output (only Rich's assistant text renders), one conversation with
-// Rich, optional multi-thread topic organization. All runtime intelligence — the ACP
+// Rich, optional multi-thread topic organization. All runtime intelligence — the native
 // client, the crash-safe ledger, threads, re-prime continuity — lives in richos-core;
 // this file is just the window + the Tauri command bridge to the web UI in ../ui.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod events;
 
-use richos_core::acp::{resolve_acp_bin, AcpCognition};
+use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
 use richos_core::launch::{LaunchCounts, LaunchKind, LaunchStore, PriorRun};
@@ -106,7 +106,7 @@ impl ProposalObserver for TauriProposalEmitter {
 
 /// The MACHINERY sink: forwards each machinery record to the webview on ONE event name,
 /// `rich://machinery` (techy-mode design §1.3 — one name plus a `kind` field, because the
-/// ACP update set is the vendor's and open, so a new kind must not need a new event).
+/// agent's frame set is the vendor's and open, so a new kind must not need a new event).
 ///
 /// A SEPARATE observer from `TauriEmitter` on purpose. The clean-output invariant is
 /// structural, not a convention: machinery is not a `StreamEvent`, so a webview that
@@ -124,18 +124,18 @@ impl MachineryObserver for TauriMachineryEmitter {
     }
 }
 
-/// The rotation/recovery seam (richos_core::LeaseFactory): spawns a fresh, un-primed ACP
-/// lease exactly like the boot path (`AcpCognition::start`), so the spine can rotate at a
-/// context watermark or recover from a mid-turn crash without knowing anything about
-/// ACP/Node/the adapter binary — richos-core stays IO-agnostic (continuity §3.3 step 4).
+/// The rotation/recovery seam (richos_core::LeaseFactory): spawns a fresh, un-primed
+/// lease exactly like the boot path (`NativeCognition::start`), so the spine can rotate at
+/// a context watermark or recover from a mid-turn crash without knowing anything about the
+/// wire — richos-core stays IO-agnostic (continuity §3.3 step 4).
 struct EngineLeaseFactory {
-    acp_bin: PathBuf,
+    claude_bin: PathBuf,
     engine_dir: PathBuf,
 }
 
 impl LeaseFactory for EngineLeaseFactory {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
-        let cog = AcpCognition::start(&self.acp_bin, &self.engine_dir)?;
+        let cog = NativeCognition::start(&self.claude_bin, &self.engine_dir)?;
         Ok(Box::new(cog))
     }
 }
@@ -144,7 +144,7 @@ impl LeaseFactory for EngineLeaseFactory {
 /// compute lease is `Box<dyn Cognition + Send>`), so `Mutex<Spine>` is valid Tauri state.
 struct AppState {
     spine: Mutex<Spine>,
-    /// Set false when no ACP lease could be attached at boot (e.g. Claude not logged in),
+    /// Set false when no lease could be attached at boot (e.g. Claude not logged in),
     /// so the UI can surface a calm, Rich-voiced "not connected" state instead of a crash.
     lease_ready: bool,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
@@ -564,17 +564,30 @@ fn main() {
                 Err(e) => eprintln!("[richos] loro Tier C: configured but unusable, continuing without it: {e}"),
             }
 
-            // Attach the compute lease best-effort. A boot with no Claude auth degrades
-            // to a calm "not connected" state rather than failing to launch.
+            // Attach the compute lease. A boot with no Claude auth, no `claude` binary, or a
+            // binary that rejects our flags does NOT silently degrade: `lease_ready` goes
+            // false and EVERY send is refused with `LEASE_UNAVAILABLE_MESSAGE` — a calm,
+            // Rich-voiced "not connected" that the CEO cannot mistake for a working app
+            // (`send_message`, and the voice submit callback, both check it).
+            //
+            // **The DIAGNOSIS is printed verbatim, and that is the loud half §16 demands.**
+            // `NativeError` carries the child's own stderr, so a binary that stopped
+            // accepting `--permission-prompt-tool stdio` announces itself here as
+            // `error: unknown option '--permission-prompt-tool'` rather than as a mystery.
+            // It is not shown to the CEO — a flag name is not CEO copy — but it is the first
+            // thing whoever set RichOS up will read, and the sentence he DOES see points at
+            // exactly that person.
             let engine = engine_dir();
-            let acp_bin = resolve_acp_bin(Some(&std::env::current_dir().unwrap_or_default()));
-            let lease_ready = match AcpCognition::start(&acp_bin, &engine) {
+            let claude_bin = resolve_claude_bin();
+            let lease_ready = match NativeCognition::start(&claude_bin, &engine) {
                 Ok(cog) => {
                     spine.attach_lease(Box::new(cog));
                     true
                 }
                 Err(e) => {
-                    eprintln!("[richos] ACP lease not attached at boot: {e}");
+                    eprintln!("[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.");
+                    eprintln!("[richos]   binary: {}", claude_bin.display());
+                    eprintln!("[richos]   cause : {e}");
                     false
                 }
             };
@@ -582,7 +595,7 @@ fn main() {
             // Attach the rotation/recovery seam REGARDLESS of initial boot success — even
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
-            spine.set_lease_factory(Box::new(EngineLeaseFactory { acp_bin, engine_dir: engine }));
+            spine.set_lease_factory(Box::new(EngineLeaseFactory { claude_bin, engine_dir: engine }));
 
             // Left-navigation view state — same app data dir, same durability posture as
             // the ledger and config, and never fatal: a corrupt file degrades to defaults
@@ -1978,7 +1991,7 @@ struct SteerReport {
 /// §9.2: the CEO added words while Rich was working.
 ///
 /// Durable on return, delivered at the next turn boundary. It does NOT join the running
-/// ACP turn — one `session/prompt` at a time, and the continuity design's turn-boundary
+/// turn — one turn at a time, and the continuity design's turn-boundary
 /// controller is queue-not-interrupt by construction (§3.1) — and the UI says which of
 /// those two things happened rather than letting the CEO assume the other.
 #[tauri::command(async)]
@@ -2539,7 +2552,7 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
 #[tauri::command]
 fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
     let mut spine = state.spine.lock().unwrap();
-    // PUMP, THEN READ (techy-mode §1.5). Between-turn traffic is parked by the ACP reader
+    // PUMP, THEN READ (techy-mode §1.5). Between-turn traffic is parked by the reader
     // thread and lands in the journal only when the spine drains it. The turn boundaries do
     // that, but opening the technical view is the other moment somebody actually wants to
     // SEE it — and without this line the newest between-turn records would appear one turn

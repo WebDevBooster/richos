@@ -3,27 +3,30 @@
 The purpose-built, CEO-facing RichOS front-end — a **Tauri** desktop app (Rust core +
 web UI), local-first, single-machine, **no relay**. Built to the system architecture:
 
-- The front-end architecture plan, 2026-08-24 (Tauri; RichOS as the ACP
-  client directly; drop the Nostr relay + its ACP shim; P1 = the runtime spine).
+- The front-end architecture plan, 2026-08-24 (Tauri; RichOS drives the agent
+  directly; drop the Nostr relay + its shim; P1 = the runtime spine).
+- `wiki/ceo-decisions.md` **§16** (2026-08-31): **the ACP adapter is deleted.** RichOS
+  drives the NATIVE `claude` binary over its stream-json stdio. **There is no npm under
+  `app/` in anything that ships** — 112 resolved packages across 99 publishers went to 0.
 - The session-continuity design, 2026-08-24 (the durable Rich is the APP;
-  the ACP session is a swappable compute lease; the ledger is the spine's backbone).
+  the Claude session is a swappable compute lease; the ledger is the spine's backbone).
 - The RichOS front-end notes (v1 CEO-only / single-machine / no-relay; BYO-Anthropic;
   Rich-organized topic threads over one shared ledger/loro).
 
 This scaffold delivers **front-end Phase 1.1–1.2 + the P1.4 continuity FOUNDATION**:
-a working "talk to Rich" loop through the real ACP path, a crash-safe conversation +
+a working "talk to Rich" loop through the real native path, a crash-safe conversation +
 action ledger, a multi-thread data model, and the re-prime seam.
 
 ## Who reads every string in here
 
 **Non-technical CEOs, based in the US** (CEO, 2026-08-29 — "the main or at least the initial target
 audience"). So **every user-facing string in `app/` is American English**: labels, status words,
-empty states, error and permission copy. Not code identifiers, not CSS custom properties, not ACP
+empty states, error and permission copy. Not code identifiers, not CSS custom properties, not
 protocol values — those stay as they are.
 
 Verified 2026-08-29: no British spelling appears in any shipped string in `app/ui` or
 `app/crates/*/src`. Every hit for *color*, *behavior*, *cancelled*, *unrecognized* and the rest is
-in a comment or is the ACP constant `STOP_REASON_CANCELLED`. The rule exists to keep it that way.
+in a comment or is the constant `STOP_REASON_CANCELLED`. The rule exists to keep it that way.
 
 One open question, not a defect: `timeline.js:1140`, `timeline.js:1414` and `main.js:124` format
 time with `toLocaleTimeString(undefined, …)`, which follows the **operator's machine locale** — so
@@ -45,7 +48,10 @@ lives at the repo root as `app/`.
 app/
   Cargo.toml                 workspace: richos-core (fast, native-dep-free) + richos-voice
   crates/richos-core/        the runtime SPINE — UI-agnostic, fully unit-tested
-    src/acp.rs               ACP client (ndjson JSON-RPC to claude-agent-acp; relay dropped)
+    src/native.rs            the COMPUTE-LEASE client: stream-json stdio to the native
+                              `claude` binary. No adapter, no Node, no npm (§16). Carries
+                              the auto-approve seam (`decide_permission`), the loud
+                              startup handshake, and the between-turn lane
     src/entity.rs            the ENTITY scope + privacy boundary (ECS §3.2-3.4): validated
                               entity ids, the four-area registry, fail-closed repository-root
                               resolution, and the IMMUTABLE ThreadBinding (private fields,
@@ -77,7 +83,7 @@ app/
     src/worker_events.rs     the engine's worker-lifecycle stream, read and joined BY
                               IDENTITY to the Task call that spawned the run — session-scoped,
                               because agent_id is not unique across sessions
-    src/machinery.rs         the SECOND event family: every non-text ACP update, routed not
+    src/machinery.rs         the SECOND event family: every non-text agent frame, routed not
                               dropped, normalized + merged by toolCallId (rich://machinery)
     src/journal.rs           the machinery JOURNAL — separate store, per-thread, day-sharded,
                               Tier A never evicted / Tier B a rolling raw window
@@ -118,12 +124,12 @@ app/
                               any depth, so a user's specifics are unrepresentable rather than
                               filtered. Nothing in it sends anything and there is no queue
     src/util.rs              the shared id and clock helpers, and nothing else
-    examples/acp_roundtrip.rs      headless proof of the real ACP round-trip
-    examples/rotation_roundtrip.rs headless proof of rotation against the real ACP adapter
-    examples/live_events_roundtrip.rs both families side by side on one real ACP turn
+    examples/native_roundtrip.rs   headless proof of the real round-trip
+    examples/rotation_roundtrip.rs headless proof of rotation against the real binary
+    examples/live_events_roundtrip.rs both families side by side on one real turn
     examples/worker_status_demo.rs   what the drill-down reads, against real event logs
     examples/loro_reprime_demo.rs / loro_correction_demo.rs  the Tier-C read and write loops
-    examples/watermark_roundtrip.rs  the rotation trigger, reading the adapter's own usage
+    examples/watermark_roundtrip.rs  the rotation trigger, reading the agent's own usage
     tests/entity_binding_tests.rs 10 entity-scope tests: the cross-entity leak NEGATIVE
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
@@ -134,8 +140,8 @@ app/
     tests/action_ledger_tests.rs 15 action-ledger WRITER tests (the ledger is non-empty
                               at runtime; CEO-facing actions cross a rotation; machinery
                               stays out of every priming prompt)
-    tests/machinery_tests.rs 15 machinery routing/retention tests, driven by ACP wire
-                              shapes actually measured against the adapter
+    tests/machinery_tests.rs 15 machinery routing/retention tests, driven by native wire
+                              frames actually measured against the binary
     tests/steering_tests.rs  16 stop/steer tests (UX §9.2/§9.3). Includes the CONCURRENCY
                               proof: the spine goes behind an Arc<Mutex<..>> exactly as the
                               Tauri shell holds it, a real turn runs on one thread, and the
@@ -143,16 +149,18 @@ app/
                               — so it cannot silently start passing for the wrong reason.
                               Also: a turn the CEO stopped is never crash-replayed, and a
                               stop request that outlived the process is applied at startup
-    tests/acp_cancel_tests.rs 3 session/cancel tests against a REAL CHILD PROCESS over real
-                              stdio (a POSIX-sh fake adapter the test writes itself), in two
-                              variants: compliant, and deliberately deaf to session/cancel
-    tests/between_turn_tests.rs 3 tests for techy-mode §1.5 gap #1, also against a REAL
-                              CHILD PROCESS: the update the adapter emits at session start
-                              and after a prompt response — which used to hit no sink at
-                              all — is parked, deduplicated by the last_session_meta slot,
-                              and drained with turn_id: None
+    tests/native_cancel_tests.rs 3 interrupt tests against a REAL CHILD PROCESS over real
+                              stdio (a POSIX-sh fake `claude` the test writes itself), in two
+                              variants: compliant, and deliberately deaf to the interrupt
+    tests/between_turn_tests.rs 4 tests for techy-mode §1.5 gap #1, also against a REAL
+                              CHILD PROCESS: the frame the agent emits at session start and
+                              after a turn's result — which used to hit no sink at all — is
+                              parked, deduplicated by the last_session_meta slot (on
+                              meta_identity, because the frames differ by uuid), and drained
+                              with turn_id: None. The fourth pins spike caveat C3: the
+                              derived context measurement cannot exist before turn two
     tests/between_turn_thread_tests.rs 6 tests for the same gap end to end: a real
-                              AcpCognition's session-start update reaching the journal and
+                              NativeCognition's session-start frame reaching the journal and
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
@@ -306,7 +314,6 @@ app/
     mock.js                  the dev harness — inert in the real Tauri build; the ONLY way
                               every state is reachable without a live Claude
     tests/                   the browser acceptance harness (see tests/README.md)
-  acp-adapter/               hosts the claude-agent-acp adapter + probe.js (wire-shape repro)
 ```
 
 `src-tauri/` is a **deliberately detached** nested workspace so the heavy webview
@@ -415,7 +422,7 @@ around it is false."* Every path in `app/README.md` did resolve the whole time.
 
 ## Machinery routing and the technical view (techy mode)
 
-Every non-text ACP update is **routed**, not dropped, into a second event family
+Every non-text agent frame is **routed**, not dropped, into a second event family
 (`rich://machinery`) and retained in a separate per-thread journal at
 `<app-data>/machinery/<thread_id>/<YYYY-MM-DD>.jsonl`. Contract:
 `richos-hq/docs/plans/richos-techy-mode-2026-08-26.md`. UI contract: `app/STREAMING.md`.
@@ -442,13 +449,20 @@ Five limits, stated rather than discovered later:
    `unreadable` (the store is there and the OS refused it) and `recorded`. They are
    deliberately not one sentence — an unreadable store served as an empty one is the
    product lying about its own record.
-2. **`agent_thought_chunk` produces nothing today.** Measured across five probe runs of
-   `claude-agent-acp` 0.70.0, including one built solely to elicit it: zero. The adapter
-   guards the update on non-empty thinking text, and recent models omit it
-   (`docs/verification/acp-emission-probe-2026-08-28.md` §4.1). The route exists so there
-   is no hole the day that changes; **no `● thinking` row is drawn**, because an
-   always-empty affordance says the model is not thinking when the truth is that the
-   adapter does not say. Same for `fs/read_text_file` / `fs/write_text_file`.
+2. **Readable thinking text produces nothing today, on EITHER wire.** Measured across five
+   probe runs of `claude-agent-acp` 0.70.0, including one built solely to elicit it: zero
+   `agent_thought_chunk` (`docs/verification/acp-emission-probe-2026-08-28.md` §4.1).
+   Re-measured on the native binary 2026-08-31: **7 `thinking` blocks, every one with EMPTY
+   text and a signature only** (`docs/verification/native-claude-stream-json-2026-08-31/`).
+   Deleting the adapter changed nothing here, which is worth saying because it was the one
+   row a reader might have hoped the move would fix. The route exists so there is no hole
+   the day that changes; **no `● thinking` row is drawn**, because an always-empty
+   affordance says the model is not thinking when the truth is that the agent does not say.
+
+   Same for client-directed file IO, and there the native answer is stronger than "not
+   observed": the CLI was **OBSERVED NOT TO ASK** — it wrote and edited files itself and
+   asked only for permission. `MachineryKind::ClientFsCall` therefore has no producer at
+   all, which `machinery.rs` states at the constructor rather than leaving to be found.
 3. **Between-turn updates are still dropped.** One `available_commands_update` at session
    start and one `session_info_update` after each turn ends reach no sink, because the
    client only delivers updates while a prompt is in flight. §1.5 designs the fix.
@@ -528,7 +542,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 538 tests + 5 doc-tests
+cargo test -p richos-core                       # 560 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
@@ -538,19 +552,18 @@ cargo run -p richos-voice --example device_probe       # what the audio hardware
 # 2. The desktop shell (from app/src-tauri/):
 cargo build                                     # -> target/debug/richos-tauri (Mach-O)
 
-# 3. The LIVE ACP round-trip (needs `claude` CLI signed in; adapter under acp-adapter/):
-#    installs once:  (cd acp-adapter && npm i @agentclientprotocol/claude-agent-acp)
-RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
-  cargo run -p richos-core --example acp_roundtrip -- "$PWD/../engine" "who are you?"
+# 3. The LIVE round-trip. Needs Claude Code installed and signed in — and NOTHING else:
+#    no npm, no Node, no adapter. $RICHOS_CLAUDE_BIN overrides the binary; by default
+#    ~/.local/bin/claude is preferred over PATH.
+cargo run -p richos-core --example native_roundtrip -- "$PWD/../engine" "who are you?"
 
 # 3b. The LIVE machinery proof — the same chain, but showing that tool calls are ROUTED
 #     and RETAINED: the calm view, the interleaved (turn, seq) stream, the merged rows,
 #     and the journal files on disk. Leaves the journal in place and prints its path.
-RICHOS_ACP_BIN="$PWD/acp-adapter/node_modules/.bin/claude-agent-acp" \
-  cargo run -p richos-core --example machinery_roundtrip -- "$PWD/../engine"
+cargo run -p richos-core --example machinery_roundtrip -- "$PWD/../engine"
 
-# 4. The WHOLE voice loop (needs the adapter above; a WAV stands in for the mic on a
-#    machine with no input device):
+# 4. The WHOLE voice loop (a WAV stands in for the mic on a machine with no input
+#    device):
 say -v Samantha -o /tmp/ceo.wav --data-format=LEI16@16000 "Rich, are you there?"
 cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav
 ```
@@ -873,7 +886,7 @@ explicit argv, and owns the notary step itself.
   is pinned and must never change (`packaging-and-signing.md`, "What RichOS
   specifically needs" item 3) — but it is worth deciding *before* a Developer ID
   signature makes it load-bearing for grant continuity, not after.
-- **No sidecars are bundled.** `claude-agent-acp`, a Node runtime, `whisper.cpp` and
+- **No sidecars are bundled.** `whisper.cpp` and
   `ffmpeg` are not in the `.app`; the bundle is 17 MB and assumes them on the host.
   When they land, each must be signed with the same identity and sealed in, or the
   bundle seal breaks and takes the grants with it.
@@ -890,11 +903,13 @@ explicit argv, and owns the notary step itself.
 
 ## Runtime config (env)
 
-- `RICHOS_ENGINE_DIR` — the engine repo used as the ACP session `cwd` (persona + hooks).
+- `RICHOS_ENGINE_DIR` — the engine repo used as the child's `cwd` (persona + hooks).
   Defaults to the `engine/` sibling of `app/`.
-- `RICHOS_ACP_BIN` — path to the `claude-agent-acp` adapter binary. Defaults to
-  `node_modules/.bin/claude-agent-acp` under the launch dir, else bare name on PATH.
-- `RICHOS_ACP_DEBUG` — if set, adapter stderr is echoed (developer machinery only;
+- `RICHOS_CLAUDE_BIN` — path to the `claude` binary. Defaults to `~/.local/bin/claude`
+  (Anthropic's own launcher, which SURVIVES auto-update — §16's free way to pin the
+  undocumented `--permission-prompt-tool stdio` flag without modifying any binary), else
+  the bare name on PATH.
+- `RICHOS_CLAUDE_DEBUG` — if set, the child's stderr is echoed (developer machinery only;
   never reaches the CEO view).
 
 ### Company memory (loro) — off unless configured, and never inferred
@@ -930,7 +945,7 @@ cargo run -p richos-core --example loro_correction_demo   # provisions its own t
 
 ## What is proven vs pending
 
-**Proven (live, 2026-08-24):** the ACP round-trip through the full spine — CEO prompt
+**Proven (live, 2026-08-24):** the round-trip through the full spine — CEO prompt
 persisted crash-safe → re-prime identity injected → real Claude replies **as Rich** →
 clean render. The Tauri shell builds into a real arm64 binary. `tests/spine_tests.rs` was
 11 tests on the day this was written and is 12 now; the layout above carries the current
@@ -950,7 +965,7 @@ recovery/replay (bounded to one attempt, clean-render dedup via superseded turns
 identity/action-ledger re-prime that structurally excludes false attribution — all wired
 in `richos-core::spine` (`LeaseFactory`, `rotate_lease`, `recover_and_replay`) and proven
 both headless (`cargo test -p richos-core`, `tests/rotation_tests.rs`, 22 tests) and live
-against the real ACP adapter (`examples/rotation_roundtrip.rs` — a forced mid-conversation
+against the real binary (`examples/rotation_roundtrip.rs` — a forced mid-conversation
 rotation swaps the backing Claude session and the successor correctly recalls the prior
 exchange purely via the re-prime payload). Company name, the assertiveness dial, and the
 worker-status drill-down are also wired end-to-end (Tauri commands → `app/ui/main.js`).
@@ -958,24 +973,25 @@ Full detail + the honest gaps (loro Tier-C compiler still a seam contract, not b
 attention-seam TRIGGER yet — only the persistence + UI-event seam) are in
 the spine-seams + rotation brief, 2026-08-24.
 
-**Machinery routing + retention, landed (2026-08-28):** every non-text ACP update is now
+**Machinery routing + retention, landed (2026-08-28):** every non-text agent frame is now
 routed into a second event family (`rich://machinery`) and retained in a separate
 per-thread, day-sharded journal, on ONE per-turn `seq` shared with the assistant text so
 "he said X, then ran Y, then said Z" is reconstructible. Proven headless
-(`tests/machinery_tests.rs`, 15 tests, driven by wire shapes measured against the real
-adapter) and live (`examples/machinery_roundtrip.rs` — one real tool-using turn, 24 journal
+(`tests/machinery_tests.rs`, 15 tests, driven by wire frames measured against the real
+binary) and live (`examples/machinery_roundtrip.rs` — one real tool-using turn, 24 journal
 lines projecting to 9 rows, positions 0..=34 used exactly once across both families; the run
 is kept at `docs/verification/machinery-roundtrip-2026-08-28.txt`). The emission set the
 routing is built against was measured first, not assumed:
-`docs/verification/acp-emission-probe-2026-08-28.md`. Honest gaps: **retroactivity starts
-here and nothing earlier is recoverable**; `agent_thought_chunk` currently produces no data
-at all on `claude-agent-acp` 0.70.0; between-turn updates are still unrouted (Phase 2) —
+`docs/verification/acp-emission-probe-2026-08-28.md`, and re-measured against the native
+binary in `docs/verification/native-claude-stream-json-2026-08-31/` when §16 deleted the
+adapter. Honest gaps: **retroactivity starts here and nothing earlier is recoverable**;
+readable thinking text produces no data on either wire; between-turn updates were unrouted —
 **CLOSED 2026-08-30, see below**; and there is no toggle, no renderer and no controls —
 that is the rest of Phase 1 and it is deliberately not in this work.
 
 **Between-turn traffic has somewhere to go (2026-08-30):** techy-mode §1.5's gap #1 —
-*"`acp.rs` delivers an update only if `current_prompt` is `Some`; anything the adapter emits
-at session start or between turns hits no sink at all"* — is closed. The ACP client keeps a
+*"the client delivers a frame only if `current_prompt` is `Some`; anything the agent emits
+at session start or between turns hits no sink at all"* — is closed. The client keeps a
 buffer and §1.5's `last_session_meta` slot (last value wins, so a byte-identical repeat is
 suppressed rather than journaled once per turn forever); the spine drains it at every turn
 boundary and on every technical-view open, stamping `turn_id: None` — the records attach to
@@ -988,7 +1004,7 @@ vendor kinds might give a rotation away: the lane is drained as honest traffic B
 internal turn starts and as `internal: true` immediately after one finishes, so a re-prime,
 a handoff or a successor's residue can never render. Proven against a real child process
 (`tests/between_turn_tests.rs`, 3 tests; `tests/between_turn_thread_tests.rs`, 6 tests
-end to end through `AcpCognition`) and on the rendered surface (`app/ui/tests/techy.js`
+end to end through `NativeCognition`) and on the rendered surface (`app/ui/tests/techy.js`
 checks 18-21, shots `3-1-08` and `3-1-09`).
 
 Honest gaps that remain: the buffer is bounded at 256 items and an overflow is reported as

@@ -33,8 +33,11 @@
       dylibs get loaded, which RichOS does not do.
 
   WHAT WILL NEED REVISITING, named now rather than discovered later. When the
-  sidecars land — `claude-agent-acp`, a bundled Node runtime, `whisper.cpp`,
-  `ffmpeg` — each must be signed with the same identity and sealed into the bundle.
+  sidecars land — `whisper.cpp`, `ffmpeg` — each must be signed with the same
+  identity and sealed into the bundle. (`claude-agent-acp` and a bundled Node
+  runtime were on this list until 2026-08-31; `wiki/ceo-decisions.md` §16 deleted
+  both, and the `claude` binary is the CUSTOMER's install, outside our bundle and
+  outside our signature — which is the point, and a licence condition besides.)
   If any of them cannot be (a prebuilt binary that resists re-signing), the escape
   hatch is `com.apple.security.cs.disable-library-validation`, which should be
   argued for explicitly at that point and not pre-added here.

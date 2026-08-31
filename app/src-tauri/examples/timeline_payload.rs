@@ -18,13 +18,13 @@
 //!
 //! ## What it does NOT prove
 //!
-//! There is no ACP lease. `claude-agent-acp` is not installed in this checkout, so a real
-//! model turn cannot run and the assistant text below is scripted. What is REAL: every
-//! durable write, the shared per-turn `seq` counter, the `toolCallId` merge, the activity
-//! classification (`MachineryRecord::from_acp_update` is fed the exact wire shapes the
-//! 2026-08-28 emission probe recorded), the visibility gate, the item ids and the JSON
-//! encoding. For a real model turn use
-//! `cargo run -p richos-core --example live_events_roundtrip`, which needs the adapter.
+//! There is no live lease — no `claude` child is spawned — so a real model turn cannot run
+//! and the assistant text below is scripted. What is REAL: every durable write, the shared
+//! per-turn `seq` counter, the tool-id merge, the activity classification
+//! (`MachineryRecord::from_native_event` is fed the exact frames the 2026-08-31 native
+//! capture recorded), the visibility gate, the item ids and the JSON encoding. For a real
+//! model turn use `cargo run -p richos-core --example live_events_roundtrip`, which needs
+//! Claude Code installed and logged in.
 //!
 //! Run:
 //!   cargo run --example timeline_payload            # from app/src-tauri
@@ -45,12 +45,15 @@ use timeline_view::timeline_payload;
 /// A lease that emits TEXT and MACHINERY interleaved on ONE shared `seq` counter, which is
 /// the property the whole ordering model rests on (§1.4 G1).
 ///
-/// The machinery payloads are the VERBATIM wire shapes from
-/// `docs/verification/acp-emission-probe-2026-08-28.md`, including the two facts that
-/// matter most and are easy to get wrong from memory:
-///   1. the OPENING event carries the classification (`_meta.claudeCode.toolName`) and the
-///      CLOSING one does not — it is `{toolCallId, sessionUpdate, status, rawOutput}`;
-///   2. 34 of 58 measured tool events carried NO `status` field at all.
+/// The machinery payloads are the VERBATIM frame shapes from
+/// `docs/verification/native-claude-stream-json-2026-08-31/raw/`, including the two facts
+/// that matter most and are easy to get wrong from memory:
+///   1. the OPENING frame carries the classification (`content_block.name`) and the CLOSING
+///      `tool_result` does not — it carries no tool name at all, which is why the
+///      classification has to be resolved over the RAW records before the merge;
+///   2. status is a POSITION on this wire, not a field, so a call whose `tool_result` never
+///      arrives has no terminal status at all — the native shape of the measured
+///      status-less case.
 struct ScriptedLease {
     session: String,
     script: Vec<Step>,
@@ -81,7 +84,7 @@ impl Cognition for ScriptedLease {
             match step {
                 Step::Text(t) => on_item(TurnItem::Text { seq, text: t }),
                 Step::Machinery(v) => {
-                    if let Some(rec) = MachineryRecord::from_acp_update(v, &self.session, seq) {
+                    for rec in MachineryRecord::from_native_event(v, &self.session, seq) {
                         on_item(TurnItem::Machinery(rec));
                     }
                 }
@@ -92,50 +95,51 @@ impl Cognition for ScriptedLease {
     }
 }
 
-/// `status` is OPTIONAL here on purpose. Corrected by running this example rather than
-/// reasoning about it: with `status: "pending"` on the opening event the merge keeps that
-/// value and the row projects as `queued` — correct behavior, but it means a fixture that
-/// always sends one never reproduces the measured status-less case at all. 34 of the 58
-/// tool events on 2026-08-28 carried no `status` on ANY of their updates.
-fn tool_open(id: &str, tool: &str, title: &str, kind: &str, status: Option<&str>) -> serde_json::Value {
-    let mut v = json!({
-        "sessionUpdate": "tool_call",
-        "toolCallId": id,
-        "title": title,
-        "kind": kind,
-        "_meta": { "claudeCode": { "toolName": tool } }
-    });
-    if let Some(st) = status {
-        v["status"] = json!(st);
+/// `queued` is OPTIONAL here on purpose, and on this wire it selects a different FRAME
+/// rather than a different field — status is a position now, not a string.
+///
+///   * `true`  -> the streamed `content_block_start`, which is where `Pending` comes from;
+///   * `false` -> the whole-message `assistant` frame, which carries the complete arguments
+///                and NO status at all.
+///
+/// The distinction is kept because it is the one a fixture that always sends a status never
+/// reproduces: a row that never reaches a terminal position must project as `unknown`, not
+/// as a completion.
+fn tool_open(id: &str, tool: &str, title: &str, queued: bool) -> serde_json::Value {
+    if queued {
+        json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+               "content_block":{"type":"tool_use","id":id,"name":tool,
+                                "input":{"command":title}}}})
+    } else {
+        json!({"type":"assistant","message":{"role":"assistant","content":[
+               {"type":"tool_use","id":id,"name":tool,"input":{"command":title}}]}})
     }
-    v
 }
 
-/// A DELEGATED-WORK tool call, carrying the two-part witness `worker-created-handoff.sh`
-/// requires: the vendor tool name `Task` in `_meta.claudeCode.toolName`, and the harness's
-/// async-launch acknowledgement with an extractable `agentId` in the result. Missing either
-/// half and the call stays an ordinary activity row.
-fn task_call(id: &str, agent_id: &str) -> serde_json::Value {
-    json!({
-        "sessionUpdate": "tool_call",
-        "toolCallId": id,
-        // The measured title for a Task call is the literal string "Task" — there is no
-        // delegated objective on this wire, which is why the inspector does not show one.
-        "title": "Task",
-        "kind": "other",
-        "status": "in_progress",
-        "_meta": { "claudeCode": { "toolName": "Task" } },
-        "rawOutput": format!("Async agent launched successfully. agentId: {agent_id}")
-    })
+/// The OPENING half of a DELEGATED-WORK call: the vendor tool name `Task`.
+///
+/// The measured title for a Task call is the tool's own name — there is no delegated
+/// objective anywhere on this wire, which is why the inspector does not show one.
+fn task_open(id: &str) -> serde_json::Value {
+    json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+           "content_block":{"type":"tool_use","id":id,"name":"Task","input":{}}}})
 }
 
-/// The CLOSING update, exactly as measured: no `kind`, no `_meta`, no tool name.
-fn tool_close(id: &str, status: Option<&str>) -> serde_json::Value {
-    let mut v = json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "rawOutput": {} });
-    if let Some(s) = status {
-        v["status"] = json!(s);
-    }
-    v
+/// The CLOSING half: the harness's async-launch acknowledgement with an extractable
+/// `agentId`. **It carries no tool name**, so on its own it is not a witness of anything —
+/// the two halves have to be read together, which is exactly what
+/// `timeline::resolve_agent_ids` does in two passes.
+fn task_ack(id: &str, agent_id: &str) -> serde_json::Value {
+    json!({"type":"user","message":{"role":"user","content":[
+           {"tool_use_id":id,"type":"tool_result",
+            "content":format!("Async agent launched successfully. agentId: {agent_id}")}]}})
+}
+
+/// The CLOSING frame, exactly as measured: an outcome, no tool name, and `is_error`
+/// deciding the terminal position.
+fn tool_close(id: &str, failed: bool) -> serde_json::Value {
+    json!({"type":"user","message":{"role":"user","content":[
+           {"tool_use_id":id,"type":"tool_result","is_error":failed,"content":"done"}]}})
 }
 
 fn main() {
@@ -153,7 +157,7 @@ fn main() {
     // no `completed`, `failed`, `interrupted` or `waiting` row here because no emitter can
     // write one; `parse_stream` would drop it if there were.
     //
-    // The `session_id` on every row is `sess_payload_1`, the ACP session the Task call was
+    // The `session_id` on every row is `sess_payload_1`, the session the Task call was
     // made in. That is CLAUSE 3 of the join, and it is the whole reason this fixture proves
     // anything: a row under any other session id is refused.
     let worker_stream = dir.join("worker-events.jsonl");
@@ -183,24 +187,26 @@ fn main() {
         fail_after: None,
         script: vec![
             Step::Text("Pulling the comparables now."),
-            Step::Machinery(tool_open("tc_r1", "Read", "/abs/one.rs", "read", Some("pending"))),
-            Step::Machinery(tool_close("tc_r1", Some("completed"))),
-            Step::Machinery(tool_open("tc_r2", "Read", "/abs/two.rs", "read", Some("pending"))),
-            Step::Machinery(tool_close("tc_r2", Some("completed"))),
-            Step::Machinery(tool_open("tc_r3", "Read", "/abs/three.rs", "read", Some("pending"))),
-            Step::Machinery(tool_close("tc_r3", Some("completed"))),
+            Step::Machinery(tool_open("tc_r1", "Read", "/abs/one.rs", true)),
+            Step::Machinery(tool_close("tc_r1", false)),
+            Step::Machinery(tool_open("tc_r2", "Read", "/abs/two.rs", true)),
+            Step::Machinery(tool_close("tc_r2", false)),
+            Step::Machinery(tool_open("tc_r3", "Read", "/abs/three.rs", true)),
+            Step::Machinery(tool_close("tc_r3", false)),
             // NO STATUS ON EITHER UPDATE — the measured majority case. It must project as
             // `unknown`, never as `completed`.
-            Step::Machinery(tool_open("tc_c1", "Bash", "git status --short", "execute", None)),
-            Step::Machinery(tool_close("tc_c1", None)),
-            // And one that IS still open when the turn ends: `pending` => `queued`.
-            Step::Machinery(tool_open("tc_c3", "Bash", "wc -l notes.md", "execute", Some("pending"))),
+            Step::Machinery(tool_open("tc_c1", "Bash", "git status --short", false)),
+                        // And one that IS still open when the turn ends: `pending` => `queued`.
+            Step::Machinery(tool_open("tc_c3", "Bash", "wc -l notes.md", true)),
             // THREE DELEGATIONS. Each must project as a `worker_activity` row carrying the
             // worker's name, role and last-witnessed state — never as the nameless "Worked"
             // activity row the app produced before the read path was wired.
-            Step::Machinery(task_call("tc_t1", "agt_sage")),
-            Step::Machinery(task_call("tc_t2", "agt_frank")),
-            Step::Machinery(task_call("tc_t3", "agt_clark")),
+            Step::Machinery(task_open("tc_t1")),
+            Step::Machinery(task_ack("tc_t1", "agt_sage")),
+            Step::Machinery(task_open("tc_t2")),
+            Step::Machinery(task_ack("tc_t2", "agt_frank")),
+            Step::Machinery(task_open("tc_t3")),
+            Step::Machinery(task_ack("tc_t3", "agt_clark")),
             // An accounting update. Untyped vendor kind => TECHNICAL, so it must be ABSENT
             // from the payload below. Slice 3 fixed a live defect where six of these
             // rendered as CEO rows reading "Worked" against one real command.
@@ -216,7 +222,7 @@ fn main() {
         fail_after: Some(2),
         script: vec![
             Step::Text("Starting on the carry split —"),
-            Step::Machinery(tool_open("tc_c2", "Bash", "cat partners.csv", "execute", None)),
+            Step::Machinery(tool_open("tc_c2", "Bash", "cat partners.csv", false)),
             Step::Text("(never reached)"),
         ],
     }));
