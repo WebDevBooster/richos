@@ -1,0 +1,77 @@
+offset_s	type	subtype
+0.598	control_response	
+0.611	system	init
+0.612	system	status
+1.409	rate_limit_event	
+2.728	stream_event	message_start
+2.729	stream_event	content_block_start
+2.729	stream_event	content_block_delta
+2.851	stream_event	content_block_delta
+2.867	stream_event	content_block_delta
+2.904	stream_event	content_block_delta
+2.939	stream_event	content_block_delta
+2.984	stream_event	content_block_delta
+3.080	stream_event	content_block_delta
+3.124	stream_event	content_block_delta
+3.254	stream_event	content_block_delta
+3.256	assistant	
+3.257	stream_event	content_block_stop
+3.261	control_request	can_use_tool
+3.265	user	
+3.306	stream_event	message_delta
+3.306	stream_event	message_stop
+3.310	system	status
+4.894	stream_event	message_start
+4.895	stream_event	content_block_start
+4.895	stream_event	content_block_delta
+5.088	stream_event	content_block_delta
+5.093	assistant	
+5.093	stream_event	content_block_stop
+5.114	stream_event	message_delta
+5.114	stream_event	message_stop
+5.118	result	success
+5.121	system	init
+5.121	system	status
+6.534	stream_event	message_start
+6.534	stream_event	content_block_start
+6.534	stream_event	content_block_delta
+6.610	stream_event	content_block_delta
+6.610	assistant	
+6.610	stream_event	content_block_stop
+6.632	stream_event	message_delta
+6.632	stream_event	message_stop
+6.634	result	success
+6.636	system	init
+6.636	system	status
+8.226	stream_event	message_start
+8.804	stream_event	content_block_start
+8.805	system	thinking_tokens
+8.805	stream_event	content_block_delta
+8.806	stream_event	content_block_delta
+8.806	system	thinking_tokens
+8.806	stream_event	content_block_delta
+8.806	assistant	
+8.806	stream_event	content_block_stop
+8.806	stream_event	content_block_start
+8.806	stream_event	content_block_delta
+9.352	stream_event	content_block_delta
+9.898	stream_event	content_block_delta
+10.436	stream_event	content_block_delta
+10.973	stream_event	content_block_delta
+11.523	stream_event	content_block_delta
+12.102	stream_event	content_block_delta
+12.611	stream_event	content_block_delta
+12.636	control_response	
+12.643	assistant	
+12.644	user	
+12.644	result	error_during_execution
+12.646	system	init
+12.646	system	status
+14.109	stream_event	message_start
+14.110	stream_event	content_block_start
+14.110	stream_event	content_block_delta
+14.134	assistant	
+14.134	stream_event	content_block_stop
+14.154	stream_event	message_delta
+14.200	stream_event	message_stop
+14.202	result	success

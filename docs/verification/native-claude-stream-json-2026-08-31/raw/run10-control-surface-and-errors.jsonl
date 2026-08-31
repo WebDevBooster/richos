@@ -1,0 +1,3 @@
+{"type":"control_response","response":{"subtype":"error","request_id":"c1","error":"Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}}
+{"type":"control_response","response":{"subtype":"success","request_id":"c2"}}
+{"type":"control_response","response":{"subtype":"error","request_id":"c3","error":"Unsupported control request subtype: no_such_subtype_at_all"}}
