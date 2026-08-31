@@ -387,6 +387,18 @@ async function main() {
       "send this one",
       "VACUITY: the sentence was never parked, so 'it did not come back' proves nothing"
     );
+    // AND IT IS IN THE IN-MEMORY MAP TOO, which takes a navigation away and back — because
+    // that is the only state in which the delete-on-send is load-bearing. Without this the
+    // map never held the sentence, every later park rewrote the store from an empty map,
+    // and the sentence vanished for a reason that had nothing to do with the line under
+    // test: the mutation removing it ran green.
+    await open(before, "partner");
+    await open(before, "acme");
+    assertEqual(
+      await before.inputValue("#input"),
+      "send this one",
+      "VACUITY: the draft is not in the in-memory map, so deleting it there would be a no-op"
+    );
     await before.click("#send");
     await before.waitForTimeout(700);
     const boxAfterSend = await before.inputValue("#input");
@@ -399,7 +411,7 @@ async function main() {
     const restored = await after.inputValue("#input");
     assertEqual(restored, "", "a sentence he had already sent came back into his composer");
     await ctx.close();
-    return 'no exit handler in main.js; "send this one" was on disk before the send and gone after it';
+    return 'no exit handler in main.js; "send this one" was on disk AND in the map before the send, and gone from both after it';
   });
 
   // =====================================================================================
