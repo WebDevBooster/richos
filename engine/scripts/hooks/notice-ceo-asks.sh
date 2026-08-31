@@ -44,6 +44,18 @@
 # that covers two prepared items discharges both; one that covers none
 # discharges neither, and says so twice.
 #
+# THE SHAPE IS MEASURED, NOT ASSUMED. A real AskUserQuestion call was recovered
+# from a session transcript on this machine (2026-08-31) and its tool_input is
+# exactly:
+#
+#   {"questions": [{"question": "...", "header": "...", "multiSelect": false,
+#                   "options": [{"label": "...", "description": "..."}]}]}
+#
+# which is what the parser below reads. The schema-drift fallback under it is
+# not defensive decoration: if the tool ever renames that field, a witness that
+# quietly recorded nothing would rebuild the exact defect this hook exists to
+# prevent, so it falls back to every string in tool_input and still sees words.
+#
 # ===========================================================================
 # WHAT IS RECORDED
 # ===========================================================================

@@ -139,6 +139,11 @@ LEDGER="$SEAT/.claude/state/ceo-asks.jsonl"
 DEFERS="$SEAT/.claude/state/ceo-queue-defers.log"
 
 # --- payload builders ------------------------------------------------------
+# The tool_input shape here is COPIED from a real AskUserQuestion call recovered
+# from a session transcript on 2026-08-31, fields and all (header, question,
+# multiSelect, options[].label, options[].description). A synthetic payload that
+# is merely plausible would test the parser against the test author's memory of
+# the schema, which is the one reader whose agreement proves nothing.
 ask_payload() { # <session> <agent_id|-> <question> <optlabel> <optdesc>
     CA_S="$1" CA_A="$2" CA_Q="$3" CA_L="$4" CA_D="$5" CA_CWD="$SEAT" python3 -c '
 import json, os
@@ -150,6 +155,7 @@ p = {
     "tool_input": {"questions": [{
         "header": "Decision",
         "question": os.environ["CA_Q"],
+        "multiSelect": False,
         "options": [
             {"label": os.environ["CA_L"], "description": os.environ["CA_D"]},
             {"label": "Not yet", "description": "hold it"},
