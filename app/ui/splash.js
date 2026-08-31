@@ -552,6 +552,10 @@
     node.classList.add("splash--settled");
     node.classList.add("splash--yielding");
     setTimeout(removeSelf, FADE_MS + 40);
+    // Drop the always-dark clamp as the curtain goes, not after it has gone: the fade is
+    // the app arriving, and the control crossing over with it is the same "one system, two
+    // lightings" move every other element makes.
+    if (window.RichTheme) window.RichTheme.forceDark(false);
   }
 
   function start() {
@@ -577,6 +581,18 @@
     }
     state.shown = true;
     state.variationId = entry.id;
+    // §15's ONE PERMANENT EXCEPTION: "because of its nature the start screen will always
+    // need to be in dark mode", and no switch reaches it. The curtain's own composition was
+    // always dark — it draws from `--splash-*` properties this file sets, never from the
+    // app's theme tokens — but the SETTINGS BUTTON sits above the curtain (it has to; its
+    // floor is "Bust a bug" from every screen) and it does read those tokens. Without this
+    // clamp a CEO on light mode gets an ivory control floating on a midnight composition.
+    //
+    // `RichTheme` and not `RichSettings`: theme-boot.js is loaded in `<head>`, so it is
+    // certain to exist here, whereas settings-button.js loads after this file. The clamp is
+    // a FORCE flag and never writes the preference, so light mode is exactly where he left
+    // it the moment the curtain lifts.
+    if (window.RichTheme) window.RichTheme.forceDark(true);
     write(KEY_LAST, entry.id);
     window.addEventListener("keydown", onInput, true);
     window.addEventListener("pointerdown", onInput, true);

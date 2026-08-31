@@ -3095,3 +3095,398 @@ body.bp-narrow .tl-user-bubble {
   line-height: 1.55;
   color: var(--ink-soft);
 }
+
+/* =========================================================================================
+   THE UNIVERSAL SETTINGS BUTTON — PORTED, NOT DESIGNED.
+
+   CEO ruling §15: "The switch and the 'Bust a bug' button are PORTED, not designed. They
+   must work the same way in the RichOS app and in the upcoming website as they do in
+   deeply's settled design — copy the structural elements and adapt them to RichOS
+   branding."
+
+   SOURCE OF RECORD, located 2026-08-30 and confirmed by the CEO the same day ("Yes,
+   `design/design-system/settings-button.reference.html` sounds right"):
+   `~/ab/deeply/design/design-system/settings-button.reference.html`, itself copied verbatim
+   from deeply's locked `round-16-final-v2.0/01-landing/v1.html`. Its settled corpus is
+   `round-104-final-v3.0`, founder-ratified 2026-07-28.
+
+   WHAT WAS COPIED, unchanged: every structural element and every state. The 40px grid-box
+   button with its 20px sliders glyph (a slider pair, NOT a cog); the hover/focus tooltip
+   chip that never shows while the menu is open; the 12px-radius popup with 6px inner
+   padding and rows that carry their own; the pill-track `.theme-seg` with icon-only
+   `.theme-opt` segments driven by `aria-pressed`; the full-row `.bugbtn` action with its
+   leading icon; the rise animation; the outside-pointerdown and Escape dismissals; the
+   focus-return on close. The 32px `.settings.in-bar` constraint-fit form is kept as the
+   reference defines it.
+
+   WHAT WAS ADAPTED, and it is only these two things:
+     * PALETTE — deeply's `--teal`/`--gold`/`--card`/`--ink-2` become RichOS's `--gold`,
+       `--gold-text`, `--surface`, `--ink`. The reference branches on
+       `:root[data-theme="dark"]`; RichOS's DEFAULT is dark (§15), so the base rules here
+       are the dark ones and `:root[data-theme="light"]` carries the branch. Same structure,
+       inverted default — which is what "dark is the default" means in CSS.
+     * TYPOGRAPHY — `var(--font)`, and the component's label tier is `1rem` rather than the
+       reference's flat 14px, because RichOS's readable floor is 16px (§15) and `.set-name`,
+       `.bugbtn` and the tooltip are all text meant to be read. `.setbtn` and `.theme-opt`
+       keep an explicit px font-size for exactly the reason the reference documents it: a
+       `<button>` does not inherit font-size, and both are fixed-size grid boxes whose only
+       children are px-sized SVGs, so the value moves no geometry and scales no text.
+
+   ONE DEVIATION FROM THE REFERENCE, and it is a constraint fit the reference anticipates:
+   z-index is 300, not 100. RichOS's opening-screen curtain sits at 200 and this button's
+   floor is "Bust a bug" from EVERY screen (§15) — including the one a first-run user is
+   most likely to be stuck on. A button that the splash paints over would satisfy the letter
+   of "it is on every page" and none of its point.
+   ========================================================================================= */
+
+.settings {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 300;
+  font-family: var(--font);
+}
+
+.setbtn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  /* See the header: a button resets font-size, and this box has no text of its own. */
+  font-size: 14px;
+  font-family: var(--font);
+  background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+  color: var(--gold-text);
+  transition: background 0.2s, color 0.2s;
+}
+.setbtn:hover {
+  background: color-mix(in srgb, var(--gold) 20%, var(--surface));
+}
+.setbtn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+/* Light mode needs a heavier tint to read as a control against the ivory card. */
+:root[data-theme="light"] .setbtn {
+  background: color-mix(in srgb, var(--gold) 17%, var(--surface));
+}
+:root[data-theme="light"] .setbtn:hover {
+  background: color-mix(in srgb, var(--gold) 26%, var(--surface));
+}
+.setbtn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+/* The quiet tooltip chip. Never while the menu is open — the reference's rule, kept. */
+.setbtn::after {
+  content: "Settings";
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform: translateY(-2px);
+  background: var(--surface);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px -22px var(--shadow-strong);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+  padding: 4px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease 0.2s, transform 0.15s ease 0.2s;
+}
+.settings:not(.open) .setbtn:hover::after,
+.settings:not(.open) .setbtn:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.setmenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 264px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 24px 60px -30px var(--shadow-strong);
+  animation: setrise 0.2s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+.setmenu[hidden] {
+  display: none !important;
+}
+@keyframes setrise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setmenu {
+    animation: none;
+  }
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 6px 5px 10px;
+  min-height: 36px;
+}
+.set-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+/* The 3-way theme segment: tinted track, icon-only segments, filled highlight. */
+.theme-seg {
+  display: inline-flex;
+  align-items: center;
+  background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+  border-radius: 999px;
+  padding: 2px;
+}
+:root[data-theme="light"] .theme-seg {
+  background: color-mix(in srgb, var(--gold) 14%, var(--surface));
+}
+.theme-opt {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 14px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.theme-opt svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.theme-opt:hover {
+  color: var(--gold-text);
+}
+.theme-opt:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+.theme-opt[aria-pressed="true"] {
+  background: var(--gold);
+  color: var(--on-gold);
+}
+
+/* The Text size row's stepper. Same pill-track vocabulary as `.theme-seg` — it is the same
+   kind of thing (a small set of discrete choices), so it is the same control, not a new
+   one. The reading is `.font-val`, tabular so stepping does not make the row twitch. */
+.font-seg {
+  display: inline-flex;
+  align-items: center;
+  background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+  border-radius: 999px;
+  padding: 2px;
+}
+:root[data-theme="light"] .font-seg {
+  background: color-mix(in srgb, var(--gold) 14%, var(--surface));
+}
+.font-opt {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  font-family: var(--font);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.font-opt:hover:not(:disabled) {
+  color: var(--gold-text);
+}
+.font-opt:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+/* An end of the range is stated by the control, not discovered by clicking into silence. */
+.font-opt:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.font-val {
+  min-width: 52px;
+  text-align: center;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+/* The techy row's switch. A checkbox styled as a track, so it is a real form control with
+   real keyboard behaviour and a real `:checked` state rather than a div pretending. */
+.set-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+  margin: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+  border: 1px solid var(--line);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.set-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.25, 1), background 0.18s;
+}
+.set-switch:checked {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+.set-switch:checked::after {
+  transform: translateX(16px);
+  background: var(--on-gold);
+}
+.set-switch:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Row 2 of the reference: a full-row tappable ACTION, not a toggle. */
+.bugbtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.bugbtn:hover {
+  background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+  color: var(--gold-text);
+}
+.bugbtn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+.bugbtn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ink-faint);
+}
+.bugbtn:hover svg {
+  color: currentColor;
+}
+
+/* The reference's constraint-fit form, kept verbatim in intent: the wrapper stops being
+   fixed and becomes an in-flow child of a host bar; only SIZE scales. */
+.settings.in-bar {
+  position: relative;
+  top: auto;
+  right: auto;
+}
+.settings.in-bar .setbtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.settings.in-bar .setbtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 520px) {
+  .settings {
+    top: 5px;
+    right: 5px;
+  }
+}
+
+/* THE OPENING SCREEN'S FORM (§15's one permanent exception).
+
+   While the curtain is up the screen is always dark, so the theme row is not rendered at
+   all — `settings-button.js` omits it rather than disabling it, because a disabled control
+   is a promise that it will work later and this one never will, here. What remains is the
+   button and Bust a bug, which is precisely the floor the ruling names: "even if the user
+   can't change the light/dark mode, the very least that settings button always provides
+   (from every page and every screen) is a quick access to the 'Bust a bug' button."
+
+   The curtain itself is `pointer-events: none` for its whole life and stays that way. This
+   wrapper is a SIBLING of it, not a child, so the splash remains the non-interactive
+   composition it was designed as while the one control the ruling requires sits above it. */
+.settings[data-force-dark="true"] {
+  color-scheme: dark;
+}
+
+/* The toast Bust a bug raises. Ported from the round-10.1 mockups' own answer, which is the
+   only part of "what Bust a bug opens" this round specifies — the report flow itself is
+   explicitly not designed yet. */
+#bug-toast {
+  position: fixed;
+  top: 70px;
+  right: 18px;
+  z-index: 301;
+  max-width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--gold);
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+  box-shadow: 0 24px 60px -30px var(--shadow-strong);
+  animation: setrise 0.3s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+#bug-toast.is-leaving {
+  transition: opacity 0.4s ease;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  #bug-toast {
+    animation: none;
+  }
+}

@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RichOS</title>
+    <!-- THE THEME, BEFORE THE STYLESHEETS. Synchronous and first so the CEO's choice is in
+         the FIRST paint: an async read of config.rs cannot decide frame one, and booting on
+         the default then correcting is a full-screen flash of the wrong palette on every
+         launch. See theme-boot.js — the durable answer still lives in config.rs; this
+         applies a mirror of it and main.js reconciles the two at init. -->
+    <script src="theme-boot.js"></script>
     <link rel="stylesheet" href="style.css" />
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->
@@ -20,6 +26,19 @@
          curtain leaves the moment `main.js` reports it usable. -->
     <script src="splash-library.js"></script>
     <script src="splash.js"></script>
+
+    <!-- THE SETTINGS BUTTON, MOUNTED HERE AND NOT PER-SURFACE.
+
+         CEO ruling §15: "That little settings button is ALWAYS EVERYWHERE ON EVERY PAGE."
+         It is global chrome, so it is mounted once against `document.body` by the script
+         itself — there is no per-screen include to forget, which is the only way an
+         "on every screen" invariant survives the next screen being added.
+
+         It loads HERE, beside the opening screen and before the shell, because its floor —
+         "Bust a bug" — has to be reachable from the very first frame. The screen a first-run
+         user is most likely to be stuck on is the one the curtain is still covering, and
+         reporting a bug must never require navigating away from the screen the bug is on. -->
+    <script src="settings-button.js"></script>
 
     <div id="app">
       <!-- Backdrop for the rail when it is a full-height drawer (below 820px, §20). -->
