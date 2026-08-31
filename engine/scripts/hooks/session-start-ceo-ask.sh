@@ -31,7 +31,7 @@
 # question announced only to the operator is one the orchestrator does not know
 # it owes. Both, or the announcement has a hole exactly where this defect lives.
 #
-# IT ANNOUNCES NOTHING when there is no CEO queue here, when the queue is empty,
+# IT ANNOUNCES NOTHING when there is no CEO list here, when the list is empty,
 # or when every prepared item has already been put to him. Silence is the
 # healthy state and is never spent on saying so.
 #
@@ -107,15 +107,15 @@ case "$RRC" in
     0) ;;
     1) exit 0 ;;
     *)
-        emit "The CEO TODOs declared by this repository CANNOT BE READ: ${CA_REASON}. Nothing will be surfaced to him and the CEO-ask gate on teammate dispatches is OFF. Fix the declaration or the record before treating this session's silence as an empty queue." \
-             "CEO TODOs UNREADABLE: ${CA_REASON} — his queue is not being surfaced and the ask gate is off."
+        emit "The CEO TODOs declared by this repository CANNOT BE READ: ${CA_REASON}. Nothing will be surfaced to him and the CEO-ask gate on teammate dispatches is OFF. Fix the declaration or the record before treating this session's silence as an empty list." \
+             "CEO TODOs UNREADABLE: ${CA_REASON} — his list is not being surfaced and the ask gate is off."
         exit 0 ;;
 esac
 
 ARC=0
 ca_assess "$ENTITY_ROOT" "" || ARC=$?
 if [ "$ARC" -ge 2 ]; then
-    emit "The CEO TODOs could not be assessed: ${CA_BROKEN:-the predicate could not run}. Treat this as an UNREAD queue, not an empty one; scripts/ceo-asks-status.sh has the detail." \
+    emit "The CEO TODOs could not be assessed: ${CA_BROKEN:-the predicate could not run}. Treat this as an UNREAD list, not an empty one; scripts/ceo-asks-status.sh has the detail." \
          "CEO TODOs could not be read: ${CA_BROKEN:-predicate failed}."
     exit 0
 fi
@@ -131,6 +131,6 @@ if [ "${CA_UNASKED:-0}" -gt 1 ]; then
     REST=" ($((CA_UNASKED - 1)) more after it — scripts/ceo-asks-status.sh.)"
 fi
 
-emit "PUT THIS TO THE CEO BEFORE DISPATCHING ANYONE. His TODO ${TOP_ID}: ${TOP_ASK}${REST} Ask it with the AskUserQuestion tool — a PostToolUse witness records which item the question was actually about, and guard-ceo-ask-first.sh REFUSES every teammate dispatch this session until one of his prepared items has been put to him. Summarizing his queue back to him does not count and never has; on 2026-08-31 that is precisely what happened instead of asking." \
+emit "PUT THIS TO THE CEO BEFORE DISPATCHING ANYONE. His TODO ${TOP_ID}: ${TOP_ASK}${REST} Ask it with the AskUserQuestion tool — a PostToolUse witness records which item the question was actually about, and guard-ceo-ask-first.sh REFUSES every teammate dispatch this session until one of his prepared items has been put to him. Summarizing his list back to him does not count and never has; on 2026-08-31 that is precisely what happened instead of asking." \
      "CEO TODO ${TOP_ID} — ${TOP_ASK}${REST}"
 exit 0

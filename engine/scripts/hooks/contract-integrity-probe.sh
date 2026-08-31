@@ -1971,7 +1971,7 @@ CANON = [
     "worker-updated-handoff.sh",
     "worker-ended-handoff.sh",
     # The CEO-ask gate and its witness. The gate is BLOCKING: registered twice it
-    # would print its refusal twice, which reads as two separate unasked queues.
+    # would print its refusal twice, which reads as two separate unasked items.
     # The witness is an append-only logger, the class this list already says
     # MAKES a double-registration visible — and here a duplicated line would be
     # read as the CEO having been asked the same question twice.

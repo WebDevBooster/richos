@@ -71,20 +71,20 @@
 # THREE STATES, not two, and the middle one is the whole argument:
 #
 #   NOT-DECLARED — no CEO_TODOS_REPOS in orchestration.config, and the governed
-#     repository itself carries no `.ceo-todos`. There is no CEO queue here.
+#     repository itself carries no `.ceo-todos`. There is no CEO list here.
 #     STAND DOWN, silently. This mirrors resolve-roots.sh's `not-adopted`
 #     exactly: the engine is loaded at USER scope and runs in every directory on
-#     the machine, and a repository that never declared a CEO queue has no
+#     the machine, and a repository that never declared a CEO list has no
 #     protection to lose. It is also the one place this file DIVERGES from the
 #     brief it was built to, and the divergence is stated rather than smuggled:
-#     the brief asked for a loud notice on an "absent" queue. A notice in every
+#     the brief asked for a loud notice on an "absent" list. A notice in every
 #     unadopted directory on the machine is precisely the noise this engine
 #     already decided not to make (see stop-hook-notice.sh, "EVERY TURN —
 #     rejected"), and it would be attached to the case that carries no risk at
 #     all. So loudness is spent on the case below, which is the one that can
 #     actually hide a failure.
 #
-#   BROKEN — a queue IS declared and cannot be read: the repository is not on
+#   BROKEN — a list IS declared and cannot be read: the repository is not on
 #     this machine, it carries no declaration, its record is missing, the parse
 #     failed, python3 is absent. FAIL OPEN, LOUDLY, on every channel available
 #     to the hook. Open, because a guard that wedges every dispatch over its own
@@ -100,10 +100,10 @@
 # guard-worktree-isolation.sh's `main-checkout-run:` and guard-resume-isolation
 # .sh's `resume-ack:`:
 #
-#     ceo-queue-deferred: <reason>
+#     ceo-todos-deferred: <reason>
 #
 # in the Agent spawn prompt. It permits that one dispatch and appends to
-# .claude/state/ceo-queue-defers.log. When the CEO says "get on with it",
+# .claude/state/ceo-todos-defers.log. When the CEO says "get on with it",
 # nothing wedges — and the fact that he said it is on the record.
 #
 # ===========================================================================
@@ -157,16 +157,26 @@ _CA_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # paths, absolute or relative to the governed repository's root.
 #
 # WHY A KEY AT ALL, rather than "look in the repo you are seated in": the shape
-# of this operation is a session seated in ONE repository whose CEO queue lives
-# in ANOTHER (femcboost seat, richos-hq queue, richos engine). That is the
+# of this operation is a session seated in ONE repository whose CEO list lives
+# in ANOTHER (femcboost seat, richos-hq list, richos engine). That is the
 # normal case here, not an edge — guard-inflight-notify.sh learned the same
 # lesson about pushes. Nothing is inferred across repositories; it is DECLARED,
-# so a queue that stops being watched is a visible, reviewable diff.
+# so a list that stops being watched is a visible, reviewable diff.
 CA_REPOS_KEY="CEO_TODOS_REPOS"
 
 CA_LEDGER_NAME="ceo-asks.jsonl"
-CA_DEFER_LOG_NAME="ceo-queue-defers.log"
-CA_DEFER_MARKER="ceo-queue-deferred:"
+# RENAMED 2026-08-31, CEO-confirmed. These shipped for a few hours as
+# `ceo-queue-defers.log` / `ceo-queue-deferred:`, and `queue` is the British
+# word for the CEO's list — the exact thing his 2026-08-29 ruling renamed to
+# CEO-TODOs. NO BACKWARD-COMPATIBILITY SHIM, and the reason is that this is not
+# the `.ceo-queue` case: that was a FILE ON AN ADOPTER'S DISK, so a clean cut
+# would have made a declared repository stand down silently. This is a PROMPT
+# LINE nobody has on disk and a log nobody had yet written (verified: no
+# ceo-queue-defers.log existed in either repository at the rename). Carrying a
+# compatibility alias here would preserve, in the mechanism, the very word the
+# mechanism's own ruling removed.
+CA_DEFER_LOG_NAME="ceo-todos-defers.log"
+CA_DEFER_MARKER="ceo-todos-deferred:"
 
 CA_BROKEN=""
 CA_STATUS=""
@@ -264,7 +274,7 @@ ca_resolve() {
     done
 
     # ANY declared-but-unusable repository is BROKEN, even when another one
-    # resolved. A gate that quietly enforced against 1 of 2 declared queues
+    # resolved. A gate that quietly enforced against 1 of 2 declared lists
     # would report green over an unread one, which is the defect this engine has
     # now found in itself several times.
     if [ -n "$problems" ]; then
@@ -309,7 +319,7 @@ ca_items_json() {
             return 2
         fi
         if [ ! -f "$repo/$CT_TODO_RECORD" ]; then
-            CA_BROKEN="$repo declares TODO_RECORD=$CT_TODO_RECORD and that file is not on disk — the CEO's items cannot be read, and an unread queue must never look like an empty one"
+            CA_BROKEN="$repo declares TODO_RECORD=$CT_TODO_RECORD and that file is not on disk — the CEO's items cannot be read, and an unread list must never look like an empty one"
             return 2
         fi
         ct_resolve_roots "$repo" >/dev/null 2>&1 || true

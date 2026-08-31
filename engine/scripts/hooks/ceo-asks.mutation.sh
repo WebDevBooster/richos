@@ -144,8 +144,8 @@ mutant bare-defer-permits "C7. " "$G" \
     "a bare token is something a reflex types; a reason is something a person writes."
 
 mutant broken-fails-closed "C10. " "$G" \
-    'UNGATED, and a declared-but-unreadable queue is not an empty one."\n        exit 0 ;;' \
-    'UNGATED, and a declared-but-unreadable queue is not an empty one."\n        exit 2 ;;' \
+    'UNGATED, and a declared-but-unreadable list is not an empty one."\n        exit 0 ;;' \
+    'UNGATED, and a declared-but-unreadable list is not an empty one."\n        exit 2 ;;' \
     "a guard that wedges every dispatch over its own plumbing is a guard that gets switched off."
 
 # --- 3. THE WITNESS --------------------------------------------------------
@@ -165,10 +165,10 @@ mutant notice-blocks-the-turn "D1. " "$N" \
     'exit 2; stop_notice_abnormal "unasked:$IDS" \' \
     "a turn that ends to answer him is a turn ending correctly; refusing those gets the hook switched off."
 
-mutant broken-queue-is-quiet "D4. " "$N" \
+mutant broken-list-is-quiet "D4. " "$N" \
     'are UNGATED and no prepared decision is being surfaced' \
     'are fine and no prepared decision is being surfaced' \
-    "a declared-but-unreadable queue must be loud on the one channel measured to reach the operator."
+    "a declared-but-unreadable list must be loud on the one channel measured to reach the operator."
 
 mutant session-start-silent "E2. " "$S" \
     '| head -1)"\nTOP_ID=' \

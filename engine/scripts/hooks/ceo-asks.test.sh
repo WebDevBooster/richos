@@ -3,9 +3,9 @@
 # ceo-asks.test.sh — the CEO-ask gate, end to end, in a sandbox.
 #
 # Builds two real git repositories — a SEAT that has adopted the engine and a
-# separate QUEUE repository that declares the CEO's TODOs — because that
+# separate TODOREPO repository that declares the CEO's TODOs — because that
 # cross-repository shape is the normal one for this operation (a femcboost seat,
-# a richos-hq queue) and a suite that only ever tested the single-repo case
+# a richos-hq list) and a suite that only ever tested the single-repo case
 # would pass over the configuration that actually ships.
 #
 # The SHIPPED hooks are driven with synthetic payloads. Nothing is stubbed
@@ -60,11 +60,11 @@ STOPN="$ENGINE/scripts/hooks/notice-ceo-unasked.sh"
 SSTART="$ENGINE/scripts/hooks/session-start-ceo-ask.sh"
 STATUS="$ENGINE/scripts/ceo-asks-status.sh"
 
-# --- the QUEUE repository --------------------------------------------------
-QUEUE="$SANDBOX/queue"
-mkdir -p "$QUEUE/wiki"
-git -C "$SANDBOX" init -q queue 2>/dev/null || true
-cat > "$QUEUE/.ceo-todos" <<'EOF'
+# --- the TODOREPO repository --------------------------------------------------
+TODOREPO="$SANDBOX/todorepo"
+mkdir -p "$TODOREPO/wiki"
+git -C "$SANDBOX" init -q todorepo 2>/dev/null || true
+cat > "$TODOREPO/.ceo-todos" <<'EOF'
 TODO_RECORD="wiki/open-items.md"
 TODO_VIEW="CEO-TODOs.md"
 ROOT_README="README.md"
@@ -72,14 +72,14 @@ CEO_SECTIONS="1 2"
 PREPARER_SECTION="3"
 ARTIFACT_ROOTS="q=."
 EOF
-echo "# queue" > "$QUEUE/README.md"
-echo "# view" > "$QUEUE/CEO-TODOs.md"
+echo "# todorepo" > "$TODOREPO/README.md"
+echo "# view" > "$TODOREPO/CEO-TODOs.md"
 
 # THE RECORD. Three prepared items and one that is NOT prepared, because
 # "prepared" is the predicate's own definition and a suite that never showed it
 # an unprepared item could not tell the definition from a count of headings.
 write_record() { # [state-of-2.2]
-    cat > "$QUEUE/wiki/open-items.md" <<EOF
+    cat > "$TODOREPO/wiki/open-items.md" <<EOF
 # Open items
 
 ## 1. Waiting on the CEO — a decision
@@ -133,10 +133,10 @@ write_seat_config() { # <CEO_TODOS_REPOS value, or empty to omit the key>
         [ -n "${1:-}" ] && printf 'CEO_TODOS_REPOS="%s"\n' "$1"
     } > "$SEAT/orchestration.config"
 }
-write_seat_config "$QUEUE"
+write_seat_config "$TODOREPO"
 
 LEDGER="$SEAT/.claude/state/ceo-asks.jsonl"
-DEFERS="$SEAT/.claude/state/ceo-queue-defers.log"
+DEFERS="$SEAT/.claude/state/ceo-todos-defers.log"
 
 # --- payload builders ------------------------------------------------------
 # The tool_input shape here is COPIED from a real AskUserQuestion call recovered
@@ -400,22 +400,22 @@ fi
 reset_ledger
 rm -f "$DEFERS"
 run_hook "$GATE" "$(agent_payload S1 "urgent work
-ceo-queue-deferred: he said get on with it
+ceo-todos-deferred: he said get on with it
 more prompt")"
 if [ "$RC" -eq 0 ] && [ -f "$DEFERS" ] && grep -q 'get on with it' "$DEFERS"; then
-    ok "C6. the 'ceo-queue-deferred:' prompt line permits the dispatch and is logged"
+    ok "C6. the 'ceo-todos-deferred:' prompt line permits the dispatch and is logged"
 else
-    bad "C6. the 'ceo-queue-deferred:' prompt line permits the dispatch and is logged" "rc=$RC $(cat "$DEFERS" 2>/dev/null)"
+    bad "C6. the 'ceo-todos-deferred:' prompt line permits the dispatch and is logged" "rc=$RC $(cat "$DEFERS" 2>/dev/null)"
 fi
 
 reset_ledger
 run_hook "$GATE" "$(agent_payload S1 "urgent work
-ceo-queue-deferred:
+ceo-todos-deferred:
 more prompt")"
 if [ "$RC" -eq 2 ]; then
-    ok "C7. a bare 'ceo-queue-deferred:' with no reason does NOT permit the dispatch"
+    ok "C7. a bare 'ceo-todos-deferred:' with no reason does NOT permit the dispatch"
 else
-    bad "C7. a bare 'ceo-queue-deferred:' with no reason does NOT permit the dispatch" "rc=$RC"
+    bad "C7. a bare 'ceo-todos-deferred:' with no reason does NOT permit the dispatch" "rc=$RC"
 fi
 
 reset_ledger
@@ -434,24 +434,24 @@ write_seat_config ""
 reset_ledger
 run_hook "$GATE" "$(agent_payload S1 "do the thing")"
 if [ "$RC" -eq 0 ] && [ -z "$ERR" ]; then
-    ok "C9. NOT-DECLARED: a seat with no CEO queue stands down, silently"
+    ok "C9. NOT-DECLARED: a seat with no CEO list stands down, silently"
 else
-    bad "C9. NOT-DECLARED: a seat with no CEO queue stands down, silently" "rc=$RC err=$ERR"
+    bad "C9. NOT-DECLARED: a seat with no CEO list stands down, silently" "rc=$RC err=$ERR"
 fi
 
 write_seat_config "$SANDBOX/no-such-repo"
 run_hook "$GATE" "$(agent_payload S1 "do the thing")"
 say "C10" "$ERR$OUT"
 if [ "$RC" -eq 0 ] && printf '%s%s' "$ERR" "$OUT" | grep -q 'UNGATED'; then
-    ok "C10. BROKEN: a declared queue that is not on disk FAILS OPEN and says so"
+    ok "C10. BROKEN: a declared list that is not on disk FAILS OPEN and says so"
 else
-    bad "C10. BROKEN: a declared queue that is not on disk FAILS OPEN and says so" "rc=$RC err=$ERR out=$OUT"
+    bad "C10. BROKEN: a declared list that is not on disk FAILS OPEN and says so" "rc=$RC err=$ERR out=$OUT"
 fi
 
-write_seat_config "$QUEUE"
+write_seat_config "$TODOREPO"
 write_record "BLOCKED-ON-RICH"
 # every item unprepared -> nothing to ask about
-python3 - "$QUEUE/wiki/open-items.md" <<'PY'
+python3 - "$TODOREPO/wiki/open-items.md" <<'PY'
 import re, sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
@@ -461,9 +461,9 @@ PY
 reset_ledger
 run_hook "$GATE" "$(agent_payload S1 "do the thing")"
 if [ "$RC" -eq 0 ]; then
-    ok "C11. NOTHING PREPARED: a queue of unprepared items blocks nothing"
+    ok "C11. NOTHING PREPARED: a list of unprepared items blocks nothing"
 else
-    bad "C11. NOTHING PREPARED: a queue of unprepared items blocks nothing" "rc=$RC $ERR"
+    bad "C11. NOTHING PREPARED: a list of unprepared items blocks nothing" "rc=$RC $ERR"
 fi
 write_record
 
@@ -505,11 +505,11 @@ write_seat_config "$SANDBOX/no-such-repo"
 reset_ledger
 run_hook "$STOPN" "$(stop_payload S1)"
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'UNGATED'; then
-    ok "D4. a declared-but-unreadable queue is announced LOUDLY at turn end, and never blocks"
+    ok "D4. a declared-but-unreadable list is announced LOUDLY at turn end, and never blocks"
 else
-    bad "D4. a declared-but-unreadable queue is announced LOUDLY at turn end, and never blocks" "rc=$RC $OUT"
+    bad "D4. a declared-but-unreadable list is announced LOUDLY at turn end, and never blocks" "rc=$RC $OUT"
 fi
-write_seat_config "$QUEUE"
+write_seat_config "$TODOREPO"
 
 echo ""
 echo "=== E. session start: his question, not a count of his questions ==="
@@ -533,11 +533,11 @@ fi
 write_seat_config ""
 OUT="$(cd "$SEAT" && RICHOS_ENTITY_ROOT="$SEAT" bash "$SSTART" </dev/null 2>/dev/null)"
 if [ -z "$OUT" ]; then
-    ok "E3. a repository with no CEO queue is announced not at all"
+    ok "E3. a repository with no CEO list is announced not at all"
 else
-    bad "E3. a repository with no CEO queue is announced not at all" "$OUT"
+    bad "E3. a repository with no CEO list is announced not at all" "$OUT"
 fi
-write_seat_config "$QUEUE"
+write_seat_config "$TODOREPO"
 
 echo ""
 echo "=== F. the CLI face gives the same verdict the hooks give ==="
