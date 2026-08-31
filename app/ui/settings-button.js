@@ -33,6 +33,7 @@ window.RichSettings = (function () {
   var techy = null; // { read(), write(on) }
   var bug = null; // { open() } — what "Bust a bug" actually opens, when that exists
   var splash = null; // { read(), write(on) } — the opening screen's off switch
+  var updates = null; // { render(container), onOpen() } — the update surface fills its own row
 
   var wrap = null;
   var menuEl = null;
@@ -196,6 +197,26 @@ window.RichSettings = (function () {
     return row;
   }
 
+  /// UPDATES — an empty slot, and the host fills it (RICH-TODOs row 12).
+  ///
+  /// EVERY OTHER CAPABILITY HERE IS DATA (`read`/`write`) AND THIS ONE IS A SLOT, which is a
+  /// deliberate exception rather than a shortcut. Techy Mode and the opening screen are one
+  /// boolean each, so this file can own their whole control. The update surface is nine
+  /// states, three buttons, a progress bar and a disclosure — owning it here would put a
+  /// `RichBridge` dependency inside the one component whose stated contract is that it has
+  /// none (see this file's header: it must keep working on the opening screen, before the
+  /// shell exists, and be liftable into the website). So this file owns the ROW and knows
+  /// nothing else; `updates.js` owns everything inside it and is the only thing that talks
+  /// to the shell.
+  ///
+  /// It sits below the opening-screen row and above the floor: §15 fixes the order of the
+  /// three rows it names and says nothing about this one, and "Bust a bug" stays last
+  /// because the ruling's floor is that it is always there.
+  function buildUpdatesRow() {
+    var row = elem("div", "set-updates", { id: "set-updates" });
+    return row;
+  }
+
   function buildBugButton() {
     var b = elem("button", "bugbtn", { type: "button", id: "bug-btn" });
     b.appendChild(icon(ICON_BUG));
@@ -223,6 +244,7 @@ window.RichSettings = (function () {
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
     if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
+    if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
     return menu;
   }
@@ -257,6 +279,10 @@ window.RichSettings = (function () {
     if (sw && techy) sw.checked = !!techy.read();
     var sp = menuEl.querySelector("#set-splash");
     if (sp && splash) sp.checked = !!splash.read();
+    // The updates row is painted by its owner, because this file does not know what is in
+    // it. Called on every paint so a rebuild (a forced-dark flip) never leaves an empty row.
+    var up2 = menuEl.querySelector("#set-updates");
+    if (up2 && updates && updates.render) updates.render(up2);
     if (wrap) wrap.setAttribute("data-force-dark", String(T.forcedDark()));
   }
 
@@ -267,6 +293,10 @@ window.RichSettings = (function () {
     menuEl.hidden = false;
     wrap.classList.add("open");
     btnEl.setAttribute("aria-expanded", "true");
+    // A claim about an update must not be stale on the screen that makes it: the automatic
+    // launch check may have completed while this menu was closed. One read of an in-memory
+    // struct, on an explicit click.
+    if (updates && updates.onOpen) updates.onOpen();
   }
   function close(refocus) {
     if (!menuEl || menuEl.hidden) return;
@@ -499,6 +529,23 @@ window.RichSettings = (function () {
     /** What "Bust a bug" opens, when something exists to open. Not designed this round. */
     registerBugReport: function (host) {
       bug = host || null;
+    },
+
+    /** THE UPDATE SURFACE (RICH-TODOs row 12), as a SLOT rather than as data — see
+     *  `buildUpdatesRow` for why this one capability is shaped differently from the rest.
+     *  `host.render(container)` fills the row; `host.onOpen()` is called when the menu is
+     *  opened. Registering is also what makes the row exist, so the opening screen — which
+     *  has no shell behind it yet — carries no dead update panel. */
+    registerUpdates: function (host) {
+      updates = host || null;
+      rebuild();
+    },
+
+    /** Repaint the menu from outside. `updates.js` calls this when a `rich://update` event
+     *  arrives while the menu is open, so a download's progress moves on screen rather than
+     *  only in memory. */
+    repaintUpdates: function () {
+      paint();
     },
 
     /** §15's one permanent exception, raised while the opening screen's curtain is up and

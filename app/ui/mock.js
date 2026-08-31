@@ -1048,6 +1048,37 @@
     schemaVersion: 1,
   };
 
+  // ---- the update path (RICH-TODOs row 12) ------------------------------------------------
+  //
+  // `unconfigured` is the OPENING state and that is deliberate: it is what the shipped
+  // config actually produces today, because the endpoint is the RFC 2606 `.invalid`
+  // placeholder and where RichOS updates are hosted has not been decided. A harness that
+  // opened on "up to date" would be modelling a product we do not have.
+  const mockUpdate = {
+    view: {
+      state: "unconfigured",
+      currentVersion: "0.1.0",
+      availableVersion: null,
+      notes: null,
+      pubDate: null,
+      downloadedBytes: 0,
+      totalBytes: null,
+      percent: null,
+      failure: null,
+      endpoint: "https://updates.richos.invalid/{{target}}/{{arch}}/{{current_version}}",
+      endpointIsPlaceholder: true,
+      checkedAt: null,
+    },
+    script: [],
+    calls: [],
+  };
+  /// Pop the next scripted view, or — with nothing scripted — leave the state alone. A
+  /// harness that invented a transition would let a suite pass against a flow that never ran.
+  function mockUpdateAdvance() {
+    if (mockUpdate.script.length) mockUpdate.view = mockUpdate.script.shift();
+    return { ...mockUpdate.view };
+  }
+
   window.RichBridge = {
     isMock: true,
 
@@ -1616,6 +1647,26 @@
           return { ...LAUNCH_STATE, recentSplashes: launchCalls.splashShown.slice().reverse().slice(0, 5) };
         case "launch_note_splash_shown":
           launchCalls.splashShown.push(args.id);
+          return null;
+
+        // ---- the update path (RICH-TODOs row 12) ---------------------------------
+        // Shapes are `UpdateView` from `src-tauri/src/updates.rs`, verbatim. The harness
+        // does NOT simulate a download: `mockUpdate.script` is a queue of views a test
+        // pushes, so a suite drives the panel through downloading -> installing -> ready,
+        // or straight to a refused signature, without any timing to be flaky about.
+        case "update_state":
+          mockUpdate.calls.push("update_state");
+          return { ...mockUpdate.view };
+        case "update_check":
+          mockUpdate.calls.push("update_check");
+          return mockUpdateAdvance();
+        case "update_install":
+          mockUpdate.calls.push("update_install");
+          return mockUpdateAdvance();
+        case "update_relaunch":
+          // The real command never returns — the process is replaced. Recording the call is
+          // the only thing a browser can honestly do with it.
+          mockUpdate.calls.push("update_relaunch");
           return null;
 
         default:
@@ -2190,6 +2241,20 @@
 
   // --- dev-only test hooks, exercised by a headless check, never by real users ----------
   window.__RICHOS_MOCK__ = {
+    // ---- the update path (RICH-TODOs row 12) ------------------------------------------
+    /// Put the panel into a state, and optionally queue what the NEXT command returns.
+    /// Emits `rich://update` as well as setting the value, because the real shell reaches
+    /// the UI both ways and a suite must be able to prove the event path works on its own.
+    updateSet(view, script) {
+      mockUpdate.view = view;
+      mockUpdate.script = Array.isArray(script) ? script.slice() : [];
+      const subs = listeners["rich://update"];
+      if (subs) subs.forEach((cb) => cb({ payload: { ...view } }));
+      return { ...mockUpdate.view };
+    },
+    /// Which update commands the surface actually issued, in order. Asserting on this is
+    /// how a suite proves the Restart button restarts rather than merely looking pressed.
+    updateCalls() { return mockUpdate.calls.slice(); },
     /// Every `launch_state` read and every splash id handed to the recency ring, in order.
     /// The suite asserts against these rather than against a re-derived count — see the
     /// note over `launchCalls`.
