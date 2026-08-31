@@ -80,7 +80,8 @@ printf 'norm-opus-a1\n' > "$TEAM_DIR/spawned-names.log"
 cat >"$TEAM_DIR/config.json" <<'JSON'
 { "name": "session-feedface",
   "members": [ { "name": "team-lead" },
-               { "name": "mark-sonnet-r7", "agentType": "mark", "status": "running" } ] }
+               { "name": "mark-sonnet-r7", "agentType": "mark", "status": "running" },
+               { "name": "norm-opus-a1", "agentType": "norm", "status": "completed" } ] }
 JSON
 printf '{"teammate":"echo-opus-k3"}\n' > "$TEAM_DIR/idle-events.jsonl"
 
@@ -100,7 +101,7 @@ git -C "$ENTITY" config core.hooksPath "$SANDBOX/nohooks" >/dev/null 2>&1
 # The role vocabulary is DERIVED from agent definitions on disk (unioned with
 # the roster's own agentType values), never typed into the guard.
 mkdir -p "$ENTITY/.claude/agents"
-for r in zach norm mark art; do printf -- '---\nname: %s\n---\n' "$r" > "$ENTITY/.claude/agents/$r.md"; done
+for r in zach norm mark art isaac; do printf -- '---\nname: %s\n---\n' "$r" > "$ENTITY/.claude/agents/$r.md"; done
 mkdir -p "$ENTITY/docs"
 printf 'real\n' > "$ENTITY/docs/real-file.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
@@ -405,22 +406,7 @@ else
 fi
 rm -f "$err"
 
-# --- RECORD ----------------------------------------------------------------
-LOG="$ENTITY/.claude/state/claim-checks.jsonl"
-if [ -s "$LOG" ] && python3 - "$LOG" <<'PY'
-import json, sys
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-assert any(r["verdict"] == "block" for r in rows), "no block recorded"
-assert any(r["verdict"] == "pass" for r in rows), "no pass recorded"
-assert any(r.get("prose_signal") for r in rows), "prose signal never recorded"
-PY
-then
-    printf '  PASS  x.observation-record-written\n'; PASS=$((PASS + 1))
-else
-    printf '  FAIL  x.observation-record-written\n'; FAIL=$((FAIL + 1))
-fi
-
-# --- BLOCKING: a bare-role claim about a role never dispatched -------------
+# --- RECORD ----------------------------------------------------------------# --- BLOCKING: a bare-role claim about a role never dispatched -------------
 # The rule, and the reason it is the only half that blocks: the ledger only
 # grows, so "no agent of this role has ever been spawned here" cannot become
 # false later. Same ground truth, same monotonicity, same zero-FP argument as
@@ -458,12 +444,48 @@ run_case "y5.an-Agent-call-this-turn-suppresses-the-role-check" 0 \
 # verb, so ordinary English containing a role word never enters. Measured
 # 103/103 correct extraction over 3,532 real messages.
 run_case "y6.ordinary-nouns-that-happen-to-be-role-words-never-fire" 0 \
-    "$(payload 'A watermark is showing on the art, and the mark is fading.')"
+    "$(payload 'A watermark is showing and the art is drying on the wall.')"
+
+# ...and the progressive verb is the other half of the same precision argument:
+# naming a teammate is not claiming they are working right now.
+run_case "y6b.naming-a-role-without-a-progressive-verb-is-not-a-claim" 0 \
+    "$(payload 'Isaac owns the iOS port, and Zach owns the deploy scripts.')"
+
+# An identifier in the message hands the sentence to the name check, ONCE.
+# Two verdicts on one sentence is one too many, and the second would be the
+# weaker one.
+run_case "y4b.an-identifier-suppresses-the-role-check-entirely" 0 \
+    "$(payload 'norm-opus-a1 is building it now — Norm is building it now.')"
+if printf '%s' "$LAST_ERR" | grep -q 'NOT currently running'; then
+    printf '  FAIL  y4c.the-role-check-really-did-stand-down\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  y4c.the-role-check-really-did-stand-down\n'; PASS=$((PASS + 1))
+fi
 
 # The rule proposed as a gate, kept as a report with its measured number.
 run_case "y7.nameless-dispatch-is-reported-with-its-measured-number" 0 \
     "$(payload 'Dispatching it now.')" \
     "10.3% precision"
+
+LOG="$ENTITY/.claude/state/claim-checks.jsonl"
+if [ -s "$LOG" ] && python3 - "$LOG" <<'PY'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+assert any(r["verdict"] == "block" for r in rows), "no block recorded"
+assert any(r["verdict"] == "pass" for r in rows), "no pass recorded"
+assert any(r.get("prose_signal") for r in rows), "prose signal never recorded"
+assert any(r.get("undispatched_roles") for r in rows), "role block never recorded"
+assert any(r.get("stale_roles") for r in rows), "stale role never recorded"
+assert any(r["verdict"] == "block" and r.get("undispatched_roles") and
+           not r["unresolved"]["name"] and not r["unresolved"]["sha"]
+           for r in rows), "a role-only block was not recorded as a block"
+PY
+then
+    printf '  PASS  x.observation-record-written\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  x.observation-record-written\n'; FAIL=$((FAIL + 1))
+fi
+
 
 echo
 if [ "$FAIL" -eq 0 ]; then
