@@ -125,6 +125,10 @@ app/
                               filtered. Nothing in it sends anything and there is no queue
     src/util.rs              the shared id and clock helpers, and nothing else
     examples/native_roundtrip.rs   headless proof of the real round-trip
+    examples/native_failure_modes.rs THE LOUD-FAILURE PROOF (§16): five ways the compute
+                              lease can fail, each shown to be named, bounded and never a
+                              degraded success — including the REAL binary rejecting a flag
+                              it does not know. Costs no API turns
     examples/rotation_roundtrip.rs headless proof of rotation against the real binary
     examples/live_events_roundtrip.rs both families side by side on one real turn
     examples/worker_status_demo.rs   what the drill-down reads, against real event logs

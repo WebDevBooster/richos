@@ -16,6 +16,10 @@ name = "native_roundtrip"
 path = "examples/native_roundtrip.rs"
 
 [[example]]
+name = "native_failure_modes"
+path = "examples/native_failure_modes.rs"
+
+[[example]]
 name = "rotation_roundtrip"
 path = "examples/rotation_roundtrip.rs"
 

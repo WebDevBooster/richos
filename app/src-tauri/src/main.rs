@@ -581,6 +581,18 @@ fn main() {
             let claude_bin = resolve_claude_bin();
             let lease_ready = match NativeCognition::start(&claude_bin, &engine) {
                 Ok(cog) => {
+                    // The POSITIVE half, and it is here because its absence is not evidence:
+                    // before this line, a successful boot was silent and a reader had to
+                    // infer success from the failure line NOT appearing. It names the binary
+                    // because that is the operator-useful fact — which `claude` this install
+                    // is actually driving, out of the several a self-updating installer
+                    // leaves under `~/.local/share/claude/versions/`.
+                    //
+                    // It names the BINARY and nothing else. Not the account, not the
+                    // subscription, not a token: RichOS may never collect, store or
+                    // intermediate Claude credentials (§16's licence condition), and a log
+                    // line is storage.
+                    eprintln!("[richos] compute lease attached over {}", claude_bin.display());
                     spine.attach_lease(Box::new(cog));
                     true
                 }
