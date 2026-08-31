@@ -356,6 +356,7 @@ case "$VERDICT" in
     # these lines is to declare the thing they name, which is the point: an
     # undeclared check must cost something visible every time, or "clean"
     # quietly grows to mean "checked" and we are back where this started.
+    printf '  CEO TODOs — %s\n' "$(ct_dc_census "$BODY")" >&2
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  CEO TODOs — NOT CHECKED: %s\n         %s\n", $2, $3}' >&2
     exit 0 ;;
   BROKEN)
