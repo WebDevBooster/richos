@@ -49,7 +49,9 @@
 #   C7  RICHOS_NOTARY_PROFILE alone resolves                              [shim]
 #   C8  APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID are NOT accepted        [shim]
 #   D1  a real ad-hoc bundle passes --verify-only in adhoc mode
-#   D2  ...and FAILS in developer-id mode, on all five developer-id grounds
+#   D2  ...and FAILS in developer-id mode on all EIGHT developer-id grounds —
+#       authority, hardened runtime, timestamp, entitlement, and the four separate
+#       clauses of the designated requirement
 #   D3  a missing shipped icon fails
 #   D4  a shipped icon that is not this repository's fails
 #   D5  a missing NSMicrophoneUsageDescription fails
@@ -226,12 +228,15 @@ for needle in \
   "hardened runtime is NOT enabled" \
   "no secure timestamp on the signature" \
   "com.apple.security.device.audio-input is not in the signed entitlements" \
-  "designated requirement is a cdhash expression"
+  "designated requirement is a cdhash expression" \
+  "does not pin the bundle identifier 'com.richos.app'" \
+  "has no 'anchor apple generic' clause" \
+  "does not pin the team (certificate leaf[subject.OU])"
 do
   printf '%s' "$OUT" | grep -Fq -- "$needle" || missing="$missing | $needle"
 done
 if [ "$CODE" = 1 ] && [ -z "$missing" ]; then
-  ok "D2 ...and fails in developer-id mode on all five grounds, including the requirement"
+  ok "D2 ...and fails in developer-id mode on all EIGHT grounds, four of them on the requirement"
 else
   bad "D2 the developer-id arm did not fire completely" "exit $CODE; not reported:$missing"
 fi
