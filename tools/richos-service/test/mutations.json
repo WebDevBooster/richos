@@ -1,0 +1,338 @@
+[
+  {
+    "label": "catalog: stop lowercasing pinned digests",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "sha256: m.sha256.toLowerCase(),",
+    "to": "sha256: m.sha256.toUpperCase(),"
+  },
+  {
+    "label": "catalog: drop the witness field",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "witness: m.witness || '',",
+    "to": "witness: '',"
+  },
+  {
+    "label": "catalog: pretend nothing is single-witness",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "  return pin.provenance.length < 2;\n}",
+    "to": "  return false;\n}"
+  },
+  {
+    "label": "catalog: generic refusal for an unpinned model",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "`no pinned sha256 for model \"${modelIdOrPin}\" — RichOS will not download a model it cannot verify. ` +",
+    "to": "`could not fetch model. ` +"
+  },
+  {
+    "label": "catalog: accept any sha256 shape in a manifest pin",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "if (!/^[0-9a-f]{64}$/i.test(String(pin.sha256 || ''))) problems.push('sha256 must be 64 hex characters');",
+    "to": ""
+  },
+  {
+    "label": "catalog: accept any filename in a manifest pin",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "if (!pin.file || !/^ggml-.+\\.bin$/.test(pin.file)) problems.push('file must look like ggml-<id>.bin');",
+    "to": ""
+  },
+  {
+    "label": "catalog: accept a zero-byte manifest pin",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "if (!Number.isInteger(pin.bytes) || pin.bytes <= 0) problems.push('bytes must be a positive integer');",
+    "to": ""
+  },
+  {
+    "label": "catalog: stop normalising a manifest digest's case",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "return { ...pin, sha256: String(pin.sha256).toLowerCase(), provenance: pin.provenance || [], witness: pin.witness || '' };",
+    "to": "return { ...pin, provenance: pin.provenance || [], witness: pin.witness || '' };"
+  },
+  {
+    "label": "catalog: drop the 10% disk headroom",
+    "file": "tools/richos-service/lib/model-catalog.js",
+    "from": "return Math.ceil(requirePin(modelIdOrPin).bytes * 1.1);",
+    "to": "return requirePin(modelIdOrPin).bytes;"
+  },
+  {
+    "label": "pins: serve models over plaintext http",
+    "file": "tools/richos-service/lib/model-pins.json",
+    "from": "\"baseUrl\": \"https://huggingface.co",
+    "to": "\"baseUrl\": \"http://huggingface.co"
+  },
+  {
+    "label": "pins: give two models the same filename",
+    "file": "tools/richos-service/lib/model-pins.json",
+    "from": "\"file\": \"ggml-base.en.bin\",",
+    "to": "\"file\": \"ggml-tiny.en.bin\","
+  },
+  {
+    "label": "shell: awk drops the id field",
+    "file": "tools/richos-hud/fetch-dictation-models.sh",
+    "from": "/\"id\"[[:space:]]*:/     { id = val($0);    have_id = 1; next }",
+    "to": "/\"id\"[[:space:]]*:/     { id = \"\";         have_id = 1; next }"
+  },
+  {
+    "label": "integrity: stop recognising a doctype-less portal stub",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "if (/<!doctype\\s+html|<html[\\s>]|<head[\\s>]|<body[\\s>]|<meta\\s|<title[\\s>]|<script[\\s>]/.test(text)) {",
+    "to": "if (/<!doctype\\s+html|<html[\\s>]/.test(text)) {"
+  },
+  {
+    "label": "integrity: stop recognising gzip",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) return 'gzip';",
+    "to": ""
+  },
+  {
+    "label": "integrity: never call a body plain text",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "if (printable / sample.length > 0.95) return 'text';",
+    "to": ""
+  },
+  {
+    "label": "integrity: check size before content",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "  if (head && head.length > 0) {\n    const shape = sniffBody(head);",
+    "to": "  if (bytes < pin.bytes) return { ok: false, hashed: false, kind: FAILURE.SHORT, have: bytes, want: pin.bytes };\n  if (head && head.length > 0) {\n    const shape = sniffBody(head);"
+  },
+  {
+    "label": "integrity: skip the hash comparison entirely",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "  if (sha256 == null) return { ok: true, hashed: false };",
+    "to": "  if (sha256 == null || true) return { ok: true, hashed: false };"
+  },
+  {
+    "label": "integrity: mark a cheap pass as hashed",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "  if (sha256 == null) return { ok: true, hashed: false };",
+    "to": "  if (sha256 == null) return { ok: true, hashed: true };"
+  },
+  {
+    "label": "integrity: one generic sentence for a hash mismatch",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "    case FAILURE.HASH_MISMATCH:\n      return (",
+    "to": "    case FAILURE.HASH_MISMATCH:\n      return `${file} verified.`;\n    case 'never':\n      return ("
+  },
+  {
+    "label": "integrity: one generic sentence for a captive portal",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "    case FAILURE.HTML_BODY:\n      return (",
+    "to": "    case FAILURE.HTML_BODY:\n      return `${file} could not be downloaded.`;\n    case 'never':\n      return ("
+  },
+  {
+    "label": "integrity: same sentence for a file on disk as for a partial",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "      if (ctx.context === 'disk') {",
+    "to": "      if (false) {"
+  },
+  {
+    "label": "integrity: terse sentence for a missing file",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "      return `${file} is not on disk — RichOS has no copy of this model to check.`;",
+    "to": "      return `nope.`;"
+  },
+  {
+    "label": "integrity: no free-disk refusal",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "  if (freeBytes >= needBytes) return { ok: true };",
+    "to": "  if (true) return { ok: true };"
+  },
+  {
+    "label": "integrity: resume onto a partial that is not a model prefix",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "  if (partHead && partHead.length >= 4 && sniffBody(partHead) !== 'ggml') {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "integrity: resume onto a partial already past the pinned size",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "  if (partBytes >= totalBytes) {",
+    "to": "  if (partBytes > totalBytes + 1) {"
+  },
+  {
+    "label": "integrity: hashFile returns a constant",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "    const h = crypto.createHash('sha256');",
+    "to": "    resolve('0'.repeat(64)); const h = crypto.createHash('sha256');"
+  },
+  {
+    "label": "integrity: inspectFile stops hashing by default",
+    "file": "tools/richos-service/lib/model-integrity.js",
+    "from": "export async function inspectFile(filePath, pin, { deep = true } = {}) {",
+    "to": "export async function inspectFile(filePath, pin, { deep = false } = {}) {"
+  },
+  {
+    "label": "fetch: rename into place before verifying",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    await pipeline(body, fs.createWriteStream(part, { flags: from > 0 ? 'a' : 'w' }));",
+    "to": "    await pipeline(body, fs.createWriteStream(part, { flags: from > 0 ? 'a' : 'w' }));\n    fs.copyFileSync(part, dest);"
+  },
+  {
+    "label": "fetch: quarantine a failed hash instead of deleting it",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    fs.rmSync(part, { force: true }); // discarded, never quarantined-and-used",
+    "to": "    /* kept */"
+  },
+  {
+    "label": "fetch: throw away the prefix of a cleanly-truncated body",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    const keep = cheap.kind === FAILURE.SHORT;",
+    "to": "    const keep = false;"
+  },
+  {
+    "label": "fetch: never resume",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  let from = plan.action === 'resume' ? plan.from : 0;",
+    "to": "  let from = 0;"
+  },
+  {
+    "label": "fetch: trust a 200 answer to a Range request",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  if (from > 0 && res.status !== 206) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "fetch: skip the disk preflight",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  const space = diskPreflight({ freeBytes: have, needBytes: need });",
+    "to": "  const space = { ok: true };"
+  },
+  {
+    "label": "fetch: ignore a declared length that disagrees with the pin",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  if (declared != null && declared !== pin.bytes) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "fetch: peek returns nothing, so a rejected body cannot be named",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  if (!res.body) return Buffer.alloc(0);",
+    "to": "  if (true) return Buffer.alloc(0);"
+  },
+  {
+    "label": "fetch: re-download a model that is already installed",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  if (fs.existsSync(dest)) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "fetch: accept an installed model that fails its hash",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    if (verdict.ok) {",
+    "to": "    if (true) {"
+  },
+  {
+    "label": "fetch: retry everything, including a corrupted download",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    if (!r.retryable) return { ...r, attempts, message: r.message };",
+    "to": ""
+  },
+  {
+    "label": "fetch: stop saying how many attempts were made",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "        message: `${r.message} RichOS tried ${maxAttempts} times and stopped rather than looping.`,",
+    "to": "        message: r.message,"
+  },
+  {
+    "label": "fetch: reach the network without a pin",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  const pin = requirePin(modelIdOrPin); // no hash, no network — there is no third option",
+    "to": "  const pin = typeof modelIdOrPin === 'object' ? modelIdOrPin : { id: modelIdOrPin, file: `ggml-${modelIdOrPin}.bin`, bytes: 1, sha256: '0'.repeat(64) };"
+  },
+  {
+    "label": "fetch: a status check ignores the partial already downloaded",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    downloadBytes: verdict.ok ? 0 : pin.bytes - (partBytes && partBytes < pin.bytes ? partBytes : 0),",
+    "to": "    downloadBytes: verdict.ok ? 0 : pin.bytes,"
+  },
+  {
+    "label": "fetch: a deep status never says it hashed anything",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "    verified: verdict.ok && verdict.hashed,",
+    "to": "    verified: false,"
+  },
+  {
+    "label": "config: the checked resolver takes the first file it finds",
+    "file": "tools/richos-service/lib/config.js",
+    "from": "    if (verdict.ok) return { path: candidate, pin, rejected };",
+    "to": "    return { path: candidate, pin, rejected };"
+  },
+  {
+    "label": "config: the resolution error stops naming what it rejected",
+    "file": "tools/richos-service/lib/config.js",
+    "from": "  const tail = rejected.length\n    ? ` Files with that name WERE found and rejected:\\n  - ${rejected.map((r) => r.message).join('\\n  - ')}`\n    : ` (searched ${dirs.join(', ')})`;",
+    "to": "  const tail = ` (searched ${dirs.join(', ')})`;"
+  },
+  {
+    "label": "config: an explicit model override is silently replaced",
+    "file": "tools/richos-service/lib/config.js",
+    "from": "    return { path: v, pin: pin || null, rejected: [] };",
+    "to": "    /* fall through to the search */"
+  },
+  {
+    "label": "config: reorder the model search path",
+    "file": "tools/richos-service/lib/config.js",
+    "from": "    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,\n    path.join(os.homedir(), 'Models', 'Whisper'),",
+    "to": "    path.join(os.homedir(), 'Models', 'Whisper'),\n    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,"
+  },
+  {
+    "label": "cli: verify-model always exits 0",
+    "file": "tools/richos-service/bin/richos-service.js",
+    "from": "          process.exit(v.ok ? 0 : 1);",
+    "to": "          process.exit(0);"
+  },
+  {
+    "label": "pins: delete a model from the table outright",
+    "file": "tools/richos-service/lib/model-pins.json",
+    "from": "\"id\": \"tiny.en\",\n      \"file\": \"ggml-tiny.en.bin\",",
+    "to": "\"id\": \"base.en\",\n      \"file\": \"ggml-base.en.bin\","
+  },
+  {
+    "label": "shell: awk emits before the sha is read, pairing each model with the PREVIOUS hash",
+    "file": "tools/richos-hud/fetch-dictation-models.sh",
+    "from": "    /\"bytes\"[[:space:]]*:/  { bytes = val($0); have_bytes = 1; next }",
+    "to": "    /\"bytes\"[[:space:]]*:/  { bytes = val($0); have_bytes = 1\n      if (have_id && have_file) { print id \"\\t\" file \"\\t\" bytes \"\\t\" sha; have_id = have_file = 0 }\n      next }"
+  },
+  {
+    "label": "fetch: stream straight to the model's real name",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "await pipeline(body, fs.createWriteStream(part, { flags: from > 0 ? 'a' : 'w' }));",
+    "to": "await pipeline(body, fs.createWriteStream(dest, { flags: from > 0 ? 'a' : 'w' })); fs.copyFileSync(dest, part);"
+  },
+  {
+    "label": "fetch: a dropped connection is reported as not worth retrying",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "      kind: 'network',\n      retryable: true,\n      resumedFrom: from,",
+    "to": "      kind: 'network',\n      retryable: false,\n      resumedFrom: from,"
+  },
+  {
+    "label": "fetch: throw away the prefix when the socket dies mid-body",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  } catch (err) {\n    const got = fileBytes(part);",
+    "to": "  } catch (err) {\n    const got = fileBytes(part); fs.rmSync(part, { force: true });"
+  },
+  {
+    "label": "fetch: an HTTP error status is not named",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "message: `${label} could not be downloaded: the server answered ${res.status} ${res.statusText || ''}`.trim() + '. Nothing was installed.',",
+    "to": "message: `${label} could not be downloaded.`,"
+  },
+  {
+    "label": "fetch: an HTTP error is treated as success",
+    "file": "tools/richos-service/lib/model-fetch.js",
+    "from": "  if (!res.ok) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "config: modelSearchDirs puts the explicit override last",
+    "file": "tools/richos-service/lib/config.js",
+    "from": "export function modelSearchDirs() {\n  return [\n    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,\n    path.join(os.homedir(), 'Models', 'Whisper'),",
+    "to": "export function modelSearchDirs() {\n  return [\n    path.join(os.homedir(), 'Models', 'Whisper'),\n    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,"
+  },
+  {
+    "label": "config: drop the open-wispr model dir from the search path",
+    "file": "tools/richos-service/lib/config.js",
+    "from": "    path.join(os.homedir(), '.config', 'open-wispr', 'models'),\n    path.join(os.homedir(), '.cache', 'whisper.cpp'),",
+    "to": "    path.join(os.homedir(), '.cache', 'whisper.cpp'),"
+  }
+]

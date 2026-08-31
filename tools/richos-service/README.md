@@ -91,6 +91,48 @@ session dir (closed)
 Default model **`large-v3-turbo`** per the model benchmark (2026-08-24):
 ~3.9 min per call-hour on the M4, ~2 GB RAM, zero hallucination at defaults.
 
+## Model integrity — a pinned sha256, not a byte count
+
+Every model RichOS may download is listed in [`lib/model-pins.json`](./lib/model-pins.json) with
+its exact byte count, its exact sha256, and **where that hash came from**. The table is source: it
+is never refreshed at run time, because a hash fetched from the same server it authenticates is not
+a check. `tools/richos-hud/fetch-dictation-models.sh` reads the same file — the test suite asserts
+the two readers produce the same table field for field, which is what makes "one place" true rather
+than intended.
+
+As of 2026-08-31, five of the six pins agree with a real file on this machine as well as with
+HuggingFace's `x-linked-etag` header. `small.en-q5_1` is the one pin nothing but HuggingFace
+vouches for, and the table says so in those words.
+
+**What the fetcher does, in order:** verify anything already installed → check free disk (model
++ 10%) before a byte is requested → resume or restart → stream to `<name>.part`, never to the real
+name → size, GGML magic, then sha256 over every byte → `rename()` only then.
+
+**Named failures, because "download failed" sends the CEO to a support conversation and "that came
+back as a web page, which is what hotel wifi does" sends him to the wifi login page:** a captive
+portal (including one that pads its login page to the exact pinned length), an empty download, a
+truncated one, an error message served as a `.bin`, a gzip or zip body, an unknown magic number,
+a wrong-size file, a full disk, an unpinned model, and the one a size-and-magic check can never
+see — right size, right magic, wrong bytes.
+
+**Resumability: YES, and here is the exact behaviour.** A failed 1.5 GB download does *not* start
+over. The `.part` file is kept and the next attempt sends `Range: bytes=<n>-`. Three cases restart
+instead, each because resuming would be wrong rather than merely slow: a partial at or past the
+pinned size, a partial that does not begin with the GGML magic (otherwise a login page becomes the
+first 3 KB of a right-length "model"), and a server that answers a `Range` request with `200` and
+the whole body. A file that fails its **hash** is deleted, never resumed and never quarantined —
+those bytes are not a prefix of anything — and it is never retried automatically, because retrying
+a corrupted download in a loop is how a transient CDN fault becomes a support ticket. A dropped
+connection IS retried, up to three attempts, because that is what a train tunnel does.
+
+**What is deliberately NOT here:** the consent sheet that asks before a byte moves. That is a
+surface and belongs with the app; this is the integrity layer beneath it.
+
+`npm run test:mutation` re-establishes that every one of these checks can actually fail — 56
+mutations to the shipped source, the suite run after each, the tree restored by `git checkout`.
+
+---
+
 **Never-silent reconciliation** — a captured call with no transcript is always *present* on disk and
 always noticed: open session / no audio / captions-but-no-audio (reused from the extension); plus a
 `closed` session past the transcript SLA with no `transcript.md`; plus a digitally-silent capture;
@@ -102,6 +144,9 @@ plus a trivial (≈empty) transcript. Every one flips `pipeline.status="anomaly"
 
 ```
 node bin/richos-service.js doctor                 # verify ffmpeg / whisper-cli / tier model resolve
+node bin/richos-service.js models [--dir d] [--deep]   # the pin table: installed? verified? what would it cost?
+node bin/richos-service.js verify-model <id> [--dir d] # hash one model against its pinned sha256 (exit 1 on mismatch)
+node bin/richos-service.js fetch-model <id> [--dir d]  # download, verify, install ONLY if it verifies
 node bin/richos-service.js watch [--zone dir] [--tier name]        # watcher: pipeline trigger + reconcile net
 node bin/richos-service.js run <sessionId|dir> [--tier name]       # run the pipeline over one session
 node bin/richos-service.js retranscribe <id> [--tier max]         # re-run on retained audio (P5 tier)

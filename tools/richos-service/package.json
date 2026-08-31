@@ -11,6 +11,7 @@
     "test": "node test/run.js && node test/workspace.js",
     "test:transcription": "node test/run.js",
     "test:workspace": "node test/workspace.js",
-    "test:e2e": "node test/e2e.mjs"
+    "test:e2e": "node test/e2e.mjs",
+    "test:mutation": "node test/mutation-audit.mjs"
   }
 }

@@ -14,6 +14,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import http from 'node:http';
 
 import { upgradeRecord, CONTRACT_SCHEMA_VERSION, PIPELINE_STATUS, toAbsolute } from '../lib/contract.js';
 import { reconcilePipeline, analyzeSession } from '../lib/reconcile.js';
@@ -69,7 +71,39 @@ import {
 } from '../lib/dictation-store.js';
 import { parseChannels, parseVolume, parseSilenceLog, SILENCE_MAX_DB } from '../lib/normalize.js';
 import { parseWhisperJson } from '../lib/transcribe.js';
-import { resolveTier, MODEL_TIERS, DEFAULT_TIER, whisperArgs, MAX_CONTEXT_TOKENS } from '../lib/config.js';
+import {
+  resolveTier,
+  MODEL_TIERS,
+  DEFAULT_TIER,
+  whisperArgs,
+  MAX_CONTEXT_TOKENS,
+  resolveModel,
+  resolveModelChecked,
+  modelSearchDirs,
+} from '../lib/config.js';
+import {
+  MODEL_PINS,
+  GGML_MAGIC_HEX,
+  pinFor,
+  requirePin,
+  validatePin,
+  modelUrl,
+  requiredFreeBytes,
+  provenanceLine,
+  isSingleWitness,
+  human,
+} from '../lib/model-catalog.js';
+import {
+  FAILURE,
+  sniffBody,
+  classify,
+  describe,
+  diskPreflight,
+  resumePlan,
+  hashFile,
+  inspectFile,
+} from '../lib/model-integrity.js';
+import { fetchVerified, downloadModel, modelStatus } from '../lib/model-fetch.js';
 import {
   guardChannel,
   guardChannelAll,
@@ -130,6 +164,33 @@ function test(name, fn) {
 }
 function group(t) {
   console.log(`\n${t}`);
+}
+
+/**
+ * An asynchronous test. Queued rather than run where it is written, so the synchronous body of
+ * this file still reads top to bottom and the whole queue drains before the summary is printed.
+ *
+ * It exists because the model-fetch failure paths are DRIVEN against a real HTTP server on a real
+ * socket writing real files, and a stubbed transport would only ever prove the stub.
+ */
+const asyncTests = [];
+function testAsync(name, fn) {
+  asyncTests.push({ name, fn });
+}
+async function drainAsyncTests() {
+  for (const { name, fn } of asyncTests) {
+    try {
+      // Serial on purpose: these bind sockets and write temp dirs, and a flaky suite is worse
+      // than a slow one.
+      // eslint-disable-next-line no-await-in-loop
+      await fn();
+      passed += 1;
+      console.log(`  ok  ${name}`);
+    } catch (err) {
+      failures.push({ name, err });
+      console.log(`FAIL  ${name}\n      ${err.message}`);
+    }
+  }
 }
 function tmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'richos-svc-'));
@@ -3064,6 +3125,680 @@ test('the gate fixture is regenerable, and regenerating it reproduces it byte fo
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------------------
+group('model integrity — a pinned sha256, verified before the file is ever used');
+
+// WHY THIS GROUP EXISTS. Until 2026-08-31 the model fetcher checked a byte count and four bytes of
+// GGML magic. Both are trivially satisfiable by anyone who can serve bytes, so a hotel captive
+// portal's login page padded to 574,041,195 bytes would have installed as the Accurate dictation
+// model. These tests are the proof that it no longer can — and every one was run RED once against
+// deliberately broken source, because a check nobody has watched fail is not a check.
+
+const GGML = Buffer.from(GGML_MAGIC_HEX, 'hex');
+
+/** A stand-in model: real magic, real hash, 4 KB instead of 574 MB. */
+function fakeModel(seed = 'norm', bytes = 4096) {
+  const filler = crypto.createHash('sha512').update(seed).digest();
+  const body = Buffer.concat([GGML, Buffer.alloc(bytes - 4)]);
+  for (let i = 4; i < bytes; i += 1) body[i] = filler[i % filler.length];
+  return body;
+}
+function pinOf(body, id = 'test.model') {
+  return {
+    id,
+    file: `ggml-${id}.bin`,
+    bytes: body.length,
+    sha256: crypto.createHash('sha256').update(body).digest('hex'),
+    provenance: ['test'],
+    witness: '',
+    note: 'synthetic',
+  };
+}
+
+/** A file of the pinned SIZE without the pinned bytes on disk — sparse, so 487 MB costs nothing. */
+function sparseModel(filePath, bytes, magic = GGML) {
+  fs.writeFileSync(filePath, magic);
+  fs.truncateSync(filePath, bytes);
+}
+
+const CAPTIVE_PORTAL = Buffer.from(
+  '<!DOCTYPE html>\n<html><head><title>Hotel Wi-Fi — Sign in</title>\n' +
+    '<meta http-equiv="refresh" content="0;url=/portal/login">\n</head>\n' +
+    '<body>Please accept the terms to continue.</body></html>\n',
+);
+// A portal stub with no doctype and no <html> element at all — what a cheap gateway actually emits.
+const PORTAL_STUB = Buffer.from('<meta http-equiv="refresh" content="0; url=https://wifi.example/login">\n');
+
+test('every pin carries a well-formed sha256, a real byte count and a named provenance', () => {
+  assert.ok(MODEL_PINS.length >= 6, 'the pin table lost entries');
+  for (const pin of MODEL_PINS) {
+    assert.match(pin.sha256, /^[0-9a-f]{64}$/, `${pin.id}: sha256 must be 64 lowercase hex`);
+    assert.ok(Number.isInteger(pin.bytes) && pin.bytes > 1_000_000, `${pin.id}: implausible byte count`);
+    assert.match(pin.file, /^ggml-.+\.bin$/, `${pin.id}: filename must match the resolver's convention`);
+    assert.ok(pin.provenance.length >= 1, `${pin.id}: a pin with no stated provenance is a magic number`);
+  }
+});
+
+test('no two pins share an id or a filename — one name, one set of bytes', () => {
+  assert.equal(new Set(MODEL_PINS.map((m) => m.id)).size, MODEL_PINS.length);
+  assert.equal(new Set(MODEL_PINS.map((m) => m.file)).size, MODEL_PINS.length);
+});
+
+test('a single-witness pin is labelled as one rather than presented as equal to the rest', () => {
+  // The honest weakness of the table: a hash taken only from the host that serves the file checks
+  // corruption and a stale CDN object, NOT that host. Which pins are in that position is allowed
+  // to change; that the code can still tell, and says so where a reader will see it, is not.
+  for (const pin of MODEL_PINS) {
+    assert.equal(isSingleWitness(pin), pin.provenance.length < 2, pin.id);
+    if (isSingleWitness(pin)) {
+      assert.match(provenanceLine(pin), /SINGLE WITNESS/, `${pin.id} must say so in the line a human reads`);
+      assert.ok(pin.witness.length > 20, `${pin.id}: a single-witness pin must explain itself in the table`);
+    }
+  }
+});
+
+test('the shell fetcher and the service read the SAME pin table, field for field', () => {
+  // fetch-dictation-models.sh parses model-pins.json with awk, because the machine a first run
+  // happens on is a stock Mac with no jq. Two readers of one file is only "one place" for as long
+  // as they agree, so the agreement is a test rather than an intention — and this is the check
+  // that catches an awk parser pairing one model's size with another model's hash.
+  const script = path.join(import.meta.dirname, '..', '..', 'richos-hud', 'fetch-dictation-models.sh');
+  const out = execFileSync(script, ['--print-pins'], { encoding: 'utf8' });
+  const fromShell = out.trim().split('\n').map((l) => l.split('\t'));
+  const fromJs = MODEL_PINS.map((m) => [m.id, m.file, String(m.bytes), m.sha256]);
+  assert.deepEqual(fromShell, fromJs, 'the shell parser and the service disagree about the pin table');
+});
+
+test('an unpinned model is refused by name, and the refusal lists what IS pinned', () => {
+  assert.equal(pinFor('no-such-model'), null);
+  assert.throws(
+    () => requirePin('no-such-model'),
+    (err) =>
+      /no pinned sha256 for model "no-such-model"/.test(err.message) &&
+      /will not download a model it cannot verify/.test(err.message) &&
+      err.message.includes('large-v3-turbo'),
+  );
+});
+
+test('a pin that could not actually pin anything down is rejected before it is trusted', () => {
+  // The manifest seam (payload architecture §6) will hand this path pins we did not write. "The
+  // manifest said so" is worth something only if the manifest said something well-formed.
+  assert.throws(() => validatePin({ id: 'x', file: 'ggml-x.bin', bytes: 10 }), /sha256 must be 64 hex/);
+  assert.throws(() => validatePin({ id: 'x', file: 'x.bin', bytes: 10, sha256: 'a'.repeat(64) }), /ggml-<id>\.bin/);
+  assert.throws(() => validatePin({ id: 'x', file: 'ggml-x.bin', bytes: 0, sha256: 'a'.repeat(64) }), /positive integer/);
+  assert.throws(() => validatePin(null), /not a usable model pin/);
+  const good = validatePin({ id: 'x', file: 'ggml-x.bin', bytes: 10, sha256: 'A'.repeat(64) });
+  assert.equal(good.sha256, 'a'.repeat(64), 'a digest is normalised, not rejected, for its case');
+});
+
+test('models are fetched over HTTPS from one host — a hash is not a licence for plaintext', () => {
+  for (const pin of MODEL_PINS) {
+    const url = modelUrl(pin.id);
+    assert.ok(url.startsWith('https://huggingface.co/'), `${pin.id}: ${url}`);
+    assert.ok(url.endsWith(`/${pin.file}`));
+  }
+});
+
+test('the disk requirement is the model plus 10% headroom, and is checked before anything starts', () => {
+  const pin = pinFor('small.en');
+  assert.equal(requiredFreeBytes('small.en'), Math.ceil(pin.bytes * 1.1));
+  const refusal = diskPreflight({ freeBytes: pin.bytes, needBytes: requiredFreeBytes('small.en') });
+  assert.equal(refusal.ok, false, 'exactly the model size is NOT enough — the headroom is the point');
+  assert.equal(refusal.kind, FAILURE.NO_SPACE);
+  assert.match(describe(refusal, { file: pin.file }), /Free up .* and try again/);
+  assert.ok(diskPreflight({ freeBytes: Infinity, needBytes: 1 }).ok, 'unknown free space is not a refusal');
+});
+
+test('sniffBody tells a model from a web page, an archive, a message, and nothing at all', () => {
+  assert.equal(sniffBody(fakeModel()), 'ggml');
+  assert.equal(sniffBody(CAPTIVE_PORTAL), 'html');
+  assert.equal(sniffBody(PORTAL_STUB), 'html', 'a portal stub has no doctype and is still a portal');
+  assert.equal(sniffBody(Buffer.from([0x1f, 0x8b, 0x08, 0x00])), 'gzip');
+  assert.equal(sniffBody(Buffer.from('PKrest')), 'zip');
+  assert.equal(sniffBody(Buffer.from('Internal Server Error: upstream timed out\n')), 'text');
+  assert.equal(sniffBody(Buffer.alloc(0)), 'empty');
+  assert.equal(sniffBody(Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01])), 'binary');
+});
+
+test('content is diagnosed BEFORE size — a login page is a login page, not a short download', () => {
+  // "You are behind a wifi portal" is an instruction. "expected 487,614,201 bytes, got 3,104" is a
+  // puzzle. The order of the checks is what decides which of those the CEO gets.
+  const pin = pinFor('small.en');
+  const finding = classify({ bytes: CAPTIVE_PORTAL.length, head: CAPTIVE_PORTAL, pin });
+  assert.equal(finding.kind, FAILURE.HTML_BODY);
+  const sentence = describe(finding, { file: pin.file });
+  assert.match(sentence, /came back as a web page/);
+  assert.match(sentence, /hotel, airport or conference wifi/);
+  assert.match(sentence, /Nothing was installed/);
+});
+
+test('the case size-and-magic could never see: right size, right magic, wrong bytes', () => {
+  // This is the whole reason for the work. The old fetcher installed this file.
+  const pin = pinFor('small.en');
+  const head = fakeModel('impostor');
+  const old = classify({ bytes: pin.bytes, head, sha256: null, pin });
+  assert.equal(old.ok, true, 'size and magic alone still say yes — which is exactly the problem');
+  assert.equal(old.hashed, false, 'and the answer is marked as one nobody hashed');
+  const now = classify({ bytes: pin.bytes, head, sha256: 'ab'.repeat(32), pin });
+  assert.equal(now.ok, false);
+  assert.equal(now.kind, FAILURE.HASH_MISMATCH);
+  assert.match(describe(now, { file: pin.file }), /exactly the right size and starts like a real model/);
+});
+
+test('a cheap pass is never dressed up as a verified one', () => {
+  const pin = pinFor('small.en');
+  assert.deepEqual(classify({ bytes: pin.bytes, head: fakeModel(), sha256: null, pin }), { ok: true, hashed: false });
+  assert.deepEqual(classify({ bytes: pin.bytes, head: fakeModel(), sha256: pin.sha256, pin }), { ok: true, hashed: true });
+  assert.equal(
+    classify({ bytes: pin.bytes, head: fakeModel(), sha256: pin.sha256.toUpperCase(), pin }).ok,
+    true,
+    'a digest is compared case-insensitively — an uppercase hash is the same hash',
+  );
+});
+
+test('every failure kind has its own sentence, and none of them is a generic error', () => {
+  const pin = pinFor('small.en');
+  const seen = new Map();
+  for (const kind of Object.values(FAILURE)) {
+    const sentence = describe({ kind, have: 10, want: 100, detail: 'detail' }, { file: pin.file });
+    assert.ok(sentence.length > 40, `${kind}: too short to say anything`);
+    assert.ok(sentence.includes(pin.file) || kind === FAILURE.NO_SPACE, `${kind}: does not name the file`);
+    assert.notEqual(sentence, `${pin.file} verified.`, `${kind} fell through to the default branch`);
+    assert.ok(!seen.has(sentence), `${kind} shares its sentence with ${seen.get(sentence)}`);
+    seen.set(sentence, kind);
+  }
+});
+
+test('a short file on disk is told to be deleted; a short download is told it will resume', () => {
+  // The same failure in two situations needs two next steps. Telling somebody to "resume" a file
+  // that is sitting installed in their model directory is advice that goes nowhere.
+  const onDisk = describe({ kind: FAILURE.SHORT, have: 5000, want: 1_624_555_275 }, { file: 'm.bin', context: 'disk' });
+  assert.match(onDisk, /download that never finished/);
+  assert.match(onDisk, /Delete it and fetch the model again/);
+  const midFlight = describe({ kind: FAILURE.SHORT, have: 5000, want: 1_624_555_275 }, { file: 'm.bin' });
+  assert.match(midFlight, /resumes from where it stopped/);
+  assert.doesNotMatch(midFlight, /Delete it/);
+});
+
+test('resumePlan resumes a real prefix and refuses to resume onto anything else', () => {
+  const total = 4096;
+  assert.equal(resumePlan({ partBytes: 0, totalBytes: total }).action, 'start');
+  const ok = resumePlan({ partBytes: 2000, totalBytes: total, partHead: fakeModel() });
+  assert.equal(ok.action, 'resume');
+  assert.equal(ok.from, 2000, 'a resume starts at the length of what we already have');
+  assert.equal(resumePlan({ partBytes: total, totalBytes: total, partHead: fakeModel() }).action, 'restart');
+  assert.equal(resumePlan({ partBytes: total + 1, totalBytes: total, partHead: fakeModel() }).action, 'restart');
+  // THE ONE THAT MATTERS. Resuming onto a captive portal's login page appends real model bytes to
+  // HTML and hands back a file of exactly the right length that hashes to nothing anybody meant.
+  const portal = resumePlan({ partBytes: 200, totalBytes: total, partHead: CAPTIVE_PORTAL });
+  assert.equal(portal.action, 'restart');
+  assert.match(portal.reason, /does not start like a model/);
+});
+
+testAsync('hashFile streams, and agrees with a one-shot hash over the whole file', async () => {
+  const dir = tmp();
+  try {
+    const body = fakeModel('stream', 3 << 20); // 3 MB — several stream chunks, not one buffer
+    const p = path.join(dir, 'm.bin');
+    fs.writeFileSync(p, body);
+    assert.equal(await hashFile(p), crypto.createHash('sha256').update(body).digest('hex'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+testAsync('inspectFile hashes what is on disk and says, in a sentence, what is wrong with it', async () => {
+  const dir = tmp();
+  try {
+    const body = fakeModel('inspect');
+    const pin = pinOf(body);
+    const p = path.join(dir, pin.file);
+    assert.match((await inspectFile(p, pin)).message, /is not on disk/);
+    fs.writeFileSync(p, body);
+    const good = await inspectFile(p, pin);
+    assert.equal(good.ok, true);
+    assert.equal(good.hashed, true, 'a deep inspect must actually have hashed the file');
+    fs.writeFileSync(p, Buffer.concat([GGML, Buffer.alloc(body.length - 4, 0x42)]));
+    const bad = await inspectFile(p, pin);
+    assert.equal(bad.kind, FAILURE.HASH_MISMATCH);
+    const cheap = await inspectFile(p, pin, { deep: false });
+    assert.equal(cheap.ok, true, 'the cheap check cannot see this, which is why it is not the guarantee');
+    assert.equal(cheap.hashed, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------------------
+group('model fetch — driven against a real server, with real failures');
+
+/**
+ * A local HTTP server that answers the way the things that actually go wrong on the road answer.
+ * Real sockets, real `fetch`, real files on disk: the failure paths are DRIVEN here rather than
+ * simulated with a stubbed transport, because a stub only ever proves the stub.
+ */
+function scriptedServer(body, pin) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url, range: req.headers.range || null });
+    const p = new URL(req.url, 'http://x').pathname;
+    const range = req.headers.range ? Number(/bytes=(\d+)-/.exec(req.headers.range)[1]) : null;
+    // Half the bytes, then the socket goes away — with the headers and the partial body given
+    // enough of a gap to actually reach the client, which is what makes this a mid-transfer
+    // failure rather than a connection that was never established.
+    const dieHalfway = (r) => {
+      r.writeHead(200, { 'content-length': body.length });
+      r.write(body.subarray(0, Math.floor(body.length / 2)));
+      setTimeout(() => r.destroy(), 25);
+    };
+    const serve = (buf, honourRange = true) => {
+      if (honourRange && range != null) {
+        res.writeHead(206, {
+          'content-range': `bytes ${range}-${buf.length - 1}/${buf.length}`,
+          'content-length': buf.length - range,
+        });
+        return res.end(buf.subarray(range));
+      }
+      res.writeHead(200, { 'content-length': buf.length });
+      return res.end(buf);
+    };
+    switch (p) {
+      case `/good/${pin.file}`:
+        return serve(body);
+      case `/no-range/${pin.file}`:
+        return serve(body, false); // answers a Range request with 200 and the whole file, again
+      case `/captive/${pin.file}`:
+        res.writeHead(200, { 'content-type': 'text/html', 'content-length': CAPTIVE_PORTAL.length });
+        return res.end(CAPTIVE_PORTAL);
+      case `/captive-padded/${pin.file}`: {
+        // The nastiest shape: a portal that MITMs and pads its page to the EXACT pinned length, so
+        // even Content-Length agrees and only the body gives it away.
+        const padded = Buffer.concat([CAPTIVE_PORTAL, Buffer.alloc(body.length - CAPTIVE_PORTAL.length, 0x20)]);
+        res.writeHead(200, { 'content-length': padded.length });
+        return res.end(padded);
+      }
+      case `/wrong-content/${pin.file}`:
+        // Exactly the right length. Starts with the GGML magic. Not the model.
+        return serve(Buffer.concat([GGML, Buffer.alloc(body.length - 4, 0x42)]), false);
+      case `/truncated/${pin.file}`:
+        // Declares the full length, then stops halfway and hangs up — a train tunnel.
+        return dieHalfway(res);
+      case `/flaky/${pin.file}`: {
+        // Dies halfway on the first attempt, then serves honestly (honouring Range) afterwards.
+        const already = seen.filter((s) => s.url.includes('/flaky/')).length;
+        return already === 1 ? dieHalfway(res) : serve(body);
+      }
+      case `/error-text/${pin.file}`: {
+        // Declares a length, so the pin disagreement is visible before the body is transferred.
+        const msg = Buffer.from('Internal Server Error: the object store is unavailable\n');
+        res.writeHead(200, { 'content-type': 'text/plain', 'content-length': msg.length });
+        return res.end(msg);
+      }
+      case `/slow/${pin.file}`: {
+        // The same bytes, dribbled out in eight pieces with a gap between them, so a reader gets
+        // many progress ticks spread over real time. A test that watches for a file appearing
+        // mid-transfer needs the transfer to HAVE a middle.
+        res.writeHead(200, { 'content-length': body.length });
+        const piece = Math.ceil(body.length / 8);
+        let sent = 0;
+        const tick = () => {
+          if (sent >= body.length) return res.end();
+          res.write(body.subarray(sent, sent + piece));
+          sent += piece;
+          return setTimeout(tick, 5);
+        };
+        return tick();
+      }
+      case `/short-clean/${pin.file}`:
+        // No declared length, half the bytes, then a clean end() — a proxy that truncated a
+        // chunked stream. The transfer SUCCEEDS as far as the socket is concerned, so this is the
+        // only route by which a short file reaches the post-transfer checks.
+        res.writeHead(200, {});
+        return res.end(body.subarray(0, Math.floor(body.length / 2)));
+      case `/error-text-chunked/${pin.file}`:
+        // The same error with NO declared length, so only reading the body can name it.
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        return res.end('Internal Server Error: the object store is unavailable\n');
+      case `/busy/${pin.file}`:
+        res.writeHead(503);
+        return res.end('busy');
+      default:
+        res.writeHead(404);
+        return res.end('no');
+    }
+  });
+  return { server, seen };
+}
+
+async function withServer(fn) {
+  const body = fakeModel('e2e');
+  const pin = pinOf(body);
+  const { server, seen } = scriptedServer(body, pin);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-fetch-'));
+  const dest = path.join(dir, pin.file);
+  try {
+    return await fn({ base, dir, dest, pin, body, seen });
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+testAsync('an honest download verifies, installs, and leaves no .part behind', () =>
+  withServer(async ({ base, dest, pin }) => {
+    const r = await fetchVerified({ url: `${base}/good/${pin.file}`, dest, pin });
+    assert.equal(r.ok, true, r.message);
+    assert.equal(r.status, 'downloaded');
+    assert.equal(r.sha256, pin.sha256);
+    assert.ok(fs.existsSync(dest));
+    assert.ok(!fs.existsSync(`${dest}.part`), 'the .part must not survive a successful install');
+  }));
+
+testAsync('a captive portal is caught BY NAME, and nothing is installed', () =>
+  withServer(async ({ base, dest, pin }) => {
+    const r = await fetchVerified({ url: `${base}/captive/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.HTML_BODY, `got ${r.kind}: ${r.message}`);
+    assert.match(r.message, /came back as a web page, not a model/);
+    assert.match(r.message, /Sign in to the network/);
+    assert.ok(!fs.existsSync(dest) && !fs.existsSync(`${dest}.part`), 'a login page must leave nothing on disk');
+  }));
+
+testAsync('a portal that pads its page to the EXACT pinned length is still caught by name', () =>
+  withServer(async ({ base, dest, pin }) => {
+    // Content-Length agrees with the pin here, so the cheap pre-check cannot help. Only reading the
+    // first bytes of the body can — and it must still produce the portal sentence rather than a
+    // hash mismatch, because "you are behind a login page" is the one somebody can act on.
+    const r = await fetchVerified({ url: `${base}/captive-padded/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.HTML_BODY, `got ${r.kind}: ${r.message}`);
+    assert.ok(!fs.existsSync(dest) && !fs.existsSync(`${dest}.part`));
+  }));
+
+testAsync('a right-size, right-magic, WRONG-CONTENT body is caught by the hash and deleted', () =>
+  withServer(async ({ base, dest, pin }) => {
+    const r = await fetchVerified({ url: `${base}/wrong-content/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.HASH_MISMATCH, `got ${r.kind}: ${r.message}`);
+    assert.equal(r.retryable, false, 'a corrupted download is never retried in a loop');
+    assert.match(r.message, /has been deleted and nothing was installed/);
+    assert.ok(!fs.existsSync(dest), 'never installed');
+    assert.ok(!fs.existsSync(`${dest}.part`), 'DISCARDED, not quarantined — nothing is left for anything to read');
+  }));
+
+testAsync('a truncated transfer keeps its prefix, says so, and is retryable', () =>
+  withServer(async ({ base, dest, pin, body }) => {
+    const r = await fetchVerified({ url: `${base}/truncated/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.retryable, true);
+    assert.match(r.message, /resumes from where it stopped|stopped after/);
+    assert.ok(!fs.existsSync(dest), "a truncated file never gets a model's name");
+    const kept = fs.statSync(`${dest}.part`).size;
+    assert.ok(kept > 0 && kept < body.length, `kept ${kept} of ${body.length}`);
+  }));
+
+testAsync('a body that ends cleanly but short keeps its prefix for the resume', () =>
+  withServer(async ({ base, dest, pin, body }) => {
+    // Distinct from the socket dying: here the transfer completes and only the post-transfer size
+    // check catches it, which is the branch that decides whether the prefix is worth keeping.
+    const r = await fetchVerified({ url: `${base}/short-clean/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.SHORT, `got ${r.kind}: ${r.message}`);
+    assert.equal(r.retryable, true);
+    assert.match(r.message, /resumes from where it stopped/);
+    assert.ok(!fs.existsSync(dest));
+    assert.equal(fs.statSync(`${dest}.part`).size, Math.floor(body.length / 2), 'the prefix must be kept');
+  }));
+
+testAsync('a flaky connection resumes from the kept prefix rather than starting over', () =>
+  withServer(async ({ base, dir, dest, pin, body, seen }) => {
+    const r = await downloadModel(pin, dir, { baseUrl: `${base}/flaky`, maxAttempts: 3 });
+    assert.equal(r.ok, true, r.message);
+    assert.equal(r.status, 'resumed', 'the second attempt must resume, not restart');
+    assert.ok(r.resumedFrom > 0, `resumed from ${r.resumedFrom}`);
+    assert.deepEqual(fs.readFileSync(dest), body, 'a resumed file is byte-identical to a fresh one');
+    assert.equal(seen.filter((s) => s.url.includes('/flaky/') && s.range).length, 1, 'exactly one request carried a Range');
+  }));
+
+testAsync('a server that ignores Range does not get its body appended onto the partial', () =>
+  withServer(async ({ base, dest, pin, body }) => {
+    fs.writeFileSync(`${dest}.part`, body.subarray(0, 2000));
+    const r = await fetchVerified({ url: `${base}/no-range/${pin.file}`, dest, pin });
+    assert.equal(r.ok, true, r.message);
+    assert.equal(r.status, 'downloaded', 'it restarted rather than resuming');
+    assert.deepEqual(fs.readFileSync(dest), body, 'appending would have left 2000 extra bytes in front');
+  }));
+
+testAsync('the model never exists under its real name until it has verified', () =>
+  withServer(async ({ base, dest, pin }) => {
+    // This is the invariant that lets a resolver search a directory safely: a half-written model
+    // does not have a model's name, so it cannot be found by one.
+    let sawNamedFileMidFlight = false;
+    let ticks = 0;
+    const r = await fetchVerified({
+      url: `${base}/slow/${pin.file}`, // dribbled out over eight ticks — the transfer has a middle
+      dest,
+      pin,
+      onProgress: () => {
+        ticks += 1;
+        if (fs.existsSync(dest)) sawNamedFileMidFlight = true;
+      },
+    });
+    assert.equal(r.ok, true, r.message);
+    assert.ok(ticks >= 3, `the progress callback fired ${ticks} times — too few to have watched anything`);
+    assert.equal(sawNamedFileMidFlight, false);
+    assert.ok(fs.existsSync(dest), 'and it does exist once it has verified');
+  }));
+
+testAsync('a full disk is refused before a single request reaches the server', () =>
+  withServer(async ({ base, dest, pin, seen }) => {
+    const r = await fetchVerified({ url: `${base}/good/${pin.file}`, dest, pin, freeBytes: 10 });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.NO_SPACE);
+    assert.match(r.message, /nothing was started/);
+    assert.equal(seen.length, 0, 'the server saw a request it should never have received');
+  }));
+
+testAsync('a declared length that disagrees with the pin stops the transfer before the body', () =>
+  withServer(async ({ base, dest, pin }) => {
+    // On a metered or slow connection this is the difference between 3 KB and 1.6 GB of waste.
+    const r = await fetchVerified({ url: `${base}/error-text/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.status, 'refused', 'refused, not failed — it never started');
+    assert.equal(r.kind, FAILURE.TEXT_BODY, `got ${r.kind}: ${r.message}`);
+    assert.match(r.message, /error message saved under a model's name/);
+  }));
+
+testAsync('a server that declares no length at all is still named correctly, from its body', () =>
+  withServer(async ({ base, dest, pin }) => {
+    // Content-Length is optional. When it is missing the early refusal cannot fire, and the answer
+    // has to come from the bytes themselves — the same diagnosis by a slower road.
+    const r = await fetchVerified({ url: `${base}/error-text-chunked/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.TEXT_BODY, `got ${r.kind}: ${r.message}`);
+    assert.match(r.message, /the server said: "Internal Server Error/);
+    assert.ok(!fs.existsSync(dest) && !fs.existsSync(`${dest}.part`));
+  }));
+
+testAsync('an HTTP error names the status and installs nothing', () =>
+  withServer(async ({ base, dest, pin }) => {
+    const r = await fetchVerified({ url: `${base}/busy/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.match(r.message, /the server answered 503/);
+    assert.equal(r.retryable, true, '503 is one of the two statuses worth trying again');
+    assert.ok(!fs.existsSync(dest));
+  }));
+
+testAsync('a hash mismatch stops at ONE attempt; a dropped connection gets its retries', () =>
+  withServer(async ({ base, dir, pin }) => {
+    // Retrying a corrupted download in a loop is how a transient CDN fault becomes a support
+    // ticket. Retrying a dropped connection is just what a train tunnel needs.
+    const bad = await downloadModel(pin, dir, { baseUrl: `${base}/wrong-content`, maxAttempts: 3 });
+    assert.equal(bad.ok, false);
+    assert.equal(bad.attempts.length, 1, 'a corrupted download must not be retried automatically');
+    const flaky = await downloadModel(pin, dir, { baseUrl: `${base}/flaky`, maxAttempts: 3 });
+    assert.equal(flaky.ok, true, flaky.message);
+    assert.equal(flaky.attempts.length, 2);
+  }));
+
+testAsync('a download that never succeeds stops after its attempts and says how many it made', () =>
+  withServer(async ({ base, dir, pin }) => {
+    const r = await downloadModel(pin, dir, { baseUrl: `${base}/truncated`, maxAttempts: 2 });
+    assert.equal(r.ok, false);
+    assert.equal(r.attempts.length, 2);
+    assert.match(r.message, /tried 2 times and stopped rather than looping/);
+  }));
+
+testAsync('an unpinned model never reaches the network at all', () =>
+  withServer(async ({ base, dir, seen }) => {
+    await assert.rejects(() => downloadModel('definitely-not-a-model', dir, { baseUrl: `${base}/good` }), /no pinned sha256/);
+    assert.equal(seen.length, 0);
+  }));
+
+testAsync('a model already installed and verified is not downloaded again', () =>
+  withServer(async ({ base, dest, pin, body, seen }) => {
+    fs.writeFileSync(dest, body);
+    const r = await fetchVerified({ url: `${base}/good/${pin.file}`, dest, pin });
+    assert.equal(r.ok, true);
+    assert.equal(r.status, 'already-present');
+    assert.equal(seen.length, 0, 'it re-downloaded a file the user already had');
+  }));
+
+testAsync('a model already installed but CORRUPT is replaced, never left where a resolver would find it', () =>
+  withServer(async ({ base, dest, pin, body }) => {
+    fs.writeFileSync(dest, Buffer.concat([GGML, Buffer.alloc(body.length - 4, 0x42)])); // right size, wrong bytes
+    const r = await fetchVerified({ url: `${base}/good/${pin.file}`, dest, pin });
+    assert.equal(r.ok, true, r.message);
+    assert.deepEqual(fs.readFileSync(dest), body);
+  }));
+
+testAsync('modelStatus answers "what would this cost" without touching the network', () =>
+  withServer(async ({ dir, dest, pin, body, seen }) => {
+    const before = await modelStatus(pin, dir, { deep: true });
+    assert.equal(before.installed, false);
+    assert.equal(before.downloadBytes, pin.bytes);
+    fs.writeFileSync(`${dest}.part`, body.subarray(0, 1000));
+    const partial = await modelStatus(pin, dir, { deep: true });
+    assert.equal(partial.partialBytes, 1000);
+    assert.equal(partial.downloadBytes, pin.bytes - 1000, 'a resume only costs what is left');
+    fs.rmSync(`${dest}.part`);
+    fs.writeFileSync(dest, body);
+    const after = await modelStatus(pin, dir, { deep: true });
+    assert.equal(after.installed, true);
+    assert.equal(after.verified, true, 'a deep status must say the hash was actually checked');
+    assert.equal(after.downloadBytes, 0);
+    assert.equal(seen.length, 0, 'a status check must never call out');
+  }));
+
+// ---------------------------------------------------------------------------------------
+group('model resolution — resolve to a model, not to a directory listing');
+
+/**
+ * Two real model directories on the search path: an explicit RICHOS_MODEL_DIR first, then
+ * `<home>/Models/Whisper`. Env is restored whatever happens.
+ */
+function withModelDirs(fn) {
+  const root = tmp();
+  const first = path.join(root, 'first');
+  const home = path.join(root, 'home');
+  const second = path.join(home, 'Models', 'Whisper');
+  fs.mkdirSync(first, { recursive: true });
+  fs.mkdirSync(second, { recursive: true });
+  const saved = {
+    RICHOS_MODEL_DIR: process.env.RICHOS_MODEL_DIR,
+    RICHOS_WHISPER_MODEL: process.env.RICHOS_WHISPER_MODEL,
+    HOME: process.env.HOME,
+  };
+  process.env.RICHOS_MODEL_DIR = first;
+  process.env.HOME = home;
+  delete process.env.RICHOS_WHISPER_MODEL;
+  try {
+    return fn({ root, first, second, home });
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('a captive-portal page in the first search directory no longer beats a real model in the second', () => {
+  // `resolveModel` answers "the first file with this name that exists", which is a directory
+  // listing wearing the word resolve. This is the whole difference between the two functions.
+  withModelDirs(({ first, second }) => {
+    const pin = pinFor('small.en');
+    fs.writeFileSync(path.join(first, pin.file), CAPTIVE_PORTAL);
+    sparseModel(path.join(second, pin.file), pin.bytes); // 487 MB of nothing, instantly
+    assert.equal(resolveModel('small.en'), path.join(first, pin.file), 'the old resolver takes the login page');
+    const checked = resolveModelChecked('small.en');
+    assert.equal(checked.path, path.join(second, pin.file), 'a rejected candidate must not end the search');
+    assert.equal(checked.rejected.length, 1);
+    assert.match(checked.rejected[0].message, /came back as a web page/);
+  });
+});
+
+test('resolveModelChecked names every file it rejected, so the error explains itself', () => {
+  withModelDirs(({ first }) => {
+    fs.writeFileSync(path.join(first, 'ggml-large-v3-turbo.bin'), Buffer.concat([GGML, Buffer.alloc(500, 1)]));
+    assert.throws(
+      () => resolveModelChecked('large-v3-turbo'),
+      (err) =>
+        /download that never finished/.test(err.message) && /504 of the 1,624,555,275 bytes/.test(err.message),
+    );
+  });
+});
+
+test('an explicit RICHOS_WHISPER_MODEL override is honoured, never silently replaced', () => {
+  // Overriding is the whole point of an override: the operator saying "use THIS file" outranks our
+  // opinion of it. It is still reportable — `richos-service models --deep` will hash it — but it is
+  // not quietly swapped for something we like better.
+  withModelDirs(({ first, second }) => {
+    const mine = path.join(first, 'my-own.bin');
+    fs.writeFileSync(mine, fakeModel('override'));
+    sparseModel(path.join(second, 'ggml-small.en.bin'), pinFor('small.en').bytes);
+    process.env.RICHOS_WHISPER_MODEL = mine;
+    const got = resolveModelChecked('small.en');
+    assert.equal(got.path, mine);
+    assert.equal(got.pin.id, 'small.en', 'the pin is still reported, so a caller can check it if it wants to');
+  });
+});
+
+test('both resolvers walk one search path, in one order, from one definition', () => {
+  withModelDirs(({ first, home }) => {
+    const dirs = modelSearchDirs();
+    assert.equal(dirs[0], first, 'an explicit RICHOS_MODEL_DIR is searched first');
+    assert.equal(dirs[1], path.join(home, 'Models', 'Whisper'));
+    assert.ok(dirs.some((d) => d.includes('open-wispr')), "the dictation app's own model dir stays on the path");
+  });
+});
+
+test('`richos-service verify-model` exits non-zero on a file that does not match its pin', () => {
+  // The command a human runs when they suspect a model. An exit code is what makes it usable from
+  // a script, and a wrong exit code is worse than none.
+  withModelDirs(({ first }) => {
+    const pin = pinFor('small.en');
+    sparseModel(path.join(first, pin.file), pin.bytes); // right size, right magic, wrong bytes
+    const cli = path.join(import.meta.dirname, '..', 'bin', 'richos-service.js');
+    let code = 0;
+    let out = '';
+    try {
+      out = execFileSync(process.execPath, [cli, 'verify-model', 'small.en', '--dir', first], { encoding: 'utf8' });
+    } catch (err) {
+      code = err.status;
+      out = String(err.stdout || '');
+    }
+    assert.equal(code, 1, 'a model that fails its hash must not exit 0');
+    assert.match(out, /FAIL/);
+    assert.match(out, /not the bytes RichOS pinned/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+await drainAsyncTests();
 
 // ---------------------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);

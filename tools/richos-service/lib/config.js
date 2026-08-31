@@ -17,6 +17,12 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import { assertEvidenceOutsideProductRepo } from './workspace/privacy.js';
+import { pinFor as pinForModel } from './model-catalog.js';
+import {
+  classify as classifyModel,
+  describe as describeModelFinding,
+  readHead as readModelHead,
+} from './model-integrity.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -287,12 +293,7 @@ export function resolveModel(modelId = DEFAULT_MODEL) {
     throw new Error(`RICHOS_WHISPER_MODEL=${v} does not exist`);
   }
   const file = `ggml-${modelId}.bin`;
-  const dirs = [
-    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,
-    path.join(os.homedir(), 'Models', 'Whisper'),
-    path.join(os.homedir(), '.config', 'open-wispr', 'models'),
-    path.join(os.homedir(), '.cache', 'whisper.cpp'),
-  ].filter(Boolean);
+  const dirs = modelSearchDirs();
   for (const dir of dirs) {
     const candidate = path.join(dir, file);
     if (fs.existsSync(candidate)) return candidate;
@@ -300,6 +301,67 @@ export function resolveModel(modelId = DEFAULT_MODEL) {
   throw new Error(
     `could not find whisper model "${modelId}" (${file}) — set RICHOS_WHISPER_MODEL to its path or RICHOS_MODEL_DIR to its folder (searched ${dirs.join(', ')})`,
   );
+}
+
+/**
+ * Resolve a model file AND refuse the ones that are visibly not the model.
+ *
+ * `resolveModel` above answers "the first file with this name that exists", which is a directory
+ * listing wearing the word resolve. A truncated leftover, or an HTML error page somebody saved as
+ * `ggml-small.en.bin`, is the answer it gives, and whisper.cpp then fails somewhere far away with
+ * something inscrutable. This function walks the SAME directories in the SAME order and skips a
+ * candidate that fails the cheap check — size and GGML magic against the pin — so a good copy in a
+ * later directory still wins, and the error, when there is one, names what was actually found.
+ *
+ * CHEAP, NOT CRYPTOGRAPHIC, AND THAT IS DELIBERATE. Hashing 1.6 GB on every resolve would put
+ * seconds onto every transcription. The sha256 is the FETCH path's guarantee (`model-fetch.js`):
+ * nothing reaches this directory under a model's name without having hashed correctly first. Pass
+ * `deep` to `inspectFile` when you want the full check on demand — `richos-service models` does.
+ *
+ * `resolveModel` is left exactly as it was: it is on the transcription hot path and several call
+ * sites depend on its behaviour. This is the additive, opt-in form.
+ *
+ * @param {string} [modelId]
+ * @returns {{path: string, pin: object|null, rejected: Array<{path: string, message: string}>}}
+ */
+export function resolveModelChecked(modelId = DEFAULT_MODEL) {
+  const pin = pinForModel(modelId);
+  if (process.env.RICHOS_WHISPER_MODEL) {
+    const v = expand(process.env.RICHOS_WHISPER_MODEL);
+    if (!fs.existsSync(v)) throw new Error(`RICHOS_WHISPER_MODEL=${v} does not exist`);
+    // An explicit override is the operator saying "use this file". It is checked and reported on,
+    // but never silently replaced by something else — overriding is the whole point of an override.
+    return { path: v, pin: pin || null, rejected: [] };
+  }
+  const file = `ggml-${modelId}.bin`;
+  const dirs = modelSearchDirs();
+  const rejected = [];
+  for (const dir of dirs) {
+    const candidate = path.join(dir, file);
+    if (!fs.existsSync(candidate)) continue;
+    if (!pin) return { path: candidate, pin: null, rejected }; // unpinned: nothing to check against
+    const bytes = fs.statSync(candidate).size;
+    const head = readModelHead(candidate);
+    const verdict = classifyModel({ exists: true, bytes, head, sha256: null, pin });
+    if (verdict.ok) return { path: candidate, pin, rejected };
+    rejected.push({ path: candidate, message: describeModelFinding(verdict, { file: candidate, context: 'disk' }) });
+  }
+  const tail = rejected.length
+    ? ` Files with that name WERE found and rejected:\n  - ${rejected.map((r) => r.message).join('\n  - ')}`
+    : ` (searched ${dirs.join(', ')})`;
+  throw new Error(
+    `could not find a usable whisper model "${modelId}" (${file}) — set RICHOS_WHISPER_MODEL to its path or RICHOS_MODEL_DIR to its folder.${tail}`,
+  );
+}
+
+/** The model search path, in order. One definition, shared by both resolvers. */
+export function modelSearchDirs() {
+  return [
+    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,
+    path.join(os.homedir(), 'Models', 'Whisper'),
+    path.join(os.homedir(), '.config', 'open-wispr', 'models'),
+    path.join(os.homedir(), '.cache', 'whisper.cpp'),
+  ].filter(Boolean);
 }
 
 /**
