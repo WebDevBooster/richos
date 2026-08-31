@@ -94,6 +94,33 @@ keychain, a CI secret) is a decision about how releases get made. When it is mad
 Doing the swap before RichOS is installed anywhere but this Mac costs nothing. Doing it after
 costs a manual reinstall for every copy.
 
+### One consequence of a `pubkey` existing at all, measured rather than assumed
+
+A **raw** `cargo tauri build` — bypassing `package-app.sh` — now **fails** when no signing key
+is in the environment. Measured on 2026-08-31:
+
+```
+$ env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+      cargo tauri build --bundles app
+...
+    Finished 1 bundle at:
+        …/bundle/macos/RichOS.app
+        …/bundle/macos/RichOS.app.tar.gz (updater)
+       Error A public key has been found, but no private key. Make sure to set
+             `TAURI_SIGNING_PRIVATE_KEY` environment variable.
+$ echo $?
+1
+```
+
+That is tauri-cli 2.11.4 `src/bundle.rs:277-279`, and it fires **after** the bundle is built,
+so the `.app` is on disk and the command still exits 1. It is not a defect — it is the CLI
+refusing to publish an artifact it cannot sign.
+
+`app/scripts/package-app.sh` is unaffected: it passes `--no-sign` on every build, which on
+macOS disables exactly that one step (codesigning is gated on Windows,
+tauri-bundler `bundle.rs:301-306`) and then owns the signing itself. **Build through
+`package-app.sh`.** `cargo tauri dev` is untouched — it does not bundle.
+
 ---
 
 ## The manifest
