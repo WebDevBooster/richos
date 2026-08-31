@@ -331,6 +331,13 @@ HOOK_FILES+=(
     # exactly what a healthy engine also looks like. Checking the lock and
     # ignoring the key, one more time.
     "$REPO_ROOT/scripts/lib/stop-hook-notice.sh"
+    # The dialect vocabulary. Not a hook, and hashed for the cold-open prompt's
+    # reason rather than the reaper's: it is not documentation, it IS the
+    # decision. guard-dialect.sh blocks a write on nothing but what this file
+    # says, so a quietly emptied or trimmed copy would turn the guard into a
+    # green no-op that looks exactly like a clean record — the same silent
+    # degradation every entry above exists to make impossible.
+    "$REPO_ROOT/scripts/lib/dialect-en-US.dict"
     # The verbatim cold-open prompt. Its sha256 is stamped into every transcript
     # and compared by the guard, so this file is not documentation — it is part
     # of the decision. Edit a question and every transcript on file stops

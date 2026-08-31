@@ -323,6 +323,7 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
+    guard-dialect \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-completeness-commits \
     guard-row-currency-commits \
@@ -522,6 +523,7 @@ guard-ceo-ask-first.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
+guard-dialect.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
@@ -1378,6 +1380,8 @@ done < <(printf '%s\n' "$WIRED" | awk -F'\t' '$1=="Bash" {print $2}')
 
 CANONICAL_GUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-main-checkout-writes.sh"
 CANONICAL_SECRETS_HOOK="$REPO_ROOT/scripts/hooks/scan-secrets.sh"
+CANONICAL_DIALECT_HOOK="$REPO_ROOT/scripts/hooks/guard-dialect.sh"
+CANONICAL_DIALECT_DICT="$REPO_ROOT/scripts/lib/dialect-en-US.dict"
 CANONICAL_BASHGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-bash-main-writes.sh"
 CANONICAL_DRIFTGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
 CANONICAL_DEFSNAPSHOT_HOOK="$REPO_ROOT/scripts/hooks/snapshot-agent-definitions.sh"
@@ -1768,6 +1772,79 @@ else
     fi
 fi
 
+# --- Layer T: dialect guard wired + path-confined + manifest-matched +
+# functionally rejects a British spelling, AND its vocabulary is hashed
+# (HARD gate) ---
+#
+# A HARD gate for Layer K's reason, plus one of its own. The CEO ruled on
+# 2026-08-29 that American English is the language of this record; a sweep on
+# 2026-08-30 fixed 654 sites and, having no chokepoint behind it, was undone in
+# part WITHIN HOURS. This layer is the check that the chokepoint is on.
+#
+# THE DICTIONARY IS CHECKED TOO, and that half is the point: the guard decides
+# nothing itself — every refusal it issues comes out of
+# scripts/lib/dialect-en-US.dict. A hash-matched guard over an emptied
+# vocabulary is a green tick over an enforcement outage, which is the exact
+# "check the lock, ignore the key" failure install.sh's own hashed-file list is
+# written about.
+DIALECT_WIRED_CMD=""
+for c in "${WRITE_CMDS[@]}"; do
+    RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
+    RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
+    WIRED_PATH_C="${RESOLVED_C%% *}"
+    if [ "$(realpath_of "$WIRED_PATH_C")" = "$(realpath_of "$CANONICAL_DIALECT_HOOK")" ]; then
+        DIALECT_WIRED_CMD="$RESOLVED_C"
+        break
+    fi
+done
+
+if [ -z "$DIALECT_WIRED_CMD" ]; then
+    emit_fail "T. PreToolUse[Write|Edit|MultiEdit|NotebookEdit] dialect guard (guard-dialect.sh) NOT wired in settings.json — run scripts/hooks/install.sh"
+else
+    DIALECT_HOOK_EXE="${DIALECT_WIRED_CMD%% *}"
+    DIALECT_REAL="$(realpath_of "$DIALECT_HOOK_EXE")"
+    DIALECT_HASH="$(sha256_of "$DIALECT_REAL")"
+    DIALECT_MANIFEST="$(manifest_hash_of "$CANONICAL_DIALECT_HOOK")"
+    DICT_HASH="$(sha256_of "$CANONICAL_DIALECT_DICT" 2>/dev/null || true)"
+    DICT_MANIFEST="$(manifest_hash_of "$CANONICAL_DIALECT_DICT" 2>/dev/null || true)"
+    if [ ! -x "$DIALECT_HOOK_EXE" ]; then
+        emit_fail "T. wired dialect-guard script not found / not executable: $DIALECT_HOOK_EXE"
+    elif [ -z "$DIALECT_HASH" ]; then
+        emit_fail "T. dialect-guard content hash could not be computed"
+    elif [ -z "$DIALECT_MANIFEST" ]; then
+        emit_fail "T. dialect-guard manifest missing or unreadable: $CANONICAL_DIALECT_HOOK.sha256 — run scripts/hooks/install.sh to regenerate, then commit."
+    elif [ "$DIALECT_HASH" != "$DIALECT_MANIFEST" ]; then
+        emit_fail "T. dialect-guard content hash mismatch — live hook differs from manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
+    elif [ ! -f "$CANONICAL_DIALECT_DICT" ]; then
+        emit_fail "T. the dialect vocabulary is MISSING: $CANONICAL_DIALECT_DICT. The guard decides nothing without it."
+    elif [ -z "$DICT_MANIFEST" ]; then
+        emit_fail "T. dialect vocabulary unhashed: $CANONICAL_DIALECT_DICT.sha256 missing — run scripts/hooks/install.sh to regenerate, then commit."
+    elif [ -n "$DICT_HASH" ] && [ "$DICT_HASH" != "$DICT_MANIFEST" ]; then
+        emit_fail "T. dialect vocabulary MODIFIED since install: $CANONICAL_DIALECT_DICT (sha256 $DICT_HASH != manifest $DICT_MANIFEST). Every refusal this guard issues comes out of this file — review the change, then re-run scripts/hooks/install.sh."
+    else
+        # Functional canary: a Write introducing an unambiguous British
+        # spelling into a prose file. The wired guard must return exit 2.
+        # DIALECT_TARGET is forced for the canary so the layer proves the
+        # MECHANISM, not this repository's current configuration — and it is
+        # forced through the entity root, exactly as a real session would.
+        CANARY_DIALECT_PATH="$REPO_ROOT/__dialect_canary__.md"
+        CANARY_DIALECT_PAYLOAD="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"the colour of it is a matter of judgement"}}))' "$CANARY_DIALECT_PATH" 2>/dev/null || true)"
+        set +e
+        printf '%s' "$CANARY_DIALECT_PAYLOAD" | "$DIALECT_HOOK_EXE" >/dev/null 2>&1
+        dialect_rc=$?
+        set -e
+        if [ "$dialect_rc" -ne 2 ]; then
+            if [ -z "${DIALECT_TARGET:-}" ]; then
+                emit_warn "T. dialect guard wired + manifest-matched + vocabulary hashed, but DIALECT_TARGET is blank in orchestration.config so nothing is enforced here (exit=$dialect_rc). That is a valid configuration — set DIALECT_TARGET=\"en-US\" to turn it on."
+            else
+                emit_fail "T. wired dialect guard did NOT block a British spelling (exit=$dialect_rc, expected 2) with DIALECT_TARGET=\"$DIALECT_TARGET\""
+            fi
+        else
+            emit_pass "T. dialect guard wired + rejects a British spelling + vocabulary hashed (path-confined, manifest-matched, exit=2 canary)"
+        fi
+    fi
+fi
+
 # --- Layer L — PreToolUse[SendMessage] guard-resume-isolation.sh (WARN-ONLY) ---
 #
 # The resume-guard (scripts/hooks/guard-resume-isolation.sh) is the
@@ -1862,6 +1939,11 @@ CANON = [
     "guard-main-checkout-writes.sh",
     "guard-bash-main-writes.sh",
     "scan-secrets.sh",
+    # A BLOCKING Write/Edit-matcher guard: registered twice it would print the
+    # same dialect refusal twice, which reads as two separate wrong words in one
+    # sentence — and would double the cost of the only guard here that runs a
+    # word list over every byte of every write.
+    "guard-dialect.sh",
     # A BLOCKING Bash-matcher guard: registered twice it would run the CEO-TODOs
     # predicate twice per commit and print its refusal twice, which reads as two
     # separate defects in one record.
