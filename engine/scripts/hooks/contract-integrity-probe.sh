@@ -330,6 +330,7 @@ run_layer_R() {
     session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
+    notice-unstarted-rows \
     guard-idle-land"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
@@ -539,6 +540,7 @@ guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-inflight-acks.sh|Stop
+notice-unstarted-rows.sh|Stop
 guard-idle-land.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
