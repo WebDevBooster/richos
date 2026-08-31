@@ -235,6 +235,17 @@ mutant lint-broken-is-clean "7c " "$T" \
     '[ -n "$RECEIPT" ] && { UR_VERDICT="BROKEN"; ur_receipt "$RECEIPT"; }\n        exit 0 ;;' \
     "'nothing is unstarted' and 'nothing was read' are the two answers this exists to keep apart."
 
+# --- 8. WHAT CLOSES A ROW ---------------------------------------------------
+mutant residual-reopens-row "8a " "$P" \
+    '        if is_done_cell and not struck:' \
+    '        if is_done_cell != struck:' \
+    "a struck row naming who owns its residual is FINISHED; refusing it shouts about closed work forever."
+
+mutant done-cell-unstruck-ok "8b " "$P" \
+    '        if is_done_cell and not struck:' \
+    '        if False:' \
+    "a row finished in one place and open in the other must not be picked between silently."
+
 # --- 8. THE REST OF THE NAMED CASES, each proven load-bearing --------------
 mutant lint-hides-rows "2b " "$T" \
     'if [ "$QUIET" -eq 0 ]; then' \

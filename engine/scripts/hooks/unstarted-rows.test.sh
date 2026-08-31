@@ -22,6 +22,7 @@
 # Plus the two properties that keep the notice worth reading:
 #   5. state-change de-duplication  (a stable set is announced once)
 #   6. a claim token stands alone in BOTH directions, each with a control
+#   8. the strike-through closes a row; the cell may name who owns the residual
 #
 # NOTHING HERE IS EVER TORN DOWN, and every sandbox branch is named under
 # `agent/`. The un-claimed state is reached by RENAMING the branch: this
@@ -100,6 +101,7 @@ write_queue() { # <blocked-cell-for-row-12>
 | # | Item | Blocked by |
 |---|---|---|
 | ~~0~~ | ~~**A landed thing**~~ — LANDED | done |
+| ~~9~~ | ~~**A finished row whose residual belongs to the CEO**~~ | **CEO — a product decision** |
 | 1 | **A short-id row** — its id is a prefix of row 11's | — |
 | 11 | **A row nobody has started** — buildable, needs nobody | — |
 | 12 | **A second unstarted row** — also buildable | ${1:-—} |
@@ -265,9 +267,9 @@ say "3a" "$HOUT"
 if [ -s "$RECEIPT" ]; then ok "3b  POSITIVE PROBE: the sweep wrote a receipt, so it RAN"
 else bad "3b  POSITIVE PROBE: the sweep wrote a receipt, so it RAN" "no receipt at $RECEIPT"; fi
 
-if grep -q '^rows-swept:    7' "$RECEIPT" 2>/dev/null; then
-    ok "3c  POSITIVE PROBE: it swept 7 rows — the silence is not a sweep of nothing"
-else bad "3c  POSITIVE PROBE: it swept 7 rows" "$(grep '^rows-swept' "$RECEIPT" 2>/dev/null)"; fi
+if grep -q '^rows-swept:    8' "$RECEIPT" 2>/dev/null; then
+    ok "3c  POSITIVE PROBE: it swept 8 rows — the silence is not a sweep of nothing"
+else bad "3c  POSITIVE PROBE: it swept 8 rows" "$(grep '^rows-swept' "$RECEIPT" 2>/dev/null)"; fi
 
 if grep -q '^blocker-named: 3' "$RECEIPT" 2>/dev/null && grep -q '^unstarted:     0' "$RECEIPT" 2>/dev/null; then
     ok "3d  POSITIVE PROBE: 3 rows named a blocker and 0 were unstarted"
@@ -400,6 +402,30 @@ loud_because "4p" "a queue swept before and now vanished -> LOUD, never a quiet 
 mv "$SANDBOX/queue.hidden2" "$REPO/RICH-TODOs.md"
 
 rm -f "$REPO"/*.bak "$REPO/wiki"/*.bak
+
+# ===========================================================================
+# 8. WHAT CLOSES A ROW, AND WHAT MERELY DESCRIBES ITS RESIDUAL
+# ===========================================================================
+# THE STRIKE-THROUGH IS THE CLOSURE SIGNAL AND IT IS THE ONLY ONE. The first
+# version of this parser treated a "done" cell as a corroborating second
+# signal and refused any row where the two disagreed; the live record killed
+# that within the hour, with a struck-through row whose blocked-by cell read
+# `**CEO — a product decision**` and was entirely correct — the work was
+# finished, and the cell names who owns what is LEFT. Two facts, one slot,
+# and the guard was wrong about which was which.
+write_queue
+write_record
+bash "$LINT" "$REPO" > "$SANDBOX/lint8.txt" 2>&1
+if grep -qE '^  CLOSED     9 .*residual: CEO' "$SANDBOX/lint8.txt"; then
+    ok "8a  a struck row that names who owns its RESIDUAL is closed, quietly, with the residual kept"
+else bad "8a  a struck row naming a residual owner stays closed" "$(cat "$SANDBOX/lint8.txt")"; fi
+
+# The other direction IS a genuine ambiguity and is still refused: a row that
+# claims to be finished in its cell while its id says it is open.
+sed -i.bak 's/^| 12 |\(.*\)| — |$/| 12 |\1| done |/' "$REPO/RICH-TODOs.md"
+loud_because "8b" "an UNSTRUCK row whose cell says 'done' -> LOUD (finished in one place, open in the other)" "NOT struck through"
+write_queue
+rm -f "$REPO"/*.bak
 
 # ===========================================================================
 # 7. THE LINT'S EXIT CODES — three answers, three codes

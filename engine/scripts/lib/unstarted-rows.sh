@@ -365,15 +365,20 @@ import json, os
 # "agent/row-11" into "agent", "row", "11", and the claim disappears. The
 # matching is a bounded regex and it belongs with the row ids, in the
 # predicate, where it can be tested against both near-misses.
+# DE-DUPLICATED BY PATH. The scan roots overlap by construction — a linked
+# worktree and its main checkout list the same set — and a receipt that names
+# one worktree three times is a receipt nobody reads twice.
 wts = []
+seen_paths = set()
 for line in os.environ.get("UR_PAIRS", "").split("\n"):
     if not line.strip():
         continue
     parts = line.split("\t")
     wt = parts[0] if parts else ""
     br = parts[1] if len(parts) > 1 else ""
-    if not wt:
+    if not wt or wt in seen_paths:
         continue
+    seen_paths.add(wt)
     wts.append({
         "path": wt,
         "where": "worktree %s%s" % (wt, " (branch %s)" % br if br else ""),

@@ -75,7 +75,7 @@ never a clean sweep:
   * the queue's governed table not found by its header shape, or found twice
   * the queue table parsed to ZERO rows
   * a queue row whose id cell is empty after markdown is stripped
-  * a queue row whose strike-through and whose "done" cell disagree
+  * a queue row that is NOT struck through and whose cell says it is done
   * the governed section absent from the record, or holding ZERO rows
   * a section row with no warrant, or with a status token outside the
     declared vocabulary
@@ -137,11 +137,21 @@ BLOCKED_HEADER_RE = re.compile(r"^blocked", re.I)
 # record actually uses; the rest are the spellings a human reaches for.
 NOTHING_NAMED = {"", "-", "--", "—", "–", "n/a", "na", "none", "nobody", "nothing", "no one"}
 
-# The FIRST WORD of the blocked-by cell, when the row is finished. Only the
-# first word, because the record qualifies its own closures — one live row
-# reads "done, but unrun", which is a true and useful sentence and must not be
-# read as a shape this parser does not recognize. The strike-through is the
-# closure signal; this cell is the corroboration.
+# THE STRIKE-THROUGH IS THE CLOSURE SIGNAL, AND IT IS THE ONLY ONE.
+#
+# The first draft treated the cell saying "done" as a second, corroborating
+# signal and refused any row where the two disagreed. Running it against the
+# live record killed that in under an hour: row 11 landed struck through with
+# `**CEO — a product decision**` in its blocked-by cell, and it was RIGHT.
+# The work was measured and finished; what the cell names is who owns the
+# RESIDUAL. Strike-through and blocked-by are not two ways of saying one thing.
+#
+# The reverse direction is still a genuine ambiguity and is still refused: a
+# row NOT struck through whose cell says it is done claims to be finished in
+# one place while being open in the other, and that is the dangerous way round.
+#
+# Only the first word is read, because the record qualifies its own closures —
+# one live row reads "done, but unrun", which is a true and useful sentence.
 DONE_WORDS = {"done", "closed", "landed", "finished", "shipped"}
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -261,17 +271,18 @@ def parse_queue(text, label):
         norm = strip_markdown(blocker).lower()
         first = re.split(r"[\s,;.]+", norm.strip(), 1)[0] if norm.strip() else ""
         is_done_cell = first in DONE_WORDS
-        if struck != is_done_cell:
-            fail("%s row %s disagrees with itself: the id cell is %s and the "
-                 "blocked-by cell says '%s'. Strike-through and 'done' are the "
-                 "record's two ways of saying the same thing; when they "
-                 "disagree, picking one silently is how a row gets swept as "
-                 "closed while it is open."
-                 % (label, ident, "struck through" if struck else "not struck through",
-                    strip_markdown(blocker) or "(empty)"))
+        if is_done_cell and not struck:
+            fail("%s row %s disagrees with itself: its blocked-by cell says "
+                 "'%s' and its id is NOT struck through. The row claims to be "
+                 "finished in one place while being open in the other, and "
+                 "picking one silently is how a row gets swept as closed while "
+                 "it is open."
+                 % (label, ident, strip_markdown(blocker)))
 
         if struck:
-            state, detail = "CLOSED", "struck through"
+            state = "CLOSED"
+            detail = "struck through" if is_done_cell or not norm \
+                else "struck through; residual: %s" % strip_markdown(blocker)
         elif norm in NOTHING_NAMED:
             state, detail = "OPEN", ""
         else:
