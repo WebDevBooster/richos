@@ -383,8 +383,10 @@ async function main() {
     const rows = await menuRows(page);
     assertEqual(
       rows,
-      ["Theme", "Text size", "Techy Mode", "Bust a bug!"],
-      "§15 fixes this order: Text size 'directly under the theme switch', and 'directly under that, a Techy Mode toggle'"
+      ["Theme", "Text size", "Techy Mode", "Opening screen", "Bust a bug!"],
+      "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
+        "that, a Techy Mode toggle'. The opening screen's off switch sits below them — that ruling " +
+        "governs their order and says nothing about this one — and Bust a bug is always the floor."
     );
     await page.close();
     return rows.join(" -> ");
@@ -488,6 +490,50 @@ async function main() {
     );
     await page.close();
     return "menu -> rail, and rail -> menu, both observed";
+  });
+
+  await run.check("11b  the splash off switch survived the rebuild, and is ONE state behind two doors", async () => {
+    // A GUARD-RAIL, not a feature. The gear popover has carried this switch since the
+    // opening screen shipped, and the CEO restated on 2026-08-31 that turning the splash off
+    // from settings is a requirement. This build rebuilt the settings menu around three new
+    // rows, and the way a control dies in a rebuild is that nobody was asserting it was
+    // still there. Now something is.
+    const page = track(await openApp(browser));
+    assert(
+      await page.locator("#splash-enabled").count(),
+      "the gear popover's own splash switch is GONE — it was not mine to remove and nothing moved it"
+    );
+    await openMenu(page);
+    assert(
+      await page.locator("#set-splash").count(),
+      "the settings button does not offer the splash switch, and 'from settings' is the CEO's word"
+    );
+    const both = () =>
+      page.evaluate(() => ({
+        menu: document.getElementById("set-splash").checked,
+        gear: document.getElementById("splash-enabled").checked,
+      }));
+    assertEqual(await both(), { menu: true, gear: true }, "both start on, which is the shipped default");
+
+    await page.click("#set-splash");
+    await page.waitForTimeout(400);
+    await page.click("#rail-settings");
+    await page.waitForSelector("#assertiveness-popover", { state: "visible" });
+    assertEqual(await both(), { menu: false, gear: false }, "the gear followed the menu");
+
+    await page.click("#splash-enabled");
+    await page.waitForTimeout(400);
+    await page.click("#rail-settings");
+    await openMenu(page);
+    assertEqual(await both(), { menu: true, gear: true }, "and the menu followed the gear");
+
+    // The mirror is what splash.js reads synchronously on the NEXT launch, before there is a
+    // bridge to ask. A switch that only reached the durable store would look right all
+    // session and do nothing at the one moment it exists for.
+    const mirrored = await page.evaluate(() => window.localStorage.getItem("richos.splash.enabled"));
+    assert(mirrored !== "false", "the local mirror disagrees with the switches: " + mirrored);
+    await page.close();
+    return "present in both places, both directions observed, and the mirror splash.js reads agrees";
   });
 
   // ---- 12-13. the type scale itself ------------------------------------------------------
