@@ -11,6 +11,8 @@
     "  ceo-disk        shasum -a 256 over the CEO's own copy under ~/Models/Whisper.",
     "  wiki-record     a hash already written down in richos-hq wiki, recorded before this table.",
     "A single-witness pin is honest but weaker; the field says which so nobody has to guess.",
+    "As of 2026-08-31, five of the six are confirmed against a real file on this machine.",
+    "small.en-q5_1 is the exception and its `witness` field says so in as many words.",
     "",
     "Read by lib/model-catalog.js and by tools/richos-hud/fetch-dictation-models.sh. The test",
     "suite asserts those two readers agree, so the shell copy can never drift from this file."
@@ -24,7 +26,8 @@
       "file": "ggml-tiny.en.bin",
       "bytes": 77704715,
       "sha256": "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
-      "provenance": ["x-linked-etag"],
+      "provenance": ["x-linked-etag", "ceo-disk"],
+      "witness": "shasum -a 256 ~/.config/open-wispr/models/ggml-tiny.en.bin, 2026-08-31 — agrees",
       "note": "Smallest English model. Not used by any shipping capability; pinned so an offer can exist."
     },
     {
@@ -32,7 +35,8 @@
       "file": "ggml-base.en.bin",
       "bytes": 147964211,
       "sha256": "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
-      "provenance": ["x-linked-etag"],
+      "provenance": ["x-linked-etag", "ceo-disk"],
+      "witness": "shasum -a 256 ~/.config/open-wispr/models/ggml-base.en.bin, 2026-08-31 — agrees",
       "note": "The bundle-a-small-model candidate. Accuracy never measured on this project."
     },
     {
@@ -41,6 +45,7 @@
       "bytes": 190098681,
       "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
       "provenance": ["x-linked-etag"],
+      "witness": "SINGLE WITNESS — no copy of this file exists on any machine here to check against. It is the only pin in this table nothing but HuggingFace vouches for. Fetch one and re-check before this model is ever offered.",
       "note": "Quantized small.en. A low-disk fallback; not a shipping default."
     },
     {
@@ -49,6 +54,7 @@
       "bytes": 487614201,
       "sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
       "provenance": ["x-linked-etag", "ceo-disk", "wiki-record"],
+      "witness": "shasum agrees on TWO independent copies (~/Models/Whisper and ~/.config/open-wispr/models), 2026-08-31; wiki/local-dictation.md recorded c6138d6d… before this table existed",
       "note": "Voice conversation + the Faster dictation mode. Three independent witnesses agree."
     },
     {
@@ -57,6 +63,7 @@
       "bytes": 574041195,
       "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
       "provenance": ["x-linked-etag", "ceo-disk"],
+      "witness": "shasum -a 256 ~/Models/Whisper/ggml-large-v3-turbo-q5_0.bin, 2026-08-31 — agrees",
       "note": "The More accurate dictation mode (quantized tier)."
     },
     {
@@ -65,6 +72,7 @@
       "bytes": 1624555275,
       "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
       "provenance": ["x-linked-etag", "ceo-disk"],
+      "witness": "shasum -a 256 ~/Models/Whisper/ggml-large-v3-turbo.bin (1.62 GB), 2026-08-31 — agrees",
       "note": "config.js DEFAULT_MODEL — call transcription. The largest thing RichOS ever downloads."
     }
   ]

@@ -136,7 +136,7 @@ function firstLine(head) {
 /**
  * The sentence. One per failure kind, naming what happened and what the person can do about it.
  * @param {{kind?: string, have?: any, want?: any, bytes?: number, detail?: string}} finding
- * @param {{file?: string, id?: string, resumable?: boolean}} [ctx]
+ * @param {{file?: string, id?: string, resumable?: boolean, context?: 'download'|'disk'}} [ctx]
  * @returns {string}
  */
 export function describe(finding, ctx = {}) {
@@ -165,6 +165,13 @@ export function describe(finding, ctx = {}) {
     case FAILURE.NOT_GGML:
       return `${file} is not a whisper model — its first four bytes are ${finding.have}, and every GGML model starts with ${finding.want}. Nothing was installed.`;
     case FAILURE.SHORT:
+      // Three different situations produce a short file and they need three different next steps:
+      // a file sitting on disk under a model's name, a partial we kept for a resume, and a partial
+      // we could not keep. Saying "resume" about an installed file would be advice that goes
+      // nowhere, which is how a good error message becomes a wrong one.
+      if (ctx.context === 'disk') {
+        return `${file} is only ${fmt(finding.have)} of the ${fmt(finding.want)} bytes a real model has (${pct(finding.have, finding.want)}) — it is a download that never finished, not a usable model. Delete it and fetch the model again.`;
+      }
       return (
         `${file} is incomplete: ${fmt(finding.have)} of ${fmt(finding.want)} bytes arrived (${pct(finding.have, finding.want)}). ` +
         (ctx.resumable === false
@@ -318,9 +325,9 @@ export async function inspectFile(filePath, pin, { deep = true } = {}) {
   const head = readHead(filePath);
   const cheap = classify({ exists: true, bytes, head, sha256: null, pin });
   if (!cheap.ok || !deep) {
-    return { ...cheap, message: describe(cheap, { file: label, resumable: false }) };
+    return { ...cheap, message: describe(cheap, { file: label, context: 'disk' }) };
   }
   const sha256 = await hashFile(filePath);
   const full = classify({ exists: true, bytes, head, sha256, pin });
-  return { ...full, message: describe(full, { file: label }) };
+  return { ...full, message: describe(full, { file: label, context: 'disk' }) };
 }

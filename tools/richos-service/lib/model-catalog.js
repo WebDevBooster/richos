@@ -44,7 +44,7 @@ export const PINS_VERIFIED_ON = RAW.verifiedOn;
 /**
  * Every pinned model, in the order the table lists them (smallest first).
  * @typedef {{id: string, file: string, bytes: number, sha256: string,
- *            provenance: string[], note: string}} ModelPin
+ *            provenance: string[], witness: string, note: string}} ModelPin
  * @type {ModelPin[]}
  */
 export const MODEL_PINS = Object.freeze(
@@ -55,6 +55,7 @@ export const MODEL_PINS = Object.freeze(
       bytes: m.bytes,
       sha256: m.sha256.toLowerCase(),
       provenance: Object.freeze([...m.provenance]),
+      witness: m.witness || '',
       note: m.note,
     }),
   ),
@@ -155,6 +156,18 @@ export function provenanceLine(pin) {
     'wiki-record': 'a hash recorded in the wiki beforehand',
   };
   const listed = pin.provenance.map((p) => names[p] || p);
-  if (listed.length === 1) return `${listed[0]} (single witness)`;
+  if (listed.length === 1) return `${listed[0]} — SINGLE WITNESS, nothing else has checked it`;
   return `${listed.slice(0, -1).join(', ')} and ${listed[listed.length - 1]} — ${listed.length} witnesses agree`;
+}
+
+/**
+ * True when only one party vouches for this hash.
+ *
+ * Worth its own function because it is the honest weakness of the table: a pin taken solely from
+ * the same host that serves the file is a check against corruption and a stale CDN object, and NOT
+ * against that host. Calling it out is the difference between a table and a claim.
+ * @param {ModelPin} pin
+ */
+export function isSingleWitness(pin) {
+  return pin.provenance.length < 2;
 }

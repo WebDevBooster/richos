@@ -16,6 +16,9 @@
  *   richos-service dictation-answer ...  # correction flywheel: the CEO's answer — the only way a dictation pair is learned
  *   richos-service dictation-asks        # the inspectable suppression list
  *   richos-service dictation-retention   # what persisting dictation costs, and what ages out
+ *   richos-service models                # the pin table: what is installed, what verifies, what it would cost
+ *   richos-service verify-model <id>     # hash a model already on disk against its pinned sha256
+ *   richos-service fetch-model <id>      # download it, verify it, and install it only if it verifies
  *   richos-service doctor                # verify ffmpeg / whisper-cli / model are resolvable
  *
  * Common flags: --zone <dir> (override the drop zone), --model <id>.
@@ -27,7 +30,10 @@ import { execFileSync } from 'node:child_process';
 import { runPipeline } from '../lib/pipeline.js';
 import { scanZone, watch } from '../lib/watcher.js';
 import { decideClaimOnDisk, findPromotableOnDisk, markSuperseded } from '../lib/coordination.js';
-import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
+import { dropZone, ffmpegBin, whisperBin, resolveModel, resolveModelChecked, modelSearchDirs, resolveTier, MODEL_TIERS, DEFAULT_TIER, DEFAULT_MODEL, REPO_ROOT } from '../lib/config.js';
+import { MODEL_PINS, PIN_FILE, PINS_VERIFIED_ON, pinFor, pinnedModelIds, provenanceLine, isSingleWitness, human } from '../lib/model-catalog.js';
+import { modelStatus, downloadModel } from '../lib/model-fetch.js';
+import { inspectFile } from '../lib/model-integrity.js';
 import { assertEvidenceOutsideProductRepo } from '../lib/workspace/privacy.js';
 import { ffmpegVersion } from '../lib/normalize.js';
 import { entitiesFilePath, loadEntityMemory } from '../lib/entities.js';
@@ -415,6 +421,92 @@ function main() {
       break;
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Model integrity. The consent surface — the sheet that ASKS before a byte moves — is app
+    // work and is deliberately not here. These are the layer beneath it: what is installed, is it
+    // really the model, and fetch it in a way that cannot install anything else.
+    // -----------------------------------------------------------------------------------------
+    case 'models': {
+      const dir = flag('dir') ? expandPath(String(flag('dir'))) : modelSearchDirs()[0];
+      const deep = flag('deep') === true;
+      console.log(`pin table:  ${PIN_FILE}  (verified ${PINS_VERIFIED_ON})`);
+      console.log(`model dir:  ${dir}`);
+      console.log(deep ? 'checking:   size, GGML magic AND sha256 over every byte' : 'checking:   size and GGML magic only — pass --deep to hash');
+      console.log('');
+      (async () => {
+        for (const pin of MODEL_PINS) {
+          // eslint-disable-next-line no-await-in-loop
+          const st = await modelStatus(pin.id, dir, { deep });
+          const mark = st.installed ? (st.verified ? 'VERIFIED' : 'present ') : 'absent  ';
+          console.log(`${mark}  ${pin.id.padEnd(21)} ${human(pin.bytes).padStart(9)}  ${isSingleWitness(pin) ? '(single witness) ' : ''}${provenanceLine(pin)}`);
+          if (!st.installed) console.log(`            ${st.message}`);
+          if (st.partialBytes) console.log(`            a partial download of ${human(st.partialBytes)} is on disk; a fetch would resume from there`);
+        }
+      })().catch((err) => {
+        console.error(String(err.message || err));
+        process.exit(1);
+      });
+      break;
+    }
+
+    case 'verify-model': {
+      const id = process.argv[3];
+      if (!id) {
+        console.error(`usage: richos-service verify-model <${pinnedModelIds().join('|')}> [--dir d]`);
+        process.exit(1);
+      }
+      const dir = flag('dir') ? expandPath(String(flag('dir'))) : modelSearchDirs()[0];
+      const pin = pinFor(id);
+      if (!pin) {
+        console.error(`"${id}" is not in the pin table, so there is no hash to check it against. Pinned: ${pinnedModelIds().join(', ')}`);
+        process.exit(1);
+      }
+      inspectFile(path.join(dir, pin.file), pin, { deep: true })
+        .then((v) => {
+          console.log(v.ok ? `OK  ${pin.file} matches its pinned sha256 (${pin.sha256}).` : `FAIL  ${v.message}`);
+          console.log(`      pin provenance: ${provenanceLine(pin)}`);
+          if (pin.witness) console.log(`      ${pin.witness}`);
+          process.exit(v.ok ? 0 : 1);
+        })
+        .catch((err) => {
+          console.error(String(err.message || err));
+          process.exit(1);
+        });
+      break;
+    }
+
+    case 'fetch-model': {
+      const id = process.argv[3];
+      if (!id) {
+        console.error(`usage: richos-service fetch-model <${pinnedModelIds().join('|')}> [--dir d]`);
+        process.exit(1);
+      }
+      const dir = flag('dir') ? expandPath(String(flag('dir'))) : modelSearchDirs()[0];
+      let lastPct = -1;
+      downloadModel(id, dir, {
+        onAttempt: ({ attempt, of }) => {
+          if (attempt > 1) console.log(`attempt ${attempt} of ${of}…`);
+        },
+        onProgress: ({ received, total }) => {
+          const pct = Math.floor((received / total) * 100);
+          if (pct !== lastPct && pct % 5 === 0) {
+            lastPct = pct;
+            process.stderr.write(`\r  ${String(pct).padStart(3)}%  ${human(received)} of ${human(total)}   `);
+          }
+        },
+      })
+        .then((r) => {
+          process.stderr.write('\r');
+          console.log(r.ok ? `OK  ${r.message}` : `FAIL  ${r.message}`);
+          process.exit(r.ok ? 0 : 1);
+        })
+        .catch((err) => {
+          console.error(String(err.message || err));
+          process.exit(1);
+        });
+      break;
+    }
+
     case 'doctor': {
       let ok = true;
       try {
@@ -434,7 +526,10 @@ function main() {
         console.log(`tier:       ${resolvedTier.name} -> model ${resolvedTier.model}${
           resolvedTier.decodeArgs.length ? ` (decode: ${resolvedTier.decodeArgs.join(' ')})` : ''
         }`);
-        console.log(`model:      ${resolveModel(resolvedTier.model)}`);
+        const found = resolveModelChecked(resolvedTier.model);
+        console.log(`model:      ${found.path}`);
+        console.log(`            ${found.pin ? `pinned sha256 ${found.pin.sha256.slice(0, 16)}… — run \`richos-service verify-model ${resolvedTier.model}\` to hash it` : 'NOT PINNED — this model has no hash to check against'}`);
+        for (const r of found.rejected) console.log(`            rejected: ${r.message}`);
       } catch (err) {
         // A missing tier model is only fatal if that tier was explicitly requested; the default
         // turbo model must resolve.
@@ -466,6 +561,9 @@ function main() {
           '  richos-service dictation-answer --from "<heard>" --to "<term>" (--confirm|--decline|--never) [--entry id]',
           '  richos-service dictation-asks [--journal dir]                      # the inspectable suppression list',
           '  richos-service dictation-retention [--apply] [--journal dir]       # what it costs, and what ages out',
+          '  richos-service models [--dir d] [--deep]           # the pin table + what is installed',
+          '  richos-service verify-model <id> [--dir d]         # hash it against its pinned sha256',
+          '  richos-service fetch-model <id> [--dir d]          # download, verify, install only if it verifies',
           '  richos-service doctor',
         ].join('\n'),
       );
