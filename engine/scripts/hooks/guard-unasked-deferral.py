@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""guard-unasked-deferral.py — the analysis half of the UNASKED-DEFERRAL notice.
+
+===========================================================================
+THE DEFECT, WITH ITS SPECIMEN
+===========================================================================
+2026-08-31. The CEO asked, twice, when a durable fix for a defect would be
+installed and running. The orchestrator's answer the second time, verbatim from
+its own turn (transcript 042f3850, `final_text`):
+
+    "I'm deliberately not spawning a fifth agent for it right now. Four are
+     running, you're waiting to restart, and adding a fifth pushes that further
+     out for a guard that isn't the thing you're waiting on. It goes in with
+     the dialect guard's land — next spawn after these finish."
+
+Every clause of that reasoning was the orchestrator's; every consequence of it
+was the CEO's. He was not asked. He was INFORMED OF A DECISION ALREADY TAKEN,
+and had to ask a third time, angrily, before the work started. Third occurrence
+that day.
+
+THE SIN IS NOT DEFERRING. Deferral is often right — sequencing, collisions, a
+genuinely better order. The sin is deferring SILENTLY AND UNILATERALLY:
+converting a decision that belongs to the CEO into a plan announced to him.
+
+This is the CONVERSE of the CEO-ask gate (guard-ceo-ask-first.sh /
+notice-ceo-unasked.sh), and is not covered by it. That pair ensures a PREPARED
+question actually gets put to him. This one covers the case where there is no
+ambiguity about what he wants — he asked directly — and the orchestrator
+schedules it for later on its own authority. Nothing checked for that.
+
+===========================================================================
+WHY IT KEYS ON THE ORCHESTRATOR'S OWN LANGUAGE, NOT THE CEO'S INTENT
+===========================================================================
+Deciding whether a CEO message "was a request" is a hard classification with no
+good answer, and a guard built on it would be noise. So this one never looks at
+his message at all.
+
+It keys on the ORCHESTRATOR'S OWN DEFERRAL LANGUAGE, which is a closed, listable
+set of constructions, is the orchestrator's prose rather than his, and is exactly
+what appears when the defect occurs.
+
+===========================================================================
+THE MEASUREMENT, AND THE CONSTRUCTIONS REFUSED BECAUSE OF IT
+===========================================================================
+CORPUS: 2,198 real orchestrator turns — every non-sidechain turn in the five
+main-session transcript directories on this machine (femcboost, richos,
+richos-engine, prospects, deeply), final assistant text plus the tool names used
+in that turn, which is exactly what a Stop hook can see. The specimen turn is in
+it. Extraction and scoring: scripts/hooks/unasked-deferral.corpus.md records the
+method so the number can be reproduced rather than believed.
+
+SHIPPED SET — 3 families, 6 patterns. Over the corpus:
+
+    construction matched          13 turns
+      discharged, AskUserQuestion  0
+      discharged, CEO's hand        9
+      discharged, Agent spawn       1
+    FIRES                           3   — all 3 genuine unilateral deferrals
+
+PRECISION 3/3 = 100%, n = 3. THE SMALL n IS THE POINT AND NOT A BOAST: this
+defect is rare in the record and loud when it happens, so the only useful
+tuning target was zero false alarms. The number that was actually worked for is
+the REFUSED list below.
+
+RECALL IS THE HONEST WEAK HALF. Hand-reading every construction match found 5
+turns I judge genuine unilateral deferrals; it fires on 3. One is lost to the
+Agent-spawn discharge (below), one to the `postponing-it` family being dropped.
+A guard that catches three in five of an unnoticed habit is worth having; a
+guard claiming to catch all five would be lying.
+
+REFUSED, WITH THE MEASURED REASON — every one of these was proposed, run over
+the same corpus, hand-read, and dropped:
+
+  "deliberately not"  (bare)            23 hits, 4 genuine (17%). The dominant
+                                        use is a wiki heading, "Deliberately NOT
+                                        open", and "text deliberately not meant
+                                        to be read". Worse than the 10.3% rule
+                                        this engine already rejected once. Kept
+                                        only as an optional adverb INSIDE the
+                                        first-person patterns.
+  "I'll X once Y completes"              9 hits, 0 genuine. It is progress
+                                        reporting — "I'll land Mark's branch
+                                        once it comes back green".
+  "when it's done" / "when they're done" 12 hits, 0 genuine. Every single one is
+                                        "I'll report when it's done".
+  "after these/those land"              14 hits, 3 genuine (21%). Overwhelmingly
+                                        roadmap narration — "After those land:
+                                        wave 2 is Mark aligning validators".
+                                        This is the brief's own example of
+                                        pipeline prose that must not fire. Kept
+                                        ONLY inside "next <spawn|pass|...>
+                                        after", which is 3 hits and precise.
+  "wait until" / "waiting for"          39 hits. Mostly the CEO waiting, a
+                                        process waiting, or a run waiting.
+  "queued / parked / deferred"          32 hits. Mostly nouns describing a state
+                                        the CEO had already ruled on.
+  "I'm holding/queueing/parking <X>"     9 hits, 4 genuine (44%) — and this one
+                                        was WRITTEN, MEASURED AND THEN DELETED.
+                                        Its false alarms are pipeline holds that
+                                        are plainly correct ("I'm holding the
+                                        merge until all three report", "I'm
+                                        holding the land until his tests confirm
+                                        green"), and 3 of its 4 genuine hits are
+                                        already caught by chose-not-to-start-now.
+                                        It bought one extra catch for a false
+                                        alarm on ordinary sequencing. Dropped.
+  "in the same commit/merge as"          1 hit, 0 genuine — "the off switch ships
+                                        in the same commit as the splash",
+                                        describing a bundle that already exists.
+                                        `commit`/`merge` dropped from that
+                                        family; `pass`/`land`/`spawn`/`round`
+                                        kept.
+  "rather than <gerund>"  (bare)         6 hits, 3 genuine. The others are design
+                                        choices — "extending the CSV rather than
+                                        adding a second ledger". Kept ONLY with a
+                                        first-person subject AND a now-marker,
+                                        which is what separates a postponement
+                                        from a choice.
+  "X goes in with Y"  (bare)             3 hits, 1 genuine. "the fix goes in with
+                                        the next pilot restart" was describing a
+                                        checklist inside a document. Kept ONLY
+                                        when the object is a unit of
+                                        orchestration work — a land, pass, spawn,
+                                        batch, round, merge, deploy or commit.
+
+A SHORT PRECISE LIST BEATS A LONG NOISY ONE, and the refused list is deliberately
+longer than the shipped one.
+
+===========================================================================
+QUOTED IS NOT USED
+===========================================================================
+Backtick spans, fenced blocks and double-quoted spans are stripped before
+matching. This is not a convenience: two of the corpus's construction hits are
+the orchestrator DESCRIBING THIS VERY GUARD to the CEO and quoting its trigger
+phrases back at him. A guard that fires on its own documentation is a guard that
+gets switched off. Stripping quotations is also the honest reading — a
+construction being quoted is not a construction being used.
+
+===========================================================================
+WHAT DISCHARGES A DEFERRAL
+===========================================================================
+Per the rule, three things, checked in this order:
+
+  1. AskUserQuestion in the same turn — the deferral was put to him as a choice.
+  2. THE CEO'S HAND IS VISIBLE IN THE TEXT — either the turn hands the decision
+     back in prose ("your call", "say the word", "want me to?"), or it cites his
+     instruction ("you killed it", "those are orders", "until you rule").
+     This is the approximation of "an explicit CEO instruction to defer, already
+     on the record", and it is the single highest-value discharge in the corpus:
+     of the 13 turns matching a construction, 9 carry it, and reading all 9
+     confirms every one either offers him the choice or obeys an order he gave
+     ("You killed the gate judgment, so I'm not spawning anything further").
+     Without this discharge the guard would fire 12 times at 4/12 = 33%.
+  3. An Agent spawn in the same turn. THIS IS THE KNOWN BLIND SPOT and it is
+     stated here rather than engineered around: the rule wants "a spawn that
+     starts the deferred thing", and a Stop hook cannot tell which thing a spawn
+     starts. So a turn that spawns one agent while unilaterally deferring
+     another passes. MEASURED COST: exactly one genuine deferral in the corpus
+     — "Understood, the PR is authorized. I'm sequencing it deliberately rather
+     than firing it off now" — is silenced by it, because that turn spawned an
+     unrelated agent. The specimen turn does not spawn (tools: Bash only).
+
+===========================================================================
+THE LIMIT, STATED RATHER THAN ENGINEERED AROUND
+===========================================================================
+An orchestrator can phrase around any word list, and this one is 3 families
+wide. THIS GUARD CATCHES THE NATURAL PHRASING OF AN UNNOTICED HABIT, which is
+the actual failure mode — the specimen was written without any awareness that it
+was taking the CEO's decision. It does not and cannot catch deliberate evasion.
+Pretending otherwise would make it a checkbox.
+
+REPORTS, NEVER BLOCKS. The harm is a decision already announced; the value is
+that the CEO sees it named in the same turn instead of having to ask a third
+time. A blocking guard on PROSE would wedge the session and get switched off,
+which is the failure mode that produced this in the first place.
+"""
+
+import json
+import os
+import re
+import sys
+
+# ---------------------------------------------------------------------------
+# QUOTATION STRIPPING — see "QUOTED IS NOT USED" above.
+# ---------------------------------------------------------------------------
+_FENCE = re.compile(r"```.*?```", re.S)
+_TICK = re.compile(r"`[^`\n]*`")
+# Straight and curly double quotes, single line only: an unbalanced quote must
+# not swallow the rest of the message.
+_DQUOTE = re.compile(r"[\"“][^\"“”\n]{0,400}[\"”]")
+
+
+def strip_quoted(text):
+    """Blank out quoted/technical spans, preserving offsets so match positions
+    still point into the original string."""
+    def blank(m):
+        return " " * (m.end() - m.start())
+    out = _FENCE.sub(blank, text)
+    out = _TICK.sub(blank, out)
+    out = _DQUOTE.sub(blank, out)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# THE CONSTRUCTIONS — three families, each measured on the corpus above.
+# ---------------------------------------------------------------------------
+
+# Verbs that name STARTING A PIECE OF WORK. Deliberately not "considering",
+# "thinking", "assuming" — this family is about work not being begun.
+_ACT = (r"(?:spawn|dispatch|start|launch|open|fir|build|writ|add|fix|land|do|"
+        r"run|touch|merg|deploy|implement|wir|ship|creat|patch|chang)"
+        r"(?:ing|e|ping|ning|ting|ding)?")
+
+# A now-marker: the word that turns "I am not doing X" (a scope statement) into
+# "I am not doing X YET" (a postponement). Without one, "I'm not adding a second
+# ledger" is a design decision, and the corpus is full of those.
+_NOW = (r"(?:right now|just now|now|yet|today|at the moment|for now|for the "
+        r"moment|this turn|this pass|in this pass|immediately|before (?:that|"
+        r"these|those))")
+
+CONSTRUCTIONS = [
+    # ---------------------------------------------------------------- family A
+    # FIRST-PERSON REFUSAL TO START WORK.
+    #   "I'm deliberately not spawning a fifth agent for it right now"  <- specimen
+    #   "I'm not fixing these right now"
+    # The subject must be I/I'm — the corpus's false alarms ("that's me not
+    # writing down what you said", "a partial not starting with the GGML magic")
+    # all have a different subject.
+    ("not-starting-it-now",
+     r"\b(?:I'm|I am|I'll|I will)\s+(?:\w+\s+){0,3}?not\s+" + _ACT +
+     r"\b[^.\n]{0,80}?\b" + _NOW + r"\b"),
+
+    # The same act, with the postponement carried by the verb instead of a
+    # now-marker: "I'm not spawning a fourth agent", "I'm not dispatching
+    # anything". Restricted to the DISPATCH verbs, because those are the ones
+    # that can only mean "I am not starting this", and to a short window so a
+    # long sentence cannot drag an unrelated negation in.
+    ("not-dispatching",
+     r"\b(?:I'm|I am)\s+(?:\w+\s+){0,2}?not\s+"
+     r"(?:spawning|dispatching|launching|kicking off|starting)\b"),
+
+    # ---------------------------------------------------------------- family B
+    # BUNDLING THE ITEM INTO A LATER BATCH — the specimen's second half.
+    #   "It goes in with the dialect guard's land"
+    #   "next spawn after these finish"
+    # `commit`/`merge` are deliberately absent from the second pattern: the one
+    # corpus hit for those was describing a bundle that already existed.
+    ("bundled-into-later-batch",
+     r"\b(?:it|that|this|which|the fix|the guard|the change)\s+"
+     r"(?:goes|go|will go|can go|would go|rides|ships|lands)\s+in\s+with\b"
+     r"[^.\n]{0,60}?\b(?:land|lands|landing|pass|spawn|batch|round|merge|"
+     r"deploy|commit)\b"),
+    ("bundled-into-later-batch",
+     r"\bin\s+the\s+same\s+(?:pass|land|spawn|round|batch)\s+as\b"),
+    ("next-batch-after-these",
+     r"\bnext\s+(?:spawn|pass|round|land|batch|build)\s+after\b"),
+
+    # ---------------------------------------------------------------- family C
+    # AN EXPLICIT FIRST-PERSON POSTPONEMENT VERB.
+    #   "I'm serializing it behind Norm rather than starting it now"
+    #   "I'm sequencing it deliberately rather than firing it off now"
+    ("chose-not-to-start-now",
+     r"\b(?:I'm|I am)\s+[^.\n]{0,60}?\brather\s+than\s+" + _ACT +
+     r"\b[^.\n]{0,40}?\b" + _NOW + r"\b"),
+    ("id-rather-wait",
+     r"\bI'd\s+rather\s+(?:wait|hold off|hold it|not start|not spawn|"
+     r"not do (?:it|that|this))\b"),
+]
+
+_COMPILED = [(name, re.compile(pat, re.I)) for name, pat in CONSTRUCTIONS]
+
+
+def find_deferrals(text):
+    """Return [(construction_name, matched_text), ...] for text, quotations
+    stripped. Deduplicated by construction name — one fire per family."""
+    if not text:
+        return []
+    scan = strip_quoted(text)
+    seen = set()
+    out = []
+    for name, rx in _COMPILED:
+        m = rx.search(scan)
+        if m and name not in seen:
+            seen.add(name)
+            out.append((name, m.group(0).strip()))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# THE DISCHARGES
+# ---------------------------------------------------------------------------
+# THE CEO'S HAND, VISIBLE IN THE TEXT. Two shapes, both meaning the decision is
+# his and he knows it:
+#   HANDS IT BACK  — "your call", "say the word", "want me to?"
+#   CITES HIS ORDER — "you killed it", "those are orders", "until you rule"
+# Measured: 9 of the corpus's 21 construction-matching turns carry one, and all
+# 9 read correctly on inspection.
+_HANDBACK = re.compile(
+    r"\b(?:"
+    r"your call|your choice|your decision|your ruling|your say-so|"
+    r"yours to call|yours to make|up to you|"
+    r"say the word|"
+    r"tell me (?:which|if|when|what|whether)|you'll tell me|"
+    r"want me to\b|do you want|would you (?:like|rather|prefer)|"
+    r"shall I\b|should I\b|"
+    r"if you want|whenever you want|when you're ready|"
+    r"until you (?:rule|say|decide|tell)|"
+    r"those are orders|you (?:killed|stopped|told me to stop)|"
+    r"the next move is yours|nothing (?:happens|moves) until you|"
+    r"(?:name|pick|choose) (?:the|which|one)\b|"
+    r"either way[, ][^.\n]{0,40}\byou\b|"
+    r"say\s+[“\"][^\"”\n]{1,40}[\"”]\s+and\b"
+    r")",
+    re.I,
+)
+
+
+def discharge(text, tools):
+    """Return the name of the thing that discharges a deferral in this turn, or
+    None if nothing does."""
+    if "AskUserQuestion" in tools:
+        return "askuserquestion"
+    if text and _HANDBACK.search(text):
+        return "handback"
+    if "Agent" in tools:
+        return "agent-spawn"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# HOOK ENTRY POINT
+# ---------------------------------------------------------------------------
+# Reads the Stop payload on stdin, writes a systemMessage notice to stdout if a
+# deferral in this turn was never put to the CEO, and ALWAYS exits 0.
+#
+# The de-duplication ledger and the state-change semantics belong to
+# scripts/lib/stop-hook-notice.sh, which is bash; the wrapper owns those. This
+# module's only output is the sentence, on stdout, one line, or nothing.
+
+def _tools_of_turn(payload):
+    """The tool names used in the CURRENT turn.
+
+    Read from the transcript, walking BACKWARD from the end to the last real
+    user prompt. Verified in guard-unresolved-claims.sh's header against the
+    shipping binary: at Stop time the transcript already holds this turn's
+    tool_use records but NOT the final assistant text — which is why the text
+    comes from `last_assistant_message` and only the tool traffic from here.
+    """
+    path = payload.get("transcript_path") or ""
+    if not path or not os.path.isfile(path):
+        return None  # UNKNOWN — never the same as "no tools used"
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except Exception:
+        return None
+    tools = set()
+    for line in reversed(lines):
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(rec, dict) or rec.get("isSidechain"):
+            continue
+        msg = rec.get("message") or {}
+        content = msg.get("content")
+        if rec.get("type") == "user":
+            if isinstance(content, list) and all(
+                isinstance(b, dict) and b.get("type") == "tool_result"
+                for b in content
+            ):
+                continue  # tool results are not a prompt
+            break  # the real prompt that opened this turn
+        if rec.get("type") == "assistant" and isinstance(content, list):
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    tools.add(b.get("name") or "")
+    return tools
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    # Never re-fire into a block loop: if a sibling Stop hook blocked the turn,
+    # this one has already spoken about the same text.
+    if payload.get("stop_hook_active"):
+        return 0
+
+    text = payload.get("last_assistant_message") or ""
+    if not isinstance(text, str) or not text.strip():
+        return 0
+
+    hits = find_deferrals(text)
+    if not hits:
+        return 0
+
+    tools = _tools_of_turn(payload)
+    if tools is None:
+        # The transcript could not be read. Two of the three discharges depend
+        # on it, so firing here would blame a turn that may well have asked.
+        # Silence is the correct answer and the wrapper's normal-state notice
+        # is not disturbed.
+        return 0
+
+    if discharge(text, tools) is not None:
+        return 0
+
+    name, quoted = hits[0]
+    if len(quoted) > 120:
+        quoted = quoted[:117] + "..."
+    print(json.dumps({
+        "construction": name,
+        "quote": quoted,
+        "all": [h[0] for h in hits],
+    }))
+    return 3  # 3 = "a deferral fired"; the wrapper turns it into the notice
+
+
+if __name__ == "__main__":
+    sys.exit(main())

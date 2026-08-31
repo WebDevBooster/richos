@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+#
+# unasked-deferral.test.sh — the unasked-deferral notice, end to end, in a
+#                            sandbox, driven through the SHIPPED hook.
+#
+# WHAT IS ASSERTED, AND WHY EACH CASE EXISTS
+#   1. THE SPECIMEN. The verbatim 2026-08-31 turn — the one the CEO had to ask a
+#      third time about — produces a notice that QUOTES the construction.
+#   2. THE THREE DISCHARGES. AskUserQuestion in the turn; the CEO's hand visible
+#      in the text; an Agent spawn in the turn. Each silences the SAME specimen
+#      text, so the silence is provably the discharge and not a hook that never
+#      ran (case 2d re-runs the specimen bare and demands the notice back).
+#   3. ORDINARY SEQUENCING PROSE IS SILENT. Real sentences from the corpus that
+#      describe a PIPELINE — "the deploy runs after the merge", "Ray goes after
+#      Tom", "I'll report when it's done" — must produce nothing. This is the
+#      precision half and it is the reason the family list is short.
+#   4. QUOTED IS NOT USED. A turn that QUOTES the trigger phrases — which is
+#      what a turn describing this guard does — stays silent, with a positive
+#      control proving the same words unquoted still fire.
+#   5. IT REPORTS, NEVER BLOCKS. Exit 0 in every case above.
+#   6. IT CAN BE SEEN GOING QUIET. Stood down, no analyzer, unresolvable root —
+#      each says so on the systemMessage channel rather than dying silently.
+#   7. STATE-CHANGE DE-DUPLICATION. The same deferral restated is announced
+#      once; a DIFFERENT one speaks again.
+#
+# NEGATIVE CONTROLS ARE MANDATORY HERE. A suite for a regex guard passes
+# trivially if the matcher is broken — everything is silent and every silence
+# case is green. So every silence assertion in section 3 is paired with the
+# specimen firing in the same run, and section 1 runs first.
+#
+# Run directly:  scripts/hooks/unasked-deferral.test.sh [--verbose]
+# Exit 0 = all green.
+
+set -uo pipefail
+
+VERBOSE=0
+[ "${1:-}" = "--verbose" ] && VERBOSE=1
+
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE_ROOT="$(cd "$SRC_DIR/../.." && pwd)"
+
+PASS=0
+FAIL=0
+ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
+bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '         %s\n' "$2"; FAIL=$((FAIL + 1)); }
+say() { [ "$VERBOSE" -eq 1 ] && printf '\n----- %s -----\n%s\n' "$1" "$2"; return 0; }
+
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
+
+SANDBOX="$(cd "$(mktemp -d -t unasked-deferral.XXXXXX)" && pwd -P)"
+trap 'rm -rf "$SANDBOX"' EXIT
+
+REPO="$SANDBOX/repo"
+mkdir -p "$REPO/scripts/hooks" "$REPO/scripts/lib"
+
+# A copy, not a symlink: the mutation suite rewrites one of these.
+cp "$SRC_DIR/notice-unasked-deferral.sh" "$REPO/scripts/hooks/"
+cp "$SRC_DIR/guard-unasked-deferral.py" "$REPO/scripts/hooks/"
+chmod +x "$REPO/scripts/hooks/notice-unasked-deferral.sh"
+for l in resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh \
+         stop-hook-notice.sh; do
+    cp "$SRC_DIR/../lib/$l" "$REPO/scripts/lib/$l" 2>/dev/null || true
+done
+
+HOOK="$REPO/scripts/hooks/notice-unasked-deferral.sh"
+
+printf 'PROTECTED_PATHS="wiki"\n' > "$REPO/orchestration.config"
+echo "# sandbox" > "$REPO/README.md"
+
+git -C "$REPO" init -q -b main
+git -C "$REPO" config user.email "$(git config user.email 2>/dev/null || echo tester@example.invalid)"
+git -C "$REPO" config user.name "$(git config user.name 2>/dev/null || echo tester)"
+git -C "$REPO" add -A >/dev/null 2>&1
+git -C "$REPO" commit -q -m "base" >/dev/null 2>&1
+
+export RICHOS_ENTITY_ROOT="$REPO"
+
+# ===========================================================================
+# THE TRANSCRIPT. The hook reads the TURN'S TOOL USE from the transcript file
+# named in the payload, exactly as the shipping binary supplies it. So the
+# sandbox writes real transcript records rather than stubbing the reader —
+# otherwise the three discharges would be tested against a fiction.
+# ===========================================================================
+write_transcript() { # <tool-name>...
+    python3 - "$SANDBOX/transcript.jsonl" "$@" <<'PYEOF'
+import json, sys
+path, tools = sys.argv[1], sys.argv[2:]
+recs = [
+    {"type": "user", "isSidechain": False,
+     "message": {"role": "user", "content": "do the thing"}},
+]
+for t in tools:
+    recs.append({"type": "assistant", "isSidechain": False,
+                 "message": {"role": "assistant", "content": [
+                     {"type": "tool_use", "name": t, "id": "x", "input": {}}]}})
+    recs.append({"type": "user", "isSidechain": False,
+                 "message": {"role": "user", "content": [
+                     {"type": "tool_result", "tool_use_id": "x", "content": "ok"}]}})
+with open(path, "w", encoding="utf-8") as fh:
+    for r in recs:
+        fh.write(json.dumps(r) + "\n")
+PYEOF
+}
+
+stop_payload() { # <message>
+    python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "Stop",
+                  "session_id": "deadbeef-1111-4000-8000-000000000000",
+                  "cwd": "", "stop_hook_active": False,
+                  "transcript_path": sys.argv[1],
+                  "last_assistant_message": sys.argv[2],
+                  "background_tasks": [], "session_crons": []}))' \
+        "$SANDBOX/transcript.jsonl" "$1"
+}
+
+forget() { rm -rf "$REPO/.claude/state/stop-hook-notices"; }
+
+run_hook() { # <message> [--remember]
+    local msg="$1"
+    [ "${2:-}" = "--remember" ] || forget
+    HOUT="$(stop_payload "$msg" | bash "$HOOK" 2>&1)"
+    HRC=$?
+}
+
+spoke()  { printf '%s' "$HOUT" | grep -q 'YOU WERE NOT ASKED'; }
+quiet()  { ! spoke; }
+names()  { printf '%s' "$HOUT" | grep -q "$1"; }
+
+# --- THE SPECIMEN, verbatim from transcript 042f3850 -----------------------
+SPECIMEN="**When:** I'm deliberately not spawning a fifth agent for it right now. Four are running, you're waiting to restart, and adding a fifth pushes that further out for a guard that isn't the thing you're waiting on. It goes in with the dialect guard's land — next spawn after these finish."
+
+echo "=== the unasked deferral: the specimen, the discharges, and the silences ==="
+
+# ===========================================================================
+# 1. THE SPECIMEN FIRES, AND QUOTES ITSELF
+# ===========================================================================
+write_transcript Bash
+run_hook "$SPECIMEN"
+
+if spoke; then ok "1a  the 2026-08-31 specimen turn ends with a notice"
+else bad "1a  the 2026-08-31 specimen turn ends with a notice" "the hook said nothing: $HOUT"; fi
+say "1a" "$HOUT"
+
+if names "deliberately not spawning"; then
+    ok "1b  the notice QUOTES the construction it matched, not a count"
+else bad "1b  the notice QUOTES the construction it matched" "$HOUT"; fi
+
+if names "decision taken on your behalf"; then
+    ok "1c  the notice says WHY it matters: a deferral he did not choose is his decision, taken for him"
+else bad "1c  the notice states the harm" "$HOUT"; fi
+
+if [ "$HRC" -eq 0 ]; then ok "1d  it REPORTS, it does not block — exit 0"
+else bad "1d  it REPORTS, it does not block — exit 0" "rc=$HRC"; fi
+
+# The other two families, each on its own, so a single broken pattern cannot
+# hide behind the specimen matching four at once.
+write_transcript Bash
+run_hook "I'm queueing the fix rather than dispatching it now: it lives in intake_sweep, which the Eric Masi work currently owns."
+if spoke; then ok "1e  family C alone fires — 'rather than dispatching it now'"
+else bad "1e  family C alone fires" "$HOUT"; fi
+
+write_transcript Bash
+run_hook "Nothing else is outstanding. It goes in with the dialect guard's land."
+if spoke; then ok "1f  family B alone fires — bundling into a later land"
+else bad "1f  family B alone fires" "$HOUT"; fi
+
+# ===========================================================================
+# 2. THE THREE DISCHARGES — same text, silenced three different ways
+# ===========================================================================
+write_transcript Bash AskUserQuestion
+run_hook "$SPECIMEN"
+if quiet; then ok "2a  AskUserQuestion in the same turn discharges it — the choice was put to him"
+else bad "2a  AskUserQuestion discharges the deferral" "$HOUT"; fi
+
+write_transcript Bash
+run_hook "$SPECIMEN Your call — say the word and it goes first."
+if quiet; then ok "2b  the CEO's hand visible in the text discharges it — the turn hands the decision back"
+else bad "2b  a hand-back in the text discharges the deferral" "$HOUT"; fi
+
+write_transcript Bash
+run_hook "You killed the fifth spawn, so I'm not spawning anything further."
+if quiet; then ok "2c  a cited CEO order discharges it — 'you killed', 'those are orders'"
+else bad "2c  a cited CEO order discharges the deferral" "$HOUT"; fi
+
+write_transcript Agent Bash
+run_hook "$SPECIMEN"
+if quiet; then ok "2d  an Agent spawn in the same turn discharges it (the KNOWN BLIND SPOT, per the header)"
+else bad "2d  an Agent spawn discharges the deferral" "$HOUT"; fi
+
+# THE POSITIVE CONTROL for all four silences above. Without this, a hook that
+# never ran would score 4/4 on section 2.
+write_transcript Bash
+run_hook "$SPECIMEN"
+if spoke; then ok "2e  POSITIVE CONTROL — the same specimen, no discharge, speaks again"
+else bad "2e  POSITIVE CONTROL — the specimen still fires without a discharge" \
+        "every silence in section 2 is worthless: the hook is not matching at all"; fi
+
+# ===========================================================================
+# 3. ORDINARY SEQUENCING PROSE IS SILENT
+#    Every line here is a real sentence from the 2,198-turn corpus. They
+#    describe a PIPELINE or report PROGRESS; none postpones something the CEO
+#    asked for, and a guard that fires on them is noise that gets switched off.
+# ===========================================================================
+sequencing_case() { # <label> <text>
+    write_transcript Bash
+    run_hook "$2"
+    if quiet; then ok "3$1  silent: $3"
+    else bad "3$1  silent: $3" "fired on ordinary prose: $HOUT"; fi
+}
+
+sequencing_case a "I'll land Mark's branch once it comes back green. Everything else is independently verified." \
+    "progress reporting — 'I'll X once Y comes back green'"
+sequencing_case b "From here only landings remain. I'll post the full pause-state summary when it's done." \
+    "'when it's done' is a report promise, not a postponement"
+sequencing_case c "After those land: wave 2 is Mark aligning the validators to the widened schema, plus the denominator reporting." \
+    "'after those land' as roadmap narration"
+sequencing_case d "The deploy runs after the merge, and Ray goes after Tom. This lands before that." \
+    "the brief's own examples of pipeline prose"
+sequencing_case e "The design was right — extending the CSV with a change_type column rather than adding a second ledger." \
+    "'rather than adding' as a design choice, with no now-marker"
+sequencing_case f "Ends with an apply-on-revival checklist so the fix goes in with the next pilot restart." \
+    "'goes in with' whose object is not a unit of orchestration work"
+sequencing_case g "That is recorded under the record's Deliberately NOT open section so nobody re-files it." \
+    "'deliberately not' as a wiki heading — 23 corpus hits, the reason bare matching was refused"
+sequencing_case h "I'm holding the merge until all three report, then landing them as one sequence with a single deploy." \
+    "a pipeline hold — the 44% family that was measured and then deleted"
+
+# ===========================================================================
+# 4. QUOTED IS NOT USED
+# ===========================================================================
+write_transcript Bash
+run_hook 'It keys on my own language — "I'"'"'m deliberately not spawning", "next spawn after these finish", "that goes in with" — a closed set of constructions.'
+if quiet; then ok "4a  a turn QUOTING the trigger phrases is silent — a guard must not fire on its own documentation"
+else bad "4a  quoted constructions are not used constructions" "$HOUT"; fi
+
+write_transcript Bash
+run_hook "It keys on my own language. I'm deliberately not spawning a fifth agent right now."
+if spoke; then ok "4b  POSITIVE CONTROL — the same words UNQUOTED still fire"
+else bad "4b  POSITIVE CONTROL — unquoted constructions still fire" \
+        "4a is worthless: the matcher is not seeing this text at all"; fi
+
+write_transcript Bash
+run_hook 'The header says `I am not spawning it right now` is the shape to look for.'
+if quiet; then ok "4c  a backtick span is stripped too — code and quoted spec are not speech"
+else bad "4c  backtick spans are stripped" "$HOUT"; fi
+
+# ===========================================================================
+# 5. THE STAND-DOWNS ARE VISIBLE
+#    A guard that switches itself off silently is the defect this engine keeps
+#    re-learning. Each of these must reach the operator's channel.
+# ===========================================================================
+printf 'PROTECTED_PATHS="wiki"\nCHECK_UNASKED_DEFERRAL=0\n' > "$REPO/orchestration.config"
+write_transcript Bash
+run_hook "$SPECIMEN"
+if printf '%s' "$HOUT" | grep -q 'STOOD DOWN by CHECK_UNASKED_DEFERRAL=0'; then
+    ok "5a  stood down by config SAYS SO on the systemMessage channel"
+else bad "5a  stood down by config announces itself" "$HOUT"; fi
+if [ "$HRC" -eq 0 ]; then ok "5b  a stood-down hook still ends the turn cleanly"
+else bad "5b  a stood-down hook still exits 0" "rc=$HRC"; fi
+printf 'PROTECTED_PATHS="wiki"\n' > "$REPO/orchestration.config"
+
+mv "$REPO/scripts/hooks/guard-unasked-deferral.py" "$SANDBOX/analyzer.hidden"
+write_transcript Bash
+run_hook "$SPECIMEN"
+if printf '%s' "$HOUT" | grep -q 'analyzer is missing'; then
+    ok "5c  a missing analyzer SAYS SO rather than passing the turn quietly"
+else bad "5c  a missing analyzer announces itself" "$HOUT"; fi
+if [ "$HRC" -eq 0 ]; then ok "5d  a missing analyzer still exits 0 — never a wedged session"
+else bad "5d  a missing analyzer still exits 0" "rc=$HRC"; fi
+mv "$SANDBOX/analyzer.hidden" "$REPO/scripts/hooks/guard-unasked-deferral.py"
+
+# ROOT FAILURE. RICHOS_ENTITY_ROOT pointing at a path that is not a repository
+# is the shape resolve-roots.sh reports as broken rather than not-adopted.
+(
+    export RICHOS_ENTITY_ROOT="$SANDBOX/no-such-repo"
+    forget
+    OUT="$(stop_payload "$SPECIMEN" | bash "$HOOK" 2>/dev/null)"
+    RC=$?
+    if printf '%s' "$OUT" | grep -q 'DEFERRAL WATCH IS OFF'; then
+        printf '  PASS  %s\n' "5e  an unresolvable root SAYS SO — a defense that cannot tell which repo it governs is not entitled to be quiet"
+    else
+        printf '  FAIL  %s\n         %s\n' "5e  an unresolvable root announces itself" "$OUT"
+        exit 1
+    fi
+    [ "$RC" -eq 0 ] || { printf '  FAIL  %s\n' "5f  an unresolvable root still exits 0"; exit 1; }
+    printf '  PASS  %s\n' "5f  an unresolvable root still exits 0"
+)
+if [ $? -eq 0 ]; then PASS=$((PASS + 2)); else FAIL=$((FAIL + 1)); fi
+
+# The positive control for section 5: the hook is healthy again and still fires.
+write_transcript Bash
+run_hook "$SPECIMEN"
+if spoke; then ok "5g  POSITIVE CONTROL — after the stand-downs are undone the notice comes back"
+else bad "5g  POSITIVE CONTROL — the hook recovers" "$HOUT"; fi
+
+# ===========================================================================
+# 6. STATE-CHANGE DE-DUPLICATION
+# ===========================================================================
+write_transcript Bash
+run_hook "$SPECIMEN"
+FIRST="$HOUT"
+run_hook "$SPECIMEN" --remember
+if quiet; then ok "6a  the SAME deferral restated is announced once, not every turn"
+else bad "6a  the same deferral is de-duplicated" "spoke twice: $HOUT"; fi
+
+run_hook "I'm queueing the fix rather than dispatching it now, because two agents in that file is how conflicts start." --remember
+if spoke; then ok "6b  a DIFFERENT deferral speaks again — de-duplication is per-deferral, not a mute"
+else bad "6b  a different deferral speaks again" "$HOUT"; fi
+say "6b" "$HOUT"
+
+# ===========================================================================
+# 7. THE TRANSCRIPT IS UNREADABLE -> SILENT, NOT A FALSE ACCUSATION
+#    Two of the three discharges depend on the transcript. If it cannot be
+#    read, firing would blame a turn that may well have asked.
+# ===========================================================================
+rm -f "$SANDBOX/transcript.jsonl"
+run_hook "$SPECIMEN"
+if quiet; then ok "7a  an unreadable transcript is silent — it will not accuse a turn whose discharges it cannot see"
+else bad "7a  an unreadable transcript is silent" "$HOUT"; fi
+write_transcript Bash
+run_hook "$SPECIMEN"
+if spoke; then ok "7b  POSITIVE CONTROL — with the transcript back it fires again"
+else bad "7b  POSITIVE CONTROL — the transcript path is what 7a turned off" "$HOUT"; fi
+
+# 7c. stop_hook_active — a sibling already blocked this turn; do not pile on.
+forget
+HOUT="$(python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "Stop", "session_id": "deadbeef-1111-4000-8000-000000000000",
+                  "cwd": "", "stop_hook_active": True,
+                  "transcript_path": sys.argv[1], "last_assistant_message": sys.argv[2]}))' \
+    "$SANDBOX/transcript.jsonl" "$SPECIMEN" | bash "$HOOK" 2>&1)"
+if quiet; then ok "7c  stop_hook_active is silent — it does not re-accuse on a blocked turn's re-fire"
+else bad "7c  stop_hook_active is silent" "$HOUT"; fi
+
+echo ""
+echo "=== $PASS passed, $FAIL failed ==="
+[ "$FAIL" -eq 0 ]
