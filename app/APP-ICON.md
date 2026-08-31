@@ -1,6 +1,40 @@
-# The RichOS app icon — what to hand over, and the one command
+# The RichOS app icon — DONE 2026-08-31
 
-Everything except the artwork is built and verified. The moment you drop in one
+**THE ICON EXISTS. Nothing is being asked of you here any more.** Made by Iris from the
+v3.5 mark and the Sovereign palette (`ceo-decisions.md` §14), landed at richos `44ef7af`.
+The placeholder set is gone, `icon.icns` and `icon.ico` exist for the first time, and
+`package-app.sh`'s pre-flight passes — a bundle can be built.
+
+## LOOK AT IT — the four paths
+
+Open these directly; they are the shipped bytes, not re-renders:
+
+- `app/icon-source/preview/richos-icon-1024.png` — full size
+- `app/icon-source/preview/richos-icon-128.png` — dock size
+- `app/icon-source/preview/richos-icon-32.png` — sidebar size
+- `app/icon-source/preview/richos-icon-16.png` — menu-bar size
+
+Source artwork: `app/icon-source/richos-icon-1024.png` (1024×1024, RGBA, sRGB, real
+transparent margin, 81.1% canvas fill). Vector original beside it as `richos-icon.svg`.
+
+**What it is:** the moonlight R with the gold arrow on the `0C1322` ground — the same
+relationship as the start screen, so it reads as one product. Contrast computed per pixel
+against the ground beneath: R body **9.03:1**, arrow **4.11:1**, arrow against the R body
+**3.67:1**; the floor for a non-text indicator is 3:1.
+
+**Two things to judge, both stated rather than hidden.** At 16px it is mush — true of most
+detailed marks at menu-bar size, but look before you accept it. And on a *dark* dock the
+`0C1322` tile nearly disappears, so it reads as a floating R with a gold arrow; Iris chose
+not to lighten your ground to fix that, and it is your call to overrule.
+
+**To replace it**, the process below still works exactly as written — hand
+`generate-app-icons.sh` a different PNG.
+
+---
+
+## The original brief, kept for the trace
+
+Everything except the artwork was built and verified. The moment you drop in one
 file, one command produces every icon macOS and Windows need, checks its own
 output, and tells you plainly whether it worked.
 
