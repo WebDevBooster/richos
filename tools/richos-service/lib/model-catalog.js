@@ -62,7 +62,6 @@ export const MODEL_PINS = Object.freeze(
 );
 
 const BY_ID = new Map(MODEL_PINS.map((m) => [m.id, m]));
-const BY_FILE = new Map(MODEL_PINS.map((m) => [m.file, m]));
 
 /** Every pinned model id, for CLI listings and error messages. */
 export function pinnedModelIds() {
@@ -80,11 +79,6 @@ export function pinnedModelIds() {
  */
 export function pinFor(modelId) {
   return BY_ID.get(String(modelId)) || null;
-}
-
-/** The pin for a filename (`ggml-small.en.bin`), or null. Lets a resolver check a file it found. */
-export function pinForFile(fileName) {
-  return BY_FILE.get(path.basename(String(fileName))) || null;
 }
 
 /**
@@ -141,16 +135,11 @@ export function modelUrl(modelId) {
  * finding out at 95% of 574 MB is the worst possible moment to learn the disk is full. The extra
  * 10% covers the `.part` file coexisting with filesystem overhead, not a second copy — the final
  * `rename()` is in-place.
- * @param {string} modelId
+ * @param {string|ModelPin} modelIdOrPin
  * @returns {number} bytes
  */
-export function requiredFreeBytes(modelId) {
-  return Math.ceil(requirePin(modelId).bytes * 1.1);
-}
-
-/** Human-readable MB, one decimal — the unit every model figure in the docs uses. */
-export function mb(bytes) {
-  return (Number(bytes) / 1_000_000).toFixed(1);
+export function requiredFreeBytes(modelIdOrPin) {
+  return Math.ceil(requirePin(modelIdOrPin).bytes * 1.1);
 }
 
 /**

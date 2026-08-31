@@ -33,7 +33,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { requirePin, human, MODEL_BASE_URL } from './model-catalog.js';
+import { requirePin, requiredFreeBytes, human, MODEL_BASE_URL } from './model-catalog.js';
 import {
   FAILURE,
   classify,
@@ -115,7 +115,7 @@ export async function fetchVerified({ url, dest, pin, freeBytes, onProgress, sig
   }
 
   // 2. Disk preflight, before a byte is requested.
-  const need = Math.ceil(pin.bytes * 1.1);
+  const need = requiredFreeBytes(pin);
   const have = freeBytes != null ? freeBytes : freeBytesFor(path.dirname(dest));
   const space = diskPreflight({ freeBytes: have, needBytes: need });
   if (!space.ok) {
@@ -309,7 +309,7 @@ export async function modelStatus(modelIdOrPin, destDir, { deep = true } = {}) {
     message: verdict.message,
     downloadBytes: verdict.ok ? 0 : pin.bytes - (partBytes && partBytes < pin.bytes ? partBytes : 0),
     partialBytes: partBytes,
-    needFreeBytes: Math.ceil(pin.bytes * 1.1),
+    needFreeBytes: requiredFreeBytes(pin),
     freeBytes: freeBytesFor(fs.existsSync(destDir) ? destDir : path.dirname(destDir)),
   };
 }
