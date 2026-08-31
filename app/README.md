@@ -281,10 +281,21 @@ app/
                               tauri.conf.json, and never yet used to sign anything
     tauri.conf.json, capabilities/, icons/
   scripts/
-    package-app.sh           the packaging entrypoint: builds, signs, VERIFIES, and
-                              refuses — the caller that arms build.rs's icon gate
+    package-app.sh           the packaging entrypoint: builds, signs, notarizes,
+                              staples, VERIFIES, and refuses — the caller that arms
+                              build.rs's icon gate
+    make-signing-csr.sh      the keypair and the CSR Apple's portal asks for; the key
+                              is written outside every repository and this refuses to
+                              put it in one
+    install-signing-cert.sh  Apple's .cer + that key -> a usable codesigning IDENTITY,
+                              verified by asking `security find-identity` rather than
+                              by the import exiting 0
+    rebuild-survival.sh      the acceptance test that only a SECOND install can run:
+                              do the microphone and accessibility grants survive?
     generate-app-icons.sh    one artwork PNG in, every artefact tauri.conf.json declares out
     lib/app_icons.py         the generator + verifier both of the above run
+    run-tests.sh             every *.test.sh here, discovered from disk, never typed
+    *.test.sh                package-app, signing-setup, rebuild-survival — 56 checks
   ui/                        the web UI — the CEO-facing surface
     index.html               the shell: rail, header, timeline, inspector, composer
     main.js                  the WIRING — commands, the four families' listeners, the rail,
@@ -703,9 +714,11 @@ derivation as an unsupported extension, so it cannot recur silently.
 ## Packaging — one command, one line, and it refuses
 
 ```sh
-app/scripts/package-app.sh                      # ad-hoc signed; what this machine can do today
-app/scripts/package-app.sh --sign developer-id  # needs RICHOS_SIGNING_IDENTITY; inert until one exists
-app/scripts/package-app.sh --verify-only path/to/RichOS.app
+app/scripts/package-app.sh                       # ad-hoc signed; what this machine can do today
+app/scripts/package-app.sh --sign developer-id   # discovers the identity; needs a certificate
+RICHOS_NOTARIZE=1 app/scripts/package-app.sh --sign developer-id   # ...and notarizes and staples
+app/scripts/package-app.sh --sign developer-id --dry-run           # resolve everything, build nothing
+app/scripts/package-app.sh --verify-only path/to/RichOS.app [--expect-notarized]
 ```
 
 The last line is the whole report:
@@ -727,13 +740,22 @@ missing, `4` the build itself failed.
   `build.rs`'s gate fatal, and it pre-checks the same set so the failure arrives in two
   seconds rather than after a release compile. On the committed placeholder set it
   refuses with eleven named problems and exits 2.
-- **A signing configuration that cannot work.** `--sign developer-id` with no
-  `RICHOS_SIGNING_IDENTITY`, or with one `security find-identity -v -p codesigning`
-  does not report, is a hard refusal. **There is no silent downgrade to ad-hoc**,
-  because a downgrade produces exactly the failure Developer ID was asked for.
-- **`RICHOS_NOTARIZE=1` without `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID`.** It names
-  the ones that are missing rather than producing something that would be called
-  notarized and would not be.
+- **A signing configuration that cannot work.** `--sign developer-id` DISCOVERS the
+  identity when the machine has exactly one "Developer ID Application"; with none, or
+  with more than one, it refuses and names them, because choosing between two signing
+  certificates by sort order is not a thing a script may do. `RICHOS_SIGNING_IDENTITY`
+  still pins one and is still checked against `security find-identity -v -p
+  codesigning`. **There is no silent downgrade to ad-hoc**, because a downgrade
+  produces exactly the failure Developer ID was asked for. The path still selects
+  itself never: an identity appearing on the machine does not change what a plain run
+  does.
+- **`RICHOS_NOTARIZE=1` without notary credentials.** Either an App Store Connect API
+  key (`RICHOS_NOTARY_KEY` / `_KEY_ID` / `_ISSUER`) or `RICHOS_NOTARY_PROFILE`. **There
+  is deliberately no `APPLE_PASSWORD` path** — an app-specific password in an
+  environment variable is readable by every process the build spawns and lands in shell
+  history; the same password goes into a keychain profile once and `RICHOS_NOTARY_PROFILE`
+  reaches it. The `.p8` is also refused if it sits inside a git worktree (Apple permits
+  exactly one download of it) or is readable by other users of the Mac.
 - **A bundle that does not verify.** Checked on the artefact, not on the builder's exit
   code: the executable named by `CFBundleExecutable` exists, `codesign --verify --deep
   --strict` passes, the signature is the KIND that was asked for,
@@ -741,6 +763,15 @@ missing, `4` the build itself failed.
   generated, and `Contents/Info.plist` carries `NSMicrophoneUsageDescription`.
   `--verify-only` runs that same set against an existing bundle, so the two paths
   cannot drift apart.
+- **A Developer ID signature whose DESIGNATED REQUIREMENT is a cdhash.** This is the
+  only property the certificate is bought for: macOS stores `identifier
+  "com.richos.app" and anchor apple generic and certificate leaf[subject.OU] =
+  "<TEAMID>"` against every permission it grants, and every future build satisfies it.
+  A signature can be a valid Developer ID signature and still carry a cdhash-shaped
+  requirement — ad-hoc's failure wearing a certificate — so the requirement is read
+  back and joined to the bundle identifier on disk. Under `--expect-notarized` the
+  stapled ticket is validated too, because "notarized" without a ticket means the app
+  must reach Apple over the network to be admitted.
 
 ### Two answers this produced, both previously unverified
 
@@ -792,23 +823,48 @@ literal moved it to `27a561effd404…`. It is not a tax on rebuilding; it is a t
 every change worth shipping. That is still the whole argument for Developer ID, and it
 is why the number in this paragraph is a measurement and not a warning.
 
-### The Developer ID path is present, correct, and inert
+### The Developer ID path is finished, and has still never signed anything
 
-Whether to enrol with Apple is an **open CEO decision** (1.1 in
-`richos-hq/wiki/ceo-decisions.md`; the full cost and enrollment picture is in
-`richos-hq/wiki/packaging-and-signing.md`). Nothing here answers it:
+The CEO enrolled in the Apple Developer Program on **2026-08-31**, so decision 1.1 is
+closed and the path is no longer inert prose waiting on a purchase
+(`richos-hq/wiki/packaging-and-signing.md`). What is finished, and what is still not
+true, are two different lists and both are here:
 
-- The path **never selects itself** — not even if a signing identity appears on the
-  machine. Ad-hoc runs say so loudly in that case rather than quietly upgrading.
-- It has **never signed anything**. `security find-identity -v -p codesigning` reported
-  `0 valid identities found` on 2026-08-24 and again on 2026-08-30.
-- So every developer-id assertion below is **written and unexercised**: the hardened
-  runtime, the secure timestamp, the entitlement, and whether that entitlement set both
-  notarizes and leaves voice mode working. The checks for them were driven RED by
-  demanding `--verify-only --sign developer-id` of an ad-hoc bundle, which fails all
-  four; none has ever been seen GREEN.
-- Notarization is a further opt-in on top (`RICHOS_NOTARIZE=1`), and a build that is
-  not notarized says so in its final line.
+**Finished.** Identity discovery; the hardened runtime; an explicit re-sign carrying
+`--timestamp`; the entitlements overlay; submission to the notary, waiting on it,
+fetching Apple's own log on rejection, stapling and validating the staple; and a
+designated-requirement check that is the only thing the certificate is bought for.
+
+**Still not true, and nothing here should be read as claiming otherwise.**
+
+- **No certificate exists.** `security find-identity -v -p codesigning` reported
+  `0 valid identities found` on 2026-08-24, on 2026-08-30, and again on 2026-08-31.
+  Nothing here has ever been signed with a real identity, notarized, or stapled.
+  `docs/ceo/developer-id-setup-2026-08-31.md` is the two steps only the CEO can take;
+  `app/scripts/make-signing-csr.sh` has already produced the CSR he uploads.
+- **No bundle can be built on this tree at all.** The icon gate refuses on the
+  placeholder icon set — CEO item 2.6, the artwork — so even the ad-hoc path produces
+  nothing today. The developer-id verification arm is exercised instead against a
+  minimal `.app` built by hand and ad-hoc signed by the real `codesign`, which fires
+  all eight of its failure branches at once. See
+  `docs/verification/developer-id-signing-2026-08-31/mutation-runs.txt`.
+- **The rebuild-survival test has never run.** `app/scripts/rebuild-survival.sh status`
+  reports exit 4 and names what it needs, rather than a pass or a fail. A build that
+  has only ever been installed once has never tested the thing that breaks.
+- The path still **never selects itself** — an identity appearing on the machine does
+  not change what a plain run does; it only makes the run say a signed build is now
+  possible.
+
+**Two measured facts about the bundler, which is why this script does more than it
+looks like it should.** `tauri-bundler` 2.9.4 (`bundle/macos/app.rs:135-148`)
+notarizes on its own when it can resolve `APPLE_*` credentials and, on every credential
+error but one, logs `skipping app notarization` and continues — so a typo produced an
+un-notarized bundle from a run that exited 0. And `tauri-macos-sign` 2.3.4
+(`keychain.rs:221-226`) never passes `--timestamp`, whose unspecified default
+`codesign`'s own man page describes as "may result in some but not all code signatures
+being timestamped" — and a secure timestamp is a notarization prerequisite. So this
+script unsets those variables before invoking the bundler, re-signs with the full
+explicit argv, and owns the notary step itself.
 
 ### Named gaps
 

@@ -1,0 +1,164 @@
+MUTATION RUNS — app/scripts signing suites, 2026-08-31
+======================================================
+
+56 checks across three suites. 54 of them were turned RED at least once by
+breaking the SHIPPED SOURCE and re-running; the two that were not are named at
+the foot of this file with the reason, rather than left for a reader to notice.
+
+Why this file exists, in this project's own words: an exit code is not evidence.
+A check that cannot fail proves nothing, and the failure it hides is invisible
+precisely because everything is green. Eight silent mutations across three
+branches on 2026-08-30 each meant a check was not running.
+
+METHOD. Commit first, mutate second, restore with `git checkout --` from the
+commit. Each mutation is a single replacement in the shipped script — never in a
+test — chosen to be the plausible regression rather than a deletion of the whole
+function. The suite is then run in full, so a mutation that reddens the WRONG
+check is visible.
+
+Base commits: 46820bf (the two setup scripts), e7eccf4 (package-app.sh).
+
+--------------------------------------------------------------------------
+package-app.test.sh — 25 checks
+--------------------------------------------------------------------------
+M1   RED: A1    accept an unknown argument instead of refusing
+M2   RED: A2    accept any --sign value
+M3   RED: A3    help slice stops before the notarize line
+M4   RED: B1    silently fall back to ad-hoc when no identity exists
+M5   RED: B2    accept a pinned identity the machine does not report
+M6   RED: B3    do not report that the identity was discovered
+M7   RED: B4    pick the first of several identities by sort order
+M8   RED: B3b   drop the attribution of where the identity came from
+M9   RED: B5    let a plain run take the developer-id path when an identity exists
+M10  RED: B5    stop saying a signed build is possible in a plain dry run
+M11b RED: C1,C7,C8   the whole no-credentials refusal removed
+M12  RED: C2    accept half an API key
+M13  RED: C3    accept a key path that does not exist
+M14  RED: C4    allow the notary key to live in a git worktree
+M15  RED: C5    allow a world-readable notary key
+M16  RED: C8    resurrect the APPLE_ID/APPLE_PASSWORD credential path
+M17  RED: C6    report a resolved API key as something else
+M18  RED: D1    adhoc arm demands a signature kind that never occurs
+M19  RED: D2    drop the Developer ID authority check
+M20  RED: D2    drop the hardened runtime check
+M21  RED: D2    drop the secure timestamp check
+M22  RED: D2    drop the microphone entitlement check
+M23  RED: D2    drop the cdhash-requirement check
+M24  RED: D3    drop the missing-icon check
+M25  RED: D4    drop the icon-bytes comparison
+M26  RED: D5    drop the microphone usage string check
+M27  RED: D6    drop the codesign --verify check
+M28  RED: D7    drop the stapled-ticket check
+M29  RED: D2    drop the bundle-identifier join on the requirement
+M30  RED: D2    drop the anchor-apple-generic clause check
+M31  RED: D2    drop the team (leaf subject.OU) clause check
+
+M11 (first attempt) DID NOT GO RED, and the mutation was at fault rather than
+the check: it rewrote the refusal's first warn line and left `exit 2` and the
+later "no APPLE_PASSWORD path" sentence in place, so C1's two assertions both
+still held. M11b removes the branch. Recorded because a mutation that fails to
+mutate looks exactly like a check that works.
+
+M32 DID NOT GO RED — "treat a missing designated requirement as fine". That
+branch guards against `codesign -d -r-` printing nothing, and no fixture can
+reach it: codesign prints a requirement for every signed bundle, and an unsigned
+one fails earlier at `codesign --verify`. It is a defensive branch with no test,
+which is a different thing from a check that does not check, and it is written
+down here rather than quietly counted.
+
+M29-M31 grew the suite. D2 originally asserted five failure grounds; the three
+requirement-clause checks (identifier, anchor apple generic, leaf subject.OU)
+had no assertion at all, so a mutation to any of them reddened nothing. They
+DO fire against the ad-hoc fixture, so D2 now asserts eight.
+
+--------------------------------------------------------------------------
+signing-setup.test.sh — 17 checks
+--------------------------------------------------------------------------
+N1   RED: E1    let the key directory live inside a repository
+N2   RED: E2    generate a 1024-bit key with sha1
+N3   RED: E2    leave the key world-readable
+N4   RED: E2    leave the signing directory group-readable
+N5   RED: E3    overwrite an existing key without --force
+N6   RED: E4    ignore --force, so the refusal is an inability
+N7   RED: E5    accept any country string
+N8   RED: E6    --show invents a state for a directory that is not there
+N9   RED: E7    --show stops printing the CSR subject
+N10  RED: F1    accept an invocation with no .cer
+N11  RED: F2    accept a .cer path that does not exist
+N12  RED: F3    proceed with no private key
+N13  RED: F4    skip the modulus comparison
+N14  RED: F5    accept any certificate type
+N15b RED: F9    report success without asking find-identity
+N16  RED: F7    stop reading the Team ID out of the identity
+N17  RED: F8    keep the passphrase-less PKCS#12 on disk
+
+N15 (first attempt) DID NOT GO RED, and this one WAS the check's fault. The
+branch it disarmed — "the import reported success and NO identity exists" — is
+the exact failure install-signing-cert.sh was written for, and the suite had no
+case that reached it: every case ran against a shim reporting one identity. F9
+was added, with a second shim reporting zero, and N15b then reddened it. This
+is the mutation earning its keep: without it the suite's most important
+assertion was decoration.
+
+--------------------------------------------------------------------------
+rebuild-survival.test.sh — 14 checks
+--------------------------------------------------------------------------
+P1   RED: G1    silently ignore an unknown command
+P2   RED: G2    record without a label
+P3   RED: G3    write records inside a repository
+P4   RED: G4    stop recording the designated requirement
+P5   RED: G5    compare against a record that is not there
+P6   RED: G6,G7 treat ad-hoc as a normal comparison, not a missing certificate
+P7   RED: G7    call two identical builds a pass
+P8   RED: G8    stop reporting that layer 1 is only the mechanism
+P9   RED: G9    drop the second half of the layer-1 pass line
+P10  RED: G10   ignore requirements that differ
+P11  RED: G11   ignore a grant that was lost
+P12  RED: G12   treat an unreadable TCC database as if it were readable
+P13  RED: G13   claim layer 3 is machine-checkable
+P14  RED: G14   report status as fine with no certificate
+
+G6 and G7 originally FAILED against the shipped harness, and the harness was
+wrong rather than the tests. Two ad-hoc builds were being reported as FAILED
+(exit 1) when the honest verdict is INCOMPLETE (exit 4): an ad-hoc requirement
+is a code hash by construction, so the comparison measures the ABSENCE OF A
+CERTIFICATE and nothing about the build. `status` already made that distinction
+and `compare` did not. Fixed in the harness, and the ad-hoc branch now sets
+`incomplete` while a cdhash requirement on a NON-ad-hoc signature stays a real
+FAIL — which is a genuine defect, a certificate that is present and buying
+nothing.
+
+--------------------------------------------------------------------------
+THE TWO CHECKS WITH NO MUTATION, and why
+--------------------------------------------------------------------------
+package-app.test.sh  Z   the operator's real keychain inventory is unchanged
+signing-setup.test.sh Z  the operator's real keychain inventory is unchanged
+
+Both are negative controls on the SUITE, not on any shipped script: they snapshot
+`security find-identity -v -p codesigning` before the first case and compare after
+the last. There is no edit to package-app.sh or install-signing-cert.sh that can
+turn them red, because nothing those scripts do in these suites reaches the real
+keychain — which is the property being asserted. Turning them red requires
+mutating the suite (removing the `--keychain` sandboxing or the shim), and this
+record does not count a test-mutation as evidence about shipped source.
+
+They stay because the failure they guard against has happened in this project's
+own history: `engine/scripts/locate-engine.test.sh` carries the same check for the
+same reason, after an installer repointed the live operator pointer at a temp
+directory that was deleted seconds later.
+
+--------------------------------------------------------------------------
+WHAT NONE OF THIS PROVES
+--------------------------------------------------------------------------
+No Developer ID certificate exists on this machine or any machine in this
+project — `security find-identity -v -p codesigning` reports 0 valid identities,
+measured again 2026-08-31. So nothing here has ever been signed with a real
+identity, notarized, or stapled. The cases marked [shim] prove what the SCRIPTS
+do with an identity inventory and with credentials; they prove nothing about
+codesign, notarytool or Apple.
+
+And package-app.sh cannot build a bundle on this tree at all: the icon gate
+refuses on the placeholder icon set (CEO item 2.6, the artwork, still open). The
+bundles in section D and in the rebuild-survival suite are minimal .apps built by
+hand and ad-hoc signed by the real codesign, which is what makes the verification
+arm exercisable at all.

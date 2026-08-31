@@ -1,0 +1,66 @@
+name: packaging-ci
+
+# THE SIGNING SCRIPTS HAD NO GATE, AND SIGNING IS THE ONE THING THAT IS WRONG FOR
+# WEEKS BEFORE ANYBODY FINDS OUT.
+#
+# `app/scripts/package-app.sh` decides how RichOS is signed, whether it is
+# notarized, and whether the CEO's microphone permission survives the next build.
+# Until this file existed, the only thing that ever ran it was a person deciding to
+# cut a release — which is the last possible moment to discover that a refusal
+# stopped refusing. The three workflows beside this one cover the Rust spine, the
+# browser suites and the engine; between them there was nothing pointed at the
+# release path.
+#
+# WHAT IT ACTUALLY RUNS. `app/scripts/run-tests.sh`, which discovers every
+# `*.test.sh` in that directory from disk. The step list is deliberately not spelled
+# out here: two places naming the same set is the typed-inventory defect in YAML,
+# and this repository has now paid for that five times.
+#
+# WHY macos-latest, WHICH IS TEN TIMES THE MINUTES. The suites drive `codesign`,
+# `security`, `stapler` and the TCC databases. There is no Linux answer to any of
+# them — an ubuntu job would be cheap, green and about a different question. The
+# runner itself refuses on a non-Darwin host rather than skipping, so a
+# misconfigured runner cannot report a pass.
+#
+# WHAT THIS RUN CANNOT COVER, stated rather than glossed. GitHub's macOS runners
+# have no Developer ID certificate and this repository has no secret holding one,
+# so nothing here signs with a real identity, notarizes, or staples. The suites say
+# the same thing in their own headers and mark the shimmed cases `[shim]`. What
+# this gate protects is every refusal, the identity-discovery rule, the notary
+# credential rules, and every branch of the bundle verification — fired against a
+# real ad-hoc signature made by the runner's own codesign.
+#
+# It also cannot build a bundle: package-app.sh refuses on the placeholder app
+# icons that are still in the tree (CEO item 2.6, the artwork). That is a fact
+# about the tree rather than about this workflow, and when the artwork lands
+# nothing here needs to change.
+
+on:
+  push:
+    paths:
+      - "app/scripts/**"
+      - "app/src-tauri/Entitlements.plist"
+      - "app/src-tauri/Info.plist"
+      - ".github/workflows/packaging-ci.yml"
+  pull_request:
+    paths:
+      - "app/scripts/**"
+      - "app/src-tauri/Entitlements.plist"
+      - "app/src-tauri/Info.plist"
+      - ".github/workflows/packaging-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  packaging:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: what this runner has
+        run: |
+          sw_vers
+          security find-identity -v -p codesigning || true
+          echo "^ zero Developer ID identities is expected here and is why the"
+          echo "  signing cases run against a shim. See this workflow's header."
+      - name: app/scripts suites
+        run: bash app/scripts/run-tests.sh
