@@ -94,6 +94,28 @@ module.exports = [
       "only signal, so the card's control must be in the DOM when it fires.",
   },
   {
+    s: "Set your name",
+    c: "ACTIONABLE",
+    control: "#rail-identity",
+    why:
+      "The rail footer's honest unset state (CEO correction to round 10.1). There is no " +
+      "user-name preference on a fresh install, so this is what almost every install shows, " +
+      "and it is deliberately NOT an invented name or a '??' placeholder. It is ACTIONABLE " +
+      "because it is an imperative aimed at the reader, and the control is the row itself — " +
+      "in the unset state `#rail-identity` is a button that opens the preferences popover " +
+      "where the field lives. Once a name is set the row stops being a control and the " +
+      "string stops rendering, which is the correct pairing in both directions.",
+  },
+  {
+    s: "No name is set. Open preferences to add yours.",
+    c: "ACTIONABLE",
+    control: "#rail-identity",
+    why:
+      "The accessible name of the same row, and for a screen-reader user it is the whole " +
+      "message — the empty initials circle is `aria-hidden`. Same control, stated longer " +
+      "because a two-word label reads as a heading when it is announced alone.",
+  },
+  {
     s: "I can't hear anything. Check your mic isn't muted, then try again.",
     c: "ACTIONABLE",
     control: "#voice-retry",
@@ -450,6 +472,15 @@ module.exports = [
   { s: "outcome not recorded", c: "INFORMATIONAL", why: "Worker chip qualifier." },
   { s: "new result ready", c: "INFORMATIONAL", why: "Rail mark: navigational, nothing broken." },
   { s: "Time spent working", c: "INFORMATIONAL", why: "Inspector field label." },
+
+  {
+    s: "Shown at the foot of the rail, with your initials.",
+    c: "INFORMATIONAL",
+    why:
+      "Sits under the 'Your name' field and says what setting it does. It is not a request — " +
+      "the imperative is on the rail row that sent him here, and this line is the consequence " +
+      "of the field he is already looking at.",
+  },
 
   // -------------------------------------------------------------------------------------
   // CONTROL — the string is an affordance, not a state that needs one
@@ -883,6 +914,19 @@ module.exports = [
       "its party (\"whoever set RichOS up\") and offers no control, because there is none: " +
       "the environment variable it used to quote is now printed only at the boot `eprintln!`, " +
       "for the operator it names.",
+  },
+  {
+    s: 'unknown theme {theme:?} — expected "dark", "light" or "system"',
+    c: "UNREACHABLE",
+    why:
+      "`set_theme`'s refusal (src-tauri/src/main.rs). No path in the shipped UI reaches it: " +
+      "the only caller is `RichSettings`'s theme segment, whose three buttons carry " +
+      "`data-th=\"light\" | \"system\" | \"dark\"` and nothing else, and `RichTheme.setTheme` " +
+      "validates again before the write. It exists because the alternative — coercing an " +
+      "unexpected string to the default — would look exactly like the CEO changing his own " +
+      "mind about his own machine, silently. It is the guard for a caller that is not this " +
+      "UI, and it carries no control because there is nothing for him to press: if it ever " +
+      "renders, the bug is ours.",
   },
   {
     s: "That isn't one of the four answers, so I haven't written anything down.",

@@ -451,16 +451,44 @@ button {
   flex-shrink: 0;
 }
 
+/* THE PREFERENCES POPOVER IS 330px WIDE, WHICH IS THE ROUND-10.1 SPEC AND NOT A PREFERENCE.
+
+   It was 208px, which was right when its labels were 11.5-13px. At the CEO's 16px readable
+   floor (§15) every option and hint in it wrapped, and the popover grew from 489px tall to
+   678px — tall enough to cover the rail's thread list, so opening preferences hid the
+   threads and made them unclickable. `techy.js` check 9 is what caught it: it flips the
+   global switch and then opens another conversation, which is a perfectly ordinary thing to
+   do and had stopped being possible.
+
+   A narrow popover at a large type size is a tower. The round-10.1 mockups already answer
+   this — `#app-settings` is 330px there — so this is the spec's width, adopted, not a number
+   picked to make a test pass. `max-height` + internal scroll is the belt: a preference list
+   that grows again must scroll rather than silently eat the rail, and scrolling is expressly
+   fine (the standing ban is on PAGINATION, not on overflow). */
 .popover {
   position: absolute;
   bottom: 46px;
-  right: 8px;
+  /* ANCHORED LEFT, not right, and that is the mockup's own choice (`#app-settings` is
+     `left:10px` there). At 330px in a 300px rail an right-anchored popover hangs 22px off
+     the LEFT EDGE OF THE WINDOW — the retention radios and the opening-screen switch ended
+     up at x = -22 and were unclickable, which `splash.js` check 11 and `retention.js`
+     checks 3-5 caught within a minute of the widening. Anchored left it overhangs the
+     STAGE instead, which is empty space it is already drawn above. */
+  left: 10px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   box-shadow: 0 8px 24px var(--shadow-weak);
-  width: 208px;
+  width: 330px;
+  max-width: calc(100vw - 32px);
+  /* Only clamps when the popover would otherwise run off the TOP of the window — it is
+     anchored 46px from the bottom, so this leaves it everything above that minus a margin.
+     A tighter cap was tried and was wrong: it forced an internal scroll at 800px tall, where
+     the popover fits perfectly well, and put the retention radios outside the viewport. A
+     max-height is a last resort against overflow, not a layout tool. */
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
   z-index: 20;
 }
 
