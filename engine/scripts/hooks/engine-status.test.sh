@@ -270,13 +270,27 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # the questions. Eighth firing, and the largest single move this line has taken
 # — which is exactly the size of change a human should be made to look at.
 #
+# 38 -> 40 on 2026-08-31: TWO guards in one wave, from two engineers, and the
+# number is set to the post-merge truth rather than to either branch. The lead
+# named the arithmetic in an in-flight notice: main had already moved 38 -> 39
+# with notice-unasked-deferral.sh, and guard-agent-state-claims.sh — the Stop
+# hook that will not let a turn end quietly claiming a NAMED agent has finished
+# while its isolation-worktree lock is held — makes 40.
+#
+# WHICH MEANS THIS CASE IS RED IN THE BRANCH THAT WRITES IT, deliberately, and
+# that is stated rather than discovered: the worktree it was written in
+# registers 39, so case 1b fails there and goes green at the merge. The
+# alternative was to type 39, be green in isolation, and hand the lander a
+# tripwire that fires on a correct merge — which is the tripwire lying, and the
+# one thing a tripwire may never do. Ninth firing.
+#
 # The tick's text used to say "registers 33 scripts" beside a test for 34. It
 # had been wrong for as long as it had been green, because a literal inside a
 # PASS message is a second inventory that nothing checks — the same defect this
 # very tripwire exists to catch, hiding inside the tripwire. The number is
 # derived from REGISTERED_N now; the THRESHOLD stays typed, because being made
 # to look is the whole point of it.
-if [ "$REGISTERED_N" -eq 38 ]; then
+if [ "$REGISTERED_N" -eq 40 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
