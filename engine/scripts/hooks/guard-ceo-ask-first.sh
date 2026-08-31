@@ -220,12 +220,16 @@ if [ "$STATUS" = "PARSEFAIL" ]; then
 fi
 
 # --- The escape hatch, before the verdict ----------------------------------
-DEFER_MARKER=""
-if printf '%s' "$PROMPT" | grep -qE "^[[:space:]]*${CA_DEFER_MARKER}[[:space:]]*[^[:space:]].*"; then
-    DEFER_MARKER="$(printf '%s' "$PROMPT" \
-        | grep -oE "^[[:space:]]*${CA_DEFER_MARKER}[[:space:]]*[^[:space:]].*" \
-        | head -1 | sed -E 's/^[[:space:]]*//')"
-fi
+# ONE extraction, not a test followed by an extraction. Two greps with the same
+# pattern are two chances to relax one of them and not the other, and the
+# resulting hook would test strictly, extract loosely, and behave in a way
+# neither pattern describes. The REASON is required by the pattern itself:
+# `[[:space:]]*[^[:space:]].*` after the marker means at least one non-blank
+# character, so a bare `ceo-queue-deferred:` extracts to nothing and permits
+# nothing.
+DEFER_MARKER="$(printf '%s' "$PROMPT" \
+    | grep -oE "^[[:space:]]*${CA_DEFER_MARKER}[[:space:]]*[^[:space:]].*" \
+    | head -1 | sed -E 's/^[[:space:]]*//' || true)"
 
 ARC=0
 ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
