@@ -152,6 +152,18 @@ ALL_ROOT_SCRIPTS=(
     # silently off — and it would look fine doing it.
     scripts/lib/ceo-asks.sh
     scripts/lib/ceo-asks.py
+    # The jurisdiction predicate — and it was MISSING from this list, silently,
+    # for as long as the list has existed. scan-secrets.sh and guard-dialect.sh
+    # both REFUSE TO START without it, by exiting 2, and Layer K's canary
+    # asserts the scanner exits 2 on a planted secret. Same number, opposite
+    # meanings: the layer was green here over a scanner that never ran. Layer T
+    # now carries a clean-content canary a dead hook cannot satisfy, which is
+    # what turned this omission from invisible into a failing suite.
+    scripts/lib/seat-jurisdiction.sh
+    # The dialect vocabulary. guard-dialect.sh decides nothing without it and
+    # Layer T fails loudly when it is absent — first reason on this list, same
+    # as the predicates above.
+    scripts/lib/dialect-en-US.dict
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -161,6 +173,10 @@ PROTECTED_PATHS="app packages"
 READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup"
 READER_TEAMMATE="reed"
 CREATOR_TEAMMATE="dean"
+# Declared, so Layer T exercises the dialect guard instead of taking its
+# "declared nothing, enforcing nothing" WARN branch. A sandbox that models the
+# engine with a guard stood down is modelling a different engine.
+DIALECT_TARGET="en-US"
 CFG
 }
 
@@ -237,6 +253,10 @@ data["hooks"] = {
         {"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
             {"type": "command", "command": P + "/guard-main-checkout-writes.sh", "timeout": 10},
             {"type": "command", "command": P + "/scan-secrets.sh", "timeout": 10},
+            # Layer T's subject. Wired LAST here for the same reason it is wired
+            # last in the shipped table: the two above decide whether the write
+            # is ALLOWED AT ALL, and this one decides what the words say.
+            {"type": "command", "command": P + "/guard-dialect.sh", "timeout": 10},
         ]},
         {"matcher": "SendMessage", "hooks": [
             {"type": "command", "command": P + "/guard-resume-isolation.sh", "timeout": 10},

@@ -267,6 +267,22 @@ if [ ! -f "$DICT" ]; then
     exit 2
 fi
 
+# --- JURISDICTION: ANNOUNCED, NEVER SILENT --------------------------------
+# This guard does NOT decline an artifact outside its seat — the 2026-08-31
+# regression WAS a cross-repository write, a session seated in one repository
+# putting British prose into another, so declining would aim the guard away
+# from the case it was built for. But it must not judge another repository's
+# file without saying so: what follows may apply the SEAT's declared dialect,
+# allowlist and exempt paths to a repository that never declared any of them.
+#
+# AND IT SITS HERE, BELOW EVERY STAND-DOWN, NOT ABOVE THEM. An announcement is
+# a claim that something is being enforced on somebody else's artifact. Placed
+# earlier it fired for a repository with a BLANK DIALECT_TARGET — announcing
+# jurisdiction over a decision that was never going to be made, which is noise
+# with a serious face on. Caught by case D1 asserting the silent no-op is
+# SILENT, which is why that case checks stderr rather than just the exit code.
+richos_assert_jurisdiction "scripts/hooks/guard-dialect.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" || true
+
 export DIALECT_SCAN_ALLOWLIST DIALECT_EXEMPT_PATHS DICT
 
 SCAN_PY="$(mktemp -t guard-dialect.XXXXXX.py)"
