@@ -199,6 +199,14 @@ DEMO_FILES+=(
     # the sample repo must carry both or Beat 7 fails for a reason that is not
     # about the demo.
     "scripts/remove-agent-worktree.sh"
+    # The agent-liveness resolver, both halves and its operator CLI. The removal
+    # helper above now DELEGATES its entire decision to these, and probe Layer AL
+    # verifies and exercises them, so Beat 7 fails without them for a reason that
+    # is not about the demo — which is the same sentence the helper carries, one
+    # file further down the chain.
+    "scripts/lib/agent-liveness.py"
+    "scripts/lib/agent-liveness.sh"
+    "scripts/agent-liveness.sh"
     # Cosmetic but buyer-facing: without it Beat 7's probe banner opens with
     # "richos-engine (VERSION file absent)", which reads to someone evaluating
     # the engine like a broken install rather than a sample repo the demo built

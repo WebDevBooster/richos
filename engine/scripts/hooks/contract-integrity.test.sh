@@ -152,6 +152,17 @@ ALL_ROOT_SCRIPTS=(
     # silently off — and it would look fine doing it.
     scripts/lib/ceo-asks.sh
     scripts/lib/ceo-asks.py
+    # The agent-liveness resolver, both halves plus its operator CLI. On this
+    # list for the FIRST reason and the hardest version of it:
+    # remove-agent-worktree.sh refuses EVERY removal without it, and probe Layer
+    # AL fails outright, so a sandbox missing it models an engine whose worktree
+    # removal is permanently jammed and whose Stop-time claim check is off. It
+    # is also the file three separate callers take their entire answer from, so
+    # a sandbox that carries the callers and not the resolver is modelling an
+    # engine that cannot be assembled.
+    scripts/lib/agent-liveness.py
+    scripts/lib/agent-liveness.sh
+    scripts/agent-liveness.sh
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -770,6 +781,19 @@ GI
     # machine would otherwise make `git add -A` silently skip it (exactly the
     # trap Layer N exists to catch) — mirror the real remedy, `git add -f`.
     git -C "$root" add -f .claude/settings.local.json
+    # Force-add the sidecar for scripts/agent-liveness.sh, for the same reason
+    # one line up and a different gitignore rule. Cases 20/21 probe FROM the
+    # linked worktree, and the layers that resolve against ENGINE_ROOT rather
+    # than REPO_ROOT — R and AL — therefore read the WORKTREE's copy of the
+    # engine, not MAIN's. Every other ENGINE_ROOT-read sidecar in this fixture
+    # lives under scripts/lib/, which the .gitignore above does not cover, so
+    # they arrive in the worktree by accident rather than by intent. This one
+    # lives at scripts/ and would not, leaving the worktree carrying a managed
+    # file with no sidecar — a real finding in a real engine, and a fixture
+    # artifact here. Named rather than papered over: a REAL linked worktree of
+    # this engine has NO sidecars at all until install.sh is run in it, which
+    # is why an engine land is red until it is.
+    git -C "$root" add -f scripts/agent-liveness.sh.sha256 2>/dev/null || true
     git -C "$root" commit -q -m init
     echo "$root"
 }
