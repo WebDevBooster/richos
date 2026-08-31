@@ -295,6 +295,10 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-unasked-deferral.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-agent-state-claims.sh",
             "timeout": 25
           },
