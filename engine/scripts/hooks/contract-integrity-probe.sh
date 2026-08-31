@@ -76,8 +76,15 @@
 #   R. THE ROOT-RESOLUTION CONTRACT is present, hashed, sourced by every rooted
 #      hook with a byte-identical bootstrap, and engine-status.sh is registered
 #      on both registration surfaces. Runs in BOTH modes.
+#   AL. THE AGENT-LIVENESS RESOLVER (scripts/lib/agent-liveness.{py,sh} and the
+#      operator CLI) is present, hashed, and BEHAVING: a worktree locked by a
+#      running pid resolves ALIVE, an absent one NOT-ALIVE, and an unqueryable
+#      repository INDETERMINATE — the third verdict asserted because collapsing
+#      it is the confusion the 2026-08-31 incident was made of. Three callers
+#      take their whole answer from that file, one of which DELETES worktrees.
+#      Runs in BOTH modes.
 #
-# BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R), because the
+# BY-REFERENCE MODE runs a different set entirely (BR1-BR10 + R + AL), because the
 # guards are then registered in the plugin's hooks/hooks.json and this
 # repository's settings file legitimately never mentions them. See the
 # "BY-REFERENCE LAYER SET" banner below for what each BR layer asserts.
