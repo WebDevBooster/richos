@@ -651,6 +651,32 @@ Run it by hand with `scripts/row-currency-lint.sh <repo>`, and
 candidate. Both declaration forms, and the honest list of what the rule cannot
 see, are in [`reference/row-currency/`](./reference/row-currency/README.md).
 
+## Work written down instead of started — the unstarted-row sweep
+
+Writing a row satisfies the same urge as doing the work. So a lead finds
+something, records it, and stops — and on one real day that happened three times
+before lunch, once about a hook nobody had been asked to build. The prose fix
+failed first: the amended paragraph was still on the page, in its author's own
+words, when it happened twice more.
+
+`notice-unstarted-rows.sh` runs at **every turn end**, not at a land, because
+work is created when something is NOTICED and noticing happens while writing a
+report. It reads the ordered backlog and the working record as one corpus — a
+half corpus is loud, never a clean sweep of the surviving half — and names any
+row that has nothing blocking it and no live worktree working on it.
+
+A row goes quiet by NAMING what it waits on (the backlog's `Blocked by` cell, or
+`**Blocked:** <who>` in a record row), or by a live worktree claiming it (a
+branch or directory containing `row-<id>`, or `<worktree>/.claude/row-claims.txt`).
+It
+never blocks a turn, and it speaks once per change rather than once per turn.
+
+Switched on by the backlog file existing; an optional **`.unstarted-rows`**
+moves that path or narrows which warrant states count. Run it by hand with
+`scripts/unstarted-rows-lint.sh <repo>` — exit 1 means something is unstarted,
+exit 2 means nothing was read, and those are never the same answer. Full
+documentation in [`reference/unstarted-rows/`](./reference/unstarted-rows/README.md).
+
 ## If your repository gets published — the two publication contracts
 
 Some repositories go public. If yours does, create a **`.publication-boundary`**

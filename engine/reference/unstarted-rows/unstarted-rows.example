@@ -1,0 +1,50 @@
+# .unstarted-rows — OPTIONAL. Copy to the root of the repository that owns your
+# ordered backlog, alongside .ceo-todos and .row-currency.
+#
+# YOU PROBABLY DO NOT NEED THIS FILE. The unstarted-row sweep is switched on by
+# the queue record simply EXISTING at the default path (RICH-TODOs.md, beside
+# the .ceo-todos declaration). This file exists to move that path, or to narrow
+# which warrant states count as work somebody could pick up now.
+#
+# WHAT THE SWEEP DOES
+# -------------------
+# At EVERY turn end — not at a land — it reads both halves of the queue and
+# reports any row that names nobody as blocking it and has no live worktree
+# working on it. Writing work down is not starting it, and the moment work is
+# created is the moment somebody NOTICES it, which is a reporting turn rather
+# than a landing.
+#
+# HOW A ROW GOES QUIET, and there are only two ways
+# -------------------------------------------------
+#   1. IT NAMES WHAT IT IS WAITING ON.
+#        in the queue table   the `Blocked by` cell: anything but "—"
+#        in the working record  `**Blocked:** the CEO — his billing account`
+#                               in the row's prose, BEFORE its `**State:**`
+#                               warrant (which is the row-currency contract's
+#                               and is not disturbed by this)
+#   2. A LIVE WORKTREE CLAIMS IT.
+#        a branch or directory containing `row-<id>`  (row-11, row-3.1,
+#        row-3-1), bounded on both sides so `row-1` never claims row 11;
+#        or the id on its own line in <worktree>/.claude/row-claims.txt
+#
+# A row that is neither is reported BY NAME, once, and again whenever the set
+# changes. Nothing blocks; nothing is killed on a timer.
+#
+# CHECK IT BY HAND (the same code the hook runs):
+#   ~/.claude/richos-engine/scripts/unstarted-rows-lint.sh /path/to/this/repo
+#   exit 0 all accounted for · 1 something is unstarted · 2 nothing was read
+
+# Where the ordered backlog lives, repository-relative. Only needed when it is
+# not RICH-TODOs.md.
+QUEUE_RECORD="RICH-TODOs.md"
+
+# Which of the working record's warrant tokens describe work somebody could
+# pick up now. The vocabulary itself is declared once, in .row-currency, and is
+# not repeated here — this key only SELECTS from it.
+#
+# BLOCKED-ON-RICH is deliberately absent from the default, and that is a
+# judgment rather than an oversight: by the record's own contract it means
+# "not yet prepared for the CEO", which is arguably the most unstarted state
+# there is — but it is also the token used for work that has been consciously
+# parked. Widening the set is one word here.
+ACTIONABLE_TOKENS="OPEN BUILT BOUNDED"
