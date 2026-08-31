@@ -15,7 +15,8 @@ looking like his problem.
 failure — "waiting on the CEO" is a promise that everything else is done, and
 one unprepared row destroys that promise for every other row on the page.
 
-Every item takes this shape, and all four fields are required:
+Every item takes this shape. The first four fields are required; the fifth is
+optional and is the one that keeps this page honest over time:
 
 ```
 ### <section>.<n> READY-FOR-CEO — <a short title>
@@ -24,7 +25,27 @@ Every item takes this shape, and all four fields are required:
 - **Time:** 20 minutes
 - **Done:** what has to be true for this to be finished, checkable by whoever takes it back
 - **Unblocks:** what starts moving once it is done
+- **Done-check:** `lacks <prefix>/path "<the marker that disappears when it is done>"`
 ```
+
+**`Done-check` is the same sentence as `Done`, in a shape a machine can test.**
+Without it, an item that has already been finished goes on sitting here asking
+the CEO to do it, and nothing notices until a person reads the page — which is
+exactly what happened on 2026-08-31 with an app icon that had been made hours
+earlier. Four verbs, none of which runs a program:
+
+```
+`exists <prefix>/path`                 done when that file is there
+`contains <prefix>/path "<regex>"`     done when the page says this
+`lacks <prefix>/path "<regex>"`        done when this marker is gone
+`manual "<why it leaves no trace>"`    nobody can check this one; say why
+```
+
+Most CEO work ends with a marker disappearing — an `OPEN` token on a decision,
+a `SIGNED OFF / NOT SIGNED OFF (delete one)` line — so `lacks` is the common
+case. Write the check against a marker that is in the file **today**, then run
+`scripts/ceo-todos-lint.sh <this repo>` once before committing it: a pattern
+that never matched anything reads as already-done and the guard will say so.
 
 ---
 

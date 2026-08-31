@@ -59,6 +59,74 @@ upgrade the engine. Do not delete keys to make the old parser happy — that
 silently switches off whatever they enabled, which is the failure you were being
 protected from.
 
+## The CEO's TODOs: adding `Done-check` to an existing record (2026-08-31)
+
+**Nothing breaks if you do nothing.** `- **Done-check:**` is a fifth, optional
+item field; `DONE_CHECK_REQUIRED` defaults to `0`; and an item that carries no
+check renders byte-for-byte as it did before, so your committed `TODO_VIEW`
+stays current and the ordering trap above does not apply. What you get for
+free, on every verdict, is a line naming every item that cannot detect its own
+completion.
+
+**Why you want to fill them in.** On 2026-08-31 the app icon was made and
+landed and the CEO's own page went on asking him to supply the artwork that
+already existed. He found it. The commit guard was green throughout and was
+not wrong: it checks that an item is well FORMED, and "supply the artwork" was
+perfectly well-formed for every hour the artwork existed. **Form is not
+currency.** A `Done-check` restates the item's own end state in a shape a
+machine can test, and an item whose end state already holds is refused out of
+the CEO's sections exactly as an unprepared one is.
+
+The four verbs, all of which read a file and none of which runs a program:
+
+```
+- **Done-check:** `exists <prefix>/path/to/the/thing`
+- **Done-check:** `contains <prefix>/path "<regex>"`
+- **Done-check:** `lacks <prefix>/path "<regex>"`
+- **Done-check:** `manual "why this end state leaves no trace on disk"`
+```
+
+**Write `lacks` against a marker that is there NOW.** Most CEO items end with a
+marker disappearing: an `OPEN` status token on a decision heading, a
+`SIGNED OFF / NOT SIGNED OFF   (delete one)` line, a sentence saying the section
+has never been filled in. `lacks` is satisfied when the marker goes.
+
+**Then run it once before you commit it.** A `lacks` pattern that never matched
+anything is satisfied on the day you write it, so the guard refuses immediately
+and names the item — which is the safe direction to be wrong in, and still
+half an hour you did not need to spend. One line, from the engine:
+
+```
+scripts/ceo-todos-lint.sh /path/to/the/repo
+```
+
+**Doing it needs him; observing the end state usually does not.** That
+distinction decides how many of your items are checkable, and it is larger than
+it looks. A test that can only be run on hardware nobody here has still ends
+with a result written into a file. A ruling only the CEO can give still has to
+be recorded somewhere, or by this project's own governing principle it did not
+happen. `manual` is for the genuinely traceless end state — an approval inside
+somebody's own cloud console, a worksheet with no marker slot to fill — and it
+must say why, in words, on his page.
+
+**A worked classification.** Of the 13 items in one real record on 2026-08-31,
+10 were observable from disk and 3 were not: one whose "Done" named no page for
+the answers to land on, one whose worksheet had no per-window marker so a
+finished and an untouched copy look identical, and one whose end state was a
+consent screen approved inside the CEO's own Google Cloud project. The middle
+one is worth noticing — it is not unautomatable in principle, it is
+unautomatable because of how the artefact was built, and one marker slot per
+window would flip it.
+
+Turning the notice into a refusal, once your record is filled in, is one line:
+
+```
+DONE_CHECK_REQUIRED="1"
+```
+
+Land the engine first — it is a new key, so the ordering trap above applies to
+it in full.
+
 ## The CEO's TODOs: the 2026-08-29 rename, and why nothing breaks
 
 The mechanism that was called **the CEO queue** is now **the CEO's TODOs**. The

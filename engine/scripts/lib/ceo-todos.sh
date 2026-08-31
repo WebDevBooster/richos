@@ -83,6 +83,19 @@
 #                      "done" is written down, and what it unblocks is named.
 #                      Only these may sit in a CEO section.
 #
+#                      AND STILL OPEN. Added 2026-08-31, after the app icon was
+#                      made and landed while the CEO's own page went on asking
+#                      him to supply the artwork that already existed. He found
+#                      it; we did not. PREPARED IS A CHECK ON THE PAST AND SAYS
+#                      NOTHING ABOUT THE PRESENT — "supply the artwork" stayed
+#                      perfectly well-formed for every hour the artwork existed.
+#                      So an item may also carry a '- **Done-check:**' line
+#                      restating its own end state in four verbs, and an item
+#                      whose end state ALREADY HOLDS is refused out of the CEO
+#                      sections exactly as an unprepared one is. Full mechanism,
+#                      vocabulary and limits: scripts/lib/ceo-todos.py, "AN ITEM
+#                      THAT CAN DETECT ITS OWN COMPLETION".
+#
 #   BLOCKED-ON-RICH    unprepared. Belongs in the preparer's own section.
 #
 # Moving an item to BLOCKED-ON-RICH is the system WORKING, not a failure. The
@@ -126,6 +139,15 @@
 #                     is missing on the day it matters.
 #   ROOT_README       default README.md. The front door the view must be named
 #                     from, in its first 40 lines.
+#   DONE_CHECK_REQUIRED
+#                     optional, "0" (default) or "1". With 0, an item carrying
+#                     no '- **Done-check:**' line is reported in a NOTE on every
+#                     verdict, naming each one, and never blocks. With 1 it is a
+#                     violation. DEFAULT 0 DELIBERATELY: shipping this as a
+#                     requirement would have refused the next commit in every
+#                     repository that already had a record, which is how a guard
+#                     gets switched off in its first hour. Turning it on is the
+#                     record owner's decision and a visible one-line diff.
 #   COLD_OPEN_DIR     optional. Where cold-open transcripts live. Declaring it
 #                     switches ON the cold-open freshness gate; NOT declaring
 #                     it is a stated, printed limit in every verdict, never a
@@ -154,6 +176,11 @@
 #     plausible, describing the wrong acceptance test, passes.
 #   * An item that should exist and does not. Nothing here notices work that
 #     was never filed.
+#   * An item that is already DONE and carries no '- **Done-check:**' line.
+#     That is the 2026-08-31 failure, and the honest state of it is: the
+#     mechanism can now catch it, and only for items that opt in. Every item
+#     that has not is named in a NOTE on every single verdict, and
+#     DONE_CHECK_REQUIRED=1 turns the notice into a refusal.
 #   * Rot between commits. The artifact can be deleted a minute after a clean
 #     commit; the claim is re-checked at the NEXT commit in that repository,
 #     not continuously.
@@ -239,7 +266,7 @@ _CT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Every key the declaration may carry. A key outside this set is a typo, and a
 # typo that silently does nothing is the defect class this file exists to
 # remove — so it is refused, loudly, by name.
-_CT_KNOWN_KEYS="TODO_RECORD CEO_SECTIONS PREPARER_SECTION ARTIFACT_ROOTS READY_STATE BLOCKED_STATE TODO_VIEW ROOT_README COLD_OPEN_DIR"
+_CT_KNOWN_KEYS="TODO_RECORD CEO_SECTIONS PREPARER_SECTION ARTIFACT_ROOTS READY_STATE BLOCKED_STATE TODO_VIEW ROOT_README COLD_OPEN_DIR DONE_CHECK_REQUIRED"
 
 # The verbatim cold-open prompt. Its sha256 is baked into every transcript, so
 # changing a question invalidates every transcript on file — which is correct:
@@ -335,6 +362,7 @@ ct_load_declaration() {
     CT_TODO_VIEW=""
     CT_ROOT_README="README.md"
     CT_COLD_OPEN_DIR=""
+    CT_DONE_CHECK_REQUIRED="0"
     CT_BROKEN_REASON=""
     CT_DECLARATION_FILE=""
     CT_LEGACY_DECL=""
@@ -406,6 +434,7 @@ ct_load_declaration() {
             TODO_VIEW)       CT_TODO_VIEW="$val" ;;
             ROOT_README)      CT_ROOT_README="$val" ;;
             COLD_OPEN_DIR)    CT_COLD_OPEN_DIR="$val" ;;
+            DONE_CHECK_REQUIRED) CT_DONE_CHECK_REQUIRED="$val" ;;
         esac
     done < "$f"
 
@@ -477,6 +506,16 @@ ct_load_declaration() {
         /*|~*|*..*)
             CT_BROKEN_REASON="COLD_OPEN_DIR must be a plain repository-relative path, not '$CT_COLD_OPEN_DIR'"
             return 2 ;;
+    esac
+    case "$CT_DONE_CHECK_REQUIRED" in
+        0|1|""|no|yes|false|true) ;;
+        *)
+            CT_BROKEN_REASON="DONE_CHECK_REQUIRED must be 0 or 1, not '$CT_DONE_CHECK_REQUIRED'. A value this parser cannot read would be taken as 'off' while looking like 'on'."
+            return 2 ;;
+    esac
+    case "$CT_DONE_CHECK_REQUIRED" in
+        1|yes|true) CT_DONE_CHECK_REQUIRED="1" ;;
+        *)          CT_DONE_CHECK_REQUIRED="0" ;;
     esac
     if [ "$CT_READY_STATE" = "$CT_BLOCKED_STATE" ]; then
         CT_BROKEN_REASON="READY_STATE and BLOCKED_STATE are the same string, so the two states are indistinguishable"
@@ -578,6 +617,7 @@ ct_build_job() {
     CT_J_OK="$CT_ROOTS_OK" CT_J_ABSENT="$CT_ROOTS_ABSENT" CT_J_SPECS="$CT_ROOT_SPECS" \
     CT_J_READY="$CT_READY_STATE" CT_J_BLOCKED="$CT_BLOCKED_STATE" \
     CT_J_VIEW="$CT_TODO_VIEW" CT_J_README="$CT_ROOT_README" CT_J_COLD="$CT_COLD_OPEN_DIR" \
+    CT_J_DCR="${CT_DONE_CHECK_REQUIRED:-0}" \
     CT_J_OVR_VIEW="${CT_OVERRIDE_VIEW:-}" CT_J_OVR_README="${CT_OVERRIDE_README:-}" \
     CT_J_LEGACY_DECL="${CT_LEGACY_DECL:-}" CT_J_LEGACY_KEYS="${CT_LEGACY_KEYS:-}" \
     CT_J_PROMPT_FP="$prompt_fp" CT_J_OUT="$out" python3 -c '
@@ -663,6 +703,7 @@ job = {
     # channel — the one channel printed on a CLEAN verdict as well as a refusal.
     "legacy_declaration": os.environ.get("CT_J_LEGACY_DECL") or "",
     "legacy_keys": [k for k in (os.environ.get("CT_J_LEGACY_KEYS") or "").split() if k],
+    "done_check_required": (os.environ.get("CT_J_DCR") or "0") == "1",
 }
 with open(os.environ["CT_J_OUT"], "w", encoding="utf-8") as fh:
     json.dump(job, fh)
@@ -719,6 +760,35 @@ ct_verdict_fp() {
 }
 
 # ---------------------------------------------------------------------------
+# ct_dc_census <verdict-text>
+# ---------------------------------------------------------------------------
+# The Done-check census as one English line. ONE formatter, for the reason this
+# file keeps stating: a number computed in two places is a number that will one
+# day disagree with itself.
+#
+# PRINTED ON EVERY VERDICT, INCLUDING A CLEAN ONE, and that is the whole point.
+# The correct behaviour for an item whose end state cannot be observed from disk
+# is SILENCE — and silence is also exactly what an evaluator that never ran
+# produces. This line is the difference between the two.
+ct_dc_census() {
+    printf '%s\n' "${1:-}" | awk -F'\t' '
+        $1=="DC" {
+            for (i = 2; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
+            printf "Done-checks: %s evaluated", v["evaluated"]
+            if (v["evaluated"] > 0) {
+                printf " (%s already satisfied, %s still open, %s manual", \
+                       v["satisfied"], v["open"], v["manual"]
+                if (v["skipped"] + 0 > 0) printf ", %s not on this machine", v["skipped"]
+                if (v["broken"] + 0 > 0)  printf ", %s BROKEN", v["broken"]
+                printf ")"
+            }
+            if (v["unchecked"] + 0 > 0) printf "; %s item(s) carry none", v["unchecked"]
+            printf "\n"
+            exit
+        }'
+}
+
+# ---------------------------------------------------------------------------
 # ct_broken_banner <caller> <reason>
 # ---------------------------------------------------------------------------
 ct_broken_banner() {
@@ -754,10 +824,14 @@ ct_refusal() {
         esac
     done
     echo ""
+    printf '  CENSUS %s\n' "$(ct_dc_census "$result")"
+    echo ""
     echo "  THE CONTRACT, in three parts."
     echo "  1. PREPARED — every item in a CEO section carries all four fields:"
     echo "     **Open:** \`<prefix>/path\`, **Time:**, **Done:**, **Unblocks:** —"
-    echo "     and the artifact must already exist on disk."
+    echo "     and the artifact must already exist on disk. A fifth, optional line,"
+    echo "     **Done-check:** \`<exists|contains|lacks|manual> ...\`, restates the"
+    echo "     item's own end state so it can NOTICE when it is already finished."
     echo "  2. REACHABLE — one top-level, un-dotted entry point, named at the head"
     echo "     of the root README, and byte-current with the record. Regenerate it:"
     echo "       scripts/ceo-todos-render.sh <repo>"

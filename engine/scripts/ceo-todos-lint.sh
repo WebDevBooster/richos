@@ -123,6 +123,7 @@ case "$VERDICT" in
             printf '  entry point: %s — present, singular, named at the head of %s, byte-current with %s.\n' \
                 "${CT_TODO_VIEW:-<none declared>}" "$CT_ROOT_README" "$CT_TODO_RECORD"
             printf '  front door : sha256:%s\n' "$(ct_verdict_fp "$RESULT" | cut -c1-16)"
+            printf '  %s\n' "$(ct_dc_census "$RESULT")"
             if [ "${SKIPPED:-0}" != "0" ]; then
                 printf '  %s artifact(s) NOT checked (declared root not on this machine):\n' "$SKIPPED"
                 printf '%s\n' "$BODY" | while IFS="$(printf '\t')" read -r kind sec iid path why; do

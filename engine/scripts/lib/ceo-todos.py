@@ -34,6 +34,8 @@ INPUT   one JSON job, path given as argv[1] (or on stdin when argv[1] is "-"):
                                                              # this machine
       "ready_state":      "READY-FOR-CEO",
       "blocked_state":    "BLOCKED-ON-RICH",
+      "done_check_required": false,   # true = an item with no **Done-check:**
+                                      # line is a violation rather than a note
 
       # --- the entry point ---
       "todo_view":       "CEO-TODOs.md",     # repo-relative, top-level
@@ -71,6 +73,15 @@ and by two kinds of line that are not verdicts about the record at all:
     FP    <front-door-fingerprint>   always, so the cold-open harness and the
                                      gate use one number and nobody computes it
                                      a second way.
+    DC    evaluated=<n> satisfied=<n> open=<n> manual=<n> skipped=<n>
+          broken=<n> unchecked=<n>
+                                     always. The Done-check census: how many
+                                     items were asked whether they are already
+                                     finished, and what each answered. It is on
+                                     every verdict because the correct outcome
+                                     for an unautomatable item is SILENCE, and
+                                     silence is also what a checker that never
+                                     ran produces.
     NOTE  <CODE>  <message>          a stated LIMIT of this run. Never blocks.
                                      Exists so a clean verdict can never be
                                      read as "everything was checked" when
@@ -109,9 +120,19 @@ ITEM_RE = re.compile(
     r"^###\s+(?P<id>\d+\.\d+[a-z]?)\s+(?P<state>[A-Z][A-Z-]+)\s*[—–-]\s*(?P<title>\S.*?)\s*$"
 )
 
+# 'Done-check' is listed FIRST: the alternation is ordered, and 'Done' would
+# otherwise match the first four characters of 'Done-check' and then fail on the
+# colon, which reads as "not a field" — silently.
 FIELD_RE = re.compile(
-    r"^\s*[-*]\s+\*\*(?P<name>Open|Time|Done|Unblocks):\*\*\s*(?P<value>.*?)\s*$"
+    r"^\s*[-*]\s+\*\*(?P<name>Done-check|Open|Time|Done|Unblocks):\*\*\s*(?P<value>.*?)\s*$"
 )
+
+# ANY '- **Key:**' line, so a key that is NOT one of the five can be REFUSED
+# rather than ignored. Until 2026-08-31 an unrecognized meta line inside an item
+# was simply skipped, which means a mistyped '- **Done-Check:**' would have
+# switched an item's self-closing check off and reported clean over it — the
+# defect class this whole file exists to remove, reintroduced by a hyphen.
+UNKNOWN_META_RE = re.compile(r"^\s*[-*]\s+\*\*(?P<name>[A-Za-z][A-Za-z0-9 ._-]*):\*\*")
 
 # A '- **Key:** value' line in a cold-open transcript. Same shape, different
 # vocabulary, and deliberately not the same regex: FIELD_RE names the four
@@ -155,8 +176,52 @@ VACUOUS = {
 
 REQUIRED_FIELDS = ("Open", "Time", "Done", "Unblocks")
 
+# The fifth field. OPTIONAL by default and deliberately so — see
+# DONE_CHECK_REQUIRED in scripts/lib/ceo-todos.sh — but never *unknown*: it is
+# in KNOWN_FIELDS, so every other key inside an item is a typo and is refused.
+DONE_CHECK_FIELD = "Done-check"
+KNOWN_FIELDS = REQUIRED_FIELDS + (DONE_CHECK_FIELD,)
+
 MIN_DONE_WORDS = 4
 MIN_UNBLOCKS_WORDS = 3
+
+# ===========================================================================
+# THE DONE-CHECK VOCABULARY — four verbs, none of which executes anything
+# ===========================================================================
+# WHY THERE IS NO `run <command>` VERB, decided here rather than discovered
+# later. The item that produced this mechanism carried a Done condition that
+# was literally a command and its expected output, and running it was the
+# obvious design. It is refused for the reason ct_load_declaration already
+# refuses `$(` in a declaration value, in that file's own words: this file is
+# PARSED, NEVER SOURCED. A verb that executed a string out of a markdown record
+# would mean:
+#
+#   * every `git commit` in the declaring repository runs N programs written by
+#     whoever last edited a wiki page — an escalation from "can edit a doc" to
+#     "runs code in every governed session that commits";
+#   * one slow or hanging command wedges every commit in the repository, and a
+#     guard that wedges commits is a guard somebody switches off;
+#   * the answer stops being reproducible: the same record gives different
+#     verdicts on two machines, and "is this item done?" becomes unanswerable
+#     from the record alone.
+#
+# THE COST IS REAL AND IS STATED: an item whose completion is only observable
+# by running a program must name the FILE that program leaves behind. In the
+# case that motivated this, that is strictly better — the icon generator's
+# "prints OK and exits 0" was checkable only while somebody ran it, while the
+# artefacts it writes were on disk the whole time, which is precisely the fact
+# the record failed to notice.
+DONE_CHECK_VERBS = ("exists", "contains", "lacks", "manual")
+
+# A regex out of a record runs against a file of unknown size. Both are bounded,
+# and BOTH BOUNDS FAIL LOUD: a check that cannot be completed is never allowed
+# to read as "not done yet".
+DONE_CHECK_MAX_BYTES = 4 * 1024 * 1024
+DONE_CHECK_TIMEOUT_SECONDS = 5
+
+# `manual` must say WHY, in words, or it is a way to switch the check off while
+# looking like a considered decision.
+MIN_MANUAL_WORDS = 3
 
 # How much of the repo-root README counts as "the front door". A newcomer who
 # must read to line 300 to discover where to start has not been given an entry
@@ -273,6 +338,22 @@ def parse_record(text, ceo_sections):
                 cur[0]["dupes"].append(name)
             else:
                 cur[0]["fields"][name] = fm.group("value")
+            continue
+
+        # A '- **Key:**' line whose key is none of the five. Refused, not
+        # ignored: the realistic way this mechanism dies is a near-miss key —
+        # '- **Done-Check:**', '- **Done check:**' — that reads correct to a
+        # human, matches nothing, and takes an item's self-closing check off the
+        # air while every verdict stays green.
+        um = UNKNOWN_META_RE.match(line)
+        if um:
+            violations.append(
+                (section, cur[0]["id"], "UNKNOWN-FIELD",
+                 "'**%s:**' is not a field of an item. The five are: %s. A key "
+                 "this parser does not know does nothing at all, so a near-miss "
+                 "would silently disable the check it was meant to carry."
+                 % (um.group("name"), ", ".join(KNOWN_FIELDS)))
+            )
 
     close()
     return items, violations, section_titles, seen_sections
@@ -409,6 +490,13 @@ def render_view(items, section_titles, ceo_sections, record_label,
             out.append("")
             out.append("- **Done when:** %s" % (i["fields"].get("Done") or "?").strip())
             out.append("- **Unblocks:** %s" % (i["fields"].get("Unblocks") or "?").strip())
+            # Rendered ONLY when the item carries the field, so a record written
+            # before 2026-08-31 renders byte-for-byte as it did — the view
+            # currency gate must not turn a new engine into a wedged repository.
+            gloss = done_check_gloss(i["fields"].get(DONE_CHECK_FIELD)) \
+                if (i["fields"].get(DONE_CHECK_FIELD) or "").strip() else None
+            if gloss:
+                out.append(gloss)
             out.append("")
 
     return "\n".join(out).rstrip("\n") + "\n"
@@ -509,9 +597,17 @@ def main():
     skips = []
     seen_ids = {}
     unreachable = []
+    # THE POSITIVE PROBE. Every verdict carries these numbers, including a clean
+    # one, so "nothing fired" can be told apart from "nothing ran". The specific
+    # thing being made impossible: an unautomatable item is SILENT by design,
+    # and silence is exactly what a checker that never executed also produces.
+    dc = {"evaluated": 0, "satisfied": 0, "open": 0, "manual": 0, "skip": 0,
+          "broken": 0, "unchecked": [], "manual_items": []}
+    require_done_check = bool(job.get("done_check_required"))
     for item in items:
         check_item(item, violations, skips, seen_ids, roots, absent_roots,
-                   ready_state, blocked_state, preparer_section, unreachable)
+                   ready_state, blocked_state, preparer_section, unreachable,
+                   dc, require_done_check)
     checked = len(items)
 
     notes = []
@@ -552,6 +648,22 @@ def main():
                       "accepted and translated (QUEUE_RECORD -> TODO_RECORD, QUEUE_VIEW -> "
                       "TODO_VIEW); rename them in place to clear this notice."
                       % ", ".join(legacy_keys)))
+    if dc["unchecked"] and not require_done_check:
+        notes.append(("DONE-NOT-MACHINE-CHECKED",
+                      "%d of %d item(s) carry no **%s:** line, so nothing can tell "
+                      "whether they are already finished: %s. On 2026-08-31 an item "
+                      "in this state asked the CEO to supply an artefact that had "
+                      "existed for hours. Declare DONE_CHECK_REQUIRED=1 to make this "
+                      "a refusal."
+                      % (len(dc["unchecked"]), checked, DONE_CHECK_FIELD,
+                         ", ".join(dc["unchecked"]))))
+    if dc["manual_items"]:
+        notes.append(("DONE-CHECK-MANUAL",
+                      "%d item(s) declare their end state unobservable from disk and "
+                      "are deliberately NOT checked: %s. This is a stated decision, "
+                      "not a gap — and the DC line above proves the evaluator ran."
+                      % (len(dc["manual_items"]),
+                         "; ".join("%s (%s)" % (i, r) for i, r in dc["manual_items"]))))
     check_entry_point(job, rendered, violations, notes)
     fp = front_door_fingerprint(job.get("todo_view") or "", rendered,
                                 job.get("readme_text") or "")
@@ -563,6 +675,11 @@ def main():
     for s in skips:
         out.append("SKIP\t%s\t%s\t%s\t%s" % s)
     out.append("FP\t%s" % fp)
+    # ALWAYS emitted, clean or not. A consumer that prints this line cannot
+    # report a reassuring verdict over an evaluator that did not run.
+    out.append("DC\tevaluated=%d\tsatisfied=%d\topen=%d\tmanual=%d\tskipped=%d\tbroken=%d\tunchecked=%d"
+               % (dc["evaluated"], dc["satisfied"], dc["open"], dc["manual"],
+                  dc["skip"], dc["broken"], len(dc["unchecked"])))
     for n in notes:
         out.append("NOTE\t%s\t%s" % n)
 
@@ -798,8 +915,275 @@ def _git_ignored(root, relpath):
         return False
 
 
+# ===========================================================================
+# AN ITEM THAT CAN DETECT ITS OWN COMPLETION
+# ===========================================================================
+# THE FAILURE, 2026-08-31. The app icon was made and landed. Every CEO-facing
+# record was left saying otherwise, and item 2.6 of a real record went on asking
+# the CEO to supply artwork that already existed on disk. He found it himself,
+# by searching his own page for "icon".
+#
+# THE GUARD BELOW COULD NOT HAVE CAUGHT IT AND WAS NOT WRONG. It checks that an
+# item is well FORMED — four fields, an artefact that exists, a criterion
+# written down. "Supply the artwork" was perfectly well-formed the entire time
+# the artwork existed. FORM IS NOT CURRENCY.
+#
+# The same file already solved this problem for the rows nobody but the team
+# reads: §3 rows carry a warrant pinned to the object id of the work they
+# describe, and the next landing is refused when the work moves and the row does
+# not. Sections 1 and 2 — THE CEO'S OWN QUEUE — had no such check. The rows he
+# reads were the unprotected ones.
+#
+#   AN ITEM WHOSE DONE CONDITION IS ALREADY SATISFIED MUST NOT STILL BE SITTING
+#   IN THE CEO'S QUEUE.
+#
+# Every item already carries a '- **Done:**' line stating an observable end
+# state. Prose cannot be evaluated, so the item may ALSO carry a '- **Done-check:**'
+# line: the same end state in four verbs, in a single backticked span, in his own
+# document, next to the sentence it restates.
+#
+#   - **Done-check:** `exists richos/app/icon-source/preview/icon-512.png`
+#   - **Done-check:** `lacks richos-hq/wiki/ceo-decisions.md "^## 3\..*OPEN"`
+#   - **Done-check:** `contains richos-hq/docs/sheet.md "SIGNED OFF"`
+#   - **Done-check:** `manual "he must read along to the audio; no file state
+#                      distinguishes done from not-started"`
+#
+# FIVE OUTCOMES, AND FOUR OF THEM ARE AUDIBLE:
+#   SATISFIED  the end state is already true  -> VIOLATION. This is the point.
+#   OPEN       not yet true                   -> silent; the item is correctly
+#                                               waiting on him.
+#   MANUAL     declared unautomatable, with a -> silent, COUNTED and NAMED. The
+#              stated reason                     count is the positive probe
+#                                                that the silence is a decision
+#                                                and not a checker that never
+#                                                ran.
+#   SKIP       the declared root is not on    -> named, never blocked; the same
+#              this machine                      contract artefact paths keep.
+#   BROKEN     the check could not be         -> VIOLATION, loudly. A Done-check
+#              evaluated at all                  that errors must NEVER read as
+#                                                "not done yet"; that is
+#                                                green-over-nothing wearing the
+#                                                one disguise this project has
+#                                                already worn twice.
+#
+# WHAT THIS STILL CANNOT CATCH, said here rather than found later:
+#   * A Done-check that does not mean what the '- **Done:**' prose beside it
+#     means. Nothing can compare a sentence with a predicate. It removes the
+#     failure of never asking, not the failure of asking the wrong question.
+#   * An item carrying no Done-check at all. That is a NOTE on every verdict,
+#     naming every such item, and a VIOLATION when the repository declares
+#     DONE_CHECK_REQUIRED=1 — an owner's decision, not a default that would
+#     wedge every existing record on the day this shipped.
+#   * Work that is done but whose end state leaves no trace on disk. `manual`
+#     is the honest answer and is designed to be unembarrassing to write.
+# ===========================================================================
+
+
+class _DoneCheckTimeout(Exception):
+    pass
+
+
+def _with_timeout(fn, seconds):
+    """Run fn under a wall-clock bound. A pattern out of a record can backtrack
+    forever, and a hung guard blocks every commit in the repository until
+    somebody kills it — after which somebody removes the guard."""
+    try:
+        import signal
+    except Exception:
+        return fn()
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        return fn()
+
+    def _fire(signum, frame):
+        raise _DoneCheckTimeout()
+
+    old = signal.signal(signal.SIGALRM, _fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        return fn()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+
+
+def parse_done_check(raw):
+    """`<verb> <args...>` -> (verb, path, pattern, reason, error).
+
+    The expression lives in ONE backticked span, exactly as **Open:** requires
+    of its path — same rule, same look, so a reader learns it once.
+    """
+    import shlex
+    value = (raw or "").strip()
+    if not value:
+        return (None, None, None, None, "**Done-check:** is empty")
+    spans = BACKTICKED_RE.findall(value)
+    if not spans:
+        return (None, None, None, None,
+                "**Done-check:** must be one `backticked expression`, e.g. "
+                "`exists prefix/path/to/file` — got: %s" % value)
+    if len(spans) > 1:
+        return (None, None, None, None,
+                "**Done-check:** carries %d backticked spans; one item has one "
+                "check" % len(spans))
+    try:
+        parts = shlex.split(spans[0])
+    except Exception as exc:
+        return (None, None, None, None,
+                "**Done-check:** `%s` could not be read as '<verb> <args>' (%s); "
+                "a quote is probably unclosed" % (spans[0], exc))
+    if not parts:
+        return (None, None, None, None, "**Done-check:** `%s` is empty" % spans[0])
+
+    verb = parts[0]
+    if verb not in DONE_CHECK_VERBS:
+        return (None, None, None, None,
+                "**Done-check:** verb '%s' is not one of: %s. There is deliberately "
+                "no verb that runs a command — see DONE_CHECK_VERBS in "
+                "scripts/lib/ceo-todos.py." % (verb, ", ".join(DONE_CHECK_VERBS)))
+
+    if verb == "manual":
+        reason = " ".join(parts[1:]).strip()
+        if len(words(reason)) < MIN_MANUAL_WORDS:
+            return (None, None, None, None,
+                    "**Done-check:** `manual` must say WHY this end state cannot "
+                    "be observed from disk, in at least %d words. A bare `manual` "
+                    "is a way to switch the check off while looking like a "
+                    "decision." % MIN_MANUAL_WORDS)
+        return ("manual", None, None, reason, None)
+
+    if verb == "exists":
+        if len(parts) != 2:
+            return (None, None, None, None,
+                    "**Done-check:** `exists` takes exactly one path; got %d "
+                    "argument(s)" % (len(parts) - 1))
+        return ("exists", parts[1], None, None, None)
+
+    # contains / lacks
+    if len(parts) != 3:
+        return (None, None, None, None,
+                "**Done-check:** `%s` takes a path and ONE quoted pattern: "
+                "`%s prefix/path \"<regex>\"`; got %d argument(s)"
+                % (verb, verb, len(parts) - 1))
+    return (verb, parts[1], parts[2], None, None)
+
+
+def evaluate_done_check(raw, roots, absent_roots):
+    """-> (status, detail) with status in SATISFIED / OPEN / MANUAL / SKIP / BROKEN.
+
+    There is no sixth status, and in particular there is no status that means
+    "something went wrong, assume not done".
+    """
+    verb, rel, pattern, reason, err = parse_done_check(raw)
+    if err:
+        return ("BROKEN", err)
+    if verb == "manual":
+        return ("MANUAL", reason)
+
+    if rel.startswith("/") or rel.startswith("~"):
+        return ("BROKEN",
+                "**Done-check:** `%s` is an absolute path; it would be wrong on "
+                "any other machine. Use a declared <prefix>/... path." % rel)
+    if ".." in rel.split("/"):
+        return ("BROKEN",
+                "**Done-check:** `%s` walks out of its declared root with '..'" % rel)
+
+    prefix = rel.split("/", 1)[0]
+    remainder = rel.split("/", 1)[1] if "/" in rel else ""
+    if prefix in (absent_roots or {}):
+        return ("SKIP",
+                "declared root '%s' (%s) is not on this machine, so whether this "
+                "item is already done could not be determined"
+                % (prefix, absent_roots[prefix]))
+    if prefix not in (roots or {}):
+        return ("BROKEN",
+                "**Done-check:** `%s` starts with '%s', which is not a declared "
+                "artifact root. Declared: %s."
+                % (rel, prefix, ", ".join(sorted(roots or {})) or "<none>"))
+    if not remainder:
+        return ("BROKEN",
+                "**Done-check:** `%s` names a repository root, not a file" % rel)
+
+    target = os.path.join(roots[prefix], remainder)
+
+    if verb == "exists":
+        return (("SATISFIED", "`%s` exists (%s)" % (rel, target)) if os.path.exists(target)
+                else ("OPEN", "`%s` is not there yet" % rel))
+
+    # contains / lacks read the file, so the file has to be readable. A missing
+    # or unreadable subject is BROKEN and never OPEN: "the path is wrong" and
+    # "the CEO has not done it yet" are different facts, and collapsing them is
+    # how a typo becomes a permanently green check.
+    if not os.path.exists(target):
+        return ("BROKEN",
+                "**Done-check:** `%s` reads a file that is not on disk (%s). A "
+                "check whose subject is missing cannot report 'not done yet' — "
+                "fix the path, or use `exists` if its arrival IS the end state."
+                % (rel, target))
+    if not os.path.isfile(target):
+        return ("BROKEN", "**Done-check:** `%s` is a directory, not a file" % rel)
+    try:
+        size = os.path.getsize(target)
+    except Exception as exc:
+        return ("BROKEN", "**Done-check:** `%s` could not be measured: %s" % (rel, exc))
+    if size > DONE_CHECK_MAX_BYTES:
+        return ("BROKEN",
+                "**Done-check:** `%s` is %d bytes, over the %d-byte bound this "
+                "check reads. Point it at the page that states the end state."
+                % (rel, size, DONE_CHECK_MAX_BYTES))
+    try:
+        with open(target, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+    except Exception as exc:
+        return ("BROKEN", "**Done-check:** `%s` could not be read: %s" % (rel, exc))
+    try:
+        rx = re.compile(pattern, re.MULTILINE)
+    except Exception as exc:
+        return ("BROKEN",
+                "**Done-check:** pattern %s is not a valid regular expression: %s"
+                % (pattern, exc))
+    try:
+        hit = _with_timeout(lambda: rx.search(body) is not None,
+                            DONE_CHECK_TIMEOUT_SECONDS)
+    except _DoneCheckTimeout:
+        return ("BROKEN",
+                "**Done-check:** pattern %s did not finish against `%s` within "
+                "%ds. It is refused rather than abandoned, because a guard that "
+                "hangs blocks every commit in this repository."
+                % (pattern, rel, DONE_CHECK_TIMEOUT_SECONDS))
+    except Exception as exc:
+        return ("BROKEN", "**Done-check:** `%s` could not be evaluated: %s" % (rel, exc))
+
+    if verb == "contains":
+        return (("SATISFIED", "`%s` already matches %s" % (rel, pattern)) if hit
+                else ("OPEN", "`%s` does not match %s yet" % (rel, pattern)))
+    return (("OPEN", "`%s` still matches %s" % (rel, pattern)) if hit
+            else ("SATISFIED", "`%s` no longer matches %s" % (rel, pattern)))
+
+
+def done_check_gloss(raw):
+    """One plain sentence for the CEO's page, or None when there is no check.
+
+    PURE — it never touches the filesystem, for the reason render_view states:
+    a view that rendered differently depending on what is on the machine would
+    make "is the view current?" a per-machine question.
+    """
+    verb, rel, pattern, reason, err = parse_done_check(raw)
+    if err:
+        # The lint refuses this item anyway; the page says so plainly rather
+        # than rendering a confident sentence over a check that does not parse.
+        return "- **Self-closing check:** _unreadable — see the record._"
+    if verb == "manual":
+        return "- **Nobody can check this one for you:** %s." % reason.rstrip(".")
+    if verb == "exists":
+        return "- **Closes itself when:** `%s` exists." % rel
+    if verb == "contains":
+        return "- **Closes itself when:** `%s` contains `%s`." % (rel, pattern)
+    return "- **Closes itself when:** `%s` no longer contains `%s`." % (rel, pattern)
+
+
 def check_item(item, violations, skips, seen_ids, roots, absent_roots,
-               ready_state, blocked_state, preparer_section, unreachable=None):
+               ready_state, blocked_state, preparer_section, unreachable=None,
+               dc=None, require_done_check=False):
     sec = item["section"]
     iid = item["id"]
 
@@ -859,6 +1243,43 @@ def check_item(item, violations, skips, seen_ids, roots, absent_roots,
     if u.strip() and len(words(u)) < MIN_UNBLOCKS_WORDS:
         bad("UNBLOCKS-TOO-VAGUE",
             "**Unblocks:** '%s' is under %d words" % (u.strip(), MIN_UNBLOCKS_WORDS))
+
+    # 5b. THE DONE-CHECK — does this item's own end state already hold?
+    #     Runs whatever else is wrong with the item: a stale row is stale
+    #     whether or not somebody also mistyped its Time field, and an item the
+    #     CEO has already finished is the most expensive thing on the page.
+    raw_dc = item["fields"].get(DONE_CHECK_FIELD)
+    if raw_dc is None or not raw_dc.strip():
+        if dc is not None:
+            dc["unchecked"].append(iid)
+        if require_done_check:
+            bad("DONE-CHECK-MISSING",
+                "no **%s:** line, and this repository declares DONE_CHECK_REQUIRED=1. "
+                "Every item in a CEO section must either state its end state in a form "
+                "a machine can test, or say `manual \"<why not>\"`. An item that cannot "
+                "detect its own completion sits in his queue until a human notices, "
+                "which is what happened on 2026-08-31." % DONE_CHECK_FIELD)
+    else:
+        status, detail = evaluate_done_check(raw_dc, roots, absent_roots)
+        if dc is not None:
+            dc["evaluated"] += 1
+            dc[status.lower()] = dc.get(status.lower(), 0) + 1
+            if status == "MANUAL":
+                dc["manual_items"].append((iid, detail))
+        if status == "SATISFIED":
+            bad("DONE-ALREADY-SATISFIED",
+                "this item's OWN Done condition is already true — %s. It is finished "
+                "and it is still sitting in the CEO's queue asking him to do it. "
+                "Close it: delete the item from section %s (git history is the "
+                "archive). If it is genuinely NOT done, then the **%s:** line is "
+                "wrong and must be corrected — those are the only two answers."
+                % (detail, sec, DONE_CHECK_FIELD))
+        elif status == "BROKEN":
+            bad("DONE-CHECK-BROKEN",
+                "%s  A check that cannot run is NOT the same as an item that is not "
+                "done yet, and is never treated as one." % detail)
+        elif status == "SKIP":
+            skips.append((sec, iid, "**%s:**" % DONE_CHECK_FIELD, detail))
 
     # 6. THE ARTIFACT. The heart of the mechanism: an item may not claim to be
     #    waiting on the CEO unless the thing he touches already exists on disk.

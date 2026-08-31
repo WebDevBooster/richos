@@ -12,6 +12,67 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A CEO item can now notice that it is already finished — `Done-check`**
+  (`scripts/lib/ceo-todos.py`, `scripts/lib/ceo-todos.sh`,
+  `scripts/ceo-todos-lint.sh`, `scripts/hooks/guard-ceo-todos-commits.sh`,
+  `scripts/hooks/ceo-todos.mutation.sh`) — MINOR.
+
+  On 2026-08-31 the app icon was made and landed and every CEO-facing record was
+  left stale. He opened his own TODO page, searched "icon", and found the item
+  still asking him to supply the artwork that already existed.
+
+  The commit guard was green throughout and was not wrong. It checks that an
+  item is well FORMED — four fields, an artefact on disk, a criterion written
+  down — and "supply the artwork" stayed perfectly well-formed for every hour
+  the artwork existed. **Form is not currency.** The asymmetry is the defect:
+  §3 rows have been pinned to the object id of the work they describe since
+  2026-08-29, so the rows nobody but the team reads were protected while the
+  rows the CEO reads were not.
+
+  An item may now carry a fifth, optional line restating its own end state in
+  four verbs — `exists`, `contains`, `lacks`, `manual` — in one backticked span,
+  in his own document, beside the sentence it restates. An item whose end state
+  already holds is refused out of the CEO sections exactly as an unprepared one
+  is; the CEO's page says, per item, whether it will close itself or whether
+  nobody can check it for him.
+
+  **There is deliberately no verb that runs a command**, which is the one thing
+  the motivating item's own `Done:` line literally was. `ct_load_declaration`
+  already refuses `$(` for the same reason in its own words — this file is
+  parsed, never sourced — and a verb that executed a string out of a wiki page
+  would run N programs from every governed commit, wedge the repository on one
+  hang, and make the verdict machine-dependent. The stated cost: an item
+  observable only by running something must name the file that something leaves
+  behind, which in the motivating case was strictly better — the generator's
+  "prints OK and exits 0" was checkable only while somebody ran it, while the
+  artefacts it wrote were on disk the whole time.
+
+  Five outcomes, four audible. SATISFIED blocks; OPEN is silent; MANUAL is
+  silent, counted and named; SKIP names a root that is not on this machine;
+  BROKEN blocks. **A check that errors is never allowed to read as "not done
+  yet"** — a missing subject, an unparseable expression, an invalid pattern and
+  a regex that does not finish inside a 5-second bound all refuse rather than
+  report an item as correctly waiting.
+
+  Every verdict now carries a `DC` census line, clean ones included, because the
+  correct outcome for an unautomatable item is SILENCE and silence is also what
+  an evaluator that never ran produces.
+
+  `DONE_CHECK_REQUIRED` (new `.ceo-todos` key) defaults to `0` on purpose:
+  shipping this as a requirement would have refused the next commit in every
+  repository that already had a record. Items with no check are named in a NOTE
+  on every verdict instead, and an owner turns the notice into a refusal with a
+  one-line diff. An item that carries no check renders byte-identically, so no
+  adopter's committed view goes stale on this upgrade — verified against a real
+  record, whose view hashes the same before and after.
+
+  Also closed: an unrecognized `- **Key:**` line inside an item was silently
+  ignored, so a mistyped `- **Done-Check:**` would have switched an item's check
+  off under a green verdict. It is now `UNKNOWN-FIELD`.
+
+  32 new cases (97 total in `ceo-todos.test.sh`) and a 12-mutant harness that
+  proves each property load-bearing by removing it.
+
 - **The in-flight sweep — a land that leaves a teammate behind is refused, and
   the acknowledgement is a file rather than a hope**
   (`scripts/hooks/notice-inflight-sends.sh`,
