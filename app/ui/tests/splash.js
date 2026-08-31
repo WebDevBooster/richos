@@ -690,6 +690,69 @@ async function main() {
 
   // ---- the number the whole thing turns on -------------------------------------------------
 
+  await run.check("12b  the composition shows for a NAMED three seconds, not for however long booting took", async () => {
+    // CEO, 2026-08-31: "the splash shows for 3 seconds by default", 3-5 s by type later.
+    //
+    // BEFORE THIS, THE ANSWER TO "HOW LONG?" WAS "HOWEVER LONG THE BOOT TOOK". `main.js`
+    // calls `yieldNow("app-ready")` the moment the shell is usable, which on this machine is
+    // about a tenth of a second — so the composition was gone before it had been seen, and
+    // no line anywhere expressed a duration. Half the value of this check is that the number
+    // is now findable: it asserts the constant EXISTS and is 3000, so the per-type range can
+    // be added later without anyone hunting through the removal path for a literal.
+    const src = fs.readFileSync(RENDERER_FILE, "utf8");
+    const m = src.match(/var HOLD_MS = (\d+);/);
+    assert(m, "no named HOLD_MS in splash.js — the duration is a literal again, or gone");
+    assertEqual(Number(m[1]), 3000, "the CEO's default");
+
+    // ...and it is HONOURED, which the constant alone does not prove.
+    const page = await launch(browser);
+    const t0 = Date.now();
+    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 });
+    const gone = Date.now() - t0;
+    const reason = await page.evaluate(() => window.RichSplash.state.reason);
+    assertEqual(reason, "held", "it left for some reason other than the hold being served");
+    // The floor is the hold itself; the ceiling allows the fade and the removal timer on top
+    // of it. Anything under 3000 means the app-ready path cut the ceremony short again.
+    assert(
+      gone >= 3000 && gone < 3000 + 900,
+      "the curtain cleared at " + gone + "ms; expected the 3000ms hold plus its fade"
+    );
+    await page.__ctx.close();
+    return "HOLD_MS = 3000, named in splash.js, and the curtain cleared at " + gone + "ms with reason \"held\"";
+  });
+
+  await run.check("12c  the hold never catches his hand, and never defers the failsafe", async () => {
+    // THE TWO THINGS A DURATION COULD BREAK, and they are the two this surface must not
+    // break. §5.5 forbids anything on it that is delaying, so his first keystroke has to win
+    // against the hold; and a ceiling that could itself be deferred is not a failsafe.
+    const typed = await launch(browser);
+    await typed.waitForSelector(".nav-thread", { state: "attached" });
+    const t0 = Date.now();
+    await typed.keyboard.press("a");
+    await typed.waitForFunction(() => !document.getElementById("splash"), { timeout: 4000 });
+    const byHand = Date.now() - t0;
+    assertEqual(
+      await typed.evaluate(() => window.RichSplash.state.reason),
+      "first-input",
+      "his keystroke was swallowed by the hold and reported as something else"
+    );
+    assert(byHand < 1500, "his hand waited " + byHand + "ms on a 3000ms hold — the hold caught it");
+    await typed.__ctx.close();
+
+    // And with app-ready muted entirely, the ceiling still clears it — check 10 proves the
+    // timing; this proves the HOLD did not quietly become the thing that clears it, which
+    // would leave a hung boot showing the curtain forever.
+    const hung = await launch(browser, { hold: true });
+    await hung.waitForTimeout(4400);
+    assertEqual(
+      await hung.evaluate(() => window.RichSplash.state.reason),
+      "ceiling",
+      "with app-ready muted the curtain must still leave on its own ceiling"
+    );
+    await hung.__ctx.close();
+    return "first-input cleared it in " + byHand + "ms against a 3000ms hold; the ceiling still fires with app-ready muted";
+  });
+
   await run.check("13  the splash costs the launch less than one frame — cold and warm", async () => {
     // THE CEO'S CONSTRAINT, MEASURED RATHER THAN ASSERTED: the splash must never delay
     // launch by a frame. A frame is 16.7ms at 60Hz, and that is the bar this check holds it

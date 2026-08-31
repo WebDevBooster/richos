@@ -277,6 +277,11 @@ const SHELL_SOURCE: &str = include_str!("../../../src-tauri/src/main.rs");
 const UI_MAIN_JS: &str = include_str!("../../../ui/main.js");
 const UI_TIMELINE_JS: &str = include_str!("../../../ui/timeline.js");
 const UI_INDEX_HTML: &str = include_str!("../../../ui/index.html");
+/// The two files the theme/settings work added (2026-08-31). Included so the claim this
+/// suite makes — "there is nothing in the renderer to send with" — keeps covering the whole
+/// renderer rather than the three files it happened to name on the day it was written.
+const UI_THEME_BOOT_JS: &str = include_str!("../../../ui/theme-boot.js");
+const UI_SETTINGS_BUTTON_JS: &str = include_str!("../../../ui/settings-button.js");
 
 /// Everything a report could be handed to, or handed through, IN THE SHELL LAYER.
 ///
@@ -522,6 +527,89 @@ fn the_command_that_records_an_approval_still_checks_what_the_user_was_shown() {
     );
 }
 
+/// Remove the XML NAMESPACE IDENTIFIERS before scanning for network primitives.
+///
+/// A DELIBERATE NARROWING, in the spirit of the `action=` one above and made for the same
+/// reason: this check ran red on 2026-08-31 when the RichOS wordmark was inlined into
+/// `index.html` as SVG, and what it caught was `xmlns="http://www.w3.org/2000/svg"`.
+///
+/// That string is not a network primitive and cannot become one. An XML namespace is
+/// IDENTIFIED by a URI and is never dereferenced — no user agent fetches it — and the SVG
+/// specification requires this exact literal. `document.createElementNS` takes the same
+/// literal for the same reason, which is why `settings-button.js` holds it as a constant.
+/// Rewriting it to dodge a checker would be obfuscation, and obfuscation is the one response
+/// to a guard that is worse than deleting it.
+///
+/// THE NARROWING IS TWO EXACT STRINGS, not a pattern and not a syntax. Only the literal SVG
+/// and xlink namespace URIs are removed, in any position; every other URL in these files
+/// still fails, including an `xmlns` pointing anywhere else.
+/// `a_planted_namespace_shaped_url_is_still_caught` is the proof, and it is the reason this
+/// exemption can be trusted not to widen quietly.
+const XML_NAMESPACE_LITERALS: &[&str] =
+    &["http://www.w3.org/2000/svg", "http://www.w3.org/1999/xlink"];
+
+/// The literal is only a namespace when it ENDS there. `http://www.w3.org/2000/svg/spec`
+/// is a link to a document, not the namespace, and a plain substring replace would swallow
+/// the scheme and leave `/spec` behind — the URL would vanish from the scan while remaining
+/// in the file. `a_planted_namespace_shaped_url_is_still_caught` found exactly that in the
+/// first draft of this function, which is the entire argument for writing the positive
+/// control before trusting the exemption.
+fn strip_xml_namespaces(lower: &str) -> String {
+    let mut out = String::with_capacity(lower.len());
+    let mut rest = lower;
+    'outer: while !rest.is_empty() {
+        for ns in XML_NAMESPACE_LITERALS {
+            if let Some(after) = rest.strip_prefix(ns) {
+                // A URI-path character here means this is a longer URL that merely starts
+                // with the namespace, so it is NOT exempt and is copied through untouched.
+                let continues = after
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c == '/' || c == '?' || c == '#' || c.is_alphanumeric());
+                if !continues {
+                    out.push_str("xml-namespace-elided");
+                    rest = after;
+                    continue 'outer;
+                }
+            }
+        }
+        let mut chars = rest.chars();
+        let c = chars.next().expect("rest is non-empty");
+        out.push(c);
+        rest = chars.as_str();
+    }
+    out
+}
+
+#[test]
+fn a_planted_namespace_shaped_url_is_still_caught() {
+    // The narrowing above is only safe if it is narrow, so this is the positive control:
+    // shapes that LOOK like the exempted one and are not. Without this, "strip the namespace"
+    // is a sentence someone could later widen into "strip the URLs".
+    assert!(
+        !strip_xml_namespaces(r#"<svg xmlns="http://www.w3.org/2000/svg">"#).contains("http://"),
+        "the genuine SVG namespace must be elided, or the wordmark cannot ship"
+    );
+    for planted in [
+        // An xmlns pointing somewhere that is not the SVG namespace.
+        r#"<svg xmlns="http://telemetry.example.com/ns">"#,
+        // The real namespace with a real URL beside it.
+        r#"<svg xmlns="http://www.w3.org/2000/svg" data-x="https://evil.example.com">"#,
+        // A w3.org URL that is a LINK rather than a namespace — one character of path
+        // different from the exempted literal.
+        r#"<a href="http://www.w3.org/2000/svg/spec">the spec</a>"#,
+        // https where the namespace is http.
+        r#"<svg xmlns="https://www.w3.org/2000/svg">"#,
+    ] {
+        let stripped = strip_xml_namespaces(planted);
+        assert!(
+            stripped.contains("http://") || stripped.contains("https://"),
+            "a URL that is not one of the two exempted namespace literals survived the \
+             narrowing: {planted}"
+        );
+    }
+}
+
 #[test]
 fn the_shipped_web_layer_contains_no_network_primitive_at_all() {
     // The STRONGER claim, and the reason it is available: the whole of `app/ui/` has never
@@ -532,8 +620,10 @@ fn the_shipped_web_layer_contains_no_network_primitive_at_all() {
         ("main.js", UI_MAIN_JS),
         ("timeline.js", UI_TIMELINE_JS),
         ("index.html", UI_INDEX_HTML),
+        ("theme-boot.js", UI_THEME_BOOT_JS),
+        ("settings-button.js", UI_SETTINGS_BUTTON_JS),
     ] {
-        let lower = src.to_lowercase();
+        let lower = strip_xml_namespaces(&src.to_lowercase());
         assert!(lower.len() > 2000, "{name} did not load — the include is pointing at nothing");
         for needle in BANNED_IN_WEB {
             assert!(

@@ -12,6 +12,52 @@
   if (window.__TAURI__) return; // real shell present — this harness stays dormant.
 
   const now = () => Date.now();
+
+  // §15 appearance state, and the person. `theme` starts DARK because that is the ruling's
+  // default for a fresh install, and `user_name` starts NULL because "nobody has said who
+  // this is" is the state the product actually ships in.
+  //
+  // IT IS DURABLE, because the thing it stands in for is. `config.rs` survives a relaunch,
+  // so a harness whose "stored preference" evaporated on reload would model the one
+  // property these settings exist to have — and would make the whole reconciliation path
+  // (`get_appearance` -> `RichTheme.sync`, backend wins) untestable in a browser, since the
+  // backend would answer with the shipped default every single time. One key, its own
+  // namespace, and never the mirror's keys: this is the STORE, not the cache of it.
+  const MOCK_CONFIG_KEY = "richos-mock-config";
+  const mockConfig = (function () {
+    const fresh = { theme: "dark", font_scale: 100, user_name: null };
+    try {
+      const raw = window.localStorage.getItem(MOCK_CONFIG_KEY);
+      if (!raw) return fresh;
+      const parsed = JSON.parse(raw);
+      return {
+        theme: ["dark", "light", "system"].includes(parsed.theme) ? parsed.theme : fresh.theme,
+        font_scale: Number.isFinite(parsed.font_scale) ? parsed.font_scale : fresh.font_scale,
+        user_name: typeof parsed.user_name === "string" && parsed.user_name.trim() ? parsed.user_name : null,
+      };
+    } catch (e) {
+      // A corrupt or unavailable store degrades to the shipped defaults rather than
+      // failing the harness — the same posture `ConfigStore::open` takes.
+      return fresh;
+    }
+  })();
+  const persistMockConfig = () => {
+    try {
+      window.localStorage.setItem(MOCK_CONFIG_KEY, JSON.stringify(mockConfig));
+    } catch (e) {
+      /* storage unavailable; the in-memory value still serves this session */
+    }
+  };
+  // `initials_from` in config.rs, mirrored: first and last, two letters at most, one
+  // letter for one token, and null rather than a guess when there is nothing to derive.
+  const mockInitials = (name) => {
+    if (!name) return null;
+    const t = String(name).split(/\s+/).filter(Boolean);
+    if (!t.length) return null;
+    const first = [...t[0]][0].toUpperCase();
+    if (t.length === 1) return first;
+    return first + [...t[t.length - 1]][0].toUpperCase();
+  };
   const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 
   // --- fixture state -------------------------------------------------------
@@ -1090,6 +1136,42 @@
         case "set_techy_default":
           techyDefault = !!args.enabled;
           return techyDefault;
+
+        // ---- §15: appearance, and the person at the foot of the rail ----------------
+        // The real store is `config.rs`; this harness stands in for it with the same
+        // shapes and the same honesty about the unset case. `user_name` starts as `null`
+        // ON PURPOSE — the unset state is what almost every install actually has, and it
+        // is the state the acceptance suite has to be able to reach without arranging
+        // anything.
+        case "get_appearance":
+          return { theme: mockConfig.theme, font_scale: mockConfig.font_scale };
+        case "set_theme": {
+          const t = String(args.theme);
+          // Refused, not coerced, exactly as the real command refuses it: quietly writing
+          // "dark" over an unexpected string looks like the CEO changing his own mind.
+          if (t !== "dark" && t !== "light" && t !== "system") {
+            throw new Error(`unknown theme "${t}"`);
+          }
+          mockConfig.theme = t;
+          persistMockConfig();
+          return null;
+        }
+        case "set_font_scale": {
+          const steps = [80, 90, 100, 110, 120, 135, 150];
+          const want = Number(args.scale);
+          // Snapped, not rejected — `snap_font_scale` in config.rs, mirrored.
+          mockConfig.font_scale = steps.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a), 100);
+          persistMockConfig();
+          return null;
+        }
+        case "get_user_identity":
+          return { name: mockConfig.user_name, initials: mockInitials(mockConfig.user_name) };
+        case "set_user_name": {
+          const n = String(args.name || "").trim();
+          mockConfig.user_name = n === "" ? null : n;
+          persistMockConfig();
+          return null;
+        }
 
         // ---- §7.2: the raw-retention window ----------------------------------------
         case "raw_retention":

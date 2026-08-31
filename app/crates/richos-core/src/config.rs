@@ -106,6 +106,110 @@ impl Assertiveness {
     }
 }
 
+/// Which lighting the app opens in. CEO ruling §15: "Dark is the default. A newly
+/// installed app opens dark. The user may switch to light at any time."
+///
+/// `System` is a THIRD option the CEO can pick, never the thing he gets without picking —
+/// which is why `Default` is `Dark` and not `System`. The ported settings segment offers
+/// all three (deeply's structure, kept), and the resolution of `System` to an actual
+/// palette happens in the UI, where the OS preference is observable; this store only ever
+/// holds the CHOICE.
+///
+/// Values match `data-th` in the settings menu and the strings `theme-boot.js` mirrors,
+/// verbatim, so the wire string never needs translating on either side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Theme {
+    Dark,
+    Light,
+    System,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme::Dark
+    }
+}
+
+impl Theme {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Theme::Dark => "dark",
+            Theme::Light => "light",
+            Theme::System => "system",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "dark" => Some(Theme::Dark),
+            "light" => Some(Theme::Light),
+            "system" => Some(Theme::System),
+            _ => None,
+        }
+    }
+}
+
+/// The steps the font-size control walks, as percentages of the 16px root.
+///
+/// A DISCRETE LADDER AND NOT A FREE NUMBER, deliberately. §15 makes font size a control —
+/// "`Ctrl`/`Cmd` `+` / `-` / `0` increase, decrease and reset the overall font size, exactly
+/// as on a web page" — and every reading of that is a stepper. A percentage the CEO can
+/// type into is a way to arrive at 43% type on a surface whose whole claim is that it is
+/// readable, and there is no keystroke in the ruling that produces an arbitrary number.
+pub const FONT_SCALE_STEPS: [u16; 7] = [80, 90, 100, 110, 120, 135, 150];
+
+/// 100% — the 16px root the type scale is authored against.
+pub const FONT_SCALE_DEFAULT: u16 = 100;
+
+/// Snap an arbitrary percentage to the nearest legal step.
+///
+/// The UI only ever sends a step, so this is not the normal path — it is what happens when
+/// a hand-edited config file, or a future control with a different ladder, offers something
+/// else. Rejecting it outright would silently reset the CEO's preference to 100%; rounding
+/// keeps his INTENT (bigger, or smaller) while keeping the invariant that a stored scale is
+/// always one this build can step away from.
+pub fn snap_font_scale(pct: u16) -> u16 {
+    let mut best = FONT_SCALE_DEFAULT;
+    let mut best_gap = u16::MAX;
+    for step in FONT_SCALE_STEPS {
+        let gap = step.abs_diff(pct);
+        if gap < best_gap {
+            best_gap = gap;
+            best = step;
+        }
+    }
+    best
+}
+
+fn font_scale_default() -> u16 {
+    FONT_SCALE_DEFAULT
+}
+
+/// The CEO's initials, for the circle at the foot of his own rail — "AB" from
+/// "Alex Booster".
+///
+/// Returns `None` rather than a guess whenever there is nothing honest to derive. That is
+/// the load-bearing half: the rail footer used to carry Rich's hand and the label "Rich",
+/// and the CEO's correction is that the foot of HIS rail shows HIS identity. An invented
+/// name would be worse than the thing it replaced, and `??` is a placeholder pretending to
+/// be a value — the surface renders the honest unset state instead (`app/ui/main.js`).
+///
+/// TWO TOKENS AT MOST, first and last, because that is what the pattern is: "Alex Booster"
+/// is AB, and "Alexander James Booster" is AB as well, not AJB. A single token gives a
+/// single letter rather than two letters off one word.
+pub fn initials_from(name: &str) -> Option<String> {
+    let tokens: Vec<&str> = name.split_whitespace().filter(|t| !t.is_empty()).collect();
+    let first = tokens.first()?.chars().next()?;
+    let mut out: String = first.to_uppercase().collect();
+    if tokens.len() > 1 {
+        if let Some(last) = tokens.last().and_then(|t| t.chars().next()) {
+            out.extend(last.to_uppercase());
+        }
+    }
+    Some(out)
+}
+
 /// The sensible fallback shown when no company name has been configured yet — matches
 /// the UI's own placeholder constant (`app/ui/main.js` `COMPANY_LABEL_FALLBACK`) so the
 /// two sides can never drift into showing two different defaults.
@@ -146,6 +250,23 @@ struct StoredConfig {
     /// serializes in a stable order and a diff of `config.json` is readable.
     #[serde(default)]
     techy_threads: BTreeMap<String, bool>,
+    /// §15: which lighting the app opens in. An ABSENT key is an absent opinion, and the
+    /// product's opinion is dark — `Theme::default()`, so every config file written before
+    /// theming existed reads as dark, which is also what a fresh install gets.
+    #[serde(default)]
+    theme: Theme,
+    /// §15: the font-size control's position, as a percentage of the 16px root. Absent
+    /// reads as 100%, which is the size the type scale is authored at.
+    #[serde(default = "font_scale_default")]
+    font_scale: u16,
+    /// The PERSON, not the company. `company_name` above is the entity in the rail header;
+    /// this is the human at the foot of the rail. There was no such field until the CEO's
+    /// correction to round 10.1, so an absent key is the overwhelmingly common case and
+    /// means exactly what it says: nobody has told the app who this is. It is `Option` and
+    /// not a defaulted string for that reason — there is no honest default for a person's
+    /// name, and the surface renders an unset state rather than inventing one.
+    #[serde(default)]
+    user_name: Option<String>,
     /// §7.2: how long the raw output survives. **The absent key is what carries the
     /// shipping default** — `RawRetention::default()` is `RAW_RETENTION_DAYS` /
     /// `RAW_MAX_TOTAL_BYTES`, so every config file already on disk keeps behaving exactly
@@ -166,6 +287,9 @@ impl Default for StoredConfig {
             techy_default: false,
             techy_threads: BTreeMap::new(),
             raw_retention: RawRetention::default(),
+            theme: Theme::default(),
+            font_scale: FONT_SCALE_DEFAULT,
+            user_name: None,
         }
     }
 }
@@ -398,6 +522,60 @@ impl ConfigStore {
         self.config.splash_first_shown_at = Some(now_millis);
         self.persist()?;
         Ok(true)
+    }
+
+    // ---- appearance: the two lightings and the type knob (§15) ---------------------
+
+    /// Which lighting he chose. `Theme::Dark` on a fresh install, by ruling.
+    pub fn theme(&self) -> Theme {
+        self.config.theme
+    }
+
+    pub fn set_theme(&mut self, theme: Theme) -> io::Result<()> {
+        if self.config.theme == theme {
+            return Ok(());
+        }
+        self.config.theme = theme;
+        self.persist()
+    }
+
+    /// The font control's position, as a percentage of the 16px root. Always one of
+    /// `FONT_SCALE_STEPS` — a value read off a hand-edited file is snapped on the way out
+    /// as well as on the way in, so a caller can never observe a scale it cannot step from.
+    pub fn font_scale(&self) -> u16 {
+        snap_font_scale(self.config.font_scale)
+    }
+
+    pub fn set_font_scale(&mut self, pct: u16) -> io::Result<()> {
+        let snapped = snap_font_scale(pct);
+        if self.config.font_scale == snapped {
+            return Ok(());
+        }
+        self.config.font_scale = snapped;
+        self.persist()
+    }
+
+    // ---- the person at the foot of the rail ----------------------------------------
+
+    /// The CEO's own name, or `None` when nobody has set one.
+    ///
+    /// There is deliberately no `user_name_or_default` twin of `company_name_or_default`.
+    /// A company with no name can honestly be called "My Company"; a PERSON with no name
+    /// cannot be called anything at all without inventing them. The surface asks for the
+    /// `Option` and renders an unset state.
+    pub fn user_name(&self) -> Option<&str> {
+        self.config.user_name.as_deref().filter(|s| !s.trim().is_empty())
+    }
+
+    pub fn set_user_name(&mut self, name: &str) -> io::Result<()> {
+        let trimmed = name.trim();
+        self.config.user_name = if trimmed.is_empty() { None } else { Some(trimmed.to_string()) };
+        self.persist()
+    }
+
+    /// His initials for the rail circle — `None` when the name is unset, never a guess.
+    pub fn user_initials(&self) -> Option<String> {
+        self.user_name().and_then(initials_from)
     }
 
     // ---- techy mode (design §3.1) ------------------------------------------------
@@ -880,4 +1058,181 @@ mod tests {
         assert!(store.splash_enabled());
         let _ = std::fs::remove_file(&path);
     }
+
+    // ---- §15: the two lightings, the type knob, and the person -----------------------
+
+    #[test]
+    fn a_fresh_install_opens_dark_and_at_100_percent() {
+        // The ruling is "dark is the default. A newly installed app opens dark." This is
+        // that sentence, as an assertion. `System` is a choice he can make, never the one
+        // he is given — a `Default` of `System` would make the opening palette depend on a
+        // macOS setting nobody in this ruling mentioned.
+        let path = tmp_path("appearance-fresh");
+        let _ = std::fs::remove_file(&path);
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.theme(), Theme::Dark);
+        assert_eq!(store.font_scale(), 100);
+        assert_eq!(store.user_name(), None);
+        assert_eq!(store.user_initials(), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_config_written_before_theming_existed_reads_as_dark() {
+        // The `splash_enabled` lesson, applied: an ABSENT key is an absent OPINION, and the
+        // product's opinion is dark. A file from before this field existed must not read as
+        // "the CEO chose light" — nor as `System`, which would silently hand the decision
+        // to the OS.
+        let path = tmp_path("appearance-legacy");
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, r#"{"company_name":"FemcBoost","assertiveness":"quiet"}"#).unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.theme(), Theme::Dark);
+        assert_eq!(store.font_scale(), FONT_SCALE_DEFAULT);
+        assert_eq!(store.company_name(), Some("FemcBoost"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // The next two tests are deliberately SEPARATE, one preference each, and the reason is
+    // worth writing down: `persist()` rewrites the whole file, so a single test that set the
+    // theme AND the scale passed even when `set_theme` was mutated to skip persisting —
+    // the scale's write had carried the in-memory theme to disk for it. A test that cannot
+    // fail for the reason it names is not a test. One setter per test, so each one's write
+    // is the only write.
+
+    #[test]
+    fn the_theme_survives_a_reopen_on_its_own() {
+        let path = tmp_path("appearance-durable-theme");
+        let _ = std::fs::remove_file(&path);
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_theme(Theme::Light).unwrap();
+        }
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.theme(), Theme::Light);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_font_scale_survives_a_reopen_on_its_own() {
+        let path = tmp_path("appearance-durable-scale");
+        let _ = std::fs::remove_file(&path);
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_font_scale(135).unwrap();
+        }
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.font_scale(), 135);
+        assert_eq!(store.theme(), Theme::Dark, "and the untouched preference is untouched");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn every_theme_string_round_trips_through_the_wire_form() {
+        // `as_str` is what crosses to `theme-boot.js` and `parse` is what comes back. A
+        // rename on one side only would leave the CEO's stored choice unreadable and
+        // silently reset him to dark on the next launch.
+        for t in [Theme::Dark, Theme::Light, Theme::System] {
+            assert_eq!(Theme::parse(t.as_str()), Some(t));
+        }
+        assert_eq!(Theme::parse("Dark"), None, "the wire form is lowercase and exact");
+        assert_eq!(Theme::parse(""), None);
+    }
+
+    #[test]
+    fn a_scale_off_the_ladder_is_snapped_not_reset() {
+        // Rounding keeps his INTENT (bigger, or smaller); rejecting would silently put him
+        // back at 100% — the one outcome a hand-edited file should not produce.
+        assert_eq!(snap_font_scale(133), 135);
+        assert_eq!(snap_font_scale(101), 100);
+        assert_eq!(snap_font_scale(0), 80, "below the ladder clamps to its bottom");
+        assert_eq!(snap_font_scale(9000), 150, "above it clamps to its top");
+        for step in FONT_SCALE_STEPS {
+            assert_eq!(snap_font_scale(step), step, "a legal step is never moved");
+        }
+    }
+
+    #[test]
+    fn a_stored_scale_is_always_one_the_control_can_step_from() {
+        let path = tmp_path("appearance-snap");
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, r#"{"company_name":null,"font_scale":133}"#).unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert!(
+            FONT_SCALE_STEPS.contains(&store.font_scale()),
+            "a hand-edited 133% must not become a position the +/- control cannot leave"
+        );
+        assert_eq!(store.font_scale(), 135);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn initials_are_first_and_last_and_never_invented() {
+        assert_eq!(initials_from("Alex Booster").as_deref(), Some("AB"));
+        // Two tokens at most: the pattern is first-and-last, not every word.
+        assert_eq!(initials_from("Alexander James Booster").as_deref(), Some("AB"));
+        // One token gives ONE letter — two letters off one word would be a fabrication.
+        assert_eq!(initials_from("Alex").as_deref(), Some("A"));
+        assert_eq!(initials_from("  alex   booster  ").as_deref(), Some("AB"));
+        assert_eq!(initials_from("ada lovelace").as_deref(), Some("AL"));
+        // NOTHING to derive from is `None`, never a placeholder. The CEO's instruction was
+        // explicit: do not invent a name and do not ship "??".
+        assert_eq!(initials_from(""), None);
+        assert_eq!(initials_from("   "), None);
+        assert_eq!(initials_from("\t\n"), None);
+    }
+
+    #[test]
+    fn initials_survive_a_name_that_is_not_ascii() {
+        // `chars().next()` and not `bytes()[0]`: a byte index into a multi-byte name is a
+        // panic, and the first person it would fire on is a real user with a real name.
+        assert_eq!(initials_from("Ólafur Árnason").as_deref(), Some("ÓÁ"));
+        assert_eq!(initials_from("张 伟").as_deref(), Some("张伟"));
+    }
+
+    #[test]
+    fn the_person_is_unset_until_someone_sets_them() {
+        // There is no `user_name_or_default`, and this test is where that absence is
+        // asserted rather than merely true. A company with no name can honestly be called
+        // "My Company"; a person with no name cannot be called anything without inventing
+        // them, so the store reports `None` and the surface renders the unset state.
+        let path = tmp_path("person");
+        let _ = std::fs::remove_file(&path);
+        let mut store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.user_name(), None);
+        assert_eq!(store.user_initials(), None);
+        assert_eq!(
+            store.company_name_or_default(),
+            COMPANY_NAME_FALLBACK,
+            "the COMPANY still has an honest fallback; only the person does not"
+        );
+
+        store.set_user_name("Alex Booster").unwrap();
+        assert_eq!(store.user_name(), Some("Alex Booster"));
+        assert_eq!(store.user_initials().as_deref(), Some("AB"));
+
+        // Clearing it returns to unset rather than storing an empty string that would
+        // render as a circle with nothing in it and a label with nothing after it.
+        store.set_user_name("   ").unwrap();
+        assert_eq!(store.user_name(), None);
+        assert_eq!(store.user_initials(), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_person_survives_a_reopen_and_is_separate_from_the_company() {
+        let path = tmp_path("person-durable");
+        let _ = std::fs::remove_file(&path);
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_company_name("FemcBoost").unwrap();
+            store.set_user_name("Alex Booster").unwrap();
+        }
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.company_name(), Some("FemcBoost"));
+        assert_eq!(store.user_name(), Some("Alex Booster"));
+        assert_eq!(store.user_initials().as_deref(), Some("AB"));
+        let _ = std::fs::remove_file(&path);
+    }
+
 }

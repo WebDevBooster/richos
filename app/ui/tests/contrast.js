@@ -201,6 +201,47 @@ async function openApp(browser, theme, holdSplash) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+
+  // DRIVE THE APP'S OWN THEME, NOT THE OS PREFERENCE — and this is the whole reason this
+  // suite kept meaning something on the day dark mode landed.
+  //
+  // Until 2026-08-31 the app shipped ONE palette, so `colorScheme` on the page was a
+  // reasonable stand-in for "the other theme": there was no other theme, and check 10 said
+  // so out loud. Now there are two, and they are chosen by the CEO and stored in
+  // `config.rs` — `:root[data-theme="light"]`, not `@media (prefers-color-scheme: dark)`.
+  // An OS preference decides NOTHING about which palette this app paints.
+  //
+  // So had this line stayed as it was, both "themes" would have walked the DARK palette,
+  // the light half of every check above would have been a re-run of the dark half, and the
+  // suite would have reported a clean sweep of both themes while never once measuring light
+  // mode — the precise failure mode check 10 was written to catch, arriving through the
+  // door check 10 was not watching. `colorScheme` is still passed, because `system` resolves
+  // against it and a theme-independent element that DID respond to the OS should still be
+  // seen; but the app's own preference is what is set here.
+  //
+  // It is seeded into `localStorage` in an init script, which is to say through the exact
+  // mirror `theme-boot.js` reads before first paint. Setting `data-theme` after load would
+  // measure a state the shipping app never actually boots into.
+  // BOTH the mirror and the STORE, and the second one is the one that decides. Seeding
+  // `richos-theme` alone does not work and finding out why is worth the two lines: the
+  // mirror is a cache, `syncAppearanceFromBackend` reconciles it against the backend at
+  // init, and the BACKEND WINS — so a mirror-only seed is overwritten by the store's answer
+  // a few hundred milliseconds after boot, and the walk measures the store's theme while
+  // claiming the seed's. That is the product behaving exactly as designed. The test has to
+  // seed the thing that actually holds the preference.
+  await page.addInitScript((t) => {
+    try {
+      window.localStorage.setItem("richos-theme", t);
+      window.localStorage.setItem("richos-font-scale", "100");
+      window.localStorage.setItem(
+        "richos-mock-config",
+        JSON.stringify({ theme: t, font_scale: 100, user_name: null })
+      );
+    } catch (e) {
+      /* storage unavailable: theme-boot falls back to the shipped default, which is dark */
+    }
+  }, theme);
+
   if (holdSplash) {
     // Hold the curtain deterministically rather than racing it. `main.js` calls
     // `RichSplash.yieldNow("app-ready")` the moment the shell is usable, which on this
@@ -223,6 +264,9 @@ async function openApp(browser, theme, holdSplash) {
   await page.goto(APP);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   if (holdSplash) {
+    // §15's always-dark clamp is in force for the whole of this walk, by ruling and not by
+    // accident, so a light-labelled opening-screen walk correctly reports dark.
+    assertTheme(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "dark", theme);
     page.__errors = errors;
     return page;
   }
@@ -231,8 +275,27 @@ async function openApp(browser, theme, holdSplash) {
   // it: a walk taken underneath it would report the whole shell unresolvable.
   await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(300);
+  // THE THEME IS CHECKED HERE AND NOT EARLIER, and the reason is a real one this assertion
+  // caught the day the splash gained a duration. While the opening screen's curtain is up
+  // the resolved theme is CLAMPED TO DARK (§15's one permanent exception), so a light walk
+  // sampled before the curtain lifts reports dark — truthfully, and about a state this walk
+  // is not measuring. Once the splash held for three seconds rather than for however long
+  // booting took, that window stopped being too narrow to hit and every light walk failed.
+  // The clamp drops with the curtain, so this is the first moment the answer is about the
+  // palette the walk is actually going to measure.
+  assertTheme(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), theme, theme);
   page.__errors = errors;
   return page;
+}
+
+/// The seed either took or this walk is measuring something other than what it claims. A
+/// silent miss here would relabel a dark walk as a light one, which is worse than no walk.
+function assertTheme(painted, expected, asked) {
+  assert(
+    painted === expected,
+    "asked for the " + asked + " theme and the document painted " + painted + " — the walk " +
+      "below would be labelled with a palette it is not measuring"
+  );
 }
 
 async function walk(page, surface, theme) {
@@ -627,31 +690,141 @@ async function main() {
   // ---- 10. the dark run is not a fiction --------------------------------------------------
 
   await run.check("10  the second theme is a real second theme, or is reported as not one", async () => {
+    // THIS CHECK CHANGED SHAPE ON 2026-08-31, AND THE OLD SHAPE IS WHY.
+    //
+    // It used to count `@media (prefers-color-scheme: dark)` blocks and, finding none,
+    // assert the two runs were IDENTICAL — which was true and honest while the app shipped
+    // one palette. Then dark mode landed, and it landed as `:root[data-theme="light"]` with
+    // dark as the shipped default (§15: "a newly installed app opens dark"), because the
+    // theme is the CEO's stored choice and not his operating system's.
+    //
+    // Left alone, this check would have kept passing — zero `prefers-color-scheme` blocks,
+    // two identical runs — and would have kept PRINTING "THE APP SHIPS ONE THEME" over an
+    // app that shipped two. A green assertion attached to a false sentence is the worst
+    // outcome available here: it is the "nobody checked" that reads as "somebody checked".
+    //
+    // So it now counts the mechanism that actually ships, and it counts BOTH, because
+    // either is a legitimate way to have a second theme and a build that switched from one
+    // to the other must not slip through the gap between them.
     const css = CSS_FILES.map((f) => fs.readFileSync(f, "utf8")).join("\n");
-    const darkBlocks = (css.match(/@media[^{]*prefers-color-scheme\s*:\s*dark/g) || []).length;
-    const light = perSurface["shell/light"];
-    const dark = perSurface["shell/dark"];
-    assert(light && dark, "check 9 must have run both themes before this one can compare them");
-    const sigOf = (o) => Object.keys(o.failures).sort().join("|");
-    const identical = sigOf(light) === sigOf(dark) && light.nodesChecked === dark.nodesChecked;
-    if (darkBlocks === 0) {
+    const mediaBlocks = (css.match(/@media[^{]*prefers-color-scheme\s*:\s*dark/g) || []).length;
+    const attrBlocks = (css.match(/:root\s*\[\s*data-theme\s*=/g) || []).length;
+    const themed = mediaBlocks + attrBlocks;
+
+    assert(
+      perSurface["shell/light"] && perSurface["shell/dark"],
+      "check 9 must have run both themes before this one can compare them"
+    );
+
+    // WHAT THIS CHECK COMPARES, AND WHY IT IS NO LONGER THE FAILURE SIGNATURES.
+    //
+    // The original compared the two runs' sets of FAILING colour pairings and asserted they
+    // differed. That was a serviceable proxy while the app had 456 failures — two palettes
+    // fail differently. It has one fatal property, and this build hit it within the hour:
+    // WHEN THE APP REACHES ZERO FAILURES, BOTH SETS ARE EMPTY, THEREFORE IDENTICAL,
+    // THEREFORE THIS CHECK FAILS — and it fails hardest exactly when the work is most
+    // correct, which trains whoever is on the other end to disable it.
+    //
+    // Fixing the contrast debt must not be what breaks the theme check. So the proof is now
+    // taken from the PIXELS: the shell's own painted background, read out of both walks.
+    // That is evidence a clean app still produces, and it is closer to the thing being
+    // claimed anyway — "there are two palettes" is a statement about colours, not failures.
+    const grounds = {};
+    for (const t of THEMES) {
+      const page = await openApp(browser, t, false);
+      grounds[t] = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      await page.close();
+    }
+    if (themed === 0) {
       assert(
-        identical,
-        "the shipped CSS declares no prefers-color-scheme:dark rule, so the dark run must be palette-identical — " +
-          "it is not, which means something IS responding to the scheme and this note is now wrong"
+        grounds.light === grounds.dark,
+        "the shipped CSS declares no second-theme rule of either kind, yet the two runs paint " +
+          "different grounds (" + grounds.dark + " vs " + grounds.light + ") — something IS " +
+          "responding to the theme and this note is now wrong"
       );
-      return (
-        "0 `prefers-color-scheme: dark` blocks in style.css + splash.css. THE APP SHIPS ONE THEME. " +
-        "The dark run is a same-palette re-check under a dark OS preference, NOT dark-mode coverage — " +
-        "there is no dark mode to cover. The moment one lands, this check flips to demanding the two runs differ."
-      );
+      return "0 second-theme rules in style.css + splash.css. THE APP SHIPS ONE THEME.";
     }
     assert(
-      !identical,
-      darkBlocks + " `prefers-color-scheme: dark` block(s) are shipped, but the dark run produced the identical " +
-        "palette — the emulation is not reaching them, so the dark half of every check above is a fiction"
+      grounds.light !== grounds.dark,
+      themed + " second-theme rule(s) are shipped, but both walks paint the same body background (" +
+        grounds.dark + ") — the theme is not reaching the elements, so half of every check above " +
+        "is a fiction"
     );
-    return darkBlocks + " dark blocks shipped, and the dark run exercises them: the two runs differ";
+    const fresh = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: "light" });
+    await fresh.goto(APP);
+    await fresh.waitForSelector(".nav-thread", { state: "attached" });
+    const virgin = await fresh.evaluate(() => document.documentElement.getAttribute("data-theme"));
+    await fresh.close();
+    assertEqual(
+      virgin,
+      "dark",
+      "a install with NO stored preference, under a LIGHT operating system, must still open " +
+        "dark — CEO ruling §15. It opened " + virgin + ", which means the OS is deciding a " +
+        "question the ruling gives to the CEO"
+    );
+
+    return (
+      themed + " second-theme rule(s) shipped (" + attrBlocks + " `:root[data-theme=]`, " +
+      mediaBlocks + " `prefers-color-scheme`), and both walks exercise them: the two runs " +
+      "differ, the body ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
+      "fresh install under a light OS still opens dark."
+    );
+  });
+
+  // ---- 10b. this suite measures the same amount however it was started ---------------------
+
+  await run.check("10b  every surface was walked in both themes — and standalone is not a thinner run", async () => {
+    // RAISED BY THE LEAD ON 2026-08-31, and the concern is right even though the symptom
+    // that prompted it was not: "a gate that silently degrades when run directly is a gate
+    // someone will one day trust while it measures nothing."
+    //
+    // The answer is that it does not degrade, and this check is that answer in a form nobody
+    // has to take on trust. `run.js` passes `RICHOS_UI_TESTS_LEDGER` to its children, and
+    // that variable does exactly one thing (`lib/harness.js`): it decides whether `report()`
+    // appends a line of evidence for `run.js` to gate on. `recordEvidence` returns early
+    // without it. It reaches no driver, no walk and no threshold — the harness's own comment
+    // has said so since it was written: "`node workers.js` on its own is byte-for-byte
+    // unchanged."
+    //
+    // What this asserts is the thing that would actually be worth knowing: that the walk
+    // INVENTORY is complete. A suite that reached two surfaces out of ten and reported a
+    // clean sweep of both themes is the failure being guarded against, and it is a failure
+    // about coverage rather than about an environment variable — so it is measured as one,
+    // and it holds whichever way the suite was started.
+    // THE EXPECTED LIST COMES FROM THE LEDGER ON DISK, NOT FROM `SURFACES`.
+    //
+    // The first draft of this check built both sides out of `SURFACES` and was therefore
+    // incapable of failing: deleting a surface deleted it from the expectation too, and the
+    // mutation that was supposed to prove the check sailed through it. Both sides have to be
+    // read off disk or neither is. `contrast-debt.json`'s `surfaceFloors` is the second
+    // source — it is committed, it is what check 9's floors are already gated on, and a
+    // surface removed from the driver list is still named there.
+    const named = Object.keys(debt.surfaceFloors).sort();
+    const walkedNames = [...new Set(Object.keys(perSurface).map((k) => k.split("/")[0]))].sort();
+    assertEqual(
+      named.filter((n) => !walkedNames.includes(n)),
+      [],
+      "these surfaces have a floor in contrast-debt.json and were never walked. A driver list " +
+        "that quietly got shorter still runs every check it declares, so run.js's " +
+        "declared-vs-observed gate cannot see it — this is the only thing that can"
+    );
+    const expected = [];
+    for (const n of walkedNames) for (const t of THEMES) expected.push(n + "/" + t);
+    assertEqual(
+      expected.filter((k) => !perSurface[k]),
+      [],
+      "a surface was walked in one theme and not the other"
+    );
+    assertEqual(
+      Object.keys(perSurface).length,
+      named.length * THEMES.length,
+      "the walk inventory and the committed floor list disagree"
+    );
+    return (
+      Object.keys(perSurface).length + " walks completed (" + named.length + " surfaces x " + THEMES.length +
+      " themes), and the count is the same started directly or under run.js: " +
+      "RICHOS_UI_TESTS_LEDGER gates only whether evidence is APPENDED, never what is measured."
+    );
   });
 
   // ---- 11. the obscured bucket is not a hiding place ---------------------------------------
@@ -877,6 +1050,11 @@ main().catch((e) => {
 //           has nothing wrong with what is left, which is precisely the run that would
 //           otherwise read as an improvement
 //  10  style.css gains a real `@media (prefers-color-scheme: dark)` block AND the suite
+// 10b  drop three entries from SURFACES -> check 10b. A short inventory that still reported
+//      its findings is a clean bill of health over whatever it happened to reach; run.js's
+//      declared-vs-observed gate cannot see it, because the suite would run every check it
+//      declares. Also: unsetting RICHOS_UI_TESTS_LEDGER changes NOTHING here, which is the
+//      point of the check and was verified by running it both ways.
 //      stops passing `colorScheme` to `newPage`
 //        -> "1 dark block(s) are shipped, but the dark run produced the identical palette —
 //           the emulation is not reaching them, so the dark half of every check above is a

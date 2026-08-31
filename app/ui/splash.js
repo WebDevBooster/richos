@@ -39,6 +39,14 @@
   // of the Rust `ConfigStore` (durable, authoritative, reconciled by `main.js` after boot);
   // `last` is the no-immediate-repeat guard, which has to survive a relaunch because the
   // draw happens once per LAUNCH, so the previous draw is always in a previous process.
+  /// The clock the hold is measured on. `performance.now()` is monotonic and immune to a
+  /// wall-clock adjustment mid-launch; `Date.now()` is the fallback. Neither is stored and
+  /// neither is displayed, so no timezone question arises here - the UTC ruling applies to
+  /// the durable stamps in `config.rs`, which are epoch millis and therefore already UTC.
+  var now = function () {
+    return window.performance && window.performance.now ? window.performance.now() : Date.now();
+  };
+
   var KEY_ENABLED = "richos.splash.enabled";
   var KEY_LAST = "richos.splash.last";
 
@@ -51,6 +59,36 @@
   // in main.js, a command that never returns - the splash still leaves. A doorway that can
   // become a wall is worse than no doorway.
   var CEILING_MS = 4000;
+
+  // HOW LONG THE COMPOSITION IS ON SCREEN. CEO, 2026-08-31: "the splash shows for 3 seconds
+  // by default", with 3-5 s by splash TYPE to come later.
+  //
+  // It is here, named, because it was not anywhere before: the curtain simply left the
+  // moment `main.js` reported the app usable, which on this machine is a few hundred
+  // milliseconds - so the answer to "how long does the splash show for?" was "however long
+  // booting took", which is not a duration anyone chose. Making it a constant is most of the
+  // point of this change; the per-type range is NOT built, and the seam for it is the
+  // argument `holdFor()` would take.
+  //
+  // IT DOES NOT DELAY THE LAUNCH, and that rule is unchanged and still binding. The app
+  // underneath is live, focused and reachable from its first frame, and this curtain is
+  // `pointer-events: none` for its whole life - so holding it is not a wait, it is a layer
+  // that has not faded yet. The two things that prove it are still true and still tested:
+  // his first keystroke or touch yields IMMEDIATELY (the hold is never allowed to catch his
+  // hand), and the ceiling still fires on a launch that never reports ready.
+  var HOLD_MS = 3000;
+
+  /// When the composition went up, for measuring the hold against. `null` until it does.
+  var shownAt = null;
+
+  /// How much of the hold is left, in ms. Zero once it is served - and zero for any caller
+  /// that is not the app-ready path, because the hold governs the ceremony and never the
+  /// CEO's hand.
+  function holdRemaining() {
+    if (shownAt === null) return 0;
+    var left = HOLD_MS - (now() - shownAt);
+    return left > 0 ? left : 0;
+  }
 
   // Every token an entry must carry, and what it has to be. An entry missing one is not
   // drawn half-dressed; it is dropped from the pool.
@@ -516,6 +554,7 @@
   var node = null;
   var yielded = false;
   var ceiling = null;
+  var holdTimer = null;
   var state = {
     shown: false,
     variationId: null,
@@ -530,7 +569,22 @@
     node = null;
   }
 
-  function onInput() {
+  /// The CEO's first keystroke or touch gets the curtain out of the way — with ONE
+  /// exception, and it is the settings button.
+  ///
+  /// That button is deliberately drawn ABOVE this curtain (z-index 300 against its 200)
+  /// because §15 requires it on every screen and its floor is "Bust a bug". If reaching it
+  /// counted as first input, the curtain would lift the instant it was touched — and the
+  /// bug report the CEO was opening would start from the shell instead of from the opening
+  /// screen he was actually looking at. That is precisely the outcome the ruling names:
+  /// "reporting a bug must never require navigating away from the screen the bug is on",
+  /// and the screen a first-run user is most likely to be stuck on is this one.
+  ///
+  /// Everything else still dismisses on first input, unchanged. The exception is exactly as
+  /// wide as the one control that is meant to float above the curtain.
+  function onInput(e) {
+    var t = e && e.target;
+    if (t && t.closest && t.closest(".settings")) return;
     yieldNow("first-input");
   }
 
@@ -538,7 +592,37 @@
   /// keystroke or touch, and by the ceiling - whichever happens first, and only once.
   function yieldNow(reason) {
     if (yielded) return;
+
+    // THE HOLD, AND THE ONE CALLER IT APPLIES TO.
+    //
+    // `app-ready` is the ceremony finishing early: the app became usable before the
+    // composition had had its three seconds. That one waits out the remainder. Everything
+    // else goes now, and the two that matter are exactly the two that must never be made to
+    // wait - "first-input" is the CEO's hand, and §5.5 forbids anything on this surface that
+    // is delaying; "ceiling" is the failsafe, and a failsafe that could itself be deferred
+    // is not one.
+    //
+    // `yielded` is deliberately NOT set here, so a keystroke arriving during the hold still
+    // takes the fast path and reports its own reason rather than being swallowed as a
+    // duplicate.
+    if (reason === "app-ready") {
+      var left = holdRemaining();
+      if (left > 0) {
+        if (holdTimer === null) {
+          holdTimer = setTimeout(function () {
+            holdTimer = null;
+            yieldNow("held");
+          }, left);
+        }
+        return;
+      }
+    }
+
     yielded = true;
+    if (holdTimer !== null) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
     state.reason = reason;
     if (ceiling !== null) {
       clearTimeout(ceiling);
@@ -552,6 +636,10 @@
     node.classList.add("splash--settled");
     node.classList.add("splash--yielding");
     setTimeout(removeSelf, FADE_MS + 40);
+    // Drop the always-dark clamp as the curtain goes, not after it has gone: the fade is
+    // the app arriving, and the control crossing over with it is the same "one system, two
+    // lightings" move every other element makes.
+    if (window.RichTheme) window.RichTheme.forceDark(false);
   }
 
   function start() {
@@ -577,6 +665,19 @@
     }
     state.shown = true;
     state.variationId = entry.id;
+    shownAt = now();
+    // §15's ONE PERMANENT EXCEPTION: "because of its nature the start screen will always
+    // need to be in dark mode", and no switch reaches it. The curtain's own composition was
+    // always dark — it draws from `--splash-*` properties this file sets, never from the
+    // app's theme tokens — but the SETTINGS BUTTON sits above the curtain (it has to; its
+    // floor is "Bust a bug" from every screen) and it does read those tokens. Without this
+    // clamp a CEO on light mode gets an ivory control floating on a midnight composition.
+    //
+    // `RichTheme` and not `RichSettings`: theme-boot.js is loaded in `<head>`, so it is
+    // certain to exist here, whereas settings-button.js loads after this file. The clamp is
+    // a FORCE flag and never writes the preference, so light mode is exactly where he left
+    // it the moment the curtain lifts.
+    if (window.RichTheme) window.RichTheme.forceDark(true);
     write(KEY_LAST, entry.id);
     window.addEventListener("keydown", onInput, true);
     window.addEventListener("pointerdown", onInput, true);

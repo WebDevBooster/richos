@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RichOS</title>
+    <!-- THE THEME, BEFORE THE STYLESHEETS. Synchronous and first so the CEO's choice is in
+         the FIRST paint: an async read of config.rs cannot decide frame one, and booting on
+         the default then correcting is a full-screen flash of the wrong palette on every
+         launch. See theme-boot.js — the durable answer still lives in config.rs; this
+         applies a mirror of it and main.js reconciles the two at init. -->
+    <script src="theme-boot.js"></script>
     <link rel="stylesheet" href="style.css" />
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->
@@ -21,6 +27,19 @@
     <script src="splash-library.js"></script>
     <script src="splash.js"></script>
 
+    <!-- THE SETTINGS BUTTON, MOUNTED HERE AND NOT PER-SURFACE.
+
+         CEO ruling §15: "That little settings button is ALWAYS EVERYWHERE ON EVERY PAGE."
+         It is global chrome, so it is mounted once against `document.body` by the script
+         itself — there is no per-screen include to forget, which is the only way an
+         "on every screen" invariant survives the next screen being added.
+
+         It loads HERE, beside the opening screen and before the shell, because its floor —
+         "Bust a bug" — has to be reachable from the very first frame. The screen a first-run
+         user is most likely to be stuck on is the one the curtain is still covering, and
+         reporting a bug must never require navigating away from the screen the bug is on. -->
+    <script src="settings-button.js"></script>
+
     <div id="app">
       <!-- Backdrop for the rail when it is a full-height drawer (below 820px, §20). -->
       <div id="rail-scrim" hidden></div>
@@ -29,7 +48,37 @@
            never a flat list of every conversation, and never a channel list. -->
       <aside id="rail" aria-label="Entities and threads">
         <div id="rail-header">
-          <span id="rail-company" class="rail-company"></span>
+          <!-- THE WORDMARK, WHERE "My Company" USED TO BE (CEO ruling §15).
+
+               "Upper left is the RichOS wordmark-logo, not the words 'My Company'. The
+               user's company or companies are `rail-group` items in the sidebar." They
+               already are, below — so this corner stopped being an identity slot and became
+               the product's own mark, and the placeholder it displaced was never the CEO's
+               company anyway. `get_company_name` and its store are untouched and still
+               reachable; nothing about the company was deleted, it just stopped being
+               rendered here.
+
+               INLINE, not an `<img>`. The mark has to be INKED PER THEME, and CSS cannot
+               reach inside an `<img>`. `RichOS-logo-wordmark_v3.5_black-and-white.svg` is
+               two-tone by construction: the R and the five letters are the ink, and the
+               arrow inside the R is a KNOCK-OUT — a hole, not a white shape. So the ink is
+               `currentColor` (dark `#DFE4EE`, light `#0C1322`, from `.rail-wordmark`) and
+               the arrow is `var(--rail-bg)`, which keeps it a hole in both themes instead
+               of a white smear on a midnight rail. Its height is in rem, so the font
+               control scales it with everything else. -->
+          <svg id="rail-wordmark" class="rail-wordmark" viewBox="0 0 3299.1 754.5"
+               role="img" aria-label="RichOS" xmlns="http://www.w3.org/2000/svg">
+          <path id="R" fill="currentColor" d="M517,744h227l-85.2-120.4c-41.7-58.7-83.3-117.5-124.9-176.2c-0.7-0.9-1.3-1.9-2.3-3.4c2.6-1.3,5.1-2.5,7.6-3.7c26.2-12.9,50.3-28.8,70.8-49.7c29.9-30.6,47-67.6,53.7-109.4c8.3-52.1,2.1-102.4-22.8-149.2C601.2,57.3,539.1,13.7,455.2,1.8c-4.1-0.6-8.1-1.2-12.2-1.8C295.3,0,147.7,0,0,0c0,133.5,0,266.7,0,400c12.8-17,24.9-34.6,38.5-51c45.4-55.2,99.8-100.2,159.9-138.6c1.1-0.7,2.2-1.5,3.3-2.2c0.3-0.2,0.4-0.5,1-1.1c-3.1-4.3-6.3-8.8-9.5-13.2c-7.2-10-14.4-20-21.6-30c-3.1-4.3-4.6-9-2.1-14c2.5-4.9,7.1-6,12.2-6c93.8,0,187.6,0,281.5,0c3.5,0,7.2-0.2,9.1,3.6c2,3.8,0.2,7-1.9,10.2c-43.9,66.2-87.8,132.5-131.6,198.7c-0.6,1-1.3,1.9-2,2.9c-7.2,9.8-17.5,10.1-24.9,0.3c-12.3-16.4-24.5-32.8-36.7-49.3c-1.2-1.6-2.4-3.1-3.9-5c-6.3,4.3-12.4,8.3-18.3,12.5c-46.1,32.6-89.8,68-128.1,109.6C62.9,494.7,23.5,573.1,8,663.2c-3.6,20.6-4.9,41.6-7.2,62.5c-0.2,1.8-0.5,3.6-0.8,5.4c0,3.7,0,9.3,0,13c1-1.6,2.3-5.2,2.9-6.9c19.5-54,47.4-103.2,86.8-145.2c59.3-63.2,132.4-100.6,217.6-115.2c6.4-1.1,9.7,0.4,13.6,5.5"/>
+          <path id="arrow" fill="var(--rail-bg)" d="M0,400c12.8-17,24.9-34.6,38.5-51c45.4-55.2,99.8-100.2,159.9-138.6c1.1-0.7,2.2-1.5,3.3-2.2c0.3-0.2,0.4-0.5,1-1.1c-3.1-4.3-6.3-8.8-9.5-13.2c-7.2-10-14.4-20-21.6-30c-3.1-4.3-4.6-9-2.1-14c2.5-4.9,7.1-6,12.2-6c93.8,0,187.6,0,281.5,0c3.5,0,7.2-0.2,9.1,3.6c2,3.8,0.2,7-1.9,10.2c-43.9,66.2-87.8,132.5-131.6,198.7c-0.6,1-1.3,1.9-2,2.9c-7.2,9.8-17.5,10.1-24.9,0.3c-12.3-16.4-24.5-32.8-36.7-49.3c-1.2-1.6-2.4-3.1-3.9-5c-6.3,4.3-12.4,8.3-18.3,12.5c-46.1,32.6-89.8,68-128.1,109.6C62.9,494.7,23.5,573.1,8,663.2c-3.6,20.6-4.9,41.6-7.2,62.5c-0.2,1.8-0.5,3.6-0.8,5.4C0,620.7,0,510.3,0,400z"/>
+          <g id="wordmark">
+          <path id="letter-i" fill="currentColor" d="M809.5,58.3H946v124.2H809.5V58.3z M945.1,744H811.4V241.7h133.7V744z"/>
+          <path id="letter-c" fill="currentColor" d="M1275.5,641.8c55.4,0,88.8-38.2,101.2-89.8l115.6,51.6c-22.9,82.1-101.2,150.9-217.7,150.9c-146.1,0-249.3-106-249.3-261.7c0-154.7,103.1-260.7,249.3-260.7c115.6,0,192,66.8,215.8,148l-113.6,53.5c-12.4-51.6-45.8-89.8-101.2-89.8c-70.7,0-117.5,55.4-117.5,149C1158,587.4,1204.8,641.8,1275.5,641.8z"/>
+          <path id="letter-h" fill="currentColor" d="M1556.3,58.3H1690v234.9c27.7-32.5,73.5-61.1,137.5-61.1c105.1,0,169,71.6,169,180.5V744h-133.7V450.8c0-56.3-22.9-96.5-80.2-96.5c-46.8,0-92.6,33.4-92.6,99.3V744h-133.7V58.3z"/>
+          <path id="letter-O" fill="currentColor" d="M2398.6,47.8c188.1,0,323.7,146.1,323.7,353.4s-135.6,353.4-323.7,353.4c-189.1,0-324.7-146.1-324.7-353.4S2209.5,47.8,2398.6,47.8z M2398.6,171c-107.9,0-183.4,89.8-183.4,230.2c0,140.4,75.4,230.2,183.4,230.2c107,0,182.4-89.8,182.4-230.2C2581,260.8,2505.5,171,2398.6,171z"/>
+          <path id="letter-S" fill="currentColor" d="M2836,525.3c50.6,71.6,124.2,111.7,199.6,111.7c71.6,0,124.2-31.5,124.2-89.8c0-63-64.9-71.6-168.1-94.5c-102.2-23.9-213-56.3-213-192c0-130.8,112.7-213,255-213c118.4,0,211.1,52.5,258.8,121.3l-92.6,90.7c-40.1-56.3-93.6-94.5-170-94.5c-66.9,0-112.7,32.5-112.7,82.1c0,53.5,49.7,64,139.4,84c108.9,23.9,242.6,51.6,242.6,201.5c0,138.5-122.2,221.6-268.4,221.6c-115.6,0-235.9-52.5-291.3-135.6L2836,525.3z"/>
+          </g>
+          </svg>
+          <span id="rail-company" class="rail-company" hidden></span>
           <button id="rail-drawer-close" class="rail-icon-btn" type="button" hidden aria-label="Close navigation">
             ✕
           </button>
@@ -70,13 +119,50 @@
              their entity's group (grouping is done by the ledger binding, not here). -->
         <nav id="rail-nav" aria-label="Entity areas"></nav>
 
+        <!-- THE FOOT OF THE RAIL IS THE USER'S, NOT RICH'S (CEO correction to round 10.1).
+
+             It carried `assets/rich-hand.png` and the label "Rich", and the round-10.1
+             mockups kept that. The CEO's correction supersedes them: this is HIS identity
+             at the foot of HIS rail — his initials in a filled circle, then his name, the
+             pattern his Codex app uses. Rich is who the whole surface is a conversation
+             with; a nameplate for him at the bottom of the CEO's own sidebar was the one
+             place the product introduced itself to a person who had already met it.
+
+             THE UNSET STATE IS REAL AND IS NOT A GUESS. There was no user-name preference
+             in this product until today, so "nobody has said who this is" is the state
+             almost every install starts in. The circle renders EMPTY — no letters — and
+             the label reads "Set your name", which is true, is not a fabricated identity,
+             and is not "??" (a placeholder pretending to be a value). The row is a button
+             in that state so the sentence is an offer rather than a dead end; it opens the
+             same preferences popover the ⚙ opens, which is where the field lives. -->
         <div id="rail-footer">
           <button id="rail-settings" class="rail-settings-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Settings">⚙</button>
-          <img id="rail-avatar" class="rail-avatar" src="assets/rich-hand.png" alt="" />
-          <span class="rail-rich-label">Rich</span>
+          <button id="rail-identity" class="rail-identity" type="button">
+            <span id="rail-initials" class="rail-initials" aria-hidden="true"></span>
+            <span id="rail-user-name" class="rail-user-name"></span>
+          </button>
         </div>
 
         <div id="assertiveness-popover" class="popover" hidden>
+          <!-- YOUR NAME — the field the rail footer's unset state points at.
+
+               It is here rather than in a settings screen of its own because this popover
+               is already "the app's own preferences", and because the alternative was a
+               footer that says "Set your name" with nowhere to set it. There is deliberately
+               NO placeholder name in the input: the whole point of the unset state is that
+               the product does not invent one. -->
+          <p class="popover-title">Your name</p>
+          <input
+            id="user-name-input"
+            class="popover-input"
+            type="text"
+            autocomplete="name"
+            spellcheck="false"
+            aria-label="Your name"
+          />
+          <p class="popover-hint" id="user-name-hint">Shown at the foot of the rail, with your initials.</p>
+
+          <div class="popover-divider" role="presentation"></div>
           <p class="popover-title">How much should Rich interrupt you?</p>
           <label class="popover-option"><input type="radio" name="assertiveness" value="quiet" /> Quiet</label>
           <label class="popover-option"><input type="radio" name="assertiveness" value="balanced" /> Balanced</label>

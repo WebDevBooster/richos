@@ -156,7 +156,7 @@ app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
-    tests/feedback_no_outbound_tests.rs 7 tests asserting an ABSENCE: no transport in the
+    tests/feedback_no_outbound_tests.rs 8 tests asserting an ABSENCE: no transport in the
                               module's shipping code, no network-capable dependency in the
                               crate, no other module consuming the feature, and an approval
                               that lands in one file with no sibling left for anything to
@@ -503,7 +503,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 484 tests + 5 doc-tests
+cargo test -p richos-core                       # 496 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
