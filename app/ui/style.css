@@ -3557,7 +3557,21 @@ body.bp-narrow .tl-user-bubble {
   margin: 0;
   border-radius: 999px;
   background: var(--tint-gold-weak);
-  border: 1px solid var(--line);
+  /* `--line-control`, not `--line`, and this was a MEASURED FIX rather than a preference.
+     A switch in its OFF state is a non-text indicator whose whole visible extent is its
+     border — the fill is `--tint-gold-weak`, which is 1.18:1 dark and 1.17:1 light against
+     the menu it sits on, i.e. invisible — and `--line` gave that border 1.24:1 / 1.50:1
+     against a floor of 3:1. So the control's boundary, the only thing on screen saying
+     "this is a switch and it is off", did not clear the floor in either theme.
+
+     It was shipped that way and nothing caught it, because the universal settings menu was
+     not a surface any contrast driver reached: `contrast.js`'s `settings` surface drives the
+     RAIL's preferences popover, which is a different menu. The three `updates-*` surfaces
+     this branch adds walk this menu for the first time, and this is what they found on their
+     first run. `--line-control` is the token this file already reserves for exactly this job
+     (see `.setbtn`'s note) and pays 3.79:1 dark / 4.06:1 light. The ON state was already
+     fine: `--gold` is 6.36:1 / 3.83:1 on the menu. */
+  border: 1px solid var(--line-control);
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
