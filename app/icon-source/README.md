@@ -17,7 +17,10 @@ untouched — the R whose counter is the rising arrow. The colours are the CEO's
 standard, `ceo-decisions.md` §14: ground `0C1322`, surface `141E34`, light `DFE4EE`,
 signal `C2A35C`, trim `4C6087`. The body is Apple's 824-of-1024 icon grid drawn as a
 superellipse; everything outside it is transparent, and there is no baked drop shadow —
-macOS and Windows each apply their own.
+macOS and Windows each apply their own. Measured, the artwork fills **81.1%** of the
+canvas: the 824 body is 80.5%, plus the 5px trim edge stroke that straddles it. The
+generator warns above 90%, so it stays quiet. (An earlier commit message rounded this
+to 80.5% and forgot the stroke.)
 
 **Measured contrast**, worst case over every pixel of the mark against the ground directly
 beneath it: R body **9.03:1**, arrow **4.11:1**, and the arrow against the R body where they
