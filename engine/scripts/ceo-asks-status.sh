@@ -69,7 +69,7 @@ case "$RRC" in
         echo "  repository : $ROOT"
         echo "  $CA_REASON"
         echo ""
-        echo "  This is a STAND-DOWN, not a pass. To put a queue under the gate,"
+        echo "  This is a STAND-DOWN, not a pass. To put a list under the gate,"
         echo "  add to $ROOT/orchestration.config:"
         echo "      $CA_REPOS_KEY=\"../the-repo-that-carries-.ceo-todos\""
         exit 2 ;;
@@ -79,7 +79,7 @@ case "$RRC" in
         echo "  $CA_REASON"
         echo ""
         echo "  Teammate dispatches are UNGATED while this is true. A"
-        echo "  declared-but-unreadable queue is not an empty one."
+        echo "  declared-but-unreadable list is not an empty one."
         exit 2 ;;
 esac
 
@@ -93,7 +93,7 @@ fi
 
 echo "=== CEO-ASK GATE ==="
 echo "  repository : $ROOT"
-printf '  queues     :'
+printf '  lists     :'
 printf '%s\n' "$CA_REPOS" | sed '/^$/d' | sed 's/^/ /' | tr -d '\n'
 echo ""
 echo "  session    : ${SESSION:-<none given — reporting as a session that has just opened>}"

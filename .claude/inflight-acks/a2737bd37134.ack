@@ -1,6 +1,13 @@
 sha: a2737bd3713453c85ef78c9fff32bda5006f0c76
 impact: none
+<<<<<<< HEAD
 detail: Checked the hunk RANGES, not just the filenames, because four files are in both changesets and only ranges answer whether that matters. main.rs: yours 46-47, 775-806, 867-896; mine 4-610 plus two comment lines at 1981 and 2542 — disjoint, so the overlap you warned about does not actually collide and the merge should be clean rather than merely resolvable. STREAMING.md: yours 584+, mine all at or below 472. ui/mock.js: yours 1050/1620/2192, mine all at or below 986. README.md is the nearest miss — my deletion of the acp-adapter layout line sits at old 309 against your insert at old 296-315, 11 lines apart. Your cargo tauri build exit-1 note does not reach me: I never ran it, I built with cargo build in src-tauri and launched the binary directly. ONE REAL POST-MERGE ITEM, and it is not a conflict: app/ui/tests/docs-claims.js DERIVES every README test count and crate total from the tree, and neither branch's README was validated against the other's. Yours adds a suite (updates.js, so the ui/tests table goes 17 to 18) and a src-tauri example; mine moves richos-core from 538 to 560. Both are correct alone and the merged README is unverified until docs-claims.js is re-run — please run it after you merge, it is the check that caught three stale numbers in mine. Not rebasing, per instruction.
 paths: app/src-tauri/src/main.rs app/README.md app/STREAMING.md app/ui/mock.js
 worktree: /Users/alex/ab/richos-wt/echo-a1
 written: 2026-08-31T21:57:50Z
+=======
+detail: The updater land is entirely under app/ plus docs/verification/; my branch touches only engine/ (guard-dialect.sh, dialect-en-US.dict, hooks.json, .claude/settings.local.json, install.sh, contract-integrity-probe.sh, orchestration.config, README). No file overlap, so no conflict, and nothing I was told to read changed. I was ordered to stay out of app/ and did.
+paths: none
+worktree: /Users/alex/ab/richos-wt/zach-s1
+written: 2026-08-31T21:57:00Z
+>>>>>>> zach-dialect-s1

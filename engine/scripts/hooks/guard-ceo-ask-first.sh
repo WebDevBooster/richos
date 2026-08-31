@@ -61,16 +61,16 @@
 # ===========================================================================
 # THE ESCAPE HATCH — a live prompt line, logged
 # ===========================================================================
-#     ceo-queue-deferred: <reason>
+#     ceo-todos-deferred: <reason>
 #
 # anywhere on its own line in the Agent spawn prompt. It permits that ONE
-# dispatch and appends to <entity root>/.claude/state/ceo-queue-defers.log. Same
+# dispatch and appends to <entity root>/.claude/state/ceo-todos-defers.log. Same
 # idiom as guard-worktree-isolation.sh's `main-checkout-run:` and
 # guard-resume-isolation.sh's `resume-ack:`. When the CEO says "get on with it",
 # nothing wedges — and the fact that he said it survives the session.
 #
 # It is a FALLBACK OPT-OUT, not a security boundary. A reason is REQUIRED
-# (`ceo-queue-deferred:` with nothing after it does not count), because a bare
+# (`ceo-todos-deferred:` with nothing after it does not count), because a bare
 # token is something a reflex types and a reason is something a person writes.
 #
 # ===========================================================================
@@ -80,19 +80,19 @@
 # scripts/lib/ceo-asks.sh; the summary, because a reader of this file is
 # entitled to it without a second hop:
 #
-#   NOT-DECLARED (no CEO queue in this repository)   -> STAND DOWN, silent.
+#   NOT-DECLARED (no CEO list in this repository)   -> STAND DOWN, silent.
 #     The engine loads at USER scope in every directory on the machine. A
-#     repository that never declared a CEO queue has no protection to lose, and
+#     repository that never declared a CEO list has no protection to lose, and
 #     a notice in each would be the noise this engine already decided not to
 #     make.
-#   BROKEN (a queue IS declared and cannot be read)  -> FAIL OPEN, LOUD.
+#   BROKEN (a list IS declared and cannot be read)  -> FAIL OPEN, LOUD.
 #     Open, because a guard that wedges every dispatch over its own plumbing is
 #     a guard that gets switched off, and a switched-off guard protects nothing
 #     forever. Loud, because "declared and unreadable" is exactly a defense
 #     reporting 'on' while protecting nothing.
 #   DECLARED, READABLE, holding prepared items       -> FAIL CLOSED. Block.
 #
-# NOTE ON THE LOUD CHANNEL. On a PASSING exit this hook announces a BROKEN queue
+# NOTE ON THE LOUD CHANNEL. On a PASSING exit this hook announces a BROKEN list
 # on stderr and as a `systemMessage`. THE systemMessage CHANNEL IS PROVEN FOR
 # Stop HOOKS AND ONLY FOR Stop HOOKS (scripts/lib/stop-hook-notice.sh carries
 # the measurement); whether it reaches the operator from PreToolUse is
@@ -169,9 +169,9 @@ RRC=0
 ca_resolve "$ENTITY_ROOT" || RRC=$?
 case "$RRC" in
     0) ;;
-    1) exit 0 ;;                    # NOT-DECLARED: no CEO queue here, stand down
+    1) exit 0 ;;                    # NOT-DECLARED: no CEO list here, stand down
     *)
-        announce_broken "CEO-ASK GATE IS OFF: this repository DECLARES CEO TODOs and they cannot be read — ${CA_REASON}. Teammate dispatches are UNGATED, and a declared-but-unreadable queue is not an empty one."
+        announce_broken "CEO-ASK GATE IS OFF: this repository DECLARES CEO TODOs and they cannot be read — ${CA_REASON}. Teammate dispatches are UNGATED, and a declared-but-unreadable list is not an empty one."
         exit 0 ;;
 esac
 
@@ -215,7 +215,7 @@ PROMPT="$(printf '%s' "$PARSED" | cut -f5- | tr '\001' '\n')"
 # except that we cannot read the escape hatch. Blocking on that would refuse a
 # dispatch the operator has no way to permit.
 if [ "$STATUS" = "PARSEFAIL" ]; then
-    announce_broken "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-queue-deferred:' escape hatch could not be read either. This ONE dispatch is ungated."
+    announce_broken "CEO-ASK GATE: could not parse this Agent spawn, so it was not checked and the 'ceo-todos-deferred:' escape hatch could not be read either. This ONE dispatch is ungated."
     exit 0
 fi
 
@@ -225,7 +225,7 @@ fi
 # resulting hook would test strictly, extract loosely, and behave in a way
 # neither pattern describes. The REASON is required by the pattern itself:
 # `[[:space:]]*[^[:space:]].*` after the marker means at least one non-blank
-# character, so a bare `ceo-queue-deferred:` extracts to nothing and permits
+# character, so a bare `ceo-todos-deferred:` extracts to nothing and permits
 # nothing.
 DEFER_MARKER="$(printf '%s' "$PROMPT" \
     | grep -oE "^[[:space:]]*${CA_DEFER_MARKER}[[:space:]]*[^[:space:]].*" \

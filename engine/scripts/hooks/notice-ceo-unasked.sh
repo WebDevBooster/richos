@@ -105,7 +105,7 @@ fi
 
 if ! ca_require; then
     stop_notice_abnormal "cannot-run:$(printf '%s' "$CA_BROKEN" | cksum | tr -d ' ')" \
-        "CEO-ASK WATCH IS BROKEN, so nothing was checked: ${CA_BROKEN}. Do not read this silence as an empty queue."
+        "CEO-ASK WATCH IS BROKEN, so nothing was checked: ${CA_BROKEN}. Do not read this silence as an empty list."
     exit 0
 fi
 
@@ -115,7 +115,7 @@ case "$RRC" in
     0) ;;
     1)
         # NOT-DECLARED is the ordinary answer in every repository with no CEO
-        # queue, and announcing it everywhere would be the noise this engine
+        # list, and announcing it everywhere would be the noise this engine
         # already decided not to make. stop_notice_normal is still called so a
         # repository that RECOVERS from a broken state gets the end of its story.
         stop_notice_normal ""
@@ -125,7 +125,7 @@ case "$RRC" in
         # a channel that is unproven for PreToolUse. This is the one that is
         # measured, so this is the guarantee.
         stop_notice_abnormal "broken:$(printf '%s' "$CA_REASON" | cksum | tr -d ' ')" \
-            "CEO-ASK WATCH IS BROKEN: this repository DECLARES CEO TODOs and they cannot be read — ${CA_REASON}. Teammate dispatches are UNGATED and no prepared decision is being surfaced. A declared-but-unreadable queue is not an empty one."
+            "CEO-ASK WATCH IS BROKEN: this repository DECLARES CEO TODOs and they cannot be read — ${CA_REASON}. Teammate dispatches are UNGATED and no prepared decision is being surfaced. A declared-but-unreadable list is not an empty one."
         exit 0 ;;
 esac
 
@@ -142,7 +142,7 @@ ARC=0
 ca_assess "$ENTITY_ROOT" "$SESSION_ID" || ARC=$?
 if [ "$ARC" -ge 2 ]; then
     stop_notice_abnormal "assess-broken:$(printf '%s' "${CA_BROKEN:-}" | cksum | tr -d ' ')" \
-        "CEO-ASK WATCH SWEPT NOTHING — ${CA_BROKEN:-the predicate could not run}. This is not an empty queue; it is an unread one. Detail: scripts/ceo-asks-status.sh"
+        "CEO-ASK WATCH SWEPT NOTHING — ${CA_BROKEN:-the predicate could not run}. This is not an empty list; it is an unread one. Detail: scripts/ceo-asks-status.sh"
     exit 0
 fi
 

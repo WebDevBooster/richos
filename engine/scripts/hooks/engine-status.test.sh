@@ -283,6 +283,13 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # alternative was to type 39, be green in isolation, and hand the lander a
 # tripwire that fires on a correct merge — which is the tripwire lying, and the
 # one thing a tripwire may never do. Ninth firing.
+# 40 -> 41 on 2026-08-31: guard-dialect.sh was wired — the guard that refuses a
+# write introducing a word outside the repository's declared dialect. Ninth
+# firing, and one guard this time, but the reason it exists is the reason this
+# tripwire exists: the rule it enforces was written down, swept across 654
+# sites, and undone within HOURS, because nothing made anyone look at the moment
+# of the write. This line made me look. That is the mechanism working on its own
+# author.
 #
 # The tick's text used to say "registers 33 scripts" beside a test for 34. It
 # had been wrong for as long as it had been green, because a literal inside a
@@ -290,7 +297,15 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # very tripwire exists to catch, hiding inside the tripwire. The number is
 # derived from REGISTERED_N now; the THRESHOLD stays typed, because being made
 # to look is the whole point of it.
-if [ "$REGISTERED_N" -eq 40 ]; then
+# SET AGAINST MAIN, NOT AGAINST THIS BRANCH'S BASE, ON THE LANDER'S INSTRUCTION
+# (2026-08-31). This branch was cut at 38 registered scripts. TWO other guard
+# branches landed while it ran — 38 -> 39 -> 40 — and guard-dialect.sh makes it
+# 41. Verified against `git show fb4a5628:engine/hooks/hooks.json`, not taken on
+# trust from the notice. So THIS LINE IS RED IN ISOLATION on this branch and
+# green only at main + this branch. Deliberate: the alternative, 39, was green
+# here and would have been wrong the instant it landed — a tripwire that fires
+# on a CORRECT merge, which is worse than one that fires on a wrong one.
+if [ "$REGISTERED_N" -eq 41 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"

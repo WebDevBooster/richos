@@ -1,0 +1,228 @@
+# dialect-en-US.dict — THE VOCABULARY, AS DATA, IN ONE PLACE.
+#
+# Read by scripts/hooks/guard-dialect.sh. Nothing else in this engine carries a
+# dialect word list; a second copy is how the last one drifted.
+#
+# FORMAT — one rule per line, TAB-separated:
+#
+#     <non-target form><TAB><target form>[<TAB>key=value[,key=value]...]
+#
+#   Options (third field, optional):
+#     ext-exempt=css,scss   never flag inside files with these extensions.
+#                           Reserved for words that are ALSO a legitimate
+#                           technical value in that file type.
+#
+# FULL FORMS, NOT STEMS — DELIBERATE, AND THE REASON IS ARITHMETIC RATHER THAN
+# TASTE. A stem-plus-suffix matcher is shorter and wrong in both directions:
+#   * `analys` + `is` produces `analyzis` for the word **analysis**, which is
+#     already correct American English;
+#   * `catalogu` + `e` produces `cataloge` unless the matcher also learns silent
+#     -e elision, i.e. English morphology, inside a hook.
+# A couple of hundred explicit lines are auditable by anyone in a minute. A
+# morphology engine is not, and the failure mode of a wrong suggestion is an
+# engineer who stops believing the guard.
+#
+# ABSENT ON PURPOSE — the near misses, written down so nobody "completes" this
+# list later:
+#   dialogue    standard in American English too; only the UI widget is `dialog`
+#   practice    the NOUN is `practice` in both dialects; only the VERB differs
+#   analysis / analyses      already American; `analyses` is ALSO the British
+#                            verb form, and the ambiguity is unresolvable from
+#                            one word, so it is left alone
+#   cancellation             American English keeps the double L here
+#   enrolled / enrollment / controlled / patrolled     already the American
+#                            forms; `enrolment` (one L) is the British one and
+#                            IS below. Called out because the record started
+#                            using this word on 2026-08-31 and "fixing"
+#                            `enrollment` would be the guard causing the defect
+#   analyzed / organized / any -ize form  already the target; a dictionary of
+#                            NON-target forms never contains its own answers
+#   advertise / exercise / supervise / revise / surprise / compromise /
+#   franchise / improvise / devise / merchandise / televise / disguise
+#                            -ise in BOTH dialects; not -ize words at all
+#   metre / litre / fibre    real, and deliberately out of scope: this list
+#                            covers words this record has actually produced,
+#                            not the whole dialect
+#
+# Case is handled by the matcher, not by this file: every entry is lowercase,
+# matched case-insensitively, and the suggestion is re-cased to the form that
+# was actually written (lower / Capitalized / UPPER).
+
+# --- the watch-list from the design doc, 2026-08-28 -----------------------
+colour	color
+colours	colors
+coloured	colored
+colouring	coloring
+colourful	colorful
+colourless	colorless
+behaviour	behavior
+behaviours	behaviors
+behavioural	behavioral
+behaviourally	behaviorally
+cancelled	canceled
+cancelling	canceling
+summarise	summarize
+summarises	summarizes
+summarised	summarized
+summarising	summarizing
+summarisation	summarization
+organise	organize
+organises	organizes
+organised	organized
+organising	organizing
+organisation	organization
+organisations	organizations
+organisational	organizational
+recognise	recognize
+recognises	recognizes
+recognised	recognized
+recognising	recognizing
+recognisable	recognizable
+recognisably	recognizably
+unrecognised	unrecognized
+unrecognisable	unrecognizable
+prioritise	prioritize
+prioritises	prioritizes
+prioritised	prioritized
+prioritising	prioritizing
+prioritisation	prioritization
+licence	license
+licences	licenses
+licenced	licensed
+licencing	licensing
+grey	gray	ext-exempt=css,scss,sass,less
+greys	grays	ext-exempt=css,scss,sass,less
+greyed	grayed	ext-exempt=css,scss,sass,less
+greying	graying	ext-exempt=css,scss,sass,less
+greyscale	grayscale	ext-exempt=css,scss,sass,less
+centre	center
+centres	centers
+centred	centered
+centring	centering
+whilst	while
+towards	toward
+judgement	judgment
+judgements	judgments
+
+# --- what actually appeared in the record, 2026-08-31 --------------------
+defence	defense
+defences	defenses
+defenceless	defenseless
+offence	offense
+offences	offenses
+favour	favor
+favours	favors
+favoured	favored
+favouring	favoring
+favourable	favorable
+favourably	favorably
+favourite	favorite
+favourites	favorites
+analyse	analyze
+analysed	analyzed
+analysing	analyzing
+analyser	analyzer
+analysers	analyzers
+catalogue	catalog
+catalogues	catalogs
+catalogued	cataloged
+cataloguing	cataloging
+apologise	apologize
+apologises	apologizes
+apologised	apologized
+apologising	apologizing
+neighbour	neighbor
+neighbours	neighbors
+neighbouring	neighboring
+neighbourhood	neighborhood
+practise	practice
+practised	practiced
+practising	practicing
+artefact	artifact
+artefacts	artifacts
+enrolment	enrollment
+enrolments	enrollments
+
+# --- same rules, forms this record produces constantly -------------------
+honour	honor
+honours	honors
+honoured	honored
+honouring	honoring
+honourable	honorable
+labour	labor
+labours	labors
+laboured	labored
+labouring	laboring
+realise	realize
+realises	realizes
+realised	realized
+realising	realizing
+utilise	utilize
+utilises	utilizes
+utilised	utilized
+utilising	utilizing
+specialise	specialize
+specialised	specialized
+specialising	specializing
+standardise	standardize
+standardised	standardized
+optimise	optimize
+optimises	optimizes
+optimised	optimized
+optimising	optimizing
+optimisation	optimization
+normalise	normalize
+normalised	normalized
+normalising	normalizing
+initialise	initialize
+initialised	initialized
+initialising	initializing
+initialisation	initialization
+serialise	serialize
+serialised	serialized
+serialising	serializing
+synchronise	synchronize
+synchronised	synchronized
+synchronising	synchronizing
+authorise	authorize
+authorised	authorized
+authorising	authorizing
+authorisation	authorization
+customise	customize
+customised	customized
+customising	customizing
+minimise	minimize
+minimised	minimized
+minimising	minimizing
+maximise	maximize
+maximised	maximized
+maximising	maximizing
+emphasise	emphasize
+emphasised	emphasized
+emphasising	emphasizing
+criticise	criticize
+criticised	criticized
+criticising	criticizing
+characterise	characterize
+characterised	characterized
+characterising	characterizing
+categorise	categorize
+categorised	categorized
+categorising	categorizing
+visualise	visualize
+visualised	visualized
+visualising	visualizing
+finalise	finalize
+finalised	finalized
+finalising	finalizing
+programme	program
+programmes	programs
+labelled	labeled
+labelling	labeling
+modelled	modeled
+modelling	modeling
+travelled	traveled
+travelling	traveling
+signalled	signaled
+signalling	signaling
+marvellous	marvelous
