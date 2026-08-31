@@ -274,14 +274,19 @@ async function main() {
     await before.goto(APP);
     await before.waitForSelector(".nav-thread", { state: "attached" });
     await open(before, "acme");
-    const sentence = "our walk-away number on Acme is";
-    await before.fill("#input", sentence);
+    // THE SCROLL FIRST, THE TYPING LAST, and that order is the check rather than a detail.
+    // Written the other way round, the scroll handler's own park wrote the composer text
+    // too — so deleting the park from the INPUT handler changed nothing and the mutation
+    // ran green. The draft below can only reach disk through the path that handles typing.
     const parked = await before.evaluate(() => {
       const c = document.getElementById("conversation");
       c.scrollTop = 0;
       c.dispatchEvent(new Event("scroll"));
       return { top: c.scrollTop, bottom: c.scrollHeight - c.clientHeight };
     });
+    await before.waitForTimeout(700); // > PARK_DEBOUNCE_MS: the scroll is on disk, the composer is empty
+    const sentence = "our walk-away number on Acme is";
+    await before.fill("#input", sentence);
     assert(
       parked.bottom > 48,
       "VACUITY: this thread is not scrollable, so 'position survived' would pass trivially " + JSON.stringify(parked)
@@ -293,6 +298,12 @@ async function main() {
     // while a second one opens on the same store. So whatever the second page finds was
     // written WHILE HE TYPED, which is the only kind of write a crash cannot skip.
     await before.waitForTimeout(700); // > PARK_DEBOUNCE_MS
+    const onDisk = await before.evaluate(() => ({
+      drafts: JSON.parse(window.localStorage.getItem("richos.view.drafts") || "{}"),
+      scroll: JSON.parse(window.localStorage.getItem("richos.view.scroll") || "{}"),
+    }));
+    assertEqual(onDisk.drafts.acme, sentence, "the typing never reached the store at all");
+    assertEqual(onDisk.scroll.acme, parked.top, "the scroll position never reached the store");
 
     const after = await ctx.newPage();
     await after.goto(APP);
@@ -345,8 +356,15 @@ async function main() {
       src.includes('addEventListener("visibilitychange"'),
       "the registration matcher found no listener of any kind — it is looking at the wrong shape"
     );
-    // ...and the writes really are continuous, not one save someone put in `openThread`.
-    assert(src.includes("parkViewStateSoon();"), "nothing parks the view state as he types");
+    // ...and the writes really are continuous, IN THE HANDLER THAT HANDLES TYPING. Asserting
+    // the call exists anywhere in the file is what let a mutation deleting it from the input
+    // listener pass: the scroll listener's identical call satisfied the search.
+    const inputHandler = src.slice(src.indexOf('inputEl.addEventListener("input"'));
+    assert(inputHandler.length > 0, "the composer's input listener is not in main.js");
+    assert(
+      inputHandler.slice(0, inputHandler.indexOf("});")).includes("parkViewStateSoon();"),
+      "the composer's own input handler no longer parks — a crash would cost the sentence he is typing"
+    );
 
     // THE SECOND HALF is the one restore that would be worse than none. Words he has
     // already sent must not be handed back to him by a crash as though unsent.
@@ -355,9 +373,20 @@ async function main() {
     await before.goto(APP);
     await before.waitForSelector(".nav-thread", { state: "attached" });
     await open(before, "acme");
-    await before.fill("#input", "half of a thought");
-    await before.waitForTimeout(700);
     await before.fill("#input", "send this one");
+    // PARKED BEFORE THE SEND, AND PROVEN PARKED. Without this wait the debounce had not yet
+    // fired when Send was clicked, the composer was empty by the time it did, and nothing
+    // was ever on disk to come back — so "it did not come back" passed over an empty store.
+    // That is the vacuity the probe below exists to make impossible.
+    await before.waitForTimeout(700);
+    const parkedBeforeSend = await before.evaluate(() =>
+      JSON.parse(window.localStorage.getItem("richos.view.drafts") || "{}")
+    );
+    assertEqual(
+      parkedBeforeSend.acme,
+      "send this one",
+      "VACUITY: the sentence was never parked, so 'it did not come back' proves nothing"
+    );
     await before.click("#send");
     await before.waitForTimeout(700);
     const boxAfterSend = await before.inputValue("#input");
@@ -370,7 +399,7 @@ async function main() {
     const restored = await after.inputValue("#input");
     assertEqual(restored, "", "a sentence he had already sent came back into his composer");
     await ctx.close();
-    return "no exit handler in main.js; a parked draft that was then SENT does not return";
+    return 'no exit handler in main.js; "send this one" was on disk before the send and gone after it';
   });
 
   // =====================================================================================
