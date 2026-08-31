@@ -321,6 +321,11 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-agent-state-claims.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-idle-land.sh",
             "timeout": 20
           }
