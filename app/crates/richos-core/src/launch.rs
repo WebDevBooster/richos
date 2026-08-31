@@ -842,6 +842,30 @@ mod tests {
         assert_eq!(counts.today, 1);
         assert_eq!(counts.this_month, 2, "both are in August");
         assert_eq!(counts.total, 2);
+
+        // AND READ MID-WEEK, WHICH IS THE HALF THAT ACTUALLY PINS THE RULE.
+        //
+        // Everything above is read on a Monday, so the week start is the day `now` is in
+        // and `week_start_index` has nothing to do. A mutation deleting the walk-back
+        // (`day_index - offset_back` -> `day_index`) turned NOTHING red: the check could
+        // not fail, which is not the same as passing. So the same log is read again on the
+        // THURSDAY, where the week start is three days behind `now` and the walk-back is
+        // the only thing that can find it.
+        let thursday = T0 + 3 * 86_400_000; // 2026-09-03T09:00:00Z = 02:00 Pacific, Thursday
+        let thursday_index = local_day_index(thursday as i64, PACIFIC);
+        assert_eq!(weekday_of(thursday_index), 4, "the second reading is on a Thursday");
+        assert_eq!(
+            week_start_index(thursday_index),
+            monday_index,
+            "Thursday's week must start on the Monday three days back"
+        );
+        let midweek = LaunchCounts::of(&[sunday_evening as u64, monday_morning as u64], thursday, PACIFIC);
+        assert_eq!(midweek.this_week, 1, "the Monday launch is still in this week on Thursday");
+        assert_eq!(midweek.today, 0, "and neither of them is today any more");
+        // Thursday 2026-09-03 is in SEPTEMBER, so the month bucket is empty while the week
+        // bucket is not — the one week that straddles a month boundary, for free.
+        assert_eq!(midweek.this_month, 0, "September holds neither of them");
+        assert_eq!(midweek.this_year, 2, "and both are still 2026");
     }
 
     #[test]
