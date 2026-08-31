@@ -65,7 +65,7 @@ INPUT   one JSON job, path as argv[1] (or on stdin when argv[1] is "-"):
       "question":    "<question + every option label + every description>",
       "items":       [{"repo","section","id","state","title","open","time",
                        "done","unblocks"}, ...],
-      "asks":        [{"matched_item","repo","timestamp"}, ...],
+      "asks":        [{"matched_item","repo","timestamp","discharges"}, ...],
       "ready_state": "READY-FOR-CEO"
     }
 
@@ -243,9 +243,22 @@ def do_assess(job):
     # gate must not reintroduce it from the other side.
     prepared = [i for i in items if (i.get("state") or "") == ready_state]
 
+    # WHAT COUNTS AS AN ASK, decided here and nowhere else. Two conditions, and
+    # both are the anti-gaming property:
+    #
+    #   `discharges` true — the witness computed this at the moment of the call.
+    #     It is false for a question that matched no prepared item (otherwise one
+    #     junk question per session clears the gate forever) and false for a
+    #     question asked by a WORKER (otherwise any subagent's clarifying
+    #     question hands the session a free discharge).
+    #   a real item id     — belt and braces, so a hand-appended record with
+    #     `discharges: true` and no item still discharges nothing.
     asked_ids = set()
     for a in asks:
-        mid = str((a or {}).get("matched_item") or "")
+        a = a or {}
+        if not a.get("discharges"):
+            continue
+        mid = str(a.get("matched_item") or "")
         if mid and mid != "UNMATCHED":
             asked_ids.add(mid)
 
