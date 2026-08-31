@@ -27,7 +27,9 @@ user/project/local settings out of the measurement.
 | `run7-can-use-tool.jsonl` | `drivers/drive6.py` | a NEGATIVE result, kept deliberately: `echo` needed no approval, so no `can_use_tool` fired. This is why run8 exists |
 | `run8-can-use-tool-handshake.jsonl` | `drivers/drive7.py` | `can_use_tool` observed end to end on a write outside the working directory — request, our `allow`, and the file actually created |
 | `run9-rust-driven.jsonl` + `.timings.tsv` | `../../../spike/native-claude-stdio` | **the definitive run: all of the above, from Rust, in one process.** Timings tsv carries the read offset of every line |
-| `run10-control-surface-and-errors.jsonl` | `drivers/drive8.py` | `set_model` succeeds; `set_permission_mode` refuses with a structured error; an unknown subtype returns a structured error; a malformed stdin line kills the child. **No API turns — free** |
+| `run10-control-surface-and-errors.jsonl` | `drivers/drive8.py` | `set_model` succeeds; `set_permission_mode` refuses with a structured error; an unknown subtype returns a structured error. **No API turns — free** |
+| `run11-plan-thinking-diff.jsonl` | `drivers/drive9.py` | an `Edit` through `can_use_tool` carries the edit INTENT (`old_string`/`new_string`), not ACP's pre-rendered diff, and no `locations`. `TodoWrite` was unavailable, so `plan` stayed unobserved |
+| `run12-malformed-stdin.{stdout.jsonl,stderr,exit}` | (inline shell) | one unparseable stdin line: zero bytes of stdout, a `SyntaxError` on stderr, **exit 1**. **No API turns — free** |
 
 ## Reading `run9-rust-driven.timings.tsv`
 
