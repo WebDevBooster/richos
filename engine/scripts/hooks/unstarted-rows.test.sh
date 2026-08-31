@@ -21,7 +21,7 @@
 #
 # Plus the two properties that keep the notice worth reading:
 #   5. state-change de-duplication  (a stable set is announced once)
-#   6. a claim token must stand alone — `row-1` never claims row `11`
+#   6. a claim token stands alone in BOTH directions, each with a control
 #
 # NOTHING HERE IS EVER TORN DOWN, and every sandbox branch is named under
 # `agent/`. The un-claimed state is reached by RENAMING the branch: this
@@ -99,7 +99,8 @@ write_queue() { # <blocked-cell-for-row-12>
 
 | # | Item | Blocked by |
 |---|---|---|
-| ~~1~~ | ~~**A landed thing**~~ — LANDED | done |
+| ~~0~~ | ~~**A landed thing**~~ — LANDED | done |
+| 1 | **A short-id row** — its id is a prefix of row 11's | — |
 | 11 | **A row nobody has started** — buildable, needs nobody | — |
 | 12 | **A second unstarted row** — also buildable | ${1:-—} |
 | 13 | **A row the CEO owns** — his billing account | **CEO — his account** |
@@ -175,7 +176,7 @@ if spoke; then ok "1a  an unblocked row with nothing running ends the turn with 
 else bad "1a  an unblocked row with nothing running ends the turn with a notice" "the hook said nothing: $HOUT"; fi
 say "1a" "$HOUT"
 
-if names '11, 12, 3.1'; then
+if names '1, 11, 12, 3.1'; then
     ok "1b  the notice NAMES the rows rather than counting them"
 else bad "1b  the notice NAMES the rows rather than counting them" "$HOUT"; fi
 
@@ -195,7 +196,7 @@ WT="$SANDBOX/wt/norm-sonnet-a1"
 mkdir -p "$SANDBOX/wt"
 git -C "$REPO" worktree add -q -b agent/row-11 "$WT" >/dev/null 2>&1
 run_hook
-if spoke && names '12, 3.1' && ! names '11, 12'; then
+if spoke && names '1, 12, 3.1' && ! names '11'; then
     ok "2a  a live worktree whose BRANCH names row 11 takes it off the list"
 else bad "2a  a live worktree whose BRANCH names row 11 takes it off the list" "$HOUT"; fi
 say "2a" "$HOUT"
@@ -206,34 +207,36 @@ if grep -qE '^  CLAIMED    11 ' "$SANDBOX/lint2.txt"; then
 else bad "2b  the sweep records WHY it is quiet about row 11" "$(cat "$SANDBOX/lint2.txt")"; fi
 
 # ===========================================================================
-# 6. A CLAIM TOKEN MUST STAND ALONE — row-1 never claims row 11
+# 6. A CLAIM TOKEN MUST STAND ALONE — IN BOTH DIRECTIONS
 # ===========================================================================
-# `row-1` is a prefix of `row-11`. A substring match would take row 11 off the
-# list for work that was never about it, which is silence bought with a bug.
+# `row-1` is a prefix of `row-11`, and the failure is available going either
+# way. Each case carries its OWN positive control — the branch that must not
+# claim one row MUST claim the other, in the same run — because a suite that
+# only asserts "not claimed" passes perfectly over claim matching that is
+# broken end to end. That is not hypothetical: it happened to this suite.
+bash "$LINT" "$REPO" > "$SANDBOX/lint6b.txt" 2>&1
+if grep -qE '^  UNSTARTED  1  ' "$SANDBOX/lint6b.txt" && grep -qE '^  CLAIMED    11 ' "$SANDBOX/lint6b.txt"; then
+    ok "6b  a worktree named row-11 claims 11 and does NOT claim row 1"
+else bad "6b  row-11 must claim 11 and not 1" "$(cat "$SANDBOX/lint6b.txt")"; fi
+
 git -C "$WT" branch -m agent/row-1 >/dev/null 2>&1
-# THE POSITIVE CONTROL, in the same run. Without it "row 11 is unstarted" also
-# passes when claim matching is broken end to end — which is exactly how this
-# suite passed once already before the tokenizer bug was found.
-mkdir -p "$WT/.claude"
-printf '12\n' > "$WT/.claude/row-claims.txt"
 bash "$LINT" "$REPO" > "$SANDBOX/lint6.txt" 2>&1
-if grep -qE '^  UNSTARTED  11 ' "$SANDBOX/lint6.txt" && grep -qE '^  CLAIMED    12 ' "$SANDBOX/lint6.txt"; then
-    ok "6a  row-1 does NOT claim row 11 — while row 12 IS claimed in the same run"
-else bad "6a  row-1 does NOT claim row 11 (with a live positive control)" "$(cat "$SANDBOX/lint6.txt")"; fi
-rm -f "$WT/.claude/row-claims.txt"
+if grep -qE '^  UNSTARTED  11 ' "$SANDBOX/lint6.txt" && grep -qE '^  CLAIMED    1  ' "$SANDBOX/lint6.txt"; then
+    ok "6a  a worktree named row-1 claims 1 and does NOT claim row 11"
+else bad "6a  row-1 must claim 1 and not 11" "$(cat "$SANDBOX/lint6.txt")"; fi
 
 # ===========================================================================
 # 2 (continued). THE EXPLICIT CLAIM FILE — the escape hatch for a worktree
 # whose branch was named before anybody knew which row it was for.
 # ===========================================================================
 mkdir -p "$WT/.claude"
-printf '# one row id per line\n11\n12\n3.1\n' > "$WT/.claude/row-claims.txt"
+printf '# one row id per line\n1\n11\n12\n3.1\n' > "$WT/.claude/row-claims.txt"
 run_hook
 if ! spoke; then ok "2c  every row claimed by the claim file -> the turn ends SILENTLY"
 else bad "2c  every row claimed -> the turn ends SILENTLY" "$HOUT"; fi
 
-if [ -s "$RECEIPT" ] && grep -q '^unstarted:     0' "$RECEIPT" && grep -q '^claimed:       3' "$RECEIPT"; then
-    ok "2d  POSITIVE PROBE: the receipt proves the silence came from a sweep of 3 claims"
+if [ -s "$RECEIPT" ] && grep -q '^unstarted:     0' "$RECEIPT" && grep -q '^claimed:       4' "$RECEIPT"; then
+    ok "2d  POSITIVE PROBE: the receipt proves the silence came from a sweep of 4 claims"
 else bad "2d  POSITIVE PROBE: the receipt proves the silence came from a sweep" "$(cat "$RECEIPT" 2>/dev/null || echo '(no receipt)')"; fi
 
 bash "$LINT" "$REPO" > "$SANDBOX/lint2c.txt" 2>&1
@@ -250,9 +253,10 @@ git -C "$WT" branch -m agent/neutral >/dev/null 2>&1
 # ===========================================================================
 write_queue '**CEO — his Railway credentials**'
 write_record '**Blocked:** the CEO — he has to decide. '
-# row 11 still names nobody, so it is claimed here to isolate the declaration
+# rows 1 and 11 still name nobody, so they are claimed here to isolate the
+# declaration as the only reason for the silence
 mkdir -p "$WT/.claude"
-printf '11\n' > "$WT/.claude/row-claims.txt"
+printf '1\n11\n' > "$WT/.claude/row-claims.txt"
 run_hook
 if ! spoke; then ok "3a  every remaining row names a blocker -> the turn ends SILENTLY"
 else bad "3a  every remaining row names a blocker -> the turn ends SILENTLY" "$HOUT"; fi
@@ -261,9 +265,9 @@ say "3a" "$HOUT"
 if [ -s "$RECEIPT" ]; then ok "3b  POSITIVE PROBE: the sweep wrote a receipt, so it RAN"
 else bad "3b  POSITIVE PROBE: the sweep wrote a receipt, so it RAN" "no receipt at $RECEIPT"; fi
 
-if grep -q '^rows-swept:    6' "$RECEIPT" 2>/dev/null; then
-    ok "3c  POSITIVE PROBE: it swept 6 rows — the silence is not a sweep of nothing"
-else bad "3c  POSITIVE PROBE: it swept 6 rows" "$(grep '^rows-swept' "$RECEIPT" 2>/dev/null)"; fi
+if grep -q '^rows-swept:    7' "$RECEIPT" 2>/dev/null; then
+    ok "3c  POSITIVE PROBE: it swept 7 rows — the silence is not a sweep of nothing"
+else bad "3c  POSITIVE PROBE: it swept 7 rows" "$(grep '^rows-swept' "$RECEIPT" 2>/dev/null)"; fi
 
 if grep -q '^blocker-named: 3' "$RECEIPT" 2>/dev/null && grep -q '^unstarted:     0' "$RECEIPT" 2>/dev/null; then
     ok "3d  POSITIVE PROBE: 3 rows named a blocker and 0 were unstarted"
@@ -408,7 +412,7 @@ else bad "7a  the lint exits 1 when a row is unstarted"; fi
 
 write_queue '**CEO — his account**'
 write_record '**Blocked:** the CEO. '
-printf '11\n' > "$WT/.claude/row-claims.txt"
+printf '1\n11\n' > "$WT/.claude/row-claims.txt"
 bash "$LINT" "$REPO" >/dev/null 2>&1
 if [ "$?" -eq 0 ]; then ok "7b  the lint exits 0 when every row is accounted for"
 else bad "7b  the lint exits 0 when every row is accounted for"; fi
