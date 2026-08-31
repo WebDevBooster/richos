@@ -45,11 +45,35 @@
   --ink: #dfe4ee;
   /* 6.47:1 on the ground, 5.51:1 on the card. */
   --ink-soft: rgba(223, 228, 238, 0.64);
-  /* 5.51:1 on the ground, 5.01:1 on the card — the darkest surface it ever paints on. */
-  --ink-faint: rgba(223, 228, 238, 0.58);
+  /* 6.14:1 on the ground, 5.52:1 on the card. Lifted from .58 on 2026-08-31: at .58 it
+     computed 4.38:1 on the SELECTED search row (`--bg-selected` laid over the overlay
+     panel), which is a surface no single-background calculation reaches. A token
+     calibrated against the page ground is not calibrated against every ground. */
+  --ink-faint: rgba(223, 228, 238, 0.62);
 
   --line-strong: rgba(76, 96, 135, 0.26);
   --line-soft: rgba(76, 96, 135, 0.14);
+  /* THE BORDER OF A FORM CONTROL IS A NON-TEXT INDICATOR and owes 3:1, which `--line` does
+     not pay — `--line` is a divider colour, and a divider is decoration where a control's
+     boundary is the only thing on screen saying "this is where you type". Solid, not an
+     alpha: the same control sits on the ground, on the rail and on a card, and an alpha
+     that clears 3:1 over one of those does not clear it over the others (measured: .60
+     alpha gives 2.90 / 2.67 / 2.92). 3.79:1 at worst here, 4.69:1 on the rail. */
+  --line-control: #6b7ea8;
+  /* The ported settings component's tinted surfaces. The reference writes these as
+     `color-mix(in srgb, var(--gold) 12%, var(--card))`, and they are the PRE-MIXED values
+     of exactly those expressions (sRGB, same percentages). Pre-mixed because the contrast
+     walker reads `getComputedStyle().backgroundColor` and this WebKit hands back the
+     unresolved `color-mix(...)` string — an UNPROVABLE colour, which this gate correctly
+     treats as a failure to prove rather than a pass. A control whose background cannot be
+     read is a control nothing can vouch for, and the settings button is on every screen.
+     Structure and behaviour stay the reference's; only the notation changed. */
+  --tint-gold-weak: #293143;   /* gold 10% */
+  --tint-gold: #2c3343;        /* gold 12% */
+  --tint-gold-strong: #3a3d46; /* gold 20% */
+  /* The settings button's edge — see `.setbtn`. Dark needs no special striking: the scrim
+     darkens, so a light edge only gains contrast against it. 4.69:1 on the rail. */
+  --chrome-edge: #6b7ea8;
 
   /* The signal. `--gold` paints; `--gold-text` reads. In DARK they coincide (7.68:1 on the
      ground), which is exactly why the split has to be written down rather than discovered —
@@ -68,6 +92,13 @@
      belongs to the palette — deliberately not a red alert, and deliberately a different
      hue from `--gold` so "needs you" never reads as "accent". 6.54:1 worst case. */
   --attention: #e09a55;
+  /* `--danger` and `--success` were theme-BLIND (`#8a4944` / `#4f6d58`) and lived in a
+     second `:root` further down this file, which is exactly how they survived the first
+     pass: one token layer is searchable, two is a hiding place. On the midnight rail the
+     old danger computed 2.83:1 — the interrupted-thread mark, which is the one glyph in
+     the rail that means something went wrong. 5.84:1 / 6.73:1 worst case now. */
+  --danger: #e8837c;
+  --success: #7fb894;
 
   /* Tints and veils. In dark these lift (white alpha); in light they press (black alpha).
      A single `rgba(0,0,0,…)` hover tint is invisible on a midnight ground, which is how a
@@ -118,6 +149,15 @@
 
   --line-strong: rgba(60, 70, 95, 0.24);
   --line-soft: rgba(60, 70, 95, 0.12);
+  /* 3.14:1 at worst (on the rail), 4.06:1 on a card. Same reasoning as dark. */
+  --line-control: #767c8d;
+  /* Light needs a heavier tint to read as a control against the ivory card — the
+     reference's own light branch does the same. gold 14% / 17% / 26%. */
+  --tint-gold-weak: #efeadd;
+  --tint-gold: #ede6d7;
+  --tint-gold-strong: #e4dbc5;
+  /* 3.23:1 against the light scrim, which is the binding case; 7.02:1 on the plain ground. */
+  --chrome-edge: #454b58;
 
   /* Here the split earns itself: `#9C7C34` is 3.29:1 on the ivory ground — fine as a rule,
      a border or a filled chip, and a contrast failure as body text. `--gold-text` is struck
@@ -136,6 +176,9 @@
   /* 5.08:1 worst case, and a different hue from `--gold-text` so the two never merge.
      The previous `#8a6a2f` was 3.78:1 on the rail. */
   --attention: #8c4a1b;
+  /* 6.27:1 / 5.64:1 worst case. */
+  --danger: #8a2f28;
+  --success: #3a5c46;
 
   --tint-weakest: rgba(12, 19, 34, 0.025);
   --tint-weak: rgba(12, 19, 34, 0.045);
@@ -426,7 +469,7 @@ button {
   width: 100%;
   margin: 2px 0 4px;
   padding: 6px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-control);
   border-radius: 6px;
   background: var(--surface-sunk);
   color: var(--ink);
@@ -522,7 +565,9 @@ button {
 #input {
   flex: 1;
   resize: none;
-  border: 1px solid var(--line);
+  /* Indicator grade, not divider grade — see `--line-control`. This boundary is the only
+     thing telling the CEO where the composer is. */
+  border: 1px solid var(--line-control);
   border-radius: var(--radius);
   padding: 10px 14px;
   font: inherit;
@@ -550,7 +595,7 @@ button {
   height: 40px;
   flex-shrink: 0;
   border-radius: var(--radius);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-control);
   background: var(--surface);
   color: var(--ink-soft);
   display: flex;
@@ -584,7 +629,8 @@ button {
    not, because taking the keyboard away mid-sentence loses whatever he was typing. */
 #stop:disabled,
 #composer-row[data-mode="stopping"] #send {
-  opacity: 0.35;
+  color: var(--ink-faint);
+  border-color: var(--line-soft);
   cursor: not-allowed;
 }
 
@@ -834,8 +880,11 @@ button {
   --rail-width: 300px;
   --bg-selected: var(--gold-soft);
   --bg-hover: var(--tint-weak);
-  --danger: #8a4944;
-  --success: #4f6d58;
+  /* `--danger` and `--success` USED TO BE DEFINED HERE, as two theme-blind literals, and
+     they are now in the token layer at the top of this file with a value per theme. Left
+     as a note rather than deleted silently: a second `:root` that quietly defines colour
+     tokens is how `#8a4944` reached the midnight rail at 2.83:1 while the palette above
+     looked complete. */
 }
 
 /* ---- rail chrome --------------------------------------------------------------------- */
@@ -1341,8 +1390,15 @@ button {
   cursor: not-allowed;
 }
 
+/* DISABLED, AND STILL LEGIBLE. `opacity: 0.35` put the ▷ at 1.87:1 dark and 1.68:1 light.
+   WCAG does exempt inactive controls, and claiming that exemption here would have been
+   cheap and wrong: this is the send affordance on the CEO's composer, the control he looks
+   at to know whether his message will go, and "I could not read it" is the failure mode
+   the exemption exists to tolerate elsewhere, not here. The state is carried by the muted
+   ink, the absent hover and the cursor instead — 5.52:1 dark, 5.35:1 light. */
 #send:disabled {
-  opacity: 0.35;
+  color: var(--ink-faint);
+  border-color: var(--line-soft);
   cursor: not-allowed;
 }
 
@@ -1399,7 +1455,9 @@ button {
 .overlay-input {
   width: 100%;
   border: none;
-  border-bottom: 1px solid var(--line);
+  /* The search field's ONLY boundary, so it is indicator grade — the same reasoning as
+     `#input`. A one-sided rule is still the thing that says "type here". */
+  border-bottom: 1px solid var(--line-control);
   padding: 14px 16px;
   font-family: inherit;
   font-size: 1.0625rem;
@@ -2144,7 +2202,7 @@ body.bp-narrow .tl-user-bubble {
   gap: 6px;
   max-width: 100%;
   padding: 4px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-control);
   border-radius: var(--radius-control, 10px);
   background: transparent;
   color: var(--ink-soft);
@@ -2198,11 +2256,17 @@ body.bp-narrow .tl-user-bubble {
 }
 
 /* The honest caveat that rides with `Ended`. Deliberately the same subdued treatment the
-   activity lane gives "outcome not recorded" — one phrase, learned once. */
+   activity lane gives "outcome not recorded" — one phrase, learned once.
+
+   THE `opacity: 0.85` IS GONE. `--ink-faint` is a token calibrated to sit exactly on the
+   4.5:1 floor with a little room; multiplying it by a second factor here took "outcome not
+   recorded" — a phrase that tells the CEO a run's result is UNKNOWN — to 3.83:1 dark and
+   3.26:1 light. Subduing a colour by stacking an opacity on top of a calibrated alpha is
+   how a token stops being calibrated, and it is invisible in review because the token still
+   looks right everywhere else. Subdued is the token's job; this rule just uses it. */
 .tl-chip-qualifier {
   color: var(--ink-faint);
   font-size: 0.875rem;
-  opacity: 0.85;
 }
 
 /* §7.1's four treatments, for the three states that can occur. */
@@ -2219,9 +2283,14 @@ body.bp-narrow .tl-user-bubble {
 }
 
 /* `Ended` is NOT a failure and must not borrow the danger color. It is the calmest
-   treatment on the row: the run is over and nothing is being claimed about it. */
+   treatment on the row: the run is over and nothing is being claimed about it.
+
+   Calm is now carried by the BORDER rather than by `opacity`, which faded the chip's text
+   along with its chrome — `.tl-chip-sep` came out at 4.24:1 in light for no reason anyone
+   intended. An opacity on a container is a contrast change applied to every descendant,
+   including the ones that were already at the floor. */
 .tl-chip[data-state="ended"] {
-  opacity: 0.92;
+  border-color: var(--line-soft);
 }
 
 .tl-chip[data-state="unknown"] .tl-chip-state {
@@ -2324,12 +2393,31 @@ body.bp-narrow .tl-user-bubble {
   box-shadow: inset -2px 0 0 var(--accent);
 }
 
+/* THE TOP-RIGHT LANE IS RESERVED, AND THIS IS WHY.
+
+   The settings button is `position: fixed` at top 18 / right 18 with z-index 300, because
+   §15 requires it above every overlay on every screen. The inspector is a right-edge pane
+   whose close button lived at exactly those coordinates — so the settings button was
+   sitting on top of it, and `✕` had become unclickable. The contrast gate is what found it:
+   check 11 reported `button#inspector-close` as obscured on every surface that reaches it
+   and measured on none, which is the gate saying "this element is behind something
+   everywhere" — a statement about the pixels that happens to also be a statement about the
+   pointer.
+
+   `--chrome-lane` is the footprint the fixed button claims: its 40px box, its 18px inset
+   and 8px of air. Any pane that reaches the top-right edge adds it, and nothing else has
+   to know the settings button exists. */
+:root {
+  --chrome-lane: 66px;
+}
+
 .inspector-head {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: start;
   gap: 4px 8px;
   padding: 16px 14px 12px 18px;
+  padding-right: calc(14px + var(--chrome-lane));
   border-bottom: 1px solid var(--line);
 }
 
@@ -3242,23 +3330,33 @@ body.bp-narrow .tl-user-bubble {
   /* See the header: a button resets font-size, and this box has no text of its own. */
   font-size: 14px;
   font-family: var(--font);
-  background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+  background: var(--tint-gold);
   color: var(--gold-text);
+  /* THE REFERENCE CARRIES NO BORDER, AND THIS ONE HAS TO. deeply's `.setbtn` leans on its
+     tint alone, which works against deeply's card and does not work here: on the RichOS
+     ground the tint computes 1.47:1 dark and 1:1 light against what surrounds it, and a
+     control's boundary is a non-text indicator that owes 3:1. It is the same
+     `--line-control` every other control in this file takes, so the adaptation is the
+     palette adaptation the ruling permits and not a redesign — the geometry, the states and
+     the behaviour are untouched. It matters more here than anywhere: this is the button
+     that is on EVERY screen, and on the opening screen it is the only control there is.
+
+     Its own token, `--chrome-edge`, and not `--line-control`, for one reason: this button
+     floats ABOVE the overlay scrim, so its boundary is measured against the scrim as well
+     as against every surface. In light mode `--line-control` (#767c8d) computes 2.18:1 on
+     the scrimmed ground — the one place a mid-grey border has nothing to be lighter or
+     darker THAN. `--chrome-edge` is struck away from that midpoint: 3.23:1 on the scrim,
+     7.02:1 on the plain ground. Nothing else needs this, because nothing else is
+     deliberately painted on top of a veil. */
+  border: 1px solid var(--chrome-edge);
   transition: background 0.2s, color 0.2s;
 }
 .setbtn:hover {
-  background: color-mix(in srgb, var(--gold) 20%, var(--surface));
+  background: var(--tint-gold-strong);
 }
 .setbtn:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
-}
-/* Light mode needs a heavier tint to read as a control against the ivory card. */
-:root[data-theme="light"] .setbtn {
-  background: color-mix(in srgb, var(--gold) 17%, var(--surface));
-}
-:root[data-theme="light"] .setbtn:hover {
-  background: color-mix(in srgb, var(--gold) 26%, var(--surface));
 }
 .setbtn svg {
   width: 20px;
@@ -3342,12 +3440,9 @@ body.bp-narrow .tl-user-bubble {
 .theme-seg {
   display: inline-flex;
   align-items: center;
-  background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+  background: var(--tint-gold-weak);
   border-radius: 999px;
   padding: 2px;
-}
-:root[data-theme="light"] .theme-seg {
-  background: color-mix(in srgb, var(--gold) 14%, var(--surface));
 }
 .theme-opt {
   width: 30px;
@@ -3385,12 +3480,9 @@ body.bp-narrow .tl-user-bubble {
 .font-seg {
   display: inline-flex;
   align-items: center;
-  background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+  background: var(--tint-gold-weak);
   border-radius: 999px;
   padding: 2px;
-}
-:root[data-theme="light"] .font-seg {
-  background: color-mix(in srgb, var(--gold) 14%, var(--surface));
 }
 .font-opt {
   width: 30px;
@@ -3436,7 +3528,7 @@ body.bp-narrow .tl-user-bubble {
   flex: none;
   margin: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+  background: var(--tint-gold-weak);
   border: 1px solid var(--line);
   appearance: none;
   -webkit-appearance: none;
@@ -3487,7 +3579,7 @@ body.bp-narrow .tl-user-bubble {
   transition: background 0.15s, color 0.15s;
 }
 .bugbtn:hover {
-  background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+  background: var(--tint-gold);
   color: var(--gold-text);
 }
 .bugbtn:focus-visible {

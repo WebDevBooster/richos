@@ -201,6 +201,47 @@ async function openApp(browser, theme, holdSplash) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+
+  // DRIVE THE APP'S OWN THEME, NOT THE OS PREFERENCE — and this is the whole reason this
+  // suite kept meaning something on the day dark mode landed.
+  //
+  // Until 2026-08-31 the app shipped ONE palette, so `colorScheme` on the page was a
+  // reasonable stand-in for "the other theme": there was no other theme, and check 10 said
+  // so out loud. Now there are two, and they are chosen by the CEO and stored in
+  // `config.rs` — `:root[data-theme="light"]`, not `@media (prefers-color-scheme: dark)`.
+  // An OS preference decides NOTHING about which palette this app paints.
+  //
+  // So had this line stayed as it was, both "themes" would have walked the DARK palette,
+  // the light half of every check above would have been a re-run of the dark half, and the
+  // suite would have reported a clean sweep of both themes while never once measuring light
+  // mode — the precise failure mode check 10 was written to catch, arriving through the
+  // door check 10 was not watching. `colorScheme` is still passed, because `system` resolves
+  // against it and a theme-independent element that DID respond to the OS should still be
+  // seen; but the app's own preference is what is set here.
+  //
+  // It is seeded into `localStorage` in an init script, which is to say through the exact
+  // mirror `theme-boot.js` reads before first paint. Setting `data-theme` after load would
+  // measure a state the shipping app never actually boots into.
+  // BOTH the mirror and the STORE, and the second one is the one that decides. Seeding
+  // `richos-theme` alone does not work and finding out why is worth the two lines: the
+  // mirror is a cache, `syncAppearanceFromBackend` reconciles it against the backend at
+  // init, and the BACKEND WINS — so a mirror-only seed is overwritten by the store's answer
+  // a few hundred milliseconds after boot, and the walk measures the store's theme while
+  // claiming the seed's. That is the product behaving exactly as designed. The test has to
+  // seed the thing that actually holds the preference.
+  await page.addInitScript((t) => {
+    try {
+      window.localStorage.setItem("richos-theme", t);
+      window.localStorage.setItem("richos-font-scale", "100");
+      window.localStorage.setItem(
+        "richos-mock-config",
+        JSON.stringify({ theme: t, font_scale: 100, user_name: null })
+      );
+    } catch (e) {
+      /* storage unavailable: theme-boot falls back to the shipped default, which is dark */
+    }
+  }, theme);
+
   if (holdSplash) {
     // Hold the curtain deterministically rather than racing it. `main.js` calls
     // `RichSplash.yieldNow("app-ready")` the moment the shell is usable, which on this
@@ -222,6 +263,18 @@ async function openApp(browser, theme, holdSplash) {
   }
   await page.goto(APP);
   await page.waitForSelector(".nav-thread", { state: "attached" });
+  // The seed either took or this walk is measuring something other than what it claims. A
+  // silent miss here would relabel a dark walk as a light one, which is worse than no walk.
+  // The opening screen is the ONE exception and it is §15's ruling, not a bug: while the
+  // curtain is up the theme is clamped to dark by `RichTheme.forceDark`, so a light walk of
+  // `holdSplash` correctly reports dark.
+  const painted = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+  const expected = holdSplash ? "dark" : theme;
+  assert(
+    painted === expected,
+    "asked for the " + theme + " theme and the document painted " + painted + " — the walk " +
+      "below would be labelled with a palette it is not measuring"
+  );
   if (holdSplash) {
     page.__errors = errors;
     return page;
@@ -627,31 +680,85 @@ async function main() {
   // ---- 10. the dark run is not a fiction --------------------------------------------------
 
   await run.check("10  the second theme is a real second theme, or is reported as not one", async () => {
+    // THIS CHECK CHANGED SHAPE ON 2026-08-31, AND THE OLD SHAPE IS WHY.
+    //
+    // It used to count `@media (prefers-color-scheme: dark)` blocks and, finding none,
+    // assert the two runs were IDENTICAL — which was true and honest while the app shipped
+    // one palette. Then dark mode landed, and it landed as `:root[data-theme="light"]` with
+    // dark as the shipped default (§15: "a newly installed app opens dark"), because the
+    // theme is the CEO's stored choice and not his operating system's.
+    //
+    // Left alone, this check would have kept passing — zero `prefers-color-scheme` blocks,
+    // two identical runs — and would have kept PRINTING "THE APP SHIPS ONE THEME" over an
+    // app that shipped two. A green assertion attached to a false sentence is the worst
+    // outcome available here: it is the "nobody checked" that reads as "somebody checked".
+    //
+    // So it now counts the mechanism that actually ships, and it counts BOTH, because
+    // either is a legitimate way to have a second theme and a build that switched from one
+    // to the other must not slip through the gap between them.
     const css = CSS_FILES.map((f) => fs.readFileSync(f, "utf8")).join("\n");
-    const darkBlocks = (css.match(/@media[^{]*prefers-color-scheme\s*:\s*dark/g) || []).length;
-    const light = perSurface["shell/light"];
-    const dark = perSurface["shell/dark"];
-    assert(light && dark, "check 9 must have run both themes before this one can compare them");
-    const sigOf = (o) => Object.keys(o.failures).sort().join("|");
-    const identical = sigOf(light) === sigOf(dark) && light.nodesChecked === dark.nodesChecked;
-    if (darkBlocks === 0) {
+    const mediaBlocks = (css.match(/@media[^{]*prefers-color-scheme\s*:\s*dark/g) || []).length;
+    const attrBlocks = (css.match(/:root\s*\[\s*data-theme\s*=/g) || []).length;
+    const themed = mediaBlocks + attrBlocks;
+
+    assert(
+      perSurface["shell/light"] && perSurface["shell/dark"],
+      "check 9 must have run both themes before this one can compare them"
+    );
+
+    // WHAT THIS CHECK COMPARES, AND WHY IT IS NO LONGER THE FAILURE SIGNATURES.
+    //
+    // The original compared the two runs' sets of FAILING colour pairings and asserted they
+    // differed. That was a serviceable proxy while the app had 456 failures — two palettes
+    // fail differently. It has one fatal property, and this build hit it within the hour:
+    // WHEN THE APP REACHES ZERO FAILURES, BOTH SETS ARE EMPTY, THEREFORE IDENTICAL,
+    // THEREFORE THIS CHECK FAILS — and it fails hardest exactly when the work is most
+    // correct, which trains whoever is on the other end to disable it.
+    //
+    // Fixing the contrast debt must not be what breaks the theme check. So the proof is now
+    // taken from the PIXELS: the shell's own painted background, read out of both walks.
+    // That is evidence a clean app still produces, and it is closer to the thing being
+    // claimed anyway — "there are two palettes" is a statement about colours, not failures.
+    const grounds = {};
+    for (const t of THEMES) {
+      const page = await openApp(browser, t, false);
+      grounds[t] = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      await page.close();
+    }
+    if (themed === 0) {
       assert(
-        identical,
-        "the shipped CSS declares no prefers-color-scheme:dark rule, so the dark run must be palette-identical — " +
-          "it is not, which means something IS responding to the scheme and this note is now wrong"
+        grounds.light === grounds.dark,
+        "the shipped CSS declares no second-theme rule of either kind, yet the two runs paint " +
+          "different grounds (" + grounds.dark + " vs " + grounds.light + ") — something IS " +
+          "responding to the theme and this note is now wrong"
       );
-      return (
-        "0 `prefers-color-scheme: dark` blocks in style.css + splash.css. THE APP SHIPS ONE THEME. " +
-        "The dark run is a same-palette re-check under a dark OS preference, NOT dark-mode coverage — " +
-        "there is no dark mode to cover. The moment one lands, this check flips to demanding the two runs differ."
-      );
+      return "0 second-theme rules in style.css + splash.css. THE APP SHIPS ONE THEME.";
     }
     assert(
-      !identical,
-      darkBlocks + " `prefers-color-scheme: dark` block(s) are shipped, but the dark run produced the identical " +
-        "palette — the emulation is not reaching them, so the dark half of every check above is a fiction"
+      grounds.light !== grounds.dark,
+      themed + " second-theme rule(s) are shipped, but both walks paint the same body background (" +
+        grounds.dark + ") — the theme is not reaching the elements, so half of every check above " +
+        "is a fiction"
     );
-    return darkBlocks + " dark blocks shipped, and the dark run exercises them: the two runs differ";
+    const fresh = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: "light" });
+    await fresh.goto(APP);
+    await fresh.waitForSelector(".nav-thread", { state: "attached" });
+    const virgin = await fresh.evaluate(() => document.documentElement.getAttribute("data-theme"));
+    await fresh.close();
+    assertEqual(
+      virgin,
+      "dark",
+      "a install with NO stored preference, under a LIGHT operating system, must still open " +
+        "dark — CEO ruling §15. It opened " + virgin + ", which means the OS is deciding a " +
+        "question the ruling gives to the CEO"
+    );
+
+    return (
+      themed + " second-theme rule(s) shipped (" + attrBlocks + " `:root[data-theme=]`, " +
+      mediaBlocks + " `prefers-color-scheme`), and both walks exercise them: the two runs " +
+      "differ, the body ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
+      "fresh install under a light OS still opens dark."
+    );
   });
 
   // ---- 11. the obscured bucket is not a hiding place ---------------------------------------
