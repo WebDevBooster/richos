@@ -31,8 +31,11 @@
 #       stand itself down and never strand a session.
 #
 # WHAT BLOCKS AND WHAT ONLY REPORTS
-#   Blocking: unresolved AGENT NAMES and unresolved COMMIT SHAs.
-#   Reporting: unresolved FILE PATHS, and a prose in-flight-dispatch signal.
+#   Blocking: unresolved AGENT NAMES, unresolved COMMIT SHAs, and a BARE-ROLE
+#     in-flight claim about a role never dispatched in this session.
+#   Reporting: unresolved FILE PATHS, a prose in-flight-dispatch signal, that
+#     signal narrowed to messages naming no agent, and a bare-role claim about
+#     a role that ran EARLIER and is not running now.
 #   The full reasoning — monotonic vs shrinking ground truth, the grounding
 #   relaxation, and the measured numbers behind each choice — is in the module
 #   docstring of guard-unresolved-claims.py, which is the analysis half.
@@ -42,6 +45,18 @@
 #     commit SHAs   262 tokens  0 false positives
 #     file paths    572 tokens  15 false positives (2.6%) -> REPORT ONLY
 #     prose signal  418 turns   1 true / 5 false (17% precision) -> REPORT ONLY
+#
+#   Re-measured 2026-08-31 on 4,134 turns / 3,532 final messages, for the
+#   bare-role work. THE NUMBERS DECIDED WHICH HALF BLOCKS:
+#     bare-role extraction   103 hits, 103 genuine teammate references (103/103)
+#     ...never-dispatched      0 fires -> 0 FP, and 0 TP: it guards a case this
+#                              corpus does not contain. BLOCKS, costing nothing.
+#     ...spawned-but-not-live  the half that catches the 2026-08-31 failure, and
+#                              its FP rate CANNOT be measured — past rosters are
+#                              not retained. REPORTS until it can be.
+#     prose + names-nobody   29 of the 30 prose hits name nobody, so the filter
+#                            removes ONE IN THIRTY: 3 true / 29 = 10.3%, against
+#                            the 17% it was proposed to replace. REPORT ONLY.
 #
 # FAIL-OPEN, DELIBERATELY, AND ONLY HERE
 #   Every other blocking guard in this engine fails CLOSED. This one does not,

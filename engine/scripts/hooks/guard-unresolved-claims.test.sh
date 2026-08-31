@@ -74,9 +74,13 @@ TEAM_DIR="$TEAMS/session-feedface"
 mkdir -p "$TEAM_DIR"
 
 printf 'norm-opus-a1\n' > "$TEAM_DIR/spawned-names.log"
+# agentType and status are what liveness is read from. mark is RUNNING; norm
+# was spawned (it is in the ledger above) and is NOT in the roster, which is
+# the "ran earlier, finished" shape.
 cat >"$TEAM_DIR/config.json" <<'JSON'
 { "name": "session-feedface",
-  "members": [ { "name": "team-lead" }, { "name": "mark-sonnet-r7" } ] }
+  "members": [ { "name": "team-lead" },
+               { "name": "mark-sonnet-r7", "agentType": "mark", "status": "running" } ] }
 JSON
 printf '{"teammate":"echo-opus-k3"}\n' > "$TEAM_DIR/idle-events.jsonl"
 
@@ -93,6 +97,10 @@ git -C "$ENTITY" config user.name t >/dev/null 2>&1
 mkdir -p "$SANDBOX/nohooks"
 git -C "$ENTITY" config core.hooksPath "$SANDBOX/nohooks" >/dev/null 2>&1
 : > "$ENTITY/orchestration.config"
+# The role vocabulary is DERIVED from agent definitions on disk (unioned with
+# the roster's own agentType values), never typed into the guard.
+mkdir -p "$ENTITY/.claude/agents"
+for r in zach norm mark art; do printf -- '---\nname: %s\n---\n' "$r" > "$ENTITY/.claude/agents/$r.md"; done
 mkdir -p "$ENTITY/docs"
 printf 'real\n' > "$ENTITY/docs/real-file.md"
 git -C "$ENTITY" add -A >/dev/null 2>&1
@@ -411,6 +419,51 @@ then
 else
     printf '  FAIL  x.observation-record-written\n'; FAIL=$((FAIL + 1))
 fi
+
+# --- BLOCKING: a bare-role claim about a role never dispatched -------------
+# The rule, and the reason it is the only half that blocks: the ledger only
+# grows, so "no agent of this role has ever been spawned here" cannot become
+# false later. Same ground truth, same monotonicity, same zero-FP argument as
+# the agent-name check.
+run_case "y1.bare-role-never-dispatched-blocks" 2 \
+    "$(payload 'Zach is building it now, in the engine, alongside the three already running.')" \
+    "named a ROLE rather than an agent"
+
+# --- REPORTING: the role ran earlier and is not running now ----------------
+# This is the 2026-08-31 failure's real shape and it does NOT block, because
+# liveness shrinks and a guard whose ground truth shrinks cannot be trusted to
+# refuse. Asserted here so the limit is a test rather than a paragraph.
+run_case "y2.bare-role-spawned-earlier-but-not-live-REPORTS" 0 \
+    "$(payload 'Norm is building it now.')" \
+    "NOT currently running"
+
+run_case "y3.bare-role-with-a-live-teammate-is-silent" 0 \
+    "$(payload 'Mark is building it now.')"
+if printf '%s' "$LAST_ERR" | grep -q 'NOT currently running'; then
+    printf '  FAIL  y3b.a-live-teammate-produces-no-observation\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  y3b.a-live-teammate-produces-no-observation\n'; PASS=$((PASS + 1))
+fi
+
+# Naming the agent is what moves the claim into the blocking bucket that has
+# always worked. The role check stands down; the name check takes over.
+run_case "y4.naming-the-agent-hands-over-to-the-name-check" 2 \
+    "$(payload 'zach-opus-uici1 is building it now.')" \
+    "never spawned"
+
+run_case "y5.an-Agent-call-this-turn-suppresses-the-role-check" 0 \
+    "$(payload 'Zach is building it now.' "$AGENT_IN_TURN")"
+
+# PRECISION: the role must be CAPITALIZED and the subject of a progressive
+# verb, so ordinary English containing a role word never enters. Measured
+# 103/103 correct extraction over 3,532 real messages.
+run_case "y6.ordinary-nouns-that-happen-to-be-role-words-never-fire" 0 \
+    "$(payload 'A watermark is showing on the art, and the mark is fading.')"
+
+# The rule proposed as a gate, kept as a report with its measured number.
+run_case "y7.nameless-dispatch-is-reported-with-its-measured-number" 0 \
+    "$(payload 'Dispatching it now.')" \
+    "10.3% precision"
 
 echo
 if [ "$FAIL" -eq 0 ]; then
