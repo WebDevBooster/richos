@@ -83,7 +83,12 @@ else
       "it resolves to $SRC — every file under it, including ui/tests, is embedded in the binary"
 fi
 
-if git -C "$APP" check-ignore -q "$DIST_ABS" 2>/dev/null; then
+# Asked about a path INSIDE the directory, deliberately. `app/.gitignore` says `ui-dist/`
+# with a trailing slash, which matches directories only — and git cannot know a path is a
+# directory when it does not exist yet. Asking about the directory itself therefore
+# reported NOT IGNORED on any machine that had not built, which is every fresh clone. The
+# rule was right and the question was wrong.
+if git -C "$APP" check-ignore -q "$DIST_ABS/index.html" 2>/dev/null; then
   ok "P3 the staged frontend directory is git-ignored"
 else
   bad "P3 the staged frontend directory is git-ignored" \
