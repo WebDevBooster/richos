@@ -2138,9 +2138,38 @@ async function syncSplashFromBackend() {
 /// Tell the durable store the surface has been seen. Idempotent on the Rust side — only the
 /// first call in a store's life touches the disk — and it is the zero point time-to-disable
 /// is measured from. MEASUREMENT, never display: nothing reads it back to the CEO.
+///
+/// It also pushes the id that was drawn onto the launch record's RECENCY RING (CEO,
+/// 2026-08-31): remembering only the last one prevents an immediate repeat and nothing else,
+/// so a draw can show the same three all week and still never repeat back-to-back. The id
+/// comes from `state.variationId`, which is set where the node is inserted, so the ring
+/// holds what was ON SCREEN rather than what was chosen — `splash.js` has three paths that
+/// choose and then decline to render, and all three leave `shown` false.
 function noteSplashShown() {
   if (!window.RichSplash || !window.RichSplash.state.shown) return;
   Bridge.invoke("splash_note_shown").catch(() => {});
+  const id = window.RichSplash.state.variationId;
+  if (id) Bridge.invoke("launch_note_splash_shown", { id }).catch(() => {});
+}
+
+/// THE LAUNCH RECORD, read once at boot and put where the reward logic will find it.
+///
+/// **The offset is computed HERE and passed in**, because this is the only layer in the
+/// process that knows what "local" means. The CEO ruled that every timestamp is stored as
+/// UTC epoch millis and every bucket — today, this week, month, year — is computed against
+/// his LOCAL calendar at read time: the market is US founder-CEOs whose evening is already
+/// tomorrow in UTC, so UTC bucketing would mis-date the commonest usage moment every day.
+/// `getTimezoneOffset()` is minutes to ADD to local to get UTC, i.e. +420 in California, so
+/// it is negated into the offset-from-UTC-positive-east that `launch.rs` takes.
+///
+/// **NOTHING RENDERS THIS.** §5 of the splash design bans every counter, streak and score
+/// from the CEO's screen, and this changes nothing he can see. It is the record the reward
+/// selection will read, wired ahead of that logic existing — which is the same shape the
+/// company-name plumbing landed in.
+async function readLaunchRecord() {
+  const utcOffsetMinutes = -new Date().getTimezoneOffset();
+  const record = await invokeQuiet("launch_state", { utcOffsetMinutes });
+  window.RichLaunch = record || { kind: null, counts: null, readable: false };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -4062,6 +4091,9 @@ async function init() {
   // the CEO can see this launch, and neither may stand between him and a focused composer.
   syncSplashFromBackend();
   noteSplashShown();
+  // The launch record, beside them and dead last for the same reason: it changes nothing
+  // the CEO can see this launch.
+  readLaunchRecord();
   // The retention window, beside them and for the same reason: it changes nothing the CEO
   // can see this launch, and it must not stand between him and a focused composer. Read
   // rather than cached — see the block comment over `renderRetention`.
