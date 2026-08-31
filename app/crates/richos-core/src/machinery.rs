@@ -1,10 +1,13 @@
-//! The MACHINERY seam — every non-text ACP update, routed instead of dropped.
+//! The MACHINERY seam — every non-text frame the agent emits, routed instead of dropped.
 //!
 //! Built to `docs/plans/richos-techy-mode-2026-08-26.md` (Sage, 2026-08-26), Phase 1
-//! (§5), against the emission set actually measured on 2026-08-28
-//! (`docs/verification/acp-emission-probe-2026-08-28.md`, five runs of
-//! `claude-agent-acp` 0.70.0). Where the design's field-level assumptions and the wire
-//! disagree, the wire wins and the deviation is named here.
+//! (§5). **Re-based 2026-08-31 from the ACP adapter's `session/update` vocabulary onto the
+//! NATIVE `claude` binary's stream-json stdio** (`wiki/ceo-decisions.md` §16 — *"the adapter
+//! goes"*), against the frames actually captured in
+//! `docs/verification/native-claude-stream-json-2026-08-31/raw/` and
+//! `docs/verification/native-claude-tool-status-2026-08-31/raw/`. Where the design's
+//! field-level assumptions and the wire disagree, the wire wins and the deviation is named
+//! here.
 //!
 //! ## Why a second event family, and not new `StreamEvent` variants
 //! `stream.rs:8-10` states the clean-output invariant as a property of the type: *"the
@@ -17,44 +20,93 @@
 //!
 //! ## ONE event name, deliberately (design §1.3)
 //! `stream.rs` and `voice/event.rs` use one Tauri event per semantic event because those
-//! sets are OURS and closed. The ACP update set is the VENDOR's and open. One name plus a
-//! `kind` field means a new ACP kind needs no new event, no new subscription, and no
+//! sets are OURS and closed. The agent's frame set is the VENDOR's and open. One name plus
+//! a `kind` field means a new vendor frame needs no new event, no new subscription, and no
 //! contract revision.
 //!
-//! ## What Phase 1 routes, and what it deliberately does not
-//! Typed here: `tool_call`, `tool_call_update` (merged), `agent_thought_chunk`, the
-//! client-directed `session/request_permission` and `fs/*` calls, and `Unknown`.
+//! ## ONE frame can be SEVERAL records, and that is new
+//! [`MachineryRecord::from_native_event`] returns a `Vec`, where the ACP normalizer it
+//! replaces returned an `Option`. This is forced by the wire, not chosen: an `assistant`
+//! frame carries `message.content` as an ARRAY, and one frame can hold a `thinking` block
+//! AND a `tool_use` block. Collapsing them into one record would invent a fact. The
+//! caller advances the shared per-turn `seq` (§1.4 G1) by exactly the number of records it
+//! delivered, so the counter still numbers *delivered items*, exactly as before.
 //!
-//! `plan`, `usage_update` and the SessionMeta family (`available_commands_update`,
-//! `current_mode_update`, `config_option_update`, `session_info_update`) are **Phase 2**
-//! (§5) and get **no typed kind here**. They are NOT dropped: they fall to
-//! `MachineryKind::Unknown`, which retains the vendor kind and the verbatim payload. That
-//! is the honest fallback and it is chosen on purpose — §1.4 G5 forbids re-introducing a
-//! silent drop, and the CEO's whole argument for landing routing before a renderer is
-//! that a dropped byte is a permanent hole.
+//! ## What is retained, and the SIX drops, every one of them declared
+//! Typed here: tool calls (opened from `tool_use`, closed from `tool_result`, kept alive by
+//! `tool_progress`), `thinking`, the client-directed `can_use_tool` permission request, and
+//! `Unknown`.
 //!
-//! **ONE of them is now read, and only one: `usage_update`.** [`MachineryRecord::context_usage`]
-//! pulls `{used, size}` back out of the retained payload so the spine's rotation watermark
-//! can be driven by the adapter's own measurement instead of a chars/4 estimate. This is
-//! deliberately an ACCESSOR over `Unknown` rather than a new `MachineryKind`: typing the
-//! kind is Phase 2 (Section 5) and would move this record's timeline visibility, which is
-//! not this change's business. Everything else here is still retention, not interpretation.
+//! Everything not typed — `system/init`, `system/status`, `system/thinking_tokens`,
+//! `rate_limit_event`, `control_response`, `stream_event/message_delta` — falls to
+//! `MachineryKind::Unknown`, which retains the vendor frame type as the title and the
+//! verbatim payload. §1.4 G5 forbids re-introducing a silent drop.
 //!
-//! `user_message_chunk` is DROPPED (§1.2): it is our own prompt echoed back, and
-//! `ledger.rs:386-409` already holds the CEO's words verbatim and fsync'd. A second copy
-//! would create two sources of truth for the one thing that must have exactly one.
+//! **The complete drop set on this wire. Nothing else returns no record:**
 //!
-//! ## Deviations from §1.3, all forced by measured wire data
-//! 1. `locations` on the wire is `[{path, line?}]`, not `Vec<String>` — we extract `.path`.
-//! 2. A `tool_call` OPEN event carries `rawInput: {}` and a placeholder `title`
-//!    (`"Terminal"`, `"Preparing file…"`, `"Read File"`). The real title and arguments
-//!    arrive on a LATER `tool_call_update`, so §1.4 G2's merge is mandatory, not an
-//!    optimization.
-//! 3. The observed lifecycle is `pending → (no status field ×2–3) → completed | failed`.
-//!    34 of 58 observed tool events carried NO `status`, and `in_progress` never appeared.
-//!    `ToolStatus::Other` exists so an unrecognized wire status is retained rather than
-//!    silently becoming `None`.
-//! 4. Payload fields are `rawInput`/`rawOutput`, not `input`/`output`.
+//! 1. `stream_event → content_block_delta → text_delta` — THE clean-output text path, the
+//!    native equivalent of ACP's `agent_message_chunk`. It reaches the CEO as
+//!    `StreamEvent::Chunk` and a machinery copy would be a second source of truth for the
+//!    reply.
+//! 2. `assistant` frames' `text` blocks — the same fact in whole-message form, already
+//!    delivered by (1).
+//! 3. `user` frames' `text` blocks — **the ONE deliberate drop §1.2 named**, ported intact.
+//!    `ledger.rs:386-409` already holds the CEO's words verbatim and fsync'd, and the stop
+//!    control already records a stop, so neither an echoed prompt nor the CLI's injected
+//!    `[Request interrupted by user]` marker may become a second source of truth. (Measured:
+//!    `raw/run9-rust-driven.jsonl` carries exactly two `user` frames — one `tool_result`,
+//!    one that interrupt marker — and **never our own prompt**, so on this wire the rule
+//!    guards the marker rather than the echo.)
+//! 4. The streaming ENVELOPE — `message_start`, `message_stop`, `content_block_stop`, and
+//!    `content_block_start` for `text`/`thinking` blocks. They carry no fact of their own;
+//!    they bracket (1).
+//! 5. `input_json_delta` / `thinking_delta` / `signature_delta` — FRAGMENTS whose complete
+//!    value arrives verbatim on the following `assistant` frame. Twenty-five
+//!    `content_block_delta`s in one measured turn (`run9`); retaining them would be N
+//!    partial copies of one fact, which is §1.2's own argument one level down.
+//! 6. `result` — the turn TERMINAL. The driver returns its stop reason from `prompt`,
+//!    exactly as the ACP path returned the `session/prompt` response and recorded no
+//!    machinery for it.
+//!
+//! ## The watermark measurement is DERIVED here, not given
+//! ACP emitted `usage_update {used, size}` outright. The native wire gives the numerator
+//! and the denominator in different frames and at different times, so
+//! [`MachineryRecord::from_context_usage`] builds an explicitly DERIVED record and
+//! [`MachineryRecord::context_usage`] reads it back. `used` is
+//! `stream_event/message_delta`'s `usage.input_tokens + cache_read_input_tokens +
+//! cache_creation_input_tokens` (mid-turn, observed monotonic 29,342 → 30,113 in `run9`);
+//! `size` is `result.modelUsage[<session model>].contextWindow` = 1,000,000 for
+//! `claude-sonnet-5`, which arrives only when a turn ENDS. **Caveat C3 of the spike is real
+//! and is honoured rather than papered over:** the first turn of a fresh lease has a
+//! numerator and no denominator, so no record is emitted at all and the spine stays on its
+//! chars÷4 estimate until a turn completes.
+//!
+//! ## Deviations forced by measured wire data
+//! 1. **`tool_progress` keys on `parent_tool_use_id`, never `tool_use_id`.** Its own
+//!    `tool_use_id` is a synthetic `<real-id>-heartbeat-<n>` that matches no row anywhere
+//!    (`native-claude-tool-status-2026-08-31/findings.md`). Keying on the obvious field
+//!    silently updates nothing.
+//! 2. **A `tool_use` content-block START carries `input: {}`.** The complete arguments
+//!    arrive on the following whole-message `assistant` frame, so §1.4 G2's merge is
+//!    mandatory, not an optimization — the same conclusion the ACP path reached for a
+//!    different reason.
+//! 3. **There is no `status` string on this wire.** Status is a POSITION: `tool_use` opens
+//!    `Pending`, `tool_progress` means `InProgress`, `tool_result` closes `Completed` or
+//!    `Failed` from its boolean `is_error`. `ToolStatus::Other` is retained for a wire that
+//!    starts carrying one.
+//! 4. **`locations` does not exist.** Paths are extracted from the tool's own `input`
+//!    (`file_path`, `path`, `notebook_path`) and from `tool_use_result.filePath`.
+//! 5. **The SessionMeta suppression key ignores `uuid`.** Four `system/init` frames in
+//!    `run9` differ ONLY by a per-frame `uuid`, so a verbatim-equality slot would suppress
+//!    nothing and the "last value wins" rule would be dead code. See [`meta_identity`].
+//!
+//! ## What this file must NEVER do — a licence condition, not a preference
+//! RichOS may never collect, store, or intermediate Claude credentials or session tokens
+//! (`docs/research/claude-code-redistribution-2026-08-31.md`; `ceo-decisions.md` §16). The
+//! `control_response` to `initialize` carries an `account` object with the customer's email
+//! and subscription type. **It is not normalized here and the driver never retains it** —
+//! see `native.rs`'s handshake, which reads that response for liveness only and keeps none
+//! of it.
 
 use crate::util::{new_id, now_millis};
 use serde::{Deserialize, Serialize};
@@ -72,26 +124,76 @@ pub const PAYLOAD_MAX_BYTES: usize = 32 * 1024;
 /// `"N lines"` fallback.
 pub const SUMMARY_MAX_CHARS: usize = 84;
 
-/// The four `sessionUpdate` kinds §1.2 routes to `SessionMeta`, **last value wins**.
+/// The native frame titles §1.2's SessionMeta rule applies to, **last value wins**.
 ///
 /// Named here rather than inline at the one call site because the *reason* they are a set
-/// is a property of the vendor's update family, not of the caller: they are small,
-/// near-static, and repeated verbatim once per turn — measured 2026-08-28 as exactly one
-/// `available_commands_update` and one `session_info_update` per turn, in 5 of 5 runs
-/// (`docs/verification/acp-emission-probe-2026-08-28.md` §4.2). `current_mode_update` and
-/// `config_option_update` were NOT observed on adapter 0.70.0; they are listed because
-/// §1.2 lists them, and an unobserved kind arriving tomorrow must land on the last-value
-/// rule rather than on the repeat-forever one.
-pub const SESSION_META_KINDS: [&str; 4] = [
-    "available_commands_update",
-    "current_mode_update",
-    "config_option_update",
-    "session_info_update",
-];
+/// is a property of the vendor's frame family, not of the caller: they are small,
+/// near-static, and repeated once per turn. Measured on the native wire
+/// (`docs/verification/native-claude-stream-json-2026-08-31/raw/run9-rust-driven.jsonl`):
+/// **four `system/init` frames across four turns, and four `system/status` frames**, one of
+/// each per turn — the same shape the ACP adapter's `available_commands_update` /
+/// `session_info_update` pair had, in the vendor's new vocabulary. `system/init` is the
+/// large one: it carries `slash_commands` (49), `tools`, `agents`, `models`, `mcp_servers`,
+/// `permissionMode` and `capabilities`, i.e. everything BOTH retired ACP kinds carried and
+/// more.
+///
+/// These are the strings [`MachineryRecord::from_native_event`] uses as the record `title`,
+/// not raw `type` values, because `system` alone does not identify a family — the subtype
+/// does.
+pub const SESSION_META_KINDS: [&str; 3] = ["system:init", "system:status", "rate_limit_event"];
 
-/// Whether a vendor `sessionUpdate` kind belongs to the last-value-wins SessionMeta family.
-pub fn is_session_meta(wire_kind: &str) -> bool {
-    SESSION_META_KINDS.contains(&wire_kind)
+/// Whether a normalized record title belongs to the last-value-wins SessionMeta family.
+pub fn is_session_meta(title: &str) -> bool {
+    SESSION_META_KINDS.contains(&title)
+}
+
+/// The title one raw frame normalizes to, WITHOUT normalizing it.
+///
+/// The between-turn lane has to classify a frame before it can decide whether to queue it,
+/// and building a whole `MachineryRecord` (with its uuid and its clock read) only to throw it
+/// away would be waste on the reader thread. This is the one place both answers come from, so
+/// the lane and the record can never disagree about what a frame is called.
+///
+/// `"user:text"` is the answer for §1.2's ONE deliberate drop, which is why a frame that
+/// produces no record still has a title.
+pub fn frame_title(frame: &Value) -> String {
+    let ty = frame.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match ty {
+        "system" => format!("system:{}", frame.get("subtype").and_then(|v| v.as_str()).unwrap_or("")),
+        "user" => {
+            let only_text = content_blocks(frame)
+                .iter()
+                .all(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"));
+            if only_text && !content_blocks(frame).is_empty() {
+                "user:text".to_string()
+            } else {
+                "user".to_string()
+            }
+        }
+        other => other.to_string(),
+    }
+}
+
+/// The comparison key for §1.2's last-value-wins slot: the frame with its per-frame
+/// identifiers removed.
+///
+/// **Measured, and it is the whole reason this function exists.** The four `system/init`
+/// frames in `run9-rust-driven.jsonl` are byte-identical except for `uuid` — sha256 of the
+/// canonicalized frames: `acbe3949a0de`, `43f5fdcdeeae`, `2b06161ab350`, `6baf67daacfa`,
+/// four distinct digests for four frames that say the same thing. A slot comparing frames
+/// verbatim, as the ACP path could, would suppress **zero** of them and the "retaining every
+/// repeat is waste" rule would be dead code that looked alive.
+///
+/// `uuid` is the frame's own identity and `session_id` is the lease's; neither is part of
+/// the statement the frame makes. Everything else is compared.
+pub fn meta_identity(frame: &Value) -> Value {
+    let Some(obj) = frame.as_object() else {
+        return frame.clone();
+    };
+    let mut stripped = obj.clone();
+    stripped.remove("uuid");
+    stripped.remove("session_id");
+    Value::Object(stripped)
 }
 
 /// The title carried by the marker record that reports a between-turn buffer overflow.
@@ -214,80 +316,290 @@ pub struct MachineryRecord {
 }
 
 impl MachineryRecord {
-    /// Normalize ONE ACP `session/update` payload. Returns `None` for the two kinds that
-    /// have no machinery record by design: `agent_message_chunk` (it is the clean-output
-    /// text path) and `user_message_chunk` (dropped, §1.2).
+    /// Normalize ONE line of the native binary's stream-json stdout into zero, one or
+    /// several records.
+    ///
+    /// Returns a `Vec` because one frame can be several facts — see the module doc. Records
+    /// come back numbered `seq, seq+1, …`; the caller advances its shared per-turn counter
+    /// (§1.4 G1) by `result.len()`, so the counter still numbers delivered items and a
+    /// dropped frame still consumes no position.
+    ///
+    /// An empty `Vec` is one of the six DECLARED drops in the module doc and nothing else.
     ///
     /// `thread_id` / `turn_id` / `internal` are stamped by the caller that knows them
-    /// (the spine); the ACP client knows only the session and the seq.
-    pub fn from_acp_update(update: &Value, session_id: &str, seq: u64) -> Option<MachineryRecord> {
-        let wire_kind = update.get("sessionUpdate").and_then(|v| v.as_str()).unwrap_or("");
-        match wire_kind {
-            "agent_message_chunk" | "user_message_chunk" => return None,
-            _ => {}
-        }
-
-        let (kind, title, summary) = match wire_kind {
-            "tool_call" | "tool_call_update" => {
-                let title = update
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    // No wire title on THIS event. Fall back to the vendor's real tool
-                    // name (which lives in `_meta`, not in the coarse ACP `kind`) ONLY on
-                    // the OPENING event. On an update it must stay empty — empty means
-                    // "absent", and absent is what makes the merge non-destructive. The
-                    // measured traffic proves why: run1 n=15 is a `tool_call_update` with
-                    // no `title` but with `_meta.claudeCode.toolName: "Bash"`, arriving
-                    // AFTER the real title "cat …/VERSION". Falling back there would
-                    // overwrite the CEO's line with the word "Bash".
-                    .or_else(|| {
-                        if wire_kind == "tool_call" {
-                            tool_name(update).map(|s| s.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or_default();
-                (MachineryKind::ToolCall, title, tool_summary(update))
-            }
-            "agent_thought_chunk" => {
-                let text = update
-                    .get("content")
-                    .and_then(|c| c.get("text"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
-                (MachineryKind::Thought, "thinking".to_string(), summarize(text))
-            }
-            // Every other vendor kind — including plan / usage_update / the SessionMeta
-            // family, which are Phase 2 — is RETAINED verbatim under Unknown, with the
-            // vendor kind preserved as the title so §1.4 G5's "one dim line" is truthful.
-            other => (MachineryKind::Unknown, other.to_string(), None),
+    /// (the spine); the driver knows only the session and the seq.
+    pub fn from_native_event(frame: &Value, session_id: &str, seq: u64) -> Vec<MachineryRecord> {
+        let ty = frame.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let mut out: Vec<MachineryRecord> = Vec::new();
+        let mut push = |kind, tool_call_id, status, title: String, summary, locations, body: &Value| {
+            let (payload, truncated) = cap_payload(body);
+            out.push(MachineryRecord {
+                machinery_id: new_id("mach"),
+                thread_id: String::new(),
+                turn_id: None,
+                session_id: session_id.to_string(),
+                seq: seq + out.len() as u64,
+                at: now_millis(),
+                kind,
+                tool_call_id,
+                status,
+                title,
+                summary,
+                locations,
+                internal: false,
+                payload,
+                truncated,
+            });
         };
 
-        let (payload, truncated) = cap_payload(update);
-        Some(MachineryRecord {
+        match ty {
+            // ---- the streamed half of a message -------------------------------------
+            "stream_event" => {
+                let ev = frame.get("event").unwrap_or(&Value::Null);
+                let ev_ty = ev.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                match ev_ty {
+                    // DROP 4 — the envelope. It brackets the text path and states nothing.
+                    "message_start" | "message_stop" | "content_block_stop" => {}
+                    "content_block_start" => {
+                        let block = ev.get("content_block").unwrap_or(&Value::Null);
+                        match block.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+                            // The tool row OPENS here, streamed, before the arguments
+                            // exist — earlier than the ACP path ever opened one.
+                            // `input: {}` is measured (run9:5); deviation 2. The summary is
+                            // still read from it rather than hard-coded to `None`: the
+                            // measured open carries nothing, so this yields nothing today,
+                            // and a build that starts populating it costs no code change.
+                            "tool_use" => {
+                                let input = block.get("input").unwrap_or(&Value::Null);
+                                push(
+                                    MachineryKind::ToolCall,
+                                    block.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                                    Some(ToolStatus::Pending),
+                                    block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    tool_input_summary(input),
+                                    input_locations(input),
+                                    frame,
+                                )
+                            }
+                            // DROP 4 — `text` and `thinking` block starts are envelope.
+                            "text" | "thinking" => {}
+                            other => push(
+                                MachineryKind::Unknown,
+                                None,
+                                None,
+                                format!("content_block_start:{other}"),
+                                None,
+                                Vec::new(),
+                                frame,
+                            ),
+                        }
+                    }
+                    "content_block_delta" => {
+                        match ev.get("delta").and_then(|d| d.get("type")).and_then(|v| v.as_str()).unwrap_or("") {
+                            // DROP 1 — THE clean-output text path.
+                            "text_delta" => {}
+                            // DROP 5 — fragments; the whole value arrives on `assistant`.
+                            "input_json_delta" | "thinking_delta" | "signature_delta" => {}
+                            other => push(
+                                MachineryKind::Unknown,
+                                None,
+                                None,
+                                format!("content_block_delta:{other}"),
+                                None,
+                                Vec::new(),
+                                frame,
+                            ),
+                        }
+                    }
+                    // Retained: this is the frame the watermark numerator is read from.
+                    other => push(
+                        MachineryKind::Unknown,
+                        None,
+                        None,
+                        format!("stream_event:{other}"),
+                        None,
+                        Vec::new(),
+                        frame,
+                    ),
+                }
+            }
+
+            // ---- the whole-message half ---------------------------------------------
+            "assistant" => {
+                for block in content_blocks(frame) {
+                    match block.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+                        // The arguments, complete. Merges into the row opened by the
+                        // `content_block_start` above on the same `id` (§1.4 G2).
+                        "tool_use" => {
+                            let input = block.get("input").unwrap_or(&Value::Null);
+                            push(
+                                MachineryKind::ToolCall,
+                                block.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                                None,
+                                block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                tool_input_summary(input),
+                                input_locations(input),
+                                block,
+                            );
+                        }
+                        // OBSERVED AS PRESENCE ONLY: 7 thinking blocks across the native
+                        // captures, every one with an empty `thinking` text and a signature.
+                        // The route exists so that the day real text arrives there is no
+                        // hole — the same reason the ACP path carried it unobserved.
+                        "thinking" => push(
+                            MachineryKind::Thought,
+                            None,
+                            None,
+                            "thinking".to_string(),
+                            summarize(block.get("thinking").and_then(|v| v.as_str()).unwrap_or("")),
+                            Vec::new(),
+                            block,
+                        ),
+                        // DROP 2 — already delivered as clean output.
+                        "text" => {}
+                        other => push(
+                            MachineryKind::Unknown,
+                            None,
+                            None,
+                            format!("assistant:{other}"),
+                            None,
+                            Vec::new(),
+                            block,
+                        ),
+                    }
+                }
+            }
+
+            "user" => {
+                for block in content_blocks(frame) {
+                    match block.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+                        // The tool row CLOSES here. Status is a POSITION on this wire, not
+                        // a string (deviation 3): `is_error` decides.
+                        "tool_result" => {
+                            let failed = block.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                            let detail = serde_json::json!({
+                                "block": block,
+                                "tool_use_result": frame.get("tool_use_result"),
+                            });
+                            let mut locations = Vec::new();
+                            if let Some(p) =
+                                frame.get("tool_use_result").and_then(|r| r.get("filePath")).and_then(|v| v.as_str())
+                            {
+                                locations.push(p.to_string());
+                            }
+                            push(
+                                MachineryKind::ToolCall,
+                                block.get("tool_use_id").and_then(|v| v.as_str()).map(str::to_string),
+                                Some(if failed { ToolStatus::Failed } else { ToolStatus::Completed }),
+                                // EMPTY means "absent", which is what makes the merge
+                                // non-destructive — a `tool_result` knows no tool name and
+                                // must never overwrite the one the open event set.
+                                String::new(),
+                                summarize(&block_text(block.get("content"))),
+                                locations,
+                                &detail,
+                            );
+                        }
+                        // DROP 3 — the ONE deliberate drop (§1.2), ported intact.
+                        "text" => {}
+                        other => push(
+                            MachineryKind::Unknown,
+                            None,
+                            None,
+                            format!("user:{other}"),
+                            None,
+                            Vec::new(),
+                            block,
+                        ),
+                    }
+                }
+            }
+
+            // ---- the liveness heartbeat, and its trap -------------------------------
+            //
+            // DEVIATION 1, and it would have cost a day: `tool_use_id` here is a synthetic
+            // `<real-id>-heartbeat-<n>` that matches no row anywhere. The row this belongs
+            // to is `parent_tool_use_id`. Keying on the obvious field updates nothing,
+            // silently. Measured cadence 30.002 s
+            // (`native-claude-tool-status-2026-08-31/findings.md`).
+            "tool_progress" => {
+                let elapsed = frame.get("elapsed_time_seconds").and_then(|v| v.as_u64());
+                push(
+                    MachineryKind::ToolCall,
+                    frame.get("parent_tool_use_id").and_then(|v| v.as_str()).map(str::to_string),
+                    Some(ToolStatus::InProgress),
+                    String::new(),
+                    elapsed.map(|s| format!("running {s}s")),
+                    Vec::new(),
+                    frame,
+                );
+            }
+
+            // ---- DROP 6 — the turn terminal, returned as the stop reason -------------
+            "result" => {}
+
+            // ---- everything else is RETAINED verbatim (§1.4 G5) ----------------------
+            "system" => {
+                let sub = frame.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                push(MachineryKind::Unknown, None, None, format!("system:{sub}"), None, Vec::new(), frame);
+            }
+            other => push(MachineryKind::Unknown, None, None, other.to_string(), None, Vec::new(), frame),
+        }
+
+        out
+    }
+
+    /// The DERIVED context measurement the rotation watermark runs on.
+    ///
+    /// **Derived, and it says so in the payload**, because the native wire does not hand it
+    /// over the way ACP's `usage_update` did: `used` comes from a mid-turn
+    /// `stream_event/message_delta` and `size` from a previous turn's
+    /// `result.modelUsage[<session model>].contextWindow`. `native.rs` is the only caller,
+    /// it holds both halves, and it emits nothing at all until it holds BOTH — spike caveat
+    /// C3, honoured rather than papered over.
+    ///
+    /// `usage` is the verbatim vendor object the numerator was summed from, so the record
+    /// still contains the bytes that produced the number.
+    pub fn from_context_usage(
+        used: u64,
+        size: u64,
+        usage: &Value,
+        session_id: &str,
+        seq: u64,
+    ) -> MachineryRecord {
+        let detail = serde_json::json!({
+            "kind": CONTEXT_USAGE,
+            "derived": true,
+            "used": used,
+            "size": size,
+            "usedFrom": "stream_event.message_delta.usage \
+                         (input_tokens + cache_read_input_tokens + cache_creation_input_tokens)",
+            "sizeFrom": "result.modelUsage[<session model>].contextWindow",
+            "usage": usage,
+        });
+        let (payload, truncated) = cap_payload(&detail);
+        MachineryRecord {
             machinery_id: new_id("mach"),
             thread_id: String::new(),
             turn_id: None,
             session_id: session_id.to_string(),
             seq,
             at: now_millis(),
-            kind,
-            tool_call_id: update.get("toolCallId").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            status: update.get("status").and_then(|v| v.as_str()).map(ToolStatus::from_wire),
-            title,
-            summary,
-            locations: extract_locations(update),
+            kind: MachineryKind::Unknown,
+            tool_call_id: None,
+            status: None,
+            title: CONTEXT_USAGE.to_string(),
+            summary: Some(format!("{used} / {size} tokens")),
+            locations: Vec::new(),
             internal: false,
             payload,
             truncated,
-        })
+        }
     }
 
-    /// The `{used, size}` pair off a `usage_update`, or `None` for every other record.
+    /// The `{used, size}` pair off a derived context-usage record, `None` for every other.
     ///
-    /// **Read this from the STREAM, never from the journal.** `usage_update` lands in the
+    /// **Read this from the STREAM, never from the journal.** The record lands in the
     /// evictable Tier B (`journal.rs`), so a record read back after eviction has
     /// `payload: None` and this returns `None` - correctly, because at that point the
     /// measurement genuinely is gone. The spine consumes it in `deliver`'s drain closure,
@@ -295,53 +607,51 @@ impl MachineryRecord {
     ///
     /// Returns `None` on a `truncated` record too: a truncated payload is a JSON *string*,
     /// not an object, and half a number is not a measurement. In practice this never
-    /// fires - the measured `usage_update` payloads are ~120 bytes against a 32 KB cap -
-    /// but the check is here so the type can never be built out of a fragment.
+    /// fires - a derived payload is ~400 bytes against a 32 KB cap - but the check is here
+    /// so the type can never be built out of a fragment.
     pub fn context_usage(&self) -> Option<ContextUsage> {
         if self.truncated {
             return None;
         }
         let p = self.payload.as_ref()?;
-        if p.get("sessionUpdate").and_then(|v| v.as_str()) != Some("usage_update") {
+        if p.get("kind").and_then(|v| v.as_str()) != Some(CONTEXT_USAGE) {
             return None;
         }
-        // BOTH fields required. A `usage_update` carrying only `used` says nothing about
-        // the denominator, and guessing a denominator is the exact failure this replaces.
+        // BOTH fields required. A numerator says nothing about the denominator, and
+        // guessing a denominator is the exact failure this replaces.
         Some(ContextUsage { used: p.get("used")?.as_u64()?, size: p.get("size")?.as_u64()? })
     }
 
-    /// Normalize a client-directed `session/request_permission` (§1.2). Recording the
-    /// auto-approval is a FACT, not a policy: `acp.rs` still auto-approves exactly as it
-    /// did, and this design says nothing else about gap #1.
+    /// Normalize a client-directed `control_request{can_use_tool}` (§1.2). Recording the
+    /// decision is a FACT, not a policy: `native::decide_permission` still auto-approves
+    /// exactly as `acp.rs:444-479` did, and this design says nothing else about gap #1.
     ///
-    /// Measured shape (probe §5.6): `params = { sessionId, toolCall, options }`, where
-    /// `toolCall` embeds the `toolCallId` and the resolved title — so the record links
-    /// back to the tool call it is about.
+    /// Measured shape (`run9-rust-driven.jsonl:17`, and `run8`): `request = { subtype,
+    /// tool_name, display_name, input, description, permission_suggestions, decision_reason,
+    /// decision_reason_type, tool_use_id }`. `tool_use_id` is what links the record back to
+    /// the tool row it is about.
+    ///
+    /// **Richer than the ACP shape it replaces**, and the extra field is retained rather
+    /// than discarded: `decision_reason` says WHY approval was needed, in words — *"Path is
+    /// outside allowed working directories"*. ACP carried no equivalent on any field.
     pub fn from_permission_request(
-        params: &Value,
-        chosen_option_id: &str,
+        request: &Value,
+        chosen: &str,
         session_id: &str,
         seq: u64,
     ) -> MachineryRecord {
-        let tool_call = params.get("toolCall");
-        let title = tool_call
-            .and_then(|t| t.get("title"))
-            .and_then(|v| v.as_str())
+        // The resolved human line first (it is specific), then the display name, then the
+        // raw tool name. Same precedence rule the ACP path used, over the fields that exist.
+        let title = ["description", "display_name", "tool_name"]
+            .iter()
+            .find_map(|k| request.get(*k).and_then(|v| v.as_str()).filter(|s| !s.is_empty()))
             .unwrap_or("permission request")
             .to_string();
-        let options: Vec<String> = params
-            .get("options")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|o| o.get("optionId").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
         let detail = serde_json::json!({
-            "params": params,
-            "chosen": chosen_option_id,
-            "options": options,
+            "request": request,
+            "chosen": chosen,
+            "decisionReason": request.get("decision_reason"),
+            "decisionReasonType": request.get("decision_reason_type"),
             // Stated as an observation, exactly as §1.2 requires: this is what the client
             // DID, not a policy this design introduces.
             "auto": true,
@@ -355,26 +665,31 @@ impl MachineryRecord {
             seq,
             at: now_millis(),
             kind: MachineryKind::PermissionRequested,
-            tool_call_id: tool_call
-                .and_then(|t| t.get("toolCallId"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+            tool_call_id: request.get("tool_use_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
             status: None,
             title,
-            summary: Some(format!("auto-approved: {chosen_option_id}")),
-            locations: Vec::new(),
+            summary: Some(format!("auto-approved: {chosen}")),
+            locations: input_locations(request.get("input").unwrap_or(&Value::Null)),
             internal: false,
             payload,
             truncated,
         }
     }
 
-    /// Normalize a client-directed `fs/read_text_file` / `fs/write_text_file` (§1.2).
+    /// Normalize a client-directed file-IO request.
     ///
-    /// **Named honestly:** across five probe runs, with both capabilities declared
-    /// (`acp.rs:235`) and both the Read and Write tools actually exercised,
-    /// `claude-agent-acp` 0.70.0 emitted **zero** of these. The route is built because the
-    /// table routes it; it has no observed traffic behind it.
+    /// **Named honestly, and it now has LESS traffic than it did, not more.** On the ACP
+    /// path this route existed and `claude-agent-acp` 0.70.0 emitted zero of them across
+    /// five probe runs. On the native path the question is closed the other way: the CLI
+    /// does its own file IO and was **OBSERVED NOT TO ASK** — it wrote `rust-probe-out.txt`
+    /// and edited `edit-target.txt` itself, asking only for *permission*
+    /// (`native-claude-stream-json-2026-08-31/findings.md` §4, `run9`/`run11`).
+    ///
+    /// So this constructor has **no producer in `native.rs`**, deliberately, and that is
+    /// stated rather than left for a reader to discover. It is kept because
+    /// `MachineryKind::ClientFsCall` is part of the record contract the UI renders and the
+    /// journal has already written, and deleting a kind the stored records use would make
+    /// old journals unreadable.
     pub fn from_client_fs_call(method: &str, params: &Value, session_id: &str, seq: u64) -> MachineryRecord {
         let path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
         let (payload, truncated) = cap_payload(&serde_json::json!({ "method": method, "params": params }));
@@ -397,39 +712,34 @@ impl MachineryRecord {
         }
     }
 
-    /// Normalize ONE update that arrived while NO turn was in flight (§1.5's first gap).
+    /// Normalize ONE frame that arrived while NO turn was in flight (§1.5's first gap).
     ///
     /// Between-turn traffic is not a different KIND of traffic — it is the same vendor
-    /// updates arriving at a moment when `current_prompt` is `None`, which until now meant
-    /// they hit no sink at all (`acp.rs`'s named hole). So this delegates to
-    /// [`MachineryRecord::from_acp_update`] and differs from it in exactly two places, both
-    /// forced by the absence of a turn:
+    /// frames arriving at a moment when `current_prompt` is `None`, which before §1.5 meant
+    /// they hit no sink at all. So this delegates to [`MachineryRecord::from_native_event`]
+    /// and differs from it in exactly two places, both forced by the absence of a turn:
     ///
-    ///   1. **`agent_message_chunk` is RETAINED here**, where in-turn it is `None`. In a
-    ///      turn it is the clean-output text path and a machinery copy would be a second
-    ///      source of truth for the reply. Between turns there is no turn to attach text
-    ///      to and no clean-output path to carry it, so the choice is retain-as-machinery
-    ///      or drop, and §1.4 G5 forbids the drop. It still never reaches
-    ///      `StreamEvent::Chunk`: this returns a `MachineryRecord`, which travels on the
-    ///      other family entirely.
-    ///   2. **`user_message_chunk` is still `None`** — the ONE deliberate drop (§1.2), and
-    ///      it does not become less deliberate for arriving between turns.
+    ///   1. **Assistant TEXT is RETAINED here**, where in-turn it is dropped. In a turn it
+    ///      is the clean-output text path and a machinery copy would be a second source of
+    ///      truth for the reply. Between turns there is no turn to attach text to and no
+    ///      clean-output path to carry it, so the choice is retain-as-machinery or drop, and
+    ///      §1.4 G5 forbids the drop. It still never reaches `StreamEvent::Chunk`: this
+    ///      returns `MachineryRecord`s, which travel on the other family entirely.
+    ///
+    ///      On this wire that means an `assistant` frame's `text` blocks and a
+    ///      `text_delta`. The ACP path had one carrier for both (`agent_message_chunk`);
+    ///      the native path streams and then repeats, so both are retained and each says
+    ///      which it was.
+    ///   2. **A `user` frame's `text` block is still dropped** — the ONE deliberate drop
+    ///      (§1.2), and it does not become less deliberate for arriving between turns.
     ///
     /// `turn_id` stays `None` and the caller stamps the thread: §1.4 G4, `turn_id: None` is
     /// a first-class state.
-    pub fn from_between_turn_update(update: &Value, session_id: &str, seq: u64) -> Option<MachineryRecord> {
-        let wire_kind = update.get("sessionUpdate").and_then(|v| v.as_str()).unwrap_or("");
-        if wire_kind == "user_message_chunk" {
-            return None;
-        }
-        if wire_kind == "agent_message_chunk" {
-            let text = update
-                .get("content")
-                .and_then(|c| c.get("text"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            let (payload, truncated) = cap_payload(update);
-            return Some(MachineryRecord {
+    pub fn from_native_between_turn(frame: &Value, session_id: &str, seq: u64) -> Vec<MachineryRecord> {
+        let ty = frame.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let orphan = |title: &str, text: &str, body: &Value, seq: u64| {
+            let (payload, truncated) = cap_payload(body);
+            MachineryRecord {
                 machinery_id: new_id("mach"),
                 thread_id: String::new(),
                 turn_id: None,
@@ -442,15 +752,45 @@ impl MachineryRecord {
                 kind: MachineryKind::Unknown,
                 tool_call_id: None,
                 status: None,
-                title: wire_kind.to_string(),
+                title: title.to_string(),
                 summary: summarize(text),
                 locations: Vec::new(),
                 internal: false,
                 payload,
                 truncated,
-            });
+            }
+        };
+
+        if ty == "assistant" {
+            // Retain the text blocks that `from_native_event` drops, in place, and let
+            // every other block kind go through the ordinary normalizer. Doing it in ONE
+            // pass keeps arrival order, which is the lane's only ordering authority.
+            let mut out = Vec::new();
+            for block in content_blocks(frame) {
+                if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(orphan("assistant:text", text, block, seq + out.len() as u64));
+                } else {
+                    let one = serde_json::json!({ "type": "assistant", "message": { "content": [block] } });
+                    for r in MachineryRecord::from_native_event(&one, session_id, seq + out.len() as u64) {
+                        out.push(r);
+                    }
+                }
+            }
+            return out;
         }
-        MachineryRecord::from_acp_update(update, session_id, seq)
+
+        if ty == "stream_event" {
+            let ev = frame.get("event").unwrap_or(&Value::Null);
+            let is_text_delta = ev.get("type").and_then(|v| v.as_str()) == Some("content_block_delta")
+                && ev.get("delta").and_then(|d| d.get("type")).and_then(|v| v.as_str()) == Some("text_delta");
+            if is_text_delta {
+                let text = ev.get("delta").and_then(|d| d.get("text")).and_then(|v| v.as_str()).unwrap_or("");
+                return vec![orphan("text_delta", text, frame, seq)];
+            }
+        }
+
+        MachineryRecord::from_native_event(frame, session_id, seq)
     }
 
     /// The marker record for updates the between-turn buffer could not hold.
@@ -507,38 +847,54 @@ pub trait MachineryObserver: Send {
 
 // ---- normalization helpers -------------------------------------------------
 
-/// The vendor's real tool name (`Bash`, `Write`, `Read`, `ToolSearch`), which lives in
-/// `_meta.claudeCode.toolName`. The ACP `kind` field is only a coarse class
-/// (`execute` / `edit` / `read` / `other`) — probe §5.5.
-fn tool_name(update: &Value) -> Option<&str> {
-    update.get("_meta")?.get("claudeCode")?.get("toolName")?.as_str()
+/// The content blocks of an `assistant` / `user` frame, or an empty slice.
+///
+/// Both frames wrap them the same way — `message.content: [...]` — measured in `run9`
+/// lines 15, 18, 26 and 51.
+fn content_blocks(frame: &Value) -> &[Value] {
+    frame
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
 }
 
-/// Best available bounded preview of what a tool call did. Prefers the OUTPUT (which is
-/// what the CEO wants to see), falls back to the display content blocks, then the input.
-fn tool_summary(update: &Value) -> Option<String> {
-    if let Some(out) = update.get("rawOutput") {
-        if let Some(s) = out.as_str() {
-            return summarize(s);
-        }
-        return summarize(&out.to_string());
+/// A `tool_result`'s `content`, which the wire carries EITHER as a plain string OR as an
+/// array of `{type:"text", text}` blocks. Both were observed; a consumer that handled only
+/// one would show a blank line for half the tools.
+fn block_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(other) => other.to_string(),
+        None => String::new(),
     }
-    if let Some(blocks) = update.get("content").and_then(|c| c.as_array()) {
-        for b in blocks {
-            if let Some(t) = b.get("content").and_then(|c| c.get("text")).and_then(|t| t.as_str()) {
-                if let Some(s) = summarize(t) {
-                    return Some(s);
-                }
+}
+
+/// Best available bounded preview of what a tool was ASKED to do.
+///
+/// The native path's asymmetry against ACP, stated plainly: ACP's `rawOutput` gave the
+/// RESULT on the same event as the call, so one record could preview the outcome. Here the
+/// call and the result are two frames on two different `id` fields, so the open record
+/// previews the ARGUMENTS and the closing `tool_result` record supplies the outcome. §1.4
+/// G2's merge is what puts them on one row.
+fn tool_input_summary(input: &Value) -> Option<String> {
+    for key in ["command", "description", "file_path", "path", "pattern", "query", "prompt", "url"] {
+        if let Some(s) = input.get(key).and_then(|v| v.as_str()) {
+            if let Some(sum) = summarize(s) {
+                return Some(sum);
             }
         }
     }
-    if let Some(cmd) = update.get("rawInput").and_then(|i| i.get("command")).and_then(|c| c.as_str()) {
-        return summarize(cmd);
+    if input.is_null() || input.as_object().map(|o| o.is_empty()).unwrap_or(false) {
+        return None;
     }
-    if let Some(p) = update.get("rawInput").and_then(|i| i.get("file_path")).and_then(|c| c.as_str()) {
-        return summarize(p);
-    }
-    None
+    summarize(&input.to_string())
 }
 
 /// §2.4's summary rule, lifted as an IDEA from t3code (`session-logic.ts:1487-1518`) and
@@ -565,39 +921,55 @@ pub fn summarize(text: &str) -> Option<String> {
     }
 }
 
-/// `locations` on the wire is `[{path, line?}]` (probe §5.3), not §1.3's `Vec<String>`.
-/// Plain strings are accepted too, so a future adapter that simplifies the shape does not
-/// silently produce an empty list.
-fn extract_locations(update: &Value) -> Vec<String> {
-    let Some(arr) = update.get("locations").and_then(|v| v.as_array()) else {
-        return Vec::new();
-    };
-    arr.iter()
-        .filter_map(|l| {
-            l.as_str()
-                .map(|s| s.to_string())
-                .or_else(|| l.get("path").and_then(|p| p.as_str()).map(|s| s.to_string()))
-        })
-        .collect()
+/// DEVIATION 4 — **`locations` does not exist on this wire.**
+///
+/// ACP shipped a `locations: [{path, line?}]` array and `machinery.rs` extracted `.path`
+/// from it. The native `can_use_tool` for an `Edit` carries the edit INTENT
+/// (`{file_path, old_string, new_string, replace_all}`) and **no `locations` at all**
+/// (`native-claude-stream-json-2026-08-31/findings.md` §6, `raw/run11`). So the paths are
+/// recovered from the tool's own input by the field names the observed tools actually use.
+///
+/// Named as a LOSS rather than an equivalence: this recovers a path, not the vendor's own
+/// statement of which files a call touched, and a tool whose path lives under a key not
+/// listed here contributes nothing rather than a guess.
+fn input_locations(input: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for key in ["file_path", "path", "notebook_path"] {
+        if let Some(s) = input.get(key).and_then(|v| v.as_str()) {
+            if !s.is_empty() && !out.iter().any(|p| p == s) {
+                out.push(s.to_string());
+            }
+        }
+    }
+    out
 }
 
-/// The adapter's OWN statement of how much of the model's context window this session
-/// has consumed - `{used, size}` off a `usage_update` `session/update`.
+/// The title carried by the DERIVED context measurement, and the key
+/// [`MachineryRecord::context_usage`] matches on.
 ///
-/// A MEASUREMENT, not an estimate. Measured on the wire 2026-08-28: 50 `usage_update`
-/// events across five probe runs (`docs/verification/acp-emission-probe-2026-08-28/`),
-/// `size` = **1_000_000** in 50 of 50, `used` ranging 30_322 -> 41_991. It was the second
-/// most frequent event in the whole capture.
+/// A CONSTANT because the record is built in one place and read in another, and two
+/// spellings is how a measurement stops being findable — the same argument
+/// [`BETWEEN_TURN_OVERFLOW`] carries.
+pub const CONTEXT_USAGE: &str = "context_usage";
+
+/// How much of the model's context window this session has consumed - `{used, size}`.
+///
+/// **DERIVED on this wire, and the record says so.** ACP handed the pair over on a
+/// `usage_update`; the native binary reports the numerator mid-turn on
+/// `stream_event/message_delta` (observed monotonic within one turn: 29,342 -> 29,528 ->
+/// 29,599 -> 30,113) and the denominator only when a turn ENDS, on
+/// `result.modelUsage["claude-sonnet-5"].contextWindow` = **1_000_000**
+/// (`native-claude-stream-json-2026-08-31/findings.md` §4 and caveat C3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContextUsage {
-    /// Tokens consumed so far on this session, as the adapter counts them.
+    /// Tokens consumed so far on this session, as the agent counts them.
     pub used: u64,
-    /// The session's context window, as the adapter reports it.
+    /// The session's context window, as the agent reports it.
     pub size: u64,
 }
 
 impl ContextUsage {
-    /// `used / size`, or 0.0 when the adapter reported a zero window (which would make the
+    /// `used / size`, or 0.0 when the agent reported a zero window (which would make the
     /// ratio meaningless - a zero denominator is refused rather than divided by).
     pub fn fraction(&self) -> f64 {
         if self.size == 0 {
@@ -682,7 +1054,7 @@ pub fn project(records: Vec<MachineryRecord>) -> Vec<MachineryRecord> {
 ///
 /// [`project`] sorts by `(turn, seq)` because `seq` is the one per-TURN counter that text
 /// and machinery share (§1.4 G1). A between-turn record has no turn, and its counter is
-/// per LEASE — a rotation installs a fresh `AcpClient` whose between-turn counter restarts
+/// per LEASE — a rotation installs a fresh `NativeClient` whose between-turn counter restarts
 /// at 0 — so sorting this lane by `seq` would place a successor's first records before its
 /// predecessor's last ones. Journal append order is chronological and is already the
 /// authority `project` leans on for turn order (§1.4 G6), so it is the order kept here,
@@ -734,96 +1106,196 @@ pub(crate) fn merge_into(base: &mut MachineryRecord, incoming: MachineryRecord) 
     // machinery_id / seq / at / turn_id / thread_id / session_id / internal keep the
     // OPENING record's values — see the `project` doc.
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    fn open_bash() -> Value {
-        // Verbatim shape from docs/verification/.../run1.raw.jsonl n=11.
-        json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_A",
-               "sessionUpdate":"tool_call","rawInput":{},"status":"pending",
-               "title":"Terminal","kind":"execute","content":[]})
+    /// The tool row as it OPENS, verbatim from
+    /// `docs/verification/native-claude-stream-json-2026-08-31/raw/run9-rust-driven.jsonl:5`.
+    fn open_write() -> Value {
+        json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+               "content_block":{"type":"tool_use","id":"toolu_A","name":"Write","input":{},
+                                "caller":{"type":"direct"}}},
+               "session_id":"sess","parent_tool_use_id":null,"uuid":"u1"})
+    }
+
+    /// The same tool with its arguments COMPLETE — `run9-rust-driven.jsonl:15`.
+    fn assistant_tool_use() -> Value {
+        json!({"type":"assistant","message":{"role":"assistant","content":[
+                 {"type":"tool_use","id":"toolu_A","name":"Write",
+                  "input":{"file_path":"/private/tmp/claude-501/rust-probe-out.txt","content":"RUSTOK"},
+                  "caller":{"type":"direct"}}]},
+               "session_id":"sess","uuid":"u2"})
+    }
+
+    /// The tool row as it CLOSES — `run9-rust-driven.jsonl:18`.
+    fn tool_result_ok() -> Value {
+        json!({"type":"user","message":{"role":"user","content":[
+                 {"tool_use_id":"toolu_A","type":"tool_result",
+                  "content":"File created successfully at: /private/tmp/claude-501/rust-probe-out.txt"}]},
+               "session_id":"sess","uuid":"u3",
+               "tool_use_result":{"type":"create","filePath":"/private/tmp/claude-501/rust-probe-out.txt",
+                                  "content":"RUSTOK"}})
+    }
+
+    fn one(frame: &Value, seq: u64) -> MachineryRecord {
+        let mut v = MachineryRecord::from_native_event(frame, "s", seq);
+        assert_eq!(v.len(), 1, "expected exactly one record from {frame}");
+        v.remove(0)
+    }
+
+    // ---- the six declared drops ------------------------------------------------------
+
+    #[test]
+    fn the_clean_output_text_path_is_not_machinery() {
+        // DROP 1 and DROP 2 — the ported half of
+        // `agent_message_chunk_and_user_message_chunk_are_not_machinery`. Streamed text and
+        // its whole-message repeat both reach the CEO as `StreamEvent::Chunk`; a machinery
+        // copy would be a second source of truth for the reply.
+        let delta = json!({"type":"stream_event","event":{"type":"content_block_delta","index":0,
+                           "delta":{"type":"text_delta","text":"T"}}});
+        let whole = json!({"type":"assistant","message":{"role":"assistant",
+                           "content":[{"type":"text","text":"TURN1-OK"}]}});
+        assert!(MachineryRecord::from_native_event(&delta, "s", 0).is_empty());
+        assert!(MachineryRecord::from_native_event(&whole, "s", 0).is_empty());
     }
 
     #[test]
-    fn agent_message_chunk_and_user_message_chunk_are_not_machinery() {
-        let text = json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}});
-        let echo = json!({"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}});
-        assert!(MachineryRecord::from_acp_update(&text, "s", 0).is_none());
-        assert!(MachineryRecord::from_acp_update(&echo, "s", 0).is_none());
+    fn a_user_text_block_is_still_the_one_deliberate_drop() {
+        // DROP 3 — the other half of the same original test, and §1.2's ONE deliberate drop
+        // carried across the wire change. On the native wire it guards the injected
+        // interrupt marker rather than an echoed prompt (measured: `run9` never echoes our
+        // prompt), and the reason is identical — the ledger and the stop control already
+        // hold those facts, fsync'd, exactly once.
+        let marker = json!({"type":"user","message":{"role":"user",
+                            "content":[{"type":"text","text":"[Request interrupted by user]"}]}});
+        assert!(MachineryRecord::from_native_event(&marker, "s", 0).is_empty());
     }
 
     #[test]
-    fn phase_two_kinds_are_retained_as_unknown_not_dropped() {
-        // plan / usage_update / the SessionMeta family have no typed kind in Phase 1.
-        // They must still be RETAINED verbatim — a silent drop is what §1.4 G5 forbids.
-        for k in ["plan", "usage_update", "available_commands_update", "session_info_update", "current_mode_update"] {
-            let u = json!({"sessionUpdate": k, "used": 30477, "size": 1000000});
-            let r = MachineryRecord::from_acp_update(&u, "s", 3).expect("retained");
-            assert_eq!(r.kind, MachineryKind::Unknown);
-            assert_eq!(r.title, k, "the vendor kind must survive as the dim line's text");
-            assert_eq!(r.payload.as_ref().unwrap()["sessionUpdate"], k);
+    fn the_streaming_envelope_and_the_fragments_are_dropped_and_the_list_is_closed() {
+        // DROPS 4, 5 and 6, pinned as a SET rather than one at a time: this test is the
+        // enumeration the module doc claims, so a seventh drop added later fails here.
+        for f in [
+            json!({"type":"stream_event","event":{"type":"message_start","message":{}}}),
+            json!({"type":"stream_event","event":{"type":"message_stop"}}),
+            json!({"type":"stream_event","event":{"type":"content_block_stop","index":0}}),
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                   "content_block":{"type":"text","text":""}}}),
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                   "content_block":{"type":"thinking","thinking":"","signature":""}}}),
+            json!({"type":"stream_event","event":{"type":"content_block_delta",
+                   "delta":{"type":"input_json_delta","partial_json":"{\"fi"}}}),
+            json!({"type":"stream_event","event":{"type":"content_block_delta",
+                   "delta":{"type":"thinking_delta","thinking":"","estimated_tokens":50}}}),
+            json!({"type":"stream_event","event":{"type":"content_block_delta",
+                   "delta":{"type":"signature_delta","signature":"EvgCC"}}}),
+            json!({"type":"result","subtype":"success","stop_reason":"end_turn"}),
+        ] {
+            assert!(
+                MachineryRecord::from_native_event(&f, "s", 0).is_empty(),
+                "declared drop must produce no record: {f}"
+            );
         }
     }
 
     #[test]
-    fn a_usage_update_yields_the_measured_used_and_size_pair() {
-        // The EXACT wire shape, copied from run1.raw.jsonl n=8
-        // (docs/verification/acp-emission-probe-2026-08-28/run1.raw.jsonl).
-        let u = json!({"sessionUpdate":"usage_update","used":30477,"size":1000000});
-        let r = MachineryRecord::from_acp_update(&u, "sess", 8).unwrap();
-        let usage = r.context_usage().expect("a usage_update carries a measurement");
-        assert_eq!(usage.used, 30_477);
+    fn untyped_vendor_frames_are_retained_as_unknown_not_dropped() {
+        // The ported `phase_two_kinds_are_retained_as_unknown_not_dropped`, against the
+        // frames this wire actually carries. A silent drop is what §1.4 G5 forbids, and the
+        // vendor frame type must survive as the dim line's text.
+        let cases = [
+            (json!({"type":"system","subtype":"init","model":"claude-sonnet-5"}), "system:init"),
+            (json!({"type":"system","subtype":"status","status":"requesting"}), "system:status"),
+            (json!({"type":"system","subtype":"thinking_tokens","estimated_tokens":50}), "system:thinking_tokens"),
+            (json!({"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}), "rate_limit_event"),
+            (json!({"type":"control_response","response":{"subtype":"success"}}), "control_response"),
+            (json!({"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":2}}}),
+             "stream_event:message_delta"),
+        ];
+        for (f, title) in cases {
+            let r = one(&f, 3);
+            assert_eq!(r.kind, MachineryKind::Unknown);
+            assert_eq!(r.title, title, "the vendor frame must survive as the dim line's text");
+            assert_eq!(r.payload.as_ref().unwrap()["type"], f["type"]);
+            assert_eq!(r.seq, 3);
+        }
+    }
+
+    // ---- the derived context measurement ---------------------------------------------
+
+    fn usage_obj() -> Value {
+        // Verbatim from `run9-rust-driven.jsonl:19`'s `message_delta`.
+        json!({"input_tokens":2,"cache_creation_input_tokens":3603,"cache_read_input_tokens":25737,
+               "output_tokens":95})
+    }
+
+    #[test]
+    fn a_derived_context_usage_record_yields_the_measured_used_and_size_pair() {
+        // 2 + 3603 + 25737 = 29_342 — the first of the four monotonic numerators
+        // `findings.md` §4 reports, re-derived here rather than trusted.
+        let r = MachineryRecord::from_context_usage(29_342, 1_000_000, &usage_obj(), "sess", 8);
+        let usage = r.context_usage().expect("a derived record carries a measurement");
+        assert_eq!(usage.used, 29_342);
         assert_eq!(usage.size, 1_000_000);
-        // 30477 / 1000000 = 0.030477 - re-derived here rather than trusted.
-        assert!((usage.fraction() - 0.030_477).abs() < 1e-9, "got {}", usage.fraction());
+        // 29342 / 1000000 = 0.029342 — re-derived here rather than trusted.
+        assert!((usage.fraction() - 0.029_342).abs() < 1e-9, "got {}", usage.fraction());
+        assert_eq!(r.title, CONTEXT_USAGE);
+        assert_eq!(r.payload.as_ref().unwrap()["derived"], json!(true), "the record states that it is derived");
+        assert_eq!(
+            r.payload.as_ref().unwrap()["usage"]["cache_read_input_tokens"],
+            json!(25737),
+            "the bytes the number was summed from are retained with it"
+        );
     }
 
     #[test]
-    fn the_rate_limit_meta_variant_still_yields_the_measurement() {
-        // run1 n=30: the same event with `_meta._claude/rateLimit` attached. 2 of the 8
-        // usage_updates in run1 carry it. An extra field must not cost us the numbers.
-        let u = json!({"sessionUpdate":"usage_update","used":30873,"size":1000000,
-                       "_meta":{"_claude/rateLimit":{"status":"allowed","resetsAt":1787958600}}});
-        let r = MachineryRecord::from_acp_update(&u, "sess", 30).unwrap();
-        assert_eq!(r.context_usage().map(|u| (u.used, u.size)), Some((30_873, 1_000_000)));
+    fn an_extra_vendor_field_on_the_usage_object_still_yields_the_measurement() {
+        // The ported `the_rate_limit_meta_variant_still_yields_the_measurement`: the wire is
+        // the vendor's and open, so an added field must not cost us the numbers.
+        let mut usage = usage_obj();
+        usage["service_tier"] = json!("standard");
+        usage["iterations"] = json!([{"input_tokens": 2}]);
+        let r = MachineryRecord::from_context_usage(30_113, 1_000_000, &usage, "sess", 30);
+        assert_eq!(r.context_usage().map(|u| (u.used, u.size)), Some((30_113, 1_000_000)));
     }
 
     #[test]
-    fn only_a_usage_update_is_a_measurement() {
+    fn only_a_context_usage_record_is_a_measurement() {
         // Every other machinery record must return None - a tool call is not a token count,
         // and a watermark that read one would be worse than the estimate it replaced.
-        for u in [
-            json!({"sessionUpdate":"plan","used":99,"size":100}),
-            json!({"sessionUpdate":"session_info_update","used":99,"size":100}),
-            json!({"sessionUpdate":"agent_thought_chunk","content":{"text":"t"}}),
+        for f in [
+            open_write(),
+            json!({"type":"system","subtype":"init","used":99,"size":100}),
+            json!({"type":"stream_event","event":{"type":"message_delta",
+                   "usage":{"input_tokens":99,"cache_read_input_tokens":1}}}),
         ] {
-            let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
-            assert_eq!(r.context_usage(), None, "non-usage kind must carry no measurement: {u}");
+            let r = one(&f, 0);
+            assert_eq!(r.context_usage(), None, "non-usage frame must carry no measurement: {f}");
         }
-        // `plan` carrying used/size is not hypothetical caution: the wire is the vendor's
-        // and open, so the KIND, not the field names, is what makes a number a measurement.
+        // A `system` frame carrying used/size is not hypothetical caution: the wire is the
+        // vendor's and open, so the KIND, not the field names, is what makes a number a
+        // measurement.
     }
 
     #[test]
     fn half_a_measurement_is_no_measurement() {
-        for u in [
-            json!({"sessionUpdate":"usage_update","used":30477}),
-            json!({"sessionUpdate":"usage_update","size":1000000}),
-            json!({"sessionUpdate":"usage_update"}),
-            json!({"sessionUpdate":"usage_update","used":"30477","size":"1000000"}),
+        for broken in [
+            json!({"kind":CONTEXT_USAGE,"used":30477}),
+            json!({"kind":CONTEXT_USAGE,"size":1000000}),
+            json!({"kind":CONTEXT_USAGE}),
+            json!({"kind":CONTEXT_USAGE,"used":"30477","size":"1000000"}),
         ] {
-            let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
-            assert_eq!(r.context_usage(), None, "must refuse a partial/untyped pair: {u}");
+            let mut r = MachineryRecord::from_context_usage(1, 2, &Value::Null, "s", 0);
+            r.payload = Some(broken.clone());
+            assert_eq!(r.context_usage(), None, "must refuse a partial/untyped pair: {broken}");
         }
     }
 
     #[test]
     fn a_zero_window_is_refused_rather_than_divided_by() {
-        let u = json!({"sessionUpdate":"usage_update","used":500,"size":0});
-        let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        let r = MachineryRecord::from_context_usage(500, 0, &Value::Null, "s", 0);
         let usage = r.context_usage().unwrap();
         assert_eq!(usage.fraction(), 0.0, "a zero denominator must not become inf/NaN");
     }
@@ -832,147 +1304,268 @@ mod tests {
     fn an_evicted_payload_reports_no_measurement_rather_than_a_stale_one() {
         // Tier B is evictable (journal.rs). A record read back after eviction has
         // payload: None, and the honest answer there is "gone", not a remembered number.
-        let u = json!({"sessionUpdate":"usage_update","used":30477,"size":1000000});
-        let mut r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        let mut r = MachineryRecord::from_context_usage(29_342, 1_000_000, &usage_obj(), "s", 0);
         r.payload = None;
         assert_eq!(r.context_usage(), None);
     }
 
     #[test]
     fn a_truncated_payload_reports_no_measurement() {
-        let u = json!({"sessionUpdate":"usage_update","used":30477,"size":1000000});
-        let mut r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        let mut r = MachineryRecord::from_context_usage(29_342, 1_000_000, &usage_obj(), "s", 0);
         r.truncated = true;
         assert_eq!(r.context_usage(), None, "half a number is not a measurement");
     }
 
+    // ---- tool rows: open, merge, close -----------------------------------------------
+
     #[test]
-    fn an_open_tool_call_carries_a_placeholder_title_and_no_arguments() {
-        // The measured reality that makes the merge mandatory (probe §5.1).
-        let r = MachineryRecord::from_acp_update(&open_bash(), "sess", 7).unwrap();
+    fn an_open_tool_call_carries_the_tool_name_and_no_arguments() {
+        // The measured reality that makes the merge mandatory (deviation 2): the row opens
+        // on the STREAM, before `input` exists.
+        let r = one(&open_write(), 7);
         assert_eq!(r.kind, MachineryKind::ToolCall);
-        assert_eq!(r.title, "Terminal");
+        assert_eq!(r.title, "Write", "the real tool name, direct — no `_meta` indirection");
         assert_eq!(r.tool_call_id.as_deref(), Some("toolu_A"));
         assert_eq!(r.status, Some(ToolStatus::Pending));
+        assert_eq!(r.summary, None, "`input: {{}}` on the open frame — nothing to preview yet");
         assert_eq!(r.seq, 7);
-        assert_eq!(r.session_id, "sess");
+        assert_eq!(r.session_id, "s");
     }
 
     #[test]
-    fn merge_keeps_the_real_title_and_never_blanks_a_status() {
-        // The exact sequence measured for toolu_01SRK… in run1: pending, then two
-        // status-less updates, then completed.
-        let seq = vec![
-            open_bash(),
-            json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update",
-                   "rawInput":{"command":"cat VERSION"},"title":"cat VERSION","kind":"execute"}),
-            json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update",
-                   "_meta":{"claudeCode":{"toolResponse":{"stdout":"1.0.0"},"toolName":"Bash"}}}),
-            json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update",
-                   "status":"completed","rawOutput":"1.0.0"}),
+    fn merge_keeps_the_arguments_and_the_outcome_and_never_blanks_a_status() {
+        // The exact four-frame sequence measured for `toolu_015USp34…` in run9: open on the
+        // stream, arguments on the whole message, a heartbeat, then the result.
+        let frames = vec![
+            open_write(),
+            assistant_tool_use(),
+            json!({"type":"tool_progress","tool_use_id":"toolu_A-heartbeat-0","tool_name":"Write",
+                   "parent_tool_use_id":"toolu_A","elapsed_time_seconds":30,"heartbeat":true}),
+            tool_result_ok(),
         ];
-        let recs: Vec<_> = seq
-            .iter()
-            .enumerate()
-            .map(|(i, u)| MachineryRecord::from_acp_update(u, "s", i as u64).unwrap().stamp("thr", Some("t1"), false))
-            .collect();
+        let mut recs = Vec::new();
+        for (i, f) in frames.iter().enumerate() {
+            for r in MachineryRecord::from_native_event(f, "s", i as u64) {
+                recs.push(r.stamp("thr", Some("t1"), false));
+            }
+        }
         let opening_id = recs[0].machinery_id.clone();
         let rows = project(recs);
-        assert_eq!(rows.len(), 1, "four wire events, ONE row — never a second row (G2)");
+        assert_eq!(rows.len(), 1, "four wire frames, ONE row — never a second row (G2)");
         let row = &rows[0];
-        assert_eq!(row.title, "cat VERSION", "the real title from a later update wins");
+        assert_eq!(row.title, "Write", "a `tool_result` carries no name and must not blank it");
         assert_eq!(row.status, Some(ToolStatus::Completed));
-        assert_eq!(row.summary.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            row.summary.as_deref(),
+            Some("File created successfully at: /private/tmp/claude-501/rust-probe-out.txt"),
+            "the outcome, which arrives on the CLOSING frame, wins over the arguments"
+        );
+        assert_eq!(row.locations, vec!["/private/tmp/claude-501/rust-probe-out.txt".to_string()]);
         assert_eq!(row.seq, 0, "position is where the call STARTED");
         assert_eq!(row.machinery_id, opening_id, "identity is the opening record's");
     }
 
     #[test]
-    fn a_status_less_update_does_not_erase_a_status_already_seen() {
-        // The failure a naive whole-record overwrite would produce, pinned as a test.
-        let recs: Vec<_> = [
-            json!({"toolCallId":"t","sessionUpdate":"tool_call","status":"pending","title":"Terminal"}),
-            json!({"toolCallId":"t","sessionUpdate":"tool_call_update","title":"ls -la"}),
-        ]
-        .iter()
-        .enumerate()
-        .map(|(i, u)| MachineryRecord::from_acp_update(u, "s", i as u64).unwrap())
-        .collect();
+    fn a_status_less_frame_does_not_erase_a_status_already_seen() {
+        // The failure a naive whole-record overwrite would produce, pinned as a test. The
+        // `assistant` frame carries the complete arguments and NO status.
+        let mut recs = Vec::new();
+        for (i, f) in [open_write(), assistant_tool_use()].iter().enumerate() {
+            recs.extend(MachineryRecord::from_native_event(f, "s", i as u64));
+        }
         let rows = project(recs);
+        assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, Some(ToolStatus::Pending));
-        assert_eq!(rows[0].title, "ls -la");
+        assert_eq!(rows[0].summary.as_deref(), Some("/private/tmp/claude-501/rust-probe-out.txt"));
     }
 
     #[test]
-    fn a_tool_call_update_for_an_unseen_id_opens_a_record() {
-        // "adapters do reorder" (§1.4 G2).
-        let u = json!({"toolCallId":"orphan","sessionUpdate":"tool_call_update","status":"completed","title":"x"});
-        let rows = project(vec![MachineryRecord::from_acp_update(&u, "s", 0).unwrap()]);
+    fn a_tool_progress_heartbeat_keys_on_parent_tool_use_id_and_never_on_its_own() {
+        // DEVIATION 1, and the trap `native-claude-tool-status-2026-08-31/findings.md` says
+        // would have cost a day: the frame's own `tool_use_id` is a synthetic
+        // `<real-id>-heartbeat-<n>` that matches NO row anywhere. A consumer keying on it
+        // silently updates nothing. Verbatim frame from `raw/run13-longtool-bash-ticking.jsonl:22`.
+        let hb = json!({"type":"tool_progress",
+                        "tool_use_id":"toolu_01KJdbWL6beA2nhNoi3QdpkW-heartbeat-0",
+                        "tool_name":"Bash",
+                        "parent_tool_use_id":"toolu_01KJdbWL6beA2nhNoi3QdpkW",
+                        "elapsed_time_seconds":30,"heartbeat":true,
+                        "session_id":"83eb151a","uuid":"3f6352f0"});
+        let r = one(&hb, 0);
+        assert_eq!(
+            r.tool_call_id.as_deref(),
+            Some("toolu_01KJdbWL6beA2nhNoi3QdpkW"),
+            "the row this belongs to is parent_tool_use_id, NEVER tool_use_id"
+        );
+        assert_ne!(r.tool_call_id.as_deref(), Some("toolu_01KJdbWL6beA2nhNoi3QdpkW-heartbeat-0"));
+        assert_eq!(r.status, Some(ToolStatus::InProgress));
+        assert!(!r.status.as_ref().unwrap().is_terminal());
+        assert_eq!(r.summary.as_deref(), Some("running 30s"));
+        assert_eq!(r.title, "", "empty means absent, which is what makes the merge non-destructive");
+    }
+
+    #[test]
+    fn a_tool_result_for_an_unseen_id_opens_a_record() {
+        // "adapters do reorder" (§1.4 G2), and a lease that was rotated mid-tool would show
+        // exactly this.
+        let orphan = json!({"type":"user","message":{"role":"user","content":[
+                             {"tool_use_id":"orphan","type":"tool_result","content":"x"}]}});
+        let rows = project(MachineryRecord::from_native_event(&orphan, "s", 0));
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, Some(ToolStatus::Completed));
     }
 
     #[test]
     fn failed_is_carried_through_and_is_terminal() {
-        // Measured in run5: cat of a missing file.
-        let u = json!({"toolCallId":"t","sessionUpdate":"tool_call_update","status":"failed",
-                       "rawOutput":"Exit code 1\ncat: /Users/alex/nope: No such file or directory"});
-        let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
+        // Status is a POSITION on this wire, not a string (deviation 3): `is_error` decides.
+        let f = json!({"type":"user","message":{"role":"user","content":[
+                        {"tool_use_id":"t","type":"tool_result","is_error":true,
+                         "content":"Exit code 1\ncat: /Users/alex/nope: No such file or directory"}]}});
+        let r = one(&f, 0);
         assert_eq!(r.status, Some(ToolStatus::Failed));
         assert!(r.status.as_ref().unwrap().is_terminal());
         assert_eq!(r.summary.as_deref(), Some("Exit code 1"));
     }
 
     #[test]
+    fn a_tool_result_content_array_is_read_as_well_as_a_bare_string() {
+        // Both shapes are on the wire. A consumer that handled one would show a blank line
+        // for half the tools.
+        let f = json!({"type":"user","message":{"role":"user","content":[
+                        {"tool_use_id":"t","type":"tool_result",
+                         "content":[{"type":"text","text":"1.0.0"}]}]}});
+        assert_eq!(one(&f, 0).summary.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
     fn an_unrecognised_wire_status_is_retained_not_dropped() {
-        let u = json!({"toolCallId":"t","sessionUpdate":"tool_call_update","status":"quiesced"});
-        let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
-        assert_eq!(r.status, Some(ToolStatus::Other("quiesced".into())));
-        assert!(!r.status.unwrap().is_terminal(), "an unknown status is not a claim of completion");
+        // §1.4 G5's rule one level down, applied to a field. There is no producer for this
+        // on the native wire today — status is a position, not a string — so the test drives
+        // the type directly rather than inventing a frame the binary does not emit.
+        let s = ToolStatus::from_wire("quiesced");
+        assert_eq!(s, ToolStatus::Other("quiesced".into()));
+        assert!(!s.is_terminal(), "an unknown status is not a claim of completion");
+        assert_eq!(s.as_str(), "quiesced", "the wire value is retained verbatim");
     }
 
     #[test]
-    fn locations_are_extracted_from_the_wires_object_shape() {
-        let u = json!({"toolCallId":"t","sessionUpdate":"tool_call_update","kind":"edit",
-                       "locations":[{"path":"/tmp/a.txt"},{"path":"/tmp/b.rs","line":1}]});
-        let r = MachineryRecord::from_acp_update(&u, "s", 0).unwrap();
-        assert_eq!(r.locations, vec!["/tmp/a.txt".to_string(), "/tmp/b.rs".to_string()]);
+    fn locations_are_recovered_from_the_tools_own_input() {
+        // DEVIATION 4: there is no `locations` array on this wire, so paths come from the
+        // tool's input. Named as a loss, not an equivalence.
+        let f = json!({"type":"assistant","message":{"role":"assistant","content":[
+                        {"type":"tool_use","id":"t","name":"Edit",
+                         "input":{"file_path":"/tmp/a.txt","old_string":"a","new_string":"b"}}]}});
+        assert_eq!(one(&f, 0).locations, vec!["/tmp/a.txt".to_string()]);
+        // A tool whose path lives under a key we do not know contributes NOTHING rather
+        // than a guess.
+        let unknown = json!({"type":"assistant","message":{"role":"assistant","content":[
+                              {"type":"tool_use","id":"t","name":"Weird",
+                               "input":{"target_document":"/tmp/b.txt"}}]}});
+        assert!(one(&unknown, 0).locations.is_empty());
     }
 
     #[test]
-    fn thought_chunks_route_to_thought() {
-        // Zero of these were observed on claude-agent-acp 0.70.0 (probe §4.1) — the route
-        // exists so that the day one arrives, there is no hole.
-        let u = json!({"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Let me check the frame math.\nsecond line"}});
-        let r = MachineryRecord::from_acp_update(&u, "s", 2).unwrap();
+    fn thinking_blocks_route_to_thought() {
+        // Seven were observed across the native captures, EVERY ONE with empty text and a
+        // signature only. The route exists so that the day readable thinking arrives there
+        // is no hole — the same reason the ACP path carried it unobserved.
+        let f = json!({"type":"assistant","message":{"role":"assistant","content":[
+                        {"type":"thinking","thinking":"Let me check the frame math.\nsecond line",
+                         "signature":"EvgCC"}]}});
+        let r = one(&f, 2);
         assert_eq!(r.kind, MachineryKind::Thought);
         assert_eq!(r.title, "thinking");
         assert_eq!(r.summary.as_deref(), Some("Let me check the frame math."));
+        // And the observed shape: presence only.
+        let empty = json!({"type":"assistant","message":{"role":"assistant","content":[
+                            {"type":"thinking","thinking":"","signature":"EvgCC"}]}});
+        assert_eq!(one(&empty, 0).summary, None, "a signature is not readable thinking");
+    }
+
+    #[test]
+    fn one_frame_can_be_several_records_and_they_number_consecutively() {
+        // The structural change the wire forces: `message.content` is an ARRAY. Collapsing a
+        // thinking block and a tool call into one record would invent a fact, and the
+        // shared per-turn counter (§1.4 G1) must still number DELIVERED items.
+        let f = json!({"type":"assistant","message":{"role":"assistant","content":[
+                        {"type":"thinking","thinking":"weighing it","signature":"s"},
+                        {"type":"text","text":"dropped — clean output"},
+                        {"type":"tool_use","id":"t","name":"Bash","input":{"command":"ls"}}]}});
+        let recs = MachineryRecord::from_native_event(&f, "s", 5);
+        assert_eq!(recs.len(), 2, "three blocks, one of them a declared drop");
+        assert_eq!(recs.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![5, 6]);
+        assert_eq!(recs[0].kind, MachineryKind::Thought);
+        assert_eq!(recs[1].kind, MachineryKind::ToolCall);
+        assert_eq!(recs[1].summary.as_deref(), Some("ls"));
     }
 
     #[test]
     fn permission_requests_record_the_auto_approval_as_a_fact() {
-        // Verbatim shape from run1 n=20 (probe §5.6).
-        let params = json!({
-            "sessionId":"sess",
-            "toolCall":{"toolCallId":"toolu_Q","title":"grep -rn \"sessionUpdate\" app","kind":"execute"},
-            "options":[{"kind":"reject_once","optionId":"reject"},
-                       {"kind":"allow_once","optionId":"allow"},
-                       {"kind":"allow_always","optionId":"allow_always"}]});
-        let r = MachineryRecord::from_permission_request(&params, "allow", "sess", 4);
+        // Verbatim `request` from `run9-rust-driven.jsonl:17`.
+        let request = json!({
+            "subtype":"can_use_tool","tool_name":"Write","display_name":"Write",
+            "input":{"file_path":"/private/tmp/claude-501/rust-probe-out.txt","content":"RUSTOK"},
+            "description":"/private/tmp/claude-501/rust-probe-out.txt",
+            "permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],
+            "decision_reason":"Path is outside allowed working directories",
+            "decision_reason_type":"workingDir",
+            "tool_use_id":"toolu_015USp34XWJGrGpgNY6TLvbV"});
+        let r = MachineryRecord::from_permission_request(&request, "allow", "sess", 4);
         assert_eq!(r.kind, MachineryKind::PermissionRequested);
-        assert_eq!(r.title, "grep -rn \"sessionUpdate\" app");
-        assert_eq!(r.tool_call_id.as_deref(), Some("toolu_Q"), "links back to its tool call");
+        assert_eq!(r.title, "/private/tmp/claude-501/rust-probe-out.txt");
+        assert_eq!(
+            r.tool_call_id.as_deref(),
+            Some("toolu_015USp34XWJGrGpgNY6TLvbV"),
+            "links back to its tool call"
+        );
         assert_eq!(r.payload.as_ref().unwrap()["auto"], json!(true));
         assert_eq!(r.payload.as_ref().unwrap()["chosen"], json!("allow"));
+        // Richer than the shape it replaces, and the extra fact is RETAINED, not discarded.
+        assert_eq!(
+            r.payload.as_ref().unwrap()["decisionReason"],
+            json!("Path is outside allowed working directories")
+        );
+        assert_eq!(r.locations, vec!["/private/tmp/claude-501/rust-probe-out.txt".to_string()]);
     }
 
     #[test]
     fn client_fs_calls_route_with_their_path() {
+        // No producer on the native wire — the CLI does its own file IO and was observed not
+        // to ask. The kind survives because stored journals already contain it.
         let r = MachineryRecord::from_client_fs_call("fs/read_text_file", &json!({"path":"/tmp/x"}), "s", 1);
         assert_eq!(r.kind, MachineryKind::ClientFsCall);
         assert_eq!(r.locations, vec!["/tmp/x".to_string()]);
     }
+
+    // ---- the SessionMeta identity key -------------------------------------------------
+
+    #[test]
+    fn the_meta_identity_key_ignores_the_per_frame_uuid() {
+        // MEASURED, and the whole reason `meta_identity` exists: the four `system/init`
+        // frames in run9 differ ONLY by `uuid`, so a verbatim-equality slot would suppress
+        // zero of them and "last value wins" would be dead code that looked alive.
+        let a = json!({"type":"system","subtype":"init","model":"claude-sonnet-5",
+                       "session_id":"sess","uuid":"acbe3949a0de"});
+        let b = json!({"type":"system","subtype":"init","model":"claude-sonnet-5",
+                       "session_id":"sess","uuid":"43f5fdcdeeae"});
+        assert_ne!(a, b, "the frames really are different bytes");
+        assert_eq!(meta_identity(&a), meta_identity(&b), "and they say the same thing");
+        // A frame that says something DIFFERENT is still different.
+        let c = json!({"type":"system","subtype":"init","model":"claude-opus-5",
+                       "session_id":"sess","uuid":"acbe3949a0de"});
+        assert_ne!(meta_identity(&a), meta_identity(&c));
+    }
+
+    #[test]
+    fn the_session_meta_family_is_the_repeating_per_turn_traffic() {
+        assert!(is_session_meta("system:init"));
+        assert!(is_session_meta("system:status"));
+        assert!(is_session_meta("rate_limit_event"));
+        assert!(!is_session_meta("system:thinking_tokens"), "an estimate is a new statement each time");
+        assert!(!is_session_meta("tool_call"));
+    }
+
+    // ---- unchanged by the wire change --------------------------------------------------
 
     #[test]
     fn summary_takes_the_first_non_empty_line_capped_at_84_chars() {
@@ -994,19 +1587,21 @@ mod tests {
 
     #[test]
     fn an_over_cap_payload_is_truncated_at_a_char_boundary_and_flagged() {
-        let big = json!({"sessionUpdate":"tool_call_update","toolCallId":"t","rawOutput":"é".repeat(40_000)});
-        let r = MachineryRecord::from_acp_update(&big, "s", 0).unwrap();
+        let big = json!({"type":"user","message":{"role":"user","content":[
+                          {"tool_use_id":"t","type":"tool_result","content":"é".repeat(40_000)}]}});
+        let r = one(&big, 0);
         assert!(r.truncated);
         let held = r.payload.unwrap();
         let s = held.as_str().expect("an over-cap payload becomes a string, visibly not the object");
         assert!(s.len() <= PAYLOAD_MAX_BYTES);
-        // The record itself still renders: title, status, summary all survive the cap.
+        // The record itself still renders: status and summary survive the cap.
         assert!(r.summary.is_some());
+        assert_eq!(r.status, Some(ToolStatus::Completed));
     }
 
     #[test]
     fn a_record_round_trips_through_json_in_camel_case() {
-        let r = MachineryRecord::from_acp_update(&open_bash(), "sess", 1).unwrap().stamp("thr_1", Some("turn_1"), true);
+        let r = one(&open_write(), 1).stamp("thr_1", Some("turn_1"), true);
         let v = r.event_payload();
         assert_eq!(v["machineryId"], json!(r.machinery_id));
         assert_eq!(v["threadId"], json!("thr_1"));
@@ -1024,13 +1619,9 @@ mod tests {
         // Same `at` on every record — millisecond timestamps collide inside a streaming
         // turn (§1.4 G3, util.rs:5-8). Only (turn, seq) may decide order.
         let mk = |turn: Option<&str>, seq: u64| {
-            let mut r = MachineryRecord::from_acp_update(
-                &json!({"sessionUpdate":"agent_thought_chunk","content":{"text":"t"}}),
-                "s",
-                seq,
-            )
-            .unwrap()
-            .stamp("thr", turn, false);
+            let f = json!({"type":"assistant","message":{"role":"assistant","content":[
+                            {"type":"thinking","thinking":"t","signature":"s"}]}});
+            let mut r = one(&f, seq).stamp("thr", turn, false);
             r.at = 1_700_000_000_000;
             r
         };
@@ -1045,5 +1636,46 @@ mod tests {
                 (None, 9),
             ]
         );
+    }
+
+    // ---- the between-turn variant ------------------------------------------------------
+
+    #[test]
+    fn between_turn_text_is_retained_as_machinery_and_never_as_a_chunk() {
+        // In a turn this is the clean-output path and has no machinery record. Between turns
+        // there is no turn to attach it to, so §1.4 G5 says retain rather than drop — and it
+        // travels on the machinery family, never `StreamEvent::Chunk`.
+        let whole = json!({"type":"assistant","message":{"role":"assistant",
+                           "content":[{"type":"text","text":"orphan"}]}});
+        let delta = json!({"type":"stream_event","event":{"type":"content_block_delta",
+                           "delta":{"type":"text_delta","text":"orphan"}}});
+        for (f, title) in [(whole, "assistant:text"), (delta, "text_delta")] {
+            let recs = MachineryRecord::from_native_between_turn(&f, "s", 0);
+            assert_eq!(recs.len(), 1);
+            assert_eq!(recs[0].kind, MachineryKind::Unknown);
+            assert_eq!(recs[0].title, title);
+            assert_eq!(recs[0].summary.as_deref(), Some("orphan"));
+        }
+    }
+
+    #[test]
+    fn a_user_text_block_is_dropped_between_turns_too() {
+        let marker = json!({"type":"user","message":{"role":"user",
+                            "content":[{"type":"text","text":"[Request interrupted by user]"}]}});
+        assert!(MachineryRecord::from_native_between_turn(&marker, "s", 0).is_empty());
+    }
+
+    #[test]
+    fn a_mixed_assistant_frame_keeps_arrival_order_between_turns() {
+        // The one path where retained text and ordinary machinery interleave. Order is the
+        // lane's only ordering authority, so it must survive the split.
+        let f = json!({"type":"assistant","message":{"role":"assistant","content":[
+                        {"type":"text","text":"said this"},
+                        {"type":"tool_use","id":"t","name":"Bash","input":{"command":"ls"}}]}});
+        let recs = MachineryRecord::from_native_between_turn(&f, "s", 0);
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].title, "assistant:text");
+        assert_eq!(recs[1].kind, MachineryKind::ToolCall);
+        assert_eq!(recs.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![0, 1]);
     }
 }

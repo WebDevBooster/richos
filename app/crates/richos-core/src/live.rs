@@ -529,10 +529,19 @@ pub(crate) struct LiveTurn {
     /// One merged row per merge key — `machinery.rs`'s §1.4 G2 rule applied incrementally,
     /// so the row on the wire is the row a reload projects.
     merged: HashMap<String, MachineryRecord>,
-    /// The activity type resolved from the OPENING event's payload, per tool call. The
-    /// closing update carries neither `_meta.claudeCode.toolName` nor `kind`, so the type
-    /// must be captured before the merge overwrites the payload (timeline.rs says why).
+    /// The activity type resolved from the OPENING frames' payload, per tool call. The
+    /// closing `tool_result` carries no tool name at all, so the type must be captured
+    /// before the merge overwrites the payload (timeline.rs says why).
     types: HashMap<String, ActivityType>,
+    /// The tool NAME resolved from the OPENING frames, per tool call.
+    ///
+    /// Held separately from `types` because it is a different question with a different
+    /// answer set: `Task` classifies to no `ActivityType` at all (deliberately — §22), yet
+    /// it is exactly the name the worker-identity witness needs. On the native wire the name
+    /// and the async-launch acknowledgement arrive on DIFFERENT frames, so without this memo
+    /// `extract_agent_id` would answer `None` forever and workers would silently stop being
+    /// reported. `timeline::resolve_tool_names` is the same memo, batched.
+    tool_names: HashMap<String, String>,
     /// The latest `at` observed per merge key.
     last_seen: HashMap<String, u64>,
     /// Merge keys in FIRST-SIGHT order. A `HashMap` iteration order is not an order, and
@@ -558,6 +567,7 @@ impl LiveTurn {
             open_run: None,
             merged: HashMap::new(),
             types: HashMap::new(),
+            tool_names: HashMap::new(),
             last_seen: HashMap::new(),
             order: Vec::new(),
             agent_ids: HashMap::new(),
@@ -695,9 +705,17 @@ impl LiveTurn {
                     self.types.insert(id.clone(), t);
                 }
             }
-            // Resolved from the RAW payload, before the merge below overwrites it.
+            if !self.tool_names.contains_key(id) {
+                if let Some(name) = timeline::tool_name_of(payload) {
+                    self.tool_names.insert(id.clone(), name.to_string());
+                }
+            }
+            // Resolved from the RAW payload, before the merge below overwrites it. The name
+            // comes from the memo above, because the frame carrying the acknowledgement
+            // carries no name.
             if !self.agent_ids.contains_key(id) {
-                if let Some(agent_id) = timeline::extract_agent_id(payload) {
+                let name = self.tool_names.get(id).map(String::as_str);
+                if let Some(agent_id) = timeline::extract_agent_id(payload, name) {
                     self.agent_ids.insert(id.clone(), agent_id);
                 }
             }

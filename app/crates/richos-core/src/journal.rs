@@ -704,10 +704,17 @@ mod tests {
         std::env::temp_dir().join(format!("richos-journal-{}", crate::util::new_id("t")))
     }
 
+    /// One tool row as the native wire OPENS it — a `content_block_start` carrying a
+    /// `tool_use` block, which is where `status: Pending` and the tool's real name come
+    /// from. Padded to a requested payload size so the Tier-B byte-budget tests have
+    /// something to budget.
     fn rec(thread: &str, turn: Option<&str>, seq: u64, at: u64, payload_size: usize) -> MachineryRecord {
-        let u = json!({"sessionUpdate":"tool_call","toolCallId":format!("t{seq}"),
-                       "status":"pending","title":"Terminal","rawOutput":"x".repeat(payload_size)});
-        let mut r = MachineryRecord::from_acp_update(&u, "sess", seq).unwrap().stamp(thread, turn, false);
+        let f = json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                       "content_block":{"type":"tool_use","id":format!("t{seq}"),"name":"Bash",
+                                        "input":{"command":"x".repeat(payload_size)}}}});
+        let mut v = MachineryRecord::from_native_event(&f, "sess", seq);
+        assert_eq!(v.len(), 1);
+        let mut r = v.remove(0).stamp(thread, turn, false);
         r.at = at;
         r
     }
@@ -844,7 +851,7 @@ mod tests {
             ThreadMachinery::Recorded(v) => {
                 assert_eq!(v.len(), 1, "the normalized record still renders");
                 assert_eq!(v[0].payload, None, "with no raw half");
-                assert_eq!(v[0].title, "Terminal", "structure, title and status survive");
+                assert_eq!(v[0].title, "Bash", "structure, title and status survive");
                 assert_eq!(v[0].status, Some(ToolStatus::Pending));
             }
             other => panic!("expected Recorded, got {other:?}"),
@@ -893,9 +900,9 @@ mod tests {
         let dir = root.join("thr_a");
         let tier_a = std::fs::read_to_string(dir.join("2025-08-29.jsonl")).unwrap();
         let tier_b = std::fs::read_to_string(dir.join("2025-08-29.raw.jsonl")).unwrap();
-        assert!(!tier_a.contains("rawOutput"), "Tier A must not carry the raw payload");
-        assert!(tier_a.contains("\"title\":\"Terminal\""));
-        assert!(tier_b.contains("rawOutput"));
+        assert!(!tier_a.contains("content_block"), "Tier A must not carry the raw payload");
+        assert!(tier_a.contains("\"title\":\"Bash\""));
+        assert!(tier_b.contains("content_block"));
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -966,7 +973,7 @@ mod tests {
         let back = j.read_thread("thr_a");
         assert_eq!(back.len(), 1, "the record survives its payload");
         assert!(back[0].payload.is_none());
-        assert_eq!(back[0].title, "Terminal");
+        assert_eq!(back[0].title, "Bash");
         assert_eq!(back[0].status, Some(ToolStatus::Pending));
         assert_eq!(back[0].kind, MachineryKind::ToolCall);
         assert!(back[0].summary.is_some(), "the bounded summary is Tier A and survives");
@@ -1227,22 +1234,28 @@ mod tests {
         let root = tmp();
         let j = MachineryJournal::new(&root);
         let at = 1_756_425_600_000;
-        for (i, u) in [
-            json!({"sessionUpdate":"tool_call","toolCallId":"tc","status":"pending","title":"Terminal"}),
-            json!({"sessionUpdate":"tool_call_update","toolCallId":"tc","title":"wc -l util.rs"}),
-            json!({"sessionUpdate":"tool_call_update","toolCallId":"tc","status":"completed","rawOutput":"      18 util.rs"}),
+        // The native three-frame lifecycle: streamed open, complete arguments, result.
+        for (i, f) in [
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                   "content_block":{"type":"tool_use","id":"tc","name":"Bash","input":{}}}}),
+            json!({"type":"assistant","message":{"role":"assistant","content":[
+                    {"type":"tool_use","id":"tc","name":"Bash","input":{"command":"wc -l util.rs"}}]}}),
+            json!({"type":"user","message":{"role":"user","content":[
+                    {"tool_use_id":"tc","type":"tool_result","content":"      18 util.rs"}]}}),
         ]
         .iter()
         .enumerate()
         {
-            let mut r = MachineryRecord::from_acp_update(u, "s", i as u64).unwrap().stamp("thr_a", Some("t1"), false);
-            r.at = at;
-            j.append(&r).unwrap();
+            for r in MachineryRecord::from_native_event(f, "s", i as u64) {
+                let mut r = r.stamp("thr_a", Some("t1"), false);
+                r.at = at;
+                j.append(&r).unwrap();
+            }
         }
         assert_eq!(j.read_thread("thr_a").len(), 3, "append-only: three lines on disk (G6)");
         let rows = j.project_thread("thr_a");
         assert_eq!(rows.len(), 1, "one row after the merge (G2)");
-        assert_eq!(rows[0].title, "wc -l util.rs");
+        assert_eq!(rows[0].title, "Bash");
         assert_eq!(rows[0].status, Some(ToolStatus::Completed));
         assert_eq!(rows[0].summary.as_deref(), Some("18 util.rs"));
         std::fs::remove_dir_all(&root).ok();

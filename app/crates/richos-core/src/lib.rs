@@ -11,7 +11,9 @@
 //!   - `ledger`    — durable, append-only conversation + action LEDGER (crash-safe).
 //!   - `thread`    — topic threads as VIEWS over the one shared ledger.
 //!   - `cognition` — the swappable compute-lease seam (+ a test mock).
-//!   - `acp`       — the real ACP client (RichOS as the ACP client directly; relay dropped).
+//!   - `native`    — the real compute-lease client: RichOS drives the NATIVE `claude`
+//!                   binary over its stream-json stdio. No ACP adapter, no Node, no npm
+//!                   anywhere under `app/` (CEO ruling, `wiki/ceo-decisions.md` §16).
 //!   - `reprime`   — the session-continuity re-prime payload (foundation).
 //!   - `loro`      — the Tier-C READ seam, implemented: company memory compiled into a
 //!                   re-prime, with the cross-entity lane re-assertion on the finished
@@ -33,7 +35,7 @@
 //!   - `stream`    — the live, UI-facing turn events (streaming deltas + turn state).
 //!   - `live`      — the ADDITIVE live-work event family (UX brief §13): typed turn status,
 //!                   message phase, and semantic activity, beside `stream` — never replacing it.
-//!   - `machinery` — the SECOND event family: every non-text ACP update, routed not dropped.
+//!   - `machinery` — the SECOND event family: every non-text agent frame, routed not dropped.
 //!   - `journal`   — the per-thread, day-sharded machinery journal (separate store; not the ledger).
 //!   - `timeline`  — the TYPED TIMELINE records (UX brief §12): the projection a renderer
 //!                   reads, with entity scope on every item and visibility as a gate.
@@ -49,7 +51,6 @@
 //!                   the user's specifics are unrepresentable rather than filtered out.
 //!                   Nothing in it sends anything, and its tests assert that.
 
-pub mod acp;
 pub mod belief;
 pub mod cognition;
 pub mod correction;
@@ -63,6 +64,7 @@ pub mod ledger;
 pub mod loro;
 pub mod live;
 pub mod machinery;
+pub mod native;
 pub mod reprime;
 pub mod spine;
 pub mod spoken;

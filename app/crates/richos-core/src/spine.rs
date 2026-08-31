@@ -1682,8 +1682,8 @@ impl Spine {
             //                             turn ended because it finished.
             let stop_ended_the_turn = !matches!(
                 lease_reported,
-                Some(r) if r != crate::acp::STOP_REASON_CANCELLED
-                    && r != crate::acp::STOP_REASON_CANCEL_UNACKNOWLEDGED
+                Some(r) if r != crate::native::STOP_REASON_CANCELLED
+                    && r != crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED
             );
             if stop_ended_the_turn {
                 self.finish_stopped_turn(turn_id, binding, &claim, lease_reported)?;
@@ -1876,7 +1876,7 @@ impl Spine {
         // it may still be working, and whatever it says next would land on the next turn.
         // So it is retired at this boundary, through the rotation path that already exists
         // (never mid-turn: `pending_rotation_reason` is honoured by `after_turn_boundary`).
-        if lease_stop_reason == Some(crate::acp::STOP_REASON_CANCEL_UNACKNOWLEDGED)
+        if lease_stop_reason == Some(crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED)
             && self.lease_factory.is_some()
         {
             self.pending_rotation_reason.get_or_insert_with(|| "cancel-unacknowledged".to_string());
