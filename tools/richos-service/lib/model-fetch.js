@@ -33,7 +33,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { requirePin, modelUrl, requiredFreeBytes, human } from './model-catalog.js';
+import { requirePin, human, MODEL_BASE_URL } from './model-catalog.js';
 import {
   FAILURE,
   classify,
@@ -256,14 +256,14 @@ export async function fetchVerified({ url, dest, pin, freeBytes, onProgress, sig
 /**
  * Fetch a PINNED model by id into a directory, retrying only what a retry could fix.
  *
- * @param {string} modelId portable id, e.g. 'small.en'
+ * @param {string|object} modelIdOrPin a pinned id ('small.en'), or a pin object from a manifest
  * @param {string} destDir where models live
  * @param {{maxAttempts?: number, baseUrl?: string, onProgress?: Function, onAttempt?: Function,
  *          freeBytes?: number, signal?: AbortSignal}} [opts]
  */
-export async function downloadModel(modelId, destDir, opts = {}) {
-  const pin = requirePin(modelId); // an unpinned model never reaches the network
-  const url = opts.baseUrl ? `${opts.baseUrl}/${pin.file}` : modelUrl(modelId);
+export async function downloadModel(modelIdOrPin, destDir, opts = {}) {
+  const pin = requirePin(modelIdOrPin); // no hash, no network — there is no third option
+  const url = `${opts.baseUrl || MODEL_BASE_URL}/${pin.file}`;
   const dest = path.join(destDir, pin.file);
   const maxAttempts = opts.maxAttempts ?? MAX_ATTEMPTS;
   const attempts = [];
@@ -290,17 +290,17 @@ export async function downloadModel(modelId, destDir, opts = {}) {
 /**
  * What RichOS would need to do to make this model usable — the question the consent sheet asks,
  * answered without downloading anything. Pure-ish: one stat + one hash of what is already there.
- * @param {string} modelId
+ * @param {string|object} modelIdOrPin
  * @param {string} destDir
  * @param {{deep?: boolean}} [opts]
  */
-export async function modelStatus(modelId, destDir, { deep = true } = {}) {
-  const pin = requirePin(modelId);
+export async function modelStatus(modelIdOrPin, destDir, { deep = true } = {}) {
+  const pin = requirePin(modelIdOrPin);
   const dest = path.join(destDir, pin.file);
   const verdict = await inspectFile(dest, pin, { deep });
   const partBytes = fileBytes(`${dest}.part`);
   return {
-    id: modelId,
+    id: pin.id,
     file: pin.file,
     path: dest,
     installed: verdict.ok,
@@ -309,7 +309,7 @@ export async function modelStatus(modelId, destDir, { deep = true } = {}) {
     message: verdict.message,
     downloadBytes: verdict.ok ? 0 : pin.bytes - (partBytes && partBytes < pin.bytes ? partBytes : 0),
     partialBytes: partBytes,
-    needFreeBytes: requiredFreeBytes(modelId),
+    needFreeBytes: Math.ceil(pin.bytes * 1.1),
     freeBytes: freeBytesFor(fs.existsSync(destDir) ? destDir : path.dirname(destDir)),
   };
 }

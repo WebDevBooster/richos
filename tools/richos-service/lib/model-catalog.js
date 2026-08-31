@@ -89,17 +89,44 @@ export function pinForFile(fileName) {
 
 /**
  * The pin for a model id, or a throw that names the model and lists what IS pinned.
- * @param {string} modelId
+ *
+ * Also accepts a pin OBJECT, which is not a back door: it is the seam the model-manifest design
+ * (§6 of the payload architecture) needs, where a published manifest supplies a size and a sha256
+ * for a model the shipped table does not know about yet. Either way a caller must ARRIVE with a
+ * hash — the one thing that is never allowed is fetching without one. The shape is validated,
+ * because "the manifest said so" is only worth anything if the manifest said something well-formed.
+ * @param {string|ModelPin} modelIdOrPin
  * @returns {ModelPin}
  */
-export function requirePin(modelId) {
-  const pin = pinFor(modelId);
+export function requirePin(modelIdOrPin) {
+  if (modelIdOrPin && typeof modelIdOrPin === 'object') return validatePin(modelIdOrPin);
+  const pin = pinFor(modelIdOrPin);
   if (pin) return pin;
   throw new Error(
-    `no pinned sha256 for model "${modelId}" — RichOS will not download a model it cannot verify. ` +
+    `no pinned sha256 for model "${modelIdOrPin}" — RichOS will not download a model it cannot verify. ` +
       `Pinned models: ${pinnedModelIds().join(', ')}. Add it to lib/model-pins.json with its ` +
       `provenance if it should be downloadable.`,
   );
+}
+
+/**
+ * Reject anything calling itself a pin that could not actually pin anything down.
+ * @param {any} pin
+ * @returns {ModelPin}
+ */
+export function validatePin(pin) {
+  const problems = [];
+  if (!pin || typeof pin !== 'object') problems.push('not an object');
+  else {
+    if (!pin.id) problems.push('no id');
+    if (!pin.file || !/^ggml-.+\.bin$/.test(pin.file)) problems.push('file must look like ggml-<id>.bin');
+    if (!Number.isInteger(pin.bytes) || pin.bytes <= 0) problems.push('bytes must be a positive integer');
+    if (!/^[0-9a-f]{64}$/i.test(String(pin.sha256 || ''))) problems.push('sha256 must be 64 hex characters');
+  }
+  if (problems.length) {
+    throw new Error(`not a usable model pin (${problems.join('; ')}) — RichOS will not download a model it cannot verify.`);
+  }
+  return { ...pin, sha256: String(pin.sha256).toLowerCase(), provenance: pin.provenance || [], witness: pin.witness || '' };
 }
 
 /** The download URL for a pinned model. */

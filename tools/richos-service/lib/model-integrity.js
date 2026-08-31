@@ -145,7 +145,7 @@ export function describe(finding, ctx = {}) {
     case FAILURE.UNPINNED:
       return `${file} is not in RichOS's pin table, so there is no hash to check it against — refusing to install a model that cannot be verified.`;
     case FAILURE.ABSENT:
-      return `${file} is not on disk.`;
+      return `${file} is not on disk — RichOS has no copy of this model to check.`;
     case FAILURE.EMPTY:
       return `${file} is empty — the download produced no bytes at all. That usually means the connection dropped before anything arrived.`;
     case FAILURE.HTML_BODY:
