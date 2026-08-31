@@ -108,7 +108,7 @@ struct QueuedProactiveEmit {
 /// Rough chars-per-token ESTIMATE — the well-known ~4-chars/token heuristic for English
 /// text under the Claude tokenizer family.
 ///
-/// **This is now the FALLBACK, not the watermark.** Continuity design §3.2 permits "ACP
+/// **This is now the FALLBACK, not the watermark.** Continuity design §3.2 permits "agent
 /// usage reporting OR AN ESTIMATE"; the adapter does report, so the estimate is used only
 /// while the current lease has not yet said anything about itself. `context_source()`
 /// answers which of the two is in force at any instant, and nothing surfaces the estimate
@@ -249,7 +249,7 @@ pub struct Spine {
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
     /// The live UI sink (streaming deltas + turn state). Optional so the spine runs
-    /// headless (tests, the ACP example) with zero UI attached.
+    /// headless (tests, the round-trip examples) with zero UI attached.
     observer: Option<Box<dyn TurnObserver>>,
     /// Spawns a fresh, un-primed lease at rotation/recovery time. `None` means the spine
     /// can prime/run ONE lease (whatever was `attach_lease`d) but can never rotate or
@@ -434,7 +434,7 @@ impl Spine {
     /// stream **for the same session** becomes a `TimelineItem::WorkerActivity`.
     ///
     /// ## The id spaces match — settled 2026-08-29, no longer a caveat
-    /// The join's session clause compares the MACHINERY record's `session_id` — the ACP
+    /// The join's session clause compares the MACHINERY record's `session_id` — the lease's
     /// session id the adapter minted (`Cognition::session_id`) — against the worker row's
     /// `session_id`, which the engine hook read from the Claude Code harness. This used to
     /// say the two might be different id spaces and could not be measured in this checkout.
@@ -1609,7 +1609,7 @@ impl Spine {
         self.emit_live(closing);
 
         // ONE LAST WORKER RE-JOIN, before the terminal turn status goes out. A worker's
-        // state changes through hook writes in another process and produces no ACP traffic
+        // state changes through hook writes in another process and produces no agent traffic
         // at all, so the last machinery record is not necessarily the last thing that
         // happened to a delegation. Without this the live row and a snapshot taken a second
         // later could disagree at exactly the moment the transcript settles and collapses.
@@ -2158,7 +2158,7 @@ impl Spine {
     /// The ADDITIVE half of a proactive message (§13).
     ///
     /// **This is the ONE place a real, non-`unknown` message phase exists.** A streamed
-    /// reply has no phase signal anywhere on the ACP wire (`live.rs`'s module doc, with the
+    /// reply has no phase signal anywhere on the wire (`live.rs`'s module doc, with the
     /// measurement behind it), but a proactive message knows what it is because the LEDGER
     /// recorded it as one — `Source::Proactive` plus a tier. So it is emitted as
     /// `phase: "proactive"`, and it is the proof that the phase field is a real field

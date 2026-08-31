@@ -1,6 +1,6 @@
 //! Session-continuity FOUNDATION — the re-prime payload (P1.4, foundation only).
 //!
-//! The durable Rich is the APP; a Claude ACP session is a swappable compute lease
+//! The durable Rich is the APP; a Claude session is a swappable compute lease
 //! (continuity design §1.1). When a lease is (re)spawned, the app injects a re-prime
 //! payload as an INTERNAL, NON-RENDERED priming turn so the successor resumes as the
 //! SAME Rich, mid-conversation — no re-ask, no amnesia, no false attribution.

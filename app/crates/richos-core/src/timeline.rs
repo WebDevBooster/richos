@@ -561,7 +561,7 @@ pub struct BetweenTurnItem {
     pub detail: Option<ActivityDetail>,
 }
 
-/// The technical half of the duration row: the raw ACP stop reason.
+/// The technical half of the duration row: the raw vendor stop reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkDetail {
@@ -683,7 +683,7 @@ pub enum TimelineItem {
     },
     /// An actionable approval card (§5.5). MODELLED, NEVER PRODUCED: nothing in this
     /// runtime asks the CEO to approve anything. The permission requests that DO happen
-    /// are auto-approved by the ACP client and recorded as a fact
+    /// are auto-approved by `native::decide_permission` and recorded as a fact
     /// (`machinery.rs::from_permission_request`), so they project as an
     /// `Activity { activity_type: Approval, state: Completed }` — a thing that happened,
     /// not a decision awaiting the CEO.
@@ -919,7 +919,7 @@ impl Timeline {
     /// `machinery::project` itself for the `toolCallId` merge (§1.4 G2), and it needs the
     /// pre-merge records for one measured reason. `merge_into` replaces `payload` with the
     /// LAST update's raw JSON, and the last update in the measured traffic is
-    /// `{toolCallId, sessionUpdate, status, rawOutput}` — it carries neither the ACP
+    /// a `tool_result` with an outcome and no tool name — it carries neither the
     /// `kind` nor `_meta.claudeCode.toolName`. Both of those arrive on the OPENING event.
     /// So the activity type is resolved across all raw records for a tool call, before the
     /// merge throws that payload away.
@@ -1546,7 +1546,7 @@ pub(crate) fn activity_item(
             binding_revision: revision,
             created_at: row.at,
             updated_at: updated,
-            // NOT a new number: the position the ACP drain point assigned (§1.4 G1),
+            // NOT a new number: the position the client's drain point assigned (§1.4 G1),
             // carried through the journal and read back here.
             sequence: Some(row.seq),
             slot: TimelineSlot::Stream,

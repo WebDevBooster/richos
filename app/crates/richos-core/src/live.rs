@@ -61,7 +61,7 @@
 //! 3. **No poll and no timer.** See [`LiveTurn::on_machinery`] for what that costs.
 //!
 //! AND ONE THING THIS EVENT INHERITS RATHER THAN FIXES. The join's session clause compares
-//! the ACP session id the adapter minted against the `session_id` the engine hook read from
+//! the session id the lease is running under against the `session_id` the engine hook read from
 //! the Claude Code harness, and **whether those are the same id space has never been
 //! measured** — the adapter is not installed in this checkout
 //! ([`crate::spine::Spine::set_worker_events`] states it). If they differ, every row is
@@ -77,7 +77,7 @@
 //!
 //! ## THE MESSAGE PHASE, STATED LOUDLY
 //!
-//! **The ACP stream does not distinguish commentary from the final response, so every
+//! **Neither wire distinguishes commentary from the final response, so every
 //! streamed message is emitted with `phase: "unknown"`.** This is measured, not assumed:
 //! `docs/verification/acp-emission-probe-2026-08-28.md` §2 records the complete union of
 //! inbound traffic across five runs — 52 `agent_message_chunk`s and **no** message-open,
@@ -156,7 +156,7 @@ pub const EVENT_ACTIVITY_UPSERTED: &str = "rich://activity-upserted";
 pub const EVENT_WORKER_UPSERTED: &str = "rich://worker-upserted";
 pub const EVENT_THREAD_SUMMARY_UPDATED: &str = "rich://thread-summary-updated";
 
-/// The phase of every STREAMED Rich message. See the module doc: the ACP stream carries no
+/// The phase of every STREAMED Rich message. See the module doc: the stream carries no
 /// signal that separates commentary (§5.2) from the final response (§5.4), so this is
 /// `Unknown` and a renderer must wait for a real phase rather than read a default.
 ///
@@ -673,7 +673,7 @@ impl LiveTurn {
     ///      `worker-created-handoff.sh` (`PostToolUse[Agent]`) writes its row at about the
     ///      same instant. Neither order is guaranteed, so a delegation whose row was not
     ///      on disk yet is picked up at the next observation instead of never.
-    ///   2. **A worker changes state without producing any ACP traffic at all.** `started`,
+    ///   2. **A worker changes state without producing any agent traffic at all.** `started`,
     ///      `updated` and `run_ended` are hook writes in another process; nothing about
     ///      them reaches this stream.
     ///
@@ -931,7 +931,7 @@ mod tests {
         assert_eq!(
             STREAMED_MESSAGE_PHASE,
             RichMessagePhase::Unknown,
-            "the ACP stream carries no commentary-vs-final signal (probe 2026-08-28 §2: 52 \
+            "the stream carries no commentary-vs-final signal (probe 2026-08-28 §2: 52 \
              agent_message_chunks, zero phase markers), and `message-started` fires before \
              the turn is over, so 'final' cannot be known — let alone defaulted to"
         );

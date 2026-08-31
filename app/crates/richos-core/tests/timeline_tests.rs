@@ -54,7 +54,7 @@ fn tmp(tag: &str, ext: &str) -> std::path::PathBuf {
 /// One step of a scripted turn.
 enum Step {
     Text(&'static str),
-    /// A raw ACP `session/update` payload, verbatim in the shape measured on 2026-08-28.
+    /// A raw native stdout frame, verbatim in the shape measured on 2026-08-31.
     Frame(Value),
 }
 

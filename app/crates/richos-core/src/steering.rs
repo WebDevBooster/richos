@@ -35,7 +35,7 @@
 //!
 //! # What it deliberately does not do
 //!
-//! - **It does not inject a steering message into the running ACP turn.** ACP runs one
+//! - **It does not inject a steering message into the running turn.** The agent runs one
 //!   `session/prompt` at a time and the continuity design's turn-boundary controller is
 //!   queue-not-interrupt by construction (§3.1). §25 asks that *"a steering message joins
 //!   the active turn in durable order"*; what this build delivers is that the message is
