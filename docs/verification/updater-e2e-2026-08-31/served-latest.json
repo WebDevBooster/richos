@@ -1,0 +1,11 @@
+{
+  "version": "0.1.1",
+  "notes": "Faster launch, and the settings menu now says what version you are running.",
+  "pub_date": "2026-08-31T21:27:41Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQzdhMmgrYkM4cGlpdTY4NVFUVk9Cc0RIUTljSTlzRFdyeExyK2o0QkppSUQzVTE0YmVJcmpTSWN4T014TzJYQUgvNkJwek1odVM4TW9mWk9wMnFTYWdJa3hpTHlCREFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjExNjYwCWZpbGU6UmljaE9TLmFwcC50YXIuZ3oKYVdLckFOTGtFc3hiNlFLeUdFdkJrTlk5UGlRSnBINnA5Q3FoaytkbGlnbCtVQWh1bDhoVzcxNHJvaSt5eEttYkM2TlUvbmM3dVJwSU9MYjZzenNMQ0E9PQo=",
+      "url": "http://127.0.0.1:8973/RichOS.app.tar.gz"
+    }
+  }
+}
