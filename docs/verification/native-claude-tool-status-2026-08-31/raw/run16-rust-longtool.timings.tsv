@@ -1,0 +1,33 @@
+offset_s	type	subtype
+0.563	control_response	
+0.582	system	init
+0.583	system	status
+1.427	rate_limit_event	
+1.604	stream_event	message_start
+1.604	stream_event	content_block_start
+1.604	stream_event	content_block_delta
+2.190	stream_event	content_block_delta
+2.191	stream_event	content_block_delta
+2.933	stream_event	content_block_delta
+2.934	stream_event	content_block_delta
+2.934	stream_event	content_block_delta
+2.941	assistant	
+2.955	control_request	can_use_tool
+2.956	stream_event	content_block_stop
+2.956	stream_event	message_delta
+2.956	stream_event	message_stop
+6.024	system	task_started
+32.962	tool_progress	
+62.963	tool_progress	
+73.201	system	task_notification
+73.210	user	
+73.213	system	status
+74.049	stream_event	message_start
+74.050	stream_event	content_block_start
+74.050	stream_event	content_block_delta
+74.278	stream_event	content_block_delta
+74.292	assistant	
+74.292	stream_event	content_block_stop
+74.295	stream_event	message_delta
+74.296	stream_event	message_stop
+74.302	result	success

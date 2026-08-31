@@ -101,7 +101,7 @@ is absent.
 | **Session `cwd` = the engine repo** (loads persona/hooks) | `session/new {cwd}` (`acp.rs:544`) | **OBSERVED.** The child's process `cwd`, echoed back in `system/init.cwd` | `run3:1` |
 | **Tool calls** | `tool_call` / `tool_call_update` | **OBSERVED.** `assistant` → `tool_use` with `id`, `name`, `input` | `run3:13`; `run11` |
 | **The real tool name** | buried in `_meta.claudeCode.toolName`; the ACP `kind` is a coarse class (`machinery.rs:511-515`) | **OBSERVED, and better.** `tool_use.name` is `"Bash"` / `"Write"` / `"Edit"` directly — no `_meta` indirection | `run3:13`, `run11` |
-| **Tool status / outcome** | `status` field, `pending` → `in_progress` → `completed` (`machinery.rs:277`) | **OBSERVED as a PAIR, not a status string.** `tool_use` then `tool_result` with `is_error: false\|true`. **No intermediate in-progress event was observed.** See caveat C2 | `run3:13,17` |
+| **Tool status / outcome** | `status` field, `pending` → `in_progress` → `completed` (`machinery.rs:277`) | **OBSERVED as a PAIR, not a status string.** `tool_use` then `tool_result` with `is_error: false\|true`. **No intermediate in-progress event was observed.** See caveat C2 — **now CLOSED: an intermediate `tool_progress` frame IS emitted on a 30 s cadence, `../native-claude-tool-status-2026-08-31/`** | `run3:13,17` |
 | **Tool argument streaming** | not observed in the ACP probe | **OBSERVED.** `input_json_delta` streams tool arguments as they are generated | `run3:6-12` |
 | **Permission requests** | `session/request_permission`, auto-approved first `allow*` (`acp.rs:469-479`); 7 observed across 5 runs | **OBSERVED, end to end, and richer.** `control_request{can_use_tool}` carrying `tool_name`, `input`, `description`, `permission_suggestions`, **`decision_reason`** ("Path is outside allowed working directories") and `decision_reason_type`. Our `allow` was honoured — the file appeared on disk | `run8`; `run9` (`can_use_tool Write → ALLOW`, file contained `RUSTOK`); `run11` (Edit) |
 | **Cancellation** | `session/cancel` notification; `stopReason: "cancelled"` (`acp.rs:716`, `STOP_REASON_CANCELLED`) | **OBSERVED, on a different field.** `control_request{interrupt}` → **acked in 0.9 ms**, result at **9.1 ms**. `stop_reason` is `null` and `subtype` is `error_during_execution`, but **`terminal_reason: "aborted_streaming"`** distinguishes it from `"completed"`. Partial text is preserved and an explicit `[Request interrupted by user]` marker is injected. See caveat C1 | `run9:65,66`; `run5` |
@@ -172,6 +172,12 @@ native path's number, not the adapter's, and it does not retire the comment in `
 "finished" with nothing between. I did not run a long-enough tool to prove there is nothing
 in between, so this is **NOT OBSERVED, not "absent"** — it needs one deliberate long-tool run
 before anyone sizes the port.
+
+> **CLOSED 2026-08-31 by `../native-claude-tool-status-2026-08-31/findings.md`.** The
+> deliberate run was made and the guess above was wrong for a top-level tool: a
+> `tool_progress` frame IS emitted, on a measured 30.002 s cadence. It was right for a tool
+> nested inside a `Task` subagent, where 70.208 s of work produced zero frames and 67.131 s
+> of silence. Read the closure before sizing anything; the row in §4 is superseded by it.
 
 **C3 — The watermark denominator lags by one turn.** `used` is available mid-turn. `size`
 (`contextWindow`) appears in `result.modelUsage`, i.e. only once a turn has finished; the

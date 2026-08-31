@@ -1,0 +1,44 @@
+offset_s	type	subtype
+0.556	control_response	
+3.039	system	init
+3.041	system	status
+3.872	rate_limit_event	
+4.068	stream_event	message_start
+4.648	stream_event	content_block_start
+5.188	stream_event	content_block_delta
+5.189	stream_event	content_block_delta
+5.191	assistant	
+5.191	stream_event	content_block_stop
+5.192	stream_event	content_block_start
+5.192	stream_event	content_block_delta
+5.195	stream_event	content_block_delta
+5.200	stream_event	content_block_delta
+5.730	stream_event	content_block_delta
+6.237	stream_event	content_block_delta
+6.240	stream_event	content_block_delta
+6.240	stream_event	content_block_delta
+6.276	assistant	
+6.281	stream_event	content_block_stop
+6.288	system	task_started
+6.292	user	
+6.399	stream_event	message_delta
+6.400	stream_event	message_stop
+8.456	system	task_progress
+8.470	control_request	can_use_tool
+8.470	assistant	
+11.533	system	task_started
+78.664	system	task_notification
+78.678	user	
+79.703	system	task_updated
+79.703	system	task_notification
+79.706	user	
+79.708	system	status
+80.503	stream_event	message_start
+80.503	stream_event	content_block_start
+80.504	stream_event	content_block_delta
+80.554	stream_event	content_block_delta
+80.556	assistant	
+80.556	stream_event	content_block_stop
+80.635	stream_event	message_delta
+80.641	stream_event	message_stop
+80.657	result	success
