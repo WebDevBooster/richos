@@ -331,6 +331,7 @@ run_layer_R() {
     turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
     notice-unstarted-rows \
+    notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
     guard-idle-land"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
@@ -512,10 +513,12 @@ engine-status.sh|SessionStart
 session-start-reap-worktrees.sh|SessionStart
 snapshot-agent-definitions.sh|SessionStart
 snapshot-enforcing-hooks.sh|SessionStart
+session-start-ceo-ask.sh|SessionStart
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
 reader-teammate-hint.sh|PreToolUse
 verify-agent-prompt.sh|PreToolUse
+guard-ceo-ask-first.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
@@ -532,6 +535,7 @@ detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse
 worker-updated-handoff.sh|PostToolUse
 notice-inflight-sends.sh|PostToolUse
+notice-ceo-asks.sh|PostToolUse
 worker-started-handoff.sh|SubagentStart
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
@@ -541,6 +545,7 @@ turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-unstarted-rows.sh|Stop
+notice-ceo-unasked.sh|Stop
 guard-idle-land.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a
@@ -634,7 +639,13 @@ BR_EOF
             BR_AGENT_ORDER="$(printf '%s\n' "$BR_HOOKS_ROWS" \
                 | awk -F'\t' '$1=="PreToolUse" && $2=="Agent" {print $3}' \
                 | sed -e 's|.*/scripts/hooks/||' -e 's|[[:space:]].*||' | tr '\n' ' ')"
-            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh "
+            # guard-ceo-ask-first.sh is LAST, deliberately: the spawn's own
+            # structural contract (isolation, name, definition, prompt) is
+            # settled before a policy question about the SESSION is put. A
+            # dispatch that is malformed AND unasked should be told it is
+            # malformed first, because that is the one the operator can fix
+            # without leaving the keyboard.
+            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh "
             if [ "$BR_AGENT_ORDER" != "$BR_AGENT_WANT" ]; then
                 emit_fail "BR2. PreToolUse[Agent] chain ORDER wrong. want: ${BR_AGENT_WANT}got: ${BR_AGENT_ORDER}"
                 BR2_OK=0
@@ -1379,6 +1390,12 @@ CANONICAL_AGENT_CHAIN=(
     "$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
     "$REPO_ROOT/scripts/hooks/reader-teammate-hint.sh"
     "$REPO_ROOT/scripts/hooks/verify-agent-prompt.sh"
+    # LAST, and the position is the design rather than an append. The four above
+    # decide whether the SPAWN is well formed; this one decides whether the
+    # SESSION has earned a dispatch at all. A spawn that is both malformed and
+    # unasked is told it is malformed first, because that is the half the
+    # operator can fix without leaving the keyboard.
+    "$REPO_ROOT/scripts/hooks/guard-ceo-ask-first.sh"
 )
 
 # Resolve settings.json $CLAUDE_PROJECT_DIR placeholder → absolute path.
@@ -1448,11 +1465,18 @@ fi
 # definition actually the one on disk?), so it rejects before the softer
 # routing/content checks. reader-teammate-hint.sh then runs before
 # verify-agent-prompt.sh so a misrouted reading task gets the reader nudge
-# before the stricter spawn-content gate.
+# before the stricter spawn-content gate. guard-ceo-ask-first.sh is LAST because
+# it is the only one asking about the SESSION rather than about the spawn: a
+# dispatch that is both malformed and unasked should hear about the malformed
+# half first, since that is the half the operator can fix on the spot.
 if [ "${#AGENT_CMDS[@]}" -eq 0 ]; then
     emit_fail "C. PreToolUse[Agent] hook chain NOT wired in settings.json"
 elif [ "${#AGENT_CMDS[@]}" -ne "${#CANONICAL_AGENT_CHAIN[@]}" ]; then
-    emit_fail "C. PreToolUse[Agent] hook chain has ${#AGENT_CMDS[@]} entries wired, expected ${#CANONICAL_AGENT_CHAIN[@]} (guard-worktree-isolation.sh, then guard-definition-drift.sh, then reader-teammate-hint.sh, then verify-agent-prompt.sh) — run scripts/hooks/install.sh"
+    C_CHAIN_NAMES=""
+    for _c in "${CANONICAL_AGENT_CHAIN[@]}"; do
+        C_CHAIN_NAMES="${C_CHAIN_NAMES}${C_CHAIN_NAMES:+, then }$(basename "$_c")"
+    done
+    emit_fail "C. PreToolUse[Agent] hook chain has ${#AGENT_CMDS[@]} entries wired, expected ${#CANONICAL_AGENT_CHAIN[@]} (${C_CHAIN_NAMES}) — run scripts/hooks/install.sh"
 else
     CHAIN_OK=1
     for i in "${!CANONICAL_AGENT_CHAIN[@]}"; do
@@ -1486,7 +1510,15 @@ else
         fi
     done
     if [ "$CHAIN_OK" -eq 1 ]; then
-        emit_pass "C. PreToolUse[Agent] chain -> guard-worktree-isolation.sh, guard-definition-drift.sh, reader-teammate-hint.sh, verify-agent-prompt.sh (path-confined, manifest-matched, in order)"
+        # DERIVED, never typed. This tick said "4 hooks" while verifying 5 for
+        # exactly as long as it took to read it — a literal inventory inside a
+        # green message is the stale-inventory defect this probe exists to
+        # remove, wearing a checkmark.
+        C_PASS_NAMES=""
+        for _c in "${CANONICAL_AGENT_CHAIN[@]}"; do
+            C_PASS_NAMES="${C_PASS_NAMES}${C_PASS_NAMES:+, }$(basename "$_c")"
+        done
+        emit_pass "C. PreToolUse[Agent] chain -> ${C_PASS_NAMES} (path-confined, manifest-matched, in order)"
     fi
 fi
 
@@ -1856,6 +1888,13 @@ CANON = [
     "worker-started-handoff.sh",
     "worker-updated-handoff.sh",
     "worker-ended-handoff.sh",
+    # The CEO-ask gate and its witness. The gate is BLOCKING: registered twice it
+    # would print its refusal twice, which reads as two separate unasked queues.
+    # The witness is an append-only logger, the class this list already says
+    # MAKES a double-registration visible — and here a duplicated line would be
+    # read as the CEO having been asked the same question twice.
+    "guard-ceo-ask-first.sh",
+    "notice-ceo-asks.sh",
 ]
 
 def load(p):

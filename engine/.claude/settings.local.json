@@ -73,6 +73,15 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/session-start-ceo-ask.sh",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -98,6 +107,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/verify-agent-prompt.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-ceo-ask-first.sh",
+            "timeout": 20
           }
         ]
       },
@@ -212,6 +226,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-ceo-asks.sh",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -288,6 +312,11 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-unstarted-rows.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/notice-ceo-unasked.sh",
             "timeout": 25
           },
           {
