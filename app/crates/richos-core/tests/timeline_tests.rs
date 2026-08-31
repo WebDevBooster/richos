@@ -60,7 +60,7 @@ enum Step {
 
 /// A `Cognition` that emits text AND machinery in one interleaved stream, assigning `seq`
 /// exactly where the real client assigns it — once, at the drain point, shared by both
-/// families (`acp.rs:309-317`, §1.4 G1). `MockCognition` only emits text, so it cannot
+/// families (`native.rs`'s `prompt` drain loop, §1.4 G1). `MockCognition` only emits text, so it cannot
 /// exercise the interleaving these tests exist to prove.
 struct ScriptedLease {
     session_id: String,

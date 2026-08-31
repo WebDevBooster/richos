@@ -531,13 +531,13 @@ fn an_ordinary_typed_message_carries_no_intake_id_and_can_never_collide_with_one
 // ---------------------------------------------------------------------------------------
 
 /// A lease whose cancel seam WORKS — `cancel()` returns `true`, exactly as
-/// `AcpCancelHandle::cancel` does once `session/cancel` has been written to the child —
+/// `NativeCancelHandle::cancel` does once the interrupt has been written to the child —
 /// and whose `prompt` nevertheless returns a natural `end_turn`.
 ///
 /// That is not a contrived mock; it is the real ordering. `cancel()` clones the sink and
 /// appends `ChunkMsg::Cancel` AFTER whatever is already queued, so when the adapter's
 /// `Done` is already in the channel `rx.recv()` returns it first and `prompt` returns
-/// `"end_turn"` (`acp.rs:443-450`). `AcpCancelHandle`'s doc comment addresses `Done`
+/// `"end_turn"` (`native.rs`'s `prompt` loop). `NativeCancelHandle`'s doc comment addresses `Done`
 /// RACING the wake; this is `Done` ALREADY QUEUED before the wake exists.
 ///
 /// It is deterministic here, not timing-dependent: `prompt` blocks until the test says the
@@ -729,7 +729,8 @@ fn the_stop_request_is_still_recorded_as_a_fact_that_did_not_land() {
 #[test]
 fn a_stop_the_lease_actually_honoured_is_still_a_stop() {
     // The control that keeps the fix from becoming a mute button: when the lease reports
-    // `cancelled` — its acknowledgement that it honoured `session/cancel`, `acp.rs:32` —
+    // `cancelled` — RichOS's name for the agent's `terminal_reason: "aborted_streaming"`,
+    // mapped by `native::stop_reason_of` —
     // the turn IS stopped and IS attributed to the CEO. `STOP_REASON_CANCELLED` had no
     // production reader at all before this commit; `deliver` is now that reader, and this
     // is the assertion that it reads it correctly.

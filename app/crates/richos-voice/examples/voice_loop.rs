@@ -1,17 +1,15 @@
-//! The whole loop, headless: audio in -> whisper -> the REAL spine (ACP -> Claude) -> Rich's
-//! reply -> sentence chunking -> `say` -> the speakers.
+//! The whole loop, headless: audio in -> whisper -> the REAL spine (stream-json stdio ->
+//! Claude) -> Rich's reply -> sentence chunking -> `say` -> the speakers.
 //!
 //! This is the reproducible end-to-end proof. It uses `richos-core` as a dev-dependency, so
 //! nothing here is in the shipped crate — the pipeline stays UI- and spine-agnostic.
 //!
 //! ```sh
-//! # 1. the ACP adapter (once):
-//! (cd app/acp-adapter && npm i)
-//!
-//! # 2. speak into the real microphone, if the host has one:
+//! # 1. speak into the real microphone, if the host has one.
+//! #    Needs the `claude` CLI installed and logged in — there is no adapter and no npm.
 //! cargo run -p richos-voice --example voice_loop
 //!
-//! # 3. or inject a recorded/synthesized utterance — the ONLY option on a host with no
+//! # 2. or inject a recorded/synthesized utterance — the ONLY option on a host with no
 //! #    input device, and how this was proved on the 2026-08-24 Mac mini:
 //! say -v Samantha -o /tmp/ceo.wav --data-format=LEI16@16000 "Rich, are you there?"
 //! cargo run -p richos-voice --example voice_loop -- /tmp/ceo.wav
@@ -21,7 +19,7 @@
 //! Nothing is estimated and nothing is simulated except, when a WAV is given, the acoustic
 //! path into the microphone.
 
-use richos_core::acp::{resolve_acp_bin, AcpCognition};
+use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::ledger::{Ledger, Source};
 use richos_core::spine::Spine;
 use richos_core::stream::{StreamEvent, TurnObserver};
@@ -170,16 +168,16 @@ fn main() {
     let engine = std::env::var("RICHOS_ENGINE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap().join("../engine"));
-    let acp_bin = resolve_acp_bin(Some(&std::env::current_dir().unwrap_or_default()));
-    println!("[{:>6} ms] attaching compute lease ({})", clock.ms(), acp_bin.display());
-    match AcpCognition::start(&acp_bin, &engine) {
+    let claude_bin = resolve_claude_bin();
+    println!("[{:>6} ms] attaching compute lease ({})", clock.ms(), claude_bin.display());
+    match NativeCognition::start(&claude_bin, &engine) {
         Ok(cog) => {
             spine.attach_lease(Box::new(cog));
             println!("[{:>6} ms] lease attached", clock.ms());
         }
         Err(e) => {
             eprintln!("FATAL: no compute lease — {e}");
-            eprintln!("       (cd app/acp-adapter && npm i) and make sure `claude` is signed in.");
+            eprintln!("       Install Claude Code and make sure `claude` is signed in.");
             std::process::exit(2);
         }
     }

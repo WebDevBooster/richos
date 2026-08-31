@@ -344,7 +344,8 @@ fn a_mid_turn_crossing_of_the_hard_limit_is_recorded_and_settled_at_the_boundary
     // threshold outranks it, because at 96% measured the policy has been overtaken.
     spine.set_context_budget(1_000_000, 0.99);
     // A UUID-shaped session id on purpose: Action.detail is capped at
-    // ACTION_DETAIL_MAX_CHARS (160) and real ACP session ids are 36 chars, so a short
+    // ACTION_DETAIL_MAX_CHARS (160) and real session ids are 36 chars (a hyphenated uuid,
+    // which is what `--session-id` requires), so a short
     // fixture id would hide a truncation that production would hit. The load-bearing
     // clauses must survive the cap with a REAL-LENGTH id in the string.
     spine.attach_lease(Box::new(ReportingCognition::new(

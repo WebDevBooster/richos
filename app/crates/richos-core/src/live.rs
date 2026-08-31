@@ -81,7 +81,7 @@
 //! streamed message is emitted with `phase: "unknown"`.** This is measured, not assumed:
 //! `docs/verification/acp-emission-probe-2026-08-28.md` §2 records the complete union of
 //! inbound traffic across five runs — 52 `agent_message_chunk`s and **no** message-open,
-//! message-close, or message-role update of any kind. `acp.rs:162-167` confirms the client
+//! message-close, or message-role update of any kind. `native.rs`'s `dispatch` confirms the client
 //! side: every `agent_message_chunk` becomes `ChunkMsg::Text(text)` and nothing else on
 //! the wire carries a phase.
 //!

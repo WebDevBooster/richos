@@ -491,7 +491,7 @@ fn every_streamed_message_is_phase_unknown_and_never_final() {
         assert_eq!(
             p["phase"],
             json!("unknown"),
-            "the ACP stream carries no commentary-vs-final signal; message-started fires \
+            "the wire carries no commentary-vs-final signal; message-started fires \
              before the turn is even over"
         );
         assert!(p.get("phase").is_some(), "serialized explicitly — an absent field invites `?? 'final'`");
@@ -650,8 +650,9 @@ fn model_reasoning_and_internal_machinery_never_reach_the_calm_family() {
         "sess-1",
         vec![
             // §5.3 lists model reasoning under "do not render". The adapter emits this
-            // route (acp-agent.js:6462-6473) even though it is structurally empty on
-            // today's models — the route is built, so the gate must hold on it.
+            // route even though it is structurally empty on today's models: the native
+            // captures carry 7 `thinking` blocks and EVERY ONE has empty text and a
+            // signature only. The route is built, so the gate must hold on it.
             Beat::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
                 {"type":"thinking",
                  "thinking":"The CEO probably means the staging deploy, not prod.",
@@ -706,7 +707,7 @@ fn an_accounting_update_is_not_a_thing_rich_did() {
     // `available_commands_update` and `session_info_update` all normalize to
     // MachineryKind::Unknown, and slice 2a stamped those Visibility::Ceo — so ONE real
     // command produced SIX CEO rows reading "Worked" (positions 0, 1, 5, 8, 12, 13)
-    // against ONE "Ran a command". A 6:1 noise ratio on the calm timeline, and the ACP
+    // against ONE "Ran a command". A 6:1 noise ratio on the calm timeline, and the 2026-08-28
     // probe measured 50 usage_updates across five runs, so a longer turn is worse.
     let (path, ledger) = tmp_ledger("accounting");
     let mut spine = Spine::new(ledger);

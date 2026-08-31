@@ -328,7 +328,7 @@ fn the_action_ledger_section_is_always_rendered_so_the_assertion_never_points_at
 #[test]
 fn the_identity_assertion_states_the_ledgers_partial_coverage_rather_than_overclaiming() {
     // Honesty about the KNOWN gap: tool calls made inside a session are still dropped at
-    // acp.rs:155-156 (documented in the business-action-governance plan, 2026-08-24
+    // `native::decide_permission` (documented in the business-action-governance plan, 2026-08-24
     // and deliberately out of scope here). So the ledger is authoritative for what it
     // records and silent elsewhere — and the successor is told exactly that, so an absent
     // entry can never be read as proof an action did not happen.

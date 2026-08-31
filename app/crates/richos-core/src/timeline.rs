@@ -18,7 +18,7 @@
 //!
 //! **1. One shared per-turn sequence (techy-mode §1.4 G1).** A timeline item's
 //! [`sequence`](TimelineBase::sequence) is never computed by this module. It is the value
-//! the ACP drain point already assigned (`acp.rs:309-317`), read back off the machinery
+//! the client's drain point already assigned (`native.rs`'s `prompt`), read back off the machinery
 //! record or the persisted text run. There is no timeline counter. A stream item with no
 //! recorded position reports `sequence: None` — *unknown*, not zero.
 //!
@@ -1428,7 +1428,7 @@ pub(crate) fn machinery_visibility(row: &MachineryRecord, internal_turn: bool) -
         // Three things are wrong with that on the calm surface, and the third is the one
         // that matters. It is duplicate: the tool call this request belongs to already
         // renders its own semantic row ("Ran a command"), so nothing is lost here. It
-        // implies a decision-maker, when `acp.rs:184-205` auto-approves every request and
+        // implies a decision-maker, when `native::decide_permission` auto-approves every request and
         // nobody was asked. And with `state: completed` beside it, a reasonable CEO reads
         // it as GRANTED — which manufactures the demand for an approval queue that does not
         // exist. R2 business-action governance is deferred to V2 by CEO decision for v1 and

@@ -643,7 +643,8 @@ impl MachineryRecord {
 
     /// Normalize a client-directed `control_request{can_use_tool}` (§1.2). Recording the
     /// decision is a FACT, not a policy: `native::decide_permission` still auto-approves
-    /// exactly as `acp.rs:444-479` did, and this design says nothing else about gap #1.
+    /// exactly as `acp.rs:444-479` did before it was deleted, and this design says nothing
+    /// else about gap #1.
     ///
     /// Measured shape (`run9-rust-driven.jsonl:17`, and `run8`): `request = { subtype,
     /// tool_name, display_name, input, description, permission_suggestions, decision_reason,

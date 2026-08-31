@@ -1,7 +1,7 @@
 //! Integration tests for the runtime spine — the crash-safety, queue-not-interrupt,
 //! thread-model, and re-prime-continuity invariants — all with a MOCK cognition, so
-//! they run green with NO live Claude / network (the ACP round-trip itself is proven
-//! separately by examples/acp_roundtrip.rs).
+//! they run green with NO live Claude / network (the live round-trip itself is proven
+//! separately by examples/native_roundtrip.rs).
 
 use richos_core::cognition::{Cognition, CognitionError, TurnItem, MockCognition};
 use richos_core::ledger::{Ledger, Source, TurnState};

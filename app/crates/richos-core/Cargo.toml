@@ -2,7 +2,7 @@
 name = "richos-core"
 version = "0.1.0"
 edition = "2021"
-description = "RichOS runtime spine: ACP-client, durable conversation + action ledger, thread data model, and session-continuity foundation. UI-agnostic; no GUI, no relay."
+description = "RichOS runtime spine: the native Claude stream-json client, durable conversation + action ledger, thread data model, and session-continuity foundation. UI-agnostic; no GUI, no relay, no npm."
 license = "Apache-2.0"
 
 [dependencies]
@@ -12,8 +12,8 @@ uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 
 [[example]]
-name = "acp_roundtrip"
-path = "examples/acp_roundtrip.rs"
+name = "native_roundtrip"
+path = "examples/native_roundtrip.rs"
 
 [[example]]
 name = "rotation_roundtrip"

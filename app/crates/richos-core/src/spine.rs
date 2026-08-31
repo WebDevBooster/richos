@@ -1658,10 +1658,10 @@ impl Spine {
         // CEO as the cause of anything) above a complete, successful answer. It failed in
         // the direction where he believes he prevented something he did not.
         //
-        // The race is real and narrow: `AcpCancelHandle::cancel` clones the sink and
+        // The race is real and narrow: `NativeCancelHandle::cancel` clones the sink and
         // appends `ChunkMsg::Cancel` AFTER whatever is already queued, so when the
         // adapter's `Done` is already in the channel `rx.recv()` returns it first and
-        // `prompt` returns `"end_turn"` (`acp.rs:443-450`). That handle's own doc guards
+        // `prompt` returns `"end_turn"` (`native.rs`'s `prompt` loop). That handle's own doc guards
         // `Done` RACING the wake; this is `Done` ALREADY QUEUED before the wake exists.
         //
         // The distinguishing signal was passed into `finish_stopped_turn` and thrown away.
@@ -2347,7 +2347,7 @@ impl Spine {
         self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
 
         // Steps 6/7: swap. The OLD lease (replaced here) is dropped — its `Drop` impl
-        // (see `acp::AcpClient`) kills + waits on the child process, so exactly one live
+        // (see `native::NativeClient`) kills + waits on the child process, so exactly one live
         // session exists at any instant ("serialize" — §3.3 step 6). The CEO's next
         // prompt (queued or freshly typed) lands on the already-primed successor.
         // `install_lease` republishes the cancel seam AND the session id in one place:
@@ -2356,7 +2356,7 @@ impl Spine {
         // exists while the worker path read the retired session's team directory.
         self.install_lease(fresh);
         // The SUCCESSOR's own session-start and post-priming traffic, drained off the newly
-        // installed lease and stamped `internal: true`. A fresh `AcpClient` starts with an
+        // installed lease and stamped `internal: true`. A fresh `NativeClient` starts with an
         // empty `last_session_meta` slot, so it re-announces its commands — and that
         // re-announcement, appearing mid-conversation, is exactly the shape of a rotation
         // tell. It never renders.

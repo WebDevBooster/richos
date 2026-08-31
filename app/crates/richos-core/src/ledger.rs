@@ -244,7 +244,7 @@ pub enum Event {
     /// reply survives a mid-turn crash (§5.1).
     ///
     /// `seq` is the SHARED per-turn counter assigned at the ACP drain point
-    /// (`acp.rs:309-317`, techy-mode §1.4 G1) — the same counter `MachineryRecord.seq`
+    /// (`native.rs`'s `prompt` drain loop, techy-mode §1.4 G1) — the same counter `MachineryRecord.seq`
     /// carries. Persisting it is what makes *"he said X, then ran Y, then said Z"*
     /// survive a restart: without it the ledger holds only the concatenated reply, so the
     /// interleaving G1 guarantees LIVE is lost the moment the process exits.

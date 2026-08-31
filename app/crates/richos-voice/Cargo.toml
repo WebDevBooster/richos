@@ -13,8 +13,8 @@ license = "Apache-2.0"
 cpal = "0.17"
 serde_json = "1"
 
-# The end-to-end example wires the REAL spine (ACP -> Claude). Dev-only, so the shipped
-# crate stays spine-agnostic: richos-voice knows nothing about ledgers or ACP.
+# The end-to-end example wires the REAL spine (stream-json stdio -> Claude). Dev-only, so
+# the shipped crate stays spine-agnostic: richos-voice knows nothing about ledgers or leases.
 [dev-dependencies]
 richos-core = { path = "../richos-core" }
 
