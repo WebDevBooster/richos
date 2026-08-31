@@ -175,72 +175,46 @@ case "$OWNER" in
 esac
 
 # --- Authoritative liveness check against the ENTITY lock -----------------
-# Emits one of:
-#   LOCKED\t<pid>\t<path>   entity worktree present + locked, pid parsed
-#   DEAD\t<reason>          absent / unlocked / locked-without-pid -> not alive
-#   ERROR\t<reason>         could not query git -> caller fails closed
-# NOTE: the python is passed via `python3 -c` with a SINGLE-quoted bash string
-# (so it uses ONLY double quotes internally, no apostrophes). This avoids the
-# macOS bash-3.2 quirk where a heredoc containing parentheses inside a $(...)
-# command substitution is misparsed. Inputs arrive via the environment.
-LIVENESS="$(ENTITY_MAIN="$ENTITY_MAIN" OWNER_ID="$OWNER_ID" python3 -c '
-import os, re, subprocess, sys
+#
+# THE LOGIC IS NOT HERE ANY MORE, AND THAT IS THE POINT. This block used to
+# carry its own inline python parse of `git worktree list --porcelain`. It was
+# correct — it got the 2026-08-31 case right, refusing to remove `zach-opus-g1`
+# while the lead was telling the CEO that agent had completed. But it was the
+# ONLY correct implementation, and nothing else in the engine could ask it the
+# question, so the lead answered from the stale `ListAgents` roster instead.
+#
+# The resolver now lives in scripts/lib/agent-liveness.{py,sh} and this script
+# CONSUMES it, exactly as scripts/agent-liveness.sh and the Stop-time claim
+# guard do. One implementation, three callers. Two implementations of "alive"
+# is how one of them silently becomes the stale one, which is the whole shape
+# of the defect being fixed.
+#
+# The verdict arrives as one tab-separated line:
+#   ALIVE\t<pid>\t<path>              -> REFUSE
+#   NOT-ALIVE\t<reason>\t<path>       -> proceed, note the reason
+#   INDETERMINATE\t<reason>\t         -> REFUSE (fail closed; see below)
+#
+# INDETERMINATE IS NOT COLLAPSED. This caller is about to DELETE something, so
+# "I could not tell" must behave like "alive" here — while the claim guard,
+# which is about to SPEAK, treats the same answer as "say nothing". Folding the
+# third outcome into one of the other two in the library would take that choice
+# away from both.
+_AL_LIB="$SCRIPT_DIR/lib/agent-liveness.sh"
+if [ ! -f "$_AL_LIB" ]; then
+    {
+        echo "=== remove-agent-worktree: REFUSED — liveness resolver missing ==="
+        echo "  scripts/lib/agent-liveness.sh is absent at:"
+        echo "    $_AL_LIB"
+        echo "  This script does not decide liveness itself and will not guess."
+        echo "  Failing closed: nothing was removed."
+        echo "$HOOK_TAG"
+    } >&2
+    exit 3
+fi
+# shellcheck source=lib/agent-liveness.sh
+. "$_AL_LIB"
 
-entity = os.environ["ENTITY_MAIN"]
-aid = os.environ["OWNER_ID"]
-
-try:
-    res = subprocess.run(
-        ["git", "-C", entity, "worktree", "list", "--porcelain"],
-        capture_output=True, text=True, timeout=20,
-    )
-except Exception as e:
-    print("ERROR\tgit worktree list failed: %s" % e)
-    sys.exit(0)
-if res.returncode != 0:
-    print("ERROR\tgit worktree list exited %d: %s"
-          % (res.returncode, (res.stderr or "").strip()[:200]))
-    sys.exit(0)
-
-entries = []
-cur_path = None
-cur_locked = None
-for line in res.stdout.splitlines():
-    if line.startswith("worktree "):
-        if cur_path is not None:
-            entries.append((cur_path, cur_locked))
-        cur_path = line[len("worktree "):]
-        cur_locked = None
-    elif line.startswith("locked"):
-        cur_locked = line
-if cur_path is not None:
-    entries.append((cur_path, cur_locked))
-
-# Match the entity worktree for this agent: the final path component is
-# exactly <agent-id>, OR the lock line names <agent-id>.
-match = None
-for path, locked in entries:
-    base = path.rstrip("/").split("/")[-1]
-    if base == aid or (locked and aid in locked):
-        match = (path, locked)
-        break
-
-if match is None:
-    print("DEAD\tno registered entity worktree for %s (absent/unregistered) -> not alive" % aid)
-    sys.exit(0)
-
-path, locked = match
-if not locked:
-    print("DEAD\tentity worktree %s is present but UNLOCKED -> not alive (a live agent isolation worktree is always locked)" % path)
-    sys.exit(0)
-
-m = re.search(r"\(pid\s+(\d+)", locked)
-if not m:
-    print("DEAD\tentity worktree %s is locked but the lock line carries no pid (%r) -> treating as not alive" % (path, locked))
-    sys.exit(0)
-
-print("LOCKED\t%s\t%s" % (m.group(1), path))
-')"
+LIVENESS="$(agent_liveness_triple "$ENTITY_MAIN" "$OWNER_ID" || true)"
 
 LV_KIND="$(printf '%s' "$LIVENESS" | cut -f1)"
 
@@ -266,23 +240,20 @@ refuse_alive() { # <pid> <path>
 }
 
 case "$LV_KIND" in
-    LOCKED)
+    ALIVE)
         PID="$(printf '%s' "$LIVENESS" | cut -f2)"
         LOCK_PATH="$(printf '%s' "$LIVENESS" | cut -f3)"
-        if kill -0 "$PID" 2>/dev/null; then
-            refuse_alive "$PID" "$LOCK_PATH"
-            exit 3
-        fi
-        err "note: entity worktree $LOCK_PATH carries a STALE lock (pid $PID is dead) — agent not alive, proceeding."
+        refuse_alive "$PID" "$LOCK_PATH"
+        exit 3
         ;;
-    DEAD)
-        err "note: $(printf '%s' "$LIVENESS" | cut -f2-)"
+    NOT-ALIVE)
+        err "note: $(printf '%s' "$LIVENESS" | cut -f2) — agent not alive, proceeding."
         ;;
-    ERROR|*)
+    INDETERMINATE|*)
         {
             echo "=== remove-agent-worktree: REFUSED — liveness indeterminate ==="
             echo "  Could not verify whether agent '$OWNER_ID' is alive:"
-            echo "    $(printf '%s' "$LIVENESS" | cut -f2-)"
+            echo "    $(printf '%s' "$LIVENESS" | cut -f2)"
             echo "  Failing closed — refusing to remove a worktree we cannot prove is"
             echo "  dead. Fix the entity repo path (--entity-repo) or git state,"
             echo "  then re-run."
