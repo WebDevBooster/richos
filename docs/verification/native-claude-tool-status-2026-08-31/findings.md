@@ -3,6 +3,14 @@
 **Observation, 2026-08-31. This closes caveat C2 of
 `../native-claude-stream-json-2026-08-31/findings.md` §7.**
 
+> **FORWARD POINTER, added 2026-08-31 after the ACP run this document asks for.** §6 case 3 and
+> §8 bullet 1 are now answered by `../acp-subagent-status-2026-08-31/findings.md`: the ACP
+> adapter is silent inside a subagent too, so **both paths behave the same there.** That run
+> also measured two claims in **§5 wrong**, both in the native path's favour — ACP *does* reach
+> `in_progress` for a top-level tool held ≥30 s, and it *does* supply the per-tool elapsed
+> seconds. Read §5 with that correction. **Nothing below this line has been edited**; the
+> measurements it reports still stand.
+
 C2 said:
 
 > **NOT OBSERVED**, not "absent": no intermediate tool status. I did not run a tool long
