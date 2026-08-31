@@ -156,6 +156,47 @@
   display: none !important;
 }
 
+/* =========================================================================================
+   THE TYPE SCALE — two floors, a default, and one knob that moves all of it.
+
+   CEO ruling §15 ("The type scale — two floors and a default"), given after measuring
+   round 10, which failed both:
+
+     * 1.125rem / 18px — the DEFAULT for Rich's main answer text (`.tl-prose`). It was 15.5px.
+     * 1rem / 16px     — the MINIMUM for any text meant to be EASILY READABLE. This is the
+                         tier almost everything lands in. `.tl-user-text` was 15.5px and he
+                         named it.
+     * 0.875rem / 14px — the MINIMUM for text that is unimportant or skippable but still
+                         meant to be read. Nothing readable sits below it.
+
+   PLACING A NODE AT 0.875rem IS A CLAIM THAT IT IS SKIPPABLE, so every such node is listed
+   in `round-10.1/index.html` for the CEO to overrule rather than discover. The claims this
+   file makes are: the ⌘K keycap and the two rail tallies; the popover's fine print; the
+   turn digest and the "Worked for 18s" fold line; Rich's speaker label; the jump-to-latest
+   pill; the voice footnote; search and picker meta lines; the chip qualifier; the feedback
+   timestamp; the correction desk's record address and its from→to pair; and the technical
+   view's machine trail, which is the one view built for skimming.
+
+   OUTSIDE THE RULE, and only these: pure glyph boxes (carets, ✕, ⋯, ▷, the thread marks
+   △ ? ⊘) which carry no text to read, and all-caps micro-labels at 0.6875rem / 11px — rail
+   group names, desk section titles, search result groups. That is the CEO's own stated
+   class. Contrast still binds all of them; none is ≥4.5:1 by accident.
+
+   EVERYTHING IS rem, WHICH IS THE POINT. `--app-font-scale` below multiplies the root font
+   size, so ⌘/Ctrl +/−/0 and the Text size row in the settings menu move the WHOLE interface
+   and not a subset of it. A single px font-size anywhere is a node that would silently
+   refuse to scale — the four glyph boxes that keep a px-free fixed size do so because their
+   containers are fixed chrome, and they carry no text.
+   ========================================================================================= */
+
+html {
+  /* The one knob. `--app-font-scale` is set on :root by the font control (main.js) from the
+     durable preference in config.rs; absent, it is 1 and this is exactly 16px. It is written
+     here rather than on `body` because `rem` resolves against the ROOT element and nothing
+     else. */
+  font-size: calc(16px * var(--app-font-scale, 1));
+}
+
 html,
 body {
   margin: 0;
@@ -202,7 +243,7 @@ button {
 }
 
 .rail-company {
-  font-size: 13px;
+  font-size: 1rem;
   font-weight: 500;
   color: var(--ink-faint);
   letter-spacing: 0.01em;
@@ -224,7 +265,7 @@ button {
   border-left: 2px solid transparent;
   padding: 7px 10px;
   border-radius: 4px;
-  font-size: 13.5px;
+  font-size: 1rem;
   color: var(--ink-faint);
   cursor: pointer;
   white-space: nowrap;
@@ -249,7 +290,7 @@ button {
   margin: 10px 2px 4px;
   background: none;
   border: none;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
   cursor: pointer;
   padding: 4px 6px;
@@ -275,7 +316,7 @@ button {
   background: none;
   border: none;
   color: var(--ink-faint);
-  font-size: 13px;
+  font-size: 1.0625rem;
   cursor: pointer;
   width: 24px;
   height: 24px;
@@ -297,7 +338,7 @@ button {
 }
 
 .rail-rich-label {
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
 }
 
@@ -315,7 +356,7 @@ button {
 }
 
 .popover-title {
-  font-size: 11.5px;
+  font-size: 1rem;
   color: var(--ink-faint);
   margin: 0 0 8px;
   line-height: 1.4;
@@ -325,7 +366,7 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
   padding: 4px 0;
   cursor: pointer;
@@ -360,7 +401,7 @@ button {
   background: none;
   border: none;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
   cursor: pointer;
 }
@@ -402,7 +443,7 @@ button {
   border-radius: var(--radius);
   padding: 10px 14px;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 1rem;
   line-height: 1.5;
   background: var(--surface);
   color: var(--ink);
@@ -478,7 +519,7 @@ button {
 }
 
 .send-glyph {
-  font-size: 15px;
+  font-size: 0.8125rem;
   transform: translateX(1px);
 }
 
@@ -528,7 +569,7 @@ button {
 }
 
 .voice-label {
-  font-size: 13.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
 }
 
@@ -593,7 +634,7 @@ button {
 
 .voice-barge-in,
 .voice-retry {
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
   background: none;
   border: 1px solid var(--line);
@@ -614,7 +655,7 @@ button {
 }
 
 .voice-footnote {
-  font-size: 11.5px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   margin: 2px 0 0;
 }
@@ -653,7 +694,7 @@ button {
 }
 
 .slideover-title {
-  font-size: 13px;
+  font-size: 1.0625rem;
   font-weight: 600;
   color: var(--ink);
 }
@@ -666,7 +707,7 @@ button {
 }
 
 .slide-item {
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink-soft);
   padding: 7px 0;
   border-bottom: 1px solid var(--line);
@@ -684,7 +725,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 13px;
-  font-size: 12.5px;
+  font-size: 0.875rem;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -734,7 +775,7 @@ button {
   border: none;
   border-radius: 6px;
   padding: 6px 8px;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -746,7 +787,7 @@ button {
 
 .rail-kbd {
   font-family: inherit;
-  font-size: 11px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -758,7 +799,7 @@ button {
   background: none;
   border: none;
   color: var(--ink-faint);
-  font-size: 13px;
+  font-size: 0.75rem;
   line-height: 1;
   cursor: pointer;
   border-radius: 6px;
@@ -798,7 +839,7 @@ button {
   background: none;
   border: none;
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 0.6875rem;
   line-height: 1;
   width: 18px;
   height: 20px;
@@ -819,7 +860,7 @@ button {
   border: none;
   padding: 3px 6px;
   border-radius: 5px;
-  font-size: 11.5px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -839,7 +880,7 @@ button {
 }
 
 .nav-group-count {
-  font-size: 11px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   padding: 0 2px;
   font-variant-numeric: tabular-nums;
@@ -849,7 +890,7 @@ button {
   background: none;
   border: none;
   color: var(--ink-faint);
-  font-size: 13px;
+  font-size: 0.875rem;
   line-height: 1;
   width: 20px;
   height: 20px;
@@ -908,7 +949,7 @@ button {
   background: none;
   border: none;
   padding: 6px 4px 6px 8px;
-  font-size: 13.5px;
+  font-size: 1rem;
   color: var(--ink-faint);
   cursor: pointer;
 }
@@ -932,7 +973,7 @@ button {
 }
 
 .nav-thread-entity {
-  font-size: 10.5px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   flex-shrink: 0;
 }
@@ -942,7 +983,7 @@ button {
   background: none;
   border: none;
   color: var(--ink-faint);
-  font-size: 13px;
+  font-size: 0.875rem;
   line-height: 1;
   width: 22px;
   height: 22px;
@@ -965,7 +1006,7 @@ button {
   background: none;
   border: none;
   padding: 5px 10px;
-  font-size: 11.5px;
+  font-size: 1rem;
   color: var(--ink-faint);
   cursor: pointer;
   border-radius: 5px;
@@ -983,7 +1024,7 @@ button {
 
 .nav-status {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 0.6875rem;
   line-height: 1;
   width: 12px;
   text-align: center;
@@ -1084,7 +1125,7 @@ button {
   align-items: center;
   gap: 7px;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: 1rem;
 }
 
 .scope-entity {
@@ -1118,21 +1159,21 @@ button {
 }
 
 .pane-title {
-  font-size: 21px;
+  font-size: 1.375rem;
   font-weight: 600;
   margin: 0 0 10px;
   color: var(--ink);
 }
 
 .pane-line {
-  font-size: 15.5px;
+  font-size: 1rem;
   line-height: 1.62;
   color: var(--ink-soft);
   margin: 0 0 20px;
 }
 
 .pane-note {
-  font-size: 12.5px;
+  font-size: 1rem;
   line-height: 1.6;
   color: var(--ink-faint);
   margin: 20px 0 0;
@@ -1143,7 +1184,7 @@ button {
   grid-template-columns: auto 1fr;
   gap: 4px 16px;
   margin: 0 0 24px;
-  font-size: 12.5px;
+  font-size: 1rem;
 }
 
 .entity-facts dt {
@@ -1161,7 +1202,7 @@ button {
 }
 
 .entity-block-title {
-  font-size: 11.5px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1199,7 +1240,7 @@ button {
   max-width: 680px;
   margin: 0 auto 6px;
   padding: 0 28px;
-  font-size: 12px;
+  font-size: 1rem;
   line-height: 1.5;
 }
 
@@ -1278,7 +1319,7 @@ button {
   border-bottom: 1px solid var(--line);
   padding: 14px 16px;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 1.0625rem;
   color: var(--ink);
   background: transparent;
   outline: none;
@@ -1293,18 +1334,18 @@ button {
 .overlay-empty {
   padding: 14px 16px;
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink-faint);
 }
 
 .overlay-title {
-  font-size: 13px;
+  font-size: 1.0625rem;
   color: var(--ink-soft);
   margin: 0 0 10px;
 }
 
 .result-group {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1330,20 +1371,20 @@ button {
 
 .result-title {
   display: block;
-  font-size: 13.5px;
+  font-size: 1rem;
   color: var(--ink);
 }
 
 .result-meta {
   display: block;
-  font-size: 11.5px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   margin-top: 1px;
 }
 
 .result-excerpt {
   display: block;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
   margin-top: 3px;
   white-space: nowrap;
@@ -1378,12 +1419,12 @@ button {
 }
 
 .picker-name {
-  font-size: 14px;
+  font-size: 1rem;
   color: var(--ink);
 }
 
 .picker-meta {
-  font-size: 11.5px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
 }
 
@@ -1408,7 +1449,7 @@ button {
   border: none;
   border-radius: 5px;
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -1562,7 +1603,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .tl-user-text {
-  font-size: 15.5px;
+  font-size: 1rem;
   line-height: 1.6;
   color: var(--ink-soft); /* lighter than Rich's --ink: §5.1's weight hierarchy */
   white-space: pre-wrap;
@@ -1584,7 +1625,7 @@ body.bp-narrow .tl-user-bubble {
   background: none;
   border: none;
   padding: 2px 0;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--accent-text);
   cursor: pointer;
 }
@@ -1602,7 +1643,7 @@ body.bp-narrow .tl-user-bubble {
   align-items: center;
   gap: 10px;
   height: 18px;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -1624,7 +1665,7 @@ body.bp-narrow .tl-user-bubble {
    hover-revealed actions row. Right-aligned with the bubble it belongs to. */
 .tl-steer-cue {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: 1rem;
   line-height: 1.3;
   color: var(--ink-faint);
   text-align: right;
@@ -1638,7 +1679,7 @@ body.bp-narrow .tl-user-bubble {
   background: none;
   border: none;
   padding: 0;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
   cursor: pointer;
 }
@@ -1668,7 +1709,7 @@ body.bp-narrow .tl-user-bubble {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px; /* §17.2: metadata 12px */
+  font-size: 0.875rem; /* §17.2: metadata 12px */
   color: var(--ink-faint);
 }
 
@@ -1688,7 +1729,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .tl-prose {
-  font-size: 15.5px; /* §17.2: body 15.5–16 */
+  font-size: 1.125rem; /* §17.2: body 15.5–16 */
   line-height: 1.62; /* §17.2: 1.55–1.65 */
   color: var(--ink);
   max-width: 100%;
@@ -1724,7 +1765,7 @@ body.bp-narrow .tl-user-bubble {
   border: none;
   padding: 2px 0;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--ink-soft);
   cursor: pointer;
   border-radius: 4px;
@@ -1753,7 +1794,7 @@ body.bp-narrow .tl-user-bubble {
 .tl-chevron {
   display: inline-block;
   width: 10px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--ink-faint);
   transition: transform 0.16s ease; /* §17.4: chevron rotation is allowed */
 }
@@ -1822,7 +1863,7 @@ body.bp-narrow .tl-user-bubble {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 13px; /* §17.2: activity 13–14px */
+  font-size: 1rem; /* §17.2: activity 13–14px */
   color: var(--ink-soft);
   line-height: 1.5;
 }
@@ -1832,7 +1873,7 @@ body.bp-narrow .tl-user-bubble {
   width: 12px;
   text-align: center;
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .tl-activity[data-state="failed"] .tl-activity-mark {
@@ -1850,7 +1891,7 @@ body.bp-narrow .tl-user-bubble {
 /* §18: "Status must never rely on color alone." The two states that are not self-evident
    from the verb are spelled out in words next to it. */
 .tl-activity-state {
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-faint);
   font-style: italic;
 }
@@ -1867,7 +1908,7 @@ body.bp-narrow .tl-user-bubble {
   padding: 0;
   text-align: left;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   cursor: pointer;
 }
@@ -1906,14 +1947,14 @@ body.bp-narrow .tl-user-bubble {
 
 .tl-intervention-body {
   margin: 0;
-  font-size: 15px;
+  font-size: 1rem;
   line-height: 1.55;
   color: var(--ink);
 }
 
 .tl-intervention-note {
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink-faint);
 }
 
@@ -1928,7 +1969,7 @@ body.bp-narrow .tl-user-bubble {
   border-radius: var(--radius-control, 10px);
   padding: 6px 12px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink);
   cursor: pointer;
 }
@@ -1958,7 +1999,7 @@ body.bp-narrow .tl-user-bubble {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink-soft);
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 2px 8px var(--shadow-weak);
@@ -2003,7 +2044,7 @@ body.bp-narrow .tl-user-bubble {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 13.5px;
+  font-size: 0.875rem;
   color: var(--ink-soft);
 }
 
@@ -2024,7 +2065,7 @@ body.bp-narrow .tl-user-bubble {
   border-radius: var(--radius-control, 10px);
   background: transparent;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: 1rem;
   line-height: 1.3;
   text-align: left;
   cursor: pointer;
@@ -2077,7 +2118,7 @@ body.bp-narrow .tl-user-bubble {
    activity lane gives "outcome not recorded" — one phrase, learned once. */
 .tl-chip-qualifier {
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 0.875rem;
   opacity: 0.85;
 }
 
@@ -2211,7 +2252,7 @@ body.bp-narrow .tl-user-bubble {
 
 .inspector-eyebrow {
   grid-column: 1;
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -2220,7 +2261,7 @@ body.bp-narrow .tl-user-bubble {
 .inspector-title {
   grid-column: 1;
   margin: 0;
-  font-size: 16px;
+  font-size: 1.0625rem;
   font-weight: 600;
   color: var(--ink);
   overflow-wrap: anywhere;
@@ -2253,14 +2294,14 @@ body.bp-narrow .tl-user-bubble {
 
 .insp-name {
   margin: 0;
-  font-size: 15px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--ink);
 }
 
 .insp-role {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
 }
 
@@ -2272,7 +2313,7 @@ body.bp-narrow .tl-user-bubble {
 
 .insp-label {
   margin: 0;
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -2283,7 +2324,7 @@ body.bp-narrow .tl-user-bubble {
   display: flex;
   align-items: baseline;
   gap: 7px;
-  font-size: 13.5px;
+  font-size: 1rem;
 }
 
 .insp-state-word {
@@ -2293,7 +2334,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .insp-state-qualifier {
-  font-size: 12px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
 }
 
@@ -2309,14 +2350,14 @@ body.bp-narrow .tl-user-bubble {
 .insp-state-note,
 .insp-note {
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.55;
   color: var(--ink-soft);
 }
 
 .insp-update-text {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 1rem;
   line-height: 1.55;
   color: var(--ink);
   overflow-wrap: anywhere;
@@ -2331,7 +2372,7 @@ body.bp-narrow .tl-user-bubble {
   border: 0;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: 1rem;
   cursor: pointer;
 }
 
@@ -2346,7 +2387,7 @@ body.bp-narrow .tl-user-bubble {
   grid-template-columns: auto 1fr;
   gap: 4px 14px;
   margin: 2px 0 0;
-  font-size: 12.5px;
+  font-size: 1rem;
 }
 
 .insp-facts dt {
@@ -2368,7 +2409,7 @@ body.bp-narrow .tl-user-bubble {
 .insp-gap {
   padding-top: 4px;
   border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: 1rem;
 }
 
 #inspector-scrim {
@@ -2418,7 +2459,7 @@ body.bp-narrow .tl-user-bubble {
   border-radius: 9px;
   background: var(--accent);
   color: var(--on-gold);
-  font-size: 11px;
+  font-size: 0.875rem;
   line-height: 17px;
   text-align: center;
 }
@@ -2451,7 +2492,7 @@ body.bp-narrow .tl-user-bubble {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink);
   /* The writer's refusal arrives as its own sentence on its own line. */
   white-space: pre-line;
@@ -2484,7 +2525,7 @@ body.bp-narrow .tl-user-bubble {
    because their text is dynamic. Weight, size and color carry the same hierarchy here. */
 .desk-section-title {
   margin: 0 0 10px;
-  font-size: 11.5px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--ink-faint);
@@ -2492,7 +2533,7 @@ body.bp-narrow .tl-user-bubble {
 
 .desk-sub-title {
   margin: 16px 0 8px;
-  font-size: 11.5px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--ink-faint);
@@ -2502,7 +2543,7 @@ body.bp-narrow .tl-user-bubble {
 .desk-empty,
 .desk-broke-line {
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink-soft);
   line-height: 1.5;
 }
@@ -2520,7 +2561,7 @@ body.bp-narrow .tl-user-bubble {
 
 .desk-reason {
   margin: 0;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--attention);
   line-height: 1.45;
 }
@@ -2540,26 +2581,26 @@ body.bp-narrow .tl-user-bubble {
 .desk-card-pair,
 .desk-card-anchor {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
 }
 
 .desk-card-prompt {
   margin: 0 0 10px;
-  font-size: 14.5px;
+  font-size: 1.0625rem;
   color: var(--ink);
   line-height: 1.45;
 }
 
 .desk-label {
   margin: 0 0 3px;
-  font-size: 11.5px;
+  font-size: 1rem;
   color: var(--ink-faint);
 }
 
 .desk-card-quote {
   margin: 0 0 10px;
-  font-size: 13.5px;
+  font-size: 1rem;
   color: var(--ink);
   line-height: 1.5;
   border-left: 2px solid var(--line);
@@ -2578,7 +2619,7 @@ body.bp-narrow .tl-user-bubble {
   border: 1px solid var(--line);
   border-radius: 8px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
+  font-size: 1rem;
   line-height: 1.5;
   color: var(--ink);
   white-space: pre-wrap;
@@ -2596,7 +2637,7 @@ body.bp-narrow .tl-user-bubble {
   border-radius: 6px;
   padding: 6px 12px;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -2639,7 +2680,7 @@ body.bp-narrow .tl-user-bubble {
 
 .desk-suppressed-id {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
 }
@@ -2661,7 +2702,7 @@ body.bp-narrow .tl-user-bubble {
 .feedback-offer-text,
 .feedback-disclosure {
   margin: 14px 0 10px;
-  font-size: 13.5px;
+  font-size: 1rem;
   line-height: 1.6;
   color: var(--ink);
   max-width: 62ch;
@@ -2669,7 +2710,7 @@ body.bp-narrow .tl-user-bubble {
 
 .feedback-disclosure {
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: 1rem;
 }
 
 /* One choice from the vocabulary. A `<fieldset>` per term type, because a group of radios
@@ -2684,7 +2725,7 @@ body.bp-narrow .tl-user-bubble {
 
 .feedback-group-legend {
   padding: 0 4px;
-  font-size: 12px;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--ink-soft);
 }
@@ -2696,7 +2737,7 @@ body.bp-narrow .tl-user-bubble {
   align-items: flex-start;
   gap: 8px;
   padding: 5px 0;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.5;
   color: var(--ink);
   cursor: pointer;
@@ -2722,19 +2763,19 @@ body.bp-narrow .tl-user-bubble {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--ink);
 }
 
 .feedback-entry-key {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
+  font-size: 1rem;
   color: var(--ink-soft);
 }
 
 .feedback-entry-note {
   margin: 6px 0 0;
-  font-size: 12.5px;
+  font-size: 0.875rem;
   color: var(--ink-soft);
 }
 
@@ -2779,7 +2820,7 @@ body.bp-narrow .tl-user-bubble {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 13px; /* §17.2: activity 13–14px — unchanged from .tl-activity */
+  font-size: 1rem; /* §17.2: activity 13–14px — unchanged from .tl-activity */
   color: var(--ink-soft);
   line-height: 1.5;
 }
@@ -2814,7 +2855,7 @@ body.bp-narrow .tl-user-bubble {
   flex: 1 1 auto;
   min-width: 0;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
-  font-size: 12.5px;
+  font-size: 0.6875rem;
   color: var(--ink);
   overflow-wrap: anywhere;
 }
@@ -2829,7 +2870,7 @@ body.bp-narrow .tl-user-bubble {
 .tl-tech-chevron {
   flex: 0 0 auto;
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .tl-tech[data-state="failed"] .tl-activity-mark {
@@ -2851,7 +2892,7 @@ body.bp-narrow .tl-user-bubble {
 .tl-tech-summary,
 .tl-tech-paths {
   padding-left: 20px; /* aligns under the title, past the status glyph */
-  font-size: 12px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   overflow-wrap: anywhere;
 }
@@ -2880,7 +2921,7 @@ body.bp-narrow .tl-user-bubble {
   border: 1px solid var(--line);
   border-radius: 6px;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
-  font-size: 11.5px;
+  font-size: 0.875rem;
   line-height: 1.45;
   color: var(--ink-soft);
   white-space: pre-wrap;
@@ -2892,7 +2933,7 @@ body.bp-narrow .tl-user-bubble {
    is how "no longer retained" starts to read like output. */
 .tl-tech-raw[data-note] {
   font-family: var(--font);
-  font-size: 12px;
+  font-size: 0.875rem;
   font-style: italic;
   white-space: normal;
 }
@@ -2917,7 +2958,7 @@ body.bp-narrow .tl-user-bubble {
   padding: 12px 28px;
   background: var(--paper);
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.55;
   color: var(--ink-soft);
 }
@@ -2934,7 +2975,7 @@ body.bp-narrow .tl-user-bubble {
   display: block;
   margin-top: 6px;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
-  font-size: 11.5px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   overflow-wrap: anywhere;
 }
@@ -2953,7 +2994,7 @@ body.bp-narrow .tl-user-bubble {
   border-radius: 999px;
   background: var(--surface);
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: 1rem;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -2980,7 +3021,7 @@ body.bp-narrow .tl-user-bubble {
 
 .popover-hint {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 0.875rem;
   color: var(--ink-faint);
   line-height: 1.45;
 }
@@ -2992,7 +3033,7 @@ body.bp-narrow .tl-user-bubble {
   padding-top: 6px;
   border-top: 1px solid var(--line);
   font-family: var(--font);
-  font-size: 11.5px;
+  font-size: 0.875rem;
   font-style: italic;
   color: var(--attention);
   white-space: normal;
@@ -3022,7 +3063,7 @@ body.bp-narrow .tl-user-bubble {
 
 #between-turns-title {
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--ink-soft);
@@ -3030,7 +3071,7 @@ body.bp-narrow .tl-user-bubble {
 
 #between-turns-lede {
   margin: 4px 0 12px;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.55;
   color: var(--ink-soft);
 }
@@ -3050,7 +3091,7 @@ body.bp-narrow .tl-user-bubble {
 
 #between-turns-quiet {
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.55;
   color: var(--ink-soft);
 }
