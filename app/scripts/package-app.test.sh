@@ -62,7 +62,6 @@ set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SRC_DIR/package-app.sh"
-APP_DIR="$(cd "$SRC_DIR/.." && pwd)"
 
 TMP="$(mktemp -d -t package-app-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
