@@ -1,0 +1,31 @@
+offset_s	dir	kind_or_method	toolCallId	status
+-3.756	out	initialize		
+-3.593	in			
+-3.592	out	session/new		
+-3.004	in			
+-3.002	in	available_commands_update		
+0.000	out	session/prompt		
+0.030	in	available_commands_update		
+0.995	in	usage_update		
+1.034	in	agent_message_chunk		
+1.081	in	agent_message_chunk		
+1.796	in	agent_message_chunk		
+1.805	in	tool_call	toolu_012qTGdTzBgrVUZeUbUTe1o5	pending
+1.806	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	
+2.236	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	
+2.239	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	
+2.249	in	usage_update		
+2.252	in	usage_update		
+2.377	in	session/request_permission		
+2.377	out			
+32.385	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	in_progress
+62.385	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	in_progress
+72.624	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	
+72.629	in	tool_call_update	toolu_012qTGdTzBgrVUZeUbUTe1o5	completed
+73.406	in	usage_update		
+73.432	in	agent_message_chunk		
+73.565	in	agent_message_chunk		
+73.577	in	usage_update		
+73.729	in	usage_update		
+73.729	in			
+73.731	in	session_info_update		
