@@ -1,0 +1,99 @@
+BROWSER MUTATION RUNS — THE LAUNCH RECORD (richos-hq wiki/gamification.md § "Splash tracking")
+============================================================================================
+
+Every browser check added on this branch was run RED at least once by breaking the SHIPPED
+source — `app/ui/splash.js` or `app/ui/main.js` — committing first and restoring from the
+commit, never by editing the suite.
+
+THREE MUTATIONS TURNED NOTHING RED, and none of them was a spare check:
+
+  B5 / B5b   deleting `parkViewStateSoon()` from the COMPOSER'S INPUT HANDLER left the
+             crash check green. It typed first and scrolled second, and the scroll
+             handler's own park writes the composer text too — so the sentence reached
+             disk through a path the mutation never touched. The check now scrolls first,
+             waits out the debounce, and types last, reads the store directly, and its
+             source half looks inside the input listener instead of anywhere in the file.
+             Re-run: RED, both crash checks.
+
+  B8 / B8b   leaving a SENT sentence parked turned nothing red, twice, for two different
+             reasons. First the debounce had not fired before Send, so nothing was ever on
+             disk and the check passed over an empty store — fixed with a vacuity probe
+             that asserts the sentence IS parked before sending. It STILL passed: the
+             in-memory `drafts` map only receives a thread's text on a navigation away, so
+             in a type-then-send run the map never held it and the next park rewrote the
+             store from an empty map. The check now navigates away and back first, which
+             is the only state in which the deleted line does anything.
+             Re-run as B8c: RED.
+
+  Everything else in this file failed the first time it was tried.
+
+SUITES:  app/ui/tests/splash.js  (21 checks, 3 added here)
+         app/ui/tests/restart-scope.js  (14 checks, 2 added here)
+
+=== B1  the launch-kind gate is deleted from start() — every launch draws
+    file: ui/splash.js   suite: splash.js
+    RED:
+  - 19  a fresh launch draws; a crash-restart and a second window do not
+  - 20  absent means fresh, and the wire strings are one set, not two
+  - 21  what was ON SCREEN reaches the recency ring, with his LOCAL calendar
+
+=== B2  launchKind() ignores the shell and always says fresh
+    file: ui/splash.js   suite: splash.js
+    RED:
+  - 19  a fresh launch draws; a crash-restart and a second window do not
+  - 20  absent means fresh, and the wire strings are one set, not two
+  - 21  what was ON SCREEN reaches the recency ring, with his LOCAL calendar
+
+=== B3  the id that was drawn is never handed to the ring
+    file: ui/main.js   suite: splash.js
+    RED:
+  - 21  what was ON SCREEN reaches the recency ring, with his LOCAL calendar
+
+=== B4  the offset handed to the record is not negated
+    file: ui/main.js   suite: splash.js
+    RED:
+  - 21  what was ON SCREEN reaches the recency ring, with his LOCAL calendar
+
+=== B5  nothing parks the view state as he types
+    file: ui/main.js   suite: restart-scope.js
+    *** NOTHING TURNED RED
+
+=== B6  the parked state is never loaded back
+    file: ui/main.js   suite: restart-scope.js
+    RED:
+  - CRASH: the sentence he was typing and the place he was reading survive the process
+
+=== B7  an exit handler is introduced, so the guarantee rests on something a crash skips
+    file: ui/main.js   suite: restart-scope.js
+    RED:
+  - CRASH: nothing runs on the way out, and a sent sentence never comes back
+
+=== B8  a sent sentence is left parked on disk
+    file: ui/main.js   suite: restart-scope.js
+    *** NOTHING TURNED RED
+
+=== B9  the scroll position is parked but never restored
+    file: ui/main.js   suite: restart-scope.js
+    RED:
+  - CRASH: the sentence he was typing and the place he was reading survive the process
+
+=== B5b  nothing parks the view state as he types (re-run, with the scroll parked first)
+    file: ui/main.js   suite: restart-scope.js
+    RED:
+  - CRASH: the sentence he was typing and the place he was reading survive the process
+  - CRASH: nothing runs on the way out, and a sent sentence never comes back
+
+=== B8b  a sent sentence is left parked on disk (re-run, with the park proven before the send)
+    file: ui/main.js   suite: restart-scope.js
+    *** NOTHING TURNED RED
+
+=== B10  the draft is restored into every thread, not the one it was written to
+    file: ui/main.js   suite: restart-scope.js
+    RED:
+  - CRASH: the sentence he was typing and the place he was reading survive the process
+
+=== B8c  a sent sentence is left parked on disk (re-run, with the map primed by a navigation)
+    file: ui/main.js   suite: restart-scope.js
+    RED:
+  - CRASH: nothing runs on the way out, and a sent sentence never comes back
+

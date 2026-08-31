@@ -58,6 +58,7 @@ pub mod entity;
 pub mod feedback;
 pub mod journal;
 pub mod heard;
+pub mod launch;
 pub mod ledger;
 pub mod loro;
 pub mod live;

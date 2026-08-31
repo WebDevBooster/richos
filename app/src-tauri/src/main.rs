@@ -11,6 +11,7 @@ mod events;
 use richos_core::acp::{resolve_acp_bin, AcpCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
+use richos_core::launch::{LaunchCounts, LaunchKind, LaunchStore, PriorRun};
 use richos_core::correction::{
     CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite, SharedCorrectionDesk,
     WriteOutput, EVENT_LORO_PROPOSED,
@@ -208,6 +209,13 @@ struct AppState {
     /// pretend — asking the CEO what he thinks and dropping the answer on the floor is
     /// worse than saying the capability is not available.
     feedback: Option<Mutex<FeedbackStore>>,
+    /// THE LAUNCH RECORD (`richos_core::launch`). What a start is, the log of starts, the
+    /// recency ring, the install date and which rewards have fired.
+    ///
+    /// Behind its own mutex and NOT inside `config` for the reason `config.rs`'s own first
+    /// paragraph gives: that file holds mutable point-in-time preference, and this is an
+    /// append-only event log. They share a directory and a durability posture, nothing else.
+    launch: Mutex<LaunchStore>,
 }
 
 #[tauri::command]
@@ -395,6 +403,47 @@ fn main() {
             // Durable ledger lives in the app data dir (survives restart + rotation).
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             std::fs::create_dir_all(&data_dir).ok();
+
+            // =====================================================================
+            // THE LAUNCH RECORD, AND THE WINDOW — FIRST, AND FOR ONE REASON
+            // =====================================================================
+            //
+            // `app/ui/splash.js` decides whether to draw the opening screen on its FIRST
+            // synchronous line, before anything can be awaited. So the one fact it needs —
+            // is this a fresh launch, a crash-restart, or a second window — has to already
+            // be in the page. Tauri creates config-declared windows BEFORE this hook runs
+            // (tauri-2.11.5 `src/app.rs:2524`), which is why `tauri.conf.json` now carries
+            // `"create": false` and the window is built here instead: `from_config` keeps
+            // every property the config declares and this adds exactly one line of script.
+            //
+            // IT IS FIRST IN THIS FUNCTION, NOT WHEREVER IT FITTED. Everything below —
+            // ledger replay, machinery eviction, loro — used to happen with the window
+            // already on screen. Moving window creation into `setup` puts all of it AHEAD
+            // of first paint unless the window goes first, so the window goes first and
+            // what precedes it is one small file read and one small file write. Measured on
+            // this machine, `launches.json` at 100 starts is under 4 KB
+            // (`launch.rs::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes`).
+            //
+            // `PriorRun::Unknown` is the honest answer and not a placeholder: this shell
+            // does not check whether the process that left a marker behind is still alive,
+            // so it says so rather than guessing, and `launch.rs` reads Unknown as a
+            // crash-restart — not counted, no splash, back where he was.
+            let mut launch_store = LaunchStore::open(data_dir.join("launches.json"), richos_core::util::now_millis())
+                .expect("open launch record");
+            if let Some(why) = launch_store.unreadable_reason() {
+                eprintln!("[richos] launch record: {why}");
+            }
+            let launch_kind = launch_store
+                .begin_run(richos_core::util::now_millis(), std::process::id().to_string(), PriorRun::Unknown)
+                .unwrap_or(LaunchKind::Fresh);
+            let window_configs = app.config().app.windows.clone();
+            for window_config in &window_configs {
+                let kind = launch_store.next_window_kind();
+                tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                    .initialization_script(launch_init_script(kind))
+                    .build()?;
+            }
+            eprintln!("[richos] launch: {} ({} window(s))", launch_kind.as_str(), window_configs.len());
             let ledger_path = data_dir.join("conversation-ledger.jsonl");
             let ledger = Ledger::open(&ledger_path).expect("open ledger");
 
@@ -722,6 +771,7 @@ fn main() {
                 correction,
                 spoken,
                 feedback,
+                launch: Mutex::new(launch_store),
             });
             Ok(())
         })
@@ -811,10 +861,34 @@ fn main() {
             set_theme,
             set_font_scale,
             get_user_identity,
-            set_user_name
+            set_user_name,
+            // --- the launch record (2026-08-31) — appended, never reordered ---
+            launch_state,
+            launch_note_splash_shown
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running RichOS");
+        .build(tauri::generate_context!())
+        .expect("error while building RichOS")
+        // THE CLEAN-EXIT MARKER, CLEARED HERE AND NOWHERE ELSE.
+        //
+        // This is the whole of what makes the NEXT launch read as fresh rather than as a
+        // crash-restart, and `.run(context)` — which this replaces — gave no place to put
+        // it. `RunEvent::Exit` is the last thing Tauri emits before the process ends, so it
+        // fires on a quit and, by construction, cannot fire on a kill or a power cut. That
+        // is exactly the semantics the record wants: absent marker means he quit, present
+        // marker means the app did not get to say so.
+        //
+        // A write failure here is logged and never fatal. The cost of one is that the next
+        // launch is read as a crash-restart — an undercount by one, no splash once — which
+        // is not worth refusing to close the app over.
+        .run(|handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = handle.try_state::<AppState>() {
+                    if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
+                        eprintln!("[richos] launch record: could not mark a clean exit: {e}");
+                    }
+                }
+            }
+        });
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2796,4 +2870,88 @@ fn get_user_identity(state: State<AppState>) -> UserIdentity {
 #[tauri::command]
 fn set_user_name(state: State<AppState>, name: String) -> Result<(), String> {
     state.config.lock().unwrap().set_user_name(&name).map_err(|e| e.to_string())
+}
+
+
+// ---------------------------------------------------------------------------------------
+// THE LAUNCH RECORD — the shell's half
+//
+// CEO ruling 2026-08-31 (`richos-hq/wiki/gamification.md` § "Splash tracking"). The model
+// itself, and every word of why, is in `richos_core::launch`; this layer does three things
+// and nothing else: it tells the webview what kind of start this is BEFORE the opening
+// screen decides whether to draw, it hands the record's contents to a caller that asks, and
+// it takes the id of a splash that was actually shown.
+//
+// NOTHING HERE IS ON THE LAUNCH PATH. The classification and the window are built in
+// `setup()` above (see the block comment there); the two commands below are called after
+// the app is usable, from the same "dead last on purpose" tail of `main.js` that already
+// carries the splash's other bookkeeping.
+// ---------------------------------------------------------------------------------------
+
+/// The one line injected into every window before any of its own scripts run.
+///
+/// A literal object, not a command the page has to call: `splash.js` runs synchronously at
+/// the top of `<body>` and cannot await anything, and a splash that appeared on a
+/// crash-restart because the answer arrived a tick late would be exactly the wrong ceremony
+/// at exactly the wrong moment.
+///
+/// `Object.freeze` because this is a statement of fact about how the app started, and a
+/// later script that could edit it could make a crash-restart claim to be a fresh launch.
+fn launch_init_script(kind: LaunchKind) -> String {
+    format!(
+        "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?} }});",
+        kind.as_str()
+    )
+}
+
+/// The whole record, for a caller that supplies its own UTC offset.
+///
+/// **The offset is a PARAMETER and not read here**, and that is the design and not a
+/// shortcut: the CEO ruled that timestamps are stored in UTC and bucketed against his LOCAL
+/// calendar, and the only place in this process that knows what local means is the webview
+/// (`-new Date().getTimezoneOffset()`). Reading a timezone in Rust would need a fifth
+/// dependency in a crate whose "nothing can reach off this machine" guarantee rests on
+/// having four.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchStateView {
+    /// `"fresh"`, `"crash-restart"` or `"second-window"` — the run's kind, not this
+    /// window's. Windows are classified at creation, in `setup()`.
+    kind: Option<String>,
+    /// `None` when the record on disk could not be read. A zero is a claim about his
+    /// history and this refuses to make one it cannot support.
+    counts: Option<LaunchCounts>,
+    /// First-run marker, epoch millis. Every milestone measured in days is measured from it.
+    installed_at: Option<u64>,
+    /// The last few splash ids shown, most recent first.
+    recent_splashes: Vec<String>,
+    /// False when the file on disk exists and this build does not understand it. Nothing is
+    /// written in that state.
+    readable: bool,
+    schema_version: u32,
+}
+
+/// Read the launch record. `utc_offset_minutes` is positive east — the NEGATION of
+/// JavaScript's `getTimezoneOffset()`, so US Pacific daylight time is `-420`.
+#[tauri::command]
+fn launch_state(state: State<AppState>, utc_offset_minutes: i32) -> LaunchStateView {
+    let launch = state.launch.lock().unwrap();
+    LaunchStateView {
+        kind: launch.run_kind().map(|k| k.as_str().to_string()),
+        counts: launch.counts(richos_core::util::now_millis(), utc_offset_minutes),
+        installed_at: launch.installed_at(),
+        recent_splashes: launch.recent_splashes().to_vec(),
+        readable: launch.readable(),
+        schema_version: launch.schema_version(),
+    }
+}
+
+/// Record that a splash was actually shown, onto the front of the recency ring.
+///
+/// Called by the surface that drew it, so the ring holds what was on screen rather than
+/// what was chosen — the two differ whenever a draw is made and the render then declines
+/// (`splash.js` has three such paths, and all three leave `state.shown` false).
+#[tauri::command]
+fn launch_note_splash_shown(state: State<AppState>, id: String) -> Result<(), String> {
+    state.launch.lock().unwrap().note_splash_shown(&id).map_err(|e| e.to_string())
 }

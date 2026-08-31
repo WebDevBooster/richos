@@ -98,6 +98,117 @@ let idlePlaceholder = "Talk to Rich…";
 const expandedEntities = new Set(); // entity ids whose "Show more" has been used
 const drafts = new Map(); // threadId -> unsent composer text (§3.1)
 const scrollTops = new Map(); // threadId -> conversation scrollTop (§3.1)
+
+// ---- and they survive a crash, which they did not until 2026-08-31 ----------------------
+//
+// THE GAP THIS CLOSES. The CEO's ruling on the splash carried a second requirement in its
+// own right: "a crash-restart returns the user to exactly where they were." Most of that
+// already worked and is guarded by `app/ui/tests/restart-scope.js` — the turn ledger knows
+// an in-flight turn is unknown rather than finished, a mid-turn crash draws his prompt
+// exactly once, the durable snapshot recovers missed stream events. But the two maps above
+// were `new Map()` and nothing else. A half-written sentence in the composer, and the place
+// in the conversation he had scrolled back to, survived a THREAD SWITCH and died with the
+// process. That is the difference between "restart" and "crash-restart specifically", and
+// it is the part he would actually notice.
+//
+// WRITTEN CONTINUOUSLY, NEVER ON THE WAY OUT. A crash is precisely the case where no exit
+// handler runs, so `beforeunload` would save exactly the sessions that do not need saving.
+// Every write below is debounced by `PARK_DEBOUNCE_MS` and happens while he types.
+//
+// LOCAL, and the same storage the splash switch already uses — this window's own origin, on
+// his own disk, read by nothing else. `launch_no_outbound_tests.rs` covers this file.
+//
+// THE ENTITY BOUNDARY IS PRESERVED VERBATIM. `stashThreadViewState`'s comment explains why
+// a draft may never follow him out of its entity: one Enter files the CEO's words in the
+// wrong company. Persisting the maps changes nothing about that — the keys are unchanged,
+// so a restored draft lands in exactly the thread it was written to and nowhere else.
+const KEY_DRAFTS = "richos.view.drafts";
+const KEY_SCROLL = "richos.view.scroll";
+
+/// How long to wait after a keystroke before parking the draft. Long enough that a fast
+/// typist is not writing to disk on every character, short enough that the most a crash can
+/// cost him is the last few words rather than the paragraph.
+const PARK_DEBOUNCE_MS = 400;
+
+/// A ceiling on what is kept, so a pasted document cannot fill the origin's storage quota
+/// and take the splash preference down with it. Drafts are parked newest-first and the
+/// overflow is dropped; the ACTIVE thread's draft is written first, so the one he is
+/// looking at is the one that is never the casualty.
+const PARKED_DRAFT_MAX_CHARS = 64 * 1024;
+
+function readJsonLocal(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (_e) {
+    // Storage denied, or a value some other version wrote. Either way the app opens with
+    // empty maps, which is exactly today's behaviour and never a broken composer.
+    return null;
+  }
+}
+
+function writeJsonLocal(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (_e) {
+    /* A quota or a denied store costs the restore, never the session. */
+  }
+}
+
+/// Refill the maps from the last run. Called once, at parse time, so the first `openThread`
+/// of the launch already has them.
+function loadParkedViewState() {
+  const savedDrafts = readJsonLocal(KEY_DRAFTS);
+  if (savedDrafts) {
+    for (const [key, text] of Object.entries(savedDrafts)) {
+      if (typeof text === "string" && text) drafts.set(key, text);
+    }
+  }
+  const savedScroll = readJsonLocal(KEY_SCROLL);
+  if (savedScroll) {
+    for (const [key, top] of Object.entries(savedScroll)) {
+      if (typeof top === "number" && isFinite(top) && top >= 0) scrollTops.set(key, top);
+    }
+  }
+}
+
+let parkTimer = null;
+
+/// Write both maps out. The ACTIVE thread's live composer text is folded in first, because
+/// `drafts` only receives it when he navigates away and a crash is not a navigation.
+function parkViewStateNow() {
+  const out = {};
+  let budget = PARKED_DRAFT_MAX_CHARS;
+  const put = (key, text) => {
+    if (!key || typeof text !== "string" || !text) return;
+    if (text.length > budget) return;
+    budget -= text.length;
+    out[key] = text;
+  };
+  if (mainView === "conversation" && activeThreadId) put(activeThreadId, inputEl.value);
+  else if (mainView === "entity" && viewEntityId) put(ENTITY_DRAFT_PREFIX + viewEntityId, inputEl.value);
+  for (const [key, text] of drafts) if (!(key in out)) put(key, text);
+  writeJsonLocal(KEY_DRAFTS, out);
+
+  const tops = {};
+  for (const [key, top] of scrollTops) tops[key] = top;
+  if (mainView === "conversation" && activeThreadId) tops[activeThreadId] = conversationEl.scrollTop;
+  writeJsonLocal(KEY_SCROLL, tops);
+}
+
+/// Park soon. Every caller uses this rather than `parkViewStateNow`, so no path can turn
+/// typing into a write per character.
+function parkViewStateSoon() {
+  if (parkTimer !== null) return;
+  parkTimer = setTimeout(() => {
+    parkTimer = null;
+    parkViewStateNow();
+  }, PARK_DEBOUNCE_MS);
+}
+
+loadParkedViewState();
 // threadId -> "working" | "unseen" | "failed". LIVE, per-thread, and only ever written
 // from a positive `rich://` event — never inferred from silence, never from a timer.
 const liveStatus = new Map();
@@ -641,6 +752,9 @@ function stashThreadViewState() {
   }
   inputEl.value = "";
   autoGrow();
+  // A navigation is a settled moment and cheap to write, so it is written at once rather
+  // than debounced — the debounce exists for keystrokes, not for this.
+  parkViewStateNow();
 }
 
 /// Namespace for a draft that belongs to an ENTITY's new-thread composer rather than to a
@@ -877,6 +991,8 @@ conversationEl.addEventListener("scroll", () => {
   // up, stop auto-following."
   followBottom = atBottom();
   updateJumpButton();
+  // And where he scrolled TO outlives the process. Debounced: a scroll fires per frame.
+  parkViewStateSoon();
 });
 
 // ---- announcements (§18) ----------------------------------------------------------------
@@ -1151,6 +1267,11 @@ async function send() {
   }
   inputEl.value = "";
   autoGrow();
+  // THE SENT WORDS STOP BEING A DRAFT, on disk as well as in the box. Without this the
+  // parked copy outlives the send and a crash would put a sentence he has already sent back
+  // into his composer — the one restore that would be worse than no restore at all.
+  if (activeThreadId) drafts.delete(activeThreadId);
+  parkViewStateNow();
 
   // §3.3 first send in a draft thread: NOTHING was persisted when the CEO opened the
   // new-thread screen. The record is created here, with its immutable entity_id, before the
@@ -1383,6 +1504,8 @@ inputEl.addEventListener("input", () => {
   // §9.2's "replaces or sits beside send when the composer is empty" is a function of what
   // is in the box, so it is re-evaluated as he types.
   syncComposerMode();
+  // The half-written sentence outlives the process. Debounced — see PARK_DEBOUNCE_MS.
+  parkViewStateSoon();
 });
 
 stopBtn.addEventListener("click", (e) => {
@@ -2138,9 +2261,38 @@ async function syncSplashFromBackend() {
 /// Tell the durable store the surface has been seen. Idempotent on the Rust side — only the
 /// first call in a store's life touches the disk — and it is the zero point time-to-disable
 /// is measured from. MEASUREMENT, never display: nothing reads it back to the CEO.
+///
+/// It also pushes the id that was drawn onto the launch record's RECENCY RING (CEO,
+/// 2026-08-31): remembering only the last one prevents an immediate repeat and nothing else,
+/// so a draw can show the same three all week and still never repeat back-to-back. The id
+/// comes from `state.variationId`, which is set where the node is inserted, so the ring
+/// holds what was ON SCREEN rather than what was chosen — `splash.js` has three paths that
+/// choose and then decline to render, and all three leave `shown` false.
 function noteSplashShown() {
   if (!window.RichSplash || !window.RichSplash.state.shown) return;
   Bridge.invoke("splash_note_shown").catch(() => {});
+  const id = window.RichSplash.state.variationId;
+  if (id) Bridge.invoke("launch_note_splash_shown", { id }).catch(() => {});
+}
+
+/// THE LAUNCH RECORD, read once at boot and put where the reward logic will find it.
+///
+/// **The offset is computed HERE and passed in**, because this is the only layer in the
+/// process that knows what "local" means. The CEO ruled that every timestamp is stored as
+/// UTC epoch millis and every bucket — today, this week, month, year — is computed against
+/// his LOCAL calendar at read time: the market is US founder-CEOs whose evening is already
+/// tomorrow in UTC, so UTC bucketing would mis-date the commonest usage moment every day.
+/// `getTimezoneOffset()` is minutes to ADD to local to get UTC, i.e. +420 in California, so
+/// it is negated into the offset-from-UTC-positive-east that `launch.rs` takes.
+///
+/// **NOTHING RENDERS THIS.** §5 of the splash design bans every counter, streak and score
+/// from the CEO's screen, and this changes nothing he can see. It is the record the reward
+/// selection will read, wired ahead of that logic existing — which is the same shape the
+/// company-name plumbing landed in.
+async function readLaunchRecord() {
+  const utcOffsetMinutes = -new Date().getTimezoneOffset();
+  const record = await invokeQuiet("launch_state", { utcOffsetMinutes });
+  window.RichLaunch = record || { kind: null, counts: null, readable: false };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -4062,6 +4214,9 @@ async function init() {
   // the CEO can see this launch, and neither may stand between him and a focused composer.
   syncSplashFromBackend();
   noteSplashShown();
+  // The launch record, beside them and dead last for the same reason: it changes nothing
+  // the CEO can see this launch.
+  readLaunchRecord();
   // The retention window, beside them and for the same reason: it changes nothing the CEO
   // can see this launch, and it must not stand between him and a focused composer. Read
   // rather than cached — see the block comment over `renderRetention`.

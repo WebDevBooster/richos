@@ -38,3 +38,7 @@ path = "examples/loro_reprime_demo.rs"
 [[example]]
 name = "loro_correction_demo"
 path = "examples/loro_correction_demo.rs"
+
+[[example]]
+name = "launch_kinds"
+path = "examples/launch_kinds.rs"

@@ -50,6 +50,39 @@
   var KEY_ENABLED = "richos.splash.enabled";
   var KEY_LAST = "richos.splash.last";
 
+  // -------------------------------------------------------------------------------------
+  // WHICH LAUNCHES GET A CEREMONY
+  //
+  // CEO, 2026-08-31: "The splash screen is only for when the user starts the app fresh
+  // (after quitting." So a fresh launch draws; a crash-restart and a second window do not,
+  // and neither is counted as a start. Waking from sleep is not in the list because he
+  // struck the category - the app was never quit, so nothing begins and no code here runs.
+  //
+  // The verdict arrives as a frozen object the shell injects BEFORE any of this page's own
+  // scripts (`main.rs`'s `launch_init_script`, via `WebviewWindowBuilder`). It has to: this
+  // file decides whether to draw on its first synchronous line, and a splash that appeared
+  // on a crash-restart because the answer arrived one tick late would be the wrong ceremony
+  // at the worst possible moment - the app just died in front of him.
+  //
+  // ABSENT MEANS FRESH, and that is the same rule the switch above already follows: an
+  // absent value is an absent opinion, not a decision. Nobody having told us how this page
+  // came up covers a webview the shell could not inject into, `index.html` opened straight
+  // off disk, and the acceptance harness - and every one of those genuinely IS a fresh
+  // start of the thing being looked at. The alternative default would make a shell bug or a
+  // plain browser silently delete the feature, which is the failure mode nobody notices.
+  var KIND_FRESH = "fresh";
+
+  /// What kind of start this is, or `null` when nobody said.
+  function launchKind() {
+    try {
+      var l = window.__RICHOS_LAUNCH__;
+      if (l && typeof l.kind === "string" && l.kind) return l.kind;
+    } catch (_e) {
+      /* fall through */
+    }
+    return null;
+  }
+
   // How long the curtain takes to clear once the app is ready. The app underneath is
   // already live, focused and reachable throughout it - this is the fade of an inert
   // layer, not a wait.
@@ -561,7 +594,12 @@
     reason: null,
     /// Why nothing was drawn, when nothing was. A surface that declines to appear should
     /// be able to say why without anyone attaching a debugger.
-    declined: null
+    declined: null,
+    /// What kind of start this was, as `start()` read it - `"fresh"`, `"crash-restart"` or
+    /// `"second-window"`. `null` until `start()` has run. Reported rather than inferred
+    /// from `shown`, because "no splash because he never quit" and "no splash because he
+    /// switched it off" are two different answers and a surface should be able to say which.
+    kind: null
   };
 
   function removeSelf() {
@@ -647,6 +685,15 @@
       state.declined = "switched off";
       return;
     }
+    // The launch kind is checked BEFORE the library is read: a crash-restart must cost
+    // nothing at all, not "a pool built and then thrown away".
+    var kind = launchKind();
+    if (kind !== null && kind !== KIND_FRESH) {
+      state.kind = kind;
+      state.declined = "not a fresh launch (" + kind + ")";
+      return;
+    }
+    state.kind = kind === null ? KIND_FRESH : kind;
     var candidates = pool();
     if (!candidates.length) {
       // No library, an unparseable one, or every entry malformed. All three are the same
@@ -696,7 +743,11 @@
     /// Every entry the library offers that this renderer would actually draw. `main.js`
     /// does not use it; the acceptance suite does, to prove the pool it draws from is the
     /// pool that is shipped.
-    pool: pool
+    pool: pool,
+    /// The wire string for the one kind of start that draws, exported so the acceptance
+    /// suite and `main.rs`'s `LaunchKind::as_str` can be checked against one another rather
+    /// than both against a literal somebody typed twice.
+    KIND_FRESH: KIND_FRESH
   };
 
   start();

@@ -168,6 +168,20 @@ app/
                               half — `feedback_record` still compares the rendered report
                               against what the webview says it showed him. Each proven to
                               FAIL when broken
+    tests/launch_no_outbound_tests.rs 11 tests holding the LAUNCH RECORD to the identical
+                              standard, at the CEO's direction — it is a record of his own
+                              working life, so "local only, never outbound" is asserted the
+                              same four ways (no transport in `launch.rs`, no network-capable
+                              dependency, no other module consuming it, one file and no
+                              sibling after a whole run) plus the surface: no transport in
+                              the two Tauri commands or anything they call, no network
+                              primitive in `splash.js`/`splash-library.js`/`main.js` (which
+                              the feedback suite's web check does not name), the window
+                              injection pinned to a frozen one-field verdict rather than
+                              merely scanned, the local-bucketing offset proven to come from
+                              the CALLER with no timezone read in Rust, and the shape handed
+                              to the webview pinned field by field. Two positive controls,
+                              because a scanner over an empty corpus reports clean
     tests/feedback_surface_tests.rs 3 tests that WRITE the three fixtures the browser suite
                               checks `app/ui/mock.js`'s copy of this feature against — the
                               wording and the whole vocabulary, six selections with the exact
@@ -503,7 +517,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 496 tests + 5 doc-tests
+cargo test -p richos-core                       # 538 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

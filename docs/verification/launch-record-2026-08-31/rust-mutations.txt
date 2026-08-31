@@ -1,0 +1,192 @@
+MUTATION RUNS — THE LAUNCH RECORD (richos-hq wiki/gamification.md § "Splash tracking")
+=====================================================================================
+
+Every check added on this branch was run RED at least once by breaking the SHIPPED source,
+committing first and restoring from the commit, never by editing the test.
+
+HOW TO READ THIS FILE
+  RED: <names>     the mutation was applied, the gate ran, and exactly these turned red.
+  NOTHING TURNED RED   the mutation changed shipping behaviour and every check stayed
+                       green. That is not a spare check — it is a check that CANNOT FAIL,
+                       and each one below was chased down. Three were found on this branch
+                       and all three were real:
+
+    M4  / M4b  the offset was replaced in ONE of five places in `LaunchCounts::of`, so the
+               remaining four still applied it and nothing moved. The MUTATION was too
+               weak, not the check. Re-run replacing it everywhere: RED, five checks.
+    M5  / M5c  DELETING the week walk-back entirely left everything green, because every
+               reading in the test was anchored on a Monday — the day on which the
+               walk-back has nothing to do. A REAL HOLE. The test now also reads mid-week,
+               on the Thursday, and the same mutation is RED. Fixed in commit 36e4942.
+    M32        removing `utc_offset_minutes` from `launch_state`'s SIGNATURE and
+               re-declaring it as a local inside the body left everything green: the check
+               matched the token anywhere in the extracted function text, and that text
+               includes the signature. A REAL HOLE — the webview's offset would have
+               stopped reaching the record and every bucket would silently have become UTC.
+               The check now reads the signature and separately refuses the shadowing
+               `let`. Re-run: RED.
+
+  did not compile   the mutation was rejected by the compiler rather than by a check. Named
+                    honestly and NOT counted as evidence: a build failure proves the type
+                    system objected, which is not the same as the check objecting. M9 (a
+                    stored counter added to the record) and M27 (a defaulted schema version)
+                    are both in this class; `there_is_no_stored_counter_anywhere_in_the_record`
+                    and the two version tests earn their keep through M17/M18/M26 instead.
+
+  Ids with a letter suffix (M4b, M5c) are re-runs of the id above them, after the cause of a
+  silent pass was fixed. Both the original and the re-run are kept: deleting the silent one
+  would delete the finding.
+
+GATES:  cargo test -p richos-core --lib launch   (32 checks)
+        cargo test -p richos-core --test launch_no_outbound_tests   (11 checks)
+
+=== M1  an Unknown prior run reads as a FRESH launch instead of a crash-restart
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_crash_restart_takes_the_marker_so_a_second_crash_is_still_a_crash launch::tests::a_run_that_never_said_goodbye_comes_back_as_a_crash_restart_and_is_not_counted
+
+=== M2  a clean quit no longer clears the marker
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes launch::tests::a_quit_and_a_relaunch_is_a_second_start launch::tests::the_open_marker_is_what_a_crash_would_leave launch::tests::the_window_counter_never_survives_its_own_process
+
+=== M3  every window inherits the run kind — the second-window rule deleted
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::an_unreadable_record_still_classifies_the_launch launch::tests::only_the_first_window_of_a_run_inherits_the_runs_kind launch::tests::the_window_counter_never_survives_its_own_process
+
+=== M4  the caller offset is ignored — bucketing goes back to UTC
+    file: crates/richos-core/src/launch.rs
+    *** NOTHING TURNED RED — investigate, the check may not be running or the code may be dead
+
+=== M5  the week bucket starts on whatever day it is
+    file: crates/richos-core/src/launch.rs
+    *** NOTHING TURNED RED — investigate, the check may not be running or the code may be dead
+
+=== M6  civil_from_days off by one day
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::an_evening_launch_in_california_is_bucketed_on_the_day_he_lived_it launch::tests::new_years_eve_in_california_belongs_to_the_year_he_spent_it_in launch::tests::nineteen_seventy_january_first_was_a_thursday launch::tests::the_civil_date_conversions_round_trip_over_four_centuries launch::tests::the_dst_error_is_bounded_by_one_hour_and_only_at_a_boundary
+
+=== M7  an unrecognised schema version is read as an ordinary record
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_record_from_a_future_version_is_never_read_as_a_brand_new_user
+
+=== M8  the write leaves its temporary behind
+    file: crates/richos-core/src/launch.rs
+    RED:  a_full_run_lands_in_one_local_file_and_leaves_nothing_else_behind launch::tests::the_record_leaves_no_second_file_behind
+
+=== M9  a stored counter is added beside the log
+    file: crates/richos-core/src/launch.rs
+    RED:  did not compile (4 errors) — a mutation that will not build is not evidence, see note
+
+=== M10  the recency ring keeps everything
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::the_ring_keeps_the_last_five_most_recent_first_and_no_more
+
+=== M11  a reward re-fires and restamps
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_reward_fires_once
+
+=== M12  the install date is rewritten every launch
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::the_install_date_is_written_once_and_never_moves
+
+=== M13  the crash-restart wire string is spelled with an underscore
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::the_wire_strings_are_the_ones_the_web_layer_matches
+
+=== M14  the log is written newest-first
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes launch::tests::a_quit_and_a_relaunch_is_a_second_start
+
+=== M15  an empty log still counts one
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_record_written_by_this_build_reads_back_as_readable launch::tests::an_empty_log_is_all_zeroes_and_that_is_the_only_honest_zero launch::tests::an_evening_launch_in_california_is_bucketed_on_the_day_he_lived_it launch::tests::new_years_eve_in_california_belongs_to_the_year_he_spent_it_in launch::tests::the_four_buckets_nest launch::tests::the_week_bucket_runs_from_monday_and_says_so
+
+=== M16  the ring collapses repeats
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::the_ring_keeps_repeats_because_a_repeat_is_the_fact_worth_seeing
+
+=== M17  nothing is ever persisted
+    file: crates/richos-core/src/launch.rs
+    RED:  a_full_run_lands_in_one_local_file_and_leaves_nothing_else_behind launch::tests::a_crash_restart_takes_the_marker_so_a_second_crash_is_still_a_crash launch::tests::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes launch::tests::a_live_prior_run_makes_this_a_second_window_not_a_crash_restart launch::tests::a_quit_and_a_relaunch_is_a_second_start launch::tests::a_record_written_by_this_build_reads_back_as_readable launch::tests::a_run_that_never_said_goodbye_comes_back_as_a_crash_restart_and_is_not_counted launch::tests::rewards_survive_a_relaunch launch::tests::the_install_date_is_written_once_and_never_moves launch::tests::the_record_leaves_no_second_file_behind launch::tests::the_ring_survives_a_relaunch launch::tests::there_is_no_stored_counter_anywhere_in_the_record
+
+=== M18  every record reports itself unreadable
+    file: crates/richos-core/src/launch.rs
+    RED:  a_full_run_lands_in_one_local_file_and_leaves_nothing_else_behind launch::tests::a_crash_restart_takes_the_marker_so_a_second_crash_is_still_a_crash launch::tests::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes launch::tests::a_live_prior_run_makes_this_a_second_window_not_a_crash_restart launch::tests::a_quit_and_a_relaunch_is_a_second_start launch::tests::a_record_written_by_this_build_reads_back_as_readable launch::tests::a_reward_fires_once launch::tests::a_run_that_never_said_goodbye_comes_back_as_a_crash_restart_and_is_not_counted launch::tests::rewards_survive_a_relaunch launch::tests::the_first_launch_of_a_new_install_is_fresh_and_is_counted launch::tests::the_install_date_is_written_once_and_never_moves launch::tests::the_open_marker_is_what_a_crash_would_leave launch::tests::the_record_leaves_no_second_file_behind launch::tests::the_ring_keeps_repeats_because_a_repeat_is_the_fact_worth_seeing launch::tests::the_ring_keeps_the_last_five_most_recent_first_and_no_more launch::tests::the_ring_survives_a_relaunch launch::tests::there_is_no_stored_counter_anywhere_in_the_record
+
+=== M19  1970-01-01 is treated as a Wednesday
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::nineteen_seventy_january_first_was_a_thursday launch::tests::the_four_buckets_nest launch::tests::the_week_bucket_runs_from_monday_and_says_so
+
+=== M20  ANCHOR MISSING — a transport is planted in the module
+
+=== M21  a socket is planted in the shipping module
+    file: crates/richos-core/src/launch.rs
+    RED:  the_launch_module_contains_no_transport_of_any_kind
+
+=== M22  the module is consumed by another module in the crate
+    file: crates/richos-core/src/config.rs
+    RED:  no_other_module_in_the_crate_consumes_the_launch_record
+
+=== M23  a fifth dependency arrives in the crate
+    file: crates/richos-core/Cargo.toml
+    RED:  the_crate_depends_on_nothing_that_could_open_a_connection
+
+=== M4b  the caller offset is ignored EVERYWHERE in of() — bucketing goes back to UTC
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::an_evening_launch_in_california_is_bucketed_on_the_day_he_lived_it launch::tests::new_years_eve_in_california_belongs_to_the_year_he_spent_it_in launch::tests::the_dst_error_is_bounded_by_one_hour_and_only_at_a_boundary launch::tests::the_four_buckets_nest launch::tests::the_week_bucket_runs_from_monday_and_says_so
+
+=== M5b  the week walk-back is deleted — every day starts its own week
+    file: crates/richos-core/src/launch.rs
+    *** NOTHING TURNED RED
+
+=== M24  the first window of a run is never given the run kind
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::an_unreadable_record_still_classifies_the_launch launch::tests::only_the_first_window_of_a_run_inherits_the_runs_kind launch::tests::the_window_counter_never_survives_its_own_process
+
+=== M25  a fresh launch is not appended to the log
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_crash_restart_takes_the_marker_so_a_second_crash_is_still_a_crash launch::tests::a_hundred_launches_stay_in_order_and_cost_a_few_kilobytes launch::tests::a_live_prior_run_makes_this_a_second_window_not_a_crash_restart launch::tests::a_quit_and_a_relaunch_is_a_second_start launch::tests::a_record_written_by_this_build_reads_back_as_readable launch::tests::a_run_that_never_said_goodbye_comes_back_as_a_crash_restart_and_is_not_counted launch::tests::the_first_launch_of_a_new_install_is_fresh_and_is_counted
+
+=== M26  an unreadable record writes over the history anyway
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::a_record_from_a_future_version_is_never_read_as_a_brand_new_user launch::tests::a_record_with_no_version_at_all_is_not_ours_and_is_left_alone
+
+=== M27  a version-less file is accepted as one of ours
+    file: crates/richos-core/src/launch.rs
+    RED:  did not compile (4 errors)
+
+=== M5c  the week walk-back is deleted — every day starts its own week (re-run with the mid-week reading in place)
+    file: crates/richos-core/src/launch.rs
+    RED:  launch::tests::the_week_bucket_runs_from_monday_and_says_so
+
+=== M28  the window injection is no longer frozen
+    file: src-tauri/src/main.rs
+    RED:  the_window_injection_carries_a_verdict_and_never_a_channel
+
+=== M29  the injection does more than state a fact
+    file: src-tauri/src/main.rs
+    RED:  the_window_injection_carries_a_verdict_and_never_a_channel
+
+=== M30  the shape handed to the webview grows the raw log
+    file: src-tauri/src/main.rs
+    RED:  the_record_the_shell_hands_out_is_the_record_and_not_a_wider_one
+
+=== M31  the shell reads a timezone of its own
+    file: src-tauri/src/main.rs
+    RED:  the_offset_is_the_callers_and_the_shell_never_reads_a_timezone
+
+=== M32  launch_state stops taking the caller offset
+    file: src-tauri/src/main.rs
+    RED:  the_offset_is_the_callers_and_the_shell_never_reads_a_timezone
+
+=== M33  main.js stops negating getTimezoneOffset
+    file: ui/main.js
+    RED:  the_offset_is_the_callers_and_the_shell_never_reads_a_timezone
+
+=== M34  a network primitive is planted in splash.js
+    file: ui/splash.js
+    RED:  the_web_layer_that_reads_the_record_contains_no_network_primitive
+
+=== M35  a subprocess is planted in the launch command layer
+    file: src-tauri/src/main.rs
+    RED:  the_launch_commands_and_everything_they_call_contain_no_transport
+
