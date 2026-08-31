@@ -185,6 +185,19 @@ DEMO_FILES+=(
     # guess. It sources resolve-main-checkout.sh in turn.
     "scripts/lib/resolve-roots.sh"
     "scripts/lib/resolve-main-checkout.sh"
+    # The jurisdiction predicate. Two Write/Edit guards — scan-secrets.sh and
+    # guard-dialect.sh — REFUSE TO START without it, exactly as they refuse
+    # without resolve-roots.sh above. It was missing here, and the way it was
+    # missing is worth writing down: Layer K's canary asserts the secrets
+    # scanner exits 2 on a planted secret, and a hook that cannot start ALSO
+    # exits 2. So the layer was green in this sandbox over a scanner that never
+    # ran. Layer T now carries a clean-content canary that a dead hook cannot
+    # satisfy, and this file makes both of them run for real.
+    "scripts/lib/seat-jurisdiction.sh"
+    # The dialect vocabulary. guard-dialect.sh decides nothing without it and
+    # Layer T fails loudly when it is absent — which is how this omission was
+    # found, by the probe rather than by a reader.
+    "scripts/lib/dialect-en-US.dict"
     # Not hooks and registered nowhere: the installer the setup beat runs, and
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"
@@ -237,6 +250,14 @@ ENABLE_QA_INSTALL_FRESH_GATE=0
 SECRET_SCAN_MIN_LENGTH=12
 SECRET_SCAN_MIN_ENTROPY="3.0"
 SECRET_SCAN_ALLOWLIST=""
+# Declared so Beat 7's Layer T exercises the dialect guard for real. Blank, it
+# would take the layer's "valid but nothing enforced" WARN branch — a demo that
+# shows a buyer a guard standing down is showing them a weaker engine than the
+# one they would get, which is the same defect the derived hook table below
+# exists to prevent.
+DIALECT_TARGET="en-US"
+DIALECT_SCAN_ALLOWLIST=""
+DIALECT_EXEMPT_PATHS=""
 CFG
 
 # ---------------------------------------------------------------------------

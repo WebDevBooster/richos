@@ -329,6 +329,14 @@ def path_exempt():
     for seg in low_path.split("/"):
         if seg in EVIDENCE_SEGMENTS:
             return "captured evidence — path segment '%s/'" % seg
+        # ...and a QUALIFIED one. Real evidence directories get qualified by
+        # what they hold: `license-snapshots/`, `call-transcripts/`,
+        # `interview-corpus/`. Found the hard way — the first captured page this
+        # guard met lived in `licence-snapshots/`, whose exact segment matched
+        # nothing, so a vendor's own page would have been "corrected". Only the
+        # LAST hyphen component is consulted, so `raw-notes/` is still prose.
+        if "-" in seg and seg.rsplit("-", 1)[1] in EVIDENCE_SEGMENTS:
+            return "captured evidence — path segment '%s/'" % seg
     for p in EXTRA_EXEMPT_PATHS:
         if p and p.lower() in low_path:
             return "DIALECT_EXEMPT_PATHS entry '%s'" % p

@@ -1829,18 +1829,32 @@ else
         # forced through the entity root, exactly as a real session would.
         CANARY_DIALECT_PATH="$REPO_ROOT/__dialect_canary__.md"
         CANARY_DIALECT_PAYLOAD="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"the colour of it is a matter of judgement"}}))' "$CANARY_DIALECT_PATH" 2>/dev/null || true)"
+        # AND A SECOND CANARY, CLEAN, BECAUSE exit 2 IS AMBIGUOUS. Every guard
+        # in this family refuses to START — missing resolve-roots.sh, missing
+        # seat-jurisdiction.sh, no python3 — by exiting 2. A one-sided canary
+        # that only asserts "British content -> 2" is therefore satisfied by a
+        # hook that is completely dead, and that is not a hypothetical: Layer
+        # K's one-sided canary was green in scripts/demo.sh's sandbox over a
+        # secrets scanner whose seat-jurisdiction.sh had never been copied
+        # there. So clean American content must return 0 in the same breath.
+        # Together the pair proves the guard is READING, not merely failing.
+        CANARY_CLEAN_PAYLOAD="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"the color of it is a matter of judgment"}}))' "$CANARY_DIALECT_PATH" 2>/dev/null || true)"
         set +e
         printf '%s' "$CANARY_DIALECT_PAYLOAD" | "$DIALECT_HOOK_EXE" >/dev/null 2>&1
         dialect_rc=$?
+        printf '%s' "$CANARY_CLEAN_PAYLOAD" | "$DIALECT_HOOK_EXE" >/dev/null 2>&1
+        dialect_clean_rc=$?
         set -e
-        if [ "$dialect_rc" -ne 2 ]; then
+        if [ "$dialect_rc" -eq 2 ] && [ "$dialect_clean_rc" -ne 0 ]; then
+            emit_fail "T. the dialect guard refused BOTH a British spelling and clean American prose (exit=$dialect_clean_rc on clean content). It is not enforcing, it is failing to start — check scripts/lib/seat-jurisdiction.sh, scripts/lib/resolve-roots.sh and python3."
+        elif [ "$dialect_rc" -ne 2 ]; then
             if [ -z "${DIALECT_TARGET:-}" ]; then
                 emit_warn "T. dialect guard wired + manifest-matched + vocabulary hashed, but DIALECT_TARGET is blank in orchestration.config so nothing is enforced here (exit=$dialect_rc). That is a valid configuration — set DIALECT_TARGET=\"en-US\" to turn it on."
             else
                 emit_fail "T. wired dialect guard did NOT block a British spelling (exit=$dialect_rc, expected 2) with DIALECT_TARGET=\"$DIALECT_TARGET\""
             fi
         else
-            emit_pass "T. dialect guard wired + rejects a British spelling + vocabulary hashed (path-confined, manifest-matched, exit=2 canary)"
+            emit_pass "T. dialect guard wired + REJECTS a British spelling and PASSES clean American prose + vocabulary hashed (path-confined, manifest-matched, two-sided canary)"
         fi
     fi
 fi

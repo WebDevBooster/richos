@@ -141,6 +141,11 @@ case_exit "B13. 'grey' in a .css file is a legal CSS color"    0 Write "/tmp/x.c
 case_exit "B14. 'grey' in a .scss file"                        0 Write "/tmp/x.scss" "\$line: grey;"
 case_exit "B15. captured evidence under wiki/raw/"             0 Write "/tmp/wiki/raw/page.md" "the colour of the licence"
 case_exit "B16. captured transcript under docs/cold-open/"     0 Write "/tmp/docs/cold-open/2026-08-31.md" "not part of the 13-item queue; the behaviour is odd"
+# Found by using the guard: the first captured page it met lived in
+# `licence-snapshots/`, and a bare-segment match would have "corrected" a
+# vendor's own legal page.
+case_exit "B16b. a QUALIFIED evidence dir: license-snapshots/" 0 Write "/tmp/docs/reference/license-snapshots/page.txt" "the licence of record, as they wrote it"
+case_exit "B16c. ...but 'raw-notes/' is still prose, not raw"  2 Write "/tmp/docs/raw-notes/thoughts.md" "the colour of it"
 case_exit "B17. a .log run output"                             0 Write "/tmp/out/run.log" "recognised: colour behaviour licence"
 case_exit "B18. a .jsonl corpus"                               0 Write "/tmp/data/rows.jsonl" "{\"t\":\"colour\"}"
 case_exit "B19. anything under node_modules/"                  0 Write "/tmp/node_modules/pkg/readme.md" "the colour option"
