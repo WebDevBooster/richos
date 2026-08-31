@@ -263,19 +263,10 @@ async function openApp(browser, theme, holdSplash) {
   }
   await page.goto(APP);
   await page.waitForSelector(".nav-thread", { state: "attached" });
-  // The seed either took or this walk is measuring something other than what it claims. A
-  // silent miss here would relabel a dark walk as a light one, which is worse than no walk.
-  // The opening screen is the ONE exception and it is §15's ruling, not a bug: while the
-  // curtain is up the theme is clamped to dark by `RichTheme.forceDark`, so a light walk of
-  // `holdSplash` correctly reports dark.
-  const painted = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
-  const expected = holdSplash ? "dark" : theme;
-  assert(
-    painted === expected,
-    "asked for the " + theme + " theme and the document painted " + painted + " — the walk " +
-      "below would be labelled with a palette it is not measuring"
-  );
   if (holdSplash) {
+    // §15's always-dark clamp is in force for the whole of this walk, by ruling and not by
+    // accident, so a light-labelled opening-screen walk correctly reports dark.
+    assertTheme(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "dark", theme);
     page.__errors = errors;
     return page;
   }
@@ -284,8 +275,27 @@ async function openApp(browser, theme, holdSplash) {
   // it: a walk taken underneath it would report the whole shell unresolvable.
   await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(300);
+  // THE THEME IS CHECKED HERE AND NOT EARLIER, and the reason is a real one this assertion
+  // caught the day the splash gained a duration. While the opening screen's curtain is up
+  // the resolved theme is CLAMPED TO DARK (§15's one permanent exception), so a light walk
+  // sampled before the curtain lifts reports dark — truthfully, and about a state this walk
+  // is not measuring. Once the splash held for three seconds rather than for however long
+  // booting took, that window stopped being too narrow to hit and every light walk failed.
+  // The clamp drops with the curtain, so this is the first moment the answer is about the
+  // palette the walk is actually going to measure.
+  assertTheme(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), theme, theme);
   page.__errors = errors;
   return page;
+}
+
+/// The seed either took or this walk is measuring something other than what it claims. A
+/// silent miss here would relabel a dark walk as a light one, which is worse than no walk.
+function assertTheme(painted, expected, asked) {
+  assert(
+    painted === expected,
+    "asked for the " + asked + " theme and the document painted " + painted + " — the walk " +
+      "below would be labelled with a palette it is not measuring"
+  );
 }
 
 async function walk(page, surface, theme) {
