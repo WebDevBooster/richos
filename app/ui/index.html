@@ -660,6 +660,17 @@
     <!-- The typed timeline: the model (§12) and the render (§5, §6). Loaded BEFORE main.js,
          which drives it. -->
     <script src="timeline.js"></script>
+    <!-- THE UPDATE SURFACE (RICH-TODOs row 12). It builds no markup of its own here: it
+         renders into a row of the UNIVERSAL settings menu, which `settings-button.js`
+         mounts against document.body on every screen.
+
+         IT IS NOT IN THE RAIL'S PREFERENCES POPOVER, AND THAT WAS MEASURED RATHER THAN
+         PREFERRED. Putting it there took `#assertiveness-popover` from 581px to 761px, and
+         at that height it covers eight more rail rows — `techy.js` check 9 went red because
+         a click on a thread landed on the popover instead. The rail popover is full; the
+         universal menu is 160px in a 900px window and is on every screen, which is also the
+         better home for a thing whose whole point is that the CEO can see it. -->
+    <script src="updates.js"></script>
     <script src="main.js"></script>
   </body>
 </html>

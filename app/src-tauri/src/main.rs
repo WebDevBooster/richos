@@ -44,6 +44,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// for why these are shell state and not ledger events.
 mod nav;
 
+/// Check, download, VERIFY, install, relaunch — the update path. Its own file because it
+/// is the one surface where a mistake ships code to the CEO's machine, and because the
+/// signature-failure classification in it is unit-tested without a webview.
+mod updates;
+
 /// The `get_timeline` command body, in its own file so `examples/timeline_payload.rs`
 /// can include the SAME source and print the exact JSON the webview receives.
 mod timeline_view;
@@ -773,8 +778,32 @@ fn main() {
                 feedback,
                 launch: Mutex::new(launch_store),
             });
+
+            // ================================================================
+            // THE UPDATE PATH — last in setup, and last for a reason
+            // ================================================================
+            //
+            // `updates::init` is pure (one `app.manage`, no I/O, no network), so its
+            // position costs first paint nothing — but the LAUNCH CHECK it arms must come
+            // after everything above, because a TLS handshake started before the ledger
+            // has replayed competes with the one thing the CEO is actually waiting for.
+            // The check itself then waits a further three seconds on its own task.
+            //
+            // The selftest branch is `app/scripts/updater-e2e.sh`'s entry point. It runs
+            // the app EXACTLY as it boots — same ledger, same window, same everything —
+            // and then drives the same `check`/`install` functions the two commands drive.
+            // A harness that skipped the boot would be proving a different program.
+            updates::init(app.handle());
+            match updates::selftest_mode() {
+                Some(mode) => {
+                    eprintln!("[richos] update selftest: {mode}");
+                    updates::spawn_selftest(app.handle().clone(), mode);
+                }
+                None => updates::spawn_launch_check(app.handle().clone()),
+            }
             Ok(())
         })
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             list_threads,
             active_thread,
@@ -864,7 +893,14 @@ fn main() {
             set_user_name,
             // --- the launch record (2026-08-31) — appended, never reordered ---
             launch_state,
-            launch_note_splash_shown
+            launch_note_splash_shown,
+            // --- the update path (2026-08-31) — appended, never reordered.
+            //     These four are the ONLY updater surface the webview has: no
+            //     `plugin:updater|*` command is granted to it (capabilities/default.json).
+            updates::update_state,
+            updates::update_check,
+            updates::update_install,
+            updates::update_relaunch
         ])
         .build(tauri::generate_context!())
         .expect("error while building RichOS")

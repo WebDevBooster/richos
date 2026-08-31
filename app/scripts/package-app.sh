@@ -7,6 +7,7 @@
 #                                                   # ...and notarizes and staples
 #   app/scripts/package-app.sh --verify-only <path/to/RichOS.app> [--expect-notarized]
 #   app/scripts/package-app.sh --sign developer-id --dry-run   # resolve, do not build
+#   app/scripts/package-app.sh --updater            # ...and the signed update artifacts
 #
 # WHY THIS FILE EXISTS
 # --------------------
@@ -145,9 +146,54 @@
 # about whether the application is correct. Pass `--bundles app,dmg` when you
 # want the installer too.
 #
+# THE UPDATE ARTIFACTS (--updater), and the vendor defect that decides HOW.
+# ------------------------------------------------------------------------
+# `tauri.conf.json` sets `bundle.createUpdaterArtifacts: true`, so
+# tauri-bundler 2.9.4 tars the `.app` into `RichOS.app.tar.gz`
+# (`bundle.rs:206-225`) and tauri-cli 2.11.4 then minisigns it
+# (`bundle.rs:sign_updaters`). BOTH RUN INSIDE `cargo tauri build`, which is
+# BEFORE this script ad-hoc signs the bundle — the bundler signs a macOS
+# bundle only when it has a real identity, and with none it leaves the `.app`
+# unsigned around a linker-signed executable.
+#
+# So the artifact the vendor produces on the ad-hoc path is a tarball of an
+# UNSIGNED application, minisigned to say it is genuine. It would install, and
+# it would install a bundle `codesign --verify` rejects.
+#
+# This script therefore passes `--no-sign` to the build ALWAYS — which on
+# macOS disables only the updater signature, not codesigning
+# (tauri-bundler `bundle.rs:301-306` gates it on Windows) — DELETES whatever
+# tarball the bundler left, and, on `--updater`, re-creates it from the
+# verified bundle and signs that. The archive is built by
+# `scripts/lib/updater_tar.py` rather than by `tar`, because macOS's bsdtar
+# writes AppleDouble `._*` sidecars that the updater would unpack into the
+# installed app.
+#
+# `--no-sign` is also what lets an ordinary packaging run work with no signing
+# key at all: without it, tauri-cli REFUSES to finish any build that has a
+# `pubkey` and no `TAURI_SIGNING_PRIVATE_KEY` (`bundle.rs:277-279`).
+#
+# THE KEY NEVER LIVES IN A REPOSITORY. `TAURI_SIGNING_PRIVATE_KEY_PATH` is
+# refused if it points inside a git worktree, and refused if the file is
+# readable by other users — the same two rules the notary key already has.
+#
+# WHAT IT VERIFIES ABOUT THE ARTIFACTS, because a signer's exit code says a
+# signature was WRITTEN and not that it VERIFIES: the archive is re-read and
+# asserted installable (one `.app` root, an Info.plist, an executable bit, no
+# AppleDouble members), and then `cargo run --example
+# verify_update_signature` checks the `.sig` against the pubkey THIS
+# REPOSITORY SHIPS. A release signed with the wrong key is otherwise
+# indistinguishable from a correct one until it reaches a customer.
+#
+# THE MANIFEST is written only when RICHOS_UPDATE_BASE_URL says where the
+# archive will be reachable. WHERE RICHOS UPDATES ARE HOSTED IS THE CEO'S
+# DECISION AND HAS NOT BEEN MADE, and a manifest carrying a guessed URL is
+# worse than no manifest: it is a file that looks publishable.
+#
 # Exit codes: 0 success. 1 the produced bundle failed verification. 2 refused
 # before building (icons not shippable, or the signing configuration is not
-# usable). 3 a prerequisite is missing. 4 the build itself failed.
+# usable). 3 a prerequisite is missing. 4 the build itself failed. 5 the
+# bundle is good and the update artifacts are not.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -159,6 +205,7 @@ bundles="app"
 verify_only=""
 expect_notarized=""
 dry_run=""
+updater="${RICHOS_UPDATER:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -169,6 +216,7 @@ while [ $# -gt 0 ]; do
     --verify-only) verify_only="${2:-}"; shift 2 ;;
     --verify-only=*) verify_only="${1#*=}"; shift ;;
     --expect-notarized) expect_notarized=1; shift ;;
+    --updater)     updater=1; shift ;;
     --dry-run)     dry_run=1; shift ;;
     -h|--help)     sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "error: unknown argument: $1 (try --help)" >&2; exit 2 ;;
@@ -589,6 +637,77 @@ PY
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# The updater signing key, resolved BEFORE the build for the same reason the
+# notary credentials are: a typo must not cost a release compile.
+#
+# It is a MINISIGN key and has nothing to do with Apple. Tauri's updater verifies
+# every downloaded byte against `plugins.updater.pubkey` before it installs
+# anything, and that check is independent of codesigning — which is why the whole
+# update path is provable today, on an ad-hoc bundle, with no certificate.
+# ---------------------------------------------------------------------------
+updater_key_path=""
+updater_key_desc=""
+
+if [ -n "$updater" ]; then
+  if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+    updater_key_path="$TAURI_SIGNING_PRIVATE_KEY_PATH"
+    if [ ! -f "$updater_key_path" ]; then
+      warn ""
+      warn "REFUSING — TAURI_SIGNING_PRIVATE_KEY_PATH does not exist: $updater_key_path"
+      warn ""
+      warn "  Generate one with:  cargo tauri signer generate -w \$HOME/.richos-signing/<name>.key"
+      warn "  and put its PUBLIC half in tauri.conf.json's plugins.updater.pubkey."
+      warn ""
+      exit 2
+    fi
+    key_dir="$(cd "$(dirname "$updater_key_path")" && pwd)"
+    if inside="$(cd "$key_dir" && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$inside" ]; then
+      warn ""
+      warn "REFUSING — the updater signing key is inside a git worktree:"
+      warn ""
+      warn "    $updater_key_path"
+      warn "    is under $inside"
+      warn ""
+      warn "  This key is the ONLY thing standing between a manifest URL and code"
+      warn "  running on the CEO's Mac. A copy inside a repository is one 'git add -f'"
+      warn "  from being in the history forever, and a leaked updater key cannot be"
+      warn "  revoked — the public half is compiled into every installed copy."
+      warn "  \$HOME/.richos-signing is already 0700."
+      warn ""
+      exit 2
+    fi
+    key_mode="$(stat -f '%Lp' "$updater_key_path")"
+    case "$key_mode" in
+      *[4567])
+        warn ""
+        warn "REFUSING — $updater_key_path is mode $key_mode: readable by other users of this Mac."
+        warn "  chmod 600 it and re-run."
+        warn ""
+        exit 2 ;;
+    esac
+    updater_key_desc="$updater_key_path (mode $key_mode)"
+  elif [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+    # The key as a STRING, which is how a CI secret arrives. Nothing is written to
+    # disk and nothing is echoed; only the fact that it was found is reported.
+    updater_key_desc="TAURI_SIGNING_PRIVATE_KEY (in the environment, not written to disk)"
+  else
+    warn ""
+    warn "REFUSING — --updater was requested and no updater signing key is set."
+    warn ""
+    warn "  Set ONE of:"
+    warn "    TAURI_SIGNING_PRIVATE_KEY_PATH=\$HOME/.richos-signing/<name>.key"
+    warn "    TAURI_SIGNING_PRIVATE_KEY=<the key's contents>"
+    warn "  ...plus TAURI_SIGNING_PRIVATE_KEY_PASSWORD (empty string for a passwordless key)."
+    warn ""
+    warn "  There is no fallback and there must not be: an UNSIGNED update artifact is"
+    warn "  refused by every installation, so producing one silently would ship a"
+    warn "  release that cannot be installed and would not say so until it was public."
+    warn ""
+    exit 2
+  fi
+fi
+
 # The bundler notarizes on its own when it can resolve APPLE_* credentials, and
 # warns-and-continues on nearly every credential error — see this file's header.
 # This script owns that step, so the bundler must not find them. Unset for the
@@ -630,6 +749,12 @@ if [ -n "$dry_run" ]; then
     fi
   fi
   say "  bundle targets      : $bundles"
+  if [ -n "$updater" ]; then
+    say "  update artifacts    : ON — signed with $updater_key_desc"
+    say "  update manifest     : ${RICHOS_UPDATE_BASE_URL:+at ${RICHOS_UPDATE_BASE_URL}}${RICHOS_UPDATE_BASE_URL:-NOT written (RICHOS_UPDATE_BASE_URL is unset, and a guessed URL is worse than none)}"
+  else
+    say "  update artifacts    : OFF (pass --updater)"
+  fi
   say ""
   exit 0
 fi
@@ -719,8 +844,30 @@ say ""
 say "building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build..."
 say ""
 
-build_args=(tauri build --bundles "$bundles")
+# `--no-sign` is NOT about codesigning. On macOS it disables exactly one thing:
+# the CLI signing the updater tarball it just made from a bundle this script has
+# not signed yet (see the header). Codesigning is gated on Windows only
+# (tauri-bundler `bundle.rs:301-306`), and this script owns the macOS signature
+# either way. It is also what lets a plain run work with no updater key at all.
+build_args=(tauri build --no-sign --bundles "$bundles")
 [ -n "$tauri_config_overlay" ] && build_args+=(--config "$tauri_config_overlay")
+# ONE MORE OVERLAY, FOR THE ONE CALLER THAT NEEDS IT.
+#
+# `app/scripts/updater-e2e.sh` builds two versions of the app and points them at a
+# manifest on 127.0.0.1, and both of those are configuration rather than code:
+# `{"version": "0.1.1"}` and `dangerousInsecureTransportProtocol`, which the plugin
+# requires before it will fetch over http (`config.rs:validate_endpoints` — a release
+# build REFUSES a non-https endpoint without it, and that refusal is correct).
+#
+# It is an env var and not a flag because it is not a thing to type at a prompt: the
+# `--config` values tauri merges are read in order and a wrong one silently changes the
+# app. It is echoed in full below, every run, so a build carrying one says so.
+if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
+  build_args+=(--config "$RICHOS_EXTRA_TAURI_CONFIG")
+  say ""
+  say "  EXTRA CONFIG OVERLAY IN FORCE — this build is NOT the shipping configuration:"
+  say "    $RICHOS_EXTRA_TAURI_CONFIG"
+fi
 
 if ! (cd "$src_tauri" && cargo "${build_args[@]}"); then
   warn ""
@@ -860,6 +1007,159 @@ expect_stapled=""
 [ "$sign_mode" = "developer-id" ] && [ "${RICHOS_NOTARIZE:-}" = "1" ] && expect_stapled=1
 if ! verify_bundle "$app_bundle" "$sign_mode" "$expect_stapled"; then
   exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# THE UPDATE ARTIFACTS — built from the VERIFIED bundle, never from the builder's
+# intermediate. See this file's header for the vendor ordering defect this is
+# working around; the short version is that the archive the bundler makes is a
+# tarball of an application nothing had signed yet.
+# ---------------------------------------------------------------------------
+vendor_tar="${app_bundle}.tar.gz"
+if [ -f "$vendor_tar" ]; then
+  # It exists whether or not --updater was asked for, because the config turns the
+  # artifact on. UNCONDITIONALLY REMOVED: an unsigned tarball of an unsigned app,
+  # sitting next to a verified bundle with a plausible name, is exactly the file
+  # somebody publishes at 2am.
+  rm -f "$vendor_tar" "${vendor_tar}.sig"
+  say ""
+  say "  removed the bundler's own ${app_bundle##*/}.tar.gz: it was made from the"
+  say "  bundle BEFORE this script signed it, so it packaged an unsigned application."
+fi
+
+if [ -n "$updater" ]; then
+  say ""
+  say "building the update artifacts from the bundle that was just verified..."
+
+  if ! python3 "$here/lib/updater_tar.py" build "$app_bundle" "$vendor_tar"; then
+    warn ""
+    warn "the update archive could not be built. The bundle above is fine and is"
+    warn "still on disk; nothing publishable was produced."
+    exit 5
+  fi
+
+  if ! python3 "$here/lib/updater_tar.py" verify "$vendor_tar"; then
+    warn ""
+    warn "the update archive is not installable — see the reasons above. Refusing to"
+    warn "sign it: a signature over a broken archive is a signature that says a"
+    warn "broken archive is genuine."
+    exit 5
+  fi
+
+  # Sign. `--ci` is not passed; the password comes from the environment, and an
+  # empty string is the correct value for a passwordless key.
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+  sign_args=(tauri signer sign)
+  if [ -n "$updater_key_path" ]; then
+    sign_args+=(-f "$updater_key_path")
+  else
+    sign_args+=(-k "$TAURI_SIGNING_PRIVATE_KEY")
+  fi
+  sign_args+=(-p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$vendor_tar")
+
+  say ""
+  say "signing it with $updater_key_desc..."
+  if ! (cd "$src_tauri" && cargo "${sign_args[@]}" >/dev/null 2>&1); then
+    warn ""
+    warn "the updater signature could not be produced. Re-run the same command"
+    warn "without the output suppressed to see the signer's own reason:"
+    warn "  (cd $src_tauri && cargo tauri signer sign -f <key> -p <password> $vendor_tar)"
+    exit 5
+  fi
+
+  sig_path="${vendor_tar}.sig"
+  if [ ! -f "$sig_path" ]; then
+    warn "the signer exited 0 and wrote no $sig_path — refusing to report a signed artifact."
+    exit 5
+  fi
+
+  # THE CHECK THE SIGNER'S EXIT CODE DOES NOT MAKE. It says a signature was
+  # written. This says the signature VERIFIES, against the public key compiled
+  # into the app — the same `minisign_verify` call the updater makes on the CEO's
+  # machine before it installs a byte. A release signed with the wrong key is
+  # otherwise indistinguishable from a correct one until it is public.
+  say ""
+  say "verifying that signature against plugins.updater.pubkey in tauri.conf.json..."
+  if ! (cd "$src_tauri" && cargo run -q --example verify_update_signature -- "$vendor_tar" "$sig_path"); then
+    warn ""
+    warn "REFUSING — the artifact and its signature do not agree under the key this"
+    warn "repository ships. Nothing here is publishable."
+    exit 5
+  fi
+
+  # The platform key the updater actually looks for: `{os}-{arch}` from
+  # tauri-plugin-updater 2.11.0 `updater.rs:updater_os/updater_arch`, derived from
+  # THIS machine rather than assumed.
+  case "$(uname -m)" in
+    arm64|aarch64) upd_arch="aarch64" ;;
+    x86_64)        upd_arch="x86_64" ;;
+    *)             upd_arch="$(uname -m)" ;;
+  esac
+  upd_target="darwin-${upd_arch}"
+  # READ OFF THE ARTEFACT, NOT THE CONFIG. The first version of this line read
+  # `version` out of tauri.conf.json and was WRONG THE FIRST TIME IT RAN: a build
+  # carrying a `--config` overlay (which is how updater-e2e.sh makes a second
+  # version at all, and how a release could be built from a tag) produced a 0.1.1
+  # bundle and a manifest announcing 0.1.0. A manifest that announces a version the
+  # archive does not contain is a release that either never installs or installs
+  # something other than what it said. The bundle's own Info.plist is the only
+  # copy that shipped.
+  upd_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_bundle/Contents/Info.plist" 2>/dev/null)"
+  if [ -z "$upd_version" ]; then
+    warn "the produced bundle has no CFBundleShortVersionString — there is no version to announce."
+    exit 5
+  fi
+  upd_bytes="$(stat -f '%z' "$vendor_tar")"
+  upd_sha="$(shasum -a 256 "$vendor_tar" | awk '{print $1}')"
+
+  say ""
+  say "  update artifact : $vendor_tar"
+  say "  signature       : $sig_path"
+  say "  version         : $upd_version"
+  say "  platform key    : $upd_target"
+  say "  bytes           : $upd_bytes"
+  say "  sha256          : $upd_sha"
+
+  # ---- the manifest -------------------------------------------------------
+  manifest="$(dirname "$vendor_tar")/latest.json"
+  if [ -z "${RICHOS_UPDATE_BASE_URL:-}" ]; then
+    rm -f "$manifest"
+    say ""
+    say "  NO MANIFEST WAS WRITTEN, and that is deliberate. RICHOS_UPDATE_BASE_URL is"
+    say "  unset, so the URL the CEO's copy would fetch this archive from is not known."
+    say "  WHERE RICHOS UPDATES ARE HOSTED IS THE CEO'S DECISION AND HAS NOT BEEN MADE"
+    say "  (app/UPDATES.md lists the options and the trade-off). A manifest carrying a"
+    say "  guessed URL is worse than no manifest: it is a file that looks publishable."
+    say ""
+    say "  Re-run with RICHOS_UPDATE_BASE_URL=https://<wherever>/ to emit latest.json."
+  else
+    base="${RICHOS_UPDATE_BASE_URL%/}"
+    python3 - "$manifest" "$upd_version" "$upd_target" "$base/$(basename "$vendor_tar")" "$sig_path" "${RICHOS_UPDATE_NOTES:-}" <<'PY'
+import json, sys, datetime
+manifest, version, target, url, sig_path, notes = sys.argv[1:7]
+signature = open(sig_path).read().strip()
+doc = {
+    "version": version,
+    # The CEO reads this verbatim in the update row. It is never generated from a
+    # commit log: a release note assembled from subject lines is a changelog, and a
+    # changelog is not a sentence a non-technical reader can act on.
+    "notes": notes or "",
+    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "platforms": {target: {"signature": signature, "url": url}},
+}
+with open(manifest, "w") as fh:
+    json.dump(doc, fh, indent=2)
+    fh.write("\n")
+print("  manifest        : " + manifest)
+print("  announced url   : " + url)
+PY
+    if [ -z "${RICHOS_UPDATE_NOTES:-}" ]; then
+      say ""
+      say "  NOTE: RICHOS_UPDATE_NOTES was unset, so \"notes\" is an empty string and the"
+      say "  update row will fall back to \"You are running <version>\". That is honest and"
+      say "  it is also a missed sentence — set it to what changed, in the CEO's language."
+    fi
+  fi
 fi
 
 # Gatekeeper's own verdict, reported rather than judged. An ad-hoc or un-notarized

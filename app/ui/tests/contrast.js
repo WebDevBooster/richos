@@ -33,11 +33,14 @@
 // WHAT THIS GATE COVERS AND WHAT IT CANNOT — the honest boundary, asserted rather than
 // promised:
 //
-//   COVERS   the ten driven surfaces below (shell, an open thread, the correction desk, the
+//   COVERS   the thirteen driven surfaces below (shell, an open thread, the correction desk, the
 //            feedback desk, search, the inspector, the technical view, the unbound-thread
-//            pane, the assertiveness popover, and the opening screen with its curtain held
-//            up), both themes, text and the bounded non-text-indicator subset check 3
-//            defines. The opening screen is WALKED and its one HTML line comes back
+//            pane, the assertiveness popover, THE UPDATE ROW IN THREE STATES, and the
+//            opening screen with its curtain held up), both themes, text and the bounded
+//            non-text-indicator subset check 3 defines. The three `updates-*` surfaces are
+//            also the first drivers to reach the UNIVERSAL settings menu at all — the
+//            `settings` surface drives the RAIL's preferences popover, which is a different
+//            menu — and their first run found a shipped 1.24:1 indicator in it. The opening screen is WALKED and its one HTML line comes back
 //            UNPROVABLE — see `knownUnresolvable` in contrast-debt.json. That is a stated
 //            blind spot with a name on it, which is not the same thing as coverage.
 //   CANNOT   `<canvas>` — no computed style to read. The shipping shell contains none, and
@@ -170,6 +173,73 @@ const SURFACES = [
       await p.click("#rail-settings");
       await p.waitForSelector("#assertiveness-popover:not([hidden])");
       await p.waitForTimeout(300);
+    },
+  },
+  // THE UPDATE ROW, IN THREE STATES, because one state cannot paint the colours the others
+  // do (RICH-TODOs row 12, `app/ui/updates.js`). It lives in the UNIVERSAL settings menu —
+  // which the `settings` surface above does NOT reach, since that one drives the rail's
+  // preferences popover — so without these three drivers the whole surface would be
+  // uncovered while a nearby surface's name suggested otherwise.
+  //
+  // Between them they paint every colour the row can: `--attention` and the primary button
+  // and the mark on the settings button (available), the progress fill and its track border
+  // (downloading), `--danger` and the disclosure and the verbatim vendor detail (failed).
+  {
+    name: "updates-available",
+    what: "the update row with a version waiting, and the mark on the settings button",
+    drive: async (p) => {
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.updateSet({
+          state: "available", currentVersion: "0.1.0", availableVersion: "0.1.1",
+          notes: "Faster launch, and the technical view remembers its width.",
+          pubDate: "2026-08-31T12:00:00Z", downloadedBytes: 0, totalBytes: null, percent: null,
+          failure: null, endpoint: "https://updates.example.com/darwin/aarch64/0.1.0",
+          endpointIsPlaceholder: false, checkedAt: Date.now() - 120000,
+        })
+      );
+      await p.click("#set-btn");
+      await p.waitForSelector("#set-menu", { state: "visible" });
+      await p.waitForTimeout(400);
+    },
+  },
+  {
+    name: "updates-downloading",
+    what: "the update row mid-download: the progress bar, its track and its border",
+    drive: async (p) => {
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.updateSet({
+          state: "downloading", currentVersion: "0.1.0", availableVersion: "0.1.1",
+          notes: null, pubDate: null, downloadedBytes: 5242880, totalBytes: 13631488, percent: 38,
+          failure: null, endpoint: "https://updates.example.com/darwin/aarch64/0.1.0",
+          endpointIsPlaceholder: false, checkedAt: Date.now() - 120000,
+        })
+      );
+      await p.click("#set-btn");
+      await p.waitForSelector("#set-menu", { state: "visible" });
+      await p.waitForTimeout(400);
+    },
+  },
+  {
+    name: "updates-failed",
+    what: "a REFUSED SIGNATURE, with the vendor's own reason disclosed",
+    drive: async (p) => {
+      await p.evaluate(() =>
+        window.__RICHOS_MOCK__.updateSet({
+          state: "failed", currentVersion: "0.1.0", availableVersion: "0.1.1",
+          notes: null, pubDate: null, downloadedBytes: 13631488, totalBytes: 13631488, percent: 100,
+          failure: {
+            kind: "signature",
+            headline: "This download was not signed by RichOS, so it was not installed.",
+            detail: "Signature verification failed",
+          },
+          endpoint: "https://updates.example.com/darwin/aarch64/0.1.0",
+          endpointIsPlaceholder: false, checkedAt: Date.now() - 60000,
+        })
+      );
+      await p.click("#set-btn");
+      await p.waitForSelector("#set-menu", { state: "visible" });
+      await p.click("#update-why");
+      await p.waitForTimeout(400);
     },
   },
   {

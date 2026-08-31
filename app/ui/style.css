@@ -3557,7 +3557,21 @@ body.bp-narrow .tl-user-bubble {
   margin: 0;
   border-radius: 999px;
   background: var(--tint-gold-weak);
-  border: 1px solid var(--line);
+  /* `--line-control`, not `--line`, and this was a MEASURED FIX rather than a preference.
+     A switch in its OFF state is a non-text indicator whose whole visible extent is its
+     border — the fill is `--tint-gold-weak`, which is 1.18:1 dark and 1.17:1 light against
+     the menu it sits on, i.e. invisible — and `--line` gave that border 1.24:1 / 1.50:1
+     against a floor of 3:1. So the control's boundary, the only thing on screen saying
+     "this is a switch and it is off", did not clear the floor in either theme.
+
+     It was shipped that way and nothing caught it, because the universal settings menu was
+     not a surface any contrast driver reached: `contrast.js`'s `settings` surface drives the
+     RAIL's preferences popover, which is a different menu. The three `updates-*` surfaces
+     this branch adds walk this menu for the first time, and this is what they found on their
+     first run. `--line-control` is the token this file already reserves for exactly this job
+     (see `.setbtn`'s note) and pays 3.79:1 dark / 4.06:1 light. The ON state was already
+     fine: `--gold` is 6.36:1 / 3.83:1 on the menu. */
+  border: 1px solid var(--line-control);
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
@@ -3692,4 +3706,245 @@ body.bp-narrow .tl-user-bubble {
   #bug-toast {
     animation: none;
   }
+}
+
+/* ---------------------------------------------------------------------------------------
+   THE UPDATE SURFACE — RICH-TODOs row 12.
+
+   It is a row of the UNIVERSAL settings menu (`.setmenu`, background `var(--surface)`), not
+   of the rail's preferences popover. That was measured rather than preferred: in the popover
+   the panel took it from 581px to 761px, and at 761px it covers eight more rail rows —
+   `techy.js` check 9 went red because a click meant for a thread landed on the popover. See
+   `updates.js`'s header. The menu is 160px in a 900px window and is on every screen.
+
+   EVERY RATIO BELOW WAS COMPUTED, NOT EYEBALLED, with the shipping walker's own arithmetic
+   (`tests/lib/contrast.js`) against the tokens as declared at the top of this file, in BOTH
+   themes. Floors: 4.5:1 for text, 3.0:1 for a non-text indicator. Format is `dark / light`.
+   Nothing on this surface is exempt from the floor and nothing on it claims to be.
+
+     .update-title (.set-name) --ink on --surface             12.06 / 18.07
+     .update-line              --ink on --surface             12.06 / 18.07
+     .update-line, available   --attention                     6.54 /  6.58
+     .update-line, ready       --success                       6.73 /  7.31
+     .update-line, failed      --danger                        5.84 /  8.12
+     .update-sub               --ink-soft on --surface         5.78 /  6.38
+     .update-btn label         --ink on --surface-sunk        14.78 / 15.58
+     .update-btn border        --line-control on --surface     3.79 /  4.06
+     .update-btn--go           --on-gold on --gold             7.68 /  4.72
+     .update-btn--go edge      --gold on --surface             6.36 /  3.83
+     .update-progress-fill     --gold on --surface-sunk        7.80 /  3.30
+     .update-progress edge     --line-control on --surface     3.79 /  4.06
+     .update-why               --gold-text on --surface        6.36 /  6.65
+     .update-detail            --ink-soft on --surface-sunk    6.51 /  5.98
+     .update-endpoint          --ink-faint on --surface        5.52 /  5.35
+     .update-mark              --attention on --tint-gold      5.37 /  5.43
+     .update-mark[ready]       --success on --tint-gold        5.53 /  6.04
+     ...and on the HOVERED button, which is a different background:
+     .update-mark              --attention on --tint-gold-strong  4.61 / 4.90
+     .update-mark[ready]       --success on --tint-gold-strong    4.75 / 5.44
+
+   TYPE: the status line, its second line and every button are 1rem = 16px, the floor for
+   text meant to be read. `.update-detail` and `.update-endpoint` are 0.875rem = 14px — the
+   skippable tier, used because they are the operator's diagnostics and sit behind a
+   disclosure — and they still clear 4.5:1 rather than leaning on that.
+--------------------------------------------------------------------------------------- */
+.set-updates {
+  padding: 6px 10px 4px;
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+/* Colour and weight come from `.set-name`, which this row also carries — one row-label
+   style for the whole menu, not a second one that agrees with it most of the time. */
+.update-title {
+  display: block;
+  margin: 0 0 4px;
+}
+
+/* The one line the CEO actually reads. It carries the state in its colour AND in its words
+   — never in colour alone, which is the failure mode a monochrome display or a colour-blind
+   reader turns into no information at all. */
+.update-line {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.set-updates[data-update-state="available"] .update-line {
+  color: var(--attention);
+}
+.set-updates[data-update-state="ready"] .update-line {
+  color: var(--success);
+}
+.set-updates[data-update-state="failed"] .update-line {
+  color: var(--danger);
+}
+
+.update-sub {
+  margin: 4px 0 0;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+/* THE BAR. Its TRACK is nearly the panel's own colour (1.23:1 dark, 1.16:1 light), which is
+   why the border is not decoration: without it the bar's extent is invisible and a half-full
+   bar is unreadable as half-full. The border is `--line-control`, the token this file
+   already reserves for "the boundary of a control", at 3.79 / 4.06 against the panel. */
+.update-progress {
+  margin-top: 8px;
+  height: 8px;
+  border: 1px solid var(--line-control);
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  overflow: hidden;
+}
+.update-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--gold);
+  transition: width 0.2s linear;
+}
+/* No Content-Length, so no percentage: the fill sweeps instead of claiming a position. A
+   determinate bar over an unknown total is a lie that looks like a measurement. */
+.update-progress[data-indeterminate="true"] .update-progress-fill {
+  animation: update-sweep 1.4s ease-in-out infinite;
+  transform-origin: left center;
+}
+@keyframes update-sweep {
+  0% {
+    transform: scaleX(0.1);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(0.1);
+    opacity: 0.65;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-progress[data-indeterminate="true"] .update-progress-fill {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 0.8;
+  }
+  .update-progress-fill {
+    transition: none;
+  }
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.update-btn {
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.2;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line-control);
+  background: var(--surface-sunk);
+  color: var(--ink);
+  cursor: pointer;
+}
+.update-btn:hover:not(:disabled) {
+  background: var(--tint-soft);
+}
+.update-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* A disabled control still has to be READABLE — it says what the app is about to be able to
+   do. Dimming it below the floor would make "why can I not press this" unanswerable, so the
+   affordance is dropped and the ink is not. */
+.update-btn:disabled {
+  cursor: default;
+  opacity: 1;
+  border-style: dashed;
+}
+
+.update-btn--go {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-gold);
+}
+.update-btn--go:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+/* The disclosure. `--accent-text` rather than `--accent`, because this is TEXT: the split
+   between those two tokens exists precisely because the painting gold is 3.83:1 on the panel
+   in light mode and would be a contrast failure as a label. 6.36 / 6.65 as written. */
+.update-why {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-family: var(--font);
+  font-size: 1rem;
+  color: var(--accent-text);
+  cursor: pointer;
+  text-align: left;
+}
+.update-why:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The vendor's own error text, verbatim, wrapped rather than clipped — a truncated error is
+   an error you cannot search for. */
+.update-detail {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-sunk);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.update-endpoint {
+  margin: 6px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  word-break: break-all;
+}
+
+/* THE MARK ON THE SETTINGS BUTTON — the only part of this surface visible without opening
+   the menu, and therefore the thing that makes "RichOS checked and found something" reach a
+   CEO who never opens settings. `.setbtn` is already `position: relative`, so nothing about
+   that button changes.
+
+   It is a NON-TEXT INDICATOR and owes 3:1, measured against BOTH backgrounds the button
+   actually has: `--tint-gold` at rest (attention 5.37 / 5.43, success 5.53 / 6.04) and
+   `--tint-gold-strong` while hovered (4.61 / 4.90 and 4.75 / 5.44). Checking only the
+   resting state would be the usual way an indicator passes a review and fails on the pixel
+   a pointer is over.
+
+   It is never the only signal — the row says the same thing in words — and it appears for
+   exactly two states, because a permanently marked button is a button nobody reads. */
+.update-mark {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--attention);
+}
+.setbtn[data-update-mark="ready"] .update-mark {
+  background: var(--success);
 }

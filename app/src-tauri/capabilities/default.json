@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core permissions for the RichOS main window.",
+  "description": "Core permissions for the RichOS main window. NOTE ON THE UPDATER, because its absence here is deliberate and would otherwise look like an omission: `tauri-plugin-updater` is registered in the Rust builder and its commands are NOT granted to the webview. The update flow is driven by this app's own `update_check` / `update_install` / `update_relaunch` commands (src/updates.rs), which run the plugin from Rust — so `updater:default` (allow-check, allow-download-and-install) is not required and is not granted. The page therefore cannot start a download or an install by itself. Granting `updater:default` here would widen what a compromised or mistaken frontend can do, and buy nothing.",
   "windows": ["main", "*"],
   "permissions": ["core:default"]
 }

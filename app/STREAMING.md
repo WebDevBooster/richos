@@ -582,3 +582,57 @@ outcome, failure }`, where `write` is the tagged `ProposedWrite` union
 
 **Missing this event costs a badge move, never a record.** The proposal is durable on the
 desk's own JSONL, fsynced, before the observer is called.
+
+## The update path: `rich://update`
+
+The seventh family, added 2026-08-31 with the updater (RICH-TODOs row 12). Source of truth:
+`app/src-tauri/src/updates.rs` — the constant `EVENT_UPDATE`, the `UpdateView` payload, and
+the single `transition()` chokepoint every state change in that file goes through.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://update` | The update state changed: a check started or finished, a download moved, the signature was verified, an install landed, or any of it failed. | one `UpdateView` |
+
+**Emitted from the automatic launch check as well as from the buttons**, which is the point
+of it being an event at all: RichOS checks by itself three seconds after launch, and the mark
+on the settings button has to appear whether or not anyone had a menu open.
+
+`UpdateView` is flat rather than a tagged union, deliberately, because it is ALSO the return
+value of the `update_state` command — a surface that attaches late, or reconnects mid-download,
+paints correctly from one read:
+
+```
+{ state, currentVersion, availableVersion, notes, pubDate,
+  downloadedBytes, totalBytes, percent, failure,
+  endpoint, endpointIsPlaceholder, checkedAt }
+```
+
+`state` is one of `unconfigured`, `idle`, `checking`, `upToDate`, `available`, `downloading`,
+`installing`, `ready`, `failed`.
+
+Four rules for whoever renders it:
+
+1. **`unconfigured` is not an error and not "up to date".** The shipped `plugins.updater`
+   endpoint is the RFC 2606 `updates.richos.invalid` placeholder, because where RichOS
+   updates are published is the CEO's decision and has not been made. Rendering that as a
+   network failure would report a decision as a defect.
+2. **`totalBytes: null` means DO NOT DRAW A PERCENTAGE.** The server sent no `Content-Length`.
+   A determinate bar over an invented denominator is a lie that looks like a measurement;
+   show bytes, or an indeterminate bar with no `aria-valuenow`.
+3. **`failure.kind === "signature"` MUST NOT BE OFFERED A RETRY.** It means the bytes on the
+   wire are not the bytes we signed. Every other kind (`offline`, `network`, `manifest`,
+   `install`, `configuration`, `other`) is plausibly transient and may be retried; this one
+   refuses identically every time, and a button that invites someone to keep pressing until a
+   security check passes is the wrong control.
+4. **`failure.headline` is for the CEO and `failure.detail` is the vendor's own error text.**
+   Show the headline; keep the detail one click away rather than dropping it. An error that
+   hides its cause turns a five-minute diagnosis into a week.
+
+**Missing this event costs a repaint, never a state.** The truth lives in the Rust-side
+`Updates` state and is readable at any time with `update_state`; the emit is `let _ =`, the
+same best-effort posture every other emitter in this shell takes.
+
+**The webview holds no updater permission.** These four commands — `update_state`,
+`update_check`, `update_install`, `update_relaunch` — are this app's own, and
+`capabilities/default.json` grants no `plugin:updater|*` command to the page. A frontend
+cannot start a download or an install by itself.

@@ -1,0 +1,9 @@
+127.0.0.1 - - [31/Aug/2026 22:27:59] "GET /latest.json HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:27:59] "GET /latest.json HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:27:59] "GET /latest.json HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:27:59] "GET /RichOS.app.tar.gz HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:28:00] "GET /latest.json HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:28:00] "GET /latest.json HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:28:00] "GET /RichOS.app.tar.gz HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:28:01] "GET /latest.json HTTP/1.1" 200 -
+127.0.0.1 - - [31/Aug/2026 22:28:01] "GET /RichOS.app.tar.gz HTTP/1.1" 200 -

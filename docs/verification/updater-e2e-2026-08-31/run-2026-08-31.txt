@@ -1,0 +1,236 @@
+RichOS updater — end to end, on this machine
+  workspace   : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-updater-e2e.6xWGuJ
+  key         : /Users/alex/.richos-signing/richos-updater-TEST.key
+  platform    : darwin-aarch64
+  manifest at : http://127.0.0.1:8973/latest.json
+
+-------------------------------------------------------------------------------
+building RichOS 0.1.1 (with signed update artifacts)...
+    RichOS packaging entrypoint
+      repository app dir : /Users/alex/ab/richos-wt/echo-u1/app
+      signing mode       : adhoc
+      bundle targets     : app
+    
+    checking the app icons before building (the build gate re-checks independently)...
+    OK: every artefact declared in tauri.conf.json bundle.icon is present, correctly sized, and distinct.
+    
+    SIGNING: ad-hoc. What that costs, every time:
+    
+      An ad-hoc bundle embeds no designated requirement, so macOS stores the raw
+      code hash as the identity of every permission it grants — and nothing else.
+      The moment this build differs by one shipped byte from the installed one, it
+      is A DIFFERENT APPLICATION to macOS: microphone and accessibility grants
+      start at zero, and toggling the switch in System Settings provably does not
+      migrate a grant (measured 2026-08-24, richos-hq/wiki/packaging-and-signing.md).
+      Voice mode and paste-at-cursor will need granting again after installing this.
+    
+      Measured here 2026-08-30, because the distinction matters: what moves the
+      hash is the BYTES, not the act of rebuilding. Three consecutive runs of this
+      script over an unchanged tree — and one over a tree whose only edit was dead
+      code the optimizer removed — all produced cdhash fc5051ac…, i.e. the same
+      application and a surviving grant. Changing ONE shipped string moved it to
+      27a561ef…. So this is not a tax on rebuilding; it is a tax on every change
+      you would actually ship.
+    
+      The fix is a Developer ID certificate. The MEMBERSHIP that gates it exists as
+      of 2026-08-31 (CEO decision 1.1, closed); the certificate is a separate step.
+      This machine has no Developer ID Application certificate yet:
+        app/scripts/make-signing-csr.sh          then the portal, then
+        app/scripts/install-signing-cert.sh <the .cer>
+      docs/ceo/developer-id-setup-2026-08-31.md is the middle step, in plain language.
+    
+    building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build...
+    
+    
+      EXTRA CONFIG OVERLAY IN FORCE — this build is NOT the shipping configuration:
+        {"version": "0.1.1", "plugins": {"updater": {"dangerousInsecureTransportProtocol": true}}}
+            Warn --no-sign flag detected: Signing will be skipped.
+            Info Looking up installed tauri packages to check mismatched versions...
+            Warn The bundle identifier "com.richos.app" set in `"tauri.conf.json" identifier` ends with `.app`. This is not recommended because it conflicts with the application bundle extension on macOS.
+       Compiling richos-tauri v0.1.0 (/Users/alex/ab/richos-wt/echo-u1/app/src-tauri)
+        Finished `release` profile [optimized] target(s) in 17.99s
+           Built application at: /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/richos-tauri
+        Bundling RichOS.app (/Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app)
+            Warn Skipping signing due to --no-sign flag.
+        Bundling /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (/Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz)
+        Finished 1 bundle at:
+            /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app
+            /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (updater)
+    
+            Warn Updater signing is skipped due to --no-sign flag.
+    
+    ad-hoc signing the bundle (the bundler does not: it signs only with a real identity)...
+    /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app: replacing existing signature
+    
+      the designated requirement macOS will store against every grant:
+        cdhash H"1a1d2f2d5e78d666d6d727661f6ee36a3fb4ed4f"
+      — a hash of THIS build. No bundle identifier, no team, nothing a later
+        build can satisfy. That is the whole of the grant problem, in one line.
+    
+    verifying the artefact that was produced (not the builder's exit code)...
+    
+      removed the bundler's own RichOS.app.tar.gz: it was made from the
+      bundle BEFORE this script signed it, so it packaged an unsigned application.
+    
+    building the update artifacts from the bundle that was just verified...
+      archive : /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz
+      members : 9, all rooted at RichOS.app/
+      bytes   : 8630189
+      sha256  : f8e71eec8935e1551b6f6f8c80c1286c0cccd194341729ec9339205b2d66c82a
+      OK: 9 member(s), one root, Info.plist present, 1 executable, 0 symlink(s)
+    
+    signing it with /Users/alex/.richos-signing/richos-updater-TEST.key (mode 600)...
+    
+    verifying that signature against plugins.updater.pubkey in tauri.conf.json...
+    VERIFIED: /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (8630189 bytes) is signed by the key in /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/tauri.conf.json
+    
+      update artifact : /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz
+      signature       : /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz.sig
+      version         : 0.1.1
+      platform key    : darwin-aarch64
+      bytes           : 8630189
+      sha256          : f8e71eec8935e1551b6f6f8c80c1286c0cccd194341729ec9339205b2d66c82a
+      manifest        : /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/latest.json
+      announced url   : http://127.0.0.1:8973/RichOS.app.tar.gz
+    
+      Gatekeeper assessment (spctl): rejected
+    
+    OK: RichOS.app is bundled, ad-hoc signed and verified — real icons, cdhash 1a1d2f2d5e78d666d6d727661f6ee36a3fb4ed4f, microphone usage string present; NOT notarized, Gatekeeper rejects it, and its permission grants die on the next build that changes a shipped byte. Path: /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app
+
+-------------------------------------------------------------------------------
+building RichOS 0.1.0 (the bundle only — this is the one that gets updated)...
+    RichOS packaging entrypoint
+      repository app dir : /Users/alex/ab/richos-wt/echo-u1/app
+      signing mode       : adhoc
+      bundle targets     : app
+    
+    checking the app icons before building (the build gate re-checks independently)...
+    OK: every artefact declared in tauri.conf.json bundle.icon is present, correctly sized, and distinct.
+    
+    SIGNING: ad-hoc. What that costs, every time:
+    
+      An ad-hoc bundle embeds no designated requirement, so macOS stores the raw
+      code hash as the identity of every permission it grants — and nothing else.
+      The moment this build differs by one shipped byte from the installed one, it
+      is A DIFFERENT APPLICATION to macOS: microphone and accessibility grants
+      start at zero, and toggling the switch in System Settings provably does not
+      migrate a grant (measured 2026-08-24, richos-hq/wiki/packaging-and-signing.md).
+      Voice mode and paste-at-cursor will need granting again after installing this.
+    
+      Measured here 2026-08-30, because the distinction matters: what moves the
+      hash is the BYTES, not the act of rebuilding. Three consecutive runs of this
+      script over an unchanged tree — and one over a tree whose only edit was dead
+      code the optimizer removed — all produced cdhash fc5051ac…, i.e. the same
+      application and a surviving grant. Changing ONE shipped string moved it to
+      27a561ef…. So this is not a tax on rebuilding; it is a tax on every change
+      you would actually ship.
+    
+      The fix is a Developer ID certificate. The MEMBERSHIP that gates it exists as
+      of 2026-08-31 (CEO decision 1.1, closed); the certificate is a separate step.
+      This machine has no Developer ID Application certificate yet:
+        app/scripts/make-signing-csr.sh          then the portal, then
+        app/scripts/install-signing-cert.sh <the .cer>
+      docs/ceo/developer-id-setup-2026-08-31.md is the middle step, in plain language.
+    
+    building (release) with RICHOS_REQUIRE_REAL_ICONS=1 — the icon gate is FATAL for this build...
+    
+    
+      EXTRA CONFIG OVERLAY IN FORCE — this build is NOT the shipping configuration:
+        {"version": "0.1.0", "plugins": {"updater": {"dangerousInsecureTransportProtocol": true}}}
+            Warn --no-sign flag detected: Signing will be skipped.
+            Info Looking up installed tauri packages to check mismatched versions...
+            Warn The bundle identifier "com.richos.app" set in `"tauri.conf.json" identifier` ends with `.app`. This is not recommended because it conflicts with the application bundle extension on macOS.
+       Compiling richos-tauri v0.1.0 (/Users/alex/ab/richos-wt/echo-u1/app/src-tauri)
+        Finished `release` profile [optimized] target(s) in 16.92s
+           Built application at: /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/richos-tauri
+        Bundling RichOS.app (/Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app)
+            Warn Skipping signing due to --no-sign flag.
+        Bundling /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (/Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz)
+        Finished 1 bundle at:
+            /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app
+            /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app.tar.gz (updater)
+    
+            Warn Updater signing is skipped due to --no-sign flag.
+    
+    ad-hoc signing the bundle (the bundler does not: it signs only with a real identity)...
+    /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app: replacing existing signature
+    
+      the designated requirement macOS will store against every grant:
+        cdhash H"b0450e79ca94ac748a0621332d3c4804e2d5df8e"
+      — a hash of THIS build. No bundle identifier, no team, nothing a later
+        build can satisfy. That is the whole of the grant problem, in one line.
+    
+    verifying the artefact that was produced (not the builder's exit code)...
+    
+      removed the bundler's own RichOS.app.tar.gz: it was made from the
+      bundle BEFORE this script signed it, so it packaged an unsigned application.
+    
+      Gatekeeper assessment (spctl): rejected
+    
+    OK: RichOS.app is bundled, ad-hoc signed and verified — real icons, cdhash b0450e79ca94ac748a0621332d3c4804e2d5df8e, microphone usage string present; NOT notarized, Gatekeeper rejects it, and its permission grants die on the next build that changes a shipped byte. Path: /Users/alex/ab/richos-wt/echo-u1/app/src-tauri/target/release/bundle/macos/RichOS.app
+
+-------------------------------------------------------------------------------
+serving /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-updater-e2e.6xWGuJ/serve on http://127.0.0.1:8973 ...
+  manifest served:
+    {
+        "version": "0.1.1",
+        "notes": "Faster launch, and the settings menu now says what version you are running.",
+        "pub_date": "2026-08-31T21:27:41Z",
+        "platforms": {
+            "darwin-aarch64": {
+                "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQzdhMmgrYkM4cGlpdTY4NVFUVk9Cc0RIUTljSTlzRFdyeExyK2o0QkppSUQzVTE0YmVJcmpTSWN4T014TzJYQUgvNkJwek1odVM4TW9mWk9wMnFTYWdJa3hpTHlCREFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MjExNjYwCWZpbGU6UmljaE9TLmFwcC50YXIuZ3oKYVdLckFOTGtFc3hiNlFLeUdFdkJrTlk5UGlRSnBINnA5Q3FoaytkbGlnbCtVQWh1bDhoVzcxNHJvaSt5eEttYkM2TlUvbmM3dVJwSU9MYjZzenNMQ0E9PQo=",
+                "url": "http://127.0.0.1:8973/RichOS.app.tar.gz"
+            }
+        }
+    }
+
+-------------------------------------------------------------------------------
+CASE A-D — 0.1.0 discovers 0.1.1, verifies it, installs it, and comes back as 0.1.1
+
+  PASS  the installed bundle is 0.1.0 before anything runs
+    RICHOS-UPDATE-SELFTEST state=available current=0.1.0 available=0.1.1 percent=- failure=- detail=-
+    RICHOS-UPDATE-SELFTEST state=ready current=0.1.0 available=0.1.1 percent=100 failure=- detail=-
+    RICHOS-UPDATE-SELFTEST exit=0
+  PASS  A  0.1.0 fetched the manifest over HTTP and found 0.1.1
+  PASS  B  it downloaded the archive, the signature VERIFIED, and it installed
+  PASS  C  the bundle ON DISK is now 0.1.1 (read from the installed Info.plist)
+    RICHOS-UPDATE-SELFTEST state=upToDate current=0.1.1 available=- percent=- failure=- detail=-
+    RICHOS-UPDATE-SELFTEST exit=10
+  PASS  D  the replaced bundle RELAUNCHED, runs, and reports itself as 0.1.1 and up to date
+
+-------------------------------------------------------------------------------
+CASE T — one byte flipped in the served archive, the good signature left in place
+
+    flipped byte 8629165 of 8630189 (0xEA -> 0x15)
+    good sha256     : f8e71eec8935e1551b6f6f8c80c1286c0cccd194341729ec9339205b2d66c82a
+    tampered sha256 : 4ecd9cbc79a7b17da8ddf7a54874c54ce79ab522fc419b5f2733353fddcdeb03
+    RICHOS-UPDATE-SELFTEST state=available current=0.1.0 available=0.1.1 percent=- failure=- detail=-
+    RICHOS-UPDATE-SELFTEST state=failed current=0.1.0 available=0.1.1 percent=100 failure=signature detail=The signature verification failed
+    RICHOS-UPDATE-SELFTEST exit=12
+  PASS  T1 it found 0.1.1, tried it, and the install FAILED (exit 12, not 0)
+  PASS  T2 ...and it failed AS A SIGNATURE FAILURE, not as a network or unpack error
+  PASS  T3 the installed bundle is UNTOUCHED — still 0.1.0
+
+-------------------------------------------------------------------------------
+CASE K — the archive is intact, and signed by a key this build does not trust
+
+    manifest re-pointed at the wrong key's signature
+    RICHOS-UPDATE-SELFTEST state=available current=0.1.0 available=0.1.1 percent=- failure=- detail=-
+    RICHOS-UPDATE-SELFTEST state=failed current=0.1.0 available=0.1.1 percent=100 failure=signature detail=The signature was created with a different key than the one provided
+    RICHOS-UPDATE-SELFTEST exit=12
+  PASS  K  an archive signed by another key is refused, as a signature failure (exit 12)
+  PASS  K2 the installed bundle is UNTOUCHED — still 0.1.0
+
+-------------------------------------------------------------------------------
+the numbers this run produced:
+  update archive bytes : 8630189
+  update archive sha256: f8e71eec8935e1551b6f6f8c80c1286c0cccd194341729ec9339205b2d66c82a
+  tampered sha256      : 4ecd9cbc79a7b17da8ddf7a54874c54ce79ab522fc419b5f2733353fddcdeb03
+  logs                 : /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-updater-e2e.6xWGuJ/logs
+
+-------------------------------------------------------------------------------
+=== updater-e2e: all 10 passed — an update was applied, and two bad ones were refused ===
+
+workspace kept: /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-updater-e2e.6xWGuJ
+
+[exited with code 0]

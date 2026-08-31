@@ -269,12 +269,21 @@ app/
   src-tauri/                 the Tauri shell — DETACHED nested workspace (empty [workspace])
     src/main.rs              window + Tauri command bridge to the spine
     src/nav.rs               durable rail VIEW state: width, pin, rename, archive (not evidence)
+    src/updates.rs           THE UPDATE PATH (RICH-TODOs row 12): check, download with
+                              throttled progress, VERIFY, install, relaunch; a nine-state
+                              view emitted as `rich://update`; and the failure classifier
+                              whose signature arm must never widen. The webview is granted
+                              NO `plugin:updater|*` permission — these four commands are the
+                              whole of its updater surface
     src/events.rs            the relay: one LiveObserver that puts §13's payloads on the
                               webview, and nothing that can widen them
     src/timeline_view.rs     the get_timeline command body — Timeline::view(Ceo) -> payload
     examples/timeline_payload.rs prints that payload from a real ledger (what realbytes.js
                               renders, so backend/UI field drift cannot go unnoticed)
     examples/stop_payload.rs the stop path's wire bytes, for the same reason
+    examples/verify_update_signature.rs  the check a signer's exit code does not make: that
+                              a produced .app.tar.gz and its .sig AGREE, under the pubkey
+                              tauri.conf.json ships
     Info.plist               the macOS privacy strings (NSMicrophoneUsageDescription)
     Entitlements.plist       hardened-runtime entitlements — used ONLY by the
                               --sign developer-id path, referenced nowhere in
@@ -294,8 +303,23 @@ app/
                               do the microphone and accessibility grants survive?
     generate-app-icons.sh    one artwork PNG in, every artefact tauri.conf.json declares out
     lib/app_icons.py         the generator + verifier both of the above run
+    updater-e2e.sh           THE ROW 12 DELIVERABLE: builds 0.1.0 and 0.1.1, serves a
+                              manifest, makes the first BECOME the second on this machine,
+                              then flips one byte and requires the install to REFUSE.
+                              10/10 on 2026-08-31 — docs/verification/updater-e2e-2026-08-31/
+    lib/updater_tar.py       the update archive, built from the SIGNED bundle (the bundler
+                              makes its own from the unsigned one — see package-app.sh's
+                              header) and by tarfile rather than by bsdtar, which writes
+                              AppleDouble sidecars the updater would unpack into the app
     run-tests.sh             every *.test.sh here, discovered from disk, never typed
-    *.test.sh                package-app, signing-setup, rebuild-survival — 56 checks
+    *.test.sh                package-app, signing-setup, rebuild-survival, updater-setup
+                              — 90 checks
+  UPDATES.md                 how RichOS updates itself: what is proven, what is NOT proven in
+                              those words, the signing key and where it may not live, the
+                              manifest format, and the four hosting options — which is a CEO
+                              decision and is left as one
+  updater/latest.example.json  the manifest format, with a home in the repository rather
+                              than only in a build directory
   ui/                        the web UI — the CEO-facing surface
     index.html               the shell: rail, header, timeline, inspector, composer
     main.js                  the WIRING — commands, the four families' listeners, the rail,
@@ -719,6 +743,7 @@ app/scripts/package-app.sh --sign developer-id   # discovers the identity; needs
 RICHOS_NOTARIZE=1 app/scripts/package-app.sh --sign developer-id   # ...and notarizes and staples
 app/scripts/package-app.sh --sign developer-id --dry-run           # resolve everything, build nothing
 app/scripts/package-app.sh --verify-only path/to/RichOS.app [--expect-notarized]
+app/scripts/package-app.sh --updater             # ...and the signed update artifacts
 ```
 
 The last line is the whole report:
@@ -732,7 +757,17 @@ that changes a shipped byte. Path: …/release/bundle/macos/RichOS.app
 
 Anything else is a refusal that names its reason. Exit codes: `0` success, `1` the
 bundle failed verification, `2` refused before building, `3` a prerequisite is
-missing, `4` the build itself failed.
+missing, `4` the build itself failed, `5` the bundle is good and the update
+artifacts are not.
+
+`--updater` adds `RichOS.app.tar.gz` and its minisign `.sig`, both built from the
+bundle that was just VERIFIED rather than from the builder's intermediate — the
+bundler makes its own copy before anything has signed the `.app`, and that copy is
+deleted on every run. It needs `TAURI_SIGNING_PRIVATE_KEY_PATH` (refused inside a
+git worktree, refused world-readable) and writes `latest.json` only when
+`RICHOS_UPDATE_BASE_URL` says where the archive will live. **`app/UPDATES.md` is the
+whole picture**, including the end-to-end run that applied an update on this machine
+and the two bad ones it refused.
 
 ### What it refuses on
 
