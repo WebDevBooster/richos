@@ -26,10 +26,175 @@ use std::path::Path;
 fn main() {
     println!("cargo::rerun-if-changed=tauri.conf.json");
     println!("cargo::rerun-if-changed=icons");
+    println!("cargo::rerun-if-changed=../ui");
     println!("cargo::rerun-if-env-changed=RICHOS_REQUIRE_REAL_ICONS");
 
     check_icons(Path::new("tauri.conf.json"), Path::new("icons"));
+    stage_frontend(Path::new("tauri.conf.json"), Path::new("../ui"));
     tauri_build::build();
+}
+
+/// Directory names under `app/ui/` that must never reach a customer's machine.
+///
+/// `tests` holds the committed Playwright screenshots — MEASURED 2026-08-31 at
+/// 22,788,572 bytes across 125 files, against 2,701,315 bytes for everything that
+/// actually renders. They are evidence and they stay in the repository; they are not
+/// product and they do not ship.
+///
+/// `node_modules` is here because `app/ui/tests/README.md` tells a developer to run
+/// `npm install` in that directory to get Playwright, and `app/.gitignore`'s
+/// `ui/node_modules/` rule is anchored one level too high to match it. Untracked and
+/// unshipped are different questions; this list answers the second one.
+const UI_NOT_SHIPPED: &[&str] = &["tests", "node_modules"];
+
+/// Copy `app/ui` to the directory `tauri.conf.json` names as `build.frontendDist`,
+/// leaving `UI_NOT_SHIPPED` behind.
+///
+/// WHY THIS EXISTS AT ALL. `frontendDist` used to point straight at `../ui`, and
+/// `tauri-codegen` walks that directory with `WalkDir::new(&path)` filtered on nothing but
+/// `is_dir()` — so every file beneath it, at any depth, is brotli-compressed and embedded
+/// into the executable. Not copied into `Contents/Resources`, as was assumed: embedded in
+/// the binary itself, hashed into the signature, downloaded by every customer. MEASURED on
+/// a release build of `99d508b`: the binary was 35,278,784 bytes and `strings` found asset
+/// keys `/tests/shots-splash/material-v13.png` and 75 more inside it.
+///
+/// WHY IN build.rs AND NOT IN A `beforeBuildCommand`. Only the Tauri CLI runs
+/// `beforeBuildCommand`; a plain `cargo build` does not. That would leave the ordinary
+/// developer build pointing at a directory nothing had created, and `tauri-codegen`
+/// panics on a missing `frontendDist`. build.rs runs for both, before the proc-macro that
+/// reads the directory — so there is one staging path and it cannot be bypassed by
+/// choosing a different command.
+///
+/// WHY IT REFUSES RATHER THAN WARNS. A wrong icon is cosmetic, which is why `check_icons`
+/// only warns by default. Shipping 21 MB of test evidence to a customer is not cosmetic
+/// and there is no artwork to wait on, so every failure below is a panic.
+fn stage_frontend(conf_path: &Path, source: &Path) {
+    let dist = match frontend_dist(conf_path) {
+        Ok(d) => d,
+        Err(e) => panic!("\n\nrichos-tauri: {e}\n\n"),
+    };
+
+    let dist = Path::new(&dist);
+
+    // Pointing `frontendDist` back at the source tree is the one regression that would
+    // silently undo all of this, and it is a one-character edit away. Name it.
+    if same_tree(dist, source) {
+        panic!(
+            "\n\nrichos-tauri: tauri.conf.json sets frontendDist to {dist:?}, which IS the \
+             source tree {source:?}. Tauri embeds every file under frontendDist into the \
+             binary, and {source:?} carries {:?} — {} of committed test evidence that would \
+             then ship to every customer. Point frontendDist at a staged directory; build.rs \
+             fills it.\n\n",
+            UI_NOT_SHIPPED, "roughly 21 MB"
+        );
+    }
+
+    if let Err(e) = sync_tree(source, dist, true) {
+        panic!("\n\nrichos-tauri: could not stage {source:?} into {dist:?}: {e}\n\n");
+    }
+
+    // The staging is the guarantee, so it verifies itself rather than trusting its own
+    // recursion. An excluded name surviving into the shipped tree is a build failure.
+    for name in UI_NOT_SHIPPED {
+        let stowaway = dist.join(name);
+        if stowaway.exists() {
+            panic!(
+                "\n\nrichos-tauri: {stowaway:?} exists in the staged frontend after staging \
+                 excluded {name:?}. Everything under frontendDist is embedded in the binary \
+                 and signed with it. Refusing to build.\n\n"
+            );
+        }
+    }
+}
+
+/// Read `build.frontendDist` out of `tauri.conf.json`, relative to this crate's directory.
+///
+/// Read from Tauri's OWN config for the same reason `derive_requirements` does: the value
+/// this function returns has to be the value Tauri will walk, or the staging lands
+/// somewhere Tauri never looks and the check passes over a bundle nobody inspected.
+fn frontend_dist(conf_path: &Path) -> Result<String, String> {
+    let text = fs::read_to_string(conf_path)
+        .map_err(|e| format!("{} could not be read: {e}", conf_path.display()))?;
+    let conf: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("{} is not valid JSON: {e}", conf_path.display()))?;
+
+    match conf.get("build").and_then(|b| b.get("frontendDist")) {
+        Some(serde_json::Value::String(s)) => Ok(s.clone()),
+        Some(other) => Err(format!(
+            "{}: build.frontendDist is {other}, not a directory path. This build stages a \
+             directory; an array or a dev-server URL needs different handling and must not \
+             be silently accepted.",
+            conf_path.display()
+        )),
+        None => Err(format!(
+            "{}: build.frontendDist is missing — nothing tells Tauri what to embed.",
+            conf_path.display()
+        )),
+    }
+}
+
+/// Whether two paths name the same directory, resolving `..` and symlinks where they
+/// exist. A string compare would miss `../ui` against `../ui/`, and `./../ui`.
+fn same_tree(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        // `a` not existing yet is the normal first-build case and means it is not `b`,
+        // which does exist. Falling back to a lexical compare keeps this honest if
+        // neither resolves.
+        _ => a == b,
+    }
+}
+
+/// Mirror `source` into `dest`: copy what differs, delete what no longer belongs, and skip
+/// `UI_NOT_SHIPPED` at the top level.
+///
+/// Content-compared rather than copied wholesale so an unchanged build does not touch
+/// mtimes — `tauri-codegen`'s asset cache is keyed on them, and rewriting 2.6 MB every
+/// build would recompile the whole shell every build.
+fn sync_tree(source: &Path, dest: &Path, top: bool) -> std::io::Result<()> {
+    fs::create_dir_all(dest)?;
+
+    let mut keep: BTreeSet<std::ffi::OsString> = BTreeSet::new();
+
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let name = entry.file_name();
+
+        if top && UI_NOT_SHIPPED.iter().any(|x| name == std::ffi::OsStr::new(x)) {
+            continue;
+        }
+
+        let from = entry.path();
+        let to = dest.join(&name);
+        keep.insert(name);
+
+        if entry.file_type()?.is_dir() {
+            sync_tree(&from, &to, false)?;
+        } else {
+            let bytes = fs::read(&from)?;
+            // `!=` on the whole file rather than a length or mtime check: the files are
+            // small, and a same-size edit is exactly the change a cheaper test misses.
+            if fs::read(&to).ok().as_deref() != Some(bytes.as_slice()) {
+                fs::write(&to, &bytes)?;
+            }
+        }
+    }
+
+    // Deleting a file from `app/ui` must delete it from the shipped tree. Without this,
+    // the staged directory only ever grows, and a removed asset keeps shipping.
+    for entry in fs::read_dir(dest)? {
+        let entry = entry?;
+        if keep.contains(&entry.file_name()) {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            fs::remove_dir_all(entry.path())?;
+        } else {
+            fs::remove_file(entry.path())?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Windows `.ico` layers Tauri's icon guide specifies.
