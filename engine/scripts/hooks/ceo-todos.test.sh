@@ -885,6 +885,349 @@ for f in reference/ceo-todos/ceo-todos.example reference/ceo-todos/open-items.md
 done
 
 # ---------------------------------------------------------------------------
+# (p) THE DONE-CHECK — an item that can notice it is already finished
+# ---------------------------------------------------------------------------
+# THE FAILURE THIS CLOSES, 2026-08-31: the app icon was made and landed, and
+# item 2.6 of the real record went on asking the CEO to supply the artwork that
+# already existed. He found it himself. The guard was green throughout and was
+# not wrong — "supply the artwork" is perfectly well-formed while the artwork
+# exists. Form is not currency.
+#
+# The four cases the fix has to satisfy are the first four below, in order.
+
+DC_ITEM_SATISFIED='### 2.6 READY-FOR-CEO — Supply the app icon artwork
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 20 minutes
+- **Done:** a 1024x1024 PNG is handed over and the generator accepts it
+- **Unblocks:** the packaged app stops shipping the default Tauri icon
+- **Done-check:** `exists repo/docs/artwork.png`
+'
+
+# 1 — SATISFIED, still sitting in the CEO's section.
+R="$(mk_repo dcsatisfied)"
+printf 'the artwork, made and landed hours ago\n' > "$R/docs/artwork.png"
+write_record "$R" "$DC_ITEM_SATISFIED"
+run_guard "$R"
+if [ "$GRC" -eq 2 ] \
+   && printf '%s' "$GOUT" | grep -qF 'DONE-ALREADY-SATISFIED' \
+   && printf '%s' "$GOUT" | grep -qF 'item 2.6' \
+   && printf '%s' "$GOUT" | grep -qF 'repo/docs/artwork.png'; then
+    ok  "p1. THE 2026-08-31 FAILURE: an item whose Done condition already holds is REFUSED, by id"
+else
+    bad "p1. a satisfied Done condition in a CEO section should block, naming the item (rc=$GRC): $GOUT"
+fi
+
+# 2 — the same item removed. The only two answers the refusal offers are
+#     "close it" and "the check is wrong"; this is the first one.
+R="$(mk_repo dcremoved)"
+printf 'the artwork, made and landed hours ago\n' > "$R/docs/artwork.png"
+write_record "$R" '_Nothing here._'
+run_guard "$R"
+if [ "$GRC" -eq 0 ]; then
+    ok  "p2. ...and removing that item from the section is all it takes to proceed"
+else
+    bad "p2. the record without the finished item should pass (rc=$GRC): $GOUT"
+fi
+
+# 3 — UNAUTOMATABLE: silent, WITH A POSITIVE PROBE. This case is the one that
+#     rots quietest: the correct outcome is silence, and silence is also what a
+#     checker that never ran produces. So the assertion is not "it passed" — it
+#     is "it passed AND the census says the evaluator looked at it".
+R="$(mk_repo dcmanual)"
+write_record "$R" '### 2.1 READY-FOR-CEO — Verify the podcast reference transcript
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** every one of the 30 windows carries either OK or a written correction, handed back
+- **Unblocks:** the first computable word error rate, and with it decision 1.3
+- **Done-check:** `manual "he must read along to the audio; no file state distinguishes done from not-started"`
+'
+run_guard "$R"
+if [ "$GRC" -eq 0 ] \
+   && printf '%s' "$GOUT" | grep -qF 'manual' \
+   && printf '%s' "$GOUT" | grep -q 'Done-checks: [1-9][0-9]* evaluated'; then
+    ok  "p3. an unautomatable item is SILENT — and the census proves the silence is a decision, not a checker that never ran"
+else
+    bad "p3. a manual Done-check should pass and still be counted (rc=$GRC): $GOUT"
+fi
+
+# 3b — THE POSITIVE PROBE, PROVED POSITIVE. The same assertion must be capable
+#      of failing: a record whose only item declares nothing must NOT report an
+#      evaluation. Without this, case 3 would pass against a census hard-coded
+#      to say a comforting number.
+R="$(mk_repo dcnocensus)"
+write_record "$R" '### 2.1 READY-FOR-CEO — An item that declares no end state at all
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** somebody eventually notices this is finished
+- **Unblocks:** the measurement downstream of it
+'
+run_lint "$R"
+if [ "$LRC" -eq 0 ] \
+   && printf '%s' "$LOUT" | grep -q 'Done-checks: 0 evaluated' \
+   && printf '%s' "$LOUT" | grep -qF 'DONE-NOT-MACHINE-CHECKED' \
+   && printf '%s' "$LOUT" | grep -qF '2.1'; then
+    ok  "p4. ...and a record with no Done-checks reports ZERO evaluated and names every item that carries none"
+else
+    bad "p4. an unchecked record should report 0 evaluated and name the items (rc=$LRC): $LOUT"
+fi
+
+# 4 — BROKEN: a check that cannot run is LOUD, and specifically is never
+#     allowed to read as "not done yet". That collapse is the whole failure
+#     class: it turns a typo into a permanently green check.
+R="$(mk_repo dcbroken)"
+write_record "$R" '### 2.1 READY-FOR-CEO — Its check points at a page that was renamed
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** the ruling is written on the decisions page
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** `contains repo/docs/page-that-was-renamed.md "^RULED:"`
+'
+run_guard "$R"
+if [ "$GRC" -eq 2 ] \
+   && printf '%s' "$GOUT" | grep -qF 'DONE-CHECK-BROKEN' \
+   && printf '%s' "$GOUT" | grep -qF "not done yet"; then
+    ok  "p5. a Done-check that cannot be evaluated BLOCKS, and says in words that it is not 'not done yet'"
+else
+    bad "p5. an unevaluable Done-check should block loudly (rc=$GRC): $GOUT"
+fi
+
+# --- the four verbs, both answers each -------------------------------------
+dc_case() {
+    # dc_case <name> <done-check-expr> <expected: block|pass> <label>
+    local name="$1" expr="$2" want="$3" label="$4" repo
+    repo="$(mk_repo "$name")"
+    printf 'RULED: individual enrollment.\n' > "$repo/docs/decided.md"
+    printf 'Status: OPEN, nobody has ruled.\n' > "$repo/docs/undecided.md"
+    mkdir -p "$repo/docs/adirectory"
+    write_record "$repo" "### 2.1 READY-FOR-CEO — A verb under test
+
+- **Open:** \`repo/docs/prepared.md\`
+- **Time:** 30 minutes
+- **Done:** the end state described by the check beside this line
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** $expr
+"
+    run_guard "$repo"
+    if [ "$want" = "block" ]; then
+        [ "$GRC" -eq 2 ] && { ok "$label"; return; }
+        bad "$label — expected a block, got rc=$GRC: $GOUT"
+    else
+        [ "$GRC" -eq 0 ] && { ok "$label"; return; }
+        bad "$label — expected a pass, got rc=$GRC: $GOUT"
+    fi
+}
+
+dc_case dcexistsyes  '`exists repo/docs/decided.md`'                        block "p6. exists: the file is there, so the item is finished and is refused"
+dc_case dcexistsno   '`exists repo/docs/not-written-yet.md`'                pass  "p7. exists: the file is not there, so the item is correctly still open"
+dc_case dccontyes    '`contains repo/docs/decided.md "^RULED:"`'            block "p8. contains: the ruling is on the page, so the item is finished and is refused"
+dc_case dccontno     '`contains repo/docs/undecided.md "^RULED:"`'          pass  "p9. contains: the ruling is not on the page yet, so the item stays open"
+dc_case dclacksyes   '`lacks repo/docs/decided.md "OPEN"`'                  block "p10. lacks: the OPEN marker is gone, so the item is finished and is refused"
+dc_case dclacksno    '`lacks repo/docs/undecided.md "OPEN"`'                pass  "p11. lacks: the OPEN marker is still there, so the item stays open"
+
+# --- every way of writing it wrong is LOUD ---------------------------------
+dc_case dcnoverb     '`frobnicate repo/docs/decided.md`'                    block "p12. an unknown verb is refused, never ignored"
+dc_case dcrun        '`run "scripts/generate-app-icons.sh in.png"`'         block "p13. there is NO verb that runs a command, and asking for one is refused by name"
+dc_case dcnotick     'exists repo/docs/decided.md'                          block "p14. an expression that is not in one backticked span is refused"
+dc_case dctwotick    '`exists repo/docs/decided.md` and `exists repo/docs/undecided.md`' block "p15. two backticked spans in one check are refused — one item, one check"
+dc_case dcbadre      '`contains repo/docs/decided.md "([unclosed"`'         block "p16. a pattern that is not a valid regular expression is refused, not silently unmatched"
+dc_case dcabs        '`exists /etc/hosts`'                                  block "p17. an absolute path is refused; it would be wrong on any other machine"
+dc_case dcdotdot     '`exists repo/../../../etc/hosts`'                     block "p18. a path that walks out of its declared root is refused"
+dc_case dcbareroot   '`exists repo`'                                        block "p19. a bare repository root is not a thing to check"
+dc_case dcunkpfx     '`exists elsewhere/docs/decided.md`'                   block "p20. an undeclared artifact prefix is refused, naming what is declared"
+dc_case dcbaremanual '`manual`'                                             block "p21. a bare \`manual\` is refused: it must say WHY, or it is a way to switch the check off"
+dc_case dcdir        '`contains repo/docs/adirectory "x"`'                  block "p22. a directory is not a file this check can read"
+dc_case dcargs       '`contains repo/docs/decided.md "a" "b"`'              block "p23. contains takes exactly one pattern"
+
+# The refusal for `run` has to explain itself, or the next person writes it again.
+R="$(mk_repo dcrunwords)"
+write_record "$R" '### 2.1 READY-FOR-CEO — A check that wants to run a program
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** the generator prints OK and exits 0
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** `run "scripts/generate-app-icons.sh in.png"`
+'
+run_guard "$R"
+if printf '%s' "$GOUT" | grep -qF 'no verb that runs a command'; then
+    ok  "p24. ...and it says WHY there is no such verb, so the next person does not rediscover it"
+else
+    bad "p24. the run refusal should explain itself: $GOUT"
+fi
+
+# --- an absent root is SKIPPED and NAMED, exactly as an artifact path is ----
+R="$(mk_repo dcabsentroot)"
+write_record "$R" '### 2.1 READY-FOR-CEO — Its end state lives in a repository nobody cloned
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** the protocol is filled in on a machine we do not have
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** `exists nowhere/docs/protocol.md`
+'
+run_guard "$R"
+if [ "$GRC" -eq 0 ]; then
+    run_lint "$R"
+    if printf '%s' "$LOUT" | grep -qF 'not on this machine' \
+       && printf '%s' "$LOUT" | grep -q 'Done-checks: 1 evaluated'; then
+        ok  "p25. a Done-check under a root nobody cloned is SKIPPED and NAMED, never a block and never invisible"
+    else
+        bad "p25. an absent-root Done-check should be named in the verdict: $LOUT"
+    fi
+else
+    bad "p25. an absent-root Done-check must not block (rc=$GRC): $GOUT"
+fi
+
+# --- the near-miss key, which is how this mechanism would actually die ------
+R="$(mk_repo dctypo)"
+printf 'the artwork, made and landed hours ago\n' > "$R/docs/artwork.png"
+write_record "$R" '### 2.6 READY-FOR-CEO — Supply the app icon artwork
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 20 minutes
+- **Done:** a 1024x1024 PNG is handed over and the generator accepts it
+- **Unblocks:** the packaged app stops shipping the default Tauri icon
+- **Done-Check:** `exists repo/docs/artwork.png`
+'
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'UNKNOWN-FIELD'; then
+    ok  "p26. a near-miss key ('Done-Check') is REFUSED — silently ignoring it would switch the check off under a green verdict"
+else
+    bad "p26. an unknown item field should be refused (rc=$GRC): $GOUT"
+fi
+
+# --- DONE_CHECK_REQUIRED — the owner's decision, and a visible one ---------
+DECL_REQUIRED='TODO_RECORD="wiki/open-items.md"
+TODO_VIEW="CEO-TODOs.md"
+ROOT_README="README.md"
+CEO_SECTIONS="1 2"
+PREPARER_SECTION="3"
+ARTIFACT_ROOTS="repo=."
+DONE_CHECK_REQUIRED="1"'
+
+R="$(mk_repo dcrequired "$DECL_REQUIRED")"
+write_record "$R" '### 2.1 READY-FOR-CEO — An item that declares no end state at all
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** somebody eventually notices this is finished
+- **Unblocks:** the measurement downstream of it
+'
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'DONE-CHECK-MISSING'; then
+    ok  "p27. DONE_CHECK_REQUIRED=1 turns the notice into a refusal"
+else
+    bad "p27. with DONE_CHECK_REQUIRED=1 a missing check should block (rc=$GRC): $GOUT"
+fi
+
+R="$(mk_repo dcnotrequired)"
+write_record "$R" '### 2.1 READY-FOR-CEO — An item that declares no end state at all
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** somebody eventually notices this is finished
+- **Unblocks:** the measurement downstream of it
+'
+run_guard "$R"
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -qF 'DONE-NOT-MACHINE-CHECKED'; then
+    ok  "p28. ...and by DEFAULT it is a notice on every verdict, so this shipped without wedging any existing record"
+else
+    bad "p28. the default must not block, and must still say so (rc=$GRC): $GOUT"
+fi
+
+R="$(mk_repo dcbadflag "$(printf '%s\n' "$DECL_REQUIRED" | sed 's/DONE_CHECK_REQUIRED="1"/DONE_CHECK_REQUIRED="sometimes"/')")"
+write_record "$R" '### 2.1 READY-FOR-CEO — Anything at all
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** a ruling recorded on the decisions page
+- **Unblocks:** the measurement downstream of it
+'
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'DONE_CHECK_REQUIRED'; then
+    ok  "p29. an unreadable DONE_CHECK_REQUIRED is a BROKEN declaration, never a quiet 'off'"
+else
+    bad "p29. a bad DONE_CHECK_REQUIRED should be refused (rc=$GRC): $GOUT"
+fi
+
+# --- a pattern that will not finish is refused, not waited on --------------
+# A guard that hangs blocks every commit in the repository until somebody kills
+# it, and then somebody removes the guard. This case costs the suite the bound
+# itself (a few seconds) and is worth it.
+R="$(mk_repo dctimeout)"
+python3 -c "open('$R/docs/pathological.md','w').write('a'*40 + 'c')"
+write_record "$R" '### 2.1 READY-FOR-CEO — Its check backtracks forever
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** the page carries the marker
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** `contains repo/docs/pathological.md "^(a+)+b$"`
+'
+run_guard "$R"
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -qF 'did not finish'; then
+    ok  "p30. a pattern that will not finish is REFUSED within a stated bound, not waited on forever"
+else
+    bad "p30. a pathological pattern should be bounded and refused (rc=$GRC): $GOUT"
+fi
+
+# --- the CEO's page says which items can close themselves ------------------
+R="$(mk_repo dcrender)"
+printf 'Status: OPEN, nobody has ruled.\n' > "$R/docs/undecided.md"
+write_record "$R" '### 2.1 READY-FOR-CEO — One that closes itself
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** the ruling is written on the decisions page
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** `lacks repo/docs/undecided.md "OPEN"`
+
+### 2.2 READY-FOR-CEO — One that nobody can check for him
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** he has read along to the audio and marked every window
+- **Unblocks:** the measurement downstream of it
+- **Done-check:** `manual "he must read along to the audio; no file state distinguishes done from not-started"`
+'
+VIEW="$(cat "$R/CEO-TODOs.md" 2>/dev/null || true)"
+if printf '%s' "$VIEW" | grep -qF 'Closes itself when:' \
+   && printf '%s' "$VIEW" | grep -qF 'Nobody can check this one for you:'; then
+    ok  "p31. the CEO's own page distinguishes an item that will close itself from one that will not"
+else
+    bad "p31. the view should gloss both kinds of check: $VIEW"
+fi
+
+# BACKWARD COMPATIBILITY, and it is load-bearing rather than tidy: every
+# repository that already has a record has a committed view, and the commit
+# guard refuses a view that is not byte-current. If this change had altered the
+# rendering of an item that carries no Done-check, landing the engine would have
+# refused the next commit in every one of those repositories.
+R="$(mk_repo dcrendercompat)"
+write_record "$R" '### 2.1 READY-FOR-CEO — An item written before any of this existed
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 30 minutes
+- **Done:** the ruling is written on the decisions page
+- **Unblocks:** the measurement downstream of it
+'
+if ! grep -qF 'Closes itself' "$R/CEO-TODOs.md" \
+   && ! grep -qF 'Nobody can check' "$R/CEO-TODOs.md"; then
+    run_guard "$R"
+    if [ "$GRC" -eq 0 ]; then
+        ok  "p32. an item with no Done-check renders exactly as before, so this engine does not wedge an existing record"
+    else
+        bad "p32. a pre-existing record must still pass (rc=$GRC): $GOUT"
+    fi
+else
+    bad "p32. the renderer must add nothing for an item that carries no Done-check"
+fi
+
+# ---------------------------------------------------------------------------
 # (k) FAIL-CLOSED conventions
 # ---------------------------------------------------------------------------
 FAKEBIN="$(mktemp -d -t cqtest-bin.XXXXXX)"
