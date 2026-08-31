@@ -96,15 +96,21 @@ ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
 # --- NOTICE CHANNEL --------------------------------------------------------
 # A Stop hook's stand-down and cannot-run notices go to the OPERATOR, never to
-# stderr. The measurement behind that is in scripts/lib/stop-hook-notice.sh.
+# stderr. The measurement behind that, and the argument for announcing on state
+# change rather than every turn, are in scripts/lib/stop-hook-notice.sh. This
+# block is byte-identical in every Stop hook and stop-hook-visibility.test.sh
+# asserts it, for the reason Layer R asserts the same of the root bootstrap: a
+# divergent copy is one hook disagreeing with its siblings about how it tells
+# you it has stopped working.
 _SHN_LIB="$SCRIPT_DIR/../lib/stop-hook-notice.sh"
 if [ -f "$_SHN_LIB" ]; then
     # shellcheck source=../lib/stop-hook-notice.sh
     . "$_SHN_LIB"
 else
-    # The helper is what makes these notices visible, so its absence must not
-    # make them invisible. Degrading toward noise is recoverable by an operator
-    # who can read it; degrading toward silence rebuilds the defect.
+    # The helper is the thing that makes these notices visible, so its absence
+    # must not make them invisible. The hook then announces EVERY turn,
+    # undeduplicated, and says why. Degrading toward noise is recoverable by an
+    # operator who can read it; degrading toward silence rebuilds the defect.
     stop_notice_init() { :; }
     stop_notice_normal() { :; }
     stop_notice_abnormal() {

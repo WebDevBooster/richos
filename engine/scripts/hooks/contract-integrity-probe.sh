@@ -332,6 +332,7 @@ run_layer_R() {
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
     notice-unstarted-rows \
     notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
+    notice-unasked-deferral \
     guard-idle-land"
 
     # DERIVED, for the same reason BR2's is: a typed count in a green tick is a
@@ -546,6 +547,7 @@ notice-hook-staleness.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
+notice-unasked-deferral.sh|Stop
 guard-idle-land.sh|Stop"
 
     # DERIVED, never hand-maintained. A literal count in the PASS text is a

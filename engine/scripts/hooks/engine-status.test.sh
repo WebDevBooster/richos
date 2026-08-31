@@ -276,7 +276,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # very tripwire exists to catch, hiding inside the tripwire. The number is
 # derived from REGISTERED_N now; the THRESHOLD stays typed, because being made
 # to look is the whole point of it.
-if [ "$REGISTERED_N" -eq 38 ]; then
+if [ "$REGISTERED_N" -eq 39 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
