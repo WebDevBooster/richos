@@ -72,10 +72,15 @@ CONSERVATISM RULES (all of these make the gate quieter, never louder)
 
 WHAT IT CANNOT SEE
   * a nameless action claim -- "dispatching it now", with no agent named --
-    contains no identifier at all, so this gate passes it. A sentence of exactly
-    that shape is the failure that motivated the work, and only the reporting
-    layer sees it. Naming the agent, which the engine's own naming doctrine
-    already requires, is what moves it into the blocking layer.
+    contains no identifier at all, so this gate passes it. Requiring that such a
+    message name nobody was PROPOSED as a gate and MEASURED at 10.3%: 29 of the
+    30 prose hits in 3,532 real messages name nobody, so the refinement removes
+    one hit in thirty. See nameless_dispatch(). Reported, never enforced.
+  * a bare-role claim about a role that HAS been dispatched before -- "Zach is
+    building it now" when a zach agent ran earlier in the session for other
+    work. That is the 2026-08-31 failure exactly, and the monotonic test passes
+    it. Only live_roles() can see it, liveness is not monotonic, and so it
+    reports. Stated here rather than discovered later.
   * a claim that is false about the WORLD but true about identifiers ("the
     tests pass" when they do not)
   * anything after the turn ends. This is a point-in-time check: it proves the
@@ -106,6 +111,22 @@ AGENT_RE = re.compile(
     r"(?![A-Za-z0-9_-])"
 )
 
+# A BARE ROLE, USED AS THE SUBJECT OF A PRESENT-PROGRESSIVE VERB.
+#
+#     "Zach is building it now"        "Dean is writing both hires"
+#
+# THIS IS THE SHAPE OF THE FAILURE, and it is a far narrower trigger than the
+# prose signal's `dispatching|spawning|launching`. Measured over 3,532 real
+# final messages it fires 103 times and EVERY ONE of the 103 is a genuine
+# reference to a teammate — no ordinary-noun use of "art", "mark", "will" or
+# "ray" enters, because the role must be CAPITALIZED and must be the subject of
+# a progressive verb. As an extractor it is 103/103.
+#
+# The role list is DERIVED, never typed: agent definitions on disk, unioned
+# with the session roster's own agentType values. A role nobody has defined is
+# not a role, and an empty set makes the whole check inert.
+PROGRESSIVE = r"(?:is|'s)\s+(?:now\s+|already\s+|still\s+|currently\s+|just\s+)?[a-z]+ing\b"
+
 BACKTICK_RE = re.compile(r"`([^`\n]{1,300})`")
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 ABS_PATH_RE = re.compile(
@@ -124,6 +145,42 @@ def _backticked(text):
 
 def agent_names(text):
     return sorted({m.group(0) for m in AGENT_RE.finditer(text)})[:MAX_TOKENS]
+
+
+def roster_roles(entity_root, teams_dir, session_id):
+    """Every role this installation actually has. Derived from two surfaces."""
+    roles = set()
+    d = os.path.join(entity_root, ".claude", "agents")
+    try:
+        for f in os.listdir(d):
+            if f.endswith(".md"):
+                stem = f[:-3]
+                if re.fullmatch(r"[a-z][a-z0-9]{1,15}", stem):
+                    roles.add(stem)
+    except OSError:
+        pass
+    for m in _roster_members(teams_dir, session_id):
+        t = str(m.get("agentType") or "")
+        if re.fullmatch(r"[a-z][a-z0-9]{1,15}", t):
+            roles.add(t)
+    roles.discard("team")
+    return roles
+
+
+def role_claims(text, roles):
+    """[(role, span)] -- bare-role in-flight claims in this message."""
+    if not roles:
+        return []
+    alt = "|".join(sorted(re.escape(r.capitalize()) for r in roles))
+    rx = re.compile(r"(?<![A-Za-z0-9_-])(%s)(?![A-Za-z0-9_-])\s+%s" % (alt, PROGRESSIVE))
+    out, seen = [], set()
+    for m in rx.finditer(text):
+        role = m.group(1).lower()
+        if role in seen:
+            continue
+        seen.add(role)
+        out.append((role, m.group(0)))
+    return out[:MAX_TOKENS]
 
 
 def sha_claims(text):
@@ -215,6 +272,54 @@ def name_history(teams_dir):
                 pass
     hist.discard("team-lead")
     return hist
+
+
+TERMINAL_STATUS = {
+    "shutdown", "shutdown_request", "shutdown_approved", "completed",
+    "complete", "done", "terminated", "dead", "exited", "killed", "removed",
+    "gone",
+}
+
+
+def _roster_members(teams_dir, session_id):
+    if not session_id:
+        return []
+    p = os.path.join(teams_dir, "session-" + session_id[:8], "config.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f).get("members") or []
+    except Exception:
+        return []
+
+
+def live_roles(teams_dir, session_id):
+    """Roles with a teammate running RIGHT NOW, or None if unknowable.
+
+    NOT MONOTONIC, and that is why nothing blocks on it. A teammate completes,
+    and the set shrinks; the existing agent-name check blocks precisely because
+    its ground truth only ever grows. This answers the question "is building it
+    NOW" actually asks, and it is REPORTED rather than enforced until its false
+    -positive rate has been measured on real traffic -- which it cannot be
+    today, because past rosters are not retained.
+    """
+    members = _roster_members(teams_dir, session_id)
+    if not members:
+        return None
+    live = set()
+    for m in members:
+        name = str(m.get("name") or "")
+        role = str(m.get("agentType") or "") or name.split("-")[0]
+        if not role or role == "team-lead" or name == "team-lead":
+            continue
+        cwd = str(m.get("cwd") or "")
+        if "/.claude/worktrees/" in cwd:
+            if os.path.isdir(cwd):
+                live.add(role)
+            continue
+        if str(m.get("status") or "").lower() in TERMINAL_STATUS:
+            continue
+        live.add(role)
+    return live
 
 
 def repo_roots(entity_root, extra):
@@ -393,6 +498,27 @@ def prose_signal(message, turn_tools):
     return None
 
 
+def nameless_dispatch(message, prose):
+    """The prose signal fired and the message named no agent identifier.
+
+    MEASURED AND REJECTED AS A GATE. Over 4,134 real turns (3,532 with a final
+    message) the prose signal fired 30 times and 29 of those named nobody, so
+    this refinement removes ONE HIT IN THIRTY -- it is not a filter. Hand-
+    adjudicating the 29: 3 true, 1 borderline, 25 false, i.e. 10.3% precision
+    against the 17% it was proposed to replace.
+
+    The reason is structural rather than tunable: the prose signal's false
+    positives are negations ("I'm not dispatching anything"), quotations of
+    this very header, past tense ("spawning the duplicate at all") and
+    hypotheticals -- and NONE OF THOSE NAME AN AGENT EITHER. "Names nobody" and
+    "is a false alarm" are very nearly the same set.
+
+    Kept as a report, with the number in this docstring, so nobody promotes it
+    later without re-measuring.
+    """
+    return bool(prose and not AGENT_RE.search(message))
+
+
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
@@ -424,6 +550,8 @@ def main():
     names = agent_names(message)
     shas = sha_claims(message)
     paths = path_claims(message)
+    roles = roster_roles(entity_root, teams_dir, session_id)
+    rclaims = role_claims(message, roles)
 
     # --- BLOCKING: agent names ---------------------------------------------
     # Inert unless THIS session's team directory exists. Absent ground truth
@@ -432,11 +560,39 @@ def main():
     names_evaluable = bool(session_id) and os.path.isdir(
         os.path.join(teams_dir, "session-" + session_id[:8])
     )
+    hist = name_history(teams_dir) if names_evaluable else set()
     if names_evaluable and names:
-        hist = name_history(teams_dir)
         for n in names:
             if n not in hist and n not in blob:
                 unresolved_names.append(n)
+
+    # --- BLOCKING: a bare-role in-flight claim about a role NEVER DISPATCHED -
+    # Same ground truth, same monotonicity, same zero-false-positive argument
+    # as the name check above: the ledger only ever grows, so "no agent of this
+    # role has ever been spawned in this session" cannot become false later.
+    #
+    # It is deliberately the NARROW half. Over 3,532 real messages it fires
+    # ZERO times -- every bare-role claim in the corpus had a prior spawn of
+    # that role -- so it ships costing nothing and guarding the case where a
+    # role is named that was never dispatched at all. It does NOT catch the
+    # 2026-08-31 failure, and that is stated rather than glossed: `Zach is
+    # building it now` was false, but `zach-opus-uici1` had been spawned in
+    # that same session hours earlier, so the monotonic test passes it. The
+    # test that catches it is liveness, which is not monotonic and therefore
+    # reports instead.
+    #
+    # Suppressed entirely when the message names an identifier (then the name
+    # check above is the authority) or when this turn actually called Agent.
+    undispatched_roles = []
+    stale_roles = []
+    if names_evaluable and rclaims and not names and "Agent" not in turn_tools:
+        live = live_roles(teams_dir, session_id)
+        for role, span in rclaims:
+            ever = any(n.startswith(role + "-") for n in hist) or (role + "-") in blob
+            if not ever:
+                undispatched_roles.append((role, span))
+            elif live is not None and role not in live:
+                stale_roles.append((role, span))
 
     # --- BLOCKING: commit SHAs ---------------------------------------------
     unresolved_shas = []
@@ -460,6 +616,7 @@ def main():
             continue
         unresolved_paths.append(p)
     prose = prose_signal(message, turn_tools)
+    nameless = nameless_dispatch(message, prose)
 
     # --- observation record -------------------------------------------------
     # Written for EVERY turn, blocked or not, so the reporting layer is a record
@@ -476,7 +633,12 @@ def main():
         },
         "names_evaluable": names_evaluable,
         "prose_signal": prose,
-        "verdict": "block" if (unresolved_names or unresolved_shas) else "pass",
+        "nameless_dispatch": nameless,
+        "role_claims": [r for r, _ in rclaims],
+        "undispatched_roles": [r for r, _ in undispatched_roles],
+        "stale_roles": [r for r, _ in stale_roles],
+        "verdict": "block" if (unresolved_names or unresolved_shas
+                               or undispatched_roles) else "pass",
     }
     try:
         state = os.path.join(entity_root, ".claude", "state")
@@ -487,15 +649,21 @@ def main():
         pass  # the log is a convenience; losing it never changes the verdict
 
     # --- verdict ------------------------------------------------------------
-    if not (unresolved_names or unresolved_shas):
-        if unresolved_paths or prose:
+    if not (unresolved_names or unresolved_shas or undispatched_roles):
+        if unresolved_paths or prose or stale_roles:
             lines = ["=== claim check: PASSED, with observations (not blocking) ==="]
             for p in unresolved_paths:
                 lines.append("  path cited but unresolved and ungrounded: %s" % p)
+            for role, span in stale_roles:
+                lines.append("  in-flight claim about a teammate that is NOT currently running:")
+                lines.append("    \"%s\" -- no live %s in this session's roster." % (span, role))
+                lines.append("    Name the agent (%s-<model>-<id>) or put the sentence in the past tense." % role)
             if prose:
                 lines.append("  in-flight dispatch claim with no Agent call this turn:")
                 lines.append("    %s" % prose)
                 lines.append("  (this signal measures 17% precision -- it is logged, never enforced)")
+                if nameless:
+                    lines.append("  ...and it named no agent identifier (10.3% precision -- also never enforced)")
             lines.append("  record: .claude/state/claim-checks.jsonl")
             sys.stderr.write("\n".join(lines) + "\n")
         return 0
@@ -521,6 +689,20 @@ def main():
         out.append("  Verify with `git cat-file -e <sha>` and cite the real one, or")
         out.append("  drop the citation. An unverifiable SHA in a report makes every")
         out.append("  other SHA in the report worth re-checking.")
+    if undispatched_roles:
+        out.append("")
+        out.append("  You said a teammate is working, and named a ROLE rather than an agent:")
+        for role, span in undispatched_roles:
+            out.append("      \"%s\"" % span)
+        out.append("")
+        out.append("  No agent of that role has been spawned in this session at all, so")
+        out.append("  there is nobody the sentence could be about. The ledger only grows")
+        out.append("  and only a real Agent call writes to it, so this cannot be a stale")
+        out.append("  reading.")
+        out.append("")
+        out.append("  Make the dispatch now, or name the agent in the checkable form")
+        out.append("  (<role>-<model>-<identifier>) so the claim resolves against the")
+        out.append("  roster instead of against a word.")
     out.append("")
     out.append("  Fix the reply and finish the turn. Do not weaken or unwire this hook.")
     out.append("(hook: scripts/hooks/guard-unresolved-claims.sh)")
