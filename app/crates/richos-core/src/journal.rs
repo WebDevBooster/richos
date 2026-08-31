@@ -1255,7 +1255,7 @@ mod tests {
         assert_eq!(j.read_thread("thr_a").len(), 3, "append-only: three lines on disk (G6)");
         let rows = j.project_thread("thr_a");
         assert_eq!(rows.len(), 1, "one row after the merge (G2)");
-        assert_eq!(rows[0].title, "Bash");
+        assert_eq!(rows[0].title, "wc -l util.rs");
         assert_eq!(rows[0].status, Some(ToolStatus::Completed));
         assert_eq!(rows[0].summary.as_deref(), Some("18 util.rs"));
         std::fs::remove_dir_all(&root).ok();

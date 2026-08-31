@@ -430,14 +430,33 @@ impl MachineryRecord {
                     match block.get("type").and_then(|v| v.as_str()).unwrap_or("") {
                         // The arguments, complete. Merges into the row opened by the
                         // `content_block_start` above on the same `id` (§1.4 G2).
+                        //
+                        // **THE TITLE IS THE HUMAN LINE HERE, NOT THE TOOL NAME, AND THE
+                        // MERGE IS WHY.** `merge_into` keeps the LAST payload, and the last
+                        // frame of a tool call is its `tool_result` — which carries the
+                        // outcome and nothing about what was asked. So if the command lived
+                        // only in this frame's payload it would be gone from the projected
+                        // row, and the technical view would show `Bash` / `Host prod` with
+                        // no command between them. The title is where it survives, exactly
+                        // as ACP's `tool_call_update.title` carried it.
+                        //
+                        // Falls back to the tool NAME when the input has no summarizable
+                        // field, so an unrecognized tool still names itself rather than
+                        // going blank. Classification is unaffected: `timeline::classify`
+                        // reads `name` off the payload, never the title.
                         "tool_use" => {
                             let input = block.get("input").unwrap_or(&Value::Null);
+                            let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("");
                             push(
                                 MachineryKind::ToolCall,
                                 block.get("id").and_then(|v| v.as_str()).map(str::to_string),
                                 None,
-                                block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                tool_input_summary(input),
+                                tool_input_summary(input).unwrap_or_else(|| name.to_string()),
+                                // NOT a summary. The summary slot belongs to the OUTCOME,
+                                // which arrives on the `tool_result`; filling it here with
+                                // the arguments would put the request where the result goes
+                                // for every tool that never returns one.
+                                None,
                                 input_locations(input),
                                 block,
                             );
@@ -1353,7 +1372,11 @@ mod tests {
         let rows = project(recs);
         assert_eq!(rows.len(), 1, "four wire frames, ONE row — never a second row (G2)");
         let row = &rows[0];
-        assert_eq!(row.title, "Write", "a `tool_result` carries no name and must not blank it");
+        assert_eq!(
+            row.title, "/private/tmp/claude-501/rust-probe-out.txt",
+            "the human line from the ARGUMENTS frame wins over the open frame's tool name — \
+             and survives the merge, which keeps the last payload and would otherwise lose it"
+        );
         assert_eq!(row.status, Some(ToolStatus::Completed));
         assert_eq!(
             row.summary.as_deref(),
@@ -1376,7 +1399,8 @@ mod tests {
         let rows = project(recs);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, Some(ToolStatus::Pending));
-        assert_eq!(rows[0].summary.as_deref(), Some("/private/tmp/claude-501/rust-probe-out.txt"));
+        assert_eq!(rows[0].title, "/private/tmp/claude-501/rust-probe-out.txt");
+        assert_eq!(rows[0].summary, None, "the summary slot belongs to the outcome, which has not arrived");
     }
 
     #[test]
@@ -1496,7 +1520,7 @@ mod tests {
         assert_eq!(recs.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![5, 6]);
         assert_eq!(recs[0].kind, MachineryKind::Thought);
         assert_eq!(recs[1].kind, MachineryKind::ToolCall);
-        assert_eq!(recs[1].summary.as_deref(), Some("ls"));
+        assert_eq!(recs[1].title, "ls");
     }
 
     #[test]

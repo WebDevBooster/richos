@@ -742,7 +742,9 @@ impl LiveTurn {
             // — the ordinary activity row, exactly as before. A key that has ALREADY been
             // emitted as a worker never falls back here: a row must not change kind
             // backwards because one read of the stream came up short.
-            None if !self.emitted_workers.contains_key(&key) => {
+            None if !self.emitted_workers.contains_key(&key)
+                && !self.awaiting_delegation_identity(&key) =>
+            {
                 if let Some(event) = self.activity_upsert(&key) {
                     out.push(event);
                 }
@@ -751,6 +753,43 @@ impl LiveTurn {
         }
         out.extend(self.refresh_workers(Some(&key), &rows));
         out
+    }
+
+    /// Whether this row is a delegated-work tool call whose identity is not knowable YET.
+    ///
+    /// **This exists because the native wire moved the identity witness one frame later, and
+    /// without it the CEO briefly sees a delegation drawn as a generic activity.** On ACP the
+    /// tool name and the harness's async-launch acknowledgement rode on ONE
+    /// `tool_call_update`, so the first record for a delegated call was already a worker. On
+    /// this wire the name is on the OPENING frame and the acknowledgement on the closing
+    /// `tool_result`, so between them there is a record that classifies to
+    /// `ActivityType::Other` and renders, CEO-visible, as the word *"Worked"* —
+    /// `timeline.rs`'s own comment calls that *"not a thing Rich did"*.
+    ///
+    /// **Bounded, and it never drops anything.** The hold ends the moment EITHER the identity
+    /// resolves (the row becomes a worker row) OR the row reaches a terminal status (it was
+    /// a synchronous Task after all, and becomes an ordinary activity row). Only the LIVE
+    /// family is deferred: the record is on `rich://machinery` throughout, it is journaled,
+    /// and `Timeline::project_with_workers` resolves the same two-pass witness on reload.
+    ///
+    /// **The residual, stated rather than hidden:** a SYNCHRONOUS `Task` that runs for a long
+    /// time shows no live activity row until it returns, because until it returns RichOS
+    /// genuinely does not know whether it delegated. Announcing "Worked" in the meantime
+    /// would be a guess, and §22 forbids the guess more strongly than it minds the delay.
+    fn awaiting_delegation_identity(&self, key: &str) -> bool {
+        let Some(row) = self.merged.get(key) else {
+            return false;
+        };
+        let Some(id) = row.tool_call_id.as_ref() else {
+            return false;
+        };
+        if self.agent_ids.contains_key(id) {
+            return false;
+        }
+        if row.status.as_ref().map(|s| s.is_terminal()).unwrap_or(false) {
+            return false;
+        }
+        matches!(self.tool_names.get(id).map(String::as_str), Some("Task") | Some("Agent"))
     }
 
     /// The ordinary activity row for one merge key.

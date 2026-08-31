@@ -1,14 +1,17 @@
 //! Machinery routing + retention, end to end through the spine.
 //!
 //! Built to `docs/plans/richos-techy-mode-2026-08-26.md` Phase 1 (§5) and verified against
-//! the emission set MEASURED on 2026-08-28
-//! (`docs/verification/acp-emission-probe-2026-08-28.md`). Every ACP payload below is a
-//! verbatim shape from that artifact — `Terminal` placeholder titles, empty `rawInput`,
-//! status-less middle updates and all — so these tests fail if the normalization stops
-//! matching the wire, not merely if it stops matching my opinion of the wire.
+//! the frames MEASURED on the native `claude` wire
+//! (`docs/verification/native-claude-stream-json-2026-08-31/raw/run9-rust-driven.jsonl` and
+//! `.../native-claude-tool-status-2026-08-31/raw/run13-longtool-bash-ticking.jsonl`).
+//! **Ported from the ACP wire when the adapter was deleted (`wiki/ceo-decisions.md` §16)** —
+//! same tests, same invariants, new vocabulary. Every payload below is a verbatim shape from
+//! those artifacts — an empty `input` on the open frame, a name-less `tool_result`, a
+//! heartbeat keyed on `parent_tool_use_id` and all — so these tests fail if the
+//! normalization stops matching the wire, not merely if it stops matching my opinion of it.
 //!
 //! No live Claude and no network: the lease is a mock that replays recorded wire shapes.
-//! The real-adapter proof is `examples/machinery_roundtrip.rs`.
+//! The real-binary proof is `examples/machinery_roundtrip.rs`.
 
 use richos_core::cognition::{Cognition, CognitionError, TurnItem};
 use richos_core::journal::MachineryJournal;
@@ -39,46 +42,58 @@ fn tmp_dir(tag: &str) -> std::path::PathBuf {
     d
 }
 
-/// One turn of REAL recorded traffic: "text, a whole tool-call lifecycle, more text",
-/// which is precisely the interleaving §1.4 G1 exists to make reconstructible.
+/// One turn of REAL recorded traffic: "text, a whole tool-call lifecycle, more text", which
+/// is precisely the interleaving §1.4 G1 exists to make reconstructible.
+///
+/// SIX machinery frames for one tool call where ACP had four, because the native wire opens
+/// the row on the STREAM before the arguments exist and closes it with a separate
+/// `tool_result` — and adds a heartbeat ACP had no equivalent for at all.
 fn recorded_turn() -> Vec<Item> {
     vec![
         Item::Text("Let me check.".into()),
-        // run1 n=11 — the OPEN event: placeholder title, empty rawInput.
-        Item::Update(json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_A",
-                            "sessionUpdate":"tool_call","rawInput":{},"status":"pending",
-                            "title":"Terminal","kind":"execute","content":[]})),
-        // run1 n=12 — arguments and the real title arrive.
-        Item::Update(json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update",
-                            "rawInput":{"command":"cat engine/VERSION"},
-                            "title":"cat engine/VERSION","kind":"execute"})),
-        // run1 n=15 — NO status, and a _meta toolName that must not overwrite the title.
-        Item::Update(json!({"_meta":{"claudeCode":{"toolResponse":{"stdout":"1.0.0"},"toolName":"Bash"}},
-                            "toolCallId":"toolu_A","sessionUpdate":"tool_call_update"})),
-        // run1 n=20 — the permission request, auto-approved.
-        Item::Permission(json!({"sessionId":"sess-1",
-            "toolCall":{"toolCallId":"toolu_A","title":"cat engine/VERSION","kind":"execute"},
-            "options":[{"kind":"reject_once","optionId":"reject"},{"kind":"allow_once","optionId":"allow"}]})),
-        // run1 n=16 — terminal.
-        Item::Update(json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update",
-                            "status":"completed","rawOutput":"1.0.0"})),
-        // run1 n=8 — Phase-2 kind: retained as Unknown, never dropped.
-        Item::Update(json!({"sessionUpdate":"usage_update","used":30477,"size":1000000})),
-        // §1.2's ONE deliberate drop.
-        Item::Update(json!({"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"echoed prompt"}})),
+        // run9:5 — the OPEN frame: the real tool name, `input: {}`. Deviation 2.
+        Item::Frame(json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+            "content_block":{"type":"tool_use","id":"toolu_A","name":"Bash","input":{},
+                             "caller":{"type":"direct"}}}})),
+        // run9:15 — the complete arguments, on the whole-message frame. NO status: on this
+        // wire status is a position, not a field (deviation 3), so this must not blank one.
+        Item::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"toolu_A","name":"Bash",
+             "input":{"command":"cat engine/VERSION"}}]}})),
+        // run9:17 — the permission request, auto-approved by `native::decide_permission`.
+        Item::Permission(json!({"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash",
+            "input":{"command":"cat engine/VERSION"},"description":"cat engine/VERSION",
+            "decision_reason":"Path is outside allowed working directories",
+            "decision_reason_type":"workingDir","tool_use_id":"toolu_A"})),
+        // run13:22 — the 30s heartbeat, keyed on `parent_tool_use_id` (deviation 1). This
+        // is the frame ACP had NO equivalent for: `in_progress` never once appeared there.
+        Item::Frame(json!({"type":"tool_progress","tool_use_id":"toolu_A-heartbeat-0",
+            "tool_name":"Bash","parent_tool_use_id":"toolu_A","elapsed_time_seconds":30,
+            "heartbeat":true})),
+        // run9:18 — terminal. Carries the outcome and NO tool name.
+        Item::Frame(json!({"type":"user","message":{"role":"user","content":[
+            {"tool_use_id":"toolu_A","type":"tool_result","content":"1.0.0"}]}})),
+        // run9:19 — untyped vendor frame: retained as Unknown, never dropped.
+        Item::Frame(json!({"type":"stream_event","event":{"type":"message_delta",
+            "delta":{"stop_reason":"tool_use"},
+            "usage":{"input_tokens":2,"cache_read_input_tokens":25737,
+                     "cache_creation_input_tokens":3603,"output_tokens":95}}})),
+        // §1.2's ONE deliberate drop, ported: a `user` frame's text block.
+        Item::Frame(json!({"type":"user","message":{"role":"user","content":[
+            {"type":"text","text":"[Request interrupted by user]"}]}})),
         Item::Text(" It says 1.0.0.".into()),
     ]
 }
 
 enum Item {
     Text(String),
-    Update(Value),
+    Frame(Value),
     Permission(Value),
 }
 
 /// A lease that replays recorded wire traffic, assigning `seq` the way the real
-/// `AcpClient::prompt` drain loop does — ONE counter over text and machinery, and no
-/// position consumed by the dropped `user_message_chunk`.
+/// `NativeClient::prompt` drain loop does — ONE counter over text and machinery, advanced by
+/// the NUMBER of records a frame produced, and no position consumed by a dropped frame.
 struct ReplayCognition {
     session_id: String,
     script: Vec<Item>,
@@ -97,10 +112,10 @@ impl ReplayCognition {
                     on_item(TurnItem::Text { seq, text: t });
                     seq += 1;
                 }
-                Item::Update(u) => {
-                    if let Some(r) = MachineryRecord::from_acp_update(u, &self.session_id, seq) {
-                        on_item(TurnItem::Machinery(r));
+                Item::Frame(f) => {
+                    for r in MachineryRecord::from_native_event(f, &self.session_id, seq) {
                         seq += 1;
+                        on_item(TurnItem::Machinery(r));
                     }
                 }
                 Item::Permission(p) => {
@@ -124,8 +139,10 @@ impl Cognition for ReplayCognition {
     fn reprime(&mut self, _priming: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
         if self.reprime_machinery {
             // §1.5: the priming turn is a REAL turn and produces real machinery.
-            let script = vec![Item::Update(json!({"toolCallId":"toolu_PRIME",
-                "sessionUpdate":"tool_call","status":"pending","title":"Read reprime payload","kind":"read"}))];
+            let script = vec![Item::Frame(json!({"type":"stream_event",
+                "event":{"type":"content_block_start","index":0,
+                         "content_block":{"type":"tool_use","id":"toolu_PRIME",
+                                          "name":"Read reprime payload","input":{}}}}))];
             self.replay(&script, on_item);
         }
         Ok(())
@@ -188,8 +205,8 @@ fn a_turns_machinery_is_retained_keyed_to_its_thread_and_turn() {
 
 #[test]
 fn one_tool_call_is_one_row_with_the_real_title_and_a_terminal_status() {
-    // Four wire events for toolu_A (open, args, a status-less middle, completed) collapse
-    // to ONE row — §1.4 G2, against the exact shapes measured in run1.
+    // FIVE wire frames for toolu_A (open, args, permission, heartbeat, result) collapse to
+    // ONE row — §1.4 G2, against the exact shapes measured on the native wire.
     let dir = tmp_dir("merge");
     let (mut spine, journal) = spine_with_journal(&dir);
     let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
@@ -197,10 +214,13 @@ fn one_tool_call_is_one_row_with_the_real_title_and_a_terminal_status() {
 
     let rows = journal.project_thread(&thread);
     let tool: Vec<_> = rows.iter().filter(|r| r.kind == MachineryKind::ToolCall).collect();
-    assert_eq!(tool.len(), 1, "one toolCallId is one row, never two");
-    assert_eq!(tool[0].title, "cat engine/VERSION", "not the 'Terminal' placeholder");
-    assert_eq!(tool[0].status, Some(ToolStatus::Completed));
-    assert_eq!(tool[0].summary.as_deref(), Some("1.0.0"));
+    assert_eq!(tool.len(), 1, "one tool id is one row, never two");
+    // The open frame's title is the tool's REAL name (`Bash`, direct — no `_meta`
+    // indirection and no `Terminal` placeholder to correct); the arguments frame replaces it
+    // with the human line. Same end state the ACP path reached, by a different route.
+    assert_eq!(tool[0].title, "cat engine/VERSION");
+    assert_eq!(tool[0].status, Some(ToolStatus::Completed), "Pending -> InProgress -> Completed");
+    assert_eq!(tool[0].summary.as_deref(), Some("1.0.0"), "the outcome, from the closing frame");
 }
 
 #[test]
@@ -240,26 +260,27 @@ fn text_and_machinery_share_one_sequence_so_the_true_order_is_reconstructible() 
 }
 
 #[test]
-fn the_dropped_user_message_chunk_consumes_no_position_and_leaves_no_record() {
-    // §1.2's ONE deliberate drop: the ledger already holds the CEO's words verbatim and
-    // fsync'd, and a second copy would create two sources of truth.
+fn the_dropped_user_text_frame_consumes_no_position_and_leaves_no_record() {
+    // §1.2's ONE deliberate drop, ported: the ledger already holds the CEO's words verbatim
+    // and fsync'd, and the stop control already records a stop, so neither may become a
+    // second source of truth.
     let dir = tmp_dir("drop");
     let (mut spine, journal) = spine_with_journal(&dir);
     let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
     spine.submit_prompt("go", Source::Text).unwrap();
     let all = journal.read_thread(&thread);
     assert!(
-        !all.iter().any(|r| r.title == "user_message_chunk"),
-        "the echo of our own prompt is never retained"
+        !all.iter().any(|r| r.title.starts_with("user")),
+        "the injected user-frame text is never retained"
     );
     // 9 scripted items, 1 dropped, so positions run 0..=7 with nothing skipped.
     assert_eq!(all.len() + 2, 8, "6 machinery + 2 text = 8 delivered items");
 }
 
 #[test]
-fn a_phase_two_kind_is_retained_as_unknown_rather_than_dropped() {
-    // usage_update has no typed route until Phase 2. It must still be KEPT — §1.4 G5, and
-    // the CEO's whole argument that a dropped byte is a permanent hole.
+fn an_untyped_vendor_frame_is_retained_as_unknown_rather_than_dropped() {
+    // `message_delta` has no typed route. It must still be KEPT — §1.4 G5, and the CEO's
+    // whole argument that a dropped byte is a permanent hole.
     let dir = tmp_dir("unknown");
     let (mut spine, journal) = spine_with_journal(&dir);
     let thread = spine.ensure_active_thread_in(&femcboost()).unwrap().thread_id().to_string();
@@ -270,8 +291,12 @@ fn a_phase_two_kind_is_retained_as_unknown_rather_than_dropped() {
         .filter(|r| r.kind == MachineryKind::Unknown)
         .collect();
     assert_eq!(unknown.len(), 1);
-    assert_eq!(unknown[0].title, "usage_update", "the vendor kind survives");
-    assert_eq!(unknown[0].payload.as_ref().unwrap()["used"], json!(30477), "verbatim payload");
+    assert_eq!(unknown[0].title, "stream_event:message_delta", "the vendor frame survives");
+    assert_eq!(
+        unknown[0].payload.as_ref().unwrap()["event"]["usage"]["cache_read_input_tokens"],
+        json!(25737),
+        "verbatim payload"
+    );
 }
 
 #[test]
@@ -309,7 +334,7 @@ fn no_tool_output_ever_reaches_the_conversation_ledger() {
     drop(spine);
 
     let ledger_bytes = std::fs::read_to_string(dir.join("conversation-ledger.jsonl")).unwrap();
-    for needle in ["toolCallId", "tool_call", "rawOutput", "usage_update", "cat engine/VERSION"] {
+    for needle in ["tool_use_id", "tool_result", "tool_progress", "message_delta", "cat engine/VERSION"] {
         assert!(!ledger_bytes.contains(needle), "the ledger must not contain {needle}");
     }
     assert!(ledger_bytes.contains("It says 1.0.0."), "but it does hold the reply");

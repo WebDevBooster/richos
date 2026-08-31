@@ -1,6 +1,6 @@
 //! Rotation, crash-recovery, and proactive-seam invariants — P1.4's continuity leg.
 //! All run headless with `MockCognition`/`MockLeaseFactory` (no live Claude/network);
-//! the live ACP round-trip itself is proven separately (examples/acp_roundtrip.rs).
+//! the live round-trip itself is proven separately (examples/native_roundtrip.rs).
 //!
 //! Test names document the invariant, per the engineering convention this codebase
 //! already follows (spine_tests.rs).
@@ -123,12 +123,17 @@ fn explicit_rotation_swaps_the_lease_and_the_conversation_survives_it() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// A lease that streams a reply AND reports `usage_update` the way the real adapter does.
+/// A lease that streams a reply AND reports its context usage the way the real client does.
 ///
-/// The usage record is built by the PRODUCTION normalizer (`MachineryRecord::from_acp_update`)
-/// from the EXACT wire shape captured on 2026-08-28 — `{"sessionUpdate":"usage_update",
-/// "used":N,"size":M}`, run1.raw.jsonl n=8 — so these tests exercise the same parse the
-/// live adapter drives, not a hand-built struct that could drift away from it.
+/// The usage record is built by the PRODUCTION constructor
+/// (`MachineryRecord::from_context_usage`) with the verbatim `usage` object measured on the
+/// native wire (`raw/run9-rust-driven.jsonl:19`), so these tests exercise the same record
+/// the live client emits rather than a hand-built struct that could drift away from it.
+///
+/// **DERIVED on this wire, and the record says so.** ACP handed `{used, size}` over on a
+/// `usage_update`; the native binary reports the numerator mid-turn on `message_delta` and
+/// the denominator only when a turn ENDS. `native.rs` holds both halves and emits nothing
+/// until it has them — spike caveat C3.
 struct ReportingCognition {
     session_id: String,
     /// The `{used, size}` pairs to report, in order, before the reply text.
@@ -142,9 +147,11 @@ impl ReportingCognition {
     }
     fn emit_usage(&self, on_item: &mut dyn FnMut(TurnItem), seq: &mut u64) {
         for (used, size) in &self.usage {
-            let update = serde_json::json!({"sessionUpdate":"usage_update","used":used,"size":size});
-            let rec = MachineryRecord::from_acp_update(&update, &self.session_id, *seq)
-                .expect("a usage_update is machinery");
+            // The verbatim vendor object the numerator is summed from, retained with it.
+            let usage = serde_json::json!({"input_tokens":2,"cache_creation_input_tokens":3603,
+                                           "cache_read_input_tokens":used.saturating_sub(3605)});
+            let rec =
+                MachineryRecord::from_context_usage(*used, *size, &usage, &self.session_id, *seq);
             on_item(TurnItem::Machinery(rec));
             *seq += 1;
         }

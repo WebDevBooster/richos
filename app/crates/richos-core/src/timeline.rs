@@ -2353,7 +2353,7 @@ mod tests {
                     {"type":"tool_use","id":"t","name":"Bash",
                      "input":{"command":"rm -rf /tmp/secret-dir","file_path":"/tmp/secret-dir"}}]}}),
         );
-        assert_eq!(r.summary.as_deref(), Some("rm -rf /tmp/secret-dir"), "the raw syntax IS on the record");
+        assert_eq!(r.title, "rm -rf /tmp/secret-dir", "the raw syntax IS on the record");
         let s = semantic_summary(ActivityType::Command, &r);
         assert_eq!(s, "Ran a command");
         assert!(!s.contains("rm -rf"), "§5.3: the CEO default is semantic, never raw syntax");

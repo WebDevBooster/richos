@@ -22,6 +22,23 @@
 //!   trigger fires at turn **493.0** against a wall at turn **84.1** — **5.9× too late**.
 //!   The new one fires at turn **58.1**, with **26.0 turns** of headroom.
 //!
+//! ## WHY THIS STILL READS AN ACP CAPTURE AFTER THE ADAPTER WAS DELETED
+//!
+//! `wiki/ceo-decisions.md` §16 deleted `app/acp-adapter/`; it did NOT delete
+//! `docs/verification/acp-emission-probe-2026-08-28/`, and this file is kept pointed at it
+//! ON PURPOSE. What it measures is the watermark FORMULA — chars÷4 against a guessed
+//! 200,000-token window versus reported tokens against a reported 1,000,000 — and that
+//! formula is unchanged by which process reports the tokens. The capture is 25 real turns of
+//! traffic; re-deriving it on the native wire would cost 25 billed turns to reproduce a
+//! conclusion about arithmetic.
+//!
+//! **The one thing it does NOT cover, named rather than assumed:** the native wire's
+//! denominator arrives only when a turn ENDS (spike caveat C3), so the FIRST turn of a fresh
+//! lease has no measurement at all and rotates on the chars÷4 estimate. That is a
+//! first-turn-only gap in a many-turn concern, and `between_turn_tests.rs`'s
+//! `the_second_turn_carries_the_derived_context_measurement` pins where the measurement
+//! starts. Nothing here measures it.
+//!
 //! Lengths are BYTES throughout, because `spine.rs` accumulates `text.len()` and
 //! `assistant_text.len()`, both of which are byte lengths. Counting characters instead
 //! shifts every figure by well under 1 % and would be measuring a formula this code does

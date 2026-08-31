@@ -1,17 +1,20 @@
 //! BETWEEN-TURN TRAFFIC, END TO END — techy-mode §1.5's gap #1, from the wire to the view.
 //!
-//! `between_turn_tests.rs` proves the ACP client parks what it used to drop. This proves
-//! the rest of the sentence: that it reaches the journal, attaches to the THREAD rather
-//! than to a turn, obeys the retention setting like everything else, and shows up in the
-//! technical view — while re-prime machinery structurally cannot.
+//! `between_turn_tests.rs` proves the client parks what it used to drop. This proves the
+//! rest of the sentence: that it reaches the journal, attaches to the THREAD rather than to
+//! a turn, obeys the retention setting like everything else, and shows up in the technical
+//! view — while re-prime machinery structurally cannot.
+//!
+//! **Ported from the ACP wire to the native `claude` wire (`wiki/ceo-decisions.md` §16).**
+//! Same six tests, same six invariants; only the vendor's vocabulary changed.
 //!
 //! **The first test drives a real child process.** Not a mocked lease: a POSIX-sh fake
-//! adapter, spawned through `AcpCognition::start`, whose stdout the real reader thread
-//! reads and the real `dispatch` routes. The update it emits at session start is the one
-//! the design says *"hits no sink at all"*. Everything downstream of it here — journal,
+//! agent, spawned through `NativeCognition::start`, whose stdout the real reader thread
+//! reads and the real `dispatch` routes. The frame it emits at session start is the one the
+//! design says *"hits no sink at all"*. Everything downstream of it here — journal,
 //! projection, gate — is the shipping path.
 
-use richos_core::acp::AcpCognition;
+use richos_core::native::NativeCognition;
 use richos_core::cognition::{Cognition, CognitionError, MockCognition, TurnItem};
 use richos_core::entity::EntityId;
 use richos_core::journal::{MachineryJournal, RawRetention};
@@ -39,6 +42,13 @@ fn tmp(tag: &str, ext: &str) -> PathBuf {
     p
 }
 
+/// The session-start frame the real agent emits once per turn, verbatim in shape from
+/// `raw/run9-rust-driven.jsonl:1` (trimmed to the fields these tests read).
+fn session_init() -> serde_json::Value {
+    json!({"type":"system","subtype":"init","model":"claude-sonnet-5","tools":["Bash"],
+           "session_id":"s","uuid":"u-start"})
+}
+
 fn wait_for(what: &str, mut f: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !f() {
@@ -49,30 +59,26 @@ fn wait_for(what: &str, mut f: impl FnMut() -> bool) {
     }
 }
 
-/// An executable fake ACP adapter. Passed to `AcpCognition::start` AS the binary — which
-/// takes no args — so it carries its own shebang rather than being run as `sh <script>`.
-fn fake_adapter(tag: &str) -> PathBuf {
-    let path = tmp(&format!("adapter-{tag}"), ".sh");
+/// An executable fake native agent. Passed to `NativeCognition::start` AS the binary, so it
+/// carries its own shebang; the client's real flag vector arrives as arguments and `sh`
+/// ignores them, which makes this a fake of the BINARY rather than of the protocol.
+fn fake_agent(tag: &str) -> PathBuf {
+    let path = tmp(&format!("agent-{tag}"), ".sh");
     let script = r#"#!/bin/sh
 while IFS= read -r line; do
   case "$line" in
-    *'"method":"initialize"'*)
-      id=`printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p'`
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$id"
+    *'"subtype":"initialize"'*)
+      printf '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}\n'
+      # SESSION START. No turn has been sent, so `current_prompt` is None and this is
+      # precisely the frame §1.5 says hits no sink at all.
+      printf '{"type":"system","subtype":"init","model":"claude-sonnet-5","tools":["Bash"],"session_id":"s","uuid":"u-start"}\n'
       ;;
-    *'"method":"session/new"'*)
-      id=`printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p'`
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"sess-fake"}}\n' "$id"
-      # SESSION START. No prompt has been sent, so `current_prompt` is None and this is
-      # precisely the update §1.5 says hits no sink at all.
-      printf '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"availableCommands":["compact"],"sessionUpdate":"available_commands_update"}}}\n'
-      ;;
-    *'"method":"session/prompt"'*)
-      id=`printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p'`
-      printf '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"content":{"text":"the build is green"},"sessionUpdate":"agent_message_chunk"}}}\n'
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$id"
-      # AFTER the response: between turns again.
-      printf '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"session_info_update","title":"Avelor release"}}}\n'
+    *'"type":"user"'*)
+      printf '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1"}}}\n'
+      printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"the build is green"}}}\n'
+      printf '{"type":"result","subtype":"success","stop_reason":"end_turn","terminal_reason":"completed"}\n'
+      # AFTER the result: between turns again.
+      printf '{"type":"system","subtype":"status","status":"requesting","session_id":"s","uuid":"u-st"}\n'
       ;;
   esac
 done
@@ -93,32 +99,31 @@ done
 // ---------------------------------------------------------------------------
 
 #[test]
-fn a_real_adapters_session_start_update_reaches_the_journal_and_the_technical_view() {
-    let script = fake_adapter("live");
+fn a_real_agents_session_start_frame_reaches_the_journal_and_the_technical_view() {
+    let script = fake_agent("live");
     let ledger_path = tmp("live", ".jsonl");
     let journal_root = tmp("live-journal", "");
 
     let mut spine = Spine::new(Ledger::open(&ledger_path).unwrap());
     spine.set_machinery_journal(MachineryJournal::new(&journal_root));
-    spine.attach_lease(Box::new(AcpCognition::start(&script, Path::new("/tmp")).unwrap()));
+    spine.attach_lease(Box::new(NativeCognition::start(&script, Path::new("/tmp")).unwrap()));
     let thread = spine.create_thread("Avelor release", &femcboost()).unwrap();
 
-    // The child writes its session-start update immediately after answering `session/new`,
+    // The child writes its session-start frame immediately after answering the handshake,
     // so the reader thread may not have consumed it yet. Poll rather than sleep, so a real
     // regression reads as a regression.
-    wait_for("the session-start update to land in the journal", || spine.pump_between_turn() > 0);
+    wait_for("the session-start frame to land in the journal", || spine.pump_between_turn() > 0);
 
     // IT IS ON DISK, with no turn (§1.4 G4) and stamped with the thread.
     let on_disk = MachineryJournal::new(&journal_root).read_thread(&thread);
-    let start: Vec<&MachineryRecord> =
-        on_disk.iter().filter(|r| r.title == "available_commands_update").collect();
-    assert_eq!(start.len(), 1, "one session-start update, journaled: {on_disk:#?}");
+    let start: Vec<&MachineryRecord> = on_disk.iter().filter(|r| r.title == "system:init").collect();
+    assert_eq!(start.len(), 1, "one session-start frame, journaled: {on_disk:#?}");
     assert_eq!(start[0].turn_id, None, "it attaches to the thread, never to a turn");
     assert_eq!(start[0].thread_id, thread);
     assert!(!start[0].internal, "vendor session traffic is honest, not internal");
     assert_eq!(
-        start[0].payload.as_ref().unwrap()["availableCommands"],
-        json!(["compact"]),
+        start[0].payload.as_ref().unwrap()["tools"],
+        json!(["Bash"]),
         "retained verbatim (§1.4 G5)"
     );
 
@@ -126,7 +131,7 @@ fn a_real_adapters_session_start_update_reaches_the_journal_and_the_technical_vi
     let timeline = spine.timeline(&thread).unwrap();
     let technical = timeline.view(ViewMode::Technical);
     let kinds: Vec<&str> = technical.between_turns().iter().map(|b| b.vendor_kind.as_str()).collect();
-    assert!(kinds.contains(&"available_commands_update"), "got {kinds:?}");
+    assert!(kinds.contains(&"system:init"), "got {kinds:?}");
 
     // AND NOT IN THE CALM ONE. Every row in this lane is `Technical`, so the CEO view is
     // handed nothing to skip.
@@ -164,8 +169,10 @@ impl Cognition for RepriminingLease {
         &self.session_id
     }
     fn reprime(&mut self, _priming: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
-        for (i, u) in self.reprime_machinery.clone().iter().enumerate() {
-            if let Some(r) = MachineryRecord::from_acp_update(u, &self.session_id, i as u64) {
+        let mut seq = 0u64;
+        for f in self.reprime_machinery.clone().iter() {
+            for r in MachineryRecord::from_native_event(f, &self.session_id, seq) {
+                seq += 1;
                 on_item(TurnItem::Machinery(r));
             }
         }
@@ -177,11 +184,10 @@ impl Cognition for RepriminingLease {
     }
     fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
         let mut out = Vec::new();
-        for u in std::mem::take(&mut self.between) {
-            if let Some(r) = MachineryRecord::from_between_turn_update(&u, &self.session_id, self.next_seq) {
-                self.next_seq += 1;
-                out.push(r);
-            }
+        for f in std::mem::take(&mut self.between) {
+            let records = MachineryRecord::from_native_between_turn(&f, &self.session_id, self.next_seq);
+            self.next_seq += records.len() as u64;
+            out.extend(records);
         }
         out
     }
@@ -212,9 +218,10 @@ fn reprime_machinery_is_recorded_and_can_never_reach_a_rendered_thread() {
     let journal_root = tmp("reprime-journal", "");
     let lease = RepriminingLease {
         session_id: "sess-1".into(),
-        between: vec![json!({"sessionUpdate":"available_commands_update","availableCommands":["compact"]})],
-        reprime_machinery: vec![json!({"toolCallId":"toolu_RP","sessionUpdate":"tool_call",
-                                       "status":"completed","title":"read the action ledger"})],
+        between: vec![session_init()],
+        reprime_machinery: vec![json!({"type":"stream_event","event":{"type":"content_block_start",
+            "index":0,"content_block":{"type":"tool_use","id":"toolu_RP","name":"read the action ledger",
+                                       "input":{}}}})],
         next_seq: 0,
     };
     let (mut spine, thread) = spine_with_lease(&ledger_path, &journal_root, Box::new(lease));
@@ -259,7 +266,7 @@ fn reprime_machinery_is_recorded_and_can_never_reach_a_rendered_thread() {
     let technical = timeline.view(ViewMode::Technical);
     assert_eq!(
         technical.between_turns().iter().map(|b| b.vendor_kind.as_str()).collect::<Vec<_>>(),
-        vec!["available_commands_update"]
+        vec!["system:init"]
     );
 
     let _ = std::fs::remove_file(&ledger_path);
@@ -275,7 +282,8 @@ fn a_lane_row_carries_no_session_id_because_that_is_where_a_rotation_would_show(
     let journal_root = tmp("nosess-journal", "");
     let lease = RepriminingLease {
         session_id: "sess-SECRET-ROTATION-ID".into(),
-        between: vec![json!({"sessionUpdate":"session_info_update","title":"Avelor release"})],
+        between: vec![json!({"type":"system","subtype":"status","status":"requesting",
+                             "session_id":"s","uuid":"u-st"})],
         reprime_machinery: vec![],
         next_seq: 0,
     };
@@ -285,7 +293,7 @@ fn a_lane_row_carries_no_session_id_because_that_is_where_a_rotation_would_show(
     let view = spine.timeline(&thread).unwrap().view(ViewMode::Technical);
     assert_eq!(view.between_turns().len(), 1);
     let wire = serde_json::to_string(&view).unwrap();
-    assert!(wire.contains("session_info_update"), "the row is there: {wire}");
+    assert!(wire.contains("system:status"), "the row is there: {wire}");
     assert!(!wire.contains("sess-SECRET-ROTATION-ID"), "no session id on the wire: {wire}");
 
     let _ = std::fs::remove_file(&ledger_path);
@@ -323,7 +331,7 @@ fn between_turn_records_obey_the_retention_setting_like_every_other_record() {
     let journal_root = tmp("retain-journal", "");
     let lease = RepriminingLease {
         session_id: "sess-1".into(),
-        between: vec![json!({"sessionUpdate":"available_commands_update","availableCommands":["compact"]})],
+        between: vec![session_init()],
         reprime_machinery: vec![],
         next_seq: 0,
     };
@@ -357,7 +365,7 @@ fn the_lane_is_gated_by_the_same_visibility_the_items_are() {
     let journal_root = tmp("gate-journal", "");
     let lease = RepriminingLease {
         session_id: "sess-1".into(),
-        between: vec![json!({"sessionUpdate":"available_commands_update","availableCommands":["compact"]})],
+        between: vec![session_init()],
         reprime_machinery: vec![],
         next_seq: 0,
     };
