@@ -1,0 +1,14 @@
+# SPIKE ONLY — not a workspace member, not shipped, not built by any gate.
+#
+# An empty [workspace] table detaches this crate exactly the way app/src-tauri/
+# is detached, so `cargo test -p richos-core` never sees it.
+[workspace]
+
+[package]
+name = "native-claude-stdio-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde_json = "1"
