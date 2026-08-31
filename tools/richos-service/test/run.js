@@ -3435,6 +3435,12 @@ function scriptedServer(body, pin) {
         res.writeHead(200, { 'content-type': 'text/plain', 'content-length': msg.length });
         return res.end(msg);
       }
+      case `/short-clean/${pin.file}`:
+        // No declared length, half the bytes, then a clean end() — a proxy that truncated a
+        // chunked stream. The transfer SUCCEEDS as far as the socket is concerned, so this is the
+        // only route by which a short file reaches the post-transfer checks.
+        res.writeHead(200, {});
+        return res.end(body.subarray(0, Math.floor(body.length / 2)));
       case `/error-text-chunked/${pin.file}`:
         // The same error with NO declared length, so only reading the body can name it.
         res.writeHead(200, { 'content-type': 'text/plain' });
@@ -3517,6 +3523,19 @@ testAsync('a truncated transfer keeps its prefix, says so, and is retryable', ()
     assert.ok(!fs.existsSync(dest), "a truncated file never gets a model's name");
     const kept = fs.statSync(`${dest}.part`).size;
     assert.ok(kept > 0 && kept < body.length, `kept ${kept} of ${body.length}`);
+  }));
+
+testAsync('a body that ends cleanly but short keeps its prefix for the resume', () =>
+  withServer(async ({ base, dest, pin, body }) => {
+    // Distinct from the socket dying: here the transfer completes and only the post-transfer size
+    // check catches it, which is the branch that decides whether the prefix is worth keeping.
+    const r = await fetchVerified({ url: `${base}/short-clean/${pin.file}`, dest, pin });
+    assert.equal(r.ok, false);
+    assert.equal(r.kind, FAILURE.SHORT, `got ${r.kind}: ${r.message}`);
+    assert.equal(r.retryable, true);
+    assert.match(r.message, /resumes from where it stopped/);
+    assert.ok(!fs.existsSync(dest));
+    assert.equal(fs.statSync(`${dest}.part`).size, Math.floor(body.length / 2), 'the prefix must be kept');
   }));
 
 testAsync('a flaky connection resumes from the kept prefix rather than starting over', () =>

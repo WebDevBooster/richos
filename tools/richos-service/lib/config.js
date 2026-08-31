@@ -293,12 +293,7 @@ export function resolveModel(modelId = DEFAULT_MODEL) {
     throw new Error(`RICHOS_WHISPER_MODEL=${v} does not exist`);
   }
   const file = `ggml-${modelId}.bin`;
-  const dirs = [
-    process.env.RICHOS_MODEL_DIR ? expand(process.env.RICHOS_MODEL_DIR) : null,
-    path.join(os.homedir(), 'Models', 'Whisper'),
-    path.join(os.homedir(), '.config', 'open-wispr', 'models'),
-    path.join(os.homedir(), '.cache', 'whisper.cpp'),
-  ].filter(Boolean);
+  const dirs = modelSearchDirs();
   for (const dir of dirs) {
     const candidate = path.join(dir, file);
     if (fs.existsSync(candidate)) return candidate;
