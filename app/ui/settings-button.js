@@ -32,6 +32,7 @@ window.RichSettings = (function () {
   var durable = null; // { saveTheme(pref), saveScale(pct) }
   var techy = null; // { read(), write(on) }
   var bug = null; // { open() } — what "Bust a bug" actually opens, when that exists
+  var splash = null; // { read(), write(on) } — the opening screen's off switch
 
   var wrap = null;
   var menuEl = null;
@@ -168,6 +169,33 @@ window.RichSettings = (function () {
     return row;
   }
 
+  /// The opening screen's off switch, as a SECOND entrance to the switch that already
+  /// exists behind the rail's gear.
+  ///
+  /// It is here because the CEO restated on 2026-08-31 that turning the splash off FROM
+  /// SETTINGS is a requirement, and this button is what "settings" now means: the one piece
+  /// of chrome that is on every screen. The gear's own preferences panel keeps its copy —
+  /// nothing was moved and nothing was lost — so this is the same pattern as Techy Mode, one
+  /// state with two doors, and `RichSettings.paint()` in the shell's render path is what
+  /// keeps the two from ever showing different answers.
+  ///
+  /// It sits BELOW the three rows §15 fixed, because that ruling governs their order and
+  /// says nothing about this one, and because the three above it are things he changes while
+  /// working while this is a thing he decides once.
+  function buildSplashRow() {
+    var row = elem("div", "set-row", { id: "set-splash-row" });
+    var label = elem("span", "set-name", { id: "set-splash-label" });
+    label.textContent = "Opening screen";
+    var input = elem("input", "set-switch", {
+      type: "checkbox",
+      id: "set-splash",
+      "aria-labelledby": "set-splash-label",
+    });
+    row.appendChild(label);
+    row.appendChild(input);
+    return row;
+  }
+
   function buildBugButton() {
     var b = elem("button", "bugbtn", { type: "button", id: "bug-btn" });
     b.appendChild(icon(ICON_BUG));
@@ -194,6 +222,7 @@ window.RichSettings = (function () {
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
+    if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
     menu.appendChild(buildBugButton()); // the floor, always last and always present
     return menu;
   }
@@ -226,6 +255,8 @@ window.RichSettings = (function () {
     if (up) up.disabled = T.scale() >= steps[steps.length - 1];
     var sw = menuEl.querySelector("#set-techy");
     if (sw && techy) sw.checked = !!techy.read();
+    var sp = menuEl.querySelector("#set-splash");
+    if (sp && splash) sp.checked = !!splash.read();
     if (wrap) wrap.setAttribute("data-force-dark", String(T.forcedDark()));
   }
 
@@ -348,6 +379,12 @@ window.RichSettings = (function () {
         if (techy && techy.write) techy.write(sw.checked);
       });
     }
+    var spEl = menuEl.querySelector("#set-splash");
+    if (spEl) {
+      spEl.addEventListener("change", function () {
+        if (splash && splash.write) splash.write(spEl.checked);
+      });
+    }
     var bugEl = menuEl.querySelector("#bug-btn");
     if (bugEl) bugEl.addEventListener("click", bustABug);
   }
@@ -447,6 +484,15 @@ window.RichSettings = (function () {
      *  `RichSettings.paint()` after any change is what keeps the other entrance honest. */
     registerTechy: function (host) {
       techy = host || null;
+      rebuild();
+    },
+
+    /** The opening screen's off switch, registered with the SAME read and write the gear's
+     *  own checkbox uses — one state, two doors, exactly as Techy Mode is. Registering the
+     *  capability is also what makes the row exist, so a page with no shell behind it does
+     *  not offer to switch off a screen it cannot reach. */
+    registerSplash: function (host) {
+      splash = host || null;
       rebuild();
     },
 

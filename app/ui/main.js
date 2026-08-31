@@ -2093,16 +2093,37 @@ function writeSplashEnabled(on) {
   const key = splashKey("KEY_ENABLED");
   if (key) window.localStorage.setItem(key, on ? "true" : "false");
 }
+/// Both entrances to the splash's off switch, moved through one function.
+///
+/// The CEO restated on 2026-08-31 that turning the opening screen off FROM SETTINGS is a
+/// requirement. It already existed behind the rail's gear and it still does — nothing was
+/// moved — but "settings" now also means the button on every screen, so that carries the
+/// same switch. Two doors, one state, and this is the only place that writes it.
+///
+/// It writes the local mirror FIRST and the durable store second, deliberately: splash.js
+/// reads the mirror synchronously before the app has a bridge, so the mirror is what decides
+/// the next launch. A failed durable write costs the preference at reinstall, not tonight.
+function setSplashEnabled(on) {
+  writeSplashEnabled(on);
+  if (splashToggle) splashToggle.checked = on;
+  window.RichSettings.paint();
+  return Bridge.invoke("set_splash_enabled", { enabled: on }).catch(() => {
+    // Unwired (the mock harness) or a genuine write failure. The local mirror already
+    // carries his choice and the next launch honours it; there is nothing here worth
+    // interrupting him about.
+  });
+}
+
+window.RichSettings.registerSplash({
+  read: () => readSplashEnabled(),
+  write: (on) => setSplashEnabled(on),
+});
+
 if (splashToggle) {
   splashToggle.checked = readSplashEnabled();
   splashToggle.addEventListener("change", () => {
     const on = splashToggle.checked;
-    writeSplashEnabled(on);
-    Bridge.invoke("set_splash_enabled", { enabled: on }).catch(() => {
-      // Unwired (the mock harness) or a genuine write failure. The local mirror already
-      // carries his choice and the next launch honours it; there is nothing here worth
-      // interrupting him about.
-    });
+    setSplashEnabled(on);
   });
 }
 async function syncSplashFromBackend() {
