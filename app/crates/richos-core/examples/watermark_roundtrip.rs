@@ -7,21 +7,36 @@
 //! `MachineryRecord::context_usage` can read. That is what this is for, and it is why the
 //! done-criterion for this change was "demonstrated on a real turn, not a unit test alone".
 //!
-//! **CAVEAT C3 APPLIES HERE AND IS PART OF WHAT THIS DEMONSTRATES.** On this wire the
-//! numerator arrives mid-turn on `stream_event/message_delta` and the denominator only when
-//! a turn ENDS, on `result.modelUsage[<session model>].contextWindow`. So step 1's
-//! `Estimated` state persists through the WHOLE first turn, not merely up to it — the flip
-//! to `Measured` cannot happen before turn two.
+//! **CAVEAT C3, AND THE LIVE RUN THAT NARROWED IT.** On this wire the numerator arrives
+//! mid-turn on `stream_event/message_delta` and the denominator only when a turn ENDS, on
+//! `result.modelUsage[<session model>].contextWindow` — so a lease's FIRST turn has a
+//! numerator and no denominator. Measured 2026-08-31 through this example: the CEO never
+//! sees that gap, because the lease's first turn is the RE-PRIME turn, which ends and
+//! supplies the denominator before the CEO's first prompt is sent. The output below reads
+//! `after one live turn source=measured`, and that is turn TWO on the lease.
+//!
+//! The gap is real and it is where the re-prime is: a lease that is handed a CEO turn with
+//! no priming turn first has no measurement until that turn ends.
+//! `between_turn_tests.rs::traffic_after_the_turn_result_lands_in_the_lane_and_not_in_the_finished_turn`
+//! drives a raw client with no re-prime and pins exactly that.
 //!
 //! Four things it demonstrates, in order:
 //!
 //!   1. **The fallback state is real and is labelled.** Before the first turn the spine
 //!      reports `ContextSource::Estimated` and hands out no measurement at all.
-//!   2. **The measurement arrives and takes over.** Once a turn has ended and a second has
-//!      run, the source flips to `Measured`, `used`/`size` are the agent's, and the window
-//!      the spine reports is the one the wire stated (`claude-sonnet-5`: 1_000_000), not
-//!      the 200_000 the app used to assume — and NOT `claude-haiku-4-5`'s 200_000, which is
-//!      what an arbitrary read of the `modelUsage` map returns (findings §10).
+//!   2. **The measurement arrives and takes over.** After one CEO turn the source flips to
+//!      `Measured`, `used`/`size` are the agent's, and the window the spine reports is the
+//!      one the wire stated (`claude-sonnet-5`: **1_000_000**), not the 200_000 the app used
+//!      to assume — and NOT `claude-haiku-4-5`'s 200_000, which is what an arbitrary read of
+//!      the `modelUsage` map returns (findings §10) and is the same number by coincidence,
+//!      which is exactly why the denominator is keyed BY MODEL NAME.
+//!
+//!      **The live run of 2026-08-31 also measured how wrong the estimate was**, on the same
+//!      turn, which no unit test can: the chars÷4 estimate read **632** tokens against a
+//!      measured **19,477** — **30.8x under**. The estimate is not a slightly worse
+//!      measurement; on a fresh lease it is off by an order of magnitude and a half, because
+//!      it counts the CEO's words and the reply and cannot see the system prompt, the
+//!      persona, the hooks or the cached context the model is actually holding.
 //!   3. **It drives rotation.** With the ratio set BELOW the fraction the adapter actually
 //!      reported, the next turn boundary rotates for `context-watermark` — decided by real
 //!      `used`/`size`, and the backing session id provably changes.

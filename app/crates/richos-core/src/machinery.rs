@@ -81,6 +81,16 @@
 //! numerator and no denominator, so no record is emitted at all and the spine stays on its
 //! chars÷4 estimate until a turn completes.
 //!
+//! **How wide that gap is in the shipping path, measured 2026-08-31 rather than reasoned
+//! about** (`examples/watermark_roundtrip.rs`, live): the CEO never meets it, because the
+//! lease's first turn is the RE-PRIME turn, which ends and supplies the denominator before
+//! his first prompt is sent — the run reports `source=measured` after his FIRST turn. The
+//! gap is real for a lease handed a CEO turn with no priming turn first, and nothing else.
+//! Worth knowing what it costs while it lasts: on the same turn the chars÷4 estimate read
+//! **632** tokens against a measured **19,477** — **30.8x under**, because the estimate
+//! counts the CEO's words and the reply and cannot see the system prompt, the persona, the
+//! hooks or the cached context the model is actually holding.
+//!
 //! ## Deviations forced by measured wire data
 //! 1. **`tool_progress` keys on `parent_tool_use_id`, never `tool_use_id`.** Its own
 //!    `tool_use_id` is a synthetic `<real-id>-heartbeat-<n>` that matches no row anywhere

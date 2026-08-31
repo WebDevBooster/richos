@@ -547,6 +547,12 @@ struct ReaderState {
     /// chars÷4 estimate — which `spine.rs` already treats as a first-class state
     /// (`WatermarkSource::Estimate`). It is a real gap, it is small, and it is not papered
     /// over with a guessed denominator.
+    ///
+    /// **And smaller than C3 implies, measured live 2026-08-31.** The lease's first turn is
+    /// the RE-PRIME turn (`Cognition::reprime`), which ends and fills this in before the CEO
+    /// is handed a turn at all — `examples/watermark_roundtrip.rs` reports
+    /// `source=measured` after his FIRST prompt. The gap belongs to a lease that was never
+    /// primed, and nothing else.
     context_window: Option<u64>,
 }
 
