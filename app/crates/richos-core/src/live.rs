@@ -61,7 +61,7 @@
 //! 3. **No poll and no timer.** See [`LiveTurn::on_machinery`] for what that costs.
 //!
 //! AND ONE THING THIS EVENT INHERITS RATHER THAN FIXES. The join's session clause compares
-//! the ACP session id the adapter minted against the `session_id` the engine hook read from
+//! the session id the lease is running under against the `session_id` the engine hook read from
 //! the Claude Code harness, and **whether those are the same id space has never been
 //! measured** — the adapter is not installed in this checkout
 //! ([`crate::spine::Spine::set_worker_events`] states it). If they differ, every row is
@@ -77,11 +77,11 @@
 //!
 //! ## THE MESSAGE PHASE, STATED LOUDLY
 //!
-//! **The ACP stream does not distinguish commentary from the final response, so every
+//! **Neither wire distinguishes commentary from the final response, so every
 //! streamed message is emitted with `phase: "unknown"`.** This is measured, not assumed:
 //! `docs/verification/acp-emission-probe-2026-08-28.md` §2 records the complete union of
 //! inbound traffic across five runs — 52 `agent_message_chunk`s and **no** message-open,
-//! message-close, or message-role update of any kind. `acp.rs:162-167` confirms the client
+//! message-close, or message-role update of any kind. `native.rs`'s `dispatch` confirms the client
 //! side: every `agent_message_chunk` becomes `ChunkMsg::Text(text)` and nothing else on
 //! the wire carries a phase.
 //!
@@ -156,7 +156,7 @@ pub const EVENT_ACTIVITY_UPSERTED: &str = "rich://activity-upserted";
 pub const EVENT_WORKER_UPSERTED: &str = "rich://worker-upserted";
 pub const EVENT_THREAD_SUMMARY_UPDATED: &str = "rich://thread-summary-updated";
 
-/// The phase of every STREAMED Rich message. See the module doc: the ACP stream carries no
+/// The phase of every STREAMED Rich message. See the module doc: the stream carries no
 /// signal that separates commentary (§5.2) from the final response (§5.4), so this is
 /// `Unknown` and a renderer must wait for a real phase rather than read a default.
 ///
@@ -529,10 +529,19 @@ pub(crate) struct LiveTurn {
     /// One merged row per merge key — `machinery.rs`'s §1.4 G2 rule applied incrementally,
     /// so the row on the wire is the row a reload projects.
     merged: HashMap<String, MachineryRecord>,
-    /// The activity type resolved from the OPENING event's payload, per tool call. The
-    /// closing update carries neither `_meta.claudeCode.toolName` nor `kind`, so the type
-    /// must be captured before the merge overwrites the payload (timeline.rs says why).
+    /// The activity type resolved from the OPENING frames' payload, per tool call. The
+    /// closing `tool_result` carries no tool name at all, so the type must be captured
+    /// before the merge overwrites the payload (timeline.rs says why).
     types: HashMap<String, ActivityType>,
+    /// The tool NAME resolved from the OPENING frames, per tool call.
+    ///
+    /// Held separately from `types` because it is a different question with a different
+    /// answer set: `Task` classifies to no `ActivityType` at all (deliberately — §22), yet
+    /// it is exactly the name the worker-identity witness needs. On the native wire the name
+    /// and the async-launch acknowledgement arrive on DIFFERENT frames, so without this memo
+    /// `extract_agent_id` would answer `None` forever and workers would silently stop being
+    /// reported. `timeline::resolve_tool_names` is the same memo, batched.
+    tool_names: HashMap<String, String>,
     /// The latest `at` observed per merge key.
     last_seen: HashMap<String, u64>,
     /// Merge keys in FIRST-SIGHT order. A `HashMap` iteration order is not an order, and
@@ -558,6 +567,7 @@ impl LiveTurn {
             open_run: None,
             merged: HashMap::new(),
             types: HashMap::new(),
+            tool_names: HashMap::new(),
             last_seen: HashMap::new(),
             order: Vec::new(),
             agent_ids: HashMap::new(),
@@ -663,7 +673,7 @@ impl LiveTurn {
     ///      `worker-created-handoff.sh` (`PostToolUse[Agent]`) writes its row at about the
     ///      same instant. Neither order is guaranteed, so a delegation whose row was not
     ///      on disk yet is picked up at the next observation instead of never.
-    ///   2. **A worker changes state without producing any ACP traffic at all.** `started`,
+    ///   2. **A worker changes state without producing any agent traffic at all.** `started`,
     ///      `updated` and `run_ended` are hook writes in another process; nothing about
     ///      them reaches this stream.
     ///
@@ -695,9 +705,17 @@ impl LiveTurn {
                     self.types.insert(id.clone(), t);
                 }
             }
-            // Resolved from the RAW payload, before the merge below overwrites it.
+            if !self.tool_names.contains_key(id) {
+                if let Some(name) = timeline::tool_name_of(payload) {
+                    self.tool_names.insert(id.clone(), name.to_string());
+                }
+            }
+            // Resolved from the RAW payload, before the merge below overwrites it. The name
+            // comes from the memo above, because the frame carrying the acknowledgement
+            // carries no name.
             if !self.agent_ids.contains_key(id) {
-                if let Some(agent_id) = timeline::extract_agent_id(payload) {
+                let name = self.tool_names.get(id).map(String::as_str);
+                if let Some(agent_id) = timeline::extract_agent_id(payload, name) {
                     self.agent_ids.insert(id.clone(), agent_id);
                 }
             }
@@ -724,7 +742,9 @@ impl LiveTurn {
             // — the ordinary activity row, exactly as before. A key that has ALREADY been
             // emitted as a worker never falls back here: a row must not change kind
             // backwards because one read of the stream came up short.
-            None if !self.emitted_workers.contains_key(&key) => {
+            None if !self.emitted_workers.contains_key(&key)
+                && !self.awaiting_delegation_identity(&key) =>
+            {
                 if let Some(event) = self.activity_upsert(&key) {
                     out.push(event);
                 }
@@ -733,6 +753,43 @@ impl LiveTurn {
         }
         out.extend(self.refresh_workers(Some(&key), &rows));
         out
+    }
+
+    /// Whether this row is a delegated-work tool call whose identity is not knowable YET.
+    ///
+    /// **This exists because the native wire moved the identity witness one frame later, and
+    /// without it the CEO briefly sees a delegation drawn as a generic activity.** On ACP the
+    /// tool name and the harness's async-launch acknowledgement rode on ONE
+    /// `tool_call_update`, so the first record for a delegated call was already a worker. On
+    /// this wire the name is on the OPENING frame and the acknowledgement on the closing
+    /// `tool_result`, so between them there is a record that classifies to
+    /// `ActivityType::Other` and renders, CEO-visible, as the word *"Worked"* —
+    /// `timeline.rs`'s own comment calls that *"not a thing Rich did"*.
+    ///
+    /// **Bounded, and it never drops anything.** The hold ends the moment EITHER the identity
+    /// resolves (the row becomes a worker row) OR the row reaches a terminal status (it was
+    /// a synchronous Task after all, and becomes an ordinary activity row). Only the LIVE
+    /// family is deferred: the record is on `rich://machinery` throughout, it is journaled,
+    /// and `Timeline::project_with_workers` resolves the same two-pass witness on reload.
+    ///
+    /// **The residual, stated rather than hidden:** a SYNCHRONOUS `Task` that runs for a long
+    /// time shows no live activity row until it returns, because until it returns RichOS
+    /// genuinely does not know whether it delegated. Announcing "Worked" in the meantime
+    /// would be a guess, and §22 forbids the guess more strongly than it minds the delay.
+    fn awaiting_delegation_identity(&self, key: &str) -> bool {
+        let Some(row) = self.merged.get(key) else {
+            return false;
+        };
+        let Some(id) = row.tool_call_id.as_ref() else {
+            return false;
+        };
+        if self.agent_ids.contains_key(id) {
+            return false;
+        }
+        if row.status.as_ref().map(|s| s.is_terminal()).unwrap_or(false) {
+            return false;
+        }
+        matches!(self.tool_names.get(id).map(String::as_str), Some("Task") | Some("Agent"))
     }
 
     /// The ordinary activity row for one merge key.
@@ -874,7 +931,7 @@ mod tests {
         assert_eq!(
             STREAMED_MESSAGE_PHASE,
             RichMessagePhase::Unknown,
-            "the ACP stream carries no commentary-vs-final signal (probe 2026-08-28 §2: 52 \
+            "the stream carries no commentary-vs-final signal (probe 2026-08-28 §2: 52 \
              agent_message_chunks, zero phase markers), and `message-started` fires before \
              the turn is over, so 'final' cannot be known — let alone defaulted to"
         );

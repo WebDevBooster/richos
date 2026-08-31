@@ -1,7 +1,8 @@
 //! The COGNITION seam — the swappable compute lease behind the durable spine.
 //!
 //! `Cognition` is the one narrow interface the Spine talks to. The real
-//! implementation (`acp::AcpCognition`) drives a `claude-agent-acp` child over ACP;
+//! implementation (`native::NativeCognition`) drives a `claude` child over its
+//! stream-json stdio;
 //! `MockCognition` (below) lets the entire spine — ledger crash-safety,
 //! queue-not-interrupt, thread switching, re-prime injection — be unit-tested with
 //! ZERO live Claude / network. Structuring the session as a trait object IS the
@@ -22,13 +23,14 @@ pub enum CognitionError {
 }
 
 /// The factory that spawns a FRESH compute lease at rotation time (continuity design
-/// §3.3 step 4: "Spawn fresh claude-agent-acp child"). Injected into the `Spine` so
-/// richos-core stays IO/ACP-agnostic — the real implementation (Tauri shell) wraps
-/// `AcpCognition::start`; tests inject a `MockLeaseFactory`. This is what makes the
+/// §3.3 step 4, which wrote "Spawn fresh claude-agent-acp child" and now means "spawn a
+/// fresh `claude` child" — `ceo-decisions.md` §16). Injected into the `Spine` so
+/// richos-core stays IO-agnostic — the real implementation (Tauri shell) wraps
+/// `NativeCognition::start`; tests inject a `MockLeaseFactory`. This is what makes the
 /// swappable-lease design real: the Spine can rotate WITHOUT knowing how a lease is
 /// actually constructed.
 pub trait LeaseFactory: Send {
-    /// Spawn + initialize a fresh, un-primed lease. Fallible — e.g. the adapter binary
+    /// Spawn + initialize a fresh, un-primed lease. Fallible — e.g. the `claude` binary
     /// is missing, or Claude isn't signed in. A failure here means rotation/recovery
     /// cannot proceed and must surface honestly rather than silently keep the dead lease.
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError>;
@@ -45,12 +47,12 @@ pub trait LeaseFactory: Send {
 /// by text and machinery: *"You cannot reconstruct 'he said X, then ran Y, then said Z'
 /// from two independent counters."* With a bare `Text(&str)` the spine would have to
 /// count text items itself, which is two counters again. So the counter is assigned once,
-/// at the drain point (§1.4's feasibility argument: `acp.rs`'s mpsc drain is
+/// at the drain point (§1.4's feasibility argument: `native.rs`'s mpsc drain is
 /// single-threaded, so assigning there is sound), and both arms carry it.
 pub enum TurnItem<'a> {
     /// Assistant-message text. The clean-output path — unchanged in every other respect.
     Text { seq: u64, text: &'a str },
-    /// Everything else the ACP session emitted, normalized. `thread_id` / `turn_id` /
+    /// Everything else the session emitted, normalized. `thread_id` / `turn_id` /
     /// `internal` are still unset here; only the caller that knows the turn can stamp them.
     Machinery(MachineryRecord),
 }
@@ -66,7 +68,7 @@ pub trait Cognition: Send {
     ///
     /// It runs a REAL turn, so it produces real machinery — which techy-mode §1.5 says
     /// must be recorded and never rendered (`internal: true`, `turn_id: None`). That is
-    /// why this now takes a sink at all: before, `AcpCognition::reprime` ran into a
+    /// why this now takes a sink at all: before, the real `reprime` ran into a
     /// `|_| {}` and the machinery had nowhere to go. Its assistant TEXT is still
     /// discarded by every caller — the priming turn is never rendered.
     fn reprime(
@@ -80,8 +82,8 @@ pub trait Cognition: Send {
     ///
     /// CLEAN OUTPUT IS UNCHANGED: only agent-message text is ever `TurnItem::Text`. Tool
     /// calls, shell and hook output arrive as `TurnItem::Machinery` — a different arm, a
-    /// different event family, and no path into `StreamEvent::Chunk`. Returns the ACP
-    /// stopReason.
+    /// different event family, and no path into `StreamEvent::Chunk`. Returns the turn's
+    /// stop reason.
     fn prompt(
         &mut self,
         text: &str,
@@ -111,8 +113,9 @@ pub trait Cognition: Send {
     ///
     /// **The default is an empty vec, and it is a statement rather than a stub:** a lease
     /// with no independent machinery channel emitted nothing between turns as far as it can
-    /// witness, and saying "none" is the true answer for it. `AcpCognition` overrides this
-    /// with the real buffer; the test doubles below override it when a test drives the lane.
+    /// witness, and saying "none" is the true answer for it. `NativeCognition` overrides
+    /// this with the real buffer; the test doubles below override it when a test drives the
+    /// lane.
     fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
         Vec::new()
     }
@@ -127,14 +130,14 @@ pub struct MockCognition {
     /// Shared handles so tests can inspect calls after the mock is boxed into the Spine.
     pub reprimes: Arc<Mutex<Vec<String>>>,
     pub prompts: Arc<Mutex<Vec<String>>>,
-    /// RAW ACP updates a test parked as between-turn traffic (§1.5 gap #1).
+    /// RAW native frames a test parked as between-turn traffic (§1.5 gap #1).
     ///
     /// Raw wire JSON, NOT pre-built records, deliberately: a test that pushed a finished
     /// `MachineryRecord` would prove the spine can carry a record it was handed and nothing
-    /// about whether an `available_commands_update` normalizes into one. This runs the same
-    /// `MachineryRecord::from_between_turn_update` the real client's drain runs.
+    /// about whether a `system/init` frame normalizes into one. This runs the same
+    /// `MachineryRecord::from_native_between_turn` the real client's drain runs.
     pub between_updates: Arc<Mutex<VecDeque<serde_json::Value>>>,
-    /// The lane's counter, mirroring `acp::BetweenTurn::next_seq`.
+    /// The lane's counter, mirroring `native::BetweenTurn::next_seq`.
     between_seq: Arc<Mutex<u64>>,
 }
 
@@ -164,7 +167,7 @@ impl MockCognition {
         }
     }
 
-    /// Park one raw ACP update as if the adapter had emitted it with no turn in flight.
+    /// Park one raw native frame as if the agent had emitted it with no turn in flight.
     pub fn emit_between_turn(&self, update: serde_json::Value) {
         self.between_updates.lock().unwrap().push_back(update);
     }
@@ -210,11 +213,10 @@ impl Cognition for MockCognition {
     fn drain_between_turn(&mut self) -> Vec<MachineryRecord> {
         let mut seq = self.between_seq.lock().unwrap();
         let mut out = Vec::new();
-        for update in std::mem::take(&mut *self.between_updates.lock().unwrap()) {
-            if let Some(r) = MachineryRecord::from_between_turn_update(&update, &self.session_id, *seq) {
-                *seq += 1;
-                out.push(r);
-            }
+        for frame in std::mem::take(&mut *self.between_updates.lock().unwrap()) {
+            let records = MachineryRecord::from_native_between_turn(&frame, &self.session_id, *seq);
+            *seq += records.len() as u64;
+            out.extend(records);
         }
         out
     }
@@ -347,7 +349,7 @@ impl Cognition for CancellableMockCognition {
             if self.cancel.flag.load(Ordering::SeqCst) {
                 // Exactly what the real client does: stop delivering, return the cancelled
                 // stopReason, and leave everything already persisted alone (§9.3 step 4).
-                return Ok(crate::acp::STOP_REASON_CANCELLED.to_string());
+                return Ok(crate::native::STOP_REASON_CANCELLED.to_string());
             }
             on_item(TurnItem::Text { seq, text: chunk });
             seq += 1;

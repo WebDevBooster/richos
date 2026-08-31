@@ -1,5 +1,5 @@
-//! Headless proof of the ADDITIVE §13 event family against a REAL ACP turn — no GUI,
-//! no window, no mock.
+//! Headless proof of the ADDITIVE §13 event family against a REAL native turn — no GUI,
+//! no window, no mock, no npm.
 //!
 //! Prints, in emission order, BOTH families side by side:
 //!   `old>`  the four events `app/STREAMING.md` already documents (unchanged by slice 3)
@@ -8,14 +8,15 @@
 //!
 //! Reading the output, the two things to check are that the old family is intact and
 //! that every NEW payload carries `entityId` / `threadId` / `turnId` / `bindingRevision`
-//! / `visibility` — and that every message phase is `"unknown"`, because the ACP wire
-//! carries no commentary-vs-final signal (see `live.rs`'s module doc).
+//! / `visibility` — and that every message phase is `"unknown"`, because the wire carries no
+//! commentary-vs-final signal (see `live.rs`'s module doc; the native wire does not add one
+//! either — `run9` has `message_start`/`message_stop`, which bracket a message and say
+//! nothing about what KIND of message it is).
 //!
-//! Run (needs the `claude` CLI logged in; adapter under app/acp-adapter):
-//!   RICHOS_ACP_BIN=$PWD/../../acp-adapter/node_modules/.bin/claude-agent-acp \
+//! Run (needs the `claude` CLI installed and logged in — no npm, no adapter):
 //!     cargo run -p richos-core --example live_events_roundtrip -- <engine_dir> "your message"
 
-use richos_core::acp::{resolve_acp_bin, AcpCognition};
+use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::live::{LiveEvent, LiveObserver};
@@ -66,11 +67,11 @@ fn main() {
         .create_thread("Live event proof", &EntityId::parse("richos").unwrap())
         .expect("thread");
 
-    let acp_bin = resolve_acp_bin(None);
-    eprintln!("[live-events] adapter  = {}", acp_bin.display());
+    let claude_bin = resolve_claude_bin();
+    eprintln!("[live-events] claude   = {}", claude_bin.display());
     eprintln!("[live-events] engine   = {}", engine_dir.display());
 
-    let cognition = AcpCognition::start(&acp_bin, &engine_dir).expect("start ACP session");
+    let cognition = NativeCognition::start(&claude_bin, &engine_dir).expect("start the native claude session");
     eprintln!("[live-events] session  = {}", cognition.session_id());
     eprintln!("[live-events] thread   = {thread}");
     spine.attach_lease(Box::new(cognition));

@@ -3,7 +3,7 @@
 //! Event-sourced, append-only JSONL (the same durable-substrate philosophy the
 //! engine uses for `task-events.jsonl` / `idle-events.jsonl`). Threads are VIEWS
 //! projected over this one shared log — never siloed stores — so "the durable Rich
-//! is the app" holds: identity + history outlive any single (rotating) ACP session.
+//! is the app" holds: identity + history outlive any single (rotating) Claude session.
 //!
 //! Three invariants this module exists to guarantee:
 //!   1. CRASH-SAFETY (persist-before-send): a CEO prompt is journaled `received`
@@ -72,13 +72,13 @@ pub enum TurnState {
     Received,
     /// Handed to a compute session; a reply is streaming.
     InFlight,
-    /// Terminal, ended cleanly (carries the ACP stopReason).
+    /// Terminal, ended cleanly (carries the turn's stop reason).
     Completed,
     /// Terminal, ended by crash/cancel/rotation before turn-end.
     ///
     /// **This variant no longer covers a CEO stop.** It did until 2026-08-29, and that is
     /// exactly why the §6.1 label *"You stopped after {duration}"* could not be rendered:
-    /// attributing an ACP crash to the CEO is a false statement about who did what.
+    /// attributing a compute-lease crash to the CEO is a false statement about who did what.
     /// [`TurnState::Stopped`] carries that one case now, and it is written only from a
     /// durably-recorded stop REQUEST (`steering.rs`), never inferred.
     Interrupted,
@@ -243,8 +243,8 @@ pub enum Event {
     /// A streamed partial reply chunk — persisted incrementally so a half-written
     /// reply survives a mid-turn crash (§5.1).
     ///
-    /// `seq` is the SHARED per-turn counter assigned at the ACP drain point
-    /// (`acp.rs:309-317`, techy-mode §1.4 G1) — the same counter `MachineryRecord.seq`
+    /// `seq` is the SHARED per-turn counter assigned at the client's drain point
+    /// (`native.rs`'s `prompt` drain loop, techy-mode §1.4 G1) — the same counter `MachineryRecord.seq`
     /// carries. Persisting it is what makes *"he said X, then ran Y, then said Z"*
     /// survive a restart: without it the ledger holds only the concatenated reply, so the
     /// interleaving G1 guarantees LIVE is lost the moment the process exits.

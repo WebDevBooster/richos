@@ -1,6 +1,6 @@
 // TECHY MODE, criterion by criterion — open-items row 3.1, Phase 2.
 //
-// Phase 1 (richos `48561e4`) routed every non-text ACP update, unified the per-turn `seq`,
+// Phase 1 (richos `48561e4`) routed every non-text agent frame, unified the per-turn `seq`,
 // wrote the day-sharded journal and shipped `rich://machinery`, with 22 passing tests — and
 // `grep -rn machinery app/ui/` returned three comments. A correct, tested core with no
 // caller. This suite is about the caller, and about the two things the brief said must stay
@@ -24,8 +24,10 @@
 //      drawing one inside the stream would claim a position nothing witnessed. Check 19 is
 //      the honest empty state for it, check 21 the standing order on the rendered surface.
 //
-//   2. No row is drawn for an event that provably never arrives. `agent_thought_chunk`
-//      fires ZERO times on claude-agent-acp 0.70.0 and `fs/*` never fires at all, so §5's
+//   2. No row is drawn for an event that provably never arrives. Readable thinking text
+//      fires ZERO times on EITHER wire (0 on claude-agent-acp 0.70.0; 7 signature-only
+//      blocks with empty text on the native binary) and client-directed `fs/*` never fires
+//      at all — the native CLI was OBSERVED doing its own file IO — so §5's
 //      own day-one mockup — which opens with `● thinking ⌄` — cannot be delivered. Check 16
 //      asserts the absence, because an always-empty affordance tells the CEO the model is
 //      not thinking when the truth is that the adapter does not say.
@@ -278,11 +280,11 @@ async function main() {
     const page = await openApp(browser);
     await openThread(page, "acme");
     const calm = await page.textContent("#messages");
-    assert(!calm.includes("usage_update"), "an accounting update is not something Rich DID");
+    assert(!calm.includes("message_delta"), "an accounting frame is not something Rich DID");
     assert(!calm.includes("auto-approved"), "and nobody was asked to approve anything");
     await pressToggle(page);
     const rows = await techRows(page);
-    const vendor = rows.find((r) => r.vendor === "usage_update");
+    const vendor = rows.find((r) => r.vendor === "stream_event:message_delta");
     assert(vendor, "§1.4 G5: an untyped kind is retained and rendered as one dim line, with its kind name");
     assert((await page.textContent("#messages")).includes("auto-approved"),
       "a permission request is recorded as a FACT and shown here — never as a decision awaiting him");
@@ -471,8 +473,10 @@ async function main() {
     await openThread(page, "acme");
     await pressToggle(page);
     const text = await page.textContent("#messages");
-    // §5's own day-one mockup opens with `● thinking ⌄`. `agent_thought_chunk` fires ZERO
-    // times on claude-agent-acp 0.70.0, including in a probe run built for nothing else.
+    // §5's own day-one mockup opens with `● thinking ⌄`. Readable thinking text fires ZERO
+    // times on either wire — 0 `agent_thought_chunk` on claude-agent-acp 0.70.0, and 7
+    // `thinking` blocks with EMPTY text on the native binary — including in probe runs built
+    // for nothing else.
     assert(!/thinking/i.test(text), "a thinking row would tell him the model is not thinking, which is not what is true");
     // And `fs/read_text_file` / `fs/write_text_file` never fire with both capabilities
     // declared and both tools exercised — `ClientFsCall` is real and inert on 0.70.0.
@@ -514,7 +518,7 @@ async function main() {
 
   // ---- 18. §1.5's between-turn lane: the update that used to have nowhere to go ---------
   //
-  // THE COMPLETION CRITERION, on the rendered surface. `acp.rs` delivered an update only
+  // THE COMPLETION CRITERION, on the rendered surface. The client delivered a frame only
   // while `current_prompt` was `Some`; anything the adapter said at session start or after
   // a turn's answer had already been returned hit no sink at all. It now attaches to the
   // thread and shows here.
@@ -533,12 +537,12 @@ async function main() {
     const rows = await page.$$eval("#between-turns-rows .bt-row", (r) =>
       r.map((x) => ({ kind: x.dataset.vendor, title: x.querySelector(".tl-tech-title").textContent }))
     );
-    assertEqual(rows.map((r) => r.kind), ["available_commands_update", "session_info_update"],
-      "the two kinds measured between turns on 2026-08-28, in journal order");
-    // The vendor kind IS the row (§1.4 G5's "one dim line"), because there is no CEO-safe
-    // semantic line for "the adapter restated its command list" and inventing one would be
-    // worse than the kind name.
-    assertEqual(rows.map((r) => r.title), ["available_commands_update", "session_info_update"], "kind as label");
+    assertEqual(rows.map((r) => r.kind), ["system:init", "system:status"],
+      "the two frames measured between turns on 2026-08-31, in journal order");
+    // The vendor frame name IS the row (§1.4 G5's "one dim line"), because there is no
+    // CEO-safe semantic line for "the agent restated its tool list" and inventing one would
+    // be worse than the frame name.
+    assertEqual(rows.map((r) => r.title), ["system:init", "system:status"], "frame name as label");
     assert(await page.locator("#between-turns-quiet").isHidden(), "no empty-state sentence over a full lane");
     await shot(page, "../shots-3-1/3-1-08-between-turns-has-somewhere-to-go");
     assertEqual(page.__errors, [], "no page errors");

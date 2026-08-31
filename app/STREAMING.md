@@ -131,8 +131,8 @@ treat it as the reconciled snapshot, not the primary render path.
 ## Machinery: `rich://machinery`
 
 **The default conversation view does NOT subscribe to this event, and must not.** It is a
-separate family carrying every non-text ACP update — tool calls, thoughts, permission
-requests — for the opt-in technical view. Contract:
+separate family carrying every non-text frame the agent emits — tool calls, thinking,
+permission requests, session metadata — for the opt-in technical view. Contract:
 `richos-hq/docs/plans/richos-techy-mode-2026-08-26.md`; Rust source of truth:
 `app/crates/richos-core/src/machinery.rs`.
 
@@ -156,7 +156,7 @@ requests — for the opt-in technical view. Contract:
   "summary": "1.0.0",            // bounded, ≤84 chars
   "locations": ["/abs/path.rs"],
   "internal": false,             // true ⇒ NEVER render this in a thread view
-  "payload": { },                // the raw ACP update; absent once the raw window expires
+  "payload": { },                // the raw agent frame; absent once the raw window expires
   "truncated": false
 }
 ```
@@ -239,7 +239,7 @@ show unknown."*
 | `rich://thread-summary-updated` | **LIVE** | `{…fence, title, messageCount, lastActivity, status, visibility, at}` |
 | `rich://worker-upserted` | **LIVE** (2026-08-29) | one timeline `worker_activity` record + `at` (below) |
 | `rich://plan-updated` | **DEFERRED** | `plan` updates are retained as untyped machinery; their entries live **only** in the evictable Tier-B raw payload, so a plan projected from them would silently empty out after the retention window. |
-| `rich://approval-requested` | **DEFERRED** | Nothing in this runtime asks the CEO to approve anything. The permission requests that do happen are auto-approved by the ACP client and recorded as a fact — they arrive as `activity-upserted` with `activityType: "approval"`, `state: "completed"`: a thing that happened, not a decision awaiting you. |
+| `rich://approval-requested` | **DEFERRED** | Nothing in this runtime asks the CEO to approve anything. The permission requests that do happen are auto-approved by `native::decide_permission` and recorded as a fact — they arrive as `activity-upserted` with `activityType: "approval"`, `state: "completed"`: a thing that happened, not a decision awaiting you. |
 | `rich://approval-resolved` | **DEFERRED** | Same. |
 | `rich://artifact-upserted` | **DEFERRED** | Checked, not assumed: nothing in the ledger, the journal or machinery records an output as a deliverable. Artifacts and source provenance are Phase 5. |
 
@@ -281,10 +281,14 @@ Keep carrying the field. Do not default it.
 `phase` is one of `"commentary" | "final" | "proactive" | "recovery" | "unknown"`. **Today
 every streamed message is `"unknown"`, and a renderer must not treat that as "final".**
 
-This is measured, not assumed. `docs/verification/acp-emission-probe-2026-08-28.md` §2 is
-the complete union of inbound ACP traffic across five runs: 52 `agent_message_chunk`s and
-**zero** message-open, message-close or role updates. Nothing on the wire separates Rich's
-thinking-out-loud from his answer. And `rich://message-started` fires the instant the first
+This is measured, not assumed, and it was re-measured when the ACP adapter was deleted
+(`wiki/ceo-decisions.md` §16) rather than assumed to have survived the move.
+`docs/verification/acp-emission-probe-2026-08-28.md` §2 is the complete union of inbound ACP
+traffic across five runs: 52 `agent_message_chunk`s and **zero** message-open, message-close
+or role updates. The native binary's wire (`.../native-claude-stream-json-2026-08-31/`) DOES
+carry `message_start` and `message_stop` — but they bracket a message and say nothing about
+what KIND of message it is, so the answer is unchanged: nothing on either wire separates
+Rich's thinking-out-loud from his answer. And `rich://message-started` fires the instant the first
 delta is persisted — before the turn is over — so even a perfect after-the-fact rule would
 be unavailable at emission time.
 
@@ -436,7 +440,7 @@ into it, `detail` already removed) plus `at`, so:
 
 **THE ONE STALENESS LIMIT, STATED.** This event is emitted when machinery arrives and once
 more at the turn's end — there is no poll and no timer. A worker's state changes through
-hook writes that produce no ACP traffic at all, so between two tool calls a chip can be up
+hook writes that produce no agent traffic at all, so between two tool calls a chip can be up
 to one tool call behind. It is never wrong about a worker that was never witnessed, and the
 turn-end emission means the last live row is the row an immediate reload projects.
 
@@ -465,8 +469,9 @@ transitions only, so it always carries a real `turnId`.
 cargo run -p richos-core --example live_events_roundtrip -- <engine_dir> "your message"
 ```
 
-Prints both families side by side against a real ACP turn — `old>` for the calm-view events
-at the top of this document, `NEW>` for the seven here, payloads verbatim.
+Prints both families side by side against a real turn — `old>` for the calm-view events at
+the top of this document, `NEW>` for the seven here, payloads verbatim. Needs Claude Code
+installed and signed in; no npm, no adapter.
 
 ---
 

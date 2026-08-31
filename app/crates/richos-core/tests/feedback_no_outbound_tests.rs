@@ -20,7 +20,7 @@
 //!    four crates, none of which can open a connection. A dependency added later fails
 //!    this test by name, which is the point: the person adding it has to say what it is.
 //! 3. **Nothing else in the crate consumes the feature.** The module is reachable only
-//!    from the crate root. It is not wired into the ACP client, the spine, or anything
+//!    from the crate root. It is not wired into the native client, the spine, or anything
 //!    else that already talks to a subprocess, so there is no existing pipe for a report
 //!    to be handed to.
 //!
@@ -70,7 +70,7 @@ const BANNED_IN_CODE: &[&str] = &[
     "websocket",
     "grpc",
     "dns",
-    // A subprocess is a transport too — `acp.rs` in this same crate talks to another
+    // A subprocess is a transport too — `native.rs` in this same crate talks to another
     // program this way.
     "command",
     "process::",
@@ -168,7 +168,7 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
 #[test]
 fn no_other_module_in_the_crate_consumes_the_feedback_feature() {
     // The module is reachable from the crate root and nowhere else. So a report cannot be
-    // slipped into a pipe that already exists — notably acp.rs, which does talk to
+    // slipped into a pipe that already exists — notably native.rs, which does talk to
     // another program.
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut consumers: Vec<String> = Vec::new();

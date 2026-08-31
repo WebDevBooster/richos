@@ -1048,7 +1048,7 @@ mod tests {
     /// LIVE: the full local loop with audio INJECTED at the capture source — real VAD, real
     /// endpointing, real whisper.cpp, real `say`, real output device. The only thing this
     /// does not exercise is the microphone driver, which this machine does not have (see
-    /// capture.rs). Rich's "reply" here is a fixed string, so the ACP/Claude leg is out of
+    /// capture.rs). Rich's "reply" here is a fixed string, so the Claude leg is out of
     /// scope for a unit test; `voice_loop` (the example) does that end of it.
     #[test]
     #[cfg(target_os = "macos")]

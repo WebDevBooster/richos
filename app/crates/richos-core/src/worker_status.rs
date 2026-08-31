@@ -174,11 +174,11 @@ impl WorkerStatusView {
 #[serde(rename_all = "snake_case")]
 pub enum Unattributed {
     /// No compute lease is attached, so the app does not know which session it is serving.
-    /// The ordinary state of a boot where the ACP child could not start.
+    /// The ordinary state of a boot where the `claude` child could not start.
     NoSession,
     /// A session id exists but cannot name a directory: shorter than the 8 characters the
     /// engine's `session-<first8>` convention uses, or carrying a character that is not
-    /// `[0-9A-Za-z-]`. The whitelist is not cosmetic — the session id arrives over the ACP
+    /// `[0-9A-Za-z-]`. The whitelist is not cosmetic — the session id arrives over the
     /// wire and is being used to build a filesystem path.
     UnusableSessionId,
     /// `$HOME` is unset, so `~/.claude/teams` cannot be located at all.
@@ -316,7 +316,7 @@ pub const TEAM_DIR_PREFIX_LEN: usize = 8;
 /// id cannot name one.
 ///
 /// The character whitelist is a boundary check, not tidiness: `session_id` arrives from
-/// the ACP adapter over the wire and is being spliced into a filesystem path, so a `/` or
+/// the agent over the wire and is being spliced into a filesystem path, so a `/` or
 /// a `.` in the first eight characters must not be able to walk out of `~/.claude/teams`.
 /// A real id is a UUID, whose first eight characters are always `[0-9a-f]`.
 pub fn team_dir_name(session_id: &str) -> Option<String> {
@@ -539,7 +539,7 @@ mod tests {
         assert_eq!(team_dir_name("abcd1234").as_deref(), Some("session-abcd1234"), "exactly 8 is enough");
         assert_eq!(team_dir_name("abcd123").as_deref(), None, "7 cannot name a directory");
         assert_eq!(team_dir_name("").as_deref(), None);
-        // The id arrives over the ACP wire. These must never become a path.
+        // The id arrives over the wire. These must never become a path.
         for hostile in ["../../etc", "..%2f..%2f", "a/b/c/d/e", "....//..", "\\..\\..\\x"] {
             assert_eq!(team_dir_name(hostile).as_deref(), None, "must refuse {hostile:?}");
         }

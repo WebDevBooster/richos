@@ -110,13 +110,19 @@ impl MachineryObserver for RecordingMachinery {
 // A lease that interleaves text and machinery on ONE shared counter
 // ---------------------------------------------------------------------------
 
-/// What the lease should emit next, in arrival order. `seq` is assigned by the lease at
-/// its drain point exactly as `acp.rs` does — one counter shared by both arms (§1.4 G1).
+/// What the lease should emit next, in arrival order. `seq` is assigned by the lease at its
+/// drain point exactly as `native.rs` does — one counter shared by both arms (§1.4 G1),
+/// advanced by the NUMBER of records a frame produced.
 enum Beat {
     Text(&'static str),
-    /// A raw ACP `session/update` payload, turned into a `MachineryRecord` the same way
-    /// `acp.rs` turns one.
-    Update(Value),
+    /// A raw native stdout frame, turned into `MachineryRecord`s the same way `native.rs`
+    /// turns one.
+    Frame(Value),
+    /// SEVERAL frames that belong to one fixture. On this wire a tool call is three frames
+    /// (open, arguments, result) and a delegated Task is two — the ACP adapter squeezed each
+    /// into fewer, and a fixture that kept doing so would be testing a wire the binary does
+    /// not speak.
+    Frames(Vec<Value>),
     /// A side effect that happens BETWEEN two beats — i.e. genuinely mid-turn, while the
     /// spine holds the ledger. Used to reproduce the engine hook writing its worker row in
     /// another process AFTER the tool result that named the worker has already been
@@ -155,10 +161,18 @@ impl Cognition for ScriptedLease {
                     on_item(TurnItem::Text { seq, text: t });
                     seq += 1;
                 }
-                Beat::Update(u) => {
-                    if let Some(rec) = MachineryRecord::from_acp_update(u, &self.session_id, seq) {
-                        on_item(TurnItem::Machinery(rec));
+                Beat::Frame(f) => {
+                    for rec in MachineryRecord::from_native_event(f, &self.session_id, seq) {
                         seq += 1;
+                        on_item(TurnItem::Machinery(rec));
+                    }
+                }
+                Beat::Frames(fs) => {
+                    for f in fs {
+                        for rec in MachineryRecord::from_native_event(f, &self.session_id, seq) {
+                            seq += 1;
+                            on_item(TurnItem::Machinery(rec));
+                        }
                     }
                 }
                 Beat::Effect(f) => f(),
@@ -171,28 +185,23 @@ impl Cognition for ScriptedLease {
     }
 }
 
-/// The opening + closing shape of a real tool call, as measured on 2026-08-28
-/// (`docs/verification/acp-emission-probe-2026-08-28.md` §7 / `machinery.rs`'s `open_bash`).
-fn tool_open(id: &str, tool: &str, kind: &str) -> Value {
-    json!({
-        "_meta": {"claudeCode": {"toolName": tool}},
-        "toolCallId": id,
-        "sessionUpdate": "tool_call",
-        "rawInput": {},
-        "status": "pending",
-        "title": "Terminal",
-        "kind": kind
-    })
-}
-
-fn tool_close(id: &str, title: &str, output: &str) -> Value {
-    json!({
-        "toolCallId": id,
-        "sessionUpdate": "tool_call_update",
-        "status": "completed",
-        "title": title,
-        "rawOutput": output
-    })
+/// THE THREE FRAMES of one real tool call, as measured on the native wire
+/// (`docs/verification/native-claude-stream-json-2026-08-31/raw/run9-rust-driven.jsonl`
+/// lines 5, 15 and 18): the row OPENS on the stream with `input: {}`, the complete arguments
+/// arrive on the whole-message `assistant` frame, and the outcome closes it on a
+/// `tool_result` that carries no tool name at all.
+///
+/// Three where ACP sent two, and the difference is not cosmetic: the merge keeps the LAST
+/// payload, so the arguments frame is the only thing that puts what-was-run on the row.
+fn tool_lifecycle(id: &str, tool: &str, command: &str, output: &str) -> Vec<Value> {
+    vec![
+        json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+               "content_block":{"type":"tool_use","id":id,"name":tool,"input":{}}}}),
+        json!({"type":"assistant","message":{"role":"assistant","content":[
+               {"type":"tool_use","id":id,"name":tool,"input":{"command":command}}]}}),
+        json!({"type":"user","message":{"role":"user","content":[
+               {"tool_use_id":id,"type":"tool_result","content":output}]}}),
+    ]
 }
 
 // ===========================================================================
@@ -285,8 +294,7 @@ fn the_shared_seq_still_gaps_where_machinery_happened_on_the_old_family() {
         "sess-1",
         vec![
             Beat::Text("Looking at the release"),
-            Beat::Update(tool_open("toolu_A", "Bash", "execute")),
-            Beat::Update(tool_close("toolu_A", "cat VERSION", "1.0.0")),
+            Beat::Frames(tool_lifecycle("toolu_A", "Bash", "cat VERSION", "1.0.0")),
             Beat::Text("It shipped."),
         ],
     )));
@@ -301,7 +309,7 @@ fn the_shared_seq_still_gaps_where_machinery_happened_on_the_old_family() {
         .filter(|(n, _)| n == "rich://chunk")
         .map(|(_, p)| p["seq"].as_u64().unwrap())
         .collect();
-    assert_eq!(seqs, vec![0, 3], "two tool events took positions 1 and 2 — the gap is the point");
+    assert_eq!(seqs, vec![0, 4], "three tool frames took positions 1, 2 and 3 — the gap is the point");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -318,8 +326,7 @@ fn the_wire_and_the_reload_agree_on_every_field() {
         "sess-1",
         vec![
             Beat::Text("Checking the version"),
-            Beat::Update(tool_open("toolu_A", "Bash", "execute")),
-            Beat::Update(tool_close("toolu_A", "cat engine/VERSION", "1.0.0")),
+            Beat::Frames(tool_lifecycle("toolu_A", "Bash", "cat engine/VERSION", "1.0.0")),
             Beat::Text("It's 1.0.0."),
         ],
     )));
@@ -331,7 +338,11 @@ fn the_wire_and_the_reload_agree_on_every_field() {
 
     // --- the LAST upsert for the tool call is what a reload will show ---
     let upserts = live.of("rich://activity-upserted");
-    assert_eq!(upserts.len(), 2, "one event per raw record: the open, then the merged close");
+    assert_eq!(
+        upserts.len(),
+        3,
+        "one event per raw record: the open, the arguments, then the merged close"
+    );
     let wire = upserts.last().unwrap().clone();
 
     // --- rebuild the SAME thread from the durable records, the way a cold reopen does ---
@@ -407,8 +418,7 @@ fn a_live_message_id_is_the_id_a_reload_projects() {
         "sess-1",
         vec![
             Beat::Text("Looking at the release"),
-            Beat::Update(tool_open("toolu_A", "Bash", "execute")),
-            Beat::Update(tool_close("toolu_A", "git log -1", "abc123")),
+            Beat::Frames(tool_lifecycle("toolu_A", "Bash", "git log -1", "abc123")),
             Beat::Text("It shipped."),
         ],
     )));
@@ -441,7 +451,7 @@ fn a_live_message_id_is_the_id_a_reload_projects() {
     assert_eq!(completed[0]["text"], json!("Looking at the release"));
     assert_eq!(completed[1]["text"], json!("It shipped."));
     assert_eq!(started[0]["seq"], json!(0));
-    assert_eq!(started[1]["seq"], json!(3), "the real position, gap and all");
+    assert_eq!(started[1]["seq"], json!(4), "the real position, gap and all");
 
     // And the first run is CLOSED BEFORE the tool call's activity row — §5.2's
     // "commentary, then activity" is live-accurate, not reconstructed at turn end.
@@ -469,8 +479,7 @@ fn every_streamed_message_is_phase_unknown_and_never_final() {
         "sess-1",
         vec![
             Beat::Text("The release shipped at 14:02 and the migration is complete."),
-            Beat::Update(tool_open("toolu_A", "Bash", "execute")),
-            Beat::Update(tool_close("toolu_A", "git log -1", "abc123")),
+            Beat::Frames(tool_lifecycle("toolu_A", "Bash", "git log -1", "abc123")),
             Beat::Text("Confirmed."),
         ],
     )));
@@ -482,7 +491,7 @@ fn every_streamed_message_is_phase_unknown_and_never_final() {
         assert_eq!(
             p["phase"],
             json!("unknown"),
-            "the ACP stream carries no commentary-vs-final signal; message-started fires \
+            "the wire carries no commentary-vs-final signal; message-started fires \
              before the turn is even over"
         );
         assert!(p.get("phase").is_some(), "serialized explicitly — an absent field invites `?? 'final'`");
@@ -641,12 +650,13 @@ fn model_reasoning_and_internal_machinery_never_reach_the_calm_family() {
         "sess-1",
         vec![
             // §5.3 lists model reasoning under "do not render". The adapter emits this
-            // route (acp-agent.js:6462-6473) even though it is structurally empty on
-            // today's models — the route is built, so the gate must hold on it.
-            Beat::Update(json!({
-                "sessionUpdate": "agent_thought_chunk",
-                "content": {"type": "text", "text": "The CEO probably means the staging deploy, not prod."}
-            })),
+            // route even though it is structurally empty on today's models: the native
+            // captures carry 7 `thinking` blocks and EVERY ONE has empty text and a
+            // signature only. The route is built, so the gate must hold on it.
+            Beat::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"thinking",
+                 "thinking":"The CEO probably means the staging deploy, not prod.",
+                 "signature":"sig"}]}})),
             Beat::Text("The staging deploy is red."),
         ],
     )));
@@ -697,7 +707,7 @@ fn an_accounting_update_is_not_a_thing_rich_did() {
     // `available_commands_update` and `session_info_update` all normalize to
     // MachineryKind::Unknown, and slice 2a stamped those Visibility::Ceo — so ONE real
     // command produced SIX CEO rows reading "Worked" (positions 0, 1, 5, 8, 12, 13)
-    // against ONE "Ran a command". A 6:1 noise ratio on the calm timeline, and the ACP
+    // against ONE "Ran a command". A 6:1 noise ratio on the calm timeline, and the 2026-08-28
     // probe measured 50 usage_updates across five runs, so a longer turn is worse.
     let (path, ledger) = tmp_ledger("accounting");
     let mut spine = Spine::new(ledger);
@@ -705,10 +715,12 @@ fn an_accounting_update_is_not_a_thing_rich_did() {
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
         vec![
-            Beat::Update(json!({"sessionUpdate": "usage_update", "used": 30477, "size": 1000000})),
-            Beat::Update(tool_open("toolu_A", "Bash", "execute")),
-            Beat::Update(tool_close("toolu_A", "git rev-parse HEAD", "39a0968")),
-            Beat::Update(json!({"sessionUpdate": "available_commands_update", "commands": []})),
+            Beat::Frame(json!({"type":"stream_event","event":{"type":"message_delta",
+                "delta":{"stop_reason":"tool_use"},
+                "usage":{"input_tokens":2,"cache_read_input_tokens":25737}}})),
+            Beat::Frames(tool_lifecycle("toolu_A", "Bash", "git rev-parse HEAD", "39a0968")),
+            Beat::Frame(json!({"type":"system","subtype":"init","model":"claude-sonnet-5",
+                "tools":[]})),
             Beat::Text("It is 39a0968."),
         ],
     )));
@@ -726,9 +738,9 @@ fn an_accounting_update_is_not_a_thing_rich_did() {
     );
     assert!(!summaries.contains(&"Worked"), "\"Worked\" is not a thing Rich did");
 
-    // NOTHING IS LOST. All four records were routed and retained, and the two untyped
-    // ones still render in TECHNICAL mode with their vendor kind intact.
-    assert_eq!(machinery.records.lock().unwrap().len(), 4, "every record is still routed");
+    // NOTHING IS LOST. All five records were routed and retained, and the two untyped ones
+    // still render in TECHNICAL mode with their vendor kind intact.
+    assert_eq!(machinery.records.lock().unwrap().len(), 5, "every record is still routed");
     let records = machinery.records.lock().unwrap().clone();
     let binding = spine.ledger().thread_binding(spine.active_thread().unwrap()).unwrap();
     let timeline = Timeline::project(spine.ledger(), &binding, &records).unwrap();
@@ -743,7 +755,11 @@ fn an_accounting_update_is_not_a_thing_rich_did() {
             _ => None,
         })
         .collect();
-    assert_eq!(technical, vec!["usage_update", "available_commands_update"], "§1.4 G5's dim technical lines");
+    assert_eq!(
+        technical,
+        vec!["stream_event:message_delta", "system:init"],
+        "§1.4 G5's dim technical lines"
+    );
 
     let _ = std::fs::remove_file(&path);
 }
@@ -886,16 +902,19 @@ fn an_unbound_legacy_thread_emits_nothing_at_all() {
 /// A DELEGATED-WORK tool call: the two-part witness `worker-created-handoff.sh` requires —
 /// the vendor tool name `Task`, and the harness's async-launch acknowledgement carrying an
 /// extractable `agentId`. Missing either half and the call stays an ordinary activity row.
-fn task_call(id: &str, agent_id: &str) -> Value {
-    json!({
-        "sessionUpdate": "tool_call",
-        "toolCallId": id,
-        "title": "Task",
-        "kind": "other",
-        "status": "in_progress",
-        "_meta": {"claudeCode": {"toolName": "Task"}},
-        "rawOutput": format!("Async agent launched successfully. agentId: {agent_id}")
-    })
+///
+/// **TWO frames, because on this wire the two halves of the witness arrive on two.** The
+/// name is on the opening frame; the acknowledgement is on a `tool_result` that names no
+/// tool. `LiveTurn` memoizes the name per tool call for exactly this reason — see
+/// `live.rs`'s `tool_names`.
+fn task_call(id: &str, agent_id: &str) -> Vec<Value> {
+    vec![
+        json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+               "content_block":{"type":"tool_use","id":id,"name":"Task","input":{}}}}),
+        json!({"type":"user","message":{"role":"user","content":[
+               {"tool_use_id":id,"type":"tool_result",
+                "content":format!("Async agent launched successfully. agentId: {agent_id}")}]}}),
+    ]
 }
 
 /// One line of the engine's `worker-events.jsonl`, in the emitters' own format
@@ -949,10 +968,9 @@ fn a_delegation_reaches_the_webview_during_the_turn_not_after_it() {
         "sess-1",
         vec![
             Beat::Text("Pulling Sage and Frank onto this."),
-            Beat::Update(task_call("tc_t1", "agt_sage")),
-            Beat::Update(task_call("tc_t2", "agt_frank")),
-            Beat::Update(tool_open("tc_c1", "Bash", "execute")),
-            Beat::Update(tool_close("tc_c1", "git status --short", "clean")),
+            Beat::Frames(task_call("tc_t1", "agt_sage")),
+            Beat::Frames(task_call("tc_t2", "agt_frank")),
+            Beat::Frames(tool_lifecycle("tc_c1", "Bash", "git status --short", "clean")),
             Beat::Text("Both are running."),
         ],
     )));
@@ -1031,7 +1049,7 @@ fn the_live_worker_row_and_the_reloaded_worker_row_are_the_same_row() {
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
-        vec![Beat::Text("Clark is on the sources."), Beat::Update(task_call("tc_t1", "agt_clark"))],
+        vec![Beat::Text("Clark is on the sources."), Beat::Frames(task_call("tc_t1", "agt_clark"))],
     )));
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
@@ -1100,7 +1118,7 @@ fn a_run_that_ended_crosses_the_live_wire_as_unknown_never_as_a_completion() {
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
-        vec![Beat::Update(task_call("tc_t1", "agt_sage")), Beat::Text("Sage's run is over.")],
+        vec![Beat::Frames(task_call("tc_t1", "agt_sage")), Beat::Text("Sage's run is over.")],
     )));
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
@@ -1160,7 +1178,7 @@ fn no_worker_from_another_session_reaches_the_live_wire() {
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
-        vec![Beat::Update(task_call("tc_t1", "agt_shared")), Beat::Text("Sage has it.")],
+        vec![Beat::Frames(task_call("tc_t1", "agt_shared")), Beat::Text("Sage has it.")],
     )));
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));
@@ -1225,7 +1243,7 @@ fn a_lifecycle_row_that_lands_after_the_tool_result_still_reaches_the_screen_in_
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
         vec![
-            Beat::Update(task_call("tc_t1", "agt_late")),
+            Beat::Frames(task_call("tc_t1", "agt_late")),
             // The hook fires here — mid-turn, after the result that named the worker.
             Beat::Effect(Box::new(move || {
                 std::fs::write(
@@ -1234,8 +1252,7 @@ fn a_lifecycle_row_that_lands_after_the_tool_result_still_reaches_the_screen_in_
                 )
                 .unwrap();
             })),
-            Beat::Update(tool_open("tc_c1", "Bash", "execute")),
-            Beat::Update(tool_close("tc_c1", "git status --short", "clean")),
+            Beat::Frames(tool_lifecycle("tc_c1", "Bash", "git status --short", "clean")),
         ],
     )));
     let live = RecordingLive::default();
@@ -1293,7 +1310,7 @@ fn a_delegation_on_an_internal_turn_is_constructed_and_then_refused() {
     spine.set_worker_events(WorkerEventsSource::File(stream.clone()));
     spine.attach_lease(Box::new(ScriptedLease::new(
         "sess-1",
-        vec![Beat::Update(task_call("tc_t1", "agt_hidden")), Beat::Text("priming")],
+        vec![Beat::Frames(task_call("tc_t1", "agt_hidden")), Beat::Text("priming")],
     )));
     let live = RecordingLive::default();
     spine.set_live_observer(Box::new(live.clone()));

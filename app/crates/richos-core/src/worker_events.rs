@@ -224,7 +224,7 @@ pub enum SessionScope {
     /// characters, so the prefix is the only join available — and it is the same one the
     /// emitters used to choose the directory.
     Prefix(String),
-    /// An exact session id, for a caller that knows it (e.g. the ACP session the app is on).
+    /// An exact session id, for a caller that knows it (e.g. the session the app is on).
     Exact(String),
     /// No filtering. Only for an explicit test seam or a directory that is not named for a
     /// session; never used for the home-fallback file.

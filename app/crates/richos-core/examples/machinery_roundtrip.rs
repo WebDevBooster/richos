@@ -1,9 +1,10 @@
 //! Headless proof that machinery is ROUTED AND RETAINED end to end, against the REAL
-//! `claude-agent-acp` adapter — no GUI, no window, no mock.
+//! `claude` binary — no GUI, no window, no mock, no npm.
 //!
-//! `acp_roundtrip` proves the clean-output loop. This proves the second family: a real
+//! `native_roundtrip` proves the clean-output loop. This proves the second family: a real
 //! tool-using turn produces real records in the real journal on disk, in one shared `seq`
-//! with the assistant text, merged by `toolCallId`, with the CEO's conversation untouched.
+//! with the assistant text, merged by the tool-use id, with the CEO's conversation
+//! untouched.
 //! A passing unit test is not this proof; this is.
 //!
 //! It prints, in order:
@@ -13,14 +14,14 @@
 //!   3. the projected machinery rows (`toolCallId` merged, `internal` excluded);
 //!   4. the journal files actually on disk, Tier A and Tier B, with byte counts.
 //!
-//! Run (needs the `claude` CLI logged in; adapter under app/acp-adapter):
-//!   cd app && RICHOS_ACP_BIN=$PWD/acp-adapter/node_modules/.bin/claude-agent-acp \
+//! Run (needs the `claude` CLI installed and logged in — no npm, no adapter):
+//!   cd app \
 //!     cargo run -p richos-core --example machinery_roundtrip -- <engine_dir> "your message"
 //!
 //! The journal is left on disk and its path is printed, so the run can be inspected after
 //! the process exits.
 
-use richos_core::acp::{resolve_acp_bin, AcpCognition};
+use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::journal::MachineryJournal;
 use richos_core::ledger::{Ledger, Source};
 use richos_core::machinery::{MachineryObserver, MachineryRecord};
@@ -97,10 +98,10 @@ fn main() {
     spine.set_machinery_observer(Box::new(live.clone()));
     let thread_id = spine.create_thread("Machinery roundtrip proof", &EntityId::parse("richos").unwrap()).expect("thread");
 
-    let acp_bin = resolve_acp_bin(None);
-    eprintln!("[machinery] adapter   = {}", acp_bin.display());
+    let claude_bin = resolve_claude_bin();
+    eprintln!("[machinery] claude    = {}", claude_bin.display());
     eprintln!("[machinery] engine cwd = {}", engine_dir.display());
-    let cognition = AcpCognition::start(&acp_bin, &engine_dir).expect("start ACP session");
+    let cognition = NativeCognition::start(&claude_bin, &engine_dir).expect("start the native claude session");
     eprintln!("[machinery] session   = {}", cognition.session_id());
     spine.attach_lease(Box::new(cognition));
 

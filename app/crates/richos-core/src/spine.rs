@@ -108,7 +108,7 @@ struct QueuedProactiveEmit {
 /// Rough chars-per-token ESTIMATE — the well-known ~4-chars/token heuristic for English
 /// text under the Claude tokenizer family.
 ///
-/// **This is now the FALLBACK, not the watermark.** Continuity design §3.2 permits "ACP
+/// **This is now the FALLBACK, not the watermark.** Continuity design §3.2 permits "agent
 /// usage reporting OR AN ESTIMATE"; the adapter does report, so the estimate is used only
 /// while the current lease has not yet said anything about itself. `context_source()`
 /// answers which of the two is in force at any instant, and nothing surfaces the estimate
@@ -249,7 +249,7 @@ pub struct Spine {
     /// Set true once the current lease has been re-primed (continuity foundation).
     lease_primed: bool,
     /// The live UI sink (streaming deltas + turn state). Optional so the spine runs
-    /// headless (tests, the ACP example) with zero UI attached.
+    /// headless (tests, the round-trip examples) with zero UI attached.
     observer: Option<Box<dyn TurnObserver>>,
     /// Spawns a fresh, un-primed lease at rotation/recovery time. `None` means the spine
     /// can prime/run ONE lease (whatever was `attach_lease`d) but can never rotate or
@@ -434,7 +434,7 @@ impl Spine {
     /// stream **for the same session** becomes a `TimelineItem::WorkerActivity`.
     ///
     /// ## The id spaces match — settled 2026-08-29, no longer a caveat
-    /// The join's session clause compares the MACHINERY record's `session_id` — the ACP
+    /// The join's session clause compares the MACHINERY record's `session_id` — the lease's
     /// session id the adapter minted (`Cognition::session_id`) — against the worker row's
     /// `session_id`, which the engine hook read from the Claude Code harness. This used to
     /// say the two might be different id spaces and could not be measured in this checkout.
@@ -1609,7 +1609,7 @@ impl Spine {
         self.emit_live(closing);
 
         // ONE LAST WORKER RE-JOIN, before the terminal turn status goes out. A worker's
-        // state changes through hook writes in another process and produces no ACP traffic
+        // state changes through hook writes in another process and produces no agent traffic
         // at all, so the last machinery record is not necessarily the last thing that
         // happened to a delegation. Without this the live row and a snapshot taken a second
         // later could disagree at exactly the moment the transcript settles and collapses.
@@ -1658,10 +1658,10 @@ impl Spine {
         // CEO as the cause of anything) above a complete, successful answer. It failed in
         // the direction where he believes he prevented something he did not.
         //
-        // The race is real and narrow: `AcpCancelHandle::cancel` clones the sink and
+        // The race is real and narrow: `NativeCancelHandle::cancel` clones the sink and
         // appends `ChunkMsg::Cancel` AFTER whatever is already queued, so when the
         // adapter's `Done` is already in the channel `rx.recv()` returns it first and
-        // `prompt` returns `"end_turn"` (`acp.rs:443-450`). That handle's own doc guards
+        // `prompt` returns `"end_turn"` (`native.rs`'s `prompt` loop). That handle's own doc guards
         // `Done` RACING the wake; this is `Done` ALREADY QUEUED before the wake exists.
         //
         // The distinguishing signal was passed into `finish_stopped_turn` and thrown away.
@@ -1682,8 +1682,8 @@ impl Spine {
             //                             turn ended because it finished.
             let stop_ended_the_turn = !matches!(
                 lease_reported,
-                Some(r) if r != crate::acp::STOP_REASON_CANCELLED
-                    && r != crate::acp::STOP_REASON_CANCEL_UNACKNOWLEDGED
+                Some(r) if r != crate::native::STOP_REASON_CANCELLED
+                    && r != crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED
             );
             if stop_ended_the_turn {
                 self.finish_stopped_turn(turn_id, binding, &claim, lease_reported)?;
@@ -1876,7 +1876,7 @@ impl Spine {
         // it may still be working, and whatever it says next would land on the next turn.
         // So it is retired at this boundary, through the rotation path that already exists
         // (never mid-turn: `pending_rotation_reason` is honoured by `after_turn_boundary`).
-        if lease_stop_reason == Some(crate::acp::STOP_REASON_CANCEL_UNACKNOWLEDGED)
+        if lease_stop_reason == Some(crate::native::STOP_REASON_CANCEL_UNACKNOWLEDGED)
             && self.lease_factory.is_some()
         {
             self.pending_rotation_reason.get_or_insert_with(|| "cancel-unacknowledged".to_string());
@@ -2158,7 +2158,7 @@ impl Spine {
     /// The ADDITIVE half of a proactive message (§13).
     ///
     /// **This is the ONE place a real, non-`unknown` message phase exists.** A streamed
-    /// reply has no phase signal anywhere on the ACP wire (`live.rs`'s module doc, with the
+    /// reply has no phase signal anywhere on the wire (`live.rs`'s module doc, with the
     /// measurement behind it), but a proactive message knows what it is because the LEDGER
     /// recorded it as one — `Source::Proactive` plus a tier. So it is emitted as
     /// `phase: "proactive"`, and it is the proof that the phase field is a real field
@@ -2347,7 +2347,7 @@ impl Spine {
         self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
 
         // Steps 6/7: swap. The OLD lease (replaced here) is dropped — its `Drop` impl
-        // (see `acp::AcpClient`) kills + waits on the child process, so exactly one live
+        // (see `native::NativeClient`) kills + waits on the child process, so exactly one live
         // session exists at any instant ("serialize" — §3.3 step 6). The CEO's next
         // prompt (queued or freshly typed) lands on the already-primed successor.
         // `install_lease` republishes the cancel seam AND the session id in one place:
@@ -2356,7 +2356,7 @@ impl Spine {
         // exists while the worker path read the retired session's team directory.
         self.install_lease(fresh);
         // The SUCCESSOR's own session-start and post-priming traffic, drained off the newly
-        // installed lease and stamped `internal: true`. A fresh `AcpClient` starts with an
+        // installed lease and stamped `internal: true`. A fresh `NativeClient` starts with an
         // empty `last_session_meta` slot, so it re-announces its commands — and that
         // re-announcement, appearing mid-conversation, is exactly the shape of a rotation
         // tell. It never renders.

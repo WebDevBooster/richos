@@ -376,15 +376,16 @@
       activityType: "command", state: "failed", summary: "Ran a command", detailRef: "mach_a6",
       detail: { title: "cat comparables/q4-acme.csv", summary: "Exit code 1", locations: [] } },
     // TECHNICAL-ONLY, and therefore ABSENT from the calm view entirely: an untyped vendor
-    // kind. `usage_update` was the second most frequent event on the wire (50 across five
-    // probe runs) and it is not something Rich DID, so it renders as one dim line here and
-    // as nothing at all in the conversation. Slice 3 fixed a live 6:1 noise defect by
+    // frame. `stream_event:message_delta` carries the token accounting the rotation
+    // watermark reads, and it is not something Rich DID, so it renders as one dim line here
+    // and as nothing at all in the conversation. Slice 3 fixed a live 6:1 noise defect by
     // moving exactly this row out of the CEO view.
     { kind: "activity", id: "mach_a7", slot: "stream", sequence: 7, visibility: "technical",
       entityId: "femcboost", threadId: "acme", createdAt: now() - 1000 * 60 * 60 * 20 + 1800,
       activityType: "other", state: "unknown", summary: "Worked", detailRef: "mach_a7",
-      detail: { title: "usage_update", locations: [], vendorKind: "usage_update" } },
-    // A PERMISSION REQUEST, also technical-only. Auto-approved by the ACP client and
+      detail: { title: "stream_event:message_delta", locations: [],
+                vendorKind: "stream_event:message_delta" } },
+    // A PERMISSION REQUEST, also technical-only. Auto-approved by the client and
     // recorded as a FACT — never a decision awaiting the CEO. It rendered as a CEO row
     // reading "Requested approval 7 times" until 2026-08-29, which manufactured demand for
     // an approval queue that does not exist.
@@ -935,7 +936,9 @@
     ["mach_a3", { payload: { command: "cat notes/hensley-relationship.md", stdout: "Hensley has carried the relationship since 2019." }, truncated: false }],
     ["mach_a4", { payload: { command: "python3 scripts/counter-model.py --list 4200000 --offer 3864000", stdout: "spread 8.0% · within comparable range" }, truncated: false }],
     ["mach_a6", { payload: "{\"command\":\"cat comparables/q4-acme.csv\",\"stderr\":\"cat: comparables/q4-acme.csv: No such file or directory", truncated: true }],
-    ["mach_a7", { payload: { sessionUpdate: "usage_update", used: 41991, size: 1000000 }, truncated: false }],
+    ["mach_a7", { payload: { type: "stream_event", event: { type: "message_delta",
+        usage: { input_tokens: 2, cache_read_input_tokens: 41991, cache_creation_input_tokens: 3603 } } },
+      truncated: false }],
     ["mach_a8", { payload: { chosen: "allow", auto: true, options: ["allow", "reject"] }, truncated: false }],
   ]);
 
@@ -956,17 +959,17 @@
           sequence: 0,
           at: now() - 1000 * 60 * 60 * 21,
           visibility: "technical",
-          vendorKind: "available_commands_update",
+          vendorKind: "system:init",
           detailRef: "mach_bt1",
           // NO `summary`, and that is the fixture speaking rather than a gap. A SessionMeta
-          // update has no typed route (`MachineryKind::Unknown`), so `from_acp_update`
+          // frame has no typed route (`MachineryKind::Unknown`), so `from_native_event`
           // produces no bounded preview for it — the live fixture at
           // `fixtures/machinery-payload.json` has none either. One dim line carrying its
-          // vendor kind is exactly what §1.4 G5 asks for.
+          // vendor frame name is exactly what §1.4 G5 asks for.
           detail: {
-            title: "available_commands_update",
+            title: "system:init",
             locations: [],
-            vendorKind: "available_commands_update",
+            vendorKind: "system:init",
           },
         },
         {
@@ -975,12 +978,12 @@
           sequence: 1,
           at: now() - 1000 * 60 * 29,
           visibility: "technical",
-          vendorKind: "session_info_update",
+          vendorKind: "system:status",
           detailRef: "mach_bt2",
           detail: {
-            title: "session_info_update",
+            title: "system:status",
             locations: [],
-            vendorKind: "session_info_update",
+            vendorKind: "system:status",
           },
         },
       ],

@@ -18,7 +18,7 @@
 //!
 //! **1. One shared per-turn sequence (techy-mode §1.4 G1).** A timeline item's
 //! [`sequence`](TimelineBase::sequence) is never computed by this module. It is the value
-//! the ACP drain point already assigned (`acp.rs:309-317`), read back off the machinery
+//! the client's drain point already assigned (`native.rs`'s `prompt`), read back off the machinery
 //! record or the persisted text run. There is no timeline counter. A stream item with no
 //! recorded position reports `sequence: None` — *unknown*, not zero.
 //!
@@ -561,7 +561,7 @@ pub struct BetweenTurnItem {
     pub detail: Option<ActivityDetail>,
 }
 
-/// The technical half of the duration row: the raw ACP stop reason.
+/// The technical half of the duration row: the raw vendor stop reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkDetail {
@@ -683,7 +683,7 @@ pub enum TimelineItem {
     },
     /// An actionable approval card (§5.5). MODELLED, NEVER PRODUCED: nothing in this
     /// runtime asks the CEO to approve anything. The permission requests that DO happen
-    /// are auto-approved by the ACP client and recorded as a fact
+    /// are auto-approved by `native::decide_permission` and recorded as a fact
     /// (`machinery.rs::from_permission_request`), so they project as an
     /// `Activity { activity_type: Approval, state: Completed }` — a thing that happened,
     /// not a decision awaiting the CEO.
@@ -919,7 +919,7 @@ impl Timeline {
     /// `machinery::project` itself for the `toolCallId` merge (§1.4 G2), and it needs the
     /// pre-merge records for one measured reason. `merge_into` replaces `payload` with the
     /// LAST update's raw JSON, and the last update in the measured traffic is
-    /// `{toolCallId, sessionUpdate, status, rawOutput}` — it carries neither the ACP
+    /// a `tool_result` with an outcome and no tool name — it carries neither the
     /// `kind` nor `_meta.claudeCode.toolName`. Both of those arrive on the OPENING event.
     /// So the activity type is resolved across all raw records for a tool call, before the
     /// merge throws that payload away.
@@ -1428,7 +1428,7 @@ pub(crate) fn machinery_visibility(row: &MachineryRecord, internal_turn: bool) -
         // Three things are wrong with that on the calm surface, and the third is the one
         // that matters. It is duplicate: the tool call this request belongs to already
         // renders its own semantic row ("Ran a command"), so nothing is lost here. It
-        // implies a decision-maker, when `acp.rs:184-205` auto-approves every request and
+        // implies a decision-maker, when `native::decide_permission` auto-approves every request and
         // nobody was asked. And with `state: completed` beside it, a reasonable CEO reads
         // it as GRANTED — which manufactures the demand for an approval queue that does not
         // exist. R2 business-action governance is deferred to V2 by CEO decision for v1 and
@@ -1546,7 +1546,7 @@ pub(crate) fn activity_item(
             binding_revision: revision,
             created_at: row.at,
             updated_at: updated,
-            // NOT a new number: the position the ACP drain point assigned (§1.4 G1),
+            // NOT a new number: the position the client's drain point assigned (§1.4 G1),
             // carried through the journal and read back here.
             sequence: Some(row.seq),
             slot: TimelineSlot::Stream,
@@ -1663,10 +1663,12 @@ fn semantic_summary(activity_type: ActivityType, row: &MachineryRecord) -> Strin
 
 /// Resolve one activity type per tool call, across the RAW (pre-merge) records.
 ///
-/// The classification lives on the OPENING event — `_meta.claudeCode.toolName` (the
-/// vendor's real tool name, probe §5.5) and the coarse ACP `kind`. `merge_into` keeps the
-/// LAST update's payload, which in the measured traffic has neither. First conclusive
-/// answer wins; a record with an evicted payload contributes nothing.
+/// The classification lives on the OPENING frames — the tool's own `name`, which the native
+/// wire supplies directly (`content_block_start.content_block.name`, the `assistant` frame's
+/// `tool_use.name`, `tool_progress.tool_name`) with no `_meta` indirection. `merge_into`
+/// keeps the LAST update's payload, and the last frame of a tool call is its `tool_result`,
+/// which carries no name at all. First conclusive answer wins; a record with an evicted
+/// payload contributes nothing.
 fn resolve_activity_types(records: &[&MachineryRecord]) -> HashMap<String, ActivityType> {
     let mut out: HashMap<String, ActivityType> = HashMap::new();
     for r in records {
@@ -1786,8 +1788,9 @@ pub(crate) fn worker_activity_item(
     }
 }
 
-/// The latest `agent_id` extractable per tool call, across the raw records.
-fn resolve_agent_ids(records: &[&MachineryRecord]) -> HashMap<String, String> {
+/// The tool NAME per tool call, across the raw records — the memo that lets a name on the
+/// opening frame reach a result frame that carries none. See [`extract_agent_id`].
+fn resolve_tool_names(records: &[&MachineryRecord]) -> HashMap<String, String> {
     let mut out: HashMap<String, String> = HashMap::new();
     for r in records {
         let (Some(id), Some(payload)) = (r.tool_call_id.as_ref(), r.payload.as_ref()) else {
@@ -1796,7 +1799,28 @@ fn resolve_agent_ids(records: &[&MachineryRecord]) -> HashMap<String, String> {
         if out.contains_key(id) {
             continue;
         }
-        if let Some(agent_id) = extract_agent_id(payload) {
+        if let Some(name) = tool_name_of(payload) {
+            out.insert(id.clone(), name.to_string());
+        }
+    }
+    out
+}
+
+/// The latest `agent_id` extractable per tool call, across the raw records.
+///
+/// TWO passes, because on this wire the identity witness spans two frames: the tool's name
+/// arrives when the call opens and the async-launch acknowledgement when it closes.
+fn resolve_agent_ids(records: &[&MachineryRecord]) -> HashMap<String, String> {
+    let names = resolve_tool_names(records);
+    let mut out: HashMap<String, String> = HashMap::new();
+    for r in records {
+        let (Some(id), Some(payload)) = (r.tool_call_id.as_ref(), r.payload.as_ref()) else {
+            continue;
+        };
+        if out.contains_key(id) {
+            continue;
+        }
+        if let Some(agent_id) = extract_agent_id(payload, names.get(id).map(String::as_str)) {
             out.insert(id.clone(), agent_id);
         }
     }
@@ -1814,14 +1838,20 @@ fn resolve_agent_ids(records: &[&MachineryRecord]) -> HashMap<String, String> {
 ///
 /// Missing either half yields `None`, and `None` means the call stays an ordinary activity.
 /// Hand-rolled rather than a regex because this crate is deliberately dependency-light.
-pub(crate) fn extract_agent_id(payload: &Value) -> Option<String> {
+///
+/// **`tool_name` is a separate argument now, and the wire is why.** On ACP both halves rode
+/// on one `tool_call_update`: the name in `_meta` and the acknowledgement in `rawOutput`. On
+/// the native wire the name is on the tool's OPENING frames and the acknowledgement is in the
+/// `tool_result`, which carries no name — so a single payload can never hold both, and a
+/// function that demanded both from one payload would answer `None` forever and silently
+/// stop reporting workers. The caller resolves the name per `tool_call_id` first
+/// ([`tool_name_of`]) and passes it in; `None` for the name is a hard refusal, exactly as an
+/// unrecognized name is.
+pub(crate) fn extract_agent_id(payload: &Value, tool_name: Option<&str>) -> Option<String> {
     // Only the vendor's delegated-work tools can spawn a worker. Anything else carrying
-    // this text would be quoting it.
-    let name = payload
-        .get("_meta")
-        .and_then(|m| m.get("claudeCode"))
-        .and_then(|c| c.get("toolName"))
-        .and_then(|v| v.as_str())?;
+    // this text would be quoting it. The name may come from this payload (the open frame)
+    // or from the caller's per-tool-call memo (the result frame).
+    let name = tool_name.or_else(|| tool_name_of(payload))?;
     if name != "Task" && name != "Agent" {
         return None;
     }
@@ -1844,35 +1874,45 @@ pub(crate) fn extract_agent_id(payload: &Value) -> Option<String> {
     }
 }
 
-/// Classify one raw ACP tool payload. The vendor's real tool name first (it is specific),
-/// then the coarse ACP `kind`. Anything unrecognized returns `None` rather than a guess,
-/// and `None` becomes `Other`.
+/// The vendor's real tool name, wherever this wire puts it.
+///
+/// **Three places, because one tool call is three frames, and this is the ONE function that
+/// knows them all.** ACP buried the real name in `_meta.claudeCode.toolName` and offered a
+/// coarse `kind` (`execute` / `edit` / `read` / `other`) beside it; the native wire hands the
+/// name over directly and has no coarse class at all, so the `kind` fallback is gone rather
+/// than emulated.
+///
+/// - `event.content_block.name` — the streamed OPEN (`run9-rust-driven.jsonl:5`).
+/// - `name` — the `assistant` frame's `tool_use` block, which this file's normalizer stores
+///   as the record payload (`run9-rust-driven.jsonl:15`).
+/// - `tool_name` — `tool_progress` heartbeats and `can_use_tool` permission requests.
+///
+/// A `tool_result` payload has NO name and answers `None`, which is why the classification
+/// has to run over the RAW records before the merge.
+pub(crate) fn tool_name_of(payload: &Value) -> Option<&str> {
+    payload
+        .get("event")
+        .and_then(|e| e.get("content_block"))
+        .and_then(|b| b.get("name"))
+        .and_then(|v| v.as_str())
+        .or_else(|| payload.get("name").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("tool_name").and_then(|v| v.as_str()))
+        .or_else(|| payload.get("request").and_then(|r| r.get("tool_name")).and_then(|v| v.as_str()))
+}
+
+/// Classify one raw tool payload by the tool's own name. Anything unrecognized returns
+/// `None` rather than a guess, and `None` becomes `Other`.
 pub(crate) fn classify(payload: &Value) -> Option<ActivityType> {
-    if let Some(name) =
-        payload.get("_meta").and_then(|m| m.get("claudeCode")).and_then(|c| c.get("toolName")).and_then(|v| v.as_str())
-    {
-        let t = match name {
-            "Bash" | "BashOutput" | "KillShell" | "KillBash" => Some(ActivityType::Command),
-            "Read" | "NotebookRead" => Some(ActivityType::Read),
-            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Some(ActivityType::Patch),
-            "Glob" | "Grep" | "ToolSearch" => Some(ActivityType::Search),
-            "WebSearch" => Some(ActivityType::Search),
-            "WebFetch" => Some(ActivityType::Browser),
-            // `Task` is the vendor's delegated-work tool and the ONE place a worker could
-            // be inferred from. It is not: an activity row is a thing that happened, a
-            // worker run is a lifecycle claim, and §22 forbids inventing the second.
-            _ => None,
-        };
-        if t.is_some() {
-            return t;
-        }
-    }
-    match payload.get("kind").and_then(|v| v.as_str())? {
-        "read" => Some(ActivityType::Read),
-        "edit" | "delete" | "move" => Some(ActivityType::Patch),
-        "search" => Some(ActivityType::Search),
-        "execute" => Some(ActivityType::Command),
-        "fetch" => Some(ActivityType::Browser),
+    match tool_name_of(payload)? {
+        "Bash" | "BashOutput" | "KillShell" | "KillBash" => Some(ActivityType::Command),
+        "Read" | "NotebookRead" => Some(ActivityType::Read),
+        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Some(ActivityType::Patch),
+        "Glob" | "Grep" | "ToolSearch" => Some(ActivityType::Search),
+        "WebSearch" => Some(ActivityType::Search),
+        "WebFetch" => Some(ActivityType::Browser),
+        // `Task` is the vendor's delegated-work tool and the ONE place a worker could be
+        // inferred from. It is not: an activity row is a thing that happened, a worker run
+        // is a lifecycle claim, and §22 forbids inventing the second.
         _ => None,
     }
 }
@@ -1886,8 +1926,31 @@ mod tests {
         EntityId::parse("femcboost").unwrap()
     }
 
-    fn record(seq: u64, update: Value) -> MachineryRecord {
-        MachineryRecord::from_acp_update(&update, "sess", seq).unwrap().stamp("thr", Some("turn_1"), false)
+    /// One record from one native frame, for the tests that need exactly one.
+    fn record(seq: u64, frame: Value) -> MachineryRecord {
+        let mut v = MachineryRecord::from_native_event(&frame, "sess", seq);
+        assert_eq!(v.len(), 1, "expected exactly one record from {frame}");
+        v.remove(0).stamp("thr", Some("turn_1"), false)
+    }
+
+    /// A tool row OPENED on the stream: `content_block_start` with a `tool_use` block. This
+    /// is where the tool's real name lives on this wire.
+    fn tool_open(seq: u64, id: &str, name: &str) -> MachineryRecord {
+        record(
+            seq,
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                   "content_block":{"type":"tool_use","id":id,"name":name,"input":{}}}}),
+        )
+    }
+
+    /// A tool row CLOSED by its `tool_result`. Carries no tool name — deliberately, because
+    /// that is what the wire does.
+    fn tool_result(seq: u64, id: &str, content: &str, is_error: bool) -> MachineryRecord {
+        record(
+            seq,
+            json!({"type":"user","message":{"role":"user","content":[
+                    {"tool_use_id":id,"type":"tool_result","is_error":is_error,"content":content}]}}),
+        )
     }
 
     fn turn() -> Turn {
@@ -2079,34 +2142,42 @@ mod tests {
 
     #[test]
     fn activity_state_never_invents_completion() {
-        // The measured majority: a tool_call_update with no status field at all.
-        let r = record(0, json!({"toolCallId":"t","sessionUpdate":"tool_call_update","title":"x"}));
+        // A record with no status at all — on this wire, an `assistant` frame's complete
+        // arguments, which carry no status because status is a POSITION here, not a string.
+        let mut r = record(
+            0,
+            json!({"type":"assistant","message":{"role":"assistant","content":[
+                    {"type":"tool_use","id":"t","name":"Bash","input":{"command":"x"}}]}}),
+        );
+        assert_eq!(r.status, None);
         assert_eq!(activity_state_of(&r), ActivityState::Unknown);
         // An unrecognized vendor status is not completion either.
-        let r = record(0, json!({"toolCallId":"t","sessionUpdate":"tool_call_update","status":"quiesced"}));
+        r.status = Some(ToolStatus::Other("quiesced".into()));
         assert_eq!(activity_state_of(&r), ActivityState::Unknown);
-        for (wire, want) in [
-            ("pending", ActivityState::Queued),
-            ("in_progress", ActivityState::Running),
-            ("completed", ActivityState::Completed),
-            ("failed", ActivityState::Failed),
-        ] {
-            let r = record(0, json!({"toolCallId":"t","sessionUpdate":"tool_call_update","status":wire}));
-            assert_eq!(activity_state_of(&r), want, "wire status {wire}");
-        }
+        // The four positions this wire produces, each through the frame that produces it.
+        assert_eq!(activity_state_of(&tool_open(0, "t", "Bash")), ActivityState::Queued);
+        let progress = record(
+            0,
+            json!({"type":"tool_progress","tool_use_id":"t-heartbeat-0","tool_name":"Bash",
+                   "parent_tool_use_id":"t","elapsed_time_seconds":30,"heartbeat":true}),
+        );
+        assert_eq!(
+            activity_state_of(&progress),
+            ActivityState::Running,
+            "`running` is REACHABLE on this wire for the first time — the ACP path never once \
+             emitted in_progress (machinery.rs's own measurement)"
+        );
+        assert_eq!(activity_state_of(&tool_result(0, "t", "ok", false)), ActivityState::Completed);
+        assert_eq!(activity_state_of(&tool_result(0, "t", "boom", true)), ActivityState::Failed);
     }
 
     #[test]
     fn the_activity_type_comes_from_the_opening_events_payload() {
-        // The exact opening shape measured on 2026-08-28 (machinery.rs's `open_bash`).
-        let open = record(
-            0,
-            json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_A",
-                   "sessionUpdate":"tool_call","rawInput":{},"status":"pending","title":"Terminal","kind":"execute"}),
-        );
-        // ...and the closing update, which carries neither `_meta` nor `kind` — the reason
-        // the type must be resolved BEFORE the merge.
-        let close = record(3, json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update","status":"completed","rawOutput":"1.0.0"}));
+        // The exact opening shape measured on the native wire (`run9-rust-driven.jsonl:5`).
+        let open = tool_open(0, "toolu_A", "Bash");
+        // ...and the closing `tool_result`, which carries NO tool name — the reason the type
+        // must be resolved BEFORE the merge.
+        let close = tool_result(3, "toolu_A", "1.0.0", false);
         assert_eq!(classify(close.payload.as_ref().unwrap()), None, "the closing payload cannot classify anything");
 
         let raw = vec![&open, &close];
@@ -2129,17 +2200,13 @@ mod tests {
         // sharper and conditional: a Task call becomes a worker row when, and only when, it
         // can be joined BY IDENTITY to that stream. This half pins the unjoinable case,
         // which is byte-for-byte the old behavior.
-        let r = record(
-            0,
-            json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T","sessionUpdate":"tool_call",
-                   "status":"pending","title":"Task","kind":"other"}),
-        );
+        let r = tool_open(0, "toolu_T", "Task");
         let types = resolve_activity_types(&[&r]);
         assert_eq!(activity_type_of(&r, &types), ActivityType::Other, "no worker type, no worker state, no guess");
         assert!(types.get("toolu_T").is_none(), "Task is deliberately unclassified");
         // No async-launch acknowledgement on this payload, so no identity, so no join.
         assert_eq!(resolve_agent_ids(&[&r]).get("toolu_T"), None);
-        assert_eq!(extract_agent_id(r.payload.as_ref().unwrap()), None);
+        assert_eq!(extract_agent_id(r.payload.as_ref().unwrap(), Some("Task")), None);
     }
 
     fn wrow(state: &str, agent: &str, session: &str, extra: &str) -> WorkerEventRow {
@@ -2152,33 +2219,53 @@ mod tests {
     /// The tool result the harness returns for a BACKGROUNDED spawn — both halves of the
     /// witness the creation hook requires.
     fn task_ack(agent: &str) -> Value {
-        json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
-               "sessionUpdate":"tool_call_update","status":"in_progress","title":"Task",
-               "rawOutput":format!("Async agent launched successfully. agentId: {agent}")})
+        json!({"block":{"tool_use_id":"toolu_T","type":"tool_result",
+                        "content":format!("Async agent launched successfully. agentId: {agent}")},
+               "tool_use_result":Value::Null})
     }
 
     #[test]
     fn the_identity_witness_requires_both_the_async_ack_and_an_agent_id() {
         // Exactly the creation hook's gate, so the two sources cannot disagree about what
         // counts as a spawn.
-        assert_eq!(extract_agent_id(&task_ack("agt_sage_r3")), Some("agt_sage_r3".to_string()));
+        assert_eq!(extract_agent_id(&task_ack("agt_sage_r3"), Some("Task")), Some("agt_sage_r3".to_string()));
 
         // A SYNCHRONOUS subagent run returns its finished result — no ack. Its PostToolUse
         // fires when the work is already over, so calling it a creation would announce a
         // live worker at the moment it stopped existing.
-        let sync = json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
-                          "sessionUpdate":"tool_call_update","rawOutput":"Here is the finished result. agentId: agt_x"});
-        assert_eq!(extract_agent_id(&sync), None, "no async ack, no creation");
+        let sync = json!({"block":{"tool_use_id":"toolu_T","type":"tool_result",
+                                   "content":"Here is the finished result. agentId: agt_x"}});
+        assert_eq!(extract_agent_id(&sync, Some("Task")), None, "no async ack, no creation");
 
         // An ack with no extractable id cannot be joined to anything.
-        let no_id = json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
-                           "sessionUpdate":"tool_call_update","rawOutput":"Async agent launched successfully."});
-        assert_eq!(extract_agent_id(&no_id), None);
+        let no_id = json!({"block":{"tool_use_id":"toolu_T","type":"tool_result",
+                                    "content":"Async agent launched successfully."}});
+        assert_eq!(extract_agent_id(&no_id, Some("Task")), None);
 
         // And a different tool quoting the same string is not a spawn.
-        let other = json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_B",
-                           "sessionUpdate":"tool_call_update","rawOutput":"Async agent launched successfully. agentId: agt_x"});
-        assert_eq!(extract_agent_id(&other), None, "only the delegated-work tools spawn workers");
+        assert_eq!(
+            extract_agent_id(&task_ack("agt_x"), Some("Bash")),
+            None,
+            "only the delegated-work tools spawn workers"
+        );
+
+        // NEW, and it is the failure this wire made possible: the acknowledgement frame
+        // carries NO tool name, so with no name from the caller's memo there is no witness.
+        // A version that read the name only from the payload would answer None forever and
+        // silently stop reporting every worker.
+        assert_eq!(tool_name_of(&task_ack("agt_x")), None, "a tool_result names no tool");
+        assert_eq!(extract_agent_id(&task_ack("agt_x"), None), None);
+        // And the memo the real callers build supplies exactly that missing half.
+        let open = tool_open(0, "toolu_T", "Task");
+        let mut ack = record(1, json!({"type":"user","message":{"role":"user","content":[
+            {"tool_use_id":"toolu_T","type":"tool_result",
+             "content":"Async agent launched successfully. agentId: agt_sage_r3"}]}}));
+        ack.turn_id = Some("turn_1".into());
+        assert_eq!(
+            resolve_agent_ids(&[&open, &ack]).get("toolu_T"),
+            Some(&"agt_sage_r3".to_string()),
+            "the two-frame witness resolves when the raw records are read together"
+        );
     }
 
     #[test]
@@ -2262,9 +2349,11 @@ mod tests {
     fn a_semantic_summary_never_carries_command_text() {
         let r = record(
             0,
-            json!({"toolCallId":"t","sessionUpdate":"tool_call_update","title":"rm -rf /tmp/secret-dir",
-                   "rawOutput":"deleted 4 files","locations":[{"path":"/tmp/secret-dir"}]}),
+            json!({"type":"assistant","message":{"role":"assistant","content":[
+                    {"type":"tool_use","id":"t","name":"Bash",
+                     "input":{"command":"rm -rf /tmp/secret-dir","file_path":"/tmp/secret-dir"}}]}}),
         );
+        assert_eq!(r.title, "rm -rf /tmp/secret-dir", "the raw syntax IS on the record");
         let s = semantic_summary(ActivityType::Command, &r);
         assert_eq!(s, "Ran a command");
         assert!(!s.contains("rm -rf"), "§5.3: the CEO default is semantic, never raw syntax");

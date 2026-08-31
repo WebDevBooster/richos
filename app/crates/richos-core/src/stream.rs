@@ -22,7 +22,7 @@
 //! turn.
 //!
 //! **It is no longer contiguous, on purpose** (techy-mode design §1.4 G1). One counter is
-//! now shared by assistant text and machinery, assigned once at the ACP drain point, so
+//! now shared by assistant text and machinery, assigned once at the client's drain point, so
 //! that *"he said X, then ran Y, then said Z"* is reconstructible — which two independent
 //! counters cannot express. A text-only consumer therefore sees gaps where tool calls
 //! happened. Nothing about clean output changes: machinery travels on `rich://machinery`
@@ -47,7 +47,7 @@ pub enum StreamEvent {
     TurnStarted { thread_id: String, turn_id: String, at: u64 },
     /// One assistant-text delta, in arrival order (`seq` 0-based, per turn).
     Chunk { thread_id: String, turn_id: String, seq: u64, text_delta: String, at: u64 },
-    /// Terminal: the turn ended cleanly (carries the ACP stopReason).
+    /// Terminal: the turn ended cleanly (carries the turn's stop reason).
     TurnCompleted { thread_id: String, turn_id: String, stop_reason: String, at: u64 },
     /// Terminal: the turn ended by error/interrupt/crash before turn-end.
     TurnError { thread_id: String, turn_id: String, reason: String, at: u64 },

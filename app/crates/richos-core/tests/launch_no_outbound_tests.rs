@@ -28,7 +28,7 @@
 //! 2. **The crate could not reach the network if it wanted to.** Four dependencies, none
 //!    network-capable. A fifth fails this by name.
 //! 3. **Nothing else in the crate consumes it,** so the record cannot be slipped into a pipe
-//!    that already exists — `acp.rs` in this same crate does talk to another program.
+//!    that already exists — `native.rs` in this same crate does talk to another program.
 //! 4. **The shell's two launch commands, and everything they call, contain no transport,**
 //!    and neither does the web layer that reaches them. The module having no way out would
 //!    mean nothing if the surface on top of it had one.
@@ -167,7 +167,7 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
 #[test]
 fn no_other_module_in_the_crate_consumes_the_launch_record() {
     // Reachable from the crate root and nowhere else, so the record cannot be handed to a
-    // pipe that already exists — notably acp.rs, which does talk to another program.
+    // pipe that already exists — notably native.rs, which does talk to another program.
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut consumers: Vec<String> = Vec::new();
     let mut checked = 0usize;

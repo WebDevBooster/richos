@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! cargo run -p richos-core --example worker_status_demo -- <team-dir>
-//! cargo run -p richos-core --example worker_status_demo -- --session <acp-session-id>
+//! cargo run -p richos-core --example worker_status_demo -- --session <claude-session-id>
 //! ```
 //!
 //! A unit test over a fixture proves the arithmetic. This proves the whole path: real
@@ -76,7 +76,7 @@ fn main() {
         }
         Some(d) => std::path::PathBuf::from(d),
         None => {
-            eprintln!("usage: worker_status_demo <team-session-dir> | --session <acp-session-id>");
+            eprintln!("usage: worker_status_demo <team-session-dir> | --session <claude-session-id>");
             std::process::exit(2);
         }
     };

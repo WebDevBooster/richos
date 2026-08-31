@@ -54,13 +54,13 @@ fn tmp(tag: &str, ext: &str) -> std::path::PathBuf {
 /// One step of a scripted turn.
 enum Step {
     Text(&'static str),
-    /// A raw ACP `session/update` payload, verbatim in the shape measured on 2026-08-28.
-    Update(Value),
+    /// A raw native stdout frame, verbatim in the shape measured on 2026-08-31.
+    Frame(Value),
 }
 
 /// A `Cognition` that emits text AND machinery in one interleaved stream, assigning `seq`
 /// exactly where the real client assigns it — once, at the drain point, shared by both
-/// families (`acp.rs:309-317`, §1.4 G1). `MockCognition` only emits text, so it cannot
+/// families (`native.rs`'s `prompt` drain loop, §1.4 G1). `MockCognition` only emits text, so it cannot
 /// exercise the interleaving these tests exist to prove.
 struct ScriptedLease {
     session_id: String,
@@ -84,10 +84,10 @@ impl Cognition for ScriptedLease {
                     on_item(TurnItem::Text { seq, text: t });
                     seq += 1;
                 }
-                Step::Update(u) => {
-                    if let Some(r) = MachineryRecord::from_acp_update(u, &self.session_id, seq) {
-                        on_item(TurnItem::Machinery(r));
+                Step::Frame(f) => {
+                    for r in MachineryRecord::from_native_event(f, &self.session_id, seq) {
                         seq += 1;
+                        on_item(TurnItem::Machinery(r));
                     }
                 }
             }
@@ -122,15 +122,13 @@ impl MachineryObserver for Live {
 fn interleaved_script() -> Vec<Step> {
     vec![
         Step::Text("Reading the release notes"),
-        // seq 1 — the OPEN event, verbatim from run1 n=11 (probe §5.1).
-        Step::Update(json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_A",
-                            "sessionUpdate":"tool_call","rawInput":{},"status":"pending",
-                            "title":"Terminal","kind":"execute"})),
+        // seq 1 — the OPEN frame, verbatim from `raw/run9-rust-driven.jsonl:5`.
+        Step::Frame(json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+            "content_block":{"type":"tool_use","id":"toolu_A","name":"Bash","input":{}}}})),
         Step::Text(" — the build is green"),
-        // seq 3 — the CLOSE event: no title, no _meta, no kind. The measured shape.
-        Step::Update(
-            json!({"toolCallId":"toolu_A","sessionUpdate":"tool_call_update","status":"completed","rawOutput":"1.0.0"}),
-        ),
+        // seq 3 — the CLOSE frame: an outcome and NO tool name. The measured shape.
+        Step::Frame(json!({"type":"user","message":{"role":"user","content":[
+            {"tool_use_id":"toolu_A","type":"tool_result","content":"1.0.0"}]}})),
     ]
 }
 
@@ -186,13 +184,21 @@ fn no_machinery_from_one_entity_renders_in_another_entitys_thread() {
 
     let journal_root = tmp("leak-journal", "");
     let journal = MachineryJournal::new(&journal_root);
-    let mk = |update: Value, thread: &str, turn: &str, seq: u64| {
-        MachineryRecord::from_acp_update(&update, "sess", seq).unwrap().stamp(thread, Some(turn), false)
+    // One tool row from one native frame, for a fixture that needs exactly one.
+    let mk = |frame: Value, thread: &str, turn: &str, seq: u64| {
+        let mut v = MachineryRecord::from_native_event(&frame, "sess", seq);
+        assert_eq!(v.len(), 1);
+        v.remove(0).stamp(thread, Some(turn), false)
+    };
+    // A completed tool row whose TITLE is the thing that must not leak.
+    let done = |id: &str, title: &str| {
+        json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+               "content_block":{"type":"tool_use","id":id,"name":title,"input":{}}}})
     };
     // Legitimate femcboost machinery.
     journal
         .append(&mk(
-            json!({"toolCallId":"t_ok","sessionUpdate":"tool_call","status":"completed","title":"git status"}),
+            done("t_ok", "git status"),
             "thr_fem",
             "turn_ok",
             1,
@@ -202,9 +208,10 @@ fn no_machinery_from_one_entity_renders_in_another_entitys_thread() {
     // secret in its title and its touched path.
     journal
         .append(&mk(
-            json!({"toolCallId":"t_leak","sessionUpdate":"tool_call","status":"completed",
-                   "title":"cat deeply's Q4 term sheet numbers",
-                   "locations":[{"path":"/Users/alex/ab/deeply/q4-term-sheet.md"}]}),
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                   "content_block":{"type":"tool_use","id":"t_leak",
+                                    "name":"cat deeply's Q4 term sheet numbers",
+                                    "input":{"file_path":"/Users/alex/ab/deeply/q4-term-sheet.md"}}}}),
             "thr_fem",
             "turn_leak",
             0,
@@ -217,8 +224,7 @@ fn no_machinery_from_one_entity_renders_in_another_entitys_thread() {
     // of a row femcboost is entitled to see.
     journal
         .append(&mk(
-            json!({"toolCallId":"t_ok","sessionUpdate":"tool_call_update","status":"completed",
-                   "title":"deeply's Q4 term sheet numbers"}),
+            done("t_ok", "deeply's Q4 term sheet numbers"),
             "thr_fem",
             "turn_leak",
             1,
@@ -230,8 +236,7 @@ fn no_machinery_from_one_entity_renders_in_another_entitys_thread() {
     // because its turn id is one this thread legitimately accepts.
     journal
         .append(&mk(
-            json!({"toolCallId":"t_dee","sessionUpdate":"tool_call","status":"completed",
-                   "title":"deeply's Q4 term sheet numbers"}),
+            done("t_dee", "deeply's Q4 term sheet numbers"),
             "thr_dee",
             "turn_ok",
             2,
@@ -485,12 +490,16 @@ fn a_ceo_view_carries_no_internal_item_and_no_raw_command() {
     let journal_root = tmp("gate-journal", "");
     let script = vec![
         Step::Text("Checking"),
-        Step::Update(json!({"_meta":{"claudeCode":{"toolName":"Bash"}},"toolCallId":"toolu_S",
-                            "sessionUpdate":"tool_call","status":"pending","title":"Terminal","kind":"execute"})),
-        Step::Update(json!({"toolCallId":"toolu_S","sessionUpdate":"tool_call_update","status":"completed",
-                            "title":"cat /Users/alex/.ssh/config","rawOutput":"Host prod\n  User root"})),
+        Step::Frame(json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+            "content_block":{"type":"tool_use","id":"toolu_S","name":"Bash","input":{}}}})),
+        Step::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"toolu_S","name":"Bash",
+             "input":{"command":"cat /Users/alex/.ssh/config"}}]}})),
+        Step::Frame(json!({"type":"user","message":{"role":"user","content":[
+            {"tool_use_id":"toolu_S","type":"tool_result","content":"Host prod\n  User root"}]}})),
         // Model reasoning — §5.3's "do not render: model reasoning text".
-        Step::Update(json!({"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"maybe I should check the key"}})),
+        Step::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"thinking","thinking":"maybe I should check the key","signature":"sig"}]}})),
     ];
     let (mut spine, _live) = spine_with(script, &path, &journal_root);
     let thread = spine.create_thread("Avelor release", &femcboost()).unwrap();
@@ -556,12 +565,13 @@ fn between_turn_machinery_has_no_render_path_and_is_not_a_violation() {
     spine.submit_prompt("how is the release", Source::Text).unwrap();
 
     let journal = MachineryJournal::new(&journal_root);
-    let unturned = MachineryRecord::from_acp_update(
-        &json!({"toolCallId":"t_rp","sessionUpdate":"tool_call","status":"completed","title":"rotate the lease"}),
+    let unturned = MachineryRecord::from_native_event(
+        &json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+                "content_block":{"type":"tool_use","id":"t_rp","name":"rotate the lease","input":{}}}}),
         "sess",
         0,
     )
-    .unwrap()
+    .remove(0)
     .stamp(&thread, None, true);
     journal.append(&unturned).unwrap();
 
@@ -588,11 +598,13 @@ fn a_delegated_task_never_becomes_a_worker_and_a_status_less_call_never_becomes_
     let journal_root = tmp("nofake-journal", "");
     let script = vec![
         // The vendor's delegated-work tool — the ONE place a worker could be inferred.
-        Step::Update(json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
-                            "sessionUpdate":"tool_call","status":"pending","title":"Task","kind":"other"})),
-        // ...and a tool call that never reports a status at all: 34 of the 58 events
-        // measured on 2026-08-28 looked like this.
-        Step::Update(json!({"toolCallId":"toolu_Q","sessionUpdate":"tool_call","title":"Read File","kind":"read"})),
+        Step::Frame(json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+            "content_block":{"type":"tool_use","id":"toolu_T","name":"Task","input":{}}}})),
+        // ...and a tool call that never reaches a terminal position at all. On this wire
+        // that is a call whose `tool_result` never arrives — a tool still running when the
+        // turn ended, which is exactly the shape a mid-turn crash leaves behind.
+        Step::Frame(json!({"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"toolu_Q","name":"Read","input":{"file_path":"/tmp/x"}}]}})),
     ];
     let (mut spine, _live) = spine_with(script, &path, &journal_root);
     let thread = spine.create_thread("Avelor release", &femcboost()).unwrap();
@@ -702,16 +714,25 @@ fn two_entity_ledger(path: &std::path::Path) {
 }
 
 /// The Task tool call that spawned `agt_shared`, in session `s1`, in femcboost's thread.
-fn task_record(thread: &str, turn: &str, session: &str) -> MachineryRecord {
-    MachineryRecord::from_acp_update(
-        &json!({"_meta":{"claudeCode":{"toolName":"Task"}},"toolCallId":"toolu_T",
-                "sessionUpdate":"tool_call_update","status":"in_progress","title":"Task",
-                "rawOutput":"Async agent launched successfully. agentId: agt_shared"}),
-        session,
-        1,
-    )
-    .unwrap()
-    .stamp(thread, Some(turn), false)
+///
+/// **TWO records where the ACP fixture was one**, and that is the wire, not a preference:
+/// the tool NAME arrives when the call opens and the harness's async-launch acknowledgement
+/// when it closes, and a `tool_result` carries no name at all. The identity witness
+/// therefore spans both, which is why `resolve_agent_ids` resolves names in a first pass.
+/// A fixture that kept them in one record would have tested a frame the binary never emits.
+fn task_records(thread: &str, turn: &str, session: &str) -> Vec<MachineryRecord> {
+    let open = json!({"type":"stream_event","event":{"type":"content_block_start","index":0,
+        "content_block":{"type":"tool_use","id":"toolu_T","name":"Task","input":{}}}});
+    let ack = json!({"type":"user","message":{"role":"user","content":[
+        {"tool_use_id":"toolu_T","type":"tool_result",
+         "content":"Async agent launched successfully. agentId: agt_shared"}]}});
+    let mut out = Vec::new();
+    for (seq, f) in [open, ack].iter().enumerate() {
+        for r in MachineryRecord::from_native_event(f, session, seq as u64 + 1) {
+            out.push(r.stamp(thread, Some(turn), false));
+        }
+    }
+    out
 }
 
 #[test]
@@ -729,7 +750,7 @@ fn a_task_call_joined_by_identity_becomes_a_worker_item() {
     ];
 
     let timeline =
-        Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_fem", "turn_ok", "s1")], &rows).unwrap();
+        Timeline::project_with_workers(&ledger, &binding, &task_records("thr_fem", "turn_ok", "s1"), &rows).unwrap();
 
     let workers: Vec<_> = timeline
         .audit_including_internal()
@@ -817,7 +838,7 @@ fn no_worker_row_from_another_session_attaches_to_this_sessions_task_call() {
     //     test fails with deeply's term-sheet line rendered inside a femcboost thread,
     //     stamped entity_id=femcboost, thread_id=thr_fem, turn_id=turn_ok.
     let timeline =
-        Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_fem", "turn_ok", "s1")], &rows).unwrap();
+        Timeline::project_with_workers(&ledger, &binding, &task_records("thr_fem", "turn_ok", "s1"), &rows).unwrap();
 
     let (base, worker) = timeline
         .audit_including_internal()
@@ -863,7 +884,7 @@ fn no_worker_item_is_built_from_a_task_call_belonging_to_another_thread() {
 
     // POSITIVE PROBE: the identical record, stamped to THIS thread, really does produce a
     // worker item — so the assertion below cannot pass merely because the join is broken.
-    let ok = Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_fem", "turn_ok", "s1")], &rows)
+    let ok = Timeline::project_with_workers(&ledger, &binding, &task_records("thr_fem", "turn_ok", "s1"), &rows)
         .unwrap();
     assert!(
         ok.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::WorkerActivity { .. })),
@@ -871,14 +892,17 @@ fn no_worker_item_is_built_from_a_task_call_belonging_to_another_thread() {
     );
 
     let timeline =
-        Timeline::project_with_workers(&ledger, &binding, &[task_record("thr_dee", "turn_ok", "s1")], &rows).unwrap();
+        Timeline::project_with_workers(&ledger, &binding, &task_records("thr_dee", "turn_ok", "s1"), &rows).unwrap();
     assert!(
         !timeline.audit_including_internal().iter().any(|i| matches!(i, TimelineItem::WorkerActivity { .. })),
         "a foreign-thread Task call must not become a worker row in this entity's timeline"
     );
     let violations = timeline.scope_violations();
-    assert_eq!(violations.len(), 1, "and the refusal is REPORTED, not silently dropped");
-    assert_eq!(violations[0].reason, RejectionReason::ForeignThread);
+    // TWO, because the native wire spends two frames on one Task call (open, then the
+    // acknowledgement) and BOTH are foreign-thread. Every refusal is REPORTED, not silently
+    // dropped — which is a stronger reading of the same invariant, not a weaker one.
+    assert_eq!(violations.len(), 2, "and every refusal is REPORTED, not silently dropped");
+    assert!(violations.iter().all(|v| v.reason == RejectionReason::ForeignThread));
     let rendered = serde_json::to_string(&timeline.view(ViewMode::Technical)).unwrap();
     assert!(!rendered.contains("deeply-worker"), "leaked: {rendered}");
     let _ = std::fs::remove_file(&path);
@@ -908,7 +932,9 @@ fn spine_with_worker_stream(tag: &str, rows: &str) -> (Spine, std::path::PathBuf
     let ledger = Ledger::open(&ledger_path).unwrap();
     let mut spine = Spine::new(ledger);
     let journal = MachineryJournal::new(tmp(&format!("{tag}-mach"), ""));
-    journal.append(&task_record("thr_fem", "turn_ok", "s1")).unwrap();
+    for r in task_records("thr_fem", "turn_ok", "s1") {
+        journal.append(&r).unwrap();
+    }
     spine.set_machinery_journal(journal);
     (spine, ledger_path, stream_path)
 }

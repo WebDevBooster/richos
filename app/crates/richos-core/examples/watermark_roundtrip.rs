@@ -1,20 +1,42 @@
-//! Headless proof that the rotation watermark is driven by the ADAPTER'S OWN
-//! `usage_update` numbers on a REAL turn, against the REAL `claude-agent-acp` — no mock,
-//! no GUI, no window.
+//! Headless proof that the rotation watermark is driven by the AGENT'S OWN reported token
+//! numbers on a REAL turn, against the REAL `claude` binary — no mock, no GUI, no window,
+//! no npm.
 //!
-//! A unit test proves the arithmetic. It cannot prove that `usage_update` actually arrives
-//! from the live adapter, in the phase where the spine can see it, in a shape
+//! A unit test proves the arithmetic. It cannot prove that the numbers actually arrive from
+//! the live binary, in the phase where the spine can see it, in a shape
 //! `MachineryRecord::context_usage` can read. That is what this is for, and it is why the
 //! done-criterion for this change was "demonstrated on a real turn, not a unit test alone".
+//!
+//! **CAVEAT C3, AND THE LIVE RUN THAT NARROWED IT.** On this wire the numerator arrives
+//! mid-turn on `stream_event/message_delta` and the denominator only when a turn ENDS, on
+//! `result.modelUsage[<session model>].contextWindow` — so a lease's FIRST turn has a
+//! numerator and no denominator. Measured 2026-08-31 through this example: the CEO never
+//! sees that gap, because the lease's first turn is the RE-PRIME turn, which ends and
+//! supplies the denominator before the CEO's first prompt is sent. The output below reads
+//! `after one live turn source=measured`, and that is turn TWO on the lease.
+//!
+//! The gap is real and it is where the re-prime is: a lease that is handed a CEO turn with
+//! no priming turn first has no measurement until that turn ends.
+//! `between_turn_tests.rs::traffic_after_the_turn_result_lands_in_the_lane_and_not_in_the_finished_turn`
+//! drives a raw client with no re-prime and pins exactly that.
 //!
 //! Four things it demonstrates, in order:
 //!
 //!   1. **The fallback state is real and is labelled.** Before the first turn the spine
 //!      reports `ContextSource::Estimated` and hands out no measurement at all.
-//!   2. **The measurement arrives and takes over.** After one live turn the source flips to
-//!      `Measured`, `used`/`size` are the adapter's, and the window the spine reports is the
-//!      one the wire stated (1_000_000 on every event measured on 2026-08-28), not the
-//!      200_000 the app used to assume.
+//!   2. **The measurement arrives and takes over.** After one CEO turn the source flips to
+//!      `Measured`, `used`/`size` are the agent's, and the window the spine reports is the
+//!      one the wire stated (`claude-sonnet-5`: **1_000_000**), not the 200_000 the app used
+//!      to assume — and NOT `claude-haiku-4-5`'s 200_000, which is what an arbitrary read of
+//!      the `modelUsage` map returns (findings §10) and is the same number by coincidence,
+//!      which is exactly why the denominator is keyed BY MODEL NAME.
+//!
+//!      **The live run of 2026-08-31 also measured how wrong the estimate was**, on the same
+//!      turn, which no unit test can: the chars÷4 estimate read **632** tokens against a
+//!      measured **19,477** — **30.8x under**. The estimate is not a slightly worse
+//!      measurement; on a fresh lease it is off by an order of magnitude and a half, because
+//!      it counts the CEO's words and the reply and cannot see the system prompt, the
+//!      persona, the hooks or the cached context the model is actually holding.
 //!   3. **It drives rotation.** With the ratio set BELOW the fraction the adapter actually
 //!      reported, the next turn boundary rotates for `context-watermark` — decided by real
 //!      `used`/`size`, and the backing session id provably changes.
@@ -22,13 +44,13 @@
 //!      `Estimated` with no carried-over number, which is what stops rotation becoming a
 //!      loop.
 //!
-//! Run (needs the `claude` CLI logged in; adapter under app/acp-adapter — `npm i` there once):
-//!   cd app && RICHOS_ACP_BIN=$PWD/acp-adapter/node_modules/.bin/claude-agent-acp \
+//! Run (needs the `claude` CLI installed and logged in — no npm, no adapter):
+//!   cd app \
 //!     cargo run -p richos-core --example watermark_roundtrip -- <engine_dir>
 //!
 //! It asserts its own claims and exits non-zero if any of them fails.
 
-use richos_core::acp::{resolve_acp_bin, AcpCognition};
+use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source};
@@ -38,12 +60,12 @@ use std::path::PathBuf;
 /// Mirrors `src-tauri/src/main.rs`'s `EngineLeaseFactory`, exactly as `rotation_roundtrip`
 /// does — the point is to exercise the production seam, not a test-only one.
 struct LiveLeaseFactory {
-    acp_bin: PathBuf,
+    claude_bin: PathBuf,
     engine_dir: PathBuf,
 }
 impl LeaseFactory for LiveLeaseFactory {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
-        Ok(Box::new(AcpCognition::start(&self.acp_bin, &self.engine_dir)?))
+        Ok(Box::new(NativeCognition::start(&self.claude_bin, &self.engine_dir)?))
     }
 }
 
@@ -78,12 +100,12 @@ fn main() {
     let mut spine = Spine::new(ledger);
     let thread = spine.create_thread("Watermark proof", &EntityId::parse("richos").unwrap()).expect("thread");
 
-    let acp_bin = resolve_acp_bin(None);
-    eprintln!("[watermark] adapter   = {}", acp_bin.display());
+    let claude_bin = resolve_claude_bin();
+    eprintln!("[watermark] claude    = {}", claude_bin.display());
     eprintln!("[watermark] engine cwd = {}", engine_dir.display());
 
-    let factory = LiveLeaseFactory { acp_bin: acp_bin.clone(), engine_dir: engine_dir.clone() };
-    let initial = factory.spawn().expect("start initial ACP session");
+    let factory = LiveLeaseFactory { claude_bin: claude_bin.clone(), engine_dir: engine_dir.clone() };
+    let initial = factory.spawn().expect("start the initial native claude session");
     let session0 = initial.session_id().to_string();
     eprintln!("[watermark] session 0 = {session0}");
     spine.attach_lease(initial);

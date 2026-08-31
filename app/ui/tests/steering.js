@@ -94,7 +94,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 /// THE NEGATIVE CONTROL. The same bytes with ONE field changed — `state: "stopped"` becomes
 /// `state: "interrupted"` — which is exactly what the ledger writes for a crash or a
 /// rotation. If the renderer said "You stopped after 1s" here it would be blaming the CEO
-/// for an ACP failure, which is the precise defect slice 5 refused to ship.
+/// for a compute-lease failure, which is the precise defect slice 5 refused to ship.
 function interruptedOnTheWire() {
   const snap = clone(STOPPED_ON_THE_WIRE);
   snap.items.find((i) => i.kind === "work_duration").state = "interrupted";
