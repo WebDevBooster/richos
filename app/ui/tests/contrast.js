@@ -771,6 +771,62 @@ async function main() {
     );
   });
 
+  // ---- 10b. this suite measures the same amount however it was started ---------------------
+
+  await run.check("10b  every surface was walked in both themes — and standalone is not a thinner run", async () => {
+    // RAISED BY THE LEAD ON 2026-08-31, and the concern is right even though the symptom
+    // that prompted it was not: "a gate that silently degrades when run directly is a gate
+    // someone will one day trust while it measures nothing."
+    //
+    // The answer is that it does not degrade, and this check is that answer in a form nobody
+    // has to take on trust. `run.js` passes `RICHOS_UI_TESTS_LEDGER` to its children, and
+    // that variable does exactly one thing (`lib/harness.js`): it decides whether `report()`
+    // appends a line of evidence for `run.js` to gate on. `recordEvidence` returns early
+    // without it. It reaches no driver, no walk and no threshold — the harness's own comment
+    // has said so since it was written: "`node workers.js` on its own is byte-for-byte
+    // unchanged."
+    //
+    // What this asserts is the thing that would actually be worth knowing: that the walk
+    // INVENTORY is complete. A suite that reached two surfaces out of ten and reported a
+    // clean sweep of both themes is the failure being guarded against, and it is a failure
+    // about coverage rather than about an environment variable — so it is measured as one,
+    // and it holds whichever way the suite was started.
+    // THE EXPECTED LIST COMES FROM THE LEDGER ON DISK, NOT FROM `SURFACES`.
+    //
+    // The first draft of this check built both sides out of `SURFACES` and was therefore
+    // incapable of failing: deleting a surface deleted it from the expectation too, and the
+    // mutation that was supposed to prove the check sailed through it. Both sides have to be
+    // read off disk or neither is. `contrast-debt.json`'s `surfaceFloors` is the second
+    // source — it is committed, it is what check 9's floors are already gated on, and a
+    // surface removed from the driver list is still named there.
+    const named = Object.keys(debt.surfaceFloors).sort();
+    const walkedNames = [...new Set(Object.keys(perSurface).map((k) => k.split("/")[0]))].sort();
+    assertEqual(
+      named.filter((n) => !walkedNames.includes(n)),
+      [],
+      "these surfaces have a floor in contrast-debt.json and were never walked. A driver list " +
+        "that quietly got shorter still runs every check it declares, so run.js's " +
+        "declared-vs-observed gate cannot see it — this is the only thing that can"
+    );
+    const expected = [];
+    for (const n of walkedNames) for (const t of THEMES) expected.push(n + "/" + t);
+    assertEqual(
+      expected.filter((k) => !perSurface[k]),
+      [],
+      "a surface was walked in one theme and not the other"
+    );
+    assertEqual(
+      Object.keys(perSurface).length,
+      named.length * THEMES.length,
+      "the walk inventory and the committed floor list disagree"
+    );
+    return (
+      Object.keys(perSurface).length + " walks completed (" + named.length + " surfaces x " + THEMES.length +
+      " themes), and the count is the same started directly or under run.js: " +
+      "RICHOS_UI_TESTS_LEDGER gates only whether evidence is APPENDED, never what is measured."
+    );
+  });
+
   // ---- 11. the obscured bucket is not a hiding place ---------------------------------------
 
   await run.check("11  nothing disappears into `obscured` without being measured somewhere else", async () => {
@@ -994,6 +1050,11 @@ main().catch((e) => {
 //           has nothing wrong with what is left, which is precisely the run that would
 //           otherwise read as an improvement
 //  10  style.css gains a real `@media (prefers-color-scheme: dark)` block AND the suite
+// 10b  drop three entries from SURFACES -> check 10b. A short inventory that still reported
+//      its findings is a clean bill of health over whatever it happened to reach; run.js's
+//      declared-vs-observed gate cannot see it, because the suite would run every check it
+//      declares. Also: unsetting RICHOS_UI_TESTS_LEDGER changes NOTHING here, which is the
+//      point of the check and was verified by running it both ways.
 //      stops passing `colorScheme` to `newPage`
 //        -> "1 dark block(s) are shipped, but the dark run produced the identical palette —
 //           the emulation is not reaching them, so the dark half of every check above is a
