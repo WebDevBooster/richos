@@ -34,3 +34,12 @@ tauri-plugin-updater = "2.11.0"
 # via tauri 2.x. Named here because a file that calls `tokio::time::sleep` while depending
 # on it only transitively breaks the day tauri changes runtimes.
 tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+# `examples/verify_update_signature.rs` — the pre-publication check that a produced
+# `.app.tar.gz` and its `.sig` actually agree under the key `tauri.conf.json` ships.
+# DELIBERATELY THE SAME CRATE the updater verifies with (it arrives beneath
+# tauri-plugin-updater), because a second Ed25519 implementation is a thing that can
+# disagree with the one that matters.
+minisign-verify = "0.2"
+base64 = "0.22"
