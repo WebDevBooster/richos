@@ -1,0 +1,594 @@
+{
+  "probe": "app/acp-adapter/probe-machinery.js",
+  "ranAt": "2026-08-31T17:32:50.000Z",
+  "adapterRange": "^0.70.0",
+  "adapterInstalled": "0.70.0",
+  "cwd": "/private/tmp/claude-501/-Users-alex-ab-femcboost/8a598936-e161-4b29-a91c-5a02800052aa/scratchpad/probecwd",
+  "protocolVersionRequested": 1,
+  "prompt": "Use your Task tool to delegate to a general-purpose subagent, with run_in_background set to false. Do not run the command yourself.\nGive the subagent exactly this instruction: Run this single Bash command in the foreground, not backgrounded, with timeout 200000: for i in $(seq 1 14); do echo tick-$i; sleep 5; done  -- then reply with exactly: INNER-DONE\nWhen the subagent returns, reply with exactly: OUTER-DONE",
+  "writeTarget": "/tmp/richos-acp-probe-write-target.txt",
+  "totalMessagesRecorded": 35,
+  "stopResult": {
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 4,
+      "outputTokens": 233,
+      "cachedReadTokens": 46307,
+      "cachedWriteTokens": 8573,
+      "totalTokens": 55117
+    }
+  },
+  "error": null,
+  "sessionUpdateKinds": {
+    "available_commands_update": {
+      "count": 2,
+      "phases": {
+        "session_new": 1,
+        "prompt": 1
+      },
+      "firstSample": {
+        "sessionUpdate": "available_commands_update",
+        "availableCommands": [
+          {
+            "name": "deep-research",
+            "description": "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report. (dynamic workflow)",
+            "input": null
+          },
+          {
+            "name": "richos-engine:android-emulator-qa",
+            "description": "(RichOS Engine) Use when validating Android feature flows in an emulator with adb-driven launch, input, UI-tree inspection, screenshots, and logcat capture.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:android-native-dev",
+            "description": "(RichOS Engine) Build and maintain a native Android app in Kotlin and Jetpack Compose. Use this when working on Android app architecture, Gradle setup, Compose UI, Health Connect integration, WorkManager sync, secure storage, FCM, Play Store readiness, or Android-specific debugging and release work.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:appium-vision-mobile-testing",
+            "description": "(RichOS Engine) Run native mobile app tests with a strict human-like policy: the agent may only observe screenshots or recordings and may only act through taps, swipes, typing and device controls via Appium. Use this for the target app's iOS and Android black-box testing, especially when validating real user flows without source, locator or accessibility-tree shortcuts.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:bootstrap-interview",
+            "description": "(RichOS Engine) First-session orchestrator skill — interviews the CEO conversationally to fill CLAUDE.md and orchestration.config, staff the initial domain roster via Dean, and seed the first ceo-wiki/ pages, in one guided ~20-minute session. Use on first session with a fresh, un-adopted copy of this engine, or whenever CLAUDE.md/orchestration.config still carry unfilled sample content.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:copywriting",
+            "description": "(RichOS Engine) When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"subheadline,\" \"hero section copy,\" \"above the fold,\" \"this copy is weak,\" \"make this more compelling,\" or \"help me describe my product.\" Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:customer-research",
+            "description": "(RichOS Engine) When the user wants to conduct, analyze, or synthesize customer research. Use when the user mentions \"customer research,\" \"ICP research,\" \"talk to customers,\" \"analyze transcripts,\" \"customer interviews,\" \"survey analysis,\" \"support ticket analysis,\" \"voice of customer,\" \"VOC,\" \"build personas,\" \"customer personas,\" \"jobs to be done,\" \"JTBD,\" \"what do customers say,\" \"what are customers struggling with,\" \"Reddit mining,\" \"G2 reviews,\" \"review mining,\" \"digital watering holes,\" \"community research,\" \"forum research,\" \"competitor reviews,\" \"customer sentiment,\" or \"find out why customers churn/convert/buy.\" Use for both analyzing existing research assets AND gathering new research from online sources. For writing copy informed by research, see copywriting. For acting on research to improve pages, see page-cro.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:frontend-design",
+            "description": "(RichOS Engine) Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:health-data-sync-contracts",
+            "description": "(RichOS Engine) Define and enforce the shared health-data contract across iOS, Android, backend and QA. Use this when implementing or validating step counts, calories, partial-day sync, stale sync, source metadata, timezone handling, or app-display-to-backend parity for HealthKit and Health Connect data.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:ios-native-dev",
+            "description": "(RichOS Engine) Build and maintain a native iOS app in Swift and SwiftUI. Use this when working on iOS app architecture, SwiftUI UI, HealthKit integration, background tasks, Keychain storage, APNs, App Store readiness, or iOS-specific debugging and release work.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:landing-page-redesign",
+            "description": "(RichOS Engine) Upgrades existing websites and apps to premium quality. Audits current design, identifies generic AI patterns, and applies high-end design standards without breaking functionality. Works with any CSS framework or vanilla CSS. Marketing surfaces only — never product UI.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:landing-page-taste",
+            "description": "(RichOS Engine) Anti-slop frontend skill for landing pages, portfolios, and redesigns. The agent reads the brief, infers the right design direction, and ships interfaces that do not look templated. Real design systems when applicable, audit-first on redesigns, strict pre-flight check. Marketing surfaces only — never product UI.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:live-app-assessment",
+            "description": "(RichOS Engine) Workflow for live human visual assessment of implemented app experiences on staging. Use when an advisory agent needs to judge an existing screen, flow, interaction, or gamification surface based on how it actually feels and behaves in the browser, not from code review or screenshots.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:marketing-psychology",
+            "description": "(RichOS Engine) When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or leverage how people think and make decisions in a marketing context.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:marketing-strategy-pmm",
+            "description": "(RichOS Engine) Product marketing, positioning, GTM strategy, and competitive intelligence. Includes ICP definition, April Dunford positioning methodology, launch playbooks, competitive battlecards, and international market entry guides. Use when developing positioning, planning product launches, creating messaging, analyzing competitors, entering new markets, enabling sales, or when user mentions product marketing, positioning, GTM, go-to-market, competitive analysis, market entry, or sales enablement.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:mobile-qa-reporting-and-device-matrix",
+            "description": "(RichOS Engine) Plan and report native QA with a real device matrix, permission-state coverage and structured bug evidence. Use this when defining mobile test coverage, validating release readiness, or reporting native defects on iOS and Android.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:mobile-release-and-build-ops",
+            "description": "(RichOS Engine) Operate the native build and release workflow. Use this when preparing iOS or Android builds, managing signing, TestFlight or Play Console flows, coordinating staging versus device builds, or deciding what \"done\" means for native app changes.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:native-client-visual-qa",
+            "description": "(RichOS Engine) Use when the functional QA role or another QA agent audits native client app visual quality, Android/iOS parity, simulator/emulator UX, screen-by-screen polish, interaction feel, layout, typography, spacing, color, navigation, loading, empty/error states, or whether a platform is ready to involve the design gatekeeper. Applies only to client native apps under `${NATIVE_ANDROID_ROOT}`/`${NATIVE_IOS_ROOT}`, not any separate web/PWA surface.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:playwright-cli",
+            "description": "(RichOS Engine) Automates browser interactions for web testing, form filling, screenshots, and data extraction. Use when the user needs to navigate websites, interact with web pages, fill forms, take screenshots, test web applications, or extract information from web pages.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:playwright-e2e-testing",
+            "description": "(RichOS Engine) Playwright modern end-to-end testing framework with cross-browser automation, auto-wait, and built-in test runner",
+            "input": null
+          },
+          {
+            "name": "richos-engine:product-marketing-context",
+            "description": "(RichOS Engine) When the user wants to create or update their product marketing context document. Also use when the user mentions 'product context,' 'marketing context,' 'set up context,' 'positioning,' 'who is my target audience,' 'describe my product,' 'ICP,' 'ideal customer profile,' or wants to avoid repeating foundational information across marketing tasks. Use this at the start of any new project before using other marketing skills — it creates `.agents/product-marketing-context.md` that all other skills reference for product, audience, and positioning context.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:resend",
+            "description": "(RichOS Engine) Use when working with the Resend email API — sending transactional emails (single or batch), receiving inbound emails via webhooks, managing email templates, tracking delivery events, managing domains, contacts, broadcasts, webhooks, API keys, automations, events, viewing API request logs, or setting up the Resend SDK. Always use this skill when the user mentions Resend, even for simple tasks like \"send an email with Resend\" — the skill contains critical gotchas (idempotency keys, webhook verification, template variable syntax) that prevent common production issues.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:rich-lander",
+            "description": "(RichOS Engine) The orchestrator's per-handoff git landing sequence. The orchestrator is the only writer to main. This skill is the full procedure run for every engineer handoff — detect completion, verify from the worktree branch, collect evidence, merge from the main checkout, verify clean state, push, deploy, and remove the worktree deliberately. Do not delegate any step; engineers must never execute it.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:svelte-code-writer",
+            "description": "(RichOS Engine) CLI tools for Svelte 5 documentation lookup and code analysis. MUST be used whenever creating, editing or analyzing any Svelte component (.svelte) or Svelte module (.svelte.ts/.svelte.js). If possible, this skill should be executed within the svelte-file-editor agent for optimal results.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:svelte-core-bestpractices",
+            "description": "(RichOS Engine) Guidance on writing fast, robust, modern Svelte code. Load this skill whenever in a Svelte project and asked to write/edit or analyze a Svelte component or module. Covers reactivity, event handling, styling, integration with libraries and more.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:ui-ux-design",
+            "description": "(RichOS Engine) TODO — senior UI/UX design skill for your product. Use when the user asks to audit or improve UX, design flows, define information architecture, critique navigation, specify interaction patterns, review accessibility and mobile ergonomics, or produce implementation-ready design direction.",
+            "input": null
+          },
+          {
+            "name": "richos-engine:use-railway",
+            "description": "(RichOS Engine) Operate Railway infrastructure: sign up for or sign in to a Railway account, create projects, provision services and databases, manage object storage buckets, deploy code, configure environments and variables, manage domains, troubleshoot failures, check status and metrics, manage feature flags, set up Railway agent tooling, and query Railway docs. Use this skill whenever the user mentions Railway, feature flags, flag rollout, targeting rules, signing up, creating an account, registering, logging in, deployments, services, environments, buckets, object storage, build failures, agent setup, MCP, or infrastructure operations, even if they don't say \"Railway\" explicitly. Also invoke this skill when the user asks to be signed up, registered, or onboarded to Railway: do not refuse — drive them through the unauthed `railway up` flow (deploys + signs up on the fly) or `railway login` (which creates new accounts on the fly).",
+            "input": null
+          },
+          {
+            "name": "richos-engine:using-git-worktrees",
+            "description": "(RichOS Engine) Git worktree workflow for every teammate that writes files in this repo. Covers your isolated worktree, atomic-commit discipline, the commit-is-the-handoff model, courtesy-summary format, and the hard prohibitions (no merge into main, no push, no deploy). Read this before you write your first file.",
+            "input": null
+          },
+          {
+            "name": "design-sync",
+            "description": "Push a React design system to claude.ai/design. This runs a converter that bundles the real component code (from Storybook or a bare package) and uploads it. Use when the user runs /design-sync or says \"sync my design system to Claude Design\".",
+            "input": {
+              "hint": "[<project hint, e.g. \"Acme DS\">]"
+            }
+          },
+          {
+            "name": "dataviz",
+            "description": "Use this skill whenever you are about to create ANY chart, graph, plot, dashboard, or data visualization, in ANY output medium — an HTML or React artifact, inline SVG, plotting code in any library (matplotlib, plotly, d3, Recharts, …), an image/PNG you will render and upload, or a chart shared into Slack. Read it BEFORE writing the first line of chart code, choosing chart colors, building a stat tile / meter / KPI row, or laying out a dashboard. Produces visualizations that read as one system — elegant, accessible, consistent in light and dark — using a brand-neutral placeholder palette you swap for your own. Teaches a design-system-agnostic method: a form heuristic, a color formula with a runnable validator, mark specs, and interaction rules. A validated default palette is documented in `references/palette.md` — swap that file's values for your brand's. Triggers on: \"chart\", \"graph\", \"plot\", \"data viz\", \"visualization\", \"dashboard\", \"analytics\", \"visualize data\", \"categorical colors\", \"sequential / diverging palette\", \"stat tile\", \"sparkline\", \"heatmap\", \"legend\", \"axis\", \"tooltip\", \"chart colors\", \"color by series\".",
+            "input": null
+          },
+          {
+            "name": "update-config",
+            "description": "Use this skill to configure the Claude Code harness via settings.json. Automated behaviors (\"from now on when X\", \"each time X\", \"whenever X\", \"before/after X\") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions (\"allow X\", \"add permission\", \"move permission to\"), env vars (\"set X=Y\"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: \"allow npm commands\", \"add bq permission to global settings\", \"move permission to user settings\", \"set DEBUG=true\", \"when claude stops show X\". For simple settings like theme/model, suggest the /config command.",
+            "input": null
+          },
+          {
+            "name": "verify",
+            "description": "Verify that a code change actually does what it's supposed to by exercising it end-to-end and observing behavior — drive the affected flow, not just tests or typecheck. Run before committing nontrivial changes; bootstraps this repo's project verify skill if none exists yet. Don't invoke it on a diff that only touches tests, docs, or other code with no runtime surface to drive (a change to product source always has one) — there's nothing to observe.",
+            "input": null
+          },
+          {
+            "name": "debug",
+            "description": "Enable debug logging for this session and help diagnose issues",
+            "input": {
+              "hint": "[issue description]"
+            }
+          },
+          {
+            "name": "code-review",
+            "description": "Review the current diff, or a PR number/branch/path target, for correctness bugs and reuse/simplification/efficiency cleanups at the given effort level (low/medium: fewer, high-confidence findings; high→max: broader coverage, may include uncertain findings; ultra: deep multi-agent review in the cloud); with no level given, it reuses the level you typed last. Pass --comment to post findings as inline PR comments, or --fix to apply the findings to the working tree after the review. For ultra on a GitHub.com PR target, --post asks to post the finished review’s findings to the PR as a single comment from the user’s GitHub account (not a review; the launch dialog still confirms in interactive sessions, while non-interactive mode posts on the flag alone) and --no-post hides that option.",
+            "input": {
+              "hint": "[low|medium|high|xhigh|max|ultra] [--fix] [--comment] [<pr#>|<branch>|<path>]"
+            }
+          },
+          {
+            "name": "simplify",
+            "description": "Review the changed code for reuse, simplification, efficiency, and altitude cleanups, then apply the fixes. Quality only — it does not hunt for bugs; use /code-review for that.",
+            "input": {
+              "hint": "[<target>]"
+            }
+          },
+          {
+            "name": "batch",
+            "description": "Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.",
+            "input": {
+              "hint": "<instruction>"
+            }
+          },
+          {
+            "name": "fewer-permission-prompts",
+            "description": "Scan your transcripts for common read-only Bash and MCP tool calls, then add a prioritized allowlist to project .claude/settings.json to reduce permission prompts.",
+            "input": null
+          },
+          {
+            "name": "doctor",
+            "description": "Health-check the user's Claude Code setup and fix issues: diagnose installation health — what the `claude doctor` terminal diagnostics cover — from local data (duplicate or leftover installs, PATH, unparseable settings files, broken or colliding agent definitions); find unused skills, MCP servers, and plugins versus their context cost and disable dead weight; deduplicate local CLAUDE.md files against checked-in ones; trim checked-in CLAUDE.md files by cutting content a session could derive from the codebase (directory layouts, tech-stack lists, architecture overviews) while keeping gotchas, rationale, and non-standard conventions; migrate always-loaded CLAUDE.md guidance into lazy skills and nested CLAUDE.md files; flag slow hooks and context-heavy extensions; check the installed version is current; make auto mode the default permission mode; and pre-approve frequently denied read-only commands. Use when the user asks for a doctor run, checkup, audit, tune-up, or cleanup of their Claude Code setup or configuration.",
+            "input": null
+          },
+          {
+            "name": "loop",
+            "description": "Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo). Omit the interval to let the model self-pace.",
+            "input": {
+              "hint": "[interval] [prompt]"
+            }
+          },
+          {
+            "name": "schedule",
+            "description": "Create, update, list, or run scheduled cloud agents (routines) that execute on a cron schedule.",
+            "input": null
+          },
+          {
+            "name": "claude-api",
+            "description": "Reference for the Claude API / Anthropic SDK — model ids, pricing, params, streaming, tool use, MCP, agents, caching, token counting, model migration.\nTRIGGER — read BEFORE opening the target file; don't skip because it \"looks like a one-liner\" — whenever: the prompt names Claude/Anthropic in any form (Claude, Anthropic, Fable, Opus, Sonnet, Haiku, `anthropic`, `@anthropic-ai`, `claude-*`, `us.anthropic.*`, `[1m]`); the user asks about an LLM (pricing/model choice/limits/caching) — never answer from memory; OR the task is LLM-shaped with provider unstated (agent/MCP/tool-definition/multi-agent/RAG/LLM-judge/computer-use; generate/summarize/extract/classify/rewrite/converse over NL; debugging refusals/cutoffs/streaming/tool-calls/tokens).\nSKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini/Llama/Mistral/Cohere/Ollama named in the query; OR `grep -rE 'openai|langchain_openai|google.generativeai|genai|mistralai|cohere|ollama'` over the project hits (run this grep FIRST if no provider named — don't Read the file).",
+            "input": null
+          },
+          {
+            "name": "run",
+            "description": "Launch and drive this project's app to see a change working. Use when asked to run, start, or screenshot the app, or to confirm a change works in the real app (not just tests). First looks for a project skill that already covers launching the app; otherwise falls back to built-in patterns per project type (CLI, server, TUI, Electron, browser-driven, library).",
+            "input": null
+          },
+          {
+            "name": "run-skill-generator",
+            "description": "Author or improve the run-<unit> skill — a per-project skill that tells agents how to build, launch, and drive this project's app. Use when the user asks to set up the project, get it running, write run instructions, or verify build/run steps work from a clean environment.",
+            "input": null
+          },
+          {
+            "name": "agents",
+            "description": "(removed) Ask Claude to create/manage subagents, or edit .claude/agents/",
+            "input": null
+          },
+          {
+            "name": "auto-mode-setup",
+            "description": "Set up and customise auto mode — environment context, plus optional rule tweaks",
+            "input": {
+              "hint": "[--request-id <uuid>] (--wizard posture=… scope=… depth=… --propose | --expect-sha256 <64-hex> --apply-file <path>)"
+            }
+          },
+          {
+            "name": "autocompact",
+            "description": "Configure the auto-compact window size",
+            "input": {
+              "hint": "[auto|<tokens>]"
+            }
+          },
+          {
+            "name": "color",
+            "description": "Set the prompt bar color for this session",
+            "input": {
+              "hint": "[red|blue|green|yellow|purple|orange|pink|cyan|default]"
+            }
+          },
+          {
+            "name": "compact",
+            "description": "Free up context by summarizing the conversation so far",
+            "input": {
+              "hint": "<optional custom summarization instructions>"
+            }
+          },
+          {
+            "name": "config",
+            "description": "Set a setting by key",
+            "input": {
+              "hint": "key=value"
+            }
+          },
+          {
+            "name": "context",
+            "description": "Show current context usage",
+            "input": null
+          },
+          {
+            "name": "effort",
+            "description": "Set effort level for model usage",
+            "input": {
+              "hint": "<low|medium|high|xhigh|max|ultracode|auto>"
+            }
+          },
+          {
+            "name": "fast",
+            "description": "Toggle fast mode (Opus 5)",
+            "input": {
+              "hint": "[on|off]"
+            }
+          },
+          {
+            "name": "heapdump",
+            "description": "Dump the JS heap to ~/Desktop",
+            "input": null
+          },
+          {
+            "name": "init",
+            "description": "Initialize a new CLAUDE.md file with codebase documentation",
+            "input": null
+          },
+          {
+            "name": "mcp",
+            "description": "Manage MCP servers",
+            "input": {
+              "hint": "[reconnect|enable|disable [<server>|all]]"
+            }
+          },
+          {
+            "name": "import",
+            "description": "Import config from another AI coding agent",
+            "input": null
+          },
+          {
+            "name": "model",
+            "description": "Set the AI model for Claude Code",
+            "input": {
+              "hint": "<model>"
+            }
+          },
+          {
+            "name": "__remote-workflow",
+            "description": "Run the workflow script delivered in this session environment (server-launched sessions only)",
+            "input": null
+          },
+          {
+            "name": "workflow-launch-exec",
+            "description": "Execute a server-launched workflow handoff (workflow_launch event sessions only)",
+            "input": null
+          },
+          {
+            "name": "reload-skills",
+            "description": "Pick up skills added or changed on disk during this session",
+            "input": null
+          },
+          {
+            "name": "rename",
+            "description": "Rename the current conversation",
+            "input": {
+              "hint": "[name]"
+            }
+          },
+          {
+            "name": "ultrareview",
+            "description": "Start a cloud agent that finds and verifies bugs in your branch (~5-10 min, $5-$25 USD) · Runs in Claude Code on the web. See https://code.claude.com/docs/en/claude-code-on-the-web",
+            "input": null
+          },
+          {
+            "name": "security-review",
+            "description": "Complete a security review of the pending changes on the current branch",
+            "input": null
+          },
+          {
+            "name": "usage-credits",
+            "description": "Configure usage credits or request them from your admin when you hit a limit",
+            "input": null
+          },
+          {
+            "name": "extra-usage",
+            "description": "Renamed to /usage-credits",
+            "input": null
+          },
+          {
+            "name": "usage",
+            "description": "Show session cost, plan usage, and what's contributing to your limits",
+            "input": null
+          },
+          {
+            "name": "insights",
+            "description": "Generate a report analyzing your Claude Code sessions",
+            "input": null
+          },
+          {
+            "name": "recap",
+            "description": "Generate a one-line session recap now",
+            "input": null
+          },
+          {
+            "name": "goal",
+            "description": "Set a goal — keep working until the condition is met",
+            "input": null
+          },
+          {
+            "name": "design",
+            "description": "Grant or revoke Claude agent access to your Design projects",
+            "input": {
+              "hint": "consent | revoke"
+            }
+          },
+          {
+            "name": "design-consent",
+            "description": "Grant Claude agent access to your Design projects",
+            "input": null
+          },
+          {
+            "name": "design-revoke",
+            "description": "Revoke Claude agent access to your Design projects",
+            "input": null
+          },
+          {
+            "name": "list-agents",
+            "description": "List subagents and other Claude sessions you can message",
+            "input": null
+          },
+          {
+            "name": "team-onboarding",
+            "description": "Help teammates ramp on Claude Code with a guide from your usage",
+            "input": null
+          }
+        ]
+      }
+    },
+    "usage_update": {
+      "count": 6,
+      "phases": {
+        "prompt": 6
+      },
+      "firstSample": {
+        "sessionUpdate": "usage_update",
+        "used": 27274,
+        "size": 1000000
+      }
+    },
+    "agent_message_chunk": {
+      "count": 8,
+      "phases": {
+        "prompt": 8
+      },
+      "firstSample": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "I"
+        },
+        "messageId": "msg_011CebE6agyX6WR9MzVJXgDs"
+      }
+    },
+    "tool_call": {
+      "count": 2,
+      "phases": {
+        "prompt": 2
+      },
+      "firstSample": {
+        "_meta": {
+          "claudeCode": {
+            "toolName": "Agent",
+            "subagent": true
+          }
+        },
+        "toolCallId": "toolu_01P7oCG5VkmHMAQMK2fK8vuJ",
+        "sessionUpdate": "tool_call",
+        "rawInput": {},
+        "status": "pending",
+        "title": "Task",
+        "kind": "think",
+        "content": []
+      }
+    },
+    "tool_call_update": {
+      "count": 8,
+      "phases": {
+        "prompt": 8
+      },
+      "firstSample": {
+        "_meta": {
+          "claudeCode": {
+            "toolName": "Agent",
+            "subagent": true
+          }
+        },
+        "toolCallId": "toolu_01P7oCG5VkmHMAQMK2fK8vuJ",
+        "sessionUpdate": "tool_call_update",
+        "rawInput": {
+          "subagent_type": "general-purpose"
+        },
+        "title": "Task",
+        "kind": "think"
+      }
+    },
+    "session_info_update": {
+      "count": 1,
+      "phases": {
+        "post_stop": 1
+      },
+      "firstSample": {
+        "sessionUpdate": "session_info_update",
+        "title": "Use your Task tool to delegate to a general-purpose subagent, with run_in_background set to false. Do not run the command yourself. Give the subagent exactly this instruction: Run this single Bash com…",
+        "updatedAt": "2026-08-31T17:34:13.057Z"
+      }
+    }
+  },
+  "clientDirectedRequestMethods": {
+    "session/request_permission": {
+      "count": 1,
+      "phases": {
+        "prompt": 1
+      },
+      "firstSample": {
+        "options": [
+          {
+            "kind": "reject_once",
+            "name": "Deny",
+            "optionId": "reject"
+          },
+          {
+            "kind": "allow_once",
+            "name": "Allow Once",
+            "optionId": "allow"
+          },
+          {
+            "kind": "allow_always",
+            "name": "Always Allow",
+            "optionId": "allow_always",
+            "_meta": {
+              "permission": {
+                "version": 1,
+                "changes": [
+                  {
+                    "type": "policy_rule",
+                    "operation": "add",
+                    "ruleBehavior": "allow",
+                    "description": "Allow all Bash calls",
+                    "lifetime": {
+                      "scope": "session"
+                    },
+                    "targets": [
+                      {
+                        "type": "tool",
+                        "toolName": "Bash"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "sessionId": "cadd7f28-7391-498f-9785-3eb6151d7c7c",
+        "toolCall": {
+          "toolCallId": "toolu_01Fw6xuDGtWnEc71vkrnAFSD",
+          "rawInput": {
+            "command": "for i in $(seq 1 14); do echo tick-$i; sleep 5; done",
+            "timeout": 200000,
+            "description": "Run 14 ticks with 5s sleeps"
+          },
+          "title": "for i in $(seq 1 14); do echo tick-$i; sleep 5; done",
+          "kind": "execute",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Run 14 ticks with 5s sleeps"
+              }
+            }
+          ],
+          "_meta": {
+            "claudeCode": {
+              "toolName": "Bash",
+              "parentToolUseId": "toolu_01P7oCG5VkmHMAQMK2fK8vuJ"
+            }
+          }
+        }
+      }
+    }
+  },
+  "otherInboundNotifications": {}
+}

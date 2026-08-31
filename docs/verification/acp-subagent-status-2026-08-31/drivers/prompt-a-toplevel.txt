@@ -1,0 +1,2 @@
+Run this single Bash command yourself, in the foreground, not backgrounded, with timeout 200000: for i in $(seq 1 14); do echo tick-$i; sleep 5; done
+Do not delegate, do not spawn a subagent, do not background it, do not run anything else. When it finishes, reply with exactly: OUTER-DONE

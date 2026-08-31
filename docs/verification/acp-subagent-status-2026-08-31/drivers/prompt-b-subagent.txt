@@ -1,0 +1,3 @@
+Use your Task tool to delegate to a general-purpose subagent, with run_in_background set to false. Do not run the command yourself.
+Give the subagent exactly this instruction: Run this single Bash command in the foreground, not backgrounded, with timeout 200000: for i in $(seq 1 14); do echo tick-$i; sleep 5; done  -- then reply with exactly: INNER-DONE
+When the subagent returns, reply with exactly: OUTER-DONE
