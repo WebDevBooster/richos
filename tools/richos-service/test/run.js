@@ -3435,6 +3435,21 @@ function scriptedServer(body, pin) {
         res.writeHead(200, { 'content-type': 'text/plain', 'content-length': msg.length });
         return res.end(msg);
       }
+      case `/slow/${pin.file}`: {
+        // The same bytes, dribbled out in eight pieces with a gap between them, so a reader gets
+        // many progress ticks spread over real time. A test that watches for a file appearing
+        // mid-transfer needs the transfer to HAVE a middle.
+        res.writeHead(200, { 'content-length': body.length });
+        const piece = Math.ceil(body.length / 8);
+        let sent = 0;
+        const tick = () => {
+          if (sent >= body.length) return res.end();
+          res.write(body.subarray(sent, sent + piece));
+          sent += piece;
+          return setTimeout(tick, 5);
+        };
+        return tick();
+      }
       case `/short-clean/${pin.file}`:
         // No declared length, half the bytes, then a clean end() — a proxy that truncated a
         // chunked stream. The transfer SUCCEEDS as far as the socket is concerned, so this is the
@@ -3563,8 +3578,8 @@ testAsync('the model never exists under its real name until it has verified', ()
     // does not have a model's name, so it cannot be found by one.
     let sawNamedFileMidFlight = false;
     let ticks = 0;
-    await fetchVerified({
-      url: `${base}/good/${pin.file}`,
+    const r = await fetchVerified({
+      url: `${base}/slow/${pin.file}`, // dribbled out over eight ticks — the transfer has a middle
       dest,
       pin,
       onProgress: () => {
@@ -3572,8 +3587,10 @@ testAsync('the model never exists under its real name until it has verified', ()
         if (fs.existsSync(dest)) sawNamedFileMidFlight = true;
       },
     });
-    assert.ok(ticks > 0, 'the progress callback never fired, so this test proved nothing');
+    assert.equal(r.ok, true, r.message);
+    assert.ok(ticks >= 3, `the progress callback fired ${ticks} times — too few to have watched anything`);
     assert.equal(sawNamedFileMidFlight, false);
+    assert.ok(fs.existsSync(dest), 'and it does exist once it has verified');
   }));
 
 testAsync('a full disk is refused before a single request reaches the server', () =>
