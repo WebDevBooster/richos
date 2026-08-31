@@ -146,6 +146,12 @@ ALL_ROOT_SCRIPTS=(
     # modelling a different engine from the one that ships. That is the harder
     # failure to notice, which is why it is carried too.
     scripts/lib/stop-hook-notice.sh
+    # The CEO-ask predicate. On this list for the FIRST reason, not the
+    # stop-hook-notice one: guard-ceo-ask-first.sh fails OPEN without it, so a
+    # sandbox missing it would model an engine whose newest blocking guard is
+    # silently off — and it would look fine doing it.
+    scripts/lib/ceo-asks.sh
+    scripts/lib/ceo-asks.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -221,6 +227,12 @@ data["hooks"] = {
             {"type": "command", "command": P + "/guard-definition-drift.sh", "timeout": 10},
             {"type": "command", "command": P + "/reader-teammate-hint.sh", "timeout": 10},
             {"type": "command", "command": P + "/verify-agent-prompt.sh", "timeout": 10},
+            # LAST, mirroring the shipped chain. Layer C compares this chain
+            # position by position against CANONICAL_AGENT_CHAIN, so a sandbox
+            # that stopped at four would model an engine that cannot pass its
+            # own probe — and every "probe passes" case in this file would go
+            # red for a reason that has nothing to do with what it is testing.
+            {"type": "command", "command": P + "/guard-ceo-ask-first.sh", "timeout": 20},
         ]},
         {"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
             {"type": "command", "command": P + "/guard-main-checkout-writes.sh", "timeout": 10},

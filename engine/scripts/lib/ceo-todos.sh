@@ -750,6 +750,28 @@ ct_render() {
 }
 
 # ---------------------------------------------------------------------------
+# ct_items <label> <path-to-record-text> [repo-root]
+# ---------------------------------------------------------------------------
+# Prints the record's CEO-section items as tab-separated records (see the
+# "items" mode in ceo-todos.py). Same parse as the lint and the view — a caller
+# that needs to know WHICH items are on the CEO's page asks here rather than
+# reading the page, because the page is a projection and a second reader of a
+# projection is a second parser wearing a disguise.
+#
+# rc 0 produced; 2 the checker could not run; 3 the record is not parseable
+# (stdout then carries a BROKEN line, never a partial record set).
+ct_items() {
+    local label="${1:-<record>}" src="${2:-}" repo="${3:-}" job rc
+    [ -f "$_CT_LIB_DIR/ceo-todos.py" ] || { echo "ERROR: ct_items: scripts/lib/ceo-todos.py is missing" >&2; return 2; }
+    job="$(mktemp -t ceo-todos-job.XXXXXX.json)" || return 2
+    ct_build_job items "$label" "$src" "$repo" "$job" || { rm -f "$job"; return 2; }
+    python3 "$_CT_LIB_DIR/ceo-todos.py" "$job"
+    rc=$?
+    rm -f "$job"
+    return "$rc"
+}
+
+# ---------------------------------------------------------------------------
 # ct_verdict_fp <verdict-text>
 # ---------------------------------------------------------------------------
 # The front-door fingerprint out of a lint verdict. ONE number, computed in one

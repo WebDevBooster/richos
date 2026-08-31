@@ -22,7 +22,7 @@ comparing bytes — never by trusting a generator the repository supplies.
 INPUT   one JSON job, path given as argv[1] (or on stdin when argv[1] is "-"):
 
     {
-      "mode":             "lint" | "render",
+      "mode":             "lint" | "render" | "items",
       "record_label":     "wiki/open-items.md",   # for messages only
       "text":             "<the whole record>",
       "ceo_sections":     ["1", "2"],
@@ -91,8 +91,14 @@ In "render" mode stdout is the rendered view and nothing else; a BROKEN
 condition prints a BROKEN line and exits 3, so a caller can never mistake a
 diagnostic for the document.
 
+In "items" mode stdout is one `ITEMS` header line and one `ITEM` line per item
+in a CEO section — the same parse, handed out as records instead of as a page,
+so the CEO-ask gate and the CEO's page can never disagree about what is on it.
+A BROKEN condition behaves exactly as in render mode, for the same reason.
+
 EXIT    0 always in lint mode, unless the job itself is unreadable (2).
-        In render mode: 0 rendered, 2 unreadable job, 3 record not renderable.
+        In render/items mode: 0 produced, 2 unreadable job, 3 record not
+        parseable.
         The VERDICT is the product; a non-zero exit would make "the record is
         bad" and "the checker is bad" the same signal to every caller.
 """
@@ -561,7 +567,11 @@ def main():
     blocked_state = job.get("blocked_state") or "BLOCKED-ON-RICH"
 
     def broken(msg):
-        if mode == "render":
+        # "render" and "items" are both PRODUCERS: their stdout is consumed as a
+        # document / a record set, never scanned for a verdict. So a broken
+        # condition on either must be impossible to mistake for output — a
+        # BROKEN line AND a non-zero exit, rather than lint's exit-0 verdict.
+        if mode in ("render", "items"):
             sys.stdout.write("BROKEN\t%s\n" % msg)
             sys.exit(3)
         fail(msg)
@@ -592,6 +602,49 @@ def main():
 
     if mode == "render":
         sys.stdout.write(rendered)
+        return 0
+
+    # =======================================================================
+    # "items" — THE SAME PARSE, HANDED OUT AS RECORDS
+    # =======================================================================
+    # Added 2026-08-31 for the CEO-ask gate (scripts/lib/ceo-asks.py), which has
+    # to know WHICH items are prepared and what each one asks. It is a mode of
+    # this file, and not a parser of its own, for the reason stated at the top
+    # of this module: two parsers of one record agree until they do not, and the
+    # day they disagree the gate is deciding about items the page does not show.
+    #
+    # PURE, exactly like the renderer: no filesystem lookup, no artifact check,
+    # no Done-check evaluation. A consumer that needs to know whether an item's
+    # artifact exists runs the LINT, which is the thing that answers that. What
+    # this mode reports is what the RECORD says, and nothing else — so its
+    # output is identical on every machine, which is what makes a gate built on
+    # it testable.
+    #
+    # Emitted, tab-separated, in document order:
+    #
+    #   ITEM  <section>  <id>  <state>  <title>  <open>  <time>  <done>  <unblocks>
+    #
+    # preceded by a header line so a caller can tell "no items" from "did not
+    # run" without counting lines:
+    #
+    #   ITEMS  <count>  <ready-count>  <ready-state>
+    #
+    # Tabs inside a field would silently shift every later column, so they are
+    # collapsed to spaces on the way out. Newlines cannot occur: every value
+    # comes from a single line of the record.
+    if mode == "items":
+        def cell(v):
+            return (v or "").replace("\t", " ").replace("\n", " ")
+
+        ready = [i for i in items if i.get("state") == ready_state]
+        sys.stdout.write("ITEMS\t%d\t%d\t%s\n" % (len(items), len(ready), ready_state))
+        for item in items:
+            f = item.get("fields") or {}
+            sys.stdout.write("ITEM\t%s\n" % "\t".join(cell(x) for x in (
+                item.get("section"), item.get("id"), item.get("state"),
+                item.get("title"), f.get("Open"), f.get("Time"),
+                f.get("Done"), f.get("Unblocks"),
+            )))
         return 0
 
     skips = []

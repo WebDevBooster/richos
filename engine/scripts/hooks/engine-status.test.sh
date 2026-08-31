@@ -259,8 +259,25 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # live teammate behind with no such witness; notice-inflight-acks.sh surfaces an
 # acknowledgement that never arrived. Seventh firing, and the first one to move
 # this line by more than one -- which is itself worth having been made to look at.
-if [ "$REGISTERED_N" -eq 34 ]; then
-    ok "1b  sanity: the shipped hooks.json registers 33 scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
+#
+# 34 -> 38 on 2026-08-31: the CEO-ask gate, wired as FOUR, because the four
+# questions it has to answer happen on four different events and no one of them
+# can answer another. notice-ceo-asks.sh witnesses the lead actually asking, on
+# PostToolUse[AskUserQuestion]; guard-ceo-ask-first.sh REFUSES a teammate
+# dispatch while nothing has been asked; notice-ceo-unasked.sh will not let a
+# turn end quietly with a prepared decision never surfaced; and
+# session-start-ceo-ask.sh opens with the question rather than with a count of
+# the questions. Eighth firing, and the largest single move this line has taken
+# — which is exactly the size of change a human should be made to look at.
+#
+# The tick's text used to say "registers 33 scripts" beside a test for 34. It
+# had been wrong for as long as it had been green, because a literal inside a
+# PASS message is a second inventory that nothing checks — the same defect this
+# very tripwire exists to catch, hiding inside the tripwire. The number is
+# derived from REGISTERED_N now; the THRESHOLD stays typed, because being made
+# to look is the whole point of it.
+if [ "$REGISTERED_N" -eq 38 ]; then
+    ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
 fi

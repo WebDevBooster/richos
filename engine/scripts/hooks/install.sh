@@ -300,6 +300,14 @@ HOOK_FILES+=(
     # would check the lock and ignore the key.
     "$REPO_ROOT/scripts/lib/ceo-todos.sh"
     "$REPO_ROOT/scripts/lib/ceo-todos.py"
+    # The CEO-ASK predicate, both halves. Fourth time the same argument, and the
+    # stakes are the highest of the set: guard-ceo-ask-first.sh BLOCKS every
+    # teammate dispatch on what these two files decide, and notice-ceo-asks.sh
+    # writes the only evidence that the CEO was ever asked anything. A tampered
+    # or reverted copy would open the gate permanently and look exactly like a
+    # session in which he had been asked. Check the lock, ignore the key.
+    "$REPO_ROOT/scripts/lib/ceo-asks.sh"
+    "$REPO_ROOT/scripts/lib/ceo-asks.py"
     # The publication-COMPLETENESS predicate, in both its halves. Not hooks, and
     # not under scripts/lib/ either — they are also CI's step 7, which is the
     # point: guard-completeness-commits.sh runs THIS script rather than carrying
