@@ -1,0 +1,112 @@
+   Compiling richos-tauri v0.1.0 (/Users/alex/ab/richos/.worktrees/echo-opus-e1/app/src-tauri)
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1791:19
+     |
+1791 |         let out = resolve_boot_entity(&reg(), None, None, Some(Path::new("/")));
+     |                   ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1804:19
+     |
+1804 |         let out = resolve_boot_entity(&reg(), None, Some("richos"), Some(Path::new("/")));
+     |                   ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `EntitySource` in this scope
+    --> src/main.rs:1806:37
+     |
+1806 |         assert_eq!(out.source, Some(EntitySource::SavedChoice));
+     |                                     ^^^^^^^^^^^^ use of undeclared type `EntitySource`
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1823:25
+     |
+1823 |             let first = resolve_boot_entity(&reg(), None, store.entity_raw(), Some(Path::new("/")));
+     |                         ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1828:22
+     |
+1828 |         let second = resolve_boot_entity(&reg(), None, reopened.entity_raw(), Some(Path::new("/")));
+     |                      ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `EntitySource` in this scope
+    --> src/main.rs:1830:40
+     |
+1830 |         assert_eq!(second.source, Some(EntitySource::SavedChoice));
+     |                                        ^^^^^^^^^^^^ use of undeclared type `EntitySource`
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1836:19
+     |
+1836 |         let out = resolve_boot_entity(&reg(), Some("deeply"), Some("richos"), Some(Path::new("/")));
+     |                   ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `EntitySource` in this scope
+    --> src/main.rs:1838:37
+     |
+1838 |         assert_eq!(out.source, Some(EntitySource::Environment));
+     |                                     ^^^^^^^^^^^^ use of undeclared type `EntitySource`
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1846:19
+     |
+1846 |         let out = resolve_boot_entity(
+     |                   ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1862:19
+     |
+1862 |         let out = resolve_boot_entity(
+     |                   ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `EntitySource` in this scope
+    --> src/main.rs:1869:37
+     |
+1869 |         assert_eq!(out.source, Some(EntitySource::WorkingDirectory));
+     |                                     ^^^^^^^^^^^^ use of undeclared type `EntitySource`
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1887:23
+     |
+1887 |             let out = resolve_boot_entity(&reg(), None, None, Some(Path::new(dir)));
+     |                       ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `EntitySource` in this scope
+    --> src/main.rs:1889:41
+     |
+1889 |             assert_eq!(out.source, Some(EntitySource::WorkingDirectory));
+     |                                         ^^^^^^^^^^^^ use of undeclared type `EntitySource`
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1895:19
+     |
+1895 |         let out = resolve_boot_entity(&reg(), None, None, None);
+     |                   ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `resolve_boot_entity` in this scope
+    --> src/main.rs:1908:20
+     |
+1908 |         let boot = resolve_boot_entity(&reg(), None, None, Some(Path::new("/")));
+     |                    ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `apply_company_choice` in this scope
+    --> src/main.rs:1928:9
+     |
+1928 |         apply_company_choice(&mut spine, &id("richos")).unwrap();
+     |         ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `apply_company_choice` in this scope
+    --> src/main.rs:1946:9
+     |
+1946 |         apply_company_choice(&mut spine, &id("deeply")).unwrap();
+     |         ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `apply_company_choice` in this scope
+    --> src/main.rs:1963:19
+     |
+1963 |         let err = apply_company_choice(&mut spine, &id("acme")).unwrap_err();
+     |                   ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+Some errors have detailed explanations: E0425, E0433.
+For more information about an error, try `rustc --explain E0425`.
+error: could not compile `richos-tauri` (bin "richos-tauri" test) due to 18 previous errors

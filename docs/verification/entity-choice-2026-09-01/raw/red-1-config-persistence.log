@@ -1,0 +1,134 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos/.worktrees/echo-opus-e1/app/crates/richos-core)
+error[E0433]: cannot find type `EntityId` in this scope
+   --> crates/richos-core/src/config.rs:704:22
+    |
+704 |         let chosen = EntityId::parse("richos").unwrap();
+    |                      ^^^^^^^^ use of undeclared type `EntityId`
+    |
+help: consider importing this struct through its public re-export
+    |
+688 +     use crate::EntityId;
+    |
+
+error[E0433]: cannot find type `EntityId` in this scope
+   --> crates/richos-core/src/config.rs:720:27
+    |
+720 |         store.set_entity(&EntityId::parse("deeply").unwrap()).unwrap();
+    |                           ^^^^^^^^ use of undeclared type `EntityId`
+    |
+help: consider importing this struct through its public re-export
+    |
+688 +     use crate::EntityId;
+    |
+
+error[E0599]: no method named `entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:707:30
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity` not found for this struct
+...
+707 |             assert_eq!(store.entity(), None, "a fresh install has chosen nothing");
+    |                              ^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `set_entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:708:19
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `set_entity` not found for this struct
+...
+708 |             store.set_entity(&chosen).unwrap();
+    |                   ^^^^^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:711:29
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity` not found for this struct
+...
+711 |         assert_eq!(reopened.entity(), Some(chosen));
+    |                             ^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity_raw` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:712:29
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity_raw` not found for this struct
+...
+712 |         assert_eq!(reopened.entity_raw(), Some("richos"));
+    |                             ^^^^^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `set_entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:720:15
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `set_entity` not found for this struct
+...
+720 |         store.set_entity(&EntityId::parse("deeply").unwrap()).unwrap();
+    |               ^^^^^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `clear_entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:721:15
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `clear_entity` not found for this struct
+...
+721 |         store.clear_entity().unwrap();
+    |               ^^^^^^^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:722:26
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity` not found for this struct
+...
+722 |         assert_eq!(store.entity(), None);
+    |                          ^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:723:54
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity` not found for this struct
+...
+723 |         assert_eq!(ConfigStore::open(&path).unwrap().entity(), None);
+    |                                                      ^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:748:26
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity` not found for this struct
+...
+748 |         assert_eq!(store.entity(), None, "an unparseable id must never resolve to an entity");
+    |                          ^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity_raw` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:749:26
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity_raw` not found for this struct
+...
+749 |         assert_eq!(store.entity_raw(), Some("Rich OS"), "and the caller must be able to name it");
+    |                          ^^^^^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:762:26
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity` not found for this struct
+...
+762 |         assert_eq!(store.entity(), None);
+    |                          ^^^^^^ method not found in `config::ConfigStore`
+
+error[E0599]: no method named `entity_raw` found for struct `config::ConfigStore` in the current scope
+   --> crates/richos-core/src/config.rs:763:26
+    |
+420 | pub struct ConfigStore {
+    | ---------------------- method `entity_raw` not found for this struct
+...
+763 |         assert_eq!(store.entity_raw(), None);
+    |                          ^^^^^^^^^^ method not found in `config::ConfigStore`
+
+Some errors have detailed explanations: E0433, E0599.
+For more information about an error, try `rustc --explain E0433`.
+error: could not compile `richos-core` (lib test) due to 14 previous errors

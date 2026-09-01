@@ -1,0 +1,18 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `app/target/debug/examples/company_choice_roundtrip /Users/alex/.claude/richos-engine richos`
+1. fresh install: no company chosen, no thread active
+2. send refused, as it must be: no active thread, and no entity was named — Rich will not guess which entity area this belongs to. Choose an entity, or activate an existing thread.
+3. answered: richos written to /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-company-roundtrip-59184-1788232654437.json
+4. next boot reads it back: richos
+5. active: ceo-default+richos+thr_0182c6ba573343ae9ba355dc9d6c3f68+r3+-
+[roundtrip] claude     = /Users/alex/.local/bin/claude
+[roundtrip] engine cwd = /Users/alex/.claude/richos-engine
+[roundtrip] session    = 3d521df3-8266-4e2f-a355-b801f2b743c8
+
+CEO> In one sentence: are you there?
+
+Rich> Yes — I'm here and ready to pick up wherever you'd like.
+
+[roundtrip] turn state = Completed, stop = Some("end_turn")
+[roundtrip] scope      = ceo-default+richos+thr_0182c6ba573343ae9ba355dc9d6c3f68+r3+turn_8b815425c3494aeeadca588db79792e1
+[roundtrip] OK

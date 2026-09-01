@@ -585,6 +585,12 @@ cargo build                                     # -> target/debug/richos-tauri (
 #    ~/.local/bin/claude is preferred over PATH.
 cargo run -p richos-core --example native_roundtrip -- "$PWD/../engine" "who are you?"
 
+# 3a. THE LAUNCH THE CEO PERFORMS, end to end. A double-clicked bundle has working
+#     directory `/`, which owns no entity, so the send is refused; this runs the whole
+#     sequence — refused, answered, remembered, reopened, and the same sentence landing
+#     with a real lease. The four steps that need no compute are also tests.
+cargo run -p richos-core --example company_choice_roundtrip -- "$PWD/../engine" richos
+
 # 3b. The LIVE machinery proof — the same chain, but showing that tool calls are ROUTED
 #     and RETAINED: the calm view, the interleaved (turn, seq) stream, the merged rows,
 #     and the journal files on disk. Leaves the journal in place and prints its path.
