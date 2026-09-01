@@ -588,10 +588,11 @@ fn install_compiler(req: &ProvisionRequest) -> CompilerOutcome {
     }
     match copy_tree(&source, &dest) {
         Ok(files) => {
-            // THE FRESHNESS STAMP. `docs/freshness-contract.md`: an artifact carries the
-            // identity of what it came from, INSIDE it, so a consumer can tell a current copy
-            // from a stale one. A copied compiler is exactly the artifact that goes stale
-            // silently, so it records where it came from and that source's HEAD.
+            // THE FRESHNESS STAMP. The posture the orchestration repo's freshness contract
+            // states: an artifact carries the identity of what it came from, INSIDE it, so a
+            // consumer can tell a current copy from a stale one — never a timestamp. A copied
+            // compiler is exactly the artifact that goes stale silently, so it records where
+            // it came from and that source's HEAD.
             let stamp = format!(
                 "source: {}\nsource-head: {}\ninstalled-by: richos-core provision.rs\n",
                 source.display(),
