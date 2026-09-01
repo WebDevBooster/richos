@@ -1,0 +1,117 @@
+THE TWO SPLASH SCREENS — THE ELEVEN RUNS THAT PROVE THE REWRITTEN SUITE CAN FAIL
+================================================================================
+
+`app/ui/tests/splash.js` reports 23/23 against the tree as it stands. That number is worth
+nothing on its own: a check that has never failed has proven nothing, and this repository
+has produced both kinds of green in one week — a scanner reporting CLEAN over an empty
+corpus, and a `run.js` reporting "all 4 suites passed" over a suite it was not running.
+
+The round-11 pass CHANGED six checks and ADDED two, so those eight are the ones with no
+history. Each was run RED by breaking the thing it guards in the SHIPPED source
+(`app/ui/splash.js`, `app/ui/splash-library.js`) and watching the suite say so. The thirteen
+runs behind the checks that did not change are in
+`../opening-screen-2026-08-30/mutation-runs.txt` and still stand.
+
+The driver applied exactly one edit per run, REFUSED to proceed unless the target string
+matched the expected number of times, and restored the file from a copy taken before the
+edit whether the run passed or failed. `git diff` was clean of stray modifications
+afterwards.
+
+
+                    TARGET   EVERY CHECK RED THAT RUN   CAUGHT
+  ------------------------------------------------------------
+   1  a round-8.1 palette study put back        1        [1]        yes
+   3  the bar stops stretching to the plinth    3        [3,22,23]  yes
+   4  choose() ignores the ordinal              4        [4]        yes
+   6  the tagline goes back to 12px             6        [6]        yes
+   8  yielding no longer pins the bar           8        [8,23]     yes
+  12b the per-screen override is not clamped   12b       [12b]      yes
+  22  the bar restarts when the flare ends     22        [22]       yes  (2nd attempt)
+  22  the bar restarts on window focus         22        [22]       yes
+  23  the tagline goes back to its old trim    23        [23]       yes
+
+
+THE ONE THAT MATTERS: MUTATION 22 PASSED ON ITS FIRST RUN, AND THE CHECK WAS FIXED
+---------------------------------------------------------------------------------
+
+The CEO's instruction is one sentence — *"The animation is only supposed to happen ONCE.
+NO LOOPING."* — and the first version of check 22 could not enforce it.
+
+That version watched the bar's width every 60ms for the whole life of the curtain, asserted
+the sequence was monotonic, asserted it was full at the 3000ms hold, and asserted every
+sample after the landing was still full. It looks like a proof. It is not one, and the
+reason is arithmetic:
+
+  * the bar lands at 3000ms;
+  * `holdOpen()` mutes the app-ready path, so what removes the curtain is the ceiling at
+    holdMs + 1000 = 4000ms;
+  * so the window in which a restart can be SEEN is 1000ms, less the fade.
+
+The mutation put `bar.landed = false; shownAt = now();` at the end of the landing flare —
+`FLARE_MS` is 950, so the restart began at ~3950ms, one sample past the last one the check
+took. The suite went GREEN over a splash screen that looped.
+
+Watching the width can only ever catch a loop whose period is shorter than the second the
+curtain has left. So the renderer now reports its own account of itself and the check reads
+that instead:
+
+  * `state.barPasses` counts the times the bar has reached the end. One, ever.
+  * `state.barStopped` is set by `stopTicking()`, which every exit from `tick()` that does
+    not schedule another frame goes through. A running loop cannot leave it true.
+
+Both are read after the observation, and both are red under the same mutation. The width
+trace is kept as leg 2 — it is what proves the bar is monotonic and lands ON the hold rather
+than near it — but it is no longer the thing that proves it runs once.
+
+A SECOND mutation was added for the failure mode a naive fix would have: a `focus` listener
+that restarts the bar when the window is re-activated. Leg 1 of the check greps the renderer
+for exactly that listener and it goes red without the bar ever being watched.
+
+
+MUTATION 22'S FIRST RUN, VERBATIM
+---------------------------------
+  replaced (app/ui/splash.js):
+    -       if (q >= 1) {
+    -         hideFlares();
+    -         stopTicking();
+    -         return;
+    -       }
+  with:
+    +       if (q >= 1) {
+    +         hideFlares();
+    +         bar.landed = false;
+    +         shownAt = now();
+    +       }
+
+  before the fix:  exit 0, red: NONE   *** DID NOT CATCH IT ***
+  after the fix:   exit 1, red: 22     the bar reached the end 3 times
+
+
+THREE MORE WORTH A NOTE
+-----------------------
+
+  * MUTATION 1 is the mistake this whole pass exists to undo, driven as a test. Putting a
+    round-8.1 id back into the shipping library turns check 1 red by name: *"round-8.1/v7 is
+    a round-8.1 palette study. Round 8.1 was approved as a palette and a visual standard,
+    never as a set of splash screens."* The count is deliberately NOT pinned — the CEO has
+    said the array grows — so what is pinned is the specific error, not the number two.
+
+  * MUTATION 3 reddens 3, 22 and 23 together, and that is the right answer rather than
+    noise. Stop the bar stretching to the plinth and it collapses to its intrinsic width:
+    check 3 sees the mismatch directly, check 22's samples have no run to measure against,
+    and check 23 has no bar to photograph.
+
+  * MUTATION 8 reddens 8 and 23. Removing `settleBar()` from the yield leaves the bar at
+    whatever fraction it had reached, which check 8 catches by name — and check 23, which
+    photographs a held-open surface, catches it too because the same call is what guarantees
+    a bar is either running or full and never an abandoned fraction.
+
+
+THE ANCHOR MISS THAT WAS A REAL FINDING
+---------------------------------------
+
+Mutation 23's first form targeted `"tagline": "#8FA3C6"` and the driver refused: the string
+matches TWICE, because both approved screens carry it. That refusal is the driver working —
+a mutation that edits two entries when its author thought it edited one is not the mutation
+that was written down. It was re-run with the count declared as 2, and check 23 went red at
+2.65:1 against a 4.5:1 floor, which is exactly the failure the lift to `#8FA3C6` fixed.

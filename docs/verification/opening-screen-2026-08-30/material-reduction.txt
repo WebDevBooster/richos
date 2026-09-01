@@ -1,6 +1,25 @@
 THE OPENING SCREEN — THE TWELVE MATERIAL STUDIES, VERSION BY VERSION
 ====================================================================
 
+SUPERSEDED IN ONE RESPECT, 2026-09-01, and left otherwise as written.
+---------------------------------------------------------------------
+The CEO ruled that he has approved exactly TWO splash screens — `round-11/v1` and
+`round-11/v2` — and that the round-8.1 compositions are a PALETTE and a visual standard
+(`ceo-decisions.md` 14), not a set of opening ceremonies. `v7`-`v17` were removed from the
+shipping library that day, and the thirteen photographs this record cites went with the
+entries they photographed.
+
+So the pair files it names below — `material-v7.png` through `material-v17.png` and
+`splash-01-round-8-1-v0.png` / `splash-02-round-8-1-v6.png` — NO LONGER EXIST. They are
+recoverable from git history at the commit before the removal; the current pairs are
+`app/ui/tests/shots-splash/material-round-11-v1.png` and `-v2.png`, and the round-11 record
+is `docs/verification/splash-screens-2026-09-01/`.
+
+Everything below is the reduction finding as it was made and is unchanged. The material
+mechanism it describes is still in the renderer, still driven by tokens, and still proved —
+`tests/splash.js` checks 16 and 17 drive it against fixtures rather than against a
+composition the CEO has not approved.
+
 `round-8.1/v7`-`v18` landed in `richos-hq` at `c1efae3` after the splash shipped. They are
 NOT what `v1`-`v6` are. `v1`-`v6` differ from `v0` in a closed set of CSS VALUES — diff the
 `<style>` blocks and there is nothing else — which is exactly why a flat token list covered
@@ -363,5 +382,7 @@ THE NUMBERS ON THE UNMUTATED TREE
                v10 52% / 74%      v15 80% / 81%
                v11 85% / 88%      v16 49% / 75%
                                   v17 77% / 80%
-  check 18   11 pairs in `app/ui/tests/shots-splash/material-v7.png` … `material-v17.png`
+  check 18   11 pairs, one per material version, in the suite's shots-splash directory
+             (those thirteen files were removed on 2026-09-01 with the entries they
+             photographed — see the note at the head of this file)
   run.js     14 discovered, 14 ran, 0 skipped, 262 checks observed against 224 declared

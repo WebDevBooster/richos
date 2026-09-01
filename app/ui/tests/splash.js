@@ -28,6 +28,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { contrastRatio, round2, hex } = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const LIB_FILE = path.join(UI_DIR, "splash-library.js");
@@ -311,6 +312,145 @@ const SIDE_BY_SIDE = async (o) => {
   return c.toDataURL("image/png").split(",")[1];
 };
 
+// ---------------------------------------------------------------------------------------
+// TWO RELIEF SPECS, AS FIXTURES — and why they are fixtures and not entries.
+//
+// `relief` is an SVG filter written as values: a noise field clipped inside the mark, and
+// bands of shadow or light laid inside or outside it. It is the mechanism behind "blocked
+// into leather", "cut into slate" and "dusted with maki-e gold", and it is not going
+// anywhere: the CEO has said the splash array grows, and the material studies it was built
+// for are the obvious source of later screens.
+//
+// NEITHER OF THE TWO APPROVED SCREENS USES ONE. So checks 16 and 17 had a choice: keep an
+// unapproved round-8.1 composition in the SHIPPING library to have something to test, or
+// test the mechanism against a fixture. Keeping a screen the CEO has not approved alive in
+// the product to satisfy a test is the tail wagging the product, so these are fixtures —
+// verbatim the specs the removed `round-8.1/v8` (bridle leather, the mark blocked in) and
+// `round-8.1/v10` (urushi lacquer, dusted with maki-e gold) carried, which is what makes
+// them a real exercise of the filter rather than a shape invented to pass.
+//
+// They are injected onto a SHIPPED entry on its way into the page. Nothing on disk changes.
+const RELIEF_FIXTURES = {
+  /// Bands only, on the whole mark: two inner bands, which is a letterform pressed INTO the
+  /// material. There is no CSS filter function for an inner shadow on an SVG shape, which is
+  /// the entire reason this mechanism is an SVG filter.
+  mark: {
+    target: "mark",
+    region: "-20% -20% 140% 140%",
+    noise: null,
+    matrix: null,
+    bands: [
+      { color: "#000008", opacity: ".55", dx: "0", dy: "2.2", blur: "1.4", placement: "inner" },
+      { color: "#FFF3DA", opacity: ".26", dx: "0", dy: "-1.6", blur: "1.2", placement: "inner" },
+    ],
+  },
+  /// A noise field and no bands, on the gold alone: dust sitting in the lacquered arrow,
+  /// with the ink left flat. The other half of the vocabulary.
+  signal: {
+    target: "signal",
+    region: "-5% -5% 110% 110%",
+    noise: { type: "fractalNoise", baseFrequency: "0.9", octaves: "2", seed: "11" },
+    matrix: "0 0 0 0 1  0 0 0 0 0.92  0 0 0 0 0.62  1.5 1.5 0 0 -1.35",
+    bands: [],
+  },
+};
+
+/// What WebKit actually built, read out of the page. Shared by both halves of check 16 and
+/// written once so the two cannot drift.
+const READ_RELIEF = () => {
+  const n = document.querySelector("#splash filter#richos-splash-relief");
+  const cs = (sel) => getComputedStyle(document.querySelector("#splash " + sel)).filter;
+  return {
+    present: !!n,
+    region: n ? [n.getAttribute("x"), n.getAttribute("y"), n.getAttribute("width"), n.getAttribute("height")].join(" ") : null,
+    floods: n ? Array.from(n.querySelectorAll("feFlood")).map((e) => e.getAttribute("flood-color") + "@" + e.getAttribute("flood-opacity")) : [],
+    offsets: n ? Array.from(n.querySelectorAll("feOffset")).map((e) => e.getAttribute("dx") + "," + e.getAttribute("dy")) : [],
+    blurs: n ? Array.from(n.querySelectorAll("feGaussianBlur")).map((e) => e.getAttribute("stdDeviation")) : [],
+    noise:
+      n && n.querySelector("feTurbulence")
+        ? ["type", "baseFrequency", "numOctaves", "seed"].map((a) => n.querySelector("feTurbulence").getAttribute(a)).join(" ")
+        : null,
+    merge: n ? Array.from(n.querySelectorAll("feMerge feMergeNode")).map((e) => e.getAttribute("in")) : [],
+    ink: cs(".splash-ink"),
+    signal: cs(".splash-signal"),
+    // What the ENTRY asked for, as opposed to what is on the element right now: a screen
+    // performing a strike is mid-`filter`-animation at this instant, so the computed value
+    // there is the ceremony, not the entry's answer.
+    inkVar: document.getElementById("splash").style.getPropertyValue("--splash-mark-filter"),
+    signalVar: document.getElementById("splash").style.getPropertyValue("--splash-signal-filter"),
+  };
+};
+
+/// Hand one shipped entry a relief on its way into the page, and keep only that entry.
+const WITH_RELIEF = (o) => {
+  let lib;
+  Object.defineProperty(window, "RichSplashLibrary", {
+    configurable: true,
+    get: () => lib,
+    set: (x) => {
+      const one = JSON.parse(JSON.stringify(x.variations.find((v) => v.id === o.id)));
+      one.tokens.relief = o.relief;
+      lib = { schemaVersion: x.schemaVersion, round: x.round, variations: [one] };
+    },
+  });
+};
+
+/// SAMPLE A COMPOSITED SCREENSHOT, which is the only place this surface's real colors are.
+///
+/// Not the CSS values, and this is the whole point of measuring here rather than in
+/// `tests/contrast.js`: the opening screen puts a `mix-blend-mode: soft-light` lamp, a
+/// vignette and a `mix-blend-mode: overlay` grain ABOVE the plinth. What a DOM checker reads
+/// off `.splash-line` is not what the eye receives, and `contrast-debt.json` already records
+/// that as a named `knownUnresolvable`. A photograph has no such problem.
+///
+/// Two modes, and they are the ones the round-11 study used so the two sets of numbers are
+/// comparable:
+///
+///   "bright"  the median of the brightest 5% of pixels in the box — a glyph's core, or a
+///             thread's, rather than its antialiased edge, which would understate it.
+///   "mode"    the modal color of the box, quantized to 4 levels per channel — a flat
+///             background, unaffected by anything that happens to cross the box.
+const SAMPLE = async (o) => {
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("the screenshot did not decode"));
+    i.src = "data:image/png;base64," + o.png;
+  });
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const x = c.getContext("2d");
+  x.drawImage(img, 0, 0);
+  return o.rects.map((r) => {
+    const w = Math.max(1, Math.round(r.w * o.dpr));
+    const h = Math.max(1, Math.round(r.h * o.dpr));
+    const d = x.getImageData(Math.round(r.x * o.dpr), Math.round(r.y * o.dpr), w, h).data;
+    const px = [];
+    for (let i = 0; i < d.length; i += 4) px.push([d[i], d[i + 1], d[i + 2]]);
+    if (r.mode === "bright") {
+      px.sort((a, b) => b[0] + b[1] + b[2] - (a[0] + a[1] + a[2]));
+      const n = Math.max(1, Math.round(px.length * 0.05));
+      const top = px.slice(0, n);
+      const mid = top[top.length >> 1];
+      return { r: mid[0], g: mid[1], b: mid[2], n: px.length };
+    }
+    const bins = new Map();
+    for (const p of px) {
+      const k = ((p[0] >> 6) << 8) | ((p[1] >> 6) << 4) | (p[2] >> 6);
+      const e = bins.get(k) || { n: 0, r: 0, g: 0, b: 0 };
+      e.n++;
+      e.r += p[0];
+      e.g += p[1];
+      e.b += p[2];
+      bins.set(k, e);
+    }
+    let best = null;
+    for (const e of bins.values()) if (!best || e.n > best.n) best = e;
+    return { r: Math.round(best.r / best.n), g: Math.round(best.g / best.n), b: Math.round(best.b / best.n), n: px.length };
+  });
+};
+
 /// The median of a list of numbers, which is what every launch figure below is reported as:
 /// one slow run on a loaded laptop must not be able to move the answer.
 function median(xs) {
@@ -322,7 +462,7 @@ function median(xs) {
 // ---------------------------------------------------------------------------------------
 
 async function main() {
-  const run = createRun("the opening screen — a library, a random draw, an off switch, and no delay");
+  const run = createRun("the opening screen — his two screens, his order, a bar that runs once, and no delay");
   const { webkit } = loadPlaywright();
   const browser = await webkit.launch();
   const shotNames = [];
@@ -340,9 +480,35 @@ async function main() {
     const inPage = await page.evaluate(() => JSON.parse(JSON.stringify(window.RichSplashLibrary)));
     assertEqual(inPage, LIBRARY, "the page's library is not the file's library");
     assertEqual(typeof LIBRARY.schemaVersion, "number", "schemaVersion");
-    assert(Array.isArray(LIBRARY.variations) && LIBRARY.variations.length >= 7, "variations");
+    assert(Array.isArray(LIBRARY.variations) && LIBRARY.variations.length >= 1, "variations");
+
+    // AND EVERY ENTRY IS A SPLASH SCREEN HE APPROVED AS ONE.
+    //
+    // The count is not pinned, because the CEO has said the array grows: "eventually, there
+    // will be many splash screens added to the array". What IS pinned is the mistake this
+    // library was making — eighteen round-8.1 PALETTE STUDIES were shipping as splash
+    // screens on the strength of an approval that was of a palette and a visual standard
+    // (`ceo-decisions.md` §14), not of eighteen opening ceremonies. A round-8.1 id here is
+    // that mistake coming back, so it is refused by name.
+    //
+    // The second half is his definition: "A splash screen is something that has a 'loading'
+    // progress bar under the `plinth` element." An entry without a bar is not one.
+    for (const v of LIBRARY.variations) {
+      assert(
+        !/^round-8\.1\//.test(v.id),
+        v.id + " is a round-8.1 palette study. Round 8.1 was approved as a palette and a " +
+          "visual standard, never as a set of splash screens."
+      );
+      assert(v.tokens.bar && Array.isArray(v.tokens.bar.layers) && v.tokens.bar.layers.length,
+        v.id + " carries no loading bar, so it is not a splash screen");
+      assert(
+        v.tokens.bar.layers.some((l) => l.role === "progress"),
+        v.id + "'s bar has no layer that progresses — it is a decoration, not a loading bar"
+      );
+    }
     await page.__ctx.close();
-    return `${LIBRARY.variations.length} entries, round ${LIBRARY.round}, JSON-parsed from disk and matching the page`;
+    return `${LIBRARY.variations.length} entries (${LIBRARY.variations.map((v) => v.id).join(", ")}), ` +
+      `round ${LIBRARY.round}, JSON-parsed from disk and matching the page, each with a progressing bar`;
   });
 
   await run.check("2  the RENDERER carries no variation value — not one colour literal", async () => {
@@ -382,11 +548,21 @@ async function main() {
           wordmark: n.querySelectorAll(".splash-wordmark path").length,
           rule: !!n.querySelector(".splash-rule"),
           signal: n.querySelectorAll(".splash-signal").length,
+          bar: !!n.querySelector(".splash-bar"),
+          barLayers: n.querySelectorAll(".splash-bar .splash-bar-layer").length,
+          // The bar is EXACTLY as wide as the plinth, at whatever size the window is. That
+          // is the CEO's own framing — the bar is "under the `plinth` element" — and it is
+          // the difference between a composition and two things that happen to be stacked.
+          barW: n.querySelector(".splash-bar") ? Math.round(n.querySelector(".splash-bar").getBoundingClientRect().width) : -1,
+          plinthW: Math.round(n.querySelector(".splash-plinth").getBoundingClientRect().width),
         };
       });
       assert(r, "nothing drawn for " + v.id);
       assertEqual(r.id, v.id, "the forced entry is the one drawn");
       assert(r.plinth && r.rule, v.id + ": the composition is incomplete");
+      assert(r.bar, v.id + ": no loading bar was drawn");
+      assertEqual(r.barLayers, v.tokens.bar.layers.length, v.id + ": the bar in the DOM is not the bar in the entry");
+      assertEqual(r.barW, r.plinthW, v.id + ": the bar is not the width of the plinth");
       assert(r.logo === 2, v.id + ": the mark has " + r.logo + " paths");
       assert(r.wordmark === 7, v.id + ": the wordmark has " + r.wordmark + " paths");
       assert(r.signal === 2, v.id + ": " + r.signal + " gold paths");
@@ -401,41 +577,84 @@ async function main() {
     const pool = await page.evaluate(() => window.RichSplash.pool().map((v) => v.id));
     assertEqual(pool, ids, "the drawable pool is not the shipped library");
     await page.__ctx.close();
-    return drawn.length + " entries, each drawn in full: " + drawn.join(", ");
+    return drawn.length + " entries, each drawn in full with a bar the width of its plinth: " + drawn.join(", ");
   });
 
   // ---- the mechanic ---------------------------------------------------------------------
 
-  await run.check("4  he meets a different one — real launches, no immediate repeat", async () => {
-    // The CEO's own mechanic, observed rather than asserted: launch repeatedly, see
-    // different compositions. Nothing is forced and nothing is held here — these are the
-    // draws the shipped renderer makes, read back off `state` after the surface has already
-    // gone. The no-immediate-repeat guard is the other half: unpredictable is not the same
-    // as "occasionally the same one twice in a row", which is what a bare `Math.random()`
-    // gives you about one launch in seven.
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const page = await newPage(ctx);
+  await run.check("4  the screen he meets is his TABLE, not a draw — #1, #2, then #1 forever", async () => {
+    // CEO, 2026-09-01, verbatim: *"USE THE APPROVED SPLASH SCREEN #1 to always
+    // deterministically show as SPLASH SCREEN #1 and splash screen #2 to always show as
+    // splash screen for the SECOND APP START in RichOS v1. From the third app start onwards:
+    // Only splash screen #1."*
+    //
+    // THIS REPLACED A CHECK THAT ASSERTED THE OPPOSITE. Until this commit the suite launched
+    // twelve times and demanded that no two consecutive launches be the same, because the
+    // surface drew uniformly at random with a no-immediate-repeat guard. That is the
+    // mechanic his LATER framing asks for and it is not the v1 rule; a green run of it now
+    // would mean the rule is not being followed.
+    //
+    // Driven through the shell the way the shell delivers it: `window.__RICHOS_LAUNCH__`,
+    // frozen, injected before any of the page's own scripts — the same seam check 19 uses,
+    // and the same one `launch_init_script` writes.
     const seen = [];
-    for (let i = 0; i < 12; i++) {
-      await page.goto(APP);
-      await page.waitForFunction(() => window.RichSplash && window.RichSplash.state.variationId);
-      seen.push(await page.evaluate(() => window.RichSplash.state.variationId));
+    for (let n = 1; n <= 6; n++) {
+      const page = await launch(browser, {
+        hold: true,
+        init: (o) => {
+          window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "fresh", ordinal: o });
+        },
+        initArg: n,
+      });
+      const r = await page.evaluate(() => ({
+        id: window.RichSplash.state.variationId,
+        ordinal: window.RichSplash.state.ordinal,
+      }));
+      assertEqual(r.ordinal, n, "the surface misreports which start it was told this is");
+      seen.push(r.id);
+      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      await page.__ctx.close();
     }
-    assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
-    const distinct = new Set(seen);
-    assert(distinct.size >= 2, "12 launches produced one composition: " + seen[0]);
-    for (let i = 1; i < seen.length; i++) {
-      assert(seen[i] !== seen[i - 1], `launch ${i} repeated ${seen[i]} immediately`);
-    }
-    await ctx.close();
-    return `12 launches, ${distinct.size} distinct compositions, 0 immediate repeats: ${seen.join(" → ")}`;
+    const first = LIBRARY.variations[0].id;
+    const second = LIBRARY.variations.length > 1 ? LIBRARY.variations[1].id : first;
+    assertEqual(seen, [first, second, first, first, first, first], "the CEO's v1 table");
+
+    // THE RULE ITSELF, driven directly rather than only through six launches. It is a pure
+    // function of the pool and the ordinal, which is what makes the later criteria a change
+    // to one place; and it is read off the SHIPPED renderer, so the table cannot drift from
+    // the code that implements it.
+    const bare = await launch(browser, { hold: true });
+    const table = await bare.evaluate(() => {
+      const pool = window.RichSplash.pool();
+      const out = {};
+      for (const n of [1, 2, 3, 4, 17, 100]) out[n] = window.RichSplash.choose(pool, n).id;
+      // Nobody said which start this is: the honest answer is the first screen, never none.
+      out.absent = window.RichSplash.choose(pool, null).id;
+      // A library of one cannot obey "the second start shows the second screen", and
+      // refusing to draw would be a worse answer than drawing the one there is.
+      out.lonely = window.RichSplash.choose([pool[0]], 2).id;
+      return out;
+    });
+    // AND THE UNINJECTED LAUNCH ABOVE IS ITSELF THE ABSENT CASE: no shell, no ordinal, #1.
+    assertEqual(await bare.evaluate(() => window.RichSplash.state.variationId), first, "an uninjected launch");
+    assertEqual(await bare.evaluate(() => window.RichSplash.state.ordinal), null, "an uninjected ordinal");
+    await bare.__ctx.close();
+    for (const n of [1, 3, 4, 17, 100]) assertEqual(table[n], first, "start " + n);
+    assertEqual(table[2], second, "start 2");
+    assertEqual(table.absent, first, "an unknown start");
+    assertEqual(table.lonely, first, "a library of one");
+    return (
+      "six real launches: " + seen.map((id, i) => (i + 1) + "→" + id.replace("round-11/", "")).join(", ") +
+      " · the rule direct: " + [1, 2, 3, 4, 17, 100].map((n) => n + "→" + table[n].replace("round-11/", "")).join(" ") +
+      " · absent→" + table.absent.replace("round-11/", "") + " · a pool of one→" + table.lonely.replace("round-11/", "")
+    );
   });
 
   await run.check("5  two launches, two compositions, photographed", async () => {
     // The completion criterion's first clause, as evidence. Held open with `holdOpen()`
     // because the real surface is gone in a quarter of a second and a photograph of it has
     // to be taken while it is up; the compositions themselves are the shipped ones.
-    const [a, b] = [LIBRARY.variations[0], LIBRARY.variations[6]];
+    const [a, b] = [LIBRARY.variations[0], LIBRARY.variations[LIBRARY.variations.length - 1]];
     const names = [];
     for (const v of [a, b]) {
       const page = await launch(browser, { hold: true, force: v.id });
@@ -468,6 +687,11 @@ async function main() {
       "splash-plinth", "splash-sheen", "splash-material", "splash-logo", "splash-wordmark",
       "splash-ink", "splash-signal", "splash-foot", "splash-rule", "splash-line",
       "splash--strike-fill", "splash--strike-bloom", "splash--settled", "splash--yielding",
+      // The loading bar, added in round 11. Three names for the whole mechanism: the track,
+      // a layer on it, and the wrapper a leading-edge layer rides in. Everything else about
+      // a bar — which layer progresses, which one flares — is a `data-role`, not a class,
+      // precisely so this list does not have to grow with the vocabulary.
+      "splash-bar", "splash-bar-layer", "splash-bar-lead",
     ]);
     // EVERY entry, not one. This check used to inspect v6 alone, which was enough when the
     // library was seven colour variations of one composition and is not enough now: v7-v17
@@ -493,19 +717,30 @@ async function main() {
         tags: Array.from(new Set(tags)),
         text: (n.innerText || "").replace(/\s+/g, " ").trim(),
         buttons: n.querySelectorAll("button, a, input, [role=button]").length,
+        // §15's type floor, on the only text this surface has. The CEO set the size himself:
+        // 18px. It was 12px, which is below the 16px minimum for text meant to be read.
+        lineSize: getComputedStyle(n.querySelector(".splash-line")).fontSize,
+        canvases: n.querySelectorAll("canvas").length,
       };
     });
     const stray = r.classes.filter((c) => !ALLOWED.has(c));
     assertEqual(stray, [], v.id + ": elements the composition is not made of");
     assertEqual(r.buttons, 0, v.id + ": the study's five clickable chips came across");
-    assertEqual(r.text, "The AI Operating System for CEOs", v.id + ": the only text on the surface");
+    assertEqual(r.text, "The Operating System for the AI-Enabled CEO", v.id + ": the only text on the surface");
+    assertEqual(r.lineSize, "18px", v.id + ": the CEO set the tagline at 18px");
+    // NO CANVAS ANYWHERE ON THIS SURFACE, and this is not tidiness. `tests/contrast.js`
+    // check 14 asserts zero canvas elements on every walked surface so that a green contrast
+    // run cannot be read as covering pixels no DOM checker can see. The round-11/v2 mockup
+    // draws its strap on a canvas; the shipped entry draws the same stitching as an SVG tile
+    // for exactly this reason, and this is the assertion that keeps it that way.
+    assertEqual(r.canvases, 0, v.id + ": a <canvas> reached the opening screen");
     // Which also settles it: nothing here reads as a hex value, a role name or a round
     // number, because nothing here reads as anything but that one line.
     assert(!/[0-9]/.test(r.text), v.id + ": a digit reached the surface: " + r.text);
     swept.push(v.id);
     await page.__ctx.close();
     }
-    return `${swept.length} entries swept, ${r.classes.length} class names on the last, all from the composition · tags: ${r.tags.join(", ")} · text: "${r.text}"`;
+    return `${swept.length} entries swept, ${r.classes.length} class names on the last, all from the composition · tags: ${r.tags.join(", ")} · 0 canvas · text: "${r.text}" at ${r.lineSize}`;
   });
 
   await run.check("7  nothing here can catch his hand", async () => {
@@ -540,42 +775,54 @@ async function main() {
 
   // ---- the honest states ------------------------------------------------------------------
 
-  await run.check("8  the ceremony is cut, the mark never is", async () => {
+  await run.check("8  the ceremony is cut, the mark never is — and the bar is pinned FULL", async () => {
     // §2 says the splash yields mid-animation, unfinished, the instant the app is up. Taken
-    // literally that leaves the ceremonial compositions showing an arrow of unlit steel and
-    // a rule of zero width on a fast launch — a half-drawn mark, which is the one thing
-    // this surface must never show. So the yield PINS the composition where it was going
-    // and then fades it: the performance is cut, the mark is not.
-    const v5 = LIBRARY.variations.find((v) => v.tokens.strike === "fill");
-    assert(v5, "no colour-strike entry in the library to test the pin against");
-    const page = await launch(browser, { hold: true, force: v5.id });
-    // 300ms in: the strike does not start until 1.75s, so the gold is genuinely unlit and
-    // the rule genuinely has no width. Without this half the check would pass on a surface
-    // that had simply never animated.
+    // literally that leaves a half-drawn mark and a loading bar frozen at some fraction —
+    // and the fraction is the worse of the two, because it is the one frame on this surface
+    // that would be saying something untrue. The curtain only leaves when the app is up or
+    // when he touches something, and in both cases loading is over.
+    //
+    // So yielding PINS: every stage of the settle to where it was going, and the bar to
+    // FULL. The performance is cut; nothing on screen is left unfinished.
+    //
+    // THIS CHECK USED TO RUN AGAINST A STRIKE ENTRY — an entry whose gold arrives on a
+    // timeline — which the library no longer has: the two approved screens carry
+    // `strike: "none"`, and keeping an unapproved screen alive to satisfy a test would be
+    // the tail wagging the product. It now runs against what they DO have: a four-stage
+    // settle and a bar, both unfinished at 300ms by construction.
+    const v = LIBRARY.variations[0];
+    const page = await launch(browser, { hold: true, force: v.id });
+    // 300ms in: the bar has not begun (it starts at 600ms) and the fourth stage of the
+    // settle — the rule and the line — is still rising (delay 0.48s over a 0.9s curve).
+    // Without this half the check would pass on a surface that had simply never animated.
     await page.waitForTimeout(300);
-    const before = await page.evaluate(() => ({
-      fill: getComputedStyle(document.querySelector("#splash .splash-signal")).fill,
-      ruleWidth: Math.round(document.querySelector("#splash .splash-rule").getBoundingClientRect().width),
-    }));
-    assertEqual(before.fill, rgbOf(v5.tokens.strikeFrom), "mid-ceremony the gold has not arrived yet");
-    assertEqual(before.ruleWidth, 0, "mid-ceremony the rule has not drawn yet");
-    // His first keystroke is one of the three things that make the surface yield.
-    await page.keyboard.press("a");
-    const after = await page.evaluate(() => {
+    const read = () => {
       const n = document.getElementById("splash");
+      const fill = n.querySelector('.splash-bar [data-role="progress"]');
+      // The run, not the track — see check 22. #1 has no rhythm, so for it the two are the
+      // same element; reading it this way keeps the check true if a later screen has one.
+      const track = n.querySelector('.splash-bar [data-role="rhythm"]') || n.querySelector(".splash-bar");
+      const foot = n.querySelector(".splash-rise--4");
       return {
+        fill: Math.round(fill.getBoundingClientRect().width),
+        track: Math.round(track.getBoundingClientRect().width),
+        foot: Number(getComputedStyle(foot).opacity),
         settled: n.classList.contains("splash--settled"),
-        fill: getComputedStyle(n.querySelector(".splash-signal")).fill,
-        ruleWidth: Math.round(n.querySelector(".splash-rule").getBoundingClientRect().width),
         reason: window.RichSplash.state.reason,
       };
-    });
+    };
+    const before = await page.evaluate(read);
+    assertEqual(before.fill, 0, "mid-ceremony the bar has not started yet");
+    assert(before.foot < 1, "mid-ceremony the last stage of the settle has not landed yet (" + before.foot + ")");
+    // His first keystroke is one of the three things that make the surface yield.
+    await page.keyboard.press("a");
+    const after = await page.evaluate(read);
     assert(after.settled, "the surface did not pin itself on the way out");
-    assertEqual(after.fill, rgbOf(v5.tokens.signal), "the gold it leaves on");
-    assertEqual(after.ruleWidth, parseInt(v5.tokens.ruleWidth, 10), "the rule it leaves on");
+    assertEqual(after.foot, 1, "pinning left a stage of the settle half-risen");
+    assertEqual(after.fill, after.track, "the bar was left standing at a fraction on the way out");
     assertEqual(after.reason, "first-input", "what made it yield");
     await page.__ctx.close();
-    return `${v5.id}: at 300ms unlit steel and a 0px rule; on his first keystroke ${after.fill} and ${after.ruleWidth}px, then gone`;
+    return `${v.id}: at 300ms a 0px bar and a stage at opacity ${before.foot.toFixed(2)}; on his first keystroke the bar is ${after.fill}px of ${after.track}px and the settle is landed, then gone`;
   });
 
   await run.check("9  an unusable library is a normal launch, never a half-drawn frame", async () => {
@@ -695,35 +942,104 @@ async function main() {
 
   // ---- the number the whole thing turns on -------------------------------------------------
 
-  await run.check("12b  the composition shows for a NAMED three seconds, not for however long booting took", async () => {
-    // CEO, 2026-08-31: "the splash shows for 3 seconds by default", 3-5 s by type later.
+  await run.check("12b  THREE SECONDS, named once, measured — and five when a screen asks for it", async () => {
+    // CEO, 2026-09-01, verbatim: *"And I said '3 seconds default'. How many times do I have
+    // to repeat that? 3 SECONDS. Unless I say otherwise."* With, from the same brief:
+    // *"Maximum 5 seconds for some."*
     //
-    // BEFORE THIS, THE ANSWER TO "HOW LONG?" WAS "HOWEVER LONG THE BOOT TOOK". `main.js`
-    // calls `yieldNow("app-ready")` the moment the shell is usable, which on this machine is
-    // about a tenth of a second — so the composition was gone before it had been seen, and
-    // no line anywhere expressed a duration. Half the value of this check is that the number
-    // is now findable: it asserts the constant EXISTS and is 3000, so the per-type range can
-    // be added later without anyone hunting through the removal path for a literal.
-    const src = fs.readFileSync(RENDERER_FILE, "utf8");
-    const m = src.match(/var HOLD_MS = (\d+);/);
-    assert(m, "no named HOLD_MS in splash.js — the duration is a literal again, or gone");
-    assertEqual(Number(m[1]), 3000, "the CEO's default");
+    // BEFORE ANY OF THIS, THE ANSWER TO "HOW LONG?" WAS "HOWEVER LONG THE BOOT TOOK".
+    // `main.js` calls `yieldNow("app-ready")` the moment the shell is usable, which on this
+    // machine is about a tenth of a second — so no line anywhere expressed a duration. Half
+    // the value of this check is that the number is FINDABLE: it asserts the constant exists,
+    // is named `SPLASH_SECONDS`, and is 3.
+    const source = fs.readFileSync(RENDERER_FILE, "utf8");
+    const m = source.match(/var SPLASH_SECONDS = (\d+);/);
+    assert(m, "no named SPLASH_SECONDS in splash.js — the duration is a literal again, or gone");
+    assertEqual(Number(m[1]), 3, "the CEO's default");
+    const cap = source.match(/var MAX_SPLASH_SECONDS = (\d+);/);
+    assert(cap, "no named MAX_SPLASH_SECONDS — nothing bounds a per-screen override");
+    assertEqual(Number(cap[1]), 5, "the ceiling on a per-screen override");
+    // And there is no SECOND number: the constant is the only literal duration on the path.
+    assert(!/var HOLD_MS = \d+/.test(source), "HOLD_MS is a literal again beside SPLASH_SECONDS");
 
-    // ...and it is HONOURED, which the constant alone does not prove.
-    const page = await launch(browser);
-    const t0 = Date.now();
-    await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 });
-    const gone = Date.now() - t0;
-    const reason = await page.evaluate(() => window.RichSplash.state.reason);
-    assertEqual(reason, "held", "it left for some reason other than the hold being served");
-    // The floor is the hold itself; the ceiling allows the fade and the removal timer on top
-    // of it. Anything under 3000 means the app-ready path cut the ceremony short again.
+    /// One real launch, timed from navigation to the frame the curtain is gone on.
+    const timeIt = async (opts) => {
+      const page = await launch(browser, opts);
+      const t0 = Date.now();
+      await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 20000 });
+      const gone = Date.now() - t0;
+      const st = await page.evaluate(() => ({
+        reason: window.RichSplash.state.reason,
+        seconds: window.RichSplash.state.seconds,
+      }));
+      await page.__ctx.close();
+      return { gone, ...st };
+    };
+
+    // THE DEFAULT, OBEYED — which the constant alone does not prove.
+    const three = await timeIt({});
+    assertEqual(three.reason, "held", "it left for some reason other than the hold being served");
+    assertEqual(three.seconds, 3, "the screen reports a duration other than the default");
+    // The floor is the hold itself; the ceiling allows the fade and the removal timer on
+    // top of it. Anything under 3000 means the app-ready path cut the ceremony short again.
     assert(
-      gone >= 3000 && gone < 3000 + 900,
-      "the curtain cleared at " + gone + "ms; expected the 3000ms hold plus its fade"
+      three.gone >= 3000 && three.gone < 3000 + 900,
+      "the curtain cleared at " + three.gone + "ms; expected the 3000ms hold plus its fade"
     );
-    await page.__ctx.close();
-    return "HOLD_MS = 3000, named in splash.js, and the curtain cleared at " + gone + "ms with reason \"held\"";
+
+    // FIVE, WHEN A SCREEN ASKS FOR IT. The `seconds` token is the seam the CEO's "up to 5
+    // for some" needs and it is exercised here rather than described: the shipped entries
+    // are handed a `seconds` of "5" on their way into the page, nothing else is touched, and
+    // the curtain has to stay up two seconds longer. This also proves the CEILING moved with
+    // it — it used to be a flat 4000ms and would have cut this launch off at four seconds.
+    const five = await timeIt({
+      init: () => {
+        let lib;
+        Object.defineProperty(window, "RichSplashLibrary", {
+          configurable: true,
+          get: () => lib,
+          set: (x) => {
+            lib = JSON.parse(JSON.stringify(x));
+            lib.variations.forEach((v) => {
+              v.tokens.seconds = "5";
+            });
+          },
+        });
+      },
+    });
+    assertEqual(five.reason, "held", "the five-second screen left on something other than its hold");
+    assertEqual(five.seconds, 5, "the screen did not take the duration it asked for");
+    assert(
+      five.gone >= 5000 && five.gone < 5000 + 900,
+      "a screen that asked for 5s cleared at " + five.gone + "ms"
+    );
+
+    // AND THE CEILING IS A CEILING. A screen asking for more than the maximum is clamped to
+    // it, not granted it — "up to 5" is a limit, and an entry is data, not an authority.
+    const greedy = await timeIt({
+      init: () => {
+        let lib;
+        Object.defineProperty(window, "RichSplashLibrary", {
+          configurable: true,
+          get: () => lib,
+          set: (x) => {
+            lib = JSON.parse(JSON.stringify(x));
+            lib.variations.forEach((v) => {
+              v.tokens.seconds = "12";
+            });
+          },
+        });
+      },
+    });
+    assertEqual(greedy.seconds, 5, "a screen asking for 12 seconds was not clamped to the ceiling");
+    assert(greedy.gone < 5900, "a screen asking for 12 seconds was on screen for " + greedy.gone + "ms");
+
+    return (
+      "SPLASH_SECONDS = 3 and MAX_SPLASH_SECONDS = 5, both named in splash.js · " +
+      "default cleared at " + three.gone + "ms (reason \"held\") · " +
+      "a screen asking 5 cleared at " + five.gone + "ms · " +
+      "a screen asking 12 was clamped to 5 and cleared at " + greedy.gone + "ms"
+    );
   });
 
   await run.check("12c  the hold never catches his hand, and never defers the failsafe", async () => {
@@ -901,8 +1217,12 @@ async function main() {
     // half of the claim: not merely different from itself, different from the one it would
     // otherwise be a rename of.
     const FLOOR = 25;
+    // The floor is ONE and not eleven. It was eleven when the library held eighteen
+    // round-8.1 material studies; the approved set is two, of which one — the midnight suede
+    // — is a material screen. A floor written for a library that no longer exists is a floor
+    // that fails for a reason nobody wants to read.
     const withMaterial = LIBRARY.variations.filter((v) => v.tokens.materials.length);
-    assert(withMaterial.length >= 11, "only " + withMaterial.length + " entries carry a material stack");
+    assert(withMaterial.length >= 1, "no entry carries a material stack, so this check is inert");
     const v0 = await matShot(browser, LIBRARY.variations[0].id, false);
     const cmp = await browser.newContext({ viewport: { width: 400, height: 300 } });
     const judge = await cmp.newPage();
@@ -930,70 +1250,64 @@ async function main() {
     // bands under the mark, the mark, then the noise field and the inner bands over it —
     // because any other order draws a shadow on top of the thing casting it. Everything
     // else comes off the entry, and this joins each number in the filter WebKit built back
-    // to the number in the library it came from.
+    // to the number it came from.
+    //
+    // TWO HALVES, and the second is new. First: every SHIPPED screen, which must not have a
+    // filter built for it, because neither of the CEO's two asks for one — a renderer that
+    // fabricates a relief nobody requested is the failure this half catches. Second: the
+    // mechanism itself, driven against `RELIEF_FIXTURES` rather than against an unapproved
+    // composition kept alive in the product to be its test subject.
     const told = [];
     for (const v of LIBRARY.variations) {
       const t = v.tokens;
       const page = await launch(browser, { hold: true, force: v.id });
-      const f = await page.evaluate(() => {
-        const n = document.querySelector("#splash filter#richos-splash-relief");
-        const cs = (sel) => getComputedStyle(document.querySelector("#splash " + sel)).filter;
-        return {
-          present: !!n,
-          region: n ? [n.getAttribute("x"), n.getAttribute("y"), n.getAttribute("width"), n.getAttribute("height")].join(" ") : null,
-          floods: n ? Array.from(n.querySelectorAll("feFlood")).map((e) => e.getAttribute("flood-color") + "@" + e.getAttribute("flood-opacity")) : [],
-          offsets: n ? Array.from(n.querySelectorAll("feOffset")).map((e) => e.getAttribute("dx") + "," + e.getAttribute("dy")) : [],
-          blurs: n ? Array.from(n.querySelectorAll("feGaussianBlur")).map((e) => e.getAttribute("stdDeviation")) : [],
-          noise: n && n.querySelector("feTurbulence")
-            ? ["type", "baseFrequency", "numOctaves", "seed"].map((a) => n.querySelector("feTurbulence").getAttribute(a)).join(" ")
-            : null,
-          merge: n ? Array.from(n.querySelectorAll("feMerge feMergeNode")).map((e) => e.getAttribute("in")) : [],
-          ink: cs(".splash-ink"),
-          signal: cs(".splash-signal"),
-          // What the ENTRY asked for, as opposed to what is on the element right now: v5
-          // and v6 are mid-strike at this instant and the strike is a `filter` animation,
-          // so the computed value there is the ceremony, not the entry's answer.
-          inkVar: document.getElementById("splash").style.getPropertyValue("--splash-mark-filter"),
-          signalVar: document.getElementById("splash").style.getPropertyValue("--splash-signal-filter"),
-        };
-      });
-      if (!t.relief) {
-        assertEqual(f.present, false, v.id + ": a relief filter was built for an entry that asked for none");
-        assertEqual(f.inkVar, t.markFilter || "none", v.id + ": the ink's filter is not what the entry asked for");
-        assertEqual(f.signalVar, t.signalFilter || "none", v.id + ": the gold's filter is not what the entry asked for");
-        if (t.signalFilter) assert(f.signal !== "none", v.id + ": its CSS signal filter did not reach the gold");
-        // A composition that is not performing a strike has nothing else that could be
-        // putting a filter on its paths, so there had better not be one.
-        else if (!t.markFilter && t.strike === "none") assertEqual(f.signal, "none", v.id + ": the gold carries a filter it did not ask for");
-        await page.__ctx.close();
-        continue;
-      }
-      assert(f.present, v.id + ": it asked for a relief and none was built");
-      assertEqual(f.region, t.relief.region, v.id + ": the filter region");
-      assertEqual(f.floods, t.relief.bands.map((b) => b.color + "@" + b.opacity), v.id + ": the bands' floods");
-      assertEqual(f.offsets, t.relief.bands.map((b) => b.dx + "," + b.dy), v.id + ": the bands' offsets");
-      assertEqual(f.blurs, t.relief.bands.map((b) => b.blur), v.id + ": the bands' blurs");
-      assertEqual(f.noise, t.relief.noise
-        ? [t.relief.noise.type, t.relief.noise.baseFrequency, t.relief.noise.octaves, t.relief.noise.seed].join(" ")
-        : null, v.id + ": the noise field");
-      // The order. Outer bands, then the mark, then the noise and the inner bands.
-      const outer = t.relief.bands.map((b, i) => [b, i]).filter(([b]) => b.placement === "outer").map(([, i]) => "band" + i);
-      const inner = t.relief.bands.map((b, i) => [b, i]).filter(([b]) => b.placement === "inner").map(([, i]) => "band" + i);
-      const want = outer.concat(["SourceGraphic"], t.relief.noise ? ["grain"] : [], inner);
-      assertEqual(f.merge, want, v.id + ": the merge order");
-      assert(f.signal.indexOf("richos-splash-relief") >= 0, v.id + ": the relief did not reach the gold");
-      if (t.relief.target === "mark") assert(f.ink.indexOf("richos-splash-relief") >= 0, v.id + ": a mark relief did not reach the ink");
-      else assertEqual(f.ink, "none", v.id + ": a signal-only relief reached the ink");
-      told.push(v.id.replace("round-8.1/", "") + " " + t.relief.target + "/" + t.relief.bands.length + "band" + (t.relief.noise ? "+noise" : ""));
+      const f = await page.evaluate(READ_RELIEF);
+      assertEqual(f.present, false, v.id + ": a relief filter was built for an entry that asked for none");
+      assertEqual(f.inkVar, t.markFilter || "none", v.id + ": the ink's filter is not what the entry asked for");
+      assertEqual(f.signalVar, t.signalFilter || "none", v.id + ": the gold's filter is not what the entry asked for");
+      if (t.signalFilter) assert(f.signal !== "none", v.id + ": its CSS signal filter did not reach the gold");
+      // A composition that is not performing a strike has nothing else that could be
+      // putting a filter on its paths, so there had better not be one.
+      else if (!t.markFilter && t.strike === "none") assertEqual(f.signal, "none", v.id + ": the gold carries a filter it did not ask for");
       await page.__ctx.close();
     }
-    // The check has to have exercised something: every entry the library says carries a
-    // relief was reached, and there is more than a token number of them. The count is read
-    // off the library rather than typed, so removing an entry cannot quietly weaken this.
-    const declared = LIBRARY.variations.filter((x) => x.tokens.relief).length;
-    assertEqual(told.length, declared, "entries with a relief that this check actually reached");
-    assert(declared >= 5, "only " + declared + " entries carry a relief — this check is barely exercising anything");
-    return `${declared} of ${LIBRARY.variations.length} entries carry one: ` + told.join(" · ");
+
+    const host = LIBRARY.variations[0].id;
+    for (const which of ["mark", "signal"]) {
+      const spec = RELIEF_FIXTURES[which];
+      const page = await launch(browser, {
+        hold: true,
+        init: WITH_RELIEF,
+        initArg: { id: host, relief: spec },
+      });
+      const f = await page.evaluate(READ_RELIEF);
+      assert(f.present, which + ": it asked for a relief and none was built");
+      assertEqual(f.region, spec.region, which + ": the filter region");
+      assertEqual(f.floods, spec.bands.map((b) => b.color + "@" + b.opacity), which + ": the bands' floods");
+      assertEqual(f.offsets, spec.bands.map((b) => b.dx + "," + b.dy), which + ": the bands' offsets");
+      assertEqual(f.blurs, spec.bands.map((b) => b.blur), which + ": the bands' blurs");
+      assertEqual(
+        f.noise,
+        spec.noise ? [spec.noise.type, spec.noise.baseFrequency, spec.noise.octaves, spec.noise.seed].join(" ") : null,
+        which + ": the noise field"
+      );
+      // The order. Outer bands, then the mark, then the noise and the inner bands.
+      const outer = spec.bands.map((b, i) => [b, i]).filter(([b]) => b.placement === "outer").map(([, i]) => "band" + i);
+      const inner = spec.bands.map((b, i) => [b, i]).filter(([b]) => b.placement === "inner").map(([, i]) => "band" + i);
+      const want = outer.concat(["SourceGraphic"], spec.noise ? ["grain"] : [], inner);
+      assertEqual(f.merge, want, which + ": the merge order");
+      assert(f.signal.indexOf("richos-splash-relief") >= 0, which + ": the relief did not reach the gold");
+      if (spec.target === "mark") assert(f.ink.indexOf("richos-splash-relief") >= 0, which + ": a mark relief did not reach the ink");
+      else assertEqual(f.ink, "none", which + ": a signal-only relief reached the ink");
+      told.push(which + " " + spec.target + "/" + spec.bands.length + "band" + (spec.noise ? "+noise" : ""));
+      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      await page.__ctx.close();
+    }
+    assertEqual(told.length, 2, "both halves of the relief vocabulary have to be exercised");
+    return (
+      LIBRARY.variations.length + " shipped screens, 0 of which build a filter they did not ask for · " +
+      "the mechanism driven against 2 fixtures: " + told.join(" · ")
+    );
   });
 
   await run.check("17  the ceremony is cut, and the MATERIAL still is not", async () => {
@@ -1002,9 +1316,15 @@ async function main() {
     // the only filter there was the bloom strike and wrong the moment an entry can give the
     // mark a relief: pinning would have flattened the metal the version is made of, on
     // exactly the fast launches the CEO sees most.
-    const v = LIBRARY.variations.find((x) => x.tokens.relief && x.tokens.relief.target === "mark");
-    assert(v, "no mark-relief entry in the library to test the pin against");
-    const page = await launch(browser, { hold: true, force: v.id });
+    //
+    // Driven against the mark fixture for the reason check 16 gives: the mechanism is still
+    // in the renderer and still has to be proved, and neither approved screen uses it.
+    const host = LIBRARY.variations[0].id;
+    const page = await launch(browser, {
+      hold: true,
+      init: WITH_RELIEF,
+      initArg: { id: host, relief: RELIEF_FIXTURES.mark },
+    });
     await page.waitForTimeout(300);
     const before = await page.evaluate(() => getComputedStyle(document.querySelector("#splash .splash-signal")).filter);
     await page.keyboard.press("a");
@@ -1017,11 +1337,11 @@ async function main() {
       };
     });
     assert(after.settled, "the surface did not pin itself on the way out");
-    assert(before.indexOf("richos-splash-relief") >= 0, v.id + ": the relief was not on the gold to begin with");
-    assert(after.signal.indexOf("richos-splash-relief") >= 0, v.id + ": pinning the composition flattened the gold's relief");
-    assert(after.ink.indexOf("richos-splash-relief") >= 0, v.id + ": pinning the composition flattened the ink's relief");
+    assert(before.indexOf("richos-splash-relief") >= 0, "the relief was not on the gold to begin with");
+    assert(after.signal.indexOf("richos-splash-relief") >= 0, "pinning the composition flattened the gold's relief");
+    assert(after.ink.indexOf("richos-splash-relief") >= 0, "pinning the composition flattened the ink's relief");
     await page.__ctx.close();
-    return `${v.id}: relief on the gold at 300ms and still on it after his first keystroke (${after.signal})`;
+    return `${host} + the mark fixture: relief on the gold at 300ms and still on it after his first keystroke (${after.signal})`;
   });
 
   await run.check("18  every version the round added is photographed by the SHIPPING renderer, beside its study", async () => {
@@ -1034,8 +1354,11 @@ async function main() {
     // The mats only, at native scale — the composition either side of them is identical by
     // construction (same geometry, same ink, same gold, same rule) and a full-window pair
     // would be four times the bytes to show the same thing twice.
-    const added = LIBRARY.variations.filter((v) => v.tokens.materials.length);
-    assert(added.length >= 11, "only " + added.length + " material versions to photograph");
+    // EVERY SHIPPED SCREEN, not only the ones with a material stack. Two screens is a set
+    // small enough that "photograph the ones that vary" and "photograph all of them" are the
+    // same list, and the second is the one that stays true as the array grows.
+    const added = LIBRARY.variations;
+    assert(added.length >= 1, "nothing to photograph");
     const haveStudies = fs.existsSync(HQ);
     fs.mkdirSync(SHOTS, { recursive: true });
     const cmp = await browser.newContext({ viewport: { width: 400, height: 300 } });
@@ -1043,7 +1366,7 @@ async function main() {
     await judge.goto("about:blank");
     const made = [];
     for (const v of added) {
-      const slug = v.id.replace("round-8.1/", "");
+      const slug = v.id.replace(/[^a-z0-9]+/gi, "-");
       const ship = await matShot(browser, v.id, false);
       let study = null;
       if (haveStudies) {
@@ -1156,7 +1479,7 @@ async function main() {
     // THE RING TAKES `state.variationId`, which is set where the node is inserted — so it
     // holds what was drawn, not what was chosen. `splash.js` has three paths that choose an
     // entry and then decline to render it, and all three must leave the ring untouched.
-    const page = await launch(browser, { hold: true, force: "round-8.1/v3" });
+    const page = await launch(browser, { hold: true, force: LIBRARY.variations[0].id });
     await page.waitForFunction("window.__RICHOS_MOCK__ && window.__RICHOS_MOCK__.launchCalls().stateReads.length > 0");
     const drew = await page.evaluate(() => ({
       calls: window.__RICHOS_MOCK__.launchCalls(),
@@ -1165,7 +1488,7 @@ async function main() {
       expectedOffset: -new Date().getTimezoneOffset(),
     }));
     assertEqual(drew.calls.splashShown, [drew.shownId], "the ring was not fed the id that was drawn");
-    assertEqual(drew.shownId, "round-8.1/v3", "the forced entry is the one recorded");
+    assertEqual(drew.shownId, LIBRARY.variations[0].id, "the forced entry is the one recorded");
     assertEqual(drew.calls.stateReads.length, 1, "the record was read once at boot");
     // STORE UTC, BUCKET LOCAL. The offset handed to Rust is offset-from-UTC-positive-east,
     // which is the NEGATION of getTimezoneOffset(). A missing minus sign puts every bucket
@@ -1195,28 +1518,310 @@ async function main() {
     );
   });
 
+  // ---- the bar itself: it runs, it lands on time, and it runs ONCE -----------------------
+
+  await run.check("22  the bar runs ONCE — monotonic, landing exactly on the hold, and never restarting", async () => {
+    // CEO, 2026-09-01, verbatim: *"The animation is only supposed to happen ONCE. NO LOOPING.
+    // And I said '3 seconds default'. How many times do I have to repeat that? 3 SECONDS.
+    // Unless I say otherwise."*
+    //
+    // Three legs, because no one of them is enough on its own.
+    //
+    // LEG 1 — STRUCTURAL. A loop needs something to restart it. `splash.js` has no
+    // `setInterval`, no replay flag, and no `focus` / `visibilitychange` / `pageshow`
+    // listener; `requestAnimationFrame` appears in exactly two places, the one that starts
+    // the single pass and the one inside the pass that continues it. The approved mockups
+    // carry an `AUTO_REPLAY` flag for judging, and nothing of the sort exists here.
+    // COMMENTS STRIPPED FIRST, and that is not fussiness — it is the difference between
+    // reading the code and reading the prose about the code. The first version of this leg
+    // grepped the whole file for "replay" and went red on the sentence explaining that there
+    // is no replay path, which is a check that punishes the documentation for existing.
+    const source = fs.readFileSync(RENDERER_FILE, "utf8");
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[ \t]*\/\/.*$/gm, " ");
+    assertEqual((code.match(/setInterval/g) || []).length, 0, "a timer that repeats");
+    assertEqual((code.match(/AUTO_REPLAY|replay|restart/gi) || []).length, 0, "a replay path in the code");
+    assertEqual(
+      (code.match(/addEventListener\(\s*"(focus|visibilitychange|pageshow|blur)"/g) || []).length,
+      0,
+      "a listener that could wake the animation"
+    );
+    const rafs = (code.match(/requestAnimationFrame\(/g) || []).length;
+    assertEqual(rafs, 2, "requestAnimationFrame call sites — one to start the pass, one to continue it");
+    // And the strip has to have left something to read, or all four assertions above are
+    // vacuous — the failure mode a negative check dies of.
+    assert(code.indexOf("function tick(") > 0, "the comment strip ate the renderer");
+
+    // LEG 2 — OBSERVED, for the whole life of the curtain. `holdOpen()` mutes the app-ready
+    // path, so what clears this surface is its own ceiling at 4000ms; the bar lands at 3000.
+    // That leaves just under a second of watching after it has landed, at 60ms a sample.
+    //
+    // AND THAT WINDOW IS NOT ENOUGH ON ITS OWN, which is why leg 3 exists and is stated here
+    // rather than left as a gap. This leg was written first and run against a deliberate
+    // restart injected at the end of the landing flare — 3950ms, one sample past the last
+    // one it takes — and it passed. Watching the width can only ever see a loop whose period
+    // is shorter than the second the curtain has left; leg 3 sees any loop at all.
+    const told = [];
+    for (const v of LIBRARY.variations) {
+      const page = await launch(browser, { hold: true, force: v.id });
+      const t0 = Date.now();
+      const trace = [];
+      while (Date.now() - t0 < 3950) {
+        const r = await page.evaluate(() => {
+          const n = document.getElementById("splash");
+          if (!n) return null;
+          const fill = n.querySelector('.splash-bar [data-role="progress"]');
+          // THE DENOMINATOR IS THE RUN, NOT THE TRACK. A bar with a rhythm — #2's needle
+          // holes at 10.5px — snaps its run to a whole number of pitches inside the track,
+          // so a full bar is 641px of a 667px strap and dividing by the track would report a
+          // completed bar as 96%. The rhythm layer IS the run, so it is the right ruler.
+          const rhythm = n.querySelector('.splash-bar [data-role="rhythm"]');
+          const track = rhythm || n.querySelector(".splash-bar");
+          if (!fill || !track) return null;
+          return {
+            w: fill.getBoundingClientRect().width,
+            track: track.getBoundingClientRect().width,
+          };
+        });
+        if (!r) break;
+        trace.push({ t: Date.now() - t0, p: r.w / r.track });
+        await page.waitForTimeout(60);
+      }
+      assert(trace.length > 40, v.id + ": only " + trace.length + " samples — the curtain went too early to observe");
+      // MONOTONIC. It never stalls and never jumps back, which is what "the empty run to the
+      // right IS the distance left" requires to be true.
+      for (let i = 1; i < trace.length; i++) {
+        assert(
+          trace[i].p >= trace[i - 1].p - 0.002,
+          v.id + ": the bar went BACKWARDS at " + trace[i].t + "ms (" + trace[i - 1].p.toFixed(3) + " → " + trace[i].p.toFixed(3) + ")"
+        );
+      }
+      // NOTHING BEFORE THE BAR STARTS, and full by the hold.
+      const early = trace.filter((s) => s.t < 500);
+      assert(early.every((s) => s.p === 0), v.id + ": the bar was already moving before it starts");
+      const atHold = trace.filter((s) => s.t >= 3050 && s.t <= 3150);
+      assert(atHold.length && atHold.every((s) => s.p > 0.995), v.id + ": the bar had not landed at the 3000ms hold");
+      // AND IT STAYS LANDED. Every sample after it lands is still full — a restart would
+      // show as a return to zero here, and this is the window one could happen in.
+      const after = trace.filter((s) => s.t > 3200);
+      assert(after.length > 8, v.id + ": only " + after.length + " samples after the landing to prove it does not loop");
+      assert(after.every((s) => s.p > 0.995), v.id + ": the bar restarted after it landed");
+      // LEG 3 — THE LOOP IS STOPPED, and the bar says so itself. `state.barStopped` is set
+      // by the one function every non-scheduling exit from `tick()` goes through, and
+      // `state.barPasses` counts landings. A restart cannot leave the first true or the
+      // second at one, whenever it happens — including after this observation ends.
+      const own = await page.evaluate(() => ({
+        passes: window.RichSplash.state.barPasses,
+        stopped: window.RichSplash.state.barStopped,
+      })).catch(() => null);
+      assert(own, v.id + ": the surface went before its own account could be read");
+      assertEqual(own.passes, 1, v.id + ": the bar reached the end " + own.passes + " times");
+      assertEqual(own.stopped, true, v.id + ": the frame loop is still running after the bar landed");
+      told.push(
+        v.id.replace("round-11/", "") + " " + trace.length + " samples over " +
+          trace[trace.length - 1].t + "ms, " + after.length + " after the landing · " +
+          own.passes + " pass, loop stopped"
+      );
+      assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+      await page.__ctx.close();
+    }
+    return "no interval, no replay path, no wake listener, 2 rAF call sites · " + told.join(" · ");
+  });
+
+  // ---- the floor, measured where the eye is ----------------------------------------------
+
+  await run.check("23  WCAG AA on the COMPOSITED frame — text 4.5:1, the bar 3:1, both themes", async () => {
+    // The standing rule (`CLAUDE.md`, "Contrast — WCAG AA, ALWAYS, BOTH THEMES"), measured on
+    // this surface the only way it can honestly be measured: from a photograph.
+    //
+    // WHY NOT `tests/contrast.js`. That suite walks the DOM and reads computed styles, and on
+    // this surface those are not what the eye receives — a `soft-light` lamp, a vignette and
+    // an `overlay` grain all sit ABOVE the plinth. `contrast-debt.json` already carries the
+    // tagline as a named `knownUnresolvable` for exactly that reason. This check answers the
+    // question that one cannot.
+    //
+    // BOTH THEMES, and the honest answer is that they are the same frame. §15 carries one
+    // permanent exception — "because of its nature the start screen will always need to be in
+    // dark mode" — and `splash.js` clamps it with `RichTheme.forceDark(true)`. So this walks
+    // BOTH schemes and asserts the numbers MATCH, which is a stronger claim than measuring
+    // one: it proves the clamp holds rather than assuming it.
+    const cmp = await browser.newContext({ viewport: { width: 400, height: 300 } });
+    const judge = await cmp.newPage();
+    await judge.goto("about:blank");
+    const rows = [];
+    for (const v of LIBRARY.variations) {
+      const perTheme = {};
+      for (const theme of ["dark", "light"]) {
+        const ctx = await browser.newContext({
+          viewport: { width: 1440, height: 900 },
+          deviceScaleFactor: 2,
+          colorScheme: theme,
+        });
+        const page = await newPage(ctx);
+        await page.addInitScript(HOLD_OPEN);
+        await page.addInitScript(FORCE, v.id);
+        await page.goto(APP);
+        await page.waitForSelector("#splash", { timeout: 5000 });
+        // Mid-load, so the bar has BOTH a sewn part and an empty one to compare.
+        await page.waitForTimeout(1800);
+        const geo = await page.evaluate(() => {
+          const q = (s) => document.querySelector("#splash " + s).getBoundingClientRect();
+          const plinth = q(".splash-plinth");
+          const line = q(".splash-line");
+          const rule = q(".splash-rule");
+          const word = q(".splash-wordmark");
+          const bar = q(".splash-bar");
+          const fill = q('.splash-bar [data-role="progress"]');
+          const p = fill.width / bar.width;
+          return {
+            // the tagline's glyphs, and a bare strip of mat just above them
+            line: { x: line.x, y: line.y, w: line.width, h: line.height },
+            mat: { x: line.x, y: line.y - 14, w: line.width, h: 8 },
+            // the short rule inside the plinth, and the mat beside it
+            rule: { x: rule.x, y: rule.y, w: rule.width, h: Math.max(2, rule.height) },
+            ruleMat: { x: plinth.x + 16, y: rule.y - 4, w: 40, h: 10 },
+            // a band across the wordmark's stems
+            word: { x: word.x, y: word.y + word.height * 0.35, w: word.width, h: word.height * 0.3 },
+            wordMat: { x: plinth.x + 14, y: word.y, w: 24, h: word.height },
+            // the bar: the sewn half, the empty half, and the ground under it
+            barFilled: { x: bar.x + bar.width * 0.1, y: bar.y, w: bar.width * (p - 0.18), h: bar.height },
+            barEmpty: { x: bar.x + bar.width * (p + 0.12), y: bar.y, w: bar.width * (0.88 - p), h: bar.height },
+            barEdgeTop: { x: bar.x + bar.width * 0.3, y: bar.y - 1, w: bar.width * 0.4, h: 2 },
+            ground: { x: bar.x, y: bar.y + bar.height + 10, w: bar.width, h: 14 },
+            progress: p,
+          };
+        });
+        const png = (await page.screenshot()).toString("base64");
+        const want = [
+          ["taglineGlyph", geo.line, "bright"],
+          ["mat", geo.mat, "mode"],
+          ["ruleGold", geo.rule, "bright"],
+          ["ruleMat", geo.ruleMat, "mode"],
+          ["wordInk", geo.word, "bright"],
+          ["wordMat", geo.wordMat, "mode"],
+          ["barFill", geo.barFilled, "bright"],
+          ["barTrack", geo.barEmpty, "mode"],
+          ["barEdge", geo.barEdgeTop, "bright"],
+          ["ground", geo.ground, "mode"],
+        ];
+        const got = await judge.evaluate(SAMPLE, {
+          png,
+          dpr: 2,
+          rects: want.map(([, r, mode]) => ({ ...r, mode })),
+        });
+        const at = {};
+        want.forEach(([name], i) => {
+          at[name] = { r: got[i].r, g: got[i].g, b: got[i].b, a: 1 };
+        });
+        perTheme[theme] = at;
+        assert(page.__errors.length === 0, "errors: " + page.__errors.join("; "));
+        await ctx.close();
+      }
+
+      // THE CLAMP, asserted on what holds still. §15's permanent exception says this
+      // surface is always dark; if that is true, the two photographs are the same
+      // photograph. But the two are two separate launches, and the BAR IS MOVING at the
+      // instant they are taken — a few milliseconds of difference moves the fill's leading
+      // edge and, with it, the median of the brightest 5% inside the box. Comparing the
+      // moving parts pixel-for-pixel measures scheduler jitter and calls it a theme
+      // difference; it went red doing exactly that before this was written.
+      //
+      // So the identity claim is made about the elements that do not move, which is where
+      // the theme would show if the clamp ever failed — the mat, the mark, the rule, the
+      // tagline, the ground, the track and the strap's edge. The moving fill is held to
+      // something stronger instead: its AA floors are asserted in BOTH themes below, not in
+      // one, so a theme that changed it would fail on the ratio rather than on the pixel.
+      const MOVING = ["barFill"];
+      const still = Object.keys(perTheme.dark).filter((k) => MOVING.indexOf(k) < 0);
+      for (const k of still) {
+        const d = perTheme.dark[k];
+        const l = perTheme.light[k];
+        assert(
+          Math.abs(d.r - l.r) <= 3 && Math.abs(d.g - l.g) <= 3 && Math.abs(d.b - l.b) <= 3,
+          v.id + ": " + k + " differs between themes (" + hex(d) + " dark vs " + hex(l) + " light) — " +
+            "§15 says this surface is always dark and splash.js clamps it, so it must not"
+        );
+      }
+
+      const at = perTheme.dark;
+      const pairs = [
+        ["the tagline, 18px", "taglineGlyph", "mat", 4.5],
+        ["the rule", "ruleGold", "ruleMat", 3],
+        ["the wordmark", "wordInk", "wordMat", 3],
+        ["the bar's fill on the ground", "barFill", "ground", 3],
+        ["the bar's fill on its own track", "barFill", "barTrack", 3],
+      ];
+      // A BAR WITH AN EDGE HAS TO SHOW ITS EXTENT. #2's strap is an object: the distance
+      // still to sew is the part of it that is not sewn, so the strap's own edge is carrying
+      // state and takes the 3:1 non-text floor. #1's bar has no edge (`outline: none`) — its
+      // extent is the ghost of the rule, which is declared below rather than asserted.
+      if (v.tokens.bar.outline && v.tokens.bar.outline !== "none") {
+        pairs.push(["the strap's edge on the ground", "barEdge", "ground", 3]);
+      }
+      for (const [label, fg, bg, floor] of pairs) {
+        // BOTH THEMES, every pair. On a surface that is always dark these are the same
+        // number twice — which is the point: it is measured rather than assumed, and it is
+        // the assertion that catches a moving element the clamp comparison cannot.
+        const each = {};
+        for (const theme of ["dark", "light"]) {
+          const t = perTheme[theme];
+          const ratio = round2(contrastRatio(t[fg], t[bg]));
+          each[theme] = ratio;
+          assert(
+            ratio >= floor,
+            v.id + ": " + label + " measures " + ratio.toFixed(2) + ":1 on the composited frame in " +
+              theme + " mode, below its " + floor + ":1 floor"
+          );
+        }
+        rows.push(
+          v.id.replace("round-11/", "") + " · " + label + ": " + hex(at[fg]) + " on " + hex(at[bg]) +
+            " = " + each.dark.toFixed(2) + ":1 dark / " + each.light.toFixed(2) + ":1 light (floor " + floor + ")"
+        );
+      }
+    }
+    await cmp.close();
+    return (
+      rows.join(" · ") +
+      " · both color schemes photographed; every ratio met in both, and every element that " +
+      "holds still is pixel-identical across them (§15's always-dark start screen) · " +
+      "DECLARED, with the arithmetic: neither bar's UNFILLED track is asserted against the ground. " +
+      "It is unfilled material, not the state — the boundary that conveys progress is the fill " +
+      "against the track and against the ground, and both are asserted above. For #1 the two " +
+      "cannot both pass at once within this palette: clearing 3:1 on the ground needs a track " +
+      "luminance >= 0.118 and clearing 3:1 against the gold fill needs <= 0.095, and no value is " +
+      "both. For #2 the strap's own EDGE marks the bar's extent and is measured instead."
+    );
+  });
+
   await browser.close();
   if (shotNames.length) console.log("\n  shots → " + path.relative(process.cwd(), SHOTS) + "/: " + shotNames.join(", "));
   return run.report();
 }
 
 // ---------------------------------------------------------------------------------------
-// THE THIRTEEN MUTATIONS, against their check numbers.
+// THE MUTATIONS, against their check numbers.
 //
 // Every check above was run RED once by making exactly one of these edits to the SHIPPED
-// source and watching this suite say so. The full runs, with the suite's own output and
-// three notes on mutations that were wrong before they were right, are in
-// `docs/verification/opening-screen-2026-08-30/mutation-runs.txt`. They are listed here as
-// well so the record and the checks cannot drift apart silently.
+// source and watching this suite say so. A check that has never failed has proven nothing,
+// and this repository has produced both kinds of green in one week.
+//
+// TWO PASSES, because the round-11 work rewrote six checks and added two, and a mutation
+// run against a check that no longer exists proves nothing about the check that replaced it.
+//
+// THE ORIGINAL THIRTEEN — `docs/verification/opening-screen-2026-08-30/mutation-runs.txt`.
+// Eleven still stand as written. Two are struck through by the round-11 pass and are listed
+// with what happened to them rather than quietly dropped:
 //
 //   1   splash-library.js  `"round": "8.1"` → `"round": String("8.1")` — valid JS, not JSON
-//   2   splash.js          a hex colour constant added beside GILD_ID
-//   3   splash-library.js  v3's `"surface"` token renamed, i.e. removed
-//   4   splash.js          pick() returns candidates[0] — no draw, no repeat guard
+//   2   splash.js          a hex literal added beside GILD_ID
+//   3   splash-library.js  a `"surface"` token renamed, i.e. removed
+//   4   RETIRED            it broke `pick()`, the uniform random draw. There is no draw:
+//                          the CEO's v1 rule is a table, and check 4's replacement mutation
+//                          breaks `choose()` instead.
 //   5   splash.js          the `--splash-surface` assignment deleted
 //   6   splash.js          a `.splash-corner` element appended, as the studies carry
 //   7   splash.css         `pointer-events: none` → `auto` on the curtain
-//   8   splash.js          the `splash--settled` class no longer added on the way out
+//   8   STILL VALID        the `splash--settled` class no longer added on the way out —
+//                          and check 8 now also has the bar mutation below
 //   9   splash.js          pool() returns the library unvalidated
 //  10   splash.js          the ceiling timer deleted
 //  11   main.js            the switch stops writing the local mirror
@@ -1224,6 +1829,28 @@ async function main() {
 //  13   splash.js          a 40ms busy-wait, BELOW the switch check so only a drawn splash
 //                          pays it — above it, both arms pay and the delta does not move,
 //                          which is the measurement working rather than failing
+//
+// THE ROUND-11 NINE — `docs/verification/splash-screens-2026-09-01/mutation-runs.txt`.
+//
+//   1   splash-library.js  a round-8.1 palette study put back into the shipping library
+//   3   splash.js          the rising frame stops stretching, so the bar leaves the plinth's
+//                          width                                       (also reddens 22, 23)
+//   4   splash.js          `choose()` ignores the ordinal and always returns the first
+//   6   splash.js          `LINE_SIZE` back to 12px
+//   8   splash.js          `settleBar()` removed from the yield, so the bar is left standing
+//                          at a fraction on the way out                    (also reddens 23)
+//  12b  splash.js          `secondsFor()` stops clamping to MAX_SPLASH_SECONDS
+//  22   splash.js          the bar restarts itself the instant the landing flare ends.
+//                          THIS ONE PASSED FIRST TIME AND THE CHECK WAS FIXED, not the
+//                          mutation abandoned: watching the width can only see a loop whose
+//                          period is shorter than the second the curtain has left, and this
+//                          restart began at 3950ms — one sample past the last one taken.
+//                          `state.barPasses` and `state.barStopped` exist because of it.
+//  22   splash.js          a `focus` listener that restarts the bar, which is the shape a
+//                          naive "make it replay" fix would take. Leg 1 catches it without
+//                          the bar being watched at all.
+//  23   splash-library.js  `tagline` back to the trim the round-8.1 sources set it in —
+//                          2.65:1 against a 4.5:1 floor, the failure the lift fixed
 // ---------------------------------------------------------------------------------------
 
 main().then(
