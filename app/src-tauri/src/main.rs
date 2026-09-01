@@ -648,7 +648,7 @@ fn main() {
             // in it; if none does, the app launches with NO active context, every send
             // is still refused — and `entity_choice`/`choose_entity` are how the CEO
             // reaches one from inside the window, which is the part that was missing.
-            let boot = boot_entity(&EntityRegistry::dogfood(), &config);
+            let boot = boot_entity(&EntityRegistry::ceos_companies(), &config);
             match &boot.entity {
                 Some(entity) => {
                     eprintln!("[richos] company: {entity} (via {})", boot.source.map(|s| s.describe()).unwrap_or("resolution"));
@@ -662,12 +662,22 @@ fn main() {
                 // IT NO LONGER ENDS THERE, and that is the substantive change: the CEO is
                 // now asked in the window, so this says what he will see rather than
                 // implying a terminal is the only way through.
+                // THE LIST IS DERIVED, NOT TYPED. It was typed, it said "femcboost,
+                // deeply, prospects or richos", and on 2026-09-01 the registry grew to the
+                // CEO's real six — at which point a hand-written list becomes an operator
+                // instruction that omits two of the valid answers and reads as if they are
+                // invalid. Reading it off the registry is one expression and cannot drift.
                 None => eprintln!(
                     "[richos] no company resolved — RichOS will ask in the window and \
                      remember the answer.\n\
-                     [richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects \
-                     or richos) still overrides, as does launching from that entity's \
-                     repository root."
+                     [richos] operator: RICHOS_ENTITY (one of {}) still overrides, as does \
+                     launching from that entity's repository root.",
+                    EntityRegistry::ceos_companies()
+                        .entities()
+                        .iter()
+                        .map(|e| e.id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             }
 
@@ -1824,7 +1834,7 @@ fn choose_entity(state: State<AppState>, entity_id: String) -> Result<EntityChoi
         return Err(ENTITY_PINNED_MESSAGE.to_string());
     }
     let id = EntityId::parse(entity_id.trim()).map_err(|_| unknown_company_message(entity_id.trim()))?;
-    if !EntityRegistry::dogfood().contains(&id) {
+    if !EntityRegistry::ceos_companies().contains(&id) {
         return Err(unknown_company_message(id.as_str()));
     }
 
@@ -2096,7 +2106,7 @@ mod entity_choice_tests {
     use std::path::Path;
 
     fn reg() -> EntityRegistry {
-        EntityRegistry::dogfood()
+        EntityRegistry::ceos_companies()
     }
 
     fn id(s: &str) -> EntityId {
@@ -2340,9 +2350,16 @@ mod navigation_tests {
         let (spine, path) = spine_from_real_ledger("group");
         let tree = build_navigation_tree(&spine, &nav::NavState::default());
 
-        // Four registered entities, each its own top-level group (§25 Navigation #1).
-        let ids: Vec<&str> = tree.groups.iter().map(|g| g.entity.id.as_str()).collect();
-        assert_eq!(ids, vec!["femcboost", "deeply", "prospects", "richos"]);
+        // Every registered entity gets its own top-level group (§25 Navigation #1) — SIX
+        // since 2026-09-01, when the registry stopped being four directory names and
+        // became the CEO's own list. Read off the registry rather than retyped: a nav test
+        // that hard-codes the roster fails the day a company is added, which is a true
+        // failure worth exactly one line, not a second place to keep the list.
+        let ids: Vec<String> = tree.groups.iter().map(|g| g.entity.id.clone()).collect();
+        let expected: Vec<String> =
+            EntityRegistry::ceos_companies().entities().iter().map(|e| e.id.to_string()).collect();
+        assert_eq!(ids, expected);
+        assert_eq!(ids.len(), 6, "the CEO named six companies on 2026-09-01");
 
         // The pre-entity thread is listed, but NOT inside any entity.
         assert_eq!(tree.unbound.len(), 1);
@@ -2455,7 +2472,7 @@ mod navigation_tests {
     /// `app/ui/timeline.js` (pinned by `app/ui/tests/scale.js`), the entity index is
     /// `run_search` above. Neither had a test at either number until 2026-08-30.
     ///
-    /// SEEDED, NOT ASSUMED. The shipping registry is `EntityRegistry::dogfood()` — FOUR
+    /// SEEDED, NOT ASSUMED. The shipping registry is `EntityRegistry::ceos_companies()` — SIX
     /// entities, hard-coded, because it IS the current registry rather than a default. So
     /// 10,000 is a scale the product cannot reach today, and this test SEEDS it through
     /// `Spine::set_entity_registry`, which exists for exactly this. That is stated plainly

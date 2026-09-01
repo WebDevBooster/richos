@@ -338,7 +338,7 @@ fn an_unregistered_entity_can_never_become_a_threads_home() {
     let (path, ledger) = tmp_ledger("unregistered");
     let mut spine = Spine::new(ledger);
     let stranger = EntityId::parse("acme-holdings").unwrap();
-    assert!(!EntityRegistry::dogfood().contains(&stranger));
+    assert!(!EntityRegistry::ceos_companies().contains(&stranger));
 
     let err = spine.create_thread("Whose is this?", &stranger).unwrap_err();
     assert!(matches!(err, SpineError::UnknownEntity(_)), "got {err:?}");
