@@ -375,6 +375,41 @@ else
 fi
 write_decisions
 
+# 3e. A one-word title must not vouch for itself. Found by the LIVE register
+# moving underneath this predicate while it was being measured: a ruling
+# appeared titled "The door", the word "door" corroborated the word "door", and
+# a question from July about recording video in the app was refused. The
+# corroborating signal has to be INDEPENDENT of the title, or it is a spelling
+# of the title.
+python3 - "$HQ/wiki/ceo-decisions.md" <<'DOORPY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s += ("\n### The door — RULED (CEO, 2026-09-01)\n\n"
+      "The door opens on launch. The door is the only door, and a second door\n"
+      "is not a door.\n")
+open(p, "w").write(s)
+DOORPY
+DOOR_PAYLOAD="$(python3 -c '
+import json
+print(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+  "session_id": "sess-0001",
+  "tool_input": {"questions": [{"header": "Capture",
+    "question": "Should the in-app recording door be extended to the men now, or wait for the native apps?",
+    "options": [{"label": "Now", "description": "The door already exists for the intros."},
+                {"label": "Wait", "description": "Hold the door until the native apps are online."}]}]}}))
+')"
+OUT="$(cd "$SEAT" && CLAUDE_PROJECT_DIR="$SEAT" bash "$GATE" <<<"$DOOR_PAYLOAD" 2>&1)"; RC=$?
+say "door" "rc=$RC
+$OUT"
+if [ "$RC" -eq 0 ]; then
+    ok "3e  REGRESSION: a one-word title cannot corroborate itself — 'The door' does not refuse a question about a recording door"
+else
+    bad "3e  REGRESSION: a one-word title cannot corroborate itself" \
+        "rc=$RC — the subject word is counting as its own second signal, which is one coincidence wearing two hats"
+fi
+write_decisions
+
 echo ""
 echo "=== 4. FAIL OPEN — every plumbing failure lets the ask through, loudly ==="
 

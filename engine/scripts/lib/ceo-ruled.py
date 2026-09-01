@@ -538,7 +538,7 @@ def rare_threshold(n_rulings):
     return max(2, int(RARE_FRACTION * n_rulings))
 
 
-def corroborate(qwords, ruling, df):
+def corroborate(qwords, ruling, df, subject):
     """A SECOND, INDEPENDENT signal that a question is about this ruling.
 
     Required whenever a ruling's title is made ENTIRELY of the register's own
@@ -556,13 +556,25 @@ def corroborate(qwords, ruling, df):
     the mark's second tone is refused and cited. "monospaced" appears exactly
     once in the whole register, so the question nobody ever ruled on is not.
 
+    THE SUBJECT'S OWN WORDS ARE EXCLUDED, and that exclusion is the difference
+    between a second signal and a spelling of the first. Found by the live
+    register moving underneath this file: a ruling titled "The door" was
+    corroborated by the word "door", and the gate refused a question from July
+    about recording video in the app. A one-word title that vouches for itself
+    is the exact coincidence the corroboration rule exists to rule out.
+
     -> (how, anchor) or None.
     """
+    subj = set(subject)
     for n in range(MAX_N, 1, -1):
         for g in ngrams(qwords, n):
+            if all(w in subj for w in g):
+                continue
             if df.get(g, 0) <= DF_MAX and ruling.counts.get(g, 0) >= TF_PHRASE:
                 return "phrase", " ".join(g)
     for w in qwords:
+        if w in subj:
+            continue
         g = (w,)
         if df.get(g, 0) <= DF_MAX and ruling.counts.get(g, 0) >= TF_TOKEN:
             return "token", w
@@ -606,7 +618,7 @@ def check(question, rulings, df):
         # rare in the CEO's register and ordinary everywhere else, and between
         # them they refused three unrelated questions in the measured corpus.
         if len(subj) < MIN_ALONE or weakest > rare:
-            corr = corroborate(qwords, r, df)
+            corr = corroborate(qwords, r, df, subj)
             if corr is None:
                 continue
             how = "title+" + corr[0]
