@@ -71,7 +71,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const C = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -401,6 +401,8 @@ async function openApp(browser, theme, holdSplash, preset) {
     }, preset);
   }
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   if (holdSplash) {
     // §15's always-dark clamp is in force for the whole of this walk, by ruling and not by
@@ -470,6 +472,7 @@ async function main() {
     unresolvable: [],
     exemptions: [],
     canvas: 0,
+    canvasInHome: 0,
     svgText: 0,
     totals: { considered: 0, checked: 0, passed: 0, failedNodes: 0, invisible: 0, obscured: 0, ancestor: 0, veiled: 0, indicators: 0, indicatorsChecked: 0 },
   };
@@ -769,6 +772,7 @@ async function main() {
         checked += out.nodesChecked;
         considered += out.nodesConsidered;
         seen.canvas += out.canvasCount;
+        seen.canvasInHome += out.canvasInHome || 0;
         seen.svgText += out.svgTextCount;
         seen.totals.considered += out.nodesConsidered;
         seen.totals.checked += out.nodesChecked;
@@ -1047,18 +1051,24 @@ async function main() {
 
   // ---- 14. what a DOM checker cannot see, asserted rather than assumed ------------------------
 
-  await run.check("14  no <canvas> on any surface walked — so the DOM check is not talking past the pixels", async () => {
+  await run.check("14  no UNMEASURED <canvas> on any surface walked — the DOM check is not talking past the pixels", async () => {
     assertEqual(
       seen.canvas,
       0,
-      "a <canvas> appeared on a walked surface. Nothing in this suite can read a pixel it painted, so its " +
-        "contrast is UNCHECKED and a green run here must not be read as covering it."
+      "a <canvas> appeared on a walked surface OUTSIDE the home screen. Nothing in this suite can read a " +
+        "pixel it painted, so its contrast is UNCHECKED and a green run here must not be read as covering " +
+        "it. If it belongs to a surface that IS measured from the pixels somewhere, exclude it here BY " +
+        "NAME and say where — never by raising a threshold."
     );
     return (
-      "0 <canvas> elements across " + Object.keys(perSurface).length + " surface/theme walks. " +
+      "0 unmeasured <canvas> elements across " + Object.keys(perSurface).length + " surface/theme walks. " +
       "The DOM check therefore covers the whole of every surface it reaches — every failure it reports " +
-      "is a node with a computed style, and every node with a computed style was reported. Canvas-heavy " +
-      "work elsewhere in the repo (the round-7 / round-8.1 material studies) is NOT covered by anything here."
+      "is a node with a computed style, and every node with a computed style was reported.\n          " +
+      seen.canvasInHome + " <canvas> element(s) inside #home were EXCLUDED and are not covered here: the " +
+      "home screen is round-11.1/v1 \"Constellation\", a canvas composition the CEO chose, and it is " +
+      "measured from the pixels by tests/home.js instead — 16 elements, worst 4.23:1, on the rendered " +
+      "frame. Canvas-heavy work elsewhere in the repo (the round-7 / round-8.1 material studies) is NOT " +
+      "covered by anything, here or there."
     );
   });
 
@@ -1113,7 +1123,8 @@ async function main() {
       seen.unresolvable.length + " time(s) across the walks)"
   );
   console.log("  declared exempt          " + seen.exemptions.length);
-  console.log("  <canvas> seen            " + seen.canvas + "   svg <text> seen  " + seen.svgText);
+  console.log("  <canvas> unmeasured      " + seen.canvas + "   in #home (measured by tests/home.js)  " +
+    seen.canvasInHome + "   svg <text> seen  " + seen.svgText);
 
   console.log("\n== every distinct failing colour pairing on the shipping shell today ==");
   const all = {};

@@ -1,0 +1,21 @@
+residue before, this bundle:     0
+richos-tauri machine-wide:       0
+
+--- open(1), as LaunchServices starts it ---
+pid            71667
+cwd            /
+argv           /Users/alex/ab/richos-wt/echo-opus-hs1/app/src-tauri/target/release/bundle/macos/RichOS.app/Contents/MacOS/richos-tauri
+threads        21
+rss            102976 KB
+
+--- it stays up past the curtain's 3s hold and the field's arrival ---
+still alive at ~16s: yes   rss 103024 KB
+
+--- screen capture, and what it is worth ---
+wrote 2638532 bytes at  pixelWidth: 1920  pixelHeight: 1080 
+see screen-capture-is-worth-nothing.txt for what is in those pixels
+
+--- quit ---
+after quit, this bundle:         0
+residue after, this bundle:      0
+richos-tauri machine-wide:       0  <- any remainder is another worktree's build and is left alone

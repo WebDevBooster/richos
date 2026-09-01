@@ -307,9 +307,46 @@ function assertEqual(actual, expected, msg) {
   if (a !== e) throw new Error(`${msg}\n          expected ${e}\n          actual   ${a}`);
 }
 
+
+// ---------------------------------------------------------------------------------------
+// LEAVING THE HOME SCREEN
+// ---------------------------------------------------------------------------------------
+
+/// THE APP'S LANDING SURFACE MOVED (CEO, 2026-09-01): "This start screen/home screen ... must
+/// be shown in the app after the splash screen." So `index.html` now opens on `#home`, which
+/// covers the shell and marks `#app` inert — and every suite in this directory that drives the
+/// APP UI has to do first what the CEO does first, which is leave it.
+///
+/// IT LEAVES THROUGH `RichHome.hide` AND NOT BY CLICKING THE CONTROL, deliberately. The visible
+/// switch on the home screen is PROVISIONAL — the CEO is choosing the real affordance from six
+/// designs (`round-11.2`) — and a suite that clicked it would go red the day he picks one,
+/// with nothing about that suite's own subject having changed. `home.js` is where the control
+/// itself is tested; this is only how the other suites get past it.
+///
+/// It also restores the theme: the home screen holds §15's always-dark clamp while it is up,
+/// and `hide()` drops it, so a suite that asserts on light mode sees the CEO's own preference
+/// rather than the clamp.
+async function leaveHome(page) {
+  const present = await page
+    .waitForFunction("typeof window.RichHome === 'object'", { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!present) return false;
+  await page.evaluate(() => {
+    if (window.RichHome && window.RichHome.isOpen()) window.RichHome.hide("acceptance-suite");
+  });
+  // `hide()` fades before it un-mounts, so the wait is on the end state and not on a timer.
+  await page.waitForFunction(() => {
+    const h = document.getElementById("home");
+    return !h || h.hidden;
+  });
+  return true;
+}
+
 module.exports = {
   loadPlaywright,
   openFixture,
+  leaveHome,
   skipSuite,
   shot,
   createRun,

@@ -168,7 +168,19 @@ function probeBody(options) {
     obscured: {},
     veiled: 0,
     ancestorResolved: 0,
-    canvasCount: document.getElementsByTagName("canvas").length,
+    // COUNTED IN TWO BUCKETS, because they are two different facts.
+    //
+    // The home screen (`#home`) is a canvas surface BY DESIGN — it is `round-11.1/v1`
+    // "Constellation", 7,500 objects on WebGL, and the CEO chose it. Nothing in this walk can
+    // read a pixel it paints, and that is not news: `tests/home.js` measures every element on
+    // it FROM THE PIXELS instead, which is the only method that can.
+    //
+    // So a canvas inside `#home` is MEASURED SOMEWHERE ELSE, and a canvas anywhere else is
+    // UNMEASURED BY ANYTHING. Collapsing the two into one number would either turn this gate
+    // red forever over a surface that is covered, or — much worse — make somebody raise the
+    // threshold and lose the signal for the next canvas nobody measures.
+    canvasCount: document.querySelectorAll("canvas:not(#home canvas)").length,
+    canvasInHome: document.querySelectorAll("#home canvas").length,
     svgTextCount: document.querySelectorAll("svg text, svg tspan").length,
     failures: {},
     unresolvable: {},

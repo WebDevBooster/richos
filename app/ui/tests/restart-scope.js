@@ -50,7 +50,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -68,6 +68,8 @@ async function openApp(browser, viewport) {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
   await page.waitForSelector(".nav-thread", { state: "attached" });
   page.__errors = errors;
@@ -272,6 +274,7 @@ async function main() {
     const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
     const before = await ctx.newPage();
     await before.goto(APP);
+    await leaveHome(before);
     await before.waitForSelector(".nav-thread", { state: "attached" });
     await open(before, "acme");
     // THE SCROLL FIRST, THE TYPING LAST, and that order is the check rather than a detail.
@@ -307,6 +310,7 @@ async function main() {
 
     const after = await ctx.newPage();
     await after.goto(APP);
+    await leaveHome(after);
     await after.waitForSelector(".nav-thread", { state: "attached" });
     await open(after, "acme");
     await settle(after);
@@ -371,6 +375,7 @@ async function main() {
     const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
     const before = await ctx.newPage();
     await before.goto(APP);
+    await leaveHome(before);
     await before.waitForSelector(".nav-thread", { state: "attached" });
     await open(before, "acme");
     await before.fill("#input", "send this one");
@@ -406,6 +411,7 @@ async function main() {
 
     const after = await ctx.newPage();
     await after.goto(APP);
+    await leaveHome(after);
     await after.waitForSelector(".nav-thread", { state: "attached" });
     await open(after, "acme");
     const restored = await after.inputValue("#input");

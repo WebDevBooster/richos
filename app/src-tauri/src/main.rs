@@ -1320,6 +1320,10 @@ fn main() {
             // --- the launch record (2026-08-31) — appended, never reordered ---
             launch_state,
             launch_note_splash_shown,
+            // --- the home screen's entity row (2026-09-01) — appended, never reordered ---
+            home_entity_row,
+            set_home_entity_label,
+            set_home_entity_visible,
             // --- the update path (2026-08-31) — appended, never reordered.
             //     These four are the ONLY updater surface the webview has: no
             //     `plugin:updater|*` command is granted to it (capabilities/default.json).
@@ -3990,4 +3994,138 @@ fn launch_state(state: State<AppState>, utc_offset_minutes: i32) -> LaunchStateV
 #[tauri::command]
 fn launch_note_splash_shown(state: State<AppState>, id: String) -> Result<(), String> {
     state.launch.lock().unwrap().note_splash_shown(&id).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// THE HOME SCREEN'S ENTITY ROW (CEO, 2026-09-01)
+//
+// His words, in the order he gave them:
+//
+//   "At the very top there should be a slim row with buttons named after the user's
+//    entities/companies. For RichOS v1 those buttons don't need to do anything. But
+//    eventually the user should be able to 'switch' their loro visual from all companies
+//    (which is default) to display the loro for just one of their companies."
+//
+//   "the company buttons should only appear if the user has more than one company. Not if
+//    there's only one. And the user should also be able to customize in the settings the
+//    labels on those company buttons and well as which to display on their home screen.
+//    So, if the user wanted to anonymize their home screen (for sharing on social media),
+//    they could change the label buttons to something like '1', '2', '3' etc."
+//
+// THREE PROPERTIES THIS LAYER HAS AND MUST KEEP:
+//
+//   1. **The names come from the REGISTRY.** `EntityRegistry::ceos_companies()` through the
+//      spine, in registry order, never filtered and never re-sorted — the same source the
+//      company picker reads. A list typed into the UI would be wrong the day he adds a
+//      company, and `richos` is ONE entity with two roots, which only the registry knows.
+//   2. **A label is a MASK, never a rename.** `id` on the wire is always the registry's id;
+//      `label` is what the button says. Nothing downstream keys on `label`, and
+//      `config.rs`'s own test `a_label_is_a_mask_and_never_a_rename` is what holds that.
+//   3. **An absent override is the registry's display name.** Never blank, never the raw id.
+//      That is decided HERE, in `resolve`, so no surface can get it wrong on its own.
+//
+// WHAT IS DELIBERATELY NOT HERE: any effect on the picture. He was explicit that the buttons
+// do nothing in v1, and filtering the field by entity is later work. What IS real is the
+// label and the visibility, because those are what he would use before the filtering exists.
+// ---------------------------------------------------------------------------------------
+
+/// One button in the home screen's row, resolved.
+#[derive(serde::Serialize)]
+struct HomeEntityView {
+    /// The registry's id. This is the identity and it is never affected by a label.
+    id: String,
+    /// The registry's own name for the company, so a surface can offer "back to the real
+    /// name" without a second round trip.
+    display_name: String,
+    /// What the button SAYS: his override if he set one, otherwise `display_name`.
+    label: String,
+    /// His override on its own, or `None` when he has not set one. The settings surface
+    /// needs the difference — a field pre-filled with the registry name looks like an
+    /// override he made, and clearing it would then be indistinguishable from leaving it.
+    custom_label: Option<String>,
+    /// Whether this company appears in the row. Absent opinion means yes.
+    visible: bool,
+}
+
+/// The row, resolved and in registry order.
+///
+/// **The "only if more than one" rule is NOT applied here**, and that is deliberate: this
+/// command reports what IS, and the settings surface has to list every company — including
+/// the ones he has hidden — or he could never unhide one. The count that decides whether the
+/// home screen draws a row at all is `visible`, and the home screen applies it.
+#[tauri::command]
+fn home_entity_row(state: State<AppState>) -> Vec<HomeEntityView> {
+    // Lock order, everywhere in this file: config, then entity, then spine.
+    let config = state.config.lock().unwrap();
+    let spine = state.spine.lock().unwrap();
+    spine
+        .entity_registry()
+        .entities()
+        .iter()
+        .map(|e| {
+            let id = e.id.to_string();
+            let custom = config.home_entity_label(&id).map(|s| s.to_string());
+            HomeEntityView {
+                label: custom.clone().unwrap_or_else(|| e.display_name.clone()),
+                visible: config.home_entity_visible(&id),
+                display_name: e.display_name.clone(),
+                custom_label: custom,
+                id,
+            }
+        })
+        .collect()
+}
+
+/// Set (or clear) his own label for one company.
+///
+/// `None` or an all-whitespace string CLEARS the override and the button goes back to the
+/// registry's name. That is not a convenience: it is how he un-anonymizes the screen, and a
+/// one-way override would have made an anonymized home screen permanent.
+///
+/// It REFUSES an unregistered id rather than storing a key nothing will ever read — the same
+/// fail-closed posture `choose_entity` takes, and for the same reason.
+#[tauri::command]
+fn set_home_entity_label(
+    state: State<AppState>,
+    entity_id: String,
+    label: Option<String>,
+) -> Result<Vec<HomeEntityView>, String> {
+    let id = registered_entity(&entity_id)?;
+    state
+        .config
+        .lock()
+        .unwrap()
+        .set_home_entity_label(id.as_str(), label.as_deref())
+        .map_err(|e| format!("I couldn't write that down, so I haven't changed the button: {e}"))?;
+    Ok(home_entity_row(state))
+}
+
+/// Show or hide one company in the home screen's row. Display only — the company, its
+/// threads and its records are untouched, and it is still everywhere else in the app.
+#[tauri::command]
+fn set_home_entity_visible(
+    state: State<AppState>,
+    entity_id: String,
+    visible: bool,
+) -> Result<Vec<HomeEntityView>, String> {
+    let id = registered_entity(&entity_id)?;
+    state
+        .config
+        .lock()
+        .unwrap()
+        .set_home_entity_visible(id.as_str(), visible)
+        .map_err(|e| format!("I couldn't write that down, so I haven't changed the row: {e}"))?;
+    Ok(home_entity_row(state))
+}
+
+/// Parse and check an id against the registry, or refuse with the sentence the CEO reads.
+/// Shared by both setters so the two cannot drift apart on what they accept. It reads the
+/// registry as a CONSTANT rather than through the spine: `ceos_companies` is compiled in and
+/// asking for the spine lock here would put a settings write behind a running turn.
+fn registered_entity(entity_id: &str) -> Result<EntityId, String> {
+    let id = EntityId::parse(entity_id.trim()).map_err(|_| unknown_company_message(entity_id.trim()))?;
+    if !EntityRegistry::ceos_companies().contains(&id) {
+        return Err(unknown_company_message(id.as_str()));
+    }
+    Ok(id)
 }

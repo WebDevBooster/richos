@@ -24,6 +24,12 @@
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->
     <link rel="stylesheet" href="splash.css" />
+    <!-- The home screen — the surface after the curtain. Render-blocking for the same reason
+         splash.css is: its composition is part of the window's first paint. Everything in it
+         is scoped under `#home`, so it declares nothing that reaches the app UI, and it names
+         no typeface: the faces come from fonts/fonts.css above, which is the only file in this
+         product that names one. -->
+    <link rel="stylesheet" href="home.css" />
     <!-- THE MARK'S GOLD, PER THEME.
 
          The wordmark below is two-tone by the approved treatment (round-8.1/v0 for dark,
@@ -75,6 +81,21 @@
          user is most likely to be stuck on is the one the curtain is still covering, and
          reporting a bug must never require navigating away from the screen the bug is on. -->
     <script src="settings-button.js"></script>
+
+    <!-- THE HOME SCREEN, AFTER THE CURTAIN AND BEFORE THE SHELL.
+
+         CEO, 2026-09-01: "This start screen/home screen (I'm going to refer to it as the home
+         screen only from now) must be shown in the app after the splash screen." So it is
+         mounted here, synchronously, ahead of the shell below — the same placement and the
+         same reason as the curtain above it: the composition is in the window's FIRST paint,
+         not something that arrives after `#app` has been parsed.
+
+         IT COSTS THE LAUNCH NOTHING, and the structure is the argument. This file builds DOM
+         and CSS only. The picture — 7,500 objects on WebGL over a 4.9 MB dataset — is four
+         script tags this file INJECTS on an idle callback, off the boot path entirely; it
+         awaits nothing, `main.js` is neither wrapped nor awaited, and the round's own
+         "waking loro…" state covers the gap. -->
+    <script src="home.js"></script>
 
     <div id="app">
       <!-- Backdrop for the rail when it is a full-height drawer (below 820px, §20). -->

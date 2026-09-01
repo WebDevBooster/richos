@@ -27,7 +27,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const { contrastRatio, round2, hex } = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -883,6 +883,10 @@ async function main() {
     const page = await newPage(ctx);
     await page.goto(APP);
     await page.waitForSelector(".nav-thread", { state: "attached" });
+    // The gear this check reaches for is in the RAIL, behind both the curtain and the home
+    // screen. The curtain has always been click-through; the home screen is not, and is not
+    // meant to be. Everything above and below still tests the curtain itself.
+    await leaveHome(page);
     await page.click("#rail-settings");
     await page.waitForSelector("#assertiveness-popover:not([hidden])");
     const before = await page.isChecked("#splash-enabled");
@@ -897,6 +901,7 @@ async function main() {
     // Relaunch in the same webview, exactly as reopening the app does.
     await page.goto(APP);
     await page.waitForSelector(".nav-thread", { state: "attached" });
+    await leaveHome(page);
     const after = await page.evaluate(() => ({
       splashNodes: document.querySelectorAll("#splash, .splash").length,
       shown: window.RichSplash.state.shown,

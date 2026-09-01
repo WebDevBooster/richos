@@ -36,7 +36,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const {
+const { leaveHome,
   loadPlaywright,
   shot,
   createRun,
@@ -87,6 +87,8 @@ async function openApp(browser, viewport) {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   await page.waitForSelector("#nav-feedback");
   page.__errors = errors;

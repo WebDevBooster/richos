@@ -40,7 +40,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const SHOTS = "../shots-10-1";
@@ -133,6 +133,8 @@ async function openApp(browser, opts) {
     }
   }, opts);
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   if (!opts.holdSplash) {
     await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
@@ -383,7 +385,7 @@ async function main() {
     const rows = await menuRows(page);
     assertEqual(
       rows,
-      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Home screen", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The opening screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +
@@ -391,7 +393,10 @@ async function main() {
         "the same reason the opening-screen row sits where it does: the ruling does not name it, and " +
         "the floor stays the floor. Company (2026-09-01, the entity picker's durable half) went in " +
         "at the same rank and for the same reason, above Updates because it is a preference and " +
-        "Updates is a status panel."
+        "Updates is a status panel. Home screen (2026-09-01 — what the home screen\'s company " +
+        "buttons say, and which of them show) went in directly under Company, because it is " +
+        "about the same six things Company is about, and above Updates for the same reason " +
+        "Company is: a preference outranks a status panel. The floor is still the floor."
     );
     await page.close();
     return rows.join(" -> ");
@@ -625,6 +630,7 @@ async function main() {
       return {
         wordmarkVisible: !!w && w.getBoundingClientRect().width > 0,
         label: w ? w.getAttribute("aria-label") : null,
+        role: w ? w.getAttribute("role") : null,
         ink: w ? getComputedStyle(w).color : null,
         // THE SWOOSH. The mark is two-tone by the approved treatment (round-8.1/v0 dark,
         // round-9/v1 light): ink letterforms, signal swoosh. It shipped as a KNOCK-OUT
@@ -636,7 +642,22 @@ async function main() {
       };
     });
     assert(dark.wordmarkVisible, "the mark does not render");
-    assertEqual(dark.label, "RichOS", "and it is announced, since it is an image carrying a name");
+    // THE NAME GREW A DESTINATION ON 2026-09-01, and that is the correct name rather than a
+    // relaxed assertion. The CEO: "in the regular app UI a click on the logo (in the upper
+    // left corner) brings the user back to the home screen." So the mark is no longer an
+    // image carrying a name — `home.js` promotes it to `role="button"` at runtime — and a
+    // button whose accessible name is only the product's own name tells a screen-reader user
+    // nothing about what pressing it does. What still has to hold, and is what this checks,
+    // is that it is announced AND that it still leads with the product's name.
+    assert(
+      /^RichOS\b/.test(dark.label || ""),
+      "the mark must still be announced as RichOS: " + dark.label
+    );
+    assert(
+      /home screen/i.test(dark.label || ""),
+      "the mark is a control now and must say where it goes: " + dark.label
+    );
+    assertEqual(dark.role, "button", "the mark is the way back to the home screen and must say so");
     assertEqual(dark.companyRendered, false, "'My Company' must no longer be rendered here (§15)");
     assertEqual(dark.ink, "rgb(223, 228, 238)", "inked with the dark theme's own ink");
     assertEqual(
@@ -666,8 +687,8 @@ async function main() {
         "index.html sets and what the shipped light asset carries."
     );
     await page.close();
-    return "wordmark present and announced; company label gone; ink #DFE4EE -> #0C1322 and " +
-      "swoosh #C2A35C -> #9C7C34 across the theme";
+    return `wordmark present and announced as "${dark.label}" (role=${dark.role}); company label ` +
+      `gone; ink #DFE4EE -> #0C1322 and swoosh ${dark.swoosh} -> ${light.swoosh} across the theme`;
   });
 
   await run.check("16  the foot of the rail is HIS — and says nothing it does not know", async () => {

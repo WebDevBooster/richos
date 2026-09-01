@@ -295,6 +295,35 @@ struct StoredConfig {
     /// chose and it went missing" — it is the state that makes the app ask.
     #[serde(default)]
     entity: Option<String>,
+    /// THE HOME SCREEN'S ENTITY ROW — the CEO's own LABEL for a company, keyed by entity id.
+    ///
+    /// His words, 2026-09-01: *"the user should also be able to customize in the settings the
+    /// labels on those company buttons ... so, if the user wanted to anonymize their home
+    /// screen (for sharing on social media), they could change the label buttons to something
+    /// like '1', '2', '3'"*.
+    ///
+    /// **A MASK OVER A NAME, NEVER A RENAME.** Nothing keyed on identity moves: the entity id,
+    /// the registry, the thread bindings and every ledger record are untouched by anything in
+    /// this map. It is consulted at one place — where a button's text is decided — and nowhere
+    /// else. That is what makes anonymizing the screen safe to do and safe to undo.
+    ///
+    /// An ABSENT id means the registry's own display name. That is the common case and it is
+    /// never blank and never the raw id.
+    ///
+    /// `String` keys and not `EntityId`, for exactly the reason `entity` above is a `String`:
+    /// `EntityId` rejects on deserialize, and a rejected key here would fail the parse of the
+    /// whole file, which `ConfigStore::open` degrades to defaults — one bad character would
+    /// silently reset his theme, his dial and his retention window.
+    #[serde(default)]
+    home_entity_labels: BTreeMap<String, String>,
+    /// WHICH COMPANIES SHOW IN THAT ROW. His words: *"which to display on their home screen"*.
+    ///
+    /// Stored as the HIDDEN set rather than the visible one, and the direction is the whole
+    /// point: a company he has never had an opinion about SHOWS, so a company added to the
+    /// registry tomorrow appears on his home screen rather than being invisible until he finds
+    /// a setting. Absence is an absent opinion, and the product's opinion is "show it".
+    #[serde(default)]
+    home_entity_hidden: BTreeMap<String, bool>,
 }
 
 impl Default for StoredConfig {
@@ -312,6 +341,8 @@ impl Default for StoredConfig {
             font_scale: FONT_SCALE_DEFAULT,
             user_name: None,
             entity: None,
+            home_entity_labels: BTreeMap::new(),
+            home_entity_hidden: BTreeMap::new(),
         }
     }
 }
@@ -722,6 +753,58 @@ impl ConfigStore {
     /// Remember the CEO's answer. Takes an `EntityId` rather than a `&str` so the write
     /// side cannot store something the read side would refuse; registry membership is the
     /// caller's check, because this crate's config layer does not own the registry.
+    // ---- the home screen's entity row (CEO, 2026-09-01) ----------------------------
+    //
+    // Two independent per-company preferences: what a button is CALLED, and whether it is
+    // THERE. Independent because he asked for them independently, and because hiding a
+    // company he has relabeled must not throw the label away.
+
+    /// His own label for this company, or `None` when he has not given one.
+    ///
+    /// A stored value that is empty or whitespace reads as `None` — the same treatment
+    /// `user_name` gives, and for the same reason: a blank button is not a label, and a
+    /// surface that rendered one would look broken rather than anonymized.
+    pub fn home_entity_label(&self, entity_id: &str) -> Option<&str> {
+        self.config
+            .home_entity_labels
+            .get(entity_id)
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Set (or, with `None` or an empty string, CLEAR) his label for one company. Clearing
+    /// is not a separate command on purpose: "set it back to nothing" is how he undoes an
+    /// anonymized screen, and a one-way override would make that impossible from the UI.
+    pub fn set_home_entity_label(&mut self, entity_id: &str, label: Option<&str>) -> io::Result<()> {
+        let trimmed = label.map(str::trim).filter(|s| !s.is_empty());
+        match trimmed {
+            Some(v) => {
+                self.config.home_entity_labels.insert(entity_id.to_string(), v.to_string());
+            }
+            None => {
+                self.config.home_entity_labels.remove(entity_id);
+            }
+        }
+        self.persist()
+    }
+
+    /// Whether this company shows in the home screen's row. **Absent means yes.**
+    pub fn home_entity_visible(&self, entity_id: &str) -> bool {
+        !self.config.home_entity_hidden.get(entity_id).copied().unwrap_or(false)
+    }
+
+    /// Show or hide one company in that row. Setting it back to visible REMOVES the key
+    /// rather than storing `false`, so a config file only ever carries the opinions he
+    /// actually holds and the default stays readable in a diff.
+    pub fn set_home_entity_visible(&mut self, entity_id: &str, visible: bool) -> io::Result<()> {
+        if visible {
+            self.config.home_entity_hidden.remove(entity_id);
+        } else {
+            self.config.home_entity_hidden.insert(entity_id.to_string(), true);
+        }
+        self.persist()
+    }
+
     pub fn set_entity(&mut self, entity: &EntityId) -> io::Result<()> {
         self.config.entity = Some(entity.as_str().to_string());
         self.persist()
@@ -1368,4 +1451,89 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    // ---- the home screen's entity row (CEO, 2026-09-01) ----------------------------
+
+    #[test]
+    fn an_unlabelled_company_reads_as_no_override_and_never_as_a_blank() {
+        let path = tmp_path("home-entity-label");
+        let _ = std::fs::remove_file(&path);
+        let mut store = ConfigStore::open(&path).unwrap();
+
+        // The overwhelmingly common state: he has never opened this setting.
+        assert_eq!(store.home_entity_label("femcboost"), None);
+
+        store.set_home_entity_label("femcboost", Some("1")).unwrap();
+        assert_eq!(store.home_entity_label("femcboost"), Some("1"));
+
+        // A one-character label is the CEO's own example ("they could change the label
+        // buttons to something like '1', '2', '3'"), so it is a case with a test and not
+        // an edge the surface discovers.
+        store.set_home_entity_label("deeply", Some("2")).unwrap();
+        assert_eq!(store.home_entity_label("deeply"), Some("2"));
+
+        // Whitespace is not a label. Storing one would render a button with nothing in it,
+        // which looks broken rather than anonymized.
+        store.set_home_entity_label("femcboost", Some("   ")).unwrap();
+        assert_eq!(store.home_entity_label("femcboost"), None);
+
+        // ...and clearing is the way back, because that is how he un-anonymizes the screen.
+        store.set_home_entity_label("deeply", None).unwrap();
+        assert_eq!(store.home_entity_label("deeply"), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_company_nobody_has_an_opinion_about_shows_on_the_home_screen() {
+        let path = tmp_path("home-entity-visible");
+        let _ = std::fs::remove_file(&path);
+        let mut store = ConfigStore::open(&path).unwrap();
+
+        // THE DIRECTION IS THE POINT. Stored as the HIDDEN set, so a company added to the
+        // registry tomorrow appears rather than being invisible until he finds a setting.
+        assert!(store.home_entity_visible("webinar-booster"));
+        assert!(store.home_entity_visible("a-company-that-does-not-exist-yet"));
+
+        store.set_home_entity_visible("webinar-booster", false).unwrap();
+        assert!(!store.home_entity_visible("webinar-booster"));
+
+        store.set_home_entity_visible("webinar-booster", true).unwrap();
+        assert!(store.home_entity_visible("webinar-booster"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_label_and_the_visibility_are_independent_and_both_survive_a_reopen() {
+        let path = tmp_path("home-entity-durable");
+        let _ = std::fs::remove_file(&path);
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_home_entity_label("richos", Some("3")).unwrap();
+            store.set_home_entity_visible("richos", false).unwrap();
+            store.set_home_entity_label("prospects", Some("4")).unwrap();
+        }
+        let store = ConfigStore::open(&path).unwrap();
+        // Hiding a company he has relabelled must not throw the label away — he asked for
+        // the two as separate controls and they are separate stores.
+        assert_eq!(store.home_entity_label("richos"), Some("3"));
+        assert!(!store.home_entity_visible("richos"));
+        assert_eq!(store.home_entity_label("prospects"), Some("4"));
+        assert!(store.home_entity_visible("prospects"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_label_is_a_mask_and_never_a_rename() {
+        let path = tmp_path("home-entity-mask");
+        let _ = std::fs::remove_file(&path);
+        let mut store = ConfigStore::open(&path).unwrap();
+        store.set_entity(&EntityId::parse("femcboost").unwrap()).unwrap();
+        store.set_home_entity_label("femcboost", Some("1")).unwrap();
+
+        // The identity the whole system keys on is untouched by the label. If this ever
+        // fails, an anonymized home screen has re-homed his work.
+        assert_eq!(store.entity_raw(), Some("femcboost"));
+        assert_eq!(store.entity().unwrap().as_str(), "femcboost");
+        assert_eq!(store.company_name(), None, "the company NAME is a different field again");
+        let _ = std::fs::remove_file(&path);
+    }
 }
