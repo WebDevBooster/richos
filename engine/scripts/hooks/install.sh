@@ -320,6 +320,15 @@ HOOK_FILES+=(
     # session in which he had been asked. Check the lock, ignore the key.
     "$REPO_ROOT/scripts/lib/ceo-asks.sh"
     "$REPO_ROOT/scripts/lib/ceo-asks.py"
+    # The CEO-RULED predicate, both halves. FIFTH time the same argument, and
+    # this pair carries a wrinkle worth naming: ceo-ruled.py takes its tokenizer
+    # from ceo-asks.py directly above, so the two CEO gates cannot drift into
+    # disagreeing about what a question SAYS. A tampered copy of either would
+    # leave guard-ceo-ruled-ask.sh wired, hashed, executable and refusing
+    # nothing — and the thing it stops refusing is a question the CEO has
+    # already answered, in his own words, in a file this session wrote.
+    "$REPO_ROOT/scripts/lib/ceo-ruled.sh"
+    "$REPO_ROOT/scripts/lib/ceo-ruled.py"
     # The publication-COMPLETENESS predicate, in both its halves. Not hooks, and
     # not under scripts/lib/ either — they are also CI's step 7, which is the
     # point: guard-completeness-commits.sh runs THIS script rather than carrying

@@ -236,6 +236,20 @@ DEMO_FILES+=(
     "scripts/lib/publication-boundary.py"
     "scripts/lib/inflight.sh"
     "scripts/lib/inflight.py"
+    # The two CEO gates' predicates, and the escape hatch one of them names.
+    # Both gates fail OPEN without these, which puts them on the SOFT side of
+    # what the completeness check below can see: a sample repo missing them
+    # starts every hook, passes the check, and demonstrates an engine whose two
+    # CEO gates decide nothing. The ceo-asks pair was already in that state
+    # before ceo-ruled existed — carried now because ceo-ruled.py takes its
+    # tokenizer straight out of ceo-asks.py and ceo-ruled.sh sources
+    # ceo-asks.sh, so half the pair is not a smaller version of the engine, it
+    # is a different one.
+    "scripts/lib/ceo-asks.sh"
+    "scripts/lib/ceo-asks.py"
+    "scripts/lib/ceo-ruled.sh"
+    "scripts/lib/ceo-ruled.py"
+    "scripts/ceo-ruled-exempt.sh"
     # The teammate-identity module, on this list for a DIFFERENT reason from the
     # eight above, and the difference is the edge of what the completeness check
     # further down can see. Those eight are guards that REFUSE TO START without
