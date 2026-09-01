@@ -24,7 +24,7 @@ use richos_core::feedback::{
 };
 use richos_core::journal::{MachineryJournal, RawRetention};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
-use richos_core::loro::{CliContextCompiler, SharedSliceProvenance, SliceProvenance};
+use richos_core::loro::{CliContextCompiler, CorpusLanes, SharedSliceProvenance, SliceProvenance};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::heard::{DictationJournal, HeardSource};
@@ -750,6 +750,56 @@ fn main() {
             match CliContextCompiler::from_env() {
                 Ok(Some(mut compiler)) => {
                     eprintln!("[richos] loro Tier C: compiling from {}", compiler.root().path().display());
+                    // THE LANE MAP, RECONCILED AGAINST THE CORPUS — open item 3.5, and the
+                    // reason it is safe to stop being empty.
+                    //
+                    // The map defaults to the CEO's six companies now that he has ratified
+                    // the layout (`wiki/ceo-decisions.md` §5). A mapping is a CLAIM that a
+                    // partition exists, and loro refuses one it does not have — `exit 2: no
+                    // such company partition "femcboost" in this corpus. Known: (none).`
+                    // His corpus has zero partitions today, so a map that were merely
+                    // filled in would make every re-prime `Unavailable`. Asking the corpus
+                    // costs 0.06 s (measured, three runs) and turns the map from a claim
+                    // into a fact.
+                    //
+                    // A FAILED PROBE IS NOT "NO PARTITIONS". It leaves the map exactly as
+                    // configured and says so — inventing an empty corpus from a failure to
+                    // read one is the same class of lie the whole seam is built against.
+                    match CorpusLanes::probe(compiler.tools(), compiler.root()) {
+                        Ok(corpus) => {
+                            for note in compiler.reconcile_lanes(&corpus) {
+                                eprintln!("[richos] loro lane: {note}");
+                            }
+                            let unmapped =
+                                compiler.entities_with_no_lane(&EntityRegistry::ceos_companies(), &corpus);
+                            if !unmapped.is_empty() {
+                                // Loud, because the CEO's side of this is a re-prime that
+                                // says "loro could not be consulted" every turn: with no
+                                // lane the compile widens, loro returns another company's
+                                // items, and the cross-entity re-assertion refuses the
+                                // slice whole. Fail-closed and correct, and useless to him.
+                                eprintln!(
+                                    "[richos] loro lane: this corpus has partitions ({}) but {} \
+                                     {} bound to none of them — every slice for {} will be \
+                                     REFUSED by the cross-entity guard. Set RICHOS_LORO_LANES.",
+                                    corpus.companies().join(", "),
+                                    unmapped.join(", "),
+                                    if unmapped.len() == 1 { "is" } else { "are" },
+                                    if unmapped.len() == 1 { "it" } else { "them" },
+                                );
+                            }
+                            if compiler.lanes().is_empty() {
+                                eprintln!(
+                                    "[richos] loro lane: no lane narrowing in force — every company \
+                                     reads the CEO layer, which is the whole of an unpartitioned corpus."
+                                );
+                            }
+                        }
+                        Err(e) => eprintln!(
+                            "[richos] loro lane: could not read which partitions this corpus has ({e}) \
+                             — the lane map is left exactly as configured rather than assumed empty."
+                        ),
+                    }
                     compiler.set_provenance_sink(std::sync::Arc::clone(&loro_provenance));
                     spine.set_loro_context_compiler(Box::new(compiler));
                     spine.set_loro_provenance(std::sync::Arc::clone(&loro_provenance));

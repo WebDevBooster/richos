@@ -104,8 +104,8 @@ pub use correction::{
     ProposalState, ProposedWrite, SharedCorrectionDesk, WriteOutput, EVENT_LORO_PROPOSED,
 };
 pub use loro::{
-    CliContextCompiler, InjectedSlice, LaneMap, LoroError, LoroRoot, LoroTools, SharedSliceProvenance,
-    Slice, SliceProvenance, SliceRecord,
+    CliContextCompiler, CorpusLanes, InjectedSlice, LaneMap, LoroError, LoroRoot, LoroTools,
+    SharedSliceProvenance, Slice, SliceProvenance, SliceRecord,
 };
 pub use reprime::{LoroContextCompiler, LoroTier, RePrimePayload, SliceRequest};
 pub use spine::{Spine, SpineError, WorkerEventsSource};

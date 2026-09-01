@@ -1,0 +1,210 @@
+//! THE LANE MAP, MADE REAL — and kept from breaking the thing it is supposed to improve.
+//!
+//! Open item 3.5 shipped the entity→lane map **empty by default**, deliberately, so that
+//! shipping could not ratify a memory layout the CEO had not approved. He approved it on
+//! 2026-09-01 (`wiki/ceo-decisions.md` §5, with one amendment: `person/` becomes `ceo/`),
+//! so the map can now be real.
+//!
+//! # What a naive "make it real" would have done, measured
+//!
+//! Filling the map in with the six companies and stopping there breaks every re-prime.
+//! The CEO's only corpus today is the repo-layout dogfood corpus at `richos-hq` — 573
+//! records, **zero company partitions** — and loro refuses a lane it does not have:
+//!
+//! ```text
+//! $ node loro/bin/loro-context.mjs compile --root /Users/alex/ab/richos-hq \
+//!       --company femcboost --topic-stdin --budget-chars 1200 --audience rich --format json
+//! exit 2
+//! loro --company: no such company partition "femcboost" in this corpus. Known: (none).
+//! Refusing to compile an empty lane and call it an answer — a mistyped company id must
+//! not look like a company with nothing in it.
+//! ```
+//!
+//! Exit 2 maps to [`LoroTier::Unavailable`], on every rotation, for every mapped entity —
+//! trading a working 890-char slice for a permanent "loro could not be consulted". So the
+//! map is real AND it is **reconciled against the corpus that will actually be compiled**:
+//! a mapping whose lane does not exist is dropped, loudly and by name, and that entity
+//! reads the CEO layer. The moment `companies/femcboost/` exists in his corpus, the same
+//! map narrows to it with no configuration at all.
+
+use richos_core::entity::EntityRegistry;
+use richos_core::loro::{CliContextCompiler, CorpusLanes, LaneMap, LoroRoot, LoroTools};
+use richos_core::reprime::{LoroTier, SliceRequest};
+use std::path::PathBuf;
+
+/// A tools directory that exists on disk (`LoroTools::locate` checks both entry points)
+/// but is never executed — every test here drives `interpret`/`argv`, not a child process.
+fn tools(tag: &str) -> (LoroTools, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("richos-lane-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::write(dir.join("bin").join("loro-context.mjs"), "//").unwrap();
+    std::fs::write(dir.join("bin").join("loro-write.mjs"), "//").unwrap();
+    (LoroTools::locate(&dir).unwrap(), dir)
+}
+
+fn compiler(tag: &str, lanes: LaneMap) -> (CliContextCompiler, PathBuf) {
+    let (t, dir) = tools(tag);
+    (CliContextCompiler::new(t, LoroRoot::Corpus(PathBuf::from("/nowhere/corpus")), lanes), dir)
+}
+
+fn req<'a>(entity: &'a str, topic: &'a str) -> SliceRequest<'a> {
+    SliceRequest { thread_id: "t1", entity_id: entity, topic, budget_chars: 1200 }
+}
+
+#[test]
+fn the_default_lane_map_is_the_ceos_six_companies_and_nothing_else() {
+    let m = LaneMap::ceos_companies();
+    assert_eq!(m.len(), 6);
+    for id in ["femcboost", "deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"] {
+        assert_eq!(m.lane_for(id), Some(id), "{id} is mapped to its own lane");
+    }
+    // Not a rule, an enumeration: an id that is not a registered entity is not mapped,
+    // and the map does not grow one by pattern.
+    assert_eq!(m.lane_for("northwind"), None);
+    assert_eq!(m.lane_for("halstead"), None);
+}
+
+#[test]
+fn a_lane_keyed_by_something_that_is_not_a_registered_entity_is_a_typo_and_is_refused() {
+    let reg = EntityRegistry::ceos_companies();
+    assert!(LaneMap::parse("femcboost=fb,richos=rx").unwrap().validate_against(&reg).is_ok());
+    // `femcbost` is one keystroke from a real entity and would silently map nothing —
+    // looking exactly like a working configuration until the day it mattered.
+    let e = LaneMap::parse("femcbost=fb").unwrap().validate_against(&reg).unwrap_err();
+    let why = e.to_string();
+    assert!(why.contains("femcbost"), "{why}");
+    assert!(why.contains("not a registered entity"), "{why}");
+}
+
+#[test]
+fn a_lane_the_corpus_does_not_have_is_dropped_and_that_entity_reads_the_ceo_layer() {
+    // THE REGRESSION GUARD. This is the CEO's corpus today: partitions, none.
+    let (mut c, dir) = compiler("drop", LaneMap::ceos_companies());
+    let corpus = CorpusLanes::new(&[], &[]);
+    let dropped = c.reconcile_lanes(&corpus);
+
+    assert_eq!(dropped.len(), 6, "every lane is dropped against an unpartitioned corpus: {dropped:?}");
+    assert!(c.lanes().is_empty(), "nothing survives to be sent as --company");
+    // And the argv that would have exited 2 no longer carries the flag at all.
+    let argv = c.argv(&req("femcboost", "how do we price it"));
+    assert!(!argv.iter().any(|a| a == "--company"), "{argv:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_lane_the_corpus_does_have_survives_and_narrows_the_compile() {
+    let (mut c, dir) = compiler("keep", LaneMap::ceos_companies());
+    let corpus = CorpusLanes::new(&["femcboost".into(), "richos".into()], &[]);
+    let dropped = c.reconcile_lanes(&corpus);
+
+    assert_eq!(dropped.len(), 4, "the four with no partition are dropped: {dropped:?}");
+    assert_eq!(c.lanes().lane_for("femcboost"), Some("femcboost"));
+    assert_eq!(c.lanes().lane_for("richos"), Some("richos"));
+    assert_eq!(c.lanes().lane_for("deeply"), None);
+
+    let narrow = c.argv(&req("femcboost", "pricing"));
+    let i = narrow.iter().position(|a| a == "--company").expect("mapped entity narrows");
+    assert_eq!(narrow[i + 1], "femcboost");
+    // ...and the entity whose lane was dropped still sends no --company, so it compiles
+    // rather than exiting 2. What it may READ is still walled by the lane re-assertion.
+    let wide = c.argv(&req("deeply", "pricing"));
+    assert!(!wide.iter().any(|a| a == "--company"), "{wide:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn reconciliation_names_every_mapping_it_dropped_and_why() {
+    // A silent drop is the failure this whole map is trying to avoid one level up. The
+    // reason string is what an operator reads at boot.
+    let (mut c, dir) = compiler("names", LaneMap::parse("femcboost=fb,richos=rx").unwrap());
+    let dropped = c.reconcile_lanes(&CorpusLanes::new(&["rx".into()], &["fb".into()]));
+    assert_eq!(dropped.len(), 1, "{dropped:?}");
+    assert!(dropped[0].contains("femcboost"), "{dropped:?}");
+    assert!(dropped[0].contains("\"fb\""), "{dropped:?}");
+    // A RETIRED lane is named as retired, not as missing — different facts, and the
+    // operator's next move differs.
+    assert!(dropped[0].contains("retired"), "{dropped:?}");
+    assert_eq!(c.lanes().lane_for("richos"), Some("rx"));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn an_entity_left_unmapped_against_a_partitioned_corpus_is_reported_not_hidden() {
+    // The genuinely ambiguous state: the corpus HAS lanes, and this entity is bound to
+    // none of them. The compile widens (no --company), so the lane re-assertion is what
+    // holds — and it holds by refusing. That is fail-closed and correct, but an operator
+    // must be told before the CEO meets it as "loro could not be consulted".
+    let (mut c, dir) = compiler("unmapped", LaneMap::parse("femcboost=femcboost").unwrap());
+    let corpus = CorpusLanes::new(&["femcboost".into(), "deeply".into()], &[]);
+    c.reconcile_lanes(&corpus);
+    let unmapped = c.entities_with_no_lane(&EntityRegistry::ceos_companies(), &corpus);
+    assert!(unmapped.contains(&"deeply".to_string()), "{unmapped:?}");
+    assert!(!unmapped.contains(&"femcboost".to_string()), "{unmapped:?}");
+    // Nothing is claimed about an entity when the corpus has no partitions at all —
+    // there, reading everything IS reading the CEO layer.
+    assert!(c.entities_with_no_lane(&EntityRegistry::ceos_companies(), &CorpusLanes::new(&[], &[])).is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_cross_entity_guard_still_refuses_after_a_lane_is_dropped() {
+    // Dropping a lane must never read as dropping the wall. `--company` is an ATTENTION
+    // control, not a privacy control (`loro-structure.md`), and the privacy work is done
+    // by the re-assertion on the finished slice — which, with no lane, allows the CEO
+    // layer and refuses every company item.
+    let (mut c, dir) = compiler("wall", LaneMap::ceos_companies());
+    c.reconcile_lanes(&CorpusLanes::new(&[], &[]));
+    let json = format!(
+        r#"{{"schemaVersion":1,"compiler":"x","thin":false,"coverage":"direct","text":{:?},
+            "items":[{{"ref":"rec:companies/deeply/records/margin","kind":"decision","kindInferred":false,
+            "title":"margins","scope":"org-shared","company":"deeply"}}],
+            "corpus":{{"recordCount":3,"fingerprint":"sha256:abc","layout":"corpus","rootSource":"--corpus"}},
+            "budget":{{"chars":1200,"usedChars":10,"itemsIncluded":1,"withheldByScope":0}},"notes":[]}}"#,
+        "COMPANY MEMORY (loro) — bearing on: \"pricing\"\n• [decision] deeply margins are 40%"
+    );
+    match c.interpret(&json, &req("femcboost", "pricing")) {
+        LoroTier::Unavailable(why) => {
+            assert!(why.contains("\"deeply\""), "{why}");
+            assert!(why.contains("femcboost"), "{why}");
+        }
+        other => panic!("a cross-entity slice must be REFUSED after reconciliation too, got {other:?}"),
+    }
+    // ...and the CEO layer still gets through, because ECS §3.5's default read set is the
+    // CEO layer plus the active entity.
+    let ceo_layer = format!(
+        r#"{{"schemaVersion":1,"compiler":"x","thin":false,"coverage":"direct","text":{:?},
+            "items":[{{"ref":"rec:ceo/records/principle","kind":"principle","kindInferred":false,
+            "title":"ask","scope":"ceo-private","company":null}}],
+            "corpus":{{"recordCount":3,"fingerprint":"sha256:abc","layout":"repo","rootSource":"--root"}},
+            "budget":{{"chars":1200,"usedChars":10,"itemsIncluded":1,"withheldByScope":0}},"notes":[]}}"#,
+        "COMPANY MEMORY (loro) — bearing on: \"pricing\"\n• [principle] ask, never infer"
+    );
+    assert!(c.interpret(&ceo_layer, &req("femcboost", "pricing")).is_slice());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn no_corpus_configured_is_not_an_error_and_not_a_crash() {
+    // The state most machines are in, including a fresh install. `from_env` must say
+    // "nothing configured" rather than failing — and it must not read a stale process
+    // environment to do it.
+    let saved: Vec<(&str, Option<String>)> = ["LORO_CORPUS", "LORO_ROOT", "RICHOS_LORO_DIR", "RICHOS_LORO_LANES"]
+        .iter()
+        .map(|k| (*k, std::env::var(k).ok()))
+        .collect();
+    for (k, _) in &saved {
+        unsafe { std::env::remove_var(k) };
+    }
+    let got = CliContextCompiler::from_env();
+    for (k, v) in &saved {
+        match v {
+            Some(v) => unsafe { std::env::set_var(k, v) },
+            None => unsafe { std::env::remove_var(k) },
+        }
+    }
+    match got {
+        Ok(None) => {}
+        other => panic!("an install with no corpus must be Ok(None), got {:?}", other.map(|o| o.is_some())),
+    }
+}
