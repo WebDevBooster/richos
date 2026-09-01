@@ -21,57 +21,117 @@ WHAT THIS IS FOR
   is the answer everywhere else: put it at a chokepoint that fires whether or
   not anybody remembers it. Stop is the chokepoint. The turn is the thing.
 
+WHAT WENT WRONG WITH THE FIRST VERSION, AND WHY THIS ONE IS DIFFERENT
+  The paragraph above was written on 2026-08-30 and the gate shipped that night,
+  BLOCKING, measured over 1,082 real turns. On 2026-09-01 the operator reported
+  the identical failure twice in one day and said it had been happening for
+  months. A gate that ships and then watches the thing it forbids happen twice
+  is not a gate; it is a receipt. So the first question was not "what else can
+  be built" but "why did the built thing not fire", and the answer is in the
+  gate's OWN observation record -- 107 landing turns on this machine:
+
+      dispatched (correctly silent)     60
+      background-running (STOOD DOWN)   44      <- 41% of every landing turn
+      backlog-empty (correctly silent)   2
+      block                              1
+
+  Two defects, and both of them made it quiet:
+
+    * TERM 4 WAS A BLANKET DISARM. It stood the whole gate down whenever
+      `background_tasks` held anything running at all -- and that field is the
+      host's entire task registry: teammates, subagents, shells, monitors,
+      workflows, MCP tasks, scans. This orchestrator keeps ten to fifteen
+      teammates alive at all times, so the gate was off almost whenever it
+      mattered. The long argument, with the binary's own type table, is beside
+      still_running() below.
+
+    * TERM 1 READ ONLY HALF OF "COMPLETED". Work completes here in two ways: a
+      land, and a teammate handing its work back. The gate saw only the first,
+      so the turn that answers a finished teammate by LISTING what is left --
+      the second of the two failures reported that day -- was invisible to it.
+
+  Both are fixed below. The gate now triggers on either kind of completion, and
+  a thing that was already running suppresses nothing.
+
 THE PREDICATE, AND WHY EVERY TERM IS READ FROM GROUND TRUTH
-  Four terms, all four required, none of them read from prose the orchestrator
+  The condition, stated as the thing that must never happen: A TURN ENDS IN
+  WHICH WORK WAS COMPLETED, NO FURTHER WORK WAS STARTED, AND NOTHING IS OWED TO
+  THE CEO. Four terms, all four required, none read from prose the orchestrator
   wrote:
 
-    1. THIS TURN LANDED SOMETHING. Not "the message says landed" -- a `git
-       merge` or `git push` in THIS TURN'S OWN TOOL TRAFFIC, whose EFFECT is
-       then confirmed against the repository by identity:
-         merge <ref>  ->  `merge-base --is-ancestor <ref> HEAD`
-         push         ->  HEAD == the branch's remote-tracking ref
-       A merge that conflicted and was aborted fails both. This is the
-       freshness contract's own rule -- identity or refuse -- pointed at an
-       action instead of at an artifact.
+    1. THIS TURN COMPLETED SOMETHING -- either half is enough:
 
-    2. NO WORK WAS STARTED. No `Agent` tool call in this same turn, SCOPED TO
-       promptId. The scoping is not an optimization: its sibling guard
-       collected tool names session-wide, so "did this turn call Agent?" was
-       permanently yes after the first spawn and its reporting layer was
-       silently dead for weeks while its suite stayed green. That bug is
-       replayed as a test case here (cases p2/p3 in the suite) so it cannot
-       come back.
+       (a) A LAND. Not "the message says landed" -- a `git merge` or `git push`
+           in THIS TURN'S OWN TOOL TRAFFIC, whose EFFECT is then confirmed
+           against the repository by identity:
+             merge <ref>  ->  `merge-base --is-ancestor <ref> HEAD`
+             push         ->  HEAD == the branch's remote-tracking ref
+           A merge that conflicted and was aborted fails both. This is the
+           freshness contract's own rule -- identity or refuse -- pointed at an
+           action instead of at an artifact.
 
-    3. THERE IS SOMETHING TO START. At least one row of the record's `## Next`
+       (b) A TEAMMATE FINISHING. The host's own `<task-notification>` record,
+           with `<status>completed</status>` and an `Agent "..." finished`
+           summary, inside this turn's window. Structured, host-written, and
+           turn-scoped by its own promptId. See agent_finishes().
+
+    2. NO WORK WAS STARTED. No `Agent` tool call and no BACKGROUNDED tool call
+       in this same turn, SCOPED TO promptId. The scoping is not an
+       optimization: its sibling guard collected tool names session-wide, so
+       "did this turn call Agent?" was permanently yes after the first spawn and
+       its reporting layer was silently dead for weeks while its suite stayed
+       green. That bug is replayed as a test case here (cases p2/p3 in the
+       suite) so it cannot come back.
+
+    3. NOTHING IS OWED TO THE CEO. No `AskUserQuestion` in this turn -- read
+       from the TOOL CALL, not from prose -- and no hold or end-of-day in the
+       operator's own words. Ending a turn on a question he has to answer is the
+       one move nobody else can make for him.
+
+    4. THERE IS SOMETHING TO START. At least one row of the record's `## Next`
        table that is neither struck through nor blocked -- DERIVED FROM THE
        FILE, never a typed count, never a number in a report. If the file is
        missing, unreadable, has no parsable table, or is ambiguous (two
        candidate records on this machine), THE GATE GOES INERT AND SAYS SO. It
        never blocks on a guess about what is left to do.
 
-    4. NOTHING IS STILL RUNNING. `background_tasks` from the payload. Landing
-       while four agents work is not idling, and a gate that could not tell the
-       difference would fire on the most productive turns in the session.
+       THIS TERM IS ALSO WHAT ANSWERS "a teammate is still running". The
+       legitimate version of that stop is "still running AND THE NEXT STEP
+       DEPENDS ON ITS RESULT", and dependency is exactly what the `Blocked by`
+       column records. A row the record calls unblocked does not depend on the
+       running teammate; a row that does is marked blocked and never reaches the
+       verdict. The old term 4 was answering a much easier question in its place.
 
   Everything unrecognized is treated as BLOCKED, not as free. Every ambiguity
-  resolves towards silence. A gate that cries wolf is removed within a day, and
+  resolves toward silence. A gate that cries wolf is removed within a day, and
   then the operator is worse off than before it existed.
 
-THE ESCAPE, AND WHY THERE IS NO TOKEN FOR IT
-  There is no live override line. The escape is legitimate and already exists:
-  move the row into the CEO's record, which is a committed, diffable act. An
-  in-the-moment token would be reached for at exactly the moment this gate is
-  doing its job -- the argument guard-row-currency-commits.sh makes about "I
-  will update the row after the deploy", unchanged.
+THE ESCAPE IS A DECLARATION, NOT A TOKEN
+  This file used to carry a section headed "THE ESCAPE, AND WHY THERE IS NO
+  TOKEN FOR IT", arguing that an in-the-moment override would be reached for at
+  exactly the moment the gate was working. That argument is RIGHT ABOUT TOKENS,
+  and it is why the escape here is not one.
 
-  That is also why the gate is INERT unless the repository declares `.ceo-todos`:
-  the deferral target must exist before a refusal can honestly point at it. A
-  gate that refuses and offers nowhere to go is a gate people unwire.
+  A flag is free, so it gets typed reflexively. A DECLARATION is not: it names
+  WHICH of the three legitimate stops applies and WHY, in a sentence, in the
+  reply the CEO reads, and it is shown to him through systemMessage every time.
+  To write "nothing unblocked remains because X" you have to have checked -- and
+  that is the behavior change. Half the value of this gate is making the stop
+  DELIBERATE rather than absent-minded; a stop that has been thought about and
+  justified in front of the person it affects is the outcome, not a hole in it.
+  Full argument, the three cases and the bare-marker rule at stop_declaration().
+
+  Moving the row into the CEO's record remains the other, better escape, and it
+  is still what the refusal recommends first, because it is committed and
+  diffable. The gate also stays INERT unless the repository declares
+  `.ceo-todos`: the deferral target must exist before a refusal can honestly
+  point at it, and a gate that refuses and offers nowhere to go is a gate people
+  unwire.
 
 WHAT IT CANNOT SEE
-  * work started any way other than an `Agent` call -- a task written into a
-    store, a message to a running teammate. Those are not dispatches of the top
-    row and the record's rule is about dispatching.
+  * work started any way other than an `Agent` call or a backgrounded tool call
+    -- a task written into a store, a message to a running teammate. Those are
+    not dispatches of the top row and the record's rule is about dispatching.
   * a land that reaches a repository some way other than `git merge`/`git push`
     (a cherry-pick, an `am`, a rebase-and-fast-forward). Stated gap, not an
     oversight: none of them is how work lands here.
@@ -80,11 +140,14 @@ WHAT IT CANNOT SEE
     judgment and this is not a judge.
   * a merge whose branch ref was deleted immediately afterwards: the identity
     confirmation cannot resolve it, so the turn passes. Quiet direction.
+  * whether a declaration is TRUE. It cannot, and it does not pretend to: it
+    checks the shape and shows the sentence to the one person who can tell.
 
 Exit codes:
-  0  did not land, dispatched something, nothing to start, not evaluable, or
-     anything went wrong
-  2  BLOCKED -- landed, started nothing, and the record has an unblocked row
+  0  completed nothing, started something, owed the CEO an answer, declared the
+     stop, nothing to start, not evaluable, or anything went wrong
+  2  BLOCKED -- work completed, nothing started, nothing owed, and the record
+     has an unblocked row
 """
 
 import json
@@ -134,7 +197,8 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     except OSError:
         return None
 
-    tools, bash, said, cwd = [], [], [], ""
+    tools, bash, said, notices, cwd = [], [], [], [], ""
+    backgrounded = False
     started = False
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -176,6 +240,12 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                                 parts.append(b.get("text", ""))
                     for t in parts:
                         if MACHINE_PROMPT_RE.search(t):
+                            # NOT DISCARDED ANY MORE. A host-written prompt is
+                            # not the operator speaking -- which is why it stays
+                            # out of `said` -- but it is the ONLY place a
+                            # teammate's completion is visible from inside the
+                            # turn that has to answer for it. See agent_finishes.
+                            notices.append(t)
                             continue
                         said.append(t)
                 if rec.get("type") == "assistant" and isinstance(content, list):
@@ -184,15 +254,23 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                             continue
                         name = b.get("name", "")
                         tools.append(name)
+                        inp = b.get("input") or {}
+                        if not isinstance(inp, dict):
+                            inp = {}
+                        # A tool call sent to the background IS work started:
+                        # the turn handed something off and is now waiting on
+                        # it, which is the same shape as a dispatch and has to
+                        # be read the same way. See started_work().
+                        if inp.get("run_in_background") is True:
+                            backgrounded = True
                         if name == "Bash":
-                            inp = b.get("input") or {}
-                            if isinstance(inp, dict):
-                                bash.append(str(inp.get("command", "") or ""))
+                            bash.append(str(inp.get("command", "") or ""))
     except OSError:
         return None
     if not started:
         return None
-    return {"tools": tools, "bash": bash, "said": "\n".join(said), "cwd": cwd}
+    return {"tools": tools, "bash": bash, "said": "\n".join(said),
+            "notices": notices, "backgrounded": backgrounded, "cwd": cwd}
 
 
 # --------------------------------------------------------------------------
@@ -421,6 +499,153 @@ def confirm_landing(repo, kind, ref):
 
 
 # --------------------------------------------------------------------------
+# PREDICATE 1b -- did a teammate FINISH inside this turn?
+# --------------------------------------------------------------------------
+#
+# THE SECOND COMPLETION SIGNAL, AND WHY THE GATE WAS HALF-BLIND WITHOUT IT.
+# The first version of this gate triggered on a LANDING and nothing else. That
+# reads only one of the two ways work completes here. The other is a teammate
+# handing its work back -- and the turn that answers a finished teammate by
+# LISTING what is left instead of STARTING it is the same failure wearing
+# different clothes. It was reported on the same night as the landing one.
+#
+# The signal is STRUCTURED AND HOST-WRITTEN, never prose. When an agent stops,
+# the host injects a user record carrying
+#
+#     <task-notification>
+#       <task-id>...</task-id>
+#       <status>completed</status>
+#       <summary>Agent "<its task title>" finished</summary>
+#       <note>A task-notification fires each time this agent stops with no live
+#             background children of its own. ...</note>
+#       <result>...</result>
+#     </task-notification>
+#
+# and that record carries its OWN promptId, so it opens a turn and read_turn's
+# window is already scoped to exactly the right span. Nothing is inferred, and
+# nothing is read from the orchestrator's own words.
+#
+# THREE NARROWINGS, every one of them toward silence:
+#   * `<status>completed</status>` is REQUIRED as well as the summary. A
+#     notification for a failure, a cancelation or an unknown state is not a
+#     delivery.
+#   * `Background command "..." completed` is NOT a teammate. The summary shape
+#     below matches only the `Agent "..." finished` form, so a finished shell
+#     never triggers the gate -- it is ordinary tool traffic.
+#   * `Agent "..." was stopped by user` is not a delivery either -- the operator
+#     killing an agent is the operator taking control of the turn, and treating
+#     it as one would refuse the turn in which he did it. It is excluded BY THE
+#     SUMMARY SHAPE rather than by a second rule, and that is worth a sentence
+#     because the second rule was written first and then removed. `was stopped by
+#     user` and `finished` are DIFFERENT SUMMARIES; a separate exclusion could
+#     not be made to go red by any mutation, which is the definition of a check
+#     that is not doing anything. Case AA3 asserts the behavior and the mutation
+#     `finish-ignores-the-word-finished` proves the summary shape is what carries
+#     it.
+#
+# WHAT IT CANNOT SEE, said here rather than discovered later: the host's own
+# note says the same task-id may notify MORE THAN ONCE, because an agent that
+# stops can be resumed. So "finished" means "stopped with nothing running", not
+# "will never speak again". That is the right reading for this gate anyway --
+# at the moment it stops, its work is back with the orchestrator and something
+# has to happen next -- but it does mean a resumed teammate produces two
+# completion turns. Both are gated. Both should be.
+
+TASK_NOTIFICATION_RE = re.compile(r"<task-notification>", re.I)
+COMPLETED_STATUS_RE = re.compile(r"<status>\s*completed\s*</status>", re.I)
+AGENT_FINISHED_RE = re.compile(
+    "<summary>\\s*Agent\\s+[\"“]?(?P<title>[^\"”<]{1,160}?)[\"”]?"
+    "\\s+finished\\s*</summary>", re.I)
+MAX_FINISHES = 20
+
+
+def agent_finishes(notices):
+    """Titles of the agents whose completion arrived in THIS turn's window."""
+    out, seen = [], set()
+    for text in notices or []:
+        if not TASK_NOTIFICATION_RE.search(text):
+            continue
+        if not COMPLETED_STATUS_RE.search(text):
+            continue
+        m = AGENT_FINISHED_RE.search(text)
+        if not m:
+            continue
+        title = re.sub(r"\s+", " ", m.group("title")).strip()
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        out.append(title)
+        if len(out) >= MAX_FINISHES:
+            break
+    return out
+
+
+# --------------------------------------------------------------------------
+# PREDICATE 2 -- was anything STARTED?
+# --------------------------------------------------------------------------
+
+def started_work(turn):
+    """Did this turn hand work off? Two shapes, both read from tool traffic.
+
+    An `Agent` call is the obvious one. A tool call sent to the BACKGROUND is
+    the other, and it belongs HERE rather than in the suppressor below for the
+    reason that is the whole point of this file's rewrite: a thing the TURN
+    started is work started; a thing that was ALREADY running when the turn
+    began is not. Conflating the two is what made the first version of this
+    gate fire once in 107 landing turns.
+    """
+    if "Agent" in turn["tools"]:
+        return "Agent"
+    if turn.get("backgrounded"):
+        return "background task"
+    return ""
+
+
+# --------------------------------------------------------------------------
+# WHAT IS STILL RUNNING -- REPORTED, AND NOT A SUPPRESSOR ANY MORE
+# --------------------------------------------------------------------------
+#
+# THIS IS THE CHANGE THAT MADE THE GATE FIRE. It shipped 2026-08-30 standing
+# itself down whenever `background_tasks` held anything at all, and its own
+# observation record says what that cost, over 107 landing turns on this
+# machine:
+#
+#     dispatched (correctly silent)     60
+#     background-running (STOOD DOWN)   44      <- 41% of every landing turn
+#     backlog-empty (correctly silent)   2
+#     block                              1
+#
+# In the operator's live session it was 12 of 20 -- 60%. The gate was not
+# enforcing "start the next item"; it was enforcing "start the next item unless
+# anything at all is running", and on this machine something always is.
+#
+# `background_tasks` IS NOT A LIST OF TEAMMATES. Read out of the shipping binary
+# (2.1.252) it is `taskRegistry.all()` filtered to status running|pending, over
+# ten task types:
+#
+#     local_agent -> subagent        in_process_teammate -> teammate
+#     local_bash  -> shell           monitor_mcp/monitor_ws -> monitor
+#     local_workflow -> workflow     mcp_task / dream / auto_mode_scan /
+#                                    remote_agent -> cloud session
+#
+# So a monitor, a leftover background shell, an auto-mode scan, or any one of
+# the ten-to-fifteen teammates this orchestrator keeps alive at all times
+# disarmed it completely.
+#
+# THE LEGITIMATE CASE IS REAL, AND IT IS NARROWER THAN THE SUPPRESSOR WAS:
+# "a teammate is still running AND THE NEXT STEP DEPENDS ON ITS RESULT". The
+# dependency half is the part that matters, and it is already written down --
+# in the record's own `Blocked by` column, which is what parse_record() reads.
+# A row the record calls unblocked is, by construction, not waiting on the
+# running teammate; a row that IS waiting on it is marked blocked and never
+# reaches the verdict. The record already answers that case correctly, and the
+# suppressor was answering a much easier question in its place.
+#
+# What survives here is REPORTING. The count goes into the refusal and into the
+# observation log, so the operator can see it -- and if the record is wrong in
+# the moment, that is what the one declared sentence is for. It no longer votes.
+
+# --------------------------------------------------------------------------
 # PREDICATE 4 -- is anything still running?
 # --------------------------------------------------------------------------
 
@@ -457,6 +682,31 @@ HOLD_RE = re.compile(
     r"don'?t\s+(?:dispatch|spawn|start|proceed|continue|land)|"
     r"no\s+more\s+(?:work|dispatches|dispatching|agents))\b", re.I)
 
+# THE OTHER WAY THE OPERATOR STOPS A TURN, AND IT IS NOT A HOLD.
+# HOLD_RE above reads instructions -- "hold", "stand down", "don't dispatch".
+# It does not read the far more common thing he actually says at the end of a
+# night, which is that HE is stopping: he is going to bed. Refusing that turn
+# and demanding a dispatch is the gate at its worst, because the one person it
+# cannot afford to annoy is the one it exists for.
+#
+# Kept SEPARATE from HOLD_RE rather than folded into it, for two reasons worth
+# the extra constant. It is a different claim -- "stop working" versus "I am
+# stopping" -- and the mutation run can therefore prove each half load-bearing
+# on its own, which a single fused alternation makes impossible.
+#
+# One-directional, exactly like HOLD_RE: it can only ever stand the gate DOWN,
+# so a false positive costs one un-fired gate and a false negative costs
+# nothing at all. That asymmetry is the only reason prose is allowed in this
+# file, and it applies here unchanged.
+OFF_DUTY_RE = re.compile(
+    r"\b(going\s+to\s+bed|off\s+to\s+bed|heading\s+to\s+bed|going\s+to\s+sleep|"
+    r"good\s?night|call(?:ing)?\s+it\s+a\s+(?:night|day)|"
+    r"that'?s\s+(?:it|all|enough)\s+for\s+(?:tonight|today|now)|"
+    r"see\s+you\s+(?:tomorrow|in\s+the\s+morning)|"
+    r"talk\s+(?:to\s+you\s+)?tomorrow|"
+    r"wrap(?:ping)?\s+(?:it\s+|things\s+)?up\s+for\s+(?:tonight|today)|"
+    r"sign(?:ing)?\s+off)\b", re.I)
+
 CODE_SPAN_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
 
 
@@ -489,7 +739,102 @@ def hold_signal(said):
         return None
     text = CODE_SPAN_RE.sub(" ", said)
     m = HOLD_RE.search(text)
+    if m:
+        return m.group(1)
+    m = OFF_DUTY_RE.search(text)
     return m.group(1) if m else None
+
+
+# --------------------------------------------------------------------------
+# THE DECLARATION -- the only live escape, and it is a SENTENCE
+# --------------------------------------------------------------------------
+#
+# THE EARLIER VERSION OF THIS FILE REFUSED TO HAVE ONE, and its reasoning is
+# still on the record two paragraphs up in the module docstring: an in-the-
+# moment token gets reached for at exactly the moment the gate is working. That
+# argument is right about TOKENS and wrong about this, and the difference is
+# the whole design.
+#
+# A flag is free. `--force`, `SKIP=1`, a bare marker -- none of them cost the
+# writer anything, so they get typed reflexively and the defense becomes a
+# formality with a hook attached. A DECLARATION is not free: it makes the
+# writer state WHICH of the three legitimate stops applies and WHY, in a
+# sentence, in the reply the CEO reads. To write "nothing unblocked remains
+# because the corpus rebuild is the only open row and Mark owns it", you have to
+# have looked. THAT IS THE BEHAVIOR CHANGE -- half the value of this gate is
+# making the stop deliberate rather than absent-minded, and a stop that has been
+# thought about and justified in front of the person it affects is the outcome,
+# not a loophole in it.
+#
+# It is the same discipline `dialect-exempt:` and `main-checkout-run:` already
+# use in this engine, and it carries their rule verbatim: A BARE MARKER EXEMPTS
+# NOTHING. `stop-declared:` on its own, or followed by four words, is rejected
+# and the refusal says which of the two tests it failed.
+#
+# THREE CASES AND NO OTHERS. The set is closed on purpose: an open one would
+# accept "stop-declared: reasons" and be a flag again.
+#
+# CODE SPANS ARE STRIPPED BEFORE THE SEARCH, and that is not a nicety. The
+# refusal text below QUOTES the declaration line so the operator knows what to
+# write. Without the strip, pasting the refusal -- or quoting this guard's own
+# documentation -- would disarm it, which is a gate that can be switched off by
+# reading it out loud.
+
+DECLARED_CASES = {
+    "nothing-unblocked":
+        "everything unblocked is genuinely done, and what is left needs a CEO "
+        "decision or an external party",
+    "ceo-owns-it":
+        "the CEO stopped this, or asked a question whose answer IS the "
+        "deliverable",
+    "waiting-on-teammate":
+        "a teammate is still running and the next step depends on its result",
+}
+
+DECLARATION_RE = re.compile(
+    r"^[ \t>*\-\u2022]*stop-declared:[ \t]*(?P<case>[A-Za-z][A-Za-z0-9-]{2,40})"
+    r"[ \t]*(?:[-\u2013\u2014:]+[ \t]*)?(?P<why>.*)$", re.M)
+
+# A reason has to be a reason. Six words and thirty characters is not a high
+# bar -- it is the bar between a sentence and a shrug, and it was set there
+# because "n/a", "see above" and "as discussed" all clear anything lower.
+MIN_DECLARATION_WORDS = 6
+MIN_DECLARATION_CHARS = 30
+
+
+def stop_declaration(message):
+    """None, or {case, why, ok, problem} for the declaration in this reply.
+
+    Returns a REJECTION rather than nothing when the line is present but
+    malformed. A malformed declaration that silently fails is the worst of both
+    worlds: the turn is refused and the writer cannot tell why, so the next
+    thing he does is unwire the gate.
+    """
+    if not message:
+        return None
+    text = CODE_SPAN_RE.sub(" ", message)
+    m = DECLARATION_RE.search(text)
+    if not m:
+        return None
+    case = m.group("case").strip().lower()
+    why = re.sub(r"\s+", " ", m.group("why") or "").strip().strip("*_`\"'" )
+    out = {"case": case, "why": why, "ok": False, "problem": ""}
+    if case not in DECLARED_CASES:
+        out["problem"] = ("\"%s\" is not one of the three cases: %s"
+                          % (case, ", ".join(sorted(DECLARED_CASES))))
+        return out
+    if len(why) < MIN_DECLARATION_CHARS or len(why.split()) < MIN_DECLARATION_WORDS:
+        out["problem"] = ("the reason is %d words / %d characters; a declaration "
+                          "needs at least %d words and %d characters, because a "
+                          "bare marker exempts nothing"
+                          % (len(why.split()), len(why), MIN_DECLARATION_WORDS,
+                             MIN_DECLARATION_CHARS))
+        return out
+    if why.lower().replace("-", " ") == case.replace("-", " "):
+        out["problem"] = "the reason only restates the case name"
+        return out
+    out["ok"] = True
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -693,7 +1038,7 @@ def parse_record(text, section):
     return rows, ""
 
 
-def summarise(item, limit=160):
+def summarize(item, limit=160):
     """One line of the row, for the refusal. Never the whole cell.
 
     Kept short on purpose: the refusal names the row so it can be found, it
@@ -732,10 +1077,10 @@ def main():
         # printed thousands of times to say nothing.
         return 0
 
+    message = payload.get("last_assistant_message") or ""
+
     base_cwd = turn.get("cwd") or entity_root
     ops = landing_ops(turn["bash"], base_cwd)
-    if not ops:
-        return 0
 
     landed, unconfirmed = [], []
     for repo, kind, ref in ops:
@@ -746,13 +1091,22 @@ def main():
         else:
             unconfirmed.append((repo, kind, ref))
 
+    # TERM 1b. The other way work completes here. `ops` is no longer an early
+    # exit, because a turn that started no git command at all can still be a
+    # turn in which a teammate handed its work back.
+    finishes = agent_finishes(turn.get("notices"))
+    started = started_work(turn)
+    running = still_running(payload)
+
     record = {
         "prompt_id": payload.get("prompt_id"),
         "session": payload.get("session_id") or "",
         "ops": len(ops),
         "landed": landed,
         "unconfirmed": len(unconfirmed),
+        "finishes": finishes,
         "dispatched": turn["tools"].count("Agent"),
+        "running": running,
         "verdict": "pass",
     }
 
@@ -766,23 +1120,32 @@ def main():
         except Exception:
             pass  # the log is a convenience; losing it never changes a verdict
 
-    if not landed:
-        record["verdict"] = "no-confirmed-landing"
+    # TERM 1. NOTHING COMPLETED -- and a turn that completed nothing is not a
+    # turn that owed a start. Silent, and by far the commonest outcome.
+    if not landed and not finishes:
+        record["verdict"] = "no-confirmed-landing" if ops else "no-completion"
         log()
         return 0
 
-    if "Agent" in turn["tools"]:
+    # TERM 2. SOMETHING WAS STARTED. An `Agent` call, or a tool call sent to the
+    # background -- both are the turn handing work off, which is the thing the
+    # rule asks for.
+    if started:
         record["verdict"] = "dispatched"
+        record["started"] = started
         log()
         return 0
 
-    running = still_running(payload)
-    if running:
-        record["verdict"] = "background-running"
-        record["running"] = running
+    # TERM 3a. THE TURN PUT SOMETHING TO THE CEO. Ending a turn on a question he
+    # has to answer is not idling; it is the one move that cannot be taken by
+    # anybody else. This suppressor is read from a TOOL CALL, not from prose:
+    # AskUserQuestion either happened or it did not.
+    if "AskUserQuestion" in turn["tools"]:
+        record["verdict"] = "asked-ceo"
         log()
         return 0
 
+    # TERM 3b. THE OPERATOR STOPPED IT -- a hold, or the end of his day.
     held = hold_signal(turn["said"])
     if held:
         record["verdict"] = "held"
@@ -801,10 +1164,11 @@ def main():
         record["verdict"] = "inert-no-record"
         log()
         sys.stderr.write(
-            "idle-land gate INERT: this turn landed and started nothing, but no\n"
-            "  %s beside a `.ceo-todos` declaration was found near %s.\n"
+            "idle-land gate INERT: this turn completed work and started nothing,\n"
+            "  but no %s beside a `.ceo-todos` declaration was found near %s.\n"
             "  Nothing was checked -- said out loud so that 'the gate is on' never\n"
-            "  means 'the gate looked'. %s\n" % (record_name, ", ".join(landed), tag))
+            "  means 'the gate looked'. %s\n"
+            % (record_name, ", ".join(landed) or entity_root, tag))
         return 0
 
     if len({os.path.realpath(c) for c in cands}) > 1:
@@ -847,30 +1211,104 @@ def main():
         log()
         return 0
 
+    # THE DECLARATION IS READ LAST, ON PURPOSE. It is only ever spent on a turn
+    # the gate would otherwise refuse, so it is logged beside the row it
+    # overrode and it costs nothing on the turns where it was not needed.
+    decl = stop_declaration(message)
+    if decl and decl["ok"]:
+        record["verdict"] = "declared"
+        record["declared"] = {"case": decl["case"], "why": decl["why"]}
+        record["top"] = free[0]["num_raw"] or summarize(free[0]["item"], 60)
+        log()
+        # THE OPERATOR SEES EVERY DECLARATION. A stop justified where nobody
+        # reads it is a flag with a longer spelling, so the sentence goes out on
+        # the one channel measured to reach him: the wrapper turns this line
+        # into a systemMessage. He is the reviewer this discipline names.
+        sys.stdout.write("RICHOS_STOP_DECLARED\t%s\t%s\t%s\n"
+                         % (decl["case"], decl["why"].replace("\t", " "),
+                            record["top"]))
+        sys.stderr.write(
+            "idle-land gate: STOP DECLARED (%s) over %d unblocked row(s) in %s.\n"
+            "  Reason given: %s\n"
+            "  Declared, NOT verified -- the record is %s and the operator has\n"
+            "  been shown this sentence. %s\n"
+            % (decl["case"], len(free), os.path.basename(path), decl["why"],
+               path, tag))
+        return 0
+
     top = free[0]
     record["verdict"] = "block" if enforce else "report"
-    record["top"] = top["num_raw"] or summarise(top["item"], 60)
+    record["top"] = top["num_raw"] or summarize(top["item"], 60)
+    if decl:
+        record["declaration_rejected"] = decl["problem"]
     log()
 
-    head = ("=== LANDED, AND STARTED NOTHING — TURN BLOCKED ==="
+    head = ("=== WORK COMPLETED, NOTHING STARTED — TURN BLOCKED ==="
             if enforce else
-            "=== idle-land gate: LANDED, AND STARTED NOTHING (report only) ===")
+            "=== idle-land gate: WORK COMPLETED, NOTHING STARTED (report only) ===")
     out = [head, ""]
-    out.append("  This turn landed work in: %s" % ", ".join(landed))
-    out.append("  Agent calls this turn: 0")
-    out.append("  Unblocked rows left in %s (%s): %d"
-               % (os.path.basename(path), section, len(free)))
+
+    # 1. WHAT COMPLETED. Named, because a refusal that says only "you stopped
+    #    early" makes the reader reconstruct the gate's reasoning, and a reader
+    #    who has to reconstruct it argues with it instead of acting on it. That
+    #    is the same failure one level up.
+    out.append("  WHAT COMPLETED IN THIS TURN")
+    if landed:
+        out.append("      landed, confirmed by identity: %s" % ", ".join(landed))
+    for t in finishes[:6]:
+        out.append("      teammate finished: %s" % summarize(t, 90))
+    if len(finishes) > 6:
+        out.append("      ...and %d more" % (len(finishes) - 6))
     out.append("")
-    out.append("  The top one:")
-    out.append("      %s  %s" % (top["num_raw"] or "-", summarise(top["item"])))
-    if top["blocked"]:
-        out.append("      blocked by: %s" % summarise(top["blocked"], 80))
+
+    # 2. WHAT WAS NOT STARTED, and what is sitting there to start.
+    out.append("  WHAT WAS STARTED IN THIS TURN")
+    out.append("      Agent calls: 0.  Background tasks started: 0.")
+    out.append("      Questions put to the CEO: 0.")
+    if running:
+        out.append("      (%d task(s) were ALREADY running when this turn began."
+                   % running)
+        out.append("       That is not work this turn started, and a row the")
+        out.append("       record calls unblocked does not depend on it. If one")
+        out.append("       really does, the record is wrong — fix it, or declare.)")
     out.append("")
-    out.append("  Two ways through, and only two:")
-    out.append("    1. START IT. Dispatch it now, in this turn, then report.")
-    out.append("    2. MOVE IT. If its next action needs a decision only the CEO")
-    out.append("       can make, move the row into the CEO's record — a committed,")
-    out.append("       diffable act, which is why there is no override token here.")
+    out.append("  UNBLOCKED AND AVAILABLE TO START — %d row(s) in %s (%s)"
+               % (len(free), os.path.basename(path), section))
+    for r in free[:6]:
+        out.append("      %-4s %s" % (r["num_raw"] or "-", summarize(r["item"], 120)))
+    if len(free) > 6:
+        out.append("      ...and %d more" % (len(free) - 6))
+    out.append("")
+
+    # 3. THE WAYS THROUGH, INCLUDING THE EXACT LINE. A refusal that describes an
+    #    escape without spelling it is a refusal that gets waived by guesswork.
+    out.append("  THREE WAYS THROUGH, AND ONLY THREE:")
+    out.append("    1. START THE TOP ONE. Dispatch %s now, in this turn, then report."
+               % (top["num_raw"] or "it"))
+    out.append("    2. MOVE IT. If its next action needs a decision only the CEO can")
+    out.append("       make, move the row into the CEO's record — a committed,")
+    out.append("       diffable act.")
+    out.append("    3. DECLARE THE STOP. If one of the three legitimate stops really")
+    out.append("       applies, say so in your reply, on its own line, as plain text")
+    out.append("       (NOT inside a code span — a quoted example must never disarm")
+    out.append("       this gate), in exactly this form:")
+    out.append("")
+    out.append("           stop-declared: <case> — <why, in a full sentence>")
+    out.append("")
+    for name in sorted(DECLARED_CASES):
+        out.append("           %-20s %s" % (name, DECLARED_CASES[name]))
+    out.append("")
+    out.append("       At least %d words and %d characters of reason. A bare marker"
+               % (MIN_DECLARATION_WORDS, MIN_DECLARATION_CHARS))
+    out.append("       exempts nothing, and the sentence is shown to the CEO — which")
+    out.append("       is the point: to write \"nothing unblocked remains because X\"")
+    out.append("       you have to have checked.")
+    if decl:
+        out.append("")
+        out.append("  YOUR DECLARATION WAS REJECTED:")
+        out.append("      %s" % decl["problem"])
+        out.append("      read: stop-declared: %s — %s"
+                   % (decl["case"], decl["why"][:80] or "<nothing>"))
     out.append("")
     out.append("  Record: %s" % path)
     if not enforce:

@@ -363,6 +363,16 @@ HOOK_FILES+=(
     # the guard wired, hashed, executable and blocking nothing — and the thing
     # it stops blocking draws a window on the logged-in user's screen.
     "$REPO_ROOT/scripts/lib/interactive-prompt.py"
+    # The idle-land analyzer. Same argument as the dialect vocabulary and the
+    # interactive-prompt table above, and it applies harder here because this
+    # one is a BLOCKING Stop guard whose wrapper decides literally nothing:
+    # guard-idle-land.sh resolves roots, reads config and then hands the whole
+    # verdict to guard-idle-land.py. A trimmed or reverted copy would leave the
+    # guard wired, hashed, executable and refusing nothing — and the thing it
+    # stops refusing is the failure the CEO has reported for months. It has
+    # already been quietly wrong once, in a way nobody could see: the shipped
+    # version stood itself down on 41% of landing turns.
+    "$REPO_ROOT/scripts/hooks/guard-idle-land.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

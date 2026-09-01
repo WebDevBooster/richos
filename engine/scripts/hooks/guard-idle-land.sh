@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# guard-idle-land.sh — BLOCKING Stop hook. Refuses to let a turn end when the
-# session LANDED work and STARTED NOTHING.
+# guard-idle-land.sh — BLOCKING Stop hook. Refuses to let a turn end when work
+# was COMPLETED, nothing further was STARTED, and nothing is OWED TO THE CEO.
 #
 # THE FAILURE, PRECISELY
 #   The orchestrator's working record opens by stating its own rule: a land
@@ -26,15 +26,39 @@
 #   `background_tasks`, and that the turn's tool traffic is readable there.
 #   This hook is built on that finding and follows all of its conventions.
 #
+# WHY THE FIRST VERSION OF THIS FILE DID NOT HOLD — read this before editing
+#   It shipped on 2026-08-30, blocking, measured. On 2026-09-01 the operator
+#   reported the same failure twice in one day. Its own observation record says
+#   why, over 107 landing turns on this machine:
+#
+#       dispatched (correctly silent)     60
+#       background-running (STOOD DOWN)   44     <- 41% of every landing turn
+#       backlog-empty (correctly silent)   2
+#       block                              1
+#
+#   Old term 4 stood the gate down whenever `background_tasks` held anything
+#   running — and that field is the host's whole task registry: teammates,
+#   subagents, shells, monitors, workflows, scans. This orchestrator keeps ten
+#   to fifteen teammates alive at all times, so the gate was off almost whenever
+#   it mattered. And old term 1 read only one of the two ways work completes
+#   here, missing every turn that answers a FINISHED TEAMMATE with a list.
+#
 # THE PREDICATE — four terms, all four required, none of them read from prose
-#   1. this turn LANDED something   a `git merge`/`git push` in the turn's own
-#                                   tool traffic whose EFFECT is confirmed
-#                                   against the repository by identity
-#   2. nothing was STARTED          no `Agent` call this turn, scoped to
-#                                   promptId
-#   3. there IS something to start  an unblocked row DERIVED from the record's
-#                                   `## Next` table — never a typed count
-#   4. nothing is still RUNNING     `background_tasks` from the payload
+#   1. this turn COMPLETED something  a `git merge`/`git push` in the turn's own
+#                                     tool traffic whose EFFECT is confirmed
+#                                     against the repository by identity, OR a
+#                                     host-written `<task-notification>` in this
+#                                     turn saying an agent finished
+#   2. nothing was STARTED            no `Agent` call and no BACKGROUNDED tool
+#                                     call this turn, scoped to promptId
+#   3. nothing is OWED TO THE CEO     no `AskUserQuestion` this turn, and no
+#                                     hold or end-of-day in his own words
+#   4. there IS something to start    an unblocked row DERIVED from the record's
+#                                     `## Next` table — never a typed count.
+#                                     This is also what answers "a teammate is
+#                                     still running": the legitimate stop is
+#                                     "running AND the next step depends on it",
+#                                     and dependency is what `Blocked by` says.
 #
 #   The derivation, the conservatism rules and the honest list of what none of
 #   this can see are in the module docstring of guard-idle-land.py, which is the
@@ -95,12 +119,26 @@
 #   before arming it. That key is committed and diffable, like every other
 #   stand-down in this engine.
 #
-# NO LIVE OVERRIDE TOKEN
-#   Deliberately. The escape is legitimate and already exists: move the row into
-#   the CEO's record, which is a committed, diffable act. An in-the-moment token
-#   would be reached for at exactly the moment this gate is doing its job — the
-#   argument guard-row-currency-commits.sh makes about "I will update the row
-#   after the deploy", applied unchanged. The standing-down key below is in
+# THE ESCAPE IS A DECLARATION, AND A DECLARATION IS NOT A TOKEN
+#   This header used to read "NO LIVE OVERRIDE TOKEN", on the argument that an
+#   in-the-moment override gets reached for at exactly the moment the gate is
+#   working. That argument is RIGHT ABOUT TOKENS and it is why the escape is not
+#   one. A flag is free, so it gets typed reflexively; a declaration names WHICH
+#   of the three legitimate stops applies and WHY, in a sentence, in the reply
+#   the CEO reads — and this wrapper puts that sentence in front of him through
+#   `systemMessage` every single time one is used:
+#
+#       stop-declared: <case> — <why, in a full sentence>
+#
+#       nothing-unblocked     everything unblocked is genuinely done
+#       ceo-owns-it           he stopped this, or his answer IS the deliverable
+#       waiting-on-teammate   a teammate is running and the next step needs it
+#
+#   Six words and thirty characters of reason, minimum. A BARE MARKER EXEMPTS
+#   NOTHING — the same discipline `dialect-exempt:` and `main-checkout-run:`
+#   already carry in this engine. Moving the row into the CEO's record remains
+#   the better escape and is still what the refusal recommends first, because it
+#   is committed and diffable; the standing-down key below is in
 #   `orchestration.config`, which is also committed and also diffable.
 #
 # FAIL-OPEN, LIKE ITS SIBLING AND FOR ITS REASON
@@ -117,9 +155,10 @@
 #   session that installs it; it begins enforcing in the NEXT session.
 #
 # Exit codes (Claude Code Stop convention):
-#   0  did not land, dispatched something, nothing to start, not evaluable, or
-#      anything went wrong
-#   2  BLOCKED — landed, started nothing, and the record has an unblocked row
+#   0  completed nothing, started something, owed the CEO an answer, declared
+#      the stop, nothing to start, not evaluable, or anything went wrong
+#   2  BLOCKED — work completed, nothing started, nothing owed to the CEO, and
+#      the record has an unblocked row
 #
 # Self-test:  scripts/hooks/guard-idle-land.sh --self-test
 
@@ -242,22 +281,49 @@ if [ ! -f "$ANALYZER" ]; then
     exit 0
 fi
 
-# Everything it needs is present and it is about to check this turn. Silent in
-# the ordinary case — a working guard says nothing — and one line if the
-# previous state was one of the four above. Safe to emit before the analysis: a
-# Stop hook may write systemMessage to stdout AND exit 2, verified live, and
-# the turn is still refused.
-stop_notice_normal \
-    "IDLE-LAND GATE — RUNNING AGAIN. Turns ending on a named-but-untaken next step are being refused once more. $HOOK_TAG"
-
+# THE ANALYZER'S STDOUT IS CAPTURED, NOT PASSED THROUGH. It carries at most one
+# line, and only when the turn was let through BY A DECLARATION:
+#
+#     RICHOS_STOP_DECLARED<TAB>case<TAB>why<TAB>top-row
+#
+# Its stderr is NOT captured — that is the refusal, and on exit 2 it is what
+# reaches the model.
 set +e
-printf '%s' "$INPUT" | RICHOS_IDLE_ENTITY_ROOT="$ENTITY_ROOT" \
+ANALYZER_OUT="$(printf '%s' "$INPUT" | RICHOS_IDLE_ENTITY_ROOT="$ENTITY_ROOT" \
     RICHOS_IDLE_RECORD="$IDLE_LAND_RECORD" \
     RICHOS_IDLE_SECTION="$IDLE_LAND_SECTION" \
     RICHOS_IDLE_ENFORCE="$IDLE_LAND_ENFORCE" \
-    python3 "$ANALYZER"
+    python3 "$ANALYZER")"
 RC=$?
 set -e
+
+# EXACTLY ONE NOTICE PER TURN, and that is a correctness requirement rather than
+# tidiness. The ledger holds ONE state per (session, hook): writing "ok" on the
+# way in and a finding on the way out makes the two alternate, so both see a
+# changed state and both speak on every turn — de-duplication defeated by the
+# hook that owns it. notice-unasked-deferral.sh carries the same paragraph after
+# the same bug. So the recovery line moved BELOW the analysis, and it is an
+# `else`.
+DECLARED_LINE="$(printf '%s\n' "$ANALYZER_OUT" | grep -m1 "^RICHOS_STOP_DECLARED	" || true)"
+if [ -n "$DECLARED_LINE" ]; then
+    # A DECLARED STOP IS SHOWN TO HIM, ALWAYS. The whole difference between a
+    # declaration and a flag is that somebody reads it; a justification filed
+    # where nobody looks is a flag with a longer spelling. Keyed on the case
+    # plus a hash of the reason, so a DIFFERENT declaration speaks again and the
+    # same one restated does not.
+    D_CASE="$(printf '%s' "$DECLARED_LINE" | cut -f2)"
+    D_WHY="$(printf '%s' "$DECLARED_LINE" | cut -f3 | tr -d '\000-\010\013\014\016-\037')"
+    D_TOP="$(printf '%s' "$DECLARED_LINE" | cut -f4)"
+    stop_notice_abnormal "declared:${D_CASE}:$(printf '%s' "$D_WHY" | cksum | tr -d ' ')" \
+        "STOP DECLARED — this turn completed work, started nothing, and was let through on a declared exception (${D_CASE}), not on a check. The reason given, which is DECLARED AND NOT VERIFIED: \"${D_WHY}\" — the top row it was declared over is ${D_TOP}. $HOOK_TAG"
+else
+    # Silent in the ordinary case — a working guard says nothing — and one line
+    # if the previous state was one of the four stand-downs above. Safe to emit
+    # here: a Stop hook may write systemMessage to stdout AND exit 2, verified
+    # live, and the turn is still refused.
+    stop_notice_normal \
+        "IDLE-LAND GATE — RUNNING AGAIN. Turns that complete work and start nothing are being refused once more. $HOOK_TAG"
+fi
 
 # Only 2 is a block. Anything else — including a crash in the analyzer — lets
 # the turn end.

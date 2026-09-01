@@ -222,6 +222,25 @@ ALL_ROOT_SCRIPTS=(
     # missing this file would model an engine whose newest blocking guard is
     # off, and Layer IP would report it as on.
     scripts/lib/interactive-prompt.py
+    # THE STOP-HOOK ANALYZERS. Five registered Stop hooks decide NOTHING
+    # themselves: the .sh resolves the two roots, reads config, and hands the
+    # whole verdict to a sibling .py. None of them was on this list, and the
+    # reason that went unnoticed for as long as the list has existed is the
+    # sharpest version of the soft-failure problem this file documents further
+    # up: a wrapper without its analyzer STARTS PERFECTLY. It emits a "NOT
+    # RUNNING: the analyzer is missing" notice into a channel nothing reads in a
+    # sandbox, exits 0, and passes SC1's can-every-hook-start question.
+    #
+    # guard-idle-land.py is the one that made this visible, because Layer IL
+    # runs the gate FOR REAL and a missing analyzer makes the two-sided canary
+    # fail hard rather than quietly. The other four are carried for the reason a
+    # sandbox carries stop-hook-notice.sh: without them it does not look broken,
+    # it looks FINE while standing in for a different engine.
+    scripts/hooks/guard-idle-land.py
+    scripts/hooks/guard-unresolved-claims.py
+    scripts/hooks/guard-agent-state-claims.py
+    scripts/hooks/guard-unasked-deferral.py
+    scripts/hooks/turn-manifest.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -336,6 +355,30 @@ data["hooks"] = {
         {"matcher": "Agent", "hooks": [
             {"type": "command", "command": P + "/detect-nonnative-worktree.sh", "timeout": 10},
         ]},
+    ],
+    # THE STOP EVENT, WHICH THIS SANDBOX DID NOT WIRE AT ALL until 2026-09-01.
+    # The comment above this function says it mirrors EVERY event; it did not
+    # mirror this one, and the cost was invisible in exactly the way a missing
+    # sandbox entry always is. The Stop event carries the engine's two BLOCKING
+    # turn guards. Neither had a functional probe layer, so nothing noticed that
+    # the sandbox modeled an engine whose Stop hooks were copied to disk and
+    # registered nowhere -- and a layer written against them would have failed
+    # for a reason that has nothing to do with the property it tests.
+    #
+    # Wired as the FULL shipped list rather than only Layer IL's subject: a
+    # sandbox that wires one of nine is a different engine from the one that
+    # ships, and the next Stop layer somebody writes would have to discover that
+    # for itself.
+    "Stop": [
+        {"hooks": [{"type": "command", "command": P + "/guard-unresolved-claims.sh", "timeout": 20}]},
+        {"hooks": [{"type": "command", "command": P + "/turn-manifest.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/notice-hook-staleness.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/notice-inflight-acks.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/notice-unstarted-rows.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/notice-ceo-unasked.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/notice-unasked-deferral.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/guard-agent-state-claims.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/guard-idle-land.sh", "timeout": 20}]},
     ],
     "TeammateIdle": [
         {"hooks": [{"type": "command", "command": P + "/teammate-idle-handoff.sh", "timeout": 15}]}
@@ -1712,6 +1755,125 @@ set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >/dev/null 2>&1; rc=$?; s
 emit_case "IP6.interactive-prompt-guard-suite-passes" 0 "$rc"
 set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# LAYER IL — THE IDLE-LAND GATE, THE FIRST FUNCTIONAL LAYER ON THE Stop EVENT
+# ---------------------------------------------------------------------------
+# Until 2026-09-01 the Stop event's two BLOCKING guards were known to this probe
+# only as REGISTRATION. That is the gap these cases close, and the reason it
+# matters is on the record rather than hypothetical: the idle-land gate shipped
+# registered, hashed, executable and green on every layer here, while standing
+# itself down on 41% of the turns it governs. Registration is not enforcement.
+#
+# IL5 is the case worth reading. This gate FAILS OPEN by design — a Stop guard
+# that fails closed refuses to let the SESSION end — so a corpse exits 0, and a
+# one-sided canary asserting only "declared stop -> 0" is satisfied by a hook
+# that refuses nothing at all. That is precisely the state it shipped in. The
+# two-sided canary is what makes IL5 possible, and IL5 is what proves the
+# two-sided canary is real.
+
+# IL1 — the gate is not wired on Stop at all.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/.claude/settings.local.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p) as f: d = json.load(f)
+d["hooks"]["Stop"] = [e for e in d["hooks"]["Stop"]
+                      if not any("guard-idle-land.sh" in h.get("command", "")
+                                 for h in e.get("hooks", []))]
+with open(p, "w") as f: json.dump(d, f, indent=2)
+PY
+set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IL1.idle-land-gate-not-wired-fails" 2 "$rc"
+if printf '%s' "$IL_OUT" | grep -q 'IL. Stop\[guard-idle-land.sh\] NOT wired'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IL1b.layer-IL-is-the-layer-that-caught-it"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IL1b.layer-IL-is-the-layer-that-caught-it")
+    printf '  FAIL  %s  (some other layer absorbed it)\n' "IL1b.layer-IL-is-the-layer-that-caught-it"
+fi
+rm -rf "$ROOT"
+
+# IL2 — THE PAIR SPLIT, and the case this whole layer was built to make
+# possible. The wrapper is perfect: wired, executable, hash-matched. Its
+# ANALYZER is gone — and the wrapper decides nothing without it. It starts
+# cleanly, announces "NOT RUNNING: the analyzer is missing" into a channel
+# nothing reads in a sandbox, and exits 0 on every turn. SC1 passes it, because
+# SC1 asks whether a hook can START.
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/hooks/guard-idle-land.py" "$ROOT/scripts/hooks/guard-idle-land.py.sha256"
+set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IL2.missing-analyzer-fails" 2 "$rc"
+if printf '%s' "$IL_OUT" | grep -q 'the idle-land ANALYZER is missing'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IL2b.layer-IL-names-the-missing-analyzer"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IL2b.layer-IL-names-the-missing-analyzer")
+    printf '  FAIL  %s\n' "IL2b.layer-IL-names-the-missing-analyzer"
+fi
+rm -rf "$ROOT"
+
+# IL3 — the analyzer is REPLACED. Still present, still importable, and it
+# decides the opposite of what it should. The hash catches it; the canary would
+# too if the hash did not.
+ROOT="$(make_sandbox)"
+cat >"$ROOT/scripts/hooks/guard-idle-land.py" <<'NOOP_PY'
+import sys
+sys.exit(0)
+NOOP_PY
+set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IL3.replaced-analyzer-fails-on-the-hash" 2 "$rc"
+rm -rf "$ROOT"
+
+# IL4 — the wrapper is gutted into a no-op, hash regenerated so the manifest
+# agrees. Only the functional canary can see this.
+ROOT="$(make_sandbox)"
+cat >"$ROOT/scripts/hooks/guard-idle-land.sh" <<'NOOP_SH'
+#!/usr/bin/env bash
+exit 0
+NOOP_SH
+chmod +x "$ROOT/scripts/hooks/guard-idle-land.sh"
+shasum -a 256 "$ROOT/scripts/hooks/guard-idle-land.sh" | awk '{print $1}' \
+    > "$ROOT/scripts/hooks/guard-idle-land.sh.sha256"
+set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IL4.gutted-gate-fails-despite-matching-hash" 2 "$rc"
+if printf '%s' "$IL_OUT" | grep -q 'did NOT refuse a turn that merged a branch'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IL4b.layer-IL-says-it-is-registered-but-not-enforcing"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IL4b.layer-IL-says-it-is-registered-but-not-enforcing")
+    printf '  FAIL  %s\n' "IL4b.layer-IL-says-it-is-registered-but-not-enforcing"
+fi
+rm -rf "$ROOT"
+
+# IL5 — A GATE THAT REFUSES EVERYTHING, hash regenerated. The mirror image of
+# IL4, and the half a one-sided canary cannot see: an always-2 hook satisfies
+# "bad turn is refused" perfectly while making the declared escape unreachable —
+# and an escape nobody can reach is a guard somebody unwires.
+ROOT="$(make_sandbox)"
+cat >"$ROOT/scripts/hooks/guard-idle-land.sh" <<'DEAD_SH'
+#!/usr/bin/env bash
+exit 2
+DEAD_SH
+chmod +x "$ROOT/scripts/hooks/guard-idle-land.sh"
+shasum -a 256 "$ROOT/scripts/hooks/guard-idle-land.sh" | awk '{print $1}' \
+    > "$ROOT/scripts/hooks/guard-idle-land.sh.sha256"
+set +e; IL_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IL5.gate-that-refuses-everything-fails-despite-matching-hash" 2 "$rc"
+if printf '%s' "$IL_OUT" | grep -q 'refused BOTH the bad turn and a legitimately DECLARED stop'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IL5b.layer-IL-says-refusing-everything-not-deciding"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IL5b.layer-IL-says-refusing-everything-not-deciding")
+    printf '  FAIL  %s\n' "IL5b.layer-IL-says-refusing-everything-not-deciding"
+fi
+rm -rf "$ROOT"
+
+# IL6 — the gate's OWN behavioral suite and the mutation harness that proves
+# that suite can fail, both against the live scripts. The mutation harness is
+# not optional decoration here: this gate's previous suite was 38 green cases
+# over a term that disarmed it, and a mutation run is the only thing that asks
+# whether a green tick is load-bearing.
+set +e; "$SCRIPT_DIR/guard-idle-land.test.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
+set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
 
 echo ""
 echo "=== summary ==="

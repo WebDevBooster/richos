@@ -1449,6 +1449,13 @@ for entry in pre:
         cmd = h.get("command", "")
         # Print TAB-separated rows: matcher\tcommand
         print(f"{matcher}\t{cmd}")
+# Stop is a DIFFERENT EVENT, not a matcher, and it was not extracted here at
+# all -- so the two BLOCKING guards that live on it had no functional layer,
+# only an entry in the registration inventory. A guard that is registered and
+# dead looks exactly like a guard that is registered and working.
+for entry in hooks.get("Stop", []):
+    for h in entry.get("hooks", []):
+        print(f"<event:Stop>\t{h.get('command','')}")
 PY
 
 WIRED="$(python3 "$EXTRACT_PY" "$SETTINGS" 2>/dev/null || true)"
@@ -1496,6 +1503,19 @@ while IFS= read -r line; do
     [ -n "$line" ] && BASH_MATCHER_CMDS+=("$line")
 done < <(printf '%s\n' "$WIRED" | awk -F'\t' '$1=="Bash" {print $2}')
 
+# The Stop EVENT's commands. Marked with the pseudo-matcher `<event:Stop>` by
+# the extractor above so they can never be confused with a PreToolUse matcher
+# named "Stop" -- an adopter is free to name one that, and a collision here
+# would quietly point a functional layer at the wrong hook. The angle brackets
+# are not decoration: a matcher is a regex over TOOL NAMES, and no tool is named
+# with them. A NUL byte was the first choice and is WRONG, because bash drops
+# NUL from a variable without a word -- the marker would have collapsed back to
+# "Stop" and rebuilt the collision it exists to prevent.
+STOP_EVENT_CMDS=()
+while IFS= read -r line; do
+    [ -n "$line" ] && STOP_EVENT_CMDS+=("$line")
+done < <(printf '%s\n' "$WIRED" | awk -F'\t' '$1=="<event:Stop>" {print $2}')
+
 # Layer B must NOT rely on filename-substring matching. An adversarial shim
 # with the right filename at any path on disk, hand-wired into settings.json,
 # would pass a filename check while gutting the guard. So Layer B REQUIRES that
@@ -1509,6 +1529,11 @@ CANONICAL_DIALECT_HOOK="$REPO_ROOT/scripts/hooks/guard-dialect.sh"
 CANONICAL_DIALECT_DICT="$REPO_ROOT/scripts/lib/dialect-en-US.dict"
 CANONICAL_BASHGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-bash-main-writes.sh"
 CANONICAL_INTERACTIVE_HOOK="$REPO_ROOT/scripts/hooks/guard-interactive-prompt.sh"
+CANONICAL_IDLELAND_HOOK="$REPO_ROOT/scripts/hooks/guard-idle-land.sh"
+# The wrapper decides NOTHING. It resolves the two roots, reads config, and
+# hands the entire verdict to this file — so hashing the .sh and not the .py is
+# checking the lock and ignoring the key, for the fourth time in this probe.
+CANONICAL_IDLELAND_PY="$REPO_ROOT/scripts/hooks/guard-idle-land.py"
 # NOT under scripts/hooks/ — the guard above decides nothing itself; every
 # shape it refuses and every fix it names comes out of this file, which is
 # why Layer IP hashes it the way Layer T hashes the dialect vocabulary.
@@ -2014,6 +2039,133 @@ else
             fi
         else
             emit_pass "T. dialect guard wired + REJECTS a British spelling and PASSES clean American prose + vocabulary hashed (path-confined, manifest-matched, two-sided canary)"
+        fi
+    fi
+fi
+
+# --- Layer IL: the idle-land gate wired on Stop + path-confined +
+# manifest-matched + FUNCTIONALLY REFUSES a turn that completed work and started
+# nothing, AND FUNCTIONALLY PASSES a legitimately declared stop (HARD gate) ---
+#
+# WHY THIS LAYER DID NOT EXIST UNTIL 2026-09-01, WHICH IS THE WHOLE ARGUMENT
+# The Stop event carries two BLOCKING guards, and until now the probe knew only
+# that they were REGISTERED. Registration is not enforcement. The idle-land gate
+# shipped registered, hashed, executable and green on every layer of this probe
+# — while standing itself down on 41% of the turns it governs, which nothing
+# here could see. A functional layer is the difference between "the guard is
+# wired" and "the guard refuses things".
+#
+# TWO-SIDED, for the reason Layer K and Layer T both carry: exit 2 is
+# AMBIGUOUS. Every guard in this family exits non-zero when it cannot start.
+# A one-sided canary asserting only "bad turn -> 2" is satisfied by a hook that
+# is completely dead — and this gate has the mirror-image hazard too, because it
+# FAILS OPEN by design: a one-sided canary asserting only "good turn -> 0" is
+# satisfied by a hook that refuses nothing at all, which is precisely the state
+# it shipped in. So both halves run, over the same sandbox, in the same breath.
+#
+# The sandbox is a real git repository with a real merge, because term 1
+# confirms a landing BY IDENTITY and a fixture that only claims to have merged
+# proves nothing.
+CANONICAL_IDLELAND_WIRED=""
+for c in "${STOP_EVENT_CMDS[@]}"; do
+    RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
+    RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
+    RESOLVED_C="${RESOLVED_C//\$CLAUDE_PLUGIN_ROOT/$REPO_ROOT}"
+    RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PLUGIN_ROOT\}/$REPO_ROOT}"
+    # Stop hooks are wired as `bash <path>`, so the path is the LAST word.
+    WIRED_PATH_C="${RESOLVED_C##* }"
+    if [ "$(realpath_of "$WIRED_PATH_C")" = "$(realpath_of "$CANONICAL_IDLELAND_HOOK")" ]; then
+        CANONICAL_IDLELAND_WIRED="$WIRED_PATH_C"
+        break
+    fi
+done
+
+if [ -z "$CANONICAL_IDLELAND_WIRED" ]; then
+    emit_fail "IL. Stop[guard-idle-land.sh] NOT wired in settings.json — the gate that refuses a turn which completed work and started nothing is not running. Run scripts/hooks/install.sh."
+elif [ ! -x "$CANONICAL_IDLELAND_WIRED" ]; then
+    emit_fail "IL. wired idle-land guard not executable: $CANONICAL_IDLELAND_WIRED"
+elif [ ! -f "$CANONICAL_IDLELAND_PY" ]; then
+    emit_fail "IL. the idle-land ANALYZER is missing: $CANONICAL_IDLELAND_PY. The wrapper decides nothing without it — it would announce itself and pass every turn."
+else
+    IL_HASH="$(sha256_of "$(realpath_of "$CANONICAL_IDLELAND_WIRED")")"
+    IL_MANIFEST="$(manifest_hash_of "$CANONICAL_IDLELAND_HOOK")"
+    IL_PY_HASH="$(sha256_of "$CANONICAL_IDLELAND_PY" 2>/dev/null || true)"
+    IL_PY_MANIFEST="$(manifest_hash_of "$CANONICAL_IDLELAND_PY" 2>/dev/null || true)"
+    if [ -z "$IL_MANIFEST" ]; then
+        emit_fail "IL. idle-land manifest missing or unreadable: $CANONICAL_IDLELAND_HOOK.sha256 — run scripts/hooks/install.sh, then commit."
+    elif [ "$IL_HASH" != "$IL_MANIFEST" ]; then
+        emit_fail "IL. idle-land content hash mismatch — the live hook differs from its manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
+    elif [ -z "$IL_PY_MANIFEST" ]; then
+        emit_fail "IL. the idle-land analyzer is UNHASHED: $CANONICAL_IDLELAND_PY.sha256 missing — run scripts/hooks/install.sh, then commit. Every refusal this gate issues comes out of that file."
+    elif [ -n "$IL_PY_HASH" ] && [ "$IL_PY_HASH" != "$IL_PY_MANIFEST" ]; then
+        emit_fail "IL. the idle-land analyzer was MODIFIED since install: $CANONICAL_IDLELAND_PY. Review the change, then re-run scripts/hooks/install.sh."
+    elif ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+        emit_warn "IL. idle-land guard wired + manifest-matched, but the functional canary needs python3 and git and one of them is absent — the MECHANISM was not exercised here."
+    else
+        IL_S="$(mktemp -d -t idleland-canary.XXXXXX)"
+        IL_S="$(cd "$IL_S" && pwd -P)"
+        IL_E="$IL_S/entity"
+        mkdir -p "$IL_E" "$IL_S/nohooks"
+        git -C "$IL_E" init -q -b main . >/dev/null 2>&1 || true
+        git -C "$IL_E" config user.email probe@probe.invalid >/dev/null 2>&1 || true
+        git -C "$IL_E" config user.name probe >/dev/null 2>&1 || true
+        git -C "$IL_E" config core.hooksPath "$IL_S/nohooks" >/dev/null 2>&1 || true
+        : > "$IL_E/orchestration.config"
+        : > "$IL_E/.ceo-todos"
+        printf '# Backlog\n\n## Next\n\n| # | Item | Blocked by |\n|---|---|---|\n| ~~1~~ | ~~**Done thing**~~ | done |\n| 2 | **The unstarted thing** | engine free |\n' > "$IL_E/RICH-TODOs.md"
+        git -C "$IL_E" add -A >/dev/null 2>&1 || true
+        git -C "$IL_E" commit -qm seed >/dev/null 2>&1 || true
+        git -C "$IL_E" checkout -q -b canary-branch >/dev/null 2>&1 || true
+        printf 'work\n' > "$IL_E/work.txt"
+        git -C "$IL_E" add -A >/dev/null 2>&1 || true
+        git -C "$IL_E" commit -qm work >/dev/null 2>&1 || true
+        git -C "$IL_E" checkout -q main >/dev/null 2>&1 || true
+        git -C "$IL_E" merge -q --no-ff canary-branch -m merged >/dev/null 2>&1 || true
+
+        IL_PID="cafebabe-0000-4000-8000-000000000000"
+        python3 - "$IL_S/t.jsonl" "$IL_PID" "$IL_E" <<'ILPY' 2>/dev/null
+import json, sys
+out, pid, entity = sys.argv[1:4]
+rows = [
+    {"type": "user", "promptId": pid, "cwd": entity, "promptSource": "user",
+     "message": {"content": "land it"}},
+    {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash",
+         "input": {"command": "cd %s && git merge --no-ff canary-branch -m merged" % entity}}]}},
+    {"type": "user", "promptId": pid, "cwd": entity,
+     "message": {"content": [{"type": "tool_result", "content": "ok"}]}},
+]
+with open(out, "w", encoding="utf-8") as fh:
+    for r in rows:
+        fh.write(json.dumps(r) + "\n")
+ILPY
+        il_payload() { # <final message>
+            python3 - "$IL_S/t.jsonl" "$IL_E" "$IL_PID" "$1" <<'ILPY2' 2>/dev/null
+import json, sys
+tr, cwd, pid, msg = sys.argv[1:5]
+print(json.dumps({"hook_event_name": "Stop", "session_id": "cafebabe",
+                  "transcript_path": tr, "cwd": cwd, "prompt_id": pid,
+                  "stop_hook_active": False, "last_assistant_message": msg,
+                  "background_tasks": []}))
+ILPY2
+        }
+        set +e
+        il_payload "Landed and pushed. Nothing else from me tonight." \
+            | RICHOS_ENTITY_ROOT="$IL_E" "$CANONICAL_IDLELAND_WIRED" >/dev/null 2>&1
+        il_bad_rc=$?
+        il_payload "Landed and pushed.
+
+stop-declared: nothing-unblocked — row 2 cannot start until the CEO rules on the protocol shape, and every other row landed today." \
+            | RICHOS_ENTITY_ROOT="$IL_E" "$CANONICAL_IDLELAND_WIRED" >/dev/null 2>&1
+        il_good_rc=$?
+        set -e
+        rm -rf "$IL_S"
+        if [ "$il_bad_rc" -ne 2 ]; then
+            emit_fail "IL. the wired idle-land guard did NOT refuse a turn that merged a branch, started nothing and left an unblocked row (exit=$il_bad_rc, expected 2). Registered but not enforcing — which is exactly the state it shipped in."
+        elif [ "$il_good_rc" -ne 0 ]; then
+            emit_fail "IL. the wired idle-land guard refused BOTH the bad turn and a legitimately DECLARED stop (exit=$il_good_rc on the declared one). It is not deciding, it is refusing everything — the escape is unreachable and the gate will be unwired within a day."
+        else
+            emit_pass "IL. idle-land gate wired on Stop + REFUSES a completed-and-started-nothing turn and PASSES a declared stop + analyzer hashed (path-confined, manifest-matched, two-sided canary)"
         fi
     fi
 fi
