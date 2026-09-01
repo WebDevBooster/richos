@@ -326,6 +326,12 @@ async function measure(page, list) {
   await page.evaluate(() => window.__meter.blank());
   const buf = await page.screenshot({ fullPage: false });
   await page.evaluate(() => window.__meter.unblank());
+  // PUT THE PAGE BACK BEFORE ANYTHING ELSE LOOKS AT IT. `unblank` removes the sheet that was
+  // holding every transition at zero, so the inks the sheet had driven to transparent now
+  // ANIMATE BACK — the signal numbers over 900ms. A screenshot taken by a later check in that
+  // window catches them half-lit and commits a frame that looks like a rendering defect. It
+  // did: `home-named.png` shipped once with five ghosted numbers down the left column.
+  await page.waitForTimeout(1100);
   return page.evaluate(
     ({ b64, targets }) => window.__meter.worst(b64, targets),
     { b64: buf.toString("base64"), targets }
