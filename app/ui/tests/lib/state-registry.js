@@ -562,7 +562,7 @@ module.exports = [
   // empty list would say "nothing to correct", which is the one thing neither means.
   // -------------------------------------------------------------------------------------
   {
-    s: "No loro corpus is configured for this install, so there is nothing to read or correct. That is a statement about this install, not about what is recorded.",
+    s: "This install has no company memory it can write to, so there is nothing to read or correct here. That is a statement about this install, not about what is recorded.",
     c: "NEEDS-SOMEONE-ELSE",
     explainedBy: "Switching that on is a job for whoever set RichOS up — there is no control for it in here.",
     fixture: "corrections-off",

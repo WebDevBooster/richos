@@ -676,8 +676,8 @@
   // `LEASE_UNAVAILABLE_MESSAGE`. `corrections.js` asserts each is byte-identical to the
   // Rust const, so this preview can never rehearse a sentence the product no longer says.
   const LORO_DESK_ABSENT =
-    "No loro corpus is configured for this install, so there is nothing to read or correct. " +
-    "That is a statement about this install, not about what is recorded.";
+    "This install has no company memory it can write to, so there is nothing to read " +
+    "or correct here. That is a statement about this install, not about what is recorded.";
   const SPOKEN_DESK_ABSENT =
     "I can't record corrections right now — my correction log could not be opened. " +
     "Nothing you say is being lost from the conversation itself.";
@@ -1332,6 +1332,16 @@
             );
           memoryState = memoryCompilerPresent ? "ready" : "no-compiler";
           memoryRoot = given;
+          // AND THE DESK OPENS, in the same call, because the real one now does
+          // (`main.rs::install_correction_desk`, called from `provision_memory`). Until
+          // 2026-09-01 the field it writes to was fixed at boot, so a fresh user got a
+          // readable memory and a shut desk until he relaunched. A mock that kept the old
+          // shape would rehearse the SURFACE against behavior the backend no longer has,
+          // which is worse than having no mock for it.
+          //
+          // It follows the compiler, not the corpus: a `no-compiler` outcome has no
+          // `loro-write.mjs` either, so there is nothing for a desk to write with.
+          if (memoryCompilerPresent) loroDeskOn = true;
           return { ...memoryStatusOf(), provisioned_now: true };
         }
         case "entity_choice":

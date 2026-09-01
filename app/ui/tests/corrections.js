@@ -536,7 +536,14 @@ async function main() {
       spoken: window.__RICHOS_MOCK__.SPOKEN_DESK_ABSENT,
     }));
     const fromRust = {
-      loro: rustSentenceAfter("No loro corpus is configured"),
+      // THE MARKER MUST SIT INSIDE THE LITERAL: `rustSentenceAfter` finds it and then walks
+      // BACK to the nearest quote, so a const NAME would make it read the doc comment above
+      // the const. It is therefore a prefix of the sentence, and when `49e2cd4` rewrote the
+      // sentence this check failed with "marker not found in the Rust source" — which is
+      // fail-closed and names the exact string to look at. That is the behavior wanted; the
+      // reason nobody acted on it is that this suite could not START (no node_modules), not
+      // that it was quiet.
+      loro: rustSentenceAfter("This install has no company memory"),
       spoken: rustSentenceAfter("I can't record corrections right now"),
     };
     assertEqual(fromMock.loro.replace(/\s+/g, " ").trim(), fromRust.loro, "the loro sentence must match main.rs");
