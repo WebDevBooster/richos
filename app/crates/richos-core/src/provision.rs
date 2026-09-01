@@ -531,7 +531,7 @@ fn create_company(tools_dir: Option<&Path>, root: &Path, id: &str, name: &str) -
 /// what was looked for instead of only that it failed.
 pub fn resolve_compiler_source(explicit: Option<&Path>, home: Option<&Path>) -> (Option<PathBuf>, Vec<String>) {
     let mut looked = Vec::new();
-    let mut consider = |dir: PathBuf, label: &str, looked: &mut Vec<String>| -> Option<PathBuf> {
+    let consider = |dir: PathBuf, label: &str, looked: &mut Vec<String>| -> Option<PathBuf> {
         if compiler_looks_valid(&dir) {
             Some(dir)
         } else {
