@@ -233,7 +233,12 @@ FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys
 # speaks for itself; one that has not inherits the seat's declaration.
 DG_GOV=""
 DG_GOV="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}" 2>/dev/null || true)"
-if [ -n "$DG_GOV" ] && [ "$DG_GOV" != "$ENTITY_ROOT" ]; then
+# BOTH SIDES IN THE SAME SPELLING before the comparison — same reason as
+# scan-secrets.sh: richos_governing_root answers physically, the seat arrives in
+# whatever spelling the payload carried, and comparing the two raw makes the seat
+# look foreign to itself.
+DG_SEAT_PHYS="$(richos_physical "${ENTITY_ROOT:-}" 2>/dev/null || printf '%s' "${ENTITY_ROOT:-}")"
+if [ -n "$DG_GOV" ] && [ "$DG_GOV" != "$DG_SEAT_PHYS" ]; then
     DIALECT_TARGET=""
     DIALECT_SCAN_ALLOWLIST=""
     DIALECT_EXEMPT_PATHS=""

@@ -119,7 +119,9 @@
 # writes.sh first, scan-secrets.sh second), and Layer K scans the FULL list of
 # wired commands under that matcher (not just the first) so its position
 # doesn't matter, unlike Layer B's single-capture logic which specifically
-# targets the first entry.
+# targets the first entry. Its canary is TWO-SIDED — planted secret refused AND
+# clean content passed — because the scanner also refuses to START by exiting 2,
+# and for months this layer could not tell the two apart. See the canary itself.
 #
 # Idempotent. Safe to run from any cwd.
 
@@ -1842,7 +1844,7 @@ else
 fi
 
 # --- Layer K: secrets scanner wired + path-confined + manifest-matched +
-# functionally rejects a known-bad secret (HARD gate) ---
+# functionally rejects a planted secret AND passes clean content (HARD gate) ---
 SECRETS_WIRED_CMD=""
 for c in "${WRITE_CMDS[@]}"; do
     RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
@@ -1870,18 +1872,47 @@ else
     elif [ "$SECRETS_HASH" != "$SECRETS_MANIFEST" ]; then
         emit_fail "K. secrets-scanner content hash mismatch — live hook differs from manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
     else
-        # Functional canary: a Write whose content is an obvious, high-entropy
-        # AWS-shaped secret. The wired scanner must return exit 2.
+        # TWO-SIDED CANARY, BECAUSE exit 2 IS AMBIGUOUS — the shape Layer T
+        # already ships, arriving here late and at a cost.
+        #
+        # scan-secrets.sh REFUSES TO START without scripts/lib/resolve-roots.sh,
+        # without scripts/lib/seat-jurisdiction.sh, or without python3, and it
+        # refuses BY EXITING 2. This layer's canary asserted the scanner exits 2
+        # on a planted secret. Same number, opposite meanings — so for as long as
+        # the sandbox file lists in scripts/demo.sh and
+        # scripts/hooks/contract-integrity.test.sh have existed, this layer
+        # reported a working secrets scanner over a scanner that never executed.
+        # In the guard whose entire job is to stop a live credential reaching a
+        # commit. That is not a hypothetical and it is not a near miss: it was
+        # green, in both sandboxes, for months.
+        #
+        # A negative test that only ever observes the failing case cannot tell
+        # "refused because it caught something" from "refused because it never
+        # started". So clean content must PASS in the same breath. A dead
+        # scanner fails the second half; only a scanner that is READING satisfies
+        # both.
+        #
+        # The clean payload is deliberately dull prose with no assignment
+        # syntax, no vendor prefix and no high-entropy token — nothing for either
+        # detector class to reach for. If it ever starts tripping the scanner,
+        # that is a real finding about the detectors, not a canary to soften.
+        #
+        # The planted half below is an obvious, high-entropy vendor-shaped key.
         CANARY_SECRET_PATH="$REPO_ROOT/__secret_scan_canary__.tmp"
         CANARY_PAYLOAD="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"AWS_KEY=AKIAABCDEFGHIJKLMNOP"}}))' "$CANARY_SECRET_PATH" 2>/dev/null || true)"
+        CANARY_CLEAN_SECRET_PAYLOAD="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"The runbook explains how to restore a backup and names no credentials."}}))' "$CANARY_SECRET_PATH" 2>/dev/null || true)"
         set +e
         printf '%s' "$CANARY_PAYLOAD" | "$SECRETS_HOOK_EXE" >/dev/null 2>&1
         secrets_rc=$?
+        printf '%s' "$CANARY_CLEAN_SECRET_PAYLOAD" | "$SECRETS_HOOK_EXE" >/dev/null 2>&1
+        secrets_clean_rc=$?
         set -e
-        if [ "$secrets_rc" -ne 2 ]; then
+        if [ "$secrets_rc" -eq 2 ] && [ "$secrets_clean_rc" -ne 0 ]; then
+            emit_fail "K. the secrets scanner refused BOTH a planted secret and content with no secret in it (exit=$secrets_clean_rc on clean content). It is not scanning, it is failing to start — check scripts/lib/seat-jurisdiction.sh, scripts/lib/resolve-roots.sh and python3."
+        elif [ "$secrets_rc" -ne 2 ]; then
             emit_fail "K. wired secrets scanner did NOT block a known-bad secret (exit=$secrets_rc, expected 2)"
         else
-            emit_pass "K. secrets scanner wired + rejects a known-bad secret (path-confined, manifest-matched, exit=2 canary)"
+            emit_pass "K. secrets scanner wired + REJECTS a planted secret and PASSES clean content (path-confined, manifest-matched, two-sided canary)"
         fi
     fi
 fi

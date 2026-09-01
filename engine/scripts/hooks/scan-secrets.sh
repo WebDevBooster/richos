@@ -185,7 +185,13 @@ richos_assert_jurisdiction "scripts/hooks/scan-secrets.sh" "$ENTITY_ROOT" "$FILE
 # scan on the built-in defaults, which is exactly what the ':=' fallbacks are.
 SS_GOV=""
 SS_GOV="$(richos_governing_root "$FILE_PATH" "${ENTITY_ROOT}" 2>/dev/null || true)"
-if [ -n "$SS_GOV" ] && [ "$SS_GOV" != "$ENTITY_ROOT" ]; then
+# BOTH SIDES IN THE SAME SPELLING before the comparison. richos_governing_root
+# answers physically; the seat arrives from the payload in whatever spelling the
+# caller was handed (on macOS, routinely /var rather than /private/var). Compare
+# those raw and this reads "a different repository governs this file" about the
+# seat itself, and re-resolves thresholds it already had.
+SS_SEAT_PHYS="$(richos_physical "${ENTITY_ROOT:-}" 2>/dev/null || printf '%s' "${ENTITY_ROOT:-}")"
+if [ -n "$SS_GOV" ] && [ "$SS_GOV" != "$SS_SEAT_PHYS" ]; then
     SECRET_SCAN_ALLOWLIST=""
     # shellcheck disable=SC1090
     [ -f "$SS_GOV/orchestration.config" ] && . "$SS_GOV/orchestration.config"

@@ -111,6 +111,18 @@ if [ "${#ALL_HOOKS[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# The completeness check for the lists below. It is FATAL if absent for the same
+# reason the hook inventory is: this suite's cases are only worth their exit
+# codes if the sandbox they run in can assemble the engine, and skipping the
+# question is how it stopped being asked in the first place.
+_SC_LIB="$SCRIPT_DIR/../lib/sandbox-completeness.sh"
+if [ ! -f "$_SC_LIB" ]; then
+    echo "FATAL: scripts/lib/sandbox-completeness.sh missing — the sandbox file lists below cannot be checked against the engine they claim to model, and this suite will not report green without asking" >&2
+    exit 1
+fi
+# shellcheck source=../lib/sandbox-completeness.sh
+. "$_SC_LIB"
+
 # Managed scripts living OUTSIDE scripts/hooks/, relative to the repo root. The
 # reaper is hook-reachable (the SessionStart wrapper runs it with --execute) and
 # install.sh mints a sidecar for it, so every sandbox must carry both.
@@ -175,6 +187,33 @@ ALL_ROOT_SCRIPTS=(
     # Layer T fails loudly when it is absent — first reason on this list, same
     # as the predicates above.
     scripts/lib/dialect-en-US.dict
+    # The in-flight notice predicate, both halves. guard-inflight-notify.sh
+    # REFUSES TO START without inflight.sh — first reason on this list again —
+    # and inflight.sh itself decides nothing without inflight.py.
+    #
+    # This one was NOT found by reading the diff of what landed. It was found by
+    # the completeness case below, which starts every registered hook in a
+    # sandbox and reports the ones that cannot. That is the difference between
+    # fixing the instance and closing the class, and it is why the case exists.
+    scripts/lib/inflight.sh
+    scripts/lib/inflight.py
+    # The teammate-identity module, and it is here for the STOP-HOOK-NOTICE
+    # REASON above rather than the refuse-to-start one — which is worth being
+    # precise about, because it marks the edge of what SC1 below can see.
+    #
+    # inflight.sh and inflight.py do NOT refuse without it. They degrade: the
+    # teams directory resolves to nothing, every name resolves to empty, and
+    # inflight.py's own wrapper says "teammate-identity.py — MISSING" into a
+    # structure nobody reads in a sandbox. So a sandbox without it starts every
+    # hook cleanly, passes SC1, and models an engine whose in-flight sweep can
+    # no longer name a single teammate.
+    #
+    # SC1 answers "can every hook START". It does not answer "does every hook
+    # DECIDE the same way it would in a real engine", and it cannot: a
+    # dependency that fails soft has, by construction, no announcement to read.
+    # That half stays a human judgment, made at this list, which is why each
+    # entry states its own reason.
+    scripts/lib/teammate-identity.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -423,6 +462,52 @@ echo ""
 ROOT="$(make_sandbox)"
 set +e; run_probe_in "$ROOT" >/dev/null; rc=$?; set -e
 emit_case "1.committed-source-passes" 0 "$rc"
+rm -rf "$ROOT"
+
+# ---------------------------------------------------------------------------
+# SANDBOX COMPLETENESS — the case that makes the list above unable to fall
+# behind silently.
+#
+# EVERY case in this file builds its sandbox from ALL_HOOKS + ALL_ROOT_SCRIPTS,
+# and every case's exit code is only worth reading if the engine in that sandbox
+# can actually be assembled. On 2026-08-31 it could not: five guards landed and
+# the list did not grow, so scan-secrets.sh and guard-main-checkout-writes.sh
+# could not start, and BOTH refuse by exiting 2 — the same number Layers K and D
+# were asserting as proof that they had run and caught something. Two dead
+# guards, two green layers, for as long as the list had existed.
+#
+# So the list is no longer trusted to be complete: it is ASKED. SC1 starts every
+# registered hook in a real sandbox and fails naming any that announced a
+# missing file. It is answered by RUNNING the hooks, so it holds for a
+# dependency expressed in any form — sourced library, sibling .py, data file,
+# path assembled at runtime. It found scripts/lib/inflight.sh, which reading the
+# night's diff had not.
+#
+# SC2 is its negative control, and it is not optional: SC1 reports a problem by
+# printing NOTHING, which is the same output a check that scanned zero hooks
+# produces. SC2 deletes seat-jurisdiction.sh — the exact file whose absence
+# started this — and requires SC1's machinery to name the guard that then cannot
+# start. Without it, SC1 is a clean bill of health signed by nobody.
+# ---------------------------------------------------------------------------
+ROOT="$(make_sandbox)"
+set +e; SC_OUT="$(richos_sandbox_start_failures "$ROOT" "${ALL_HOOKS[@]}")"; set -e
+if [ -z "$SC_OUT" ]; then
+    emit_case "SC1.every-registered-hook-starts-in-a-sandbox" 0 0
+else
+    printf '        sandbox is missing what these hooks need:\n%s\n' "$SC_OUT" >&2
+    emit_case "SC1.every-registered-hook-starts-in-a-sandbox" 0 1
+fi
+rm -rf "$ROOT"
+
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/lib/seat-jurisdiction.sh"
+set +e; SC_OUT="$(richos_sandbox_start_failures "$ROOT" "${ALL_HOOKS[@]}")"; set -e
+if printf '%s' "$SC_OUT" | grep -q '^scan-secrets\.sh'; then
+    emit_case "SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1" 0 0
+else
+    printf '        expected scan-secrets.sh to be reported unable to start, got: [%s]\n' "$SC_OUT" >&2
+    emit_case "SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1" 0 1
+fi
 rm -rf "$ROOT"
 
 # Case 2 — install.sh (no settings.json to migrate) + probe → both exit 0.
@@ -1051,7 +1136,7 @@ if printf '%s' "$PROBE_OUT" | grep -qF 'J. worktree.baseRef="head" present'; the
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28c.layer-J-explicit-pass-line-present"); printf '  FAIL  28c.layer-J-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
 fi
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets scanner wired + rejects a known-bad secret'; then
+if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets scanner wired + REJECTS a planted secret and PASSES clean content'; then
     PASS=$((PASS+1)); printf '  PASS  28d.layer-K-explicit-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28d.layer-K-explicit-pass-line-present"); printf '  FAIL  28d.layer-K-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
@@ -1121,6 +1206,35 @@ if printf '%s' "$PROBE_OUT" | grep -qF 'K. wired secrets scanner did NOT block a
     PASS=$((PASS+1)); printf '  PASS  31b.functional-canary-catches-broken-scanner-despite-matching-hash\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("31b.functional-canary-catches-broken-scanner-despite-matching-hash"); printf '  FAIL  31b.functional-canary-catches-broken-scanner-despite-matching-hash  (got: %s)\n' "$PROBE_OUT"
+fi
+rm -rf "$ROOT"
+
+# Case 31c/31d — THE DEAD SCANNER. The case Layer K could not see until it grew
+# a second side, and the reason it exists.
+#
+# scan-secrets.sh refuses to start without scripts/lib/seat-jurisdiction.sh by
+# EXITING 2. Layer K's canary asserted the scanner exits 2 on a planted secret.
+# Same number, opposite meanings — so a scanner that never executed satisfied
+# the layer completely, and did so in both engine sandboxes for as long as those
+# sandbox file lists had existed. Case 31 above cannot catch it: that scanner is
+# a no-op that exits 0, this one never runs at all.
+#
+# 31c requires the probe to FAIL, and 31d requires it to say the true thing —
+# "it is not scanning, it is failing to start" — rather than the misleading
+# "did NOT block a known-bad secret", which would send a reader to audit
+# detectors in a scanner that had not run a line.
+#
+# Note what this deliberately does NOT touch: the hook is byte-identical and its
+# sidecar matches. Every hash check in Layer K passes. Only the second canary
+# separates a guard that is READING from one that is merely refusing.
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/lib/seat-jurisdiction.sh"
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+emit_case "31c.dead-secrets-scanner-fails-layer-K" 2 "$rc"
+if printf '%s' "$PROBE_OUT" | grep -qF 'K. the secrets scanner refused BOTH a planted secret and content with no secret in it'; then
+    PASS=$((PASS+1)); printf '  PASS  31d.layer-K-says-failing-to-start-not-failing-to-catch\n'
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("31d.layer-K-says-failing-to-start-not-failing-to-catch"); printf '  FAIL  31d.layer-K-says-failing-to-start-not-failing-to-catch  (got: %s)\n' "$PROBE_OUT"
 fi
 rm -rf "$ROOT"
 
