@@ -209,18 +209,34 @@ while IFS=$'\t' read -r QIDX QTEXT; do
                 # NAMED AND QUOTED, NEVER COUNTED. "already decided" sends the
                 # reader hunting through 1,400 lines; a section number, a title
                 # and the CEO's own sentence is something he can answer FROM.
+                #
+                # CAPPED AT MAX_CITED, and the cap is the same instinct as the
+                # rest of this gate: a refusal that dumps a dozen rulings is a
+                # wall, and a wall gets waived. The predicate emits all of them
+                # — the ledger and the tests see everything — the REFUSAL shows
+                # the most specific few. Three was the most any real question
+                # produced in the measured corpus.
+                MAX_CITED=4
+                SHOWN=0
                 while IFS=$'\t' read -r K F1 F2 F3 F4 F5 F6 F7 F8; do
                     case "$K" in
                         RULED)
+                            SHOWN=$((SHOWN + 1))
+                            [ "$SHOWN" -le "$MAX_CITED" ] || continue
                             printf '    %s  %s\n' "$F2" "$F3"
                             printf '      in %s, line %s   (matched: %s "%s")\n' \
                                 "$F1" "$F8" "$F4" "$F5"
                             ;;
                         QUOTE)
+                            [ "$SHOWN" -le "$MAX_CITED" ] || continue
                             printf '      > %s\n' "$F2"
                             ;;
                     esac
                 done < "$OUTFILE"
+                if [ "$SHOWN" -gt "$MAX_CITED" ]; then
+                    printf '    (+%d more ruling(s) matched — the record is dense here)\n' \
+                        "$((SHOWN - MAX_CITED))"
+                fi
                 printf '\n'
             } >> "$REPORT"
             ;;
