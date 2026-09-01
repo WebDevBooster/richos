@@ -198,6 +198,27 @@ DEMO_FILES+=(
     # Layer T fails loudly when it is absent — which is how this omission was
     # found, by the probe rather than by a reader.
     "scripts/lib/dialect-en-US.dict"
+    # ---- The four predicate pairs, every one of which was MISSING here. ----
+    #
+    # Six registered guards — the CEO-TODOs guard, the row-currency guard, the
+    # three publication guards and the in-flight notice guard — REFUSE TO START
+    # without these, exactly as the hooks above refuse without resolve-roots.sh.
+    # Every one of them was dead in this sample repo, and the demo reported
+    # 7/7 beats and "your team's enforcement machinery works" over them, because
+    # nothing in this script had ever asked whether a hook could start. The
+    # completeness check further down now asks; these are its first six answers.
+    #
+    # Each is a PAIR: the .sh is the caller and the .py is the predicate, and
+    # the .sh decides nothing without it. Adding one without the other trades a
+    # loud refusal for a quiet one.
+    "scripts/lib/ceo-todos.sh"
+    "scripts/lib/ceo-todos.py"
+    "scripts/lib/row-currency.sh"
+    "scripts/lib/row-currency.py"
+    "scripts/lib/publication-boundary.sh"
+    "scripts/lib/publication-boundary.py"
+    "scripts/lib/inflight.sh"
+    "scripts/lib/inflight.py"
     # Not hooks and registered nowhere: the installer the setup beat runs, and
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"
@@ -433,6 +454,41 @@ if [ "$INSTALL_RC" -ne 0 ]; then
     # the truth, and the one this script used to make.
     exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# CAN THE SAMPLE REPO ACTUALLY ASSEMBLE THIS ENGINE?
+#
+# The DEMO_MISSING loop above only proves every file NAMED in the list exists in
+# this checkout. It says nothing about whether the list names everything the
+# engine needs — and on 2026-08-31 it did not: five guards landed, neither this
+# list nor the meta-suite's grew, and the guards that could no longer start
+# refused by exiting 2, which is precisely the exit code Layers K and D read as
+# "ran and caught something". Beat 7 stayed green over dead guards.
+#
+# A demo is the worst possible place for that. It is the one run where the
+# engine is being ASKED TO BE TRUSTED by someone who cannot check it. So the
+# list is not trusted to be complete here either; it is asked, by starting every
+# registered hook in the sample repo and refusing if any announces a missing
+# file. Shared with the meta-suite so there is one implementation of the
+# question, not the second copy this file's own comments keep warning about.
+_SC_LIB="$REPO_ROOT/scripts/lib/sandbox-completeness.sh"
+[ -f "$_SC_LIB" ] || { echo "ERROR: demo.sh: $_SC_LIB is missing from this engine checkout — the sample repo cannot be checked against the engine it claims to be, and a demo that skips that check is exactly the run that must not skip it. Refusing." >&2; exit 1; }
+# shellcheck source=lib/sandbox-completeness.sh
+. "$_SC_LIB"
+DEMO_HOOK_NAMES=()
+while IFS= read -r _h; do
+    [ -n "$_h" ] || continue
+    DEMO_HOOK_NAMES+=("$_h")
+done <<REGISTERED_EOF
+$_DEMO_REGISTERED_HOOKS
+REGISTERED_EOF
+if ! DEMO_CANNOT_START="$(richos_sandbox_start_failures "$SAMPLE_ROOT" "${DEMO_HOOK_NAMES[@]}")"; then
+    echo "ERROR: demo.sh: the sample repo cannot assemble this engine — these registered hooks refused to start in it:" >&2
+    printf '%s\n' "$DEMO_CANNOT_START" | sed 's/^/       /' >&2
+    echo "       Add the file each one names to DEMO_FILES above. Refusing to demonstrate an engine whose guards cannot run." >&2
+    exit 1
+fi
+
 narrate "Sample company ready."
 
 # ---------------------------------------------------------------------------

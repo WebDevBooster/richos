@@ -111,6 +111,18 @@ if [ "${#ALL_HOOKS[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# The completeness check for the lists below. It is FATAL if absent for the same
+# reason the hook inventory is: this suite's cases are only worth their exit
+# codes if the sandbox they run in can assemble the engine, and skipping the
+# question is how it stopped being asked in the first place.
+_SC_LIB="$SCRIPT_DIR/../lib/sandbox-completeness.sh"
+if [ ! -f "$_SC_LIB" ]; then
+    echo "FATAL: scripts/lib/sandbox-completeness.sh missing — the sandbox file lists below cannot be checked against the engine they claim to model, and this suite will not report green without asking" >&2
+    exit 1
+fi
+# shellcheck source=../lib/sandbox-completeness.sh
+. "$_SC_LIB"
+
 # Managed scripts living OUTSIDE scripts/hooks/, relative to the repo root. The
 # reaper is hook-reachable (the SessionStart wrapper runs it with --execute) and
 # install.sh mints a sidecar for it, so every sandbox must carry both.
@@ -175,6 +187,16 @@ ALL_ROOT_SCRIPTS=(
     # Layer T fails loudly when it is absent — first reason on this list, same
     # as the predicates above.
     scripts/lib/dialect-en-US.dict
+    # The in-flight notice predicate, both halves. guard-inflight-notify.sh
+    # REFUSES TO START without inflight.sh — first reason on this list again —
+    # and inflight.sh itself decides nothing without inflight.py.
+    #
+    # This one was NOT found by reading the diff of what landed. It was found by
+    # the completeness case below, which starts every registered hook in a
+    # sandbox and reports the ones that cannot. That is the difference between
+    # fixing the instance and closing the class, and it is why the case exists.
+    scripts/lib/inflight.sh
+    scripts/lib/inflight.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -423,6 +445,52 @@ echo ""
 ROOT="$(make_sandbox)"
 set +e; run_probe_in "$ROOT" >/dev/null; rc=$?; set -e
 emit_case "1.committed-source-passes" 0 "$rc"
+rm -rf "$ROOT"
+
+# ---------------------------------------------------------------------------
+# SANDBOX COMPLETENESS — the case that makes the list above unable to fall
+# behind silently.
+#
+# EVERY case in this file builds its sandbox from ALL_HOOKS + ALL_ROOT_SCRIPTS,
+# and every case's exit code is only worth reading if the engine in that sandbox
+# can actually be assembled. On 2026-08-31 it could not: five guards landed and
+# the list did not grow, so scan-secrets.sh and guard-main-checkout-writes.sh
+# could not start, and BOTH refuse by exiting 2 — the same number Layers K and D
+# were asserting as proof that they had run and caught something. Two dead
+# guards, two green layers, for as long as the list had existed.
+#
+# So the list is no longer trusted to be complete: it is ASKED. SC1 starts every
+# registered hook in a real sandbox and fails naming any that announced a
+# missing file. It is answered by RUNNING the hooks, so it holds for a
+# dependency expressed in any form — sourced library, sibling .py, data file,
+# path assembled at runtime. It found scripts/lib/inflight.sh, which reading the
+# night's diff had not.
+#
+# SC2 is its negative control, and it is not optional: SC1 reports a problem by
+# printing NOTHING, which is the same output a check that scanned zero hooks
+# produces. SC2 deletes seat-jurisdiction.sh — the exact file whose absence
+# started this — and requires SC1's machinery to name the guard that then cannot
+# start. Without it, SC1 is a clean bill of health signed by nobody.
+# ---------------------------------------------------------------------------
+ROOT="$(make_sandbox)"
+set +e; SC_OUT="$(richos_sandbox_start_failures "$ROOT" "${ALL_HOOKS[@]}")"; set -e
+if [ -z "$SC_OUT" ]; then
+    emit_case "SC1.every-registered-hook-starts-in-a-sandbox" 0 0
+else
+    printf '        sandbox is missing what these hooks need:\n%s\n' "$SC_OUT" >&2
+    emit_case "SC1.every-registered-hook-starts-in-a-sandbox" 0 1
+fi
+rm -rf "$ROOT"
+
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/lib/seat-jurisdiction.sh"
+set +e; SC_OUT="$(richos_sandbox_start_failures "$ROOT" "${ALL_HOOKS[@]}")"; set -e
+if printf '%s' "$SC_OUT" | grep -q '^scan-secrets\.sh'; then
+    emit_case "SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1" 0 0
+else
+    printf '        expected scan-secrets.sh to be reported unable to start, got: [%s]\n' "$SC_OUT" >&2
+    emit_case "SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1" 0 1
+fi
 rm -rf "$ROOT"
 
 # Case 2 — install.sh (no settings.json to migrate) + probe → both exit 0.
