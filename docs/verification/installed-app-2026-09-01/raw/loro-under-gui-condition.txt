@@ -1,0 +1,17 @@
+The GUI condition, reproduced exactly: env -i HOME=/Users/alex PATH=/usr/bin:/bin:/usr/sbin:/sbin, cwd /.
+REDACTED: the re-prime payload itself is the CEO's own record and is never written into
+this repository. Only the resolver's own lines and the measured sizes are kept.
+
+[demo] corpus root: /Users/alex/Library/Application Support/RichOS/loro-root (via the loro-root pointer in Application Support)
+[demo] node: /opt/homebrew/bin/node
+[demo] entity->lane map as configured: 6 entr(ies)
+[demo] corpus partitions: deeply, femcboost, gpt-exporter, prospects, richos, webinar-booster
+[demo] entity->lane map after reconciliation: 6 entr(ies)
+
+--- payload size, printed by the demo itself ---
+--------------------------------------------------------------- 3388 chars
+
+--- measured over the same payload ---
+whole re-prime payload  : 3,331 chars / 3,388 bytes
+the loro slice inside it: 1,227 chars / 1,270 bytes
+slice heading           : COMPANY MEMORY (loro) - bearing on: "the RichOS desktop app"

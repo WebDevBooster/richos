@@ -1,0 +1,50 @@
+The first bundle (cdhash c22947efab845e8cd992840dcd92a2ce16c64a86), installed at
+/Users/alex/Applications/RichOS.app, launched with /usr/bin/open (cwd `/`), driven through
+the macOS accessibility API. Nothing here was typed by a human; every line is read back
+from the running window.
+
+--- what the window showed with no company chosen -------------------------------------
+TEXT: Which company is this copy of Rich for?
+TEXT: I'll keep everything you tell me under the company you pick, and I'll remember it — you won't be asked again. You can change it later in Settings.
+
+--- the six rows it offered, read from the AXList --------------------------------------
+AXList | title=Which company is this copy of Rich for?
+AXStaticText | title=FemcBoost 1 thread
+AXStaticText | title=Deeply 0 threads
+AXStaticText | title=Prospects 0 threads
+AXStaticText | title=RichOS 1 thread
+AXStaticText | title=GPT Exporter 0 threads
+AXStaticText | title=Webinar Booster 0 threads
+
+--- the click, and what it wrote -------------------------------------------------------
+clicking [RichOS 1 thread] at 960.0,464.5
+~/Library/Application Support/com.richos.app/config.json gained:  "entity": "richos"
+
+--- the sentence typed into the composer, and Return -----------------------------------
+In one sentence: are you there, and which company are you filing this under?
+
+--- the ledger, in order ---------------------------------------------------------------
+{"event":"PromptReceived","turn_id":"turn_3c92aecf4c0e4af091d44dbcb8b8b40d","thread_id":"thr_dbaacd4320ee482daf414414f590ccba","text":"In one sentence: are you there, and which company are you filing this under?","source":"text","at":1788271637872,"entity_id":"richos","binding_revision":4}
+{"event":"PromptReceived","turn_id":"turn_6f1e2d8d76ec4610b623c40c0db564ef","thread_id":"thr_dbaacd4320ee482daf414414f590ccba","text":"[re-prime]","source":"internal","at":1788271637879,"entity_id":"richos","binding_revision":4}
+{"event":"ActionRecorded","action_id":"act_35816e2b0dab41b398e6081ce39e0b76","turn_id":null,"kind":"session_reprime","detail":"thread=thr_dbaacd4320ee482daf414414f590ccba; session=cddb6276-b6bd-4941-9373-10c70aa6e407; priming_chars=2562; ceo_facing_actions=0","status":"claimed","visibility":"internal","at":1788271637884}
+{"event":"ActionUpdated","action_id":"act_35816e2b0dab41b398e6081ce39e0b76","status":"completed","at":1788271639618}
+{"event":"TurnStarted","turn_id":"turn_3c92aecf4c0e4af091d44dbcb8b8b40d","session_id":"cddb6276-b6bd-4941-9373-10c70aa6e407","at":1788271639623}
+{"event":"AssistantDelta","turn_id":"turn_3c92aecf4c0e4af091d44dbcb8b8b40d","text":"Yes, I'm here — this thread is filed under the richos entity area, and I'm not going to guess a finer-grained company than","at":1788271643355,"seq":5}
+{"event":"AssistantDelta","turn_id":"turn_3c92aecf4c0e4af091d44dbcb8b8b40d","text":" that; tell me which of the six it belongs to, or I can check the registry.","at":1788271643688,"seq":6}
+{"event":"TurnCompleted","turn_id":"turn_3c92aecf4c0e4af091d44dbcb8b8b40d","stop_reason":"end_turn","at":1788271643740}
+
+Prompt received at 1788271637872, turn completed at 1788271643740: 5,868 ms end to end.
+
+--- and what the window showed afterwards ----------------------------------------------
+TEXT: You said
+TEXT: In one sentence: are you there, and which company are you filing this under?
+TEXT: 3:07 PM
+TEXT: Worked for 4s
+TEXT: Rich said
+TEXT: Rich
+TEXT: Yes, I'm here — this thread is filed under the richos entity area, and I'm not going to guess a finer-grained company than that; tell me which of the six it belongs to, or I can check the registry.
+TEXT: Rich finished. Worked for 4s
+TEXT: Talk to Rich…
+
+priming_chars=2562 in the re-prime above is the number that gives the defect away: this
+build had no company memory in it at all. See README §3.
