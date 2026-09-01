@@ -93,6 +93,19 @@
   --bone-dim: rgba(223, 228, 238, 0.78);
   --gold: #c2a35c;
 
+  /* THE MARK'S FILLS, AND THEY LIVE ONLY HERE — the two declarations at `#home-brand .p-ink`
+     and `#home-brand .p-signal` are the only places in this pass that reference them, and the
+     SVG in `home.js` carries the CLASSES and no literal fill at all.
+
+     That is deliberate rather than tidy. The two-tone treatment is UNDER REVIEW: the CEO's own
+     artwork, `assets/logo-wordmark/RichOS-logo_v3.5_black-and-white.svg`, is two paths with ONE
+     fill, and the gold swoosh arrived in a mockup round rather than from him. If the mark turns
+     out to be one tone, the whole change on this surface is the second line below becoming
+     `var(--home-mark-ink)`. Nothing else moves, and `tests/home.js` measures whatever the fill
+     computes to rather than asserting a value, so it will not have to be rewritten either. */
+  --home-mark-ink: #dfe4ee;
+  --home-mark-swoosh: #c2a35c;
+
   --serif: "Newsreader", serif;
   --caps: "Inter", sans-serif;
   --sans: "Inter", sans-serif;
@@ -228,14 +241,17 @@ body.home-open {
   height: 27px;
   width: auto;
 }
-/* THE APPROVED LOGO TREATMENT (`round-8.1/v0`): the letterforms are the ruled light and the
-   arrow inside the R is the ruled signal — a drawn shape in the signal tone, not the
-   black-and-white inversion the source file is authored in, and not a knockout. */
+/* THE MARK. Two classes, two tokens, and no literal anywhere else — see `--home-mark-ink`
+   above for why the second one is written to be reversible in a single line.
+
+   What it is NOT is the knock-out the source file was carried with for a while: a hole shows
+   whatever drifts behind it, which on a field of moving stars made the mark change color. The
+   swoosh is PAINTED here whatever tone it ends up being. */
 #home-brand .p-ink {
-  fill: #dfe4ee;
+  fill: var(--home-mark-ink);
 }
 #home-brand .p-signal {
-  fill: #c2a35c;
+  fill: var(--home-mark-swoosh);
 }
 #home-brand .owner {
   margin-top: 11px;
@@ -471,12 +487,34 @@ body.home-open {
      fill in `tests/home.js`. */
   background: #111b30;
   color: #dfe4ee; /* 13.71:1 on #111b30 */
-  border: 1px solid #4c6087; /* 3.19:1 on #111b30 — a non-text boundary, owes 3:1 */
+  border: 1px solid #6b7ea8; /* 4.23:1 on #111b30 — a non-text boundary, owes 3:1 */
+
+  /* THE HALO, AND IT IS THE ONLY THING THAT MAKES THE EDGE MEASURABLE.
+     An opaque fill fixes the background behind the TEXT. It does nothing for the chip's own
+     BOUNDARY, which owes 3:1 to whatever is on the other side of it — and on this screen the
+     other side is 7,500 moving stars. Measured on the rendered frame before this rule: the
+     unselected chip's border came out at 1.02:1 against a star at rgb(89,97,115) sitting
+     against it, and the switch's gold edge at 1.39:1 against a rgb(253,61,143) river strand.
+     Both are real: the boundary genuinely disappears where a bright object touches it.
+
+     This is the round's own answer, in CSS rather than in the shader. `round-11.1/v1`'s NOTES
+     describes exactly this device for the labels it draws inside the picture — "struck at the
+     ruled ground (rgb(10,15,28)) at 0.98 alpha and 5px wide" — because a halo is what makes a
+     background deterministic when the real background will not hold still.
+
+     3px HARD at 0.96, then a wide soft falloff so it reads as depth rather than as an outline.
+     The hard part is what the arithmetic uses: its worst possible composite is over a pure
+     white star, 0.96*#0C1322 + 0.04*#FFF = rgb(22,29,43), and against THAT the border computes
+     4.18:1 and the selected chip's gold fill 7.04:1. Deterministic, because the worst case is
+     bounded by the alpha rather than by what the picture happens to be doing. */
+  box-shadow:
+    0 0 0 3px rgba(12, 19, 34, 0.96),
+    0 0 16px 8px rgba(12, 19, 34, 0.55);
 }
 
 .home-chip:hover {
   background: #182440;
-  border-color: #6b7ea8;
+  border-color: #93a3c4;
 }
 
 .home-chip:focus-visible {
@@ -533,6 +571,11 @@ body.home-open {
   background: #141e34;
   color: #dfe4ee; /* 13.05:1 on #141e34 */
   border: 1px solid #c2a35c; /* 6.87:1 on #141e34 — non-text, owes 3:1 */
+  /* The same halo the chips carry, and for the same measured reason — this control sits over
+     the river, which is the brightest thing on the screen. See `.home-chip`. */
+  box-shadow:
+    0 0 0 3px rgba(12, 19, 34, 0.96),
+    0 0 18px 9px rgba(12, 19, 34, 0.55);
   transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 #home-enter:hover {
