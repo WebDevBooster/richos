@@ -211,6 +211,30 @@ const SURFACES = [
     },
     preset: { chosenEntity: null },
   },
+  // THE FIRST-RUN MEMORY DIALOG, IN BOTH OF ITS STATES, because they paint different ink:
+  // the ask carries the location line (`--ink` monospace, computed 11.81:1 dark and
+  // 18.27:1 light before it was written) and the confirm button on the accent; the
+  // no-compiler state carries neither and paints only the plain button. Neither is
+  // reachable from any surface above — a machine that has been set up once renders neither
+  // — so without these two walks the whole dialog would be uncovered.
+  {
+    name: "memory-setup",
+    what: "the first-run memory question: its note, the location it offers, and the two buttons",
+    drive: async (p) => {
+      await p.waitForSelector("#memory-setup:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+    preset: { memory: "none" },
+  },
+  {
+    name: "memory-no-compiler",
+    what: "a corpus this install cannot read, and the sentence naming who can",
+    drive: async (p) => {
+      await p.waitForSelector("#memory-setup:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+    preset: { memory: "no-compiler" },
+  },
   // THE UPDATE ROW, IN THREE STATES, because one state cannot paint the colours the others
   // do (RICH-TODOs row 12, `app/ui/updates.js`). It lives in the UNIVERSAL settings menu —
   // which the `settings` surface above does NOT reach, since that one drives the rail's

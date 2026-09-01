@@ -955,6 +955,53 @@ module.exports = [
       "list of companies directly beneath it.",
   },
   {
+    s: "Where should I keep what you tell me?",
+    c: "CONTROL",
+    why:
+      "The first-run memory dialog's title, and `aria-labelledby` points the dialog at it. " +
+      "It is the accessible name of the control beneath it, not a state — the same " +
+      "classification, for the same reason, as the entity picker's title.",
+  },
+  {
+    s:
+      "I'll keep your decisions, your companies and how you work in a folder on this Mac, and " +
+      "nothing in it leaves this Mac. If this looks right, I'll set it up now.",
+    c: "ACTIONABLE",
+    control: "#memory-setup-go",
+    fixture: "memory-unprovisioned",
+    why:
+      "The state a fresh install is in: no corpus anywhere, which is what the installed " +
+      "bundle measurably reported the moment its hand-made pointer was removed. It is " +
+      "entirely his to clear and it takes one click, so the button sits directly beneath " +
+      "the sentence and the location it will use is SHOWN above it — his part is a choice, " +
+      "never a path he types. Nothing behind the button picks a location when he has not: " +
+      "`provision` refuses an unset target by name.",
+  },
+  {
+    s:
+      "That's set up. From now on I'll keep what you tell me in that folder and read it back " +
+      "when it matters.",
+    c: "INFORMATIONAL",
+    why:
+      "What he sees after answering, when the corpus resolved AND the compiler is installed. " +
+      "Nothing to do — it is the confirmation that the question is over, and it carries no " +
+      "imperative aimed at him.",
+  },
+  {
+    s:
+      "Your memory is on this Mac, but the part of me that reads it isn't installed here — so I " +
+      "can't read it back yet. It needs whoever set RichOS up to add it.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: "memory-no-compiler",
+    why:
+      "Two moments, one sentence: a boot that resolves a corpus and no compiler, and a setup " +
+      "that finishes the same way. He cannot fix either — the compiler ships from nowhere " +
+      "today (`BLOCKED.md`: the product repo holds no `loro/` and the signed bundle's " +
+      "Resources hold `icon.icns` and nothing else) — so the party is named in the text and " +
+      "no control is drawn for a thing no control could do.",
+  },
+  {
     s: "This copy of me was told which company it works for when it was started up, from outside this window, and I can't make sense of what it was told — so I won't file anything until whoever set RichOS up has sorted it out.",
     c: "NEEDS-SOMEONE-ELSE",
     party: true,

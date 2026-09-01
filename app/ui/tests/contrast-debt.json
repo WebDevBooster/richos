@@ -72,6 +72,14 @@
     "company-blocked": {
       "checked": 70,
       "considered": 268
+    },
+    "memory-setup": {
+      "checked": 12,
+      "considered": 268
+    },
+    "memory-no-compiler": {
+      "checked": 10,
+      "considered": 268
     }
   },
   "signatures": {}

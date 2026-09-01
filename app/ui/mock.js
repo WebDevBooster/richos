@@ -97,6 +97,8 @@
   //
   //   window.__RICHOS_MOCK_PRESET__ = { chosenEntity: null }          // never answered
   //   window.__RICHOS_MOCK_PRESET__ = { pinnedByEnvironment: true }   // RICHOS_ENTITY set
+  //   window.__RICHOS_MOCK_PRESET__ = { memory: "none" }              // fresh install, no corpus
+  //   window.__RICHOS_MOCK_PRESET__ = { memory: "no-compiler" }       // a corpus it cannot read
   const preset = (typeof window !== "undefined" && window.__RICHOS_MOCK_PRESET__) || {};
   let activeThreadId = "chosenEntity" in preset && !preset.chosenEntity ? null : "general";
 
@@ -452,6 +454,32 @@
       : "saved-choice"
     : null;
   let entityPinnedByEnvironment = preset.pinnedByEnvironment === true;
+
+  // WHERE HIS MEMORY IS. `ready` by default for the reason the company answer is CHOSEN by
+  // default: every other fixture in this harness is a machine that has been set up once.
+  // `memory: "none"` is the fresh install — no corpus anywhere, which is the state the
+  // installed bundle was measurably in the moment its hand-made pointer was removed.
+  let memoryState = preset.memory || "ready";
+  let memoryRoot = memoryState === "none" ? null : "/Users/alex/RichOS/corpus";
+  // Whether provisioning here ends `ready` or `no-compiler`. False drives the honest
+  // degrade: a corpus is created and the program that reads it is not installed.
+  const memoryCompilerPresent = preset.memoryCompiler !== false;
+
+  function memoryStatusOf() {
+    return {
+      state: memoryState,
+      root: memoryRoot,
+      source: memoryState === "ready" ? "~/RichOS/corpus" : null,
+      compiler: memoryState === "ready" ? "/Users/alex/Library/Application Support/RichOS/loro-tools" : null,
+      tried: [],
+      detail: null,
+      // The location the CEO is OFFERED, pre-filled — the whole reason his part is a click
+      // and not a path. It comes from the backend in the real app and from here in the
+      // preview, and it is the same string in both.
+      offered_location: "/Users/alex/RichOS/corpus",
+      provisioned_now: false,
+    };
+  }
 
   function entityChoiceOf() {
     return {
@@ -1286,6 +1314,26 @@
           return retentionView(before - rawShards.length);
         }
 
+        // WHERE HIS MEMORY IS (`memory.rs`). The preview's default is `ready`, because a
+        // machine that has been set up once is what every other fixture assumes; `memory:
+        // "none"` drives the fresh install, which is the state the real defect lived in.
+        case "memory_status":
+          return memoryStatusOf();
+        // The answer. It provisions nothing here — the point of the mock is the SURFACE —
+        // but it returns the shape the real command returns, including the honest
+        // `no-compiler` outcome, which is what a machine with no compiler actually gets.
+        case "provision_memory": {
+          const given = args && args.location;
+          if (!given)
+            return Promise.reject(
+              "no location was given for the corpus. There is no default: a corpus root " +
+                "nobody named would compile the wrong memory, or none, and report success " +
+                "either way."
+            );
+          memoryState = memoryCompilerPresent ? "ready" : "no-compiler";
+          memoryRoot = given;
+          return { ...memoryStatusOf(), provisioned_now: true };
+        }
         case "entity_choice":
           return entityChoiceOf();
         case "choose_entity": {
