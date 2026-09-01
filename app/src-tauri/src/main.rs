@@ -726,14 +726,24 @@ fn main() {
             let launch_kind = launch_store
                 .begin_run(richos_core::util::now_millis(), std::process::id().to_string(), PriorRun::Unknown)
                 .unwrap_or(LaunchKind::Fresh);
+            // WHICH START THIS IS, for the splash's selection rule. Read from the ledger
+            // that was just written, one line above — never a second counter. `None` when
+            // this is not a start or when the record would not parse, and the webview reads
+            // a missing ordinal as the first start, which shows splash #1.
+            let start_ordinal = launch_store.start_ordinal();
             let window_configs = app.config().app.windows.clone();
             for window_config in &window_configs {
                 let kind = launch_store.next_window_kind();
                 tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
-                    .initialization_script(launch_init_script(kind))
+                    .initialization_script(launch_init_script(kind, start_ordinal))
                     .build()?;
             }
-            eprintln!("[richos] launch: {} ({} window(s))", launch_kind.as_str(), window_configs.len());
+            eprintln!(
+                "[richos] launch: {} (start {}, {} window(s))",
+                launch_kind.as_str(),
+                start_ordinal.map(|n| n.to_string()).unwrap_or_else(|| "-".to_string()),
+                window_configs.len()
+            );
             let ledger_path = data_dir.join("conversation-ledger.jsonl");
             let ledger = Ledger::open(&ledger_path).expect("open ledger");
 
@@ -3916,10 +3926,17 @@ fn set_user_name(state: State<AppState>, name: String) -> Result<(), String> {
 ///
 /// `Object.freeze` because this is a statement of fact about how the app started, and a
 /// later script that could edit it could make a crash-restart claim to be a fresh launch.
-fn launch_init_script(kind: LaunchKind) -> String {
+///
+/// `ordinal` is WHICH START THIS IS, 1-based, and the CEO's v1 splash rule is a table over
+/// it: first start shows #1, second shows #2, third and after show #1. It rides here for
+/// exactly the same reason `kind` does — `splash.js` chooses on its first synchronous line
+/// and cannot await a command — and it is `null` rather than a guess whenever
+/// `LaunchStore::start_ordinal` could not honestly name one.
+fn launch_init_script(kind: LaunchKind, ordinal: Option<u64>) -> String {
     format!(
-        "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?} }});",
-        kind.as_str()
+        "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?}, ordinal: {} }});",
+        kind.as_str(),
+        ordinal.map(|n| n.to_string()).unwrap_or_else(|| "null".to_string())
     )
 }
 
