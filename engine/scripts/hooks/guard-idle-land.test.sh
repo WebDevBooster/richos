@@ -20,9 +20,40 @@
 #           half, shlex choked, and 4 of 4 real merges vanished)
 #     (a3) `-m <subject>` is not read as the merged ref    -> exit 2
 #     (a4) push, HEAD == upstream                          -> exit 2
+#   THE SECOND COMPLETION SIGNAL — a teammate handing work back
+#     (AA)  a teammate finished, no git command at all      -> exit 2
+#     (AA1) the refusal NAMES the teammate that finished
+#     (AA2) a finished BACKGROUND COMMAND is not a teammate -> exit 0
+#     (AA3) an agent stopped BY THE USER is not a delivery  -> exit 0
+#     (AA4) a finish without <status>completed</status>     -> exit 0
+#     (AA5) a finish answered by a dispatch                 -> exit 0
+#   NOTHING IS OWED TO THE CEO — the two legitimate stops that had no route
+#     (AB)  a question was put to him this turn             -> exit 0
+#     (AC)  he said he is going to bed                      -> exit 0
+#     (AD)  a BACKGROUNDED tool call counts as started      -> exit 0
+#   THE DECLARATION — the only live escape, and it is a sentence
+#     (AE)  a valid `stop-declared:` line                   -> exit 0
+#     (AE1) the case AND the reason reach the operator, with the
+#           "declared, not verified" caveat attached
+#     (AE2) a declaration with no real reason               -> exit 2 + why
+#     (AE3) a case outside the closed set of three          -> exit 2 + why
+#     (AE4) a declaration inside a CODE SPAN exempts nothing -> exit 2
+#           (so quoting the refusal, or this guard's own documentation,
+#            can never switch it off)
+#   THE REFUSAL IS PART OF THE DELIVERABLE
+#     (AF1) it names what completed, what is unblocked and available, and
+#           the exact declaration line that would have permitted the stop
 #   THE FIVE NEGATIVE CASES
 #     (b)  lands AND dispatches                            -> exit 0
-#     (c)  lands while an agent is still running           -> exit 0
+#     (c)  lands while tasks run AND a row is free         -> exit 2
+#          (THIS CASE INVERTED on 2026-09-01. It read 0, and that blanket
+#           stand-down fired on 44 of 107 real landing turns — 41% — while
+#           the gate blocked exactly once in its life. `background_tasks` is
+#           the host's whole task registry, not a list of teammates.)
+#     (c2) tasks run and EVERY remaining row is blocked    -> exit 0
+#          (the legitimate version: "running AND the next step depends on
+#           it", answered by the record's own `Blocked by` column)
+#     (c3) tasks run and the stop is DECLARED              -> exit 0
 #     (d)  lands, backlog fully struck through / blocked   -> exit 0
 #     (e)  no landing in this turn at all                  -> exit 0
 #     (f)  the operator called a hold                      -> exit 0
@@ -208,7 +239,9 @@ git -C "$UNADOPTED" init -q . >/dev/null 2>&1
 #   {"prompt": "..."}          a real operator prompt (carries promptSource)
 #   {"machine": "..."}         a host-written prompt (task notification)
 #   {"bash": "..."}            an assistant Bash tool_use
+#   {"bgbash": "..."}          the same, sent to the background
 #   {"agent": "..."}           an assistant Agent tool_use
+#   {"tool": "..."}            any other assistant tool_use, by name
 #   {"turn": "<prompt-id>"}    switch the promptId from here on
 mk_tr() { # <outfile> <json-spec>
     python3 - "$1" "$2" "$PROMPT_ID" "$ENTITY" <<'PY'
@@ -228,13 +261,20 @@ for step in json.loads(spec):
         user(step["prompt"], False); continue
     if "machine" in step:
         user(step["machine"], True); continue
-    if "bash" in step:
+    if "bash" in step or "bgbash" in step:
+        bg = "bgbash" in step
+        inp = {"command": step["bgbash" if bg else "bash"]}
+        if bg:
+            inp["run_in_background"] = True
         rows.append({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Bash",
-             "input": {"command": step["bash"]}}]}})
+            {"type": "tool_use", "name": "Bash", "input": inp}]}})
         rows.append({"type": "user", "promptId": cur, "cwd": cwd,
                      "message": {"content": [
                          {"type": "tool_result", "content": "ok"}]}})
+        continue
+    if "tool" in step:
+        rows.append({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": step["tool"], "input": {}}]}})
         continue
     if "agent" in step:
         rows.append({"type": "assistant", "message": {"content": [
@@ -315,12 +355,76 @@ TR_QUOTED_HOLD="$SANDBOX/quoted-hold.jsonl"
 mk_tr "$TR_QUOTED_HOLD" "$(printf '[{"machine":"<task-notification><status>completed</status>Over 400 messages it claimed an id in 36 and most were wrong: `Freeze margin 1.5`, `Stages 3.5`. Pause was never requested.</task-notification>"},{"bash":%s}]' \
     "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$MERGE_CMD")")"
 
+# --- fixtures for the SECOND completion signal -----------------------------
+# The host's real shape, reproduced field for field. It is a user record with a
+# promptSource, carrying a task-notification whose status is `completed` and
+# whose summary is `Agent "<title>" finished` -- and the record carries the
+# turn's own promptId, so a completion OPENS a turn.
+notif() { # <status> <summary>
+    printf '<task-notification>\n<task-id>abc123</task-id>\n<tool-use-id>toolu_01X</tool-use-id>\n<status>%s</status>\n<summary>%s</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own.</note>\n<result>Worktree, branch and SHAs are in the summary above.</result>\n</task-notification>' "$1" "$2"
+}
+
+jq_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+
+# A teammate finished and the turn did NOTHING ELSE -- no git command at all.
+# This is the second of the two failures reported on 2026-09-01, and the first
+# version of this gate could not see it, because `ops` was an early exit.
+TR_FINISH="$SANDBOX/finish.jsonl"
+mk_tr "$TR_FINISH" "$(printf '[{"machine":%s},{"bash":%s}]' \
+    "$(jq_str "$(notif completed 'Agent "Rebuild the corpus" finished')")" \
+    "$(jq_str "cd $ENTITY && git log --oneline -3")")"
+
+# A BACKGROUND COMMAND finishing is not a teammate handing work back. Same
+# envelope, same status, different summary -- and the gate must tell them apart
+# on the summary alone.
+TR_FINISH_BG="$SANDBOX/finish-bg.jsonl"
+mk_tr "$TR_FINISH_BG" "$(printf '[{"machine":%s},{"bash":%s}]' \
+    "$(jq_str "$(notif completed 'Background command "npm test" completed (exit code 0)')")" \
+    "$(jq_str "cd $ENTITY && git log --oneline -3")")"
+
+# The operator killing an agent is the operator taking the turn, not a delivery.
+TR_FINISH_KILLED="$SANDBOX/finish-killed.jsonl"
+mk_tr "$TR_FINISH_KILLED" "$(printf '[{"machine":%s},{"bash":%s}]' \
+    "$(jq_str "$(notif completed 'Agent "Rebuild the corpus" was stopped by user')")" \
+    "$(jq_str "cd $ENTITY && git log --oneline -3")")"
+
+# A finish summary with a status that is NOT `completed`. Both halves are
+# required, so this one is silent.
+TR_FINISH_FAILED="$SANDBOX/finish-failed.jsonl"
+mk_tr "$TR_FINISH_FAILED" "$(printf '[{"machine":%s},{"bash":%s}]' \
+    "$(jq_str "$(notif failed 'Agent "Rebuild the corpus" finished')")" \
+    "$(jq_str "cd $ENTITY && git log --oneline -3")")"
+
+# A finish, answered by a dispatch. The correct shape, and it must stay silent.
+TR_FINISH_AGENT="$SANDBOX/finish-agent.jsonl"
+mk_tr "$TR_FINISH_AGENT" "$(printf '[{"machine":%s},{"agent":"norm-opus-a1"}]' \
+    "$(jq_str "$(notif completed 'Agent "Rebuild the corpus" finished')")")"
+
+# --- fixtures for "nothing is owed to the CEO" -----------------------------
+# A land, and a question put to him in the same turn. Ending on a question he
+# has to answer is the one move nobody else can make.
+TR_MERGE_ASK="$SANDBOX/merge-ask.jsonl"
+mk_tr "$TR_MERGE_ASK" "$(printf '[{"prompt":"land it"},{"bash":%s},{"tool":"AskUserQuestion"}]' \
+    "$(jq_str "$MERGE_CMD")")"
+
+# A land, and the operator saying HE is stopping -- which is not an instruction
+# to hold, and is the far commoner way a night actually ends.
+TR_BED="$SANDBOX/bed.jsonl"
+mk_tr "$TR_BED" "$(printf '[{"prompt":"Land that and I will look in the morning, I am going to bed."},{"bash":%s}]' \
+    "$(jq_str "$MERGE_CMD")")"
+
+# A land, and a tool call sent to the background. That IS work started.
+TR_MERGE_BG="$SANDBOX/merge-bg.jsonl"
+mk_tr "$TR_MERGE_BG" "$(printf '[{"prompt":"land it"},{"bash":%s},{"bgbash":%s}]' \
+    "$(jq_str "$MERGE_CMD")" \
+    "$(jq_str "cd $ENTITY && sleep 600")")"
+
 # --- payload builder -------------------------------------------------------
-payload() { # [transcript] [stop_hook_active] [cwd] [n-running] [prompt_id]
+payload() { # [transcript] [stop_hook_active] [cwd] [n-running] [prompt_id] [msg]
     python3 - "${1:-$EMPTY_TR}" "${2:-false}" "${3:-$ENTITY}" "${4:-0}" \
-             "${5:-$PROMPT_ID}" "$SESSION_ID" <<'PY'
+             "${5:-$PROMPT_ID}" "$SESSION_ID" "${6:-Landed and reported.}" <<'PY'
 import json, sys
-tr, active, cwd, running, pid, sid = sys.argv[1:7]
+tr, active, cwd, running, pid, sid, msg = sys.argv[1:8]
 p = {
     "hook_event_name": "Stop",
     "session_id": sid,
@@ -328,7 +432,7 @@ p = {
     "cwd": cwd,
     "permission_mode": "bypassPermissions",
     "stop_hook_active": active == "true",
-    "last_assistant_message": "Landed and reported.",
+    "last_assistant_message": msg,
     "background_tasks": [{"id": "t%d" % i, "status": "running"}
                          for i in range(int(running))],
     "session_crons": [],
@@ -340,11 +444,15 @@ PY
 }
 
 LAST_ERR=""
+LAST_OUT=""
 run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr]
-    local name="$1" want="$2" json="$3" needle="${4:-}" got err
+    local name="$1" want="$2" json="$3" needle="${4:-}" got err out
     err="$(mktemp "$SANDBOX/err.XXXXXX")"
-    printf '%s' "$json" | RICHOS_ENTITY_ROOT="$ENTITY" "$HOOK" >/dev/null 2>"$err"
+    out="$(mktemp "$SANDBOX/out.XXXXXX")"
+    printf '%s' "$json" | RICHOS_ENTITY_ROOT="$ENTITY" "$HOOK" >"$out" 2>"$err"
     got=$?
+    LAST_OUT="$(cat "$out")"
+    rm -f "$out"
     LAST_ERR="$(cat "$err")"
     if [ "$got" -ne "$want" ]; then
         printf '  FAIL  %s (expected exit %s, got %s)\n' "$name" "$want" "$got"
@@ -361,12 +469,16 @@ run_case() { # <name> <expected-exit> <payload-json> [needle-in-stderr]
     rm -f "$err"
 }
 
+# The refusal headline, in one place. It changed when the trigger widened from
+# "landed" to "completed", and seven cases asserted the old wording.
+BLOCK_HEAD="WORK COMPLETED, NOTHING STARTED"
+
 echo "=== guard-idle-land.sh ==="
 
 # --- THE POSITIVE CONTROL --------------------------------------------------
 run_case "a.merge-and-start-nothing-blocks" 2 \
     "$(payload "$TR_MERGE")" \
-    "LANDED, AND STARTED NOTHING"
+    "$BLOCK_HEAD"
 
 # The refusal must NAME the row. A refusal that says "there is work left" and
 # not WHICH work is a refusal the reader has to go and research.
@@ -383,19 +495,61 @@ else
 fi
 
 run_case "a2.multiline-quoted-merge-message-still-seen" 2 \
-    "$(payload "$TR_REAL")" "LANDED, AND STARTED NOTHING"
+    "$(payload "$TR_REAL")" "$BLOCK_HEAD"
 
 run_case "a3.dash-m-subject-is-not-the-merged-ref" 2 \
-    "$(payload "$TR_MSGFIRST")" "LANDED, AND STARTED NOTHING"
+    "$(payload "$TR_MSGFIRST")" "$BLOCK_HEAD"
 
 run_case "a4.push-with-head-at-upstream-blocks" 2 \
-    "$(payload "$TR_PUSH")" "LANDED, AND STARTED NOTHING"
+    "$(payload "$TR_PUSH")" "$BLOCK_HEAD"
 
 # --- THE FIVE NEGATIVE CASES ----------------------------------------------
 run_case "b.lands-and-dispatches-passes" 0 "$(payload "$TR_MERGE_AGENT")"
 
-run_case "c.lands-while-an-agent-runs-passes" 0 \
+# THE CASE THAT INVERTED, AND THE REASON IS THE WHOLE FIX.
+# This read `0` until 2026-09-01: a landing turn with anything at all in
+# `background_tasks` was waved through. Measured on this machine, that
+# suppressor fired on 44 of 107 landing turns -- 41% -- and the gate blocked
+# ONCE in its entire life. `background_tasks` is the host's whole task registry
+# (teammates, subagents, shells, monitors, workflows, scans), and this
+# orchestrator keeps ten to fifteen of them alive at all times.
+#
+# The legitimate stop is NARROWER than that suppressor was: "a teammate is
+# running AND THE NEXT STEP DEPENDS ON ITS RESULT". Dependency is what the
+# record's `Blocked by` column says, so c2 below is the case that must pass and
+# this one is the case that must not.
+run_case "c.lands-while-tasks-run-and-a-row-is-free-BLOCKS" 2 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 3)" "$BLOCK_HEAD"
+
+# LEGITIMATE STOP 3, answered by the record rather than by a count of processes:
+# three tasks running and every remaining row marked blocked.
+write_record "$ENTITY/RICH-TODOs.md" exhausted
+run_case "c2.LEGITIMATE-STOP-teammate-running-and-every-row-blocked" 0 \
     "$(payload "$TR_MERGE" false "$ENTITY" 3)"
+write_record "$ENTITY/RICH-TODOs.md" normal
+
+# LEGITIMATE STOP 3, answered by the DECLARATION, for the case where the record
+# is right in general and wrong in this moment.
+run_case "c3.LEGITIMATE-STOP-teammate-running-declared" 0 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 3 "$PROMPT_ID" \
+       "Landed it.
+
+stop-declared: waiting-on-teammate — row 3 is the wire protocol handshake and mark-opus-t2 is still rewriting the schema it binds to, so starting it now would be rework.")"
+
+# The raw sentinel must NOT reach the host -- the wrapper consumes it and emits
+# a systemMessage, because a Stop hook's stdout is parsed as JSON and a stray
+# tab-delimited line there is a broken hook, not a notice.
+C3_BAD=""
+printf '%s' "$LAST_OUT" | grep -q "RICHOS_STOP_DECLARED" && C3_BAD="raw sentinel leaked to stdout"
+printf '%s' "$LAST_OUT" | grep -q "systemMessage" || C3_BAD="$C3_BAD; no systemMessage"
+printf '%s' "$LAST_OUT" | grep -q "STOP DECLARED" || C3_BAD="$C3_BAD; not announced"
+printf '%s' "$LAST_OUT" | grep -q "waiting-on-teammate" || C3_BAD="$C3_BAD; case not named"
+if [ -z "$C3_BAD" ]; then
+    printf '  PASS  c3b.a-declared-stop-is-announced-to-the-operator\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  c3b.a-declared-stop-is-announced-to-the-operator (%s)\n' "$C3_BAD"
+    FAIL=$((FAIL + 1))
+fi
 
 write_record "$ENTITY/RICH-TODOs.md" exhausted
 run_case "d.lands-with-nothing-unblocked-passes" 0 "$(payload "$TR_MERGE")"
@@ -408,10 +562,10 @@ run_case "f.operator-called-a-hold-passes" 0 "$(payload "$TR_HOLD")"
 # The hold suppressor must not be reachable from a HOST-written prompt, and not
 # from a code span. Both halves of the real false positive, in one case.
 run_case "f2.quoted-hold-word-in-a-machine-prompt-does-not-suppress" 2 \
-    "$(payload "$TR_QUOTED_HOLD")" "LANDED, AND STARTED NOTHING"
+    "$(payload "$TR_QUOTED_HOLD")" "$BLOCK_HEAD"
 
 run_case "f3.hold-word-inside-a-code-span-does-not-suppress" 2 \
-    "$(payload "$TR_OPERATOR_CODE_HOLD")" "LANDED, AND STARTED NOTHING"
+    "$(payload "$TR_OPERATOR_CODE_HOLD")" "$BLOCK_HEAD"
 
 # --- CONFIRMATION IS IDENTITY, NOT PROSE ----------------------------------
 run_case "g.merge-that-did-not-take-passes" 0 "$(payload "$TR_UNMERGED")"
@@ -427,8 +581,115 @@ git -C "$ENTITY" push -q origin main >/dev/null 2>&1
 
 # --- TURN SCOPING ----------------------------------------------------------
 run_case "i.agent-only-in-an-earlier-turn-still-blocks" 2 \
-    "$(payload "$TR_AGENT_EARLIER")" "LANDED, AND STARTED NOTHING"
+    "$(payload "$TR_AGENT_EARLIER")" "$BLOCK_HEAD"
 run_case "j.agent-in-this-turn-passes" 0 "$(payload "$TR_MERGE_AGENT")"
+
+# --- THE SECOND COMPLETION SIGNAL -----------------------------------------
+# A teammate finishing is the other way work completes here, and the first
+# version of this gate was blind to it: `ops` was an early return, so a turn
+# with no git command in it could not be evaluated at all. This is the second of
+# the two failures the operator reported on 2026-09-01.
+run_case "AA.a-teammate-finished-and-nothing-started-BLOCKS" 2 \
+    "$(payload "$TR_FINISH")" "$BLOCK_HEAD"
+
+if printf '%s' "$LAST_ERR" | grep -qF "Rebuild the corpus"; then
+    printf '  PASS  AA1.refusal-names-the-teammate-that-finished\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  AA1.refusal-names-the-teammate-that-finished\n'; FAIL=$((FAIL + 1))
+fi
+
+# Three narrowings, one case each, because a fixture that trips all three proves
+# none of them.
+run_case "AA2.a-finished-BACKGROUND-COMMAND-is-not-a-teammate" 0 \
+    "$(payload "$TR_FINISH_BG")"
+run_case "AA3.an-agent-STOPPED-BY-THE-USER-is-not-a-delivery" 0 \
+    "$(payload "$TR_FINISH_KILLED")"
+run_case "AA4.a-finish-without-completed-status-is-not-a-delivery" 0 \
+    "$(payload "$TR_FINISH_FAILED")"
+run_case "AA5.a-finish-answered-by-a-dispatch-passes" 0 \
+    "$(payload "$TR_FINISH_AGENT")"
+
+# --- NOTHING IS OWED TO THE CEO -------------------------------------------
+# LEGITIMATE STOP 2, in its two real forms. Neither existed before: the first
+# version of this gate would have refused the turn in which the orchestrator
+# put a decision to him, and the turn in which he said he was going to bed.
+run_case "AB.LEGITIMATE-STOP-a-question-was-put-to-the-CEO" 0 \
+    "$(payload "$TR_MERGE_ASK")"
+run_case "AC.LEGITIMATE-STOP-the-operator-is-going-to-bed" 0 \
+    "$(payload "$TR_BED")"
+
+# A tool call sent to the background IS work started -- the turn handed
+# something off. It belongs with the dispatch, not with the stand-down.
+run_case "AD.a-backgrounded-tool-call-counts-as-started" 0 \
+    "$(payload "$TR_MERGE_BG")"
+
+# --- THE DECLARATION -------------------------------------------------------
+# LEGITIMATE STOP 1, and the whole argument for why the escape is a sentence
+# rather than a flag: it can only be written by someone who has looked.
+run_case "AE.LEGITIMATE-STOP-declared-nothing-unblocked" 0 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
+       "Landed and pushed.
+
+stop-declared: nothing-unblocked — row 3 needs the CEO to choose between the two protocol shapes before anyone can write a line of it, and rows 4 to 6 are behind it.")"
+
+# THE REASON ITSELF, VERBATIM, IN FRONT OF HIM. Half the value of a declaration
+# over a flag is that the sentence is read by the person the stop affects; a
+# notice that named only the case would be a flag with a longer spelling.
+AE_BAD=""
+printf '%s' "$LAST_OUT" | grep -q "nothing-unblocked" || AE_BAD="$AE_BAD (case)"
+printf '%s' "$LAST_OUT" | grep -qF "choose between the two protocol shapes" || AE_BAD="$AE_BAD (reason)"
+printf '%s' "$LAST_OUT" | grep -qF "DECLARED AND NOT VERIFIED" || AE_BAD="$AE_BAD (unverified-caveat)"
+if [ -z "$AE_BAD" ]; then
+    printf '  PASS  AE1.the-declared-case-and-reason-reach-the-operator\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  AE1.the-declared-case-and-reason-reach-the-operator%s\n' "$AE_BAD"
+    FAIL=$((FAIL + 1))
+fi
+
+# A BARE MARKER EXEMPTS NOTHING. Three ways to get it wrong, three cases, and
+# the refusal has to say WHICH -- a rejection the writer cannot diagnose is a
+# gate he unwires.
+run_case "AE2.a-declaration-with-no-real-reason-is-REJECTED" 2 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
+       "Landed.
+
+stop-declared: nothing-unblocked — see above.")" \
+    "YOUR DECLARATION WAS REJECTED"
+
+run_case "AE3.a-case-that-is-not-one-of-the-three-is-REJECTED" 2 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
+       "Landed.
+
+stop-declared: busy — I have a great deal of other work in flight right now and this can wait.")" \
+    "is not one of the three cases"
+
+# QUOTING THE REFUSAL MUST NEVER DISARM THE GATE. The refusal text below prints
+# the declaration line as an example; without the code-span strip, pasting it
+# back -- or quoting this guard's own documentation -- would switch it off.
+run_case "AE4.a-declaration-inside-a-code-span-does-NOT-exempt" 2 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
+       "Landed. The hook told me to write \`stop-declared: nothing-unblocked — a full sentence explaining why nothing is left\` and I am quoting it here rather than declaring anything.")" \
+    "$BLOCK_HEAD"
+
+# --- THE REFUSAL IS PART OF THE DELIVERABLE -------------------------------
+# It is read mid-turn by the thing being refused, and a refusal that says only
+# "you stopped early" rebuilds the problem one level up: the reader has to
+# reconstruct what completed, what is available, and what would have been
+# allowed. All three are asserted, separately.
+run_case "AF.refusal-is-actionable" 2 "$(payload "$TR_MERGE")" "$BLOCK_HEAD"
+AF_MISSING=""
+printf '%s' "$LAST_ERR" | grep -qF "WHAT COMPLETED IN THIS TURN" || AF_MISSING="$AF_MISSING (what-completed)"
+printf '%s' "$LAST_ERR" | grep -qF "UNBLOCKED AND AVAILABLE TO START" || AF_MISSING="$AF_MISSING (what-is-available)"
+printf '%s' "$LAST_ERR" | grep -qF "stop-declared: <case>" || AF_MISSING="$AF_MISSING (the-exact-line)"
+printf '%s' "$LAST_ERR" | grep -qF "nothing-unblocked" || AF_MISSING="$AF_MISSING (case-names)"
+printf '%s' "$LAST_ERR" | grep -qF "waiting-on-teammate" || AF_MISSING="$AF_MISSING (case-names-2)"
+if [ -z "$AF_MISSING" ]; then
+    printf '  PASS  AF1.refusal-names-completed-available-and-the-exact-declaration\n'
+    PASS=$((PASS + 1))
+else
+    printf '  FAIL  AF1.refusal-names-completed-available-and-the-exact-declaration%s\n' "$AF_MISSING"
+    FAIL=$((FAIL + 1))
+fi
 
 # --- THE RECORD, DERIVED ---------------------------------------------------
 # "free after 1-2" with both references struck through resolves to FREE. The
@@ -618,9 +879,20 @@ if [ -s "$LOG" ] && python3 - "$LOG" <<'PY'
 import json, sys
 rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 verdicts = {r["verdict"] for r in rows}
-for want in ("block", "dispatched", "background-running", "held", "backlog-empty"):
+# `background-running` is GONE from this list on purpose: it was the verdict
+# that stood the gate down on 41% of landing turns, and there is no longer any
+# path that produces it. `declared` and `asked-ceo` are the two new ways a turn
+# is let through, and both must be recorded -- an escape nobody can count is an
+# escape nobody can audit.
+for want in ("block", "dispatched", "held", "backlog-empty",
+             "declared", "asked-ceo", "no-completion"):
     assert want in verdicts, (want, sorted(verdicts))
+assert "background-running" not in verdicts, "the blanket stand-down is back"
 assert any(r.get("free") for r in rows), "no derived free-row count recorded"
+declared = [r for r in rows if r["verdict"] == "declared"]
+assert declared and all(r.get("declared", {}).get("why") for r in declared), \
+    "a declared stop was not recorded with its reason"
+assert any(r.get("finishes") for r in rows), "no teammate completion recorded"
 PY
 then
     printf '  PASS  z.observation-record-written\n'; PASS=$((PASS + 1))

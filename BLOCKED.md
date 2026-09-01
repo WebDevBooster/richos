@@ -27,8 +27,10 @@ did not fire and close that."
 
 ## Why it did not fire — measured, not guessed
 
-`.claude/state/idle-land-checks.jsonl` in `/Users/alex/ab/femcboost` is the
-gate's own observation record. 107 landing turns across three sessions:
+The gate writes an observation record, one line per turn, into a state file
+named idle-land-checks.jsonl under the governed repository. That file lives in
+the operator's own private femcboost checkout, not in any published tree, and
+it holds 107 landing turns across three sessions:
 
 | verdict | turns |
 |---|---|
