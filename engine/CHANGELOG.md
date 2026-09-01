@@ -10,7 +10,105 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The turn gate blocked once in 107 landing turns, because anything running
+  switched it off** (`scripts/hooks/guard-idle-land.py`,
+  `scripts/hooks/guard-idle-land.sh`, `scripts/hooks/guard-idle-land.test.sh`,
+  `scripts/hooks/idle-land.mutation.sh`, `scripts/hooks/idle-land.corpus.md`) —
+  MINOR.
+
+  `guard-idle-land.sh` shipped on 2026-08-30 refusing a turn that landed work
+  and started nothing. It then watched that exact failure happen twice more on
+  2026-09-01, and the CEO said it had been going on for months. **A gate that
+  ships and then watches the thing it forbids happen twice is not a gate; it is
+  a receipt.** Its own observation record says why, over 107 real landing turns
+  on the operator's machine: `dispatched` 60, `background-running` **44**,
+  `backlog-empty` 2, `block` **1**.
+
+  Two defects, both of which made it quiet.
+
+  **Term 4 was a blanket disarm.** It stood the whole gate down whenever
+  `background_tasks` held anything running — and read out of the shipping binary
+  (2.1.252), that field is `taskRegistry.all()` filtered to running|pending over
+  ten task types: teammates, subagents, shells, monitors, workflows, MCP tasks,
+  dreams, scans, cloud sessions. An orchestrator that keeps ten to fifteen
+  teammates alive has the gate off almost whenever it matters — 12 of 20 landing
+  turns in the operator's live session. The legitimate stop is far narrower than
+  that suppressor was: *a teammate is running **and the next step depends on its
+  result***, and dependency is already written down, in the record's own
+  `Blocked by` column. So the record answers the case, the process count no
+  longer votes, and what was running is REPORTED in the refusal instead. Work
+  started *by this turn* still suppresses, and now includes a backgrounded tool
+  call as well as an `Agent` call.
+
+  **Term 1 read only half of "completed".** Work completes two ways: a land, and
+  a teammate handing its work back. `ops` was an early return, so no turn
+  without a git command could be evaluated at all. The gate now also triggers on
+  the host's own `<task-notification>` — `<status>completed</status>` plus an
+  `Agent "..." finished` summary, inside this turn's promptId window. A finished
+  background command is not a teammate; an agent stopped by the user is not a
+  delivery.
+
+  **And the three legitimate stops now have routes**, which is the hard half. An
+  `AskUserQuestion` this turn passes, read from the tool call and never from
+  prose. The operator saying *he* is stopping passes — a different claim from an
+  instruction to hold, and how a night actually ends. And the stop can be
+  DECLARED:
+
+  ```
+  stop-declared: <case> — <why, in a full sentence>
+  ```
+
+  over a closed set of three cases (`nothing-unblocked`, `ceo-owns-it`,
+  `waiting-on-teammate`), six words and thirty characters of reason minimum,
+  echoed to the operator through `systemMessage` every time with "DECLARED AND
+  NOT VERIFIED" attached. The header that argued for no override token was right
+  about TOKENS, and that is why this is not one: a flag is free and gets typed
+  reflexively, while a sentence naming which case applies and why can only be
+  written by somebody who has looked. Code spans are stripped and the line must
+  start a line, so quoting the refusal cannot switch the gate off.
+
+  Measured on **1,221 real orchestrator turns** across 18 session files before it
+  was trusted with `exit 2`: it fires on 25 — 2.0% of all turns, 56% of the 45
+  that reach the last term. All 25 read by hand: **15 are the failure itself**,
+  5 are legitimate `ceo-owns-it` stops asked in prose rather than through the
+  tool, 5 are legitimate `waiting-on-teammate` stops that name the teammate in
+  the reply, and **0 had no honest route through**. Full corpus, funnel and
+  objection: `scripts/hooks/idle-land.corpus.md`.
+
+  Suite 38 → 59 cases; a new 18-mutant harness proves every one load-bearing,
+  and the run found three of the author's own checks that were not.
+
 ### Added
+
+- **The Stop event's guards are now checked for ENFORCEMENT, not registration —
+  probe Layer IL** (`scripts/hooks/contract-integrity-probe.sh`,
+  `scripts/hooks/contract-integrity.test.sh`, `scripts/demo.sh`,
+  `scripts/hooks/install.sh`) — MINOR.
+
+  Nine hooks run on `Stop`, two of them blocking, and this probe knew all nine
+  only as REGISTRATION. The idle-land gate is the proof that the two are
+  different: it was registered, hashed, executable, counted in the banner and
+  green on every layer for two days while refusing almost nothing.
+
+  Layer IL is **two-sided**, over a real git repository with a real merge —
+  a bad turn must be REFUSED (exit 2) and a legitimately declared stop must PASS
+  (exit 0). Both halves are load-bearing, and the second is the one worth
+  arguing about: this gate fails OPEN by design, so a corpse exits 0 and a
+  one-sided canary would be satisfied by the exact state it shipped in.
+
+  Four gaps had to close for the layer to be possible, and each was real on its
+  own: the probe's hook extractor read `PreToolUse` only, so the Stop event was
+  invisible to every functional layer; the contract-integrity sandbox wired no
+  Stop hooks at all while claiming to mirror every event; **neither sandbox file
+  list carried the `.py` analyzers** that five Stop wrappers take their entire
+  verdict from — and `sandbox-completeness.sh` cannot see that, because a
+  wrapper without its analyzer STARTS PERFECTLY; and `guard-idle-land.py` was
+  unhashed, so the one file that makes every decision was the one file nobody
+  verified.
+
+  contract-integrity 112 → 123 cases.
 
 - **A CEO item can now notice that it is already finished — `Done-check`**
   (`scripts/lib/ceo-todos.py`, `scripts/lib/ceo-todos.sh`,
