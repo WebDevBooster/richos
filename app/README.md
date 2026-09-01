@@ -138,6 +138,10 @@ app/
                               CONTROL (proven failing with the guard removed), immutability,
                               the fail-closed unbound legacy thread + its one-way explicit
                               adoption, the activation fence, and restart
+    tests/entity_registry_tests.rs 5 tests that the registry is the CEO's own six companies
+                              rather than four directory names, including the multi-root
+                              proof (`richos` + `richos-hq` -> one entity id) and the
+                              string-prefix trap beside it
     tests/spine_tests.rs     12 spine invariant tests (no live Claude needed)
     tests/rotation_tests.rs  22 rotation/crash-recovery/proactive-seam tests, including
                               the watermark's own live-vs-estimated source reporting
@@ -247,6 +251,12 @@ app/
     tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
+    tests/loro_lane_map_tests.rs 10 lane-map tests: the default map is the CEO's six
+                              companies, a lane the corpus does not have is DROPPED rather
+                              than sent (loro exits 2 on one, which would make every
+                              re-prime Unavailable), the cross-entity guard still refuses
+                              after a drop, and a thread reading another company's in-repo
+                              record is told whose record it is
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
@@ -570,7 +580,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 568 tests + 5 doc-tests
+cargo test -p richos-core                       # 583 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
@@ -974,11 +984,34 @@ none.
   `loro/` directory and never will — the corpus and the vocabulary are the owner's and live
   outside a repository that gets published.
 - `RICHOS_LORO_LANES` — optional, `entity=lane,entity=lane`. Maps an ECS entity area onto a
-  loro company partition. **Empty by default, and name equality is never a mapping**: an
-  entity with no lane reads the CEO layer and nothing else, and a slice carrying another
-  company's item is refused whole. This is a map rather than a rule because the corpus
-  layout question is the owner's to answer, and a hard-coded entity-is-a-company would
-  answer it by shipping.
+  loro company partition. **It is a map, never a rule** — name equality is not a mapping,
+  an entity with no lane reads the CEO layer and nothing else, and a slice carrying another
+  company's item is refused whole. It defaults to each registered entity mapped to a lane
+  of the same name, which is an ENUMERATION of the registry rather than a pattern: an id
+  that is not registered gets no lane however much it looks like one, and a lane keyed by
+  an unregistered id is refused at boot as the typo it is. Setting this wins outright,
+  including setting it empty, which turns lane narrowing off.
+
+  **Every lane is reconciled against the corpus before anything is sent.** A mapping is a
+  claim that a partition exists, and loro refuses a lane it does not have — `exit 2: no
+  such company partition "x" in this corpus` — which would make every re-prime
+  `Unavailable`. So at boot the app asks the corpus which partitions it actually has
+  (`loro-context.mjs corpus`, ~0.06 s), drops every mapping the corpus cannot satisfy, and
+  names each drop on stderr. A failed probe leaves the map exactly as configured; it is
+  never read as "no partitions", because those are different facts.
+
+  **When the corpus has partitions and an entity is bound to none of them**, its compile
+  widens, loro returns every lane, and the cross-entity guard refuses the slice whole —
+  fail-closed and correct, and it reaches the CEO as "loro could not be consulted" every
+  turn. Boot says so by name.
+
+  **When the corpus is one repository's own record** (`layout: repo` — no partitions,
+  `company: null` on every item), the lane map has nothing to narrow and the guard has
+  nothing to refuse, and a thread bound to a different entity would silently receive that
+  product's record under a `COMPANY MEMORY` heading. The registry names the owner from the
+  corpus's own root, and every other entity's slice is prefixed with one sentence saying
+  whose record it is. The owner's own slices are untouched, and an unowned root leaves the
+  owner unstated rather than guessed.
 - `RICHOS_NODE_BIN` — optional; the `node` used to run the two loro entry points.
 
 See it end to end without launching the app:
