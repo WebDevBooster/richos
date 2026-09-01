@@ -181,6 +181,33 @@ STUB
 #
 # Exit 0: the marker arrived. Exit 7: the timeout expired first — which is a REAL failure
 # ("this build did not finish booting"), reported as one and never as a pass.
+#
+# ---------------------------------------------------------------------------------------
+# EVERY LAUNCH IS KILLED BY THE THING THAT MADE IT, ON EVERY PATH
+# ---------------------------------------------------------------------------------------
+#
+# THIS WAS WRONG AND IT REACHED THE CEO'S DOCK. The first version of this function wrote
+#
+#     ( cd / && env -i ... "$bin" >> "$out" 2>&1 ) &
+#     local pid=$!
+#
+# and `$!` there is the SUBSHELL, not the app. `cd / && env …` is a compound list, so bash
+# forks a subshell which then forks `env`, which execs the binary — and the `kill` below
+# reached the first of them. The app was orphaned to PID 1 and kept running with its window.
+# Measured on 2026-09-01: 157 live `richos-tauri` processes, roughly six per round across
+# about twenty-six rounds, every one from a `<tmp>/…/RichOS.app` whose directory had already
+# been deleted. Deleting a temp directory does not kill what is running out of it —
+# CLAUDE.md's zombie-residue rule, in the exact shape the rule describes.
+#
+# Three changes, and each is load-bearing:
+#
+#   1. `exec` — the subshell REPLACES itself with the binary, so `$!` is the app's own pid.
+#      One process, and the pid this function holds is the pid it needs to signal.
+#   2. TERM, then a bounded wait, then KILL, then VERIFY the pid is gone. A signal sent is
+#      not a process ended.
+#   3. every pid is appended to `$GUI_LAUNCHED_PIDS` before the wait begins, so the caller's
+#      EXIT trap can reap it even if this function is interrupted before it gets to kill it.
+#      The FAILING rounds are exactly the ones that leave processes behind.
 # ---------------------------------------------------------------------------------------
 gui_boot() {
   local home="$1" out="$2" limit="${3:-60}"
@@ -189,17 +216,17 @@ gui_boot() {
 
   # cwd=/ and an empty environment, exactly as measured. `USER` is passed because launchd
   # passes it; nothing reads it, and leaving it out would make this a condition no launch
-  # actually produces.
-  ( cd / && env -i HOME="$home" USER="${USER:-unknown}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  # actually produces. `exec` so that this subshell IS the app — see the header above.
+  ( cd / && exec env -i HOME="$home" USER="${USER:-unknown}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
       "$bin" >> "$out" 2>&1 ) &
   local pid=$!
+  [ -n "${GUI_LAUNCHED_PIDS:-}" ] && printf '%s\n' "$pid" >> "$GUI_LAUNCHED_PIDS"
 
-  local waited=0
+  local rc=7 waited=0
   while [ "$waited" -lt "$((limit * 10))" ]; do
     if grep -q '^\[richos\] boot complete' "$out" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      wait "$pid" 2>/dev/null
-      return 0
+      rc=0
+      break
     fi
     # The process can also DIE before finishing — a panic in `setup`, a failed window
     # build. That is a result, not a reason to wait out the clock.
@@ -211,8 +238,56 @@ gui_boot() {
     sleep 0.1
     waited=$((waited + 1))
   done
-  kill -9 "$pid" 2>/dev/null
+  [ "$rc" -eq 7 ] && echo "[gui_boot] no 'boot complete' within ${limit}s" >> "$out"
+  gui_kill "$pid" || echo "[gui_boot] pid $pid SURVIVED both TERM and KILL" >> "$out"
   wait "$pid" 2>/dev/null
-  echo "[gui_boot] no 'boot complete' within ${limit}s" >> "$out"
-  return 7
+  return "$rc"
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_kill <pid>
+#
+# End it, and PROVE it ended. Exit 0 when the pid is gone, 1 when it survived both signals —
+# which the caller reports rather than swallowing, because a kill that failed quietly is how
+# 157 of these accumulated.
+# ---------------------------------------------------------------------------------------
+gui_kill() {
+  local pid="$1" i=0
+  kill -0 "$pid" 2>/dev/null || return 0
+  kill -TERM "$pid" 2>/dev/null
+  while [ "$i" -lt 30 ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  kill -KILL "$pid" 2>/dev/null
+  i=0
+  while [ "$i" -lt 30 ]; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------------------
+# gui_reap_all
+#
+# The backstop, run from the suite's EXIT trap so it runs on the failing paths too. Kills
+# every pid this run recorded, then prints how many survived — a NUMBER, so "there is no
+# residue" is measured rather than assumed.
+#
+# It only ever touches pids THIS RUN launched, read out of `$GUI_LAUNCHED_PIDS`. The CEO's
+# own install at ~/Applications/RichOS.app is never started here and no signal from here can
+# reach it.
+# ---------------------------------------------------------------------------------------
+gui_reap_all() {
+  local survivors=0 pid
+  if [ -n "${GUI_LAUNCHED_PIDS:-}" ] && [ -f "$GUI_LAUNCHED_PIDS" ]; then
+    while IFS= read -r pid; do
+      [ -n "$pid" ] || continue
+      gui_kill "$pid" || survivors=$((survivors + 1))
+    done < "$GUI_LAUNCHED_PIDS"
+  fi
+  printf '%s\n' "$survivors"
 }

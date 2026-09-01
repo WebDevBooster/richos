@@ -72,6 +72,9 @@
 #   B5  loro tools removed              -> RED              for one seam is alive on this
 #   B6  the claude stand-in removed     -> RED              run and not a corpse
 #   B7  the saved company removed       -> RED
+#   Y1  gui_kill ends an ordinary process, verified by pid and not by signal
+#   Y2  ...and escalates to KILL for one that ignores TERM
+#   Z   this run left nothing running, and the count is printed
 #
 # B3-B7 break the MACHINE, not the source, so they run on every invocation in seconds. The
 # proof that this check catches the three HISTORICAL defects — the source premises put back
@@ -317,7 +320,26 @@ rm -f "$SCAN_AWK"
 # returns 0.
 
 TMP="$(mktemp -d -t gui-boot-test.XXXXXX)"
-trap 'rm -rf "$TMP"' EXIT
+
+# EVERY PROCESS THIS RUN STARTS IS ENDED BY THIS RUN, ON EVERY PATH INCLUDING THE FAILING
+# ONES. A launched app outlives the harness that launched it, and deleting the temp
+# directory does not kill what is running out of it — this suite proved that the hard way on
+# 2026-09-01 by leaving 157 orphaned `richos-tauri` processes on the CEO's Dock, six per
+# round, because it killed the subshell instead of the app (`lib/gui-launch.sh`'s header has
+# the full diagnosis). The trap reaps PROCESSES first and the directory second, in that
+# order, and it is `EXIT` rather than end-of-script so a `set -e` abort, a failed case or a
+# Ctrl-C cannot skip it.
+GUI_LAUNCHED_PIDS="$TMP/launched.pids"
+export GUI_LAUNCHED_PIDS
+: > "$GUI_LAUNCHED_PIDS"
+cleanup() {
+  if declare -f gui_reap_all >/dev/null 2>&1; then
+    local left; left="$(gui_reap_all)"
+    [ "${left:-0}" -gt 0 ] && echo "  gui-boot.test.sh: $left launched process(es) SURVIVED cleanup" >&2
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT INT TERM
 
 # A healthy log, written out here so A1/A2 differ from it by exactly one line.
 healthy_log() {
@@ -471,6 +493,58 @@ break_and_boot "the corpus pointer is removed -> caught"      B4 rm -rf "Library
 break_and_boot "the loro tools are removed -> caught"         B5 rm -rf "Library/Application Support/RichOS/loro-tools"
 break_and_boot "the claude stand-in is removed -> caught"     B6 rm -f  .local/bin/claude
 break_and_boot "the saved company is removed -> caught"       B7 rm -f  "Library/Application Support/com.richos.app/config.json"
+
+# =========================================================================================
+# Y — the reaper, proved on real processes
+# =========================================================================================
+#
+# `gui_kill` is the piece that failed on 2026-09-01, so it does not get to be trusted. Two
+# cases, and the second is the one that matters: a process that IGNORES `TERM` must still be
+# gone when the function returns, or "I killed it" is a claim about a signal rather than
+# about a process.
+
+Y="$(bash -c 'sleep 60 & echo $!')"
+if gui_kill "$Y" && ! kill -0 "$Y" 2>/dev/null; then
+  ok "Y1 gui_kill ends an ordinary process and the pid is gone when it returns"
+else
+  bad "Y1 gui_kill ends an ordinary process" "pid $Y survived, or gui_kill reported failure"
+  kill -9 "$Y" 2>/dev/null
+fi
+
+# `trap "" TERM` — TERM is ignored, so only the KILL escalation can end this one.
+Y="$(bash -c 'bash -c '"'"'trap "" TERM; sleep 60'"'"' & echo $!')"
+if gui_kill "$Y" && ! kill -0 "$Y" 2>/dev/null; then
+  ok "Y2 gui_kill escalates to KILL for a process that ignores TERM"
+else
+  bad "Y2 gui_kill escalates to KILL" "pid $Y survived both signals"
+  kill -9 "$Y" 2>/dev/null
+fi
+
+# =========================================================================================
+# Z — this run left nothing running
+# =========================================================================================
+#
+# A CASE AND NOT A COMMENT, because on 2026-09-01 this suite left 157 orphaned RichOS
+# processes running with their windows on the CEO's Dock — six per round, across about
+# twenty-six rounds, every one of them reparented to PID 1 out of a temp directory that had
+# already been deleted. `gui_boot` killed the subshell and not the app.
+#
+# So the count is ASSERTED and PRINTED, here, on every run. Each pid this run started is
+# TERM'd, waited for, KILL'd and then checked; anything still alive is a failure with a
+# number beside it. The number in the run output is the evidence — "there is no residue" is
+# not a thing anybody gets to say without it.
+LAUNCHED="$(grep -c . "$GUI_LAUNCHED_PIDS" 2>/dev/null || echo 0)"
+STILL=0
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  kill -0 "$p" 2>/dev/null && STILL=$((STILL + 1))
+done < "$GUI_LAUNCHED_PIDS"
+if [ "$STILL" -eq 0 ]; then
+  ok "Z this run launched $LAUNCHED app(s) and $STILL are still running"
+else
+  bad "Z this run launched $LAUNCHED app(s) and $STILL are still running" \
+      "every launch must be ended by the run that made it; the EXIT trap will try again"
+fi
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
