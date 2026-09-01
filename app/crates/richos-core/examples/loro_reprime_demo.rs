@@ -20,9 +20,9 @@
 //! ordinary case, not a failure.
 
 use richos_core::cognition::{Cognition, CognitionError, TurnItem};
-use richos_core::entity::EntityId;
+use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::ledger::{Ledger, Source};
-use richos_core::loro::CliContextCompiler;
+use richos_core::loro::{CliContextCompiler, CorpusLanes};
 use richos_core::spine::Spine;
 use std::sync::{Arc, Mutex};
 
@@ -54,9 +54,34 @@ fn main() {
     let entity = std::env::var("RICHOS_ENTITY").unwrap_or_else(|_| "richos".into());
 
     let compiler = match CliContextCompiler::from_env() {
-        Ok(Some(c)) => {
+        Ok(Some(mut c)) => {
             eprintln!("[demo] corpus root: {}", c.root().path().display());
-            eprintln!("[demo] entity->lane map: {} entr(ies)", c.lanes().len());
+            eprintln!("[demo] entity->lane map as configured: {} entr(ies)", c.lanes().len());
+            // The SAME reconciliation the app runs at boot, so this demonstration cannot
+            // pass through a configuration the app would have refused to send.
+            match CorpusLanes::probe(c.tools(), c.root()) {
+                Ok(corpus) => {
+                    eprintln!(
+                        "[demo] corpus partitions: {}",
+                        if corpus.is_unpartitioned() { "(none)".into() } else { corpus.companies().join(", ") }
+                    );
+                    for note in c.reconcile_lanes(&corpus) {
+                        eprintln!("[demo] loro lane: {note}");
+                    }
+                    eprintln!("[demo] entity->lane map after reconciliation: {} entr(ies)", c.lanes().len());
+                    // The same corpus-owner resolution the app does at boot.
+                    if let Some(repo) = corpus.repo_layout_root() {
+                        match EntityRegistry::ceos_companies().resolve_root(repo) {
+                            Ok(owner) => {
+                                eprintln!("[demo] in-repo corpus owned by entity {}", owner.id);
+                                c.set_repo_corpus_owner(Some(owner.id.to_string()));
+                            }
+                            Err(e) => eprintln!("[demo] in-repo corpus at {} owned by nobody registered: {e}", repo.display()),
+                        }
+                    }
+                }
+                Err(e) => eprintln!("[demo] could not read the corpus partitions ({e}) — lanes left as configured"),
+            }
             Some(c)
         }
         Ok(None) => {

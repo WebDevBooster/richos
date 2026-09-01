@@ -24,7 +24,7 @@ use richos_core::feedback::{
 };
 use richos_core::journal::{MachineryJournal, RawRetention};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
-use richos_core::loro::{CliContextCompiler, SharedSliceProvenance, SliceProvenance};
+use richos_core::loro::{CliContextCompiler, CorpusLanes, SharedSliceProvenance, SliceProvenance};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::heard::{DictationJournal, HeardSource};
@@ -648,7 +648,7 @@ fn main() {
             // in it; if none does, the app launches with NO active context, every send
             // is still refused — and `entity_choice`/`choose_entity` are how the CEO
             // reaches one from inside the window, which is the part that was missing.
-            let boot = boot_entity(&EntityRegistry::dogfood(), &config);
+            let boot = boot_entity(&EntityRegistry::ceos_companies(), &config);
             match &boot.entity {
                 Some(entity) => {
                     eprintln!("[richos] company: {entity} (via {})", boot.source.map(|s| s.describe()).unwrap_or("resolution"));
@@ -662,12 +662,22 @@ fn main() {
                 // IT NO LONGER ENDS THERE, and that is the substantive change: the CEO is
                 // now asked in the window, so this says what he will see rather than
                 // implying a terminal is the only way through.
+                // THE LIST IS DERIVED, NOT TYPED. It was typed, it said "femcboost,
+                // deeply, prospects or richos", and on 2026-09-01 the registry grew to the
+                // CEO's real six — at which point a hand-written list becomes an operator
+                // instruction that omits two of the valid answers and reads as if they are
+                // invalid. Reading it off the registry is one expression and cannot drift.
                 None => eprintln!(
                     "[richos] no company resolved — RichOS will ask in the window and \
                      remember the answer.\n\
-                     [richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects \
-                     or richos) still overrides, as does launching from that entity's \
-                     repository root."
+                     [richos] operator: RICHOS_ENTITY (one of {}) still overrides, as does \
+                     launching from that entity's repository root.",
+                    EntityRegistry::ceos_companies()
+                        .entities()
+                        .iter()
+                        .map(|e| e.id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             }
 
@@ -740,6 +750,89 @@ fn main() {
             match CliContextCompiler::from_env() {
                 Ok(Some(mut compiler)) => {
                     eprintln!("[richos] loro Tier C: compiling from {}", compiler.root().path().display());
+                    // THE LANE MAP, RECONCILED AGAINST THE CORPUS — open item 3.5, and the
+                    // reason it is safe to stop being empty.
+                    //
+                    // The map defaults to the CEO's six companies now that he has ratified
+                    // the layout (`wiki/ceo-decisions.md` §5). A mapping is a CLAIM that a
+                    // partition exists, and loro refuses one it does not have — `exit 2: no
+                    // such company partition "femcboost" in this corpus. Known: (none).`
+                    // His corpus has zero partitions today, so a map that were merely
+                    // filled in would make every re-prime `Unavailable`. Asking the corpus
+                    // costs 0.06 s (measured, three runs) and turns the map from a claim
+                    // into a fact.
+                    //
+                    // A FAILED PROBE IS NOT "NO PARTITIONS". It leaves the map exactly as
+                    // configured and says so — inventing an empty corpus from a failure to
+                    // read one is the same class of lie the whole seam is built against.
+                    match CorpusLanes::probe(compiler.tools(), compiler.root()) {
+                        Ok(corpus) => {
+                            for note in compiler.reconcile_lanes(&corpus) {
+                                eprintln!("[richos] loro lane: {note}");
+                            }
+                            let unmapped =
+                                compiler.entities_with_no_lane(&EntityRegistry::ceos_companies(), &corpus);
+                            if !unmapped.is_empty() {
+                                // Loud, because the CEO's side of this is a re-prime that
+                                // says "loro could not be consulted" every turn: with no
+                                // lane the compile widens, loro returns another company's
+                                // items, and the cross-entity re-assertion refuses the
+                                // slice whole. Fail-closed and correct, and useless to him.
+                                eprintln!(
+                                    "[richos] loro lane: this corpus has partitions ({}) but {} \
+                                     {} bound to none of them — every slice for {} will be \
+                                     REFUSED by the cross-entity guard. Set RICHOS_LORO_LANES.",
+                                    corpus.companies().join(", "),
+                                    unmapped.join(", "),
+                                    if unmapped.len() == 1 { "is" } else { "are" },
+                                    if unmapped.len() == 1 { "it" } else { "them" },
+                                );
+                            }
+                            if compiler.lanes().is_empty() {
+                                eprintln!(
+                                    "[richos] loro lane: no lane narrowing in force — every company \
+                                     reads the CEO layer, which is the whole of an unpartitioned corpus."
+                                );
+                            }
+                            // WHOSE RECORD IS THIS, when the corpus is one repository's own.
+                            //
+                            // An in-repo corpus has no partitions and no company field on
+                            // any item, so the lane map has nothing to narrow and the
+                            // cross-entity guard has nothing to refuse — both work, and
+                            // neither can see that a FemcBoost thread is being handed
+                            // RichOS's record under a heading reading COMPANY MEMORY.
+                            // Measured on 2026-09-01 against the CEO's only corpus.
+                            //
+                            // The REGISTRY answers whose it is, which it could not do
+                            // before today: `richos-hq` became a registered root of the
+                            // `richos` entity in this same pass. An unowned path leaves the
+                            // owner unstated rather than guessed.
+                            if let Some(repo) = corpus.repo_layout_root() {
+                                let registry = EntityRegistry::ceos_companies();
+                                match registry.resolve_root(repo) {
+                                    Ok(owner) => {
+                                        eprintln!(
+                                            "[richos] loro corpus: in-repo layout at {} — this is {}'s own \
+                                             record, and every other company's slice will say so.",
+                                            repo.display(),
+                                            owner.id
+                                        );
+                                        compiler.set_repo_corpus_owner(Some(owner.id.to_string()));
+                                    }
+                                    Err(e) => eprintln!(
+                                        "[richos] loro corpus: in-repo layout at {} but no registered \
+                                         company owns that path ({e}) — the owner is left unstated \
+                                         rather than guessed.",
+                                        repo.display()
+                                    ),
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!(
+                            "[richos] loro lane: could not read which partitions this corpus has ({e}) \
+                             — the lane map is left exactly as configured rather than assumed empty."
+                        ),
+                    }
                     compiler.set_provenance_sink(std::sync::Arc::clone(&loro_provenance));
                     spine.set_loro_context_compiler(Box::new(compiler));
                     spine.set_loro_provenance(std::sync::Arc::clone(&loro_provenance));
@@ -1824,7 +1917,7 @@ fn choose_entity(state: State<AppState>, entity_id: String) -> Result<EntityChoi
         return Err(ENTITY_PINNED_MESSAGE.to_string());
     }
     let id = EntityId::parse(entity_id.trim()).map_err(|_| unknown_company_message(entity_id.trim()))?;
-    if !EntityRegistry::dogfood().contains(&id) {
+    if !EntityRegistry::ceos_companies().contains(&id) {
         return Err(unknown_company_message(id.as_str()));
     }
 
@@ -2096,7 +2189,7 @@ mod entity_choice_tests {
     use std::path::Path;
 
     fn reg() -> EntityRegistry {
-        EntityRegistry::dogfood()
+        EntityRegistry::ceos_companies()
     }
 
     fn id(s: &str) -> EntityId {
@@ -2340,9 +2433,16 @@ mod navigation_tests {
         let (spine, path) = spine_from_real_ledger("group");
         let tree = build_navigation_tree(&spine, &nav::NavState::default());
 
-        // Four registered entities, each its own top-level group (§25 Navigation #1).
-        let ids: Vec<&str> = tree.groups.iter().map(|g| g.entity.id.as_str()).collect();
-        assert_eq!(ids, vec!["femcboost", "deeply", "prospects", "richos"]);
+        // Every registered entity gets its own top-level group (§25 Navigation #1) — SIX
+        // since 2026-09-01, when the registry stopped being four directory names and
+        // became the CEO's own list. Read off the registry rather than retyped: a nav test
+        // that hard-codes the roster fails the day a company is added, which is a true
+        // failure worth exactly one line, not a second place to keep the list.
+        let ids: Vec<String> = tree.groups.iter().map(|g| g.entity.id.clone()).collect();
+        let expected: Vec<String> =
+            EntityRegistry::ceos_companies().entities().iter().map(|e| e.id.to_string()).collect();
+        assert_eq!(ids, expected);
+        assert_eq!(ids.len(), 6, "the CEO named six companies on 2026-09-01");
 
         // The pre-entity thread is listed, but NOT inside any entity.
         assert_eq!(tree.unbound.len(), 1);
@@ -2455,7 +2555,7 @@ mod navigation_tests {
     /// `app/ui/timeline.js` (pinned by `app/ui/tests/scale.js`), the entity index is
     /// `run_search` above. Neither had a test at either number until 2026-08-30.
     ///
-    /// SEEDED, NOT ASSUMED. The shipping registry is `EntityRegistry::dogfood()` — FOUR
+    /// SEEDED, NOT ASSUMED. The shipping registry is `EntityRegistry::ceos_companies()` — SIX
     /// entities, hard-coded, because it IS the current registry rather than a default. So
     /// 10,000 is a scale the product cannot reach today, and this test SEEDS it through
     /// `Spine::set_entity_registry`, which exists for exactly this. That is stated plainly

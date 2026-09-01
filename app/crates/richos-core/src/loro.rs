@@ -180,14 +180,27 @@ impl LoroTools {
 /// that binds an entity to a loro partition because the two strings match is doing precisely
 /// the thing the sentence forbids, one layer down, in the payload that carries the sentence.
 ///
-/// # And why it does not settle CEO decision 1.6
+/// # It was empty by default until 2026-09-01, and why it no longer is
 ///
-/// `loro-structure.md`'s "one loro, two homes" — the CEO layer plus N company partitions
-/// — is READY-FOR-CEO and unratified (open-items 1.6). Shipping a hard-coded
-/// entity-is-a-company rule would ratify it in code while the register still says OPEN. A
-/// map that an operator fills in, and that is EMPTY by default, asserts nothing about the
-/// layout: with no mapping the seam refuses to narrow and says why, which is the honest
-/// fallback rather than a smaller version of a decision that has not been taken.
+/// `loro-structure.md`'s "one loro, two homes" — the CEO layer plus N company partitions —
+/// was READY-FOR-CEO and unratified (open-items 1.6/3.5). Shipping a hard-coded
+/// entity-is-a-company rule would have ratified it in code while the register still said
+/// OPEN, so the map was empty by default and the seam simply refused to narrow.
+///
+/// **He ratified it on 2026-09-01** (`wiki/ceo-decisions.md` §5: *"The proposals there make
+/// sense… The only thing I'd change is replace `person/` with `ceo/`"*), so the default is
+/// now [`LaneMap::ceos_companies`] — his six registered entities, each mapped to a lane of
+/// the same name. That is still an enumeration rather than a rule: the map holds six
+/// stated pairs, `lane_for` answers `None` for everything else, and no seventh entity
+/// acquires a lane by looking like one.
+///
+/// # And the map is reconciled against the corpus before anything is sent
+///
+/// A mapping is a claim that a partition exists, and loro refuses a lane it does not have
+/// — `exit 2: no such company partition "femcboost" in this corpus. Known: (none).` The
+/// CEO's corpus today has **zero** partitions, so a map that were merely filled in would
+/// turn every re-prime into `LoroTier::Unavailable`. See
+/// [`CliContextCompiler::reconcile_lanes`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneMap(BTreeMap<String, String>);
 
@@ -212,15 +225,66 @@ impl LaneMap {
         Ok(LaneMap(map))
     }
 
+    /// The ratified default: each of the CEO's six registered entities mapped to a loro
+    /// company lane of the same name (`wiki/ceo-decisions.md` §5).
+    ///
+    /// **Same-name is a STATED pair here, not an inferred rule.** The distinction is the
+    /// whole point of this type and it survives: the map is built by enumerating
+    /// [`crate::entity::EntityRegistry::CEOS_COMPANIES`], so it holds exactly six pairs and
+    /// `lane_for` answers `None` for a seventh id however much it looks like one of the
+    /// six. Nothing binds an entity to a partition because two strings match; six pairs
+    /// were written down, and they are these.
+    ///
+    /// It is also inert until his corpus is partitioned — see
+    /// [`CliContextCompiler::reconcile_lanes`].
+    pub fn ceos_companies() -> Self {
+        LaneMap(
+            crate::entity::EntityRegistry::CEOS_COMPANIES
+                .iter()
+                .map(|(id, _, _)| ((*id).to_string(), (*id).to_string()))
+                .collect(),
+        )
+    }
+
+    /// `RICHOS_LORO_LANES` when the operator sets it; [`Self::ceos_companies`] otherwise.
+    ///
+    /// An explicit setting still wins outright — including an explicitly EMPTY one, which
+    /// is how an operator turns lane narrowing off entirely without editing the binary.
     pub fn from_env() -> Result<Self, LoroError> {
         match std::env::var("RICHOS_LORO_LANES") {
             Ok(v) if !v.trim().is_empty() => LaneMap::parse(&v),
-            _ => Ok(LaneMap::default()),
+            Ok(_) => Ok(LaneMap::default()),
+            Err(_) => Ok(LaneMap::ceos_companies()),
         }
+    }
+
+    /// Every mapped id must be a REGISTERED entity.
+    ///
+    /// `femcbost=fb` is one keystroke from a real mapping and, unchecked, maps nothing
+    /// while looking exactly like a working configuration — the same failure the
+    /// empty-half check in [`Self::parse`] refuses, one level up. The lane half is NOT
+    /// checked here: which partitions exist is a fact about the corpus, not about this
+    /// process, and it is answered by [`CliContextCompiler::reconcile_lanes`].
+    pub fn validate_against(&self, registry: &crate::entity::EntityRegistry) -> Result<(), LoroError> {
+        for entity in self.0.keys() {
+            let known = crate::entity::EntityId::parse(entity).is_ok_and(|id| registry.contains(&id));
+            if !known {
+                return Err(LoroError::LaneMap(format!(
+                    "{entity:?} is not a registered entity — a lane keyed by a typo maps nothing \
+                     and looks like a working configuration"
+                )));
+            }
+        }
+        Ok(())
     }
 
     pub fn lane_for(&self, entity_id: &str) -> Option<&str> {
         self.0.get(entity_id).map(String::as_str)
+    }
+
+    /// The entity ids this map carries, in id order.
+    pub fn entities(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(String::as_str)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -229,6 +293,139 @@ impl LaneMap {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+}
+
+/// The company partitions a corpus ACTUALLY has, read from the corpus rather than assumed.
+///
+/// `loro-context.mjs corpus --format json` reports `companies` and `retiredCompanies`
+/// (`bin/loro-context.mjs`, the `corpus` command). Measured on the CEO's real corpus,
+/// three consecutive runs: **0.07 s, 0.06 s, 0.06 s** — cheap enough to run once at boot,
+/// and the only thing that can tell a mapping from a wish.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CorpusLanes {
+    companies: Vec<String>,
+    retired: Vec<String>,
+    /// `"repo"` or `"corpus"`, as the corpus reported it. Empty when the caller built this
+    /// with [`CorpusLanes::new`] and said nothing about the layout.
+    layout: String,
+    /// The corpus's own root, as the corpus reported it.
+    root: PathBuf,
+}
+
+/// The subset of `corpus --format json` this consumer reads. Everything else in that
+/// summary — coverage, counts, fingerprint — is an operator diagnostic, not a lane fact.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CorpusSummary {
+    #[serde(default)]
+    companies: Vec<String>,
+    #[serde(default)]
+    retired_companies: Vec<String>,
+    /// `"repo"` (an in-repo dogfood checkout: `wiki/` + `loro/`) or `"corpus"` (a
+    /// provisioned `ceo/` + `companies/<id>/`). Read because those two are not the same
+    /// object wearing different clothes — see [`CorpusLanes::repo_layout_root`].
+    #[serde(default)]
+    layout: String,
+    #[serde(default)]
+    root: String,
+}
+
+impl CorpusLanes {
+    pub fn new(companies: &[String], retired: &[String]) -> Self {
+        CorpusLanes { companies: companies.to_vec(), retired: retired.to_vec(), layout: String::new(), root: PathBuf::new() }
+    }
+
+    /// As [`Self::new`], plus the layout and root the corpus reported.
+    pub fn with_layout(companies: &[String], retired: &[String], layout: &str, root: impl Into<PathBuf>) -> Self {
+        CorpusLanes {
+            companies: companies.to_vec(),
+            retired: retired.to_vec(),
+            layout: layout.to_string(),
+            root: root.into(),
+        }
+    }
+
+    /// The root of this corpus when it is an IN-REPO DOGFOOD checkout (`layout: "repo"`),
+    /// and `None` when it is a provisioned corpus.
+    ///
+    /// # Why a consumer must care about the layout, not just the lanes
+    ///
+    /// A repo-layout corpus is one product's own record — `wiki/` + `loro/` of a single
+    /// checkout — with **no company partitions and no company field on any item**. Every
+    /// item is `company: null`, which is legitimately the CEO layer, so the lane map has
+    /// nothing to narrow and [`Slice::foreign_lane`] has nothing to refuse: both work
+    /// perfectly and neither can see the problem. The problem is that a thread bound to a
+    /// DIFFERENT entity then receives that product's record under a heading reading
+    /// `COMPANY MEMORY (loro)`.
+    ///
+    /// Measured, 2026-09-01, against the CEO's only corpus (`richos-hq`, 573 records,
+    /// `layout: repo`): a `femcboost` thread asking *"how should we price the coach
+    /// product"* was primed with three RichOS items — audio-capture click cost, Wispr Flow
+    /// pricing, code-signing certificate authorities. Nothing was fabricated and nothing
+    /// leaked across a partition; the corpus simply has one company in it and it is not
+    /// FemcBoost.
+    ///
+    /// This is the fact [`CliContextCompiler::set_repo_corpus_owner`] is given so the
+    /// payload can SAY so instead of presenting it as the entity's own memory.
+    pub fn repo_layout_root(&self) -> Option<&Path> {
+        (self.layout == "repo" && self.root.as_os_str().len() > 0).then(|| self.root.as_path())
+    }
+
+    pub fn layout(&self) -> &str {
+        &self.layout
+    }
+
+    /// Ask the corpus what partitions it has.
+    ///
+    /// A failure here is NOT fatal and must not be treated as "no partitions": those are
+    /// different facts, and the caller decides. `Err` carries the reason so a boot line can
+    /// print it.
+    pub fn probe(tools: &LoroTools, root: &LoroRoot) -> Result<Self, LoroError> {
+        let (flag, path) = root.args();
+        let out = Command::new(tools.node())
+            .arg(tools.context_bin())
+            .arg("corpus")
+            .arg(flag)
+            .arg(path)
+            .arg("--format")
+            .arg("json")
+            .output()
+            .map_err(|e| LoroError::LaneMap(format!("could not ask the corpus which lanes it has: {e}")))?;
+        if !out.status.success() {
+            let code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into());
+            let why = String::from_utf8_lossy(&out.stderr);
+            return Err(LoroError::LaneMap(format!(
+                "loro corpus exited {code}: {}",
+                why.lines().next().unwrap_or("").trim()
+            )));
+        }
+        let summary: CorpusSummary = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
+            .map_err(|e| LoroError::LaneMap(format!("the corpus summary did not parse: {e}")))?;
+        Ok(CorpusLanes {
+            companies: summary.companies,
+            retired: summary.retired_companies,
+            layout: summary.layout,
+            root: PathBuf::from(summary.root),
+        })
+    }
+
+    pub fn has(&self, lane: &str) -> bool {
+        self.companies.iter().any(|c| c == lane)
+    }
+
+    pub fn is_retired(&self, lane: &str) -> bool {
+        self.retired.iter().any(|c| c == lane)
+    }
+
+    /// True when the corpus has no partitions at all — the CEO's state today, and the one
+    /// in which "read everything" and "read the CEO layer" are the same read.
+    pub fn is_unpartitioned(&self) -> bool {
+        self.companies.is_empty()
+    }
+
+    pub fn companies(&self) -> &[String] {
+        &self.companies
     }
 }
 
@@ -556,6 +753,11 @@ pub struct CliContextCompiler {
     /// the record it corrects (see [`SliceProvenance`]). Absent by default: a build with no
     /// correction trigger keeps nothing, and the read path is byte-identical either way.
     provenance: Option<SharedSliceProvenance>,
+    /// The entity that OWNS this corpus when it is an in-repo dogfood checkout — see
+    /// [`Self::set_repo_corpus_owner`]. `None` for a provisioned corpus, and `None` when
+    /// the owner could not be determined, which is treated as "say nothing" rather than
+    /// "guess a name".
+    repo_corpus_owner: Option<String>,
 }
 
 impl CliContextCompiler {
@@ -566,7 +768,44 @@ impl CliContextCompiler {
             lanes,
             audience: REPRIME_AUDIENCE.to_string(),
             provenance: None,
+            repo_corpus_owner: None,
         }
+    }
+
+    /// Tell this compiler which entity's own record the corpus IS, when the corpus is an
+    /// in-repo dogfood checkout rather than a partitioned one.
+    ///
+    /// The caller resolves it — `EntityRegistry::resolve_root(corpus.repo_layout_root())`
+    /// — because the registry is the only thing that knows which repository belongs to
+    /// which company, and it is now able to answer for a two-root venture. `None` when the
+    /// corpus is provisioned, or when no registered entity owns that path: an unknown owner
+    /// is left unstated rather than guessed.
+    ///
+    /// # What it changes, and it is one line
+    ///
+    /// Nothing about what is compiled, narrowed or refused. When a slice is accepted for an
+    /// entity that is NOT the owner, [`Self::interpret`] prefixes one sentence naming whose
+    /// record this is. That sentence is the difference between a fresh Rich reading RichOS's
+    /// code-signing decisions as FemcBoost's company memory and reading them as RichOS's,
+    /// surfaced for want of a FemcBoost partition.
+    pub fn set_repo_corpus_owner(&mut self, owner: Option<String>) {
+        self.repo_corpus_owner = owner;
+    }
+
+    /// The provenance sentence for `entity_id`, when one is owed. `None` for a provisioned
+    /// corpus, and `None` when the reader IS the owner — RichOS reading RichOS's record is
+    /// exactly right and needs no caveat.
+    pub fn corpus_provenance_line(&self, entity_id: &str) -> Option<String> {
+        let owner = self.repo_corpus_owner.as_deref()?;
+        if owner == entity_id {
+            return None;
+        }
+        Some(format!(
+            "COMPANY MEMORY PROVENANCE: this install's loro corpus is {owner}'s own record, kept in \
+             {owner}'s repository — it is not partitioned by company and holds no {entity_id} \
+             partition. Everything below is {owner}'s memory. Do not state any of it as a fact \
+             about {entity_id}."
+        ))
     }
 
     /// Retain the items of every ACCEPTED slice here, keyed by thread.
@@ -580,6 +819,12 @@ impl CliContextCompiler {
 
     /// Build from the environment, or explain why not. `Ok(None)` = nothing configured,
     /// which is the ordinary state of an install with no corpus and is not an error.
+    ///
+    /// The lane map is validated against the registry here — a lane keyed by a typo is a
+    /// configuration error worth refusing at boot, not a mapping that silently does
+    /// nothing. It is NOT reconciled here: that needs the corpus, which is a child process
+    /// away, and the caller decides what to do when the probe itself fails
+    /// ([`Self::reconcile_lanes`]).
     pub fn from_env() -> Result<Option<Self>, LoroError> {
         let Some(root) = LoroRoot::from_env() else { return Ok(None) };
         let Some(tools) = LoroTools::from_env() else {
@@ -589,15 +834,100 @@ impl CliContextCompiler {
                     .into(),
             ));
         };
-        Ok(Some(CliContextCompiler::new(tools?, root, LaneMap::from_env()?)))
+        let lanes = LaneMap::from_env()?;
+        lanes.validate_against(&crate::entity::EntityRegistry::ceos_companies())?;
+        Ok(Some(CliContextCompiler::new(tools?, root, lanes)))
     }
 
     pub fn root(&self) -> &LoroRoot {
         &self.root
     }
 
+    /// The loro checkout this compiler drives — exposed so a caller can run the same
+    /// tools' `corpus` command for [`CorpusLanes::probe`] without configuring them twice
+    /// and risking two different answers.
+    pub fn tools(&self) -> &LoroTools {
+        &self.tools
+    }
+
     pub fn lanes(&self) -> &LaneMap {
         &self.lanes
+    }
+
+    /// Drop every mapping whose lane the corpus does not have, and return one sentence per
+    /// drop.
+    ///
+    /// # Why this exists, measured rather than argued
+    ///
+    /// A `--company` loro cannot satisfy is not degraded, it is refused:
+    ///
+    /// ```text
+    /// exit 2 — loro --company: no such company partition "femcboost" in this corpus.
+    /// Known: (none). Refusing to compile an empty lane and call it an answer.
+    /// ```
+    ///
+    /// That is the correct posture on loro's side and it is fatal on this one, because
+    /// exit 2 maps to [`LoroTier::Unavailable`] on **every rotation**. The CEO's corpus
+    /// today is the repo-layout dogfood corpus — 573 records, zero partitions — so a lane
+    /// map that were merely filled in would trade a working 890-char slice for a permanent
+    /// "loro could not be consulted". Reconciling makes the map real *and* inert until his
+    /// corpus is actually partitioned, at which point the same map narrows with no
+    /// configuration change at all.
+    ///
+    /// # What dropping a lane does NOT do
+    ///
+    /// It does not widen what may be READ. `--company` is an attention control, not a
+    /// privacy control (`loro-structure.md`, "`--company` is NOT a privacy control"); the
+    /// wall is [`Slice::foreign_lane`], re-asserted on the finished slice, and with no lane
+    /// it allows the CEO layer and refuses every company item. A dropped lane compiles
+    /// wider and reads no wider.
+    pub fn reconcile_lanes(&mut self, corpus: &CorpusLanes) -> Vec<String> {
+        let mut dropped = Vec::new();
+        let mut kept = BTreeMap::new();
+        for (entity, lane) in std::mem::take(&mut self.lanes).0 {
+            if corpus.has(&lane) {
+                kept.insert(entity, lane);
+            } else {
+                let why = if corpus.is_retired(&lane) {
+                    format!("lane {lane:?} is retired in this corpus")
+                } else if corpus.is_unpartitioned() {
+                    "this corpus has no company partitions at all".to_string()
+                } else {
+                    format!("this corpus has no lane {lane:?} (it has: {})", corpus.companies().join(", "))
+                };
+                dropped.push(format!(
+                    "entity {entity:?} -> lane {lane:?} dropped: {why}; {entity:?} reads the CEO layer"
+                ));
+            }
+        }
+        self.lanes = LaneMap(kept);
+        dropped
+    }
+
+    /// Registered entities that will compile with NO lane against a corpus that HAS lanes.
+    ///
+    /// This is the one genuinely ambiguous state and it must not be silent. The compile
+    /// widens (no `--company`), loro returns items from every partition, and the lane
+    /// re-assertion refuses the slice whole — fail-closed and correct, but it reaches the
+    /// CEO as "loro could not be consulted" every single turn. An operator needs to see it
+    /// at boot, before he does.
+    ///
+    /// Empty when the corpus is unpartitioned: there, no lane IS the CEO layer, and
+    /// reporting it would be noise on the only configuration that exists today.
+    pub fn entities_with_no_lane(
+        &self,
+        registry: &crate::entity::EntityRegistry,
+        corpus: &CorpusLanes,
+    ) -> Vec<String> {
+        if corpus.is_unpartitioned() {
+            return Vec::new();
+        }
+        registry
+            .entities()
+            .iter()
+            .filter(|e| self.lanes.lane_for(e.id.as_str()).is_none())
+            .map(|e| e.id.to_string())
+            .collect()
     }
 
     /// The argv for one compile, exposed so a test can assert what this type is capable of
@@ -737,7 +1067,19 @@ impl CliContextCompiler {
                 });
             }
         }
-        LoroTier::Slice(slice.text)
+        // THE PROVENANCE LINE, and it sits OUTSIDE the budget check above on purpose.
+        //
+        // `CONTEXT-CONTRACT.md` §7 guarantee 1 is a promise loro makes about ITS text, and
+        // the check above holds it to that promise unaltered. This sentence is the APP's,
+        // not loro's, and folding it into the cap would make a slice fail loro's guarantee
+        // for something loro did not write. It is one line, it is only ever emitted when
+        // the corpus is one company's own record and the reader is a different company,
+        // and the alternative is an unmarked misattribution — a payload that is byte-honest
+        // and reads as a lie.
+        match self.corpus_provenance_line(req.entity_id) {
+            Some(line) => LoroTier::Slice(format!("{line}\n\n{}", slice.text)),
+            None => LoroTier::Slice(slice.text),
+        }
     }
 }
 

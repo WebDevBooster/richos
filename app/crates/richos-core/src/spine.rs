@@ -396,7 +396,7 @@ impl Spine {
             ledger,
             lease: None,
             active: None,
-            registry: EntityRegistry::dogfood(),
+            registry: EntityRegistry::ceos_companies(),
             turn_in_progress: false,
             control: TurnControl::detached(),
             queue: VecDeque::new(),

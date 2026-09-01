@@ -139,6 +139,16 @@ impl std::fmt::Display for PersonId {
     }
 }
 
+/// Whether this entity area is SELECTABLE in this install — registration state, and
+/// nothing more.
+///
+/// **It is not the company's lifecycle status.** `loro-structure.md`'s `company.yaml`
+/// carries a `status` (and a `role`, and a `startedAt`) describing the venture itself:
+/// whether the CEO still runs it, in what capacity, and since when. The CEO has not
+/// stated any of those, Rich collects them in conversation, and this enum must never be
+/// mistaken for an answer to them — a registry that invented `role: founder` would be
+/// asserting a fact about his life from a directory listing, which is the exact defect
+/// [`EntityRegistry::ceos_companies`] exists to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityStatus {
@@ -183,7 +193,10 @@ pub enum EntityResolveError {
     NotAbsolute(PathBuf),
 }
 
-/// The entity registry. ECS §10.2 ships exactly four for the FemcBoost dogfood.
+/// The entity registry — the CEO's six companies (see [`EntityRegistry::ceos_companies`]).
+///
+/// It shipped four, derived from directory names on one Mac rather than from him. He gave
+/// the real list on 2026-09-01 and it is now the `const` table on this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityRegistry {
     entities: Vec<Entity>,
@@ -199,26 +212,65 @@ impl EntityRegistry {
         Ok(EntityRegistry { entities })
     }
 
-    /// The four dogfood entity areas and their roots, verbatim from ECS §10.2:
+    /// **The CEO's own companies, stated by him** (2026-09-01), and the repository roots
+    /// that select each one.
     ///
-    /// ```text
-    /// /Users/alex/ab/femcboost -> femcboost
-    /// /Users/alex/ab/deeply    -> deeply
-    /// /Users/alex/ab/prospects -> prospects
-    /// /Users/alex/ab/richos    -> richos
-    /// ```
+    /// This table is the whole registry. It is `const` DATA rather than a body of
+    /// constructor calls because that is the cheap half of "the registry is data": a row
+    /// is a row, the shape is checkable at a glance, and adding a company is one line
+    /// that cannot forget a field. It is deliberately **not** a config file — see
+    /// [`EntityRegistry::ceos_companies`].
     ///
-    /// Hard-coded because it IS the current registry, not a default: the adapter's
-    /// `scripts/ecs/entity-registry.json` is FemcBoost-side work, and inventing a config
-    /// file here would let a missing or edited file silently move a privacy boundary.
-    pub fn dogfood() -> Self {
-        EntityRegistry::new(vec![
-            Entity::new("femcboost", "FemcBoost", &["/Users/alex/ab/femcboost"]).unwrap(),
-            Entity::new("deeply", "Deeply", &["/Users/alex/ab/deeply"]).unwrap(),
-            Entity::new("prospects", "Prospects", &["/Users/alex/ab/prospects"]).unwrap(),
-            Entity::new("richos", "RichOS", &["/Users/alex/ab/richos"]).unwrap(),
-        ])
-        .expect("dogfood registry ids are distinct")
+    /// A row is `(id, display name, roots)`. Nothing else. There is no `role`, no
+    /// `status`, no `startedAt` — see [`EntityStatus`].
+    pub const CEOS_COMPANIES: &'static [(&'static str, &'static str, &'static [&'static str])] = &[
+        ("femcboost", "FemcBoost", &["/Users/alex/ab/femcboost"]),
+        ("deeply", "Deeply", &["/Users/alex/ab/deeply"]),
+        ("prospects", "Prospects", &["/Users/alex/ab/prospects"]),
+        // ONE ENTITY, TWO ROOTS — the CEO's own ruling, asked and answered directly on
+        // 2026-09-01. `richos` is the public product repository and `richos-hq` is the
+        // private HQ repository of a single venture; Rich must hold one memory for it,
+        // not two that cannot see each other. `docs/plans/richos-seat-architecture-2026-08-28.md`
+        // anticipated this as "Step 8 — multi-root richos", gated on `richos-hq` being
+        // cloned locally, which it now is.
+        ("richos", "RichOS", &["/Users/alex/ab/richos", "/Users/alex/ab/richos-hq"]),
+        ("gpt-exporter", "GPT Exporter", &["/Users/alex/ab/gpt-exporter"]),
+        ("webinar-booster", "Webinar Booster", &["/Users/alex/ab/webinar-booster"]),
+    ];
+
+    /// The registered entity areas: [`Self::CEOS_COMPANIES`], validated.
+    ///
+    /// # Why this is not called `dogfood()` any more
+    ///
+    /// Because it never was one. `dogfood()` shipped four entities whose ids and roots
+    /// were *four directory names that happened to exist under `~/ab`* — a scrape of one
+    /// Mac presented as the CEO's list of companies. It was wrong in both directions:
+    /// **`gpt-exporter` and `webinar-booster` were missing entirely**, so a launch from
+    /// either resolved to no entity, could not create a thread, and refused every send;
+    /// and `richos` carried one of its two repositories, so half of that venture's work
+    /// resolved to nothing. The name said "test data", which is exactly why nobody
+    /// noticed it was being used as the shipping registry.
+    ///
+    /// He gave the real list on 2026-09-01. This function is that list.
+    ///
+    /// # Why there is still no config-file loader
+    ///
+    /// Unchanged, and the reason is stronger now than when it was four rows: a registry
+    /// is a **privacy boundary**, and a file that can be missing, empty, stale or edited
+    /// is a boundary that can move without anybody deciding to move it. An unprovisioned
+    /// config is a new failure mode on every machine that has never had one — which, for
+    /// a v1 with one install, is all of them. The seam that exists is the `const` table
+    /// above; it is data, it is one line per company, and it cannot be absent at runtime.
+    /// When a second CEO exists, the loader is a small change against a shape that is
+    /// already a list.
+    pub fn ceos_companies() -> Self {
+        EntityRegistry::new(
+            Self::CEOS_COMPANIES
+                .iter()
+                .map(|(id, name, roots)| Entity::new(id, name, roots).expect("a registered entity id is valid"))
+                .collect(),
+        )
+        .expect("registered entity ids are distinct")
     }
 
     pub fn entities(&self) -> &[Entity] {
@@ -276,7 +328,7 @@ impl EntityRegistry {
 
 impl Default for EntityRegistry {
     fn default() -> Self {
-        EntityRegistry::dogfood()
+        EntityRegistry::ceos_companies()
     }
 }
 
@@ -386,15 +438,23 @@ mod tests {
     }
 
     #[test]
-    fn dogfood_registry_is_the_four_ecs_entities() {
-        let reg = EntityRegistry::dogfood();
+    fn the_registry_is_exactly_the_const_table_and_the_table_is_the_ceos_list() {
+        let reg = EntityRegistry::ceos_companies();
         let ids: Vec<&str> = reg.entities().iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, vec!["femcboost", "deeply", "prospects", "richos"]);
+        assert_eq!(ids, vec!["femcboost", "deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"]);
+        // The function is a projection of the DATA, with nothing added and nothing
+        // dropped — which is the whole claim the `const` table makes.
+        assert_eq!(reg.entities().len(), EntityRegistry::CEOS_COMPANIES.len());
+        for (row, e) in EntityRegistry::CEOS_COMPANIES.iter().zip(reg.entities()) {
+            assert_eq!(row.0, e.id.as_str());
+            assert_eq!(row.1, e.display_name);
+            assert_eq!(row.2.len(), e.roots.len());
+        }
     }
 
     #[test]
     fn root_resolution_is_by_component_not_string_prefix() {
-        let reg = EntityRegistry::dogfood();
+        let reg = EntityRegistry::ceos_companies();
         // Exact root, and a path deep inside it.
         assert_eq!(reg.resolve_root(Path::new("/Users/alex/ab/richos")).unwrap().id.as_str(), "richos");
         assert_eq!(
@@ -412,7 +472,7 @@ mod tests {
 
     #[test]
     fn unknown_and_ambiguous_roots_fail_closed_and_never_default() {
-        let reg = EntityRegistry::dogfood();
+        let reg = EntityRegistry::ceos_companies();
         assert!(matches!(
             reg.resolve_root(Path::new("/tmp/somewhere-else")),
             Err(EntityResolveError::UnknownRoot(_))
