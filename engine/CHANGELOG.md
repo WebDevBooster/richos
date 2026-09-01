@@ -53,8 +53,19 @@ version heading with Added / Changed / Fixed groupings.
   does — pinned by a mutation case that fails the moment the two disagree.
 
   Suite 85 -> 121 cases; nine mutations, one at a time, each turning red before
-  the case it belongs to was believed. Zero findings across all 1,139 tracked
+  the case it belongs to was believed. Zero findings across all 1,159 tracked
   files in the repository, against a corpus of 14 files / 130,466 words.
+
+  **ADDING A KEY TO THIS DECLARATION IS A TWO-LAND CHANGE, by construction, and
+  the next person should expect it rather than discover it.** An unknown key is
+  BROKEN to the engine reading the file, the engine every repository reads is
+  the one on main, and a branch is not on main — so a declaration carrying the
+  new key refuses every commit in its own repository until the engine that
+  understands it has landed. Measured on this change: three registered hooks
+  refused, by name. The mechanism lands first and the entry that arms it is a
+  one-line commit after that. This is the unknown-key rule working, not a defect
+  in it; the alternative is an engine that quietly ignores settings it does not
+  understand, which is the failure this whole file is about.
 
 ### Fixed
 
