@@ -1,0 +1,54 @@
+`company_choice_roundtrip` under the environment a Finder double-click actually gets
+(scripts/roundtrip-launchd.sh). Config and ledger are throwaway files under TMPDIR; the
+CEO's own state is not touched. The `claude` lease is real and the reply is a real model turn.
+
+--- the environment handed to the run ---
+HOME=/Users/alex
+USER=alex
+LOGNAME=alex
+SHELL=/bin/zsh
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+TMPDIR=/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/
+__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0
+XPC_FLAGS=0x0
+XPC_SERVICE_NAME=0
+(cwd /)
+
+--- A. with the corpus pointer in place ---
+1. fresh install: no company chosen, no thread active
+2. send refused, as it must be: no active thread, and no entity was named — Rich will not guess which entity area this belongs to. Choose an entity, or activate an existing thread.
+3. answered: richos written to .../richos-company-roundtrip-90688-1788272891968.json
+4. next boot reads it back: richos
+5. active: ceo-default+richos+thr_1df610064e394521bc0b7f01ab23ab36+r3+-
+5b. company memory: /Users/alex/Library/Application Support/RichOS/loro-root (via the loro-root pointer in Application Support), node /opt/homebrew/bin/node
+[roundtrip] claude     = /Users/alex/.local/bin/claude
+[roundtrip] engine cwd = /Users/alex/.claude/richos-engine
+[roundtrip] session    = 3e7f548f-af35-48a7-b831-1297f78c4835
+
+CEO> In one sentence: are you there?
+
+Rich> Yes — I'm here and ready to pick up wherever you want to go.
+
+[roundtrip] turn state = Completed, stop = Some("end_turn")
+[roundtrip] thread=thr_1df610064e394521bc0b7f01ab23ab36; session=3e7f548f-af35-48a7-b831-1297f78c4835; priming_chars=3352; ceo_facing_actions=0
+
+--- B. the control: the same run with a HOME that has no pointer ---
+5b. company memory: NONE resolved — the re-prime below carries none
+    tried /tmp/richos-nohome-DiVs/Library/Application Support/RichOS/corpus — not present
+    tried /tmp/richos-nohome-DiVs/Library/Application Support/RichOS/loro-root — not present
+    tried /tmp/richos-nohome-DiVs/RichOS/corpus — not present
+[roundtrip] thread=thr_1abdf1fd58a042a7a72ac029332f1904; ...; priming_chars=2472; ceo_facing_actions=0
+
+--- the measurement ---
+priming_chars with the corpus reachable : 3,352
+priming_chars with no corpus (control)  : 2,472
+the compiled loro slice, by difference  :   880 chars
+
+Both runs are the same code, the same topic and the same lane; the only difference is
+whether the pointer resolves. The 880 chars are the slice and nothing else.
+
+Note on B: it was run with `env -i` plus HOME/PATH only, and under THAT environment the
+`claude` binary answers `Not logged in · Please run /login` — a stripped environment loses
+the login, and the turn still completes with that sentence as the reply. It is the control
+for the SIZE measurement, not for the reply. Run A above has the full launchd-like set and
+gets a real answer, which is the run that matters.
