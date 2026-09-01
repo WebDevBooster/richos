@@ -345,7 +345,7 @@ run_layer_R() {
     guard-row-currency-commits \
     guard-interactive-prompt \
     guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
-    session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
+    session-start-reap-worktrees agent-finished-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
     notice-unstarted-rows \
@@ -664,6 +664,8 @@ worker-started-handoff.sh|SubagentStart
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted
+agent-finished-reap-worktrees.sh|TeammateIdle
+agent-finished-reap-worktrees.sh|TaskCompleted
 guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
@@ -742,14 +744,26 @@ for event, entries in hooks.items():
                 [ -n "$_script" ] || continue
                 _count="$(printf '%s\n' "$BR_HOOKS_ROWS" | grep -c "scripts/hooks/$_script" || true)"
                 _on_event="$(printf '%s\n' "$BR_HOOKS_ROWS" | awk -F'\t' -v s="scripts/hooks/$_script" -v e="$_event" '$1==e && index($3,s)>0' | wc -l | tr -d ' ')"
+                # EXACTLY ONCE IS A PER-EVENT INVARIANT, NOT A PER-SCRIPT ONE.
+                # The double-fire this guards against is one hook wired twice on
+                # the SAME event, which fires it twice per occurrence of that
+                # event. A hook legitimately wired on two DIFFERENT events fires
+                # once on each, which is not a double-fire and must not be
+                # reported as one — agent-finished-reap-worktrees.sh is wired on
+                # both TeammateIdle and TaskCompleted because a teammate can
+                # finish either way, and the old per-script count called that a
+                # defect. The expected total is DERIVED from how many events the
+                # managed set declares for this script, so it can never be a
+                # typed number that falls behind.
+                _declared_events="$(printf '%s\n' "$BR_EXPECTED" | awk -F'|' -v s="$_script" '$1==s' | grep -c . || true)"
                 if [ "$_count" -eq 0 ]; then
                     BR2_PROBLEMS="$BR2_PROBLEMS $_script(NOT registered)"
                     BR2_OK=0
-                elif [ "$_count" -gt 1 ]; then
-                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered ${_count}x -> fires ${_count}x per event)"
+                elif [ "$_count" -gt "$_declared_events" ]; then
+                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered ${_count}x for ${_declared_events} declared event(s) -> double-fire)"
                     BR2_OK=0
                 elif [ "$_on_event" -ne 1 ]; then
-                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered, but not on $_event)"
+                    BR2_PROBLEMS="$BR2_PROBLEMS $_script(registered, but not exactly once on $_event)"
                     BR2_OK=0
                 fi
             done <<BR_EOF
@@ -1541,8 +1555,15 @@ CANONICAL_INTERACTIVE_LIB="$REPO_ROOT/scripts/lib/interactive-prompt.py"
 CANONICAL_DRIFTGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
 CANONICAL_DEFSNAPSHOT_HOOK="$REPO_ROOT/scripts/hooks/snapshot-agent-definitions.sh"
 CANONICAL_REAPHOOK="$REPO_ROOT/scripts/hooks/session-start-reap-worktrees.sh"
+# The SECOND trigger of the same reaper, and it is not redundant with the one
+# above. A hand-rolled worktree takes no lock, so the reaper judges its OWNER
+# from the owner's native isolation-worktree lock — and that native worktree is
+# removed at land time. At agent-finish the evidence still exists; an hour later
+# it does not. A session-start-only reaper is therefore structurally incapable
+# of ever deciding a hand-rolled worktree, however often it runs.
+CANONICAL_REAPHOOK_FINISH="$REPO_ROOT/scripts/hooks/agent-finished-reap-worktrees.sh"
 # NOT under scripts/hooks/ — this is the half of the reaper chain that actually
-# removes worktrees and deletes branches (Layer Q hashes both).
+# removes worktrees and deletes branches (Layer Q hashes all three).
 CANONICAL_REAPER="$REPO_ROOT/scripts/reap-stale-worktrees.sh"
 CANONICAL_AGENT_CHAIN=(
     "$REPO_ROOT/scripts/hooks/guard-worktree-isolation.sh"
@@ -2798,8 +2819,46 @@ elif [ "$REAPHOOK_HITS" -gt 1 ]; then
     Q_OK=0
 fi
 
-# Q2 — both halves present + executable, sidecars current.
-for pair in "reaper-hook|$CANONICAL_REAPHOOK" "reaper|$CANONICAL_REAPER"; do
+# Q1b — the AGENT-FINISH trigger wired exactly once on EACH of its two events.
+# This is scope hole #3 and it has its own check because its absence is
+# invisible: with only the SessionStart trigger the chain still runs, still
+# reports, and still cannot decide a single hand-rolled worktree, because the
+# owner-liveness evidence has expired by the time it looks.
+# Read the plugin hook table HERE rather than borrowing Layer R's parse: Layer R
+# runs after this one, so BR_HOOKS_ROWS is unset at this point and a check that
+# read it would silently see an empty table and pass.
+Q_FINISH_IDLE=0
+Q_FINISH_TASK=0
+Q_HOOKS_JSON="$ENGINE_ROOT/hooks/hooks.json"
+if [ -f "$Q_HOOKS_JSON" ] && command -v python3 >/dev/null 2>&1; then
+    Q_FINISH_COUNTS="$(python3 - "$Q_HOOKS_JSON" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+needle = "scripts/hooks/agent-finished-reap-worktrees.sh"
+for event in ("TeammateIdle", "TaskCompleted"):
+    n = 0
+    for entry in d.get("hooks", {}).get(event, []) or []:
+        for h in entry.get("hooks", []) or []:
+            if needle in str(h.get("command", "")):
+                n += 1
+    print(n)
+PY
+    )"
+    Q_FINISH_IDLE="$(printf '%s\n' "$Q_FINISH_COUNTS" | sed -n '1p')"
+    Q_FINISH_TASK="$(printf '%s\n' "$Q_FINISH_COUNTS" | sed -n '2p')"
+    [ -n "$Q_FINISH_IDLE" ] || Q_FINISH_IDLE=0
+    [ -n "$Q_FINISH_TASK" ] || Q_FINISH_TASK=0
+fi
+if [ "$Q_FINISH_IDLE" -ne 1 ] || [ "$Q_FINISH_TASK" -ne 1 ]; then
+    emit_fail "Q. agent-finished-reap-worktrees.sh is wired ${Q_FINISH_IDLE}x on TeammateIdle and ${Q_FINISH_TASK}x on TaskCompleted — expected exactly 1 of each. Without it the reaper only ever runs at session start, which is the trigger that CANNOT decide a hand-rolled worktree: the owner's isolation worktree (the only liveness evidence a lockless tree has) is gone by then, so every such tree is permanently undecidable and accumulates. Restore the stanzas in hooks/hooks.json."
+    Q_OK=0
+fi
+
+# Q2 — all three parts present + executable, sidecars current.
+for pair in "reaper-hook|$CANONICAL_REAPHOOK" "reaper-hook-finish|$CANONICAL_REAPHOOK_FINISH" "reaper|$CANONICAL_REAPER"; do
     Q_LABEL="${pair%%|*}"
     Q_HOOK="${pair#*|}"
     if [ ! -x "$Q_HOOK" ]; then
@@ -2882,6 +2941,203 @@ if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK" ] && [ -x "$CANONICAL_REAPER"
     fi
 elif [ "$Q_OK" -eq 1 ]; then
     emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOR IS NOT."
+fi
+
+# --- Layer Q4: SCOPE + SAFETY canary — a SECOND repository, a HAND-ROLLED
+# worktree, and the owner-liveness rule, all in one throwaway sandbox ---
+#
+# WHY Q3 IS NOT ENOUGH, AND WHY THIS LAYER IS TWO-SIDED IN BOTH DIRECTIONS.
+#
+# Q3 above proves the reaper removes a merged/clean NATIVE worktree in ONE
+# repository and refuses a dirty one. On 2026-09-01 that was entirely true and
+# entirely beside the point: the reaper printed `reaped=1 skipped=0 errors=0
+# residue=0` at session start and 25 worktrees sat unswept all day in two other
+# repositories, under a path convention it never looked at, with no trigger
+# between session starts. Q3 was green for every hour of it. A layer that only
+# asks "does it still do the thing it already did" cannot see a scope hole.
+#
+# So this canary holds the failure modes Q3 is blind to, and each assertion has
+# a mutation that flips it:
+#
+#   Q4a DISCOVERY   a sibling repository, reachable only through the
+#                   neighborhood scan, is swept. Remove discovery and this
+#                   fails — the layer goes red when the reaper GOES BLIND,
+#                   which is the property the old Q could not check.
+#   Q4b SAFETY      a hand-rolled worktree whose OWNER IS ALIVE is skipped,
+#                   by name and with the reason. Remove the owner-liveness
+#                   gate and this worktree is selected for removal — a live
+#                   agent's uncommitted work. This is the assertion that
+#                   matters most and the one a corpse cannot satisfy.
+#   Q4c NOT GUTTED  a hand-rolled worktree whose owner terminated OBSERVABLY
+#                   (its isolation worktree registered and unlocked) and whose
+#                   branch is merged and clean IS selected. Gut the hand-rolled
+#                   path into "skip everything" and this fails — the
+#                   satisfied-by-a-corpse hole, closed from the other side.
+#   Q4d UNMERGED    a hand-rolled worktree with unlanded commits is NEVER
+#                   selected, whatever its owner's state.
+#   Q4e DENOMINATOR the coverage line reports the scope the summary line is a
+#                   fraction of. Drop it and a one-repository sweep reads as a
+#                   clean machine again, which is the whole defect.
+#
+# HERMETIC BY CONSTRUCTION: discovery is restricted to primary+neighborhood and
+# the team dir, ledger and transcript are all inside the sandbox, so this can
+# never reach the operator's real checkouts. DRY-RUN, so the assertions are
+# about SELECTION; Q3 above is what proves removal actually happens.
+if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPER" ] \
+   && command -v git >/dev/null 2>&1 && command -v mktemp >/dev/null 2>&1 \
+   && command -v python3 >/dev/null 2>&1; then
+    Q4_DIR="$(cd "$(mktemp -d -t contract-integrity-reapscope.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
+    if [ -n "$Q4_DIR" ]; then
+        Q4_ENTITY="$Q4_DIR/entity"
+        Q4_OTHER="$Q4_DIR/other"
+        Q4_OK_SB=1
+        # The ENTITY: carries the two NATIVE isolation worktrees that are the
+        # only liveness evidence a lockless hand-rolled tree ever has.
+        mkdir -p "$Q4_ENTITY/.claude/worktrees" 2>/dev/null || Q4_OK_SB=0
+        git -C "$Q4_ENTITY" init -q -b main >/dev/null 2>&1 || Q4_OK_SB=0
+        printf 'seed\n' >"$Q4_ENTITY/seed.txt" 2>/dev/null || Q4_OK_SB=0
+        printf 'PROTECTED_PATHS="src"\n' >"$Q4_ENTITY/orchestration.config" 2>/dev/null || Q4_OK_SB=0
+        git -C "$Q4_ENTITY" add -A >/dev/null 2>&1 || Q4_OK_SB=0
+        git -C "$Q4_ENTITY" commit -q -m "probe reap-scope seed" >/dev/null 2>&1 || Q4_OK_SB=0
+        git -C "$Q4_ENTITY" worktree add -q -b worktree-agent-q4live "$Q4_ENTITY/.claude/worktrees/agent-q4live" >/dev/null 2>&1 || Q4_OK_SB=0
+        git -C "$Q4_ENTITY" worktree add -q -b worktree-agent-q4dead "$Q4_ENTITY/.claude/worktrees/agent-q4dead" >/dev/null 2>&1 || Q4_OK_SB=0
+        # ALIVE: locked, and the lock names a pid that is unambiguously running
+        # — this probe's own. NOT-ALIVE-OBSERVED: registered and simply not
+        # locked, which is what a teammate that has just finished looks like.
+        git -C "$Q4_ENTITY" worktree lock --reason "claude agent agent-q4live (pid $$ start probe)" \
+            "$Q4_ENTITY/.claude/worktrees/agent-q4live" >/dev/null 2>&1 || Q4_OK_SB=0
+
+        # The SIBLING repository. Nothing points at it: no log, no config, no
+        # argument. It is reachable ONLY because it sits beside the entity.
+        mkdir -p "$Q4_OTHER" "$Q4_DIR/other-wt" 2>/dev/null || Q4_OK_SB=0
+        git -C "$Q4_OTHER" init -q -b main >/dev/null 2>&1 || Q4_OK_SB=0
+        printf 'seed\n' >"$Q4_OTHER/seed.txt" 2>/dev/null || Q4_OK_SB=0
+        git -C "$Q4_OTHER" add -A >/dev/null 2>&1 || Q4_OK_SB=0
+        git -C "$Q4_OTHER" commit -q -m "probe reap-scope sibling seed" >/dev/null 2>&1 || Q4_OK_SB=0
+        for wt in q4-live-owner q4-dead-owner q4-unmerged; do
+            git -C "$Q4_OTHER" worktree add -q -b "$wt" "$Q4_DIR/other-wt/$wt" >/dev/null 2>&1 || Q4_OK_SB=0
+        done
+        # The unmerged one gets a commit that never landed — the handoff a
+        # bold reaper would destroy.
+        printf 'unlanded\n' >"$Q4_DIR/other-wt/q4-unmerged/work.txt" 2>/dev/null || Q4_OK_SB=0
+        git -C "$Q4_DIR/other-wt/q4-unmerged" add work.txt >/dev/null 2>&1 || Q4_OK_SB=0
+        git -C "$Q4_DIR/other-wt/q4-unmerged" commit -q -m "committed but not landed" >/dev/null 2>&1 || Q4_OK_SB=0
+
+        # The session's own record: which names this machine spawned (what
+        # makes a neighborhood repository reap-eligible at all) and the
+        # transcript that joins a teammate NAME to an agent id — the join that
+        # exists nowhere else on disk.
+        mkdir -p "$Q4_DIR/teams/session-q4probe" 2>/dev/null || Q4_OK_SB=0
+        printf 'q4-live-owner\nq4-dead-owner\nq4-unmerged\n' >"$Q4_DIR/teams/session-q4probe/spawned-names.log" 2>/dev/null || Q4_OK_SB=0
+        Q4_TRANSCRIPT="$Q4_DIR/transcript.jsonl"
+        Q4_DIR="$Q4_DIR" python3 - "$Q4_TRANSCRIPT" <<'PY' 2>/dev/null || Q4_OK_SB=0
+import json, sys
+pairs = [("q4-live-owner", "q4live"),
+         ("q4-dead-owner", "q4dead"),
+         ("q4-unmerged", "q4dead")]
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    for i, (name, aid) in enumerate(pairs):
+        tu = "tu%d" % i
+        f.write(json.dumps({"message": {"content": [
+            {"type": "tool_use", "name": "Agent", "id": tu, "input": {"name": name}}]}}) + "\n")
+        f.write(json.dumps({"message": {"content": [
+            {"type": "tool_result", "tool_use_id": tu}]},
+            "toolUseResult": {"agentId": aid}}) + "\n")
+PY
+
+        if [ "$Q4_OK_SB" -eq 1 ]; then
+            set +e
+            Q4_OUT="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" \
+                      REAP_TEAM_DIR="$Q4_DIR/teams" \
+                      REAP_LEDGER="$Q4_DIR/ledger.txt" \
+                      REAP_PROJECTS_DIR="$Q4_DIR/projects" \
+                      "$CANONICAL_REAPER" "$Q4_ENTITY" --discover \
+                          --entity "$Q4_ENTITY" --transcript "$Q4_TRANSCRIPT" 2>&1)"
+            q4_rc=$?
+            set -e
+            Q4_PROBLEMS=""
+            [ "$q4_rc" -eq 0 ] || Q4_PROBLEMS="$Q4_PROBLEMS [exited $q4_rc on a clean dry-run]"
+            printf '%s\n' "$Q4_OUT" | grep -q -- "--- repo: $Q4_OTHER " \
+                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4a DISCOVERY: the sibling repository was never swept — the reaper is back to one repository, which is how 25 worktrees accumulated unseen]"
+            printf '%s\n' "$Q4_OUT" | grep -q '^SKIP q4-live-owner owner-alive' \
+                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4b SAFETY: a hand-rolled worktree whose owner is ALIVE was not skipped with owner-alive]"
+            printf '%s\n' "$Q4_OUT" | grep -q '^DRY-RUN REAP q4-live-owner' \
+                && Q4_PROBLEMS="$Q4_PROBLEMS [Q4b SAFETY: a LIVE agent's hand-rolled worktree was SELECTED FOR REMOVAL — this destroys uncommitted work. Restore immediately: git checkout -- scripts/reap-stale-worktrees.sh]"
+            printf '%s\n' "$Q4_OUT" | grep -q '^DRY-RUN REAP q4-dead-owner' \
+                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4c GUTTED: a hand-rolled worktree whose owner terminated observably, merged and clean, was NOT selected — the hand-rolled path skips everything, so those trees accumulate forever while the layer stays green]"
+            printf '%s\n' "$Q4_OUT" | grep -q '^SKIP q4-unmerged unmerged(' \
+                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4d UNMERGED: a hand-rolled worktree carrying unlanded commits was not skipped as unmerged]"
+            printf '%s\n' "$Q4_OUT" | grep -q '^DRY-RUN REAP q4-unmerged' \
+                && Q4_PROBLEMS="$Q4_PROBLEMS [Q4d UNMERGED: a worktree with unlanded commits was SELECTED FOR REMOVAL]"
+            printf '%s\n' "$Q4_OUT" | grep -q '^=== coverage .*repos=2 .*hand-rolled=3' \
+                || Q4_PROBLEMS="$Q4_PROBLEMS [Q4e DENOMINATOR: no coverage line reporting repos=2 and hand-rolled=3 — the summary no longer says what it is a fraction of, which is exactly how 'reaped=1 residue=0' read as a clean machine]"
+
+            if [ -n "$Q4_PROBLEMS" ]; then
+                emit_fail "Q4. reaper SCOPE/SAFETY canary FAILED:$Q4_PROBLEMS"
+                Q_OK=0
+            else
+                emit_pass "Q4. reaper sweeps a SIBLING repository found only by discovery, SKIPS a live owner's hand-rolled worktree, SELECTS a terminated owner's merged+clean one, REFUSES an unmerged one, and reports its own denominator"
+            fi
+        else
+            emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — the two-repository sandbox could not be built, so nothing here proves the reaper looks past one repository or that it spares a live agent's hand-rolled worktree."
+        fi
+        rm -rf "$Q4_DIR" 2>/dev/null || true
+    else
+        emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — no sandbox directory could be created (mktemp)."
+    fi
+elif [ "$Q_OK" -eq 1 ]; then
+    emit_warn "Q4. SCOPE/SAFETY CANARY DID NOT RUN — git, mktemp or python3 unavailable. Wiring and hashes are verified; SCOPE AND SAFETY BEHAVIOR ARE NOT."
+fi
+
+# --- Layer Q5: the AGENT-FINISH trigger actually sweeps ---
+# Q1b proves it is registered. A registration is not a sweep: the wrapper could
+# resolve nothing, run nothing, and exit 0 forever — the shape that made "Layer
+# K green over a scanner that never ran". So the second trigger gets the same
+# functional canary the first one has.
+if [ "$Q_OK" -eq 1 ] && [ -x "$CANONICAL_REAPHOOK_FINISH" ] \
+   && command -v git >/dev/null 2>&1 && command -v mktemp >/dev/null 2>&1; then
+    Q5_DIR="$(cd "$(mktemp -d -t contract-integrity-reapfinish.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
+    if [ -n "$Q5_DIR" ]; then
+        Q5_REPO="$Q5_DIR/repo"
+        Q5_REAPABLE="$Q5_REPO/.claude/worktrees/agent-q5000001"
+        Q5_PROTECTED="$Q5_REPO/.claude/worktrees/agent-q5000002"
+        Q5_SB=1
+        mkdir -p "$Q5_REPO/.claude/worktrees" 2>/dev/null || Q5_SB=0
+        git -C "$Q5_REPO" init -q -b main >/dev/null 2>&1 || Q5_SB=0
+        printf 'seed\n' >"$Q5_REPO/seed.txt" 2>/dev/null || Q5_SB=0
+        printf 'PROTECTED_PATHS="src"\n' >"$Q5_REPO/orchestration.config" 2>/dev/null || Q5_SB=0
+        git -C "$Q5_REPO" add -A >/dev/null 2>&1 || Q5_SB=0
+        git -C "$Q5_REPO" commit -q -m "probe finish-trigger seed" >/dev/null 2>&1 || Q5_SB=0
+        git -C "$Q5_REPO" worktree add -q -b worktree-agent-q5000001 "$Q5_REAPABLE" >/dev/null 2>&1 || Q5_SB=0
+        git -C "$Q5_REPO" worktree add -q -b worktree-agent-q5000002 "$Q5_PROTECTED" >/dev/null 2>&1 || Q5_SB=0
+        printf 'unlanded teammate work\n' >"$Q5_PROTECTED/unlanded.txt" 2>/dev/null || Q5_SB=0
+
+        if [ "$Q5_SB" -eq 1 ] && [ -d "$Q5_REAPABLE" ] && [ -d "$Q5_PROTECTED" ]; then
+            set +e
+            REAP_WORKTREES_ROOT="$Q5_REPO" "$CANONICAL_REAPHOOK_FINISH" </dev/null >/dev/null 2>&1
+            q5_rc=$?
+            set -e
+            if [ "$q5_rc" -ne 0 ]; then
+                emit_fail "Q5. agent-finished reaper hook exited $q5_rc on a sandbox sweep (expected 0) — this hook is log-only and must NEVER block a teammate going idle or a task completing."
+                Q_OK=0
+            elif [ ! -d "$Q5_PROTECTED" ]; then
+                emit_fail "Q5. the agent-finished trigger REMOVED a sandbox worktree carrying uncommitted work — the gates are broken on the trigger that fires most often. Restore immediately: git checkout -- scripts/reap-stale-worktrees.sh"
+                Q_OK=0
+            elif [ -d "$Q5_REAPABLE" ]; then
+                emit_fail "Q5. the agent-finished trigger did NOT remove a merged, clean, unlocked sandbox worktree — it is registered and sweeps nothing, so worktrees still accumulate between session starts and the registration check above reports a corpse as healthy."
+                Q_OK=0
+            else
+                emit_pass "Q5. the agent-finish trigger (TeammateIdle/TaskCompleted) actually sweeps: reaps a merged/clean tree and REFUSES a dirty one"
+            fi
+        else
+            emit_warn "Q5. AGENT-FINISH CANARY DID NOT RUN — the throwaway git sandbox could not be built, so nothing proves the second trigger sweeps anything."
+        fi
+        rm -rf "$Q5_DIR" 2>/dev/null || true
+    else
+        emit_warn "Q5. AGENT-FINISH CANARY DID NOT RUN — no sandbox directory could be created (mktemp)."
+    fi
+elif [ "$Q_OK" -eq 1 ]; then
+    emit_warn "Q5. AGENT-FINISH CANARY DID NOT RUN — git or mktemp unavailable, or a prior Q check already failed."
 fi
 
 # --- Layer S: WORKTREE-REMOVAL guard wired exactly once + path-confined +
