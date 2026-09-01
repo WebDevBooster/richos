@@ -267,6 +267,17 @@ app/
                               that matters most asserts the reader and the writer resolve
                               the SAME corpus — a build where they disagreed would show him
                               a proposal about one record and write to another
+    tests/setup.rs           33 tests for FIRST-RUN SETUP (Option D, `src/setup.rs`): the
+                              two executables a customer's Mac does not have, fetched and
+                              verified. Every failure path is a VALUE rather than a network
+                              condition — no network, a 404, a truncated body, a tampered
+                              body, an installer that refuses, HTML where a script should
+                              be, an archive with the wrong shape or the wrong version, a
+                              panic mid-install, and a failed reinstall that must leave the
+                              engine he already had. The digest is checked BEFORE `tar` is
+                              ever handed the bytes, and the positive half of the signature
+                              pin runs against the real `claude` on this machine (the
+                              negative half needs nothing)
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
@@ -599,7 +610,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 644 tests + 5 doc-tests
+cargo test -p richos-core                       # 677 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

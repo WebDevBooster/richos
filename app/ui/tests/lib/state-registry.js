@@ -954,6 +954,112 @@ module.exports = [
       "kept is the difference between one question and a permanent one. The control is the " +
       "list of companies directly beneath it.",
   },
+  // ---- FIRST-RUN SETUP (Option D) — `setup.rs`, `setup_view.rs` -------------------------
+  //
+  // §19 states the condition these rows exist for: "today RichOS runs on his Mac and would
+  // not run on anyone else's". Every machine but the CEO's opens on this sheet.
+  {
+    s: "There's a bit of setting up to do first.",
+    c: "CONTROL",
+    why:
+      "The setup sheet's title, and `aria-labelledby` points the dialog at it. It is the " +
+      "accessible name of the control beneath it, not a state — the same classification, " +
+      "for the same reason, as the memory dialog's and the entity picker's titles. It is " +
+      "replaced at open by one of the two counted titles below.",
+  },
+  {
+    s: "There are a couple of things I need on this Mac.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-missing-both",
+    why:
+      "The title a customer's Mac opens on — no Claude Code and no engine directory. It is " +
+      "entirely his to clear and it takes one press, so the button sits in the same dialog. " +
+      "It counts in words rather than items because \"2 items\" is a package manager's " +
+      "sentence and this is a conversation.",
+  },
+  {
+    s: "There's one thing I need on this Mac.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-missing-engine",
+    why:
+      "The same state with one piece missing rather than two — a machine that already has " +
+      "Claude Code and no engine, which is what a customer who installed Claude Code " +
+      "himself is in. Same control, same press. It has its OWN fixture because the plural " +
+      "title and this one cannot both render at once, and a fixture that happened to show " +
+      "the other would have asserted nothing.",
+  },
+  {
+    s: "I can get them myself — you just have to say so.",
+    c: "ACTIONABLE",
+    control: "#setup-go",
+    fixture: "setup-missing-both",
+    why:
+      "The sheet's second line, shown only when this build can actually install what is " +
+      "missing. It is the sentence that makes the press meaningful, so it is classified " +
+      "with the press and not as a description — and it is deliberately absent in the " +
+      "unpinned state below, where no press would help.",
+  },
+  {
+    s:
+      "You'll still need your own Anthropic account, and to sign in to it once. I can't do " +
+      "that part for you, and I never see your password.",
+    c: "INFORMATIONAL",
+    fixture: "setup-missing-both",
+    why:
+      "`open-items.md` row 3.14's second condition, on the sheet and above the button: " +
+      "\"D removes one setup step of two, not all of them — RichOS is BYO-Anthropic, so the " +
+      "customer still needs an account and a login, and D must not be sold to him as " +
+      "zero-touch.\" " +
+      "CLASSIFIED INFORMATIONAL DELIBERATELY, AND HERE IS THE ARGUMENT, because it is the " +
+      "one row on this sheet where the bucket is arguable. It is a statement of SCOPE — what " +
+      "this press does not cover — and not a state of the app. The act it describes happens " +
+      "entirely outside RichOS: there is no login flow inside RichOS at all (§19), so no " +
+      "control in this view or any other could perform it, which rules ACTIONABLE out; and " +
+      "the person is HIM, which rules NEEDS-SOMEONE-ELSE out, since that bucket exists to " +
+      "point him at somebody who is not him. Calling it INFORMATIONAL is not a claim that " +
+      "there is nothing for him to do — it is a claim that there is nothing for him to do " +
+      "HERE, which is exactly why the sentence is on the sheet before the button rather " +
+      "than after it.",
+  },
+  {
+    s:
+      "This copy of RichOS wasn't built with an engine to install, so I can't fetch one. It " +
+      "needs whoever set RichOS up to publish one and pin it.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: "setup-unpinned",
+    why:
+      "A build carrying no engine pin. `setup.rs` refuses rather than fetching whatever a " +
+      "URL returns, so the sheet explains and names the party — and `#setup-go` is HIDDEN, " +
+      "because a button that would certainly fail is worse than no button. It ships as " +
+      "`setup_view::SETUP_UNPINNED_NOTE` as well as `SetupError::EngineUnpinned`'s Display, " +
+      "with a Rust test requiring the two to be one string: an `#[error(...)]` attribute is " +
+      "not somewhere this scrape can see, and a sentence this registry cannot see is one " +
+      "nobody has said whether the CEO can act on.",
+  },
+  {
+    s: "That's everything. I'm ready.",
+    c: "INFORMATIONAL",
+    fixture: "setup-finished",
+    why:
+      "What he sees when the run finished AND the backend, re-reading the disk, agrees " +
+      "nothing is missing. Nothing to do; it is the confirmation that the question is over.",
+  },
+  {
+    s: "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    why:
+      "The other ending, and the reason `run_setup` re-reads the disk instead of trusting " +
+      "that no step threw: a run whose steps all returned Ok while something is still " +
+      "absent must not say \"I'm ready\". It names the party because the fact of WHICH piece " +
+      "is missing is on the operator's boot line and not on his screen. Reaching it needs a " +
+      "component to vanish between the install and the re-read, so it is classified here " +
+      "rather than fixtured — an unreachable-from-the-mock state that is still shipped is " +
+      "exactly the kind this registry exists to keep honest.",
+  },
   {
     s: "Where should I keep what you tell me?",
     c: "CONTROL",

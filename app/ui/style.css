@@ -1688,6 +1688,66 @@ button {
   gap: 8px;
 }
 
+/* FIRST-RUN SETUP (Option D) — what is about to be installed, one row each.
+   No new colors: every rule below uses a token already painted elsewhere on this same
+   `--surface` panel, and every ratio is COMPUTED against it in both themes rather than
+   eyeballed. Backgrounds are `--surface`: #182440 dark, #fdfcf8 light.
+
+     .setup-item-name    --ink                          12.06:1 dark   18.07:1 light
+     .setup-item-why     --ink-soft (composited)         5.78:1 dark    6.36:1 light
+     .setup-account      --ink-soft (composited)         5.78:1 dark    6.36:1 light
+     .setup-progress     --ink-soft (composited)         5.78:1 dark    6.36:1 light
+     .setup-error        --danger  #e8837c / #8a2f28     5.84:1 dark    8.12:1 light
+
+   NOTHING HERE IS EXEMPT, and `.setup-account` is the one worth saying out loud: it carries
+   the fact that he still needs his own Anthropic account and one sign-in. That is the
+   opposite of skippable — it is the part of first run RichOS cannot do for him — so it takes
+   the 16px floor and the 4.5:1 tier, not the 14px skippable tier. */
+.setup-items {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.setup-item-name {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.setup-item-why {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.setup-account {
+  margin: 0 0 14px;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.setup-progress {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.setup-error {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--danger);
+}
+
 .picker-list {
   display: flex;
   flex-direction: column;

@@ -51,6 +51,18 @@ pub const SETUP_ACCOUNT_NOTE: &str =
     "You'll still need your own Anthropic account, and to sign in to it once. \
      I can't do that part for you, and I never see your password.";
 
+/// The sentence a build with no engine pin shows INSTEAD of a button.
+///
+/// It exists as a `const` rather than only as `SetupError::EngineUnpinned`'s `Display`
+/// because `affordances.js` scrapes the product's CEO-facing sentences out of the source and
+/// classifies every one of them, and a `#[error(...)]` attribute is not a place it can see.
+/// A sentence the state registry cannot see is a sentence nobody has said whether the CEO can
+/// act on. The test below requires the two to be the same string, so there is one wording and
+/// not two.
+pub const SETUP_UNPINNED_NOTE: &str =
+    "This copy of RichOS wasn't built with an engine to install, so I can't fetch one. \
+     It needs whoever set RichOS up to publish one and pin it.";
+
 /// One step of the run, as it happens.
 #[derive(Debug, Clone, Serialize)]
 pub struct SetupProgress {
@@ -118,6 +130,18 @@ pub struct SetupAskItem {
     pub why: &'static str,
 }
 
+/// **The one shape both commands return**, so the window never has to know which command it
+/// came from. `complete` is here rather than on `SetupStatus` because it is a derived answer
+/// (`SetupStatus::needs().is_empty()`), and a serialized field that duplicates a method is a
+/// second place for the answer to be wrong.
+pub fn view(status: &SetupStatus) -> serde_json::Value {
+    serde_json::json!({
+        "status": status,
+        "ask": ask_for(status),
+        "complete": status.complete(),
+    })
+}
+
 /// Turn a status into the sheet's contents.
 pub fn ask_for(status: &SetupStatus) -> SetupAsk {
     let needs = status.needs();
@@ -130,7 +154,7 @@ pub fn ask_for(status: &SetupStatus) -> SetupAsk {
         items,
         account_note: SETUP_ACCOUNT_NOTE,
         can_install: !needs.is_empty() && !blocked,
-        cannot_install_reason: blocked.then(|| SetupError::EngineUnpinned.to_string()),
+        cannot_install_reason: blocked.then(|| SETUP_UNPINNED_NOTE.to_string()),
     }
 }
 
@@ -317,6 +341,17 @@ mod tests {
         // No path, no digit, no terminal — the same floor the component copy meets.
         assert!(!SETUP_ACCOUNT_NOTE.contains('/'));
         assert!(!SETUP_ACCOUNT_NOTE.chars().any(|c| c.is_ascii_digit()));
+    }
+
+    /// **ONE WORDING, NOT TWO.** The const the state registry can see and the error the
+    /// backend raises must be the same sentence, or the classified copy and the shipped copy
+    /// drift and nobody finds out.
+    #[test]
+    fn the_unpinned_sentence_is_the_error_it_stands_for() {
+        assert_eq!(SETUP_UNPINNED_NOTE, SetupError::EngineUnpinned.to_string());
+        // And it names a party from `affordances.js`'s closed set, so a state he cannot fix
+        // never leaves him with a fault and no owner.
+        assert!(SETUP_UNPINNED_NOTE.contains("whoever set RichOS up"));
     }
 
     /// A progress line never puts a path or a version in front of him.

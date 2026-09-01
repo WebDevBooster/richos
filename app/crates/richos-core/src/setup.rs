@@ -544,7 +544,12 @@ pub enum SetupError {
     #[error("What downloaded isn't what this copy of RichOS expects, so I stopped and installed nothing. (expected {expected}, got {got}, from {url})")]
     DigestMismatch { url: String, expected: String, got: String },
 
-    #[error("This copy of RichOS wasn't built with an engine to install, so I can't fetch one. It needs whoever built RichOS to publish one and pin it.")]
+    /// **NAMES THE PARTY, in the product's own words for him.** `affordances.js` holds a
+    /// closed set of parties a state the CEO cannot fix is allowed to point at, and
+    /// "whoever set RichOS up" is the one this product uses everywhere else. A sentence that
+    /// invented a new name for the same person would leave him with a fault and no owner he
+    /// recognizes.
+    #[error("This copy of RichOS wasn't built with an engine to install, so I can't fetch one. It needs whoever set RichOS up to publish one and pin it.")]
     EngineUnpinned,
 
     #[error("The download opened, but what was inside it isn't a RichOS engine ({detail}). Nothing has been installed.")]

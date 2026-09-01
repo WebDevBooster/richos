@@ -60,6 +60,16 @@ const memorySetupLocationEl = el("memory-setup-location");
 const memorySetupGoEl = el("memory-setup-go");
 const memorySetupLaterEl = el("memory-setup-later");
 const memorySetupCloseEl = el("memory-setup-close");
+const setupSheetEl = el("setup-sheet");
+const setupTitleEl = el("setup-title");
+const setupNoteEl = el("setup-note");
+const setupItemsEl = el("setup-items");
+const setupAccountEl = el("setup-account");
+const setupProgressEl = el("setup-progress");
+const setupErrorEl = el("setup-error");
+const setupGoEl = el("setup-go");
+const setupLaterEl = el("setup-later");
+const setupCloseEl = el("setup-close");
 const threadMenuEl = el("thread-menu");
 const messagesEl = el("messages");
 const conversationEl = el("conversation");
@@ -2604,6 +2614,171 @@ async function refreshEntityChoice() {
 }
 
 // ---------------------------------------------------------------------------------------
+// FIRST-RUN SETUP — OPTION D (`setup.rs`, `setup_view.rs`)
+//
+// THE LAUNCH BLOCKER THIS CLOSES, in the record's own words (`ceo-decisions.md` §19): "today
+// RichOS runs on his Mac and would not run on anyone else's". A customer needs Claude Code
+// AND the engine directory, and the engine "ships in no payload and has no route onto
+// another machine at all". This is the sheet that offers to fix both.
+//
+// IT IS ASKED BEFORE THE MEMORY QUESTION AND BEFORE THE COMPANY QUESTION, and the order is
+// not cosmetic: without a `claude` binary and an engine directory there is nothing for a
+// corpus to be read BY and nothing for a company to be chosen FOR. One dialog at a time —
+// answering this one asks the next, exactly as `closeMemorySetup` already asks the company
+// question.
+//
+// NO TERMINAL, NO PATH, NO VERSION NUMBER. Every string on this sheet comes from the
+// backend (`Component::display_name`, `Component::why`, `SETUP_ACCOUNT_NOTE`, and each
+// `SetupError`'s own Display), and the tests on both sides assert what they must not
+// contain. Nothing is composed here.
+// ---------------------------------------------------------------------------------------
+
+let setupState = null;
+/// Set when the setup sheet opened ahead of the memory question, so that question is asked
+/// the moment this one closes rather than being stacked on top of it.
+let memoryQuestionDeferred = false;
+
+async function refreshSetup() {
+  setupState = await invokeQuiet("setup_status");
+  return setupState;
+}
+
+/// Ask, or explain, or say nothing at all. Returns true when the sheet opened, so `init` can
+/// hold the memory question back instead of stacking a second dialog on this one.
+function maybeAskAboutSetup() {
+  if (!setupState || !setupState.ask) return false;
+  const { ask } = setupState;
+  if (!ask.items.length) return false;
+  openSetupSheet(ask, { canInstall: ask.can_install });
+  return true;
+}
+
+function openSetupSheet(ask, opts) {
+  // THE TITLE COUNTS WHAT IS MISSING, in words, because "1 item" is a package manager's
+  // sentence and this is a conversation.
+  setupTitleEl.textContent =
+    ask.items.length > 1
+      ? "There are a couple of things I need on this Mac."
+      : "There's one thing I need on this Mac.";
+  setupNoteEl.textContent = opts.canInstall
+    ? "I can get them myself — you just have to say so."
+    : "";
+  setupNoteEl.hidden = !setupNoteEl.textContent;
+
+  setupItemsEl.replaceChildren();
+  for (const item of ask.items) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "setup-item-name";
+    name.textContent = item.name;
+    const why = document.createElement("span");
+    why.className = "setup-item-why";
+    why.textContent = item.why;
+    li.append(name, why);
+    setupItemsEl.append(li);
+  }
+
+  // THE BYO-ANTHROPIC SENTENCE, above the button and not after it. Row 3.14's second
+  // condition: D removes one setup step of two, and must not be sold as zero-touch.
+  setupAccountEl.textContent = ask.account_note || "";
+  setupAccountEl.hidden = !setupAccountEl.textContent;
+
+  // A BUILD THAT CANNOT INSTALL SAYS SO INSTEAD OF OFFERING A BUTTON THAT WILL FAIL. The
+  // backend's own sentence, verbatim — it names the party who can fix it, which he cannot.
+  setupErrorEl.textContent = opts.canInstall ? "" : ask.cannot_install_reason || "";
+  setupErrorEl.hidden = !setupErrorEl.textContent;
+  setupProgressEl.hidden = true;
+  setupProgressEl.textContent = "";
+
+  setupGoEl.hidden = !opts.canInstall;
+  setupGoEl.disabled = false;
+  setupLaterEl.hidden = !opts.canInstall;
+  setupCloseEl.hidden = opts.canInstall;
+  setupSheetEl.hidden = false;
+  (opts.canInstall ? setupGoEl : setupCloseEl).focus();
+}
+
+function closeSetupSheet() {
+  setupSheetEl.hidden = true;
+  // The question that was held back, asked now rather than never — the same handoff
+  // `closeMemorySetup` performs for the company question. Without this line a fresh install
+  // would answer setup and silently drop both of the others.
+  if (memoryQuestionDeferred) {
+    memoryQuestionDeferred = false;
+    const memoryAsked = maybeAskAboutMemory();
+    if (!memoryAsked && companyQuestionDeferred) {
+      companyQuestionDeferred = false;
+      requireCompanyChoice();
+    }
+  } else {
+    inputEl.focus();
+  }
+}
+
+/// **HE PRESSES "Set it up".** The button is disabled for the whole run — a second press
+/// while Anthropic's installer is running would start a second installer.
+async function runSetup() {
+  setupGoEl.disabled = true;
+  setupLaterEl.hidden = true;
+  setupErrorEl.hidden = true;
+  setupErrorEl.textContent = "";
+  setupProgressEl.hidden = false;
+  setupProgressEl.textContent = "Starting.";
+  let next;
+  try {
+    next = await Bridge.invoke("run_setup");
+  } catch (e) {
+    // THE BACKEND'S SENTENCE, AS IT STANDS. Each `SetupError`'s Display says what happened
+    // and whether his Mac was changed; rewriting it here would lose the instruction.
+    setupProgressEl.hidden = true;
+    setupErrorEl.textContent = String(e);
+    setupErrorEl.hidden = false;
+    setupGoEl.disabled = false;
+    setupGoEl.textContent = "Try again";
+    setupLaterEl.hidden = false;
+    return;
+  }
+  setupState = next;
+  setupProgressEl.hidden = true;
+  setupGoEl.hidden = true;
+  setupLaterEl.hidden = true;
+  setupCloseEl.hidden = false;
+  setupNoteEl.hidden = false;
+  // `complete` is the BACKEND'S answer, re-read from disk after the run rather than inferred
+  // from "no step threw". A run whose steps all returned Ok and whose disk still says
+  // something is missing must not say "I'm ready".
+  setupNoteEl.textContent = next && next.complete
+    ? "That's everything. I'm ready."
+    : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";
+  setupItemsEl.replaceChildren();
+  setupAccountEl.hidden = false;
+  setupCloseEl.focus();
+}
+
+setupGoEl.addEventListener("click", runSetup);
+setupLaterEl.addEventListener("click", closeSetupSheet);
+setupCloseEl.addEventListener("click", closeSetupSheet);
+setupSheetEl.addEventListener("click", (e) => {
+  if (e.target === setupSheetEl) closeSetupSheet();
+});
+
+// LIVE PROGRESS. Anthropic's installer downloads the `claude` binary — 197,220,928 B on a
+// Mac with no `zstd`, which macOS 15.6 does not ship (§19 finding 3) — so a sheet that said
+// nothing until it finished would look hung for minutes.
+Bridge.listen("richos://setup", (payload) => {
+  const p = payload && payload.payload ? payload.payload : payload;
+  if (!p) return;
+  if (p.state === "failed") {
+    setupProgressEl.hidden = true;
+    setupErrorEl.textContent = p.detail || p.what;
+    setupErrorEl.hidden = false;
+    return;
+  }
+  setupProgressEl.hidden = false;
+  setupProgressEl.textContent = p.what;
+});
+
+// ---------------------------------------------------------------------------------------
 // FIRST-RUN MEMORY SETUP (`provision.rs`, `memory.rs`)
 //
 // THE DEFECT THIS CLOSES: the installed, signed RichOS reaches the CEO's memory only
@@ -4436,7 +4611,17 @@ async function init() {
   // choice is: this question comes FIRST when both are open, and the branch below must know
   // that so it holds the company question back instead of stacking a second dialog on it.
   await refreshMemory();
-  const memoryAsked = maybeAskAboutMemory();
+  // WHAT THIS MACHINE IS MISSING, read and asked FIRST when it is missing anything. The
+  // order is not cosmetic: without a `claude` binary and an engine directory there is
+  // nothing for a corpus to be read by and nothing for a company to be chosen for. One
+  // dialog at a time — `closeSetupSheet` hands off to the memory question, which hands off
+  // to the company question, so a fresh install answers all three, in order.
+  await refreshSetup();
+  const setupAsked = maybeAskAboutSetup();
+  // The memory question is HELD, not skipped, when the setup sheet took the screen —
+  // `closeSetupSheet` asks it the moment this one is answered.
+  if (setupAsked) memoryQuestionDeferred = true;
+  const memoryAsked = !setupAsked && maybeAskAboutMemory();
 
   const active = activeContext ? activeContext.thread_id : await invokeQuiet("active_thread");
   if (active && threadRow(active)) {
@@ -4451,7 +4636,7 @@ async function init() {
     // Unless the memory question is already on screen: `closeMemorySetup` asks this one the
     // moment that one is answered, so a fresh install answers both, in order, one dialog at
     // a time.
-    if (memoryAsked) companyQuestionDeferred = true;
+    if (setupAsked || memoryAsked) companyQuestionDeferred = true;
     else requireCompanyChoice();
   } else if (navTree.groups.length) {
     // No active context — the launch could not resolve an entity (the shell fails closed

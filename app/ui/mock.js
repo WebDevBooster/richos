@@ -517,6 +517,146 @@
     };
   }
 
+  // ---------------------------------------------------------------------------------------
+  // FIRST-RUN SETUP (`setup.rs`, `setup_view.rs`) — Option D's surface
+  //
+  // `preset.setup` drives it:
+  //   undefined / "ready"  a machine that has everything (every other fixture's assumption)
+  //   "missing-both"       the customer's Mac — no Claude Code, no engine (§19)
+  //   "missing-engine"     Claude Code is there and the engine is not
+  //   "unpinned"           the engine is missing AND this build cannot install one, which is
+  //                        the state that must EXPLAIN rather than offer a button that fails
+  //
+  // `preset.setupFails` makes `run_setup` reject with one of the real `SetupError` sentences,
+  // because the failure states are the ones a surface gets wrong.
+  // ---------------------------------------------------------------------------------------
+  const setupPreset = preset.setup || "ready";
+  let setupClaudePresent = setupPreset === "ready" || setupPreset === "missing-engine";
+  let setupEnginePresent = setupPreset === "ready";
+  const setupPinned = setupPreset !== "unpinned";
+  const setupFails = preset.setupFails || null;
+
+  // The strings are the BACKEND'S, copied verbatim from `Component::why` and
+  // `SETUP_ACCOUNT_NOTE`. A mock that paraphrased them would rehearse the surface against
+  // copy the product does not have.
+  const SETUP_WHY = {
+    "claude-code":
+      "the program I think with. It comes from Anthropic and installs itself; I only ask it to.",
+    engine: "the part of me that knows how I work — my instructions and my team.",
+  };
+  const SETUP_NAME = { "claude-code": "Claude Code", engine: "the RichOS engine" };
+  const SETUP_ACCOUNT_NOTE =
+    "You'll still need your own Anthropic account, and to sign in to it once. " +
+    "I can't do that part for you, and I never see your password.";
+  const SETUP_UNPINNED =
+    "This copy of RichOS wasn't built with an engine to install, so I can't fetch one. " +
+    "It needs whoever set RichOS up to publish one and pin it.";
+
+  function setupNeeds() {
+    const out = [];
+    if (!setupClaudePresent) out.push("claude-code");
+    if (!setupEnginePresent) out.push("engine");
+    return out;
+  }
+
+  function setupStatusOf() {
+    const needs = setupNeeds();
+    const blocked = !setupEnginePresent && !setupPinned;
+    return {
+      status: {
+        claude: {
+          component: "claude-code",
+          present: setupClaudePresent,
+          at: setupClaudePresent ? "/Users/alex/.local/bin/claude" : null,
+          detail: setupClaudePresent ? "installed at 2.1.257" : null,
+          looked_in: setupClaudePresent ? [] : ["/Users/alex/.local/bin/claude", "/usr/bin/claude"],
+        },
+        engine: {
+          component: "engine",
+          present: setupEnginePresent,
+          at: setupEnginePresent ? "/Users/alex/.claude/richos-engine" : null,
+          detail: setupEnginePresent ? "version 1.0.0" : null,
+          looked_in: setupEnginePresent
+            ? []
+            : [
+                "/Applications/RichOS.app/Contents/Resources/engine",
+                "/Users/alex/.claude/richos-engine",
+                "/Users/alex/Library/Application Support/RichOS/engine",
+              ],
+        },
+        engine_installable: setupPinned,
+        engine_pin_version: setupPinned ? "1.0.0" : null,
+        installed_now: false,
+      },
+      ask: {
+        items: needs.map((c) => ({ component: c, name: SETUP_NAME[c], why: SETUP_WHY[c] })),
+        account_note: SETUP_ACCOUNT_NOTE,
+        can_install: needs.length > 0 && !blocked,
+        cannot_install_reason: blocked ? SETUP_UNPINNED : null,
+      },
+      complete: needs.length === 0,
+    };
+  }
+
+  const setupSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function runSetupMock() {
+    const needs = setupNeeds();
+    const total = needs.length;
+    // The same channel and the same shape the real command emits on, so the surface under
+    // test is driven by events and not by a return value it could have rendered without one.
+    //
+    // SPACED IN TIME, deliberately. The real run takes minutes — Anthropic's installer alone
+    // downloads 197,220,928 B on a Mac with no zstd — and a mock that emitted every step in
+    // one synchronous burst would let a surface that renders only the LAST event pass, which
+    // is exactly the "looks hung for minutes" defect the events exist to prevent.
+    for (let i = 0; i < needs.length; i++) {
+      const c = needs[i];
+      emit("richos://setup", {
+        state: "started",
+        component: c,
+        what:
+          c === "claude-code"
+            ? "Getting Claude Code from Anthropic. This is the big one — a few minutes."
+            : "Getting my instructions.",
+        index: i + 1,
+        total,
+        detail: null,
+        kind: null,
+        machine_unchanged: null,
+      });
+      await setupSleep(30);
+    }
+    if (setupFails) {
+      emit("richos://setup", {
+        state: "failed",
+        component: needs[0],
+        what: SETUP_NAME[needs[0]] + " could not be installed.",
+        index: 1,
+        total,
+        detail: setupFails,
+        kind: "no-network",
+        machine_unchanged: true,
+      });
+      return Promise.reject(setupFails);
+    }
+    setupClaudePresent = true;
+    setupEnginePresent = true;
+    emit("richos://setup", {
+      state: "finished",
+      component: null,
+      what: "That's everything. I'm ready.",
+      index: total,
+      total,
+      detail: null,
+      kind: null,
+      machine_unchanged: true,
+    });
+    const after = setupStatusOf();
+    after.status.installed_now = true;
+    return after;
+  }
+
   function entityChoiceOf() {
     return {
       chosen: chosenEntityId,
@@ -1355,6 +1495,18 @@
         // "none"` drives the fresh install, which is the state the real defect lived in.
         case "memory_status":
           return memoryStatusOf();
+        // WHAT THIS MACHINE IS MISSING (`setup.rs`, `setup_view.rs`). The preview's default
+        // is a machine that has everything, because every other fixture assumes one;
+        // `setup: "missing-both"` is the customer's Mac, which is the state §19 says every
+        // machine but the CEO's is actually in.
+        case "setup_status":
+          return setupStatusOf();
+        // HE PRESSES THE BUTTON. It installs nothing here — the point of the mock is the
+        // SURFACE — but it emits the same progress events the real command emits, on the
+        // same channel, and it can be made to fail, because the failure states are the ones
+        // a surface gets wrong.
+        case "run_setup":
+          return runSetupMock();
         // The answer. It provisions nothing here — the point of the mock is the SURFACE —
         // but it returns the shape the real command returns, including the honest
         // `no-compiler` outcome, which is what a machine with no compiler actually gets.

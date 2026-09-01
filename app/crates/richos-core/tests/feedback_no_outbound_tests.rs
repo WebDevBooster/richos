@@ -135,6 +135,20 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
     // Not "the feedback module does not call the network" — the stronger claim that
     // there is nothing here to call. serde/serde_json are data formats, uuid generates
     // identifiers, thiserror derives error types. None can reach a host.
+    //
+    // **`sha2` ARRIVED 2026-09-01 AND IS ANSWERED, NOT WAVED THROUGH.** It is here for
+    // `setup.rs`, which pins the fetched engine release by SHA-256. Why it cannot reach a
+    // host, stated rather than assumed: it is a pure-Rust hash implementation over
+    // `&[u8]`, it pulls `digest`/`block-buffer`/`crypto-common`/`generic-array`/`typenum`
+    // and `cpufeatures`, and not one of those links a socket, a TLS stack, or `std::net`.
+    // `sha2` is `#![no_std]`-capable, which is a stronger statement than "we checked" — a
+    // crate that compiles without `std` cannot be opening a connection.
+    //
+    // AND THE THING THAT MAKES THIS SAFE IS WHERE THE NETWORK ACTUALLY IS. `setup.rs`
+    // downloads, and it does so through `/usr/bin/curl` — a subprocess, spawned only by
+    // `CurlFetcher`, which the feedback channel neither constructs nor can reach. The
+    // guarantee this test protects is unchanged: nothing in this crate opens a connection
+    // from inside this crate's own process.
     let mut found: BTreeSet<&str> = BTreeSet::new();
     let mut in_deps = false;
     for line in MANIFEST.lines() {
@@ -151,7 +165,7 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
         }
     }
     let expected: BTreeSet<&str> =
-        ["serde", "serde_json", "uuid", "thiserror"].into_iter().collect();
+        ["serde", "serde_json", "uuid", "thiserror", "sha2"].into_iter().collect();
     assert_eq!(
         found, expected,
         "richos-core's dependency set changed. That is not automatically wrong — but the \

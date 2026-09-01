@@ -2253,9 +2253,7 @@ fn provision_memory(
 /// what makes it ask, and it is the only signal it needs.
 #[tauri::command]
 fn setup_status(state: State<AppState>) -> serde_json::Value {
-    let status = setup_view::detect(state.boot_engine.as_deref());
-    let ask = setup_view::ask_for(&status);
-    serde_json::json!({ "status": status, "ask": ask })
+    setup_view::view(&setup_view::detect(state.boot_engine.as_deref()))
 }
 
 /// **THE CEO PRESSES "Set it up".** Install what is missing, reporting each step on
@@ -2307,8 +2305,7 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
     }
     drop(spine);
 
-    let ask = setup_view::ask_for(&status);
-    Ok(serde_json::json!({ "status": status, "ask": ask }))
+    Ok(setup_view::view(&status))
 }
 
 /// Read the state of the question. The UI calls this at boot: a `chosen` of `None` is what
