@@ -2027,6 +2027,24 @@ emit_case "IL6.idle-land-gate-suite-passes" 0 "$rc"
 set +e; "$SCRIPT_DIR/idle-land.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
 
+# CL1/CL2 — the CLAIM gate's own behavioral suite and mutation harness, for the
+# reason IL6/IL7 exist, arriving late and after a cost. Both files were in this
+# repository and were run by NOTHING: the only automatic check on
+# guard-unresolved-claims.sh was that it starts (SC1) and that its hash matches
+# (Layer BR). On 2026-09-01 that gate blocked one of the night's three false
+# reports and passed the other two, and nothing in CI would have noticed if a
+# refactor had silenced all three.
+#
+# The mutation half is not decoration here either. This gate's newest arm is a
+# two-sided canary, and the property most easily satisfied by a corpse is
+# "a false claim is refused" — a gate that refuses everything passes it. One of
+# the mutations empties the integration ref list precisely so a TRUE landing
+# claim gets refused, and asserts that the POSITIVE case goes red.
+set +e; "$SCRIPT_DIR/guard-unresolved-claims.test.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
+set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
+
 echo ""
 echo "=== summary ==="
 echo "passed: $PASS"

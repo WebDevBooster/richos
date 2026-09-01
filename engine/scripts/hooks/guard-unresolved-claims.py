@@ -516,6 +516,12 @@ def resolve_shas(shas, roots):
 # ground truth for STATE CLAIMS -- position, not existence
 # --------------------------------------------------------------------------
 
+# HEAD is in this list DELIBERATELY, and it loosens the check: in a checkout
+# sitting on a feature branch, a commit on that branch reads as integrated. That
+# is the QUIET direction, which is the right one for a blocking gate -- it costs
+# recall in a checkout that is not on its integration branch, and it never
+# invents a refusal in one that is. Rich lands from the main checkout, where
+# HEAD is main; on 2026-09-01 richos-hq's HEAD was main and the gate fires.
 INTEGRATION_REFS = ("main", "master", "origin/main", "origin/master", "HEAD")
 
 # A wall-clock budget for the whole class. This gate runs at Stop with a 20s
