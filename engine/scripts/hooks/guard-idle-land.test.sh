@@ -35,11 +35,13 @@
 #     (AE)  a valid `stop-declared:` line                   -> exit 0
 #     (AE1) the case AND the reason reach the operator, with the
 #           "declared, not verified" caveat attached
-#     (AE2) a declaration with no real reason               -> exit 2 + why
+#     (AE2) a declaration short on WORDS                    -> exit 2 + why
+#     (AE2b) a declaration short on CHARACTERS               -> exit 2 + why
 #     (AE3) a case outside the closed set of three          -> exit 2 + why
-#     (AE4) a declaration inside a CODE SPAN exempts nothing -> exit 2
-#           (so quoting the refusal, or this guard's own documentation,
-#            can never switch it off)
+#     (AE4) a declaration inside a FENCED BLOCK exempts nothing -> exit 2
+#     (AE4b) a declaration mentioned MID-SENTENCE exempts nothing -> exit 2
+#           (two defenses, one fixture each: quoting the refusal, or this
+#            guard's own documentation, can never switch it off)
 #   THE REFUSAL IS PART OF THE DELIVERABLE
 #     (AF1) it names what completed, what is unblocked and available, and
 #           the exact declaration line that would have permitted the stop
@@ -649,11 +651,25 @@ fi
 # A BARE MARKER EXEMPTS NOTHING. Three ways to get it wrong, three cases, and
 # the refusal has to say WHICH -- a rejection the writer cannot diagnose is a
 # gate he unwires.
-run_case "AE2.a-declaration-with-no-real-reason-is-REJECTED" 2 \
+# TWO FLOORS, TWO FIXTURES. A reason has to be long enough AND wordy enough,
+# and the mutation run found that one fixture tripping both proves neither: with
+# the word floor removed the suite stayed green, because the character floor was
+# still catching the same string.
+#
+# AE2 is short on WORDS and long enough on characters.
+run_case "AE2.a-declaration-with-too-few-words-is-REJECTED" 2 \
     "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
        "Landed.
 
-stop-declared: nothing-unblocked — see above.")" \
+stop-declared: nothing-unblocked — unelaborated-justification-supplied-as-noted")" \
+    "YOUR DECLARATION WAS REJECTED"
+
+# AE2b is long enough on WORDS and short on characters.
+run_case "AE2b.a-declaration-with-too-few-characters-is-REJECTED" 2 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
+       "Landed.
+
+stop-declared: nothing-unblocked — it is not worth it now")" \
     "YOUR DECLARATION WAS REJECTED"
 
 run_case "AE3.a-case-that-is-not-one-of-the-three-is-REJECTED" 2 \
@@ -663,12 +679,28 @@ run_case "AE3.a-case-that-is-not-one-of-the-three-is-REJECTED" 2 \
 stop-declared: busy — I have a great deal of other work in flight right now and this can wait.")" \
     "is not one of the three cases"
 
-# QUOTING THE REFUSAL MUST NEVER DISARM THE GATE. The refusal text below prints
-# the declaration line as an example; without the code-span strip, pasting it
-# back -- or quoting this guard's own documentation -- would switch it off.
-run_case "AE4.a-declaration-inside-a-code-span-does-NOT-exempt" 2 \
+# QUOTING THE REFUSAL MUST NEVER DISARM THE GATE. The refusal text prints the
+# declaration line as an example, so pasting it back -- or quoting this guard's
+# own documentation -- must not switch it off. TWO SEPARATE DEFENSES do that, and
+# the mutation run proved a single fixture proves neither: the inline case was
+# caught by the line anchor, so removing the code-span strip left the suite
+# green. So there is a fixture per defense, exactly as f2/f3 do for the hold.
+#
+# AE4 is the FENCED paste -- the realistic one, since the refusal indents its
+# example. Only the code-span strip stops this.
+run_case "AE4.a-declaration-inside-a-fenced-block-does-NOT-exempt" 2 \
     "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
-       "Landed. The hook told me to write \`stop-declared: nothing-unblocked — a full sentence explaining why nothing is left\` and I am quoting it here rather than declaring anything.")" \
+       "Landed. The hook told me to write this, which I am quoting rather than declaring:
+
+\`\`\`
+stop-declared: nothing-unblocked — a full sentence explaining why nothing at all is left to start
+\`\`\`")" \
+    "$BLOCK_HEAD"
+
+# AE4b is the INLINE mention, mid-sentence. Only the line anchor stops this.
+run_case "AE4b.a-declaration-mentioned-mid-sentence-does-NOT-exempt" 2 \
+    "$(payload "$TR_MERGE" false "$ENTITY" 0 "$PROMPT_ID" \
+       "Landed. The hook told me to write stop-declared: nothing-unblocked — a full sentence explaining why nothing is left, and I am describing that rather than doing it.")" \
     "$BLOCK_HEAD"
 
 # --- THE REFUSAL IS PART OF THE DELIVERABLE -------------------------------

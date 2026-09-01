@@ -532,9 +532,16 @@ def confirm_landing(repo, kind, ref):
 #   * `Background command "..." completed` is NOT a teammate. The summary shape
 #     below matches only the `Agent "..." finished` form, so a finished shell
 #     never triggers the gate -- it is ordinary tool traffic.
-#   * `Agent "..." was stopped by user` is excluded explicitly. The operator
+#   * `Agent "..." was stopped by user` is not a delivery either -- the operator
 #     killing an agent is the operator taking control of the turn, and treating
-#     it as a delivery would refuse the turn in which he did it.
+#     it as one would refuse the turn in which he did it. It is excluded BY THE
+#     SUMMARY SHAPE rather than by a second rule, and that is worth a sentence
+#     because the second rule was written first and then removed. `was stopped by
+#     user` and `finished` are DIFFERENT SUMMARIES; a separate exclusion could
+#     not be made to go red by any mutation, which is the definition of a check
+#     that is not doing anything. Case AA3 asserts the behavior and the mutation
+#     `finish-ignores-the-word-finished` proves the summary shape is what carries
+#     it.
 #
 # WHAT IT CANNOT SEE, said here rather than discovered later: the host's own
 # note says the same task-id may notify MORE THAN ONCE, because an agent that
@@ -549,9 +556,6 @@ COMPLETED_STATUS_RE = re.compile(r"<status>\s*completed\s*</status>", re.I)
 AGENT_FINISHED_RE = re.compile(
     "<summary>\\s*Agent\\s+[\"“]?(?P<title>[^\"”<]{1,160}?)[\"”]?"
     "\\s+finished\\s*</summary>", re.I)
-AGENT_STOPPED_RE = re.compile(
-    r"<summary>\s*Agent\s+.{0,200}?was\s+stopped\s+by\s+user", re.I | re.S)
-
 MAX_FINISHES = 20
 
 
@@ -560,8 +564,6 @@ def agent_finishes(notices):
     out, seen = [], set()
     for text in notices or []:
         if not TASK_NOTIFICATION_RE.search(text):
-            continue
-        if AGENT_STOPPED_RE.search(text):
             continue
         if not COMPLETED_STATUS_RE.search(text):
             continue
