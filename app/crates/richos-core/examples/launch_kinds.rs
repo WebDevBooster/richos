@@ -27,6 +27,16 @@ fn show(tag: &str, kind: LaunchKind, store: &LaunchStore, now: u64) {
     println!("     kind        {}", kind.as_str());
     println!("     counted     {}", if kind.is_start() { "YES" } else { "no" });
     println!("     splash      {}", if kind.shows_splash() { "shown" } else { "NONE" });
+    // WHICH START THIS IS, which is what the CEO's v1 splash rule is a table over: start 1
+    // shows screen #1, start 2 shows #2, start 3 and after show #1. `None` is not a zero -
+    // it means this run is not a start, or the record could not be read.
+    println!(
+        "     ordinal     {}",
+        store
+            .start_ordinal()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "none — not a start, or the record is unreadable".to_string())
+    );
     println!("     starts      {:?}", store.starts());
     match counts {
         Some(c) => println!(
@@ -52,7 +62,7 @@ fn main() {
     {
         let mut store = LaunchStore::open(&path, T0).expect("open");
         let kind = store.begin_run(T0, "pid-1", PriorRun::Unknown).expect("begin");
-        store.note_splash_shown("round-8.1/v3").expect("ring");
+        store.note_splash_shown("round-11/v1").expect("ring");
         show("1. FRESH LAUNCH — no marker on disk, so the last thing that happened was a quit", kind, &store, T0);
         store.note_clean_exit().expect("quit");
     }
@@ -62,7 +72,7 @@ fn main() {
     {
         let mut store = LaunchStore::open(&path, t1).expect("open");
         let kind = store.begin_run(t1, "pid-2", PriorRun::Unknown).expect("begin");
-        store.note_splash_shown("round-8.1/v11").expect("ring");
+        store.note_splash_shown("round-11/v2").expect("ring");
         show("2. FRESH LAUNCH again — he quit, he came back", kind, &store, t1);
         // NO `note_clean_exit`. What follows is what a power cut leaves.
     }

@@ -734,6 +734,10 @@
   /// `role` is meaningless on a mat.
   function barLayer(spec) {
     var el = div("splash-bar-layer");
+    // The layer says what it is. Not a class - `tests/splash.js` check 6 inventories class
+    // names to prove the palette study was left behind, and five more of them would be five
+    // more things to allow. A data attribute is the layer describing itself to a reader.
+    if (spec.role) el.dataset.role = spec.role;
     el.style.setProperty("position", "absolute");
     el.style.setProperty("inset", "0");
     for (var k in spec) {
@@ -781,6 +785,7 @@
         // The lead rides in its own progress-driven wrapper rather than inside a named fill,
         // so it does not depend on which layer happens to be declared last.
         var wrap = div("splash-bar-lead");
+        wrap.dataset.role = "lead";
         wrap.style.setProperty("position", "absolute");
         wrap.style.setProperty("top", "0");
         wrap.style.setProperty("bottom", "0");
@@ -894,8 +899,15 @@
     }
   }
 
-  /// ONE PASS, AND THEN IT STOPS. The only `return` that does not schedule another frame is
-  /// the one at the end of the flare, and there is no other caller of `tick`.
+  /// Put the frame loop down, and SAY SO. Every exit from `tick()` that does not schedule
+  /// another frame goes through here, so `state.barStopped` cannot disagree with reality.
+  function stopTicking() {
+    raf = null;
+    state.barStopped = true;
+  }
+
+  /// ONE PASS, AND THEN IT STOPS. The only exits that do not schedule another frame are the
+  /// two that call `stopTicking()`, and there is no other caller of `tick`.
   function tick() {
     if (!bar) return;
     var span = holdMs - BAR_START_MS;
@@ -908,9 +920,10 @@
     if (u >= 1 && !bar.landed) {
       bar.landed = true;
       bar.landedAt = now();
+      state.barPasses++;
       retireLeads(!reduceMotion());
       if (reduceMotion()) {
-        raf = null;
+        stopTicking();
         return;
       }
     }
@@ -918,7 +931,7 @@
       var q = (now() - bar.landedAt) / FLARE_MS;
       if (q >= 1) {
         hideFlares();
-        raf = null;
+        stopTicking();
         return;
       }
       paintFlare(q);
@@ -934,10 +947,9 @@
   /// untrue. The flare and the heat are performance and are cut, exactly as the strike is.
   function settleBar() {
     if (!bar) return;
-    if (raf !== null) {
-      cancelAnimationFrame(raf);
-      raf = null;
-    }
+    if (raf !== null) cancelAnimationFrame(raf);
+    stopTicking();
+    if (!bar.landed) state.barPasses++;
     paintBar(1);
     retireLeads(false);
     hideFlares();
@@ -1079,7 +1091,23 @@
     ordinal: null,
     /// How long this screen was given, in seconds. The CEO's default unless the entry that
     /// was drawn asked for its own.
-    seconds: null
+    seconds: null,
+    /// THE BAR'S OWN ACCOUNT OF ITSELF, and it exists for one reason: *"The animation is
+    /// only supposed to happen ONCE. NO LOOPING."*
+    ///
+    /// `barPasses` counts the times the bar has reached the end. It is 0 while it runs and 1
+    /// after it lands, and it can only be more than 1 if something restarted it.
+    /// `barStopped` is true once `tick()` has returned without asking for another frame.
+    ///
+    /// WHY THIS IS REPORTED RATHER THAN INFERRED FROM THE WIDTH. A loop is only visible from
+    /// outside during the window between the bar landing and the curtain leaving, which is
+    /// the ceiling's one second of grace — and a restart beginning a moment after that window
+    /// is invisible to any amount of watching. It WAS: the acceptance suite's first version
+    /// of this proof watched the width for 3.95s, and a restart injected at the end of the
+    /// landing flare went through it completely undetected. These two numbers close that
+    /// hole, because a loop cannot leave the loop stopped.
+    barPasses: 0,
+    barStopped: false
   };
 
   function removeSelf() {
