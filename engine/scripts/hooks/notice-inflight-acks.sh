@@ -132,7 +132,8 @@ try:
     d=json.load(sys.stdin); print(str(d.get("transcript_path","") or "") if isinstance(d,dict) else "")
 except Exception:
     print("")' 2>/dev/null || true)"
-TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
+inflight_resolve_teams_dir "$SESSION_ID"
+TEAMS_DIR="$INFLIGHT_TEAMS_DIR_RESOLVED"
 TIMEOUT_MIN="$(inflight_timeout_min "$ENTITY_ROOT")"
 
 REPOS=""

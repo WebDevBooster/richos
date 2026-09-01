@@ -49,6 +49,14 @@ refuses the same fallback for the same reason, and says so in its own
 header. When neither exact source resolves, this module returns no name and
 NAMES THE SOURCES IT TRIED, so the operator fixes the join instead of
 waiving the guard.
+
+===========================================================================
+AND WHERE THE RECORD LIVES
+===========================================================================
+resolve_teams_dir() is here rather than in inflight.py for the same reason:
+the witness writes the notice ledger and the guard reads it, and if the two
+resolve the session team directory differently the ledger is written to one
+path and read from another — the same defect one layer down.
 """
 
 import glob
@@ -60,6 +68,20 @@ import sys
 # The spawn-name shape guard-worktree-isolation.sh enforces: <role>-<model>-<id>.
 TEAMMATE_NAME_RE = re.compile(
     r"^[a-z][a-z0-9]{1,15}-(?:fable|opus|sonnet|haiku)-[a-z0-9]{1,12}$")
+
+# Session team directories that hold one of these are teams that actually ran.
+# spawned-names.log is deliberately NOT in this set: it is appended for spawns
+# in sessions that never produced a team stream at all, and on this machine
+# three dead session directories carry nothing else.
+TEAM_STREAM_FILES = (
+    "worker-events.jsonl",
+    "inflight-notices.jsonl",
+    "inflight-waivers.jsonl",
+    "inflight-repos.txt",
+    "idle-events.jsonl",
+    "task-events.jsonl",
+)
+
 
 def looks_like_teammate_name(text):
     return bool(TEAMMATE_NAME_RE.match((text or "").strip()))
@@ -246,15 +268,115 @@ def agent_id_for_name(name, index):
     return hits[0], index["sources"].get(hits[0], "")
 
 
+# --------------------------------------------------------------------------
+# where the record lives
+# --------------------------------------------------------------------------
+def _teams_base():
+    """The directory session team dirs live under."""
+    for var in ("INFLIGHT_TEAMS_DIR", "WORKER_EVENTS_TEAMS_DIR"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
+    return os.path.join(os.path.expanduser("~"), ".claude", "teams")
+
+
+def _session_dirs(base):
+    try:
+        return sorted(
+            os.path.join(base, n) for n in os.listdir(base)
+            if n.startswith("session-") and os.path.isdir(os.path.join(base, n)))
+    except Exception:
+        return []
+
+
+def _has_team_stream(d):
+    return any(os.path.isfile(os.path.join(d, f)) for f in TEAM_STREAM_FILES)
+
+
+def _newest_mtime(d):
+    newest = 0.0
+    try:
+        for n in os.listdir(d):
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(d, n)))
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return newest
+
+
+def resolve_teams_dir(session_id="", base=None):
+    """(team-dir, how) — the session team directory the ledgers live in.
+
+    THE LADDER, strictest first, and every rung is REPORTED rather than
+    silently taken. The old resolution had two rungs — exact session id, then
+    "only if there is exactly one session directory" — and on a machine with
+    four of them a by-hand `inflight-notify.sh status` printed
+    `notice ledger: <no team dir resolved>`: the operator's own diagnostic,
+    blind at exactly the moment he needs it.
+
+      1. The session id, exactly.
+      2. The only session directory under the base.
+      3. The only session directory carrying a live team stream.
+      4. The most recently active one, NAMED as such with the count it was
+         chosen from — a guess the caller can see is a guess.
+
+    Rungs 3 and 4 can only ever reduce false blocks: a wrong pick finds no
+    notices, and no notices is a REFUSAL. There is no reading of this ladder
+    that lets a land through that the old one would have stopped.
+    """
+    if base is None:
+        base = _teams_base()
+    if not base or not os.path.isdir(base):
+        return "", "no team directory exists at %s" % (base or "<unset>")
+
+    sessions = _session_dirs(base)
+
+    sid = (session_id or "").strip()
+    if sid:
+        cand = os.path.join(base, "session-%s" % sid[:8])
+        if os.path.isdir(cand):
+            return cand, "exact session id match (session-%s)" % sid[:8]
+
+    if not sessions:
+        return "", "no session team directories under %s" % base
+    if len(sessions) == 1:
+        return sessions[0], "the only session team directory under %s" % base
+
+    active = [d for d in sessions if _has_team_stream(d)]
+    if len(active) == 1:
+        return active[0], (
+            "the only one of %d session team directories carrying a team stream"
+            % len(sessions))
+    pool = active or sessions
+    pool = sorted(pool, key=_newest_mtime, reverse=True)
+    return pool[0], (
+        "MOST RECENTLY ACTIVE of %d candidates (%s) — no session id was given, "
+        "so this is a choice, not a match; pass --session to name one"
+        % (len(pool), ", ".join(os.path.basename(p) for p in pool[:4])))
+
+
 def main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="teammate-identity.py")
     ap.add_argument("--teams-dir", default="")
     ap.add_argument("--session", default="")
     ap.add_argument("--transcript", default="")
+    ap.add_argument("--resolve-teams-dir", action="store_true")
+    ap.add_argument("--how", action="store_true")
+    ap.add_argument("--with-how", action="store_true")
     ap.add_argument("--name-for", default="")
     ap.add_argument("--id-for", default="")
     args = ap.parse_args(argv)
+
+    if args.resolve_teams_dir:
+        path, how = resolve_teams_dir(args.session)
+        if args.with_how:
+            sys.stdout.write("%s\t%s" % (path, how))
+        else:
+            sys.stdout.write(how if args.how else path)
+        return 0
 
     index = identity_index(args.teams_dir, args.transcript, args.session)
     if args.name_for:

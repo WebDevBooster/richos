@@ -552,6 +552,16 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         tip = git(root, "rev-parse", "HEAD").strip()
     tip = (tip or "").lower()
 
+    # The team directory is resolved HERE when the caller did not name one, so
+    # that the runner, the guard and the Stop notice cannot disagree about
+    # which ledger they are talking about.
+    teams_dir_source = os.environ.get("INFLIGHT_TEAMS_DIR_SOURCE") or "given by the caller"
+    if not teams_dir and IDENTITY is not None:
+        try:
+            teams_dir, teams_dir_source = IDENTITY.resolve_teams_dir(session_id)
+        except Exception:
+            teams_dir, teams_dir_source = "", "resolution raised"
+
     notices = [r for r in read_jsonl(notice_ledger_path(teams_dir))
                if r.get("event") == "InflightNotice"]
     waivers = [r for r in read_jsonl(waiver_ledger_path(teams_dir))
@@ -565,6 +575,7 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
         "main_checkout": root,
         "tip": tip,
         "teams_dir": teams_dir,
+        "teams_dir_source": teams_dir_source,
         "notice_ledger": notice_ledger_path(teams_dir),
         "waiver_ledger": waiver_ledger_path(teams_dir),
         "ack_timeout_min": timeout_min,
@@ -705,6 +716,7 @@ def render_text(res):
     a("  tip            : %s" % res["tip"])
     a("  ack timeout    : %s min" % res["ack_timeout_min"])
     a("  notice ledger  : %s" % (res["notice_ledger"] or "<no team dir resolved>"))
+    a("  resolved by    : %s" % res.get("teams_dir_source", ""))
     a("  identity from  : %s"
       % ("; ".join(res.get("identity_sources_found") or [])
          or "NOTHING RESOLVED — sources tried: %s"

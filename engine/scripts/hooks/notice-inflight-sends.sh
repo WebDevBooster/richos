@@ -167,29 +167,22 @@ shas = sorted({m.group(0) for m in re.finditer(r"\b[0-9a-f]{7,40}\b", body.lower
 session_id = payload.get("session_id") or ""
 home = os.path.expanduser("~")
 
+# THE SAME LADDER THE GUARD USES. Written and read by one resolver, because a
+# ledger written to one path and read from another is the identity defect one
+# layer down.
 IDENTITY = identity_module()
-teams_dir = (os.environ.get("INFLIGHT_TEAMS_DIR")
-             or os.environ.get("WORKER_EVENTS_TEAMS_DIR")
-             or os.path.join(home, ".claude", "teams"))
-
-
-def resolve_team_dir():
-    if session_id:
-        candidate = os.path.join(teams_dir, "session-%s" % session_id[:8])
-        if os.path.isdir(candidate):
-            return candidate
+team_dir = ""
+if IDENTITY is not None:
     try:
-        sessions = [
-            os.path.join(teams_dir, name)
-            for name in os.listdir(teams_dir)
-            if name.startswith("session-") and os.path.isdir(os.path.join(teams_dir, name))
-        ]
+        team_dir, _how = IDENTITY.resolve_teams_dir(session_id)
     except Exception:
-        sessions = []
-    return sessions[0] if len(sessions) == 1 else None
-
-
-team_dir = resolve_team_dir() or ""
+        team_dir = ""
+if not team_dir:
+    base = (os.environ.get("INFLIGHT_TEAMS_DIR")
+            or os.environ.get("WORKER_EVENTS_TEAMS_DIR")
+            or os.path.join(home, ".claude", "teams"))
+    candidate = os.path.join(base, "session-%s" % session_id[:8]) if session_id else ""
+    team_dir = candidate if candidate and os.path.isdir(candidate) else ""
 
 log_path = (
     os.path.join(team_dir, "inflight-notices.jsonl")

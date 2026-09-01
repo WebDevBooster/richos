@@ -217,6 +217,14 @@ mutant credit-by-tokens-only "10b." scripts/lib/inflight.py \
     '        hits = []' \
     "A notice to zach-opus-s1 could not be credited to agent-<id> at all — the measured defect, verbatim."
 
+# 15. THE OPERATOR'S DIAGNOSTIC MUST RESOLVE. Reverting the team-directory
+#     ladder to "exactly one session directory or nothing" is what printed
+#     `notice ledger: <no team dir resolved>` on a machine with four of them.
+mutant teams-dir-single-or-nothing "11a." scripts/lib/teammate-identity.py \
+    '    active = [d for d in sessions if _has_team_stream(d)]' \
+    '    return "", "more than one session team directory"' \
+    "status goes blind exactly when the operator reaches for it."
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '\033[32m✓ %s/%s mutants killed — every property is load-bearing.\033[0m\n' "$PASS" "$PASS"

@@ -42,28 +42,39 @@ inflight_require() {
 }
 
 # inflight_teams_dir <session-id> — the session team directory, or "".
+# inflight_teams_dir_how <session-id> — the one-line reason it chose that one.
 #
-# Same resolution the four worker-lifecycle emitters use: exact session match
-# first, then a single-session fallback (and ONLY when there is exactly one —
-# guessing between sessions would attribute one session's notices to another).
-# INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR override the parent directory,
-# which is how the tests point this at a sandbox.
+# THE LADDER IS NOT HERE. It lives in scripts/lib/teammate-identity.py
+# (resolve_teams_dir), because the WITNESS writes the notice ledger from python
+# and the guard reads it from here, and a ledger written to one path and read
+# from another is the same class of defect as a teammate called two names.
+# Both halves now call the one resolver.
+#
+# INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR are read by that resolver as the
+# parent directory of the session-* directories.
 inflight_teams_dir() {
-    local sid="${1:-}" base short d found=""
-    base="${INFLIGHT_TEAMS_DIR:-${WORKER_EVENTS_TEAMS_DIR:-$HOME/.claude/teams}}"
-    [ -d "$base" ] || { printf '%s' ""; return 0; }
-    short="$(printf '%s' "$sid" | cut -c1-8)"
-    if [ -n "$short" ] && [ -d "$base/session-$short" ]; then
-        printf '%s' "$base/session-$short"
-        return 0
-    fi
-    for d in "$base"/session-*; do
-        [ -d "$d" ] || continue
-        if [ -n "$found" ]; then printf '%s' ""; return 0; fi
-        found="$d"
-    done
-    printf '%s' "$found"
-    return 0
+    python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --session "${1:-}" 2>/dev/null || printf '%s' ""
+}
+
+inflight_teams_dir_how() {
+    python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --how --session "${1:-}" 2>/dev/null \
+        || printf '%s' "teammate-identity.py could not run"
+}
+
+# inflight_resolve_teams_dir <session-id> — sets TWO variables in the caller:
+#   INFLIGHT_TEAMS_DIR_RESOLVED   the directory
+#   INFLIGHT_TEAMS_DIR_SOURCE     the rung of the ladder it came from, EXPORTED
+#                                 so the predicate can print it
+# The source is exported rather than returned because a sweep that is reading
+# the wrong ledger looks exactly like a sweep of an empty world, and the
+# difference has to be on the screen.
+inflight_resolve_teams_dir() {
+    local pair
+    pair="$(python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --with-how --session "${1:-}" 2>/dev/null)"
+    INFLIGHT_TEAMS_DIR_RESOLVED="$(printf '%s' "$pair" | cut -f1)"
+    INFLIGHT_TEAMS_DIR_SOURCE="$(printf '%s' "$pair" | cut -f2-)"
+    [ -n "$INFLIGHT_TEAMS_DIR_SOURCE" ] || INFLIGHT_TEAMS_DIR_SOURCE="teammate-identity.py could not run"
+    export INFLIGHT_TEAMS_DIR_SOURCE
 }
 
 # inflight_timeout_min <entity-root> — the ack timeout in minutes.

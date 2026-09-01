@@ -613,6 +613,30 @@ else
     bad "10j. the witness records to_agent_id" "$(tail -1 "$TEAM_DIR/inflight-notices.jsonl")"
 fi
 
+# ==========================================================================
+# 11. THE OPERATOR'S OWN INSTRUMENTS — they must work when he runs them
+# ==========================================================================
+# `inflight-notify.sh status`, run by hand on this machine, printed
+# `notice ledger: <no team dir resolved>` and `teammate: <unresolved>`: the
+# diagnostic was blind at exactly the moment it was needed. There is no
+# CLAUDE_SESSION_ID in a terminal, and four session directories exist.
+# A second session directory on the machine — four exist on the real one —
+# with no session id in the environment, which is every by-hand run.
+DECOY_TEAM_DIR="$TEAMS/session-cafe1234"
+mkdir -p "$DECOY_TEAM_DIR"
+printf 'someone-else-sonnet-1\n' > "$DECOY_TEAM_DIR/spawned-names.log"
+SOUT="$(CLAUDE_SESSION_ID="" bash "$RUNNER" status --repo "$REPO" 2>&1)"
+say "11a by-hand status, 2 session dirs, no session id" "$SOUT"
+case "$SOUT" in
+    *"<no team dir resolved>"*) bad "11a. status resolves a real ledger path with no CLAUDE_SESSION_ID set" "$SOUT" ;;
+    *"$TEAM_DIR/inflight-notices.jsonl"*) ok "11a. status names the REAL ledger path with no session id in the environment" ;;
+    *) bad "11a. status names the real ledger path" "$SOUT" ;;
+esac
+case "$SOUT" in
+    *"resolved by    :"*) ok "11b. and it says HOW it chose that directory — a guess the operator can see is a guess" ;;
+    *) bad "11b. status reports its team-dir resolution" "$SOUT" ;;
+esac
+
 unset INFLIGHT_TRANSCRIPT
 
 echo ""

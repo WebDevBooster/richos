@@ -83,7 +83,8 @@ inflight_require || {
     exit 2
 }
 
-TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
+inflight_resolve_teams_dir "$SESSION_ID"
+TEAMS_DIR="$INFLIGHT_TEAMS_DIR_RESOLVED"
 TIMEOUT_MIN="$(inflight_timeout_min "$REPO")"
 inflight_register_repo "$TEAMS_DIR" "$(cd "$REPO" && git rev-parse --show-toplevel 2>/dev/null || printf %s "$REPO")"
 
