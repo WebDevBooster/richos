@@ -1,0 +1,49 @@
+# A machine with NO memory: provision, then correct, in ONE session.
+# command: cd / && env -i HOME=<scratch> USER=$USER PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+#            app/target/debug/examples/first_run_correction_e2e <loro-checkout>
+# captured: 2026-09-01T17:27:05Z
+
+cwd  : /
+HOME : /private/tmp/echo-bt1/firstrun-ev
+PATH : Some("/usr/bin:/bin:/usr/sbin:/sbin")
+
+--- boot, on a machine with no memory ---
+BOOT   : no corpus. Looked in:
+         /private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus — not present
+         /private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/loro-root — not present
+         /private/tmp/echo-bt1/firstrun-ev/RichOS/corpus — not present
+DESK   : CLOSED (nothing to write with)
+
+--- he clicks "set it up" ---
+OFFER  : /private/tmp/echo-bt1/firstrun-ev/RichOS/corpus
+CORPUS : /private/tmp/echo-bt1/firstrun-ev/RichOS/corpus
+POINTER: Some("/private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus")
+READ   : /private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus via the corpus pointer in Application Support
+DESK   : OPEN — installed by provisioning, NO RELAUNCH
+
+--- the same session: he corrects something ---
+PROPOSE: state=AwaitingCeo
+BEFORE : exists=false at /private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus/ceo/records/first-run-correction-same-session.md
+CONFIRM: state=Written ref=rec:ceo/records/first-run-correction-same-session
+AFTER  : exists=true at /private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus/ceo/records/first-run-correction-same-session.md
+
+--- /private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus/ceo/records/first-run-correction-same-session.md ---
+---
+id: first-run-correction-same-session
+kind: decision
+scope: ceo-private
+title: A correction written in the session that created the corpus
+confidence: 0.9
+observedAt: "2026-09-01T17:27:06.681Z"
+supersededBy: null
+provenance: { method: explicit_ceo_instruction, source: conversation, ref: null }
+---
+
+Written by the app's own write path, on a machine that had no memory when this process started, without a relaunch. Before 2026-09-01 the desk was fixed at boot and this write was impossible until the CEO quit and reopened.
+--- end of record ---
+SHOW   : ref=rec:ceo/records/first-run-correction-same-session file=/private/tmp/echo-bt1/firstrun-ev/Library/Application Support/RichOS/corpus/ceo/records/first-run-correction-same-session.md
+AGREE  : yes
+
+RESULT : a machine with no memory, provisioned and corrected in ONE session.
+
+exit=0

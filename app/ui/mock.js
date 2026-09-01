@@ -1332,6 +1332,16 @@
             );
           memoryState = memoryCompilerPresent ? "ready" : "no-compiler";
           memoryRoot = given;
+          // AND THE DESK OPENS, in the same call, because the real one now does
+          // (`main.rs::install_correction_desk`, called from `provision_memory`). Until
+          // 2026-09-01 the field it writes to was fixed at boot, so a fresh user got a
+          // readable memory and a shut desk until he relaunched. A mock that kept the old
+          // shape would rehearse the SURFACE against behavior the backend no longer has,
+          // which is worse than having no mock for it.
+          //
+          // It follows the compiler, not the corpus: a `no-compiler` outcome has no
+          // `loro-write.mjs` either, so there is nothing for a desk to write with.
+          if (memoryCompilerPresent) loroDeskOn = true;
           return { ...memoryStatusOf(), provisioned_now: true };
         }
         case "entity_choice":
