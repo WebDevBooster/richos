@@ -31,11 +31,14 @@
 #       stand itself down and never strand a session.
 #
 # WHAT BLOCKS AND WHAT ONLY REPORTS
-#   Blocking: unresolved AGENT NAMES, unresolved COMMIT SHAs, and a BARE-ROLE
-#     in-flight claim about a role never dispatched in this session.
+#   Blocking: unresolved AGENT NAMES, unresolved COMMIT SHAs, a BARE-ROLE
+#     in-flight claim about a role never dispatched in this session, and a
+#     STATE CLAIM -- "landed", "merged", "on main", "pushed" -- whose commit is
+#     alive on a branch and is not where the sentence says it is.
 #   Reporting: unresolved FILE PATHS, a prose in-flight-dispatch signal, that
-#     signal narrowed to messages naming no agent, and a bare-role claim about
-#     a role that ran EARLIER and is not running now.
+#     signal narrowed to messages naming no agent, a bare-role claim about
+#     a role that ran EARLIER and is not running now, and a VALUE claimed gone
+#     that survives in a spelling the claim did not name.
 #   The full reasoning — monotonic vs shrinking ground truth, the grounding
 #   relaxation, and the measured numbers behind each choice — is in the module
 #   docstring of guard-unresolved-claims.py, which is the analysis half.
@@ -57,6 +60,19 @@
 #     prose + names-nobody   29 of the 30 prose hits name nobody, so the filter
 #                            removes ONE IN THIRTY: 3 true / 29 = 10.3%, against
 #                            the 17% it was proposed to replace. REPORT ONLY.
+#
+#   Re-measured 2026-09-01 on 2,276 turns / 2,206 final messages across all 79
+#   non-scratchpad orchestrator transcripts on this machine, for the STATE-CLAIM
+#   work. Method and adjudication: scripts/hooks/state-claims.corpus.md.
+#     landed/pushed + SHA    573 sentences, 658 citations
+#     ...against today      0 fires
+#     ...replayed at the    1 fire (0.15% of citations, 0.045% of turns) -- a
+#        turn's own clock     claim made 19 minutes before its commit reached
+#                             master, counted as a false positive on purpose
+#     value-absence, general 95 fires in 109 literals (87%). REPORT ONLY.
+#     value-absence, sharp   fires on 22 of 41 value citations once the absence
+#                            word stops being the only thing holding it back.
+#                            REPORT ONLY, and the reason is in the analyzer.
 #
 # FAIL-OPEN, DELIBERATELY, AND ONLY HERE
 #   Every other blocking guard in this engine fails CLOSED. This one does not,
@@ -87,7 +103,8 @@
 #
 # Exit codes (Claude Code Stop convention):
 #   0  nothing unresolved, not adopted, not evaluable, or anything went wrong
-#   2  BLOCKED — an identifier in the final message resolves against nothing
+#   2  BLOCKED — an identifier in the final message resolves against nothing, or
+#      a state claim in it contradicts the repository
 #
 # Self-test:  scripts/hooks/guard-unresolved-claims.sh --self-test
 

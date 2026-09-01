@@ -110,6 +110,45 @@ LIVE_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
 # Hex, 7 chars, has a digit and a letter, and names no object anywhere.
 DEAD_SHA="d0d0d0d"
 
+DEFAULT_BRANCH="$(git -C "$ENTITY" rev-parse --abbrev-ref HEAD)"
+
+# --- the three ref-graph states a state claim can be in --------------------
+# The gate's whole precision argument lives in the difference between these,
+# so the sandbox has to contain all three or the suite is testing one branch of
+# a three-way decision.
+#
+#   BRANCH_SHA   alive on a branch, not on main   -> the 2026-09-01 failure
+#   LIVE_SHA     on main                          -> the positive control
+#   DANGLING_SHA in the object DB, on no ref       -> a rewrite casualty, SILENT
+git -C "$ENTITY" checkout -q -b unlanded-branch
+printf 'not landed\n' > "$ENTITY/docs/unlanded.md"
+git -C "$ENTITY" add -A >/dev/null 2>&1
+git -C "$ENTITY" commit -qm "on a branch, never merged" >/dev/null 2>&1
+BRANCH_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+git -C "$ENTITY" checkout -q "$DEFAULT_BRANCH"
+
+git -C "$ENTITY" checkout -q -b doomed
+printf 'rewritten away\n' > "$ENTITY/docs/doomed.md"
+git -C "$ENTITY" add -A >/dev/null 2>&1
+git -C "$ENTITY" commit -qm "the shape a history rewrite leaves behind" >/dev/null 2>&1
+DANGLING_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+git -C "$ENTITY" checkout -q "$DEFAULT_BRANCH"
+git -C "$ENTITY" branch -qD doomed >/dev/null 2>&1
+
+# A remote-tracking ref that is BEHIND the local branch, so the tip is
+# committed and unpushed while the seed commit is published.
+git -C "$ENTITY" update-ref "refs/remotes/origin/$DEFAULT_BRANCH" "$LIVE_SHA"
+printf 'not pushed\n' > "$ENTITY/docs/unpushed.md"
+git -C "$ENTITY" add -A >/dev/null 2>&1
+git -C "$ENTITY" commit -qm "committed, not pushed" >/dev/null 2>&1
+UNPUSHED_SHA="$(git -C "$ENTITY" rev-parse --short=7 HEAD)"
+
+# A value present in TWO spellings, one of which a claim will not name.
+printf -- '--mark: #9C7C34;\n' > "$ENTITY/docs/style.css"
+printf -- 'expect(mark).toBe("rgb(143, 112, 48)");\n' > "$ENTITY/docs/appearance.js"
+git -C "$ENTITY" add -A >/dev/null 2>&1
+git -C "$ENTITY" commit -qm "two spellings of one value" >/dev/null 2>&1
+
 # A repository that never adopted the engine: no orchestration.config.
 UNADOPTED="$SANDBOX/unadopted"
 mkdir -p "$UNADOPTED"
@@ -467,6 +506,88 @@ run_case "y7.nameless-dispatch-is-reported-with-its-measured-number" 0 \
     "$(payload 'Dispatching it now.')" \
     "10.3% precision"
 
+# --- BLOCKING: STATE CLAIMS -- "landed", "merged", "on main", "pushed" -----
+#
+# THE 2026-09-01 FAILURE, REPRODUCED. A merge chained behind another command in
+# one Bash call; a PreToolUse guard refused the whole call; the merge never ran;
+# the turn reported it as landed. Every identifier in that report resolved, so
+# the existence check above passed it — and the CEO found out by opening the
+# file and getting ERR_FILE_NOT_FOUND.
+run_case "z1.landed-claim-about-a-branch-only-commit-blocks" 2 \
+    "$(payload "round-11.2 is landed on main and pushed — \`$BRANCH_SHA\`.")" \
+    "You said this LANDED"
+
+# ...and the refusal has to NAME THE CONTRADICTING FACT, or it nags instead of
+# teaching. The branch the commit is actually on is the whole content of the
+# correction.
+if printf '%s' "$LAST_ERR" | grep -qF "unlanded-branch"; then
+    printf '  PASS  z1b.refusal-names-the-branch-it-is-actually-on\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  z1b.refusal-names-the-branch-it-is-actually-on\n'; FAIL=$((FAIL + 1))
+fi
+
+# THE POSITIVE HALF OF THE CANARY, and it is not decoration. exit 2 is
+# ambiguous — Layer K learned that the expensive way, over a scanner that
+# refused everything because it never started. A gate that refuses a true
+# landing claim as readily as a false one is satisfied by a corpse.
+run_case "z2.a-TRUE-landing-claim-passes" 0 \
+    "$(payload "The report is landed on main at \`$LIVE_SHA\`, tree clean.")"
+if printf '%s' "$LAST_ERR" | grep -qF "You said this LANDED"; then
+    printf '  FAIL  z2b.two-sided-canary-a-true-claim-was-refused-too\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  z2b.two-sided-canary-a-true-claim-was-refused-too\n'; PASS=$((PASS + 1))
+fi
+
+# THE RELAXATION THAT MAKES IT SHIPPABLE. A history rewrite strands the old
+# commits with no ref pointing at them; citing one is honest and unprovable.
+# Requiring reachability-from-a-ref took the corpus from 41 fires to 0, and
+# every one of the 41 was a rewrite casualty.
+run_case "z3.landed-claim-about-a-dangling-commit-is-SILENT" 0 \
+    "$(payload "That work landed at \`$DANGLING_SHA\` before the rewrite.")"
+if printf '%s' "$LAST_ERR" | grep -qF "You said this LANDED"; then
+    printf '  FAIL  z3b.a-rewrite-casualty-must-not-fire\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  z3b.a-rewrite-casualty-must-not-fire\n'; PASS=$((PASS + 1))
+fi
+
+run_case "z4.pushed-claim-about-an-unpushed-commit-blocks" 2 \
+    "$(payload "Everything is committed and pushed — \`$UNPUSHED_SHA\`.")" \
+    "You said this was PUSHED"
+
+run_case "z5.a-TRUE-push-claim-passes" 0 \
+    "$(payload "Pushed at \`$LIVE_SHA\`.")"
+
+# A bare hex token is admitted ONLY inside a sentence that has already asserted
+# a landing — the context is what makes it a citation rather than a coincidence.
+run_case "z6.a-bare-unbackticked-sha-in-a-landing-sentence-still-blocks" 2 \
+    "$(payload "Reed's pass landed on main as $BRANCH_SHA and the worktree is gone.")" \
+    "You said this LANDED"
+
+# PRECISION: no landing word, no question asked of git. The same SHA that
+# blocks above is silent here.
+run_case "z7.the-same-sha-outside-a-state-claim-is-not-checked" 0 \
+    "$(payload "The branch tip is \`$BRANCH_SHA\` and I am waiting on your call before touching it.")"
+
+run_case "z8.a-landing-word-with-no-sha-is-not-a-state-claim" 0 \
+    "$(payload 'Everything is landed and pushed; the worktrees are cleaned up.')"
+
+# --- REPORTING: a value claimed gone, alive in a spelling not named --------
+# The third failure of 2026-09-01. It REPORTS and does not block, and the
+# reason is a number: the general grep fires on 95 of 109 real literals, and
+# the sharpened version is held back only by how rarely an absence word lands
+# next to a value. See value_absence_claims() in the analyzer.
+run_case "z9.a-value-gone-in-one-spelling-only-is-REPORTED" 0 \
+    "$(payload 'Contrast fixed: `#8F7030` is gone from the entire app.')" \
+    "survives in a spelling you did not name"
+
+run_case "z10.a-value-with-no-surviving-spelling-is-silent" 0 \
+    "$(payload 'Contrast fixed: `#123456` is gone from the entire app.')"
+if printf '%s' "$LAST_ERR" | grep -qF "survives in a spelling"; then
+    printf '  FAIL  z10b.a-genuinely-absent-value-must-not-be-reported\n'; FAIL=$((FAIL + 1))
+else
+    printf '  PASS  z10b.a-genuinely-absent-value-must-not-be-reported\n'; PASS=$((PASS + 1))
+fi
+
 LOG="$ENTITY/.claude/state/claim-checks.jsonl"
 if [ -s "$LOG" ] && python3 - "$LOG" <<'PY'
 import json, sys
@@ -479,6 +600,13 @@ assert any(r.get("stale_roles") for r in rows), "stale role never recorded"
 assert any(r["verdict"] == "block" and r.get("undispatched_roles") and
            not r["unresolved"]["name"] and not r["unresolved"]["sha"]
            for r in rows), "a role-only block was not recorded as a block"
+assert any(r.get("bad_state_claims") for r in rows), "no state-claim block recorded"
+assert any(r["verdict"] == "block" and r.get("bad_state_claims") and
+           not r["unresolved"]["name"] and not r["unresolved"]["sha"]
+           for r in rows), "a state-claim-only block was not recorded as a block"
+assert any(r.get("value_absence") for r in rows), "value absence never recorded"
+assert any(r.get("state_claims") and not r.get("bad_state_claims")
+           for r in rows), "a passing state claim was never recorded"
 PY
 then
     printf '  PASS  x.observation-record-written\n'; PASS=$((PASS + 1))

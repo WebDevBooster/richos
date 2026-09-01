@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# claim-roles.mutation.sh — PROVES THE BARE-ROLE ARMS OF THE CLAIM GATE CAN FAIL.
+# claim-roles.mutation.sh — PROVES THE BARE-ROLE AND STATE-CLAIM ARMS OF THE
+# CLAIM GATE CAN FAIL.
 #
 # The bare-role check was added because a measured rule was proposed and the
 # measurement said no. That makes its own tests exactly the kind that pass for
@@ -12,6 +13,14 @@
 #   1. guard-unresolved-claims.test.sh FAILS,
 #   2. the SPECIFIC named case fails — not merely "something went red", and
 #   3. the mutation actually applied.
+#
+# The STATE-CLAIM arms (2026-09-01) are here for the same reason and one more.
+# That gate exists because a report was written from the INTENT of a command
+# rather than from the repository, and its two-sided canary is the property
+# most easily satisfied by a corpse: a check that refuses everything passes
+# "a false claim is refused" perfectly. So the mutations below include one that
+# makes the gate refuse a TRUE landing claim, and it has to turn the POSITIVE
+# half red — not the negative one.
 #
 # Run directly: scripts/hooks/claim-roles.mutation.sh
 # Exit 0 = every property is proven load-bearing.
@@ -87,8 +96,8 @@ mutant no-role-block "y1." "$P" \
     "the one arm that blocks: a role named that was never dispatched at all."
 
 mutant role-block-not-in-verdict "x." "$P" \
-    'if (unresolved_names or unresolved_shas\n                               or undispatched_roles) else "pass",' \
-    'if (unresolved_names or unresolved_shas) else "pass",' \
+    'or undispatched_roles or bad_states) else "pass",' \
+    'or bad_states) else "pass",' \
     "a violation recorded as a pass is a violation nobody will ever count."
 
 mutant no-stale-report "y2." "$P" \
@@ -130,6 +139,59 @@ mutant nameless-number-hidden "y7." "$P" \
     'lines.append("  ...and it named no agent identifier (10.3% precision -- also never enforced)")' \
     'pass' \
     "a rejected rule shipped without its number is a rule somebody promotes next month."
+
+echo ""
+echo "=== the state-claim arms, proven load-bearing by removing them ==="
+
+mutant no-state-block "z1." "$P" \
+    '            if v[0] == "violation":\n                bad_states.append((kind, sha, sentence, v[1], v[2]))' \
+    '            if False:\n                bad_states.append((kind, sha, sentence, v[1], v[2]))' \
+    "the arm that catches a merge that never ran — the 2026-09-01 failure itself."
+
+mutant state-block-not-in-verdict "x." "$P" \
+    'or undispatched_roles or bad_states) else "pass",' \
+    'or undispatched_roles) else "pass",' \
+    "a refusal recorded as a pass is a refusal nobody will ever count."
+
+mutant no-reachability-requirement "z3b." "$P" \
+    '        ref = _reachable_from(root, sha, "refs/heads/")\n        if not ref and kind == "integrated":\n            ref = _reachable_from(root, sha, "refs/remotes/")\n        if ref:\n            return ("violation", root, ref)' \
+    '        ref = _reachable_from(root, sha, "refs/heads/") or "(none)"\n        if ref:\n            return ("violation", root, ref)' \
+    "without it every pre-rewrite citation fires: 41 of them in the corpus, none a false report."
+
+mutant integration-refs-emptied "z2b." "$P" \
+    'INTEGRATION_REFS = ("main", "master", "origin/main", "origin/master", "HEAD")' \
+    'INTEGRATION_REFS = ()' \
+    "THE TWO-SIDED CANARY: a gate with nothing to compare against refuses a TRUE landing claim too, and exit 2 cannot tell you which one it did."
+
+mutant no-push-check "z4." "$P" \
+    '            if _reachable_from(root, sha, "refs/remotes/"):\n                return ("ok",)' \
+    '            if True:\n                return ("ok",)' \
+    "\"pushed\" is a claim about another machine, and this is the only thing that reads it."
+
+mutant no-bare-hex "z6." "$P" \
+    '    for tok in _backticked(sentence) + [m.group(1) for m in\n                                        BARE_HEX_RE.finditer(sentence)]:' \
+    '    for tok in _backticked(sentence):' \
+    "a SHA written without backticks is the same claim; the corpus carries 19 of them."
+
+mutant state-claim-needs-no-verb "z7." "$P" \
+    '        if not (integrated or published):\n            continue' \
+    '        if False:\n            continue' \
+    "without the verb this stops being a state check and becomes an ancestry test on every hex token in the reply."
+
+mutant no-absence-report "z9." "$P" \
+    '            for v, sp, fp, _root in absence_reports:' \
+    '            for v, sp, fp, _root in []:' \
+    "the one fact the 2026-09-01 turn did not have: which spelling was still there."
+
+mutant absence-blocks-instead-of-reporting "z9." "$P" \
+    '            or bad_states):' \
+    '            or bad_states or absence_reports):' \
+    "promoting a 54%-fire signal to a blocker is how a defense becomes a formality; the report must stay a report."
+
+mutant only-the-named-spelling "z9." "$P" \
+    '    out = ["#" + h, "#" + h.upper()]' \
+    '    return ["#" + h]\n    out = ["#" + h, "#" + h.upper()]' \
+    "checking only the spelling the claim named is exactly the mistake being caught."
 
 echo ""
 echo "  $PASS mutant(s) killed, $FAIL survived or misfired"
