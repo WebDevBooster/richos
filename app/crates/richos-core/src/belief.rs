@@ -620,7 +620,7 @@ mod tests {
 
     fn renewal() -> SliceRecord {
         rec(
-            "rec:person/records/halstead-renewal",
+            "rec:ceo/records/halstead-renewal",
             "commitment",
             "Halstead renewal",
             "The Halstead contract renews in February.",
@@ -628,7 +628,7 @@ mod tests {
     }
 
     fn ship() -> SliceRecord {
-        rec("rec:person/records/ship-date", "decision", "Ship date", "We ship on Thursday.")
+        rec("rec:ceo/records/ship-date", "decision", "Ship date", "We ship on Thursday.")
     }
 
     fn asks(u: &str, records: &[SliceRecord]) -> Vec<BeliefAsk> {
@@ -646,12 +646,12 @@ mod tests {
     fn a_belief_correction_resolves_to_its_record_and_composes_nothing() {
         let a = asks("The Halstead contract renews in March, not February.", &[renewal(), ship()]);
         assert_eq!(a.len(), 1, "{a:?}");
-        assert_eq!(a[0].record_ref, "rec:person/records/halstead-renewal");
+        assert_eq!(a[0].record_ref, "rec:ceo/records/halstead-renewal");
         assert_eq!((a[0].rejected.as_str(), a[0].asserted.as_str()), ("February", "March"));
         assert_eq!(a[0].class, ValueClass::Calendar);
         match a[0].proposed_write() {
             ProposedWrite::Supersede { record_ref, kind, scope, body, new_id } => {
-                assert_eq!(record_ref, "rec:person/records/halstead-renewal");
+                assert_eq!(record_ref, "rec:ceo/records/halstead-renewal");
                 assert_eq!(kind, "commitment", "the record's own kind, never re-typed");
                 assert_eq!(scope.as_deref(), Some("org-shared"), "carried through, never narrowed");
                 assert_eq!(body, "The Halstead contract renews in March, not February.");
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn an_ambiguous_reference_is_dropped_and_never_resolved_by_a_tiebreak() {
         let second = rec(
-            "rec:person/records/board-date",
+            "rec:ceo/records/board-date",
             "commitment",
             "Board meeting",
             "The board meets in February.",
@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn a_mishearing_is_the_other_desks_and_is_refused_by_name() {
         let kestrel = rec(
-            "rec:person/records/kestrel",
+            "rec:ceo/records/kestrel",
             "decision",
             "Kestrel review",
             "The Kestral review is booked.",
@@ -717,7 +717,7 @@ mod tests {
         assert!(crate::spoken::detect("We ship Friday, not Thursday.", &[]).is_silent());
         let a = asks("We ship Friday, not Thursday.", &[ship()]);
         assert_eq!(a.len(), 1, "{a:?}");
-        assert_eq!(a[0].record_ref, "rec:person/records/ship-date");
+        assert_eq!(a[0].record_ref, "rec:ceo/records/ship-date");
         assert_eq!((a[0].rejected.as_str(), a[0].asserted.as_str()), ("Thursday", "Friday"));
     }
 
@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn a_record_that_already_states_both_is_not_corrected() {
         let both = rec(
-            "rec:person/records/ship-date",
+            "rec:ceo/records/ship-date",
             "decision",
             "Ship date",
             "We ship Thursday; Friday was floated and rejected.",
@@ -817,7 +817,7 @@ mod tests {
     #[test]
     fn the_one_measured_miss_misses_safely_and_its_mirror_image_is_found() {
         let owner = rec(
-            "rec:person/records/account-owner",
+            "rec:ceo/records/account-owner",
             "fact",
             "Halstead account owner",
             "Marcus Webb owns the Halstead account.",
@@ -838,7 +838,7 @@ mod tests {
     #[test]
     fn a_nominal_pair_is_aligned_from_the_end_nearest_the_pivot() {
         let owner = rec(
-            "rec:person/records/account-owner",
+            "rec:ceo/records/account-owner",
             "fact",
             "Halstead account owner",
             "Marcus Webb owns the Halstead account.",
@@ -870,7 +870,7 @@ mod tests {
         let again = asks("The Halstead contract renews in March, not February.", &[renewal()]);
         assert_eq!(one[0].new_id(), again[0].new_id(), "not deterministic");
         let april = rec(
-            "rec:person/records/halstead-renewal",
+            "rec:ceo/records/halstead-renewal",
             "commitment",
             "Halstead renewal",
             "The Halstead contract renews in March.",

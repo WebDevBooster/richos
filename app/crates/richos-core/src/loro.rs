@@ -67,7 +67,7 @@ pub enum LoroError {
 /// Where the CEO's memory is. `CONTEXT-CONTRACT.md` §1: *"There is no fallback."*
 ///
 /// Two shapes, and they are not interchangeable. A provisioned [`LoroRoot::Corpus`] is
-/// `person/` + `companies/<id>/` and is the real thing. A [`LoroRoot::Root`] is the in-repo
+/// `ceo/` + `companies/<id>/` and is the real thing. A [`LoroRoot::Root`] is the in-repo
 /// dogfood layout (`wiki/` + `loro/`) and the slice it produces SAYS SO, carrying
 /// `corpus.layout: "repo"` and a note naming it as RichOS's own memory — because, as the
 /// contract puts it, the wrong company's memory is byte-honest too and only provenance
@@ -182,7 +182,7 @@ impl LoroTools {
 ///
 /// # And why it does not settle CEO decision 1.6
 ///
-/// `loro-structure.md`'s "one loro, two homes" — the person layer plus N company partitions
+/// `loro-structure.md`'s "one loro, two homes" — the CEO layer plus N company partitions
 /// — is READY-FOR-CEO and unratified (open-items 1.6). Shipping a hard-coded
 /// entity-is-a-company rule would ratify it in code while the register still says OPEN. A
 /// map that an operator fills in, and that is EMPTY by default, asserts nothing about the
@@ -286,7 +286,7 @@ pub struct SliceItem {
     /// asserting an adjudicated claim the corpus never made.
     #[serde(default)]
     pub kind_inferred: bool,
-    /// The item's LANE. `null` is the person layer — `CONTEXT-CONTRACT.md` §6c calls that
+    /// The item's LANE. `null` is the CEO layer — `CONTEXT-CONTRACT.md` §6c calls that
     /// "a legitimate permanent state, not an error".
     #[serde(default)]
     pub company: Option<String>,
@@ -336,8 +336,8 @@ impl Slice {
     /// authoritative).
     ///
     /// `expected` is the lane this thread's entity is mapped to, or `None` for a corpus with
-    /// no partitions at all. Person-layer items (`company: null`) are always allowed: ECS
-    /// §3.5's default read set is *"the person layer plus the active entity"*, and
+    /// no partitions at all. CEO-layer items (`company: null`) are always allowed: ECS
+    /// §3.5's default read set is *"the CEO layer plus the active entity"*, and
     /// `loro-structure.md` says the same in loro's own words.
     ///
     /// A violation returns the offending item rather than filtering it. **Filtering would be
@@ -410,7 +410,7 @@ impl SliceRecord {
     /// **The machine furniture is stripped**, and that is not tidiness. `renderItem` writes
     /// `• [kind] Title — body… (ref: id)`, so leaving it in would put the kind name and
     /// every word of the record's own id into the text a correction resolves against: a
-    /// record filed at `rec:person/records/ship-date` would answer to the word "date", and
+    /// record filed at `rec:ceo/records/ship-date` would answer to the word "date", and
     /// two records could collide on nothing but their storage paths. Rich asserts the
     /// title and the body; he does not assert the ref.
     pub fn matchable(&self) -> &str {
@@ -819,7 +819,7 @@ mod tests {
     /// A slice with two items, one of them the LAST line — the one the budget can truncate.
     fn two_item_slice(last_line_intact: bool) -> String {
         let items = concat!(
-            r#"{"ref":"rec:person/records/ship-date","kind":"decision","kindInferred":false,"#,
+            r#"{"ref":"rec:ceo/records/ship-date","kind":"decision","kindInferred":false,"#,
             r#""title":"Ship date","scope":"org-shared","company":"fb"},"#,
             r#"{"ref":"mem:company:renewal","kind":"commitment","kindInferred":true,"#,
             r#""title":"Halstead renewal","scope":"ceo-private","company":"fb"}"#
@@ -834,7 +834,7 @@ mod tests {
             false,
             &format!(
                 "COMPANY MEMORY (loro) — bearing on: \"the quarter\"\n\
-                 • [decision] Ship date — We ship on Thursday. (ref: rec:person/records/ship-date)\n{tail}"
+                 • [decision] Ship date — We ship on Thursday. (ref: rec:ceo/records/ship-date)\n{tail}"
             ),
         )
     }
@@ -856,7 +856,7 @@ mod tests {
         let held = sink.lock().unwrap();
         let recs = held.records_for("t1");
         assert_eq!(recs.len(), 2, "{recs:?}");
-        assert_eq!(recs[0].record_ref, "rec:person/records/ship-date");
+        assert_eq!(recs[0].record_ref, "rec:ceo/records/ship-date");
         assert_eq!(recs[0].scope, "org-shared", "the scope a correction must carry through");
         assert!(!recs[0].kind_inferred);
         assert_eq!(
@@ -864,7 +864,7 @@ mod tests {
             "Ship date — We ship on Thursday.",
             "the kind label and the ref must not be matchable text"
         );
-        assert!(recs[0].evidence().contains("(ref: rec:person/records/ship-date)"), "{:?}", recs[0].line);
+        assert!(recs[0].evidence().contains("(ref: rec:ceo/records/ship-date)"), "{:?}", recs[0].line);
         // A GUESSED kind is carried as a guess, never flattened into a declaration.
         assert!(recs[1].kind_inferred, "kindInferred was dropped");
         assert!(recs[1].is_supersedable(), "a mem: ref is supersedable");
@@ -931,7 +931,7 @@ mod tests {
             company: None,
             line: None,
         };
-        assert!(r("rec:person/records/x").is_supersedable());
+        assert!(r("rec:ceo/records/x").is_supersedable());
         assert!(r("mem:company:x").is_supersedable());
         assert!(!r("wiki:loro-structure.md#the-human-surface").is_supersedable());
         assert!(!r("entity:halstead-group").is_supersedable());
@@ -951,7 +951,7 @@ mod tests {
     }
 
     #[test]
-    fn the_person_layer_is_always_readable_because_ecs_says_it_is_in_the_default_read_set() {
+    fn the_ceo_layer_is_always_readable_because_ecs_says_it_is_in_the_default_read_set() {
         let c = compiler("femcboost=fb");
         let json = slice_json(r#"{"ref":"rec:p","kind":"principle","title":"t","scope":"ceo-private","company":null}"#, false, "COMPANY MEMORY (loro) — bearing on: \"x\"\n• [principle] p");
         assert!(c.interpret(&json, &req("femcboost", "x")).is_slice());
@@ -986,7 +986,7 @@ mod tests {
     #[test]
     fn an_unmapped_entity_refuses_every_company_item_rather_than_accepting_all_of_them() {
         // The failure mode this guards: "no lane configured" must not read as "no
-        // restriction". An unmapped entity may read the person layer and nothing else.
+        // restriction". An unmapped entity may read the CEO layer and nothing else.
         let c = compiler("");
         let json = slice_json(
             r#"{"ref":"rec:companies/anything/records/x","kind":"fact","title":"t","scope":"org-shared","company":"anything"}"#,

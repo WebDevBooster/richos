@@ -332,7 +332,7 @@ impl RePrimePayload {
     }
 
     /// The identity assertion PLUS the scope the successor is resuming inside (ECS §3.5:
-    /// *"The default read set is the person layer plus the active entity"* and *"A thread
+    /// *"The default read set is the CEO layer plus the active entity"* and *"A thread
     /// cannot read another entity because a name appears related"*).
     ///
     /// A successor that is not told its entity has an advisory boundary, not an enforced
