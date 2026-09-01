@@ -655,11 +655,15 @@ async function main() {
       };
     });
     assertEqual(light.ink, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
+    // THE EXPECTATION FOLLOWS THE RULING, and it did not for one commit. 6fd6fe7 restored
+    // the CEO ruled light signal in `index.html` and rewrote this assertion PROSE to say so,
+    // but left the VALUE at the struck-darker one the ruling replaced — so main shipped a
+    // check asserting a value the app no longer draws, and a value the lead has since said
+    // is gone from the whole app. #9C7C34 is rgb(156, 124, 52).
     assertEqual(
-      light.swoosh, "rgb(143, 112, 48)",
-      "and the swoosh crosses over too — #9C7C34, the ruled old gold struck one step darker " +
-        "because the ruled #9C7C34 is 2.95:1 on this rail and fails the 3:1 floor. 3.49:1 here, " +
-        "4.00:1 against the ink beside it."
+      light.swoosh, "rgb(156, 124, 52)",
+      "and the swoosh crosses over too — the CEO ruled light signal #9C7C34, which is what " +
+        "index.html sets and what the shipped light asset carries."
     );
     await page.close();
     return "wordmark present and announced; company label gone; ink #DFE4EE -> #0C1322 and " +
