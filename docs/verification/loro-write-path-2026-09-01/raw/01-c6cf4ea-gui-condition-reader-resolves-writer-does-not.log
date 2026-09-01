@@ -1,0 +1,14 @@
+# c6cf4ea, GUI condition, CEO's real HOME: the reader resolves his corpus, the writer resolves nothing.
+# command: cd / && env -i HOME=/Users/alex USER=alex PATH=/usr/bin:/bin:/usr/sbin:/sbin <c6cf4ea>/examples/gui_writer_probe
+# captured: 2026-09-01T16:38:53Z
+
+cwd: /
+env LORO_CORPUS = None
+env LORO_ROOT = None
+env RICHOS_LORO_DIR = None
+env RICHOS_NODE_BIN = None
+env HOME = Some("/Users/alex")
+env PATH = Some("/usr/bin:/bin:/usr/sbin:/sbin")
+READER: root=/Users/alex/Library/Application Support/RichOS/loro-root via the loro-root pointer in Application Support tools=/Users/alex/Library/Application Support/RichOS/loro-root/loro
+WRITER: NONE -- the correction desk is closed; a confirm reaches nothing
+exit=0

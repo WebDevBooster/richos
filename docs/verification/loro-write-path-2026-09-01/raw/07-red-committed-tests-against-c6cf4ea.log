@@ -1,0 +1,202 @@
+# RED against c6cf4ea: the committed tests do not compile, because no seam exists that could satisfy them.
+# command: git archive c6cf4ea app docs tools/richos-service | tar -x; cp tests/loro_gui_launch_tests.rs; cargo test -p richos-core --test loro_gui_launch_tests
+# captured: 2026-09-01T16:40:03Z
+
+   Compiling richos-core v0.1.0 (/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/red-base/app/crates/richos-core)
+error[E0432]: unresolved import `richos_core::loro::LoroInstall`
+  --> crates/richos-core/tests/loro_gui_launch_tests.rs:26:72
+   |
+26 | use richos_core::loro::{CliContextCompiler, CorpusPaths, CorpusSource, LoroInstall, LoroRoot};
+   |                                                                        ^^^^^^^^^^^ no `LoroInstall` in `loro`
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:94:42
+    |
+ 94 |     let (writer, tried) = CliLoroWriter::locate(&gui_paths(&home)).expect("resolution must not error");
+    |                                          ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:123:38
+    |
+123 |     let (writer, _) = CliLoroWriter::locate(&gui_paths(&home)).expect("resolution must not error");
+    |                                      ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:148:38
+    |
+148 |     let (writer, _) = CliLoroWriter::locate(&p).expect("an explicit root is not validated here");
+    |                                      ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:168:38
+    |
+168 |     let (writer, _) = CliLoroWriter::locate(&p).unwrap();
+    |                                      ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:185:42
+    |
+185 |     let (writer, tried) = CliLoroWriter::locate(&gui_paths(&home)).expect("nothing found is not an error");
+    |                                          ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:205:30
+    |
+205 |     let err = CliLoroWriter::locate(&gui_paths(&home)).expect_err("a corpus with no compiler is its own error");
+    |                              ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:223:30
+    |
+223 |     let err = CliLoroWriter::locate(&gui_paths(&home)).expect_err("half a checkout must not resolve");
+    |                              ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:250:38
+    |
+250 |     let (writer, _) = CliLoroWriter::locate(&p).unwrap();
+    |                                      ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `from_install` found for struct `CliContextCompiler` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:283:38
+    |
+283 |     let reader = CliContextCompiler::from_install(&install).expect("the read half");
+    |                                      ^^^^^^^^^^^^ function or associated item not found in `CliContextCompiler`
+    |
+note: if you're trying to build a new `CliContextCompiler`, consider using `CliContextCompiler::new` which returns `CliContextCompiler`
+   --> crates/richos-core/src/loro.rs:797:5
+    |
+797 |     pub fn new(tools: LoroTools, root: LoroRoot, lanes: LaneMap) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `from_env` with a similar name
+   --> crates/richos-core/src/loro.rs:861:5
+    |
+861 |     pub fn from_env() -> Result<Option<Self>, LoroError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `from_install` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:284:33
+    |
+284 |     let writer = CliLoroWriter::from_install(&install);
+    |                                 ^^^^^^^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `from_env` with a similar name
+   --> crates/richos-core/src/correction.rs:261:5
+    |
+261 |     pub fn from_env() -> Result<Option<Self>, crate::loro::LoroError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:315:42
+    |
+315 |     let (writer, tried) = CliLoroWriter::locate(&gui_paths(&home)).unwrap();
+    |                                          ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `locate` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:329:42
+    |
+329 |     let (writer, tried) = CliLoroWriter::locate(&p).unwrap();
+    |                                          ^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `from_install` found for struct `CliLoroWriter` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:397:33
+    |
+397 |     let writer = CliLoroWriter::from_install(&install);
+    |                                 ^^^^^^^^^^^^ function or associated item not found in `CliLoroWriter`
+    |
+note: if you're trying to build a new `CliLoroWriter`, consider using `CliLoroWriter::new` which returns `CliLoroWriter`
+   --> crates/richos-core/src/correction.rs:255:5
+    |
+255 |     pub fn new(tools: LoroTools, root: LoroRoot) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `from_env` with a similar name
+   --> crates/richos-core/src/correction.rs:261:5
+    |
+261 |     pub fn from_env() -> Result<Option<Self>, crate::loro::LoroError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `from_install` found for struct `CliContextCompiler` in the current scope
+   --> crates/richos-core/tests/loro_gui_launch_tests.rs:398:38
+    |
+398 |     let reader = CliContextCompiler::from_install(&install).expect("the read half");
+    |                                      ^^^^^^^^^^^^ function or associated item not found in `CliContextCompiler`
+    |
+note: if you're trying to build a new `CliContextCompiler`, consider using `CliContextCompiler::new` which returns `CliContextCompiler`
+   --> crates/richos-core/src/loro.rs:797:5
+    |
+797 |     pub fn new(tools: LoroTools, root: LoroRoot, lanes: LaneMap) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: there is an associated function `from_env` with a similar name
+   --> crates/richos-core/src/loro.rs:861:5
+    |
+861 |     pub fn from_env() -> Result<Option<Self>, LoroError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Some errors have detailed explanations: E0432, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `richos-core` (test "loro_gui_launch_tests") due to 15 previous errors

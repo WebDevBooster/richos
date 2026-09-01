@@ -1,0 +1,49 @@
+# This branch, GUI condition, scratch machine: provision, propose, confirm, record on disk.
+# command: loro_gui_correction_e2e setup /private/tmp/richos-e2e-home /Users/alex/ab/richos-hq/loro; then cd / && env -i HOME=/private/tmp/richos-e2e-home ... loro_gui_correction_e2e drive
+# captured: 2026-09-01T16:39:10Z
+
+corpus  : /private/tmp/richos-e2e-home/RichOS/corpus
+compiler: Installed { source: "/Users/alex/ab/richos-hq/loro", dest: "/private/tmp/richos-e2e-home/Library/Application Support/RichOS/loro-tools", files: 37 }
+
+cwd  : /
+HOME : Some("/private/tmp/richos-e2e-home")
+PATH : Some("/usr/bin:/bin:/usr/sbin:/sbin")
+INSTALL: root=/private/tmp/richos-e2e-home/Library/Application Support/RichOS/corpus via the corpus pointer in Application Support
+         tools=/private/tmp/richos-e2e-home/Library/Application Support/RichOS/loro-tools via the loro-tools install in Application Support
+         node=/opt/homebrew/bin/node
+DESK   : open at /private/tmp/richos-e2e-home/Library/Application Support/com.richos.e2e/loro-corrections.jsonl
+PROPOSE: state=AwaitingCeo
+--- preview (the writer's own --dry-run) ---
+---
+id: gui-launch-write-path-2026-09-01
+kind: decision
+scope: ceo-private
+title: The correction desk works on a Finder launch
+confidence: 0.9
+observedAt: "2026-09-01T16:39:11.648Z"
+supersededBy: null
+provenance: { method: explicit_ceo_instruction, source: conversation, ref: null }
+---
+
+Written by the app's own write path under launchd's environment with cwd=/, which is the condition that left this desk dead at c6cf4ea.
+--- end of preview ---
+BEFORE : /private/tmp/richos-e2e-home/Library/Application Support/RichOS/corpus/ceo/records/gui-launch-write-path-2026-09-01.md exists=false
+CONFIRM: state=Written ref=rec:ceo/records/gui-launch-write-path-2026-09-01
+AFTER  : exists=true at /private/tmp/richos-e2e-home/Library/Application Support/RichOS/corpus/ceo/records/gui-launch-write-path-2026-09-01.md
+--- /private/tmp/richos-e2e-home/Library/Application Support/RichOS/corpus/ceo/records/gui-launch-write-path-2026-09-01.md ---
+---
+id: gui-launch-write-path-2026-09-01
+kind: decision
+scope: ceo-private
+title: The correction desk works on a Finder launch
+confidence: 0.9
+observedAt: "2026-09-01T16:39:11.720Z"
+supersededBy: null
+provenance: { method: explicit_ceo_instruction, source: conversation, ref: null }
+---
+
+Written by the app's own write path under launchd's environment with cwd=/, which is the condition that left this desk dead at c6cf4ea.
+--- end of record ---
+SHOW   : ref=rec:ceo/records/gui-launch-write-path-2026-09-01 file=/private/tmp/richos-e2e-home/Library/Application Support/RichOS/corpus/ceo/records/gui-launch-write-path-2026-09-01.md
+AGREE  : yes
+exit=0

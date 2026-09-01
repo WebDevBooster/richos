@@ -1,0 +1,11 @@
+# GUI automation is unavailable on this machine: System Events reports 0 windows for every visible process.
+# command: osascript -e 'tell application "System Events" to tell process X to get count of windows'
+# captured: 2026-09-01T16:40:53Z
+
+visible processes:
+Finder, Activity Monitor, Terminal, Google Chrome, webstorm, ChatGPT
+
+Finder -> 0
+Google Chrome -> 0
+Terminal -> 0
+webstorm -> 0

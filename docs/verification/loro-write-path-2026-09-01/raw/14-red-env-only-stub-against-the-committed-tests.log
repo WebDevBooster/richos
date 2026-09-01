@@ -1,0 +1,126 @@
+# RED with c6cf4ea's env-only body put back behind the new names: 11 of 13 fail.
+# The 2 that pass are the two that assert ABSENCE, and under the stub they pass for
+# the wrong reason - which is exactly why a suite that only checked 'nothing resolves
+# to nothing' would have missed this defect.
+# command: python3 stub.py && cargo test -p richos-core --test loro_gui_launch_tests
+# captured: 2026-09-01T16:41:23Z
+
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos-wt/echo-opus-wr1/app/crates/richos-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.43s
+     Running tests/loro_gui_launch_tests.rs (target/debug/deps/loro_gui_launch_tests-4b1aeddded8cca3f)
+
+running 15 tests
+test gui_child_reports_every_candidate_it_tried ... ignored
+test gui_child_resolves_a_writer_from_the_real_process ... ignored
+test no_corpus_is_a_named_state_that_says_what_it_looked_for ... FAILED
+test nothing_is_ever_inferred_from_the_checkout_this_binary_was_built_in ... ok
+test a_launch_with_no_environment_resolves_a_writer_and_not_only_a_reader ... FAILED
+test with_no_home_there_is_no_candidate_and_the_resolver_says_so_instead_of_guessing ... FAILED
+test half_a_checkout_is_not_a_checkout_because_the_writer_is_the_half_that_would_be_missing ... FAILED
+test loro_corpus_outranks_loro_root_for_the_writer_exactly_as_it_does_for_the_reader ... FAILED
+test a_corpus_with_no_compiler_refuses_the_writer_by_name_rather_than_half_wiring_it ... FAILED
+test a_provisioned_corpus_reaches_the_writer_through_the_tools_install_beside_it ... FAILED
+test an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated ... FAILED
+test the_reader_and_the_writer_resolve_the_same_corpus_and_the_same_binary_directory ... FAILED
+test one_install_builds_both_halves_so_a_second_resolution_cannot_disagree ... FAILED
+test the_gui_condition_with_no_corpus_says_what_it_looked_for_and_does_not_panic ... ok
+test the_gui_condition_in_a_real_process_reaches_a_writer ... FAILED
+
+failures:
+
+---- no_corpus_is_a_named_state_that_says_what_it_looked_for stdout ----
+
+thread 'no_corpus_is_a_named_state_that_says_what_it_looked_for' (144009885) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:189:5:
+assertion `left == right` failed: every candidate must be reported: []
+  left: 0
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_launch_with_no_environment_resolves_a_writer_and_not_only_a_reader stdout ----
+
+thread 'a_launch_with_no_environment_resolves_a_writer_and_not_only_a_reader' (144009880) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:96:9:
+a GUI launch with a loro-root pointer must reach a writer; it looked in: 
+
+---- with_no_home_there_is_no_candidate_and_the_resolver_says_so_instead_of_guessing stdout ----
+
+thread 'with_no_home_there_is_no_candidate_and_the_resolver_says_so_instead_of_guessing' (144009895) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:331:5:
+assertion `left == right` failed
+  left: []
+ right: ["no HOME, so no per-user candidate could be formed"]
+
+---- half_a_checkout_is_not_a_checkout_because_the_writer_is_the_half_that_would_be_missing stdout ----
+
+thread 'half_a_checkout_is_not_a_checkout_because_the_writer_is_the_half_that_would_be_missing' (144009883) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:223:56:
+half a checkout must not resolve: (None, [])
+
+---- loro_corpus_outranks_loro_root_for_the_writer_exactly_as_it_does_for_the_reader stdout ----
+
+thread 'loro_corpus_outranks_loro_root_for_the_writer_exactly_as_it_does_for_the_reader' (144009884) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:169:23:
+called `Option::unwrap()` on a `None` value
+
+---- a_corpus_with_no_compiler_refuses_the_writer_by_name_rather_than_half_wiring_it stdout ----
+
+thread 'a_corpus_with_no_compiler_refuses_the_writer_by_name_rather_than_half_wiring_it' (144009879) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:205:56:
+a corpus with no compiler is its own error: (None, [])
+
+---- a_provisioned_corpus_reaches_the_writer_through_the_tools_install_beside_it stdout ----
+
+thread 'a_provisioned_corpus_reaches_the_writer_through_the_tools_install_beside_it' (144009881) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:124:25:
+a provisioned corpus plus an installed compiler is a writer
+
+---- an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated stdout ----
+
+thread 'an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated' (144009882) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:149:25:
+an explicit root always resolves
+
+---- the_reader_and_the_writer_resolve_the_same_corpus_and_the_same_binary_directory stdout ----
+
+thread 'the_reader_and_the_writer_resolve_the_same_corpus_and_the_same_binary_directory' (144009891) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:251:25:
+the writer resolves
+
+---- one_install_builds_both_halves_so_a_second_resolution_cannot_disagree stdout ----
+
+thread 'one_install_builds_both_halves_so_a_second_resolution_cannot_disagree' (144009887) panicked at crates/richos-core/src/correction.rs:296:41:
+RED STUB: no LORO_CORPUS/LORO_ROOT in this process
+
+---- the_gui_condition_in_a_real_process_reaches_a_writer stdout ----
+
+thread 'the_gui_condition_in_a_real_process_reaches_a_writer' (144009888) panicked at crates/richos-core/tests/loro_gui_launch_tests.rs:368:5:
+a GUI launch (no environment, cwd=/) must reach the writer.
+--- stdout ---
+
+running 1 test
+test gui_child_resolves_a_writer_from_the_real_process ... FAILED
+
+failures:
+
+failures:
+    gui_child_resolves_a_writer_from_the_real_process
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+
+--- stderr ---
+
+thread 'gui_child_resolves_a_writer_from_the_real_process' (144009898) panicked at crates/richos-core/src/correction.rs:296:41:
+RED STUB: no LORO_CORPUS/LORO_ROOT in this process
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+
+failures:
+    a_corpus_with_no_compiler_refuses_the_writer_by_name_rather_than_half_wiring_it
+    a_launch_with_no_environment_resolves_a_writer_and_not_only_a_reader
+    a_provisioned_corpus_reaches_the_writer_through_the_tools_install_beside_it
+    an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated
+    half_a_checkout_is_not_a_checkout_because_the_writer_is_the_half_that_would_be_missing
+    loro_corpus_outranks_loro_root_for_the_writer_exactly_as_it_does_for_the_reader
+    no_corpus_is_a_named_state_that_says_what_it_looked_for
+    one_install_builds_both_halves_so_a_second_resolution_cannot_disagree
+    the_gui_condition_in_a_real_process_reaches_a_writer
+    the_reader_and_the_writer_resolve_the_same_corpus_and_the_same_binary_directory
+    with_no_home_there_is_no_candidate_and_the_resolver_says_so_instead_of_guessing
+
+test result: FAILED. 2 passed; 11 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p richos-core --test loro_gui_launch_tests`
