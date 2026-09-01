@@ -153,7 +153,10 @@
        and it never reaches the opening screen (§15's one permanent exception). ---- */
 :root[data-theme="light"] {
   --ground: #eae6dd;
-  --rail-bg: #e4dfd3;
+  /* The ruled "Daybreak" ground (round-9/v1, §15). `#e4dfd3` was never ruled — it does not
+     appear in the approved standard at all — and the ruled light gold fails the 3:1
+     non-text floor on it and passes on this. See ui/style.css for the full note. */
+  --rail-bg: #eae6dd;
   --surface-sunk: #efebe0;
   --surface-raised: #f7f5ef;
   --card: #fdfcf8;
