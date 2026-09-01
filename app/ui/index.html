@@ -14,6 +14,32 @@
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->
     <link rel="stylesheet" href="splash.css" />
+    <!-- THE MARK'S GOLD, PER THEME.
+
+         The wordmark below is two-tone by the approved treatment (round-8.1/v0 for dark,
+         round-9/v1 for light): ink letterforms, and the swoosh inside the R struck in the
+         signal. It was neither - the swoosh was painted `var(--rail-bg)` so that it read as
+         a hole, which made the app's mark MONOCHROME while the ruled standard, the start
+         screen and the shipped asset files all carry gold in it.
+
+         Two values rather than one, and the second is not a preference:
+
+           dark   #C2A35C   the ruled signal (ceo-decisions.md 14), 7.88:1 on the dark rail
+           light  #8F7030   3.49:1 on the light rail, and 4.00:1 against the ink beside it
+
+         The ruled LIGHT signal is #9C7C34, and on this rail (#E4DFD3, a shade under the
+         ruled light ground) it computes 2.95:1 - under the 3:1 floor a non-text indicator
+         has to clear. So the mark's swoosh is struck one step darker HERE only; the shipped
+         light asset file keeps the ruled #9C7C34, which is 3.15:1 on the ruled ground it is
+         for. This is the same split style.css already ships as `--gold` / `--gold-text`:
+         one value paints, a darker one has to survive a lighter ground.
+
+         Declared as its own variable rather than reusing `--gold` so that retoning the
+         accent never silently retones the logo. -->
+    <style>
+      #rail-wordmark { --mark-signal: #c2a35c; }
+      :root[data-theme="light"] #rail-wordmark { --mark-signal: #8f7030; }
+    </style>
   </head>
   <body>
     <!-- THE OPENING SCREEN, FIRST IN THE BODY AND SYNCHRONOUS.
@@ -59,17 +85,19 @@
                rendered here.
 
                INLINE, not an `<img>`. The mark has to be INKED PER THEME, and CSS cannot
-               reach inside an `<img>`. `RichOS-logo-wordmark_v3.5_black-and-white.svg` is
-               two-tone by construction: the R and the five letters are the ink, and the
-               arrow inside the R is a KNOCK-OUT — a hole, not a white shape. So the ink is
-               `currentColor` (dark `#DFE4EE`, light `#0C1322`, from `.rail-wordmark`) and
-               the arrow is `var(--rail-bg)`, which keeps it a hole in both themes instead
-               of a white smear on a midnight rail. Its height is in rem, so the font
-               control scales it with everything else. -->
+               reach inside an `<img>`. Path data verbatim from
+               `assets/logo-wordmark/RichOS-logo-wordmark_v3.5_black-and-white.svg`; the
+               COLOR is the approved treatment, not that file's black and white. The five
+               letters and the R are the ink — `currentColor`, dark `#DFE4EE`, light
+               `#0C1322`, from `.rail-wordmark` - and the swoosh inside the R is the SIGNAL,
+               `var(--mark-signal)`, defined per theme in the head above. It used to be
+               `var(--rail-bg)`, a knock-out, which is why the app's mark was monochrome
+               while the standard it is drawn from has gold in it. Its height is in rem, so
+               the font control scales it with everything else. -->
           <svg id="rail-wordmark" class="rail-wordmark" viewBox="0 0 3299.1 754.5"
                role="img" aria-label="RichOS" xmlns="http://www.w3.org/2000/svg">
           <path id="R" fill="currentColor" d="M517,744h227l-85.2-120.4c-41.7-58.7-83.3-117.5-124.9-176.2c-0.7-0.9-1.3-1.9-2.3-3.4c2.6-1.3,5.1-2.5,7.6-3.7c26.2-12.9,50.3-28.8,70.8-49.7c29.9-30.6,47-67.6,53.7-109.4c8.3-52.1,2.1-102.4-22.8-149.2C601.2,57.3,539.1,13.7,455.2,1.8c-4.1-0.6-8.1-1.2-12.2-1.8C295.3,0,147.7,0,0,0c0,133.5,0,266.7,0,400c12.8-17,24.9-34.6,38.5-51c45.4-55.2,99.8-100.2,159.9-138.6c1.1-0.7,2.2-1.5,3.3-2.2c0.3-0.2,0.4-0.5,1-1.1c-3.1-4.3-6.3-8.8-9.5-13.2c-7.2-10-14.4-20-21.6-30c-3.1-4.3-4.6-9-2.1-14c2.5-4.9,7.1-6,12.2-6c93.8,0,187.6,0,281.5,0c3.5,0,7.2-0.2,9.1,3.6c2,3.8,0.2,7-1.9,10.2c-43.9,66.2-87.8,132.5-131.6,198.7c-0.6,1-1.3,1.9-2,2.9c-7.2,9.8-17.5,10.1-24.9,0.3c-12.3-16.4-24.5-32.8-36.7-49.3c-1.2-1.6-2.4-3.1-3.9-5c-6.3,4.3-12.4,8.3-18.3,12.5c-46.1,32.6-89.8,68-128.1,109.6C62.9,494.7,23.5,573.1,8,663.2c-3.6,20.6-4.9,41.6-7.2,62.5c-0.2,1.8-0.5,3.6-0.8,5.4c0,3.7,0,9.3,0,13c1-1.6,2.3-5.2,2.9-6.9c19.5-54,47.4-103.2,86.8-145.2c59.3-63.2,132.4-100.6,217.6-115.2c6.4-1.1,9.7,0.4,13.6,5.5"/>
-          <path id="arrow" fill="var(--rail-bg)" d="M0,400c12.8-17,24.9-34.6,38.5-51c45.4-55.2,99.8-100.2,159.9-138.6c1.1-0.7,2.2-1.5,3.3-2.2c0.3-0.2,0.4-0.5,1-1.1c-3.1-4.3-6.3-8.8-9.5-13.2c-7.2-10-14.4-20-21.6-30c-3.1-4.3-4.6-9-2.1-14c2.5-4.9,7.1-6,12.2-6c93.8,0,187.6,0,281.5,0c3.5,0,7.2-0.2,9.1,3.6c2,3.8,0.2,7-1.9,10.2c-43.9,66.2-87.8,132.5-131.6,198.7c-0.6,1-1.3,1.9-2,2.9c-7.2,9.8-17.5,10.1-24.9,0.3c-12.3-16.4-24.5-32.8-36.7-49.3c-1.2-1.6-2.4-3.1-3.9-5c-6.3,4.3-12.4,8.3-18.3,12.5c-46.1,32.6-89.8,68-128.1,109.6C62.9,494.7,23.5,573.1,8,663.2c-3.6,20.6-4.9,41.6-7.2,62.5c-0.2,1.8-0.5,3.6-0.8,5.4C0,620.7,0,510.3,0,400z"/>
+          <path id="arrow" fill="var(--mark-signal)" d="M0,400c12.8-17,24.9-34.6,38.5-51c45.4-55.2,99.8-100.2,159.9-138.6c1.1-0.7,2.2-1.5,3.3-2.2c0.3-0.2,0.4-0.5,1-1.1c-3.1-4.3-6.3-8.8-9.5-13.2c-7.2-10-14.4-20-21.6-30c-3.1-4.3-4.6-9-2.1-14c2.5-4.9,7.1-6,12.2-6c93.8,0,187.6,0,281.5,0c3.5,0,7.2-0.2,9.1,3.6c2,3.8,0.2,7-1.9,10.2c-43.9,66.2-87.8,132.5-131.6,198.7c-0.6,1-1.3,1.9-2,2.9c-7.2,9.8-17.5,10.1-24.9,0.3c-12.3-16.4-24.5-32.8-36.7-49.3c-1.2-1.6-2.4-3.1-3.9-5c-6.3,4.3-12.4,8.3-18.3,12.5c-46.1,32.6-89.8,68-128.1,109.6C62.9,494.7,23.5,573.1,8,663.2c-3.6,20.6-4.9,41.6-7.2,62.5c-0.2,1.8-0.5,3.6-0.8,5.4C0,620.7,0,510.3,0,400z"/>
           <g id="wordmark">
           <path id="letter-i" fill="currentColor" d="M809.5,58.3H946v124.2H809.5V58.3z M945.1,744H811.4V241.7h133.7V744z"/>
           <path id="letter-c" fill="currentColor" d="M1275.5,641.8c55.4,0,88.8-38.2,101.2-89.8l115.6,51.6c-22.9,82.1-101.2,150.9-217.7,150.9c-146.1,0-249.3-106-249.3-261.7c0-154.7,103.1-260.7,249.3-260.7c115.6,0,192,66.8,215.8,148l-113.6,53.5c-12.4-51.6-45.8-89.8-101.2-89.8c-70.7,0-117.5,55.4-117.5,149C1158,587.4,1204.8,641.8,1275.5,641.8z"/>
