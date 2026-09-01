@@ -330,9 +330,30 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # throughout. A count of guards is not a measure of enforcement, and eleventh
 # firing or not, the thing that caught the defect was a functional canary.
 #
-# Verified post-merge rather than assumed: main registers 42 at 7738675, this
-# branch adds no hook to hooks.json, so 42 is the merged truth and is green here.
-if [ "$REGISTERED_N" -eq 42 ]; then
+# 42 -> 45 on 2026-09-02, and the jump is THREE because the tripwire had gone
+# stale by one before this branch touched it. MEASURED, not assumed, against
+# the merge that will actually happen:
+#
+#   main registers 43. The forty-third is agent-finished-reap-worktrees.sh,
+#     wired on TeammateIdle and TaskCompleted by another branch that landed
+#     without moving this line — so case 1b has been RED ON MAIN since, and
+#     that is the tripwire working, not failing. Its whole job is to make a new
+#     registration something a human acknowledges.
+#   this branch adds TWO: guard-ceo-ruled-ask.sh on PreToolUse[AskUserQuestion]
+#     and notice-ceo-ruled-prose.sh on Stop.
+#   no other live branch adds one. Checked by counting the registration in
+#     every branch of this repository, not by asking: the maximum anywhere is
+#     main's 43.
+#
+# Twelfth firing, and the pair is worth the paragraph because they are the
+# engine's FIRST guards on the AskUserQuestion event, and the first anywhere
+# that refuse a turn for what the RECORD already says rather than for what the
+# turn does. Forty-two guards were registered on the evening the CEO answered
+# three questions he had already answered, in his own words, in files this
+# session wrote — and every one of them was green. A count of guards is not a
+# measure of what is being checked; the two-sided canary in ceo-ruled.test.sh
+# is, and it is the thing that would catch this pair going dead.
+if [ "$REGISTERED_N" -eq 45 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
