@@ -67,9 +67,9 @@ fn render(write: &ProposedWrite, dry_run: bool) -> WriteOutput {
         ProposedWrite::Supersede { record_ref, new_id, kind, scope, body } => WriteOutput {
             op: "supersede".into(),
             dry_run,
-            r#ref: format!("rec:person/records/{new_id}"),
+            r#ref: format!("rec:ceo/records/{new_id}"),
             superseded_ref: Some(record_ref.clone()),
-            file: format!("person/records/{new_id}.md"),
+            file: format!("ceo/records/{new_id}.md"),
             text: format!(
                 "---\nid: {new_id}\nkind: {kind}\nscope: {}\nsupersedes: {record_ref}\n---\n\n{body}\n",
                 scope.as_deref().unwrap_or("ceo-private")
@@ -111,11 +111,11 @@ const SLICE_JSON: &str = r#"{
   "compiler": "loro-context-compiler/1.3.0",
   "thin": false,
   "coverage": "direct",
-  "text": "COMPANY MEMORY (loro) — bearing on: \"the Halstead account\"\n• [commitment] Halstead renewal — The Halstead contract renews in February. (ref: rec:person/records/halstead-renewal)\n• [decision] Ship date — We ship on Thursday. (ref: rec:person/records/ship-date)",
+  "text": "COMPANY MEMORY (loro) — bearing on: \"the Halstead account\"\n• [commitment] Halstead renewal — The Halstead contract renews in February. (ref: rec:ceo/records/halstead-renewal)\n• [decision] Ship date — We ship on Thursday. (ref: rec:ceo/records/ship-date)",
   "items": [
-    {"ref":"rec:person/records/halstead-renewal","kind":"commitment","kindInferred":false,
+    {"ref":"rec:ceo/records/halstead-renewal","kind":"commitment","kindInferred":false,
      "title":"Halstead renewal","scope":"org-shared","company":null},
-    {"ref":"rec:person/records/ship-date","kind":"decision","kindInferred":false,
+    {"ref":"rec:ceo/records/ship-date","kind":"decision","kindInferred":false,
      "title":"Ship date","scope":"org-shared","company":null}
   ],
   "corpus": {"recordCount":2,"fingerprint":"sha256:e2e","layout":"corpus","rootSource":"--corpus"},
@@ -206,7 +206,7 @@ fn saying_a_record_is_wrong_puts_a_proposal_with_the_right_ref_on_the_desk() {
     // THE REF. The whole design is arranged around this one assertion.
     assert_eq!(
         p.write.target_ref(),
-        Some("rec:person/records/halstead-renewal"),
+        Some("rec:ceo/records/halstead-renewal"),
         "the proposal named the wrong record"
     );
     match &p.write {
@@ -219,7 +219,7 @@ fn saying_a_record_is_wrong_puts_a_proposal_with_the_right_ref_on_the_desk() {
     }
     // The CEO's own words are the reason, and the preview is the writer's bytes.
     assert_eq!(p.why, "The Halstead contract renews in March, not February.");
-    assert!(p.preview.contains("supersedes: rec:person/records/halstead-renewal"), "{}", p.preview);
+    assert!(p.preview.contains("supersedes: rec:ceo/records/halstead-renewal"), "{}", p.preview);
     assert!(p.preview.contains("scope: org-shared"), "{}", p.preview);
 
     drop(guard);
@@ -244,13 +244,13 @@ fn the_proposal_is_on_disk_before_anything_renders_and_survives_a_reopen() {
     let log = desk.lock().unwrap().path().to_path_buf();
     let raw = std::fs::read_to_string(&log).unwrap();
     assert!(raw.contains("\"rec\":\"proposed\""), "{raw}");
-    assert!(raw.contains("rec:person/records/halstead-renewal"), "{raw}");
+    assert!(raw.contains("rec:ceo/records/halstead-renewal"), "{raw}");
 
     let calls = Arc::new(Mutex::new(Vec::new()));
     let reopened = CorrectionDesk::open(&log, Box::new(RenderingWriter { calls })).unwrap();
     let after = reopened.pending_for("femcboost");
     assert_eq!(after.len(), 1, "the proposal did not survive a reopen");
-    assert_eq!(after[0].write.target_ref(), Some("rec:person/records/halstead-renewal"));
+    assert_eq!(after[0].write.target_ref(), Some("rec:ceo/records/halstead-renewal"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

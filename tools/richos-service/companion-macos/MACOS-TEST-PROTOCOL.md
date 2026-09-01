@@ -13,7 +13,7 @@ our work — you are closing the one hole.
 Expect **~25 minutes**. Nothing here goes to a network. No account, no cloud.
 
 > **Where the recording goes.** By default the companion writes to
-> `~/RichOS/corpus/person/unfiled/evidence/meetings` — your corpus, deliberately **outside** this
+> `~/RichOS/corpus/ceo/unfiled/evidence/meetings` — your corpus, deliberately **outside** this
 > repository, which ships publicly. Sections 1–4 below use a scratch zone instead, so nothing from
 > this test lands in your real corpus. Both are outside the repo; the companion now **refuses** an
 > in-repo zone rather than recording into one.
@@ -69,7 +69,7 @@ RichOS macOS capture companion 0.1.0-p2
 macOS: 15.6.0
 Core Audio process tap (>= 14.4): AVAILABLE
 Product repo: /Users/…/richos
-Drop zone: /Users/…/RichOS/corpus/person/unfiled/evidence/meetings
+Drop zone: /Users/…/RichOS/corpus/ceo/unfiled/evidence/meetings
   source: corpus default
   (set RICHOS_DROP_ZONE, or LORO_CORPUS, to put sessions somewhere else)
   NOTE: does not exist yet — `capture` creates it on first run.

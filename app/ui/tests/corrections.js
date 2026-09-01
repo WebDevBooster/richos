@@ -163,7 +163,7 @@ async function main() {
     });
     const onScreen = await page.textContent("#desk-loro-list .desk-preview");
     assertEqual(onScreen, fromCommand, "the preview on screen must be the proposal's own bytes");
-    assert(fromCommand.indexOf("supersedes: rec:person/records/") >= 0, "and those bytes must be a record");
+    assert(fromCommand.indexOf("supersedes: rec:ceo/records/") >= 0, "and those bytes must be a record");
     // The CEO's OWN stated reason is on the card too — a correction with no stated reason is
     // the shape an inferred one takes (correction.rs:496-500).
     const why = await page.textContent("#desk-loro-list .desk-card-quote");
@@ -416,7 +416,7 @@ async function main() {
     const shown = await page.textContent("#desk-loro-list .desk-record");
     const fromCommand = await page.evaluate(() =>
       window.RichBridge
-        .invoke("loro_show_record", { recordRef: "rec:person/records/decision-ship-thursday" })
+        .invoke("loro_show_record", { recordRef: "rec:ceo/records/decision-ship-thursday" })
         .then((o) => o.text)
     );
     assertEqual(shown, fromCommand, "the record on screen is the file the command returned");
@@ -593,7 +593,7 @@ async function main() {
     assertEqual(filed.write.op, "supersede", "a wrong belief is superseded, never appended over");
     assertEqual(
       filed.write.recordRef,
-      "rec:person/records/halstead-renewal",
+      "rec:ceo/records/halstead-renewal",
       "the ref is the whole point of the feature"
     );
     // Nothing was composed: the body IS the CEO's sentence, and the reason is that sentence.
@@ -611,7 +611,7 @@ async function main() {
     const target = await page2.textContent("#desk-loro-list .desk-card-target");
     assertEqual(
       target,
-      "supersede · rec:person/records/halstead-renewal",
+      "supersede · rec:ceo/records/halstead-renewal",
       "the card must name the record the detector resolved, not a different one"
     );
     const quote = await page2.textContent("#desk-loro-list .desk-card-quote");
@@ -619,7 +619,7 @@ async function main() {
     const preview = await page2.textContent("#desk-loro-list .desk-preview");
     assertEqual(preview, filed.preview, "and shows the writer's bytes, byte for byte");
     assert(
-      preview.indexOf("supersedes: rec:person/records/halstead-renewal") >= 0,
+      preview.indexOf("supersedes: rec:ceo/records/halstead-renewal") >= 0,
       "the bytes must name what they supersede: " + preview
     );
     assert(preview.indexOf("scope: org-shared") >= 0, "the record's scope is carried through, not narrowed");

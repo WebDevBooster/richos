@@ -63,7 +63,7 @@ richos-companion ingest --mic <monoWav> --system <monoWav> [--zone DIR]
 ```
 
 Drop zone resolves exactly as the pipeline's `config.js#dropZone` does — `$RICHOS_DROP_ZONE`, else
-`<$LORO_CORPUS|~/RichOS/corpus>/{companies/$RICHOS_ACTIVE_COMPANY|person/unfiled}/evidence/meetings`
+`<$LORO_CORPUS|~/RichOS/corpus>/{companies/$RICHOS_ACTIVE_COMPANY|ceo/unfiled}/evidence/meetings`
 — and **refuses a zone inside this repository**, which ships publicly. The rule and the 2026-08-29
 finding that made it necessary are documented on `DropZone` in the core target; `doctor` prints the
 resolved path and which rule produced it.

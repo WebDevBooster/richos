@@ -660,7 +660,7 @@
     "---\nid: decision-ship-thursday\nkind: decision\nscope: ceo-private\n---\n\n" +
     "We ship on Thursday.\n";
   const LORO_PREVIEW =
-    "---\nid: decision-ship-date\nkind: decision\nscope: ceo-private\nsupersedes: rec:person/records/decision-ship-thursday\n---\n\n" +
+    "---\nid: decision-ship-date\nkind: decision\nscope: ceo-private\nsupersedes: rec:ceo/records/decision-ship-thursday\n---\n\n" +
     "No ship date is decided. Thursday was floated and never agreed.\n";
 
   let loroDeskOn = true;
@@ -679,7 +679,7 @@
       thread_id: "acme",
       write: {
         op: "supersede",
-        recordRef: "rec:person/records/decision-ship-thursday",
+        recordRef: "rec:ceo/records/decision-ship-thursday",
         newId: "decision-ship-date",
         kind: "decision",
         scope: "ceo-private",
@@ -1504,9 +1504,9 @@
           const gate = loroGate();
           if (gate) return Promise.reject(gate);
           const ref = args.recordRef ?? args.record_ref;
-          if (ref !== "rec:person/records/decision-ship-thursday")
+          if (ref !== "rec:ceo/records/decision-ship-thursday")
             return Promise.reject('loro write: no record with ref "' + ref + '"');
-          return { op: "show", dryRun: false, ref, file: "loro/person/records/decision-ship-thursday.md", text: LORO_RECORD_NOW, changed: [] };
+          return { op: "show", dryRun: false, ref, file: "loro/ceo/records/decision-ship-thursday.md", text: LORO_RECORD_NOW, changed: [] };
         }
         case "loro_propose_correction": {
           const gate = loroGate();
@@ -1550,9 +1550,9 @@
           p.outcome = {
             op: "supersede",
             dryRun: false,
-            ref: "rec:person/records/decision-ship-date",
+            ref: "rec:ceo/records/decision-ship-date",
             supersededRef: refOf(p.write),
-            file: "loro/person/records/decision-ship-date.md",
+            file: "loro/ceo/records/decision-ship-date.md",
             text: LORO_PREVIEW,
             changed: [],
           };

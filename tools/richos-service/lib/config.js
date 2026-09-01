@@ -69,7 +69,7 @@ export function activeCompany() {
  * The evidence tree for the active company, or the unfiled one when nothing is bound.
  *
  * `companies/<id>/evidence/` is the published layout. The unfiled branch is NOT in that tree and is
- * mine: the page has no person-level evidence directory, but it also rules that **filing may never
+ * mine: the page has no CEO-level evidence directory, but it also rules that **filing may never
  * block a write** (mechanism 5), and a call that arrives before the CEO has named a company still has
  * to land somewhere he can find. Recorded as a deviation in
  * the loro-corpus defects brief, 2026-08-26.
@@ -79,7 +79,7 @@ export function evidenceRoot() {
   const company = activeCompany();
   return company
     ? path.join(corpusRoot(), 'companies', company, 'evidence')
-    : path.join(corpusRoot(), 'person', 'unfiled', 'evidence');
+    : path.join(corpusRoot(), 'ceo', 'unfiled', 'evidence');
 }
 
 /**

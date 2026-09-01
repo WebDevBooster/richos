@@ -89,9 +89,9 @@ public enum DropZone {
         } else {
             let corpus = absolute(nonEmpty(env["LORO_CORPUS"]) ?? defaultCorpusRoot, home: home)
             let company = nonEmpty(env["RICHOS_ACTIVE_COMPANY"])
-            // `config.js#evidenceRoot`: companies/<c>/evidence, else person/unfiled/evidence.
+            // `config.js#evidenceRoot`: companies/<c>/evidence, else ceo/unfiled/evidence.
             let evidence = company.map { (corpus as NSString).appendingPathComponent("companies/\($0)/evidence") }
-                ?? (corpus as NSString).appendingPathComponent("person/unfiled/evidence")
+                ?? (corpus as NSString).appendingPathComponent("ceo/unfiled/evidence")
             resolution = Resolution(
                 path: (evidence as NSString).appendingPathComponent("meetings"),
                 source: .corpus,

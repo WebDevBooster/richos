@@ -110,7 +110,7 @@ pub enum ProposedWrite {
         scope: Option<String>,
         title: Option<String>,
         body: String,
-        /// `person` (default), `unfiled`, or a company id. Filing never blocks a write.
+        /// `ceo` (default), `unfiled`, or a company id. Filing never blocks a write.
         partition: Option<String>,
     },
     /// Metadata fixed in place. The BODY is never machine-rewritten unless asked.
@@ -680,7 +680,7 @@ mod tests {
             Ok(WriteOutput {
                 op: write.verb().into(),
                 dry_run: true,
-                r#ref: "rec:person/records/x".into(),
+                r#ref: "rec:ceo/records/x".into(),
                 file: self.dir.join("x.md").display().to_string(),
                 text: "---\nkind: decision\n---\n\nWhat would be written.\n".into(),
                 ..Default::default()
@@ -695,7 +695,7 @@ mod tests {
             Ok(WriteOutput {
                 op: write.verb().into(),
                 dry_run: false,
-                r#ref: "rec:person/records/x".into(),
+                r#ref: "rec:ceo/records/x".into(),
                 file: self.dir.join("x.md").display().to_string(),
                 text: "written\n".into(),
                 ..Default::default()
@@ -717,7 +717,7 @@ mod tests {
 
     fn a_supersede() -> ProposedWrite {
         ProposedWrite::Supersede {
-            record_ref: "rec:person/records/old".into(),
+            record_ref: "rec:ceo/records/old".into(),
             new_id: "new".into(),
             kind: "decision".into(),
             scope: Some("org-shared".into()),
@@ -789,12 +789,12 @@ mod tests {
         let (mut d, _w, log) = desk("suppress");
         let p = d.propose("femcboost", "thr-1", a_supersede(), "wrong").unwrap();
         d.decline(&p.id, true).unwrap();
-        assert_eq!(d.suppressed(), ["rec:person/records/old".to_string()]);
+        assert_eq!(d.suppressed(), ["rec:ceo/records/old".to_string()]);
         match d.propose("femcboost", "thr-1", a_supersede(), "wrong again") {
-            Err(CorrectionError::Suppressed(r)) => assert_eq!(r, "rec:person/records/old"),
+            Err(CorrectionError::Suppressed(r)) => assert_eq!(r, "rec:ceo/records/old"),
             other => panic!("expected a suppression refusal, got {other:?}"),
         }
-        d.unsuppress("rec:person/records/old").unwrap();
+        d.unsuppress("rec:ceo/records/old").unwrap();
         assert!(d.suppressed().is_empty());
         assert!(d.propose("femcboost", "thr-1", a_supersede(), "wrong again").is_ok());
         let _ = std::fs::remove_file(&log);
@@ -853,8 +853,8 @@ mod tests {
     #[test]
     fn showing_a_record_needs_no_proposal_because_reading_is_not_correcting() {
         let (d, w, log) = desk("show");
-        d.show("rec:person/records/old").unwrap();
-        assert_eq!(*w.calls.lock().unwrap(), vec!["show:rec:person/records/old"]);
+        d.show("rec:ceo/records/old").unwrap();
+        assert_eq!(*w.calls.lock().unwrap(), vec!["show:rec:ceo/records/old"]);
         assert!(w.corpus_files().is_empty());
         let _ = std::fs::remove_file(&log);
     }
