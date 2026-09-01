@@ -211,7 +211,7 @@ def identity_section():
                      'the task before answering from general knowledge: '
                      '`node ' + V['LORO_PATH'] + '/bin/loro-context.mjs compile --root ' + loro_root +
                      ' --topic "<the active thread>"`. '
-                     'A thin slice means loro does not know — ask, never invent. loro REFUSES to run without '
+                     'A thin slice means loro does not know — ask, never invent. Loro REFUSES to run without '
                      'an explicit corpus root (`--root <repo>`, or `--corpus <dir>` / `LORO_CORPUS` once the '
                      'CEO\'s corpus lives outside the repo) — that refusal is the guarantee you are reading '
                      'HIS memory and not somebody else\'s. When you hand work to a teammate, compile their '

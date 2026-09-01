@@ -518,6 +518,32 @@ printf 'INSTANCE_MECHANISMS="hq_declared/scripts/one-off.sh"\n' > "$T/.publicati
 commit_all "$T"
 assert_clean "a declared instance-specific private mechanism is allowed" "$T"
 
+# AN ISOLATED WORKTREE INSIDE THE PRIVATE TREE IS NOT A SECOND MECHANISM.
+# Measured 2026-09-01: an agent's `.worktrees/<branch>/` copy of the private
+# tree re-reported an ALREADY-DECLARED mechanism at a path no declaration could
+# name, and guard-completeness-commits.sh then refused every commit in the
+# public repository until that worktree was moved. Declaring the copy is not the
+# fix — the path is ephemeral, so the "an entry that suppresses nothing FAILS"
+# rule would fire the moment it was reaped. The walk skips `.worktrees`, which
+# removes duplicates and no coverage: the same bytes are still walked at their
+# tracked path, which is why the assertion below is that the declared file is
+# STILL the one being suppressed.
+mkdir -p "$P4/.worktrees/agent-abc123/scripts"
+cp "$P4/scripts/one-off.sh" "$P4/.worktrees/agent-abc123/scripts/one-off.sh"
+assert_clean "an isolated worktree copy of a DECLARED private mechanism is not a second finding" "$T"
+
+# And the skip must not become a blanket amnesty: a mechanism that is genuinely
+# undeclared is still caught at its tracked path while a worktree copy exists.
+cat > "$P4/scripts/undeclared.sh" <<'EOF'
+#!/usr/bin/env bash
+# Reads .widget and nobody declared it.
+echo .widget
+EOF
+assert_finding "an UNDECLARED private mechanism is still caught while a worktree exists" \
+    "$T" MISPLACED "undeclared.sh"
+rm -f "$P4/scripts/undeclared.sh"
+rm -rf "$P4/.worktrees"
+
 # ---------------------------------------------------------------------------
 echo "--- (g) no silent degradation"
 # ---------------------------------------------------------------------------

@@ -547,7 +547,26 @@ def check_workflows(tree, exempt, used, explain):
 # ---------------------------------------------------------------------------
 
 EXEC_SUFFIXES = (".sh", ".py", ".mjs", ".js", ".rb", ".ps1", ".bash")
-SKIP_DIRS = {".git", "node_modules", "target", "dist", "build", ".venv", "__pycache__"}
+#
+# `.worktrees` IS IN HERE FOR A MEASURED REASON, NOT FOR TIDINESS. An agent
+# working under `isolation: "worktree"` gets a full second copy of the private
+# tree at `<private-root>/.worktrees/<branch>/`. Every declared mechanism in it
+# then appears at a SECOND path that no `.publication-completeness` entry names
+# — so the checker reports a MISPLACED finding for a file that is already
+# exempt at its real path, and `guard-completeness-commits.sh` refuses EVERY
+# commit in the public repository until that agent's worktree goes away.
+#
+# Measured 2026-09-01: one isolated worktree at
+# `richos-hq/.worktrees/zach-opus-lo1` re-reported `pubcheck.sh`, which
+# INSTANCE_MECHANISMS has covered since 2026-08-30, and blocked an unrelated
+# commit in `richos`. Declaring the copy would be worse than useless: it names
+# an ephemeral path, and the "an entry that suppresses nothing FAILS" rule
+# would then fire the moment the worktree was reaped.
+#
+# A worktree is a checkout of content that is already being walked at its
+# tracked path, so skipping it removes duplicates and never removes coverage.
+SKIP_DIRS = {".git", ".worktrees", "node_modules", "target", "dist", "build",
+             ".venv", "__pycache__"}
 
 
 def _is_mechanism(path):
