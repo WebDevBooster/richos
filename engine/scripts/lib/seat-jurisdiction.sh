@@ -294,8 +294,22 @@ richos_governing_root() {
         return 0
     fi
 
+    # PHYSICALIZED, exactly as the repo arm above is. richos_repo_of ends in
+    # `cd && pwd -P`, so the first arm always answers in physical spelling; the
+    # seat arrives from the payload in whatever spelling the caller was handed,
+    # which on macOS is routinely the /var -> /private/var symlink. Returning it
+    # raw made this function answer the SAME question in TWO spellings depending
+    # on which arm fired, and every caller compares the answer against a
+    # physicalized seat — so the seat arm reported "a DIFFERENT repository
+    # governs this file" about the seat itself. In guard-main-checkout-writes.sh
+    # that sent it down the foreign-repository branch and then matched
+    # PROTECTED_PATHS against a path with the other spelling: the guard ran, took
+    # every branch, printed nothing, and blocked nothing. A defense that is
+    # inert while reporting healthy is the failure mode this whole file exists to
+    # prevent, so the normalization belongs HERE, at the single point of answer,
+    # not in each caller. Positive control: case 2h of seat-jurisdiction.test.sh.
     if [ -n "$seat" ] && richos_in_jurisdiction "$seat" "$target"; then
-        printf '%s' "$seat"
+        richos_physical "$seat"
         return 0
     fi
 

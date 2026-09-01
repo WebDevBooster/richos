@@ -260,6 +260,45 @@ else
     ok "2f  SKIPPED: git worktree unavailable in this sandbox"
 fi
 
+# --- 2g/2h: THE SEAT ARM, IN THE SPELLING IT ACTUALLY ARRIVES IN.
+#
+# Every case above seats the guard in a git repository, so richos_repo_of
+# answers first and the seat arm of richos_governing_root never runs. The seat
+# arm is what serves an adopted directory that is NOT a git checkout — which is
+# also, exactly, what every contract-integrity sandbox is.
+#
+# It returned the seat verbatim while richos_repo_of returned it physicalized,
+# so the same function answered in two spellings. On macOS TMPDIR lives under
+# /var, a symlink to /private/var, so the guard compared a logical governing
+# root against a physicalized seat, concluded a FOREIGN repository governed the
+# file, and then matched PROTECTED_PATHS with the wrong spelling: it ran every
+# branch, printed nothing, blocked nothing, and exited 0. Contract-integrity
+# Layer D caught it only once seat-jurisdiction.sh was added to the sandbox file
+# lists — before that the guard was missing its library and exited 2, which is
+# the number Layer D wanted, for the opposite reason.
+#
+# 2g is the POSITIVE control (blocks), 2h is its companion (an unprotected tree
+# in the same seat is still allowed) — a guard that blocked everything would
+# satisfy 2g alone.
+NOGIT="$SANDBOX/adopted-nogit"
+mkdir -p "$NOGIT/src" "$NOGIT/docs"
+printf 'PROTECTED_PATHS="src"\n' >"$NOGIT/orchestration.config"
+rm -rf "$SANDBOX/notices"
+run_guard "$NOGIT" "$NOGIT/src/f.txt"
+if [ "$RC" = 2 ]; then
+    ok "2g  a non-git adopted seat (the seat arm) still BLOCKS a protected write — governing root and seat compare in one spelling"
+else
+    bad "2g  seat-arm spelling" "expected rc 2, got rc $RC — the guard went inert on a seat it governs: [${OUT}]"
+fi
+
+rm -rf "$SANDBOX/notices"
+run_guard "$NOGIT" "$NOGIT/docs/f.txt"
+if [ "$RC" = 0 ]; then
+    ok "2h  the same non-git seat still ALLOWS an unprotected tree (2g is not a block-everything guard)"
+else
+    bad "2h  seat-arm over-blocking" "expected rc 0, got rc $RC — the guard blocks outside PROTECTED_PATHS: [${OUT}]"
+fi
+
 # ===========================================================================
 # 3. NEGATIVE CONTROLS — prove each half can fail
 # ===========================================================================
