@@ -37,7 +37,7 @@ use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
 use richos_core::worker_status::{self, WorkerStatusView};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// WHERE THE ENGINE DIRECTORY IS. Its own file because the answer is an ORDER of seven
@@ -71,6 +71,11 @@ use machinery_view::machinery_payload;
 /// once at boot, and once more the moment the CEO answers the first-run question.
 mod memory;
 use memory::MemoryStatus;
+
+/// FIRST-RUN SETUP — Option D's surface. Detects the two executables a customer's Mac may not
+/// have (`claude`, and the engine directory), asks once, and installs them.
+/// `richos_core::setup` holds the decisions; this file holds the window's side of them.
+mod setup_view;
 
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
@@ -145,14 +150,29 @@ impl MachineryObserver for TauriMachineryEmitter {
 /// lease exactly like the boot path (`NativeCognition::start`), so the spine can rotate at
 /// a context watermark or recover from a mid-turn crash without knowing anything about the
 /// wire — richos-core stays IO-agnostic (continuity §3.3 step 4).
+///
+/// **`engine_dir` MOVES, and that is deliberate.** Until 2026-09-01 it was a `PathBuf` fixed at
+/// boot, which was correct while nothing could put an engine on the machine. `setup_view::run`
+/// now can (`setup.rs`, Option D), so the directory a lease is started in has to be able to
+/// change without a relaunch — the same property `provision_memory` already establishes for
+/// the corpus, and for the same reason: a customer who has just watched something be installed
+/// must not be told to quit and reopen before it works.
 struct EngineLeaseFactory {
     claude_bin: PathBuf,
-    engine_dir: PathBuf,
+    engine_dir: Arc<Mutex<PathBuf>>,
 }
 
 impl LeaseFactory for EngineLeaseFactory {
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
-        let cog = NativeCognition::start(&self.claude_bin, &self.engine_dir)?;
+        let dir = self
+            .engine_dir
+            .lock()
+            .map(|d| d.clone())
+            // A poisoned lock is not a reason to guess a directory. `/nonexistent/…` is the
+            // same sentinel the boot uses, and `native.rs::preflight` reports it as exactly
+            // what it is: a working directory that does not exist, NOT a missing binary.
+            .unwrap_or_else(|_| PathBuf::from("/nonexistent/richos-engine"));
+        let cog = NativeCognition::start(&self.claude_bin, &dir)?;
         Ok(Box::new(cog))
     }
 }
@@ -292,6 +312,22 @@ struct AppState {
     /// evening has been about. The desk's log is `<data_dir>/loro-corrections.jsonl` and
     /// there is exactly one expression for that path.
     data_dir: PathBuf,
+    /// WHICH ENGINE DIRECTORY THIS INSTALL RUNS `claude` IN — **shared with the lease factory,
+    /// and mutable.**
+    ///
+    /// It is an `Arc<Mutex<_>>` and not a `PathBuf` because `run_setup` can now put an engine
+    /// on a machine that had none (`setup_view`, Option D). Rewriting this cell re-points
+    /// every future lease — a rotation, a crash recovery, and the attach `run_setup` performs
+    /// itself — at what was just installed, with no relaunch. Fixing it at boot would have
+    /// meant an app that downloaded, verified and installed an engine and then kept starting
+    /// `claude` in the directory it had already failed to find.
+    engine_dir: Arc<Mutex<PathBuf>>,
+    /// The engine the BOOT resolved, when it resolved a real one. Held so `setup_view::detect`
+    /// asks the same question the boot asked and gets the same answer — including the
+    /// repo-ancestor candidates `engine.rs` searches and `setup.rs` deliberately does not
+    /// reimplement. A developer running from the checkout is therefore never asked to install
+    /// an engine that is three directories away.
+    boot_engine: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -929,6 +965,15 @@ fn main() {
                 }
             }
             let engine = resolution.dir.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/richos-engine"));
+            // THE ENGINE THE BOOT ACTUALLY FOUND, as opposed to the sentinel above. First-run
+            // setup asks the same question through this value, so it never offers to install
+            // something the boot already resolved — the dogfood checkout being the case that
+            // would otherwise be asked every launch.
+            let boot_engine: Option<PathBuf> =
+                resolution.source.is_some().then(|| engine.clone());
+            // THE CELL THE LEASE FACTORY READS. Shared, so a successful first-run install can
+            // re-point it without a relaunch (`setup_view::run`).
+            let engine_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(engine.clone()));
             let claude_bin = resolve_claude_bin();
             let lease_ready = match NativeCognition::start(&claude_bin, &engine) {
                 Ok(cog) => {
@@ -965,7 +1010,50 @@ fn main() {
             // Attach the rotation/recovery seam REGARDLESS of initial boot success — even
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
-            spine.set_lease_factory(Box::new(EngineLeaseFactory { claude_bin, engine_dir: engine }));
+            spine.set_lease_factory(Box::new(EngineLeaseFactory {
+                claude_bin,
+                engine_dir: Arc::clone(&engine_cell),
+            }));
+
+            // ==============================================================================
+            // FIRST-RUN SETUP — what this machine is missing, named at boot
+            //
+            // §19: "Today RichOS runs on his Mac and would not run on anyone else's." The
+            // boot line below is the honest statement of that, printed on EVERY launch so
+            // the condition is visible before a customer discovers it as a broken app. On the
+            // CEO's own machine it says nothing is missing and costs two `stat` calls.
+            // ==============================================================================
+            {
+                let s = setup_view::detect(boot_engine.as_deref());
+                if s.complete() {
+                    eprintln!("[richos] first-run setup: nothing missing.");
+                } else {
+                    for c in s.needs() {
+                        let what = match c {
+                            richos_core::setup::Component::ClaudeCode => &s.claude,
+                            richos_core::setup::Component::Engine => &s.engine,
+                        };
+                        eprintln!(
+                            "[richos] first-run setup: {} is NOT installed — looked in: {}",
+                            c.display_name(),
+                            what.looked_in.join("; ")
+                        );
+                    }
+                    // WHETHER THIS BUILD CAN FIX IT. An unpinned build must say so here, not
+                    // discover it when he presses the button.
+                    match s.engine_pin_version.as_deref() {
+                        Some(v) if !s.engine.present => {
+                            eprintln!("[richos] first-run setup: this build installs engine {v}.")
+                        }
+                        None if !s.engine.present => eprintln!(
+                            "[richos] first-run setup: this build carries NO engine pin, so it \
+                             cannot install one. Build with RICHOS_ENGINE_VERSION / \
+                             RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set."
+                        ),
+                        _ => {}
+                    }
+                }
+            }
 
             // Left-navigation view state — same app data dir, same durability posture as
             // the ledger and config, and never fatal: a corrupt file degrades to defaults
@@ -1175,6 +1263,11 @@ fn main() {
                 // a question already answered, which is the shape of defect this whole
                 // evening has been about.
                 data_dir,
+                // THE SAME CELL THE LEASE FACTORY HOLDS, not a copy of the path. A copy
+                // would let `run_setup` update one and leave the other pointing at the
+                // directory the boot failed to find.
+                engine_dir: engine_cell,
+                boot_engine,
             });
 
             // ================================================================
@@ -1330,7 +1423,10 @@ fn main() {
             updates::update_state,
             updates::update_check,
             updates::update_install,
-            updates::update_relaunch
+            updates::update_relaunch,
+            // --- first-run setup, Option D (2026-09-01) — appended, never reordered ---
+            setup_status,
+            run_setup
         ])
         .build(tauri::generate_context!())
         .expect("error while building RichOS")
@@ -1445,7 +1541,7 @@ fn raise_proactive_message(
 use richos_voice::capture::AudioSource;
 use richos_voice::controller::{VoiceController, VoiceOptions};
 use richos_voice::event::{VoiceEvent, VoiceObserver};
-use std::sync::Arc;
+// (`Arc` is imported at the top of this file.)
 
 /// Live voice mode, or `None` when the `◉` toggle is off. Managed lazily (see
 /// `ensure_voice_state`) so this whole feature stays one appended block.
@@ -2137,6 +2233,82 @@ fn provision_memory(
     status.provisioned_now = true;
     *state.memory.lock().unwrap() = status.clone();
     Ok(memory::with_offered_location(status, home.as_deref()))
+}
+
+// ---------------------------------------------------------------------------------------
+// FIRST-RUN SETUP — Option D (`setup.rs`, `setup_view.rs`)
+//
+// THE LAUNCH BLOCKER, in the CEO's own record (§19): "today RichOS runs on his Mac and would
+// not run on anyone else's". A customer needs Claude Code AND the engine directory, and the
+// engine "ships in no payload and has no route onto another machine at all".
+//
+// HIS PART IS ONE CONSENT STEP. No terminal, no path, no version number — and the sheet says
+// he still needs his own Anthropic account, because row 3.14's second condition is that D
+// must not be sold as zero-touch.
+// ---------------------------------------------------------------------------------------
+
+/// What this machine is missing, and what the sheet should say about it.
+///
+/// Called at boot by the window, exactly as `memory_status` is: a `needs` that is non-empty is
+/// what makes it ask, and it is the only signal it needs.
+#[tauri::command]
+fn setup_status(state: State<AppState>) -> serde_json::Value {
+    let status = setup_view::detect(state.boot_engine.as_deref());
+    let ask = setup_view::ask_for(&status);
+    serde_json::json!({ "status": status, "ask": ask })
+}
+
+/// **THE CEO PRESSES "Set it up".** Install what is missing, reporting each step on
+/// `richos://setup`, and re-point this session at what was installed.
+///
+/// Three properties it has and must keep:
+///
+///   1. **A failed step stops the run.** Installing an engine for a Claude that is not there
+///      produces a machine that reports two successes and works for nothing.
+///   2. **The final status is RE-READ FROM DISK**, not assembled from "every step returned
+///      Ok". The same rule `install_claude_code` applies to Anthropic's own exit code.
+///   3. **No relaunch.** A successful engine install rewrites `AppState::engine_dir`, which is
+///      the same `Arc` the lease factory reads, and this command then attempts an attach if
+///      the boot could not get one. `provision_memory` set that standard on 2026-09-01 after a
+///      customer's first five minutes were spent with a corpus he had just created and a desk
+///      that would not open until he quit.
+///
+/// `(async)` for the reason `provision_memory` is async: it takes the spine's mutex, which
+/// `send_message` holds for a whole turn — and this one additionally runs a multi-minute
+/// download, which must never sit on the UI thread.
+#[tauri::command(async)]
+fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json::Value, String> {
+    let status = setup_view::run(&app, state.boot_engine.as_deref(), &state.engine_dir)?;
+
+    // THE LEASE, WITHOUT A RELAUNCH. Attempted only when there is not one already: a live
+    // lease is mid-conversation and replacing it would throw away the session the CEO is in.
+    let mut spine = state.spine.lock().unwrap();
+    if !spine.has_lease() {
+        let engine = state.engine_dir.lock().map(|d| d.clone()).unwrap_or_default();
+        let claude_bin = resolve_claude_bin();
+        match NativeCognition::start(&claude_bin, &engine) {
+            Ok(cog) => {
+                eprintln!(
+                    "[richos] compute lease attached after first-run setup, over {} in {}",
+                    claude_bin.display(),
+                    engine.display()
+                );
+                spine.attach_lease(Box::new(cog));
+            }
+            // NOT FATAL, AND NOT HIDDEN. The install itself succeeded and is reported as such;
+            // what failed is the attach, and the most common cause is the one thing setup
+            // cannot do for him — he has not signed in to Claude yet. The window's
+            // "not connected" state already exists for exactly this and says it in his words.
+            Err(e) => eprintln!(
+                "[richos] first-run setup installed everything, but no compute lease could be \
+                 attached yet: {e}"
+            ),
+        }
+    }
+    drop(spine);
+
+    let ask = setup_view::ask_for(&status);
+    Ok(serde_json::json!({ "status": status, "ask": ask }))
 }
 
 /// Read the state of the question. The UI calls this at boot: a `chosen` of `None` is what
