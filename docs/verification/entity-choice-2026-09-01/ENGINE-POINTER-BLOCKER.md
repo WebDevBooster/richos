@@ -73,3 +73,21 @@ green (573 richos-core / 40 src-tauri / 163 richos-voice), all 18 browser suites
 (345 checks) and the contrast walk is 1148 measured nodes, 0 failures, both themes. The
 entity work is verified by the boot lines above — which are the same launches that surfaced
 this.
+
+---
+
+## RESOLVED 2026-09-01 by Rich, at the land
+
+The pointer was dangling exactly as reported: `~/.claude/richos-engine` ->
+`.../scratchpad/g4/red/layerR`, a red-run fixture deleted after the run that made it.
+Repointed to `/Users/alex/ab/richos/engine` and verified: the contract-integrity probe
+exits 0 through the restored pointer, all layers green.
+
+**echo-opus-e1 was right not to touch it.** It is shared state, it was owned by a
+then-live probe, and a second writer racing a live fixture is how a good fix becomes an
+incident. Reporting it and leaving it was the correct call.
+
+**The defect is not the dangling link, it is that a red-run fixture can repoint global
+shared state and leave it repointed.** `install.sh` writes this pointer; a test that
+exercises Layer R by moving it must restore it, or must never touch the real one.
+Filed as its own row.
