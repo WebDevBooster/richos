@@ -582,6 +582,7 @@ async function main() {
     // renderer then rebuilds from `get_timeline` alone: ZERO live events reach this page.
     const anchor = await b.evaluate(() => window.__RICHOS_MOCK__.activeMemoryStrategy().anchor);
     await b.goto(APP);
+    await leaveHome(b);
     await b.waitForFunction("typeof window.RichTimeline === 'object'");
     await b.waitForSelector(".nav-thread", { state: "attached" });
     await b.evaluate((a) => window.__RICHOS_MOCK__.memoryStrategy({ anchor: a }).runTo(16), anchor);

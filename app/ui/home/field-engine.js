@@ -72,7 +72,13 @@ const V = Object.assign({
 // canvas holder and the app's conversation column), so every id here carries a `home-`
 // prefix and every lookup starts from `#home` rather than from the document.
 const ROOT = document.getElementById('home');
-if (!ROOT) throw new Error('home screen root #home is not mounted');
+// A MISSING ROOT IS NOT AN ERROR, it is an absent surface, and the difference matters here.
+// These four files are injected asynchronously; a page that navigates away, or a test fixture
+// that replaces the document, can execute this one against a document that no longer has a
+// home screen in it. Throwing made that an UNHANDLED REJECTION inside an async IIFE, which
+// nothing was holding — it surfaced as a console error in two acceptance suites that had
+// never heard of this file. There is simply nothing to draw, so nothing is drawn.
+if (!ROOT) return;
 const $ = (s) => ROOT.querySelector(s);
 const glc = $('#home-gl'), ov = $('#home-overlay'), ctx = ov.getContext('2d'), bk = $('#home-bokeh');
 const gl = glc.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: false });

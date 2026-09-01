@@ -400,6 +400,10 @@ window.RichHome = (function () {
 
   function startField() {
     if (fieldStarted) return;
+    // The surface may already be gone: this runs on an idle callback, and a page that has
+    // navigated has no home screen to draw into. Loading 5 MB for a document nobody is
+    // looking at is the cheapest thing to not do.
+    if (!document.getElementById("home")) return;
     fieldStarted = true;
 
     window.VARIANT = VARIANT;
@@ -486,6 +490,18 @@ window.RichHome = (function () {
     return state.open;
   }
 
+  /// Is the opening curtain still on screen? `state.reason` is null until it yields, and
+  /// `state.shown` is false when it declined to draw at all — so this is true only while
+  /// there is really a curtain up that owns the always-dark clamp.
+  function splashStillUp() {
+    try {
+      var s = window.RichSplash && window.RichSplash.state;
+      return !!(s && s.shown && !s.reason);
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Take the CEO to the regular app UI.
   function hide(reason) {
     if (!root || !state.open) return;
@@ -494,7 +510,15 @@ window.RichHome = (function () {
 
     // §15's always-dark clamp is the HOME SCREEN's, not the app's. Dropping it here is what
     // puts a CEO on light mode back on light mode — his preference was never written over.
-    if (window.RichTheme) window.RichTheme.forceDark(false);
+    //
+    // ...UNLESS THE CURTAIN IS STILL UP, and that condition is the whole of a real defect.
+    // `forceDark` is one boolean with TWO owners, and dropping it here while the opening
+    // screen still holds it would light a curtain that §15 says is always dark. The curtain
+    // drops it itself when it yields, and the listener installed in `start()` re-raises it if
+    // this screen is still the one in front. Measured: without this clause, `appearance.js`
+    // check 4 goes red — "the opening screen is ALWAYS dark, even for a CEO who chose light",
+    // expected dark, got light.
+    if (window.RichTheme && !splashStillUp()) window.RichTheme.forceDark(false);
 
     if (appEl) appEl.removeAttribute("inert");
     document.body.classList.remove("home-open");
@@ -855,6 +879,25 @@ window.RichHome = (function () {
     if (window.RichTheme) window.RichTheme.forceDark(true);
 
     document.addEventListener("focusin", onFocusIn, true);
+
+    // THE CLAMP HAS TO BE RE-ASSERTED, AND THIS IS NOT BELT AND BRACES — it is a real defect
+    // this file would otherwise ship, caught by `tests/home.js`.
+    //
+    // `RichTheme.forceDark` is a single boolean, not a counter, and TWO surfaces raise it: the
+    // curtain and this screen. The curtain drops it in `yieldNow`, which fires while the home
+    // screen is still up and still owed §15's exception — so a CEO on light mode would watch
+    // the settings button, which floats above this composition and reads the app's tokens,
+    // turn ivory the moment the curtain lifted.
+    //
+    // A listener rather than a second raise after the yield, because the yield has three
+    // triggers (app-ready, his first keystroke, the ceiling) and no single point after all of
+    // them. Re-raising from inside the notification is safe: `forceDark` returns immediately
+    // when the flag is already what it is being set to, so the second pass does not notify.
+    if (window.RichTheme && window.RichTheme.onChange) {
+      window.RichTheme.onChange(function (t) {
+        if (state.open && !t.forcedDark) window.RichTheme.forceDark(true);
+      });
+    }
 
     // The shell below only exists once the document has been parsed, so everything that
     // reaches into it waits for that. Nothing here is awaited by anything.

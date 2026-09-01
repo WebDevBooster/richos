@@ -274,6 +274,7 @@ async function main() {
     const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
     const before = await ctx.newPage();
     await before.goto(APP);
+    await leaveHome(before);
     await before.waitForSelector(".nav-thread", { state: "attached" });
     await open(before, "acme");
     // THE SCROLL FIRST, THE TYPING LAST, and that order is the check rather than a detail.
@@ -309,6 +310,7 @@ async function main() {
 
     const after = await ctx.newPage();
     await after.goto(APP);
+    await leaveHome(after);
     await after.waitForSelector(".nav-thread", { state: "attached" });
     await open(after, "acme");
     await settle(after);
@@ -373,6 +375,7 @@ async function main() {
     const ctx = await browser.newContext({ viewport: { width: 1200, height: 420 } });
     const before = await ctx.newPage();
     await before.goto(APP);
+    await leaveHome(before);
     await before.waitForSelector(".nav-thread", { state: "attached" });
     await open(before, "acme");
     await before.fill("#input", "send this one");
@@ -408,6 +411,7 @@ async function main() {
 
     const after = await ctx.newPage();
     await after.goto(APP);
+    await leaveHome(after);
     await after.waitForSelector(".nav-thread", { state: "attached" });
     await open(after, "acme");
     const restored = await after.inputValue("#input");
