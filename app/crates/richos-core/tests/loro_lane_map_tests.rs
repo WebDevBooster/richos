@@ -208,3 +208,81 @@ fn no_corpus_configured_is_not_an_error_and_not_a_crash() {
         other => panic!("an install with no corpus must be Ok(None), got {:?}", other.map(|o| o.is_some())),
     }
 }
+
+/// The failure NEITHER the lane map NOR the cross-entity guard can see, and the one line
+/// that answers it.
+///
+/// An in-repo corpus is one product's own record: no partitions, and `company: null` on
+/// every item — legitimately the CEO layer. So the lane map narrows nothing and
+/// `Slice::foreign_lane` refuses nothing; both are working correctly. A thread bound to a
+/// different entity then receives that product's record under a heading reading
+/// `COMPANY MEMORY (loro)`.
+///
+/// Measured against the CEO's only corpus on 2026-09-01 (`richos-hq`, 573 records,
+/// `layout: repo`): a `femcboost` thread asking "how should we price the coach product"
+/// was primed with the RichOS audio-capture decision, Wispr Flow's pricing and
+/// code-signing certificate authorities. Nothing fabricated, nothing leaked — the corpus
+/// holds one company and it is not FemcBoost.
+#[test]
+fn a_thread_reading_another_companys_in_repo_record_is_told_whose_it_is() {
+    let (mut c, dir) = compiler("origin", LaneMap::ceos_companies());
+    c.reconcile_lanes(&CorpusLanes::new(&[], &[]));
+    c.set_repo_corpus_owner(Some("richos".into()));
+
+    let json = slice(
+        r#"{"ref":"rec:ceo/records/signing","kind":"decision","kindInferred":false,
+        "title":"Signing","scope":"org-shared","company":null}"#,
+    );
+
+    // The OWNER reads its own record with no caveat — RichOS reading RichOS is right.
+    match c.interpret(&json, &req("richos", "pricing")) {
+        LoroTier::Slice(t) => {
+            assert!(t.starts_with("COMPANY MEMORY (loro)"), "the owner gets loro's text verbatim: {t}");
+            assert!(!t.contains("PROVENANCE"), "{t}");
+        }
+        other => panic!("expected a slice, got {other:?}"),
+    }
+
+    // ANY OTHER entity is told, in one sentence, whose record this is.
+    match c.interpret(&json, &req("femcboost", "pricing")) {
+        LoroTier::Slice(t) => {
+            assert!(t.starts_with("COMPANY MEMORY PROVENANCE:"), "{t}");
+            assert!(t.contains("richos's own record"), "{t}");
+            assert!(t.contains("holds no femcboost partition"), "{t}");
+            assert!(t.contains("Do not state any of it as a fact about femcboost"), "{t}");
+            // loro's own text is carried whole underneath it, never edited.
+            assert!(t.contains("COMPANY MEMORY (loro) — bearing on: \"pricing\""), "{t}");
+        }
+        other => panic!("expected a slice, got {other:?}"),
+    }
+
+    // A PROVISIONED corpus says nothing at all — there the partitions carry the answer.
+    let (mut clean, dir2) = compiler("origin2", LaneMap::ceos_companies());
+    let provisioned = CorpusLanes::with_layout(&["femcboost".into()], &[], "corpus", "/nowhere");
+    clean.reconcile_lanes(&provisioned);
+    assert_eq!(provisioned.repo_layout_root(), None);
+    assert!(clean.corpus_provenance_line("femcboost").is_none());
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(dir2);
+}
+
+/// A repo-layout corpus reports its own root, and the registry is what names the owner —
+/// which it could not do for `richos-hq` before the multi-root registry landed today.
+#[test]
+fn the_registry_is_what_names_the_owner_of_an_in_repo_corpus() {
+    let c = CorpusLanes::with_layout(&[], &[], "repo", "/Users/alex/ab/richos-hq");
+    let repo = c.repo_layout_root().expect("a repo-layout corpus names its root");
+    let registry = EntityRegistry::ceos_companies();
+    let owner = registry.resolve_root(repo).expect("richos-hq is registered");
+    assert_eq!(owner.id.as_str(), "richos");
+}
+
+fn slice(items: &str) -> String {
+    format!(
+        r#"{{"schemaVersion":1,"compiler":"loro-context-compiler/1.4.0","thin":false,"coverage":"direct",
+            "text":{:?},"items":[{items}],
+            "corpus":{{"recordCount":573,"fingerprint":"sha256:abc","layout":"repo","rootSource":"--root"}},
+            "budget":{{"chars":1200,"usedChars":50,"itemsIncluded":1,"withheldByScope":0}},"notes":[]}}"#,
+        "COMPANY MEMORY (loro) — bearing on: \"pricing\"\n• [decision] Signing — Developer ID, notarized."
+    )
+}

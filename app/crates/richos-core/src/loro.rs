@@ -306,6 +306,11 @@ impl LaneMap {
 pub struct CorpusLanes {
     companies: Vec<String>,
     retired: Vec<String>,
+    /// `"repo"` or `"corpus"`, as the corpus reported it. Empty when the caller built this
+    /// with [`CorpusLanes::new`] and said nothing about the layout.
+    layout: String,
+    /// The corpus's own root, as the corpus reported it.
+    root: PathBuf,
 }
 
 /// The subset of `corpus --format json` this consumer reads. Everything else in that
@@ -317,11 +322,58 @@ struct CorpusSummary {
     companies: Vec<String>,
     #[serde(default)]
     retired_companies: Vec<String>,
+    /// `"repo"` (an in-repo dogfood checkout: `wiki/` + `loro/`) or `"corpus"` (a
+    /// provisioned `ceo/` + `companies/<id>/`). Read because those two are not the same
+    /// object wearing different clothes — see [`CorpusLanes::repo_layout_root`].
+    #[serde(default)]
+    layout: String,
+    #[serde(default)]
+    root: String,
 }
 
 impl CorpusLanes {
     pub fn new(companies: &[String], retired: &[String]) -> Self {
-        CorpusLanes { companies: companies.to_vec(), retired: retired.to_vec() }
+        CorpusLanes { companies: companies.to_vec(), retired: retired.to_vec(), layout: String::new(), root: PathBuf::new() }
+    }
+
+    /// As [`Self::new`], plus the layout and root the corpus reported.
+    pub fn with_layout(companies: &[String], retired: &[String], layout: &str, root: impl Into<PathBuf>) -> Self {
+        CorpusLanes {
+            companies: companies.to_vec(),
+            retired: retired.to_vec(),
+            layout: layout.to_string(),
+            root: root.into(),
+        }
+    }
+
+    /// The root of this corpus when it is an IN-REPO DOGFOOD checkout (`layout: "repo"`),
+    /// and `None` when it is a provisioned corpus.
+    ///
+    /// # Why a consumer must care about the layout, not just the lanes
+    ///
+    /// A repo-layout corpus is one product's own record — `wiki/` + `loro/` of a single
+    /// checkout — with **no company partitions and no company field on any item**. Every
+    /// item is `company: null`, which is legitimately the CEO layer, so the lane map has
+    /// nothing to narrow and [`Slice::foreign_lane`] has nothing to refuse: both work
+    /// perfectly and neither can see the problem. The problem is that a thread bound to a
+    /// DIFFERENT entity then receives that product's record under a heading reading
+    /// `COMPANY MEMORY (loro)`.
+    ///
+    /// Measured, 2026-09-01, against the CEO's only corpus (`richos-hq`, 573 records,
+    /// `layout: repo`): a `femcboost` thread asking *"how should we price the coach
+    /// product"* was primed with three RichOS items — audio-capture click cost, Wispr Flow
+    /// pricing, code-signing certificate authorities. Nothing was fabricated and nothing
+    /// leaked across a partition; the corpus simply has one company in it and it is not
+    /// FemcBoost.
+    ///
+    /// This is the fact [`CliContextCompiler::set_repo_corpus_owner`] is given so the
+    /// payload can SAY so instead of presenting it as the entity's own memory.
+    pub fn repo_layout_root(&self) -> Option<&Path> {
+        (self.layout == "repo" && self.root.as_os_str().len() > 0).then(|| self.root.as_path())
+    }
+
+    pub fn layout(&self) -> &str {
+        &self.layout
     }
 
     /// Ask the corpus what partitions it has.
@@ -350,7 +402,12 @@ impl CorpusLanes {
         }
         let summary: CorpusSummary = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
             .map_err(|e| LoroError::LaneMap(format!("the corpus summary did not parse: {e}")))?;
-        Ok(CorpusLanes { companies: summary.companies, retired: summary.retired_companies })
+        Ok(CorpusLanes {
+            companies: summary.companies,
+            retired: summary.retired_companies,
+            layout: summary.layout,
+            root: PathBuf::from(summary.root),
+        })
     }
 
     pub fn has(&self, lane: &str) -> bool {
@@ -696,6 +753,11 @@ pub struct CliContextCompiler {
     /// the record it corrects (see [`SliceProvenance`]). Absent by default: a build with no
     /// correction trigger keeps nothing, and the read path is byte-identical either way.
     provenance: Option<SharedSliceProvenance>,
+    /// The entity that OWNS this corpus when it is an in-repo dogfood checkout — see
+    /// [`Self::set_repo_corpus_owner`]. `None` for a provisioned corpus, and `None` when
+    /// the owner could not be determined, which is treated as "say nothing" rather than
+    /// "guess a name".
+    repo_corpus_owner: Option<String>,
 }
 
 impl CliContextCompiler {
@@ -706,7 +768,44 @@ impl CliContextCompiler {
             lanes,
             audience: REPRIME_AUDIENCE.to_string(),
             provenance: None,
+            repo_corpus_owner: None,
         }
+    }
+
+    /// Tell this compiler which entity's own record the corpus IS, when the corpus is an
+    /// in-repo dogfood checkout rather than a partitioned one.
+    ///
+    /// The caller resolves it — `EntityRegistry::resolve_root(corpus.repo_layout_root())`
+    /// — because the registry is the only thing that knows which repository belongs to
+    /// which company, and it is now able to answer for a two-root venture. `None` when the
+    /// corpus is provisioned, or when no registered entity owns that path: an unknown owner
+    /// is left unstated rather than guessed.
+    ///
+    /// # What it changes, and it is one line
+    ///
+    /// Nothing about what is compiled, narrowed or refused. When a slice is accepted for an
+    /// entity that is NOT the owner, [`Self::interpret`] prefixes one sentence naming whose
+    /// record this is. That sentence is the difference between a fresh Rich reading RichOS's
+    /// code-signing decisions as FemcBoost's company memory and reading them as RichOS's,
+    /// surfaced for want of a FemcBoost partition.
+    pub fn set_repo_corpus_owner(&mut self, owner: Option<String>) {
+        self.repo_corpus_owner = owner;
+    }
+
+    /// The provenance sentence for `entity_id`, when one is owed. `None` for a provisioned
+    /// corpus, and `None` when the reader IS the owner — RichOS reading RichOS's record is
+    /// exactly right and needs no caveat.
+    pub fn corpus_provenance_line(&self, entity_id: &str) -> Option<String> {
+        let owner = self.repo_corpus_owner.as_deref()?;
+        if owner == entity_id {
+            return None;
+        }
+        Some(format!(
+            "COMPANY MEMORY PROVENANCE: this install's loro corpus is {owner}'s own record, kept in \
+             {owner}'s repository — it is not partitioned by company and holds no {entity_id} \
+             partition. Everything below is {owner}'s memory. Do not state any of it as a fact \
+             about {entity_id}."
+        ))
     }
 
     /// Retain the items of every ACCEPTED slice here, keyed by thread.
@@ -968,7 +1067,19 @@ impl CliContextCompiler {
                 });
             }
         }
-        LoroTier::Slice(slice.text)
+        // THE PROVENANCE LINE, and it sits OUTSIDE the budget check above on purpose.
+        //
+        // `CONTEXT-CONTRACT.md` §7 guarantee 1 is a promise loro makes about ITS text, and
+        // the check above holds it to that promise unaltered. This sentence is the APP's,
+        // not loro's, and folding it into the cap would make a slice fail loro's guarantee
+        // for something loro did not write. It is one line, it is only ever emitted when
+        // the corpus is one company's own record and the reader is a different company,
+        // and the alternative is an unmarked misattribution — a payload that is byte-honest
+        // and reads as a lie.
+        match self.corpus_provenance_line(req.entity_id) {
+            Some(line) => LoroTier::Slice(format!("{line}\n\n{}", slice.text)),
+            None => LoroTier::Slice(slice.text),
+        }
     }
 }
 

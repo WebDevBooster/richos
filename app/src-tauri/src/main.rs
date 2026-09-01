@@ -794,6 +794,39 @@ fn main() {
                                      reads the CEO layer, which is the whole of an unpartitioned corpus."
                                 );
                             }
+                            // WHOSE RECORD IS THIS, when the corpus is one repository's own.
+                            //
+                            // An in-repo corpus has no partitions and no company field on
+                            // any item, so the lane map has nothing to narrow and the
+                            // cross-entity guard has nothing to refuse — both work, and
+                            // neither can see that a FemcBoost thread is being handed
+                            // RichOS's record under a heading reading COMPANY MEMORY.
+                            // Measured on 2026-09-01 against the CEO's only corpus.
+                            //
+                            // The REGISTRY answers whose it is, which it could not do
+                            // before today: `richos-hq` became a registered root of the
+                            // `richos` entity in this same pass. An unowned path leaves the
+                            // owner unstated rather than guessed.
+                            if let Some(repo) = corpus.repo_layout_root() {
+                                let registry = EntityRegistry::ceos_companies();
+                                match registry.resolve_root(repo) {
+                                    Ok(owner) => {
+                                        eprintln!(
+                                            "[richos] loro corpus: in-repo layout at {} — this is {}'s own \
+                                             record, and every other company's slice will say so.",
+                                            repo.display(),
+                                            owner.id
+                                        );
+                                        compiler.set_repo_corpus_owner(Some(owner.id.to_string()));
+                                    }
+                                    Err(e) => eprintln!(
+                                        "[richos] loro corpus: in-repo layout at {} but no registered \
+                                         company owns that path ({e}) — the owner is left unstated \
+                                         rather than guessed.",
+                                        repo.display()
+                                    ),
+                                }
+                            }
                         }
                         Err(e) => eprintln!(
                             "[richos] loro lane: could not read which partitions this corpus has ({e}) \
