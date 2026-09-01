@@ -127,7 +127,11 @@
      here. */
   --font-symbols: "RichOS Symbols";
   --font: "Inter", var(--font-symbols), sans-serif;
-  --mono: "JetBrains Mono", var(--font-symbols), monospace;
+  --font-serif: "Newsreader", var(--font-symbols), serif;
+  /* No vendored monospace: the CEO's two faces are Newsreader and Inter, and a
+     third is his decision to make. The GENERIC keyword is the permitted last
+     resort; a named platform face is not. See ui/style.css for the full note. */
+  --mono: var(--font-symbols), monospace;
   --radius: 10px;
 
   /* ---- Legacy names, kept as aliases ----------------------------------------------

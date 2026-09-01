@@ -127,20 +127,50 @@
      name the product does not ship can be read without being grep-able in the
      product.)
 
+     THE TWO FACES ARE THE CEO'S, decided 2026-09-01: "Typeface: GO." Serif is
+     Newsreader, sans is Inter, both SIL OFL 1.1. There is no third role.
+
      `--font-symbols` is not decoration. Of the 30 non-ASCII characters this UI
      renders — the gear, the hamburger, every close button, the voice control,
-     the working state — Inter carries 23. The other seven come from three tiny
-     vendored Noto subsets, because a browser that cannot find a character in
-     the named family walks silently to the next one, and without these it would
-     have walked to a system font for the controls the CEO clicks.
+     the working state — Inter carries 23 and Newsreader 9, all nine of them
+     inside Inter's. Seven are in neither, and they come from three tiny
+     vendored Noto subsets, because a browser that cannot find a character in the
+     named family walks silently to the next one and without these it would have
+     walked to a system font for the controls the CEO clicks. Those three are
+     declared with `unicode-range`, so listing the token FIRST in a stack costs
+     nothing: the browser will not consult them for any other character.
 
-     The trailing `sans-serif` / `monospace` are GENERIC keywords, not faces.
-     They are the browser's own last resort, they exist so text outside the
-     subset ranges is never invisible, and they are the one fallback the ruling
-     leaves permitted. A NAMED platform face is not. */
+     The trailing `sans-serif` / `serif` / `monospace` are GENERIC keywords, not
+     faces. They are the browser's own last resort, they exist so text outside
+     the vendored subset ranges is never invisible, and they are the one fallback
+     the ruling leaves permitted. A NAMED platform face is not. */
   --font-symbols: "RichOS Symbols";
   --font: "Inter", var(--font-symbols), sans-serif;
-  --mono: "JetBrains Mono", var(--font-symbols), monospace;
+  --font-serif: "Newsreader", var(--font-symbols), serif;
+
+  /* ---- MONOSPACE: NO VENDORED FACE, AND THAT IS AN OPEN CEO DECISION --------
+     Ten rules in this file use `--mono` — the memory location, the desk record
+     and its suppressed id, the feedback entry key, the technical view's title,
+     path and raw output, the techy reason and the update detail. All of them are
+     technical text where column alignment is the point.
+
+     There is no monospace in the approved pair, and choosing one was explicitly
+     ruled to be the CEO's decision rather than an implementation detail. So this
+     resolves to the GENERIC `monospace` keyword: the browser's own last resort,
+     which is permitted, rather than a named platform face, which is not.
+
+     Be clear about what that costs, because it is the one place this pass does
+     not fully deliver the ruling's spirit: the generic keyword resolves to
+     whatever monospace the machine has, so those ten rules still look different
+     on a different computer. They are diagnostic surfaces rather than the
+     product's voice, which is why this is a tolerable place to stop and wait for
+     an answer — but it is stopping, not finishing. See BLOCKED.md at the root of
+     this branch for the three options and what each costs.
+
+     `--font-symbols` leads the stack for the reason given above: the technical
+     view renders ▾ and ⋯, and unicode-range keeps the face away from everything
+     else. */
+  --mono: var(--font-symbols), monospace;
   --radius: 10px;
 
   /* ---- Legacy names, kept as aliases ----------------------------------------------
