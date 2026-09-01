@@ -112,7 +112,7 @@ richos-engine v1.0.0 — contract integrity probe
   ✓ H. PostToolUse[Agent] detect-nonnative-worktree.sh wired + present (worktree-guard detector active)
   ✓ I. env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS="1" present in .claude/settings.local.json
   ✓ J. worktree.baseRef="head" present in .claude/settings.local.json
-  ✓ K. secrets scanner wired + rejects a known-bad secret (path-confined, manifest-matched, exit=2 canary)
+  ✓ K. secrets scanner wired + REJECTS a planted secret and PASSES clean content (path-confined, manifest-matched, two-sided canary)
   ✓ L. PreToolUse[SendMessage] guard-resume-isolation.sh wired + blocks an unresolvable resume (path-confined, manifest-matched, exit=2 canary)
   ✓ M. registration uniqueness — each canonical hook wired exactly once; single-fire canary logged 1 line for 1 registration(s)
   ✓ N. .claude/settings.local.json is git-tracked (will reach the next clone)

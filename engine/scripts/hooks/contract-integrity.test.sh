@@ -1119,7 +1119,7 @@ if printf '%s' "$PROBE_OUT" | grep -qF 'J. worktree.baseRef="head" present'; the
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28c.layer-J-explicit-pass-line-present"); printf '  FAIL  28c.layer-J-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
 fi
-if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets scanner wired + rejects a known-bad secret'; then
+if printf '%s' "$PROBE_OUT" | grep -qF 'K. secrets scanner wired + REJECTS a planted secret and PASSES clean content'; then
     PASS=$((PASS+1)); printf '  PASS  28d.layer-K-explicit-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("28d.layer-K-explicit-pass-line-present"); printf '  FAIL  28d.layer-K-explicit-pass-line-present  (got: %s)\n' "$PROBE_OUT"
@@ -1189,6 +1189,35 @@ if printf '%s' "$PROBE_OUT" | grep -qF 'K. wired secrets scanner did NOT block a
     PASS=$((PASS+1)); printf '  PASS  31b.functional-canary-catches-broken-scanner-despite-matching-hash\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("31b.functional-canary-catches-broken-scanner-despite-matching-hash"); printf '  FAIL  31b.functional-canary-catches-broken-scanner-despite-matching-hash  (got: %s)\n' "$PROBE_OUT"
+fi
+rm -rf "$ROOT"
+
+# Case 31c/31d — THE DEAD SCANNER. The case Layer K could not see until it grew
+# a second side, and the reason it exists.
+#
+# scan-secrets.sh refuses to start without scripts/lib/seat-jurisdiction.sh by
+# EXITING 2. Layer K's canary asserted the scanner exits 2 on a planted secret.
+# Same number, opposite meanings — so a scanner that never executed satisfied
+# the layer completely, and did so in both engine sandboxes for as long as those
+# sandbox file lists had existed. Case 31 above cannot catch it: that scanner is
+# a no-op that exits 0, this one never runs at all.
+#
+# 31c requires the probe to FAIL, and 31d requires it to say the true thing —
+# "it is not scanning, it is failing to start" — rather than the misleading
+# "did NOT block a known-bad secret", which would send a reader to audit
+# detectors in a scanner that had not run a line.
+#
+# Note what this deliberately does NOT touch: the hook is byte-identical and its
+# sidecar matches. Every hash check in Layer K passes. Only the second canary
+# separates a guard that is READING from one that is merely refusing.
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/lib/seat-jurisdiction.sh"
+set +e; PROBE_OUT="$(RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/contract-integrity-probe.sh" 2>&1 1>/dev/null)"; rc=$?; set -e
+emit_case "31c.dead-secrets-scanner-fails-layer-K" 2 "$rc"
+if printf '%s' "$PROBE_OUT" | grep -qF 'K. the secrets scanner refused BOTH a planted secret and content with no secret in it'; then
+    PASS=$((PASS+1)); printf '  PASS  31d.layer-K-says-failing-to-start-not-failing-to-catch\n'
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("31d.layer-K-says-failing-to-start-not-failing-to-catch"); printf '  FAIL  31d.layer-K-says-failing-to-start-not-failing-to-catch  (got: %s)\n' "$PROBE_OUT"
 fi
 rm -rf "$ROOT"
 
