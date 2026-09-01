@@ -1,0 +1,71 @@
+=== a throwaway HOME, and nothing else in the environment: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome ===
+
+[failures] work: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures
+
+=== no network — a host that cannot be resolved ===
+  kind    : no-network
+  he reads: I couldn't reach the internet, so there's nothing to download yet. Connect and try again — nothing has been changed on your Mac.
+  Mac unchanged: true
+  partial file left behind: false
+
+=== the release asset is not there — a real 404 from the real host ===
+  kind    : download-failed
+  he reads: The download didn't arrive (https://github.com/WebDevBooster/richos/releases/download/no-such-tag-9e1f/richos-engine-0.0.0.tar.gz answered curl: (56) The requested URL returned error: 404). Nothing has been changed on your Mac.
+  Mac unchanged: true
+  partial file left behind: false
+
+=== plain http is refused at the wire, not only in the pin ===
+  kind    : download-failed
+  he reads: The download didn't arrive (http://example.com/engine.tar.gz answered curl: (1) Protocol "http" disabled). Nothing has been changed on your Mac.
+  Mac unchanged: true
+  partial file left behind: false
+
+=== a tampered archive — the digest stops it before tar ever sees it ===
+  kind    : digest-mismatch
+  he reads: What downloaded isn't what this copy of RichOS expects, so I stopped and installed nothing. (expected 0000000000000000000000000000000000000000000000000000000000000000, got 83d4e6a509499e6cdeb68f169943dab5ec1489c33821f03ddadedab6226d21b9, from https://github.com/WebDevBooster/richos/releases/download/engine-v1.0.0/richos-engine-1.0.0.tar.gz)
+  Mac unchanged: true
+  anything installed at the destination: false
+
+=== a real tarball with the wrong thing inside it, through real tar ===
+  kind    : engine-shape-invalid
+  he reads: The download opened, but what was inside it isn't a RichOS engine (expected a single `engine` folder inside, found: not-an-engine). Nothing has been installed.
+  Mac unchanged: true
+  anything installed at the destination: false
+
+=== an engine-shaped archive carrying a version the pin does not name ===
+  kind    : engine-version-mismatch
+  he reads: The download is the wrong engine — it says version 9.9.9, and this copy of RichOS expects 1.0.0. Nothing has been installed.
+  Mac unchanged: true
+  anything installed at the destination: false
+
+=== a binary that is not Anthropic's, through real codesign ===
+  trusted : false
+  checked : /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/fake-claude
+  codesign: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/fake-claude: code object is not signed at all
+  REFUSED, which is the outcome that keeps an unverified binary from running.
+
+=== the real claude on this machine, through the same function ===
+  not present under this HOME — the negative case above still ran.
+
+=== residue: what any of the above left in the install locations ===
+  residue: 0
+
+[failures] every failure behaved
+
+(exit 0)
+
+=== what is left under the throwaway HOME ===
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/fake-claude
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/junk
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/junk.tar.gz
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/junk/not-an-engine
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/tampered.tar.gz
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/wrongver
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/wrongver.tar.gz
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome/failures/wrongver/engine
+
+=== throwaway HOME removed ===
+ls: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/failhome: No such file or directory
+(gone)

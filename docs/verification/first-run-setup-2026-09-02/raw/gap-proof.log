@@ -1,0 +1,83 @@
+=== HIS STATE, BEFORE — read only ===
+--- ~/.claude/richos-engine ---
+symlink -> /Users/alex/ab/richos/engine
+--- ~/Library/Application Support/RichOS/loro-root ---
+symlink -> /Users/alex/ab/richos-hq
+--- ~/Library/Application Support/com.richos.app ---
+ac9caee5c0dfa1fc768a522325df7c9fc694a2fa70c9f7cd47b07e3ddccbacda  ./config.json
+  (full fingerprint in his-state-before.txt)
+
+=== building the binary under test ===
+  50119792 bytes  /Users/alex/ab/richos-wt/echo-opus-od1/app/src-tauri/target/debug/richos-tauri
+
+=== the bundle, OUTSIDE the repository, carrying no engine ===
+  RichOS.app
+  RichOS.app/Contents
+  RichOS.app/Contents/Info.plist
+  RichOS.app/Contents/MacOS
+  RichOS.app/Contents/MacOS/richos-tauri
+  RichOS.app/Contents/Resources
+  Contents/Resources holds: 0 file(s)
+
+=== a HOME that has never seen RichOS ===
+  (empty)
+
+=== BOOT: cwd = /, environment holds nothing but HOME and PATH ===
+(waited 1s for: NO COMPUTE LEASE|compute lease attached)
+
+--- what the app said ---
+[richos] launch: fresh (start 1, 1 window(s))
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company resolved — RichOS will ask in the window and remember the answer.
+[richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] engine directory: NOT FOUND — 5 place(s) tried
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/RichOS.app/Contents/Resources/engine (app bundle resources)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/RichOS.app/Contents/MacOS (repo layout above the executable)
+[richos]   looked in / (repo layout above the working directory)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/.claude/richos-engine (engine install pointer)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine (application support)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine
+[richos]   cause : the engine directory /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)
+[richos] first-run setup: Claude Code is NOT installed — looked in: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/.local/bin/claude; /usr/bin/claude; /bin/claude; /usr/sbin/claude; /sbin/claude
+[richos] first-run setup: the RichOS engine is NOT installed — looked in: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/RichOS.app/Contents/Resources/engine; /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/.claude/richos-engine; /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine
+[richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+
+--- the lines that ARE the gap ---
+[richos] engine directory: NOT FOUND — 5 place(s) tried
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/RichOS.app/Contents/Resources/engine (app bundle resources)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/RichOS.app/Contents/MacOS (repo layout above the executable)
+[richos]   looked in / (repo layout above the working directory)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/.claude/richos-engine (engine install pointer)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine (application support)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine
+[richos]   cause : the engine directory /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)
+[richos] first-run setup: Claude Code is NOT installed — looked in: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/.local/bin/claude; /usr/bin/claude; /bin/claude; /usr/sbin/claude; /sbin/claude
+[richos] first-run setup: the RichOS engine is NOT installed — looked in: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/RichOS.app/Contents/Resources/engine; /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/.claude/richos-engine; /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/gapwork/home/Library/Application Support/RichOS/engine
+[richos] first-run setup: this build carries NO engine pin, so it cannot install one. Build with RICHOS_ENGINE_VERSION / RICHOS_ENGINE_URL / RICHOS_ENGINE_SHA256 set.
+/Users/alex/ab/richos-wt/echo-opus-od1/docs/verification/first-run-setup-2026-09-02/scripts/lib.sh: line 48: 40772 Terminated: 15          /usr/bin/env -i HOME="$home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$exe" >> "$log" 2>&1
+
+residue (processes still running this run's executable): 0
+
+=== HIS STATE, AFTER ===
+  BYTE-IDENTICAL. 6 file(s) fingerprinted under com.richos.app, diff empty.
+  --- ~/.claude/richos-engine ---
+  symlink -> /Users/alex/ab/richos/engine
+  --- ~/Library/Application Support/RichOS/loro-root ---
+  symlink -> /Users/alex/ab/richos-hq
+  --- ~/Library/Application Support/com.richos.app ---
+  ac9caee5c0dfa1fc768a522325df7c9fc694a2fa70c9f7cd47b07e3ddccbacda  ./config.json
+
+=== cleaning up this run ===
+  throwaway HOME removed

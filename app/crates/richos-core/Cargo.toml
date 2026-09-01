@@ -59,3 +59,11 @@ path = "examples/first_run_demo.rs"
 [[example]]
 name = "provision_refusals"
 path = "examples/provision_refusals.rs"
+
+[[example]]
+name = "setup_demo"
+path = "examples/setup_demo.rs"
+
+[[example]]
+name = "setup_failures"
+path = "examples/setup_failures.rs"
