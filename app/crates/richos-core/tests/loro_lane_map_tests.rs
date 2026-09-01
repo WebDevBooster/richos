@@ -277,6 +277,32 @@ fn the_registry_is_what_names_the_owner_of_an_in_repo_corpus() {
     assert_eq!(owner.id.as_str(), "richos");
 }
 
+/// The caveat is conditioned on the ABSENCE OF PARTITIONS, not on the layout name.
+///
+/// `layout: "repo"` used to imply "no partitions"; since 2026-09-01 it does not — the
+/// dogfood layout carries `ceo/` + `companies/<id>/`, because a `corpus`-layout root is
+/// refused inside a product checkout and the CEO's only corpus is one. The provenance
+/// sentence says *"it is not partitioned by company and holds no `<entity>` partition"*,
+/// which against a partitioned corpus is false, and a false caveat tells a fresh Rich to
+/// discount memory that is correctly his.
+#[test]
+fn a_partitioned_repo_layout_corpus_owes_no_provenance_caveat() {
+    let partitioned =
+        CorpusLanes::with_layout(&["femcboost".into(), "richos".into()], &[], "repo", "/Users/alex/ab/richos-hq");
+    assert_eq!(partitioned.layout(), "repo");
+    assert_eq!(
+        partitioned.repo_layout_root(),
+        None,
+        "a partitioned corpus answers with its partitions, not with a sentence about not having any"
+    );
+
+    let (mut c, dir) = compiler("origin3", LaneMap::ceos_companies());
+    c.reconcile_lanes(&partitioned);
+    // The app sets the owner only when `repo_layout_root()` answers, so nothing is set here.
+    assert!(c.corpus_provenance_line("femcboost").is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 fn slice(items: &str) -> String {
     format!(
         r#"{{"schemaVersion":1,"compiler":"loro-context-compiler/1.4.0","thin":false,"coverage":"direct",
