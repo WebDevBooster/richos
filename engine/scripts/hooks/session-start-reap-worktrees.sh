@@ -119,10 +119,30 @@ elif [ ! -x "$REAPER" ]; then
     printf '%s\n' "$(require_asset "$REAPER" "scripts/hooks/session-start-reap-worktrees.sh" "the worktree reaper (an ENGINE asset)")" >&2
     SUMMARY="ENGINE INSTALL FAILURE — scripts/reap-stale-worktrees.sh is missing or not executable at $REAPER. No worktrees were swept. This is a broken engine install, NOT a routine skip."
 else
-    RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale 2>&1)" || true
+    # DISCOVERY IS ON for a real session start and SUPPRESSED under the test
+    # override, and only under it. Without --discover this sweep sees ONE
+    # repository, which is scope hole #1: on 2026-09-01 it reported
+    # `reaped=1 skipped=0 errors=0 residue=0` while 25 worktrees sat unswept
+    # in two OTHER repositories it had never been pointed at. With
+    # REAP_WORKTREES_ROOT set, discovery must stay off — the probe's Layer Q
+    # canary drives this wrapper with --execute against a throwaway sandbox,
+    # and a discovering sweep there would reach the operator's real checkouts.
+    DISCOVER_ARGS="--discover"
+    if [ -n "${REAP_WORKTREES_ROOT:-}" ]; then
+        DISCOVER_ARGS=""
+    fi
+    # shellcheck disable=SC2086
+    RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale $DISCOVER_ARGS 2>&1)" || true
     SUMMARY_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== summary' || true)"
+    # THE DENOMINATOR TRAVELS WITH THE SUMMARY. A context line that says
+    # `reaped=1 residue=0` and nothing else is what let a one-repository sweep
+    # read as a clean machine for months; the coverage line says how many
+    # repositories and worktrees that number is out of, and every `blind:`
+    # line says what this run could not see at all.
+    COVERAGE_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== coverage' || true)"
+    BLIND_LINES="$(printf '%s\n' "$RAW_OUTPUT" | grep '^=== blind:' | tr '\n' ' ' || true)"
     if [ -n "$SUMMARY_LINE" ]; then
-        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ${SUMMARY_LINE#=== }"
+        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
     else
         SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
     fi
