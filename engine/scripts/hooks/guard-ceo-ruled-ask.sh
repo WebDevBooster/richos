@@ -190,7 +190,6 @@ trap 'rm -f "$QFILE" "$OUTFILE" "$REPORT"' EXIT
 
 BLOCKED=0
 BROKEN_NOTE=""
-CITES=""
 
 while IFS=$'\t' read -r QIDX QTEXT; do
     [ -n "${QTEXT:-}" ] || continue
@@ -213,8 +212,6 @@ while IFS=$'\t' read -r QIDX QTEXT; do
                 while IFS=$'\t' read -r K F1 F2 F3 F4 F5 F6 F7 F8; do
                     case "$K" in
                         RULED)
-                            CITES="$CITES$F2
-"
                             printf '    %s  %s\n' "$F2" "$F3"
                             printf '      in %s, line %s   (matched: %s "%s")\n' \
                                 "$F1" "$F8" "$F4" "$F5"
