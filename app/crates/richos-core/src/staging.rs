@@ -175,9 +175,16 @@ impl CliVocabulary {
     }
 
     /// Build from the environment. `None` = no local service configured, which is an
-    /// ordinary install and not an error — the same posture as
-    /// `correction::CliLoroWriter::from_env`. Detection and staging still work; only the
+    /// ordinary install and not an error — the same posture `correction::CliLoroWriter`
+    /// takes for an install with no corpus. Detection and staging still work; only the
     /// confirm step has nowhere to go, and it says so.
+    ///
+    /// **This one is still environment-only, and that is a KNOWN GAP, not a design.** A
+    /// Finder launch carries no `RICHOS_SERVICE_BIN`, so on the CEO's installed app this is
+    /// always `None` and confirming a spoken correction always reports that there is nowhere
+    /// to write. It is the same premise failure `LoroInstall` closed for the corpus; it is
+    /// left named rather than silently half-fixed, because where the vocabulary service
+    /// lives on an installed machine has no answer yet (nothing installs one).
     pub fn from_env() -> Option<Self> {
         let bin = std::env::var("RICHOS_SERVICE_BIN").ok().filter(|v| !v.trim().is_empty())?;
         let node = std::env::var("RICHOS_NODE_BIN")
