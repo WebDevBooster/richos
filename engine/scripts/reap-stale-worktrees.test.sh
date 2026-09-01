@@ -285,8 +285,13 @@ add_handrolled "$DIR/other" "$DIR/other-wt" ghost-owner
 write_transcript "$DIR/transcript.jsonl" "live-owner=live" "done-owner=done" "ghost-owner=ghost"
 spawned_names "$DIR" live-owner done-owner ghost-owner
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"
+# The reason string is asserted, not just the survival: this branch and case
+# 6's "no agent matches" branch both print owner-unresolved, and they are
+# different findings. `ghost-owner` DOES resolve to a real agent — the agent's
+# isolation worktree is simply not there. Matching the generic prefix would let
+# a regression that collapses the two read as a pass.
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/ghost-owner" ] \
-   && printf '%s' "$OUT" | grep -q "^SKIP ghost-owner owner-unresolved"; then
+   && printf '%s' "$OUT" | grep -q "^SKIP ghost-owner owner-unresolved(ghost-owner — verdict NOT-ALIVE only because its isolation worktree is ABSENT"; then
     ok "owner whose isolation worktree is ABSENT is undecidable, never reaped"
 else
     bad "absent native worktree (rc=$RC dir=$([ -d "$DIR/other-wt/ghost-owner" ] && echo present || echo GONE))"

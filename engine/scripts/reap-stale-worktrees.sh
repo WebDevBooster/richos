@@ -494,16 +494,33 @@ fi
 # ===========================================================================
 # OWNER LIVENESS — one table, built once, from the ONE resolver
 # ===========================================================================
-# `agent-liveness.py --all` enumerates the NATIVE isolation worktrees
-# REGISTERED in the entity and returns the authoritative verdict for each;
-# `--transcript` attaches the teammate NAMES, which is the only place the
-# name -> agentId join exists on disk. The result is a table of
-#     <teammate-name>  <verdict>  <native worktree observed?>
-# and a name that is ABSENT from it is UNRESOLVED — never "dead".
+# The table is
+#     <teammate-name>  <verdict>  <native worktree OBSERVED?>
+# and it is built by IMPORTING scripts/lib/agent-liveness.py and calling its
+# two entry points — `names_to_ids` (the name -> agentId join, which exists
+# nowhere else on disk) and `enumerate_all` (the authoritative verdict for
+# every native isolation worktree REGISTERED in the entity).
+#
+# THE THIRD COLUMN IS THE WHOLE SAFETY RULE AND IT IS WHY THIS IMPORTS THE
+# MODULE RATHER THAN SHELLING ITS `--all` CLI. Written the CLI way first, and
+# a mutation test caught it: `--all` only ever describes worktrees that EXIST,
+# so `registered` was true in every row it could ever emit, the third column
+# was a constant, and the branch reading it was unreachable. Deleting the
+# check changed nothing and every test stayed green — a guard that had already
+# rotted on the day it was written.
+#
+# Joining the two calls makes the distinction real, because it produces a row
+# for a name whose agent has NO registered worktree:
+#
+#   name maps to an agent with a worktree ...... its verdict, OBSERVED=1
+#   name maps to an agent with NO worktree ..... NOT-ALIVE, OBSERVED=0
+#                                                (an ABSENCE, not a death)
+#   name maps to no agent at all ............... no row: UNRESOLVED
 #
 # There is deliberately no second implementation of "alive" here. Two of them
 # is how one of them silently becomes the stale one, which is the sentence
-# scripts/lib/agent-liveness.py was extracted to stop having to write again.
+# scripts/lib/agent-liveness.py was extracted to stop having to write again —
+# so this borrows its functions rather than paraphrasing its logic.
 OWNER_TABLE=""
 LIVENESS_PY="$LIB_DIR/agent-liveness.py"
 TRANSCRIPT="$TRANSCRIPT_ARG"
@@ -523,22 +540,40 @@ elif ! command -v python3 >/dev/null 2>&1; then
 elif [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
     blind "owner liveness: no session transcript found for entity '$ENTITY_ROOT' — the teammate-name -> agentId join is unavailable, so EVERY hand-rolled worktree is undecidable in this run"
 else
-    OWNER_TABLE="$(python3 "$LIVENESS_PY" --entity "$ENTITY_ROOT" --all \
-                       --transcript "$TRANSCRIPT" --format json 2>/dev/null \
-                   | python3 -c '
-import json, sys
-try:
-    recs = json.load(sys.stdin)
-except Exception:
+    OWNER_TABLE="$(REAP_LIVENESS_PY="$LIVENESS_PY" \
+                   REAP_ENTITY="$ENTITY_ROOT" \
+                   REAP_TRANSCRIPT_PATH="$TRANSCRIPT" \
+                   python3 - <<'PY' 2>/dev/null || true
+import importlib.util, os, sys
+
+spec = importlib.util.spec_from_file_location(
+    "richos_agent_liveness", os.environ["REAP_LIVENESS_PY"])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+names = mod.names_to_ids(os.environ["REAP_TRANSCRIPT_PATH"])
+if not names:
     sys.exit(0)
-if isinstance(recs, dict):
-    recs = [recs]
-for r in recs:
-    verdict = r.get("verdict") or "INDETERMINATE"
-    observed = "1" if (r.get("evidence") or {}).get("registered") else "0"
-    for n in (r.get("names") or []):
-        print("%s\t%s\t%s" % (n, verdict, observed))
-' 2>/dev/null || true)"
+
+by_id = {}
+for rec in mod.enumerate_all(os.environ["REAP_ENTITY"]):
+    aid = rec.get("agent_id")
+    if aid:
+        by_id[aid] = rec
+
+for name in sorted(names):
+    rec = by_id.get(names[name])
+    if rec is None:
+        # The name resolves to a real agent whose isolation worktree is not
+        # registered in the entity at all. The resolver would call that
+        # NOT-ALIVE; this row records that the verdict rests on an ABSENCE,
+        # and the caller refuses it for exactly that reason.
+        print("%s\tNOT-ALIVE\t0" % name)
+        continue
+    observed = "1" if (rec.get("evidence") or {}).get("registered") else "0"
+    print("%s\t%s\t%s" % (name, rec.get("verdict") or "INDETERMINATE", observed))
+PY
+                   )"
     if [ -z "$OWNER_TABLE" ]; then
         blind "owner liveness: the resolver produced no name->verdict rows for entity '$ENTITY_ROOT' (transcript: $TRANSCRIPT) — every hand-rolled worktree is undecidable in this run"
     fi
