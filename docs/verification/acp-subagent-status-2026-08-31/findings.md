@@ -1,5 +1,7 @@
 # Does the ACP adapter emit intermediate tool status inside a subagent?
 
+> **Path note (2026-09-01).** The ACP adapter this record measures — app/acp-adapter/ and app/crates/richos-core/src/acp.rs — was deleted in a45acc3. Filenames below are therefore given bare: they resolve in git history at that commit, not in the current tree.
+
 **Observation, 2026-08-31. This closes the case
 `../native-claude-tool-status-2026-08-31/findings.md` §6.3 and §8 left open, and it is the last
 piece of evidence the two parked decisions were waiting on
@@ -40,7 +42,7 @@ the native path look better. They are corrected in §5 below.
 Four runs, raw JSON-RPC committed unedited under `raw/`, indexed by `raw/README.md`, each with a
 `.timings.tsv` of per-message read offsets.
 
-The instrument is **`app/acp-adapter/probe-machinery.js`, unmodified** — the same file that
+The instrument is **`probe-machinery.js`, unmodified** — the same file that
 produced the five 2026-08-28 captures — driven only through its `PROBE_PROMPT` variable. Its
 permission policy is `acp.rs`'s own: auto-approve the first `allow*` option (`acp.rs:469-479`).
 Adapter **0.70.0**, the version the 2026-08-28 probe recorded
