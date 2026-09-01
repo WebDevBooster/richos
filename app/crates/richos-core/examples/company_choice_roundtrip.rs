@@ -13,6 +13,8 @@
 //!   3. the company is written the way the picker writes it (`ConfigStore::set_entity`);
 //!   4. the store is DROPPED and reopened — the next boot, reading its own bytes off disk;
 //!   5. a thread is activated in the remembered company, no relaunch;
+//!  5b. company memory is resolved THE WAY THE SHIPPED APP RESOLVES IT, so a run under
+//!      `env -i` proves the double-click's Tier C rather than a configured shell's;
 //!   6. a real `claude` lease is attached and the same sentence is sent, and Rich answers.
 //!
 //! It is an example and not a test on purpose: it needs the `claude` binary, the customer's
@@ -26,6 +28,7 @@
 use richos_core::config::ConfigStore;
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source};
+use richos_core::loro::{CliContextCompiler, CorpusPaths};
 use richos_core::native::{resolve_claude_bin, NativeCognition};
 use richos_core::spine::Spine;
 use richos_core::Cognition;
@@ -72,6 +75,31 @@ fn main() {
     let binding = spine.ensure_active_thread_in(&remembered).expect("activate");
     println!("5. active: {}", binding.scope_key(None));
 
+    // ---- 5b. COMPANY MEMORY, resolved the way the shipped app resolves it ---------------
+    //
+    // Added 2026-09-01. Steps 1-5 above were written against a build whose Tier C was
+    // dead on a Finder launch, so this example proved a first send that reached Rich with
+    // no company memory in it and could not have noticed. `locate` is the app's own
+    // resolver: run this under `env -i` and it answers the same way the double-click does.
+    match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+        Ok((Some((compiler, source)), _)) => {
+            println!(
+                "5b. company memory: {} (via {}), node {}",
+                compiler.root().path().display(),
+                source.as_str(),
+                compiler.tools().node()
+            );
+            spine.set_loro_context_compiler(Box::new(compiler));
+        }
+        Ok((None, tried)) => {
+            println!("5b. company memory: NONE resolved — the re-prime below carries none");
+            for t in tried {
+                println!("    tried {t}");
+            }
+        }
+        Err(e) => println!("5b. company memory: configured but unusable: {e}"),
+    }
+
     // ---- 6. and the send that was refused a moment ago lands ---------------------------
     let claude_bin = resolve_claude_bin();
     eprintln!("[roundtrip] claude     = {}", claude_bin.display());
@@ -93,6 +121,13 @@ fn main() {
 
     let turn = spine.ledger().turn(&turn_id).expect("turn");
     eprintln!("\n[roundtrip] turn state = {:?}, stop = {:?}", turn.state, turn.stop_reason);
+    // The size of what a fresh Rich was primed with, read from the ledger's own record
+    // rather than from a variable this file kept. Run it twice — once with the corpus
+    // reachable and once with HOME pointing somewhere that has no pointer — and the
+    // difference between the two `priming_chars` IS the compiled slice.
+    for a in spine.ledger().actions().iter().filter(|a| a.kind == "session_reprime") {
+        eprintln!("[roundtrip] {}", a.detail);
+    }
     eprintln!("[roundtrip] scope      = {}", spine.active_binding().unwrap().scope_key(Some(&turn_id)));
     let _ = std::fs::remove_file(&ledger_path);
     let _ = std::fs::remove_file(&config_path);

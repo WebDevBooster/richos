@@ -251,7 +251,7 @@ app/
     tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
-    tests/loro_lane_map_tests.rs 10 lane-map tests: the default map is the CEO's six
+    tests/loro_lane_map_tests.rs 11 lane-map tests: the default map is the CEO's six
                               companies, a lane the corpus does not have is DROPPED rather
                               than sent (loro exits 2 on one, which would make every
                               re-prime Unavailable), the cross-entity guard still refuses
@@ -580,7 +580,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 583 tests + 5 doc-tests
+cargo test -p richos-core                       # 595 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
@@ -952,9 +952,13 @@ explicit argv, and owns the notary step itself.
 - **macOS only.** It refuses on any other platform with the reason. No Windows bundle
   has ever been built and there is no Windows signing certificate.
 - **No auto-update channel.** Not built, not wired, not claimed.
-- **The app has never been launched from a packaged bundle by this work.** The bundle
-  verifies from a fresh copy (`ditto` to a new path, `codesign --verify` still passes);
-  a launch was not performed here.
+- **Launched, and talked to.** As of 2026-09-01 the bundle is installed at
+  `~/Applications/RichOS.app`, opened with `/usr/bin/open` (working directory `/`, launchd's
+  environment), asked which company it is for, answered, and given a sentence that came back
+  as a real reply in 5,868 ms. Boot line, ledger and the verbatim exchange:
+  `docs/verification/installed-app-2026-09-01/`. **Not notarized** — there are no notary
+  credentials on this machine, so `spctl` rejects it and a DOWNLOADED copy would be blocked;
+  a locally installed one carries no quarantine attribute and opens.
 
 ## Runtime config (env)
 
@@ -982,7 +986,53 @@ none.
 - `RICHOS_LORO_DIR` — the loro checkout holding `bin/loro-context.mjs` and
   `bin/loro-write.mjs`. Deliberately **not** derived from this checkout: RichOS ships no
   `loro/` directory and never will — the corpus and the vocabulary are the owner's and live
-  outside a repository that gets published.
+  outside a repository that gets published. When a corpus root has been resolved and this
+  is unset, the root's own `loro/` directory is used if it holds both entry points — which
+  is where it is by definition in the in-repo shape, and where a provisioned corpus may or
+  may not have one. Unusable is an ERROR naming the root, never a silent "no corpus".
+- `RICHOS_NODE_BIN` — which `node` runs the compiler. Resolved the way `RICHOS_CLAUDE_BIN`
+  is: explicit first, then the first `node` on `PATH` returned as an absolute path, then
+  `/opt/homebrew/bin/node` and `/usr/local/bin/node`, then the bare name. **A GUI launch's
+  `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`**, which holds no Homebrew `node`, so without
+  this step a resolved corpus fails once per rotation with `could not start the loro
+  compiler: No such file or directory`.
+
+#### Two per-user pointers, for a launch that has no environment
+
+Everything above is an environment variable, and **LaunchServices gives a double-clicked
+`.app` launchd's environment**, which has none of them. That is the same premise failure
+`engine.rs` fixed for the engine directory, and until 2026-09-01 the corpus still had it:
+the signed bundle booted `loro Tier C: no corpus configured` with the whole corpus one
+symlink away (`docs/verification/installed-app-2026-09-01/`).
+
+So after the explicit variables — which stay **exclusive**, and are never second-guessed —
+resolution reads two per-user pointers, in this order, and each must LOOK like what it
+claims to be:
+
+| pointer | shape required | resolves as |
+|---|---|---|
+| `~/Library/Application Support/RichOS/corpus` | `ceo/` + `companies/` | `--corpus` |
+| `~/Library/Application Support/RichOS/loro-root` | `wiki/` + `loro/` | `--root` |
+| `~/RichOS/corpus` | `ceo/` + `companies/` | `--corpus` |
+
+They are **two different names rather than one name with a guess about its shape**, because
+loro refuses `--corpus` for a corpus that sits inside a git checkout and says so in those
+words — resolving the wrong flag would be `exit 2` on every rotation, forever.
+
+**Nothing creates either pointer.** Not the app, not the bundler, not an installer — there
+is no installer. It is an operator act, exactly like the engine's own install pointer, and a
+machine without one boots saying what it looked for:
+
+```
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried .../RichOS/corpus — not present
+[richos] loro Tier C: tried .../RichOS/loro-root — not present
+[richos] loro Tier C: tried /Users/alex/RichOS/corpus — not present
+```
+
+And nothing here is ever derived from the executable, the working directory or the engine
+directory. Inferring the corpus from the checkout the binary sits in is the one inference
+`CONTEXT-CONTRACT.md` §1 names as a larger failure than an error.
 - `RICHOS_LORO_LANES` — optional, `entity=lane,entity=lane`. Maps an ECS entity area onto a
   loro company partition. **It is a map, never a rule** — name equality is not a mapping,
   an entity with no lane reads the CEO layer and nothing else, and a slice carrying another

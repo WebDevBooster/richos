@@ -24,7 +24,9 @@ use richos_core::feedback::{
 };
 use richos_core::journal::{MachineryJournal, RawRetention};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
-use richos_core::loro::{CliContextCompiler, CorpusLanes, SharedSliceProvenance, SliceProvenance};
+use richos_core::loro::{
+    CliContextCompiler, CorpusLanes, CorpusPaths, SharedSliceProvenance, SliceProvenance,
+};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::heard::{DictationJournal, HeardSource};
@@ -747,9 +749,20 @@ fn main() {
             // reference and nothing in the app could supply one honestly.
             let loro_provenance: SharedSliceProvenance =
                 std::sync::Arc::new(Mutex::new(SliceProvenance::new()));
-            match CliContextCompiler::from_env() {
-                Ok(Some(mut compiler)) => {
-                    eprintln!("[richos] loro Tier C: compiling from {}", compiler.root().path().display());
+            // RESOLVED FOR A LAUNCH WITH NO TERMINAL, since 2026-09-01. `from_env` is
+            // still the whole of the explicit path and is still exclusive; what changed is
+            // that a Finder launch — launchd's environment, no LORO_* anything — now also
+            // reaches the two per-user pointers an operator can put in place. Measured
+            // before and after on the signed bundle:
+            // `docs/verification/installed-app-2026-09-01/`.
+            match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+                Ok((Some((mut compiler, source)), _tried)) => {
+                    eprintln!(
+                        "[richos] loro Tier C: compiling from {} (via {}), node {}",
+                        compiler.root().path().display(),
+                        source.as_str(),
+                        compiler.tools().node()
+                    );
                     // THE LANE MAP, RECONCILED AGAINST THE CORPUS — open item 3.5, and the
                     // reason it is safe to stop being empty.
                     //
@@ -843,7 +856,17 @@ fn main() {
                     spine.set_loro_context_compiler(Box::new(compiler));
                     spine.set_loro_provenance(std::sync::Arc::clone(&loro_provenance));
                 }
-                Ok(None) => eprintln!("[richos] loro Tier C: no corpus configured — re-primes carry no company memory"),
+                Ok((None, tried)) => {
+                    eprintln!(
+                        "[richos] loro Tier C: no corpus configured — re-primes carry no company memory"
+                    );
+                    // WHAT WAS LOOKED FOR, not merely that it failed. This is the line that
+                    // would have turned "no corpus configured" from a shrug into an
+                    // instruction the first time anyone read it on a double-click.
+                    for t in tried {
+                        eprintln!("[richos] loro Tier C: tried {t}");
+                    }
+                }
                 Err(e) => eprintln!("[richos] loro Tier C: configured but unusable, continuing without it: {e}"),
             }
 

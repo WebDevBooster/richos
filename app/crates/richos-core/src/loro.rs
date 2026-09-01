@@ -165,6 +165,15 @@ impl LoroTools {
         &self.node
     }
 
+    /// Override which `node` runs the compiler.
+    ///
+    /// `locate` needs this because a GUI launch's `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`
+    /// and the bare name resolved by [`Self::locate`] would not be found there — see
+    /// [`resolve_node_bin`], which does the finding.
+    pub fn set_node(&mut self, node: String) {
+        self.node = node;
+    }
+
     pub fn dir(&self) -> &Path {
         &self.dir
     }
@@ -1104,6 +1113,452 @@ impl LoroContextCompiler for CliContextCompiler {
             return LoroTier::Unavailable("no topic — the thread has nothing the CEO has said yet".into());
         }
         self.run(req)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WHERE IS THE CORPUS? — resolution for a launch that has no terminal
+// ---------------------------------------------------------------------------
+
+/// The inputs a launch supplies, injected rather than read, so the GUI condition (empty
+/// environment, launchd's `PATH`) is a VALUE in a test instead of a mutation of the test
+/// process. Exactly the shape `src-tauri/src/engine.rs`'s `LaunchPaths` has, and for
+/// exactly the same reason: the one condition that matters is the one no developer's shell
+/// ever produces.
+#[derive(Debug, Default, Clone)]
+pub struct CorpusPaths {
+    /// `$LORO_CORPUS`.
+    pub env_corpus: Option<String>,
+    /// `$LORO_ROOT`.
+    pub env_root: Option<String>,
+    /// `$RICHOS_LORO_DIR`.
+    pub env_tools: Option<String>,
+    /// `$RICHOS_NODE_BIN`.
+    pub env_node: Option<String>,
+    /// `$HOME`.
+    pub home: Option<PathBuf>,
+    /// `$PATH`, as the process received it.
+    pub path_var: Option<String>,
+}
+
+impl CorpusPaths {
+    /// Read the real process. The only function in this section that touches global state.
+    pub fn from_process() -> Self {
+        fn var(name: &str) -> Option<String> {
+            std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+        }
+        CorpusPaths {
+            env_corpus: var("LORO_CORPUS"),
+            env_root: var("LORO_ROOT"),
+            env_tools: var("RICHOS_LORO_DIR"),
+            env_node: var("RICHOS_NODE_BIN"),
+            home: var("HOME").map(PathBuf::from),
+            path_var: var("PATH"),
+        }
+    }
+}
+
+/// Which candidate answered — printed at boot so an operator never has to guess which one a
+/// running app is using.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorpusSource {
+    /// `$LORO_CORPUS` — explicit.
+    EnvCorpus,
+    /// `$LORO_ROOT` — explicit.
+    EnvRoot,
+    /// `~/Library/Application Support/RichOS/corpus`.
+    AppSupportCorpus,
+    /// `~/Library/Application Support/RichOS/loro-root`.
+    AppSupportRoot,
+    /// `~/RichOS/corpus`.
+    HomeCorpus,
+}
+
+impl CorpusSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CorpusSource::EnvCorpus => "LORO_CORPUS",
+            CorpusSource::EnvRoot => "LORO_ROOT",
+            CorpusSource::AppSupportCorpus => "the corpus pointer in Application Support",
+            CorpusSource::AppSupportRoot => "the loro-root pointer in Application Support",
+            CorpusSource::HomeCorpus => "~/RichOS/corpus",
+        }
+    }
+}
+
+/// A PROVISIONED corpus is `ceo/` + `companies/<id>/`. Both, or it is not one.
+///
+/// The check is what makes a searched candidate safe to use at all: a directory that
+/// happens to be called `corpus` and holds neither is rejected rather than handed to loro,
+/// which would refuse it once per rotation, forever.
+pub fn provisioned_corpus_looks_valid(dir: &Path) -> bool {
+    dir.join("ceo").is_dir() && dir.join("companies").is_dir()
+}
+
+/// An IN-REPO dogfood root is a checkout with `wiki/` + `loro/` — loro's own words for the
+/// second shape (`--root`), and the shape it INSISTS on for a corpus that lives inside a
+/// git checkout:
+///
+/// ```text
+/// usage: loro corpus root: refusing a corpus inside the RichOS product repo (...). The
+/// corpus is the CEO's private record and RichOS ships publicly ... For the in-repo dogfood
+/// case use --root / LORO_ROOT, which says so out loud.
+/// ```
+///
+/// MEASURED 2026-09-01 against the CEO's own corpus: `--corpus ~/ab/richos-hq` exits 2 with
+/// that message and `--root ~/ab/richos-hq` exits 0 with a 1,149-char slice. So the two
+/// pointers below are two DIFFERENT names, not one name with a guess about its shape —
+/// resolving the wrong one would be a refusal on every turn.
+pub fn repo_root_looks_valid(dir: &Path) -> bool {
+    dir.join("wiki").is_dir() && dir.join("loro").is_dir()
+}
+
+/// The answer, plus the audit trail behind it.
+#[derive(Debug, Clone)]
+pub struct CorpusResolution {
+    pub root: Option<LoroRoot>,
+    pub source: Option<CorpusSource>,
+    /// Every candidate considered and what became of it, in order. Reported when nothing
+    /// resolved, so the boot log says what was looked for rather than only that it failed.
+    pub tried: Vec<String>,
+}
+
+/// WHERE IS THE CEO'S MEMORY? — the same problem `engine.rs` solves for the engine
+/// directory, and until 2026-09-01 it had the same answer: an environment variable, and
+/// nothing else.
+///
+/// **That is a `cargo run` assumption, and a double-clicked `.app` does not meet it.**
+/// LaunchServices gives a GUI process launchd's environment, which carries no `LORO_CORPUS`,
+/// no `LORO_ROOT` and no `RICHOS_LORO_DIR` — so the shipped bundle booted with
+/// `[richos] loro Tier C: no corpus configured` and every re-prime asserted a fresh Rich
+/// with no company memory at all. MEASURED on the signed bundle, boot log quoted in
+/// `docs/verification/installed-app-2026-09-01/`.
+///
+/// # The order, and why it is this order
+///
+/// It mirrors `engine.rs`, including its two governing rules:
+///
+/// - **An explicit statement is EXCLUSIVE.** If the operator named a root, that root is
+///   used and resolution never falls through to one nobody named. A bad explicit path is an
+///   error for loro to report, not a reason to guess — so an explicit value is NOT
+///   validated here, and loro's own refusal is the message.
+/// - **A searched candidate must LOOK like what it claims to be** — `ceo/` + `companies/`
+///   for a provisioned corpus, `wiki/` + `loro/` for an in-repo root.
+///
+/// | # | candidate | why it is here |
+/// |---|---|---|
+/// | 1 | `$LORO_CORPUS` | the contract's own first name for a provisioned corpus. Explicit, exclusive, taken verbatim. |
+/// | 2 | `$LORO_ROOT` | the contract's second name, for the in-repo dogfood shape. Also explicit, also exclusive. |
+/// | 3 | `~/Library/Application Support/RichOS/corpus` | the per-user location an installer could populate, beside `engine.rs` candidate 7. |
+/// | 4 | `~/Library/Application Support/RichOS/loro-root` | the same slot for the in-repo shape. **This is the one a double-clicked `.app` reaches on the CEO's dogfood machine**, where the corpus lives in a checkout and loro refuses `--corpus` for it. |
+/// | 5 | `~/RichOS/corpus` | the drop-zone convention already documented at `tools/richos-service/companion-macos/README.md:66`. |
+///
+/// # What this does NOT do
+///
+/// - **It does not put a corpus on anybody's computer**, and it does not create either
+///   pointer. Both are an operator act — the same posture as the engine install pointer.
+/// - **It never infers the corpus from the checkout this binary sits in.** That is the one
+///   inference `CONTEXT-CONTRACT.md` §1 names as worse than an error, and no candidate
+///   above is derived from the executable, the working directory or the engine directory.
+/// - **It resolves a directory. It reads no memory.** Nothing here opens a record.
+pub fn resolve_corpus(p: &CorpusPaths) -> CorpusResolution {
+    let mut tried = Vec::new();
+
+    if let Some(v) = p.env_corpus.as_deref() {
+        return CorpusResolution {
+            root: Some(LoroRoot::Corpus(PathBuf::from(v))),
+            source: Some(CorpusSource::EnvCorpus),
+            tried,
+        };
+    }
+    if let Some(v) = p.env_root.as_deref() {
+        return CorpusResolution {
+            root: Some(LoroRoot::Root(PathBuf::from(v))),
+            source: Some(CorpusSource::EnvRoot),
+            tried,
+        };
+    }
+
+    let home = match p.home.as_deref() {
+        Some(h) => h,
+        None => {
+            tried.push("no HOME, so no per-user candidate could be formed".into());
+            return CorpusResolution { root: None, source: None, tried };
+        }
+    };
+    let support = home.join("Library").join("Application Support").join("RichOS");
+
+    let candidates: [(PathBuf, CorpusSource); 3] = [
+        (support.join("corpus"), CorpusSource::AppSupportCorpus),
+        (support.join("loro-root"), CorpusSource::AppSupportRoot),
+        (home.join("RichOS").join("corpus"), CorpusSource::HomeCorpus),
+    ];
+
+    for (dir, source) in candidates {
+        let wants_repo_shape = matches!(source, CorpusSource::AppSupportRoot);
+        let ok = if wants_repo_shape { repo_root_looks_valid(&dir) } else { provisioned_corpus_looks_valid(&dir) };
+        if ok {
+            let root = if wants_repo_shape { LoroRoot::Root(dir) } else { LoroRoot::Corpus(dir) };
+            return CorpusResolution { root: Some(root), source: Some(source), tried };
+        }
+        tried.push(format!(
+            "{} — {}",
+            dir.display(),
+            if !dir.exists() {
+                "not present".to_string()
+            } else if wants_repo_shape {
+                "present but not a loro root (wants wiki/ and loro/)".to_string()
+            } else {
+                "present but not a provisioned corpus (wants ceo/ and companies/)".to_string()
+            }
+        ));
+    }
+
+    CorpusResolution { root: None, source: None, tried }
+}
+
+/// Resolve `node` for a launch that has launchd's `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`)
+/// and nothing else.
+///
+/// The same shape as `native.rs::resolve_claude_bin`, and here for the same measured
+/// reason: on this machine `node` is `/opt/homebrew/bin/node`, which is on no GUI process's
+/// `PATH`, so a resolved corpus with an unresolvable `node` would fail once per rotation
+/// with `could not start the loro compiler: No such file or directory`.
+///
+/// 1. `$RICHOS_NODE_BIN` — explicit, exclusive.
+/// 2. the first `node` on `PATH` — the operator's own choice, returned as an ABSOLUTE path
+///    so the child process does not have to repeat the search under a different `PATH`.
+/// 3. the two default Homebrew prefixes, arm64 then x86_64.
+/// 4. the bare name, which fails loudly at the first compile and names itself.
+pub fn resolve_node_bin(p: &CorpusPaths) -> String {
+    if let Some(v) = p.env_node.as_deref() {
+        return v.to_string();
+    }
+    if let Some(path_var) = p.path_var.as_deref() {
+        for dir in path_var.split(':').filter(|d| !d.is_empty()) {
+            let candidate = Path::new(dir).join("node");
+            if candidate.is_file() {
+                return candidate.display().to_string();
+            }
+        }
+    }
+    for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+        if Path::new(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+    "node".to_string()
+}
+
+impl CliContextCompiler {
+    /// Build from a launch's paths, or explain why not — the GUI-safe twin of
+    /// [`Self::from_env`], which stays exactly as it was because its name is a promise
+    /// about where it looks.
+    ///
+    /// `Ok(None)` = no corpus resolved, which is the ordinary state of an install with no
+    /// corpus and is not an error. The [`CorpusResolution::tried`] list travels with it so
+    /// the caller can say what was looked for.
+    pub fn locate(p: &CorpusPaths) -> Result<(Option<(Self, CorpusSource)>, Vec<String>), LoroError> {
+        let resolved = resolve_corpus(p);
+        let Some(root) = resolved.root else { return Ok((None, resolved.tried)) };
+
+        // TOOLS. Explicit first and exclusive; otherwise the `loro/` directory of the root
+        // that was just resolved — which is where it is in the in-repo shape by definition
+        // (`repo_root_looks_valid` required it), and where a provisioned corpus may or may
+        // not have one. Never inferred from THIS checkout: richos ships no `loro/`.
+        let mut tools = match p.env_tools.as_deref() {
+            Some(v) => LoroTools::locate(v)?,
+            None => LoroTools::locate(root.path().join("loro")).map_err(|e| {
+                LoroError::ToolsNotFound(format!(
+                    "a corpus root is configured ({}) but RICHOS_LORO_DIR is not, and its own loro/ \
+                     directory is not usable either: {e}",
+                    root.path().display()
+                ))
+            })?,
+        };
+        tools.set_node(resolve_node_bin(p));
+
+        let lanes = LaneMap::from_env()?;
+        lanes.validate_against(&crate::entity::EntityRegistry::ceos_companies())?;
+        Ok((
+            Some((CliContextCompiler::new(tools, root, lanes), resolved.source.expect("a root has a source"))),
+            resolved.tried,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod locate_tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("richos-corpus-{name}-{}", crate::util::now_millis()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn provisioned(at: &Path) {
+        std::fs::create_dir_all(at.join("ceo")).unwrap();
+        std::fs::create_dir_all(at.join("companies")).unwrap();
+    }
+
+    fn repo_shaped(at: &Path) {
+        std::fs::create_dir_all(at.join("wiki")).unwrap();
+        std::fs::create_dir_all(at.join("loro").join("bin")).unwrap();
+        std::fs::write(at.join("loro").join("bin").join("loro-context.mjs"), "//").unwrap();
+        std::fs::write(at.join("loro").join("bin").join("loro-write.mjs"), "//").unwrap();
+    }
+
+    /// THE CASE THAT SHIPPED BROKEN: a Finder launch. No environment at all.
+    #[test]
+    fn the_gui_launch_with_nothing_set_resolves_nothing_and_says_what_it_tried() {
+        let home = tmp("empty-home");
+        let r = resolve_corpus(&CorpusPaths { home: Some(home), ..Default::default() });
+        assert!(r.root.is_none());
+        assert!(r.source.is_none());
+        assert_eq!(r.tried.len(), 3, "three per-user candidates, each named: {:?}", r.tried);
+        assert!(r.tried.iter().all(|t| t.contains("not present")), "{:?}", r.tried);
+    }
+
+    /// THE CASE THAT MAKES THE FIX REAL: the same empty environment, with the pointer the
+    /// operator put in place.
+    #[test]
+    fn the_gui_launch_finds_the_app_support_loro_root_pointer() {
+        let home = tmp("with-pointer");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        repo_shaped(&support.join("loro-root"));
+
+        let r = resolve_corpus(&CorpusPaths { home: Some(home.clone()), ..Default::default() });
+        assert_eq!(r.source, Some(CorpusSource::AppSupportRoot));
+        assert_eq!(
+            r.root,
+            Some(LoroRoot::Root(support.join("loro-root"))),
+            "the in-repo shape resolves to --root, never --corpus: loro REFUSES --corpus inside a checkout"
+        );
+    }
+
+    #[test]
+    fn a_provisioned_corpus_pointer_resolves_to_the_corpus_flag() {
+        let home = tmp("provisioned");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        provisioned(&support.join("corpus"));
+
+        let r = resolve_corpus(&CorpusPaths { home: Some(home), ..Default::default() });
+        assert_eq!(r.source, Some(CorpusSource::AppSupportCorpus));
+        assert!(matches!(r.root, Some(LoroRoot::Corpus(_))));
+    }
+
+    /// The shape check is the whole safety of a searched candidate. A directory with the
+    /// right NAME and the wrong contents is rejected, and the rejection says which.
+    #[test]
+    fn a_directory_with_the_right_name_and_the_wrong_shape_is_refused() {
+        let home = tmp("wrong-shape");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(support.join("corpus").join("notes")).unwrap();
+        std::fs::create_dir_all(support.join("loro-root").join("notes")).unwrap();
+
+        let r = resolve_corpus(&CorpusPaths { home: Some(home), ..Default::default() });
+        assert!(r.root.is_none(), "resolved {:?} from a directory that is neither shape", r.root);
+        assert!(r.tried[0].contains("wants ceo/ and companies/"), "{:?}", r.tried);
+        assert!(r.tried[1].contains("wants wiki/ and loro/"), "{:?}", r.tried);
+    }
+
+    /// An explicit statement is EXCLUSIVE — it wins over a pointer that is right there and
+    /// valid, and it is not second-guessed.
+    #[test]
+    fn an_explicit_root_wins_over_a_valid_pointer_and_is_never_validated() {
+        let home = tmp("explicit");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        repo_shaped(&support.join("loro-root"));
+
+        let r = resolve_corpus(&CorpusPaths {
+            env_root: Some("/nowhere/at/all".into()),
+            home: Some(home),
+            ..Default::default()
+        });
+        assert_eq!(r.source, Some(CorpusSource::EnvRoot));
+        assert_eq!(r.root, Some(LoroRoot::Root(PathBuf::from("/nowhere/at/all"))));
+        assert!(r.tried.is_empty(), "an exclusive answer considers nothing else");
+    }
+
+    #[test]
+    fn loro_corpus_outranks_loro_root_which_is_the_contracts_own_precedence() {
+        let r = resolve_corpus(&CorpusPaths {
+            env_corpus: Some("/c".into()),
+            env_root: Some("/r".into()),
+            ..Default::default()
+        });
+        assert_eq!(r.root, Some(LoroRoot::Corpus(PathBuf::from("/c"))));
+    }
+
+    /// `node` on launchd's PATH, which is the GUI condition: none of the four directories
+    /// holds one, so the Homebrew prefixes are what save the compile.
+    #[test]
+    fn node_falls_through_launchd_path_to_the_homebrew_prefix_or_names_itself() {
+        let resolved = resolve_node_bin(&CorpusPaths {
+            path_var: Some("/usr/bin:/bin:/usr/sbin:/sbin".into()),
+            ..Default::default()
+        });
+        let plausible = resolved == "node"
+            || resolved == "/opt/homebrew/bin/node"
+            || resolved == "/usr/local/bin/node";
+        assert!(plausible, "resolved {resolved:?}");
+    }
+
+    #[test]
+    fn an_explicit_node_is_taken_verbatim() {
+        let resolved = resolve_node_bin(&CorpusPaths {
+            env_node: Some("/opt/custom/node".into()),
+            path_var: Some("/usr/bin:/bin".into()),
+            ..Default::default()
+        });
+        assert_eq!(resolved, "/opt/custom/node");
+    }
+
+    #[test]
+    fn a_node_on_path_is_returned_as_an_absolute_path() {
+        let dir = tmp("nodebin");
+        std::fs::write(dir.join("node"), "#!/bin/sh\n").unwrap();
+        let resolved = resolve_node_bin(&CorpusPaths {
+            path_var: Some(format!("/nonexistent:{}", dir.display())),
+            ..Default::default()
+        });
+        assert_eq!(resolved, dir.join("node").display().to_string());
+    }
+
+    /// A resolved root whose tools are missing is an ERROR, not a silent `None`: the
+    /// difference between "this install has no corpus" and "this install has a corpus it
+    /// cannot read" is the difference between a fact and a defect.
+    #[test]
+    fn a_root_with_no_usable_tools_is_an_error_naming_the_root() {
+        let home = tmp("no-tools");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        provisioned(&support.join("corpus"));
+
+        let msg = match CliContextCompiler::locate(&CorpusPaths { home: Some(home), ..Default::default() }) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("a corpus with no tools must not resolve silently"),
+        };
+        assert!(msg.contains("RICHOS_LORO_DIR"), "{msg}");
+        assert!(msg.contains("corpus"), "{msg}");
+    }
+
+    #[test]
+    fn a_resolved_root_carries_its_own_loro_directory_as_the_tools() {
+        let home = tmp("root-tools");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        repo_shaped(&support.join("loro-root"));
+
+        let (built, _tried) =
+            CliContextCompiler::locate(&CorpusPaths { home: Some(home), ..Default::default() }).unwrap();
+        let (compiler, source) = built.expect("a valid pointer resolves");
+        assert_eq!(source, CorpusSource::AppSupportRoot);
+        assert_eq!(compiler.tools().dir(), support.join("loro-root").join("loro"));
     }
 }
 

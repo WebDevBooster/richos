@@ -35,7 +35,7 @@
 #   A1  an unknown argument is refused, never ignored
 #   A2  --sign with a value that is neither mode is refused
 #   A3  --help prints the usage, including the notarize and dry-run forms
-#   B1  developer-id with NO Developer ID identity refuses, and names the two scripts
+#   B1  developer-id with NO Developer ID identity refuses, and names the two scripts [shim]
 #   B2  developer-id with RICHOS_SIGNING_IDENTITY the machine does not report refuses
 #   B3  developer-id with exactly ONE identity DISCOVERS it   [shim]
 #   B4  developer-id with TWO refuses and lists both rather than sorting  [shim]
@@ -126,8 +126,13 @@ expect "A3 --help shows the notarize form" 0 "RICHOS_NOTARIZE=1 app/scripts/pack
 
 echo ""
 echo "=== B. identity discovery ==="
-run bash "$SCRIPT" --sign developer-id --dry-run
-expect "B1 no Developer ID identity -> refuse, and name the setup scripts" 2 "install-signing-cert.sh"
+# SHIMMED, since 2026-09-01. This ran unshimmed and depended on the OPERATOR'S keychain
+# holding no Developer ID identity — true when it was written, false from the moment the
+# CEO's certificate was installed, which turned a real check into a permanent red line on
+# the only machine that matters. The shim reports 0 identities, so the refusal is exercised
+# on any machine, with or without a certificate.
+run shimmed env SHIM_IDENTITIES=0 bash "$SCRIPT" --sign developer-id --dry-run
+expect "B1 [shim] no Developer ID identity -> refuse, and name the setup scripts" 2 "install-signing-cert.sh"
 run env RICHOS_SIGNING_IDENTITY="Developer ID Application: Ghost (NOPE)" bash "$SCRIPT" --sign developer-id --dry-run
 expect "B2 a pinned identity the machine does not report -> refuse" 2 "does not report it on this"
 
