@@ -503,7 +503,13 @@ break_and_boot "the saved company is removed -> caught"       B7 rm -f  "Library
 # gone when the function returns, or "I killed it" is a claim about a signal rather than
 # about a process.
 
-Y="$(bash -c 'sleep 60 & echo $!')"
+# THE BACKGROUND JOB'S STDOUT IS REDIRECTED, and that redirect is worth two sentences
+# because leaving it out cost this suite two minutes a run. `$( … )` waits for the pipe to
+# CLOSE, not for the shell to exit — and a backgrounded `sleep 60` inherits that pipe, so
+# `$(bash -c 'sleep 60 & echo $!')` blocks for the full sixty seconds before handing back a
+# pid. Measured: a traced run showed 60.009s and 60.010s parked on exactly these two lines,
+# out of 128s total, and the rest of the suite adds up to about eight.
+Y="$(bash -c 'sleep 60 >/dev/null 2>&1 & echo $!')"
 if gui_kill "$Y" && ! kill -0 "$Y" 2>/dev/null; then
   ok "Y1 gui_kill ends an ordinary process and the pid is gone when it returns"
 else
@@ -512,7 +518,7 @@ else
 fi
 
 # `trap "" TERM` — TERM is ignored, so only the KILL escalation can end this one.
-Y="$(bash -c 'bash -c '"'"'trap "" TERM; sleep 60'"'"' & echo $!')"
+Y="$(bash -c 'bash -c '"'"'trap "" TERM; sleep 60'"'"' >/dev/null 2>&1 & echo $!')"
 if gui_kill "$Y" && ! kill -0 "$Y" 2>/dev/null; then
   ok "Y2 gui_kill escalates to KILL for a process that ignores TERM"
 else

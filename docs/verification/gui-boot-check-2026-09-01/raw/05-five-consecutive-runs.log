@@ -1,12 +1,12 @@
 # Is it flaky? Five consecutive runs, timed, with the verdict sets compared.
 # command: for i in 1..5; bash app/scripts/gui-boot.test.sh
-# captured: 2026-09-01T17:09:57Z
+# captured: 2026-09-01T18:39:42Z
 
-run 1: exit=0  9s  === gui-boot.test.sh: all 15 passed ===
-run 2: exit=0  8s  === gui-boot.test.sh: all 15 passed ===
-run 3: exit=0  9s  === gui-boot.test.sh: all 15 passed ===
-run 4: exit=0  8s  === gui-boot.test.sh: all 15 passed ===
-run 5: exit=0  9s  === gui-boot.test.sh: all 15 passed ===
+run 1: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 2: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 3: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 4: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 5: exit=0  9s  === gui-boot.test.sh: all 18 passed ===
 
 verdict sets, compared against run 1:
   run 2: identical, line for line
@@ -30,3 +30,6 @@ run 1's verdicts:
     PASS  B5 the loro tools are removed -> caught
     PASS  B6 the claude stand-in is removed -> caught
     PASS  B7 the saved company is removed -> caught
+    PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+    PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+    PASS  Z this run launched 6 app(s) and 0 are still running

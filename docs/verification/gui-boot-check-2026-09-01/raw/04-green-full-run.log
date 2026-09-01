@@ -1,6 +1,6 @@
 # The healthy half: a fully provisioned machine, booted under launchd's environment.
 # command: bash app/scripts/gui-boot.test.sh
-# captured: 2026-09-01T17:09:45Z
+# captured: 2026-09-01T18:39:35Z
 # tmp paths are scrubbed to <tmp>; nothing else is edited.
 
   PASS  S1 every operator line in src-tauri carries the [richos] prefix
@@ -64,5 +64,8 @@
            UNACCOUNTED  [richos] no company resolved — RichOS will ask in the window and remember the answer.
            UNACCOUNTED  [richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
            NOT RESOLVED  company — nothing in this boot proved it was found.
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 6 app(s) and 0 are still running
 
-=== gui-boot.test.sh: all 15 passed ===
+=== gui-boot.test.sh: all 18 passed ===

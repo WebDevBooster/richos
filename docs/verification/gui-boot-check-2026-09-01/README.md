@@ -53,7 +53,7 @@ Silence is not success.
 ## The healthy half, and why both halves are in the same suite
 
 `raw/04-green-full-run.log` is the whole green run. Beside the positive case, five of the
-fifteen checks are negative and run on **every invocation**: B3–B7 copy the healthy machine,
+eighteen checks are negative and run on **every invocation**: B3–B7 copy the healthy machine,
 remove one configuration — the engine pointer, the corpus pointer, the loro tools, the
 claude binary, the saved company — boot again, and require the check to go red. A one-sided
 check is satisfied by a corpse, which is what the secret scanner was when it reported green
@@ -82,7 +82,16 @@ finding is in `raw/02` and the reasoning is in both files' headers.
 ## Is it flaky?
 
 `raw/05-five-consecutive-runs.log`: five consecutive runs, exit 0 every time, the same
-fifteen verdicts line for line every time, 9 / 8 / 9 / 8 / 9 seconds.
+eighteen verdicts line for line every time, 8 / 8 / 8 / 8 / 9 seconds.
+
+Those eight seconds were a hundred and twenty-eight for one round of measurements, and the
+cause is recorded here rather than quietly fixed: `Y1` and `Y2` start a background process
+and read its pid with `$(bash -c 'sleep 60 & echo $!')`. Command substitution waits for the
+PIPE to close, not for the shell to exit, and a backgrounded `sleep 60` inherits that pipe —
+so each of those two lines parked for the full sixty seconds. A timestamped `bash -x` trace
+named them at 60.009s and 60.010s with everything else in the run adding up to about eight.
+Redirecting the background job's stdout fixes it. It is written down because a two-minute
+check is a check people start skipping, and the reason was not visible from the output.
 
 Termination is a fact and not a sleep. `setup` prints `[richos] boot complete` as its last
 act and the harness kills the process the moment that line lands; no marker within 60
@@ -90,10 +99,34 @@ seconds is exit 7 and a reported failure. A harness that slept for a fixed durat
 read a different amount of boot log on a busy machine than on an idle one — which is how a
 blocking check becomes a formality by the third time it goes red for no reason.
 
+## What it leaves running: nothing, and the number is printed
+
+The first version of this suite left **157 orphaned `richos-tauri` processes** on the CEO's
+Dock — six per round across about twenty-six rounds — because `gui_boot` killed the subshell
+instead of the app. `( cd / && env … ) &` makes `$!` the subshell, not the binary, so every
+launch was reparented to PID 1 and kept running out of a temp directory that had already
+been deleted. Deleting a directory does not kill what is running out of it.
+
+`exec` makes the subshell BE the app; `gui_kill` sends TERM, waits, escalates to KILL and
+then verifies the pid is gone; every pid is written to a ledger before the wait starts, and
+`trap cleanup EXIT INT TERM` reaps the ledger before removing the directory — on the failing
+paths too, which are the ones that used to leak.
+
+And it is asserted rather than promised:
+
+```
+PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+PASS  Z this run launched 6 app(s) and 0 are still running
+```
+
+Measured across three consecutive runs: 18 launched, 0 surviving, `pgrep -f richos-tauri`
+returning 0 before and after.
+
 ## Where it runs
 
 Locally, in `app/scripts/`, discovered by `run-tests.sh`'s `find` — there is no list to add
-it to (`raw/06-run-tests-discovers-it.log`: 6 suites, 119 checks). **Not CI**: GitHub
+it to (`raw/06-run-tests-discovers-it.log`: 6 suites, 122 checks). **Not CI**: GitHub
 Actions is disabled across this repository by CEO ruling, all five workflows are
 `disabled_manually`, and `.github/workflows/README.md` records why — *a red cross that always
 means nothing teaches people to ignore it* (`4a16e60`).
