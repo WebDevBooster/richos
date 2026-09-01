@@ -50,7 +50,11 @@ for h in guard-inflight-notify.sh notice-inflight-sends.sh notice-inflight-acks.
     cp "$SRC_DIR/$h" "$REPO/scripts/hooks/$h"
     chmod +x "$REPO/scripts/hooks/$h"
 done
-for l in inflight.sh inflight.py teammate-identity.py agent-liveness.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh stop-hook-notice.sh; do
+# git-jurisdiction.sh is on this list for the same reason seat-jurisdiction.sh
+# is: the guard REFUSES TO START without it. A sandbox missing it would model an
+# engine that cannot run, and every case here would be reading a BROKEN INSTALL
+# banner rather than a decision.
+for l in inflight.sh inflight.py teammate-identity.py agent-liveness.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh git-jurisdiction.sh stop-hook-notice.sh; do
     cp "$SRC_DIR/../lib/$l" "$REPO/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_ROOT/scripts/inflight-notify.sh" "$REPO/scripts/"

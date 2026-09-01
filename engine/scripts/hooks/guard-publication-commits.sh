@@ -119,6 +119,27 @@ fi
 # shellcheck source=../lib/seat-jurisdiction.sh
 . "$_SJ_LIB"
 
+# --- GIT JURISDICTION ------------------------------------------------------
+# The question UNDERNEATH the one above: which repository is this git command
+# talking to? It was answered in five hand-copied blocks; this file's copy was
+# the best of them and still missed `(cd <repo> && git commit)`. REFUSING TO
+# START is deliberate — a guard that resolved the repository by guessing would
+# be the 2026-09-01 bypass with a nicer error message.
+_GJ_LIB="$SCRIPT_DIR/../lib/git-jurisdiction.sh"
+if [ ! -f "$_GJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-publication-commits.sh"
+        echo "  scripts/lib/git-jurisdiction.sh is missing at: $_GJ_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY the command"
+        echo "  it was handed will actually commit to, and the fallback it used"
+        echo "  to carry is the exact bypass that library exists to close."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/git-jurisdiction.sh
+. "$_GJ_LIB"
+
 INPUT="$(cat)"
 
 if resolve_entity_root "$INPUT"; then
@@ -173,18 +194,15 @@ cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
 if not re.search(r"\bgit\b[^\n;|&]*\bcommit\b", cmd):
     print("PASS"); raise SystemExit
 
-# An explicit -C names the repository; otherwise the session cwd does.
+# WHERE the command points is decided by scripts/lib/git-jurisdiction.sh, not
+# here. Two answers to one question is how the same hole reached five files, and
+# the answer this file used to compute was subtly better than its four siblings'
+# and still wrong inside a subshell.
 #
-# This regex takes the FIRST -C in the whole command, which is the right answer
-# only when there is one git call in it. `git -C /other add -A && git -C /here
-# commit` resolves to /other — the repository that is NOT being committed to —
-# and the guard then judges the wrong tree. It is superseded below by the -C of
-# the `commit` itself whenever the command tokenizes; this stays as the fallback
-# for a command that does not.
-m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
-repo_hint = ""
-if m:
-    repo_hint = m.group(1).strip("\"'")
+# The per-segment `cwd` tracking below stays, because it answers a DIFFERENT
+# question — which directory each `git add` runs in, so its pathspecs can be
+# resolved. The shell drops any add-anchor that is not the repository being
+# committed to, so a disagreement between the two can only ever narrow the scan.
 
 # `-a`/`--all` commits tracked modifications that are NOT in the index yet, so
 # the staged set alone would understate what is about to be committed. Said
@@ -232,8 +250,13 @@ except Exception:
 
 segments = []
 current = []
+# `(` and `)` are separators too. They were not, and that was this guard's own
+# share of the 2026-09-01 jurisdiction defect: with a paren glued to the front of
+# the segment, `(cd <repo> && git commit)` had seg[0] == "(" rather than "cd", the
+# cd was skipped, and the guard judged the SESSION's repository. Measured against
+# the four guards that missed every cd form, this one missed only this one.
 for t in tokens:
-    if t in ("&&", "||", ";", "|", "&", "\n"):
+    if t in ("&&", "||", ";", "|", "&", "\n", "(", ")"):
         segments.append(current)
         current = []
     else:
@@ -252,7 +275,6 @@ COMMIT_VALUE_FLAGS = {
 
 adds = []
 commit_seen = False
-commit_anchor = ""
 for seg in segments:
     if not seg:
         continue
@@ -280,8 +302,6 @@ for seg in segments:
     sub = seg[i]
     args = seg[i + 1:]
     if sub == "commit":
-        if not commit_seen:
-            commit_anchor = anchor
         commit_seen = True
         # Pathspecs given to `git commit` itself: they commit the WORKTREE
         # content of those paths, index or no index.
@@ -327,11 +347,7 @@ for seg in segments:
                 # resolve to a path git status can expand with -uall.
                 adds.append((anchor, "" if s in (":/", ":/.") else _abs(anchor, s)))
 
-# The commit's OWN anchor wins over the first -C in the line — see the note on
-# that regex above for the tree it judged by mistake.
-if commit_anchor:
-    repo_hint = commit_anchor
-print("COMMIT\t%s\t%s" % (repo_hint, "1" if stage_all else "0"))
+print("COMMIT\t%s" % ("1" if stage_all else "0"))
 for anchor, spec in adds:
     print("ADD\t%s\t%s" % (anchor, spec))
 PYEOF
@@ -347,21 +363,15 @@ case "$(printf '%s' "$CLASS_HEAD" | cut -f1)" in
   *) exit 0 ;;
 esac
 
-REPO_HINT="$(printf '%s' "$CLASS_HEAD" | cut -f2)"
-STAGE_ALL="$(printf '%s' "$CLASS_HEAD" | cut -f3)"
+STAGE_ALL="$(printf '%s' "$CLASS_HEAD" | cut -f2)"
 
-PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
-try:
-    d = json.load(sys.stdin)
-    print(str(d.get("cwd", "") or "") if isinstance(d, dict) else "")
-except Exception:
-    print("")' 2>/dev/null || true)"
-
-PB_ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
-case "$PB_ANCHOR" in
-  /*) ;;
-  *) PB_ANCHOR="${PAYLOAD_CWD:-$PWD}/$PB_ANCHOR" ;;
-esac
+# --- WHICH REPOSITORY IS THIS COMMAND TALKING TO? --------------------------
+# ONE resolver, shared by every guard that asks (scripts/lib/git-jurisdiction.sh),
+# never a local copy — a copy is how the same hole ended up in five files, and
+# this file's own copy was the narrowest of them rather than the absent one.
+_PB_GJ="$(richos_git_anchor "$INPUT" "commit")"
+PB_ANCHOR="$(printf '%s' "$_PB_GJ" | cut -f2)"
+[ -n "$PB_ANCHOR" ] || PB_ANCHOR="$PWD"
 
 PB_REPO="$(pb_repo_root "$PB_ANCHOR" 2>/dev/null || true)"
 [ -n "$PB_REPO" ] || exit 0

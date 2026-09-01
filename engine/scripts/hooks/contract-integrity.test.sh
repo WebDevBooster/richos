@@ -183,6 +183,14 @@ ALL_ROOT_SCRIPTS=(
     # now carries a clean-content canary a dead hook cannot satisfy, which is
     # what turned this omission from invisible into a failing suite.
     scripts/lib/seat-jurisdiction.sh
+    # The git-jurisdiction resolver — WHICH REPOSITORY a `git commit`/`git push`
+    # on the Bash tool is actually talking to. On this list for the FIRST
+    # reason: all five commit/push guards REFUSE TO START without it, by exiting
+    # 2, exactly as the predicates above do. It is one file rather than five
+    # copies BECAUSE it was five copies, and four of them missed
+    # `cd <repo> && git commit` — the form a worktree-isolated agent types by
+    # default. SC1 below is what stops this list falling behind it.
+    scripts/lib/git-jurisdiction.sh
     # The dialect vocabulary. guard-dialect.sh decides nothing without it and
     # Layer T fails loudly when it is absent — first reason on this list, same
     # as the predicates above.

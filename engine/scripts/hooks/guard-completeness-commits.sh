@@ -235,6 +235,27 @@ fi
 # shellcheck source=../lib/seat-jurisdiction.sh
 . "$_SJ_LIB"
 
+# --- GIT JURISDICTION ------------------------------------------------------
+# The question UNDERNEATH the one above: which repository is this git command
+# talking to? It was answered in five hand-copied blocks and every one of them
+# missed `cd <repo> && git commit`. REFUSING TO START is deliberate — a guard
+# that resolved the repository by guessing would be the 2026-09-01 bypass with
+# a nicer error message.
+_GJ_LIB="$SCRIPT_DIR/../lib/git-jurisdiction.sh"
+if [ ! -f "$_GJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-completeness-commits.sh"
+        echo "  scripts/lib/git-jurisdiction.sh is missing at: $_GJ_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY the command"
+        echo "  it was handed will actually commit to, and the fallback it used"
+        echo "  to carry is the exact bypass that library exists to close."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/git-jurisdiction.sh
+. "$_GJ_LIB"
+
 INPUT="$(cat)"
 
 # --- The cheap door --------------------------------------------------------
@@ -330,11 +351,12 @@ stages = bool(re.search(r"\bgit\b[^\n;|&]*\badd\b", unquoted)) or \
          bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)) or \
          bool(re.search(r"(?:^|\s)--all\b", unquoted))
 
-# An explicit -C names the repository; otherwise the session cwd does. Read
-# from the ORIGINAL command, because a quoted path is a real path.
-m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
-print("%s\t%s\t%s" % (verb, m.group(1).strip("\"'") if m else "",
-                      "1" if stages else "0"))
+# WHERE the command points is NOT decided here any more. It used to be, in this
+# file and in four others, by reading an explicit `git -C` and falling back to
+# the payload cwd — and that resolution had a hole the size of a shell builtin:
+# `cd <repo> && git commit` names no -C, so the session's repository was judged
+# instead of the one being committed to. See scripts/lib/git-jurisdiction.sh.
+print("%s\t%s" % (verb, "1" if stages else "0"))
 PYEOF
 
 CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CC_CLASSIFIER" 2>/dev/null || printf 'PASS')"
@@ -343,21 +365,14 @@ case "$VERB" in
   commit|push) ;;
   *) exit 0 ;;
 esac
-REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
-STAGES="$(printf '%s' "$CLASS" | cut -f3)"
+STAGES="$(printf '%s' "$CLASS" | cut -f2)"
 
-PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
-try:
-    d = json.load(sys.stdin)
-    print(str(d.get("cwd", "") or "") if isinstance(d, dict) else "")
-except Exception:
-    print("")' 2>/dev/null || true)"
-
-CC_ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
-case "$CC_ANCHOR" in
-  /*) ;;
-  *) CC_ANCHOR="${PAYLOAD_CWD:-$PWD}/$CC_ANCHOR" ;;
-esac
+# --- WHICH REPOSITORY IS THIS COMMAND TALKING TO? --------------------------
+# ONE resolver, shared by every guard that asks (scripts/lib/git-jurisdiction.sh),
+# never a local copy — a copy is how the same hole ended up in five files.
+_CC_GJ="$(richos_git_anchor "$INPUT" "commit push")"
+CC_ANCHOR="$(printf '%s' "$_CC_GJ" | cut -f2)"
+[ -n "$CC_ANCHOR" ] || CC_ANCHOR="$PWD"
 
 CC_REPO="$(pb_repo_root "$CC_ANCHOR" 2>/dev/null || true)"
 [ -n "$CC_REPO" ] || exit 0

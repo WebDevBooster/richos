@@ -285,6 +285,14 @@ HOOK_FILES+=(
     # mean the file that decides whether a guard enforces at all is the one file
     # nobody verifies — check the lock, ignore the key.
     "$REPO_ROOT/scripts/lib/seat-jurisdiction.sh"
+    # The git-jurisdiction resolver, same argument one step further down. FIVE
+    # registered guards refuse to start without scripts/lib/git-jurisdiction.sh
+    # and take the repository they are about to judge from it, so an unhashed
+    # copy would be the file that decides WHICH TREE a guard inspects and the
+    # one nobody verifies. It exists because that resolution used to live in
+    # five hand-copied blocks and four of them resolved the session's
+    # repository rather than the one being committed to.
+    "$REPO_ROOT/scripts/lib/git-jurisdiction.sh"
     # The publication-boundary predicate, in both its halves. Not hooks, and
     # hashed for the reaper's reason: TWO registered guards
     # (guard-publication-writes.sh, guard-publication-commits.sh) delegate

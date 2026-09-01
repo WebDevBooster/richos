@@ -126,6 +126,27 @@ fi
 # shellcheck source=../lib/seat-jurisdiction.sh
 . "$_SJ_LIB"
 
+# --- GIT JURISDICTION ------------------------------------------------------
+# The question UNDERNEATH the one above: which repository is this git command
+# talking to? It was answered in five hand-copied blocks and every one of them
+# missed `cd <repo> && git commit`. REFUSING TO START is deliberate — a guard
+# that resolved the repository by guessing would be the 2026-09-01 bypass with
+# a nicer error message.
+_GJ_LIB="$SCRIPT_DIR/../lib/git-jurisdiction.sh"
+if [ ! -f "$_GJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-ceo-todos-commits.sh"
+        echo "  scripts/lib/git-jurisdiction.sh is missing at: $_GJ_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY the command"
+        echo "  it was handed will actually commit to, and the fallback it used"
+        echo "  to carry is the exact bypass that library exists to close."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/git-jurisdiction.sh
+. "$_GJ_LIB"
+
 INPUT="$(cat)"
 
 if resolve_entity_root "$INPUT"; then
@@ -178,10 +199,9 @@ cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
 if not re.search(r"\bgit\b[^\n;|&]*\bcommit\b", cmd):
     print("PASS"); raise SystemExit
 
-m = re.search(r"\bgit\b\s+(?:[^\n;|&]*?\s)?-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
-repo_hint = ""
-if m:
-    repo_hint = m.group(1).strip("\"'")
+# WHERE the command points is decided by scripts/lib/git-jurisdiction.sh, not
+# here. This file used to read an explicit `git -C` and fall back to the payload
+# cwd — the resolution that `cd <repo> && git commit` walks straight past.
 
 # `-a`/`--all` commits tracked modifications that are not in the index, so the
 # staged blob would not be the bytes that land. Quoted spans are stripped first:
@@ -191,7 +211,7 @@ unquoted = re.sub(r"'[^']*'", " ", unquoted)
 stage_all = bool(re.search(r"(?:^|\s)-[a-zA-Z]*a[a-zA-Z]*\b", unquoted)
                  or re.search(r"(?:^|\s)--all\b", unquoted))
 
-print("COMMIT\t%s\t%s" % (repo_hint, "1" if stage_all else "0"))
+print("COMMIT\t%s" % ("1" if stage_all else "0"))
 PYEOF
 
 CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_CT_CLASSIFIER" 2>/dev/null || printf 'PASS')"
@@ -200,21 +220,14 @@ case "$(printf '%s' "$CLASS" | cut -f1)" in
   *) exit 0 ;;
 esac
 
-REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
-STAGE_ALL="$(printf '%s' "$CLASS" | cut -f3)"
+STAGE_ALL="$(printf '%s' "$CLASS" | cut -f2)"
 
-PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
-try:
-    d = json.load(sys.stdin)
-    print(str(d.get("cwd", "") or "") if isinstance(d, dict) else "")
-except Exception:
-    print("")' 2>/dev/null || true)"
-
-CT_ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
-case "$CT_ANCHOR" in
-  /*) ;;
-  *) CT_ANCHOR="${PAYLOAD_CWD:-$PWD}/$CT_ANCHOR" ;;
-esac
+# --- WHICH REPOSITORY IS THIS COMMAND TALKING TO? --------------------------
+# ONE resolver, shared by every guard that asks (scripts/lib/git-jurisdiction.sh),
+# never a local copy — a copy is how the same hole ended up in five files.
+_CT_GJ="$(richos_git_anchor "$INPUT" "commit")"
+CT_ANCHOR="$(printf '%s' "$_CT_GJ" | cut -f2)"
+[ -n "$CT_ANCHOR" ] || CT_ANCHOR="$PWD"
 
 CT_REPO="$(ct_repo_root "$CT_ANCHOR" 2>/dev/null || true)"
 [ -n "$CT_REPO" ] || exit 0
