@@ -535,8 +535,12 @@ def _git(root, args, timeout=10):
 
 def _reachable_from(root, sha, prefix):
     """First ref under `prefix` that contains sha, or ''. """
+    # 6s, not more: the budget below is checked BEFORE a call, so the hook's
+    # worst case is the budget plus one call, and the registered Stop timeout is
+    # 20s. A guard that overruns its own hook timeout is a guard that does not
+    # run.
     p = _git(root, ["for-each-ref", "--contains", sha,
-                    "--format=%(refname:short)", prefix], timeout=15)
+                    "--format=%(refname:short)", prefix], timeout=6)
     if p is None or p.returncode != 0:
         return ""
     for line in p.stdout.splitlines():
@@ -783,7 +787,7 @@ def surviving_spellings(claims, root, deadline):
         for sp in alts:
             if time.monotonic() > deadline:
                 return found
-            p = _git(root, ["grep", "-I", "-F", "-l", "--", sp], timeout=10)
+            p = _git(root, ["grep", "-I", "-F", "-l", "--", sp], timeout=5)
             if p is None:
                 return found  # fail OPEN
             if p.returncode == 0 and p.stdout.strip():
