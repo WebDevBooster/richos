@@ -928,7 +928,8 @@ fn main() {
                 // up themselves.
                 None => {
                     eprintln!(
-                        "[richos] loro correction desk: CLOSED — {}. Confirming a correction will                          refuse and say so rather than appearing to write.",
+                        "[richos] loro correction desk: CLOSED — {}. Confirming a correction \
+                         will refuse and say so rather than appearing to write.",
                         match memory_status.state.as_str() {
                             "none" => "no corpus resolved (candidates listed above)",
                             "no-compiler" => "a corpus resolved but loro-write.mjs is not installed",
@@ -1971,7 +1972,8 @@ fn provision_memory(state: State<AppState>, location: Option<String>) -> Result<
     let mut status = wired.status;
     if wired.writer.is_some() && state.correction.is_none() {
         eprintln!(
-            "[richos] loro correction desk: a corpus now exists and its writer resolved, but the              desk was fixed at boot — corrections become available on the next launch."
+            "[richos] loro correction desk: a corpus now exists and its writer resolved, but \
+             the desk was fixed at boot — corrections become available on the next launch."
         );
     }
     drop(spine);
