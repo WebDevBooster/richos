@@ -24,6 +24,23 @@ THE PREDICATE, AND WHY IT IS THIS ONE
   either resolves against ground truth or it does not; there is no threshold to
   tune and nothing to interpret.
 
+  The STATE-CLAIM class added on 2026-09-01 keeps that rule and widens the
+  question by one step. It reads English only far enough to decide WHICH
+  QUESTION TO ASK GIT -- "you said landed, so is this an ancestor of main?" --
+  and git answers. The night it was built, three things had been told to the CEO
+  as fact in one session: a SHA that was typed rather than read, a merge that a
+  PreToolUse guard had refused and that was reported as landed anyway, and a
+  value called gone from the whole app when only one of its spellings had been
+  replaced. One cause under all three: the report was written from the INTENT of
+  a command rather than from the artifact.
+
+    * the fabricated SHA was ALREADY refused here, by the existence check --
+      verified, not assumed, before anything was written
+    * the unmerged merge is the new blocking class below (state_claims)
+    * the value was measured and is NOT enforceable; it reports. The numbers
+      and the circular evidence that nearly made it look enforceable are above
+      value_absence_claims()
+
 WHY SOME IDENTIFIERS BLOCK AND OTHERS ONLY REPORT
   The property that makes a check safe to block on is not exactness. It is
   MONOTONICITY OF THE GROUND TRUTH.
@@ -39,6 +56,12 @@ WHY SOME IDENTIFIERS BLOCK AND OTHERS ONLY REPORT
       cold against today's object DB, 8 of 262 SHA citations failed and all 8
       were casualties of one rewrite the orchestrator itself announced. Adding
       session-wide grounding (below) took that to 0/262. BLOCKS, with grounding.
+
+    * a commit's POSITION -- "landed", "pushed" -- ground truth is the ref
+      graph, and reachability from a ref is the monotonic half of it. A rewrite
+      strands old commits with no ref pointing at them, so "on a branch that is
+      not main" is a state a rewrite cannot manufacture. Requiring it took the
+      corpus from 41 fires to 0. BLOCKS. See state_claims().
 
     * file paths -- ground truth is the filesystem, which shrinks harder: files
       are deleted, renamed, and moved, and reporting a deletion correctly means
@@ -87,9 +110,15 @@ WHAT IT CANNOT SEE
     identifier resolved when the claim was made. A later rewrite that kills an
     already-published SHA is a different problem with a different guard.
 
+  * an absence claim in general -- "X is removed", "zero references to Y".
+    Grep-backed, it fires on 95 of 109 real literals. Not enforceable, and the
+    one narrow version that looked clean turned out to be scoring itself
+    against a doc written after the incident. See value_absence_claims().
+
 Exit codes:
   0  nothing unresolved, or the check could not be evaluated
-  2  at least one identifier in the final message resolves against nothing
+  2  an identifier resolves against nothing, or a state claim contradicts the
+     repository
 """
 
 import json
@@ -97,6 +126,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 # --------------------------------------------------------------------------
 # extraction
@@ -194,6 +224,115 @@ def sha_claims(text):
             continue
         out.add(tok)
     return sorted(out)[:MAX_TOKENS]
+
+
+# --------------------------------------------------------------------------
+# STATE CLAIMS -- "it landed", "it's pushed" -- and the SHA that carries them
+# --------------------------------------------------------------------------
+#
+# WHAT THIS ADDS THAT sha_claims ABOVE DOES NOT
+#   sha_claims asks whether a commit EXISTS. That is what caught the fabricated
+#   hash on 2026-09-01 -- an invented 40-hex that names no object anywhere. It
+#   is NOT what catches the other failure of the same night: a real commit,
+#   sitting on a teammate branch, reported to the CEO as landed on main. The
+#   merge had been chained behind another command in one Bash call, a PreToolUse
+#   guard refused the whole call, so the merge never executed -- and the report
+#   was written from the INTENT of the command rather than from the repository.
+#   Every identifier in it resolved. The CEO found out by opening the file and
+#   getting ERR_FILE_NOT_FOUND.
+#
+#   So the predicate here is not existence but POSITION: a commit claimed to be
+#   integrated must be an ancestor of an integration branch, and a commit
+#   claimed to be published must be reachable from a remote ref.
+#
+# WHY THIS ONE CAN BLOCK WHEN THE PROSE SIGNALS BELOW CANNOT
+#   It is not reading English for intent. It reads English only to decide WHICH
+#   QUESTION TO ASK OF GIT, and git answers. The sentence has to contain a
+#   landing word AND a hex token; everything after that is `merge-base
+#   --is-ancestor`, which has no threshold and nothing to interpret.
+#
+# THE ONE RELAXATION THAT MAKES IT SAFE -- reachability, not ancestry alone
+#   A history rewrite leaves the old commits in the object DB, reachable from
+#   nothing. Reporting "X landed at `abc123`" about a pre-rewrite commit is
+#   honest and forever unprovable, and a naive ancestry test flags every one of
+#   them. Measured: 41 fires across the corpus, ALL of them casualties of one
+#   repository's rewrite, none of them a false report.
+#
+#   So a commit reachable from NO REF AT ALL is SILENT. The gate fires only when
+#   the commit is alive on some branch and that branch is not the integration
+#   branch -- which is exactly the shape of the 2026-09-01 failure, and is a
+#   shape a rewrite cannot produce. That single condition took the corpus from
+#   41 fires to 0.
+#
+# MEASURED -- 2,276 turns / 2,206 final messages, 79 transcripts, every
+# non-scratchpad orchestrator project on this machine. Numbers and method:
+# scripts/hooks/state-claims.corpus.md.
+#   landing/push claim sentences carrying a SHA      573
+#   SHA citations inside them                        658
+#   fires against the repositories as they stand       0
+#   fires when each turn is replayed against the
+#     repository AS IT STOOD at that turn's clock      1   (0.15% of citations,
+#                                                           0.045% of turns)
+# The one is a claim made 19 minutes before its commit reached master; by this
+# engine's own doctrine that claim was premature rather than true, and it is
+# still counted as a false positive because counting it the other way would be
+# grading my own work.
+
+STATE_INTEGRATED = re.compile(
+    r"\b(landed|merged|is\s+(?:now\s+)?(?:in|on)\s+main|in\s+main|on\s+main)\b",
+    re.I)
+STATE_PUBLISHED = re.compile(r"\bpushed\b", re.I)
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+|\n+")
+BARE_HEX_RE = re.compile(r"(?<![0-9A-Za-z_-])([0-9a-f]{7,40})(?![0-9A-Za-z_-])")
+
+MAX_STATE_CLAIMS = 12  # this class costs git calls; the cap is a time budget
+
+
+def _hex_tokens(sentence):
+    """Every SHA-shaped token in one sentence, backticked or bare.
+
+    Bare tokens are admitted HERE and nowhere else, because the surrounding
+    sentence has already asserted a landing -- the context that makes a raw hex
+    string a commit citation rather than a coincidence. The digit-and-letter
+    rule is the same one sha_claims uses, for the same reason.
+    """
+    out, seen = [], set()
+    for tok in _backticked(sentence) + [m.group(1) for m in
+                                        BARE_HEX_RE.finditer(sentence)]:
+        tok = tok.strip()
+        if not SHA_RE.match(tok):
+            continue
+        if not (any(c.isdigit() for c in tok) and any(c.isalpha() for c in tok)):
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+    return out
+
+
+def state_claims(text):
+    """[(kind, sha, sentence)] where kind is 'integrated' or 'published'."""
+    out, seen = [], set()
+    for s in SENTENCE_SPLIT.split(text):
+        s = s.strip()
+        if not s:
+            continue
+        integrated = bool(STATE_INTEGRATED.search(s))
+        published = bool(STATE_PUBLISHED.search(s))
+        if not (integrated or published):
+            continue
+        for tok in _hex_tokens(s):
+            # "landed" wins when a sentence says both, because it is the
+            # stronger claim and the one that was false on 2026-09-01.
+            kind = "integrated" if integrated else "published"
+            if (kind, tok) in seen:
+                continue
+            seen.add((kind, tok))
+            out.append((kind, tok, s[:400]))
+            if len(out) >= MAX_STATE_CLAIMS:
+                return out
+    return out
 
 
 def path_claims(text):
@@ -373,6 +512,94 @@ def resolve_shas(shas, roots):
     return found
 
 
+# --------------------------------------------------------------------------
+# ground truth for STATE CLAIMS -- position, not existence
+# --------------------------------------------------------------------------
+
+INTEGRATION_REFS = ("main", "master", "origin/main", "origin/master", "HEAD")
+
+# A wall-clock budget for the whole class. This gate runs at Stop with a 20s
+# hook timeout, and `for-each-ref --contains` over a big repository is not free.
+# When the budget is spent the remaining claims resolve to "unknown", which is
+# the SILENT verdict -- running out of time can never manufacture a refusal.
+STATE_BUDGET_SECONDS = 8.0
+
+
+def _git(root, args, timeout=10):
+    try:
+        return subprocess.run(["git", "-C", root] + args,
+                              capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None  # fail OPEN, everywhere in this section
+
+
+def _reachable_from(root, sha, prefix):
+    """First ref under `prefix` that contains sha, or ''. """
+    p = _git(root, ["for-each-ref", "--contains", sha,
+                    "--format=%(refname:short)", prefix], timeout=15)
+    if p is None or p.returncode != 0:
+        return ""
+    for line in p.stdout.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def state_verdict(kind, sha, roots, deadline):
+    """('ok'|'unknown', ...) or ('violation', repo, ref) -- see the header.
+
+    integrated: ok when sha is an ancestor of an integration ref anywhere.
+                violation when it is alive on some branch and on no
+                integration branch.
+    published:  ok when sha is reachable from any remote-tracking ref.
+                violation when it is reachable only from a local branch.
+
+    Everything else -- object absent, object dangling, git unreadable, budget
+    spent -- is 'unknown' and says nothing. An unresolvable SHA is already the
+    business of the existence check above; a dangling one is the history-rewrite
+    case the header explains.
+    """
+    held_by = []
+    for root in roots:
+        if time.monotonic() > deadline:
+            return ("unknown",)
+        p = _git(root, ["cat-file", "-t", sha], timeout=5)
+        if p is None or p.returncode != 0 or p.stdout.strip() != "commit":
+            continue
+        held_by.append(root)
+        if kind == "integrated":
+            for ref in INTEGRATION_REFS:
+                if time.monotonic() > deadline:
+                    return ("unknown",)
+                q = _git(root, ["merge-base", "--is-ancestor", sha, ref],
+                         timeout=8)
+                if q is None:
+                    return ("unknown",)
+                if q.returncode == 0:
+                    return ("ok",)
+        else:
+            if time.monotonic() > deadline:
+                return ("unknown",)
+            if _reachable_from(root, sha, "refs/remotes/"):
+                return ("ok",)
+    # It is nowhere, so the existence check owns it.
+    if not held_by:
+        return ("unknown",)
+    # It exists and is not where the claim says. Say so ONLY if it is alive on
+    # a ref -- a commit reachable from nothing is a rewrite casualty and this
+    # gate has nothing truthful to say about it.
+    for root in held_by:
+        if time.monotonic() > deadline:
+            return ("unknown",)
+        ref = _reachable_from(root, sha, "refs/heads/")
+        if not ref and kind == "integrated":
+            ref = _reachable_from(root, sha, "refs/remotes/")
+        if ref:
+            return ("violation", root, ref)
+    return ("unknown",)
+
+
 def resolve_path(tok, bases):
     if tok.startswith("~"):
         return os.path.exists(os.path.expanduser(tok))
@@ -477,6 +704,94 @@ def read_transcript(path, prompt_id=None, limit_bytes=48 * 1024 * 1024):
 # reporting layer -- never blocks
 # --------------------------------------------------------------------------
 
+# --- the third failure of 2026-09-01, and why it is a REPORT ---------------
+#
+# "`#8F7030` is gone from the entire app" was written after replacing that one
+# spelling. The decimal `rgb(143,112,48)` -- the same value -- was still sitting
+# in a test. The claim was about a VALUE and the check had been about a STRING.
+#
+# THE OBVIOUS GATE WAS BUILT AND MEASURED AND IT CRIES WOLF. Take any removal
+# sentence, take the token it cites, grep for it: across the corpus that fires
+# on 95 of 109 literals (87%). Every kind of false positive is there -- the doc
+# that records the removal, the guard that now bans the token, the claim scoped
+# to one directory grepped repo-wide, the token that is an ordinary word.
+#
+# SHARPENING IT TO "A SPELLING THE CLAIM DID NOT NAME" LOOKED CLEAN AND WAS NOT.
+# On the two value-absence sentences in the whole corpus it fired once, on the
+# real failure, and stayed silent on the other. That reads like a perfect gate
+# until you check the hit: the surviving `rgb(143,112,48)` it found is in
+# femcboost's CLAUDE.md, which DOCUMENTS THIS VERY INCIDENT. The one true
+# positive was matched against a record written after the fact -- circular, and
+# worth nothing as evidence.
+#
+# The number that decides it is the risky half measured on its own. Across all
+# 41 value citations in the corpus, an alternate spelling survives somewhere for
+# 22 of them (54%). So this predicate is held back from firing by nothing but
+# the rarity of an English absence word next to a value -- and "no longer",
+# "removed" and "gone" sit next to color values in design talk constantly.
+# Blocking on that is a wolf-crier waiting for its first design round.
+#
+# So it REPORTS, and the report is still worth having: it names the surviving
+# spelling and the file, which is the one fact the 2026-09-01 turn did not have.
+# The numbers are here so nobody promotes it later without re-measuring.
+
+ABSENCE_RE = re.compile(
+    r"\b(removed|gone|deleted|eliminated|zero\s+references|"
+    r"no\s+(?:more\s+)?references|no\s+longer|nothing\s+left|nowhere)\b", re.I)
+HEX_VALUE_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b")
+MAX_ABSENCE_VALUES = 4
+
+
+def _value_spellings(hexv):
+    """Every way the same value can be written. Deterministic, not heuristic."""
+    h = hexv.lower()
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    out = ["#" + h, "#" + h.upper()]
+    for sep in (", ", ",", " "):
+        out.append("rgb(%d%s%d%s%d)" % (r, sep, g, sep, b))
+        out.append("rgba(%d%s%d%s%d" % (r, sep, g, sep, b))
+    return out
+
+
+def value_absence_claims(text):
+    """[(hexvalue, [spellings the message did NOT name])]"""
+    out, seen = [], set()
+    low = text.lower()
+    for s in SENTENCE_SPLIT.split(text):
+        s = s.strip()
+        if not s or not ABSENCE_RE.search(s):
+            continue
+        for m in HEX_VALUE_RE.finditer(s):
+            v = m.group(1)
+            if v.lower() in seen:
+                continue
+            seen.add(v.lower())
+            alts = [sp for sp in _value_spellings(v) if sp.lower() not in low]
+            if alts:
+                out.append((v, alts))
+            if len(out) >= MAX_ABSENCE_VALUES:
+                return out
+    return out
+
+
+def surviving_spellings(claims, root, deadline):
+    """[(value, spelling, file)] -- an unnamed spelling still in the tree."""
+    found = []
+    for v, alts in claims:
+        for sp in alts:
+            if time.monotonic() > deadline:
+                return found
+            p = _git(root, ["grep", "-I", "-F", "-l", "--", sp], timeout=10)
+            if p is None:
+                return found  # fail OPEN
+            if p.returncode == 0 and p.stdout.strip():
+                found.append((v, sp, p.stdout.splitlines()[0].strip()))
+                break
+    return found
+
+
 INFLIGHT_RE = re.compile(r"\b(dispatching|spawning|kicking off|launching)\b", re.I)
 
 
@@ -552,6 +867,7 @@ def main():
     paths = path_claims(message)
     roles = roster_roles(entity_root, teams_dir, session_id)
     rclaims = role_claims(message, roles)
+    sclaims = state_claims(message)
 
     # --- BLOCKING: agent names ---------------------------------------------
     # Inert unless THIS session's team directory exists. Absent ground truth
@@ -604,6 +920,22 @@ def main():
                 if s not in live and s not in blob:
                     unresolved_shas.append(s)
 
+    # --- BLOCKING: state claims -- landed / merged / on main / pushed -------
+    # DELIBERATELY NOT GROUNDED. Grounding is the right relaxation for an
+    # EXISTENCE question, because to report a deletion honestly you must have
+    # observed the thing. It is exactly wrong here: `git log` on the unmerged
+    # branch prints the SHA, so the token is in this session's tool output in
+    # the very case the gate exists to catch. Grounding this check would disarm
+    # it against the 2026-09-01 failure and nothing else.
+    bad_states = []
+    if sclaims:
+        roots = repo_roots(entity_root, extra_repos)
+        deadline = time.monotonic() + STATE_BUDGET_SECONDS
+        for kind, sha, sentence in sclaims:
+            v = state_verdict(kind, sha, roots, deadline)
+            if v[0] == "violation":
+                bad_states.append((kind, sha, sentence, v[1], v[2]))
+
     # --- REPORTING: paths and prose ----------------------------------------
     bases = [entity_root] + [os.path.dirname(os.path.abspath(entity_root))]
     bases += repo_roots(entity_root, extra_repos)
@@ -618,6 +950,15 @@ def main():
     prose = prose_signal(message, turn_tools)
     nameless = nameless_dispatch(message, prose)
 
+    # --- REPORTING: a value claimed gone, surviving in another spelling ----
+    absence_reports = []
+    vclaims = value_absence_claims(message)
+    if vclaims:
+        for v, sp, fp in surviving_spellings(
+                vclaims, entity_root,
+                time.monotonic() + STATE_BUDGET_SECONDS):
+            absence_reports.append((v, sp, fp, entity_root))
+
     # --- observation record -------------------------------------------------
     # Written for EVERY turn, blocked or not, so the reporting layer is a record
     # rather than a rumour. Identifiers only -- never the message, never the
@@ -625,7 +966,8 @@ def main():
     record = {
         "session": session_id,
         "prompt_id": payload.get("prompt_id"),
-        "tokens": {"name": len(names), "sha": len(shas), "path": len(paths)},
+        "tokens": {"name": len(names), "sha": len(shas), "path": len(paths),
+                   "state": len(sclaims)},
         "unresolved": {
             "name": unresolved_names,
             "sha": unresolved_shas,
@@ -637,8 +979,13 @@ def main():
         "role_claims": [r for r, _ in rclaims],
         "undispatched_roles": [r for r, _ in undispatched_roles],
         "stale_roles": [r for r, _ in stale_roles],
+        "state_claims": [{"kind": k, "sha": sh} for k, sh, _ in sclaims],
+        "bad_state_claims": [{"kind": k, "sha": sh, "repo": rp, "ref": rf}
+                             for k, sh, _, rp, rf in bad_states],
+        "value_absence": [{"value": v, "surviving": sp, "file": fp}
+                          for v, sp, fp, _ in absence_reports],
         "verdict": "block" if (unresolved_names or unresolved_shas
-                               or undispatched_roles) else "pass",
+                               or undispatched_roles or bad_states) else "pass",
     }
     try:
         state = os.path.join(entity_root, ".claude", "state")
@@ -649,8 +996,9 @@ def main():
         pass  # the log is a convenience; losing it never changes the verdict
 
     # --- verdict ------------------------------------------------------------
-    if not (unresolved_names or unresolved_shas or undispatched_roles):
-        if unresolved_paths or prose or stale_roles:
+    if not (unresolved_names or unresolved_shas or undispatched_roles
+            or bad_states):
+        if unresolved_paths or prose or stale_roles or absence_reports:
             lines = ["=== claim check: PASSED, with observations (not blocking) ==="]
             for p in unresolved_paths:
                 lines.append("  path cited but unresolved and ungrounded: %s" % p)
@@ -664,11 +1012,16 @@ def main():
                 lines.append("  (this signal measures 17% precision -- it is logged, never enforced)")
                 if nameless:
                     lines.append("  ...and it named no agent identifier (10.3% precision -- also never enforced)")
+            for v, sp, fp, _root in absence_reports:
+                lines.append("  a value you said was gone survives in a spelling you did not name:")
+                lines.append("    you wrote #%s; %s is the same value and is still in %s" % (v, sp, fp))
+                lines.append("    (grep every spelling before saying gone -- this fires on 54% of value")
+                lines.append("     citations in the corpus, so it is reported and never enforced)")
             lines.append("  record: .claude/state/claim-checks.jsonl")
             sys.stderr.write("\n".join(lines) + "\n")
         return 0
 
-    out = ["=== UNRESOLVED IDENTIFIER IN THE FINAL MESSAGE — TURN BLOCKED ==="]
+    out = ["=== A CLAIM IN THE FINAL MESSAGE CONTRADICTS THE REPOSITORY — TURN BLOCKED ==="]
     if unresolved_names:
         out.append("")
         out.append("  Agent name(s) named in your reply that were never spawned:")
@@ -703,6 +1056,31 @@ def main():
         out.append("  Make the dispatch now, or name the agent in the checkable form")
         out.append("  (<role>-<model>-<identifier>) so the claim resolves against the")
         out.append("  roster instead of against a word.")
+    for kind, sha, sentence, repo, ref in bad_states:
+        out.append("")
+        if kind == "integrated":
+            out.append("  You said this LANDED, and the repository says it did not:")
+        else:
+            out.append("  You said this was PUSHED, and the repository says it was not:")
+        out.append("")
+        out.append("      \"%s\"" % sentence.replace("\n", " ").strip())
+        out.append("")
+        if kind == "integrated":
+            out.append("  %s is reachable from %s in %s," % (sha, ref, repo))
+            out.append("  and it is NOT an ancestor of main/master there. The commit exists;")
+            out.append("  it is sitting on a branch. A merge that was refused, or that never")
+            out.append("  ran because it was chained behind a command that was, leaves exactly")
+            out.append("  this state — and the report gets written from the command you typed")
+            out.append("  rather than from the repository.")
+            out.append("")
+            out.append("  Run the merge, or say where the work actually is. Confirm with:")
+            out.append("      git -C %s merge-base --is-ancestor %s main" % (repo, sha))
+        else:
+            out.append("  %s is reachable from %s in %s and from no remote-tracking" % (sha, ref, repo))
+            out.append("  ref, so it is committed locally and has not left this machine.")
+            out.append("")
+            out.append("  Push it, or drop the word. Confirm with:")
+            out.append("      git -C %s branch -r --contains %s" % (repo, sha))
     out.append("")
     out.append("  Fix the reply and finish the turn. Do not weaken or unwire this hook.")
     out.append("(hook: scripts/hooks/guard-unresolved-claims.sh)")
