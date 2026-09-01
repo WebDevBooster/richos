@@ -11,11 +11,11 @@ one, working, exposed a defect the first one could not have shown any other way:
 
 | | build 1 | build 2 (installed now) |
 |---|---|---|
-| source | `7738675` (main) | + the three commits on `echo-opus-in1` |
+| source | `7738675` (main) | + the content of `c179cc1`, `a6feee5`, `1e41d70` |
 | cdhash | `c22947efab845e8cd992840dcd92a2ce16c64a86` | `f605657de9199765063c03881952bbd7a471b6e6` |
 | signing identity | `Developer ID Application: Alex Booster (TZ33A4QCZJ)`, SHA-1 `BF4D68E6F858688FDAD63148BD271FCA2D02474F` | the same |
 | hardened runtime | on (`flags=0x10000(runtime)`) | on |
-| secure timestamp | 1 Sep 2026 15:04:44 | 1 Sep 2026 15:11 |
+| secure timestamp | 1 Sep 2026 15:04:44 | 1 Sep 2026 15:13:27 |
 | notarized | **no** — there are no notary credentials on this machine | **no** |
 
 Both report `valid on disk` and `satisfies its Designated Requirement` after being copied to
