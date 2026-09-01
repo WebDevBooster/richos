@@ -5,7 +5,7 @@
 //! > The wiki's essential property is not its content. It is that **a human can read what
 //! > the system believes and correct it when it is wrong.**
 //!
-//! loro's writer has been complete and demonstrable since 2026-08-29 and reachable only
+//! Loro's writer has been complete and demonstrable since 2026-08-29 and reachable only
 //! through a CLI — `loro-writer.md` says so in its own words: *"Rich does not call the
 //! writer yet… the writer's reachable surface is the CLI."* A capability the CEO can only
 //! reach by opening a terminal is not a property of the product he uses. This module is the

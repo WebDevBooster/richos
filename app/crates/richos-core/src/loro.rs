@@ -9,7 +9,7 @@
 //!
 //! # What crosses the boundary, and what must not
 //!
-//! `richos` GOES PUBLIC. loro's content is the CEO's second brain and is private by
+//! `richos` GOES PUBLIC. Loro's content is the CEO's second brain and is private by
 //! construction — it is not in this repo and never will be. Everything here is *mechanism*:
 //! how to invoke a binary that lives elsewhere, how to parse a documented JSON shape, and
 //! what to refuse. **No corpus content, no corrections, no speech.** The corpus root is
@@ -20,7 +20,7 @@
 //!
 //! # The read-only invariant is not weakened, and could not be from here
 //!
-//! loro's compiler is read-only by structural proof: `assertNoSideEffects` scans every
+//! Loro's compiler is read-only by structural proof: `assertNoSideEffects` scans every
 //! module under `loro/lib/**` for a filesystem write (`privacy.js`), which is why a
 //! persistent index cannot live in the compiler at all. Nothing in this file can change
 //! that — it invokes `bin/loro-context.mjs` as a child process and reads stdout. What it
@@ -545,7 +545,7 @@ pub type SharedSliceProvenance = Arc<Mutex<SliceProvenance>>;
 /// The contract maps a thin slice to "no slice, keep today's pull-loro-live line". That is
 /// right about the injectable text and wrong about the honesty: a checked "loro holds
 /// nothing on this" and an unconsulted loro are different facts and this build keeps them
-/// different (see [`LoroTier`]). loro already writes the correct sentence for the first case
+/// different (see [`LoroTier`]). Loro already writes the correct sentence for the first case
 /// — §5 — so the fix is to inject its sentence rather than to invent one.
 pub struct CliContextCompiler {
     tools: LoroTools,

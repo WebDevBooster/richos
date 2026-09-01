@@ -2,7 +2,7 @@
 //!
 //! Per the decided conversation model (the RichOS front-end notes): threads are
 //! Rich-organized TOPIC VIEWS over the ONE shared ledger (and, later, shared loro) —
-//! NOT ChatGPT-style siloed conversations. loro is the shared memory under every
+//! NOT ChatGPT-style siloed conversations. Loro is the shared memory under every
 //! thread, so a thread is just a projection of the shared spine, never a separate
 //! store. This keeps "one Rich, no management burden": Rich in thread B already knows
 //! thread A because both fold over the same durable substrate.

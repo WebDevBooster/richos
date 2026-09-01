@@ -1,7 +1,7 @@
 /**
  * RichOS local service — the correction flywheel's IN-RICHOS capture half (2026-08-24).
  *
- * loro's shared vocabulary (`loro/entities.json`) is what the transcription pipeline's
+ * Loro's shared vocabulary (`loro/entities.json`) is what the transcription pipeline's
  * loro-correction stage (lib/correct.js) uses to fix names/terms a generic ASR mangles. This module
  * is the OTHER direction of the flywheel: corrections the CEO makes inside our OWN artifacts are
  * folded back INTO that vocabulary, so both dictation and call transcription get more accurate over
