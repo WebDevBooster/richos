@@ -604,6 +604,13 @@ fn main() {
                 Err(e) => {
                     eprintln!("[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.");
                     eprintln!("[richos]   binary: {}", claude_bin.display());
+                    // THE SECOND PATH, printed because it was the missing one. Until
+                    // 2026-09-01 this block named only the binary, so a failure caused by the
+                    // WORKING DIRECTORY printed a binary path, a "binary was not found"
+                    // message, and no mention of the directory at all. `native.rs::preflight`
+                    // now separates the two causes; this line makes the other path visible
+                    // whichever cause fired, so nobody has to infer it from the message text.
+                    eprintln!("[richos]   engine: {}", engine.display());
                     eprintln!("[richos]   cause : {e}");
                     false
                 }
