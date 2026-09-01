@@ -61,6 +61,7 @@
 //! the store can hold and the surface can report honestly rather than round to the nearest
 //! button.
 
+use crate::entity::EntityId;
 use crate::journal::{RawRetention, RAW_MAX_TOTAL_BYTES, RAW_RETENTION_DAYS};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -274,6 +275,26 @@ struct StoredConfig {
     /// everything instead (`RawRetention::from_json`).
     #[serde(default)]
     raw_retention: RawRetention,
+    /// WHICH COMPANY THIS COPY OF RICH WORKS FOR — the CEO's own answer, remembered.
+    ///
+    /// The whole reason this field exists: a double-clicked `.app` has working directory
+    /// `/`, which owns no entity, so `EntityRegistry::resolve_root` fails closed and every
+    /// send is refused (measured 2026-09-01, `docs/verification/entity-choice-2026-09-01/`).
+    /// The fix is NOT to guess an entity at compile time — ECS §3.3's refusal to guess is
+    /// correct and stays — it is to let him choose once and to remember the answer here.
+    ///
+    /// **`String`, deliberately, and not `EntityId`.** `EntityId` deserializes through
+    /// `try_from = "String"` and REJECTS a value that is not `[a-z0-9-]{1,64}`, which would
+    /// fail the parse of the WHOLE file — and `ConfigStore::open` degrades an unparseable
+    /// file to defaults, so one bad character in this one key would silently reset his
+    /// theme, his dial and his retention window. A raw string cannot do that. It is
+    /// validated on the way OUT instead ([`ConfigStore::entity`]), where a value that no
+    /// longer parses or is no longer registered resolves to nothing rather than to a guess.
+    ///
+    /// Absent means NOBODY HAS CHOSEN YET, which is a real and different state from "he
+    /// chose and it went missing" — it is the state that makes the app ask.
+    #[serde(default)]
+    entity: Option<String>,
 }
 
 impl Default for StoredConfig {
@@ -290,6 +311,7 @@ impl Default for StoredConfig {
             theme: Theme::default(),
             font_scale: FONT_SCALE_DEFAULT,
             user_name: None,
+            entity: None,
         }
     }
 }
@@ -673,6 +695,44 @@ impl ConfigStore {
         }
     }
 
+    // ---- which company this copy of Rich works for -----------------------------------
+
+    /// The remembered choice, VALIDATED. `None` covers three genuinely different things
+    /// and deliberately collapses them at this seam, because every one of them means the
+    /// same thing to the caller — there is no answer here that may be trusted:
+    ///
+    ///   * nobody has chosen yet (the fresh-install case, and the case that makes the app
+    ///     ask);
+    ///   * the stored value is not a well-formed entity id (a hand-edited file);
+    ///   * the stored value parses but names nothing the caller recognizes — which this
+    ///     function cannot see, so the caller checks registry membership itself and
+    ///     [`ConfigStore::entity_raw`] exists so it can SAY what it is discarding.
+    ///
+    /// It never falls back to the first entity, the last entity or any entity. ECS §3.3.
+    pub fn entity(&self) -> Option<EntityId> {
+        self.config.entity.as_deref().and_then(|s| EntityId::parse(s.trim()).ok())
+    }
+
+    /// Exactly what is on disk, unvalidated — so a caller discarding a stale or malformed
+    /// value can name it in a log instead of dropping it silently.
+    pub fn entity_raw(&self) -> Option<&str> {
+        self.config.entity.as_deref()
+    }
+
+    /// Remember the CEO's answer. Takes an `EntityId` rather than a `&str` so the write
+    /// side cannot store something the read side would refuse; registry membership is the
+    /// caller's check, because this crate's config layer does not own the registry.
+    pub fn set_entity(&mut self, entity: &EntityId) -> io::Result<()> {
+        self.config.entity = Some(entity.as_str().to_string());
+        self.persist()
+    }
+
+    /// Forget it, returning the store to the state that makes the app ask again.
+    pub fn clear_entity(&mut self) -> io::Result<()> {
+        self.config.entity = None;
+        self.persist()
+    }
+
     fn persist(&self) -> io::Result<()> {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
@@ -690,6 +750,79 @@ mod tests {
 
     fn tmp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("richos-config-test-{tag}-{}-{}.json", std::process::id(), crate::util::now_millis()))
+    }
+
+    // ---- which company this copy of Rich works for ---------------------------------
+
+    #[test]
+    fn a_chosen_company_survives_the_next_boot() {
+        // THE PERSISTENCE HALF of the double-click fix: he answers once, and the answer is
+        // still in force on a launch with the same empty environment. Written as
+        // open, set, DROP, reopen — because a getter reading back its own in-memory field
+        // would pass without anything ever reaching the disk.
+        let path = tmp_path("entity-persist");
+        let chosen = EntityId::parse("richos").unwrap();
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            assert_eq!(store.entity(), None, "a fresh install has chosen nothing");
+            store.set_entity(&chosen).unwrap();
+        }
+        let reopened = ConfigStore::open(&path).unwrap();
+        assert_eq!(reopened.entity(), Some(chosen));
+        assert_eq!(reopened.entity_raw(), Some("richos"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn clearing_the_choice_returns_the_store_to_the_state_that_asks() {
+        let path = tmp_path("entity-clear");
+        let mut store = ConfigStore::open(&path).unwrap();
+        store.set_entity(&EntityId::parse("deeply").unwrap()).unwrap();
+        store.clear_entity().unwrap();
+        assert_eq!(store.entity(), None);
+        assert_eq!(ConfigStore::open(&path).unwrap().entity(), None);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_hand_edited_company_value_costs_the_choice_and_nothing_else() {
+        // WHY THE FIELD IS A `String` AND NOT AN `EntityId`. `EntityId` deserializes
+        // through `try_from = "String"` and rejects `"Rich OS"`, so typing that into the
+        // file by hand would fail the parse of the WHOLE document — and `open` degrades an
+        // unparseable file to defaults, which would silently take his theme, his dial and
+        // his retention window with it. This test is the guard on that: the bad value is
+        // discarded, every adjacent preference survives, and `entity_raw` still reports
+        // what was discarded so a log can name it.
+        let path = tmp_path("entity-garbage");
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_theme(Theme::Light).unwrap();
+            store.set_assertiveness(Assertiveness::Balanced).unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        doc["entity"] = serde_json::Value::String("Rich OS".to_string());
+        std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.entity(), None, "an unparseable id must never resolve to an entity");
+        assert_eq!(store.entity_raw(), Some("Rich OS"), "and the caller must be able to name it");
+        assert_eq!(store.theme(), Theme::Light, "the adjacent preference must survive");
+        assert_eq!(store.assertiveness(), Assertiveness::Balanced);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_config_file_written_before_the_company_choice_existed_still_loads() {
+        // The file on the CEO's disk today has no `entity` key at all. Absent is an absent
+        // ANSWER, not a corrupt file, and it must read as "nobody has chosen".
+        let path = tmp_path("entity-legacy");
+        std::fs::write(&path, r#"{"company_name":null,"assertiveness":"quiet","theme":"dark"}"#).unwrap();
+        let store = ConfigStore::open(&path).unwrap();
+        assert_eq!(store.entity(), None);
+        assert_eq!(store.entity_raw(), None);
+        assert_eq!(store.theme(), Theme::Dark);
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
