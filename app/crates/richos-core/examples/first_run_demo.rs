@@ -60,7 +60,14 @@ fn main() {
     let target = offered_corpus_dir(&home);
     println!("[demo] the location offered: {}", target.display());
 
-    let companies = vec![("richos".to_string(), "RichOS".to_string())];
+    // THE SAME LIST THE COMMAND USES — the entity registry, not a name invented here. A
+    // partition per company the build knows, so the lane map has something real to reconcile
+    // against on the first boot instead of five entities bound to nothing.
+    let companies: Vec<(String, String)> = richos_core::entity::EntityRegistry::ceos_companies()
+        .entities()
+        .iter()
+        .map(|e| (e.id.to_string(), e.display_name.clone()))
+        .collect();
     let report = match provision(&ProvisionRequest {
         target,
         home: Some(home.clone()),

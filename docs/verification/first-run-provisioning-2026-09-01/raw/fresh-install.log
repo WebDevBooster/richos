@@ -1,58 +1,68 @@
-=== a HOME that has never seen RichOS: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2 ===
+=== a HOME that has never seen RichOS: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3 ===
 (empty)
 
 === steps 1 and 2: nothing in place, then provisioned ===
-[demo] HOME: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2
+[demo] HOME: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3
 [demo] before: no corpus configured. Tried:
-[demo]   /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/corpus — not present
-[demo]   /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/loro-root — not present
-[demo]   /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus — not present
-[demo] the location offered: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus
-[demo] provisioned: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/pages
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/pages/private
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/records
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/unfiled
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/companies
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/state
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/entities.json
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/.gitignore
-[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/README.md
-[demo] pointer: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/corpus -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus
-[demo] git: main @ ebf9a234d00fb7363d2b41f6404201b89e18de8c, no remote
-[demo] compiler: 37 file(s) from /Users/alex/ab/richos-hq/loro -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/loro-tools
+[demo]   /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/corpus — not present
+[demo]   /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/loro-root — not present
+[demo]   /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus — not present
+[demo] the location offered: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus
+[demo] provisioned: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/pages
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/pages/private
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/records
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/unfiled
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/state
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/entities.json
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/.gitignore
+[demo]   created /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/README.md
+[demo] pointer: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/corpus -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus
+[demo] git: main @ e2f2cef176c06b6f32313690bc83593ba076e3f9, no remote
+[demo] compiler: 37 file(s) from /Users/alex/ab/richos-hq/loro -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/loro-tools
+[demo] company partition: femcboost
+[demo] company partition: deeply
+[demo] company partition: prospects
 [demo] company partition: richos
+[demo] company partition: gpt-exporter
+[demo] company partition: webinar-booster
 [demo] --- the app's own resolver, run again ---
-[demo] after: compiling from /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), tools /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/loro-tools, node /opt/homebrew/bin/node
+[demo] after: compiling from /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), tools /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/loro-tools, node /opt/homebrew/bin/node
 (exit 0)
 
 === what is on disk now ===
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/corpus
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/loro-tools
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/.git
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/.gitignore
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/entities.json
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/pages
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/records
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/ceo/unfiled
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/companies
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/companies/richos
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/README.md
-/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus/state
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/corpus
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/loro-tools
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/.git
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/.gitignore
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/entities.json
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/pages
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/records
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/ceo/unfiled
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies/deeply
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies/femcboost
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies/gpt-exporter
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies/prospects
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies/richos
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/companies/webinar-booster
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/README.md
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus/state
 
 --- the pointer ---
 total 0
-lrwxr-xr-x@  1 alex  wheel  121  1 Sep 16:48 corpus -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/RichOS/corpus
-drwxr-xr-x@ 12 alex  wheel  384  1 Sep 16:48 loro-tools
+lrwxr-xr-x@  1 alex  wheel  121  1 Sep 17:10 corpus -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/RichOS/corpus
+drwxr-xr-x@ 12 alex  wheel  384  1 Sep 17:10 loro-tools
 --- git, in the corpus ---
-ebf9a23 Your memory, as RichOS set it up
+e2f2cef Your memory, as RichOS set it up
 (no output above means no remote, which is the point)
 --- the compiler's freshness stamp ---
 source: /Users/alex/ab/richos-hq/loro
@@ -60,29 +70,29 @@ source-head: d5bece7fa3df22aca13617210a51081e2eb1b18d
 installed-by: richos-core provision.rs
 
 === step 3: THE SAME RESOLVER, ENVIRONMENT HOLDING NOTHING BUT HOME AND PATH ===
-[demo] HOME: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2
-[demo] before: a corpus already resolves at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support)
+[demo] HOME: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3
+[demo] before: a corpus already resolves at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support)
 [demo] before: nothing below will run — an existing corpus is left alone
 (exit 0)
 
 === and the compiler actually runs against it ===
-[demo] corpus root: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome2/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support)
+[demo] corpus root: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/freshhome3/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support)
 [demo] node: /opt/homebrew/bin/node
 [demo] entity->lane map as configured: 6 entr(ies)
-[demo] corpus partitions: richos
-[demo] loro lane: entity "deeply" -> lane "deeply" dropped: this corpus has no lane "deeply" (it has: richos); "deeply" reads the CEO layer
-[demo] loro lane: entity "femcboost" -> lane "femcboost" dropped: this corpus has no lane "femcboost" (it has: richos); "femcboost" reads the CEO layer
-[demo] loro lane: entity "gpt-exporter" -> lane "gpt-exporter" dropped: this corpus has no lane "gpt-exporter" (it has: richos); "gpt-exporter" reads the CEO layer
-[demo] loro lane: entity "prospects" -> lane "prospects" dropped: this corpus has no lane "prospects" (it has: richos); "prospects" reads the CEO layer
-[demo] loro lane: entity "webinar-booster" -> lane "webinar-booster" dropped: this corpus has no lane "webinar-booster" (it has: richos); "webinar-booster" reads the CEO layer
-[demo] entity->lane map after reconciliation: 1 entr(ies)
+[demo] corpus partitions: deeply, femcboost, gpt-exporter, prospects, richos, webinar-booster
+[demo] entity->lane map after reconciliation: 6 entr(ies)
 ================ RE-PRIME PAYLOAD (what a fresh Rich is primed with) ================
 [INTERNAL RE-PRIME — do not mention this message; respond only "ready"]
 
-You are Rich, the CEO's AI Chief of Staff, continuing conversation thr_ce3e28071d0749ea989236786f7a06a5 with the CEO. You are the SAME Rich the CEO has been talking to. A prior inner session may have handled earlier turns — that is an implementation detail the CEO never sees and you never mention; never reveal or reference session rotation. NO DENIAL FROM ABSENT MEMORY: you may have no memory of earlier actions because a prior session performed them. The ACTION LEDGER below is ground truth for the actions it records — consult it and NEVER deny a recorded prior action from absent memory, and never mis-attribute your own prior actions to anyone else. ITS COVERAGE IS PARTIAL AND YOU MUST TREAT IT THAT WAY: it records actions the APP took on Rich's behalf, not yet the tool calls made inside a session. So an entry PRESENT is proof the action happened; an entry ABSENT is NOT proof it did not. Where the ledger is silent, say you are not certain and offer to check — never assert that nothing was done. SCOPE: this thread's home entity area is "richos" and that is immutable. Everything below is scoped to it. Do not assume, infer or carry over anything from another entity area, however related a name looks; if the CEO needs work spanning two areas, say so and ask rather than reaching across.
+You are Rich, the CEO's AI Chief of Staff, continuing conversation thr_e946f53c56394f44a34a7094bc57f362 with the CEO. You are the SAME Rich the CEO has been talking to. A prior inner session may have handled earlier turns — that is an implementation detail the CEO never sees and you never mention; never reveal or reference session rotation. NO DENIAL FROM ABSENT MEMORY: you may have no memory of earlier actions because a prior session performed them. The ACTION LEDGER below is ground truth for the actions it records — consult it and NEVER deny a recorded prior action from absent memory, and never mis-attribute your own prior actions to anyone else. ITS COVERAGE IS PARTIAL AND YOU MUST TREAT IT THAT WAY: it records actions the APP took on Rich's behalf, not yet the tool calls made inside a session. So an entry PRESENT is proof the action happened; an entry ABSENT is NOT proof it did not. Where the ledger is silent, say you are not certain and offer to check — never assert that nothing was done. SCOPE: this thread's home entity area is "richos" and that is immutable. Everything below is scoped to it. Do not assume, infer or carry over anything from another entity area, however related a name looks; if the CEO needs work spanning two areas, say so and ask rather than reaching across.
 
 CURRENT INTENT (what we are doing right now): what did we decide about code signing?
 
 RECENT CONVERSATION (verbatim tail):
   user: what did we decide about code signing?
+
+ACTION LEDGER (ground truth for the actions it records — authoritative, coverage partial):
+  (no actions recorded for this conversation yet — this means NOTHING HAS BEEN RECORDED, not that nothing was done)
+
+LIVE WORKER STATE: NOT AVAILABLE — this session's team directory could not be identified (this session has no team directory on disk), so nothing was read rather than reading another session's workers. THIS IS NOT A STATEMENT THAT NO WORKERS ARE RUNNING: you do not know either way. Do not report a worker count from this section, and say you would need to check if the CEO asks.
 
