@@ -601,6 +601,160 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------------------
+  // The first-run banner
+  //
+  //   "On first launch, the home screen draws synthetic data, yes. Show a small banner in the
+  //    top right corner saying something like: 'This is what your home screen could look like
+  //    once Rich gets enough information about you and your business.'" (CEO, 2026-09-01)
+  // -------------------------------------------------------------------------------------
+
+  await run.check("THE FIRST-RUN BANNER: his sentence, top right, while the picture is synthetic", async () => {
+    const r = await page.evaluate(() => {
+      const box = document.getElementById("home-note");
+      const line = document.getElementById("home-note-line");
+      const cs = getComputedStyle(line);
+      const bcs = getComputedStyle(box);
+      const rect = (e) => {
+        const b = e.getBoundingClientRect();
+        return { l: Math.round(b.left), t: Math.round(b.top), r: Math.round(b.right), b: Math.round(b.bottom) };
+      };
+      return {
+        present: !!box && !box.hidden,
+        text: line.textContent,
+        source: window.RichHome.NOTE,
+        px: Math.round(parseFloat(cs.fontSize)),
+        family: cs.fontFamily,
+        border: bcs.borderTopWidth + "/" + bcs.borderRightWidth + "/" + bcs.borderBottomWidth + "/" + bcs.borderLeftWidth,
+        role: box.getAttribute("role"),
+        dataSource: window.RichHome.state.dataSource,
+        noteShown: window.RichHome.state.noteShown,
+        dataIsCustomers: window.RichHome.state.dataIsCustomers,
+        // What the picture is really drawing, read off the object the engine reads.
+        metaName: window.MATURE_LORO.meta.name,
+        metaSynthetic: window.MATURE_LORO.meta.synthetic,
+        note: rect(box),
+        text_: rect(line),
+        live: rect(document.getElementById("home-live")),
+        setbtn: rect(document.querySelector(".setbtn")),
+        row: rect(document.getElementById("home-entities")),
+        vw: innerWidth,
+        vh: innerHeight,
+      };
+    });
+
+    assert(r.present, "the banner is not on the screen while the picture is synthetic");
+    // The rendered string is asserted against the SOURCE of the string, never against a copy
+    // typed in here — a test that carries its own copy passes after somebody edits one of them.
+    assertEqual(r.text, r.source, "the rendered sentence is not the one home.js holds");
+    assert(/^This is what your home screen could look like once Rich knows enough about you and your business\.$/.test(r.text),
+      "the sentence has drifted from the CEO's: " + JSON.stringify(r.text));
+
+    // It is the DATA that is being reported on, and the data says what it is.
+    assertEqual(r.metaSynthetic, true, "the dataset under this run is not the synthetic one");
+    assertEqual(r.dataSource, "synthetic", "the banner's condition was not derived from the dataset");
+    assertEqual(r.dataIsCustomers, false, "the screen thinks this synthetic picture is the customer's");
+    assertEqual(r.noteShown, true, "state and DOM disagree about whether the banner is up");
+
+    // §15: this sentence is meant to be read, so it takes the 16px reading floor and NOT the
+    // 14px skippable tier. No exemption is claimed for it anywhere.
+    assertEqual(r.px, 16, "the banner is not at §15's 16px reading floor");
+    // §22: vendored faces only.
+    assert(/^"?Newsreader"?,\s*serif$/.test(r.family.trim()), "the banner names a face that is not vendored: " + r.family);
+    // There is no non-text indicator on this element — see home.css. If a border ever appears
+    // it owes 3:1 and nothing measures it, so the absence is asserted rather than assumed.
+    assertEqual(r.border, "0px/0px/0px/0px", "the banner grew a border, which owes 3:1 and is measured by nothing");
+    assertEqual(r.role, "status", "the banner is not a status");
+
+    // TOP RIGHT, and clear of everything already in that corner.
+    assert(r.text_.r === r.vw - 34, `the sentence is not on the composition's 34px right margin (right edge ${r.text_.r} of ${r.vw})`);
+    assert(r.note.t > r.setbtn.b, `the banner overlaps the settings button (banner top ${r.note.t}, button bottom ${r.setbtn.b})`);
+    assert(r.note.t >= r.row.b, `the banner overlaps the entity row (banner top ${r.note.t}, row bottom ${r.row.b})`);
+    assert(r.note.b < r.live.t, `the banner crowds the "Working now" aside (banner bottom ${r.note.b}, aside top ${r.live.t})`);
+    assert(r.note.b < r.vh / 2, `the banner is not in the top half of the window (bottom ${r.note.b} of ${r.vh})`);
+
+    return (
+      `"${r.text}"\n          ` +
+      `16px Newsreader, no border, role=status; dataset "${r.metaName}" synthetic=${r.metaSynthetic} -> dataSource "${r.dataSource}"\n          ` +
+      `banner box y=[${r.note.t},${r.note.b}] x=[${r.note.l},${r.note.r}]; text right edge ${r.text_.r} = ${r.vw}-34; ` +
+      `settings button ends y=${r.setbtn.b}, entity row ends y=${r.row.b}, aside starts y=${r.live.t}`
+    );
+  });
+
+  await run.check("THE CONDITION, BOTH WAYS: the banner goes when the data is the customer's", async () => {
+    // WHAT THIS CAN AND CANNOT DRIVE, said plainly.
+    //
+    // Nothing in the product can produce a customer's own loro in the shape the field reads —
+    // there is no `home_field_data` command, and `home/field-data.js` is the only dataset that
+    // exists. So the real-data side is exercised the only honest way there is: by handing the
+    // condition the input a real compile would produce, `meta.synthetic === false`, on the very
+    // object `home/field-engine.js:99` reads, and driving the same `refreshNote()` the field's
+    // own settle calls. What is NOT covered by this, and is stated in the handoff rather than
+    // implied away: that a real compiler, when one exists, actually stamps that field.
+    const before = await page.evaluate(() => {
+      const b = document.getElementById("home-live").getBoundingClientRect();
+      return {
+        liveTop: Math.round(b.top),
+        inset: getComputedStyle(document.getElementById("home")).getPropertyValue("--home-note-inset").trim(),
+      };
+    });
+
+    const real = await page.evaluate(() => {
+      window.MATURE_LORO.meta.synthetic = false;
+      window.RichHome.refreshNote();
+      const box = document.getElementById("home-note");
+      const b = document.getElementById("home-live").getBoundingClientRect();
+      return {
+        hidden: box.hidden,
+        displayed: getComputedStyle(box).display,
+        state: window.RichHome.state.dataSource,
+        isCustomers: window.RichHome.state.dataIsCustomers,
+        noteShown: window.RichHome.state.noteShown,
+        liveTop: Math.round(b.top),
+        inset: getComputedStyle(document.getElementById("home")).getPropertyValue("--home-note-inset").trim(),
+      };
+    });
+    assert(real.hidden, "the banner is still up over a dataset that says it is the customer's");
+    assertEqual(real.displayed, "none", "the banner is hidden but still taking space");
+    assertEqual(real.state, "customer", "the condition did not re-derive from the dataset");
+    assert(real.isCustomers && !real.noteShown, "state did not follow the DOM");
+    assertEqual(real.inset, "0px", "the reservation was not released");
+    // The composition has to be EXACTLY the one the CEO approved once the banner is gone.
+    assertEqual(real.liveTop, before.liveTop - parseInt(before.inset, 10),
+      "the aside did not return to the line it sits on without the banner");
+
+    // THE NEGATIVE CONTROLS — positive signal only. Neither of these is evidence.
+    const unknown = await page.evaluate(() => {
+      const out = {};
+      delete window.MATURE_LORO.meta.synthetic; // a dataset that simply does not say
+      window.RichHome.refreshNote();
+      out.omitted = { shown: window.RichHome.state.noteShown, src: window.RichHome.state.dataSource };
+      const meta = window.MATURE_LORO.meta;
+      delete window.MATURE_LORO.meta; // no dataset metadata at all
+      window.RichHome.refreshNote();
+      out.nometa = { shown: window.RichHome.state.noteShown, src: window.RichHome.state.dataSource };
+      window.MATURE_LORO.meta = meta;
+      window.MATURE_LORO.meta.synthetic = true; // back to the truth
+      window.RichHome.refreshNote();
+      out.restored = { shown: window.RichHome.state.noteShown, src: window.RichHome.state.dataSource };
+      return out;
+    });
+    assert(unknown.omitted.shown && unknown.omitted.src === "unknown",
+      "a dataset that does not say was read as the customer's — absence of evidence became evidence");
+    assert(unknown.nometa.shown && unknown.nometa.src === "unknown",
+      "no dataset at all was read as the customer's");
+    assert(unknown.restored.shown && unknown.restored.src === "synthetic", "the fixture did not restore");
+
+    const after = await page.evaluate(() => Math.round(document.getElementById("home-live").getBoundingClientRect().top));
+    assertEqual(after, before.liveTop, "the aside did not come back to where it was");
+
+    return (
+      `synthetic=true -> banner up, --home-note-inset ${before.inset}, aside at y=${before.liveTop}\n          ` +
+      `synthetic=false -> banner display:none, inset 0px, aside back at y=${real.liveTop} (the approved composition)\n          ` +
+      `omitted -> up ("unknown"); no meta at all -> up ("unknown"). Only an explicit false takes it down.`
+    );
+  });
+
+  // -------------------------------------------------------------------------------------
   // Contrast — from the pixels, on the rendered frame
   // -------------------------------------------------------------------------------------
 
@@ -629,6 +783,10 @@ async function main() {
       // `currentColor`, and the region is the button's own fill behind it.
       { name: "the switch arrow", sel: "#home-enter .home-enter-arrow", needs: 3, kind: "fill" },
       { name: "the switch edge", sel: "#home-enter", needs: 3, kind: "edge" },
+      // The first-run banner. `needs: 4.5` — it is normal text meant to be read, and no
+      // exemption is claimed for it. Its plate has NO border, so there is no `edge` target
+      // here; the plate's own boundary is measured and reported in the check below.
+      { name: "the first-run banner", sel: "#home-note-line", needs: 4.5 },
     ]);
     const bad = failures(rows);
     assertEqual(bad.length, 0, "these are under the floor:\n" + reportRatios(bad));

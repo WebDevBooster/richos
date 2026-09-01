@@ -84,6 +84,25 @@ window.RichHome = (function () {
   // six designs, and a fade constrains none of them.
   var FADE_MS = 200;
 
+  // THE FIRST-RUN BANNER'S SENTENCE, and it is the CEO's own with one tightening.
+  //
+  // His words, 2026-09-01, which are the whole specification for it: *"On first launch, the
+  // home screen draws synthetic data, yes. Show a small banner in the top right corner saying
+  // something like: 'This is what your home screen could look like once Rich gets enough
+  // information about you and your business.'"*
+  //
+  // "Something like" is his own permission to tighten, and exactly one thing is tightened:
+  // `gets enough information about` -> `knows enough about`. Five words to three, the same
+  // claim, the same plain register. BOTH HALVES OF THE MEANING ARE INTACT and neither is
+  // negotiable: what is on the screen is a DEMONSTRATION, and it BECOMES HIS as Rich learns
+  // about him and his business.
+  //
+  // What it deliberately does not say: "sample data", "demo mode", "placeholder", "preview",
+  // or anything carrying an asterisk. On an open-source launch this is the first sentence a
+  // stranger reads inside RichOS, and it has to sound like Rich rather than like a EULA.
+  var NOTE =
+    "This is what your home screen could look like once Rich knows enough about you and your business.";
+
   // The default selection in the entity row. Not the absence of a selection — the CEO was
   // explicit that "all companies" is a STATE and it is the one showing: "switch their loro
   // visual from all companies (which is default) to display the loro for just one".
@@ -111,6 +130,16 @@ window.RichHome = (function () {
     entitySource: "unanswered",
     /// How many company buttons the row is carrying, the default NOT included.
     entityCount: 0,
+    /// Is the picture being drawn from the CUSTOMER'S OWN loro? `false` until a dataset
+    /// positively says otherwise — see `fieldDataIsCustomers()`.
+    dataIsCustomers: false,
+    /// Is the first-run banner up? Exactly `!dataIsCustomers`, kept separately so a test can
+    /// catch the two drifting apart rather than assume they cannot.
+    noteShown: false,
+    /// What the answer was derived FROM, in one word: `"synthetic"` (the dataset says it is),
+    /// `"unknown"` (no dataset has loaded, or it does not say), `"customer"` (it says it is
+    /// his). Never a guess with no name on it.
+    dataSource: "unknown",
   };
 
   // =========================================================================================
@@ -175,6 +204,11 @@ window.RichHome = (function () {
     r.appendChild(brand);
     r.appendChild(elem("section", null, { id: "home-signals" }));
 
+    // APP: the first-run banner, at the top of the right column and therefore before the
+    // aside in the DOM. Neither overlaps the other — see `--home-note-inset` — so this is
+    // reading order rather than paint order.
+    r.appendChild(buildNote());
+
     var live = elem("aside", null, { id: "home-live" });
     var cap = elem("div", "cap");
     cap.textContent = "Working now";
@@ -195,6 +229,122 @@ window.RichHome = (function () {
     r.appendChild(loading);
 
     return r;
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // APP: THE FIRST-RUN BANNER — and the condition is the important half of it.
+  //
+  // THE CONDITION IS DERIVED FROM THE DATA THAT IS BEING DRAWN. Not a launch counter, not a
+  // "first run" flag somebody sets, not a preference: those all drift away from the truth the
+  // moment anything else changes, and the failure they produce is the one that matters here —
+  // a screen telling a customer that a picture is his when it is not.
+  //
+  // The dataset says so itself. `home/field-data.js` opens with
+  // `window.MATURE_LORO = {"meta":{"name":"RichOS synthetic mature loro","version":1,
+  // "synthetic":true, ...`, and `home/field-engine.js:99` is `const loro = window.MATURE_LORO;`
+  // — so the object this reads IS the object the picture is drawn from, not a proxy for it.
+  //
+  // POSITIVE SIGNAL ONLY, which is the same discipline the continuity design requires of crash
+  // detection (`docs/plans/richos-session-continuity-2026-08-24.md` §5.2: a positive
+  // termination signal, never an inference from silence). The answer is "his" only when a
+  // dataset SAYS it is his. No dataset yet — which is the state at first paint, because the
+  // field loads on an idle callback — is not "his". A dataset that simply omits the flag is
+  // not "his" either. The banner stays up through every uncertainty, and only a positive
+  // `"synthetic": false` takes it down.
+  //
+  // THE SEAM THAT DOES NOT EXIST YET, NAMED PRECISELY BECAUSE IT IS NOT BUILT.
+  //
+  // Nothing in this product compiles a customer's own loro corpus into the shape the field
+  // consumes, so today this function returns `false` on every launch on every machine — the
+  // CEO's included — and the banner is always up. That is honest rather than convenient: the
+  // picture on his screen right now IS the synthetic corpus.
+  //
+  // What would close it: the Rust side already HAS the corpus. `richos_core::loro::
+  // CliContextCompiler` is wired in `app/src-tauri/src/memory.rs:87` (`wire_company_memory`)
+  // and `memory_status` (`app/src-tauri/src/main.rs:2010`) already reports whether one is
+  // provisioned. What is missing is a command — call it `home_field_data` — that compiles that
+  // corpus into the `{meta, nodes, links, sources, ...}` structure `home/field-*.js` reads,
+  // and stamps its `meta` with `"synthetic": false` plus the corpus root it came from.
+  // `startField()` would prefer its answer over the baked `field-data.js`, and this function
+  // would go from `false` to `true` with no other change anywhere: the banner would take
+  // itself down, `--home-note-inset` would go to `0px`, and the composition would be the
+  // frozen round's again.
+  //
+  // NOTE WHAT IS NOT PROPOSED: gating on `memory_status`. A provisioned corpus is not the same
+  // fact as a drawn picture, and a banner that vanished the moment a customer created a folder
+  // would be claiming his data was on screen while 7,500 synthetic objects were still on it.
+  // That is precisely the lie this element exists to prevent.
+  // -----------------------------------------------------------------------------------------
+
+  function buildNote() {
+    // `role="status"` and not `role="alert"`: it is a standing statement about what is on the
+    // screen, not an interruption. `aria-live` is deliberately absent for the same reason —
+    // the sentence is there when the screen is, so there is no change to announce.
+    var box = elem("aside", null, { id: "home-note", role: "status" });
+    var line = elem("p", null, { id: "home-note-line" });
+    line.textContent = NOTE;
+    box.appendChild(line);
+    return box;
+  }
+
+  /// Is the picture being drawn from the CUSTOMER'S OWN loro, or from a demonstration?
+  /// See the section header above for why this is positive-signal-only and what the missing
+  /// seam is. Returns `false` for "not his, or nobody has said".
+  function fieldDataIsCustomers() {
+    var d = window.MATURE_LORO;
+    var meta = d && d.meta;
+    if (!meta) return false;
+    // `=== false` rather than `!== true`: a dataset that forgets to say is not evidence.
+    return meta.synthetic === false;
+  }
+
+  /// Raise or drop the banner from the dataset that is actually loaded, and reserve the space
+  /// the top-right column needs for it. Safe to call at any time and as often as wanted.
+  function refreshNote() {
+    if (!root) return;
+    var box = root.querySelector("#home-note");
+    if (!box) return;
+
+    var meta = window.MATURE_LORO && window.MATURE_LORO.meta;
+    state.dataIsCustomers = fieldDataIsCustomers();
+    state.dataSource = state.dataIsCustomers ? "customer" : meta && meta.synthetic === true ? "synthetic" : "unknown";
+    box.hidden = state.dataIsCustomers;
+    state.noteShown = !box.hidden;
+
+    reserveNoteInset();
+  }
+
+  /// Push the top-right aside down by exactly the height the banner turned out to need.
+  ///
+  /// MEASURED, never a constant: the sentence wraps, and how many lines it wraps to depends on
+  /// the window width and on the face that ended up loading. The measurement is the TEXT's own
+  /// box (`#home-note-line`), not the banner's, because the banner's box carries 14px of
+  /// padding on each side that the wash needs and the layout must not pay for twice.
+  ///
+  /// 26px is the clear space between the sentence's last line and the aside's "Working now"
+  /// cap — one line of the aside's own 16px/1.75 leading, rounded to the composition's rhythm.
+  function reserveNoteInset() {
+    if (!root) return;
+    var box = root.querySelector("#home-note");
+    var line = root.querySelector("#home-note-line");
+    var h = box && !box.hidden && line ? line.getBoundingClientRect().height : 0;
+    var next = h > 0 ? Math.round(h + 26) + "px" : "0px";
+
+    // IT ONLY SPEAKS WHEN SOMETHING MOVED, and that is not an optimization — it is the
+    // termination condition. This function both LISTENS for `resize` (the sentence re-wraps
+    // when the window changes width) and DISPATCHES one (the aside moved, so the field's
+    // quiet-rectangle pass has to re-read the layout, which is how `reserveTopInset()` tells
+    // it). Dispatching unconditionally made those two the same edge of a cycle: measured, the
+    // first launch after that landed the picture at 10402 ms instead of 464 ms and the shell
+    // reported `RangeError: Maximum call stack size exceeded`. Comparing first is what makes
+    // the recursion depth two — change, notify, re-measure, agree, stop.
+    if (root.style.getPropertyValue("--home-note-inset") === next) return;
+    root.style.setProperty("--home-note-inset", next);
+    try {
+      window.dispatchEvent(new Event("resize"));
+    } catch (e) {
+      /* a webview with no Event constructor would have failed long before here */
+    }
   }
 
   // -----------------------------------------------------------------------------------------
@@ -445,6 +595,11 @@ window.RichHome = (function () {
       })
       .then(function () {
         state.field = "live";
+        // THE DATASET IS ONLY NOW ON THE PAGE. Until this line `window.MATURE_LORO` did not
+        // exist, so the banner has been up on the honest default ("nobody has said it is
+        // his"). Re-derive from what actually loaded: if it ever says it is his, this is where
+        // the banner takes itself down.
+        refreshNote();
         // If the CEO already left for the app UI while this was loading, the picture must not
         // start burning frames behind an opaque surface.
         if (!state.open && window.__loro && window.__loro.pause) window.__loro.pause();
@@ -915,6 +1070,11 @@ window.RichHome = (function () {
       bindWordmark();
       loadEntities();
       reserveTopInset();
+      refreshNote();
+      // The sentence re-wraps when the window changes width, and the aside sits on its
+      // measured height. Nothing else in this file listens for resize, so this is scoped to
+      // the reservation it owns rather than re-running the whole layout.
+      window.addEventListener("resize", reserveNoteInset);
       focusHome();
 
       // The settings menu gets ONE row — "Home screen", with a button that opens the panel
@@ -961,5 +1121,14 @@ window.RichHome = (function () {
     /// Re-read the row from the backend. The acceptance suite drives this directly rather
     /// than reloading the page after every write.
     reloadEntities: loadEntities,
+    /// Re-derive the first-run banner from whatever dataset is currently loaded. Exported so
+    /// the acceptance suite can drive BOTH sides of the condition — including the real-loro
+    /// side, which no code path in the product can produce yet.
+    refreshNote: refreshNote,
+    /// The condition itself, exported for the same reason.
+    fieldDataIsCustomers: fieldDataIsCustomers,
+    /// The sentence, exported so a test asserts the rendered string against the source of
+    /// truth rather than against a copy of it typed into the test.
+    NOTE: NOTE,
   };
 })();
