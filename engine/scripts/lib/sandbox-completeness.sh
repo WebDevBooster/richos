@@ -43,6 +43,23 @@
 # a shell can express one — a sourced library, a sibling .py, a data file, a
 # path built at runtime out of three variables.
 #
+# ===========================================================================
+# WHAT THIS DOES NOT COVER — say it here, not in a postmortem
+# ===========================================================================
+# This asks whether a hook can START. It does not ask whether a hook DECIDES the
+# same way it would in a real engine, and it cannot.
+#
+# A dependency that fails HARD announces itself, which is what makes it
+# checkable. A dependency that fails SOFT does not: scripts/lib/inflight.sh
+# without scripts/lib/teammate-identity.py starts perfectly, resolves no teams
+# directory, names no teammate, and reports that only into a structure nothing
+# reads in a sandbox. Every hook starts; the sandbox models a different engine.
+#
+# So the hand-maintained lists are not made redundant by this file, and must not
+# be treated as if they were. They remain the place a human states WHY each file
+# is carried — and both lists now do, entry by entry, precisely so the soft half
+# stays visible to a reader when this check has nothing to say about it.
+#
 # A hook that cannot start says so: every rooted hook in this engine prints the
 # "RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE" banner and names
 # the file it went looking for. That banner is a shipped contract, carried by

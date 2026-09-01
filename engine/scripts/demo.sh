@@ -219,6 +219,16 @@ DEMO_FILES+=(
     "scripts/lib/publication-boundary.py"
     "scripts/lib/inflight.sh"
     "scripts/lib/inflight.py"
+    # The teammate-identity module, on this list for a DIFFERENT reason from the
+    # eight above, and the difference is the edge of what the completeness check
+    # further down can see. Those eight are guards that REFUSE TO START without
+    # their predicate, so the check catches their absence by running them. This
+    # one fails SOFT: without it the in-flight sweep resolves no teams directory
+    # and no teammate names, and says so into a structure nothing reads here. A
+    # sample repo missing it would start every hook, pass the check, and
+    # demonstrate an engine that cannot name a teammate. Caught by reading, not
+    # by running — which is why every entry on this list states its own reason.
+    "scripts/lib/teammate-identity.py"
     # Not hooks and registered nowhere: the installer the setup beat runs, and
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"

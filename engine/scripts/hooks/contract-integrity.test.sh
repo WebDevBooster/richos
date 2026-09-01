@@ -197,6 +197,23 @@ ALL_ROOT_SCRIPTS=(
     # fixing the instance and closing the class, and it is why the case exists.
     scripts/lib/inflight.sh
     scripts/lib/inflight.py
+    # The teammate-identity module, and it is here for the STOP-HOOK-NOTICE
+    # REASON above rather than the refuse-to-start one — which is worth being
+    # precise about, because it marks the edge of what SC1 below can see.
+    #
+    # inflight.sh and inflight.py do NOT refuse without it. They degrade: the
+    # teams directory resolves to nothing, every name resolves to empty, and
+    # inflight.py's own wrapper says "teammate-identity.py — MISSING" into a
+    # structure nobody reads in a sandbox. So a sandbox without it starts every
+    # hook cleanly, passes SC1, and models an engine whose in-flight sweep can
+    # no longer name a single teammate.
+    #
+    # SC1 answers "can every hook START". It does not answer "does every hook
+    # DECIDE the same way it would in a real engine", and it cannot: a
+    # dependency that fails soft has, by construction, no announcement to read.
+    # That half stays a human judgment, made at this list, which is why each
+    # entry states its own reason.
+    scripts/lib/teammate-identity.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
