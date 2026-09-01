@@ -5,7 +5,7 @@
   same  main.js                                    faf51c9bc5ef6208
   same  mock.js                                    c81e72a214c2098b
   same  settings-button.js                         acc88425ba411e1f
-  same  splash.js                                  4e39792b9506ee22
+  same  splash.js                                  256766760cf4a8c0
   same  theme-boot.js                              44f6f330abbc8df5
   same  home/field-data.js                         182ce81cb4547ec7
   same  home/field-ref.js                          64bcbc47c03e3178
@@ -28,7 +28,7 @@
   present: /home/field-ref.js
   present: /fonts/fonts.css
 === bundle ===
-  executable 18532432 bytes
+  executable 18549648 bytes
   Identifier=com.richos.app
   TeamIdentifier=not set
 exit=0

@@ -1,2 +1,39 @@
-native-final.png  1920x1080  distinct colors 1  non-black pixels 0 of 2073600 (0.0000%)
-home-named.png  1440x900  distinct colors 354525  non-black pixels 1296000 of 1296000 (100.0000%)
+WHY THERE IS NO NATIVE SCREENSHOT OF THE HOME SCREEN, in two measurements taken
+two hours apart.
+
+FIRST ATTEMPT, ~21:30 — the display was locked. `screencapture -x` of the whole
+screen, with RichOS open and running, returned a valid 1920x1080 PNG containing
+one distinct color across all 2,073,600 pixels, zero of them non-black. The same
+screen as WebKit paints it, for comparison, was 354,525 distinct colors and 100%
+non-black.
+
+  native, display locked   1920x1080   distinct colors 1        non-black 0 of 2,073,600 (0.0000%)
+  WebKit, tests/home.js    1440x900    distinct colors 354,525  non-black 1,296,000 of 1,296,000 (100%)
+
+`System Events` also returned an EMPTY WINDOW LIST for the process, so the
+sequence could not be driven natively either — there was no way from here to click
+the switch in the real window and photograph the result.
+
+SECOND ATTEMPT, 22:33 — the display was awake, and the frame was the CEO'S OWN
+WORKING SCREEN: Chrome in the foreground on
+`richos-hq/design/mockups/rounds/round-11.2/index.html`, which is the contact sheet
+of six switch affordances he is choosing between, plus his desktop and its files.
+
+  native, display awake    1920x1080   distinct colors 383,291  non-black 2,070,547 of 2,073,600 (99.85%)
+
+383,291 colors and not one of them the app. The RichOS window opened behind his
+work, which is what `open -n` should do.
+
+IT WAS NOT FORCED TO THE FRONT, and that is a decision rather than a limitation.
+Activating the app would have taken his screen away from him mid-session to
+photograph a window, and the frame it produced would still have been most of his
+desktop. The capture was deleted rather than kept: it is his machine's contents,
+it is evidence of nothing about this work, and it does not belong in a repository.
+
+WHAT STANDS INSTEAD: the full interaction sequence — splash, home screen, switch,
+app UI, click the logo, home screen — driven and photographed in WebKit, the engine
+Tauri renders through on macOS, by `app/ui/tests/home.js`, six frames committed in
+`app/ui/tests/shots-home/`. Beside it, `shipped-identity.txt` proves the bytes
+WebKit drove are the bytes the bundle embeds, and `open-launch.txt` and `boot.log`
+prove the bundle boots from `cwd=/` under LaunchServices' environment and quits
+clean.
