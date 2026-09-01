@@ -108,12 +108,19 @@ reserved that way, and no copyright line above carries the "with Reserved Font
 Name" clause. The families are still declared under their own names in
 `fonts.css`, so nothing is passed off as something it is not.
 
-Two faces are deliberately absent and should stay absent:
+Three faces are deliberately absent and should stay absent. They are named in
+`wiki/ceo-decisions.md` §22 and deliberately **not** named here:
 
-* **Söhne.** Commercial, never authorized (§22). It was the tool the wordmark was
-  drawn with; the wordmark is outlines and needs no font.
-* **Iowan Old Style, Baskerville.** Apple-supplied. The mockups use them; the app
-  cannot, for the same reason it cannot use `-apple-system`.
+* the commercial face the wordmark was drawn with — never authorized, and not
+  needed, because the wordmark ships as outlines;
+* the two Apple-supplied serif faces the mockups are set in — the mockups may
+  use them, the app cannot, for exactly the same reason it cannot use the
+  platform interface faces.
+
+Writing them out here would put the names back in the tree for the next person
+to find and ask about, which is the conversation this whole change exists to
+end. §22 is one click away and is the authority; this file does not need to be a
+second copy of it.
 
 ## Rebuilding
 

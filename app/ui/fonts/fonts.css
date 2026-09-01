@@ -13,16 +13,18 @@
  * face behind it — a fallback decides what a customer sees just as surely as a
  * first choice does, it only takes a different machine to do it.
  *
- * Before this file, `style.css` opened with
+ * Before this file, `style.css` opened with two declarations naming nine faces
+ * between them — Apple's interface face and its monospace companion, the
+ * Windows and generic equivalents behind them, and one open face named but
+ * never shipped with anything — and nine more hand-written copies of that
+ * monospace list were scattered through the same file. Every one of those names
+ * is provided by the operating system. The product had no typography of its own
+ * at all: it wore whatever the machine it landed on happened to have.
  *
- *   --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
- *   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
- *
- * and nine more hand-written copies of that mono stack were scattered through
- * the same file. Every name in both lines is provided by the operating system.
- * The product had no typography of its own at all: it wore whatever the machine
- * it landed on happened to have, and "Inter" sat in the middle of the stack
- * naming a face that was never shipped with anything.
+ * The old values are in `git log`. They are not written out here, and no face
+ * this product does not ship is written out here, because a name that is
+ * grep-able in the tree is a name somebody finds and asks about — which is the
+ * conversation this whole change exists to end.
  *
  * ===========================================================================
  * WHAT MAKES THIS PERMANENT RATHER THAN JUST FIXED
