@@ -34,6 +34,7 @@ window.RichSettings = (function () {
   var bug = null; // { open() } — what "Bust a bug" actually opens, when that exists
   var splash = null; // { read(), write(on) } — the opening screen's off switch
   var updates = null; // { render(container), onOpen() } — the update surface fills its own row
+  var company = null; // { read(), write(id) } — which company this copy of Rich works for
 
   var wrap = null;
   var menuEl = null;
@@ -212,6 +213,77 @@ window.RichSettings = (function () {
   /// It sits below the opening-screen row and above the floor: §15 fixes the order of the
   /// three rows it names and says nothing about this one, and "Bust a bug" stays last
   /// because the ruling's floor is that it is always there.
+  /// WHICH COMPANY THIS COPY OF RICH WORKS FOR.
+  ///
+  /// IT IS HERE AND NOT IN THE RAIL'S PREFERENCES POPOVER, and the reason is measured. It
+  /// was built there first — beneath the opening-screen switch, on the same "a thing he
+  /// decides once goes last" argument — and it made that popover 821px tall in a 950px
+  /// window. The popover is anchored `bottom: 46px; left: 10px` INSIDE the rail, so those
+  /// extra ~195px land on top of the thread list: `techy.js` check 9 stopped being able to
+  /// click a conversation while the popover was open, because a `.popover-option` was now
+  /// over it, and the contrast walk of that surface measured 8 fewer nodes for the same
+  /// reason. A settings row that covers the navigation is not a placement anyone wins.
+  ///
+  /// This menu is `position: fixed; top: 18px; right: 18px`, so it grows downward over the
+  /// empty stage and covers nothing. It is also the surface §15 made universal — "always
+  /// everywhere on every page" — and at `z-index: 300` it is above the correction and
+  /// feedback overlays, which is exactly where this control has to be reachable from: the
+  /// desks refuse to read anything while no company is chosen.
+  ///
+  /// A SELECT AND NOT A RADIO GROUP. This menu's shape is one row, one label, one control
+  /// on the right, and the registry it lists is a table that grows. Four stacked radios
+  /// would be the popover problem again, one row down.
+  function buildCompanyRow() {
+    var row = elem("div", "set-row", { id: "set-company-row" });
+    var label = elem("span", "set-name", { id: "set-company-label" });
+    label.textContent = "Company";
+    row.appendChild(label);
+    var state = (company && company.read && company.read()) || null;
+    if (state && state.pinnedByEnvironment) {
+      // NOT A DISABLED CONTROL. `RICHOS_ENTITY` decided this from outside the window and
+      // nothing in here can move it, so the row states the answer and the reason instead of
+      // showing a dead menu — the §21 rule for a state he cannot fix.
+      var said = elem("span", "set-said", { id: "set-company-pinned" });
+      said.textContent = state.chosen ? nameOf(state, state.chosen) : "Not recognized";
+      // THE EXPLANATION IS A `title`, AND THAT IS DELIBERATE RATHER THAN LAZY: this menu's
+      // rows are one label and one control wide, a second full-width line would be a new
+      // row shape for one state, and a `title` is read by the affordance scrape and by a
+      // screen reader alike. It is the state's own account of who owns it.
+      said.title =
+        "That was set when RichOS was started up, from outside this window, so it can't be " +
+        "changed from in here — whoever set RichOS up is the one who changes it.";
+      row.appendChild(said);
+      return row;
+    }
+    var sel = elem("select", "set-select", {
+      id: "set-company",
+      "aria-labelledby": "set-company-label",
+    });
+    if (!state || !state.chosen) {
+      // The unanswered state is a real option and is SELECTED, so the control never shows a
+      // company he has not picked. Choosing it back is not offered: un-answering is not a
+      // thing the store supports and a menu entry that silently did nothing would be worse.
+      var none = elem("option", null, { value: "", disabled: "disabled", selected: "selected" });
+      none.textContent = "Not set yet";
+      sel.appendChild(none);
+    }
+    var options = (state && state.options) || [];
+    for (var i = 0; i < options.length; i++) {
+      var o = elem("option", null, { value: options[i].id });
+      o.textContent = options[i].display_name;
+      if (state && options[i].id === state.chosen) o.setAttribute("selected", "selected");
+      sel.appendChild(o);
+    }
+    row.appendChild(sel);
+    return row;
+  }
+
+  function nameOf(state, id) {
+    var options = (state && state.options) || [];
+    for (var i = 0; i < options.length; i++) if (options[i].id === id) return options[i].display_name;
+    return id;
+  }
+
   function buildUpdatesRow() {
     var row = elem("div", "set-updates", { id: "set-updates" });
     return row;
@@ -244,9 +316,19 @@ window.RichSettings = (function () {
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
     if (splash) menu.appendChild(buildSplashRow()); // ...then the opening screen's off switch
+    if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
     return menu;
+  }
+
+  function wireCompany(menu) {
+    var sel = menu.querySelector("#set-company");
+    if (!sel || !company || !company.write) return;
+    sel.addEventListener("change", function () {
+      if (!sel.value) return;
+      company.write(sel.value);
+    });
   }
 
   function rebuild() {
@@ -281,6 +363,15 @@ window.RichSettings = (function () {
     if (sp && splash) sp.checked = !!splash.read();
     // The updates row is painted by its owner, because this file does not know what is in
     // it. Called on every paint so a rebuild (a forced-dark flip) never leaves an empty row.
+    // The company row is REBUILT rather than repainted when its shape can change (chosen
+    // vs pinned vs not-set-yet are three different rows), and repainted when only the
+    // selection moved. `paint` is the cheap half; `rebuild` is called by `registerCompany`
+    // and by the host when the answer changes.
+    var comp = menuEl.querySelector("#set-company");
+    if (comp && company && company.read) {
+      var cs = company.read();
+      if (cs && cs.chosen) comp.value = cs.chosen;
+    }
     var up2 = menuEl.querySelector("#set-updates");
     if (up2 && updates && updates.render) updates.render(up2);
     if (wrap) wrap.setAttribute("data-force-dark", String(T.forcedDark()));
@@ -417,6 +508,7 @@ window.RichSettings = (function () {
     }
     var bugEl = menuEl.querySelector("#bug-btn");
     if (bugEl) bugEl.addEventListener("click", bustABug);
+    wireCompany(menuEl);
   }
 
   function mount() {
@@ -523,6 +615,23 @@ window.RichSettings = (function () {
      *  not offer to switch off a screen it cannot reach. */
     registerSplash: function (host) {
       splash = host || null;
+      rebuild();
+    },
+
+    /** WHICH COMPANY THIS COPY OF RICH WORKS FOR. `host.read()` returns the shape
+     *  `entity_choice` puts on the wire (`chosen`, `options`, `pinnedByEnvironment`) and
+     *  `host.write(id)` is the same call the launch picker makes, so the two doors move one
+     *  state. Registering is also what makes the row exist, so a page with no shell behind
+     *  it — the opening screen — carries no company control it cannot deliver. */
+    registerCompany: function (host) {
+      company = host || null;
+      rebuild();
+    },
+
+    /** Repaint the company row from outside, after the host's own answer moved. Its SHAPE
+     *  can change (not-set-yet loses its placeholder entry once he answers), so this is a
+     *  rebuild rather than a paint. */
+    refreshCompany: function () {
       rebuild();
     },
 

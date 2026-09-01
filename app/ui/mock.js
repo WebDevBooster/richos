@@ -89,7 +89,16 @@
     // that was already there.
     { id: "memory", title: "Design RichOS memory strategy", entity_id: "femcboost", created_at: now() - 1000 * 60 * 5, message_count: 0, last_activity: now() - 1000 * 60 * 5, last_turn_state: null, has_pending_turn: false },
   ];
-  let activeThreadId = "general";
+  // A PRE-BOOT SWITCH, and the only one in this file. The launch state it drives — no
+  // company chosen, so the app asks — is decided BEFORE `main.js` runs its `init()`, so a
+  // setter called afterwards cannot reach it: by then the shell has already branched on
+  // whether a thread was active. The browser harness sets this with `addInitScript`, which
+  // runs before any of the page's own scripts.
+  //
+  //   window.__RICHOS_MOCK_PRESET__ = { chosenEntity: null }          // never answered
+  //   window.__RICHOS_MOCK_PRESET__ = { pinnedByEnvironment: true }   // RICHOS_ENTITY set
+  const preset = (typeof window !== "undefined" && window.__RICHOS_MOCK_PRESET__) || {};
+  let activeThreadId = "chosenEntity" in preset && !preset.chosenEntity ? null : "general";
 
   // Verbatim from `LedgerError::UnboundThread` (ledger.rs). Copied rather than paraphrased
   // so the harness cannot drift from the sentence the real backend raises.
@@ -426,6 +435,38 @@
                 latestUpdate: "Pulled the platform-eng comparables from three sources",
                 firstObservedAt: "2026-08-29T04:00:02+00:00", lastObservedAt: "2026-08-29T04:07:31+00:00" } },
   ];
+
+  // WHICH COMPANY THIS COPY OF RICH WORKS FOR (`entity_choice` / `choose_entity`).
+  //
+  // The preview's default is CHOSEN, and deliberately so: every fixture in this harness
+  // starts with a rail full of threads that already have a company, which is what a machine
+  // that has been answered once looks like. `setCompanyChosen(null)` drives the launch
+  // state — the one a double-clicked bundle is always in until the CEO answers — so the
+  // picker, the composer block and its control can be exercised without a real Finder
+  // launch, and `setCompanyPinnedByEnvironment` drives the operator's variant where the
+  // answer came from outside the window and there is nothing here to press.
+  let chosenEntityId = "chosenEntity" in preset ? preset.chosenEntity : "richos";
+  let chosenEntitySource = chosenEntityId
+    ? preset.pinnedByEnvironment
+      ? "environment"
+      : "saved-choice"
+    : null;
+  let entityPinnedByEnvironment = preset.pinnedByEnvironment === true;
+
+  function entityChoiceOf() {
+    return {
+      chosen: chosenEntityId,
+      source: chosenEntityId ? chosenEntitySource : null,
+      pinnedByEnvironment: entityPinnedByEnvironment,
+      options: entities.map((e) => ({
+        id: e.id,
+        display_name: e.display_name,
+        roots: e.roots || [],
+        thread_count: threads.filter((t) => t.entity_id === e.id).length,
+      })),
+      active: activeContextOf(),
+    };
+  }
 
   function activeContextOf() {
     const t = threads.find((x) => x.id === activeThreadId);
@@ -1245,6 +1286,34 @@
           return retentionView(before - rawShards.length);
         }
 
+        case "entity_choice":
+          return entityChoiceOf();
+        case "choose_entity": {
+          const entityId = args.entityId ?? args.entity_id;
+          if (entityPinnedByEnvironment)
+            return Promise.reject(
+              "This copy of me was told which company it works for when it was started up, " +
+                "from outside this window, so I can't move it from in here. Whoever set " +
+                "RichOS up is the one who changes that."
+            );
+          if (!entities.some((e) => e.id === entityId))
+            return Promise.reject(
+              'I don\'t have a company called "' + entityId + '" on file, so I won\'t file ' +
+                "anything under it. Pick one of the companies I do have, or whoever set " +
+                "RichOS up can add it."
+            );
+          chosenEntityId = entityId;
+          chosenEntitySource = "saved-choice";
+          // The real command activates a thread ONLY when nothing is open — it never
+          // re-homes an existing conversation (ECS §3.2). Same rule here.
+          if (!activeContextOf()) {
+            const existing = threads
+              .filter((t) => t.entity_id === entityId)
+              .sort((a, b) => b.created_at - a.created_at)[0];
+            if (existing) activeThreadId = existing.id;
+          }
+          return entityChoiceOf();
+        }
         case "active_context":
           return activeContextOf();
         case "thread_scope": {
@@ -2362,6 +2431,23 @@
       window.__RICHOS_MOCK__._notConnected = v;
     },
     _notConnected: false,
+
+    // ---- which company this copy of Rich works for ---------------------------------
+    /// `null` is the LAUNCH STATE: no company chosen, so the app asks. It is what every
+    /// double-clicked bundle is in until the CEO answers once, and it must be drivable
+    /// here because a unit test could not produce it and a real Finder launch is not a
+    /// browser fixture.
+    setCompanyChosen(id) {
+      chosenEntityId = id || null;
+      chosenEntitySource = id ? "saved-choice" : null;
+      if (!id) activeThreadId = null;
+    },
+    /// The operator's variant: `RICHOS_ENTITY` decided it, nothing in the window can move
+    /// it, so the settings row renders a statement rather than a dead control.
+    setCompanyPinnedByEnvironment(v) {
+      entityPinnedByEnvironment = v !== false;
+      if (entityPinnedByEnvironment) chosenEntitySource = "environment";
+    },
 
     // ---- the two correction desks --------------------------------------------------
     /// `loro_available` / `spoken_corrections_available` are SEPARATE FACTS about one

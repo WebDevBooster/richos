@@ -570,7 +570,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 560 tests + 5 doc-tests
+cargo test -p richos-core                       # 568 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
@@ -584,6 +584,12 @@ cargo build                                     # -> target/debug/richos-tauri (
 #    no npm, no Node, no adapter. $RICHOS_CLAUDE_BIN overrides the binary; by default
 #    ~/.local/bin/claude is preferred over PATH.
 cargo run -p richos-core --example native_roundtrip -- "$PWD/../engine" "who are you?"
+
+# 3a. THE LAUNCH THE CEO PERFORMS, end to end. A double-clicked bundle has working
+#     directory `/`, which owns no entity, so the send is refused; this runs the whole
+#     sequence — refused, answered, remembered, reopened, and the same sentence landing
+#     with a real lease. The four steps that need no compute are also tests.
+cargo run -p richos-core --example company_choice_roundtrip -- "$PWD/../engine" richos
 
 # 3b. The LIVE machinery proof — the same chain, but showing that tool calls are ROUTED
 #     and RETAINED: the calm view, the interleaved (turn, seq) stream, the merged rows,

@@ -175,6 +175,42 @@ const SURFACES = [
       await p.waitForTimeout(300);
     },
   },
+  // NO SEPARATE SURFACE FOR THE COMPANY RADIOS, and that is a measured decision rather than
+  // an omission. One was written — it scrolled the group into view on the assumption that the
+  // popover's `max-height: calc(100vh - 70px); overflow-y: auto` had pushed it out — and it
+  // measured 66 nodes across both themes, the identical set the `settings` walk above already
+  // measures. At 1400x950 the popover is 821px tall against an 819px scroll height: it does
+  // not overflow, so the company rows are in view on `settings` and a second walk of the same
+  // pixels would be a check that can only ever agree with its neighbour.
+  // THE LAUNCH THE CEO PERFORMS — no company chosen, so the picker is open over a composer
+  // that says why it will not send and carries the control that clears it. Three of this
+  // pass's new ink/edge pairs live only here: the picker's note line, the blocked sentence,
+  // and the border of the button beneath it.
+  {
+    name: "company-picker",
+    what: "the launch-time company picker, its note, and the blocked composer behind it",
+    drive: async (p) => {
+      await p.waitForSelector("#entity-picker:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+    preset: { chosenEntity: null },
+  },
+  // THE SAME LAUNCH WITH THE DIALOG DISMISSED. It is a separate surface and not a nicety:
+  // with the picker up, the composer's blocked sentence and the button beneath it are
+  // behind an `aria-modal` dialog and are filed `obscured` rather than measured — so
+  // without this walk, check 11 correctly reports `button#choose-company-btn` as a node
+  // that is obscured everywhere and measured nowhere. This is where it is measured.
+  {
+    name: "company-blocked",
+    what: "the blocked composer and its Choose the company button, picker dismissed",
+    drive: async (p) => {
+      await p.waitForSelector("#entity-picker:not([hidden])");
+      await p.keyboard.press("Escape");
+      await p.waitForSelector("#entity-picker", { state: "hidden" });
+      await p.waitForTimeout(300);
+    },
+    preset: { chosenEntity: null },
+  },
   // THE UPDATE ROW, IN THREE STATES, because one state cannot paint the colours the others
   // do (RICH-TODOs row 12, `app/ui/updates.js`). It lives in the UNIVERSAL settings menu —
   // which the `settings` surface above does NOT reach, since that one drives the rail's
@@ -264,7 +300,7 @@ const SURFACES = [
 // Driving
 // ---------------------------------------------------------------------------------------
 
-async function openApp(browser, theme, holdSplash) {
+async function openApp(browser, theme, holdSplash, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -330,6 +366,15 @@ async function openApp(browser, theme, holdSplash) {
         },
       });
     });
+  }
+  // A PRE-BOOT MOCK PRESET, for the one state a setter cannot reach: "no company has ever
+  // been chosen" is decided before `init()` branches on whether a thread is active, so it
+  // has to be in place before any of the page's own scripts run (mock.js's own comment on
+  // `__RICHOS_MOCK_PRESET__` says the same thing from the other side).
+  if (preset) {
+    await page.addInitScript((v) => {
+      window.__RICHOS_MOCK_PRESET__ = v;
+    }, preset);
   }
   await page.goto(APP);
   await page.waitForSelector(".nav-thread", { state: "attached" });
@@ -687,7 +732,7 @@ async function main() {
       let checked = 0;
       let considered = 0;
       for (const theme of THEMES) {
-        const page = await openApp(browser, theme, surface.holdSplash);
+        const page = await openApp(browser, theme, surface.holdSplash, surface.preset);
         await surface.drive(page);
         const out = await walk(page, surface.name, theme);
         if (theme === "light") {

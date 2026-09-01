@@ -383,13 +383,15 @@ async function main() {
     const rows = await menuRows(page);
     assertEqual(
       rows,
-      ["Theme", "Text size", "Techy Mode", "Opening screen", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The opening screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +
         "Updates (RICH-TODOs row 12) was added on 2026-08-31 BELOW all four and ABOVE the floor, for " +
         "the same reason the opening-screen row sits where it does: the ruling does not name it, and " +
-        "the floor stays the floor."
+        "the floor stays the floor. Company (2026-09-01, the entity picker's durable half) went in " +
+        "at the same rank and for the same reason, above Updates because it is a preference and " +
+        "Updates is a status panel."
     );
     await page.close();
     return rows.join(" -> ");

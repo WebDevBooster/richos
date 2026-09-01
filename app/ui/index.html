@@ -227,6 +227,8 @@
           <label class="popover-option"
             ><input type="checkbox" id="splash-enabled" /> Show it when RichOS starts</label
           >
+
+
         </div>
 
         <!-- Draggable divider (§2.1: both vertical dividers are user-draggable). Keyboard
@@ -363,6 +365,18 @@
           <p id="composer-scope" class="composer-scope" hidden></p>
           <!-- Send is blocked, with the reason stated (§21 entity binding failure). -->
           <p id="composer-blocked" class="composer-blocked" hidden role="status"></p>
+          <!-- THE CONTROL FOR THE ONE BLOCKED STATE HE CAN CLEAR HIMSELF. Every other
+               `#composer-blocked` sentence is somebody else's job (an unbound thread needs
+               an operator); "I don't know which company this is" is now his, so the rule
+               that a state the user could change must render the control that changes it
+               applies, and this is the control. It is a SIBLING of the line rather than a
+               child of it because `#composer-blocked` is written with `textContent` from
+               six places, and a button inside it would be erased by the next one. -->
+          <div id="composer-choose-company" class="composer-blocked-action" hidden>
+            <button id="choose-company-btn" class="composer-blocked-btn" type="button">
+              Choose the company
+            </button>
+          </div>
           <div id="composer-row">
             <!-- Persistent across text/voice modes — this is the SAME ◉ the voice
                  footnote refers to ("tap ◉ to end voice"), so it must never hide. -->
@@ -486,6 +500,15 @@
       <div id="entity-picker" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="entity-picker-title">
         <div class="overlay-panel overlay-panel--compact">
           <p id="entity-picker-title" class="overlay-title">Which entity is this work in?</p>
+          <!-- THE BOOT CASE'S SECOND LINE, and the reason it is separate from the title.
+               The picker has two jobs now. Started from "+ New thread" it asks which
+               company ONE conversation is for and the title above is the whole question.
+               Opened because the app could not work out which company this COPY of Rich is
+               for — the state a double-clicked bundle is always in, since its working
+               directory is `/` and owns no entity — it is asking something bigger, and the
+               answer is remembered. Saying so is the difference between a question he
+               answers once and a question he thinks he will be asked forever. -->
+          <p id="entity-picker-note" class="overlay-note" hidden></p>
           <div id="entity-picker-list" class="picker-list" role="listbox" aria-labelledby="entity-picker-title"></div>
         </div>
       </div>

@@ -1,0 +1,23 @@
+   Compiling richos-core v0.1.0 (/Users/alex/ab/richos/.worktrees/echo-opus-e1/app/crates/richos-core)
+   Compiling richos-tauri v0.1.0 (/Users/alex/ab/richos/.worktrees/echo-opus-e1/app/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.16s
+     Running unittests src/main.rs (app/src-tauri/target/debug/deps/richos_tauri-9424359c24ebd30f)
+
+running 1 test
+test entity_choice_tests::nothing_chosen_and_nothing_resolved_still_refuses_every_send ... FAILED
+
+failures:
+
+---- entity_choice_tests::nothing_chosen_and_nothing_resolved_still_refuses_every_send stdout ----
+
+thread 'entity_choice_tests::nothing_chosen_and_nothing_resolved_still_refuses_every_send' (132506721) panicked at src/main.rs:2241:9:
+the refusal must be the NoActiveThread one, not something that half-worked
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    entity_choice_tests::nothing_chosen_and_nothing_resolved_still_refuses_every_send
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--bin richos-tauri`
