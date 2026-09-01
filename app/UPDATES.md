@@ -206,7 +206,9 @@ update is waiting or installed. Opening it shows an Updates row with, in every c
 **RichOS checks by itself, three seconds after launch.** The install is a button, and that is
 deliberate: on macOS the installer deletes and replaces the running `.app` in place, and RichOS
 holds a `claude-agent-acp` child process as a compute lease that the session-continuity design
-forbids swapping mid-turn (`docs/plans/richos-session-continuity-2026-08-24.md` §3.1). Doing
+forbids swapping mid-turn (the session-continuity design record,
+`richos-session-continuity-2026-08-24.md` §3.1, which is kept privately in richos-hq and
+is not part of this repository). Doing
 that behind the CEO's back is that invariant broken by a background thread.
 
 **A refused signature is never offered a retry.** Every other failure gets *Try again*; a

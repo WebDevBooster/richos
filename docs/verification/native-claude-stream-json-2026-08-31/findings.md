@@ -1,9 +1,11 @@
 # Can RichOS delete its last npm dependency?
 
+> **Path note (2026-09-01).** The ACP adapter this record measures — app/acp-adapter/ and app/crates/richos-core/src/acp.rs — was deleted in a45acc3. Filenames below are therefore given bare: they resolve in git history at that commit, not in the current tree.
+
 **Spike, 2026-08-31. Verdict: YES, WITH FOUR NAMED CAVEATS — none of them blocking, one of
 them a decision that belongs to the CEO rather than to me.**
 
-Every capability `app/crates/richos-core/src/acp.rs` actually consumes today has an
+Every capability `acp.rs` actually consumes today has an
 **observed** equivalent on the native `claude` binary's stream-json stdio, driven from Rust.
 Two of them arrive in a poorer form and RichOS would have to do work the adapter does for it
 now; one moves to a different field; one is a new fragility. The port is real work and it is
@@ -37,9 +39,9 @@ adapter 0.70.0), not in what `acp.rs` looks like it expects.
 
 ## 2. The dependency that would go away is not one package
 
-`app/acp-adapter/package.json` declares exactly one dependency,
+The adapter's `package.json` declares exactly one dependency,
 `@agentclientprotocol/claude-agent-acp: "^0.70.0"`. That is the shipped npm surface as
-*declared*. As *resolved*, `app/acp-adapter/package-lock.json` pins:
+*declared*. As *resolved*, its `package-lock.json` pins:
 
 | | count |
 |---|---|

@@ -1,12 +1,14 @@
 # Raw captures — intermediate tool status through the ACP adapter, 2026-08-31
 
+> **Path note (2026-09-01).** The ACP adapter this record measures — app/acp-adapter/ and app/crates/richos-core/src/acp.rs — was deleted in a45acc3. Filenames below are therefore given bare: they resolve in git history at that commit, not in the current tree.
+
 Every JSON-RPC message the `claude-agent-acp` child exchanged with the client, unedited, in
 arrival order, each stamped with the offset at which the client READ it. This is the missing
 half of `../../native-claude-tool-status-2026-08-31/`: that artifact measured the **native**
 binary and closed with *"that missing run is against the adapter, not the binary"* (§6 case 3,
 §8 bullet 1). These four runs are that run.
 
-Recorded by **`app/acp-adapter/probe-machinery.js`, unmodified** — the same instrument, byte for
+Recorded by **`probe-machinery.js`, unmodified** — the same instrument, byte for
 byte, that produced the five captures in `../../acp-emission-probe-2026-08-28/`, driven only
 through its `PROBE_PROMPT` environment variable. Nothing about the client policy changed:
 permissions are auto-approved with the first `allow*` option, exactly as `acp.rs:469-479` does.

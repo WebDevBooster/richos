@@ -205,6 +205,10 @@ ti = d.get("tool_input") or {}
 cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
 cwd = str(d.get("cwd", "") or "")
 sid = str(d.get("session_id", "") or "")
+# The lead's own transcript, carried on every hook payload. It holds the ONLY
+# complete name -> agent id join (Agent tool_use -> toolUseResult.agentId), so
+# it is passed through to the predicate rather than left to be rediscovered.
+tpath = str(d.get("transcript_path", "") or "")
 
 if not re.search(r"\bgit\b", cmd):
     out("PASS")
@@ -243,7 +247,7 @@ for seg in re.split(r"(?:\|\||&&|[;\n|])", cmd):
     positional = [a for a in rest if not a.startswith("-")]
     # positional[0] is the remote; anything after it is a refspec.
     refspecs = positional[1:] if len(positional) > 1 else []
-    out("ACT", repo, cwd, sid, " ".join(refspecs))
+    out("ACT", repo, cwd, sid, " ".join(refspecs), tpath)
 
 out("PASS")
 PYEOF
@@ -255,6 +259,7 @@ REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
 PAYLOAD_CWD="$(printf '%s' "$CLASS" | cut -f3)"
 SESSION_ID="$(printf '%s' "$CLASS" | cut -f4)"
 REFSPECS="$(printf '%s' "$CLASS" | cut -f5)"
+TRANSCRIPT="$(printf '%s' "$CLASS" | cut -f6)"
 
 ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
 case "$ANCHOR" in
@@ -296,7 +301,8 @@ inflight_require || {
     exit 2
 }
 
-TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
+inflight_resolve_teams_dir "$SESSION_ID"
+TEAMS_DIR="$INFLIGHT_TEAMS_DIR_RESOLVED"
 TIMEOUT_MIN="$(inflight_timeout_min "${SEAT_ROOT:-$REPO}")"
 inflight_register_repo "$TEAMS_DIR" "$REPO"
 
@@ -304,7 +310,7 @@ inflight_register_repo "$TEAMS_DIR" "$REPO"
 # with `|| RC=$?` rather than a bare `$?`, which would end the hook on the very
 # condition it exists to report.
 RC=0
-REPORT="$(inflight_assess "$REPO" "" "$TEAMS_DIR" "$TIMEOUT_MIN" text 2>/dev/null)" || RC=$?
+REPORT="$(inflight_assess "$REPO" "" "$TEAMS_DIR" "$TIMEOUT_MIN" text "$SESSION_ID" "$TRANSCRIPT" 2>/dev/null)" || RC=$?
 
 case "$RC" in
   0) exit 0 ;;                       # nothing in flight, or everyone disposed of

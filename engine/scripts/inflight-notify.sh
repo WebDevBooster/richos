@@ -25,16 +25,33 @@
 #       The ack artifacts and their verification, including the one field no
 #       machine here can check.
 #
+# COMMON OPTIONS, all four subcommands:
+#   --repo R          the repository to sweep (default: the enclosing one)
+#   --tip SHA         the tip to sweep against (default: the main checkout HEAD)
+#   --session ID      which session's ledgers to read; defaults to
+#                     CLAUDE_SESSION_ID, which is unset when you run this by
+#                     hand from a terminal
+#   --transcript P    the orchestrator transcript, for the exact
+#                     name -> agent-id join; defaults to INFLIGHT_TRANSCRIPT,
+#                     then to the transcript of --session
+#
 # Where the ledgers live: <session team dir>/inflight-notices.jsonl (written by
 # the PostToolUse[SendMessage] witness) and inflight-waivers.jsonl (written
-# here). Point both at a sandbox with INFLIGHT_TEAMS_DIR.
+# here). INFLIGHT_TEAMS_DIR points at either the directory session-* dirs live
+# under, OR straight at one team directory — both readings work, which is what
+# every header here has claimed since the beginning and what the code did not
+# do until 2026-09-01. `status` prints which directory it resolved and why, so
+# a sweep that is looking in the wrong place says so instead of reporting an
+# empty ledger as an empty world.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/inflight.sh"
 
-usage() { sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; }
+# The whole leading comment block, minus the shebang — so a header that grows
+# does not silently stop being the help text.
+usage() { sed -n '3,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 CMD="${1:-status}"
 [ "$#" -gt 0 ] && shift || true
@@ -46,13 +63,15 @@ REPO=""
 TIP=""
 REASON=""
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
+TRANSCRIPT="${INFLIGHT_TRANSCRIPT:-}"
 TARGET=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --repo)    REPO="${2:-}"; shift 2 ;;
-        --tip)     TIP="${2:-}"; shift 2 ;;
-        --reason)  REASON="${2:-}"; shift 2 ;;
-        --session) SESSION_ID="${2:-}"; shift 2 ;;
+        --repo)       REPO="${2:-}"; shift 2 ;;
+        --tip)        TIP="${2:-}"; shift 2 ;;
+        --reason)     REASON="${2:-}"; shift 2 ;;
+        --session)    SESSION_ID="${2:-}"; shift 2 ;;
+        --transcript) TRANSCRIPT="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         -*)        echo "inflight-notify.sh: unrecognized option '$1'" >&2; exit 2 ;;
         *)         [ -n "$TARGET" ] && { echo "inflight-notify.sh: unexpected argument '$1'" >&2; exit 2; }
@@ -67,28 +86,32 @@ inflight_require || {
     exit 2
 }
 
-TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
+inflight_resolve_teams_dir "$SESSION_ID"
+TEAMS_DIR="$INFLIGHT_TEAMS_DIR_RESOLVED"
 TIMEOUT_MIN="$(inflight_timeout_min "$REPO")"
 inflight_register_repo "$TEAMS_DIR" "$(cd "$REPO" && git rev-parse --show-toplevel 2>/dev/null || printf %s "$REPO")"
 
 case "$CMD" in
     status)
-        inflight_assess "$REPO" "$TIP" "$TEAMS_DIR" "$TIMEOUT_MIN" text
+        inflight_assess "$REPO" "$TIP" "$TEAMS_DIR" "$TIMEOUT_MIN" text "$SESSION_ID" "$TRANSCRIPT"
         exit 0 ;;
 
     check)
         RC=0
-        inflight_assess "$REPO" "$TIP" "$TEAMS_DIR" "$TIMEOUT_MIN" text || RC=$?
+        inflight_assess "$REPO" "$TIP" "$TEAMS_DIR" "$TIMEOUT_MIN" text "$SESSION_ID" "$TRANSCRIPT" || RC=$?
         exit "$RC" ;;
 
     acks)
         IF_ARGS_REPO="$REPO" IF_ARGS_TIP="$TIP" IF_ARGS_TEAMS="$TEAMS_DIR" \
-        IF_ARGS_TMO="$TIMEOUT_MIN" IF_LIB_DIR="$SCRIPT_DIR/lib" python3 -c '
+        IF_ARGS_TMO="$TIMEOUT_MIN" IF_ARGS_SID="$SESSION_ID" IF_ARGS_TRANSCRIPT="$TRANSCRIPT" \
+        IF_LIB_DIR="$SCRIPT_DIR/lib" python3 -c '
 import os, sys
 sys.path.insert(0, os.environ["IF_LIB_DIR"])
 import inflight
 res = inflight.assess(os.environ["IF_ARGS_REPO"], os.environ["IF_ARGS_TIP"] or None,
-                      os.environ["IF_ARGS_TEAMS"], int(os.environ["IF_ARGS_TMO"]))
+                      os.environ["IF_ARGS_TEAMS"], int(os.environ["IF_ARGS_TMO"]),
+                      os.environ.get("IF_ARGS_SID", ""),
+                      os.environ.get("IF_ARGS_TRANSCRIPT", ""))
 print("acks for tip %s" % res["tip"])
 any_ack = False
 for wt in res["worktrees"]:
@@ -115,9 +138,19 @@ if not any_ack:
     waive)
         [ -n "$TARGET" ] || { echo "inflight-notify.sh waive: give the worktree path to waive." >&2; exit 2; }
         [ -n "$REASON" ] || { echo "inflight-notify.sh waive: --reason is required. A waiver with no reason is a silent skip wearing a ledger row." >&2; exit 2; }
-        [ -n "$TEAMS_DIR" ] || { echo "inflight-notify.sh waive: could not resolve a session team directory to record the waiver in. Set INFLIGHT_TEAMS_DIR or pass --session." >&2; exit 2; }
+        if [ -z "$TEAMS_DIR" ]; then
+            {
+                echo "inflight-notify.sh waive: could not resolve a session team directory to record the waiver in."
+                echo "  tried: $(inflight_teams_dir_how "$SESSION_ID")"
+                echo "  Either:"
+                echo "    INFLIGHT_TEAMS_DIR=<dir>   the directory session-* dirs live under, OR one team directory itself"
+                echo "    --session <id>             name the session whose ledgers to use"
+            } >&2
+            exit 2
+        fi
         IF_ARGS_REPO="$REPO" IF_ARGS_TIP="$TIP" IF_ARGS_TEAMS="$TEAMS_DIR" \
         IF_ARGS_TMO="$TIMEOUT_MIN" IF_ARGS_TARGET="$TARGET" IF_ARGS_REASON="$REASON" \
+        IF_ARGS_SID="$SESSION_ID" IF_ARGS_TRANSCRIPT="$TRANSCRIPT" \
         IF_LIB_DIR="$SCRIPT_DIR/lib" python3 -c '
 import json, os, sys, getpass
 from datetime import datetime, timezone
@@ -129,7 +162,9 @@ teams = os.environ["IF_ARGS_TEAMS"]
 target = inflight.norm(os.environ["IF_ARGS_TARGET"])
 reason = os.environ["IF_ARGS_REASON"]
 res = inflight.assess(repo, os.environ["IF_ARGS_TIP"] or None, teams,
-                      int(os.environ["IF_ARGS_TMO"]))
+                      int(os.environ["IF_ARGS_TMO"]),
+                      os.environ.get("IF_ARGS_SID", ""),
+                      os.environ.get("IF_ARGS_TRANSCRIPT", ""))
 match = None
 for wt in res["worktrees"]:
     if inflight.norm(wt["path"]) == target:
