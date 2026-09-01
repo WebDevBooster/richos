@@ -12,6 +12,82 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **The worktree reaper ran, reported success, and swept a room that was
+  already empty** (`scripts/reap-stale-worktrees.sh`,
+  `scripts/hooks/agent-finished-reap-worktrees.sh`, both wrappers,
+  `hooks/hooks.json`, probe Layer Q, two new suites) — MINOR.
+
+  At session start on 2026-09-01 it printed
+  `reaped=1 skipped=0 errors=0 residue=0`. By evening there were 19 registered
+  worktrees in one repository and 6 more in another that it had never looked
+  at, in that session or any session before it. **Nothing was broken.** Three
+  scope assumptions were wrong and the summary line was written as if none of
+  them existed:
+
+  1. **One repository.** It resolved a single repo root. The engineers were
+     working in two others.
+  2. **One path convention.** It scanned `.claude/worktrees/agent-*`, the
+     native isolation layout. The trees that accumulated were hand-rolled.
+     **The design assumption was inverted:** the project's own doctrine
+     REQUIRES hand-rolled worktrees for cross-repository work, so the reaper
+     covered the rare case and missed the standard one.
+  3. **One moment.** SessionStart only. A twelve-hour session accumulated
+     everything and cleared nothing until the next session opened.
+
+  Fixed as SCOPE, not as a second reaper — two sweeps each certain about their
+  own half is the same defect one level up. Repositories are now DISCOVERED
+  from named sources (primary, engine, the session's in-flight repo list and
+  event-log cwds, a ledger, and the neighborhood of a known checkout), never
+  from a typed inventory of repo names, which is the drift this repo has
+  shipped five times. Worktrees come from `git worktree list`; path shape now
+  decides only native vs hand-rolled.
+
+  **The safety rule, which is the reason this is careful rather than clever:**
+  a hand-rolled worktree takes no lock, so quiet is not death there. It is
+  reaped only on a positive termination signal for its OWNER, taken from the
+  owner's native isolation-worktree lock through the one liveness resolver.
+  ALIVE, INDETERMINATE, and a name that resolves to no agent all mean leave it
+  alone. **So does NOT-ALIVE when the verdict rests on the native worktree
+  being ABSENT** — absence is the exact inference doctrine forbids, and it is
+  refused even with every other gate open. That is also why the agent-finish
+  trigger is correctness rather than throughput: the owner's native worktree,
+  the only evidence a lockless tree ever has, is removed at land time, so a
+  session-start-only reaper is structurally incapable of ever deciding a
+  hand-rolled worktree however often it runs.
+
+  Two smaller things the first run of the rewrite got wrong and the second
+  caught, recorded because both were silent: `/private/tmp` became a "worktree
+  container" after one throwaway checkout landed there, and 39 launchd sockets
+  were reported as residue (a signal buried in noise is a signal ignored); and
+  the ledger recorded every DISCOVERED repository, so its own `ledger` source
+  promoted a neighborhood-only repository to reap-eligible on the next sweep
+  and the report-only boundary evaporated after exactly one run.
+
+  **The summary now carries its own denominator** — coverage, per-source
+  counts, and a `blind:` line for every thing the run could not see.
+  `reaped=1 residue=0` over one repository out of three is a false green, and
+  it was one all day.
+
+  Probe **Layer Q** grew the checks that go red when the reaper GOES BLIND
+  rather than only when it is unregistered: Q1b (the agent-finish trigger
+  wired exactly once on each of its two events), Q4 (a sibling repository
+  found only by discovery is swept; a LIVE owner's hand-rolled tree is never
+  selected; a terminated owner's merged+clean one IS, so the layer cannot be
+  satisfied by a reaper that refuses everything; an unmerged one never is; the
+  coverage line is present) and Q5 (the second trigger actually sweeps).
+  BR2's "exactly once" became a PER-EVENT invariant with a derived expected
+  total — the double-fire it guards against is one hook wired twice on the
+  SAME event, and a hook legitimately wired on two events was being called a
+  defect.
+
+  A mutation test earned its keep here: deleting the "an absent isolation
+  worktree is not a termination signal" branch changed nothing and all 15
+  cases stayed green, because the owner table was built from a CLI that only
+  ever describes worktrees that exist — so the flag that branch read was a
+  constant and the branch was unreachable on the day it was written. The table
+  is now built by importing the resolver and joining `names_to_ids` with
+  `enumerate_all`, which makes the absence case a real row.
+
 - **Four of the five commit/push guards were walked around by typing `cd`
   instead of `-C`** (`scripts/lib/git-jurisdiction.sh`,
   `scripts/lib/git-jurisdiction.test.sh`, and the five guards) — MINOR.
