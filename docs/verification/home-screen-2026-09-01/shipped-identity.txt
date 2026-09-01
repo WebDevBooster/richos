@@ -1,0 +1,34 @@
+=== source vs staged (sha256) ===
+  same  index.html                                 79eb38c19fc45384
+  same  home.js                                    c03fa486393a4125
+  same  home.css                                   bfd6dbfd62539104
+  same  main.js                                    faf51c9bc5ef6208
+  same  mock.js                                    c81e72a214c2098b
+  same  settings-button.js                         acc88425ba411e1f
+  same  splash.js                                  4e39792b9506ee22
+  same  theme-boot.js                              44f6f330abbc8df5
+  same  home/field-data.js                         182ce81cb4547ec7
+  same  home/field-ref.js                          64bcbc47c03e3178
+  same  home/field-prep.js                         849c1c7f38e44f9a
+  same  home/field-engine.js                       63fc57d7062d5a05
+  same  fonts/fonts.css                            e8b1681e62964d2f
+  same  fonts/Inter-Variable.woff2                 fe685c9ca1034384
+  same  fonts/Newsreader-Regular.woff2             e71a3bea5993009a
+  same  fonts/Newsreader-Italic.woff2              e384e31812c1d580
+=== the staged tree carries no test evidence ===
+  absent: tests
+  absent: node_modules
+=== asset keys inside the shipped executable ===
+  present: /index.html
+  present: /home.js
+  present: /home.css
+  present: /home/field-data.js
+  present: /home/field-engine.js
+  present: /home/field-prep.js
+  present: /home/field-ref.js
+  present: /fonts/fonts.css
+=== bundle ===
+  executable 18532432 bytes
+  Identifier=com.richos.app
+  TeamIdentifier=not set
+exit=0

@@ -1,0 +1,10 @@
+[richos] launch: fresh (1 window(s))
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company resolved — RichOS will ask in the window and remember the answer.
+[richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+[richos] loro Tier C: compiling from /Users/alex/Library/Application Support/RichOS/loro-root (via the loro-root pointer in Application Support), node /opt/homebrew/bin/node
+[richos] loro correction desk: writing to /Users/alex/Library/Application Support/RichOS/loro-root via /Users/alex/Library/Application Support/RichOS/loro-root/loro/bin/loro-write.mjs (the same install the compiler above resolved)
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-hs1/engine (via repo layout above the executable)
+[richos] compute lease attached over /Users/alex/.local/bin/claude
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved

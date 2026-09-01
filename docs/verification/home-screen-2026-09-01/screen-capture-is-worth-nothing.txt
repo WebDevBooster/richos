@@ -1,0 +1,2 @@
+native-final.png  1920x1080  distinct colors 1  non-black pixels 0 of 2073600 (0.0000%)
+home-named.png  1440x900  distinct colors 354525  non-black pixels 1296000 of 1296000 (100.0000%)
