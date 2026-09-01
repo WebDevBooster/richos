@@ -41,11 +41,17 @@ LOCATOR="$SRC_DIR/locate-engine.sh"
 TMP="$(mktemp -d -t locate-engine.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Snapshot the REAL operator pointer BEFORE anything runs, so case 6c can prove
-# the suite left it alone rather than assert that it meant to. The trailing 'x'
-# keeps "absent" and "empty" distinguishable through command substitution.
+# Snapshot the REAL operator global state BEFORE anything runs, so case 6c can
+# prove the suite left it alone rather than assert that it meant to. Taken
+# through scripts/lib/global-state-witness.sh — one definition of "what a run
+# may not leave moved", shared with demo.test.sh and by-reference.test.sh.
 REAL_CFG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-REAL_POINTER_BEFORE="$(readlink "$REAL_CFG_DIR/richos-engine" 2>/dev/null; printf 'x')"
+REAL_STATE_BEFORE=""
+if [ -f "$ENGINE_ROOT_REAL/scripts/lib/global-state-witness.sh" ]; then
+    # shellcheck source=./lib/global-state-witness.sh
+    . "$ENGINE_ROOT_REAL/scripts/lib/global-state-witness.sh"
+    REAL_STATE_BEFORE="$(richos_global_snapshot)"
+fi
 
 PASS=0
 FAIL=0
@@ -290,12 +296,23 @@ fi
 # 6c — the REAL operator config dir was not touched by any case above. This is
 # the assertion the suite exists to be able to make: the leak it guards against
 # actually happened once, and a suite that merely intends to sandbox is not
-# evidence that it did. REAL_POINTER_BEFORE is captured at the top of the file.
-REAL_POINTER_AFTER="$(readlink "$REAL_CFG_DIR/richos-engine" 2>/dev/null; printf 'x')"
-if [ "$REAL_POINTER_AFTER" = "$REAL_POINTER_BEFORE" ]; then
-    ok "6c the REAL $REAL_CFG_DIR/richos-engine is byte-identical before and after"
+# evidence that it did.
+#
+# Asked through scripts/lib/global-state-witness.sh rather than by hand. This
+# file and demo.test.sh had two hand-rolled copies of the same check, and two
+# copies of a check is how one of them ends up watching the wrong thing —
+# neither of them, for instance, would have noticed the pointer being DELETED
+# rather than repointed, because `readlink` prints nothing for both.
+if [ -f "$ENGINE_ROOT_REAL/scripts/lib/global-state-witness.sh" ]; then
+    # shellcheck source=./lib/global-state-witness.sh
+    . "$ENGINE_ROOT_REAL/scripts/lib/global-state-witness.sh"
+    if richos_global_verify "$REAL_STATE_BEFORE" 2>/dev/null; then
+        ok "6c the REAL $REAL_CFG_DIR global state is byte-identical before and after"
+    else
+        bad "6c THE SUITE MUTATED THE OPERATOR'S GLOBAL STATE" "$(richos_global_verify "$REAL_STATE_BEFORE" 2>&1 | tr '\n' ' ')"
+    fi
 else
-    bad "6c THE SUITE MUTATED THE REAL OPERATOR POINTER" "before='${REAL_POINTER_BEFORE%x}' after='${REAL_POINTER_AFTER%x}'"
+    bad "6c the global-state witness is missing" "scripts/lib/global-state-witness.sh"
 fi
 
 echo ""

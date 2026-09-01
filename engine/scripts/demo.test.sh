@@ -38,10 +38,18 @@ fi
 
 # --- snapshot the engine repo's git status before running the demo ---
 BEFORE_STATUS="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
-# Snapshot the operator's engine pointer BEFORE the demo runs, so the assertion
+# Snapshot the operator's global state BEFORE the demo runs, so the assertion
 # below proves the demo left it alone rather than asserting that it meant to.
-# The trailing 'x' keeps "absent" and "empty" distinguishable.
-POINTER_BEFORE="$(readlink "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/richos-engine" 2>/dev/null; printf 'x')"
+# Taken through scripts/lib/global-state-witness.sh — one definition of "what a
+# run may not leave moved", shared with locate-engine.test.sh, rather than a
+# second hand-rolled `readlink` that cannot tell a DELETED pointer from an
+# unchanged one.
+STATE_BEFORE=""
+if [ -f "$REPO_ROOT/scripts/lib/global-state-witness.sh" ]; then
+    # shellcheck source=./lib/global-state-witness.sh
+    . "$REPO_ROOT/scripts/lib/global-state-witness.sh"
+    STATE_BEFORE="$(richos_global_snapshot)"
+fi
 
 # --- a real, unattended invocation ---
 DEMO_OUT="$("$DEMO" 2>&1)"
@@ -91,12 +99,12 @@ fi
 # deleted it, leaving a dangling symlink. "engine repo git status unchanged" did
 # not notice, because the damage was outside the repository. A demo a buyer runs
 # sight-unseen must leave nothing behind anywhere.
-REAL_CFG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-POINTER_AFTER="$(readlink "$REAL_CFG_DIR/richos-engine" 2>/dev/null; printf 'x')"
-if [ "$POINTER_AFTER" = "$POINTER_BEFORE" ]; then
-    ok "demo.sh: the operator's engine pointer is unchanged by the run"
+if [ -n "$STATE_BEFORE" ] && richos_global_verify "$STATE_BEFORE" 2>/dev/null; then
+    ok "demo.sh: the operator's engine pointer and registration are unchanged by the run"
+elif [ -z "$STATE_BEFORE" ]; then
+    bad "demo.sh: the global-state witness is missing (scripts/lib/global-state-witness.sh)"
 else
-    bad "demo.sh: THE DEMO MUTATED THE OPERATOR'S ENGINE POINTER (before='${POINTER_BEFORE%x}' after='${POINTER_AFTER%x}')"
+    bad "demo.sh: THE DEMO MUTATED THE OPERATOR'S GLOBAL STATE — $(richos_global_verify "$STATE_BEFORE" 2>&1 | tr '\n' ' ')"
 fi
 
 # --- no leftover temp dirs from this run ---

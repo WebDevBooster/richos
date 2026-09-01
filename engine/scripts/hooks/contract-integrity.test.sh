@@ -191,6 +191,14 @@ ALL_ROOT_SCRIPTS=(
     # `cd <repo> && git commit` — the form a worktree-isolated agent types by
     # default. SC1 below is what stops this list falling behind it.
     scripts/lib/git-jurisdiction.sh
+    # The global-state witness, and it is on this list for the READING reason
+    # rather than the running one — stated plainly, because SC1 below cannot see
+    # it. No registered hook touches it: it is what the suites that run
+    # install.sh use to prove they gave back the operator's engine pointer. A
+    # sandbox without it assembles an engine whose test surface cannot answer
+    # "did this run leave the pointer moved?", which is the question a red-run
+    # fixture answered wrongly on 2026-09-01 while reporting success.
+    scripts/lib/global-state-witness.sh
     # The dialect vocabulary. guard-dialect.sh decides nothing without it and
     # Layer T fails loudly when it is absent — first reason on this list, same
     # as the predicates above.
