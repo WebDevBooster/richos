@@ -42,6 +42,56 @@
 set -uo pipefail
 
 # ---------------------------------------------------------------------------------------
+# gui_compiler_source
+#
+# Where 37 files of loro can be COPIED FROM, for the scratch corpus. Prints a path, or
+# nothing and exit 1.
+#
+# THE FIXTURE MUST NOT BE BUILT BY THE COMPONENT IT TESTS, and this function is here
+# because the first version of it was. It called `LoroInstall::locate` — the boot's own
+# resolution — which is elegant right up until the moment somebody breaks that resolver,
+# which is the moment this check exists for. Measured: with the pre-`c179cc1` read path put
+# back, the fixture could not build a machine and the suite exited 2 saying "this machine has
+# no loro compiler to copy". Red, so nothing failed open — and the wrong diagnosis, which
+# sends its reader hunting a missing checkout instead of the defect that is right there.
+#
+# So this looks at facts that pass through no Rust code:
+#
+#   1. `$RICHOS_LORO_SOURCE` — the installer input `provision::resolve_compiler_source`
+#      already honors. An operator who names one means it.
+#   2. `~/Library/Application Support/RichOS/loro-tools` — where provisioning installs it.
+#   3. the target of the corpus pointer, plus `/loro` — the in-repo dogfood shape, read with
+#      `readlink`, which is a file-system fact and not a resolution.
+#
+# THREE CANDIDATES AND NO MORE, and this is not the inventory the suite's header refuses.
+# That refusal is about lists that describe the PRODUCT's configuration, where drift makes
+# the list quietly shorter and the result quietly greener. This list is a fixture INPUT: if
+# it drifts and finds nothing, the machine is not built, the suite exits 2, and run-tests.sh
+# reports a failed suite. Its failure mode is red.
+gui_compiler_source() {
+  local looks_like_loro=""
+  local c
+  for c in \
+      "${RICHOS_LORO_SOURCE:-}" \
+      "$HOME/Library/Application Support/RichOS/loro-tools" \
+      "$(readlink "$HOME/Library/Application Support/RichOS/corpus" 2>/dev/null)/loro" \
+      "$(readlink "$HOME/Library/Application Support/RichOS/loro-root" 2>/dev/null)/loro" ; do
+    [ -n "$c" ] || continue
+    [ "$c" = "/loro" ] && continue
+    if [ -f "$c/bin/loro-context.mjs" ] && [ -f "$c/bin/loro-write.mjs" ]; then
+      looks_like_loro="$c"; break
+    fi
+  done
+  if [ -z "$looks_like_loro" ]; then
+    echo "gui_compiler_source: no loro checkout on this machine to copy from. Looked at" >&2
+    echo "  \$RICHOS_LORO_SOURCE, the loro-tools install, and the corpus pointer's own loro/." >&2
+    return 1
+  fi
+  printf '%s\n' "$looks_like_loro"
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------
 # gui_machine <scratch-root>
 #
 # Build the machine. Everything it creates is under <scratch-root>; nothing it does can
@@ -55,8 +105,10 @@ gui_machine() {
   # -- the corpus, the loro tools, the pointer and the saved company ---------------------
   # Every one of them through the product's own `provision`, so this cannot describe a
   # machine RichOS does not create. See examples/gui_boot_machine.rs.
+  local src
+  src="$(gui_compiler_source)" || return 1
   mkdir -p "$home" || return 1
-  ( cd "$app_dir" && cargo run -q -p richos-core --example gui_boot_machine -- "$home" ) || return 1
+  ( cd "$app_dir" && cargo run -q -p richos-core --example gui_boot_machine -- "$home" "$src" ) || return 1
 
   # -- the engine, at the pointer an installed app reaches -------------------------------
   # `engine.rs` candidate 6: `$CLAUDE_CONFIG_DIR`(or `~/.claude`)`/richos-engine`, which is

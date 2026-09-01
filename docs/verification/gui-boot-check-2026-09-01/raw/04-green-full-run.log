@@ -1,0 +1,68 @@
+# The healthy half: a fully provisioned machine, booted under launchd's environment.
+# command: bash app/scripts/gui-boot.test.sh
+# captured: 2026-09-01T17:09:45Z
+# tmp paths are scrubbed to <tmp>; nothing else is edited.
+
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  ... building richos-tauri (the artifact under test is built here, never assumed)
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         compiler source : /Users/alex/ab/richos-hq/loro
+         corpus          : <tmp>/machine/RichOS/corpus
+         pointer         : Some("<tmp>/machine/Library/Application Support/RichOS/corpus")
+         loro tools      : <tmp>/machine/Library/Application Support/RichOS/loro-tools (37 files)
+         partitions      : 6
+         saved company   : femcboost in <tmp>/machine/Library/Application Support/com.richos.app/config.json
+         binary          : <tmp>/machine/Applications/RichOS.app/Contents/MacOS/richos-tauri
+  PASS  B1 the healthy machine boots to completion under launchd's environment
+  --- the boot log, as captured ---
+      [richos] launch: fresh (1 window(s))
+      [richos] company: femcboost (via the saved choice)
+      [richos] loro Tier C: compiling from <tmp>/machine/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+      [richos] loro correction desk: writing to <tmp>/machine/Library/Application Support/RichOS/corpus via <tmp>/machine/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+      [richos] engine directory: <tmp>/machine/.claude/richos-engine (via engine install pointer)
+      [richos] compute lease attached over <tmp>/machine/.local/bin/claude
+      [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+      [richos] boot complete — every line above is what this launch resolved
+  --- accounting ---
+    DECLARED GAP  RICHOS_SERVICE_BIN
+                  CliVocabulary::from_env (staging.rs:187) is the same environment-only premise as 
+                  the three defects above, and it is left open ON PURPOSE: nothing installs a 
+                  vocabulary service, so there is no second candidate to fall back TO. Inventing a 
+                  path here would be a fabricated fix. Confirming a spoken correction reports that it 
+                  has nowhere to write, which is the honest behavior. CLOSE THIS by deciding where 
+                  the vocabulary service ships from, then delete this declaration and the check turns 
+                  red until the boot line goes away. 
+  PASS  B2 every line of a healthy Finder-condition boot is accounted for
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] engine directory: NOT FOUND — 5 place(s) tried
+           UNACCOUNTED  [richos]   looked in <tmp>/broken-B3/Applications/RichOS.app/Contents/Resources/engine (app bundle resources)
+           UNACCOUNTED  [richos]   looked in <tmp>/broken-B3/Applications/RichOS.app/Contents/MacOS (repo layout above the executable)
+           UNACCOUNTED  [richos]   looked in / (repo layout above the working directory)
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: no corpus configured — re-primes carry no company memory
+           UNACCOUNTED  [richos] loro Tier C: tried <tmp>/broken-B4/Library/Application Support/RichOS/corpus — not present
+           UNACCOUNTED  [richos] loro Tier C: tried <tmp>/broken-B4/Library/Application Support/RichOS/loro-root — not present
+           UNACCOUNTED  [richos] loro Tier C: tried <tmp>/broken-B4/RichOS/corpus — not present
+  PASS  B5 the loro tools are removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at <tmp>/broken-B5/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: <tmp>/broken-B5/Library/Application Support/RichOS/corpus/loro (the corpus root's own loro/ directory) — loro tools not found: <tmp>/broken-B5/Library/Application Support/RichOS/corpus/loro/bin/loro-context.mjs is not a file; <tmp>/broken-B5/Library/Application Support/RichOS/loro-tools (the loro-tools install in Application Support) — loro tools not found: <tmp>/broken-B5/Library/Application Support/RichOS/loro-tools/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] loro correction desk: CLOSED — a corpus resolved but loro-write.mjs is not installed. Confirming a correction will refuse and say so rather than appearing to write.
+           NOT RESOLVED  loro read half — nothing in this boot proved it was found.
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+           UNACCOUNTED  [richos]   binary: claude
+           UNACCOUNTED  [richos]   engine: <tmp>/broken-B6/.claude/richos-engine
+           UNACCOUNTED  [richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+           UNACCOUNTED  [richos] no company resolved — RichOS will ask in the window and remember the answer.
+           UNACCOUNTED  [richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+           NOT RESOLVED  company — nothing in this boot proved it was found.
+
+=== gui-boot.test.sh: all 15 passed ===

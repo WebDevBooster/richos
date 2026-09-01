@@ -26,33 +26,42 @@
 //! | `<home>/.claude/richos-engine` (the shell writes it) | `engine.rs` candidate 6 — the one an installed `.app` on a customer Mac reaches |
 //! | `<home>/.local/bin/claude` (the shell writes it) | `resolve_claude_bin` step 2 — without it there is no compute lease |
 //!
-//! # Where the compiler comes from, and why that is not a fourth list
+//! # The compiler source is GIVEN, and that is deliberate
 //!
 //! The RichOS product repository ships no `loro/` (`provision.rs`'s own module doc says so),
 //! so a scratch corpus can only get a compiler by copying one that already exists on this
-//! machine. This program finds it with [`LoroInstall::locate`] — the SAME call
-//! `src-tauri/src/memory.rs` makes at boot — against the real process environment. It does
-//! not know a path and does not contain one.
+//! machine. The obvious way to find it is [`LoroInstall::locate`] — the same call the boot
+//! makes.
 //!
-//! **If that resolution finds nothing, this program REFUSES with exit 3 and says so.** It
-//! never provisions a corpus with no compiler and lets the check call the resulting
-//! `no-compiler` boot line a failure of the code under test: that would be blaming the
-//! product for a machine that has no loro checkout on it.
+//! **That was tried and it is wrong, and the red run proved it.** With the pre-`c179cc1`
+//! read path put back, `LoroInstall::locate` resolves nothing, so the fixture could not
+//! build a machine and the suite exited 2 saying *"this machine has no loro compiler to
+//! copy"*. That is red, so nothing failed open — but it is red with the WRONG DIAGNOSIS,
+//! and a check that sends its reader hunting the wrong thing is only marginally better than
+//! one that says nothing. **A fixture must not be built by the component it tests.**
+//!
+//! So the source arrives as `argv[2]`, found by `gui-launch.sh` out of facts that do not go
+//! through any Rust resolution. All this program does with it is check it with
+//! [`compiler_looks_valid`] — a pure predicate, not a resolver — and refuse if it is not a
+//! loro checkout.
 //!
 //! ```text
-//! cargo run -q -p richos-core --example gui_boot_machine -- <scratch-home>
+//! cargo run -q -p richos-core --example gui_boot_machine -- <scratch-home> <loro-checkout>
 //! ```
 
 use richos_core::config::ConfigStore;
 use richos_core::entity::EntityRegistry;
-use richos_core::loro::{CorpusPaths, LoroInstall};
-use richos_core::provision::{provision, CompanyOutcome, CompilerOutcome, ProvisionRequest};
+use richos_core::provision::{
+    compiler_looks_valid, provision, CompanyOutcome, CompilerOutcome, ProvisionRequest,
+};
 use std::path::{Path, PathBuf};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let Some(home) = args.get(1).map(PathBuf::from) else {
-        eprintln!("usage: gui_boot_machine <scratch-home>");
+    let (Some(home), Some(compiler_source)) =
+        (args.get(1).map(PathBuf::from), args.get(2).map(PathBuf::from))
+    else {
+        eprintln!("usage: gui_boot_machine <scratch-home> <loro-checkout>");
         std::process::exit(64);
     };
     if !home.is_absolute() {
@@ -60,26 +69,20 @@ fn main() {
         std::process::exit(64);
     }
 
-    // ---- where this machine's loro compiler lives -------------------------------------
-    // The boot's own resolution, run against the real environment. Read-only.
-    let compiler_source = match LoroInstall::locate(&CorpusPaths::from_process()) {
-        Ok((Some(install), _)) => install.tools().dir().to_path_buf(),
-        Ok((None, tried)) => {
-            eprintln!(
-                "gui_boot_machine: REFUSING — this machine has no loro compiler to copy, so a \
-                 scratch corpus here could only ever be a corpus with no compiler, and the boot \
-                 check would then be measuring the machine rather than the code. Looked in:"
-            );
-            for t in &tried {
-                eprintln!("  {t}");
-            }
-            std::process::exit(3);
-        }
-        Err(e) => {
-            eprintln!("gui_boot_machine: REFUSING — this machine's loro install is unusable: {e}");
-            std::process::exit(3);
-        }
-    };
+    // ---- the compiler source, checked but NOT resolved here ----------------------------
+    // `compiler_looks_valid` is the same predicate `LoroTools::locate` applies, so a source
+    // that passes here produces an install that passes there. It is a predicate and not a
+    // search: this program cannot be made to look somewhere the caller did not name, and it
+    // therefore cannot be broken by breaking the resolver it exists to test.
+    if !compiler_looks_valid(&compiler_source) {
+        eprintln!(
+            "gui_boot_machine: REFUSING — {} is not a loro checkout (wants bin/loro-context.mjs \
+             and bin/loro-write.mjs). Provisioning a corpus with no compiler would hand the \
+             check a machine that is missing the thing it is checking for.",
+            compiler_source.display()
+        );
+        std::process::exit(3);
+    }
     println!("compiler source : {}", compiler_source.display());
 
     // ---- the corpus, created exactly as first-run provisioning creates one -------------
