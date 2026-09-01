@@ -38,3 +38,4 @@
 # run; never an artefact.
 __pycache__/
 *.pyc
+.worktrees/
