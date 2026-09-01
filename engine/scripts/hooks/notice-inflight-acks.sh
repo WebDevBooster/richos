@@ -127,7 +127,13 @@ try:
     d=json.load(sys.stdin); print(str(d.get("session_id","") or "") if isinstance(d,dict) else "")
 except Exception:
     print("")' 2>/dev/null || true)"
-TEAMS_DIR="$(inflight_teams_dir "$SESSION_ID")"
+TRANSCRIPT="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin); print(str(d.get("transcript_path","") or "") if isinstance(d,dict) else "")
+except Exception:
+    print("")' 2>/dev/null || true)"
+inflight_resolve_teams_dir "$SESSION_ID"
+TEAMS_DIR="$INFLIGHT_TEAMS_DIR_RESOLVED"
 TIMEOUT_MIN="$(inflight_timeout_min "$ENTITY_ROOT")"
 
 REPOS=""
@@ -141,6 +147,7 @@ fi
 [ -n "$REPOS" ] || { stop_notice_normal ""; exit 0; }
 
 SUMMARY="$(IF_LIB_DIR="$SCRIPT_DIR/../lib" IF_REPOS="$REPOS" IF_TEAMS="$TEAMS_DIR" \
+           IF_SID="$SESSION_ID" IF_TRANSCRIPT="$TRANSCRIPT" \
            IF_TMO="$TIMEOUT_MIN" python3 -c '
 import os, sys
 sys.path.insert(0, os.environ["IF_LIB_DIR"])
@@ -154,7 +161,9 @@ for repo in dict.fromkeys(r for r in os.environ["IF_REPOS"].split("\n") if r.str
         continue
     seen.append(repo)
     try:
-        res = inflight.assess(repo, None, os.environ["IF_TEAMS"], int(os.environ["IF_TMO"]))
+        res = inflight.assess(repo, None, os.environ["IF_TEAMS"], int(os.environ["IF_TMO"]),
+                              os.environ.get("IF_SID", ""),
+                              os.environ.get("IF_TRANSCRIPT", ""))
     except Exception:
         continue
     for wt in res["worktrees"]:

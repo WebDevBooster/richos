@@ -50,7 +50,7 @@ for h in guard-inflight-notify.sh notice-inflight-sends.sh notice-inflight-acks.
     cp "$SRC_DIR/$h" "$REPO/scripts/hooks/$h"
     chmod +x "$REPO/scripts/hooks/$h"
 done
-for l in inflight.sh inflight.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh stop-hook-notice.sh; do
+for l in inflight.sh inflight.py teammate-identity.py agent-liveness.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh stop-hook-notice.sh; do
     cp "$SRC_DIR/../lib/$l" "$REPO/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_ROOT/scripts/inflight-notify.sh" "$REPO/scripts/"
@@ -434,6 +434,263 @@ run_guard
 [ "$GRC" -eq 0 ] && ok "9b. telling BOTH of them, by name, clears it" \
                  || bad "9b. naming both clears it" "exit $GRC: $GOUT"
 git -C "$REPO" worktree remove --force "$WT2" >/dev/null 2>&1
+
+# ==========================================================================
+# 10. THE ROLE/NAME MISMATCH — the 2026-08-31 false positive, reproduced
+# ==========================================================================
+# MEASURED, not imagined. Two notices were sent, witnessed and written to
+# inflight-notices.jsonl at 22:34:43Z and 22:34:49Z with full 40-character
+# sha_tokens naming the tip. The guard still reported OWED-NO-NOTICE with
+# `notified-but-unacked: 0`, and the land went through on two recorded waivers.
+#
+# The shape below is that shape exactly, taken from session 374e6f14's own
+# files rather than invented:
+#   * a NATIVE isolation worktree, .claude/worktrees/agent-<id>, locked by the
+#     harness with a live pid — the only liveness signal a native worktree has;
+#   * worker-events.jsonl carrying WorkerStarted rows ONLY, whose `agent_type`
+#     is the ROLE `zach` (the live log has no WorkerCreated row at all, because
+#     the PostToolUse[Agent] emitter is not registered in that session);
+#   * the unique spawn name `zach-opus-s1` living where it actually lives — the
+#     orchestrator's transcript, joined on tool_use_id;
+#   * a notice addressed, as SendMessage always is, to that unique name.
+#
+# Before the fix, 10b FAILS: the debt side resolved `zach`, the witness
+# recorded `zach-opus-s1`, and no reading could join them.
+rm -f "$TEAM_DIR/inflight-notices.jsonl" "$TEAM_DIR/inflight-waivers.jsonl"
+git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1
+
+native_teammate() { # <agent-id> <branch> <file> -> echoes the worktree path
+    local aid="$1" br="$2" f="$3" wt="$REPO/.claude/worktrees/agent-$1"
+    # From the BASE, not the tip: a teammate cut from the tip is behind nothing
+    # and is owed nothing, which is a test that passes by testing nothing.
+    git -C "$REPO" worktree add -q -b "$br" "$wt" "$BASE_SHA" >/dev/null 2>&1
+    echo "native teammate work" > "$wt/src/$f"
+    git -C "$wt" add -A
+    git -C "$wt" commit -q -m "native teammate commit $br"
+    # The harness locks a native worktree while its agent runs and the lock
+    # line carries the pid. $$ is this test, which is alive, so the sweep sees
+    # the same LIVE signal it sees in production.
+    git -C "$REPO" worktree lock --reason "agent running (pid $$)" "$wt" 2>/dev/null
+    printf '%s' "$wt"
+}
+
+AID_S1="a5a1c0ffee1122334"
+NWT_S1="$(native_teammate "$AID_S1" worktree-zach-s1 d.txt)"
+
+# worker-events.jsonl, in the live shape: the ROLE, and nothing else.
+python3 - "$TEAM_DIR/worker-events.jsonl" "$AID_S1" "$NWT_S1" <<'WEPY'
+import json, sys
+from datetime import datetime, timezone
+path, aid, cwd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "WorkerStarted", "lifecycle_state": "started",
+        "source_hook": "SubagentStart", "agent_id": aid,
+        "agent_type": "zach",            # THE ROLE. Never the name.
+        "session_id": "deadbeef-1111-4000-8000-000000000000",
+        "cwd": cwd, "decision": "logged"}) + "\n")
+WEPY
+
+# The transcript, in the shape agent-liveness.py:names_to_ids reads: the Agent
+# tool_use carries the spawn name, the matching tool_result carries the id.
+TRANSCRIPT="$SANDBOX/transcript.jsonl"
+: > "$TRANSCRIPT"
+transcript_spawn() { # <name> <agent-id>
+    NM="$1" AID="$2" python3 -c '
+import json, os
+nm, aid = os.environ["NM"], os.environ["AID"]
+tu = "toolu_" + aid[:8]
+print(json.dumps({"type": "assistant", "message": {"content": [
+    {"type": "tool_use", "id": tu, "name": "Agent",
+     "input": {"name": nm, "subagent_type": nm.split("-")[0],
+               "isolation": "worktree"}}]}}))
+print(json.dumps({"type": "user", "message": {"content": [
+    {"type": "tool_result", "tool_use_id": tu}]},
+    "toolUseResult": {"agentId": aid}}))' >> "$TRANSCRIPT"
+}
+transcript_spawn zach-opus-s1 "$AID_S1"
+export INFLIGHT_TRANSCRIPT="$TRANSCRIPT"
+
+# A push payload that carries the transcript, exactly as a real hook payload does.
+push_payload_t() { # [cwd]
+    CWD="${1:-$REPO}" TP="$TRANSCRIPT" python3 -c '
+import json, os
+print(json.dumps({"tool_name": "Bash", "cwd": os.environ["CWD"],
+                  "session_id": "deadbeef-1111-4000-8000-000000000000",
+                  "transcript_path": os.environ["TP"],
+                  "tool_input": {"command": "git push origin main"}}))'
+}
+run_guard_t() { GOUT="$(push_payload_t "${1:-$REPO}" | bash "$GUARD" 2>&1)"; GRC=$?; }
+
+run_guard_t
+say "10a native debt" "$GOUT"
+[ "$GRC" -eq 2 ] && ok "10a. a LIVE native worktree behind the tip is owed a notice" \
+                 || bad "10a. a live native worktree is owed a notice" "exit $GRC: $GOUT"
+
+# THE REPRODUCTION. The notice is addressed the only way SendMessage can be
+# addressed: the unique spawn name.
+printf '%s' "$(CWD="$REPO" send_payload "zach-opus-s1" "Main moved to $TIP while you were working.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+say "10b native notice credited" "$GOUT"
+[ "$GRC" -eq 0 ] && ok "10b. a notice to the UNIQUE SPAWN NAME clears the debt of the worktree that name belongs to" \
+                 || bad "10b. a notice to zach-opus-s1 clears agent-$AID_S1's debt" "exit $GRC: $GOUT"
+
+SOUT="$(bash "$RUNNER" status --repo "$REPO" 2>&1)"
+say "10c status names the teammate" "$SOUT"
+case "$SOUT" in
+    *"teammate   : zach-opus-s1"*) ok "10c. the sweep calls the teammate by the name it is addressed by, not by its role" ;;
+    *) bad "10c. the sweep names zach-opus-s1" "$SOUT" ;;
+esac
+
+# THE ROLE IS NOT AN ADDRESS — and this is checked NOW, while exactly ONE
+# Zach is live, because that is the only arrangement in which crediting by
+# role would look right. Once a second Zach exists the ambiguity rule catches
+# it for a different reason, and a property defended by the wrong rule is a
+# property that is not defended.
+rm -f "$TEAM_DIR/inflight-notices.jsonl"
+printf '%s' "$(CWD="$REPO" send_payload "zach" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+say "10d bare role, one live zach" "$GOUT"
+[ "$GRC" -eq 2 ] && ok "10d. with ONE live Zach, a notice to the bare role 'zach' still clears nothing" \
+                 || bad "10d. the bare role clears nothing even when it is unambiguous" "exit $GRC: $GOUT"
+printf '%s' "$(CWD="$REPO" send_payload "zach-opus-s1" "Main moved to $TIP while you were working.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+[ "$GRC" -eq 0 ] && ok "10e. and the same land clears the moment the unique name is used instead" \
+                 || bad "10e. the unique name clears it" "exit $GRC: $GOUT"
+
+# THE OTHER HALF, and the one that matters more: a guard that stopped
+# false-positiving by no longer firing would be worse than the bug. A SECOND
+# live teammate OF THE SAME ROLE, un-notified, must still block — which is
+# also what makes a role-prefix "fix" impossible to pass this suite with.
+AID_T1="a7b1decafbad5566"
+NWT_T1="$(native_teammate "$AID_T1" worktree-zach-t1 e.txt)"
+python3 - "$TEAM_DIR/worker-events.jsonl" "$AID_T1" "$NWT_T1" <<'WEPY'
+import json, sys
+from datetime import datetime, timezone
+path, aid, cwd = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "WorkerStarted", "lifecycle_state": "started",
+        "source_hook": "SubagentStart", "agent_id": aid, "agent_type": "zach",
+        "session_id": "deadbeef-1111-4000-8000-000000000000",
+        "cwd": cwd, "decision": "logged"}) + "\n")
+WEPY
+transcript_spawn zach-opus-t1 "$AID_T1"
+run_guard_t
+say "10f second same-role teammate" "$GOUT"
+[ "$GRC" -eq 2 ] && ok "10f. a SECOND live teammate of the same role, un-notified, STILL BLOCKS the push" \
+                 || bad "10f. an un-notified same-role teammate still blocks" "exit $GRC: $GOUT"
+case "$GOUT" in
+    *"zach-opus-t1"*) ok "10g. and the refusal names the one that was NOT told, by its unique name" ;;
+    *) bad "10g. the refusal names zach-opus-t1" "$GOUT" ;;
+esac
+
+# The bare ROLE is not an address. A guard that credited it would be back to
+# the defect: three Zachs ran at once on the day this was measured.
+printf '%s' "$(CWD="$REPO" send_payload "zach" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+[ "$GRC" -eq 2 ] && ok "10h. a notice to the bare ROLE 'zach' clears nothing — a role is not an address" \
+                 || bad "10h. the bare role clears nothing" "exit $GRC: $GOUT"
+
+printf '%s' "$(CWD="$REPO" send_payload "zach-opus-t1" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+[ "$GRC" -eq 0 ] && ok "10i. telling the second one by name clears the land" \
+                 || bad "10i. telling both by name clears the land" "exit $GRC: $GOUT"
+
+# The witness resolved the recipient to an agent id AT SEND TIME, from the same
+# module the guard resolves worktrees with. That is the join being exact on
+# both sides rather than on one.
+if grep -q "\"to_agent_id\": \"$AID_T1\"" "$TEAM_DIR/inflight-notices.jsonl"; then
+    ok "10j. the witness recorded the recipient's AGENT ID, resolved in the lead's own execution"
+else
+    bad "10j. the witness records to_agent_id" "$(tail -1 "$TEAM_DIR/inflight-notices.jsonl")"
+fi
+
+
+# SendMessage'S OTHER LEGAL ADDRESS — the bare agentId. Its own documentation
+# says to use it "when the agent has no name", and on 2026-09-01 the lead used
+# it for every one of the four notices in this machine's live ledger:
+#     "to": "a41785cc3086260c0"   (not "zach-opus-n1")
+# The recipient here is a HAND-ROLLED worktree, which has no agent id of its
+# own, so the id can only reach it by being expanded through the identity index
+# into the name the directory carries. Without that expansion the sweep reports
+# OWED-NO-NOTICE against a notice that was sent, witnessed and logged — the
+# 2026-08-31 defect wearing the other address.
+AID_U1="a9c0ffee42424242"
+HWT_U1="$SANDBOX/wt/zach-opus-u1"
+git -C "$REPO" worktree add -q -b worktree-zach-u1 "$HWT_U1" "$BASE_SHA" >/dev/null 2>&1
+echo "hand-rolled teammate work" > "$HWT_U1/src/f.txt"
+git -C "$HWT_U1" add -A
+git -C "$HWT_U1" commit -q -m "hand-rolled teammate commit"
+transcript_spawn zach-opus-u1 "$AID_U1"
+
+run_guard_t
+[ "$GRC" -eq 2 ] && ok "10k. the hand-rolled teammate is owed a notice too" \
+                 || bad "10k. the hand-rolled teammate is owed a notice" "exit $GRC: $GOUT"
+
+printf '%s' "$(CWD="$REPO" send_payload "$AID_U1" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+say "10l notice addressed by raw agent id" "$GOUT"
+[ "$GRC" -eq 0 ] && ok "10l. a notice addressed by RAW AGENT ID reaches the teammate that id belongs to, even when its worktree carries only a name" \
+                 || bad "10l. a raw agent id reaches the right teammate" "exit $GRC: $GOUT"
+
+# The expansion is the index, so it can only ever name a real teammate: an id
+# nobody was spawned under resolves to nothing and clears nothing.
+git -C "$REPO" worktree add -q -b worktree-zach-v1 "$SANDBOX/wt/zach-opus-v1" "$BASE_SHA" >/dev/null 2>&1
+echo x > "$SANDBOX/wt/zach-opus-v1/src/g.txt"
+git -C "$SANDBOX/wt/zach-opus-v1" add -A
+git -C "$SANDBOX/wt/zach-opus-v1" commit -q -m "another hand-rolled teammate"
+printf '%s' "$(CWD="$REPO" send_payload "adeadbeefdeadbeef" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+[ "$GRC" -eq 2 ] && ok "10m. an agent id that names no spawned teammate clears nothing" \
+                 || bad "10m. an unknown agent id clears nothing" "exit $GRC: $GOUT"
+git -C "$REPO" worktree remove --force "$SANDBOX/wt/zach-opus-v1" >/dev/null 2>&1
+
+# ==========================================================================
+# 11. THE OPERATOR'S OWN INSTRUMENTS — they must work when he runs them
+# ==========================================================================
+# `inflight-notify.sh status`, run by hand on this machine, printed
+# `notice ledger: <no team dir resolved>` and `teammate: <unresolved>`: the
+# diagnostic was blind at exactly the moment it was needed. There is no
+# CLAUDE_SESSION_ID in a terminal, and four session directories exist.
+# A second session directory on the machine — four exist on the real one —
+# with no session id in the environment, which is every by-hand run.
+DECOY_TEAM_DIR="$TEAMS/session-cafe1234"
+mkdir -p "$DECOY_TEAM_DIR"
+printf 'someone-else-sonnet-1\n' > "$DECOY_TEAM_DIR/spawned-names.log"
+SOUT="$(CLAUDE_SESSION_ID="" bash "$RUNNER" status --repo "$REPO" 2>&1)"
+say "11a by-hand status, 2 session dirs, no session id" "$SOUT"
+case "$SOUT" in
+    *"<no team dir resolved>"*) bad "11a. status resolves a real ledger path with no CLAUDE_SESSION_ID set" "$SOUT" ;;
+    *"$TEAM_DIR/inflight-notices.jsonl"*) ok "11a. status names the REAL ledger path with no session id in the environment" ;;
+    *) bad "11a. status names the real ledger path" "$SOUT" ;;
+esac
+case "$SOUT" in
+    *"resolved by    :"*) ok "11b. and it says HOW it chose that directory — a guess the operator can see is a guess" ;;
+    *) bad "11b. status reports its team-dir resolution" "$SOUT" ;;
+esac
+
+# INFLIGHT_TEAMS_DIR pointing STRAIGHT AT a team directory: the reading its own
+# error message tells the operator to use.
+WOUT="$(INFLIGHT_TEAMS_DIR="$TEAM_DIR" CLAUDE_SESSION_ID="" bash "$RUNNER" waive "$NWT_S1" \
+        --reason "documented escape hatch, exercised as documented" --repo "$REPO" 2>&1)"
+WRC=$?
+say "11c waive via INFLIGHT_TEAMS_DIR" "rc=$WRC out=$WOUT"
+if [ "$WRC" -eq 0 ] && printf '%s' "$WOUT" | grep -q "recorded a waiver in $TEAM_DIR/inflight-waivers.jsonl"; then
+    ok "11c. waive works via INFLIGHT_TEAMS_DIR pointed straight at a team directory — the variable its own error message names"
+else
+    bad "11c. waive honors INFLIGHT_TEAMS_DIR as documented" "exit $WRC: $WOUT"
+fi
+unset INFLIGHT_TRANSCRIPT
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

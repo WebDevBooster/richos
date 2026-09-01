@@ -1,5 +1,7 @@
 # What the ACP adapter actually emits — measured, 2026-08-28
 
+> **Path note (2026-09-01).** The ACP adapter this record measures — app/acp-adapter/ and app/crates/richos-core/src/acp.rs — was deleted in a45acc3. Filenames below are therefore given bare: they resolve in git history at that commit, not in the current tree.
+
 **Author:** Echo (Rust & Tauri desktop engineer). **Date:** 2026-08-28.
 **Answers:** the verify-first caveat in `richos-hq/docs/plans/richos-techy-mode-2026-08-26.md` §1.1 —
 *"the emitted subset of our actual adapter (`claude-agent-acp`) is **not verified anywhere in this
@@ -17,7 +19,7 @@ field-level assumptions in §1.3 are wrong and are corrected below, and two rout
 
 ## 1. Method
 
-**Probe:** `app/acp-adapter/probe-machinery.js` (committed with this artifact). It differs from
+**Probe:** `probe-machinery.js` (committed with this artifact). It differs from
 `probe.js` in the one way that matters: it appends **every** inbound JSON-RPC message to a JSONL file
 as it arrives, tagged with an arrival index `n` and a lifecycle `phase`. `probe.js:36-38` logged
 non-text kinds to stderr and nothing to disk, which is why nothing in the repo answered this

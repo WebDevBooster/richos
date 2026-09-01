@@ -1,7 +1,9 @@
 # What the Node/ACP side of RichOS would have added to a customer's download
 
+> **Path note (2026-09-01).** measure-node-payload.sh, then at app/scripts, was removed in b42dc70; the adapter it measured — app/acp-adapter/ — was deleted in a45acc3. Filenames below are therefore given bare: they resolve in git history at those commits, not in the current tree.
+
 **SUPERSEDED 2026-08-31, and kept because its measurements are still the only ones anybody
-has taken.** This was `app/scripts/measure-node-payload.sh`, a script that installed
+has taken.** This was `measure-node-payload.sh`, a script that installed
 `app/acp-adapter/node_modules` from the lockfile and measured it. `wiki/ceo-decisions.md`
 §16 deleted that directory, so the script can no longer measure anything and was removed
 rather than left to exit 1 or, worse, to print a pleasingly small number for a tree that
@@ -23,7 +25,7 @@ RichOS ship the `claude` binary itself, or require the customer to have Claude C
 
 ## The run of 2026-08-31
 
-Against `app/acp-adapter/package-lock.json` as locked
+Against the adapter's `package-lock.json` as locked
 (`@agentclientprotocol/claude-agent-acp` 0.70.0 → `@anthropic-ai/claude-agent-sdk` 0.3.232).
 All figures measured unless labelled.
 

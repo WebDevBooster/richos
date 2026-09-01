@@ -17,9 +17,9 @@
 # with no disclosure triangle, and `security find-identity -v -p codesigning`
 # reporting "0 valid identities found" — which reads like the certificate failed.
 #
-# So this script pairs them explicitly, through a PKCS#12, and then asks
-# `security find-identity` whether an identity actually appeared. That question is
-# the only evidence that any of this worked.
+# So this script pairs them explicitly and then asks `security find-identity`
+# whether an identity actually appeared. That question is the only evidence that
+# any of this worked.
 #
 # THE INTERMEDIATE IS THE OTHER HALF-FAILURE. A Developer ID leaf chains to Apple's
 # "Developer ID Certification Authority" and then to the Apple Root CA. If the
@@ -28,21 +28,86 @@
 # self-signed root". This script checks for it and names the fix rather than
 # discovering it during a release.
 #
-# NO CREDENTIAL IS EVER PUT ON A COMMAND LINE. The PKCS#12 this builds carries no
-# passphrase — it lives for the length of one import inside a 0700 directory and is
-# then removed — because the alternative is a passphrase visible in `ps` to every
-# process on the machine. Its protection is the same file permission already
-# protecting the private key beside it, which is the honest comparison.
+# ================================================================================
+# WHAT CHANGED ON 2026-09-01, AND WHY — this script FAILED against the real
+# Developer ID certificate the first time one existed. Every line below is measured
+# on this machine, macOS 15.6, against that certificate.
+# ================================================================================
 #
-# Exit codes: 0 installed and verified. 1 imported but no identity resulted.
-# 2 refused. 3 a prerequisite is missing.
+# 1. THE PKCS#12 IS GONE. It was the whole failure surface and it was never needed.
+#    The old path wrote a passphrase-less PKCS#12 and fed it to `security import`.
+#    Measured, against the real certificate:
+#
+#      LibreSSL 3.3.6      p12, empty passphrase -> SecKeychainItemImport: MAC
+#                                                  verification failed. 0 identities.
+#      OpenSSL 3.6.1 -legacy p12, empty passphrase -> the same MAC failure.
+#      OpenSSL 3.6.1 (no -legacy), real passphrase -> the same MAC failure; its
+#                                                  default PBES2/AES p12 is one
+#                                                  macOS will not verify at all.
+#      either openssl, -legacy/LibreSSL, RANDOM passphrase -> 1 identity imported.
+#
+#    So an empty PKCS#12 passphrase cannot work, and the fix everyone reaches for —
+#    a random one-shot passphrase — has to travel to `security import` on `-P`,
+#    i.e. on a command line, where `ps` shows it to every process this user runs.
+#    That is the exact thing the doctrine below forbids.
+#
+#    MEASURED, so it is not left as a doctrine the code does not keep: `security
+#    import` has NO non-argv passphrase channel. Omitting `-P` does not mean "empty
+#    password" — it escalates to SecurityAgent and puts a GUI dialog on the
+#    operator's screen, and the process then blocks on a human forever. Piping the
+#    passphrase to stdin does not feed it. There is no `-P -`, no file, no env var.
+#
+#    The way out is not to need a passphrase. `security import` takes a PEM private
+#    key and a PEM certificate DIRECTLY; import both into one keychain and the
+#    keychain pairs them into an identity by public key. Measured on the real
+#    certificate: "1 key imported.", "1 certificate imported.", and
+#    `security find-identity -v -p codesigning` then reports
+#    BF4D68E6…  "Developer ID Application: Alex Booster (TZ33A4QCZJ)".
+#    No PKCS#12, no passphrase, nothing on a command line, nothing to delete.
+#
+# 2. THE OPENSSL IS PINNED to /usr/bin/openssl. It used to be whichever openssl
+#    came first on PATH; on this machine that is Homebrew's OpenSSL 3.6.1 and the
+#    OS's is LibreSSL 3.3.6. For something this load-bearing, PATH order is not an
+#    input. RICHOS_OPENSSL overrides, and the choice is printed.
+#
+# 3. THE .cer IS DER AND IS CONVERTED EXPLICITLY, and the result is checked before
+#    anything consumes it. Apple returns DER. LibreSSL will not read DER where PEM
+#    is expected — it prints "unable to load certificates", exits 1, AND LEAVES A
+#    0-BYTE OUTPUT FILE, which then fails downstream with a misleading error about
+#    something else entirely. OpenSSL 3.x quietly accepts the DER, so the bug is
+#    invisible on a machine with Homebrew openssl first — which is precisely why
+#    pinning the openssl and converting explicitly are one change, not two.
+#
+# 4. NOTHING HERE MAY EVER RAISE A PROMPT. A release script that blocks on an
+#    invisible dialog hangs in CI and in front of the person running it. So:
+#    every `security import` passes `-P ''` explicitly (missing `-P` is a GUI
+#    dialog, not an empty password); every openssl read of the private key passes
+#    `-passin pass:` (without it, an encrypted key makes openssl block on a
+#    terminal prompt); and an encrypted private key is REFUSED before any keychain
+#    call rather than discovered inside one.
+#
+# NO CREDENTIAL IS EVER PUT ON A COMMAND LINE — and as of this revision the code
+# keeps that, because there is no credential left to put anywhere. The private key
+# is protected by the same file permissions that already protect it (0600 in a 0700
+# directory), which is the honest comparison.
+#
+# ONE THING THIS SCRIPT CANNOT DO FOR YOU. Importing a key from the command line
+# gives it a trusted-application ACL (`-T /usr/bin/codesign`) but not a partition
+# list, so the FIRST time codesign uses it macOS may ask once, in a dialog, to
+# confirm. Fixing that ahead of time needs the keychain's own password on a command
+# line (`security set-key-partition-list -k …`), which is the credential this script
+# refuses to handle. It is named here rather than left to be met during a release.
+#
+# Exit codes: 0 installed and verified (or, with --check, a usable identity exists).
+# 1 the import reported success and no identity resulted (or, with --check, this
+# machine has no usable Developer ID Application identity). 2 refused. 3 a
+# prerequisite is missing.
 set -euo pipefail
 
 key_dir="${RICHOS_SIGNING_DIR:-$HOME/.richos-signing}"
 keychain="${RICHOS_KEYCHAIN:-}"
 cer=""
 check_only=""
-keep_p12=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -51,7 +116,16 @@ while [ $# -gt 0 ]; do
     --dir=*)      key_dir="${1#*=}"; shift ;;
     --keychain)   keychain="${2:-}"; shift 2 ;;
     --keychain=*) keychain="${1#*=}"; shift ;;
-    --keep-p12)   keep_p12=1; shift ;;
+    --keep-p12)
+      echo "error: --keep-p12 is gone: this script no longer builds a PKCS#12 at all." >&2
+      echo "       It imports the PEM key and the PEM certificate directly, because a" >&2
+      echo "       passphrase-less PKCS#12 fails macOS's MAC verification and a" >&2
+      echo "       passphrase-bearing one can only be handed to 'security import' on a" >&2
+      echo "       command line. For a portable backup, make one deliberately with a" >&2
+      echo "       passphrase you TYPE rather than pass as an argument:" >&2
+      echo "         /usr/bin/openssl pkcs12 -export -inkey $key_dir/developer-id.key \\" >&2
+      echo "             -in <cert.pem> -out backup.p12" >&2
+      exit 2 ;;
     -h|--help)    sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "error: unknown argument: $1 (try --help)" >&2; exit 2 ;;
     *)  cer="$1"; shift ;;
@@ -62,34 +136,87 @@ say()  { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
 
 [ "$(uname -s)" = "Darwin" ] || { warn "error: keychains are macOS; this runs on macOS only."; exit 3; }
-command -v openssl >/dev/null 2>&1 || { warn "error: openssl not found on PATH."; exit 3; }
+
+# ---------------------------------------------------------------------------
+# The openssl is PINNED. See note 2 in the header: PATH order decided which
+# implementation built the credential material, and the two implementations do
+# not agree about DER, about PKCS#12 encryption, or about -legacy.
+# ---------------------------------------------------------------------------
+OPENSSL="${RICHOS_OPENSSL:-/usr/bin/openssl}"
+if [ ! -x "$OPENSSL" ]; then
+  warn "error: no openssl at $OPENSSL."
+  warn "       This script pins /usr/bin/openssl deliberately rather than taking"
+  warn "       whichever one PATH offers. Set RICHOS_OPENSSL to override."
+  exit 3
+fi
 
 INTERMEDIATE_CN="Developer ID Certification Authority"
 INTERMEDIATE_URL="https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer"
 
-report_identities() {
-  local out
-  out="$(security find-identity -v -p codesigning 2>/dev/null || true)"
-  say "$out" | sed 's/^/    /'
-  printf '%s\n' "$out" | grep -c 'Developer ID Application:' || true
+# Every `security` call that reads identities must read the keychain this run
+# WROTE to. Reading the default search list instead is a false pass: a failed
+# import into --keychain X still "finds" the identity that was already in login.
+find_identity_out() {
+  if [ -n "$keychain" ]; then
+    security find-identity -v -p codesigning "$keychain" 2>/dev/null || true
+  else
+    security find-identity -v -p codesigning 2>/dev/null || true
+  fi
 }
+
+devid_names() { printf '%s\n' "$1" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p'; }
 
 # ---------------------------------------------------------------------------
 # --check: state of this machine, nothing written.
+#
+# This used to print its own heading and then nothing at all — the one question
+# the script exists to answer was the one its status output did not show — and it
+# exited 0 whatever it found. Both are fixed: the identities are printed, and the
+# exit code carries the answer.
 # ---------------------------------------------------------------------------
 if [ -n "$check_only" ]; then
-  say "codesigning identities on this machine:"
-  report_identities >/dev/null
+  ids="$(find_identity_out)"
+  say "codesigning identities${keychain:+ in $keychain} on this machine:"
+  if [ -n "$ids" ]; then
+    printf '%s\n' "$ids" | sed 's/^/    /'
+  else
+    say "    (none — 'security find-identity -v -p codesigning' returned nothing)"
+  fi
+  names="$(devid_names "$ids")"
+  devid_count="$(printf '%s' "$names" | grep -c . || true)"
   say ""
+  say "  Developer ID Application identities: $devid_count"
+  [ "$devid_count" -gt 0 ] && printf '%s\n' "$names" | sed 's/^/    /'
+  say ""
+
+  intermediate_ok=1
   if security find-certificate -c "$INTERMEDIATE_CN" >/dev/null 2>&1; then
     say "  Apple intermediate '$INTERMEDIATE_CN': PRESENT"
   else
+    intermediate_ok=0
     say "  Apple intermediate '$INTERMEDIATE_CN': ABSENT"
     say "    Without it a Developer ID signature cannot build a chain to the Apple root."
     say "    Fix: curl -fLO $INTERMEDIATE_URL && security import DeveloperIDG2CA.cer"
   fi
   say ""
-  say "  private key expected at: $key_dir/developer-id.key $( [ -f "$key_dir/developer-id.key" ] && echo '(present)' || echo '(ABSENT — run make-signing-csr.sh)')"
+  if [ -f "$key_dir/developer-id.key" ]; then
+    say "  private key expected at: $key_dir/developer-id.key (present)"
+  else
+    say "  private key expected at: $key_dir/developer-id.key (ABSENT — run make-signing-csr.sh)"
+  fi
+  say ""
+  if [ "$devid_count" -eq 0 ]; then
+    say "VERDICT: this machine cannot sign for distribution — no Developer ID"
+    say "Application identity. Exit code 1, so a caller can act on it."
+    exit 1
+  fi
+  if [ "$intermediate_ok" -eq 0 ]; then
+    say "VERDICT: an identity exists but Apple's intermediate does not, so signatures"
+    say "made with it will not verify. Exit code 1."
+    exit 1
+  fi
+  say "VERDICT: usable. $devid_count Developer ID Application identit(y/ies) and the"
+  say "Apple intermediate are both present."
   exit 0
 fi
 
@@ -118,24 +245,62 @@ if [ ! -f "$key_path" ]; then
   exit 2
 fi
 
+say "openssl        : $OPENSSL ($("$OPENSSL" version 2>/dev/null | head -1))"
+
+# ---------------------------------------------------------------------------
+# DER -> PEM, EXPLICITLY, and the result is checked before anything reads it.
+# LibreSSL leaves a 0-byte file behind when this goes wrong; a 0-byte file that
+# nothing checks is how a misleading error three steps later gets produced.
+# ---------------------------------------------------------------------------
+cer_pem="$key_dir/.developer-id.cer.pem"
+umask 077
+rm -f "$cer_pem"
+if ! "$OPENSSL" x509 -inform DER -in "$cer" -outform PEM -out "$cer_pem" 2>/dev/null; then
+  # Apple has shipped PEM here before; accept either rather than guessing at the bytes.
+  rm -f "$cer_pem"
+  if ! "$OPENSSL" x509 -inform PEM -in "$cer" -outform PEM -out "$cer_pem" 2>/dev/null; then
+    rm -f "$cer_pem"
+    warn "error: $cer is not a certificate $OPENSSL can read as DER or PEM."
+    exit 2
+  fi
+fi
+if [ ! -s "$cer_pem" ] || ! grep -q 'BEGIN CERTIFICATE' "$cer_pem"; then
+  rm -f "$cer_pem"
+  warn "error: converting $cer to PEM produced an empty or unusable file."
+  warn "       That is the 0-byte artifact this check exists for: openssl can exit"
+  warn "       reporting failure AND leave an output file behind, and every step"
+  warn "       after it then fails with an error about the wrong thing."
+  exit 2
+fi
+chmod 600 "$cer_pem"
+
 # ---------------------------------------------------------------------------
 # The certificate must actually match the key. Compared by public modulus, which
 # is the only comparison that answers it. Getting this wrong produces an identity
 # that exists and cannot sign.
+#
+# `-passin pass:` is not decoration: without it, an ENCRYPTED private key makes
+# openssl block on a terminal passphrase prompt. With it, it fails immediately and
+# the refusal below is reached instead.
 # ---------------------------------------------------------------------------
-cer_pem="$key_dir/.developer-id.cer.pem"
-if ! openssl x509 -inform DER -in "$cer" -out "$cer_pem" 2>/dev/null; then
-  # Apple has shipped PEM here before; accept either rather than guessing at the bytes.
-  if ! openssl x509 -inform PEM -in "$cer" -out "$cer_pem" 2>/dev/null; then
-    warn "error: $cer is not a certificate openssl can read as DER or PEM."
-    exit 2
-  fi
+key_mod="$("$OPENSSL" rsa -in "$key_path" -noout -modulus -passin pass: 2>/dev/null || true)"
+if [ -z "$key_mod" ]; then
+  rm -f "$cer_pem"
+  warn ""
+  warn "REFUSING — $key_path cannot be read without a passphrase."
+  warn ""
+  warn "  Either it is not an RSA private key, or it is encrypted. An encrypted key"
+  warn "  is refused HERE, deliberately, rather than handed to 'security import':"
+  warn "  that would raise a macOS passphrase dialog and block this script on a human"
+  warn "  forever, which in CI is an unattended hang with no output."
+  warn ""
+  warn "  Decrypt it deliberately, with a passphrase you type:"
+  warn "      /usr/bin/openssl rsa -in $key_path -out $key_path.plain"
+  warn ""
+  exit 2
 fi
-chmod 600 "$cer_pem"
-
-key_mod="$(openssl rsa  -in "$key_path" -noout -modulus 2>/dev/null || true)"
-cer_mod="$(openssl x509 -in "$cer_pem"  -noout -modulus 2>/dev/null || true)"
-if [ -z "$key_mod" ] || [ "$key_mod" != "$cer_mod" ]; then
+cer_mod="$("$OPENSSL" x509 -in "$cer_pem" -noout -modulus 2>/dev/null || true)"
+if [ "$key_mod" != "$cer_mod" ]; then
   rm -f "$cer_pem"
   warn ""
   warn "REFUSING — this certificate was NOT issued against the key at $key_path."
@@ -149,8 +314,8 @@ if [ -z "$key_mod" ] || [ "$key_mod" != "$cer_mod" ]; then
   exit 2
 fi
 
-cert_cn="$(openssl x509 -in "$cer_pem" -noout -subject 2>/dev/null | sed -n 's/.*CN *= *\([^,/]*\).*/\1/p')"
-cert_end="$(openssl x509 -in "$cer_pem" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+cert_cn="$("$OPENSSL" x509 -in "$cer_pem" -noout -subject 2>/dev/null | sed -n 's/.*CN *= *\([^,/]*\).*/\1/p')"
+cert_end="$("$OPENSSL" x509 -in "$cer_pem" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
 
 say "certificate    : $cert_cn"
 say "expires        : $cert_end"
@@ -175,58 +340,58 @@ if ! printf '%s' "$cert_cn" | grep -q '^Developer ID Application:'; then
 fi
 
 # ---------------------------------------------------------------------------
-# Pair them, import, and then ASK whether an identity resulted.
+# Import both halves, then ASK whether an identity resulted.
+#
+# `-P ''` on EVERY call. A missing -P is not an empty passphrase: it is a
+# SecurityAgent dialog and an indefinite block. An item that is already there
+# reports "The specified item already exists in the keychain." and exits 1, which
+# is what makes a second run of this script a no-op rather than an error.
 # ---------------------------------------------------------------------------
-p12="$key_dir/developer-id.p12"
-umask 077
-if ! openssl pkcs12 -export -legacy -inkey "$key_path" -in "$cer_pem" \
-        -name "$cert_cn" -out "$p12" -passout pass: 2>/dev/null; then
-  # -legacy is absent on openssl 1.x and required on 3.x for a keychain-readable
-  # PKCS#12; try both rather than pinning a version this machine may not have.
-  openssl pkcs12 -export -inkey "$key_path" -in "$cer_pem" \
-        -name "$cert_cn" -out "$p12" -passout pass: 2>/dev/null \
-    || { warn "error: openssl could not build a PKCS#12 from the key and certificate."; rm -f "$cer_pem"; exit 2; }
-fi
-chmod 600 "$p12"
+import_one() {                       # import_one <file> <what>  -> 0 ok, 1 real failure
+  local file="$1" what="$2" out rc
+  local args=(import "$file" -P '' -T /usr/bin/codesign -T /usr/bin/security)
+  [ -n "$keychain" ] && args+=(-k "$keychain")
+  set +e
+  out="$(security "${args[@]}" 2>&1)"; rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    say "  $what: $(printf '%s' "$out" | tr '\n' ' ')"
+    return 0
+  fi
+  if printf '%s' "$out" | grep -qi 'already exists'; then
+    say "  $what: already present (this run changed nothing, which is what re-running should do)"
+    return 0
+  fi
+  warn "error: importing the $what failed:"
+  warn "$out"
+  return 1
+}
+
+say "importing into the ${keychain:-login} keychain..."
+import_failed=0
+import_one "$key_path" "private key"  || import_failed=1
+import_one "$cer_pem"  "certificate"  || import_failed=1
 rm -f "$cer_pem"
 
-import_args=(import "$p12" -P "" -T /usr/bin/codesign -T /usr/bin/security)
-[ -n "$keychain" ] && import_args+=(-k "$keychain")
-
-say "importing into the $( [ -n "$keychain" ] && echo "$keychain" || echo "login" ) keychain..."
-if ! out="$(security "${import_args[@]}" 2>&1)"; then
-  # An already-present item is not a failure; anything else is.
-  if printf '%s' "$out" | grep -qi 'already exists'; then
-    say "  (already present — continuing to the verification, which is the part that counts)"
-  else
-    warn "error: security import failed:"
-    warn "$out"
-    [ -n "$keep_p12" ] || rm -f "$p12"
-    exit 2
-  fi
-fi
-
-if [ -n "$keep_p12" ]; then
-  say ""
-  say "  KEPT: $p12 — an UNENCRYPTED copy of the private key, protected by nothing but"
-  say "  file permissions (0600, in a 0700 directory). It is a fine local artifact and a"
-  say "  bad backup. For a backup that leaves this machine, make one with a passphrase you"
-  say "  type rather than pass as an argument:"
-  say "      openssl pkcs12 -export -inkey $key_path -in <cert.pem> -out backup.p12"
-else
-  rm -f "$p12"
+if [ "$import_failed" -ne 0 ]; then
+  warn ""
+  warn "FAILED — at least one half did not import, so no identity can have been"
+  warn "created. Exiting non-zero: a failure that exits 0 is how a broken install"
+  warn "gets reported as done."
+  exit 2
 fi
 
 # ---------------------------------------------------------------------------
 # The verification. This is the only sentence in this script that is evidence.
 # ---------------------------------------------------------------------------
 say ""
-say "codesigning identities now on this machine:"
-ids="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+say "codesigning identities now${keychain:+ in $keychain}:"
+ids="$(find_identity_out)"
 printf '%s\n' "$ids" | sed 's/^/    /'
 say ""
 
-devid_count="$(printf '%s\n' "$ids" | grep -c 'Developer ID Application:' || true)"
+names="$(devid_names "$ids")"
+devid_count="$(printf '%s' "$names" | grep -c . || true)"
 if [ "$devid_count" -eq 0 ]; then
   warn "FAILED — the import reported success and NO Developer ID Application identity exists."
   warn ""
@@ -244,7 +409,7 @@ if ! security find-certificate -c "$INTERMEDIATE_CN" >/dev/null 2>&1; then
   say ""
 fi
 
-identity="$(printf '%s\n' "$ids" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)"
+identity="$(printf '%s\n' "$names" | head -1)"
 team="$(printf '%s' "$identity" | sed -n 's/.*(\([A-Z0-9]*\))$/\1/p')"
 
 say "OK: '$identity' is installed and usable."
@@ -253,5 +418,11 @@ say "  Team ID: ${team:-<not in the identity string>}"
 say "  package-app.sh DISCOVERS this identity on its own when exactly one exists, so"
 say "  nothing needs to be exported. To pin it anyway:"
 say "      export RICHOS_SIGNING_IDENTITY='$identity'"
+say ""
+say "  ONE-TIME DIALOG, named here rather than met during a release: a key imported"
+say "  from the command line carries a trusted-application ACL but no partition list,"
+say "  so the first codesign run may ask you once to confirm. Click 'Always Allow'."
+say "  Removing even that needs the keychain's own password on a command line, which"
+say "  this script will not do."
 say ""
 say "  Next: app/scripts/package-app.sh --sign developer-id"

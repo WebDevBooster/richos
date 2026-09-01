@@ -66,7 +66,12 @@
 //!   and **exit 1 with zero bytes of stdout** (measured 2026-08-31 on 2.1.252, both for a
 //!   nonsense flag and alongside a good one). The handshake turns that into
 //!   [`NativeError::Startup`], carrying the child's own stderr verbatim.
-//! - A missing binary is [`NativeError::BinaryMissing`], before a process is spawned.
+//! - A missing binary is [`NativeError::BinaryMissing`], before a process is spawned — and
+//!   ONLY a missing binary. A missing engine directory is [`NativeError::WorkingDirMissing`]
+//!   and an unrunnable one is [`NativeError::BinaryNotExecutable`], because `ENOENT` from
+//!   `Command::spawn` means either of the first two and reporting one as the other sends
+//!   whoever set RichOS up looking in the wrong place. `preflight` separates them before a
+//!   process exists.
 //! - A binary that starts but never answers the handshake is [`NativeError::Startup`] after
 //!   [`HANDSHAKE_TIMEOUT`], never an indefinite hang.
 //!
@@ -182,6 +187,27 @@ pub enum NativeError {
     /// an exit code.
     #[error("the claude binary was not found at {path} — RichOS drives Claude Code directly and cannot run without it")]
     BinaryMissing { path: String },
+    /// **LOUD.** The `claude` binary is exactly where we looked and cannot be run: the
+    /// execute bit is off, or the path names a directory. A DIFFERENT fault from
+    /// [`NativeError::BinaryMissing`] with a different fix, so it is a different variant —
+    /// "install Claude Code" is the wrong instruction for a file that is already there.
+    #[error("the claude binary at {path} cannot be executed ({why}) — the file is there, so this is a permissions problem, not a missing install")]
+    BinaryNotExecutable { path: String, why: String },
+    /// **LOUD, and the one this enum used to report as [`NativeError::BinaryMissing`].**
+    /// RichOS starts `claude` with the engine directory as its working directory; a working
+    /// directory that does not exist fails the spawn with `ENOENT`, which is the SAME errno a
+    /// missing binary produces. Raised BEFORE the spawn so the two can never be confused
+    /// again. Measured 2026-09-01: a double-clicked `.app` has `cwd = /`, the old default
+    /// resolved to `/../engine`, and the CEO was told his present, executable `claude` was
+    /// missing.
+    #[error("the engine directory {path} does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)")]
+    WorkingDirMissing { path: String },
+    /// **LOUD.** The engine path exists but is a file, a socket, or anything other than a
+    /// directory. Its own variant for the same reason as above: `Command::current_dir`
+    /// reports it as `ENOTDIR`, and "it isn't there" would be a false statement about a path
+    /// the operator can see.
+    #[error("the engine directory {path} exists but is not a directory — RichOS cannot use it as a working directory")]
+    WorkingDirNotADirectory { path: String },
     /// **LOUD.** The child started but never completed the `initialize` handshake: it
     /// rejected a flag, exited, or went silent. `stderr` is the child's own words, verbatim,
     /// because on a rejected flag that single line IS the diagnosis.
@@ -556,6 +582,69 @@ struct ReaderState {
     context_window: Option<u64>,
 }
 
+/// Prove, BEFORE spawning, which of a launch's two preconditions is not met.
+///
+/// **This function exists because `ENOENT` is ambiguous by construction.**
+/// `Command::spawn` raises `std::io::ErrorKind::NotFound` when the executable is missing
+/// AND when `current_dir` names a directory that is not there. One errno, two faults, two
+/// completely different fixes — and the mapping that guessed "missing binary" told the CEO
+/// on 2026-09-01 that `/Users/alex/.local/bin/claude` was not found while it sat on his disk
+/// and only the engine directory was absent
+/// (`docs/verification/payload-inventory-2026-09-01/README.md` §7). Whoever debugs that on a
+/// customer's machine looks in exactly the wrong place.
+///
+/// **Order, and it is a decision.** The binary is checked first, because "Claude Code is not
+/// installed" is the larger and more upstream errand of the two: an install with neither the
+/// binary nor the engine directory needs the 197 MB install before the 4 MB directory means
+/// anything. Each check names its own path, so a multi-fault install still gets a true
+/// sentence — just the first true sentence rather than all of them.
+///
+/// **What it deliberately does NOT check.** A bare name resolved through `PATH` (the last
+/// resort in [`resolve_claude_bin`]) has no path to test, so it falls through to the spawn,
+/// where `ENOENT` is now unambiguous *because this function already cleared the working
+/// directory*. Nothing here executes the binary or reads its contents: existence, file type
+/// and the execute bit only.
+fn preflight(bin: &Path, cwd: &Path) -> Result<(), NativeError> {
+    // ---- the binary -------------------------------------------------------------------
+    if bin.components().count() > 1 {
+        match std::fs::metadata(bin) {
+            Err(_) => return Err(NativeError::BinaryMissing { path: bin.display().to_string() }),
+            Ok(meta) if meta.is_dir() => {
+                return Err(NativeError::BinaryNotExecutable {
+                    path: bin.display().to_string(),
+                    why: "it is a directory".to_string(),
+                })
+            }
+            Ok(meta) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    // Any execute bit — owner, group or other. A finer-grained answer would
+                    // need the effective uid/gid, and `0o111 == 0` is the case that is
+                    // certainly unrunnable; anything subtler surfaces as the
+                    // `PermissionDenied` arm at the spawn, which maps to this same variant.
+                    if meta.permissions().mode() & 0o111 == 0 {
+                        return Err(NativeError::BinaryNotExecutable {
+                            path: bin.display().to_string(),
+                            why: format!("no execute permission (mode {:o})", meta.permissions().mode() & 0o777),
+                        });
+                    }
+                }
+                let _ = meta;
+            }
+        }
+    }
+
+    // ---- the working directory --------------------------------------------------------
+    match std::fs::metadata(cwd) {
+        Err(_) => Err(NativeError::WorkingDirMissing { path: cwd.display().to_string() }),
+        Ok(meta) if !meta.is_dir() => {
+            Err(NativeError::WorkingDirNotADirectory { path: cwd.display().to_string() })
+        }
+        Ok(_) => Ok(()),
+    }
+}
+
 impl NativeClient {
     /// Spawn `claude`, run the `initialize` handshake, and return a client whose session id
     /// is already known.
@@ -565,12 +654,9 @@ impl NativeClient {
     /// at all can be caught before the CEO types anything — so it is done eagerly, with a
     /// bound, and its failure is a hard [`NativeError`] carrying the child's own stderr.
     pub fn spawn(bin: &Path, cwd: &Path) -> Result<Self, NativeError> {
-        // Refuse BEFORE spawning when we can, so the error names a path instead of an exit
-        // code. A bare name on `PATH` has no path to check, so it falls through to the spawn
-        // error below, which `std::io` reports as NotFound.
-        if bin.components().count() > 1 && !bin.exists() {
-            return Err(NativeError::BinaryMissing { path: bin.display().to_string() });
-        }
+        // Refuse BEFORE spawning, so the error names WHICH path is wrong instead of an
+        // errno that stands for two different faults. See `preflight`.
+        preflight(bin, cwd)?;
 
         let session_id = uuid::Uuid::new_v4().to_string();
         let mut child = Command::new(bin)
@@ -580,12 +666,19 @@ impl NativeClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    NativeError::BinaryMissing { path: bin.display().to_string() }
-                } else {
-                    NativeError::Io(e)
-                }
+            .map_err(|e| match e.kind() {
+                // `preflight` has ALREADY proved the working directory exists and is a
+                // directory, which is what makes this mapping sound: after that check, the
+                // only thing left that can raise `ENOENT` here is the executable itself —
+                // in practice a bare name that is not on `PATH`, the one case preflight
+                // cannot check. Before that check this arm was a guess, and it guessed
+                // wrong every time the engine directory was the missing thing.
+                std::io::ErrorKind::NotFound => NativeError::BinaryMissing { path: bin.display().to_string() },
+                std::io::ErrorKind::PermissionDenied => NativeError::BinaryNotExecutable {
+                    path: bin.display().to_string(),
+                    why: "the operating system refused to execute it".to_string(),
+                },
+                _ => NativeError::Io(e),
             })?;
 
         let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or(NativeError::Closed)?));
@@ -1272,6 +1365,70 @@ mod native_driver_tests {
         }
         // The message a human sees says what is wrong and why it matters.
         assert!(err.to_string().contains("cannot run without it"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_working_directory_is_never_reported_as_a_missing_binary() {
+        // RED-FIRST PROOF of the defect measured on 2026-09-01: the binary below is PRESENT
+        // and EXECUTABLE, and only the working directory is absent. `Command::current_dir`
+        // on a missing directory fails ENOENT, and ENOENT was mapped to BinaryMissing — so
+        // the app announced a missing binary while that binary sat on disk.
+        let script = write_script("cwd-missing", "exit 0\n");
+        assert!(script.exists(), "the binary must be present for this test to mean anything");
+        let missing = std::env::temp_dir().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
+        assert!(!missing.exists());
+
+        let err = NativeClient::spawn(&script, &missing)
+            .err()
+            .expect("a missing working directory must not be a degraded success");
+        let msg = err.to_string();
+        assert!(!msg.contains("claude binary was not found"), "a missing working directory reported as a missing binary: {msg}");
+        assert!(msg.contains(&missing.display().to_string()), "the failure must name the directory that is actually missing: {msg}");
+        assert!(matches!(err, NativeError::WorkingDirMissing { .. }), "{msg}");
+    }
+
+    #[test]
+    fn an_engine_path_that_is_a_file_says_so_rather_than_saying_it_is_absent() {
+        // ENOTDIR, not ENOENT: the operator can SEE the path, so "it does not exist" would be
+        // a false sentence about something in front of him.
+        let script = write_script("cwd-not-a-dir", "exit 0\n");
+        let file = script.parent().unwrap().join("engine-that-is-a-file");
+        std::fs::write(&file, b"not a directory").unwrap();
+
+        let err = NativeClient::spawn(&script, &file).err().expect("a file is not a working directory");
+        let msg = err.to_string();
+        assert!(matches!(err, NativeError::WorkingDirNotADirectory { .. }), "{msg}");
+        assert!(msg.contains("is not a directory"), "{msg}");
+        assert!(msg.contains(&file.display().to_string()), "{msg}");
+    }
+
+    #[test]
+    fn a_binary_that_is_present_but_not_executable_is_not_reported_as_missing() {
+        // The third fault the old single-variant mapping flattened: the file IS installed, so
+        // "install Claude Code" is the wrong instruction and `chmod` is the right one.
+        let script = write_script("not-executable", "exit 0\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let err = NativeClient::spawn(&script, Path::new("/tmp")).err().expect("an unrunnable binary must fail");
+        let msg = err.to_string();
+        assert!(matches!(err, NativeError::BinaryNotExecutable { .. }), "{msg}");
+        assert!(!msg.contains("was not found"), "a present file must never be reported as absent: {msg}");
+        assert!(msg.contains("644"), "the diagnosis names the mode it actually found: {msg}");
+    }
+
+    #[test]
+    fn with_both_missing_the_binary_is_named_first_and_that_order_is_deliberate() {
+        // Multi-fault installs get the FIRST true sentence, not a false one: the 197 MB
+        // install is upstream of the engine directory, so it is the one named. Pinned here so
+        // the order is a decision on the record rather than an accident of code layout.
+        let missing_dir = std::env::temp_dir().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
+        let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), &missing_dir)
+            .err()
+            .expect("must fail");
+        assert!(matches!(err, NativeError::BinaryMissing { .. }), "{err}");
     }
 
     #[test]

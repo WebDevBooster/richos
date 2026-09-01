@@ -40,6 +40,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+/// WHERE THE ENGINE DIRECTORY IS. Its own file because the answer is an ORDER of seven
+/// candidates that has to be readable and testable — the one-expression default it replaced
+/// was a `cargo run` assumption that resolved to a nonexistent path under a Finder launch,
+/// and nothing tested it because there was nothing to test.
+mod engine;
+
 /// Durable left-navigation view state (pin, rename, archive, rail width). See nav.rs
 /// for why these are shell state and not ledger events.
 mod nav;
@@ -392,14 +398,24 @@ fn boot_entity() -> Option<EntityId> {
     }
 }
 
-fn engine_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("RICHOS_ENGINE_DIR") {
-        return PathBuf::from(dir);
+/// Where this launch's engine directory is — the working directory `claude` is started in.
+///
+/// The seven-candidate order, and the reasoning behind it, is `engine.rs`. This wrapper holds
+/// the one decision the resolver deliberately does not make: what to hand
+/// `NativeCognition::start` when NOTHING was found.
+///
+/// **It hands over the last place it looked, and it never invents a plausible path.** A launch
+/// with no engine has to fail, and it has to fail naming a real candidate an operator can act
+/// on — `native.rs::preflight` turns that into `the engine directory <path> does not exist`,
+/// which is a true sentence about a path that was genuinely checked. Synthesizing a default
+/// instead is exactly how `cwd/../engine` became `/../engine` under a Finder launch and got
+/// reported as a missing `claude` binary.
+fn resolve_engine() -> engine::EngineResolution {
+    let mut resolution = engine::resolve_engine_dir(&engine::LaunchPaths::from_process());
+    if resolution.dir.is_none() {
+        resolution.dir = resolution.tried.last().map(|(_, path)| path.clone());
     }
-    // Default: the engine repo sibling of app/ (dogfood layout).
-    std::env::current_dir()
-        .map(|d| d.join("../engine"))
-        .unwrap_or_else(|_| PathBuf::from("../engine"))
+    resolution
 }
 
 fn main() {
@@ -582,7 +598,19 @@ fn main() {
             // It is not shown to the CEO — a flag name is not CEO copy — but it is the first
             // thing whoever set RichOS up will read, and the sentence he DOES see points at
             // exactly that person.
-            let engine = engine_dir();
+            // NAMED AT BOOT, ALWAYS. Seven candidates resolve this now (engine.rs), so
+            // "which one answered" is a fact an operator needs and cannot otherwise obtain —
+            // the same reason the success line below names the binary instead of leaving a
+            // working boot silent. When nothing answered, every place looked is printed:
+            // "not found" without the list is what sends someone hunting.
+            let resolution = resolve_engine();
+            eprintln!("[richos] engine directory: {}", resolution.describe());
+            if resolution.source.is_none() {
+                for (source, path) in &resolution.tried {
+                    eprintln!("[richos]   looked in {} ({})", path.display(), source.as_str());
+                }
+            }
+            let engine = resolution.dir.clone().unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/richos-engine"));
             let claude_bin = resolve_claude_bin();
             let lease_ready = match NativeCognition::start(&claude_bin, &engine) {
                 Ok(cog) => {
@@ -604,6 +632,13 @@ fn main() {
                 Err(e) => {
                     eprintln!("[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.");
                     eprintln!("[richos]   binary: {}", claude_bin.display());
+                    // THE SECOND PATH, printed because it was the missing one. Until
+                    // 2026-09-01 this block named only the binary, so a failure caused by the
+                    // WORKING DIRECTORY printed a binary path, a "binary was not found"
+                    // message, and no mention of the directory at all. `native.rs::preflight`
+                    // now separates the two causes; this line makes the other path visible
+                    // whichever cause fired, so nobody has to infer it from the message text.
+                    eprintln!("[richos]   engine: {}", engine.display());
                     eprintln!("[richos]   cause : {e}");
                     false
                 }

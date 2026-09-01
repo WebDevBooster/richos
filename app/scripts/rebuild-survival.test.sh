@@ -30,6 +30,9 @@
 #   G12 an unreadable TCC database -> INCOMPLETE, never a guessed pass
 #   G13 layer 3 is always printed as not machine-checkable
 #   G14 status on a machine with no Developer ID identity -> exit 4, naming what it needs
+#   G15 a requirement printed WITHOUT a leading '# ' is read (the Developer ID form)
+#   G16 a real signature records as 'developer-id', not as 'none'
+#   G17 two UNREAD requirements are INCOMPLETE, never a silent identical
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -154,6 +157,70 @@ if [ "$(security find-identity -v -p codesigning 2>/dev/null | grep -c 'Develope
 else
   ok "G14 SKIPPED-BY-FACT: this machine now HAS a Developer ID identity, so the no-certificate verdict is not reachable here"
 fi
+
+
+# --- G15/G16/G17: THE REQUIREMENT PARSER, which read `none` off every Developer ID
+# bundle until 2026-09-01. `codesign -d -r-` prints the IMPLICIT requirement
+# commented out (`# designated => cdhash H"…"`) and an EXPLICIT one — which is what
+# a Developer ID signature carries — with no comment marker at all. The parser was
+# anchored on `^# `, so it saw the ad-hoc failure case perfectly and was blind to
+# the case the certificate was bought for.
+#
+# Driven through a `codesign` SHIM. There is a real Developer ID identity on this
+# machine as of 2026-09-01, but a suite that runs in seconds does not get to sign
+# with an operator's certificate, and the property under test is the PARSING, not
+# the signing.
+CSHIM="$TMP/cshim"; mkdir -p "$CSHIM"
+cat > "$CSHIM/codesign" <<'EOF'
+#!/usr/bin/env bash
+# -r- prints the requirement in the form named by SHIM_DR_FORM; -dvvv prints a
+# Developer ID description. Everything else is refused, so a case cannot pass by
+# reaching some other path.
+for a in "$@"; do [ "$a" = "-r-" ] && want_r=1; done
+if [ "${want_r:-}" = 1 ]; then
+  case "${SHIM_DR_FORM:-bare}" in
+    bare)     echo 'designated => identifier "com.richos.app" and anchor apple generic and certificate leaf[subject.OU] = TZ33A4QCZJ' ;;
+    hashed)   echo '# designated => cdhash H"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' ;;
+    silent)   : ;;
+  esac
+  exit 0
+fi
+echo 'Identifier=com.richos.app'
+echo 'CodeDirectory v=20500 size=1 flags=0x10000(runtime) hashes=1+7 location=embedded'
+echo "CDHash=${SHIM_CDHASH:-1111111111111111111111111111111111111111}"
+echo 'Signature size=9043'
+echo 'Authority=Developer ID Application: Test Person (TEAM00001)'
+echo 'Authority=Developer ID Certification Authority'
+echo 'TeamIdentifier=TEAM00001'
+exit 0
+EOF
+chmod +x "$CSHIM/codesign"
+
+DRD="$TMP/drstate"
+run env PATH="$CSHIM:$PATH" SHIM_DR_FORM=bare SHIM_CDHASH=aaaa000000000000000000000000000000000001 \
+      bash "$H" record "$B1" --label dr1 --dir "$DRD"
+if grep -q 'designated_requirement: identifier "com.richos.app"' "$DRD/dr1.record" 2>/dev/null; then
+  ok "G15 a requirement printed WITHOUT the leading '# ' is read (the Developer ID form)"
+else
+  bad "G15 the Developer ID form of the requirement was not read" \
+      "$(sed -n 's/^designated_requirement: //p' "$DRD/dr1.record" 2>/dev/null)"
+fi
+if grep -q '^signature: developer-id' "$DRD/dr1.record" 2>/dev/null; then
+  ok "G16 a real signature records as 'developer-id', not as 'none'"
+else
+  bad "G16 a Developer ID build recorded the wrong signature kind" \
+      "$(sed -n 's/^signature: //p' "$DRD/dr1.record" 2>/dev/null)"
+fi
+
+# G17: when NOTHING can be read off either build, two "none"s must not compare as
+# a silent match. Before the fix this fell past every branch and layer 1 printed no
+# verdict at all — the quietest possible failure of the one decisive layer.
+run env PATH="$CSHIM:$PATH" SHIM_DR_FORM=silent SHIM_CDHASH=bbbb000000000000000000000000000000000001 \
+      bash "$H" record "$B1" --label dr2 --dir "$DRD"
+run env PATH="$CSHIM:$PATH" SHIM_DR_FORM=silent SHIM_CDHASH=bbbb000000000000000000000000000000000002 \
+      bash "$H" record "$B2" --label dr3 --dir "$DRD"
+run bash "$H" compare --a dr2 --b dr3 --dir "$DRD"
+expect "G17 two unread requirements are INCOMPLETE, never a silent identical" 4 "no designated requirement was read off either build"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

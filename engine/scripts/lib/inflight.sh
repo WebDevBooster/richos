@@ -16,6 +16,7 @@ _INFLIGHT_SH_SOURCED=1
 
 INFLIGHT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFLIGHT_PY="$INFLIGHT_LIB_DIR/inflight.py"
+INFLIGHT_IDENTITY_PY="$INFLIGHT_LIB_DIR/teammate-identity.py"
 
 # inflight_require — 0 if the predicate can run, else 1 with INFLIGHT_BROKEN set.
 inflight_require() {
@@ -28,32 +29,54 @@ inflight_require() {
         INFLIGHT_BROKEN="the predicate is missing at $INFLIGHT_PY"
         return 1
     fi
+    if [ ! -f "$INFLIGHT_IDENTITY_PY" ]; then
+        # Without it the sweep can still run, but only ever knows a teammate by
+        # its ROLE — which is exactly the 2026-08-31 false positive. A guard
+        # that would report OWED-NO-NOTICE against notices that were sent is
+        # worse than one that refuses to start, because the fix on the day is
+        # to waive it.
+        INFLIGHT_BROKEN="the identity resolver is missing at $INFLIGHT_IDENTITY_PY"
+        return 1
+    fi
     return 0
 }
 
 # inflight_teams_dir <session-id> — the session team directory, or "".
+# inflight_teams_dir_how <session-id> — the one-line reason it chose that one.
 #
-# Same resolution the four worker-lifecycle emitters use: exact session match
-# first, then a single-session fallback (and ONLY when there is exactly one —
-# guessing between sessions would attribute one session's notices to another).
-# INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR override the parent directory,
-# which is how the tests point this at a sandbox.
+# THE LADDER IS NOT HERE. It lives in scripts/lib/teammate-identity.py
+# (resolve_teams_dir), because the WITNESS writes the notice ledger from python
+# and the guard reads it from here, and a ledger written to one path and read
+# from another is the same class of defect as a teammate called two names.
+# Both halves now call the one resolver.
+#
+# INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR are read by that resolver, and —
+# as every header and `waive`'s own error message has always claimed — they are
+# honored BOTH as the parent directory of session-* dirs AND as a direct
+# pointer at a team directory.
 inflight_teams_dir() {
-    local sid="${1:-}" base short d found=""
-    base="${INFLIGHT_TEAMS_DIR:-${WORKER_EVENTS_TEAMS_DIR:-$HOME/.claude/teams}}"
-    [ -d "$base" ] || { printf '%s' ""; return 0; }
-    short="$(printf '%s' "$sid" | cut -c1-8)"
-    if [ -n "$short" ] && [ -d "$base/session-$short" ]; then
-        printf '%s' "$base/session-$short"
-        return 0
-    fi
-    for d in "$base"/session-*; do
-        [ -d "$d" ] || continue
-        if [ -n "$found" ]; then printf '%s' ""; return 0; fi
-        found="$d"
-    done
-    printf '%s' "$found"
-    return 0
+    python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --session "${1:-}" 2>/dev/null || printf '%s' ""
+}
+
+inflight_teams_dir_how() {
+    python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --how --session "${1:-}" 2>/dev/null \
+        || printf '%s' "teammate-identity.py could not run"
+}
+
+# inflight_resolve_teams_dir <session-id> — sets TWO variables in the caller:
+#   INFLIGHT_TEAMS_DIR_RESOLVED   the directory
+#   INFLIGHT_TEAMS_DIR_SOURCE     the rung of the ladder it came from, EXPORTED
+#                                 so the predicate can print it
+# The source is exported rather than returned because a sweep that is reading
+# the wrong ledger looks exactly like a sweep of an empty world, and the
+# difference has to be on the screen.
+inflight_resolve_teams_dir() {
+    local pair
+    pair="$(python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --with-how --session "${1:-}" 2>/dev/null)"
+    INFLIGHT_TEAMS_DIR_RESOLVED="$(printf '%s' "$pair" | cut -f1)"
+    INFLIGHT_TEAMS_DIR_SOURCE="$(printf '%s' "$pair" | cut -f2-)"
+    [ -n "$INFLIGHT_TEAMS_DIR_SOURCE" ] || INFLIGHT_TEAMS_DIR_SOURCE="teammate-identity.py could not run"
+    export INFLIGHT_TEAMS_DIR_SOURCE
 }
 
 # inflight_timeout_min <entity-root> — the ack timeout in minutes.
@@ -103,9 +126,15 @@ inflight_register_repo() {
     return 0
 }
 
-# inflight_assess <repo> <tip-or-empty> <teams-dir> <timeout-min> <format>
+# inflight_assess <repo> <tip-or-empty> <teams-dir> <timeout-min> <format> [session] [transcript]
+#
+# The session id and the transcript path are how the predicate reaches the
+# EXACT name join (Agent tool_use -> toolUseResult.agentId). A caller that has
+# either one must pass it: without them a native worktree resolves to its role
+# and no notice can ever be credited to it.
 inflight_assess() {
     local repo="${1:-}" tip="${2:-}" teams="${3:-}" tmo="${4:-30}" fmt="${5:-text}"
+    local sid="${6:-}" transcript="${7:-}"
     python3 "$INFLIGHT_PY" --repo "$repo" --tip "$tip" --teams-dir "$teams" \
-        --timeout-min "$tmo" --format "$fmt"
+        --timeout-min "$tmo" --format "$fmt" --session "$sid" --transcript "$transcript"
 }
