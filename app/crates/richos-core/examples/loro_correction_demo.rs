@@ -31,10 +31,10 @@ fn main() {
         }
     };
 
-    // A throwaway corpus, provisioned the way loro expects: person/ + companies/.
+    // A throwaway corpus, provisioned the way loro expects: ceo/ + companies/.
     let corpus = std::env::temp_dir().join(format!("richos-correction-demo-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&corpus);
-    std::fs::create_dir_all(corpus.join("person").join("records")).unwrap();
+    std::fs::create_dir_all(corpus.join("ceo").join("records")).unwrap();
     std::fs::create_dir_all(corpus.join("companies")).unwrap();
     println!("corpus: {}\n", corpus.display());
 
@@ -53,7 +53,7 @@ fn main() {
                 scope: Some("org-shared".into()),
                 title: Some("Launch is Thursday".into()),
                 body: "We are launching on Thursday. Marketing is briefed for Thursday.".into(),
-                partition: Some("person".into()),
+                partition: Some("ceo".into()),
             },
             "recording what was decided on the call",
         )
@@ -64,7 +64,7 @@ fn main() {
     println!("confirmed -> {:?} at {}\n", p1.state, p1.outcome.as_ref().unwrap().r#ref);
 
     // ---- 2. "that's wrong" ------------------------------------------------
-    let believed = desk.show("rec:person/records/launch-date").unwrap();
+    let believed = desk.show("rec:ceo/records/launch-date").unwrap();
     println!("== 2. WHAT DOES LORO BELIEVE? ==\n{}\n", believed.text);
 
     let p2 = desk
@@ -72,7 +72,7 @@ fn main() {
             "femcboost",
             "thr-demo",
             ProposedWrite::Supersede {
-                record_ref: "rec:person/records/launch-date".into(),
+                record_ref: "rec:ceo/records/launch-date".into(),
                 new_id: "launch-date-friday".into(),
                 kind: "decision".into(),
                 scope: Some("org-shared".into()),
@@ -84,16 +84,16 @@ fn main() {
     println!("== 3. PROPOSED CORRECTION (still nothing written) — {} ==", p2.id);
     println!("why: {}\n{}", p2.why, p2.preview);
     println!("the old record is still exactly as it was:");
-    println!("{}\n", desk.show("rec:person/records/launch-date").unwrap().text);
+    println!("{}\n", desk.show("rec:ceo/records/launch-date").unwrap().text);
 
     // ---- 3. he says yes ---------------------------------------------------
     let p2 = desk.confirm("femcboost", &p2.id).unwrap();
     let out = p2.outcome.as_ref().unwrap();
     println!("== 4. CONFIRMED ==\n{:?}  {} superseded by {}\n", p2.state, out.superseded_ref.clone().unwrap_or_default(), out.r#ref);
     println!("the old record, NOT deleted, now pointing at its replacement:");
-    println!("{}", desk.show("rec:person/records/launch-date").unwrap().text);
+    println!("{}", desk.show("rec:ceo/records/launch-date").unwrap().text);
     println!("the replacement:");
-    println!("{}", desk.show("rec:person/records/launch-date-friday").unwrap().text);
+    println!("{}", desk.show("rec:ceo/records/launch-date-friday").unwrap().text);
 
     // ---- 4. and a decline writes nothing ---------------------------------
     let p3 = desk
@@ -101,7 +101,7 @@ fn main() {
             "femcboost",
             "thr-demo",
             ProposedWrite::Correct {
-                record_ref: "rec:person/records/launch-date-friday".into(),
+                record_ref: "rec:ceo/records/launch-date-friday".into(),
                 title: Some("Launch is Saturday".into()),
                 kind: None,
                 confidence: None,
@@ -114,14 +114,14 @@ fn main() {
         .unwrap();
     desk.decline(&p3.id, false).unwrap();
     println!("== 5. DECLINED — {:?}, and the record is untouched ==", desk.get(&p3.id).unwrap().state);
-    println!("{}", desk.show("rec:person/records/launch-date-friday").unwrap().text);
+    println!("{}", desk.show("rec:ceo/records/launch-date-friday").unwrap().text);
 
     println!("pending for femcboost: {}", desk.pending_for("femcboost").len());
     let _ = std::fs::remove_dir_all(&corpus);
 }
 
 fn ls(corpus: &std::path::Path) -> Vec<String> {
-    std::fs::read_dir(corpus.join("person").join("records"))
+    std::fs::read_dir(corpus.join("ceo").join("records"))
         .map(|d| d.filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().to_string())).collect())
         .unwrap_or_default()
 }

@@ -32,10 +32,18 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
-/// The single person layer this app serves (ECS §3.2 `person: id: ceo-default`). RichOS
+/// The single CEO layer this app serves (ECS §3.2 `person: id: ceo-default`). RichOS
 /// v1 is deliberately one CEO on one machine, so this is a constant rather than a table —
 /// but the scope key carries it explicitly so a second person is a data change, not a
 /// re-architecture.
+///
+/// **Why the prose says "CEO layer" while the identifier stays `PERSON_DEFAULT`.** The CEO
+/// ruled on 2026-09-01 (`richos-hq/wiki/ceo-decisions.md` §5) that the corpus layer holding
+/// his own synthesis is named `ceo/`, and the prose term followed it everywhere. The ECS
+/// scope KEY did not, and deliberately: `person_id` is a persisted field in an append-only
+/// event store (`ledger.rs`, and femcboost's ECS adapters read it too), so renaming it is a
+/// cross-repo data migration rather than a rename. It also still means the right thing —
+/// here `person` contrasts with `entity`, naming the human principal rather than the layer.
 pub const PERSON_DEFAULT: &str = "ceo-default";
 
 /// Max length of an entity id. Bounded because an entity id reaches the filesystem (the

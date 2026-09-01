@@ -246,7 +246,7 @@ app/
                               cross-entity fence on every payload
     tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
-                              person layer and nothing else
+                              CEO layer and nothing else
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
@@ -966,7 +966,7 @@ an error wearing a success code — so with these unset the app boots, says so o
 every re-prime states that company memory was NOT consulted rather than implying there is
 none.
 
-- `LORO_CORPUS` — a provisioned corpus root (`person/` + `companies/<id>/`), **or**
+- `LORO_CORPUS` — a provisioned corpus root (`ceo/` + `companies/<id>/`), **or**
 - `LORO_ROOT` — an in-repo dogfood root (a checkout with `wiki/` + `loro/`). `LORO_CORPUS`
   wins if both are set.
 - `RICHOS_LORO_DIR` — the loro checkout holding `bin/loro-context.mjs` and
@@ -975,7 +975,7 @@ none.
   outside a repository that gets published.
 - `RICHOS_LORO_LANES` — optional, `entity=lane,entity=lane`. Maps an ECS entity area onto a
   loro company partition. **Empty by default, and name equality is never a mapping**: an
-  entity with no lane reads the person layer and nothing else, and a slice carrying another
+  entity with no lane reads the CEO layer and nothing else, and a slice carrying another
   company's item is refused whole. This is a map rather than a rule because the corpus
   layout question is the owner's to answer, and a hard-coded entity-is-a-company would
   answer it by shipping.

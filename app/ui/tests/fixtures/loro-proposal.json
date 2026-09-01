@@ -4,16 +4,16 @@
   "failure": null,
   "id": "prop-1",
   "outcome": null,
-  "preview": "---\nid: halstead-renewal-corrected-9b7d44\nkind: commitment\nscope: org-shared\nsupersedes: rec:person/records/halstead-renewal\n---\n\nThe Halstead contract renews in March, not February.\n",
+  "preview": "---\nid: halstead-renewal-corrected-f1468e\nkind: commitment\nscope: org-shared\nsupersedes: rec:ceo/records/halstead-renewal\n---\n\nThe Halstead contract renews in March, not February.\n",
   "state": "awaiting-ceo",
   "thread_id": "acme",
   "why": "The Halstead contract renews in March, not February.",
   "write": {
     "body": "The Halstead contract renews in March, not February.",
     "kind": "commitment",
-    "newId": "halstead-renewal-corrected-9b7d44",
+    "newId": "halstead-renewal-corrected-f1468e",
     "op": "supersede",
-    "recordRef": "rec:person/records/halstead-renewal",
+    "recordRef": "rec:ceo/records/halstead-renewal",
     "scope": "org-shared"
   }
 }

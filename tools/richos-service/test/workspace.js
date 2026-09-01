@@ -378,7 +378,7 @@ test('privacy: evidence follows the CEO corpus and its ACTIVE COMPANY partition'
     assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'companies', 'northwind', 'evidence', 'meetings'));
     delete process.env.RICHOS_ACTIVE_COMPANY;
     // Filing may never BLOCK a write: with no company bound, evidence still lands, unfiled.
-    assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'person', 'unfiled', 'evidence', 'meetings'));
+    assert.equal(dropZone(), path.join(os.tmpdir(), 'ceo-corpus', 'ceo', 'unfiled', 'evidence', 'meetings'));
   } finally {
     Object.assign(process.env, saved);
   }
@@ -401,7 +401,7 @@ test('privacy: the entity vocabulary follows the corpus when one is configured',
   try {
     delete process.env.RICHOS_ENTITIES_FILE;
     process.env.LORO_CORPUS = path.join(os.tmpdir(), 'ceo-corpus');
-    assert.equal(entitiesFilePath(), path.join(os.tmpdir(), 'ceo-corpus', 'person', 'entities.json'));
+    assert.equal(entitiesFilePath(), path.join(os.tmpdir(), 'ceo-corpus', 'ceo', 'entities.json'));
   } finally {
     Object.assign(process.env, saved);
   }
