@@ -536,6 +536,50 @@ impl LaunchStore {
         &self.record.starts
     }
 
+    /// WHICH START THIS IS, 1-based — or `None` when this module cannot honestly say.
+    ///
+    /// The CEO's v1 splash rule is a table over this number and nothing else (2026-09-01:
+    /// *"USE THE APPROVED SPLASH SCREEN #1 to always deterministically show as SPLASH SCREEN
+    /// #1 and splash screen #2 to always show as splash screen for the SECOND APP START in
+    /// RichOS v1. From the third app start onwards: Only splash screen #1."*). This is the
+    /// number, read off the log that was already being kept, because a second counter is a
+    /// second thing that can disagree with the first — the same argument that made
+    /// [`LaunchCounts`] derived rather than stored.
+    ///
+    /// It is DERIVED, not appended: this run's position in `starts` is `starts.len()`,
+    /// because [`LaunchStore::begin_run`] has already pushed this run's timestamp by the time
+    /// anybody asks. No new field, no migration, no new file.
+    ///
+    /// **`None` is a real answer and there are exactly three ways to get it**, all of which
+    /// mean "do not attach a number to this":
+    ///
+    ///   * [`LaunchStore::begin_run`] has not been called, so nothing has been classified;
+    ///   * this run is a crash-restart or a second window, which are not starts and never
+    ///     show a splash at all;
+    ///   * the record on disk would not parse or carries a version this build does not know
+    ///     ([`LaunchStore::readable`] is false), in which case the log in memory is empty and
+    ///     `1` would be a claim that this is a first launch. It is not; it is unknown.
+    ///
+    /// The webview treats `None` the same way it treats an absent injection: splash #1. That
+    /// is a deliberate asymmetry and it is the direction to be wrong in — the cost is showing
+    /// the primary screen when the second was due, and the alternative is showing nothing.
+    pub fn start_ordinal(&self) -> Option<u64> {
+        if !self.readable {
+            return None;
+        }
+        match self.run_kind {
+            Some(LaunchKind::Fresh) => {
+                let n = self.record.starts.len() as u64;
+                if n == 0 {
+                    None
+                } else {
+                    Some(n)
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// The last [`RECENCY_RING_LEN`] splash ids shown, most recent FIRST.
     pub fn recent_splashes(&self) -> &[String] {
         &self.record.recent_splashes
@@ -603,6 +647,85 @@ impl LaunchStore {
 
 #[cfg(test)]
 mod tests {
+    // ---------------------------------------------------------------------------------
+    // THE ORDINAL - the number the CEO's v1 splash rule is a table over.
+    // ---------------------------------------------------------------------------------
+
+    #[test]
+    fn the_first_three_starts_are_one_two_three() {
+        let path = tmp_path("ordinal-123");
+        let mut seen = Vec::new();
+        for i in 0..3u64 {
+            let mut s = LaunchStore::open(&path, T0).unwrap();
+            s.begin_run(T0 + i * 60_000, format!("pid{i}"), PriorRun::Unknown).unwrap();
+            seen.push(s.start_ordinal());
+            s.note_clean_exit().unwrap();
+        }
+        assert_eq!(seen, vec![Some(1), Some(2), Some(3)], "start 1, start 2, start 3");
+
+        // And it keeps counting past the table, which is what makes "third and onwards" a
+        // rule rather than a special case.
+        let mut s = LaunchStore::open(&path, T0).unwrap();
+        s.begin_run(T0 + 300_000, "pid3", PriorRun::Unknown).unwrap();
+        assert_eq!(s.start_ordinal(), Some(4));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_fresh_install_with_no_file_is_start_one() {
+        let path = tmp_path("ordinal-fresh-install");
+        let mut s = LaunchStore::open(&path, T0).unwrap();
+        s.begin_run(T0, "pid", PriorRun::Unknown).unwrap();
+        assert_eq!(
+            s.start_ordinal(),
+            Some(1),
+            "no ledger yet is the first start, not an unknown one"
+        );
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_unreadable_record_refuses_to_name_an_ordinal() {
+        // A `1` here would be a claim that this is a first launch, which is exactly the
+        // mistake `readable` exists to prevent. `None` is the honest answer, and the webview
+        // reads it as splash #1 - the same outcome, arrived at without lying about the log.
+        let path = tmp_path("ordinal-corrupt");
+        fs::write(&path, "{ this is not json").unwrap();
+        let mut s = LaunchStore::open(&path, T0).unwrap();
+        assert!(!s.readable());
+        s.begin_run(T0, "pid", PriorRun::Unknown).unwrap();
+        assert_eq!(s.start_ordinal(), None);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn only_a_start_has_an_ordinal() {
+        let path = tmp_path("ordinal-kinds");
+        // One run that never exits cleanly, so the marker is left behind...
+        let mut first = LaunchStore::open(&path, T0).unwrap();
+        first.begin_run(T0, "a", PriorRun::Unknown).unwrap();
+        assert_eq!(first.start_ordinal(), Some(1));
+        // ...which the next launch reads as a crash-restart: not a start, so not numbered.
+        let mut crashed = LaunchStore::open(&path, T0).unwrap();
+        let kind = crashed.begin_run(T0 + 1_000, "b", PriorRun::Unknown).unwrap();
+        assert_eq!(kind, LaunchKind::CrashRestart);
+        assert_eq!(crashed.start_ordinal(), None, "a crash-restart is not the Nth start");
+        // A second copy of a live app is not one either.
+        let mut second = LaunchStore::open(&path, T0).unwrap();
+        let kind = second.begin_run(T0 + 2_000, "c", PriorRun::Alive).unwrap();
+        assert_eq!(kind, LaunchKind::SecondWindow);
+        assert_eq!(second.start_ordinal(), None);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn before_begin_run_nobody_can_say() {
+        let path = tmp_path("ordinal-unclassified");
+        let s = LaunchStore::open(&path, T0).unwrap();
+        assert_eq!(s.start_ordinal(), None, "nothing has been classified yet");
+        let _ = fs::remove_file(&path);
+    }
+
     use super::*;
 
     fn tmp_path(tag: &str) -> PathBuf {

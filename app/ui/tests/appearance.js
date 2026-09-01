@@ -676,25 +676,15 @@ async function main() {
       };
     });
     assertEqual(light.ink, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
-    // THIS EXPECTATION WAS STALE THE MOMENT THE RAIL WAS PUT RIGHT, and correcting it here is
-    // following the ruling rather than relaxing the check.
-    //
-    // `6fd6fe7` did two things in one commit: it restored `--rail-bg` to the CEO's ruled light
-    // ground `#EAE6DD` (`round-9/v1`, §15) from the `#E4DFD3` an engineer had substituted, and
-    // it put the ruled signal `#9C7C34` back into the mark. `index.html` and `style.css` both
-    // carry those values. This line did not: it still asserted `#8F7030`, the darker tone that
-    // existed only to survive the drifted background — so the suite went red against a product
-    // that is now correct, and against its own file's stated intent.
-    //
-    // The darker tone is not needed any more, and the arithmetic is why rather than the
-    // ruling: `#9C7C34` computes 2.95:1 on the OLD `#E4DFD3` and 3.15:1 on the ruled `#EAE6DD`,
-    // which clears the 3:1 a non-text indicator owes. Restoring the ground is what let the
-    // ruled value come back.
+    // THE EXPECTATION FOLLOWS THE RULING, and it did not for one commit. 6fd6fe7 restored
+    // the CEO ruled light signal in `index.html` and rewrote this assertion PROSE to say so,
+    // but left the VALUE at the struck-darker one the ruling replaced — so main shipped a
+    // check asserting a value the app no longer draws, and a value the lead has since said
+    // is gone from the whole app. #9C7C34 is rgb(156, 124, 52).
     assertEqual(
       light.swoosh, "rgb(156, 124, 52)",
-      "and the swoosh crosses over too — the ruled light signal #9C7C34, which computes 3.15:1 " +
-        "on the CEO's ruled light ground #EAE6DD, non-text floor 3:1. It is NOT #8F7030: that " +
-        "tone was a fit to a background that has since been put back to what he ruled."
+      "and the swoosh crosses over too — the CEO ruled light signal #9C7C34, which is what " +
+        "index.html sets and what the shipped light asset carries."
     );
     await page.close();
     return `wordmark present and announced as "${dark.label}" (role=${dark.role}); company label ` +

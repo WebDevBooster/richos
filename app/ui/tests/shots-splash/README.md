@@ -1,61 +1,65 @@
-# `shots-splash/` — the opening screen, and the switch that removes it
+# `shots-splash/` — the two splash screens, and the switch that removes them
 
 Written by `../splash.js` out of WebKit's own compositor, every one decoded and
 pixel-counted before it counted as evidence (`lib/harness.js`, rule 3). Overwritten on
 every run and not byte-stable: read the suite's exit code, not a `git diff` over a PNG.
 
-They exist because the completion criterion for this surface is observable, not internal —
-*launch the app repeatedly and see different variations, then turn it off in the UI,
-relaunch, and see it stay off.* One shot per clause. The round that added `v7`–`v17` has its
-own observable criterion and its own shots: see the material pairs below.
+**There are exactly two splash screens.** CEO, 2026-09-01: *"I have never fucking approved
+more than 2 splash screens. The other MOCKUP DESIGNS ARE NOT FUCKING READY FOR USE IN SPLASH
+SCREENS YET."* This directory used to hold thirteen material pairs and two composition shots
+of round-8.1 studies, because the library shipped eighteen of them on the strength of an
+approval that was of a **palette and a visual standard** (`ceo-decisions.md` §14), never of
+eighteen opening ceremonies. Those files are gone with those entries.
 
-**The two composition shots are taken with the surface HELD OPEN**, and that is stated here
-rather than left for someone to discover: the real splash is gone about a quarter of a
-second into a launch, so photographing it means muting the app-ready signal for the length
-of the exposure. The suite's `holdOpen()` replaces only the exported `RichSplash.yieldNow`,
-which is only what `main.js` calls — the compositions themselves are the shipped ones,
-drawn by the shipped renderer from the shipped library, and every assertion about *when*
-the surface leaves (checks 8 and 10) is made against the unmuted paths.
+**The composition shots are taken with the surface HELD OPEN**, and that is stated here
+rather than left for someone to discover: the real splash lands at three seconds and then
+hands off, so photographing it mid-run means muting the app-ready signal for the length of
+the exposure. The suite's `holdOpen()` replaces only the exported `RichSplash.yieldNow`,
+which is only what `main.js` calls — the compositions themselves are the shipped ones, drawn
+by the shipped renderer from the shipped library, and every assertion about *when* the
+surface leaves (checks 8, 10, 12b, 12c) is made against the unmuted paths.
 
 | Shot | What it is evidence of |
 |---|---|
-| `splash-01-round-8-1-v0.png` | `round-8.1/v0` — the CEO's chosen palette, Sovereign, as he chose it. The composition extracted from the study and nothing else: the mark on its ground, the plinth, the rule, the line. No palette rail, no colour chips, no role names, no hex values, no corner labels. Check 5 joins the mat's rendered colour back to that entry's own `surface` token, so this is a photograph of the data, not of a copy of it. |
-| `splash-02-round-8-1-v6.png` | `round-8.1/v6` — "all five, tuned together", on a launch that drew a different entry. Deeper ground, gilded gold, machined edge with the keyline rewoven in gold thread, warmer lamp, and the ceremonial strike already landed. The two shots differ because the two library entries differ; nothing in the renderer knows which is which. |
+| `splash-01-round-11-v1.png` | **Splash screen #1**, `round-11/v1` — the ruled dark standard in the Sovereign palette, with the loading bar drawn as the `.rule` at the width of the plinth, striking along its own unstruck 22% ghost. Check 5 joins the mat's rendered value back to that entry's own `surface` token, so this is a photograph of the data, not of a copy of it. |
+| `splash-02-round-11-v2.png` | **Splash screen #2**, `round-11/v2` — midnight suede, saddle-stitched, with the loading bar drawn as a leather strap of the same hide: the whole run of needle holes punched from the first frame, sewn live in gold thread at the plinth border's 10.5px pitch. The two shots differ because the two library entries differ; nothing in the renderer knows which is which. |
 | `splash-03-the-off-switch.png` | The switch, where a CEO would look for it: behind the same gear in the rail footer as the only other preference this product has, under its own heading, just switched off. It ships in the same commit as the surface — the failure mode here is silent, and this control is the only honest instrument for knowing whether the surface is wanted. |
 | `splash-04-a-launch-with-it-off.png` | The next launch. No splash, no half-drawn frame, no trace — and the control still holding his answer. `RichSplash.state.declined` reads `"switched off"`. |
-| `material-v7.png` … `material-v17.png` | The eleven material versions the round added, one file each — **the mat as the SHIPPING renderer draws it on the left, the mat the study draws on the right**, the whole thing at half scale over the same top-left corner at native scale. |
+| `material-round-11-v1.png`, `material-round-11-v2.png` | Each screen's plinth as the **SHIPPING renderer** draws it on the left, beside the plinth **the round-11 mockup that entry names** draws on the right — the whole thing at half scale over the same top-left corner at native scale. |
 
-## The eleven material pairs, and why they are pairs
+## Why the pairs are pairs
 
-`round-8.1/v1`–`v6` vary a COLOUR, so a photograph of one is self-evidently right or wrong.
-`v7`–`v17` vary the MATERIAL — suede with a nap, bridle leather, buckram, urushi lacquer,
-honed slate, velvet, blued steel, letterpress cotton, watered silk, enamel over guilloché,
-oil on canvas in a gold-leaf frame — and a material can be *reduced* rather than
-*reproduced*. A suede that renders as a flat navy rectangle would still pass every
-assertion about tokens and still be a lie about what the CEO chose. So check 18 puts the
-two mats side by side and check 15 measures the same claim as a number: emptying an entry's
-material stack has to change at least a quarter of the mat, and the mat has to differ from
-`v0`'s by at least as much.
+A composition can be *reduced* rather than *reproduced*. #2's suede, its nap and its saddle
+stitching would still pass every assertion about tokens while rendering as a flat navy
+rectangle, and that would be a lie about what the CEO approved. So check 18 puts the two
+plinths side by side, and check 15 measures the same claim as a number: emptying an entry's
+material stack has to change at least a quarter of the mat, and the mat has to differ by at
+least as much from the plain one it would otherwise be a rename of.
 
 The composition either side of the mat is identical by construction — same geometry, same
-ink, same gold, same rule — which is why these crops are mats and not windows. Native scale
-for the whole pair would be four times the bytes to show the same thing twice, and these
-files are rewritten on every run.
+ink, same gold, same rule — which is why these crops are mats and not windows.
 
-**WHERE THEY DIFFER, named rather than left to be found.** Three things in the studies are
-generated by JavaScript against a measured box or tracked with the pointer, and one of them
-could not come across at all. The full per-version account is in
-`docs/verification/opening-screen-2026-08-30/material-reduction.txt`; in short —
+**WHERE THE SHIPPED SCREENS DIFFER FROM THEIR MOCKUPS, named rather than left to be found.**
 
-* **v7's brush prewash** (sixteen seeded strokes that mottle the nap) is not carried. The
-  nap is; the mottling is not, so the shipping suede is slightly more even than the study's.
-* **the pointer-tracked speculars** in v10, v13, v15 and v16 are pinned STATIC, at the point
-  the splash's own static lamp sits — 28.7% / 33.9% of the mat at 1280×800. Nobody moves a
-  pointer over a splash screen, and a highlight that disagreed with the lamp would be worse
-  than one that does not move. The studies open at their own rest position, which is a
-  different point because their mat is offset left by the palette rail.
-* **v18, planished bronze, is NOT HERE.** Its material is a canvas field of ~270 facets,
-  each with its own normal, shaded against a light position — there is no CSS or SVG
-  primitive for it, and the honest reduction is a flat mat with a dotted keyline, which is
-  `v0` with a different name.
+* **#2's loading strap is SVG, not `<canvas>`.** The mockup draws every needle hole and
+  every stitch on a canvas, per frame, from a seeded generator. Two reasons that could not
+  ship: `tests/contrast.js` check 14 asserts **zero** `<canvas>` elements on any walked
+  surface, so that a green contrast run cannot be read as covering pixels no DOM checker can
+  see; and a canvas is code, and the renderer holds no variation's values. The shipped strap
+  is a 126px x 19px SVG tile of twelve stitches generated from the mockup's own `mk(41)`
+  with its own jitter and its own three-stroke thread. The cost: the jitter repeats every
+  twelve stitches instead of never, and a stitch is revealed by the fill's edge crossing it
+  rather than seated over its own ~28ms. At 10.5px over three seconds neither reads.
+* **#2's brush prewash** — sixteen seeded strokes that mottle the nap, and the pointer that
+  keeps brushing it — is not carried. The nap is; the mottling is not, so the shipping suede
+  is slightly more even than the mockup's. The mockup's lamp also tracks the pointer; the
+  splash's is static, at the point the composition's own lamp sits, because nobody moves a
+  pointer over a splash screen.
+* **The mockups replay themselves.** They carry `HOLD_AFTER` and `AUTO_REPLAY` so a viewer
+  can judge the run more than once without reloading. `AUTO_REPLAY` is `false` in both, and
+  nothing of the sort exists in the app at all: CEO, 2026-09-01, *"The animation is only
+  supposed to happen ONCE. NO LOOPING."* Check 22 proves it three ways.
 
+The full per-version account of the earlier material reduction — including the round-8.1
+studies that are no longer shipped — is in
+`docs/verification/opening-screen-2026-08-30/material-reduction.txt`.

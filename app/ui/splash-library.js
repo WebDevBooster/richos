@@ -1,61 +1,147 @@
-// THE VARIATION LIBRARY FOR THE OPENING SCREEN — DATA, NOT CODE.
+// THE SPLASH SCREENS — DATA, NOT CODE.
 //
-// Adding a variation is adding an ENTRY. It is never editing `splash.js`, and the two
+// Adding a splash screen is adding an ENTRY. It is never editing `splash.js`, and the two
 // things that make that true are checked rather than asserted: `tests/splash.js` check 1
 // strips the assignment below and hands the remainder to `JSON.parse`, so this file cannot
-// grow a function without failing; check 2 greps `splash.js` for a colour literal, so the
+// grow a function without failing; check 2 greps `splash.js` for a color literal, so the
 // renderer cannot grow a variation-specific value without failing.
 //
-// WHERE THESE COME FROM. The seven entries are the approved round-8.1 compositions
-// (richos-hq `design/mockups/rounds/round-8.1/`), which the CEO chose in the Sovereign
-// palette — v0 is that choice, byte-identical to round-7/v9, and v1-v6 move exactly one
-// thing each with v6 folding all five together. The mockups are palette STUDIES: each one
-// carries a rail of colour chips with role names and hex values, three corner labels, a
-// pointer-tracked lamp and click-to-try-it-on interactions. NONE of that is here. What was
-// extracted is the composition only — the mark on its ground, the plinth, the rule, the
-// settle — and the extraction was mechanical rather than by eye: v1-v6 differ from v0 in a
-// CLOSED set of CSS values (diff the <style> blocks and there is nothing else), and that
-// closed set is exactly the token list below.
+// ================================================================================
+// THERE ARE EXACTLY TWO, AND THAT IS THE WHOLE APPROVED SET
+// ================================================================================
+//
+// CEO, 2026-09-01, verbatim: *"I have never fucking approved more than 2 splash screens.
+// The other MOCKUP DESIGNS ARE NOT FUCKING READY FOR USE IN SPLASH SCREENS YET."*
+//
+// So this file holds his two and nothing else:
+//
+//   round-11/v1   SPLASH SCREEN #1 — the ruled dark standard, with the loading bar drawn as
+//                 the `.rule` at the width of the plinth, striking along its own unstruck
+//                 22% ghost. Composition from round-8.1/v0, which is round-7/v9
+//                 byte-identical, which is the Sovereign palette he chose.
+//   round-11/v2   SPLASH SCREEN #2 — midnight suede, saddle-stitched, with the loading bar
+//                 drawn as a leather strap of the same hide: the whole run of needle holes
+//                 punched from the first frame, sewn live in gold thread at the plinth
+//                 border's 10.5px pitch. Composition from round-8.1/v7.
+//
+// WHAT WAS REMOVED, AND WHY IT WAS NOT A DEMOTION. Until this commit this file shipped
+// EIGHTEEN entries lifted from round 8.1. Round 8.1 was approved as a PALETTE and visual
+// standard (`richos-hq/wiki/ceo-decisions.md` §14 — `the actual colour palette for dark
+// mode in general as well as the overall design of the page elements`), and that approval
+// was read here as an approval of eighteen splash screens. It was not one. The two entries
+// above are the only compositions the CEO has ever approved AS splash screens, and they
+// were commissioned as splash screens, with a loading bar, in round 11. The other sixteen
+// remain exactly where they were approved: as studies in richos-hq, unchanged.
+//
+// IT IS STILL AN ARRAY, AND IT GROWS. His words: *"eventually, there will be many splash
+// screens added to the array where the splash screen will be randomly picked for the user
+// (and sometimes semi-randomly or deterministically picked for a user based on certain
+// criteria)"*. Nothing here or in `splash.js` knows the number two: the selection rule in
+// `splash.js` reads the array's length, and a third screen is a third object here.
+//
+// WHICH ONE IS SHOWN IS NOT DECIDED HERE. `splash.js`'s `choose()` holds the CEO's v1 rule
+// (first start #1, second start #2, third and after #1) and names where the later criteria
+// attach. This file is the set; that function is the policy.
 //
 // The mark's geometry is deliberately NOT here: it is verbatim in every version of every
 // round, so it lives in the renderer where it cannot drift between entries.
 //
-// v7-v18 were commissioned 2026-08-30 and more rounds will follow. Each one lands as one
-// more object in `variations`, with `tokens` carrying every key the schema names —
-// `splash.js` refuses an entry that is missing one rather than drawing it half-dressed.
+// ================================================================================
+// THE TOKEN SET
+// ================================================================================
 //
-// WHAT v7 ONWARDS COST, said plainly. v1-v6 vary a COLOUR. v7 onwards vary the MATERIAL —
-// suede with a nap, bridle leather with a grain, buckram with a weave, urushi lacquer,
-// honed slate, velvet, watered silk, enamel over guilloche, oil on canvas in a gold-leaf
-// frame. None of those is "v0 with different values", and pretending otherwise would have
-// shipped a flat navy rectangle under the CEO's own version's name. So the token set was
-// WIDENED, and the widening is listed here rather than left to be discovered:
+// Every entry carries every key the schema names — `splash.js` refuses an entry that is
+// missing one rather than drawing it half-dressed. Beyond the ground/plinth/mark/rule
+// tokens the compositions have always had:
 //
-//   surfaceImage    the mat's own paint when it is a gradient rather than one colour
-//   keylineWidth    the inner keyline's width, style, border-image and box-shadow, so an
-//   keylineStyle      entry can make that line a gold thread, a dotted chase, a bright
-//   keylineImage      milled edge, or the rabbet shadow of a picture frame — or remove it
-//   keylineShadow     entirely, which two of these versions do
+//   surfaceImage    the mat's own paint when it is a gradient rather than one flat value
+//   keylineWidth    the inner keyline's width, style, border-image and box-shadow
+//   keylineStyle
+//   keylineImage
+//   keylineShadow
 //   materials       THE MATERIAL ITSELF: an ordered stack of flat layers over the mat, each
 //                   one a background, a blend mode, an opacity, an inset, a radius, a
-//                   border, a mask. This is where the nap, the grain, the weave, the
-//                   veining, the moire and the gold-leaf canvas live.
-//   markFilter      a CSS filter on the mark, for the two versions that want a plain one
+//                   border, a mask. #2's suede nap and its saddle stitching live here.
+//   markFilter      a CSS filter on the mark
 //   signalFilter    the same, on the gold alone
-//   relief          an SVG filter on the mark described as VALUES — a noise field clipped
-//                   inside the glyph, and bands of shadow or light laid inside or outside
-//                   it. There is no CSS filter function for an inner shadow on an SVG
-//                   shape, and an inner shadow is exactly what "blocked into leather" and
-//                   "cut into slate" are made of. `splash.js` fixes the filter's SHAPE and
-//                   this file supplies every number in it, which is the division the
-//                   gilding gradient has always lived under.
+//   relief          an SVG filter on the mark described as VALUES. Neither of the two
+//                   approved screens uses one; the mechanism stays, and `tests/splash.js`
+//                   check 16 drives it against a FIXTURE rather than against a shipped
+//                   screen, so it is proved without an unapproved composition being kept
+//                   alive to prove it.
+//   seconds         how long THIS screen is on the glass, in seconds. Absent means the
+//                   CEO's default of 3. Present is clamped to 5 — "3 seconds default, up
+//                   to 5 for some". Neither of these two sets it, so both run at 3.
+//   bar             THE LOADING BAR, added in round 11, described below.
+//
+// ================================================================================
+// THE LOADING BAR IS A RENDERER CAPABILITY DRIVEN BY THESE TOKENS
+// ================================================================================
+//
+// The CEO's definition: *"A splash screen is something that has a 'loading' progress bar
+// under the `plinth` element."* His two bars are deliberately different objects — a struck
+// rule and a sewn strap — so the renderer had to be given a mechanism general enough to
+// draw both without knowing what either one is. It is this:
+//
+//   A TRACK, at the width of the plinth, carrying an ordered stack of paint LAYERS. Some of
+//   those layers have a width that follows the progress. That is the whole mechanism.
+//
+// The track's own keys:
+//
+//   gap            its distance below the plinth
+//   height         2px for a rule, 19px for a strap
+//   radius, background, outline, shadow, clip     the track's own paint
+//   enterDelay     when the empty track fades in, and over how long
+//   enterDuration
+//   pitch          OPTIONAL. When a bar has a repeating rhythm — #2's needle holes at the
+//   pitchInset     plinth border's 10.5px — the renderer snaps the run to a whole number of
+//                  pitches inside `pitchInset`, so the last hole is never cut in half by
+//                  the strap's edge. Null on #1, which has no rhythm.
+//   layers         the stack. Each layer takes the same vocabulary a `materials` layer
+//                  takes, plus one `role`:
+//
+//     (absent)     a static layer across the whole track. #2's stitch channel.
+//     "rhythm"     a static layer across the snapped run. #2's punched needle holes — the
+//                  whole run of them, from the first frame, because the empty ones ARE the
+//                  distance left to sew.
+//     "progress"   its width IS the progress. #1's gold fill and the pool of light it
+//                  casts; #2's gold thread, whose tile is anchored to the left so a stitch
+//                  already sewn never moves.
+//     "lead"       rides the leading edge and goes out when the bar lands. #1's strike
+//                  heat; #2's needle warmth.
+//     "flare"      invisible until the bar lands, then one sweep along its length.
 //
 // EVERY ONE OF THOSE IS STILL DATA. Check 1 still JSON-parses this file, so it still cannot
-// hold a function; check 2 still greps the renderer for a colour, so the renderer still
-// cannot hold a value; and check 14 refuses an entry whose material stack carries a key the
-// renderer does not know, so a widening cannot happen by accident. The seven approved
-// entries above were re-emitted with the new keys at their defaults and their photographs
-// came back BYTE-IDENTICAL, which is the only form of "nothing changed" worth having.
+// hold a function; check 2 still greps the renderer for a color, so the renderer still
+// cannot hold a value.
+//
+// ================================================================================
+// WHAT CHANGED FROM THE APPROVED MOCKUPS, AND WHY — every item, named
+// ================================================================================
+//
+//   THE TAGLINE'S PAINT. The round-8.1 sources set it in the ruled trim at 95% —
+//   `rgba(76,96,135,0.95)` — which measures 2.65:1 on the mat. At 12px that was already
+//   below §15's 16px floor for text meant to be read; at the CEO's instructed 18px it is a
+//   plain AA failure. Both entries carry `#8FA3C6`: the same hue, lifted until it clears.
+//   Measured on the COMPOSITED frame (the lamp, the vignette and the grain all sit above
+//   the plinth, so the CSS value is not what the eye gets): 6.50:1 on #1, 6.32:1 on #2.
+//
+//   THE STRAP'S EDGE, on #2 only. `rgba(58,74,108,.6)` measured 2.52:1 against the ground,
+//   and the strap's edge is what marks the bar's full extent — a non-text indicator with a
+//   3:1 floor. `#56698E` measures 4.89:1.
+//
+//   THE NEEDLE HOLES AND THE THREAD ARE SVG, NOT CANVAS. The mockup draws #2's strap on a
+//   `<canvas>`, per-hole, with a deterministic generator. Two reasons that could not ship
+//   as-is: `tests/contrast.js` check 14 asserts ZERO `<canvas>` elements on any walked
+//   surface, so that a green contrast run cannot be read as covering pixels no DOM checker
+//   can see; and a canvas is code, and the renderer is not allowed a variation's values.
+//   Both are instead a 126px x 19px SVG tile of twelve stitches, generated from the
+//   mockup's OWN `mk(41)` generator with its own jitter, geometry and three-stroke thread,
+//   so the hand of the stitching is the mockup's. The visible consequence, stated rather
+//   than hidden: the jitter repeats every twelve stitches instead of never, and a stitch is
+//   revealed by the fill's edge crossing it rather than being seated over its own ~28ms. At
+//   10.5px and three seconds neither is distinguishable, and the plinth's own saddle
+//   stitching has been a baked SVG since v7 landed for exactly the same reason.
 //
 // WHAT IS DELIBERATELY NOT HERE, and why, is in this round's own record:
 // `docs/verification/opening-screen-2026-08-30/material-reduction.txt`.
@@ -63,12 +149,12 @@
 window.RichSplashLibrary =
 {
   "schemaVersion": 1,
-  "round": "8.1",
+  "round": "11",
   "variations": [
     {
-      "id": "round-8.1/v0",
-      "name": "Sovereign \u2014 as chosen",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v0/index.html (round-7/v9, byte-identical)",
+      "id": "round-11/v1",
+      "name": "Splash screen #1 — the ruled standard, the rule struck along its own ghost",
+      "source": "richos-hq design/mockups/rounds/round-11/v1/index.html",
       "tokens": {
         "ground": "#0C1322",
         "atmosphere": "none",
@@ -99,7 +185,7 @@ window.RichSplashLibrary =
         "relief": null,
         "rule": "#C2A35C",
         "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
+        "tagline": "#8FA3C6",
         "riseDuration": "0.9s",
         "riseShift": "16px",
         "riseDelays": [
@@ -112,321 +198,58 @@ window.RichSplashLibrary =
         "strikeFrom": null,
         "strikePeak": null,
         "strikeDelay": "0s",
-        "strikeDuration": "0s"
+        "strikeDuration": "0s",
+        "seconds": null,
+        "bar": {
+          "gap": "clamp(30px, 4.6vh, 46px)",
+          "height": "2px",
+          "radius": "1px",
+          "background": "rgba(194,163,92,0.22)",
+          "outline": "none",
+          "shadow": "none",
+          "clip": "visible",
+          "enterDelay": "0.62s",
+          "enterDuration": "0.7s",
+          "pitch": null,
+          "pitchInset": "0px",
+          "layers": [
+            {
+              "role": "progress",
+              "background": "linear-gradient(to bottom, rgba(194,163,92,.10), rgba(194,163,92,0) 72%)",
+              "inset": "2px auto auto 0",
+              "height": "26px",
+              "mask": "linear-gradient(to right, rgba(0,0,0,0) 0, #000 8%, #000 92%, rgba(0,0,0,0) 100%)"
+            },
+            {
+              "role": "progress",
+              "background": "#C2A35C",
+              "inset": "-1px auto -1px 0",
+              "radius": "2px",
+              "shadow": "0 0 10px rgba(194,163,92,.34), 0 0 2px rgba(194,163,92,.85)"
+            },
+            {
+              "role": "lead",
+              "background": "radial-gradient(circle, rgba(214,182,110,.30) 0%, rgba(194,163,92,.13) 34%, rgba(194,163,92,0) 68%)",
+              "inset": "50% -1px auto auto",
+              "width": "74px",
+              "height": "74px",
+              "transform": "translate(50%, -50%)"
+            },
+            {
+              "role": "flare",
+              "background": "linear-gradient(100deg, rgba(255,240,205,0) 40%, rgba(255,240,205,.85) 50%, rgba(255,240,205,0) 60%) 130% 0 / 260% 100%",
+              "inset": "-3px 0",
+              "radius": "3px",
+              "opacity": "0.9"
+            }
+          ]
+        }
       }
     },
     {
-      "id": "round-8.1/v1",
-      "name": "The ground deepened",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v1/index.html",
-      "tokens": {
-        "ground": "#080D19",
-        "atmosphere": "radial-gradient(115% 95% at 41% 46%, rgba(22,33,58,.9) 0%, rgba(12,19,36,.38) 46%, rgba(8,13,25,0) 72%)",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 42%, rgba(0,0,0,.52) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [],
-        "surface": "#141E34",
-        "surfaceImage": "none",
-        "plinthRadius": "8px",
-        "plinthShadow": "0 60px 120px -40px rgba(0,0,0,.75), 0 20px 50px -30px rgba(0,0,0,.6)",
-        "plinthOutline": "rgba(76,96,135,0.28)",
-        "keylineInset": "12px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(76,96,135,0.16)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v2",
-      "name": "The gold given weight",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v2/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [],
-        "surface": "#141E34",
-        "surfaceImage": "none",
-        "plinthRadius": "8px",
-        "plinthShadow": "0 60px 120px -40px rgba(0,0,0,.75), 0 20px 50px -30px rgba(0,0,0,.6)",
-        "plinthOutline": "rgba(76,96,135,0.28)",
-        "keylineInset": "12px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(76,96,135,0.16)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": [
-          "#DFC178",
-          "#C2A35C",
-          "#96793C"
-        ],
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "linear-gradient(100deg,#DFC178,#C2A35C 45%,#96793C)",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v3",
-      "name": "The edge, machined",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v3/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [],
-        "surface": "#15203A",
-        "surfaceImage": "none",
-        "plinthRadius": "6px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -20px 40px rgba(0,0,0,0.16), 0 2px 6px rgba(0,0,0,0.5), 0 34px 68px -26px rgba(0,0,0,0.72), 0 96px 160px -48px rgba(0,0,0,0.85)",
-        "plinthOutline": "rgba(90,110,150,0.36)",
-        "keylineInset": "13px",
-        "keylineRadius": "3px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,0.22)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v4",
-      "name": "Lit by a warmer lamp",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v4/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(255,225,168,.10)",
-        "lampRadius": "1150px",
-        "lampStop": "70%",
-        "sheen": "radial-gradient(480px circle at 34% 26%, rgba(255,232,188,.08), rgba(0,0,0,0) 70%)",
-        "materials": [],
-        "surface": "#141E34",
-        "surfaceImage": "none",
-        "plinthRadius": "8px",
-        "plinthShadow": "0 60px 120px -40px rgba(0,0,0,.75), 0 20px 50px -30px rgba(0,0,0,.6)",
-        "plinthOutline": "rgba(76,96,135,0.28)",
-        "keylineInset": "12px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(76,96,135,0.16)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v5",
-      "name": "The strike, ceremonial",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v5/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [],
-        "surface": "#141E34",
-        "surfaceImage": "none",
-        "plinthRadius": "8px",
-        "plinthShadow": "0 60px 120px -40px rgba(0,0,0,.75), 0 20px 50px -30px rgba(0,0,0,.6)",
-        "plinthOutline": "rgba(76,96,135,0.28)",
-        "keylineInset": "12px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(76,96,135,0.16)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "1.15s",
-        "riseShift": "12px",
-        "riseDelays": [
-          "0.1s",
-          "0.38s",
-          "0.6s",
-          "0.85s"
-        ],
-        "strike": "fill",
-        "strikeFrom": "#333F58",
-        "strikePeak": "#E7CB82",
-        "strikeDelay": "1.75s",
-        "strikeDuration": "0.95s"
-      }
-    },
-    {
-      "id": "round-8.1/v6",
-      "name": "All five, tuned together",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v6/index.html",
-      "tokens": {
-        "ground": "#080D19",
-        "atmosphere": "radial-gradient(115% 95% at 41% 46%, rgba(22,33,58,.8) 0%, rgba(12,19,36,.38) 46%, rgba(8,13,25,0) 72%)",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 42%, rgba(0,0,0,.52) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(255,225,168,.09)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": "radial-gradient(480px circle at 34% 26%, rgba(255,232,188,.08), rgba(0,0,0,0) 70%)",
-        "materials": [],
-        "surface": "#15203A",
-        "surfaceImage": "none",
-        "plinthRadius": "6px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -20px 40px rgba(0,0,0,0.16), 0 2px 6px rgba(0,0,0,0.5), 0 34px 68px -26px rgba(0,0,0,0.72), 0 96px 160px -48px rgba(0,0,0,0.85)",
-        "plinthOutline": "rgba(90,110,150,0.36)",
-        "keylineInset": "13px",
-        "keylineRadius": "3px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,0.22)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": [
-          "#DFC178",
-          "#C2A35C",
-          "#96793C"
-        ],
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "linear-gradient(100deg,#DFC178,#C2A35C 45%,#96793C)",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "1.15s",
-        "riseShift": "12px",
-        "riseDelays": [
-          "0.1s",
-          "0.38s",
-          "0.6s",
-          "0.85s"
-        ],
-        "strike": "bloom",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "1.75s",
-        "strikeDuration": "0.95s"
-      }
-    },
-    {
-      "id": "round-8.1/v7",
-      "name": "Midnight suede, saddle-stitched",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v7/index.html",
+      "id": "round-11/v2",
+      "name": "Splash screen #2 — midnight suede, the strap sewn live in gold thread",
+      "source": "richos-hq design/mockups/rounds/round-11/v2/index.html",
       "tokens": {
         "ground": "#0C1322",
         "atmosphere": "none",
@@ -475,7 +298,7 @@ window.RichSplashLibrary =
         "relief": null,
         "rule": "#C2A35C",
         "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
+        "tagline": "#8FA3C6",
         "riseDuration": "0.9s",
         "riseShift": "16px",
         "riseDelays": [
@@ -488,857 +311,49 @@ window.RichSplashLibrary =
         "strikeFrom": null,
         "strikePeak": null,
         "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v8",
-      "name": "Bridle leather, the mark blocked in",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v8/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(255,232,190,.09)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='440'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.018' numOctaves='4' seed='57' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 520px 440px",
-            "blend": "soft-light",
-            "opacity": ".4"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='600'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.045 0.055' numOctaves='3' seed='13' stitchTiles='stitch' result='t'/%3E%3CfeDiffuseLighting in='t' lighting-color='white' surfaceScale='2.6' diffuseConstant='1'%3E%3CfeDistantLight azimuth='235' elevation='58'/%3E%3C/feDiffuseLighting%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 720px 600px",
-            "blend": "soft-light",
-            "opacity": ".5"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.45' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 180px 180px",
-            "blend": "overlay",
-            "opacity": ".16"
-          },
-          {
-            "background": "linear-gradient(180deg,rgba(255,246,225,.05),transparent 32%)"
-          },
-          {
-            "background": "none",
-            "inset": "8px",
-            "radius": "6px",
-            "border": "1px solid rgba(0,0,0,.38)"
-          },
-          {
-            "background": "none",
-            "inset": "9px 8px 7px 8px",
-            "radius": "6px",
-            "border": "1px solid rgba(255,246,220,.045)"
-          }
-        ],
-        "surface": "#111B33",
-        "surfaceImage": "radial-gradient(120% 105% at 50% 40%,#182642 0%,#111B33 55%,#0C1428 100%)",
-        "plinthRadius": "9px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,.05),inset 0 0 44px rgba(0,0,0,.38),0 2px 6px rgba(0,0,0,.5),0 40px 90px -30px rgba(0,0,0,.75),0 100px 170px -50px rgba(0,0,0,.85)",
-        "plinthOutline": "rgba(70,88,126,.4)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,.30)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "mark",
-          "region": "-20% -20% 140% 140%",
-          "noise": null,
-          "matrix": null,
-          "bands": [
+        "strikeDuration": "0s",
+        "seconds": null,
+        "bar": {
+          "gap": "clamp(28px, 4.4vh, 44px)",
+          "height": "19px",
+          "radius": "9.5px",
+          "background": "linear-gradient(180deg,#1B2645 0%, #16203A 52%, #111A2E 100%)",
+          "outline": "1px solid #56698E",
+          "shadow": "0 2px 4px rgba(0,0,0,.45), 0 16px 30px -16px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.07), inset 0 -2px 6px rgba(0,0,0,.4)",
+          "clip": "hidden",
+          "enterDelay": "0.62s",
+          "enterDuration": "0.7s",
+          "pitch": "10.5px",
+          "pitchInset": "11px",
+          "layers": [
             {
-              "color": "#000008",
-              "opacity": ".55",
-              "dx": "0",
-              "dy": "2.2",
-              "blur": "1.4",
-              "placement": "inner"
+              "background": "linear-gradient(180deg, rgba(4,8,18,0) calc(50% - 3.5px), rgba(4,8,18,.30) calc(50% - 3.5px), rgba(4,8,18,.10) calc(50% + 0.35px), rgba(4,8,18,0) calc(50% + 3.5px))"
             },
             {
-              "color": "#FFF3DA",
-              "opacity": ".26",
-              "dx": "0",
-              "dy": "-1.6",
-              "blur": "1.2",
-              "placement": "inner"
-            }
-          ]
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v9",
-      "name": "Buckram bookcloth, stamped in gold foil",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v9/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='90'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9 0.06' numOctaves='2' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 300px 90px",
-            "blend": "soft-light",
-            "opacity": ".4"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06 0.9' numOctaves='2' seed='21' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 90px 300px",
-            "blend": "soft-light",
-            "opacity": ".3"
-          },
-          {
-            "background": "repeating-linear-gradient(0deg,rgba(255,255,255,.09) 0 1px,rgba(0,0,0,.12) 1px 2px,rgba(255,255,255,.02) 2px 3px,rgba(0,0,0,.05) 3px 4px), repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,rgba(0,0,0,.10) 1px 2px,rgba(255,255,255,.02) 2px 3px,rgba(0,0,0,.06) 3px 4px)",
-            "blend": "soft-light",
-            "opacity": ".5"
-          },
-          {
-            "background": "repeating-linear-gradient(0deg,rgba(255,255,255,.5) 0 1px,rgba(0,0,0,.55) 1px 2px), repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 1px,rgba(0,0,0,.4) 1px 2px)",
-            "blend": "soft-light",
-            "opacity": ".15",
-            "z": "3"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath d='M4 .46L7.54 4L4 7.54L.46 4Z' fill='rgba(194,163,92,.55)'/%3E%3C/svg%3E\") left 9px top 9px no-repeat, url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath d='M4 .46L7.54 4L4 7.54L.46 4Z' fill='rgba(194,163,92,.55)'/%3E%3C/svg%3E\") right 9px top 9px no-repeat, url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath d='M4 .46L7.54 4L4 7.54L.46 4Z' fill='rgba(194,163,92,.55)'/%3E%3C/svg%3E\") left 9px bottom 9px no-repeat, url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath d='M4 .46L7.54 4L4 7.54L.46 4Z' fill='rgba(194,163,92,.55)'/%3E%3C/svg%3E\") right 9px bottom 9px no-repeat"
-          }
-        ],
-        "surface": "#15203A",
-        "surfaceImage": "none",
-        "plinthRadius": "7px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,.045),0 2px 6px rgba(0,0,0,.5),0 36px 80px -28px rgba(0,0,0,.72),0 92px 155px -46px rgba(0,0,0,.82)",
-        "plinthOutline": "rgba(76,96,135,.34)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,.34)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "mark",
-          "region": "-20% -20% 140% 140%",
-          "noise": null,
-          "matrix": null,
-          "bands": [
-            {
-              "color": "#000008",
-              "opacity": ".4",
-              "dx": "0",
-              "dy": "1.4",
-              "blur": "1",
-              "placement": "inner"
-            }
-          ]
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v10",
-      "name": "Urushi lacquer, dusted with maki-e gold",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v10/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(190,210,255,.10)",
-        "lampRadius": "900px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "radial-gradient(140% 120% at 50% 0%,rgba(255,255,255,.035),transparent 42%)"
-          },
-          {
-            "background": "linear-gradient(103deg,transparent 26%,rgba(170,190,235,.05) 40%,rgba(190,208,245,.10) 46%,rgba(170,190,235,.04) 53%,transparent 66%)",
-            "blend": "screen"
-          },
-          {
-            "background": "radial-gradient(90px circle at 29% 34%, rgba(215,228,255,.16), rgba(0,0,0,0) 60%),radial-gradient(430px circle at 29% 34%, rgba(150,180,240,.07), rgba(0,0,0,0) 70%)",
-            "blend": "screen"
-          }
-        ],
-        "surface": "#0A1226",
-        "surfaceImage": "linear-gradient(165deg,#0F1934 0%,#0A1226 50%,#0D1730 100%)",
-        "plinthRadius": "6px",
-        "plinthShadow": "inset 0 0 0 1px rgba(150,170,210,.10),0 1px 2px rgba(0,0,0,.6),0 30px 70px -25px rgba(0,0,0,.8),0 90px 150px -45px rgba(0,0,0,.85)",
-        "plinthOutline": "rgba(0,0,0,0)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,.34)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "signal",
-          "region": "-5% -5% 110% 110%",
-          "noise": {
-            "type": "fractalNoise",
-            "baseFrequency": "0.9",
-            "octaves": "2",
-            "seed": "11"
-          },
-          "matrix": "0 0 0 0 1  0 0 0 0 0.92  0 0 0 0 0.62  1.5 1.5 0 0 -1.35",
-          "bands": []
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v11",
-      "name": "Honed slate, the mark cut in and gilded",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v11/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='600'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.02' numOctaves='4' seed='17' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 900px 600px",
-            "blend": "soft-light",
-            "opacity": ".62"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='340' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.09 0.13' numOctaves='3' seed='23' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 340px 300px",
-            "blend": "overlay",
-            "opacity": ".28"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='1' seed='29' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 160px 160px",
-            "blend": "screen",
-            "opacity": ".3",
-            "filter": "contrast(3) brightness(.6)"
-          },
-          {
-            "background": "none",
-            "inset": "14px 13px 12px 13px",
-            "radius": "3px",
-            "border": "1px solid rgba(223,228,238,.05)"
-          }
-        ],
-        "surface": "#131C31",
-        "surfaceImage": "none",
-        "plinthRadius": "4px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,.05),0 3px 7px rgba(0,0,0,.55),0 44px 90px -28px rgba(0,0,0,.8),0 110px 180px -50px rgba(0,0,0,.88)",
-        "plinthOutline": "rgba(90,106,140,.3)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(0,0,0,.5)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "mark",
-          "region": "-20% -20% 140% 140%",
-          "noise": null,
-          "matrix": null,
-          "bands": [
-            {
-              "color": "#000006",
-              "opacity": ".72",
-              "dx": "0",
-              "dy": "3.2",
-              "blur": "2",
-              "placement": "inner"
+              "role": "rhythm",
+              "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='126' height='19'%3E%3Ccircle cx='2.27' cy='9.03' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='2.42' cy='9.88' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='1.97' cy='8.18' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='8.48' cy='10.04' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='8.63' cy='10.89' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='8.18' cy='9.19' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='13.02' cy='8.96' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='13.17' cy='9.81' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='12.72' cy='8.11' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='19.23' cy='9.95' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='19.38' cy='10.8' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='18.93' cy='9.1' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='24' cy='8.89' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='24.15' cy='9.74' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='23.7' cy='8.04' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='29.09' cy='9.84' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='29.24' cy='10.69' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='28.79' cy='8.99' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='33.94' cy='8.68' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='34.09' cy='9.53' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='33.64' cy='7.83' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='39.39' cy='9.86' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='39.54' cy='10.71' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='39.09' cy='9.01' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='44.84' cy='8.84' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='44.99' cy='9.69' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='44.54' cy='7.99' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='50.22' cy='9.85' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='50.37' cy='10.7' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='49.92' cy='9' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='54.8' cy='8.96' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='54.95' cy='9.81' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='54.5' cy='8.11' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='60.19' cy='9.85' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='60.34' cy='10.7' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='59.89' cy='9' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='65.45' cy='8.71' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='65.6' cy='9.56' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='65.15' cy='7.86' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='70.7' cy='9.55' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='70.85' cy='10.4' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='70.4' cy='8.7' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='75.21' cy='9.25' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='75.36' cy='10.1' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='74.91' cy='8.4' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='81.45' cy='10.01' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='81.6' cy='10.86' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='81.15' cy='9.16' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='86.63' cy='8.81' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='86.78' cy='9.66' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='86.33' cy='7.96' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='92.33' cy='9.73' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='92.48' cy='10.58' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='92.03' cy='8.88' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='96.78' cy='8.77' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='96.93' cy='9.62' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='96.48' cy='7.92' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='102.82' cy='9.71' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='102.97' cy='10.56' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='102.52' cy='8.86' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='107.65' cy='8.82' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='107.8' cy='9.67' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='107.35' cy='7.97' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='112.93' cy='9.81' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='113.08' cy='10.66' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='112.63' cy='8.96' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='117.4' cy='8.55' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='117.55' cy='9.4' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='117.1' cy='7.7' r='.6' fill='rgba(168,186,220,.10)'/%3E%3Ccircle cx='123.62' cy='9.71' r='1.3' fill='rgba(2,5,13,.95)'/%3E%3Ccircle cx='123.77' cy='10.56' r='.72' fill='rgba(168,186,220,.26)'/%3E%3Ccircle cx='123.32' cy='8.86' r='.6' fill='rgba(168,186,220,.10)'/%3E%3C/svg%3E\") left center / 126px 19px repeat-x"
             },
             {
-              "color": "#EDF2FF",
-              "opacity": ".3",
-              "dx": "0",
-              "dy": "-1.8",
-              "blur": "1.3",
-              "placement": "inner"
-            }
-          ]
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v12",
-      "name": "Crushed velvet, couched in bullion thread",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v12/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='560'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.016' numOctaves='4' seed='31' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 700px 560px",
-            "blend": "soft-light",
-            "opacity": ".55"
-          },
-          {
-            "background": "radial-gradient(420px 300px at 22% 30%,rgba(120,150,220,.16),transparent 70%), radial-gradient(500px 360px at 74% 62%,rgba(100,130,200,.13),transparent 70%), radial-gradient(340px 240px at 46% 84%,rgba(130,155,225,.11),transparent 70%)",
-            "blend": "screen"
-          },
-          {
-            "background": "repeating-linear-gradient(90deg,rgba(255,255,255,.025) 0 1px,transparent 1px 2px)",
-            "opacity": ".3"
-          }
-        ],
-        "surface": "#101A32",
-        "surfaceImage": "none",
-        "plinthRadius": "10px",
-        "plinthShadow": "0 2px 6px rgba(0,0,0,.5),0 40px 90px -30px rgba(0,0,0,.75),0 100px 170px -50px rgba(0,0,0,.85)",
-        "plinthOutline": "rgba(64,80,116,.5)",
-        "keylineInset": "13px",
-        "keylineRadius": "5px",
-        "keylineWidth": "2px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(0,0,0,0)",
-        "keylineImage": "repeating-linear-gradient(45deg,#D9BC72 0 2.5px,#7a5f28 2.5px 5px) 2",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "mark",
-          "region": "-20% -20% 140% 140%",
-          "noise": {
-            "type": "turbulence",
-            "baseFrequency": "0.012 0.55",
-            "octaves": "1",
-            "seed": "5"
-          },
-          "matrix": "0 0 0 0 1  0 0 0 0 .95  0 0 0 0 .7  .9 .9 0 0 -.6",
-          "bands": [
-            {
-              "color": "#000",
-              "opacity": ".5",
-              "dx": "0",
-              "dy": "1.8",
-              "blur": "1.3",
-              "placement": "outer"
-            }
-          ]
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v13",
-      "name": "Blued steel, the mark inlaid in gold",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v13/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(205,222,255,.09)",
-        "lampRadius": "1000px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.002 0.5' numOctaves='2' seed='37' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 1200px 160px",
-            "blend": "overlay",
-            "opacity": ".5"
-          },
-          {
-            "background": "repeating-linear-gradient(180deg,rgba(255,255,255,.05) 0 1px,transparent 1px 3px)",
-            "opacity": ".22"
-          },
-          {
-            "background": "radial-gradient(820px 64px at 29% 34%, rgba(205,222,255,.11), rgba(0,0,0,0) 70%)",
-            "blend": "screen"
-          },
-          {
-            "background": "none",
-            "inset": "17px",
-            "radius": "2px",
-            "border": "1px solid rgba(194,163,92,.18)"
-          }
-        ],
-        "surface": "#101A31",
-        "surfaceImage": "linear-gradient(180deg,#16213A 0%,#101A31 55%,#141F38 100%)",
-        "plinthRadius": "5px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,.07),0 1px 3px rgba(0,0,0,.6),0 34px 76px -28px rgba(0,0,0,.78),0 90px 150px -46px rgba(0,0,0,.85)",
-        "plinthOutline": "rgba(120,140,180,.22)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,.45)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": "drop-shadow(0 0 0.7px rgba(0,0,0,.85))",
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v14",
-      "name": "Letterpress cotton, pressed deep",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v14/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(255,238,205,.10)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "none",
-            "inset": "9.5px",
-            "radius": "8.5px",
-            "border": "7px solid #141D33",
-            "relief": true
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='460'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.06' numOctaves='3' seed='47' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 520px 460px",
-            "blend": "soft-light",
-            "opacity": ".24"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.3' numOctaves='3' seed='43' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 260px 260px",
-            "blend": "soft-light",
-            "opacity": ".32"
-          }
-        ],
-        "surface": "#141D33",
-        "surfaceImage": "none",
-        "plinthRadius": "7px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,.04),0 2px 6px rgba(0,0,0,.5),0 36px 82px -28px rgba(0,0,0,.72),0 92px 155px -46px rgba(0,0,0,.82)",
-        "plinthOutline": "rgba(76,96,135,.3)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "0px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(0,0,0,0)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "mark",
-          "region": "-20% -20% 140% 140%",
-          "noise": null,
-          "matrix": null,
-          "bands": [
-            {
-              "color": "#000006",
-              "opacity": ".7",
-              "dx": "1.6",
-              "dy": "2",
-              "blur": "1.4",
-              "placement": "inner"
+              "role": "progress",
+              "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='126' height='19'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M2.27 9.03L8.48 10.04M13.02 8.96L19.23 9.95M24 8.89L29.09 9.84M33.94 8.68L39.39 9.86M44.84 8.84L50.22 9.85M54.8 8.96L60.19 9.85M65.45 8.71L70.7 9.55M75.21 9.25L81.45 10.01M86.63 8.81L92.33 9.73M96.78 8.77L102.82 9.71M107.65 8.82L112.93 9.81M117.4 8.55L123.62 9.71' transform='translate(0 .5)' stroke='rgba(84,64,26,.85)' stroke-width='2.5'/%3E%3Cpath d='M2.27 9.03L8.48 10.04M13.02 8.96L19.23 9.95M24 8.89L29.09 9.84M33.94 8.68L39.39 9.86M44.84 8.84L50.22 9.85M54.8 8.96L60.19 9.85M65.45 8.71L70.7 9.55M75.21 9.25L81.45 10.01M86.63 8.81L92.33 9.73M96.78 8.77L102.82 9.71M107.65 8.82L112.93 9.81M117.4 8.55L123.62 9.71' stroke='%23D2B266' stroke-width='1.7'/%3E%3Cpath d='M2.27 9.03L8.48 10.04M13.02 8.96L19.23 9.95M24 8.89L29.09 9.84M33.94 8.68L39.39 9.86M44.84 8.84L50.22 9.85M54.8 8.96L60.19 9.85M65.45 8.71L70.7 9.55M75.21 9.25L81.45 10.01M86.63 8.81L92.33 9.73M96.78 8.77L102.82 9.71M107.65 8.82L112.93 9.81M117.4 8.55L123.62 9.71' transform='translate(-.2 -.45)' stroke='rgba(255,238,190,.55)' stroke-width='.7'/%3E%3C/g%3E%3C/svg%3E\") left center / 126px 19px repeat-x",
+              "inset": "0 auto 0 0"
             },
             {
-              "color": "#FFF6E4",
-              "opacity": ".42",
-              "dx": "-1.6",
-              "dy": "-2",
-              "blur": "1.2",
-              "placement": "inner"
+              "role": "lead",
+              "background": "radial-gradient(circle at 50% 50%, rgba(255,235,180,.34) 0%, rgba(214,182,110,.14) 45%, rgba(194,163,92,0) 100%)",
+              "inset": "0 -14px auto auto",
+              "width": "28px",
+              "height": "100%"
+            },
+            {
+              "role": "flare",
+              "background": "linear-gradient(100deg, rgba(255,240,205,0) 42%, rgba(255,240,205,.42) 50%, rgba(255,240,205,0) 58%) 130% 0 / 260% 100%",
+              "inset": "0",
+              "blend": "screen",
+              "opacity": "1"
             }
           ]
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v15",
-      "name": "Watered silk, woven with gold",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v15/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(200,215,255,.12)",
-        "lampRadius": "1050px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='700'%3E%3Cdefs%3E%3Cpattern id='s' width='9' height='9' patternUnits='userSpaceOnUse'%3E%3Crect width='9' height='4.5' fill='%23B9CDF6' fill-opacity='.5'/%3E%3C/pattern%3E%3Cfilter id='m' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006 0.035' numOctaves='3' seed='9' result='n'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='n' scale='110' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3C/defs%3E%3Crect x='-60' y='-60' width='820' height='820' fill='url(%23s)' filter='url(%23m)'/%3E%3C/svg%3E\") 0 0 / 700px 700px",
-            "blend": "screen",
-            "opacity": ".085"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='620' height='620'%3E%3Cdefs%3E%3Cpattern id='s' width='8' height='8' patternUnits='userSpaceOnUse'%3E%3Crect width='8' height='4' fill='%23AFC4F0' fill-opacity='.45'/%3E%3C/pattern%3E%3Cfilter id='m' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.007 0.03' numOctaves='3' seed='27' result='n'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='n' scale='95' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3C/defs%3E%3Crect x='-60' y='-60' width='740' height='740' fill='url(%23s)' filter='url(%23m)'/%3E%3C/svg%3E\") 0 0 / 620px 620px",
-            "blend": "screen",
-            "opacity": ".06"
-          },
-          {
-            "background": "linear-gradient(100deg,transparent 18%,rgba(150,175,235,.06) 40%,rgba(175,196,240,.10) 50%,rgba(150,175,235,.05) 62%,transparent 82%)",
-            "blend": "screen"
-          },
-          {
-            "background": "radial-gradient(560px 300px at 29% 34%, rgba(185,205,250,.10), rgba(0,0,0,0) 70%)",
-            "blend": "screen"
-          },
-          {
-            "background": "none",
-            "inset": "16px",
-            "radius": "3px",
-            "border": "1px solid rgba(76,96,135,.3)"
-          }
-        ],
-        "surface": "#111B33",
-        "surfaceImage": "linear-gradient(168deg,#15203A 0%,#111B33 55%,#141F38 100%)",
-        "plinthRadius": "8px",
-        "plinthShadow": "inset 0 1px 0 rgba(255,255,255,.05),0 2px 6px rgba(0,0,0,.5),0 38px 84px -28px rgba(0,0,0,.72),0 94px 158px -46px rgba(0,0,0,.82)",
-        "plinthOutline": "rgba(76,96,135,.34)",
-        "keylineInset": "13px",
-        "keylineRadius": "4px",
-        "keylineWidth": "1px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(194,163,92,.4)",
-        "keylineImage": "none",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": {
-          "target": "signal",
-          "region": "-10% -10% 120% 120%",
-          "noise": {
-            "type": "turbulence",
-            "baseFrequency": "0.01 0.4",
-            "octaves": "1",
-            "seed": "15"
-          },
-          "matrix": "0 0 0 0 1  0 0 0 0 .95  0 0 0 0 .72  .55 .55 0 0 -.4",
-          "bands": []
-        },
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v16",
-      "name": "Guilloch\u00e9 under midnight enamel",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v16/index.html",
-      "tokens": {
-        "ground": "#0C1322",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 46%, rgba(0,0,0,.42) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(190,210,255,.10)",
-        "lampRadius": "950px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "repeating-radial-gradient(circle at 32% 40%,rgba(190,205,240,.04) 0 1px,transparent 1px 6px), repeating-radial-gradient(circle at 68% 60%,rgba(190,205,240,.04) 0 1px,transparent 1px 6px)",
-            "opacity": ".9"
-          },
-          {
-            "background": "linear-gradient(160deg,rgba(24,36,66,.36),rgba(8,14,30,.5))"
-          },
-          {
-            "background": "repeating-radial-gradient(circle at 32% 40%,rgba(220,232,255,.16) 0 1px,transparent 1px 6px), repeating-radial-gradient(circle at 68% 60%,rgba(220,232,255,.16) 0 1px,transparent 1px 6px)",
-            "mask": "radial-gradient(340px circle at 29% 34%, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%)"
-          },
-          {
-            "background": "linear-gradient(103deg,transparent 30%,rgba(170,190,235,.05) 43%,rgba(190,208,245,.08) 47%,transparent 60%)",
-            "blend": "screen"
-          }
-        ],
-        "surface": "#0C1428",
-        "surfaceImage": "linear-gradient(160deg,#101B36 0%,#0C1428 55%,#0E1730 100%)",
-        "plinthRadius": "6px",
-        "plinthShadow": "inset 0 0 0 1px rgba(150,170,210,.08),inset 0 0 34px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.6),0 32px 72px -26px rgba(0,0,0,.8),0 90px 150px -45px rgba(0,0,0,.85)",
-        "plinthOutline": "rgba(0,0,0,0)",
-        "keylineInset": "13px",
-        "keylineRadius": "3px",
-        "keylineWidth": "2px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(0,0,0,0)",
-        "keylineImage": "linear-gradient(180deg,#E2C87E,#8a6f35) 1",
-        "keylineShadow": "none",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": "drop-shadow(0 1px 1px rgba(0,0,0,.55))",
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
-      }
-    },
-    {
-      "id": "round-8.1/v17",
-      "name": "Oil and gold leaf, under a picture light",
-      "source": "richos-hq design/mockups/rounds/round-8.1/v17/index.html",
-      "tokens": {
-        "ground": "#070C17",
-        "atmosphere": "none",
-        "vignette": "radial-gradient(120% 90% at 50% 34%,rgba(0,0,0,0) 34%,rgba(0,0,0,.6) 100%)",
-        "grainOpacity": "0.07",
-        "lamp": "rgba(255,228,168,.06)",
-        "lampRadius": "900px",
-        "lampStop": "66%",
-        "sheen": null,
-        "materials": [
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='2' seed='53' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 160px 160px, repeating-linear-gradient(0deg,rgba(255,255,255,.016) 0 1px,transparent 1px 3px) 0 0 / auto, linear-gradient(180deg,#131E37,#0E1730) 0 0 / cover",
-            "imageBlend": "soft-light,normal,normal",
-            "inset": "11px",
-            "radius": "1px"
-          },
-          {
-            "background": "radial-gradient(135% 100% at 50% -8%,rgba(255,224,158,.46),rgba(255,220,152,.14) 44%,transparent 72%)",
-            "blend": "screen",
-            "inset": "11px",
-            "radius": "1px"
-          },
-          {
-            "background": "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='2' seed='53' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\") 0 0 / 160px 160px",
-            "blend": "soft-light",
-            "opacity": ".1",
-            "inset": "11px",
-            "radius": "1px",
-            "z": "3"
-          },
-          {
-            "background": "radial-gradient(50% 100% at 50% 0%,rgba(255,228,168,.28),transparent 78%)",
-            "inset": "-8px 34.88% auto 34.88%",
-            "height": "26px",
-            "radius": "50%"
-          },
-          {
-            "background": "linear-gradient(180deg,#5c4a20,#8a6f35)",
-            "inset": "-25px calc(50% - 13px) auto calc(50% - 13px)",
-            "height": "8px",
-            "radius": "3px 3px 0 0"
-          },
-          {
-            "background": "linear-gradient(180deg,#EAD394,#8a6f35)",
-            "inset": "-17px 32% auto 32%",
-            "height": "8px",
-            "radius": "4px",
-            "shadow": "0 2px 6px rgba(0,0,0,.55)"
-          }
-        ],
-        "surface": "#A2854A",
-        "surfaceImage": "linear-gradient(178deg,#D9BC72 0%,#A2854A 22%,#C8AA5F 50%,#6E5626 100%)",
-        "plinthRadius": "3px",
-        "plinthShadow": "inset 0 0 0 1px rgba(60,45,10,.6),inset 0 0 0 3px rgba(255,240,200,.22),inset 0 0 0 4px rgba(0,0,0,.25), 0 3px 8px rgba(0,0,0,.55),0 46px 95px -30px rgba(0,0,0,.85),0 110px 180px -50px rgba(0,0,0,.9)",
-        "plinthOutline": "rgba(0,0,0,0)",
-        "keylineInset": "11px",
-        "keylineRadius": "1px",
-        "keylineWidth": "0px",
-        "keylineStyle": "solid",
-        "keylineColor": "rgba(0,0,0,0)",
-        "keylineImage": "none",
-        "keylineShadow": "inset 0 5px 10px -3px rgba(0,0,0,.62),inset 0 -3px 8px -4px rgba(0,0,0,.42),inset 4px 0 8px -4px rgba(0,0,0,.4),inset -4px 0 8px -4px rgba(0,0,0,.4)",
-        "ink": "#DFE4EE",
-        "signal": "#C2A35C",
-        "gild": null,
-        "markFilter": null,
-        "signalFilter": null,
-        "relief": null,
-        "rule": "#C2A35C",
-        "ruleWidth": "58px",
-        "tagline": "rgba(76,96,135,0.95)",
-        "riseDuration": "0.9s",
-        "riseShift": "16px",
-        "riseDelays": [
-          "0.05s",
-          "0.18s",
-          "0.32s",
-          "0.48s"
-        ],
-        "strike": "none",
-        "strikeFrom": null,
-        "strikePeak": null,
-        "strikeDelay": "0s",
-        "strikeDuration": "0s"
+        }
       }
     }
   ]

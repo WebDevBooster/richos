@@ -35,10 +35,14 @@
 "use strict";
 
 (function () {
-  // The three keys this surface owns in the webview's local store. `enabled` is a mirror
-  // of the Rust `ConfigStore` (durable, authoritative, reconciled by `main.js` after boot);
-  // `last` is the no-immediate-repeat guard, which has to survive a relaunch because the
-  // draw happens once per LAUNCH, so the previous draw is always in a previous process.
+  // The one key this surface owns in the webview's local store: a mirror of the Rust
+  // `ConfigStore` (durable, authoritative, reconciled by `main.js` after boot), read
+  // synchronously because this file has to decide whether to draw before it can await
+  // anything.
+  //
+  // `richos.splash.last` used to live here as well - the no-immediate-repeat guard for the
+  // random draw. The draw is gone (see `choose()`), so the guard is gone with it: a rule
+  // that says "the second start shows #2" has nothing to remember between launches.
   /// The clock the hold is measured on. `performance.now()` is monotonic and immune to a
   /// wall-clock adjustment mid-launch; `Date.now()` is the fallback. Neither is stored and
   /// neither is displayed, so no timezone question arises here - the UTC ruling applies to
@@ -48,7 +52,6 @@
   };
 
   var KEY_ENABLED = "richos.splash.enabled";
-  var KEY_LAST = "richos.splash.last";
 
   // -------------------------------------------------------------------------------------
   // WHICH LAUNCHES GET A CEREMONY
@@ -91,17 +94,31 @@
   // The ceiling. If nothing ever reports the app ready - a boot that hangs, a script error
   // in main.js, a command that never returns - the splash still leaves. A doorway that can
   // become a wall is worse than no doorway.
-  var CEILING_MS = 4000;
-
-  // HOW LONG THE COMPOSITION IS ON SCREEN. CEO, 2026-08-31: "the splash shows for 3 seconds
-  // by default", with 3-5 s by splash TYPE to come later.
   //
-  // It is here, named, because it was not anywhere before: the curtain simply left the
-  // moment `main.js` reported the app usable, which on this machine is a few hundred
-  // milliseconds - so the answer to "how long does the splash show for?" was "however long
-  // booting took", which is not a duration anyone chose. Making it a constant is most of the
-  // point of this change; the per-type range is NOT built, and the seam for it is the
-  // argument `holdFor()` would take.
+  // IT IS DERIVED FROM THE HOLD AND NOT A SECOND LITERAL. It used to be a flat 4000, which
+  // was one second past a 3000ms hold by arithmetic nobody had written down - and would have
+  // cut a five-second screen off at four. One second of grace over whatever this launch's
+  // hold is; 4000 at the default, unchanged.
+  var CEILING_GRACE_MS = 1000;
+
+  // =====================================================================================
+  //                          THE ONE NUMBER: THREE SECONDS
+  // =====================================================================================
+  //
+  // CEO, 2026-09-01, verbatim: *"And I said '3 seconds default'. How many times do I have
+  // to repeat that? 3 SECONDS. Unless I say otherwise."*
+  //
+  // It is here, in the open, because the answer to "how long does the splash show for?" has
+  // to be findable by looking rather than by reading a state machine. It is the WHOLE life
+  // of the ceremony: the plinth lands, the loading bar runs, the bar reaches 100% at exactly
+  // this many seconds, and the curtain goes.
+  var SPLASH_SECONDS = 3;
+
+  // "Maximum 5 seconds for some." A screen may ask for longer by carrying a `seconds` token
+  // and it may not ask for longer than this. It is a ceiling on a per-screen override and it
+  // is never the default: an absent `seconds` is three.
+  var MAX_SPLASH_SECONDS = 5;
+  // =====================================================================================
   //
   // IT DOES NOT DELAY THE LAUNCH, and that rule is unchanged and still binding. The app
   // underneath is live, focused and reachable from its first frame, and this curtain is
@@ -109,7 +126,20 @@
   // that has not faded yet. The two things that prove it are still true and still tested:
   // his first keystroke or touch yields IMMEDIATELY (the hold is never allowed to catch his
   // hand), and the ceiling still fires on a launch that never reports ready.
-  var HOLD_MS = 3000;
+
+  /// This launch's hold, in ms - `SPLASH_SECONDS` unless the chosen screen asked for its
+  /// own. Set once, in `start()`, from the entry that was actually drawn.
+  var holdMs = SPLASH_SECONDS * 1000;
+
+  /// How long THIS screen is on the glass. Absent means the CEO's default; anything past the
+  /// ceiling is clamped to it rather than granted, because "up to 5" is a limit.
+  function secondsFor(entry) {
+    var s = entry.tokens.seconds;
+    if (s === null || s === undefined) return SPLASH_SECONDS;
+    var n = Number(s);
+    if (!isFinite(n) || n <= 0) return SPLASH_SECONDS;
+    return n > MAX_SPLASH_SECONDS ? MAX_SPLASH_SECONDS : n;
+  }
 
   /// When the composition went up, for measuring the hold against. `null` until it does.
   var shownAt = null;
@@ -119,7 +149,7 @@
   /// CEO's hand.
   function holdRemaining() {
     if (shownAt === null) return 0;
-    var left = HOLD_MS - (now() - shownAt);
+    var left = holdMs - (now() - shownAt);
     return left > 0 ? left : 0;
   }
 
@@ -152,6 +182,11 @@
     opacity: "opacity",
     inset: "inset",
     height: "height",
+    // Added for the loading bar, and available to a material for the same reason every
+    // other key here is: they are GEOMETRY, not paint. `width` and `transform` are what put
+    // the strike heat on the leading edge of a bar 74px across and half of it past the end.
+    width: "width",
+    transform: "transform",
     radius: "border-radius",
     border: "border",
     borderImage: "border-image",
@@ -164,9 +199,87 @@
   var LAYER_KEYS = ["mask", "relief"];
   var PLACEMENTS = ["inner", "outer"];
 
-  // The mark. Verbatim geometry from the approved compositions, and NOT in the library
-  // because it is not a variation: it is identical in every version of every round, and a
+  // -------------------------------------------------------------------------------------
+  // THE LOADING BAR'S VOCABULARY
+  //
+  // CEO, 2026-09-01: *"A splash screen is something that has a 'loading' progress bar under
+  // the `plinth` element."* So a bar is not optional furniture here - an entry without one
+  // is not a splash screen and is dropped from the pool, the same way an entry missing its
+  // mat is.
+  //
+  // HIS TWO BARS ARE DIFFERENT OBJECTS and both are his direction: #1 is the `.rule` at the
+  // width of the plinth, striking along its own unstruck ghost; #2 is a leather strap of the
+  // same hide with the whole run of needle holes punched from the first frame, sewn live in
+  // gold thread. One mechanism has to draw both without knowing that either exists, and this
+  // is it: A TRACK CARRYING A STACK OF PAINT LAYERS, SOME OF WHOSE WIDTHS FOLLOW THE
+  // PROGRESS. The track's paint, the layers' paint and the rhythm are all the entry's; the
+  // progress curve, the stacking order and the geometry are the renderer's.
+  var BAR_PROPS = {
+    gap: "margin-top",
+    height: "height",
+    radius: "border-radius",
+    background: "background",
+    outline: "outline",
+    shadow: "box-shadow",
+    clip: "overflow"
+  };
+  var BAR_KEYS = ["enterDelay", "enterDuration"];
+
+  // What a layer of the bar may be, and the whole list:
+  //
+  //   (absent)   a static layer across the whole track
+  //   rhythm     a static layer across the SNAPPED RUN - see `pitch` below
+  //   progress   its width IS the progress
+  //   lead       rides the leading edge of the progress, and goes out when the bar lands
+  //   flare      invisible until the bar lands, then one sweep along its length
+  var BAR_ROLES = ["rhythm", "progress", "lead", "flare"];
+
+  // WHEN THE BAR BEGINS, measured from the moment the composition goes up. The approved
+  // mockups both use 0.60s and for the same reason - it is where the plinth has landed and
+  // the bar has something to sit under. It is a renderer constant rather than a token
+  // because it is not variation: both of his screens carry the same number.
+  var BAR_START_MS = 600;
+
+  // THE PROGRESS CURVE, and it is deliberately not an ease-out. Mostly linear, with one
+  // gentle surge early that fades out and a confident slope at the end. It is monotonic, so
+  // it never stalls and never jumps, and it arrives at exactly 100% at exactly the hold -
+  // at three seconds and at five alike. The classic "stuck at 95%" feeling IS an ease-out;
+  // this is the shape the approved mockups both run, and the shape is structure.
+  var BAR_SURGE = 0.12;
+
+  // THE ONE FLARE WHEN IT LANDS. Both approved screens sweep a band of light along the bar
+  // from off one end to off the other, over a 260%-wide gradient the ENTRY paints; these
+  // three numbers are the sweep's geometry and they are identical in both, which is what
+  // makes them structure rather than a value belonging to either screen.
+  var FLARE_MS = 950;
+  var FLARE_FROM_PCT = 130;
+  var FLARE_TO_PCT = -40;
+  var FLARE_PEAK_AT = 0.17;
+
+  // The heat leaving the leading edge once there is nowhere further to go.
+  var LEAD_FADE_MS = 550;
+  var LEAD_FADE_DELAY_MS = 180;
+
+  // THE MARK. Verbatim geometry from the approved compositions, and NOT in the library
+  // because it is not a variation: it is identical in every version of every round, so a
   // copy per entry is a copy that can drift.
+  //
+  // ITS TWO FILLS ARE UNDER REVIEW, AND THIS IS THE ONE PLACE THEY ARE DECIDED.
+  //
+  // The paths below carry a `role` of `"ink"` or `"signal"` and nothing else. `svgMark()`
+  // turns that into a class, `splash.css` points each class at one custom property, and
+  // `build()` sets those two properties — `--splash-ink` and `--splash-signal` — from the
+  // entry's `ink` and `signal` tokens. That is the WHOLE path from data to pixel, and it
+  // has exactly one junction: the two `setProperty` calls in `build()` marked THE MARK'S
+  // TWO FILLS.
+  //
+  // So if the mark turns out to be monochrome — the CEO questioned the two-tone treatment
+  // on 2026-09-01, and his own artwork
+  // (`assets/logo-wordmark/RichOS-logo_v3.5_black-and-white.svg`) is two paths with one
+  // fill — the change is that junction, not this geometry, not the library, and not both
+  // entries: point `--splash-signal` at `t.ink` and every screen goes monochrome at once.
+  //
+  // THE PATH DATA IS NOT IN QUESTION and is not to be touched. Only the fills.
   var LOGO = {
     viewBox: "0 0 744 744",
     paths: [
@@ -187,8 +300,20 @@
     ],
   };
 
-  // The line the approved compositions carry under the rule.
-  var LINE = "The AI Operating System for CEOs";
+  // THE LINE UNDER THE RULE. The CEO's words, and his size.
+  //
+  // Both are here rather than in `splash.css` for the same reason the text always has been:
+  // they are not variation. Every approved screen carries this line at this size, so a copy
+  // per entry is a copy that can drift, and a rule in the stylesheet would be a second place
+  // to look. The size is his instruction of 2026-09-01 and it is also §15's floor argued the
+  // other way round: 18px is above the 16px minimum for text meant to be read, and this line
+  // is the only text on the surface.
+  //
+  // The tracking is the approved mockups' 0.10em and not the 0.15em this surface shipped at
+  // 12px: at 18px the wider setting runs the line past the plinth it sits under.
+  var LINE = "The Operating System for the AI-Enabled CEO";
+  var LINE_SIZE = "18px";
+  var LINE_TRACKING = "0.10em";
 
   // -------------------------------------------------------------------------------------
   // Storage, which is allowed to be unavailable
@@ -276,6 +401,51 @@
     return true;
   }
 
+  /// One layer of the bar. The same vocabulary a material layer takes - because a layer is
+  /// a layer - plus `role`, and minus `relief`, which is the mark's business and not a
+  /// bar's. An unknown key is refused rather than ignored, for the reason `validMaterials`
+  /// gives: a typo has to fail loudly, not silently drop the layer that was the point.
+  function validBarLayers(layers) {
+    if (!Array.isArray(layers) || !layers.length) return false;
+    for (var i = 0; i < layers.length; i++) {
+      var l = layers[i];
+      if (!l || typeof l !== "object" || Array.isArray(l)) return false;
+      if (typeof l.background !== "string" || !l.background) return false;
+      for (var k in l) {
+        if (!l.hasOwnProperty(k)) continue;
+        if (k === "role") {
+          if (BAR_ROLES.indexOf(l.role) < 0) return false;
+          continue;
+        }
+        if (!LAYER_PROPS.hasOwnProperty(k) && k !== "mask") return false;
+        if (typeof l[k] !== "string" || !l[k]) return false;
+      }
+    }
+    return true;
+  }
+
+  /// The bar. A splash screen has one, so this is not nullable - an entry whose bar is
+  /// missing, malformed, or has no layer that actually progresses is not drawn.
+  function validBar(b) {
+    if (!b || typeof b !== "object" || Array.isArray(b)) return false;
+    for (var p in BAR_PROPS) {
+      if (!BAR_PROPS.hasOwnProperty(p)) continue;
+      if (typeof b[p] !== "string" || !b[p]) return false;
+    }
+    for (var i = 0; i < BAR_KEYS.length; i++) {
+      if (typeof b[BAR_KEYS[i]] !== "string" || !b[BAR_KEYS[i]]) return false;
+    }
+    // `pitch` is the one genuinely optional thing about a bar: #2 has a rhythm at the plinth
+    // border's 10.5px and #1 has none at all.
+    if (b.pitch !== null && (typeof b.pitch !== "string" || !b.pitch)) return false;
+    if (typeof b.pitchInset !== "string" || !b.pitchInset) return false;
+    if (!validBarLayers(b.layers)) return false;
+    for (var j = 0; j < b.layers.length; j++) {
+      if (b.layers[j].role === "progress") return true;
+    }
+    return false;
+  }
+
   function valid(entry) {
     if (!entry || typeof entry !== "object") return false;
     if (typeof entry.id !== "string" || !entry.id) return false;
@@ -295,6 +465,11 @@
     if (t.signalFilter !== null && typeof t.signalFilter !== "string") return false;
     if (!validMaterials(t.materials)) return false;
     if (!validRelief(t.relief)) return false;
+    if (!validBar(t.bar)) return false;
+    if (t.seconds !== null && t.seconds !== undefined) {
+      var secs = Number(t.seconds);
+      if (typeof t.seconds !== "string" || !isFinite(secs) || secs <= 0) return false;
+    }
     if (t.strike === "fill") {
       // A colour strike on a gradient fill has no colour to animate: the gold would simply
       // never arrive. Refuse the entry rather than draw a mark that stays unlit.
@@ -314,20 +489,58 @@
     return out;
   }
 
-  /// Uniform over the library, with a no-immediate-repeat guard - the mechanism Deeply
-  /// already shipped for its randomised animation libraries, and the one the CEO's own
-  /// framing asks for: the thing he meets at every start is never quite the same one.
-  function pick(candidates) {
-    var last = read(KEY_LAST);
-    var eligible = candidates;
-    if (candidates.length > 1 && last) {
-      var filtered = [];
-      for (var i = 0; i < candidates.length; i++) {
-        if (candidates[i].id !== last) filtered.push(candidates[i]);
+  // -------------------------------------------------------------------------------------
+  // WHICH SCREEN HE SEES, AND IT IS NOT A DRAW
+  //
+  // CEO, 2026-09-01, verbatim: *"USE THE APPROVED SPLASH SCREEN #1 to always
+  // deterministically show as SPLASH SCREEN #1 and splash screen #2 to always show as splash
+  // screen for the SECOND APP START in RichOS v1. From the third app start onwards: Only
+  // splash screen #1. For NOW == app version 1."*
+  //
+  //     start 1        -> #1
+  //     start 2        -> #2
+  //     start 3 and on -> #1
+  //
+  // THIS REPLACED A RANDOM DRAW. Until this commit the surface picked uniformly out of the
+  // library with a no-immediate-repeat guard, which is the mechanism his LATER framing asks
+  // for - *"eventually, there will be many splash screens added to the array where the splash
+  // screen will be randomly picked for the user (and sometimes semi-randomly or
+  // deterministically picked for a user based on certain criteria)"* - and is not what he
+  // asked for in v1. `KEY_LAST`, the no-repeat guard's storage, went with it: a deterministic
+  // rule has nothing to remember.
+  //
+  // WHERE THE LATER CRITERIA ATTACH: this function, and only this function. It already takes
+  // the whole pool and the ordinal; a criteria-driven pick takes the same two arguments plus
+  // whatever the criterion reads, and nothing else in this file changes. The pool is an
+  // ARRAY and the rule reads its length, so a third screen is a third object in the library.
+  //
+  // A LIBRARY OF ONE gets that one every time, which is the only honest answer: a rule that
+  // says "the second start shows the second screen" cannot be applied where there is no
+  // second screen, and refusing to draw would be a worse answer than drawing #1 twice.
+
+  /// WHICH START THIS IS, 1-based, or `null` when nobody could say.
+  ///
+  /// The shell injects it beside `kind`, read out of `launches.json` - the durable launch
+  /// record that already exists (`crates/richos-core/src/launch.rs`), never a second counter
+  /// kept here. Three real cases produce `null` and all three mean the same thing: a webview
+  /// the shell could not inject into, `index.html` opened straight off disk, and a launch
+  /// record that would not parse. `choose()` reads all three as the first start, which shows
+  /// #1 - the answer that is never wrong to give.
+  function launchOrdinal() {
+    try {
+      var l = window.__RICHOS_LAUNCH__;
+      if (l && typeof l.ordinal === "number" && isFinite(l.ordinal) && l.ordinal > 0) {
+        return Math.floor(l.ordinal);
       }
-      if (filtered.length) eligible = filtered;
+    } catch (_e) {
+      /* fall through */
     }
-    return eligible[Math.floor(Math.random() * eligible.length)];
+    return null;
+  }
+
+  function choose(candidates, ordinal) {
+    if (candidates.length < 2) return candidates[0];
+    return ordinal === 2 ? candidates[1] : candidates[0];
   }
 
   // -------------------------------------------------------------------------------------
@@ -484,6 +697,266 @@
     return d;
   }
 
+  // -------------------------------------------------------------------------------------
+  // THE LOADING BAR
+  //
+  // It is built here, it runs ONCE, and there is no path in this file that starts it again.
+  // CEO, 2026-09-01, verbatim: *"The animation is only supposed to happen ONCE. NO LOOPING."*
+  // The approved mockups carry an `AUTO_REPLAY` flag for judging, set to `false`; nothing
+  // like it exists here at all. `tick()` below returns without asking for another frame the
+  // moment the landing flare is over, and there is no `visibilitychange`, `focus` or
+  // `pageshow` listener anywhere in this file that could wake it.
+  // -------------------------------------------------------------------------------------
+
+  /// Everything the running bar needs, or `null` before it is built. Held in one object so
+  /// `settleBar()` and `removeSelf()` can put it down in one move.
+  var bar = null;
+  var raf = null;
+
+  function reduceMotion() {
+    try {
+      return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  /// A CSS time, in ms. `0.62s` and `620ms` both, because a token may be written either way
+  /// and a bar that silently starts at time zero is worse than one that refuses to build.
+  function millis(v) {
+    var n = parseFloat(v);
+    if (!isFinite(n)) return 0;
+    return /ms\s*$/.test(v) ? n : n * 1000;
+  }
+
+  /// One layer of the bar. Identical in shape to `materialLayer` and deliberately separate:
+  /// a material layer may point at the mark's relief filter and a bar layer may not, and
+  /// `role` is meaningless on a mat.
+  function barLayer(spec) {
+    var el = div("splash-bar-layer");
+    // The layer says what it is. Not a class - `tests/splash.js` check 6 inventories class
+    // names to prove the palette study was left behind, and five more of them would be five
+    // more things to allow. A data attribute is the layer describing itself to a reader.
+    if (spec.role) el.dataset.role = spec.role;
+    el.style.setProperty("position", "absolute");
+    el.style.setProperty("inset", "0");
+    for (var k in spec) {
+      if (!spec.hasOwnProperty(k)) continue;
+      if (k === "role") continue;
+      if (k === "mask") {
+        el.style.setProperty("-webkit-mask-image", spec.mask);
+        el.style.setProperty("mask-image", spec.mask);
+        continue;
+      }
+      el.style.setProperty(LAYER_PROPS[k], spec[k]);
+    }
+    return el;
+  }
+
+  /// The track, and the stack on it, in the entry's own order.
+  ///
+  /// EVERY LAYER IS A CHILD OF ONE CONTAINER, on purpose. An earlier shape put the static
+  /// layers on the track and the progressing ones in a nested run box, and that quietly
+  /// reversed the paint order for #2 - the stitch channel is declared BEFORE the holes and
+  /// would have painted over them. Positioned siblings stack in document order, so one
+  /// container is the only arrangement in which the entry's order is the order on screen.
+  function buildBar(b) {
+    var root = div("splash-bar");
+    var s = root.style;
+    for (var p in BAR_PROPS) {
+      if (BAR_PROPS.hasOwnProperty(p)) s.setProperty(BAR_PROPS[p], b[p]);
+    }
+    s.setProperty("position", "relative");
+    s.setProperty("outline-offset", "-1px");
+    s.setProperty("flex", "0 0 auto");
+
+    var fills = [];
+    var leads = [];
+    var flares = [];
+    var rhythms = [];
+    for (var i = 0; i < b.layers.length; i++) {
+      var spec = b.layers[i];
+      var el = barLayer(spec);
+      if (spec.role === "progress") {
+        el.style.setProperty("width", "0%");
+        fills.push(el);
+        root.appendChild(el);
+      } else if (spec.role === "lead") {
+        // The lead rides in its own progress-driven wrapper rather than inside a named fill,
+        // so it does not depend on which layer happens to be declared last.
+        var wrap = div("splash-bar-lead");
+        wrap.dataset.role = "lead";
+        wrap.style.setProperty("position", "absolute");
+        wrap.style.setProperty("top", "0");
+        wrap.style.setProperty("bottom", "0");
+        wrap.style.setProperty("left", "0");
+        wrap.style.setProperty("width", "0%");
+        wrap.appendChild(el);
+        leads.push(wrap);
+        root.appendChild(wrap);
+      } else if (spec.role === "flare") {
+        el.style.setProperty("opacity", "0");
+        flares.push({ el: el, peak: parseFloat(spec.opacity || "1") });
+        root.appendChild(el);
+      } else {
+        if (spec.role === "rhythm") rhythms.push(el);
+        root.appendChild(el);
+      }
+    }
+
+    bar = {
+      root: root,
+      fills: fills,
+      leads: leads,
+      flares: flares,
+      rhythms: rhythms,
+      pitch: b.pitch ? parseFloat(b.pitch) : 0,
+      inset: parseFloat(b.pitchInset) || 0,
+      landed: false,
+      landedAt: 0
+    };
+
+    // The empty track fades in once the plinth has landed, exactly as the mockups do it.
+    // §18's stance is unchanged: no motion for anyone who has asked for none - but the bar
+    // itself still moves under reduced motion, because a loading bar that does not move is
+    // a broken loading bar, and that is the mockups' own call.
+    if (!reduceMotion() && root.animate) {
+      root.animate([{ opacity: 0 }, { opacity: 1 }], {
+        duration: millis(b.enterDuration),
+        delay: millis(b.enterDelay),
+        easing: "ease",
+        fill: "both"
+      });
+    }
+    return root;
+  }
+
+  /// Where the bar's rhythm-snapped run sits, in px, or `null` when it has no rhythm.
+  ///
+  /// #2's needle holes are punched at the plinth border's 10.5px pitch, and the strap is
+  /// whatever width the plinth is - so the run has to be a WHOLE number of pitches, centered,
+  /// or the last hole is sliced in half by the strap's own rounded end. #1 has no rhythm and
+  /// takes the whole track, which is what a null means.
+  function runBox() {
+    if (!bar.pitch) return null;
+    var full = bar.root.getBoundingClientRect().width;
+    var n = Math.floor((full - bar.inset * 2) / bar.pitch);
+    if (n < 1) n = 1;
+    var width = n * bar.pitch;
+    return { left: (full - width) / 2, width: width };
+  }
+
+  /// Paint the bar at `p`, from 0 to 1. Reads the layout once and then only writes, so a
+  /// frame never interleaves a measure with a mutation.
+  function paintBar(p) {
+    var box = runBox();
+    var i;
+    if (box) {
+      for (i = 0; i < bar.rhythms.length; i++) {
+        bar.rhythms[i].style.setProperty("left", box.left + "px");
+        bar.rhythms[i].style.setProperty("right", "auto");
+        bar.rhythms[i].style.setProperty("width", box.width + "px");
+      }
+    }
+    var lead = box ? box.left + "px" : "0px";
+    var wide = box ? (p * box.width).toFixed(2) + "px" : (p * 100).toFixed(3) + "%";
+    for (i = 0; i < bar.fills.length; i++) {
+      bar.fills[i].style.setProperty("left", lead);
+      bar.fills[i].style.setProperty("right", "auto");
+      bar.fills[i].style.setProperty("width", wide);
+    }
+    for (i = 0; i < bar.leads.length; i++) {
+      bar.leads[i].style.setProperty("left", lead);
+      bar.leads[i].style.setProperty("width", wide);
+    }
+  }
+
+  /// The sweep of light along the bar, once, when it lands. `q` runs 0 to 1 over `FLARE_MS`.
+  function paintFlare(q) {
+    var pos = FLARE_FROM_PCT + (FLARE_TO_PCT - FLARE_FROM_PCT) * q;
+    var o = q < FLARE_PEAK_AT ? q / FLARE_PEAK_AT : (1 - q) / (1 - FLARE_PEAK_AT);
+    if (o < 0) o = 0;
+    for (var i = 0; i < bar.flares.length; i++) {
+      bar.flares[i].el.style.setProperty("background-position-x", pos.toFixed(2) + "%");
+      bar.flares[i].el.style.setProperty("opacity", (o * bar.flares[i].peak).toFixed(3));
+    }
+  }
+
+  function hideFlares() {
+    for (var i = 0; i < bar.flares.length; i++) bar.flares[i].el.style.setProperty("opacity", "0");
+  }
+
+  /// The heat goes out of the leading edge, because there is nowhere further for it to go.
+  function retireLeads(animated) {
+    for (var i = 0; i < bar.leads.length; i++) {
+      if (animated) {
+        bar.leads[i].style.setProperty(
+          "transition",
+          "opacity " + LEAD_FADE_MS + "ms ease " + LEAD_FADE_DELAY_MS + "ms"
+        );
+      }
+      bar.leads[i].style.setProperty("opacity", "0");
+    }
+  }
+
+  /// Put the frame loop down, and SAY SO. Every exit from `tick()` that does not schedule
+  /// another frame goes through here, so `state.barStopped` cannot disagree with reality.
+  function stopTicking() {
+    raf = null;
+    state.barStopped = true;
+  }
+
+  /// ONE PASS, AND THEN IT STOPS. The only exits that do not schedule another frame are the
+  /// two that call `stopTicking()`, and there is no other caller of `tick`.
+  function tick() {
+    if (!bar) return;
+    var span = holdMs - BAR_START_MS;
+    if (span < 350) span = 350;
+    var u = (now() - shownAt - BAR_START_MS) / span;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    paintBar(u + BAR_SURGE * Math.sin(2 * Math.PI * u) * (1 - u));
+
+    if (u >= 1 && !bar.landed) {
+      bar.landed = true;
+      bar.landedAt = now();
+      state.barPasses++;
+      retireLeads(!reduceMotion());
+      if (reduceMotion()) {
+        stopTicking();
+        return;
+      }
+    }
+    if (bar.landed) {
+      var q = (now() - bar.landedAt) / FLARE_MS;
+      if (q >= 1) {
+        hideFlares();
+        stopTicking();
+        return;
+      }
+      paintFlare(q);
+    }
+    raf = requestAnimationFrame(tick);
+  }
+
+  /// The bar's half of `splash--settled`: the ceremony is cut, and the bar is pinned FULL.
+  ///
+  /// Full and not frozen-at-40%, deliberately. The curtain only leaves when the app is up or
+  /// when he touches something, and in both cases loading is over - a bar left standing at a
+  /// fraction on the way out would be the one frame on this surface that says something
+  /// untrue. The flare and the heat are performance and are cut, exactly as the strike is.
+  function settleBar() {
+    if (!bar) return;
+    if (raf !== null) cancelAnimationFrame(raf);
+    stopTicking();
+    if (!bar.landed) state.barPasses++;
+    paintBar(1);
+    retireLeads(false);
+    hideFlares();
+    bar.landed = true;
+  }
+
+
   function build(entry) {
     var t = entry.tokens;
     var root = div("splash");
@@ -511,6 +984,8 @@
     s.setProperty("--splash-keyline-style", t.keylineStyle);
     s.setProperty("--splash-keyline-image", t.keylineImage);
     s.setProperty("--splash-keyline-shadow", t.keylineShadow);
+    // THE MARK'S TWO FILLS — the junction named in the LOGO comment above, and the only
+    // place either one is decided. One line each, both screens.
     s.setProperty("--splash-ink", t.ink);
     // Gilded gold is a paint server with the flat colour as its fallback, exactly as the
     // studies write it (`fill: url(#gild) <the flat gold>` — the hex itself deliberately
@@ -519,6 +994,7 @@
     // property, so the settled state and the bloom strike need no second rule to know
     // which kind of gold they are pinning.
     s.setProperty("--splash-signal", t.gild ? "url(#" + GILD_ID + ") " + t.signal : t.signal);
+    // (End of THE MARK'S TWO FILLS.)
     s.setProperty("--splash-rule", t.rule);
     s.setProperty("--splash-rule-width", t.ruleWidth);
     s.setProperty("--splash-tagline", t.tagline);
@@ -570,11 +1046,20 @@
     foot.appendChild(div("splash-rule"));
     var line = div("splash-line");
     line.textContent = LINE;
+    line.style.setProperty("font-size", LINE_SIZE);
+    line.style.setProperty("letter-spacing", LINE_TRACKING);
     foot.appendChild(line);
     footWrap.appendChild(foot);
     plinth.appendChild(footWrap);
 
     frame.appendChild(plinth);
+    // THE BAR IS UNDER THE PLINTH AND EXACTLY AS WIDE AS IT. The rising frame becomes a
+    // stretch column so the track takes the plinth's width at every window size - the same
+    // arrangement the approved mockups use, and the reason the two edges line up.
+    frame.style.setProperty("display", "flex");
+    frame.style.setProperty("flex-direction", "column");
+    frame.style.setProperty("align-items", "stretch");
+    frame.appendChild(buildBar(t.bar));
     stage.appendChild(frame);
     root.appendChild(stage);
     return root;
@@ -599,10 +1084,38 @@
     /// `"second-window"`. `null` until `start()` has run. Reported rather than inferred
     /// from `shown`, because "no splash because he never quit" and "no splash because he
     /// switched it off" are two different answers and a surface should be able to say which.
-    kind: null
+    kind: null,
+    /// WHICH START THIS IS, as the shell reported it - `1`, `2`, `3`... or `null` when
+    /// nobody said. Reported rather than derived from `variationId`, because "start 4, which
+    /// shows #1" and "nobody told me, so #1" are two different answers.
+    ordinal: null,
+    /// How long this screen was given, in seconds. The CEO's default unless the entry that
+    /// was drawn asked for its own.
+    seconds: null,
+    /// THE BAR'S OWN ACCOUNT OF ITSELF, and it exists for one reason: *"The animation is
+    /// only supposed to happen ONCE. NO LOOPING."*
+    ///
+    /// `barPasses` counts the times the bar has reached the end. It is 0 while it runs and 1
+    /// after it lands, and it can only be more than 1 if something restarted it.
+    /// `barStopped` is true once `tick()` has returned without asking for another frame.
+    ///
+    /// WHY THIS IS REPORTED RATHER THAN INFERRED FROM THE WIDTH. A loop is only visible from
+    /// outside during the window between the bar landing and the curtain leaving, which is
+    /// the ceiling's one second of grace — and a restart beginning a moment after that window
+    /// is invisible to any amount of watching. It WAS: the acceptance suite's first version
+    /// of this proof watched the width for 3.95s, and a restart injected at the end of the
+    /// landing flare went through it completely undetected. These two numbers close that
+    /// hole, because a loop cannot leave the loop stopped.
+    barPasses: 0,
+    barStopped: false
   };
 
   function removeSelf() {
+    if (raf !== null) {
+      cancelAnimationFrame(raf);
+      raf = null;
+    }
+    bar = null;
     if (node && node.parentNode) node.parentNode.removeChild(node);
     node = null;
   }
@@ -672,6 +1185,7 @@
     // Pin the composition where it was going BEFORE fading it, so a launch that finishes
     // mid-ceremony shows a finished mark on its way out rather than unlit metal.
     node.classList.add("splash--settled");
+    settleBar();
     node.classList.add("splash--yielding");
     setTimeout(removeSelf, FADE_MS + 40);
     // Drop the always-dark clamp as the curtain goes, not after it has gone: the fade is
@@ -701,7 +1215,11 @@
       state.declined = "no usable variation in the library";
       return;
     }
-    var entry = pick(candidates);
+    var ordinal = launchOrdinal();
+    state.ordinal = ordinal;
+    var entry = choose(candidates, ordinal);
+    holdMs = Math.round(secondsFor(entry) * 1000);
+    state.seconds = holdMs / 1000;
     try {
       node = build(entry);
       document.body.insertBefore(node, document.body.firstChild);
@@ -713,6 +1231,10 @@
     state.shown = true;
     state.variationId = entry.id;
     shownAt = now();
+    // ONE PASS OF THE LOADING BAR, STARTING NOW. `shownAt` is the clock it runs on and the
+    // clock the hold is measured against, so the bar reaches 100% at exactly the instant the
+    // hold is served - the same number, not two numbers that agree.
+    if (bar) raf = requestAnimationFrame(tick);
     // §15's ONE PERMANENT EXCEPTION: "because of its nature the start screen will always
     // need to be in dark mode", and no switch reaches it. The curtain's own composition was
     // always dark — it draws from `--splash-*` properties this file sets, never from the
@@ -725,21 +1247,19 @@
     // a FORCE flag and never writes the preference, so light mode is exactly where he left
     // it the moment the curtain lifts.
     if (window.RichTheme) window.RichTheme.forceDark(true);
-    write(KEY_LAST, entry.id);
     window.addEventListener("keydown", onInput, true);
     window.addEventListener("pointerdown", onInput, true);
     ceiling = setTimeout(function () {
       yieldNow("ceiling");
-    }, CEILING_MS);
+    }, holdMs + CEILING_GRACE_MS);
   }
 
   window.RichSplash = {
     yieldNow: yieldNow,
     state: state,
-    /// The two keys, exported so `main.js` mirrors the durable Rust setting into the same
-    /// place this file reads it from, rather than knowing the strings twice.
+    /// The key, exported so `main.js` mirrors the durable Rust setting into the same place
+    /// this file reads it from, rather than knowing the string twice.
     KEY_ENABLED: KEY_ENABLED,
-    KEY_LAST: KEY_LAST,
     /// Every entry the library offers that this renderer would actually draw. `main.js`
     /// does not use it; the acceptance suite does, to prove the pool it draws from is the
     /// pool that is shipped.
@@ -747,7 +1267,16 @@
     /// The wire string for the one kind of start that draws, exported so the acceptance
     /// suite and `main.rs`'s `LaunchKind::as_str` can be checked against one another rather
     /// than both against a literal somebody typed twice.
-    KIND_FRESH: KIND_FRESH
+    KIND_FRESH: KIND_FRESH,
+    /// The CEO's default, and the ceiling on a per-screen override. Exported so the
+    /// acceptance suite measures the surface against the number the surface actually holds
+    /// rather than against one typed a second time in a test.
+    SPLASH_SECONDS: SPLASH_SECONDS,
+    MAX_SPLASH_SECONDS: MAX_SPLASH_SECONDS,
+    /// The rule, exported so it can be driven directly against a pool the suite supplies.
+    /// It is a pure function of the pool and the ordinal; that is what makes it testable
+    /// without launching anything, and what makes the later criteria a change to one place.
+    choose: choose
   };
 
   start();
