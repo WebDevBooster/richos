@@ -989,9 +989,9 @@ def main():
             # to the text detectors is exactly what this flag exists to prevent.
             continue
 
-        # Detector 1 — derived from private. The sharpest signal: no heuristic,
-        # no threshold on shape, just "these exact words are already in a file
-        # we declared private".
+        # Detector 1 — derived from private. The sharpest signal that needs no
+        # declaration naming the file: no heuristic, no threshold on shape, just
+        # "these exact words are already in a file we declared private".
         run = verbatim_run(blob, corpus, corpus_index, min_quote)
         if run:
             findings.append((

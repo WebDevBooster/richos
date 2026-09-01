@@ -105,8 +105,8 @@
 #                          likewise out of reach. Stated here rather than
 #                          discovered in a postmortem.
 #
-#   derived-from-private   The sharpest signal available, and it needs no
-#                          heuristic at all. Any run of >= MIN_QUOTE_WORDS
+#   derived-from-private   The sharpest signal that needs no file named in
+#                          advance, and it needs no heuristic at all. Any run of >= MIN_QUOTE_WORDS
 #                          consecutive words in the incoming content that
 #                          appears VERBATIM in the declared private corpus is
 #                          reproduced private material, by construction. This
