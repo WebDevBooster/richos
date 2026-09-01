@@ -1,0 +1,9 @@
+[richos] launch: crash-restart (1 window(s))
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] I can't tell which company this work belongs to, so I won't guess — filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. It isn't something you can set from in here: whoever set RichOS up has to tell me which company this copy of me works for.
+[richos] operator: set RICHOS_ENTITY to one of femcboost, deeply, prospects or richos, or launch from that entity's repository root.
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: /Users/alex/.local/bin/claude
+[richos]   cause : the claude binary was not found at /Users/alex/.local/bin/claude — RichOS drives Claude Code directly and cannot run without it
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
