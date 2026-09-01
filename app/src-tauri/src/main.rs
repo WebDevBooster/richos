@@ -36,7 +36,7 @@ use richos_core::steering::{IntakeRecord, StopOutcome, TurnControl};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::thread::ThreadSummary;
 use richos_core::worker_status::{self, WorkerStatusView};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -161,15 +161,29 @@ struct AppState {
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
     config: Mutex<ConfigStore>,
-    /// The entity area this launch is bound to, resolved DETERMINISTICALLY from the
-    /// repository root (ECS §3.3: *"Repository-root mapping can select an entity
-    /// deterministically during FemcBoost dogfood"*). `None` when the root is unknown or
-    /// ambiguous — which fails closed: threads cannot be created and sends are refused,
-    /// rather than defaulting to an entity nobody chose.
+    /// The entity area this launch is bound to (ECS §3.3). `None` fails closed: threads
+    /// cannot be created and the loro desk is scoped to nothing, rather than defaulting to
+    /// an entity nobody chose.
     ///
-    /// This is deliberately the minimum wiring needed to keep the shell honest in slice 1.
-    /// The CEO-facing entity PICKER is slice 4 (`ui: build entity and thread navigation`).
-    entity: Option<EntityId>,
+    /// **BEHIND A MUTEX SINCE SLICE 4, and that is the whole shape of the fix.** It used to
+    /// be a plain `Option` fixed at boot, with a comment saying the CEO-facing picker was
+    /// slice 4 — which meant a launch that could not resolve a root stayed unresolved for
+    /// its whole life, and a double-clicked bundle (working directory `/`) can never
+    /// resolve one. The picker writes here, at runtime, so answering the question does not
+    /// cost a relaunch.
+    ///
+    /// It is NOT inside `config`'s mutex even though `choose_entity` writes both: this is
+    /// read on the `create_thread` and loro paths, and `config` is held by the settings
+    /// surface. Lock order everywhere is config, then entity, then spine.
+    entity: Mutex<Option<EntityId>>,
+    /// Whether `RICHOS_ENTITY` decided the answer. Fixed for the life of the process,
+    /// because the variable is: nothing the CEO does in the window can change it, so the
+    /// settings surface must render a statement rather than a control (§21's own rule —
+    /// a state he cannot change has to say who can).
+    entity_pinned_by_env: bool,
+    /// Where the entity in force came from, so the settings surface can say so. Moves when
+    /// `choose_entity` writes, which is why it is behind the same kind of lock as `entity`.
+    entity_source: Mutex<Option<EntitySource>>,
     /// `<app-data>/machinery` — the Tier-B store the retention setting governs.
     ///
     /// Held here as a PATH rather than reached through `spine.machinery_journal()`
@@ -245,7 +259,7 @@ fn create_thread(state: State<AppState>, title: String) -> Result<String, String
     // A thread cannot exist without an immutable entity home (ECS §3.2). Until the entity
     // picker lands (slice 4) the entity comes from deterministic root resolution, and an
     // unresolved root refuses rather than guessing.
-    let entity = state.entity.clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
     state.spine.lock().unwrap().create_thread(&title, &entity).map_err(|e| e.to_string())
 }
 
@@ -365,37 +379,160 @@ const LEASE_UNAVAILABLE_MESSAGE: &str =
 /// whoever set RichOS up, and it is still printed at boot — beside this sentence, at the
 /// one site whose audience is a terminal (see the `eprintln!` in `setup`). Two audiences,
 /// two sentences, one condition.
+///
 const ENTITY_UNRESOLVED_MESSAGE: &str =
     "I can't tell which company this work belongs to, so I won't guess — filing it under \
      the wrong one would mix two companies' records together, and that's not a mistake \
      worth risking to save you a question. It isn't something you can set from in here: \
      whoever set RichOS up has to tell me which company this copy of me works for.";
 
+/// WHERE A RESOLVED ENTITY CAME FROM. Reported to the CEO's settings surface and printed
+/// at boot, because "RichOS is filing this under RichOS" and "somebody set an environment
+/// variable that RichOS cannot change from in here" are different facts about the same
+/// entity id, and a surface that renders a control over the second one is lying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntitySource {
+    /// `RICHOS_ENTITY` — an explicit operator statement, made outside the app.
+    Environment,
+    /// The answer the CEO gave the picker, kept in `config.json`.
+    SavedChoice,
+    /// Deterministic repository-root containment (ECS §3.3/§10.2) — the dogfood path.
+    WorkingDirectory,
+}
+
+impl EntitySource {
+    /// The wire string. Kebab-case and stable: `app/ui/main.js` switches on it.
+    fn as_str(&self) -> &'static str {
+        match self {
+            EntitySource::Environment => "environment",
+            EntitySource::SavedChoice => "saved-choice",
+            EntitySource::WorkingDirectory => "working-directory",
+        }
+    }
+
+    /// How the boot log names it, for the operator reading a terminal.
+    fn describe(&self) -> &'static str {
+        match self {
+            EntitySource::Environment => "RICHOS_ENTITY",
+            EntitySource::SavedChoice => "the saved choice",
+            EntitySource::WorkingDirectory => "the working directory",
+        }
+    }
+}
+
+/// The outcome of entity resolution: what was resolved, where it came from, and every
+/// line the operator should see about it.
+///
+/// `notes` rather than `eprintln!` inside the resolver so the ORDER is a pure function of
+/// its inputs and can be asserted by a test. The resolver that this replaces read
+/// `std::env::var` and `std::env::current_dir()` directly, which is precisely why nothing
+/// ever tested it under the one condition that matters — a Finder launch, where both are
+/// answers no developer's shell ever produces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BootEntity {
+    entity: Option<EntityId>,
+    source: Option<EntitySource>,
+    notes: Vec<String>,
+}
+
 /// Resolve this launch's entity area (ECS §3.3/§10.2), deterministically and fail-closed.
 ///
-/// `RICHOS_ENTITY` is an explicit operator statement and wins. Otherwise the current
-/// working directory is resolved against the registry by path CONTAINMENT — an unknown or
-/// ambiguous root yields `None`, which blocks thread creation and sends rather than
-/// picking an entity nobody chose.
-fn boot_entity() -> Option<EntityId> {
-    let registry = EntityRegistry::dogfood();
-    if let Ok(explicit) = std::env::var("RICHOS_ENTITY") {
+/// **THE ORDER, and why each step is where it is.** This is slice 4 — the picker the
+/// comment at `create_thread` has named since slice 1 — so there is now a fourth step, and
+/// the fourth step is the one that makes the other three safe to keep fail-closed.
+///
+///   1. **`RICHOS_ENTITY`** — an explicit operator statement, made deliberately, from
+///      outside the app. It wins, it is still validated against the registry, and an
+///      unregistered value STILL REFUSES rather than falling through: someone who names an
+///      entity meant it, and quietly resolving a different one would be worse than
+///      stopping.
+///   2. **The saved choice** — the answer the CEO gave the picker, read from `config.json`.
+///      It outranks the working directory because it is a person's stated answer and a
+///      working directory is an accident of how the process was started. A value that no
+///      longer parses or is no longer registered is STALE DATA rather than a statement, so
+///      it is named in a note and falls through to (3), which is deterministic.
+///   3. **Working-directory containment** — unchanged. Every dogfood launch behaves today
+///      exactly as it did yesterday, because on those machines nothing has ever been saved
+///      at (2): the `entity` key did not exist until this pass.
+///   4. **Nothing** — `None`, which still blocks every send. The difference this pass makes
+///      is not that an unresolved entity is now allowed through; it is that the CEO can
+///      always REACH one, through the picker, which writes (2).
+///
+/// Pure on purpose: every input is an argument, so the GUI condition (`cwd = /`, no
+/// environment, empty config) is a test rather than a build-and-double-click.
+fn resolve_boot_entity(
+    registry: &EntityRegistry,
+    env_value: Option<&str>,
+    saved: Option<&str>,
+    cwd: Option<&Path>,
+) -> BootEntity {
+    let mut notes: Vec<String> = Vec::new();
+
+    if let Some(explicit) = env_value {
         return match EntityId::parse(explicit.trim()) {
-            Ok(id) if registry.contains(&id) => Some(id),
+            Ok(id) if registry.contains(&id) => {
+                BootEntity { entity: Some(id), source: Some(EntitySource::Environment), notes }
+            }
             _ => {
-                eprintln!("[richos] RICHOS_ENTITY={explicit:?} is not a registered entity — refusing it");
-                None
+                notes.push(format!(
+                    "RICHOS_ENTITY={explicit:?} is not a registered entity — refusing it"
+                ));
+                BootEntity { entity: None, source: None, notes }
             }
         };
     }
-    let cwd = std::env::current_dir().ok()?;
-    match registry.resolve_root(&cwd) {
-        Ok(entity) => Some(entity.id.clone()),
-        Err(e) => {
-            eprintln!("[richos] entity not resolved from {}: {e}", cwd.display());
-            None
+
+    if let Some(raw) = saved {
+        match EntityId::parse(raw.trim()) {
+            Ok(id) if registry.contains(&id) => {
+                return BootEntity {
+                    entity: Some(id),
+                    source: Some(EntitySource::SavedChoice),
+                    notes,
+                };
+            }
+            // NAMED, NOT DROPPED. A saved choice that no longer resolves is the one state
+            // in which the CEO believes he has answered this question and has not.
+            _ => notes.push(format!(
+                "the saved company {raw:?} is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess"
+            )),
         }
     }
+
+    match cwd {
+        Some(dir) => match registry.resolve_root(dir) {
+            Ok(entity) => BootEntity {
+                entity: Some(entity.id.clone()),
+                source: Some(EntitySource::WorkingDirectory),
+                notes,
+            },
+            Err(e) => {
+                notes.push(format!("entity not resolved from {}: {e}", dir.display()));
+                BootEntity { entity: None, source: None, notes }
+            }
+        },
+        None => {
+            notes.push("no working directory could be read".to_string());
+            BootEntity { entity: None, source: None, notes }
+        }
+    }
+}
+
+/// The process-reading wrapper around [`resolve_boot_entity`]. Everything it knows it reads
+/// here and hands over as an argument; it holds no logic of its own.
+fn boot_entity(registry: &EntityRegistry, config: &ConfigStore) -> BootEntity {
+    let env_value = std::env::var("RICHOS_ENTITY").ok();
+    let cwd = std::env::current_dir().ok();
+    let resolved = resolve_boot_entity(
+        registry,
+        env_value.as_deref(),
+        config.entity_raw(),
+        cwd.as_deref(),
+    );
+    for note in &resolved.notes {
+        eprintln!("[richos] {note}");
+    }
+    resolved
 }
 
 /// Where this launch's engine directory is — the working directory `claude` is started in.
@@ -469,26 +606,6 @@ fn main() {
             let ledger = Ledger::open(&ledger_path).expect("open ledger");
 
             let mut spine = Spine::new(ledger);
-            // A thread now requires an entity home, so boot no longer conjures one out of
-            // nowhere. If the root resolves, the default thread is created/activated in
-            // that entity; if it does not, the app still launches with NO active context
-            // and every send is refused with an explanation. Failing closed at boot beats
-            // binding a conversation to a guess.
-            let boot_entity = boot_entity();
-            match &boot_entity {
-                Some(entity) => {
-                    spine.ensure_active_thread_in(entity).expect("ensure thread");
-                }
-                // THE OPERATOR'S HALF of the same condition. The const above is written for
-                // the CEO and deliberately names no environment variable; this line is read
-                // by whoever it names, in a terminal, where `RICHOS_ENTITY` is the correct
-                // and actionable instruction.
-                None => eprintln!(
-                    "[richos] {ENTITY_UNRESOLVED_MESSAGE}\n\
-                     [richos] operator: set RICHOS_ENTITY to one of femcboost, deeply, \
-                     prospects or richos, or launch from that entity's repository root."
-                ),
-            }
 
             // Attach the live UI sink: streamed reply deltas + turn-state events flow to
             // the webview via Tauri events (see app/STREAMING.md for the contract).
@@ -507,6 +624,45 @@ fn main() {
             // defaults internally — see config.rs) — expect() here only guards the
             // genuinely-unexpected io error creating the parent dir.
             let config = ConfigStore::open(&config_path).expect("open config store");
+
+            // =====================================================================
+            // WHICH COMPANY THIS COPY OF RICH WORKS FOR — resolved HERE, and here for
+            // one reason: step 2 of the order is the saved choice, and the saved
+            // choice lives in the store opened on the line above.
+            // =====================================================================
+            //
+            // It used to run fifty lines further up, before the config file was open,
+            // which is exactly why there were only two steps and why a Finder launch
+            // had no route to an entity at all. A resolver that runs before the store
+            // holding the answer cannot read the answer.
+            //
+            // A thread requires an entity home, so boot still conjures none out of
+            // nowhere. If an entity resolves, the default thread is created/activated
+            // in it; if none does, the app launches with NO active context, every send
+            // is still refused — and `entity_choice`/`choose_entity` are how the CEO
+            // reaches one from inside the window, which is the part that was missing.
+            let boot = boot_entity(&EntityRegistry::dogfood(), &config);
+            match &boot.entity {
+                Some(entity) => {
+                    eprintln!("[richos] company: {entity} (via {})", boot.source.map(|s| s.describe()).unwrap_or("resolution"));
+                    spine.ensure_active_thread_in(entity).expect("ensure thread");
+                }
+                // THE OPERATOR'S HALF of the same condition. `ENTITY_UNRESOLVED_MESSAGE`
+                // is written for the CEO and deliberately names no environment variable;
+                // this line is read by whoever it names, in a terminal, where
+                // `RICHOS_ENTITY` is the correct and actionable instruction.
+                //
+                // IT NO LONGER ENDS THERE, and that is the substantive change: the CEO is
+                // now asked in the window, so this says what he will see rather than
+                // implying a terminal is the only way through.
+                None => eprintln!(
+                    "[richos] no company resolved — RichOS will ask in the window and \
+                     remember the answer.\n\
+                     [richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects \
+                     or richos) still overrides, as does launching from that entity's \
+                     repository root."
+                ),
+            }
 
             // The MACHINERY journal + its live sink (techy-mode design §2.1). Its own
             // directory beside the ledger and config, per §2.1: NOT loro (it would poison
@@ -830,7 +986,15 @@ fn main() {
                 lease_ready,
                 config: Mutex::new(config),
                 machinery_root,
-                entity: boot_entity,
+                entity: Mutex::new(boot.entity),
+                // PRESENCE, not success. A `RICHOS_ENTITY` that names nothing resolves to
+                // `None` and short-circuits BEFORE the saved choice — so a CEO who answered
+                // the picker under one would have his answer written to disk and never read
+                // again, and be asked at every launch for ever. Keying this on the variable
+                // being SET means the surface tells him it was decided outside the window and
+                // names who owns it, instead of silently swallowing his answer.
+                entity_pinned_by_env: std::env::var_os("RICHOS_ENTITY").is_some(),
+                entity_source: Mutex::new(boot.source),
                 nav: Mutex::new(nav_store),
                 control,
                 correction,
@@ -917,6 +1081,9 @@ fn main() {
             set_thread_pinned,
             set_thread_archived,
             rename_thread,
+            // --- which company this copy of Rich works for (slice 4, 2026-09-01) ---
+            entity_choice,
+            choose_entity,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
             get_timeline,
             // --- Codex-UX slice 7 (2026-08-29): the read-only worker inspector ---
@@ -1524,6 +1691,165 @@ fn create_thread_in(state: State<AppState>, entity_id: String, title: String) ->
     Ok(id)
 }
 
+// ---- WHICH COMPANY THIS COPY OF RICH WORKS FOR (slice 4) ------------------------------
+//
+// The two commands that close the double-click blocker. `create_thread_in` above already
+// made an entity choice REAL for a new thread; what did not exist was a way for the CEO to
+// answer the question ONCE, durably, for the copy of RichOS on his machine — so a Finder
+// launch, whose working directory is `/`, reached no entity at all and refused his first
+// sentence.
+//
+// WHAT IS DELIBERATELY NOT HERE: a default. Nothing below ever picks an entity. `choose_entity`
+// refuses an unregistered id, refuses while the environment pins one, and writes only what
+// the CEO clicked.
+
+/// One company the CEO can pick, as the picker and the settings row render it.
+#[derive(serde::Serialize)]
+struct EntityOption {
+    id: String,
+    display_name: String,
+    /// The bound source root(s), so the row can say which is which when two companies have
+    /// similar names. Empty when the entity has none registered.
+    roots: Vec<String>,
+    /// How many threads are already filed here. `0` is a real and renderable answer.
+    thread_count: usize,
+}
+
+/// The whole state of the question "which company is this copy of Rich for?".
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EntityChoiceView {
+    /// The entity in force right now, or `None` — which is the state that makes the app ask.
+    chosen: Option<String>,
+    /// Where `chosen` came from: `environment` | `saved-choice` | `working-directory`.
+    source: Option<String>,
+    /// `RICHOS_ENTITY` decided it, so nothing in this window can change it. The surface
+    /// renders a statement and names who owns the fix, rather than a control that does not
+    /// work (§21: a state he cannot change has to say who can).
+    pinned_by_environment: bool,
+    /// Every registered company, in registry order. Never filtered, never re-sorted.
+    options: Vec<EntityOption>,
+    /// The scope in force, so the caller does not need a second round trip after choosing.
+    active: Option<ActiveContext>,
+}
+
+/// What the CEO is told when the environment has pinned the company. Same register as
+/// `LEASE_UNAVAILABLE_MESSAGE` and `ENTITY_UNRESOLVED_MESSAGE`: it says what it will not
+/// do, why, and who owns the fix, and it invents no control.
+const ENTITY_PINNED_MESSAGE: &str =
+    "This copy of me was told which company it works for when it was started up, from \
+     outside this window, so I can't move it from in here. Whoever set RichOS up is the \
+     one who changes that.";
+
+/// What he is told when a chosen id is not one of the companies this build knows about.
+/// It cannot happen from the picker (the picker's rows ARE the registry); it can happen
+/// from a stale saved value or a hand-driven call, and refusing is the fail-closed half of
+/// ECS §3.3.
+fn unknown_company_message(id: &str) -> String {
+    format!(
+        "I don't have a company called \"{id}\" on file, so I won't file anything under it. \
+         Pick one of the companies I do have, or whoever set RichOS up can add it."
+    )
+}
+
+fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
+    // Lock order, everywhere in this file: config, then entity, then spine.
+    let chosen = state.entity.lock().unwrap().clone();
+    let spine = state.spine.lock().unwrap();
+    let registry = spine.entity_registry();
+    let summaries = spine.threads();
+    let options = registry
+        .entities()
+        .iter()
+        .map(|e| {
+            let id = e.id.to_string();
+            EntityOption {
+                thread_count: summaries
+                    .iter()
+                    .filter(|s| s.entity_id.as_deref() == Some(id.as_str()))
+                    .count(),
+                display_name: e.display_name.clone(),
+                roots: e.roots.iter().map(|r| r.display().to_string()).collect(),
+                id,
+            }
+        })
+        .collect();
+    EntityChoiceView {
+        chosen: chosen.map(|e| e.to_string()),
+        source: state.entity_source.lock().unwrap().map(|s| s.as_str().to_string()),
+        pinned_by_environment: state.entity_pinned_by_env,
+        options,
+        active: active_binding_view(&spine),
+    }
+}
+
+/// Read the state of the question. The UI calls this at boot: a `chosen` of `None` is what
+/// makes it ask, and it is the only signal it needs.
+#[tauri::command]
+fn entity_choice(state: State<AppState>) -> EntityChoiceView {
+    entity_choice_view(&state)
+}
+
+/// THE CEO ANSWERS. Validate, remember, and let the app carry on without a relaunch.
+///
+/// Three properties this has and must keep:
+///
+///   1. **It never re-homes a thread.** A thread's entity is immutable after creation (ECS
+///      §3.2, enforced by `ThreadBinding`'s private fields), so this only ever changes what
+///      NEW work is filed under. If a conversation is already open it is left exactly where
+///      it is — changing the setting must not move a record and must not yank him out of
+///      what he is reading.
+///   2. **It writes the durable answer BEFORE it activates anything.** A crash between the
+///      two costs an activation, which the next boot redoes; the other order would cost the
+///      answer, and he would be asked again having already answered.
+///   3. **It refuses rather than guesses.** An unregistered id is refused; an environment
+///      pin is refused with the sentence that names who owns it.
+/// **`(async)` is load-bearing here for the same reason it is on `send_message`.** A plain
+/// `#[tauri::command]` on a non-async fn is dispatched as `ExecutionContext::Blocking` and
+/// runs inline on the IPC thread; this one takes the spine's mutex, which `send_message`
+/// holds for the whole of a turn. Answering "which company is this copy for?" is something
+/// the CEO does WHILE Rich may be working, and a settings row that froze the entire IPC
+/// channel until the turn finished would be a settings row nobody touches. The DURABLE
+/// write happens before the spine is touched at all, so the answer is never lost to a wait.
+#[tauri::command(async)]
+fn choose_entity(state: State<AppState>, entity_id: String) -> Result<EntityChoiceView, String> {
+    if state.entity_pinned_by_env {
+        return Err(ENTITY_PINNED_MESSAGE.to_string());
+    }
+    let id = EntityId::parse(entity_id.trim()).map_err(|_| unknown_company_message(entity_id.trim()))?;
+    if !EntityRegistry::dogfood().contains(&id) {
+        return Err(unknown_company_message(id.as_str()));
+    }
+
+    state
+        .config
+        .lock()
+        .unwrap()
+        .set_entity(&id)
+        .map_err(|e| format!("I couldn't write that down, so I haven't taken it as your answer: {e}"))?;
+    *state.entity.lock().unwrap() = Some(id.clone());
+    *state.entity_source.lock().unwrap() = Some(EntitySource::SavedChoice);
+
+    apply_company_choice(&mut state.spine.lock().unwrap(), &id)?;
+    Ok(entity_choice_view(&state))
+}
+
+/// The spine half of `choose_entity`, as a free function so property 1 above is a TEST
+/// rather than a sentence in a doc comment.
+///
+/// **Activate only when nothing is open.** A thread's entity home is immutable after
+/// creation (ECS §3.2), so this could not re-home a conversation even if it tried — but it
+/// could switch the CEO out of the one he is reading, mid-sentence, because a setting moved.
+/// It does not. With a conversation open, the choice governs the NEXT thread and nothing
+/// else; with nothing open — the launch case, which is the one this whole pass exists for —
+/// it puts him in a thread in the company he just named, without a relaunch.
+fn apply_company_choice(spine: &mut Spine, id: &EntityId) -> Result<(), String> {
+    if spine.active_thread().is_some() {
+        return Ok(());
+    }
+    spine.ensure_active_thread_in(id).map(|_| ()).map_err(|e| e.to_string())
+}
+
 // ---- search (§3.4) --------------------------------------------------------------------
 
 #[derive(serde::Serialize)]
@@ -1739,6 +2065,232 @@ fn set_thread_archived(state: State<AppState>, thread_id: String, archived: bool
 #[tauri::command]
 fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Result<(), String> {
     state.nav.lock().unwrap().rename_thread(&thread_id, &title).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod entity_choice_tests {
+    //! WHICH COMPANY THIS COPY OF RICH WORKS FOR — the four-step order, the durable answer,
+    //! and the refusal that is still a refusal.
+    //!
+    //! WHY THESE TESTS COULD NOT HAVE EXISTED BEFORE. `boot_entity` read `std::env::var` and
+    //! `std::env::current_dir()` inline, so the condition that actually matters — a Finder
+    //! launch, whose working directory is `/` and whose environment carries nothing a shell
+    //! ever put there — was not expressible. Nothing tested it, and the defect shipped: an
+    //! installed bundle built from f44f89a, launched with `open`, refused the first sentence
+    //! typed into it with "no active thread, and no entity was named", and wrote nothing to
+    //! the ledger. `resolve_boot_entity` takes all four inputs as arguments for exactly this
+    //! reason.
+    //!
+    //! A unit test still does not close it — see
+    //! `docs/verification/entity-choice-2026-09-01/` for the real double-click either side.
+
+    use super::*;
+    use richos_core::config::ConfigStore;
+    use std::path::Path;
+
+    fn reg() -> EntityRegistry {
+        EntityRegistry::dogfood()
+    }
+
+    fn id(s: &str) -> EntityId {
+        EntityId::parse(s).unwrap()
+    }
+
+    /// A ledger of its own per test, so no two share a file.
+    fn spine_for(tag: &str) -> (Spine, PathBuf) {
+        let path = std::env::temp_dir().join(format!(
+            "richos-company-{tag}-{}-{}.jsonl",
+            std::process::id(),
+            richos_core::util::now_millis()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let ledger = Ledger::open(&path).expect("open ledger");
+        (Spine::new(ledger), path)
+    }
+
+    // ---- the order -----------------------------------------------------------------------
+
+    #[test]
+    fn the_gui_launch_resolves_nothing_and_says_which_root_it_refused() {
+        // THE CONDITION THE CEO LAUNCHES IN. `open` hands the process to launchd: working
+        // directory `/`, none of a shell's environment, and on a fresh install nothing saved.
+        let out = resolve_boot_entity(&reg(), None, None, Some(Path::new("/")));
+        assert_eq!(out.entity, None, "`/` owns no entity and must never resolve to one");
+        assert_eq!(out.source, None);
+        assert!(
+            out.notes.iter().any(|n| n.contains("entity not resolved from /")),
+            "the refusal must name the root it refused: {:?}",
+            out.notes
+        );
+    }
+
+    #[test]
+    fn a_saved_choice_answers_the_launch_the_working_directory_cannot() {
+        // THE FIX, in one line: the same launch, after he has answered once.
+        let out = resolve_boot_entity(&reg(), None, Some("richos"), Some(Path::new("/")));
+        assert_eq!(out.entity, Some(id("richos")));
+        assert_eq!(out.source, Some(EntitySource::SavedChoice));
+        assert!(out.notes.is_empty(), "a clean resolution has nothing to report: {:?}", out.notes);
+    }
+
+    #[test]
+    fn the_choice_is_still_in_force_on_the_next_boot_with_the_same_empty_environment() {
+        // PERSISTENCE END TO END, and deliberately not two halves that agree in memory: the
+        // store is opened, written, DROPPED, and reopened, and the reopened store is what the
+        // resolver is handed — under the GUI condition, which is the only one that matters.
+        let path = std::env::temp_dir().join(format!(
+            "richos-company-boot-{}-{}.json",
+            std::process::id(),
+            richos_core::util::now_millis()
+        ));
+        let _ = std::fs::remove_file(&path);
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            let first = resolve_boot_entity(&reg(), None, store.entity_raw(), Some(Path::new("/")));
+            assert_eq!(first.entity, None, "before he answers, the launch resolves nothing");
+            store.set_entity(&id("deeply")).unwrap();
+        }
+        let reopened = ConfigStore::open(&path).unwrap();
+        let second = resolve_boot_entity(&reg(), None, reopened.entity_raw(), Some(Path::new("/")));
+        assert_eq!(second.entity, Some(id("deeply")));
+        assert_eq!(second.source, Some(EntitySource::SavedChoice));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn an_explicit_environment_value_outranks_a_saved_choice() {
+        let out = resolve_boot_entity(&reg(), Some("deeply"), Some("richos"), Some(Path::new("/")));
+        assert_eq!(out.entity, Some(id("deeply")));
+        assert_eq!(out.source, Some(EntitySource::Environment));
+    }
+
+    #[test]
+    fn an_unregistered_environment_value_refuses_and_never_falls_through() {
+        // Someone who names an entity MEANT it. Quietly resolving a different one — the saved
+        // choice, or the working directory — would be worse than stopping, so this refuses
+        // even though both of the steps below it would have answered.
+        let out = resolve_boot_entity(
+            &reg(),
+            Some("acme"),
+            Some("richos"),
+            Some(Path::new("/Users/alex/ab/femcboost")),
+        );
+        assert_eq!(out.entity, None);
+        assert_eq!(out.source, None);
+        assert!(out.notes.iter().any(|n| n.contains("RICHOS_ENTITY")), "{:?}", out.notes);
+    }
+
+    #[test]
+    fn a_stale_saved_choice_is_named_and_falls_through_to_containment() {
+        // A saved value that no longer resolves is STALE DATA, not a statement — so unlike
+        // the environment it does not short-circuit. It falls through to the deterministic
+        // step, and it is named rather than dropped: the CEO believes he has answered.
+        let out = resolve_boot_entity(
+            &reg(),
+            None,
+            Some("acme"),
+            Some(Path::new("/Users/alex/ab/deeply/src")),
+        );
+        assert_eq!(out.entity, Some(id("deeply")));
+        assert_eq!(out.source, Some(EntitySource::WorkingDirectory));
+        assert!(
+            out.notes.iter().any(|n| n.contains("\"acme\"")),
+            "a discarded saved company must be named: {:?}",
+            out.notes
+        );
+    }
+
+    #[test]
+    fn the_dogfood_working_directory_behaves_exactly_as_it_did() {
+        // STEP 3 IS UNCHANGED, and this is the guard on that claim. Every dogfood launch has
+        // an empty `entity` key — it did not exist before this pass — so step 2 is absent and
+        // containment answers, as it always has.
+        for (dir, want) in [
+            ("/Users/alex/ab/femcboost", "femcboost"),
+            ("/Users/alex/ab/richos/app/crates/richos-core", "richos"),
+            ("/Users/alex/ab/prospects", "prospects"),
+        ] {
+            let out = resolve_boot_entity(&reg(), None, None, Some(Path::new(dir)));
+            assert_eq!(out.entity, Some(id(want)), "{dir} should resolve to {want}");
+            assert_eq!(out.source, Some(EntitySource::WorkingDirectory));
+        }
+    }
+
+    #[test]
+    fn a_launch_with_no_working_directory_at_all_still_fails_closed() {
+        let out = resolve_boot_entity(&reg(), None, None, None);
+        assert_eq!(out.entity, None);
+        assert_eq!(out.source, None);
+    }
+
+    // ---- the refusal, which is not weakened -----------------------------------------------
+
+    #[test]
+    fn nothing_chosen_and_nothing_resolved_still_refuses_every_send() {
+        // THE INVARIANT THIS PASS MUST NOT BREAK. The fix is that he can always REACH a
+        // company — never that an unresolved one is allowed through. With nothing resolved
+        // the spine has no active context, and both the read path and the write path refuse.
+        let (mut spine, path) = spine_for("refuse");
+        let boot = resolve_boot_entity(&reg(), None, None, Some(Path::new("/")));
+        assert!(boot.entity.is_none());
+
+        assert!(spine.active_thread().is_none(), "boot must not conjure a thread out of nowhere");
+        assert!(spine.active_binding().is_none());
+        let refused = spine.submit_prompt("file this somewhere", Source::Text);
+        assert!(refused.is_err(), "a send with no company must be refused, not filed");
+        assert!(
+            refused.unwrap_err().to_string().contains("no active thread"),
+            "the refusal must be the NoActiveThread one, not something that half-worked"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    // ---- answering it ----------------------------------------------------------------------
+
+    #[test]
+    fn choosing_a_company_puts_him_in_a_thread_without_a_relaunch() {
+        let (mut spine, path) = spine_for("choose");
+        assert!(spine.active_thread().is_none());
+        apply_company_choice(&mut spine, &id("richos")).unwrap();
+        let binding = spine.active_binding().expect("a company was chosen, so a thread is open");
+        assert_eq!(binding.entity_id(), &id("richos"));
+        // ...and the send that was refused a moment ago now lands in the ledger.
+        let thread = spine.active_thread().unwrap().to_string();
+        assert!(spine.messages(&thread).is_ok());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn changing_the_company_never_rehomes_or_leaves_an_open_conversation() {
+        // ECS §3.2: a thread's home is immutable. Changing the SETTING governs new work; the
+        // conversation he is reading does not move and he is not moved out of it.
+        let (mut spine, path) = spine_for("rehome");
+        let first = spine.create_thread("Acme deal", &id("femcboost")).unwrap();
+        spine.switch_thread(&first).unwrap();
+        let before = spine.active_binding().unwrap().clone();
+
+        apply_company_choice(&mut spine, &id("deeply")).unwrap();
+
+        let after = spine.active_binding().unwrap();
+        assert_eq!(after.thread_id(), first, "the open conversation was switched out from under him");
+        assert_eq!(after.entity_id(), &id("femcboost"), "the thread was re-homed — ECS §3.2 forbids it");
+        assert_eq!(after.binding_revision(), before.binding_revision(), "the binding was reissued for nothing");
+        // And the durable record still says femcboost, not deeply.
+        assert_eq!(
+            spine.ledger().thread_binding(&first).unwrap().entity_id(),
+            &id("femcboost")
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn an_unregistered_company_is_refused_rather_than_invented() {
+        let (mut spine, path) = spine_for("unknown");
+        let err = apply_company_choice(&mut spine, &id("acme")).unwrap_err();
+        assert!(err.contains("unknown entity"), "{err}");
+        assert!(spine.active_thread().is_none(), "a refused choice must not open anything");
+        std::fs::remove_file(&path).ok();
+    }
 }
 
 #[cfg(test)]
@@ -2161,7 +2713,7 @@ fn loro_show_record(state: State<AppState>, record_ref: String) -> Result<WriteO
 /// global: a proposal about one entity's memory has no business in another's queue.
 #[tauri::command]
 fn loro_pending_corrections(state: State<AppState>) -> Result<Vec<Proposal>, String> {
-    let entity = state.entity.as_ref().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
     Ok(desk(&state)?.pending_for(entity.as_str()).into_iter().cloned().collect())
 }
 
@@ -2176,7 +2728,7 @@ fn loro_propose_correction(
     write: ProposedWrite,
     why: String,
 ) -> Result<Proposal, String> {
-    let entity = state.entity.as_ref().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
     // The thread id is PROVENANCE and comes from the caller. It is deliberately not read
     // off the spine: `send_message` holds that lock for the whole of a turn, so asking the
     // spine which thread is active would freeze a correction panel until Rich finished —
@@ -2194,7 +2746,7 @@ fn loro_propose_correction(
 /// already durable, and losing a ledger line must not un-write a record that landed.
 #[tauri::command]
 fn loro_confirm_correction(state: State<AppState>, id: String) -> Result<Proposal, String> {
-    let entity = state.entity.as_ref().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
+    let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
     let done = desk(&state)?.confirm(entity.as_str(), &id).map_err(|e| e.to_string())?;
     if let Some(outcome) = &done.outcome {
         let detail = match &outcome.superseded_ref {
