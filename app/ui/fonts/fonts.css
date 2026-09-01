@@ -35,35 +35,21 @@
  * eleventh is always written by somebody who never read the ruling.
  *
  * So the fix is not a better sweep. It is that there is now ONE place. This
- * file declares the faces; `style.css` composes them into `--font` and `--mono`
- * ONCE; every rule in the app says `var(--font)` or `var(--mono)`. A typeface
- * name appearing anywhere else is now a visibly strange thing to write rather
- * than the ordinary way to write it.
+ * file declares the faces; `style.css` composes them into `--font`,
+ * `--font-serif` and `--mono` ONCE; every rule in the app says `var(--font)`.
+ * A typeface name appearing anywhere else is now a visibly strange thing to
+ * write rather than the ordinary way to write it.
  *
  * ===========================================================================
- * ADOPTING A DIFFERENT FACE
+ * THE TWO FACES ARE THE CEO'S, DECIDED 2026-09-01: "Typeface: GO."
  * ===========================================================================
- * `round-11.1` is choosing type for the start screen, and that screen becomes
- * this app's. Adopting whatever it lands on is:
+ * SERIF IS NEWSREADER. SANS IS INTER. There is no third role, and inventing one
+ * is not an implementation decision — see the monospace note in `style.css`.
  *
- *   1. drop the .woff2 and its license file into this directory;
- *   2. change the `src:` line in the @font-face block below;
- *   3. change the family name in `--font-text` in style.css, if it differs.
- *
- * Nothing else in the app names a face, so nothing else has to move. If the
- * round-11.1 choice differs from what is vendored here, IT SUPERSEDES THIS —
- * these faces were picked to satisfy the ruling on a schedule, not to settle a
- * design question that belongs to the design round.
- *
- * ===========================================================================
- * LICENSING
- * ===========================================================================
- * RichOS ships publicly (§18), so every face here is SIL Open Font License 1.1,
- * confirmed by reading each project's own license file rather than a summary of
- * it. None of the four declares a Reserved Font Name in its copyright statement,
- * which is what makes the subsetting below permitted. The licenses travel with
- * the fonts, in this directory, and are embedded in the binary alongside them —
- * see LICENSE-*.txt here.
+ * Both are SIL Open Font License 1.1, which is what lets RichOS ship publicly
+ * (§18). The license texts are beside the fonts and are embedded in the binary
+ * with them; shipping an OFL face without its license is the one way this
+ * becomes a real problem in a public repository.
  *
  * Provenance, byte cost, coverage limits and the rebuild recipe live in
  * `app/scripts/fonts/README.md`, deliberately NOT in this directory: everything
@@ -86,26 +72,41 @@
  */
 
 /* ---------------------------------------------------------------------------
- * Inter — the interface face. SIL OFL 1.1, Copyright (c) 2016 The Inter Project
- * Authors. Variable across wght 100-900, so one file answers for every weight
- * the app uses today (400/500/600/700) and every weight it might use tomorrow
- * without another download or another decision.
+ * INTER — the interface face. SIL OFL 1.1, Copyright (c) 2016 The Inter Project
+ * Authors.
+ *
+ * Variable, and the weight axis is CLIPPED TO 400-700 rather than shipped whole.
+ * That is the range the app uses (400 body, 500, 600 on twenty-one rules, 700 on
+ * one), and clipping it halves the file: 168KB for wght 100-900 against 122KB
+ * for this. The OPTICAL SIZE axis is deliberately KEPT — the app sets type from
+ * 12px to 31px, and opsz is what makes one face read correctly across that range
+ * instead of looking thin at the top and cramped at the bottom.
+ *
+ * Wanting a weight outside 400-700 is a rebuild, not a redesign: change the
+ * instancer line in app/scripts/fonts/rebuild.sh and re-run it.
+ *
+ * The approved round-11.1 mockup vendors Inter as two static instances, 400 and
+ * 500, subset to Google's `latin` range. That is right for one screen and wrong
+ * for this app, MEASURED rather than assumed: the app renders 30 non-ASCII
+ * characters where that screen renders 5, and it sets 22 rules at weights those
+ * two files do not carry. Same face, same license, same upstream — a wider cut
+ * of it.
  * ------------------------------------------------------------------------- */
 @font-face {
   font-family: "Inter";
   src: url("Inter-Variable.woff2") format("woff2-variations"),
        url("Inter-Variable.woff2") format("woff2");
-  font-weight: 100 900;
+  font-weight: 400 700;
   font-style: normal;
   font-display: block;
 }
 
-/* The italic is a STATIC 400 instance, not a second variable file, and that is
- * a measured choice rather than an oversight: the variable italic subsets to
- * 130KB, the app has six italic rules, and every one of them is at the default
- * weight. Declaring `font-weight: 400` here is honest about what the file
- * contains — an element that asks for bold italic gets this face slanted and
- * synthetically emboldened, which is still THIS face, not the machine's. */
+/* The italic is a STATIC 400 instance, not a second variable file, and that is a
+ * measured choice rather than an oversight: the variable italic subsets to 130KB,
+ * the app has six italic rules, and every one of them is at the default weight.
+ * Declaring `font-weight: 400` here is honest about what the file contains — an
+ * element that asks for bold italic gets this face slanted and synthetically
+ * emboldened, which is still THIS face, not the machine's. */
 @font-face {
   font-family: "Inter";
   src: url("Inter-Italic.woff2") format("woff2");
@@ -115,26 +116,47 @@
 }
 
 /* ---------------------------------------------------------------------------
- * JetBrains Mono — the monospace face. SIL OFL 1.1, Copyright 2020 The
- * JetBrains Mono Project Authors. Variable across wght 100-800.
+ * NEWSREADER — the serif. SIL OFL 1.1, Copyright 2020 The Newsreader Project
+ * Authors (Production Type).
  *
- * No italic is vendored. One rule asks for it — `.tl-tech[data-vendor]
- * .tl-tech-title` — and a browser with no italic face for a family slants the
- * roman face OF THAT SAME FAMILY rather than looking elsewhere, so that rule
- * still renders from a shipped face. Worth 75KB to fix; not worth another 75KB.
+ * These two files are copied BYTE-FOR-BYTE from the approved round-11.1 mockup,
+ * not rebuilt here. Their sha-256 is recorded in that round's README and matches:
+ *
+ *   Newsreader-Regular  e71a3bea5993009ab159b89d52d88ba515efd57e8d9324a94c681bfc72c9ac0f
+ *   Newsreader-Italic   e384e31812c1d580b5ae2217ade8ca5fe9e5135ea9c27423359d00a954c28488
+ *
+ * Rebuilding them would produce a second, unreviewed artifact of a face the CEO
+ * approved as specific files, and buy nothing: no text in the app is set in a
+ * serif today. This is here so the start screen's type arrives with the screen
+ * rather than after it, and so `--font-serif` is real the moment a designer
+ * reaches for it.
+ *
+ * Weight 400 only, optical size 6-72 — which is the axis the round-11.1 README
+ * singles out, because it is what gives the 31px numbers and the 14px lines
+ * different drawings of the same face for free.
  * ------------------------------------------------------------------------- */
 @font-face {
-  font-family: "JetBrains Mono";
-  src: url("JetBrainsMono-Variable.woff2") format("woff2-variations"),
-       url("JetBrainsMono-Variable.woff2") format("woff2");
-  font-weight: 100 800;
+  font-family: "Newsreader";
+  src: url("Newsreader-Regular.woff2") format("woff2-variations"),
+       url("Newsreader-Regular.woff2") format("woff2");
+  font-weight: 400;
   font-style: normal;
   font-display: block;
 }
 
+@font-face {
+  font-family: "Newsreader";
+  src: url("Newsreader-Italic.woff2") format("woff2-variations"),
+       url("Newsreader-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: block;
+}
+
 /* ---------------------------------------------------------------------------
- * THE SYMBOL FACES — and this is the half of the ruling that a stylesheet audit
- * cannot see.
+ * THE SYMBOL COVERAGE — and this is the half of the ruling that a stylesheet
+ * audit cannot see. IT IS ALSO AN OPEN QUESTION FOR THE CEO; see BLOCKED.md at
+ * the root of this branch.
  *
  * The interface draws its own controls out of Unicode. The settings gear is a
  * literal U+2699 in index.html; the navigation toggle is U+2630; every close
@@ -142,16 +164,26 @@
  * the "working" state is U+25D0. Reading the CSS tells you none of this.
  *
  * MEASURED against each face's own character map: of the 30 non-ASCII
- * characters the shipped UI renders, Inter carries 23. The other seven — ⋯ ▾ ◉
- * ◐ ☰ ⚙ ✕ — it does not have, and a browser that cannot find a character in the
- * named family does not fail: it silently walks to the next family, and after
- * the platform names came out, that meant a system font drew the gear, the
- * hamburger and every close button in the app.
+ * characters the shipped UI renders, INTER CARRIES 23 AND NEWSREADER CARRIES 9,
+ * all nine of them inside Inter's. Seven are in NEITHER — ⋯ ▾ ◉ ◐ ☰ ⚙ ✕ — and a
+ * browser that cannot find a character in the named family does not fail: it
+ * silently walks to the next family. With only the two approved faces vendored,
+ * that means a system font draws the gear, the hamburger and every close button
+ * in the app, which is the ruling broken in the most visible place there is.
  *
- * So three more OFL faces are vendored, each subset to exactly the codepoints
- * it is here to answer for, and each declared with a `unicode-range` so the
- * browser never consults it for anything else. 3,080 bytes for the seven
- * glyphs, which is the cheapest part of this change and the load-bearing part.
+ * So three Noto faces are vendored, each subset to EXACTLY the codepoints it is
+ * here to answer for and declared with a `unicode-range` so the browser never
+ * consults it for anything else. 3,080 bytes for seven glyphs.
+ *
+ * WHY THIS IS NOT "a third family" IN THE SENSE THE CEO RULED OUT: no text is
+ * set in these. They have no role in the type system, they cannot be reached by
+ * any character outside their seven, and nothing in the app names them except
+ * `--font-symbols`. They are glyph coverage, in the way an icon file is.
+ *
+ * BUT IT IS STILL HIS CALL, and the cleaner answer may be to stop drawing
+ * controls with text characters at all and use SVG icons — which is a design
+ * change, not an infrastructure one. Removing these is deleting three files and
+ * one token.
  *
  * All three are SIL OFL 1.1, Copyright 2022 The Noto Project Authors.
  * ------------------------------------------------------------------------- */
@@ -166,7 +198,7 @@
   font-display: block;
 }
 
-/* ⚙ — Noto Sans Symbols. The gear is in neither Inter nor Symbols 2. */
+/* ⚙ — Noto Sans Symbols. The gear is in neither text face nor in Symbols 2. */
 @font-face {
   font-family: "RichOS Symbols";
   src: url("NotoSansSymbols-subset.woff2") format("woff2-variations"),
