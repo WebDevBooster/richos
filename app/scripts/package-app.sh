@@ -328,7 +328,7 @@ verify_bundle() {
       # carry a cdhash-shaped requirement, which is ad-hoc's failure wearing a
       # certificate; nothing else in this script would notice.
       local dr declared
-      dr="$(codesign -d -r- "$app" 2>/dev/null | sed -n 's/^# *designated => //p' | head -1)"
+      dr="$(codesign -d -r- "$app" 2>/dev/null | sed -n 's/^#\{0,1\} *designated => //p' | head -1)"
       declared="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
                     "$app/Contents/Info.plist" 2>/dev/null || true)"
       if [ -z "$dr" ]; then
@@ -909,7 +909,7 @@ if [ "$sign_mode" = "adhoc" ]; then
   # codesign prints it commented, as `# designated => ...`.
   say ""
   say "  the designated requirement macOS will store against every grant:"
-  dr="$(codesign -d -r- "$app_bundle" 2>/dev/null | sed -n 's/^# *designated => //p' | head -1)"
+  dr="$(codesign -d -r- "$app_bundle" 2>/dev/null | sed -n 's/^#\{0,1\} *designated => //p' | head -1)"
   if [ -n "$dr" ]; then
     say "    $dr"
     say "  — a hash of THIS build. No bundle identifier, no team, nothing a later"
@@ -946,7 +946,7 @@ if [ "$sign_mode" = "developer-id" ]; then
 
   say ""
   say "  the designated requirement macOS will store against every grant:"
-  dr="$(codesign -d -r- "$app_bundle" 2>/dev/null | sed -n 's/^# *designated => //p' | head -1)"
+  dr="$(codesign -d -r- "$app_bundle" 2>/dev/null | sed -n 's/^#\{0,1\} *designated => //p' | head -1)"
   if [ -n "$dr" ]; then
     say "    $dr"
     say "  — an identifier and a team, not a hash. THIS is what every future build"
