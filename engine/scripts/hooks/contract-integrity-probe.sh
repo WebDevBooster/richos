@@ -339,7 +339,7 @@ run_layer_R() {
     # R2/R3 — the hooks that resolve a root.
     R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
-    guard-dialect guard-loro-capitalization \
+    guard-dialect \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-completeness-commits \
     guard-row-currency-commits \
@@ -645,7 +645,6 @@ guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
-guard-loro-capitalization.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 guard-interactive-prompt.sh|PreToolUse
@@ -2124,10 +2123,6 @@ CANON = [
     # sentence — and would double the cost of the only guard here that runs a
     # word list over every byte of every write.
     "guard-dialect.sh",
-    # Same event, same shape, same argument: registered twice it would print
-    # the same capitalization refusal twice, which reads as two separate wrong
-    # words in one sentence.
-    "guard-loro-capitalization.sh",
     # A BLOCKING Bash-matcher guard: registered twice it would run the CEO-TODOs
     # predicate twice per commit and print its refusal twice, which reads as two
     # separate defects in one record.

@@ -110,11 +110,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-dialect.sh",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-loro-capitalization.sh",
-            "timeout": 10
           }
         ]
       },

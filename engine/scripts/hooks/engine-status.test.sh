@@ -315,22 +315,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # Verified post-merge rather than assumed: main registers 41 at 62507d0, and no
 # other live branch (zach-opus-c1, zach-opus-n1, the three echo branches) adds a
 # hook to hooks.json, so 42 is the merged truth and is green here too.
-# 42 -> 43 on 2026-09-01: guard-loro-capitalization.sh — the second guard about
-# what the WORDS SAY rather than what a file or a name is, and the first whose
-# blocking decision was set by a measured false-positive rate instead of by
-# judgment. It blocks the two shapes that scored 0.0% over 1,732 occurrences of
-# the word and REFUSES to block the one that scored 60%, which is the number the
-# count is here to make a reader go and look at
-# (scripts/hooks/loro-capitalization.corpus.md).
-#
-# Verified post-merge rather than assumed, the same way the 41 -> 42 firing was:
-# main registers 42 at 4a16e60, and every other live branch — echo-opus-d1/e1/p1
-# and zach-opus-c1/g4/m1/n1 — has a hooks.json delta of ZERO against its own
-# merge-base, checked by counting `scripts/hooks/` entries in
-# `git show <merge-base>:engine/hooks/hooks.json` against each branch head. So
-# 43 is the merged truth, and unlike the 41 firing this line is green in
-# isolation here as well.
-if [ "$REGISTERED_N" -eq 43 ]; then
+if [ "$REGISTERED_N" -eq 42 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"

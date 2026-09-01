@@ -1,10 +1,25 @@
-# loro capitalization — the measurement that decided what may block
+# loro capitalization — the measurement, and the ruling that unwired it
 
-`guard-loro-capitalization.sh` blocks two shapes and refuses to block a third. This page is why,
-and it is a page rather than a paragraph in the guard because a false-positive rate nobody can read
-is a rate nobody can dispute.
+**THIS IS NOT A GUARD, AND THAT IS A CEO RULING RATHER THAN AN OMISSION — 2026-09-01, verbatim:**
 
-Measured **2026-09-01**, against the record as it stood at `richos-hq` `c332992` and `richos`
+> "Actually using a guard just for that is probably overkill. The capitalization of that word is not
+> important enough to warrant a guard. A 100% correct capitalization of that word is not necessary."
+
+`loro-capitalization-check.sh` was built as a PreToolUse guard during the 2026-09-01 sweep, wired on
+both surfaces, registered in the probe and the meta-suite, and moved the engine's guard count from
+42 to 43. **All of that was reverted the same day on the ruling above.** What is left is a by-hand
+tool in `scripts/`, whose selftest is named `.selftest.sh` so `run-all-tests.sh` cannot discover it,
+with no hook entry, no probe layer, no sandbox list entry, no config switch, and the guard count
+untouched. **Nothing runs it, and nothing should.**
+
+The measurement is kept because it is the reason the tool draws its lines where it does, and because
+a false-positive rate nobody can read is a rate nobody can dispute. Read it as guidance for a human
+doing a sweep, not as a contract anything enforces. **Where a use is ambiguous, lowercase is
+correct** — it is the existing state, and 100% is explicitly not the target.
+
+## What the tool reports, and how confident it is
+
+Measured **2026-09-01** while the tool was still a guard, against the record as it stood at `richos-hq` `c332992` and `richos`
 `4a16e60`, over **1,732 occurrences** of the word: 1,322 in `richos-hq` markdown, 410 in `richos`.
 The ground truth is the sweep landed the same day, in which every site was adjudicated
 individually — 82 changed and roughly 2,200 deliberately left alone.
@@ -22,11 +37,11 @@ Canonical page, with the decision table: `wiki/loro-concept.md` in `richos-hq`.
 
 ## The three shapes, scored
 
-| Shape | Flagged | Correct | False | FP rate | Verdict |
+| Shape | Flagged | Correct | False | FP rate | Reported as |
 |---|---|---|---|---|---|
-| `HEADING` — the word opens an ATX heading | 9 | 9 | 0 | **0.0%** | **BLOCKS** |
-| `SENTENCE` — the word follows sentence-ending punctuation on the same line, in prose | 29 | 29 | 0 | **0.0%** | **BLOCKS** |
-| `LIST` — the word opens a bullet, an ordered item or a table cell | 30 | 12 | 18 | **60.0%** | **reports only** |
+| `HEADING` — the word opens an ATX heading | 9 | 9 | 0 | **0.0%** | **FIRM** (sets exit 1) |
+| `SENTENCE` — the word follows sentence-ending punctuation on the same line, in prose | 29 | 29 | 0 | **0.0%** | **FIRM** (sets exit 1) |
+| `LIST` — the word opens a bullet, an ordered item or a table cell | 30 | 12 | 18 | **60.0%** | **MAYBE** (never fails) |
 
 ## How SENTENCE got to 0.0%, honestly
 
@@ -58,7 +73,7 @@ markdown-only sweep had never looked at** — the module headers under `loro/`, 
 `* loro WRITER — how a belief gets recorded` sat against the wiki's own `# Loro writer`. They were
 fixed rather than exempted, which is the outcome a measurement is supposed to produce.
 
-## Why LIST does not block, in its own words
+## Why LIST is only ever a MAYBE, in its own words
 
 Eighteen false positives, and none of them is exotic:
 
@@ -71,9 +86,9 @@ Eighteen false positives, and none of them is exotic:
   `- filesystem and Git authority adapters` / `- loro compiler/writer invocation`. Capitalizing one
   word there would be the inconsistency, not the fix.
 
-A blocking guard with a false-positive class gets waived, and habitual waiving is how a defense
-decays into a formality. So this shape names itself, prints the rule of thumb — capitalize it only
-if the sibling items do — and gets out of the way.
+A finding class that is wrong three times in five teaches its reader to skim past all of them. So
+this shape names itself as a MAYBE, prints the rule of thumb — capitalize it only if the sibling
+items do — and never sets a failing exit code.
 
 ## The two shapes not attempted at all
 
@@ -85,12 +100,13 @@ because Defects 1 through 3 are lowercase after the dash. No line-local rule get
 
 **Paragraph starts across a line break.** Of 48 line-initial sites in `richos-hq`, **37 were
 mid-sentence wraps** — the previous line ends "where the", "another company's" — and 11 were real
-paragraph starts. The guard sees the new content of one tool call, which may itself begin
-mid-paragraph, so it often has no previous line to read. At 77% wrap this shape is worse than LIST,
-and it is unflagged.
+paragraph starts. At 77% wrap this shape is worse than LIST, and it is unflagged — it was unflagged
+in the guard form too, where the tool saw the new content of one call and often had no previous line
+to read at all.
 
 Under-flagging is the policy. A wrong capital reads as a branding claim the CEO has not made, so
-lowercase is the safe direction and the guard takes it.
+lowercase is the safe direction and the tool takes it. The CEO's ruling says the same thing
+from the other end: 100% correctness is not required.
 
 ## The stated hole
 
@@ -99,9 +115,19 @@ lowercase is the safe direction and the guard takes it.
 exemption — but a `.txt` file that really is prose is **not checked**. That is the cost, it is
 written here rather than discovered later, and the fix for it is to write prose in `.md`.
 
+## What was thrown away with the guard form, recorded rather than lost
+
+The hook version shipped with a 15-mutant suite that proved every property load-bearing by removing
+it one at a time and asserting a SPECIFICALLY NAMED case went red — it refuses to refuse, each
+shape separately, the emphasis closer, the bare-marker exemption, the blockquote rule and its
+comment-lead half, the hyphen rule, the code-line rule, the already-capital rule, abbreviations,
+evidence paths, the off switch, and the config declaration. **15/15 were load-bearing** on
+2026-09-01. That file targeted the hook's plumbing line by line and could not survive the rewrite
+into a CLI, so it was deleted rather than left broken. The behavior it protected is still asserted,
+case by case, in `loro-capitalization-check.selftest.sh` (41 cases).
+
 ## Reproducing the numbers
 
-The guard's detector is the same code in both directions — there is no second implementation to
-drift. To re-score after the record changes, run the guard over each candidate site as a `Write`
-payload and compare against `git log -S` for the sweep commits on the `zach-opus-lo1` branches of
-`richos-hq` and `richos`.
+The detector is one implementation, so there is nothing to drift out of sync. To re-score after the
+record changes, run the tool over a tree and compare against `git log -S` for the 2026-09-01 sweep
+commits on the `zach-opus-lo1` branches of `richos-hq` and `richos`.
