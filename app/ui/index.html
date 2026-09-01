@@ -513,6 +513,33 @@
         </div>
       </div>
 
+      <!-- FIRST-RUN MEMORY SETUP.
+
+           THE DEFECT THIS CLOSES: RichOS reaches the CEO's memory only because an engineer
+           created a symlink by hand (`docs/verification/installed-app-2026-09-01/` §6).
+           Delete it and his company memory is gone — measured, with the pointer removed and
+           restored, in `docs/verification/first-run-provisioning-2026-09-01/`. Nothing in
+           the product created it, and nothing offered to.
+
+           HIS PART IS ONE CLICK AND NO PATH. The location is SHOWN, pre-filled from
+           `memory_status.offered_location`, and the button accepts it. Nothing here, and
+           nothing behind it, picks a location when he has not: `provision` refuses an unset
+           target by name rather than falling back to one — `wiki/loro-structure.md`'s "no
+           silent default", which exists because a default root silently compiles the
+           vendor's memory, or nothing, and reports success either way. -->
+      <div id="memory-setup" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="memory-setup-title">
+        <div class="overlay-panel overlay-panel--compact">
+          <p id="memory-setup-title" class="overlay-title">Where should I keep what you tell me?</p>
+          <p id="memory-setup-note" class="overlay-note"></p>
+          <p id="memory-setup-location" class="memory-location" hidden></p>
+          <div class="memory-setup-actions">
+            <button id="memory-setup-go" class="desk-btn desk-btn--confirm" type="button">Set it up</button>
+            <button id="memory-setup-later" class="desk-btn" type="button">Not now</button>
+            <button id="memory-setup-close" class="desk-btn" type="button" hidden>Close</button>
+          </div>
+        </div>
+      </div>
+
       <!-- THE CORRECTION DESK (§7 "ask, never infer"; `correction.rs`, `staging.rs`).
            Fourteen Tauri commands existed for one day with nothing in `app/ui/` calling
            any of them, which is RICH-TODOs row 5b: a capability the CEO can only reach

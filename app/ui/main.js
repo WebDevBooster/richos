@@ -54,6 +54,12 @@ const entityPickerTitleEl = el("entity-picker-title");
 const entityPickerNoteEl = el("entity-picker-note");
 const chooseCompanyRowEl = el("composer-choose-company");
 const chooseCompanyBtnEl = el("choose-company-btn");
+const memorySetupEl = el("memory-setup");
+const memorySetupNoteEl = el("memory-setup-note");
+const memorySetupLocationEl = el("memory-setup-location");
+const memorySetupGoEl = el("memory-setup-go");
+const memorySetupLaterEl = el("memory-setup-later");
+const memorySetupCloseEl = el("memory-setup-close");
 const threadMenuEl = el("thread-menu");
 const messagesEl = el("messages");
 const conversationEl = el("conversation");
@@ -2598,6 +2604,114 @@ async function refreshEntityChoice() {
 }
 
 // ---------------------------------------------------------------------------------------
+// FIRST-RUN MEMORY SETUP (`provision.rs`, `memory.rs`)
+//
+// THE DEFECT THIS CLOSES: the installed, signed RichOS reaches the CEO's memory only
+// because an engineer typed a symlink by hand on 2026-09-01 and wrote it down as a gap
+// rather than a feature. Delete it and the boot log says "no corpus configured" on four
+// lines — measured, pointer removed and restored, in
+// `docs/verification/first-run-provisioning-2026-09-01/`. Nothing in the product created
+// it, and nothing offered to. This is the offer.
+//
+// HIS PART IS ONE CLICK. The location is SHOWN, never typed, and it comes from the backend
+// (`memory_status.offered_location`) rather than being composed here — so the string on
+// screen is the string the command was given, and there is no second opinion about where
+// his record goes.
+// ---------------------------------------------------------------------------------------
+
+let memoryState = null;
+/// Set when the memory question opened ahead of the company question, so the company
+/// question is asked the moment this one is answered rather than being stacked on top of
+/// it. Two modal dialogs at once is not a calm instrument.
+let companyQuestionDeferred = false;
+
+const MEMORY_ASK =
+  "I'll keep your decisions, your companies and how you work in a folder on this Mac, and " +
+  "nothing in it leaves this Mac. If this looks right, I'll set it up now.";
+const MEMORY_DONE =
+  "That's set up. From now on I'll keep what you tell me in that folder and read it back " +
+  "when it matters.";
+/// ONE string for two moments — the boot that finds a corpus it cannot read, and the setup
+/// that finishes without the reader. It names the party, because he cannot fix it: the
+/// compiler ships from nowhere today (`BLOCKED.md`).
+const MEMORY_NO_READER =
+  "Your memory is on this Mac, but the part of me that reads it isn't installed here — so I " +
+  "can't read it back yet. It needs whoever set RichOS up to add it.";
+
+async function refreshMemory() {
+  memoryState = await invokeQuiet("memory_status");
+  return memoryState;
+}
+
+/// Ask, or say what is wrong, or do nothing at all. Returns true when a dialog opened, so
+/// `init` can hold the company question back rather than stacking it.
+function maybeAskAboutMemory() {
+  if (!memoryState) return false;
+  if (memoryState.state === "none") {
+    openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
+    return true;
+  }
+  if (memoryState.state === "no-compiler") {
+    openMemorySetup(MEMORY_NO_READER, memoryState.root, { canProvision: false });
+    return true;
+  }
+  // `ready`, and `unusable` — which is an operator's problem with its own boot line and no
+  // sentence worth interrupting him with, since nothing in the window can act on it.
+  return false;
+}
+
+function openMemorySetup(note, location, opts) {
+  memorySetupNoteEl.textContent = note;
+  memorySetupLocationEl.textContent = location || "";
+  memorySetupLocationEl.hidden = !location;
+  memorySetupGoEl.hidden = !opts.canProvision;
+  memorySetupLaterEl.hidden = !opts.canProvision;
+  memorySetupCloseEl.hidden = opts.canProvision;
+  memorySetupEl.hidden = false;
+  const first = opts.canProvision ? memorySetupGoEl : memorySetupCloseEl;
+  first.focus();
+}
+
+function closeMemorySetup() {
+  memorySetupEl.hidden = true;
+  // The question that was held back, asked now rather than never. Without this line a
+  // launch with no memory AND no company would answer one and silently drop the other.
+  if (companyQuestionDeferred) {
+    companyQuestionDeferred = false;
+    requireCompanyChoice();
+  } else {
+    inputEl.focus();
+  }
+}
+
+/// HE SAYS YES. The location goes to the backend EXACTLY as it was shown to him, and a
+/// refusal is rendered as it stands — `provision`'s messages are written for a human and
+/// name the thing to do ("that folder already has things in it", "that is inside the
+/// product checkout"), so paraphrasing one would lose the instruction.
+async function provisionMemory() {
+  memorySetupGoEl.disabled = true;
+  let next;
+  try {
+    next = await Bridge.invoke("provision_memory", { location: memoryState.offered_location });
+  } catch (e) {
+    memorySetupNoteEl.textContent = String(e);
+    memorySetupGoEl.disabled = false;
+    return;
+  }
+  memoryState = next;
+  memorySetupGoEl.disabled = false;
+  const readable = next.state === "ready";
+  openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, next.root, { canProvision: false });
+}
+
+memorySetupGoEl.addEventListener("click", provisionMemory);
+memorySetupLaterEl.addEventListener("click", closeMemorySetup);
+memorySetupCloseEl.addEventListener("click", closeMemorySetup);
+memorySetupEl.addEventListener("click", (e) => {
+  if (e.target === memorySetupEl) closeMemorySetup();
+});
+
+// ---------------------------------------------------------------------------------------
 // Search (§3.4) — a command-palette overlay, grouped by entity, fully keyboard-driven.
 // The MATCH runs in Rust (`search_nav`); only bounded excerpts cross the IPC boundary, so
 // this never loads thread bodies into the renderer.
@@ -4310,6 +4424,11 @@ async function init() {
   // WHICH COMPANY THIS COPY OF RICH IS FOR, read before the branch below, because the
   // branch below is where a launch that resolved none used to fall into the wrong arm.
   await refreshEntityChoice();
+  // WHERE HIS MEMORY IS, read before the branch below for the same reason the company
+  // choice is: this question comes FIRST when both are open, and the branch below must know
+  // that so it holds the company question back instead of stacking a second dialog on it.
+  await refreshMemory();
+  const memoryAsked = maybeAskAboutMemory();
 
   const active = activeContext ? activeContext.thread_id : await invokeQuiet("active_thread");
   if (active && threadRow(active)) {
@@ -4320,7 +4439,12 @@ async function init() {
     // is deliberately NOT this: it asks which company one THREAD is for and remembers
     // nothing, so on this launch it produced a dialog he would have been shown again every
     // time he opened the app, over a composer that could not send.
-    requireCompanyChoice();
+    //
+    // Unless the memory question is already on screen: `closeMemorySetup` asks this one the
+    // moment that one is answered, so a fresh install answers both, in order, one dialog at
+    // a time.
+    if (memoryAsked) companyQuestionDeferred = true;
+    else requireCompanyChoice();
   } else if (navTree.groups.length) {
     // No active context — the launch could not resolve an entity (the shell fails closed
     // rather than guessing one), or every thread on disk is unbound.
@@ -4348,7 +4472,10 @@ async function init() {
   // row, and then this ran and took focus straight back. Measured on a real Finder launch
   // of the f44f89a bundle — the picker was open on screen, `AXFocusedUIElement` was the
   // composer behind it, and the sentence typed into it was refused.
-  if (entityPickerEl.hidden) inputEl.focus();
+  // The memory dialog is in this condition for exactly the reason the picker is: it is a
+  // question, and taking focus off a question to put it on a composer behind that question
+  // is the measured defect this line already carries the scar of.
+  if (entityPickerEl.hidden && memorySetupEl.hidden) inputEl.focus();
   // THE OPENING SCREEN GETS OUT OF THE WAY, HERE AND NOWHERE ELSE.
   //
   // This is the line below which the CEO can work: the rail is drawn, the thread is open,

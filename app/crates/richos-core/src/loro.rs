@@ -58,6 +58,17 @@ pub enum LoroError {
     NoRoot(String),
     #[error("loro lane map: {0}")]
     LaneMap(String),
+    /// A CORPUS RESOLVED AND THE PROGRAM THAT READS IT DID NOT.
+    ///
+    /// Split out of [`Self::ToolsNotFound`] on 2026-09-01 because first-run provisioning
+    /// makes it an ordinary, expected state rather than a misconfiguration: the corpus is
+    /// created by the product, and the compiler — 15 node files — ships from nowhere yet
+    /// (`BLOCKED.md`). "This install has no corpus", "this install has a corpus it cannot
+    /// read", and "this install is misconfigured" are three different sentences, and a
+    /// caller that cannot tell them apart writes the wrong one on the boot line.
+    #[error("loro corpus at {root} — but the memory compiler is not installed. Looked in: {tried}. \
+             RICHOS_LORO_DIR names it explicitly.")]
+    CompilerNotInstalled { root: String, tried: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -1350,6 +1361,74 @@ pub fn resolve_node_bin(p: &CorpusPaths) -> String {
     "node".to_string()
 }
 
+/// Which candidate supplied the compiler, printed at boot for the same reason
+/// [`CorpusSource`] is: an operator must never have to guess which of three a running app is
+/// executing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolsSource {
+    /// `$RICHOS_LORO_DIR` — explicit, exclusive.
+    EnvVar,
+    /// `<root>/loro` — the in-repo dogfood shape, where `repo_root_looks_valid` REQUIRED it
+    /// to be. This is the one the CEO's own install resolves through today.
+    RootsOwnLoro,
+    /// `~/Library/Application Support/RichOS/loro-tools` — where first-run provisioning
+    /// installs it (`provision::compiler_install_dir`).
+    AppSupportLoroTools,
+}
+
+impl ToolsSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolsSource::EnvVar => "RICHOS_LORO_DIR",
+            ToolsSource::RootsOwnLoro => "the corpus root's own loro/ directory",
+            ToolsSource::AppSupportLoroTools => "the loro-tools install in Application Support",
+        }
+    }
+}
+
+/// WHERE IS THE PROGRAM THAT READS THE CORPUS? — the twin of [`resolve_corpus`], and it
+/// exists for the second half of the same premise failure.
+///
+/// Until 2026-09-01 the answer was `$RICHOS_LORO_DIR`, or the root's own `loro/`, or an
+/// error. That is correct for the CEO's dogfood machine, where the corpus IS a checkout that
+/// carries the compiler, and impossible for a provisioned corpus: a corpus with `loro/`
+/// inside it is REFUSED by loro's own open-source boundary — measured, exit 2, *"refusing a
+/// corpus inside the RichOS product repo"* — so a provisioned corpus can never carry its own
+/// tools, and something outside it has to.
+///
+/// | # | candidate | why it is here |
+/// |---|---|---|
+/// | 1 | `$RICHOS_LORO_DIR` | explicit and EXCLUSIVE: a bad value is an error, never a reason to search. |
+/// | 2 | `<root>/loro` | the in-repo shape by definition. Kept ahead of 3 so the CEO's install resolves exactly as it did before this function existed. |
+/// | 3 | `~/Library/Application Support/RichOS/loro-tools` | where provisioning installs it. Named `loro-tools` and not `loro` because an ancestor directory named `loro` makes loro refuse the corpus — measured, both placements. |
+///
+/// Every searched candidate is validated by [`LoroTools::locate`] — both entry points present
+/// — so a directory that merely exists is rejected here rather than failing once per rotation
+/// forever.
+pub fn resolve_tools(
+    p: &CorpusPaths,
+    root: &LoroRoot,
+) -> Result<(Option<(LoroTools, ToolsSource)>, Vec<String>), LoroError> {
+    let mut tried = Vec::new();
+    if let Some(v) = p.env_tools.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        // Explicit and exclusive. `?` on purpose: an operator who named a directory that is
+        // not a loro checkout gets that fact, not a silent search past it.
+        return Ok((Some((LoroTools::locate(v)?, ToolsSource::EnvVar)), tried));
+    }
+    let mut candidates: Vec<(PathBuf, ToolsSource)> =
+        vec![(root.path().join("loro"), ToolsSource::RootsOwnLoro)];
+    if let Some(home) = p.home.as_deref() {
+        candidates.push((crate::provision::compiler_install_dir(home), ToolsSource::AppSupportLoroTools));
+    }
+    for (dir, source) in candidates {
+        match LoroTools::locate(&dir) {
+            Ok(tools) => return Ok((Some((tools, source)), tried)),
+            Err(e) => tried.push(format!("{} ({}) — {e}", dir.display(), source.as_str())),
+        }
+    }
+    Ok((None, tried))
+}
+
 impl CliContextCompiler {
     /// Build from a launch's paths, or explain why not — the GUI-safe twin of
     /// [`Self::from_env`], which stays exactly as it was because its name is a promise
@@ -1366,15 +1445,12 @@ impl CliContextCompiler {
         // that was just resolved — which is where it is in the in-repo shape by definition
         // (`repo_root_looks_valid` required it), and where a provisioned corpus may or may
         // not have one. Never inferred from THIS checkout: richos ships no `loro/`.
-        let mut tools = match p.env_tools.as_deref() {
-            Some(v) => LoroTools::locate(v)?,
-            None => LoroTools::locate(root.path().join("loro")).map_err(|e| {
-                LoroError::ToolsNotFound(format!(
-                    "a corpus root is configured ({}) but RICHOS_LORO_DIR is not, and its own loro/ \
-                     directory is not usable either: {e}",
-                    root.path().display()
-                ))
-            })?,
+        let (found, tools_tried) = resolve_tools(p, &root)?;
+        let Some((mut tools, _tools_source)) = found else {
+            return Err(LoroError::CompilerNotInstalled {
+                root: root.path().display().to_string(),
+                tried: tools_tried.join("; "),
+            });
         };
         tools.set_node(resolve_node_bin(p));
 
@@ -1559,6 +1635,91 @@ mod locate_tests {
         let (compiler, source) = built.expect("a valid pointer resolves");
         assert_eq!(source, CorpusSource::AppSupportRoot);
         assert_eq!(compiler.tools().dir(), support.join("loro-root").join("loro"));
+    }
+
+    fn compiler_at(dir: &Path) {
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::write(dir.join("bin").join("loro-context.mjs"), "//").unwrap();
+        std::fs::write(dir.join("bin").join("loro-write.mjs"), "//").unwrap();
+    }
+
+    /// THE CASE PROVISIONING CREATES, and the one that could not resolve before it existed:
+    /// a provisioned corpus cannot carry its own `loro/` — loro refuses a corpus with one
+    /// inside it — so the compiler is found beside it in Application Support.
+    #[test]
+    fn a_provisioned_corpus_finds_its_compiler_in_the_loro_tools_install() {
+        let home = tmp("tools-install");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        provisioned(&support.join("corpus"));
+        compiler_at(&crate::provision::compiler_install_dir(&home));
+
+        let (built, _tried) =
+            CliContextCompiler::locate(&CorpusPaths { home: Some(home.clone()), ..Default::default() }).unwrap();
+        let (compiler, source) = built.expect("a provisioned corpus with an installed compiler resolves");
+        assert_eq!(source, CorpusSource::AppSupportCorpus);
+        assert_eq!(compiler.tools().dir(), crate::provision::compiler_install_dir(&home));
+    }
+
+    /// The CEO's own arrangement, unchanged by the candidate list growing: the root's own
+    /// `loro/` is tried BEFORE the Application Support install, so an install that exists for
+    /// some other reason can never quietly take over a dogfood checkout's compiler.
+    #[test]
+    fn the_roots_own_loro_outranks_the_application_support_install() {
+        let home = tmp("both-tools");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        std::fs::create_dir_all(&support).unwrap();
+        repo_shaped(&support.join("loro-root"));
+        compiler_at(&crate::provision::compiler_install_dir(&home));
+
+        let (built, _) =
+            CliContextCompiler::locate(&CorpusPaths { home: Some(home.clone()), ..Default::default() }).unwrap();
+        let (compiler, _) = built.unwrap();
+        assert_eq!(compiler.tools().dir(), support.join("loro-root").join("loro"));
+    }
+
+    /// A corpus with no compiler is its OWN error, distinct from "no corpus" — because the
+    /// two sentences the CEO is owed are different, and the boot line writes one of them.
+    #[test]
+    fn a_corpus_with_no_compiler_is_a_named_state_and_not_a_shrug() {
+        let home = tmp("corpus-no-compiler");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        provisioned(&support.join("corpus"));
+
+        match CliContextCompiler::locate(&CorpusPaths { home: Some(home.clone()), ..Default::default() }) {
+            Err(LoroError::CompilerNotInstalled { root, tried }) => {
+                assert_eq!(root, support.join("corpus").display().to_string());
+                assert!(tried.contains("loro-tools"), "it names where it looked: {tried}");
+            }
+            Err(other) => panic!("{other}"),
+            Ok(_) => panic!("a corpus with no compiler must not resolve silently"),
+        }
+    }
+
+    /// An explicit tools directory is exclusive in BOTH directions: it wins over a valid
+    /// install, and a bad value is an error rather than a reason to search on.
+    #[test]
+    fn an_explicit_tools_directory_is_exclusive_and_a_bad_one_is_an_error() {
+        let home = tmp("explicit-tools");
+        let support = home.join("Library").join("Application Support").join("RichOS");
+        provisioned(&support.join("corpus"));
+        compiler_at(&crate::provision::compiler_install_dir(&home));
+
+        let named = tmp("named-tools");
+        compiler_at(&named);
+        let (built, _) = CliContextCompiler::locate(&CorpusPaths {
+            env_tools: Some(named.display().to_string()),
+            home: Some(home.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(built.unwrap().0.tools().dir(), named);
+
+        let bad = CliContextCompiler::locate(&CorpusPaths {
+            env_tools: Some("/nowhere/loro".into()),
+            home: Some(home),
+            ..Default::default()
+        });
+        assert!(matches!(bad, Err(LoroError::ToolsNotFound(_))), "an explicit bad value must not fall through");
     }
 }
 

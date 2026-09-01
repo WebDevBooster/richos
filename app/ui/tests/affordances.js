@@ -388,6 +388,26 @@ const FIXTURES = {
 
 
 
+  /// THE FRESH INSTALL. No corpus anywhere — which is precisely what the signed bundle
+  /// reported on 2026-09-01 the moment the hand-made `loro-root` pointer was removed
+  /// (`docs/verification/first-run-provisioning-2026-09-01/raw/boot-1-no-pointer.log`):
+  /// three candidates, three "not present", and nothing in the product creating any of them.
+  /// The memory question opens ahead of the company question, one dialog at a time.
+  async "memory-unprovisioned"(browser) {
+    const page = await openApp(browser, undefined, { memory: "none" });
+    await page.waitForSelector("#memory-setup:not([hidden])");
+    return page;
+  },
+
+  /// A corpus resolved and the program that reads it is not installed — the honest state of
+  /// a provisioned machine until `BLOCKED.md`'s question is answered. Nothing he can press,
+  /// so the dialog names who can.
+  async "memory-no-compiler"(browser) {
+    const page = await openApp(browser, undefined, { memory: "no-compiler" });
+    await page.waitForSelector("#memory-setup:not([hidden])");
+    return page;
+  },
+
   /// The same variable, naming something this build does not have — so it pins the answer
   /// AND fails to produce one. No picker opens, because every answer would be refused.
   async "company-pinned-unresolved"(browser) {
@@ -788,6 +808,11 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "search-empty",
   "entity-view",
   "thread-create-refused",
+  // The first-run memory dialog renders its own words out of `main.js` constants, with no
+  // hardware behind either state — so the sentence itself is asserted present rather than
+  // only the button beneath it.
+  "memory-unprovisioned",
+  "memory-no-compiler",
 ]);
 
 // ---------------------------------------------------------------------------------------

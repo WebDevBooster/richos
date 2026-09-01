@@ -1603,6 +1603,26 @@ button {
   color: var(--ink-soft);
 }
 
+/* WHERE HIS MEMORY WILL LIVE, shown so the answer is a choice rather than a path he types.
+   `--ink` on `--surface`, computed rather than eyeballed: 11.81:1 in dark (#dfe4ee on
+   #182440) and 18.27:1 in light (#0c1322 on #fdfcf8). 1rem, so it takes the 16px floor and
+   the 4.5:1 tier — a location he is expected to read and recognize is not fine print, and
+   it is deliberately NOT the 14px skippable tier. Monospace because a path read at a glance
+   is read character by character. */
+.memory-location {
+  margin: 0 0 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.memory-setup-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .picker-list {
   display: flex;
   flex-direction: column;

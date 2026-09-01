@@ -1,0 +1,46 @@
+=== 1. no silent default: unset must be an error, never a fallback ===
+--- nothing said at all ---
+    target: ""
+    refused: no location was given for the corpus. There is no default: a corpus root nobody named would compile the wrong memory, or none, and report success either way.
+--- blank ---
+    target: "   "
+    refused: no location was given for the corpus. There is no default: a corpus root nobody named would compile the wrong memory, or none, and report success either way.
+--- relative — a launched app's working directory is "/" ---
+    target: "RichOS/corpus"
+    refused: "RichOS/corpus" is a relative path. A launched app's working directory is "/", so this would put the record at the root of the disk. Give a full path.
+    and the clean HOME after three refusals: still empty
+
+=== 2. never inside a product checkout ===
+--- inside a checkout carrying the compiler's source (loro's own marker) ---
+    target: "/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-loro-checkout/corpus"
+    refused: refusing to create a corpus at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-loro-checkout/corpus — it is inside the RichOS product checkout at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-loro-checkout (loro/lib/store.js + loro/bin/loro-context.mjs). The corpus is the CEO's private record and RichOS ships publicly, so a corpus in the product repo is one commit away from being published.
+--- inside the richos product repo (the marker loro cannot see) ---
+    target: "/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-richos-checkout/app/corpus"
+    refused: refusing to create a corpus at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-richos-checkout/app/corpus — it is inside the RichOS product checkout at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-richos-checkout (app/crates/richos-core/Cargo.toml). The corpus is the CEO's private record and RichOS ships publicly, so a corpus in the product repo is one commit away from being published.
+--- four levels down inside it — "inside" means the walk up, not the directory itself ---
+    target: "/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-richos-checkout/a/b/c/corpus"
+    refused: refusing to create a corpus at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-richos-checkout/a/b/c/corpus — it is inside the RichOS product checkout at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/a-richos-checkout (app/crates/richos-core/Cargo.toml). The corpus is the CEO's private record and RichOS ships publicly, so a corpus in the product repo is one commit away from being published.
+
+=== 3. an existing corpus is left exactly alone ===
+--- a directory that is already a corpus ---
+    target: "/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/his-corpus"
+    refused: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/his-corpus is already a corpus. Nothing was created, nothing was moved, and nothing in it was read.
+    his record after the refusal: "his own record\n"
+    companies/ created by the refusal: false
+
+=== 4. somebody else's folder is not a corpus ===
+--- a directory with unrelated files in it ---
+    target: "/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/occupied"
+    refused: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/occupied already exists and has things in it that are not a corpus. Refusing to write a record into somebody else's folder.
+
+every attempt was refused.
+
+=== 3. the compiler's own refusal, by placement — the real loro-context.mjs ===
+--- tools at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/place-inside/corpus/loro ---
+usage: loro corpus root: refusing a corpus inside the RichOS product repo (/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/place-inside/corpus). The corpus is the CEO's private record and RichOS ships publicly — a corpus in the product repo is one commit away from being published. Put it outside the checkout (e.g. ~/RichOS/corpus). For the in-repo dogfood case use --root / LORO_ROOT, which says so out loud.
+--- tools at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/place-sibling-loro/loro ---
+usage: loro corpus root: refusing a corpus inside the RichOS product repo (/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/place-sibling-loro). The corpus is the CEO's private record and RichOS ships publicly — a corpus in the product repo is one commit away from being published. Put it outside the checkout (e.g. ~/RichOS/corpus). For the in-repo dogfood case use --root / LORO_ROOT, which says so out loud.
+--- tools at /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/refusals2/place-sibling-loro-tools/loro-tools ---
+{
+  "coverage": {
+    "sections": 0,

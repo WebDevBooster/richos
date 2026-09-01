@@ -46,3 +46,11 @@ path = "examples/loro_correction_demo.rs"
 [[example]]
 name = "launch_kinds"
 path = "examples/launch_kinds.rs"
+
+[[example]]
+name = "first_run_demo"
+path = "examples/first_run_demo.rs"
+
+[[example]]
+name = "provision_refusals"
+path = "examples/provision_refusals.rs"

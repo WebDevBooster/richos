@@ -1,0 +1,94 @@
+=== the bundle under test ===
+Identifier=com.richos.app
+CodeDirectory v=20500 size=135546 flags=0x10000(runtime) hashes=4225+7 location=embedded
+TeamIdentifier=TZ33A4QCZJ
+=== a HOME that has never seen RichOS: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4 ===
+
+=== boot 1: nothing in place ===
+[richos] launch: fresh (1 window(s))
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company resolved — RichOS will ask in the window and remember the answer.
+[richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-pv1/engine (via repo layout above the executable)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /Users/alex/ab/richos-wt/echo-opus-pv1/engine
+[richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+
+=== the environment the process actually received ===
+HOME=/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+USER=alex
+--- working directory ---
+n/
+
+=== what the window is showing ===
+/Users/alex/ab/richos-wt/echo-opus-pv1/docs/verification/first-run-provisioning-2026-09-01/scripts/read-window.applescript:452:467: execution error: System Events got an error: Can’t get window 1 of process 1 whose unix id = 27180. Invalid index. (-1719)
+
+=== relaunching with the installer input, then ONE CLICK on Set it up ===
+/Users/alex/ab/richos-wt/echo-opus-pv1/docs/verification/first-run-provisioning-2026-09-01/scripts/click-button.applescript:573:588: execution error: System Events got an error: Can’t get window 1 of process 1 whose unix id = 27587. Invalid index. (-1719)
+--- what the window says now ---
+/Users/alex/ab/richos-wt/echo-opus-pv1/docs/verification/first-run-provisioning-2026-09-01/scripts/read-window.applescript:452:467: execution error: System Events got an error: Can’t get window 1 of process 1 whose unix id = 27587. Invalid index. (-1719)
+--- what the app printed while provisioning ---
+(nothing — no click landed)
+
+!!! NO CLICK LANDED — the accessibility API reached no window (see the error above).
+!!! Provisioning through the SAME core function the button calls, and saying so.
+[demo] company partition: gpt-exporter
+[demo] company partition: webinar-booster
+[demo] --- the app's own resolver, run again ---
+[demo] after: compiling from /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), tools /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/Library/Application Support/RichOS/loro-tools, node /opt/homebrew/bin/node
+
+=== what is on disk, made by the app and nothing else ===
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/COMMIT_EDITMSG
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/config
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/description
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/HEAD
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/hooks
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/index
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/info
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/logs
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/objects
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.git/refs
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/.gitignore
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/ceo
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/ceo/entities.json
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/ceo/pages
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/ceo/records
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/ceo/unfiled
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies/deeply
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies/femcboost
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies/gpt-exporter
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies/prospects
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies/richos
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/companies/webinar-booster
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/README.md
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus/state
+total 0
+lrwxr-xr-x@  1 alex  wheel  119  1 Sep 17:09 corpus -> /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/RichOS/corpus
+drwxr-xr-x@ 12 alex  wheel  384  1 Sep 17:09 loro-tools
+9c98d74 Your memory, as RichOS set it up
+remotes:
+
+=== boot 2: THE SAME SIGNED BUNDLE, NOTHING BUT LAUNCHD'S ENVIRONMENT ===
+[richos] launch: crash-restart (1 window(s))
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company resolved — RichOS will ask in the window and remember the answer.
+[richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+[richos] loro Tier C: compiling from /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/apphome4/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-pv1/engine (via repo layout above the executable)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /Users/alex/ab/richos-wt/echo-opus-pv1/engine
+[richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
