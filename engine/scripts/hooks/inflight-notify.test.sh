@@ -613,6 +613,48 @@ else
     bad "10j. the witness records to_agent_id" "$(tail -1 "$TEAM_DIR/inflight-notices.jsonl")"
 fi
 
+
+# SendMessage'S OTHER LEGAL ADDRESS — the bare agentId. Its own documentation
+# says to use it "when the agent has no name", and on 2026-09-01 the lead used
+# it for every one of the four notices in this machine's live ledger:
+#     "to": "a41785cc3086260c0"   (not "zach-opus-n1")
+# The recipient here is a HAND-ROLLED worktree, which has no agent id of its
+# own, so the id can only reach it by being expanded through the identity index
+# into the name the directory carries. Without that expansion the sweep reports
+# OWED-NO-NOTICE against a notice that was sent, witnessed and logged — the
+# 2026-08-31 defect wearing the other address.
+AID_U1="a9c0ffee42424242"
+HWT_U1="$SANDBOX/wt/zach-opus-u1"
+git -C "$REPO" worktree add -q -b worktree-zach-u1 "$HWT_U1" "$BASE_SHA" >/dev/null 2>&1
+echo "hand-rolled teammate work" > "$HWT_U1/src/f.txt"
+git -C "$HWT_U1" add -A
+git -C "$HWT_U1" commit -q -m "hand-rolled teammate commit"
+transcript_spawn zach-opus-u1 "$AID_U1"
+
+run_guard_t
+[ "$GRC" -eq 2 ] && ok "10k. the hand-rolled teammate is owed a notice too" \
+                 || bad "10k. the hand-rolled teammate is owed a notice" "exit $GRC: $GOUT"
+
+printf '%s' "$(CWD="$REPO" send_payload "$AID_U1" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+say "10l notice addressed by raw agent id" "$GOUT"
+[ "$GRC" -eq 0 ] && ok "10l. a notice addressed by RAW AGENT ID reaches the teammate that id belongs to, even when its worktree carries only a name" \
+                 || bad "10l. a raw agent id reaches the right teammate" "exit $GRC: $GOUT"
+
+# The expansion is the index, so it can only ever name a real teammate: an id
+# nobody was spawned under resolves to nothing and clears nothing.
+git -C "$REPO" worktree add -q -b worktree-zach-v1 "$SANDBOX/wt/zach-opus-v1" "$BASE_SHA" >/dev/null 2>&1
+echo x > "$SANDBOX/wt/zach-opus-v1/src/g.txt"
+git -C "$SANDBOX/wt/zach-opus-v1" add -A
+git -C "$SANDBOX/wt/zach-opus-v1" commit -q -m "another hand-rolled teammate"
+printf '%s' "$(CWD="$REPO" send_payload "adeadbeefdeadbeef" "Main moved to $TIP.")" \
+    | INFLIGHT_TRANSCRIPT="$TRANSCRIPT" bash "$WITNESS"
+run_guard_t
+[ "$GRC" -eq 2 ] && ok "10m. an agent id that names no spawned teammate clears nothing" \
+                 || bad "10m. an unknown agent id clears nothing" "exit $GRC: $GOUT"
+git -C "$REPO" worktree remove --force "$SANDBOX/wt/zach-opus-v1" >/dev/null 2>&1
+
 # ==========================================================================
 # 11. THE OPERATOR'S OWN INSTRUMENTS — they must work when he runs them
 # ==========================================================================

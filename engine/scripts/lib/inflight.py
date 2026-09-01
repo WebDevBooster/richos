@@ -318,7 +318,7 @@ def resolve_worktree_identity(wt_path, index):
     return "hand-rolled", "", "", "", "token-match"
 
 
-def credit_notices(worktrees, notices, tip):
+def credit_notices(worktrees, notices, tip, index=None):
     """Attach each notice to at most ONE live worktree.
 
     THE ADDRESS IS THE JOIN. A notice records who it was addressed to; a
@@ -331,6 +331,20 @@ def credit_notices(worktrees, notices, tip):
     does not depend on the debt side being able to resolve the name at all.
     Two independent exact paths to the same fact; either one suffices.
 
+    THE ADDRESS BOOK HAS TWO ENTRIES PER TEAMMATE, because SendMessage takes
+    two forms and both are legal: the unique spawn name, and — its own
+    documentation says so, "use the raw agentId when the agent has no name" —
+    the bare agent id. The lead used the SECOND form on 2026-09-01, and the
+    fixed guard immediately reported OWED-NO-NOTICE against a notice that had
+    been sent, witnessed and logged, because a HAND-ROLLED worktree in another
+    repository has no agent id of its own to compare against. Same defect
+    class, one layer over: the halves agreed about the teammate and disagreed
+    about which of its two legal addresses counts.
+
+    So the notice's recipient is expanded through the identity index BEFORE
+    matching — an id to its name, a name to its id — and either form finds the
+    same teammate. The expansion is the exact index, so it adds no guess.
+
     NO ROLE FALLBACK. `zach-opus-s1` is not credited to a worktree known only
     as `zach`: three Zachs ran at once on the day of the defect, and a
     role-prefix credit would report a teammate as told when a different
@@ -340,6 +354,7 @@ def credit_notices(worktrees, notices, tip):
     AMBIGUITY CREDITS NOTHING — if a notice's recipient matches two live
     worktrees, neither is credited."""
     tip = (tip or "").lower()
+    names = (index or {}).get("names", {}) or {}
     for wt in worktrees:
         wt["notice"] = None
     for note in notices:
@@ -351,10 +366,20 @@ def credit_notices(worktrees, notices, tip):
         # 1. THE WITNESS'S OWN RESOLUTION, joined on agent id. Independent of
         #    whatever the debt side can resolve now.
         to_aid = (note.get("to_agent_id") or "").strip()
+        if not to_aid and names and to in names:
+            to_aid = to                      # addressed by raw agent id
         hits = [w for w in worktrees if to_aid and w.get("agent_id") == to_aid]
-        # 2. The address set: unique spawn name, agent id, directory name.
+        # 2. The address set: unique spawn name, agent id, directory name —
+        #    against BOTH legal forms of the recipient's address.
         if len(hits) != 1:
-            hits = [w for w in worktrees if to in w.get("addresses", ())]
+            forms = {to}
+            if to_aid:
+                forms.add(to_aid)
+                forms.add("agent-" + to_aid)
+                if names.get(to_aid):
+                    forms.add(names[to_aid])
+            hits = [w for w in worktrees
+                    if forms & set(w.get("addresses", ()))]
         # 3/4. The token readings, unchanged, for names that predate the
         #    enforced <role>-<model>-<id> shape.
         if len(hits) != 1:
@@ -665,7 +690,7 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
 
     live = [w for w in result["worktrees"] if w["live"]]
     result["live_count"] = len(live)
-    credit_notices(live, notices, tip)
+    credit_notices(live, notices, tip, index)
 
     for wt in result["worktrees"]:
         wt.setdefault("notice", None)

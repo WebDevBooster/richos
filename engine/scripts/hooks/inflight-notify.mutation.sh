@@ -210,12 +210,34 @@ mutant credits-by-role "10d." scripts/lib/inflight.py \
 #      one edit leaves only the token readings, which is precisely the state
 #      that produced the 2026-08-31 false positive.
 mutant credit-by-tokens-only "10b." scripts/lib/inflight.py \
-    '        hits = [w for w in worktrees if to_aid and w.get("agent_id") == to_aid]
-        # 2. The address set: unique spawn name, agent id, directory name.
+    '        to_aid = (note.get("to_agent_id") or "").strip()
+        if not to_aid and names and to in names:
+            to_aid = to                      # addressed by raw agent id
+        hits = [w for w in worktrees if to_aid and w.get("agent_id") == to_aid]
+        # 2. The address set: unique spawn name, agent id, directory name —
+        #    against BOTH legal forms of the recipient'"'"'s address.
         if len(hits) != 1:
-            hits = [w for w in worktrees if to in w.get("addresses", ())]' \
+            forms = {to}
+            if to_aid:
+                forms.add(to_aid)
+                forms.add("agent-" + to_aid)
+                if names.get(to_aid):
+                    forms.add(names[to_aid])
+            hits = [w for w in worktrees
+                    if forms & set(w.get("addresses", ()))]' \
     '        hits = []' \
     "A notice to zach-opus-s1 could not be credited to agent-<id> at all — the measured defect, verbatim."
+
+# 14c. BOTH LEGAL ADDRESS FORMS. SendMessage takes the unique spawn name OR
+#      the bare agentId, and the lead used the SECOND for every notice in this
+#      machine's live ledger on 2026-09-01. Stop expanding one into the other
+#      and a hand-rolled worktree — which carries a name and no id — can never
+#      be credited for a notice that was genuinely sent to it.
+mutant address-forms-not-expanded "10l." scripts/lib/inflight.py \
+    '                if names.get(to_aid):
+                    forms.add(names[to_aid])' \
+    '                pass' \
+    "A notice addressed by agent id would leave its recipient reported as never told."
 
 # 15. THE OPERATOR'S DIAGNOSTIC MUST RESOLVE. Reverting the team-directory
 #     ladder to "exactly one session directory or nothing" is what printed

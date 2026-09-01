@@ -197,7 +197,12 @@ if IDENTITY is not None:
     try:
         index = IDENTITY.identity_index(
             team_dir, str(payload.get("transcript_path", "") or ""), session_id)
-        to_agent_id, to_identity_source = IDENTITY.agent_id_for_name(to, index)
+        if to in (index.get("names") or {}):
+            # SendMessage's other legal form: the bare agentId.
+            to_agent_id = to
+            to_identity_source = "addressed by agent id"
+        else:
+            to_agent_id, to_identity_source = IDENTITY.agent_id_for_name(to, index)
     except Exception:
         to_agent_id, to_identity_source = "", ""
 
