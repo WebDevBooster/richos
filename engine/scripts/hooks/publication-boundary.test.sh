@@ -67,6 +67,15 @@
 #       defect in one line. Plus the negative control for THIS SUITE: the
 #       scanner reports the corpus it examined, so a green run cannot mean
 #       "every case passed because there was nothing to compare against".
+#   (l) PRIVATE BY IDENTITY. The file class both scanners score at zero: a
+#       note that is private because of WHICH FILE IT IS. Declared as
+#       `<sha256>:<name>` in PRIVATE_FILES, it is refused renamed, reformatted,
+#       re-encoded, into a gitignored path, and as a binary blob the NUL filter
+#       used to drop — with the positive controls that keep that from being
+#       paranoia, the malformed-declaration refusals, and the oracle for how
+#       many declarations a run actually compared against. Every fixture is
+#       synthetic: the file this was built for never enters this repository,
+#       including as a test fixture, which would be the failure executed.
 #   (j) FAIL-CLOSED / FAIL-OPEN conventions, matching the hook family.
 #   (k) REGISTRATION on BOTH surfaces plus the probe's oracle.
 #
@@ -866,6 +875,240 @@ else
     bad "a BLOCKING verdict reports its corpus too (no CORPUS line)"
 fi
 rm -rf "$SB_OR"
+
+# ---------------------------------------------------------------------------
+# (l) PRIVATE BY IDENTITY. The class of file the two scanners above score at
+#     zero: a short note whose privacy is a fact about the file, not a property
+#     of its prose. Every fixture here is SYNTHETIC — the file this mechanism
+#     was seeded with must never appear in the repository built to keep it out,
+#     and a suite that shipped it in order to prove it cannot ship would be the
+#     failure it is testing for, executed.
+# ---------------------------------------------------------------------------
+echo "--- private by identity ---"
+
+# make_identity_sandbox [extra-declaration-line ...] — a sandbox whose gitignored
+# private/ tree holds a synthetic note, with that note declared in PRIVATE_FILES.
+#
+# The entry is MINTED BY THE SHIPPED MINTER rather than typed. A hand-written
+# digest in a test proves the guard agrees with the test author; what has to be
+# true is that the guard agrees with the tool an operator will actually use, so
+# a drift between the two fails here first.
+#
+# The note's path is FIXED rather than returned. Every call site is
+# `$(make_identity_sandbox)` — a subshell — so a variable set in here would be
+# read back empty in the parent, which is the trap documented at the top of this
+# file twice over.
+IDENT_NOTE_REL="private/note-about-a-typeface.md"
+make_identity_sandbox() {
+    local sb line l
+    sb="$(make_default_sandbox)"
+    printf '# Wordmark\n\nDrawn in Example Sans Display, licensed to nobody.\n' \
+        > "$sb/$IDENT_NOTE_REL"
+    line="$(python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" \
+              --digest "$sb/$IDENT_NOTE_REL" | grep '^PRIVATE_FILES=')"
+    printf '%s\n' "$line" >> "$sb/.publication-boundary"
+    for l in "$@"; do printf '%s\n' "$l" >> "$sb/.publication-boundary"; done
+    printf '%s' "$sb"
+}
+
+SB_ID="$(make_identity_sandbox)"
+NOTE="$SB_ID/$IDENT_NOTE_REL"
+
+# The minter has to have produced something, or every case below would pass by
+# declaring nothing — the same shape as a scan over an empty corpus.
+if grep -q '^PRIVATE_FILES="[0-9a-f]\{64\}:' "$SB_ID/.publication-boundary"; then
+    ok "the shipped minter produces a well-formed PRIVATE_FILES entry"
+else
+    bad "the minter printed no usable PRIVATE_FILES entry (cases below are void)"
+fi
+
+# The round trip that matters: minted by the tool, honored by the guard.
+write_case "the minted entry is honored: same name" 2 Write "$SB_ID/docs/note-about-a-typeface.md" "$SB_ID" "$NOTE"
+
+# IDENTITY, not location: a rename is the obvious way past a path rule.
+write_case "the same content under ANOTHER NAME" 2 Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE"
+
+# ... and the name rule is what survives a rewrite. A file with that name does
+# not belong here whatever it says.
+ORDINARY="$(printf 'Nothing private here. Ordinary prose about ordinary work.\n' | tf)"
+write_case "the same NAME with different content" 2 Write "$SB_ID/docs/note-about-a-typeface.md" "$SB_ID" "$ORDINARY"
+
+# REFORMATTING must not defeat it, which is why the digest covers the word
+# sequence and not only the bytes. Uppercased, double-spaced, renamed.
+LOUD="$(tr '[:lower:]' '[:upper:]' < "$NOTE" | awk '{print $0 "\n"}' | tf)"
+write_case "reformatted, recased and renamed" 2 Write "$SB_ID/docs/loud.md" "$SB_ID" "$LOUD"
+
+# THE SAME BYTES ARRIVING AS A STRING. A tool payload carries TEXT, not bytes,
+# so UTF-16 content read as UTF-8 arrives with every character NUL-separated,
+# and the word sequence of that is a run of single letters which matches
+# nothing. The seeded file's own encoding is UTF-16, so this is the shape the
+# real material would take on the way through a Write.
+python3 - "$NOTE" "$SCRATCH/nul-separated.md" <<'PYEOF'
+import sys
+raw = open(sys.argv[1], 'rb').read()
+carried = raw.decode('utf-8').encode('utf-16').decode('utf-8', 'ignore')
+open(sys.argv[2], 'w', encoding='utf-8').write(carried)
+PYEOF
+write_case "the same words carried NUL-separated, renamed" 2 Write \
+    "$SB_ID/docs/carried.md" "$SB_ID" "$SCRATCH/nul-separated.md"
+
+# THE POSITIVE CONTROLS. A guard that blocks everything is satisfied by
+# paranoia; these are what say it discriminates.
+write_case "an ordinary file, with identity declared" 0 Write "$SB_ID/docs/ordinary.md" "$SB_ID" "$ORDINARY"
+write_case "ordinary product code, with identity declared" 0 Write "$SB_ID/src/config.js" "$SB_ID" "$CODE"
+write_case "a technology evaluation, with identity declared" 0 Write "$SB_ID/docs/viability.md" "$SB_ID" "$EVAL"
+
+# A GITIGNORED DESTINATION IS NOT A WAY IN FOR THIS ONE. For speech it is the
+# correct home — case (d) above, still true. For a file whose declaration says
+# it lives in the private record, a rule that stopped at .gitignore would be a
+# rule about publication when the instruction was about the file.
+write_case "identity: gitignored destination is refused too" 2 Write "$SB_ID/private/copy-of-note.md" "$SB_ID" "$NOTE"
+write_case "identity: an ordinary gitignored write is untouched" 0 Write "$SB_ID/private/scratch.md" "$SB_ID" "$ORDINARY"
+
+# THE REFUSAL TEACHES THE RULE. A block the author cannot act on is a block the
+# author routes around.
+msg_case "the refusal names the declared file" "note-about-a-typeface.md" \
+    Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE"
+msg_case "the refusal says it is identity, not resemblance" "DECLARED PRIVATE BY IDENTITY" \
+    Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE"
+msg_case "the refusal says where it belongs" "the-private-record" \
+    Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE"
+msg_case "the refusal names the only way through" "ALLOWLIST" \
+    Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE"
+msg_case "the refusal rules out every form, including a gitignored one" \
+    "enters this tree in no form" Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE"
+
+# The advice a transcript block gives is WRONG for this one — "rewrite it so it
+# carries no speech" and "put it in a gitignored path" are both routes around
+# the rule here — so the speech paragraph must not appear on an identity-only
+# refusal. Two blocks, one message, and the author acting on the wrong half is
+# how a guard teaches the wrong lesson.
+OUT_ID="$(write_payload Write "$SB_ID/docs/harmless-notes.md" "$SB_ID" "$NOTE" | "$WRITE_HOOK" 2>&1 >/dev/null)"
+if printf '%s' "$OUT_ID" | grep -qF 'WHERE IT SHOULD GO'; then
+    bad "an identity-only refusal still prints the speech guidance"
+else
+    ok "an identity-only refusal does not print the speech guidance"
+fi
+
+# THE REFUSAL DOES NOT REPRODUCE WHAT IT IS PROTECTING. An error message that
+# quoted the private file in order to say the private file may not be copied
+# would be this mechanism's own defect, one level up.
+if printf '%s' "$OUT_ID" | grep -qF 'Example Sans Display'; then
+    bad "the identity refusal quotes the private content back"
+else
+    ok "the identity refusal never quotes the content it protects"
+fi
+
+rm -rf "$SB_ID"
+
+# THE COMMITTED WAY THROUGH still works, and it is the only one.
+SB_IDA="$(make_identity_sandbox 'ALLOWLIST="docs/sanctioned"')"
+write_case "identity: an ALLOWLISTed prefix is exempt" 0 Write \
+    "$SB_IDA/docs/sanctioned/note-about-a-typeface.md" "$SB_IDA" "$SB_IDA/$IDENT_NOTE_REL"
+rm -rf "$SB_IDA"
+
+# THE COMMIT HALF. Everything above is a tool call; these files arrive by `cp`,
+# which is how 137 of the 2026-08-29 files arrived.
+SB_IDC="$(make_identity_sandbox)"
+cp "$SB_IDC/$IDENT_NOTE_REL" "$SB_IDC/docs/copied-under-a-new-name.md"
+git -C "$SB_IDC" add -A >/dev/null 2>&1
+commit_case "identity: a staged copy under a new name is refused" 2 "$SB_IDC"
+git -C "$SB_IDC" rm -q --cached docs/copied-under-a-new-name.md >/dev/null 2>&1
+rm -f "$SB_IDC/docs/copied-under-a-new-name.md"
+
+# THE UTF-16 CASE, WHICH IS THE SEEDED FILE'S OWN ENCODING. A file out of a Mac
+# text editor carries NUL bytes, every text-shaped filter in this pipeline calls
+# it binary, and the commit guard used to drop binaries before anything looked
+# at them. A rule that says "this exact file never enters the repository" and
+# then discards the file is enforcement in name only.
+python3 - "$SB_IDC/$IDENT_NOTE_REL" "$SCRATCH/utf16-copy.md" <<'PYEOF'
+import sys
+raw = open(sys.argv[1], 'rb').read()
+open(sys.argv[2], 'wb').write(raw.decode('utf-8').encode('utf-16'))
+PYEOF
+cp "$SCRATCH/utf16-copy.md" "$SB_IDC/docs/reencoded.md"
+git -C "$SB_IDC" add -A >/dev/null 2>&1
+commit_case "identity: a UTF-16 re-encoding, which reads as binary, is refused" 2 "$SB_IDC"
+git -C "$SB_IDC" rm -q --cached docs/reencoded.md >/dev/null 2>&1
+rm -f "$SB_IDC/docs/reencoded.md"
+
+# ... and the control that keeps that from being paranoia: ordinary work still
+# commits with identity declared.
+printf 'export const TIER = "turbo";\n' > "$SB_IDC/src/newmod.js"
+git -C "$SB_IDC" add -A >/dev/null 2>&1
+commit_case "identity: an ordinary staged file still commits" 0 "$SB_IDC"
+rm -rf "$SB_IDC"
+
+# ACCUMULATION. Declaring the next file must be an ADDED LINE — a one-line diff
+# is what makes a committed exemption reviewable at a glance — so the key
+# repeats and the entries accumulate.
+SB_ID2="$(make_identity_sandbox)"
+printf 'A second note, about something else entirely.\n' > "$SB_ID2/private/second-note.md"
+python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" --digest "$SB_ID2/private/second-note.md" \
+    | grep '^PRIVATE_FILES=' >> "$SB_ID2/.publication-boundary"
+write_case "two PRIVATE_FILES lines: the first still blocks" 2 Write \
+    "$SB_ID2/docs/a.md" "$SB_ID2" "$SB_ID2/$IDENT_NOTE_REL"
+write_case "two PRIVATE_FILES lines: the second blocks too" 2 Write \
+    "$SB_ID2/docs/b.md" "$SB_ID2" "$SB_ID2/private/second-note.md"
+rm -rf "$SB_ID2"
+
+# ... and every OTHER key refuses a second occurrence, because last-line-wins
+# would silently drop the first and an operator who wrote both believes both.
+HELLO_ID="$(printf 'hello world\n' | tf)"
+SB_DUP="$(make_sandbox "$(default_declaration)" 'PRIVATE_SOURCES="private"')"
+write_case "a key set twice is BROKEN, not last-line-wins" 2 Write \
+    "$SB_DUP/docs/anything.md" "$SB_DUP" "$HELLO_ID"
+msg_case "  ... and it names the key" "'PRIVATE_SOURCES' is set more than once" \
+    Write "$SB_DUP/docs/anything.md" "$SB_DUP" "$HELLO_ID"
+rm -rf "$SB_DUP"
+
+# MALFORMED ENTRIES ARE BROKEN, LOUDLY. An operator who mistypes a digest
+# believes a file is protected; the only safe answer to that belief is a
+# refusal, never a silently skipped entry.
+for bad_entry in \
+    'PRIVATE_FILES="not-a-digest-at-all"' \
+    'PRIVATE_FILES="abc123:short.md"' \
+    'PRIVATE_FILES="zz7384288415b5f49551594b09dbb7d0ea076526852d599e23c1bb776bd7d300:x.md"' \
+    'PRIVATE_FILES="ac7384288415b5f49551594b09dbb7d0ea076526852d599e23c1bb776bd7d300:"'
+do
+    SB_BAD="$(make_sandbox "$(default_declaration)" "$bad_entry")"
+    write_case "malformed PRIVATE_FILES is BROKEN: $bad_entry" 2 Write \
+        "$SB_BAD/docs/anything.md" "$SB_BAD" "$HELLO_ID"
+    msg_case "  ... and the refusal names PRIVATE_FILES" "PRIVATE_FILES entry" \
+        Write "$SB_BAD/docs/anything.md" "$SB_BAD" "$HELLO_ID"
+    rm -rf "$SB_BAD"
+done
+
+# THE ORACLE, for identity. An identity-only run reads no corpus at all, so
+# CORPUS 0 0 is all a caller would see, and "compared against nothing" would
+# look exactly like "compared against one declared file". The scanner reports
+# how many declarations it actually loaded.
+identity_trailer() { # <entries-json> <content-file> -> declarations examined
+    local job
+    job="$(mktemp "$SCRATCH/idjob.XXXXXX")"
+    PB_PF="$1" PB_TXT="$2" PB_JOB="$job" python3 -c '
+import json, os
+job = {"min_speech_lines": 8, "min_quote_words": 10, "sources": [],
+       "private_files": json.loads(os.environ["PB_PF"]),
+       "items": [{"label": "probe", "path": os.environ["PB_TXT"],
+                  "identity_only": True}]}
+open(os.environ["PB_JOB"], "w", encoding="utf-8").write(json.dumps(job))
+'
+    python3 "$ENGINE_ROOT/scripts/lib/publication-boundary.py" "$job" \
+        | grep '^IDENTITY' | cut -f2
+}
+IDT="$(identity_trailer '["ac7384288415b5f49551594b09dbb7d0ea076526852d599e23c1bb776bd7d300:x.md"]' "$ORDINARY")"
+if [ "$IDT" = "1" ]; then
+    ok "a CLEAN identity run reports the declarations it compared against"
+else
+    bad "identity oracle: expected 1 declaration examined, got '$IDT'"
+fi
+IDT0="$(identity_trailer '[]' "$ORDINARY")"
+if [ "$IDT0" = "0" ]; then
+    ok "and reports ZERO when nothing was declared, so silence is visible"
+else
+    bad "identity oracle: expected 0 with no declarations, got '$IDT0'"
+fi
 
 # ---------------------------------------------------------------------------
 # (j) FAIL-OPEN / FAIL-CLOSED conventions.
