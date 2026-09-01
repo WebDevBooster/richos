@@ -1,0 +1,35 @@
+# Is it flaky? Five consecutive runs, timed, with the verdict sets compared.
+# command: for i in 1..5; bash app/scripts/gui-boot.test.sh
+# captured: 2026-09-01T18:39:42Z
+
+run 1: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 2: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 3: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 4: exit=0  8s  === gui-boot.test.sh: all 18 passed ===
+run 5: exit=0  9s  === gui-boot.test.sh: all 18 passed ===
+
+verdict sets, compared against run 1:
+  run 2: identical, line for line
+  run 3: identical, line for line
+  run 4: identical, line for line
+  run 5: identical, line for line
+
+run 1's verdicts:
+    PASS  S1 every operator line in src-tauri carries the [richos] prefix
+    PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+    PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+    PASS  A2 a missing success line fails — silence is not success
+    PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+    PASS  A4 a gap declared with no reason is refused
+    PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+    PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+    PASS  B1 the healthy machine boots to completion under launchd's environment
+    PASS  B2 every line of a healthy Finder-condition boot is accounted for
+    PASS  B3 the engine pointer is removed -> caught
+    PASS  B4 the corpus pointer is removed -> caught
+    PASS  B5 the loro tools are removed -> caught
+    PASS  B6 the claude stand-in is removed -> caught
+    PASS  B7 the saved company is removed -> caught
+    PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+    PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+    PASS  Z this run launched 6 app(s) and 0 are still running

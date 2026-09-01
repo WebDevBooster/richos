@@ -2700,6 +2700,14 @@ async function provisionMemory() {
   }
   memoryState = next;
   memorySetupGoEl.disabled = false;
+  // THE DESK STATE IS RE-READ, because `loro_available` was answered at boot and the answer
+  // has just changed. `provision_memory` now installs the correction desk into the running
+  // app (`main.rs::install_correction_desk`) instead of asking him to relaunch, so the
+  // backend says `true` from this moment on — and a cached `false` in `deskState` would put
+  // "this install has no company memory it can write to" in front of a man who has just
+  // watched it be created. `refreshDesk` is idempotent and this is the one moment the fact
+  // it caches is known to be stale.
+  await refreshDesk();
   const readable = next.state === "ready";
   openMemorySetup(readable ? MEMORY_DONE : MEMORY_NO_READER, next.root, { canProvision: false });
 }

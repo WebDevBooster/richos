@@ -1,0 +1,98 @@
+# The pre-970ac5e engine premise put back: current_dir()/../engine, and no boot line naming the candidate.
+# command: scratchpad/redrun.sh engine  (patch, cargo build, app/scripts/gui-boot.test.sh, revert)
+# captured: 2026-09-01T17:09:26Z
+# tmp paths are scrubbed to <tmp>; nothing else is edited.
+
+### the premise put back: engine
+ .../richos-core/examples/gui_boot_machine.rs       | 69 +++++++++++-----------
+ app/scripts/lib/gui-launch.sh                      | 54 ++++++++++++++++-
+ app/src-tauri/src/main.rs                          | 13 ++--
+ 3 files changed, 94 insertions(+), 42 deletions(-)
+
+-//! # Where the compiler comes from, and why that is not a fourth list
++//! # The compiler source is GIVEN, and that is deliberate
+-//! machine. This program finds it with [`LoroInstall::locate`] — the SAME call
+-//! `src-tauri/src/memory.rs` makes at boot — against the real process environment. It does
+-//! not know a path and does not contain one.
++//! machine. The obvious way to find it is [`LoroInstall::locate`] — the same call the boot
++//! makes.
+-//! **If that resolution finds nothing, this program REFUSES with exit 3 and says so.** It
+-//! never provisions a corpus with no compiler and lets the check call the resulting
+-//! `no-compiler` boot line a failure of the code under test: that would be blaming the
+-//! product for a machine that has no loro checkout on it.
++//! **That was tried and it is wrong, and the red run proved it.** With the pre-`c179cc1`
++//! read path put back, `LoroInstall::locate` resolves nothing, so the fixture could not
++//! build a machine and the suite exited 2 saying *"this machine has no loro compiler to
++//! copy"*. That is red, so nothing failed open — but it is red with the WRONG DIAGNOSIS,
++//! and a check that sends its reader hunting the wrong thing is only marginally better than
++//! one that says nothing. **A fixture must not be built by the component it tests.**
++//!
++//! So the source arrives as `argv[2]`, found by `gui-launch.sh` out of facts that do not go
++//! through any Rust resolution. All this program does with it is check it with
++//! [`compiler_looks_valid`] — a pure predicate, not a resolver — and refuse if it is not a
++//! loro checkout.
+-//! cargo run -q -p richos-core --example gui_boot_machine -- <scratch-home>
++//! cargo run -q -p richos-core --example gui_boot_machine -- <scratch-home> <loro-checkout>
+-use richos_core::loro::{CorpusPaths, LoroInstall};
+-use richos_core::provision::{provision, CompanyOutcome, CompilerOutcome, ProvisionRequest};
++use richos_core::provision::{
++    compiler_looks_valid, provision, CompanyOutcome, CompilerOutcome, ProvisionRequest,
++};
+-    let Some(home) = args.get(1).map(PathBuf::from) else {
+
+### gui-boot.test.sh exit=1
+
+  PASS  S1 every operator line in src-tauri carries the [richos] prefix
+  PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
+  PASS  A1 a line no rule accounts for fails, and the line is printed verbatim
+  PASS  A2 a missing success line fails — silence is not success
+  PASS  A3 a declared gap passes and its reason is printed where a reviewer sees it
+  PASS  A4 a gap declared with no reason is refused
+  PASS  A5 an empty log fails, never 'all 0 lines accounted for'
+  PASS  B0 a complete machine was built (corpus, tools, engine pointer, claude, saved company)
+         compiler source : /Users/alex/ab/richos-hq/loro
+         partitions      : 6
+  PASS  B1 the healthy machine boots to completion under launchd's environment
+    UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+    UNACCOUNTED  [richos]   engine: /../engine
+    UNACCOUNTED  [richos]   cause : the engine directory /../engine does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)
+    NOT RESOLVED  engine directory — nothing in this boot proved it was found.
+                  It should have said: the working directory claude is started in (engine.rs, 970ac5e)
+    NOT RESOLVED  compute lease — nothing in this boot proved it was found.
+                  It should have said: a claude binary was found AND answered the initialize handshake (native.rs)
+                  CliVocabulary::from_env (staging.rs:187) is the same environment-only premise as 
+                  the three defects above, and it is left open ON PURPOSE: nothing installs a 
+                  vocabulary service, so there is no second candidate to fall back TO. Inventing a 
+                  path here would be a fabricated fix. Confirming a spoken correction reports that it 
+                  has nowhere to write, which is the honest behavior. CLOSE THIS by deciding where 
+                  the vocabulary service ships from, then delete this declaration and the check turns 
+                  red until the boot line goes away. 
+  FAIL  B2 every line of a healthy Finder-condition boot is accounted for
+         see the report above
+  PASS  B3 the engine pointer is removed -> caught
+           UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+           UNACCOUNTED  [richos]   engine: /../engine
+           UNACCOUNTED  [richos]   cause : the engine directory /../engine does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: no corpus configured — re-primes carry no company memory
+  PASS  B5 the loro tools are removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+           UNACCOUNTED  [richos]   binary: claude
+           UNACCOUNTED  [richos]   engine: /../engine
+
+--- the boot log the verdict was taken from ---
+  --- the boot log, as captured ---
+      [richos] launch: fresh (1 window(s))
+      [richos] company: femcboost (via the saved choice)
+      [richos] loro Tier C: compiling from <machine>/Library/Application Support/RichOS/corpus (via the corpus pointer in Application Support), node /opt/homebrew/bin/node
+      [richos] loro correction desk: writing to <machine>/Library/Application Support/RichOS/corpus via <machine>/Library/Application Support/RichOS/loro-tools/bin/loro-write.mjs (the same install the compiler above resolved)
+      [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+      [richos]   binary: <machine>/.local/bin/claude
+      [richos]   engine: /../engine
+      [richos]   cause : the engine directory /../engine does not exist — RichOS runs Claude with that directory as its working directory and cannot start without it (this is NOT a missing claude binary)
+      [richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+      [richos] boot complete — every line above is what this launch resolved
+  --- accounting ---

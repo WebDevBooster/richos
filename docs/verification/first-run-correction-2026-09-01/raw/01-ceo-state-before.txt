@@ -1,0 +1,14 @@
+# THE CEO'S STATE BEFORE the first-run end-to-end below.
+# command: shasum -a 256 on every file under ~/Library/Application Support/com.richos.app
+# captured: 2026-09-01T17:27:05Z
+
+38f1df585cd9d675767fe62766abe9ccdf6537964456dcd860ac19f351551b15  /Users/alex/Library/Application Support/com.richos.app/config.json
+c7e6a3d62655bc7cfd73f3961eab0e305ea799f9f2493aee74fab13462c87a34  /Users/alex/Library/Application Support/com.richos.app/conversation-ledger.jsonl
+db78c9f98c33801b918e6484c8038c49c451d964cb5c274ab74b27edf981bf61  /Users/alex/Library/Application Support/com.richos.app/launches.json
+6487f72e8821e1c2200333d9e97ddf5205727455a72ca5a86cf6b7149341532c  /Users/alex/Library/Application Support/com.richos.app/machinery/thr_dbaacd4320ee482daf414414f590ccba/2026-09-01.jsonl
+afb0f4035feb4b258161005735d80ca7b37982b994214f4860ed391e0f8fb4c6  /Users/alex/Library/Application Support/com.richos.app/machinery/thr_dbaacd4320ee482daf414414f590ccba/2026-09-01.raw.jsonl
+1909965d23c1bed8bdcff7bc5d8f9b8b72a02f2f6da977881c088c28715b25a6  /Users/alex/Library/Application Support/com.richos.app/navigation.json
+
+loro-root -> /Users/alex/ab/richos-hq
+~/ab/richos-hq dirty files: 0
+~/ab/richos-hq HEAD: d5bece7 Row 3.5: the slice arrives on a double-click now, and nothing provisions the pointer

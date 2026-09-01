@@ -1,0 +1,5 @@
+# The comparison. Empty diff = byte-identical.
+# command: diff <(grep -v '^#' 01) <(grep -v '^#' 03)
+# captured: 2026-09-01T17:27:06Z
+
+IDENTICAL — all 6 files, the pointer, and a clean richos-hq.
