@@ -47,7 +47,7 @@
     },
     "settings": {
       "checked": 74,
-      "considered": 228
+      "considered": 252
     },
     "opening-screen": {
       "checked": 0,
@@ -64,6 +64,14 @@
     "updates-failed": {
       "checked": 108,
       "considered": 248
+    },
+    "company-picker": {
+      "checked": 20,
+      "considered": 268
+    },
+    "company-blocked": {
+      "checked": 70,
+      "considered": 268
     }
   },
   "signatures": {}

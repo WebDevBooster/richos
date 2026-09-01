@@ -77,7 +77,11 @@ const PARTY = /whoever set RichOS up|an operator|An operator|whoever installed R
 /// `rich://…` payload into them exactly as the Rust emitter would, and (b) override one
 /// command's answer. Neither touches product code, and every handler that runs is the
 /// shipping one.
-async function openApp(browser, viewport) {
+/// `preset` is handed to `mock.js` BEFORE the page's own scripts run. It exists for one
+/// class of state and cannot be replaced by a setter: "no company has ever been chosen" is
+/// decided at boot, and by the time any setter could be called `init()` has already branched
+/// on whether a thread was active. See `window.__RICHOS_MOCK_PRESET__` in mock.js.
+async function openApp(browser, viewport, preset) {
   const page = await browser.newPage({ viewport: viewport || { width: 1400, height: 900 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -114,6 +118,11 @@ async function openApp(browser, viewport) {
       for (const cb of window.__listeners[name] || []) cb({ event: name, payload });
     };
   });
+  if (preset) {
+    await page.addInitScript((v) => {
+      window.__RICHOS_MOCK_PRESET__ = v;
+    }, preset);
+  }
   await page.goto(APP);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
   await page.waitForSelector(".nav-thread", { state: "attached" });
@@ -297,12 +306,25 @@ async function loadSnapshot(page, snap) {
 
 /// Open the correction desk through the rail button the CEO uses, after driving `mock.js`'s
 /// own desk into whatever state this fixture is about. Nothing here writes into the DOM.
-async function openDesk(browser, setup) {
-  const page = await openApp(browser);
+async function openDesk(browser, setup, preset) {
+  const page = await openApp(browser, undefined, preset);
   if (setup) await page.evaluate("(" + setup.toString() + ")(window.__RICHOS_MOCK__)");
+  // A launch with no company chosen opens the picker over everything. Dismiss it the way
+  // the CEO would before reaching the rail — the composer's block and its control stay.
+  await dismissEntityPicker(page);
   await page.click("#nav-corrections");
   await page.waitForSelector("#corrections-overlay:not([hidden])");
   return page;
+}
+
+/// Close the launch-time company picker if this fixture booted into it. `Escape` is the
+/// dismissal the shell already wires; the composer's block and its control survive it,
+/// which is the point of blocking send rather than trapping him in a modal.
+async function dismissEntityPicker(page) {
+  const open = await page.evaluate(() => !document.getElementById("entity-picker").hidden);
+  if (!open) return;
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("#entity-picker", { state: "hidden" });
 }
 
 /// Press one of the desk's answer buttons and wait for the re-read that follows it. The
@@ -350,6 +372,26 @@ const FIXTURES = {
   /// screen those instructions render on.
   async shell(browser) {
     return openApp(browser);
+  },
+
+  /// THE LAUNCH THE CEO PERFORMS. A double-clicked bundle has working directory `/`, which
+  /// owns no entity, so nothing resolves and nothing has ever been chosen — the app asks,
+  /// blocks send, and renders the control that clears the block. Measured against the real
+  /// f44f89a bundle on 2026-09-01: the picker opened, focus was taken off it by `init()`'s
+  /// closing `inputEl.focus()`, and the first sentence typed was refused.
+  async "company-unchosen"(browser) {
+    const page = await openApp(browser, undefined, { chosenEntity: null });
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    return page;
+  },
+
+
+
+
+  /// The same variable, naming something this build does not have — so it pins the answer
+  /// AND fails to produce one. No picker opens, because every answer would be refused.
+  async "company-pinned-unresolved"(browser) {
+    return openApp(browser, undefined, { pinnedByEnvironment: true, chosenEntity: null });
   },
 
   /// §21 entity binding failure: the seeded `legacy` thread has `entity_id: null`, and the
@@ -550,14 +592,18 @@ const FIXTURES = {
   /// desk, so on a launch with no entity `loro_available` is true and the read is what
   /// fails.
   async "corrections-read-failed"(browser) {
+    // BOOTED WITH NO COMPANY CHOSEN, which is the launch that actually produces this
+    // refusal — `loro_pending_corrections` resolves the entity before it touches the desk.
+    // Driving it that way rather than injecting the sentence alone is also what puts the
+    // control the sentence now names (`#choose-company-btn`) on the screen underneath.
     return openDesk(browser, (m) => {
       m.setLoroReadFailure(
         "I can't tell which company this work belongs to, so I won't guess — filing it under " +
           "the wrong one would mix two companies' records together, and that's not a mistake " +
-          "worth risking to save you a question. It isn't something you can set from in here: " +
-          "whoever set RichOS up has to tell me which company this copy of me works for."
+          "worth risking to save you a question. Pick the company and I'll keep everything " +
+          "under it from then on."
       );
-    });
+    }, { chosenEntity: null });
   },
 
   /// Both desks readable, nothing waiting — answered rather than absent.
@@ -920,6 +966,73 @@ async function main() {
     assert(n > 0, "the picker opened with no entities in it — the button leads nowhere");
     await page.close();
     return "#unbound-new-thread opens the §3.3 picker with " + n + " entities, defaulting to none";
+  });
+
+  // ---- the company setting, which the string inventory cannot see ------------------------
+  //
+  // `UI_SOURCES` is index.html, main.js and timeline.js, so the row this pass added to
+  // `settings-button.js` is outside the derivation and outside the registry — the same
+  // blind spot Techy Mode's and the opening screen's rows in that file already sit in.
+  // These two checks are the cover for it: they drive the REAL menu and assert the control
+  // and, in the state where there is no control, the statement that names who owns it.
+
+  await run.check("the settings menu carries the company, and choosing one writes it through", async () => {
+    const page = await openApp(browser, undefined, { chosenEntity: null });
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    await dismissEntityPicker(page);
+    await page.click(".setbtn");
+    await page.waitForSelector("#set-company");
+    const before = await page.evaluate(() => {
+      const sel = document.getElementById("set-company");
+      return {
+        options: Array.from(sel.options).map((o) => o.value),
+        value: sel.value,
+        disabled: sel.disabled,
+        hasName: !!document.getElementById("set-company-label"),
+      };
+    });
+    assert(before.hasName, "the row has no label, so the control has no accessible name");
+    assert(!before.disabled, "the control is disabled on a launch that has chosen nothing");
+    assertEqual(before.value, "", "a company nobody chose must not be pre-selected");
+    assert(
+      before.options.indexOf("deeply") >= 0 && before.options.indexOf("richos") >= 0,
+      "the menu does not list the registry: " + JSON.stringify(before.options)
+    );
+    // THE WRITE, THROUGH THE REAL PATH: the row's host capability calls `choose_entity`,
+    // the shell clears the composer's block, and the rail's scope line names the company.
+    await page.selectOption("#set-company", "deeply");
+    await page.waitForFunction(() => document.getElementById("composer-blocked").hidden, { timeout: 5000 });
+    const after = await page.evaluate(() => ({
+      scope: (document.getElementById("scope-entity") || {}).textContent,
+      blocked: document.getElementById("composer-blocked").hidden,
+      button: document.getElementById("composer-choose-company").hidden,
+    }));
+    assertEqual(after.scope, "Deeply", "the scope line does not name the company that was just chosen");
+    assert(after.blocked && after.button, "the block and its control survived an answered question");
+    await page.close();
+    return "listed " + before.options.length + " option(s), chose Deeply, block cleared, scope reads Deeply";
+  });
+
+  await run.check("a company pinned outside the window is stated, never offered as a dead control", async () => {
+    const page = await openApp(browser, undefined, { pinnedByEnvironment: true });
+    await page.click(".setbtn");
+    await page.waitForSelector("#set-company-pinned");
+    const r = await page.evaluate(() => {
+      const said = document.getElementById("set-company-pinned");
+      return {
+        control: !!document.getElementById("set-company"),
+        text: said.textContent.trim(),
+        title: said.getAttribute("title") || "",
+      };
+    });
+    assert(!r.control, "a pinned company must not render a control that would refuse every answer");
+    assertEqual(r.text, "RichOS", "the row does not state which company is in force");
+    assert(
+      /whoever set RichOS up/.test(r.title),
+      "a state he cannot change must name who can — the row says: " + JSON.stringify(r.title)
+    );
+    await page.close();
+    return "no control, states RichOS, and names whoever set RichOS up";
   });
 
   await run.check("a rail status mark can never render outside the control that acts on it", async () => {

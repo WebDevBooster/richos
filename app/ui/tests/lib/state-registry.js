@@ -899,21 +899,119 @@ module.exports = [
   },
 
   // -------------------------------------------------------------------------------------
+  // WHICH COMPANY THIS COPY OF RICH WORKS FOR (slice 4, 2026-09-01)
+  //
+  // WHAT IS NOT HERE, AND WHY. The durable SETTING for this — the row in the universal
+  // settings menu — lives in `settings-button.js`, which `UI_SOURCES` does not scan
+  // (`index.html`, `main.js`, `timeline.js` only). So its four strings are outside this
+  // registry, exactly as Techy Mode's and the opening screen's rows in the same file
+  // already are. That is a blind spot of the derivation, not an exemption granted here, and
+  // it is covered instead by two named checks at the foot of `affordances.js` which drive
+  // the real menu and assert the control and the pinned statement. The strings BELOW are
+  // the ones the shell itself renders: the launch picker, the composer's block, and the
+  // Rust refusals the shell relays verbatim.
+  //
+  // Every row here exists because a double-clicked bundle has working directory `/`, which
+  // owns no entity, so `EntityRegistry::resolve_root` refuses to guess (ECS §3.3 — correct,
+  // and unchanged). Before this pass the ONLY routes to an entity were `RICHOS_ENTITY` and
+  // a working directory, and a CEO opening an app from Finder has neither. These are the
+  // states of the surface that gives him one.
+  // -------------------------------------------------------------------------------------
+  {
+    s: "Choose the company",
+    c: "CONTROL",
+    why: "The button beneath the composer's block (`#choose-company-btn`). It IS the affordance.",
+  },
+  {
+    s: "Which company is this copy of Rich for?",
+    c: "CONTROL",
+    why:
+      "Two places, one string, and it is a LABEL in both: the picker dialog's title, which " +
+      "`aria-labelledby` points the listbox at, and the settings popover's heading, which " +
+      "names the radiogroup below it. Neither is a state; each is the accessible name of the " +
+      "control it sits above.",
+  },
+  {
+    s: "I don't know which company this work is for yet, so I won't file it anywhere. Pick one and I'll take it from there.",
+    c: "ACTIONABLE",
+    control: "#choose-company-btn",
+    fixture: "company-unchosen",
+    why:
+      "The composer's block on a launch that resolved no company — the state EVERY " +
+      "double-clicked launch is in until he answers once. It is his to clear, so the control " +
+      "is rendered directly beneath the sentence rather than described: the same button also " +
+      "reopens the picker if he dismissed it.",
+  },
+  {
+    s: "I'll keep everything you tell me under the company you pick, and I'll remember it — you won't be asked again. You can change it later in Settings.",
+    c: "ACTIONABLE",
+    control: "#entity-picker-list .picker-item",
+    fixture: "company-unchosen",
+    why:
+      "The picker's second line, shown only when the question is about this COPY of Rich " +
+      "rather than about one thread. It exists because the same dialog asked the same-looking " +
+      "question on every launch before this pass and remembered nothing; saying the answer is " +
+      "kept is the difference between one question and a permanent one. The control is the " +
+      "list of companies directly beneath it.",
+  },
+  {
+    s: "This copy of me was told which company it works for when it was started up, from outside this window, and I can't make sense of what it was told — so I won't file anything until whoever set RichOS up has sorted it out.",
+    c: "NEEDS-SOMEONE-ELSE",
+    party: true,
+    fixture: "company-pinned-unresolved",
+    why:
+      "`RICHOS_ENTITY` set to something this build does not have. The variable short-circuits " +
+      "resolution BEFORE the saved choice, so no picker is opened — every answer he could give " +
+      "would be written to disk and then never read, and asking a question whose answer is " +
+      "guaranteed to be swallowed is worse than saying who owns the fix.",
+  },
+  {
+    s: "This copy of me was told which company it works for when it was started up, from outside this window, so I can't move it from in here. Whoever set RichOS up is the one who changes that.",
+    c: "UNREACHABLE",
+    why:
+      "`ENTITY_PINNED_MESSAGE` — `choose_entity`'s refusal when `RICHOS_ENTITY` is set. No " +
+      "path in the shipped UI reaches it, and that is checkable rather than asserted: the two " +
+      "callers of `choose_entity` are the picker's rows and the settings radios, and " +
+      "`buildCompanyRow` (settings-button.js) draws a statement and no control while " +
+      "`pinnedByEnvironment` is true, and `requireCompanyChoice` returns before opening the " +
+      "picker in the same condition. It is " +
+      "the guard for a caller that is not this UI. If it ever renders, the bug is ours.",
+  },
+  {
+    s: "entity not resolved from {}: {e}",
+    c: "NOT-RENDERED",
+    why:
+      "A note from `resolve_boot_entity`, printed by `boot_entity` with `eprintln!` and never " +
+      "returned to the webview. It is a `format!` rather than an `eprintln!` for one reason: " +
+      "the resolver is a pure function of its arguments so the ORDER of the four steps can be " +
+      "asserted by a test, which the version it replaced — reading `std::env::var` and " +
+      "`current_dir()` inline — structurally could not be. Its audience is a terminal.",
+  },
+
+  // -------------------------------------------------------------------------------------
   // UNREACHABLE / NOT-RENDERED
   // -------------------------------------------------------------------------------------
   {
-    s: "I can't tell which company this work belongs to, so I won't guess — filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. It isn't something you can set from in here: whoever set RichOS up has to tell me which company this copy of me works for.",
-    c: "NEEDS-SOMEONE-ELSE",
+    s: "I can't tell which company this work belongs to, so I won't guess — filing it under the wrong one would mix two companies' records together, and that's not a mistake worth risking to save you a question. Pick the company and I'll keep everything under it from then on.",
+    c: "ACTIONABLE",
+    control: "#choose-company-btn",
     fixture: "corrections-read-failed",
     why:
-      "REACHABLE AS OF THIS COMMIT, which is what its own doc comment predicted. " +
-      "`loro_pending_corrections` resolves the entity BEFORE it touches the desk " +
-      "(main.rs:1712), so on a launch with no entity `loro_available` is still true and the " +
-      "pending read refuses with this sentence — which is exactly the desk's `readFailed` " +
-      "branch, where it renders verbatim beneath \"I couldn't read that just now\". It names " +
-      "its party (\"whoever set RichOS up\") and offers no control, because there is none: " +
-      "the environment variable it used to quote is now printed only at the boot `eprintln!`, " +
-      "for the operator it names.",
+      "IT CHANGED BUCKET ON 2026-09-01, and the bucket is the whole point of the change. " +
+      "`loro_pending_corrections` resolves the entity BEFORE it touches the desk, so on a " +
+      "launch with no company chosen `loro_available` is still true and the pending read " +
+      "refuses with this sentence, verbatim, in the desk's `readFailed` branch. It used to " +
+      "be NEEDS-SOMEONE-ELSE and it named its party, because picking a company genuinely " +
+      "was not something the app could do — `RICHOS_ENTITY` or a working directory were " +
+      "the only two routes and a CEO has neither. Slice 4 gave him both a launch picker " +
+      "and a preferences row, so the party clause was retired as a lie and this is now HIS " +
+      "to fix. " +
+      "THE COST, stated where a reviewer sees it: the control is `#choose-company-btn` on " +
+      "the composer, and while the corrections desk is open it sits BEHIND that modal — " +
+      "the desk carries its own close button (`#corrections-close`) and the same choice is " +
+      "in the preferences popover, so it is one dismissal away rather than nowhere, but " +
+      "this suite does not check occlusion and it would be dishonest to let the row imply " +
+      "otherwise.",
   },
   {
     s: 'unknown theme {theme:?} — expected "dark", "light" or "system"',
