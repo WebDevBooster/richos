@@ -32,7 +32,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 const MAIN_JS = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
@@ -81,6 +81,8 @@ async function openApp(browser, preset, resolveOverrides) {
     }, preset);
   }
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   page.__errors = errors;
   return page;

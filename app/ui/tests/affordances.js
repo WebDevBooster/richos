@@ -43,7 +43,7 @@
 "use strict";
 
 const path = require("path");
-const { loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const { inventory, normalize } = require("./lib/state-strings");
 const REGISTRY = require("./lib/state-registry");
 
@@ -124,6 +124,8 @@ async function openApp(browser, viewport, preset) {
     }, preset);
   }
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
   await page.waitForSelector(".nav-thread", { state: "attached" });
   const railHidden = await page.evaluate(() => {

@@ -71,7 +71,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const C = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -401,6 +401,8 @@ async function openApp(browser, theme, holdSplash, preset) {
     }, preset);
   }
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForSelector(".nav-thread", { state: "attached" });
   if (holdSplash) {
     // §15's always-dark clamp is in force for the whole of this walk, by ruling and not by

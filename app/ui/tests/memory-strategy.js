@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -74,6 +74,8 @@ async function openApp(browser, viewport) {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
   await page.waitForSelector(".nav-thread", { state: "attached" });
   page.__errors = errors;

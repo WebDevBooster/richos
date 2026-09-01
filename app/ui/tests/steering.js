@@ -21,7 +21,7 @@
 "use strict";
 
 const path = require("path");
-const { loadPlaywright, openFixture, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, openFixture, shot, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -200,6 +200,8 @@ async function openApp(browser, viewport, opts) {
     };
   });
   await page.goto(APP);
+  // The home screen is the landing surface now; this suite is about the app UI behind it.
+  await leaveHome(page);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
   await page.waitForSelector(".nav-thread", { state: "attached" });
   const railHidden = await page.evaluate(() => {
