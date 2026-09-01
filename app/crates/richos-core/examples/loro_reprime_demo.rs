@@ -4,6 +4,10 @@
 //! actual `loro-context.mjs`, the actual corpus, and the actual `Spine` priming path — the
 //! only thing that can show that Tier C is genuinely wired rather than genuinely mocked.
 //!
+//! Resolution is the app's own (`CliContextCompiler::locate`): an explicit environment
+//! statement first and exclusively, then the two per-user pointers a GUI launch can reach.
+//! So this runs configured, and it also runs under `env -i` exactly as a double-click does.
+//!
 //! ```bash
 //! export RICHOS_LORO_DIR=/path/to/loro          # the checkout holding bin/loro-context.mjs
 //! export LORO_ROOT=/path/to/dogfood-checkout    # or LORO_CORPUS=/path/to/provisioned/corpus
@@ -22,7 +26,7 @@
 use richos_core::cognition::{Cognition, CognitionError, TurnItem};
 use richos_core::entity::{EntityId, EntityRegistry};
 use richos_core::ledger::{Ledger, Source};
-use richos_core::loro::{CliContextCompiler, CorpusLanes};
+use richos_core::loro::{CliContextCompiler, CorpusLanes, CorpusPaths};
 use richos_core::spine::Spine;
 use std::sync::{Arc, Mutex};
 
@@ -53,9 +57,13 @@ fn main() {
     });
     let entity = std::env::var("RICHOS_ENTITY").unwrap_or_else(|_| "richos".into());
 
-    let compiler = match CliContextCompiler::from_env() {
-        Ok(Some(mut c)) => {
-            eprintln!("[demo] corpus root: {}", c.root().path().display());
+    // `locate`, not `from_env`, because `locate` is what the SHIPPED APP calls. The two
+    // differ only for a launch with no environment — which is the launch the CEO makes —
+    // so a demo on `from_env` would prove a path he never takes.
+    let compiler = match CliContextCompiler::locate(&CorpusPaths::from_process()) {
+        Ok((Some((mut c, source)), _)) => {
+            eprintln!("[demo] corpus root: {} (via {})", c.root().path().display(), source.as_str());
+            eprintln!("[demo] node: {}", c.tools().node());
             eprintln!("[demo] entity->lane map as configured: {} entr(ies)", c.lanes().len());
             // The SAME reconciliation the app runs at boot, so this demonstration cannot
             // pass through a configuration the app would have refused to send.
@@ -84,11 +92,14 @@ fn main() {
             }
             Some(c)
         }
-        Ok(None) => {
+        Ok((None, tried)) => {
             eprintln!(
-                "[demo] no corpus configured (LORO_CORPUS / LORO_ROOT unset). The payload below is \
-                 what an install WITHOUT company memory gets, which is the honest default."
+                "[demo] no corpus resolved. The payload below is what an install WITHOUT company \
+                 memory gets, which is the honest default."
             );
+            for t in tried {
+                eprintln!("[demo] tried {t}");
+            }
             None
         }
         Err(e) => {
