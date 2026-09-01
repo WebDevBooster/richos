@@ -1,3 +1,25 @@
+// ============================================================================================
+// PORTED, NOT AUTHORED. This file is `richos-hq/design/mockups/rounds/round-11.1/shared/engine.js`
+// (sha256 02ca5b6c…) carried into the app. Design rounds are FROZEN and append-only, so the
+// original was never touched; the previous commit vendored it byte for byte and this commit's
+// diff is the complete list of what the port changed. Every change is marked `PORT:` and there
+// are five of them, no more:
+//
+//   1. Every DOM id it reaches for now carries a `home-` prefix, and lookups start from the
+//      `#home` root rather than from the document. Ids are document-global, and the app shell
+//      already owns `#stage`.
+//   2. A pause()/resume() seam, so the loop stops when the CEO is in the app UI and comes back
+//      without rebuilding anything. Exported on `window.__loro`.
+//   3. `running` guards on the three WINDOW-level listeners (mouseup, keydown, resize) — the
+//      mockup was the only thing on the page and could assume every event was its own.
+//   4. `getComputedStyle(ROOT)` instead of `document.body` for `--serif`/`--sans`: the home
+//      screen's type tokens are scoped to `#home` so they cannot leak into the app's own.
+//   5. Nothing else. No tuning, no palette, no geometry, no timing.
+//
+// WHAT IS NOT PORTED, said plainly rather than left to be discovered: the dataset under this is
+// the round's SYNTHETIC one, not the CEO's loro. See the header of field-data.js.
+// ============================================================================================
+
 // RichOS home screen — round 6.4: the loro as the stylised brain.
 //
 // Basis: round-3/v1 (the top-left block, the workforce list, the hush under both, hover spotlight, drag,
@@ -45,8 +67,14 @@ const V = Object.assign({
   bgClass: '',
 }, window.VARIANT || {});
 
-const $ = (s) => document.querySelector(s);
-const glc = $('#gl'), ov = $('#overlay'), ctx = ov.getContext('2d'), bk = $('#bokeh');
+// PORT: scoped to the home screen's own root. In the mockup this page was the only thing
+// on screen; in the app the shell below it owns ids of its own (`#stage` is both a mockup
+// canvas holder and the app's conversation column), so every id here carries a `home-`
+// prefix and every lookup starts from `#home` rather than from the document.
+const ROOT = document.getElementById('home');
+if (!ROOT) throw new Error('home screen root #home is not mounted');
+const $ = (s) => ROOT.querySelector(s);
+const glc = $('#home-gl'), ov = $('#home-overlay'), ctx = ov.getContext('2d'), bk = $('#home-bokeh');
 const gl = glc.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
 if (!gl) throw new Error('WebGL unavailable');
 gl.getExtension('OES_element_index_uint');
@@ -370,8 +398,8 @@ const quietRects = new Float32Array(QUIET_N * 4), quietBox = new Float32Array(8)
 const quietRect = { x0: 0, y0: 0, x1: 0, y1: 0 };
 let quietDirty = true;
 function computeQuiet() {
-  const groups = [Array.from(document.querySelectorAll('#brand > *'))].concat(Array.from(document.querySelectorAll('#signals .sig')).map(sig => Array.from(sig.children)))
-    .concat([[$('#live .cap'), $('#working')], [$('#ticker')]]);
+  const groups = [Array.from(document.querySelectorAll('#home-brand > *'))].concat(Array.from(document.querySelectorAll('#home-signals .sig')).map(sig => Array.from(sig.children)))
+    .concat([[$('#home-live .cap'), $('#home-working')], [$('#home-ticker')]]);
   quietRects.fill(-1e4);
   let ux0 = Infinity, uy0 = Infinity, ux1 = -Infinity, uy1 = -Infinity;
   groups.slice(0, QUIET_N).forEach((els, g) => {
@@ -489,7 +517,7 @@ let hover = -1, selected = -1, dragging = -1, dragMoved = 0, panning = false, pa
 let dragNbr = null; let domHover = -1, domSel = -1, domLabelRects = [];
 let clusterSel = -1;
 const ripples = [], sparks = [];
-let ticker = $('#ticker'), tickerTimer = 0;
+let ticker = $('#home-ticker'), tickerTimer = 0;
 let lastIngest = 0, nextIngestGap = 4000;
 
 function setNeighbours(i) {
@@ -562,6 +590,7 @@ ov.addEventListener('mousedown', (e) => {
   else { panStart = [e.clientX, e.clientY]; }
 });
 addEventListener('mouseup', (e) => {
+  if (!running) return;   // PORT: the home screen is put away; this pointer belongs to the app UI
   if (dragging >= 0) {
     const i = dragging; dragging = -1; dragNbr = null;
     if (dragMoved < 5 && performance.now() - downAt < 400) clickNode(i);
@@ -582,7 +611,7 @@ ov.addEventListener('wheel', (e) => {
   const [wx, wy] = [(e.clientX - W / 2) / camT.s + camT.x, (e.clientY - H / 2) / camT.s + camT.y];
   camT.x = wx - (e.clientX - W / 2) / ns; camT.y = wy - (e.clientY - H / 2) / ns; camT.s = ns;
 }, { passive: false });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') releaseAll(); });
+addEventListener('keydown', (e) => { if (running && e.key === 'Escape') releaseAll(); });   // PORT: `running &&` — Escape belongs to whatever surface is up
 
 function clickNode(i) {
   selected = i; hover = i; setNeighbours(i);
@@ -622,7 +651,7 @@ function ingest(now) {
   const i = D.index.get(s.primaryNodeId);
   let who = activeSpecialists.findIndex(sp => sp.domains.includes(s.domain));
   if (who < 0) who = Math.floor(rnd() * activeSpecialists.length);
-  const row = document.getElementById(`spc-${who}`);
+  const row = document.getElementById(`home-spc-${who}`);
   const rr = row ? row.getBoundingClientRect() : null;
   const from = rr ? [rr.left - 8, rr.top + rr.height / 2] : [W - 60 - rnd() * 120, 44];
   const dot = row && row.querySelector('.dot'); if (dot) { dot.classList.add('hit'); setTimeout(() => dot.classList.remove('hit'), 900); }
@@ -663,20 +692,20 @@ function setSignals(v, flashIt) {
   put('decisions', fmt(v.decisions)); put('lessons', fmt(v.lessons)); put('hours', fmt(v.hours)); put('memories', fmt(v.memories)); put('months', fmt(v.months));
 }
 {
-  $('#owner').textContent = `for ${USER.name}`;
-  $('#brand-line').innerHTML = `loro · <span class="v" data-k="months"></span> months · <b><span class="v" data-k="memories"></span> memories</b>`;
+  $('#home-owner').textContent = `for ${USER.name}`;
+  $('#home-brand-line').innerHTML = `loro · <span class="v" data-k="months"></span> months · <b><span class="v" data-k="memories"></span> memories</b>`;
   const Vv = (k) => `<span class="v" data-k="${k}"></span>`;
   const sig = (n, small, l) => `<div class="sig"><div class="n">${n}${small ? `<small>${small}</small>` : ''}</div><div class="l">${l}</div></div>`;
-  $('#signals').innerHTML =
+  $('#home-signals').innerHTML =
     sig(Vv('specialists'), `· ${Vv('active')} working now`, 'AI specialists') +
     sig(Vv('tasks'), '', 'tasks handled without you') +
     sig(Vv('sources'), '', 'sources understood') +
     sig(Vv('decisions'), `· ${Vv('lessons')} lessons`, 'decisions remembered') +
     sig(`${Vv('hours')} h`, '', 'of your attention saved');
-  document.querySelectorAll('.v[data-k]').forEach(el => { vEl[el.dataset.k] = el; });
+  ROOT.querySelectorAll('.v[data-k]').forEach(el => { vEl[el.dataset.k] = el; });
   setSignals(signalsNow(), false);
-  $('#working').innerHTML = activeSpecialists.map((sp, i) => `<li id="spc-${i}">${sp.codename} <span class="fn">${sp.function}</span><span class="dot"></span></li>`).join('');
-  addEventListener('resize', () => { quietDirty = true; resize(); });
+  $('#home-working').innerHTML = activeSpecialists.map((sp, i) => `<li id="home-spc-${i}">${sp.codename} <span class="fn">${sp.function}</span><span class="dot"></span></li>`).join('');
+  addEventListener('resize', () => { if (!running) return; quietDirty = true; resize(); });   // PORT: a resize while put away is re-read by resume()
 }
 
 // ---------------- bokeh (drawn once) ----------------
@@ -698,6 +727,7 @@ resize();
 // ---------------- frame ----------------
 const domCentroid = new Float32Array(domains.length * 4);
 let frames = 0, lastNow = performance.now();
+let running = true, rafId = 0;   // PORT: see pause()/resume() at the foot of this file
 let motionFrames = 0;
 function frame() {
   const now = performance.now();
@@ -891,11 +921,14 @@ function frame() {
 
   drawOverlay(now, t, src, hoverActive);
   if (frames % 30 === 0) debugState();
-  requestAnimationFrame(frame);
+  // PORT: the loop is now cancellable. In the mockup this screen was the whole page and
+  // the loop ran forever; in the app it is one of two surfaces, and a WebGL loop drawing
+  // 7,500 points behind an opaque conversation view is heat for nothing.
+  rafId = running ? requestAnimationFrame(frame) : 0;
 }
 
 // ---------------- overlay: the core, domain names, labels, ripples, sparks ----------------
-const SERIF = getComputedStyle(document.body).getPropertyValue('--serif'), SANS = getComputedStyle(document.body).getPropertyValue('--sans');
+const SERIF = getComputedStyle(ROOT).getPropertyValue('--serif'), SANS = getComputedStyle(ROOT).getPropertyValue('--sans');
 // round-11.1: the text drawn INSIDE the picture is text, so it meets the same floors as the chrome.
 // INK is the ruled light; HALO is the ruled ground, struck heavy enough that the glyphs sit on the
 // ground rather than on whatever the nebula is doing behind them — that halo is what the contrast
@@ -1027,7 +1060,7 @@ function drawOverlay(now, t, src, hoverActive) {
 
 // verification hook: a hidden DOM node carries live state so a headless run can assert on it
 const hubs = Array.from({ length: N }, (_, i) => i).sort((a, b) => D.degree[b] - D.degree[a]).slice(0, 6);
-function debugState() { const el = $('#debug'); if (!el) return; el.textContent = JSON.stringify(snapshot()); }
+function debugState() { const el = $('#home-debug'); if (!el) return; el.textContent = JSON.stringify(snapshot()); }
 function snapshot() {
   let visible = 0; for (let i = 0; i < N; i++) { const [sx, sy] = nodeScreen(i); if (sx >= 0 && sy >= 0 && sx <= W && sy <= H) visible++; }
   return {
@@ -1037,7 +1070,25 @@ function snapshot() {
     quiet: { x0: Math.round(quietRect.x0), y0: Math.round(quietRect.y0), x1: Math.round(quietRect.x1), y1: Math.round(quietRect.y1) }, landed: { ...landed }, shown: { ...shown },
   };
 }
-$('#loading').classList.add('gone');
-requestAnimationFrame(frame);
-window.__loro = { N, L, S, V, snapshot, quietRect, quietAt, get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
+// PORT: pause/resume. `pause()` stops the loop and leaves EVERY byte of state alive — the
+// typed arrays, the GL buffers, the camera, the bloom — so `resume()` is a single rAF and
+// not a rebuild. `lastNow` is re-based on resume: without it the first frame back would see
+// a dt of however long the CEO spent in the app UI, and the springs would jump.
+function pause() {
+  if (!running) return;
+  running = false;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+}
+function resume() {
+  if (running) return;
+  running = true;
+  lastNow = performance.now();
+  quietDirty = true;
+  resize();
+  rafId = requestAnimationFrame(frame);
+}
+
+$('#home-loading').classList.add('gone');
+rafId = requestAnimationFrame(frame);
+window.__loro = { N, L, S, V, snapshot, pause, resume, get running() { return running; }, quietRect, quietAt, get domLabelRects() { return domLabelRects; }, get nodeLabelRects() { return nodeLabelRects; }, landed, get pos() { return pos; }, get hover() { return hover; }, get selected() { return selected; }, get cam() { return cam; }, fade, lit, glow, releaseAll, ingest: () => ingest(performance.now()), get blooming() { return blooming; }, get motionFrames() { return motionFrames; }, get frames() { return frames; }, pushWave, get activeList() { return activeList; } };
 })();
