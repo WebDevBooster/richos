@@ -794,14 +794,20 @@ fn main() {
                                      reads the CEO layer, which is the whole of an unpartitioned corpus."
                                 );
                             }
-                            // WHOSE RECORD IS THIS, when the corpus is one repository's own.
+                            // WHOSE RECORD IS THIS, when the corpus is one repository's own
+                            // AND HAS NO PARTITIONS.
                             //
-                            // An in-repo corpus has no partitions and no company field on
-                            // any item, so the lane map has nothing to narrow and the
+                            // An UNPARTITIONED in-repo corpus has no company field on any
+                            // item, so the lane map has nothing to narrow and the
                             // cross-entity guard has nothing to refuse — both work, and
                             // neither can see that a FemcBoost thread is being handed
                             // RichOS's record under a heading reading COMPANY MEMORY.
                             // Measured on 2026-09-01 against the CEO's only corpus.
+                            //
+                            // Once that corpus IS partitioned, `repo_layout_root()` returns
+                            // None and this block does not run: the caveat asserts "holds no
+                            // <entity> partition", which would then be false, and a false
+                            // caveat tells a fresh Rich to discount memory correctly his.
                             //
                             // The REGISTRY answers whose it is, which it could not do
                             // before today: `richos-hq` became a registered root of the

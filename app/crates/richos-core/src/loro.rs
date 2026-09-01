@@ -368,8 +368,21 @@ impl CorpusLanes {
     ///
     /// This is the fact [`CliContextCompiler::set_repo_corpus_owner`] is given so the
     /// payload can SAY so instead of presenting it as the entity's own memory.
+    ///
+    /// # A PARTITIONED repo-layout corpus returns `None`, and must
+    ///
+    /// `layout: "repo"` stopped meaning "unpartitioned" on 2026-09-01: the dogfood layout
+    /// grew `ceo/` + `companies/<id>/` because a `corpus`-layout root is refused inside a
+    /// product checkout and the CEO's only corpus is one. Every sentence above is
+    /// conditioned on there being no partitions — the caveat it feeds says, in the payload,
+    /// *"it is not partitioned by company and holds no `<entity>` partition"*. Against a
+    /// partitioned corpus that sentence is simply false, and a false caveat is worse than
+    /// none: it tells a fresh Rich to discount memory that is correctly his to read. So the
+    /// condition is the ABSENCE OF PARTITIONS, which is what the caveat actually claims,
+    /// not the layout name, which used to imply it.
     pub fn repo_layout_root(&self) -> Option<&Path> {
-        (self.layout == "repo" && self.root.as_os_str().len() > 0).then(|| self.root.as_path())
+        (self.layout == "repo" && self.is_unpartitioned() && self.root.as_os_str().len() > 0)
+            .then(|| self.root.as_path())
     }
 
     pub fn layout(&self) -> &str {

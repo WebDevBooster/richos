@@ -1,4 +1,20 @@
-# BLOCKED — the corpus has no company partitions, so Rich's memory does not reach his companies
+# RESOLVED 2026-09-01 — the corpus is partitioned; the question below was answered by applying §5
+
+> **STATUS: CLOSED. Kept because it is the measurement, and the measurement is what made the
+> defect visible.** The question in §3 — *"does RichOS's 573-record wiki go to `ceo/`, to
+> `companies/richos/`, or split?"* — needed no new ruling: `wiki/ceo-decisions.md` §5 already
+> says a record about one venture is that venture's and a rule spanning every company is his.
+> Applied on branch `mark-opus-pt1` (richos-hq `ae8cc29`, `2e3e292`, `c54e751`; richos this
+> commit): the dogfood layout learned partitions, all six companies were provisioned, and all
+> 615 records were filed — **600 to `companies/richos/`, 15 to `ceo/`, none unfiled**.
+>
+> **The case below was re-run against the partitioned corpus.** The three RichOS items are gone
+> from the FemcBoost payload, and the provenance caveat no longer fires, because it asserts the
+> corpus "holds no femcboost partition" and that is now false. Under the same lane
+> misconfiguration that previously delivered them, the cross-entity guard now REFUSES the slice
+> by name — *"carried company "richos" memory (mem:capture:one-capture-click-accepted) into
+> entity "femcboost""* — which is the first of the three items §1 measured. Nothing below is
+> retracted; it was all true when it was written.
 
 **Branch:** `echo-opus-lr1` · **Worktree:** `/Users/alex/ab/richos-wt/echo-opus-lr1` · 2026-09-01
 
