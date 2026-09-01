@@ -613,7 +613,7 @@ async function main() {
 
   // ---- 15-16. the wordmark, and whose rail this is ---------------------------------------
 
-  await run.check("15  the wordmark replaced 'My Company', and is inked per theme", async () => {
+  await run.check("15  the wordmark replaced 'My Company', and carries the approved treatment", async () => {
     assert(
       /id="rail-wordmark"/.test(INDEX_HTML),
       "the wordmark is not in the rail header"
@@ -626,6 +626,12 @@ async function main() {
         wordmarkVisible: !!w && w.getBoundingClientRect().width > 0,
         label: w ? w.getAttribute("aria-label") : null,
         ink: w ? getComputedStyle(w).color : null,
+        // THE SWOOSH. The mark is two-tone by the approved treatment (round-8.1/v0 dark,
+        // round-9/v1 light): ink letterforms, signal swoosh. It shipped as a KNOCK-OUT
+        // painted `var(--rail-bg)`, which made the app's mark monochrome while the standard
+        // it is drawn from has gold in it, and that is exactly what this check exists to
+        // stop happening twice.
+        swoosh: w ? getComputedStyle(w.querySelector("#arrow")).fill : null,
         companyRendered: !!c && c.getBoundingClientRect().width > 0,
       };
     });
@@ -633,13 +639,31 @@ async function main() {
     assertEqual(dark.label, "RichOS", "and it is announced, since it is an image carrying a name");
     assertEqual(dark.companyRendered, false, "'My Company' must no longer be rendered here (§15)");
     assertEqual(dark.ink, "rgb(223, 228, 238)", "inked with the dark theme's own ink");
+    assertEqual(
+      dark.swoosh, "rgb(194, 163, 92)",
+      "the swoosh inside the R is the ruled signal #C2A35C, not a knock-out — 7.88:1 on the " +
+        "dark rail, non-text floor 3:1"
+    );
     await openMenu(page);
     await page.click('.theme-opt[data-th="light"]');
     await page.waitForTimeout(350);
-    const lightInk = await page.evaluate(() => getComputedStyle(document.getElementById("rail-wordmark")).color);
-    assertEqual(lightInk, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
+    const light = await page.evaluate(() => {
+      const w = document.getElementById("rail-wordmark");
+      return {
+        ink: getComputedStyle(w).color,
+        swoosh: getComputedStyle(w.querySelector("#arrow")).fill,
+      };
+    });
+    assertEqual(light.ink, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
+    assertEqual(
+      light.swoosh, "rgb(143, 112, 48)",
+      "and the swoosh crosses over too — #8F7030, the ruled old gold struck one step darker " +
+        "because the ruled #9C7C34 is 2.95:1 on this rail and fails the 3:1 floor. 3.49:1 here, " +
+        "4.00:1 against the ink beside it."
+    );
     await page.close();
-    return "wordmark present and announced; company label gone; ink #DFE4EE dark -> #0C1322 light";
+    return "wordmark present and announced; company label gone; ink #DFE4EE -> #0C1322 and " +
+      "swoosh #C2A35C -> #8F7030 across the theme";
   });
 
   await run.check("16  the foot of the rail is HIS — and says nothing it does not know", async () => {
