@@ -380,11 +380,18 @@ const LEASE_UNAVAILABLE_MESSAGE: &str =
 /// one site whose audience is a terminal (see the `eprintln!` in `setup`). Two audiences,
 /// two sentences, one condition.
 ///
+/// THE LAST CLAUSE CHANGED ON 2026-09-01, AND IT HAD TO. It read *"It isn't something you
+/// can set from in here: whoever set RichOS up has to tell me which company this copy of me
+/// works for"* — true when it was written, and false the moment the picker landed. It is
+/// now something he sets from in here, in two places (the launch picker and the
+/// preferences popover), so the sentence names the control instead of naming a party who
+/// no longer owns it. A state's copy going stale in the direction of "you cannot do this"
+/// is the worse direction: it teaches him not to look for a control that is right there.
 const ENTITY_UNRESOLVED_MESSAGE: &str =
     "I can't tell which company this work belongs to, so I won't guess — filing it under \
      the wrong one would mix two companies' records together, and that's not a mistake \
-     worth risking to save you a question. It isn't something you can set from in here: \
-     whoever set RichOS up has to tell me which company this copy of me works for.";
+     worth risking to save you a question. Pick the company and I'll keep everything under \
+     it from then on.";
 
 /// WHERE A RESOLVED ENTITY CAME FROM. Reported to the CEO's settings surface and printed
 /// at boot, because "RichOS is filing this under RichOS" and "somebody set an environment

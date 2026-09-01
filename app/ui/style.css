@@ -1412,6 +1412,37 @@ button {
   color: var(--attention);
 }
 
+/* THE CONTROL THAT CLEARS THE ONE BLOCKED STATE HE OWNS. Border is `--line-control`, the
+   token this file already reserves for indicator-grade edges (see `.overlay-input`), and
+   not `--line`, which is a divider: this outline is the only thing that says "this is a
+   button", so it carries the 3:1 non-text floor. The label is `--ink` at 1rem, which is
+   the 4.5:1 tier. */
+.composer-blocked-action {
+  max-width: 680px;
+  margin: 0 auto 8px;
+  padding: 0 28px;
+}
+
+.composer-blocked-btn {
+  background: none;
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-control, 10px);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.composer-blocked-btn:hover {
+  background: var(--bg-hover);
+}
+
+.composer-blocked-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 #input:disabled {
   background: transparent;
   color: var(--ink-faint);
@@ -1559,6 +1590,17 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* THE PICKER'S SECOND LINE, for the launch that could not work out which company this
+   copy of Rich is for. 1rem, and `--ink-soft` rather than `--ink-faint`: it is the sentence
+   that tells him the answer is remembered, so it is text meant to be read easily and takes
+   the 16px floor and the 4.5:1 floor with it — not the 14px skippable tier. */
+.overlay-note {
+  margin: -4px 0 12px;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
 }
 
 .picker-list {
@@ -3462,6 +3504,37 @@ body.bp-narrow .tl-user-bubble {
   font-weight: 600;
   font-size: 1rem;
   color: var(--ink);
+}
+
+/* WHICH COMPANY THIS COPY OF RICH WORKS FOR. Border is `--line-control`, the token this
+   file reserves for indicator-grade edges: the outline is the only thing that says "this
+   is a menu you can open", so it carries the 3:1 non-text floor rather than `--line`,
+   which is a divider. The label is `--ink` at 1rem — the 4.5:1 tier — and the type is not
+   allowed to shrink below it, because a company name is a thing he has to READ before he
+   picks it. */
+.set-select {
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line-control);
+  border-radius: 8px;
+  padding: 4px 8px;
+  max-width: 168px;
+}
+
+.set-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The read-only variant of the same row: `RICHOS_ENTITY` decided it and nothing in the
+   window can move it, so the answer is stated rather than offered. `--ink-soft` at 1rem
+   because it is an answer he reads, not a control he aims at. */
+.set-said {
+  font-size: 1rem;
+  color: var(--ink-soft);
+  text-align: right;
 }
 
 /* The 3-way theme segment: tinted track, icon-only segments, filled highlight. */

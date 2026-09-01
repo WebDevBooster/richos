@@ -50,6 +50,10 @@ const searchResultsEl = el("search-results");
 const searchEmptyEl = el("search-empty");
 const entityPickerEl = el("entity-picker");
 const entityPickerListEl = el("entity-picker-list");
+const entityPickerTitleEl = el("entity-picker-title");
+const entityPickerNoteEl = el("entity-picker-note");
+const chooseCompanyRowEl = el("composer-choose-company");
+const chooseCompanyBtnEl = el("choose-company-btn");
 const threadMenuEl = el("thread-menu");
 const messagesEl = el("messages");
 const conversationEl = el("conversation");
@@ -86,6 +90,12 @@ let navTree = { groups: [], unbound: [], active: null, unbound_explanation: "" }
 // the wrong thread but can never mislabel which entity the CEO is talking to.
 let activeContext = null;
 let navPrefs = null; // durable rail prefs (nav.rs): width, collapsed sets, pins, renames
+/// WHICH COMPANY THIS COPY OF RICH WORKS FOR — the shape `entity_choice` returns.
+/// `chosen: null` is the state that makes the app ask, and it is the ONLY signal the boot
+/// path needs. `null` here (rather than an object with a null `chosen`) means the command
+/// itself did not answer, which is the browser preview and is treated as "not asking".
+let entityChoice = null;
+
 let mainView = "conversation"; // "conversation" | "entity" | "unbound"
 let viewEntityId = null; // the entity whose overview / new-thread screen is showing
 let draftEntityId = null; // §3.3: a draft thread bound to this entity, with NO record yet
@@ -2418,8 +2428,24 @@ async function toggleEntityCollapsed(entityId) {
 // ---------------------------------------------------------------------------------------
 let entityPickerResolve = null;
 
-function openEntityPicker(onPick) {
+/// THE TITLE FOR EACH OF THE PICKER'S TWO JOBS, and they are two jobs rather than one.
+///
+/// `THREAD` is what "+ New thread" has always asked: which company is THIS conversation
+/// for. `COMPANY` is the launch-time question that had no surface at all until this pass —
+/// which company is this COPY of Rich for — and it is the one a double-clicked bundle is
+/// always in, because a Finder launch has working directory `/`, which owns no entity.
+const PICKER_TITLE_THREAD = "Which entity is this work in?";
+const PICKER_TITLE_COMPANY = "Which company is this copy of Rich for?";
+const PICKER_NOTE_COMPANY =
+  "I'll keep everything you tell me under the company you pick, and I'll remember it — " +
+  "you won't be asked again. You can change it later in Settings.";
+
+function openEntityPicker(onPick, opts) {
+  const forCompany = !!(opts && opts.forCompany);
   entityPickerResolve = onPick;
+  entityPickerTitleEl.textContent = forCompany ? PICKER_TITLE_COMPANY : PICKER_TITLE_THREAD;
+  entityPickerNoteEl.textContent = forCompany ? PICKER_NOTE_COMPANY : "";
+  entityPickerNoteEl.hidden = !forCompany;
   entityPickerListEl.innerHTML = "";
   for (const group of navTree.groups) {
     const b = document.createElement("button");
@@ -2456,6 +2482,120 @@ entityPickerEl.addEventListener("click", (e) => {
   if (e.target === entityPickerEl) closeEntityPicker();
 });
 entityPickerListEl.addEventListener("keydown", (e) => moveListFocus(e, ".picker-item"));
+
+// ---------------------------------------------------------------------------------------
+// WHICH COMPANY THIS COPY OF RICH WORKS FOR (slice 4 — `entity_choice` / `choose_entity`)
+//
+// THE DEFECT THIS CLOSES, measured on 2026-09-01 against an installed bundle launched the
+// way the CEO launches it: `open` hands the process to launchd with working directory `/`,
+// `EntityRegistry::resolve_root("/")` correctly refuses to guess, and the first sentence
+// typed into the window came back as "no active thread, and no entity was named — Rich
+// will not guess which entity area this belongs to." Zero lines reached the ledger.
+//
+// The picker WAS already opening on that launch. It did not help, for a reason nothing but
+// a real launch would have shown: `init()` ends with `inputEl.focus()`, which took focus
+// straight back off the picker's first row, so the composer was focused UNDER an open
+// dialog and every keystroke went into a box that could not send. Both halves are fixed
+// here — the answer is now durable, and focus stays where the question is.
+// ---------------------------------------------------------------------------------------
+
+/// What the composer says while no company is known. Same register as every other blocked
+/// line: what will not happen, why, and — because this one is HIS to fix — the control is
+/// rendered directly beneath it rather than described.
+const COMPANY_UNCHOSEN_BLOCK =
+  "I don't know which company this work is for yet, so I won't file it anywhere. Pick one " +
+  "and I'll take it from there.";
+
+function showCompanyBlock() {
+  sendBlockedReason = COMPANY_UNCHOSEN_BLOCK;
+  composerBlockedEl.textContent = COMPANY_UNCHOSEN_BLOCK;
+  composerBlockedEl.hidden = false;
+  chooseCompanyRowEl.hidden = false;
+}
+
+function clearCompanyBlock() {
+  if (sendBlockedReason === COMPANY_UNCHOSEN_BLOCK) sendBlockedReason = null;
+  composerBlockedEl.hidden = true;
+  chooseCompanyRowEl.hidden = true;
+}
+
+/// The boot path for a launch that resolved no company. Blocks send, renders the control,
+/// and opens the picker on top — so the answer is one click away and dismissing the dialog
+/// leaves a way back rather than a dead composer.
+/// The same condition, when `RICHOS_ENTITY` was set outside the window. Nothing here can
+/// change it, so the app does NOT open a picker whose every answer would be refused — it
+/// says what happened and names who owns it (§21's rule for a state he cannot fix).
+const COMPANY_PINNED_BLOCK =
+  "This copy of me was told which company it works for when it was started up, from " +
+  "outside this window, and I can't make sense of what it was told — so I won't file " +
+  "anything until whoever set RichOS up has sorted it out.";
+
+function requireCompanyChoice() {
+  if (entityChoice && entityChoice.pinnedByEnvironment) {
+    sendBlockedReason = COMPANY_PINNED_BLOCK;
+    composerBlockedEl.textContent = COMPANY_PINNED_BLOCK;
+    composerBlockedEl.hidden = false;
+    chooseCompanyRowEl.hidden = true;
+    return;
+  }
+  showCompanyBlock();
+  openEntityPicker(chooseCompany, { forCompany: true });
+}
+
+/// The CEO answers. Durable on the Rust side before anything else happens, so he is asked
+/// exactly once.
+async function chooseCompany(entityId) {
+  let next;
+  try {
+    next = await Bridge.invoke("choose_entity", { entityId });
+  } catch (e) {
+    // Whatever the command refused with is written FOR HIM (an unregistered company, or
+    // an install pinned from outside the app), so unlike `create_thread_in`'s machinery
+    // errors it is shown as it stands.
+    composerBlockedEl.textContent = String(e);
+    composerBlockedEl.hidden = false;
+    return;
+  }
+  entityChoice = next;
+  clearCompanyBlock();
+  refreshCompanySetting();
+  await refreshNavigation();
+  const activeId = next && next.active ? next.active.thread_id : null;
+  if (activeId && threadRow(activeId)) await openThread(activeId);
+  syncComposerMode();
+  inputEl.focus();
+}
+
+chooseCompanyBtnEl.addEventListener("click", () => openEntityPicker(chooseCompany, { forCompany: true }));
+
+/// The same answer, as a durable SETTING — one state, two doors, the same arrangement
+/// Techy Mode and the opening screen already use.
+///
+/// The door is the UNIVERSAL settings menu (§15: "that little settings button is ALWAYS
+/// EVERYWHERE ON EVERY PAGE"), registered as a capability exactly as those two are, so
+/// `settings-button.js` keeps its standalone contract and never learns what a Bridge is.
+/// Why that menu and not the rail's preferences popover is measured and is written down in
+/// `buildCompanyRow`.
+///
+/// It governs NEW conversations. A thread's company is immutable after creation (ECS §3.2),
+/// so nothing here can move a conversation that already exists.
+function registerCompanySetting() {
+  if (!window.RichSettings || !window.RichSettings.registerCompany) return;
+  window.RichSettings.registerCompany({
+    read: () => entityChoice,
+    write: (id) => chooseCompany(id),
+  });
+}
+
+function refreshCompanySetting() {
+  if (window.RichSettings && window.RichSettings.refreshCompany) window.RichSettings.refreshCompany();
+}
+
+async function refreshEntityChoice() {
+  entityChoice = await invokeQuiet("entity_choice");
+  registerCompanySetting();
+  return entityChoice;
+}
 
 // ---------------------------------------------------------------------------------------
 // Search (§3.4) — a command-palette overlay, grouped by entity, fully keyboard-driven.
@@ -4167,10 +4307,20 @@ async function init() {
   setRailOpen(isWide() ? true : !navPrefs.sidebar_collapsed);
 
   await refreshNavigation();
+  // WHICH COMPANY THIS COPY OF RICH IS FOR, read before the branch below, because the
+  // branch below is where a launch that resolved none used to fall into the wrong arm.
+  await refreshEntityChoice();
 
   const active = activeContext ? activeContext.thread_id : await invokeQuiet("active_thread");
   if (active && threadRow(active)) {
     await openThread(active);
+  } else if (entityChoice && !entityChoice.chosen) {
+    // NO COMPANY IS SET — the state every double-clicked launch is in until he answers
+    // once. Block the composer, render the control, and ask. `startNewThreadFlow()` below
+    // is deliberately NOT this: it asks which company one THREAD is for and remembers
+    // nothing, so on this launch it produced a dialog he would have been shown again every
+    // time he opened the app, over a composer that could not send.
+    requireCompanyChoice();
   } else if (navTree.groups.length) {
     // No active context — the launch could not resolve an entity (the shell fails closed
     // rather than guessing one), or every thread on disk is unbound.
@@ -4191,7 +4341,14 @@ async function init() {
   await hydrateRunningTurn();
   renderRail();
   syncComposerMode();
-  inputEl.focus();
+  // FOCUS GOES TO THE COMPOSER UNLESS SOMETHING IS ASKING HIM A QUESTION.
+  //
+  // This line was unconditional, and it is half of why the entity picker did not save the
+  // double-clicked launch: `startNewThreadFlow()` opens the dialog and focuses its first
+  // row, and then this ran and took focus straight back. Measured on a real Finder launch
+  // of the f44f89a bundle — the picker was open on screen, `AXFocusedUIElement` was the
+  // composer behind it, and the sentence typed into it was refused.
+  if (entityPickerEl.hidden) inputEl.focus();
   // THE OPENING SCREEN GETS OUT OF THE WAY, HERE AND NOWHERE ELSE.
   //
   // This is the line below which the CEO can work: the rail is drawn, the thread is open,
