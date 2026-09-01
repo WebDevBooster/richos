@@ -64,8 +64,46 @@
 #      path, not by its extension, not by a maintained list of forbidden files.
 #
 # ===========================================================================
-# THE TWO DETECTORS
+# THE THREE DETECTORS
 # ===========================================================================
+#
+#   declared-private       IDENTITY, not resemblance. A file the operator has
+#                          NAMED in PRIVATE_FILES — `<sha256>:<name>` — never
+#                          enters this repository: not under another name (the
+#                          digest travels with the content), not reformatted or
+#                          re-encoded (the digest is over the word sequence as
+#                          well as the bytes), not into a gitignored path, and
+#                          not as a binary blob the text filters would drop.
+#
+#                          IT EXISTS BECAUSE THE OTHER TWO ARE SCORING
+#                          FUNCTIONS. They were measured against transcripts and
+#                          they are sharp for transcripts; a seven-line note
+#                          about which typeface the CEO drew a wordmark in
+#                          scores nothing at all, and on 2026-09-01 its exact
+#                          bytes were written into this tree and staged and both
+#                          guards returned 0. The CEO had by then said twice
+#                          that the file stays in the private record. Twice it
+#                          was kept there by somebody remembering — which is the
+#                          thing this whole mechanism exists to stop relying on.
+#
+#                          SELF-CONTAINED ON PURPOSE. The digest and the name
+#                          are committed here, in the public repository. Nothing
+#                          reads the private record at guard time, so this works
+#                          identically on a fresh clone with no sibling checkout
+#                          — the machine where the rule is least likely to be
+#                          known and most likely to be broken. A digest
+#                          discloses nothing; the NAME is in the clear, because
+#                          a refusal that cannot say which file it means teaches
+#                          nobody the rule.
+#
+#                          WHAT DEFEATS IT: a rewrite AND a rename together.
+#                          Either alone is caught — the digest survives a
+#                          rename, the name survives a rewrite — and both at
+#                          once is a different file under a different name,
+#                          which nothing short of reading the private record
+#                          could call. A partial excerpt under a new name is
+#                          likewise out of reach. Stated here rather than
+#                          discovered in a postmortem.
 #
 #   derived-from-private   The sharpest signal available, and it needs no
 #                          heuristic at all. Any run of >= MIN_QUOTE_WORDS
@@ -192,7 +230,15 @@ _PB_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Every key the declaration may carry. A key outside this set is a typo, and a
 # typo that silently does nothing is the defect class this whole file exists to
 # remove — so it is refused, loudly, by name.
-_PB_KNOWN_KEYS="PRIVATE_RECORD PRIVATE_SOURCES MIN_SPEECH_LINES MIN_QUOTE_WORDS ALLOWLIST CORPUS_MAX_FILES CORPUS_MAX_BYTES CORPUS_MAY_BE_EMPTY"
+_PB_KNOWN_KEYS="PRIVATE_RECORD PRIVATE_SOURCES MIN_SPEECH_LINES MIN_QUOTE_WORDS ALLOWLIST CORPUS_MAX_FILES CORPUS_MAX_BYTES CORPUS_MAY_BE_EMPTY PRIVATE_FILES"
+
+# Keys whose repeated lines ACCUMULATE instead of replacing. Exactly one, and it
+# is deliberate: declaring the next private file must be an added line, because
+# a one-line diff is what makes a committed exemption reviewable at a glance.
+# Every other key treats a second occurrence as BROKEN — an operator who writes
+# a key twice believes both lines took effect, and last-line-wins would silently
+# drop the first.
+_PB_ACCUMULATING_KEYS="PRIVATE_FILES"
 
 # ---------------------------------------------------------------------------
 # pb_physical <path>
@@ -270,6 +316,7 @@ pb_load_declaration() {
     PB_MIN_SPEECH_LINES="8"
     PB_MIN_QUOTE_WORDS="10"
     PB_ALLOWLIST=""
+    PB_PRIVATE_FILES=""
     PB_CORPUS_MAX_FILES="4000"
     PB_CORPUS_MAX_BYTES="67108864"
     # An empty corpus is BROKEN, not CLEAN — see the vacuity floor in
@@ -282,6 +329,8 @@ pb_load_declaration() {
     [ -n "$root" ] || return 1
     f="$root/$PUBLICATION_DECLARATION"
     [ -f "$f" ] || return 1
+
+    local _seen=" "
 
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
@@ -307,6 +356,16 @@ pb_load_declaration() {
             \'*\') val="${val#\'}"; val="${val%\'}" ;;
             *) val="${val%%#*}"; val="${val%"${val##*[![:space:]]}"}" ;;
         esac
+        case " $_PB_ACCUMULATING_KEYS " in
+            *" $key "*) ;;
+            *)
+                case "$_seen" in
+                    *" $key "*)
+                        PB_BROKEN_REASON="'$key' is set more than once. Only $_PB_ACCUMULATING_KEYS accumulates across lines; for every other key a second line would silently replace the first, and a setting that quietly does nothing is the defect class this file exists to remove."
+                        return 2 ;;
+                esac
+                _seen="${_seen}${key} " ;;
+        esac
         case " $_PB_KNOWN_KEYS " in
             *" $key "*) ;;
             *)
@@ -327,6 +386,7 @@ pb_load_declaration() {
             MIN_SPEECH_LINES) PB_MIN_SPEECH_LINES="$val" ;;
             MIN_QUOTE_WORDS)  PB_MIN_QUOTE_WORDS="$val" ;;
             ALLOWLIST)        PB_ALLOWLIST="$val" ;;
+            PRIVATE_FILES)    PB_PRIVATE_FILES="${PB_PRIVATE_FILES:+$PB_PRIVATE_FILES }$val" ;;
             CORPUS_MAX_FILES) PB_CORPUS_MAX_FILES="$val" ;;
             CORPUS_MAX_BYTES) PB_CORPUS_MAX_BYTES="$val" ;;
             CORPUS_MAY_BE_EMPTY) PB_CORPUS_MAY_BE_EMPTY="$val" ;;
@@ -346,6 +406,37 @@ pb_load_declaration() {
         PB_BROKEN_REASON="MIN_SPEECH_LINES=$PB_MIN_SPEECH_LINES is below the floor of 3"
         return 2
     fi
+    # PRIVATE_FILES entries are validated HERE, at parse time, rather than in
+    # the scanner: a malformed entry means the operator believes a file is
+    # protected when it is not, and the only safe answer to that belief is a
+    # loud refusal before anything is judged. Silently skipping a bad entry
+    # would be a guard reporting coverage it does not have.
+    local _pf _pfd _pfn
+    for _pf in $PB_PRIVATE_FILES; do
+        [ -n "$_pf" ] || continue
+        case "$_pf" in
+            *:*) ;;
+            *)
+                PB_BROKEN_REASON="PRIVATE_FILES entry '$_pf' is not '<64-hex-sha256>:<name>'. Mint one with: python3 <engine>/scripts/lib/publication-boundary.py --digest <file>"
+                return 2 ;;
+        esac
+        _pfd="${_pf%%:*}"
+        _pfn="${_pf#*:}"
+        case "$_pfd" in
+            *[!0-9a-f]*|"")
+                PB_BROKEN_REASON="PRIVATE_FILES entry '$_pf' has a digest that is not lowercase hexadecimal. Mint one with: python3 <engine>/scripts/lib/publication-boundary.py --digest <file>"
+                return 2 ;;
+        esac
+        if [ "${#_pfd}" -ne 64 ]; then
+            PB_BROKEN_REASON="PRIVATE_FILES entry '$_pf' has a ${#_pfd}-character digest; sha256 is 64. Mint one with: python3 <engine>/scripts/lib/publication-boundary.py --digest <file>"
+            return 2
+        fi
+        if [ -z "$_pfn" ]; then
+            PB_BROKEN_REASON="PRIVATE_FILES entry '$_pf' names no file. The name is what the refusal shows the author, and a refusal that cannot say which file it means teaches nobody the rule."
+            return 2
+        fi
+    done
+
     case "$PB_CORPUS_MAY_BE_EMPTY" in
         0|1) ;;
         *)
@@ -518,27 +609,52 @@ pb_refusal() {
     echo "  bytes SAY, not what format they are in — a transcript committed as text is the"
     echo "  same disclosure as the audio it came from."
     echo ""
-    printf '%s\n' "$findings" | while IFS=$'\t' read -r _tag _path _detector _evidence; do
+    # Piped into a `while`, these counters would be set in a subshell and read
+    # back as 0 in the parent — the subshell trap this mechanism's own test
+    # suite documents at the top of its file. Heredoc, so the loop runs here.
+    local _has_identity=0 _has_speech=0
+    while IFS=$'\t' read -r _tag _path _detector _evidence; do
         [ "$_tag" = "BLOCK" ] || continue
         echo "    $_path"
         case "$_detector" in
+            declared-private-file)
+                _has_identity=1
+                echo "      -> DECLARED PRIVATE BY IDENTITY: $_evidence" ;;
+            declared-private-name)
+                _has_identity=1
+                echo "      -> DECLARED PRIVATE BY NAME: $_evidence" ;;
             derived-from-private)
+                _has_speech=1
                 echo "      -> reproduces private source material verbatim: $_evidence" ;;
             recorded-speech)
+                _has_speech=1
                 echo "      -> reads as a recording of human speech: $_evidence" ;;
             *)
+                _has_speech=1
                 echo "      -> $_detector: $_evidence" ;;
         esac
-    done
+    done <<PB_FINDINGS_EOF
+$findings
+PB_FINDINGS_EOF
     echo ""
-    echo "  WHERE IT SHOULD GO — pick one:"
-    echo "    1. The private record: $record. Development notes built on a"
-    echo "       recording belong with the recording, not in the tree that gets published."
-    echo "    2. A gitignored path in this repository. An ignored path is never"
-    echo "       published, so private material is safe there — that is how the source"
-    echo "       audio was handled correctly all along."
-    echo "    3. Rewrite it so it carries no speech. Conclusions, measurements and"
-    echo "       parameter values are not private; the words a person said are."
+    if [ "$_has_identity" = "1" ]; then
+        echo "  THIS FILE HAS ONE HOME, AND IT IS NOT THIS REPOSITORY."
+        echo "    It is declared in PRIVATE_FILES in $PUBLICATION_DECLARATION, which says"
+        echo "    the material belongs in $record"
+        echo "    and enters this tree in no form: not renamed, not reformatted, not into"
+        echo "    a gitignored path. Copy it back where it came from and work on it there."
+    fi
+    if [ "$_has_speech" = "1" ]; then
+        [ "$_has_identity" = "1" ] && echo ""
+        echo "  WHERE IT SHOULD GO — pick one:"
+        echo "    1. The private record: $record. Development notes built on a"
+        echo "       recording belong with the recording, not in the tree that gets published."
+        echo "    2. A gitignored path in this repository. An ignored path is never"
+        echo "       published, so private material is safe there — that is how the source"
+        echo "       audio was handled correctly all along."
+        echo "    3. Rewrite it so it carries no speech. Conclusions, measurements and"
+        echo "       parameter values are not private; the words a person said are."
+    fi
     echo ""
     echo "  If this content is genuinely publishable, add its repository-relative path"
     echo "  prefix to ALLOWLIST in $PUBLICATION_DECLARATION — a committed, reviewable"

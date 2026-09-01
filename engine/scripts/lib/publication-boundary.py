@@ -19,10 +19,20 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
         "items_max_files": 5000,
         "corpus_may_be_empty": false,
         "sources": ["/abs/path/to/private/tree", ...],
+        "private_files": ["<64-hex-digest>:<name>", ...],
         "items":   [{"label": "docs/x.md", "path": "/tmp/blob"},
                     {"label": "docs/y.md", "text": "inline content"},
-                    {"label": "docs/notes/", "path": "/repo/docs/notes"}]
+                    {"label": "docs/notes/", "path": "/repo/docs/notes"},
+                    {"label": "docs/z.png", "path": "/tmp/blob", "identity_only": true}]
       }
+
+  "private_files" is material that is private BY IDENTITY rather than by
+  resembling a recording — see the identity section below. An item marked
+  "identity_only" is judged by that rule ALONE: it is how a binary blob, and a
+  write to a gitignored destination, get an identity verdict without being
+  handed to the text detectors. When EVERY item is identity_only the corpus is
+  never built at all, so that path costs nothing and cannot fail on a corpus
+  it did not need.
 
   An item whose "path" is a DIRECTORY is expanded to the files beneath it and
   every one is scanned. It is spelled out in the contract because the opposite
@@ -59,6 +69,7 @@ Contract with the caller (scripts/lib/publication-boundary.sh):
   here is what gets content published.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -288,6 +299,169 @@ def normalise(text):
     phrase from the incident that prompted this guard — which put a sample of
     the material inside the thing built to keep it out."""
     return WORD.findall(text.lower().replace('’', '').replace("'", ''))
+
+
+# --- private BY IDENTITY, not by resemblance --------------------------------
+#
+# WHY THIS EXISTS BESIDE THE OTHER TWO, AND NOT INSTEAD OF THEM.
+# The corpus and shape detectors above answer "does this LOOK like private
+# speech?", and they were measured against the material that leaked on
+# 2026-08-29: two-channel transcripts, and prose quoting them. They are sharp
+# for that and they are BLIND to a small named file that is private for a
+# reason no scoring function can see — a note the CEO wrote about which
+# typeface he used, seven lines long, resembling nothing.
+#
+# Measured 2026-09-01, both halves: that file's exact bytes were written into
+# the publication-bound tree and staged, and both guards returned 0. The
+# mechanism was sound for what it was aimed at and had nothing to say about
+# identity. This is the addition; the scanners above are untouched.
+#
+# IDENTITY IS DECLARED, AND THE DECLARATION IS SELF-CONTAINED.
+# Each PRIVATE_FILES entry is `<64-hex-digest>:<name>`, committed in
+# .publication-boundary. Nothing here reads the private repository at guard
+# time — deliberately. A guard whose coverage depends on a sibling checkout
+# existing is a guard that does NOTHING on a fresh clone, which is the machine
+# that matters: the one where somebody who has never seen the rule is about to
+# break it. The digest and the name travel with the repository they protect.
+#
+# WHAT A DIGEST OF PRIVATE CONTENT DISCLOSES: nothing. sha256 is one-way, and
+# recovering a document from it means already having the document. The NAME is
+# in the clear, because a refusal that cannot say which file it means teaches
+# nobody anything, and a refusal nobody understands gets worked around. That
+# trade is stated in .publication-boundary's own header so an operator declaring
+# the next file makes it knowingly.
+#
+# WHAT DEFEATS THIS, said plainly rather than discovered later:
+#
+#   * A REWRITE. Add or remove a word and the content digest changes. Identity
+#     is exact by construction — the alternative is a similarity score, and a
+#     probabilistic accusation is what index_corpus refuses to make.
+#   * A REWRITE **AND** A RENAME, together. Either one alone is caught: the
+#     digest survives renaming, and the name rule survives rewriting. Both at
+#     once is a different file wearing a different name, and no rule short of
+#     reading the private repository can call that.
+#   * A PARTIAL EXCERPT under a different name. Half the file is not the file.
+#     The corpus detector covers excerpts only for material that qualifies as
+#     private SPEECH, which is precisely what this class of file is not.
+#
+# WHAT DOES NOT DEFEAT IT — and this is the point of hashing the WORD SEQUENCE
+# rather than only the bytes: re-encoding (the seeded file is UTF-16 with a BOM,
+# because it came out of a Mac text editor), re-wrapping, re-indenting, changing
+# markdown emphasis, changing case, or pasting the words into a differently
+# formatted document. All of those produce different bytes and the same words.
+# Both digests are compared, so an operator may declare either flavor and a
+# binary file — which has no words — is still covered by its bytes.
+
+# A file larger than this is not content-hashed: the name rule still applies,
+# and reading half a gigabyte inside a PreToolUse hook to compare it against a
+# note is a guard that times out, which is a guard that did not run.
+IDENTITY_MAX_BYTES = 64 * 1024 * 1024
+
+_BOM_UTF8 = b'\xef\xbb\xbf'
+_BOM_UTF16 = (b'\xff\xfe', b'\xfe\xff')
+
+
+def decode_best(raw):
+    """Bytes to text, BOM-aware.
+
+    NOT decoration. The file this mechanism was seeded with is UTF-16BE with a
+    BOM, so `raw.decode('utf-8', 'ignore')` turns every character into its own
+    NUL-separated token and the word sequence it yields is a sequence of single
+    letters — a digest that matches nothing a person would ever write. The same
+    file re-saved as UTF-8 must hash identically to the original, or "reformat
+    does not defeat it" is a claim with a counter-example in the seed itself."""
+    if raw.startswith(_BOM_UTF8):
+        return raw[len(_BOM_UTF8):].decode('utf-8', 'ignore')
+    if raw[:2] in _BOM_UTF16:
+        try:
+            return raw.decode('utf-16')
+        except (UnicodeDecodeError, ValueError):
+            pass
+    return raw.decode('utf-8', 'ignore')
+
+
+def content_digests(raw=None, text=None):
+    """Every digest this content could legitimately be declared under.
+
+    A declared digest matches when it equals ANY of them, so the operator may
+    commit whichever one their tooling produced:
+
+      bytes  sha256 of the file exactly as it sits on disk;
+      words  sha256 of the word sequence `normalise` produces, which is what
+             survives re-encoding and reformatting.
+
+    A `text` item (a Write payload) has no bytes on disk yet, so the bytes it
+    WOULD have — its UTF-8 encoding — is hashed instead."""
+    out = set()
+    if raw is not None and len(raw) <= IDENTITY_MAX_BYTES:
+        out.add(hashlib.sha256(raw).hexdigest())
+        if text is None:
+            text = decode_best(raw)
+    if text is not None:
+        if raw is None:
+            out.add(hashlib.sha256(text.encode('utf-8')).hexdigest())
+        words = normalise(text)  # dialect-exempt: existing identifier in this file
+        out.add(hashlib.sha256(' '.join(words).encode('utf-8')).hexdigest())
+        if '\x00' in text:
+            # UTF-16 BYTES ARRIVING AS A STRING. A tool payload carries text,
+            # not bytes, so a caller that hands over UTF-16 content read as
+            # UTF-8 delivers every character NUL-separated — and the word
+            # sequence of that is a run of single letters, which matches
+            # nothing. Measured here, on the seeded file's own encoding. The
+            # NUL-stripped form is hashed as well, so the same words reach the
+            # same digest whichever way they were carried.
+            stripped = normalise(text.replace('\x00', ''))  # dialect-exempt: existing identifier in this file
+            out.add(hashlib.sha256(' '.join(stripped).encode('utf-8')).hexdigest())
+    return out
+
+
+def parse_private_files(entries):
+    """`<digest>:<name>` tokens to (digest, name, lowercased basename).
+
+    The FORMAT is validated in the shell library, at declaration-parse time,
+    where a malformed entry becomes a BROKEN declaration and blocks. This is
+    the defensive half: a token that does not split is dropped rather than
+    mis-parsed, and the IDENTITY trailer counts what actually loaded, so a run
+    can never report that it checked identities it never held."""
+    out = []
+    for entry in entries or []:
+        if not isinstance(entry, str) or ':' not in entry:
+            continue
+        digest, name = entry.split(':', 1)
+        digest = digest.strip().lower()
+        name = name.strip()
+        if len(digest) != 64 or not name:
+            continue
+        out.append((digest, name, os.path.basename(name.rstrip('/')).lower()))
+    return out
+
+
+def identity_findings(label, private_files, raw=None, text=None):
+    """The declared-private verdicts for one item, strongest first.
+
+    CONTENT before NAME: "these are the file's bytes" is a fact about the
+    material, and "this is the file's name" is a fact about the destination.
+    When both hold, the author is told the stronger one.
+
+    The evidence NEVER quotes the content. A refusal that reproduced the
+    private material in order to say it must not be reproduced would be this
+    mechanism's own defect, executed inside its error message."""
+    if not private_files:
+        return []
+    mine = content_digests(raw=raw, text=text)
+    for digest, name, base in private_files:
+        if digest in mine:
+            return [('BLOCK', label, 'declared-private-file',
+                     "content is the declared private file '%s' (identity by "
+                     "digest; a rename does not change it)" % name)]
+    itsbase = os.path.basename(str(label).rstrip('/')).lower()
+    for digest, name, base in private_files:
+        if base and itsbase == base:
+            return [('BLOCK', label, 'declared-private-name',
+                     "'%s' is declared private by name; a file with this name "
+                     "does not belong in this repository whatever it contains"
+                     % name)]
+    return []
 
 
 class BrokenCorpus(Exception):
@@ -528,7 +702,7 @@ def build_corpus(sources, min_speech_lines, max_files, max_bytes,
 
 # --- items: what the caller asked to be scanned ----------------------------
 
-def expand_items(items, max_files):
+def expand_items(items, max_files, identity_declared=False):
     """Resolve every job item to something with BYTES behind it.
 
     THE WALK-PAST THIS EXISTS TO CLOSE. `git status --porcelain` reports a
@@ -547,6 +721,15 @@ def expand_items(items, max_files):
     an audio file carries no reproducible speech TEXT, and media was already
     covered by the check this mechanism replaced. Oversized files are read up to
     the same 8 MB bound the corpus uses.
+
+    WITH IDENTITY DECLARED, a binary file is kept as an identity_only item
+    instead of being dropped. It has to be: the first file this mechanism was
+    seeded with is UTF-16, so it CONTAINS NUL BYTES, and every text-shaped
+    filter in this pipeline calls it binary. A rule that says "this exact file
+    never enters the repository" and then hands the file to a filter that
+    discards it would be enforcement wearing the shape of enforcement. The cost
+    is opt-in: with no PRIVATE_FILES declared nothing changes, and with them
+    declared a binary blob is hashed and never text-scanned.
 
     Exceeding max_files is BROKEN, never a quiet truncation — half a directory
     scanned and reported clean is the defect this whole file exists to end.
@@ -580,7 +763,8 @@ def expand_items(items, max_files):
                         head = fh.read(8192)
                 except OSError:
                     continue
-                if b'\0' in head:
+                binary = b'\0' in head
+                if binary and not identity_declared:
                     continue
                 seen += 1
                 if seen > max_files:
@@ -589,7 +773,10 @@ def expand_items(items, max_files):
                         "ITEMS_MAX_FILES=%d files. Refusing to scan part of a "
                         "directory and report the result as clean." % max_files)
                 rel = os.path.relpath(fp, path)
-                out.append({'label': '%s/%s' % (base, rel), 'path': fp})
+                entry = {'label': '%s/%s' % (base, rel), 'path': fp}
+                if binary:
+                    entry['identity_only'] = True
+                out.append(entry)
     return out
 
 
@@ -633,7 +820,50 @@ def verbatim_run(content, corpus, index, n):
     return None
 
 
+def mint(path):
+    """`--digest <file>` — print the PRIVATE_FILES entry for a file.
+
+    THE MINTER LIVES HERE, IN THE SCANNER, and not in a helper script beside
+    it. The digest an operator commits and the digest the guard computes have
+    to be the same number, and the only way to guarantee that is for there to
+    be one implementation of it. A second copy in a convenience wrapper would
+    be a recipe that drifts, and a declaration minted by a drifted recipe
+    protects nothing while looking exactly like one that does.
+
+    Run it against the file IN THE PRIVATE RECORD, where it lives. Nothing is
+    copied and nothing is printed but hashes and the file's own name."""
+    try:
+        with open(path, 'rb') as fh:
+            raw = fh.read(IDENTITY_MAX_BYTES + 1)
+    except OSError as exc:
+        print("cannot read %s: %s" % (path, exc), file=sys.stderr)
+        return 2
+    if len(raw) > IDENTITY_MAX_BYTES:
+        print("%s is larger than IDENTITY_MAX_BYTES=%d; content identity does "
+              "not apply to it and only the name rule would fire."
+              % (path, IDENTITY_MAX_BYTES), file=sys.stderr)
+        return 2
+    text = decode_best(raw)
+    name = os.path.basename(path)
+    by_bytes = hashlib.sha256(raw).hexdigest()
+    words = normalise(text)  # dialect-exempt: existing identifier in this file
+    by_words = hashlib.sha256(' '.join(words).encode('utf-8')).hexdigest()
+    print("# %s — %d bytes, %d words" % (name, len(raw), len(words)))
+    print("# bytes-only identity (a re-save under a different encoding "
+          "defeats it):")
+    print("#   PRIVATE_FILES=\"%s:%s\"" % (by_bytes, name))
+    print("# word-sequence identity — RECOMMENDED for text; survives "
+          "re-encoding,")
+    print("# re-wrapping and reformatting. Both are accepted; declare one:")
+    print("PRIVATE_FILES=\"%s:%s\"" % (by_words, name))
+    return 0
+
+
 def main():
+    # `--digest` before anything else: it is a tool for the operator writing the
+    # declaration, not a scan, and it must not need a job file to exist.
+    if len(sys.argv) >= 3 and sys.argv[1] == '--digest':
+        return mint(sys.argv[2])
     try:
         with open(sys.argv[1], encoding='utf-8') as fh:
             job = json.load(fh)
@@ -645,23 +875,36 @@ def main():
     min_quote = int(job.get('min_quote_words', 10))
     sources = [s for s in job.get('sources', []) if s]
     items = job.get('items', [])
+    private_files = parse_private_files(job.get('private_files', []))
 
     try:
-        items = expand_items(items, int(job.get('items_max_files', 5000)))
+        items = expand_items(items, int(job.get('items_max_files', 5000)),
+                             identity_declared=bool(private_files))
     except BrokenCorpus as exc:
         print("BROKEN\t%s" % exc)
         return 2
 
-    try:
-        corpus, members = build_corpus(
-            sources, min_speech,
-            int(job.get('corpus_max_files', 4000)),
-            int(job.get('corpus_max_bytes', 67108864)),
-            min_quote,
-        )
-    except BrokenCorpus as exc:
-        print("BROKEN\t%s" % exc)
-        return 2
+    # An item marked identity_only is judged by the declaration alone, so when
+    # EVERY item is one the corpus is never walked. That is what makes the two
+    # identity-only paths cheap enough to run where they run — a write to a
+    # gitignored destination, and a binary blob in a commit — and it is also why
+    # neither can fail on an empty corpus it never needed. The condition is
+    # DERIVED from the items rather than passed as a flag: a flag is a second
+    # thing to keep true.
+    need_corpus = any(not it.get('identity_only') for it in items)
+
+    corpus, members = '', []
+    if need_corpus:
+        try:
+            corpus, members = build_corpus(
+                sources, min_speech,
+                int(job.get('corpus_max_files', 4000)),
+                int(job.get('corpus_max_bytes', 67108864)),
+                min_quote,
+            )
+        except BrokenCorpus as exc:
+            print("BROKEN\t%s" % exc)
+            return 2
 
     # --- THE VACUITY FLOOR ---------------------------------------------------
     # A scan that read NOTHING must never report CLEAN.
@@ -695,7 +938,7 @@ def main():
     # The way through is CORPUS_MAY_BE_EMPTY in the declaration: committed,
     # diffable, reviewed by whoever lands it — the same affordance ALLOWLIST is,
     # for the same reason, and pointedly not an in-the-moment override.
-    if sources and not members and not job.get('corpus_may_be_empty'):
+    if need_corpus and sources and not members and not job.get('corpus_may_be_empty'):
         print("BROKEN\tthe declared PRIVATE_SOURCES resolved to %d tree(s) on "
               "this machine, and NOT ONE file in them qualified as private "
               "speech. The derived-from-private detector — the only one that "
@@ -714,18 +957,37 @@ def main():
     findings = []
     for item in items:
         label = item.get('label') or item.get('path') or '<unknown>'
+        raw = None
         if 'text' in item:
             blob = item['text'] or ''
         else:
             try:
-                with open(item['path'], encoding='utf-8', errors='ignore') as fh:
-                    blob = fh.read(8_000_000)
+                with open(item['path'], 'rb') as fh:
+                    raw = fh.read(IDENTITY_MAX_BYTES + 1)
             except Exception:
                 # A blob that cannot be read cannot be cleared either, but an
                 # unreadable path is far more likely a binary/deleted file than
                 # a smuggled transcript, and blocking on it would make the guard
                 # fire on ordinary work. It is reported, not blocked.
                 continue
+            # Read as BYTES and decoded here, rather than opened as text: the
+            # identity detector hashes the bytes, and decode_best is what makes
+            # a UTF-16 file yield the words a person wrote instead of a run of
+            # single letters.
+            blob = decode_best(raw[:8_000_000])
+
+        # Detector 0 — declared private BY IDENTITY. First, because it is the
+        # only one that is exact: a digest match is not an opinion about what
+        # the content resembles.
+        idf = identity_findings(label, private_files,
+                                raw=raw, text=None if raw is not None else blob)
+        if idf:
+            findings.extend(idf)
+            continue
+        if item.get('identity_only'):
+            # Judged by the declaration alone, and it said nothing. Handing it
+            # to the text detectors is exactly what this flag exists to prevent.
+            continue
 
         # Detector 1 — derived from private. The sharpest signal: no heuristic,
         # no threshold on shape, just "these exact words are already in a file
@@ -761,14 +1023,22 @@ def main():
     # Emitted LAST, never first: both shell callers dispatch on `head -1 | cut
     # -f1`, and pb_refusal skips every line that is not a BLOCK, so a trailing
     # line is additive to the contract rather than a change to it.
+    # IDENTITY is on its own line for the same reason CORPUS is: an
+    # identity-only run reads no corpus at all, so CORPUS 0 0 would be the only
+    # thing a caller saw and "this run compared against nothing" and "this run
+    # compared against four declared files" would look identical. The count is
+    # of entries that PARSED, never of entries written down.
     trailer = "CORPUS\t%d\t%d" % (len(members), len(corpus.split()))
+    identity_trailer = "IDENTITY\t%d" % len(private_files)
     if not findings:
         print("CLEAN")
         print(trailer)
+        print(identity_trailer)
         return 0
     for row in findings:
         print('\t'.join(row))
     print(trailer)
+    print(identity_trailer)
     return 0
 
 
