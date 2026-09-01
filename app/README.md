@@ -251,7 +251,7 @@ app/
     tests/loro_reprime_tests.rs 10 Tier-C tests: a slice that carries another company's
                               item is refused whole, and an entity with no lane reads the
                               CEO layer and nothing else
-    tests/loro_lane_map_tests.rs 10 lane-map tests: the default map is the CEO's six
+    tests/loro_lane_map_tests.rs 11 lane-map tests: the default map is the CEO's six
                               companies, a lane the corpus does not have is DROPPED rather
                               than sent (loro exits 2 on one, which would make every
                               re-prime Unavailable), the cross-entity guard still refuses
@@ -580,7 +580,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 583 tests + 5 doc-tests
+cargo test -p richos-core                       # 595 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests
