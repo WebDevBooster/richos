@@ -1,0 +1,22 @@
+# The shipped richos-tauri binary, GUI condition, a machine with NO corpus: every candidate named, the desk closed in words.
+# command: cd / && env -i HOME=/private/tmp/richos-empty-home USER=alex PATH=/usr/bin:/bin:/usr/sbin:/sbin app/src-tauri/target/debug/richos-tauri (12s, then SIGTERM)
+# captured: 2026-09-01T16:39:26Z
+
+/private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/boot-empty.sh: line 13: 11860 Terminated: 15          /usr/bin/env -i HOME=/private/tmp/richos-empty-home USER=alex PATH=/usr/bin:/bin:/usr/sbin:/sbin /Users/alex/ab/richos-wt/echo-opus-wr1/app/src-tauri/target/debug/richos-tauri > "$OUT" 2>&1
+--- boot log ---
+[richos] launch: fresh (1 window(s))
+[richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+[richos] no company resolved — RichOS will ask in the window and remember the answer.
+[richos] operator: RICHOS_ENTITY (one of femcboost, deeply, prospects, richos, gpt-exporter, webinar-booster) still overrides, as does launching from that entity's repository root.
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /private/tmp/richos-empty-home/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /private/tmp/richos-empty-home/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /private/tmp/richos-empty-home/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] engine directory: /Users/alex/ab/richos-wt/echo-opus-wr1/engine (via repo layout above the executable)
+[richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+[richos]   binary: claude
+[richos]   engine: /Users/alex/ab/richos-wt/echo-opus-wr1/engine
+[richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to

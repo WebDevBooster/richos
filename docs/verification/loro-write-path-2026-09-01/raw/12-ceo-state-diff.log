@@ -1,0 +1,8 @@
+# The CEO's own state, before and after: byte-identical.
+# command: diff -u 10-ceo-state-before.txt 11-ceo-state-after.txt
+# captured: 2026-09-01T16:40:53Z
+
+IDENTICAL — no difference
+
+5b30c16fb2cb549bb49846a8c2e297275155abaf9a1df41907b7a47b2385827a  /Users/alex/ab/richos-wt/echo-opus-wr1/docs/verification/loro-write-path-2026-09-01/raw/10-ceo-state-before.txt
+5b30c16fb2cb549bb49846a8c2e297275155abaf9a1df41907b7a47b2385827a  /Users/alex/ab/richos-wt/echo-opus-wr1/docs/verification/loro-write-path-2026-09-01/raw/11-ceo-state-after.txt

@@ -51,7 +51,7 @@
 //!   a proposal on its own. Something has to propose — Rich, in conversation, or the CEO
 //!   directly — and that trigger is named as unbuilt rather than faked.
 
-use crate::loro::{LoroRoot, LoroTools};
+use crate::loro::{CorpusPaths, LoroInstall, LoroRoot, LoroTools};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -246,6 +246,7 @@ pub trait LoroWriteBackend: Send {
 }
 
 /// The shipped backend: `node loro/bin/loro-write.mjs … --json`.
+#[derive(Debug)]
 pub struct CliLoroWriter {
     tools: LoroTools,
     root: LoroRoot,
@@ -256,16 +257,56 @@ impl CliLoroWriter {
         CliLoroWriter { tools, root }
     }
 
-    /// Build from the environment, exactly as the read side does. `Ok(None)` = no corpus
-    /// configured, which is an ordinary install, not an error.
-    pub fn from_env() -> Result<Option<Self>, crate::loro::LoroError> {
-        let Some(root) = LoroRoot::from_env() else { return Ok(None) };
-        let Some(tools) = LoroTools::from_env() else {
-            return Err(crate::loro::LoroError::ToolsNotFound(
-                "a corpus root is configured but RICHOS_LORO_DIR is not".into(),
-            ));
-        };
-        Ok(Some(CliLoroWriter::new(tools?, root)))
+    /// WHICH CORPUS THIS WRITER WRITES TO. Public because the one property that matters is
+    /// that it is the SAME corpus the reader compiles from, and a property nobody can
+    /// observe is a property nobody can test.
+    pub fn root(&self) -> &LoroRoot {
+        &self.root
+    }
+
+    /// The loro checkout supplying `bin/loro-write.mjs`, and the `node` that runs it.
+    pub fn tools(&self) -> &LoroTools {
+        &self.tools
+    }
+
+    /// The WRITE half of a resolved [`LoroInstall`] — the same value the read half is built
+    /// from, so the two cannot be looking at different corpora.
+    ///
+    /// # What used to be here, and why it is gone
+    ///
+    /// `CliLoroWriter::from_env()`, which read `LORO_CORPUS` / `LORO_ROOT` /
+    /// `RICHOS_LORO_DIR` and NOTHING ELSE. That is a `cargo run` assumption: a
+    /// double-clicked `.app` is handed launchd's environment — measured by `ps eww` on a
+    /// real Finder launch as `HOME`, `USER` and `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, and
+    /// nothing more — so on the CEO's installed app the correction desk was `None` on every
+    /// boot. He could be shown a proposal and confirm it, and the confirmation reached a
+    /// writer that could not find the corpus.
+    ///
+    /// The read path was given a resolver at `46d8f56`; this file, one directory over, never
+    /// got the twin. It is not given one now either: **a twin would be the third
+    /// near-identical candidate walk**, and the reason this defect existed is that the second
+    /// one was written without the third being noticed. There is one walk
+    /// ([`LoroInstall::locate`]) and two constructors that consume its result.
+    ///
+    /// The env-only constructor is REMOVED rather than deprecated, because the next person
+    /// wiring a writer must not have it to reach for.
+    pub fn from_install(install: &LoroInstall) -> Self {
+        CliLoroWriter::new(install.tools().clone(), install.root().clone())
+    }
+
+    /// Resolve and build in one step, for a caller that has no install in hand.
+    ///
+    /// `Ok(None)` = no corpus resolved, which is an ordinary install and not an error; the
+    /// `tried` list travels with it so the caller can say WHAT IT LOOKED FOR rather than
+    /// falling silent. A confirm that quietly writes nothing is worse than a refusal, and a
+    /// refusal that cannot say where it looked is barely better.
+    ///
+    /// **Prefer [`Self::from_install`] where an install already exists** (`src-tauri`'s boot
+    /// does): resolving twice is two answers, and two answers can differ if a corpus appears
+    /// between them.
+    pub fn locate(p: &CorpusPaths) -> Result<(Option<Self>, Vec<String>), crate::loro::LoroError> {
+        let (install, tried) = LoroInstall::locate(p)?;
+        Ok((install.as_ref().map(CliLoroWriter::from_install), tried))
     }
 
     fn run(&self, verb: &str, extra: &[String], body: Option<&str>, dry_run: bool) -> Result<WriteOutput, CorrectionError> {
@@ -875,6 +916,42 @@ mod tests {
         assert!(!code.contains("--widen-scope"), "the widening flag must not be reachable from the app");
         // Positive probe: the scan is looking at real argv-building code, not at nothing.
         assert!(code.contains("--body-stdin"), "the scan must be reading the argv builder");
+    }
+
+    #[test]
+    fn the_write_path_reads_no_configuration_from_the_environment() {
+        // THE GUARD AGAINST A FOURTH INSTANCE, in the only place it can be structural.
+        //
+        // Three times on 2026-09-01 a component read its configuration from environment
+        // variables a Finder launch does not have: the engine directory, the corpus READ
+        // path, and then this file's writer, which was `CliLoroWriter::from_env()` and was
+        // therefore `None` on every double-click. The fix was not a fourth resolver — it was
+        // to delete the env-only constructor and take a resolved `LoroInstall`.
+        //
+        // A deleted function comes back. This scan is what stops it coming back HERE: the
+        // shipping half of this module must contain no environment read at all, so the next
+        // writer constructor has to be handed its configuration rather than going looking
+        // for it in a process that has none.
+        let src = include_str!("correction.rs");
+        let shipping = &src[..src.find("\n#[cfg(test)]").unwrap_or(src.len())];
+        let code: Vec<&str> = shipping
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                !t.starts_with("//")
+            })
+            .collect();
+        let offenders: Vec<&&str> = code.iter().filter(|l| l.contains("env::var")).collect();
+        assert!(
+            offenders.is_empty(),
+            "the write path must be GIVEN its corpus, never look one up in an environment a \
+             GUI launch does not have: {offenders:?}"
+        );
+        // Positive probe: the scan is reading the real constructor, not an empty string.
+        assert!(
+            code.iter().any(|l| l.contains("pub fn from_install(install: &LoroInstall)")),
+            "the scan must be reading the constructor it is guarding"
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@ use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
 use richos_core::launch::{LaunchCounts, LaunchKind, LaunchStore, PriorRun};
 use richos_core::correction::{
-    CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite, SharedCorrectionDesk,
+    CorrectionDesk, Proposal, ProposalObserver, ProposedWrite, SharedCorrectionDesk,
     WriteOutput, EVENT_LORO_PROPOSED,
 };
 use richos_core::entity::{EntityId, EntityRegistry};
@@ -210,7 +210,18 @@ struct AppState {
     /// that locked the spine would fire only after the work it meant to interrupt had
     /// already ended. This is the same `Arc` the spine holds, reached without the lock.
     control: TurnControl,
-    /// THE LORO CORRECTION DESK (open-items 3.5). `None` when no corpus is configured,
+    /// THE LORO CORRECTION DESK (open-items 3.5). Its writer comes from the SAME
+    /// `LoroInstall` the read half was built from (`memory::wire_company_memory`), so the
+    /// record the CEO is shown and the record his confirmation writes to cannot be two
+    /// different corpora.
+    ///
+    /// **FIXED AT BOOT, and that is a known limit rather than a design.** `provision_memory`
+    /// re-wires the READ half into the running spine without a relaunch and cannot re-wire
+    /// this one, because the field is not swappable; it prints a line saying corrections
+    /// become available on the next launch. It does not affect the CEO's own install, whose
+    /// corpus exists before the app starts.
+    ///
+    /// `None` when no corpus is configured,
     /// which is an ordinary install and not an error — the commands then say so in words
     /// instead of failing obscurely.
     ///
@@ -781,7 +792,14 @@ fn main() {
             // it without being relaunched — so the wiring cannot be a hundred lines that
             // only exist inside `setup`. Two copies would drift and the drifted one would
             // be the one he hits.
-            let memory_status = memory::wire_company_memory(&mut spine, &loro_provenance);
+            //
+            // BOTH HALVES COME BACK. Until 2026-09-01 this call produced only the READ half
+            // and the correction desk below built its own writer out of the environment,
+            // ninety lines later — which is how a GUI launch came to resolve the CEO's
+            // corpus for reading and nothing at all for writing. `WiredMemory` carries the
+            // writer that the SAME `LoroInstall` produced, so the two cannot disagree.
+            let wired = memory::wire_company_memory(&mut spine, &loro_provenance);
+            let memory_status = wired.status;
 
             // Attach the compute lease. A boot with no Claude auth, no `claude` binary, or a
             // binary that rejects our flags does NOT silently degrade: `lease_ready` goes
@@ -882,8 +900,18 @@ fn main() {
             // intake log, same durability posture, and deliberately NOT in the ledger: a
             // proposal the CEO has not answered yet is not evidence of anything that
             // happened — the same rule `TurnControl`'s intake log follows.
-            let correction = match CliLoroWriter::from_env() {
-                Ok(Some(writer)) => match CorrectionDesk::open(data_dir.join("loro-corrections.jsonl"), Box::new(writer)) {
+            //
+            // THE WRITER IS NOT RESOLVED HERE. It arrives from `wire_company_memory` above,
+            // out of the one `LoroInstall` the read half was also built from. What used to
+            // be on this line was `CliLoroWriter::from_env()`, and it is the third instance
+            // in one day of the same premise failure — a component reading its configuration
+            // from environment variables that a Finder launch does not have. `ps eww` on a
+            // real double-click carries `HOME`, `USER` and
+            // `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, and nothing else, so on the CEO's
+            // installed app this was `Ok(None)` on every boot and the desk was dead: he
+            // could be shown a proposal, confirm it, and reach a writer with no corpus.
+            let correction = match wired.writer {
+                Some(writer) => match CorrectionDesk::open(data_dir.join("loro-corrections.jsonl"), Box::new(writer)) {
                     Ok(desk) => Some(desk.shared()),
                     Err(e) => {
                         // Refuse rather than pretend. A desk that cannot record a proposal
@@ -893,9 +921,21 @@ fn main() {
                         None
                     }
                 },
-                Ok(None) => None,
-                Err(e) => {
-                    eprintln!("[richos] loro correction desk: configured but unusable: {e}");
+                // NOT A SILENT NO-OP. `wire_company_memory` has already printed the reason
+                // and, for the no-corpus case, every candidate it looked at — the same
+                // sentences the read path prints, because it is the same resolution. This
+                // line says what it MEANS for the desk, so nobody has to join the two facts
+                // up themselves.
+                None => {
+                    eprintln!(
+                        "[richos] loro correction desk: CLOSED — {}. Confirming a correction \
+                         will refuse and say so rather than appearing to write.",
+                        match memory_status.state.as_str() {
+                            "none" => "no corpus resolved (candidates listed above)",
+                            "no-compiler" => "a corpus resolved but loro-write.mjs is not installed",
+                            other => other,
+                        }
+                    );
                     None
                 }
             };
@@ -1925,7 +1965,17 @@ fn provision_memory(state: State<AppState>, location: Option<String>) -> Result<
     // RE-WIRE, through the same function the boot ran. Lock order everywhere in this file is
     // config, then entity, then spine — nothing above holds any of them.
     let mut spine = state.spine.lock().unwrap();
-    let mut status = memory::wire_company_memory(&mut spine, &state.loro_provenance);
+    // The READ half re-wires into the running spine. The WRITE half that comes back with it
+    // cannot be installed without a relaunch — `AppState::correction` is fixed at boot — and
+    // that is stated at `AppState::correction` rather than papered over here.
+    let wired = memory::wire_company_memory(&mut spine, &state.loro_provenance);
+    let mut status = wired.status;
+    if wired.writer.is_some() && state.correction.is_none() {
+        eprintln!(
+            "[richos] loro correction desk: a corpus now exists and its writer resolved, but \
+             the desk was fixed at boot — corrections become available on the next launch."
+        );
+    }
     drop(spine);
     status.provisioned_now = true;
     *state.memory.lock().unwrap() = status.clone();
@@ -2846,14 +2896,37 @@ fn loro_available(state: State<AppState>) -> bool {
     state.correction.is_some()
 }
 
+/// The desk, or the sentence explaining why there is not one.
+///
+/// **The refusal NAMES WHAT WAS LOOKED FOR**, which it did not until 2026-09-01, because
+/// until then it was almost never reached honestly: the writer was built from environment
+/// variables a Finder launch does not have, so on the installed app this branch fired on
+/// every call and said only that no corpus was "configured" — a word that is false when the
+/// corpus is sitting at a path the app simply never looked at. A confirm that quietly writes
+/// nothing is worse than a refusal, and a refusal that cannot say where it looked is barely
+/// better than the silence.
+///
+/// The candidate list comes from `MemoryStatus`, which is the same resolution the boot line
+/// printed — not a second guess about it.
 fn desk<'a>(state: &'a State<AppState>) -> Result<std::sync::MutexGuard<'a, CorrectionDesk>, String> {
     state
         .correction
         .as_ref()
         .ok_or_else(|| {
-            "No loro corpus is configured for this install, so there is nothing to read or correct. \
-             That is a statement about this install, not about what is recorded."
-                .to_string()
+            let status = state.memory.lock().unwrap().clone();
+            let mut msg = String::from(
+                "This install has no company memory it can write to, so there is nothing to read \
+                 or correct here. That is a statement about this install, not about what is \
+                 recorded.",
+            );
+            if !status.tried.is_empty() {
+                msg.push_str("\n\nLooked for it in:");
+                for t in &status.tried {
+                    msg.push_str("\n  • ");
+                    msg.push_str(t);
+                }
+            }
+            msg
         })
         .map(|d| d.lock().unwrap())
 }

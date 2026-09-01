@@ -1,0 +1,21 @@
+# This branch, GUI condition, CEO's real HOME: both halves resolve the same corpus.
+# command: cd / && env -i HOME=/Users/alex USER=alex PATH=/usr/bin:/bin:/usr/sbin:/sbin app/target/debug/examples/loro_install_probe
+# captured: 2026-09-01T16:38:54Z
+
+cwd  : /
+env  : LORO_CORPUS = None
+env  : LORO_ROOT = None
+env  : RICHOS_LORO_DIR = None
+env  : RICHOS_NODE_BIN = None
+env  : RICHOS_LORO_LANES = None
+env  : HOME = Some("/Users/alex")
+env  : PATH = Some("/usr/bin:/bin:/usr/sbin:/sbin")
+INSTALL: root=/Users/alex/Library/Application Support/RichOS/loro-root via the loro-root pointer in Application Support
+         tools=/Users/alex/Library/Application Support/RichOS/loro-root/loro via the corpus root's own loro/ directory
+         node=/opt/homebrew/bin/node
+WRITER : root=/Users/alex/Library/Application Support/RichOS/loro-root
+         bin=/Users/alex/Library/Application Support/RichOS/loro-root/loro/bin/loro-write.mjs
+READER : root=/Users/alex/Library/Application Support/RichOS/loro-root
+         bin=/Users/alex/Library/Application Support/RichOS/loro-root/loro/bin/loro-context.mjs
+AGREE  : yes
+exit=0

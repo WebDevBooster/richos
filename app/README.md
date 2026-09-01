@@ -257,6 +257,16 @@ app/
                               re-prime Unavailable), the cross-entity guard still refuses
                               after a drop, and a thread reading another company's in-repo
                               record is told whose record it is
+    tests/loro_gui_launch_tests.rs 15 tests for the launch nobody tests on (13 plus the two
+                              subprocess children they drive): a double-click
+                              carries HOME, USER and PATH and nothing else, and until
+                              2026-09-01 the WRITE half of loro read three environment
+                              variables it therefore never had. Two of them re-invoke the
+                              test binary with env_clear() and cwd=/ so the GUI condition is
+                              a real process rather than a value someone passed, and the one
+                              that matters most asserts the reader and the writer resolve
+                              the SAME corpus — a build where they disagreed would show him
+                              a proposal about one record and write to another
     tests/worker_attribution_tests.rs 10 tests that the workers in the prompt are the
                               SERVING SESSION's, derived from the session identity and
                               never from a directory mtime (a decoy dir is present in
@@ -264,6 +274,15 @@ app/
     examples/machinery_roundtrip.rs headless proof that machinery is routed AND retained
                               end to end against the real adapter (the run is kept at
                               docs/verification/machinery-roundtrip-2026-08-28.txt)
+    examples/loro_install_probe.rs WHICH CORPUS DOES THIS LAUNCH RESOLVE? — both halves,
+                              printed, from one resolution. Read-only. Run it under
+                              `cd / && env -i HOME=$HOME USER=$USER PATH=/usr/bin:/bin:/usr/sbin:/sbin`
+                              and nothing else tells you the truth
+    examples/loro_gui_correction_e2e.rs the whole correction desk under that same condition
+                              on a SCRATCH machine — provision, propose, confirm, and the
+                              record on disk. It stops one hop short of the button, and its
+                              header says exactly which hop
+                              (docs/verification/loro-write-path-2026-09-01/)
   crates/richos-voice/       VOICE MODE — mic -> whisper -> the spine -> TTS -> speakers
     src/vad.rs               RMS VAD + THE FRAME MATH (16000 Hz, 256-sample frames = 16.000 ms)
     src/bargein.rs           313-frame (5.008 s) fallback debounce; 15-of-25 (0.400 s) window
@@ -580,7 +599,7 @@ Two limits, stated rather than discovered later:
 
 ```sh
 # 1. The spine — fast, no native deps, no network, no Claude:
-cargo test -p richos-core                       # 619 tests + 5 doc-tests
+cargo test -p richos-core                       # 635 tests + 5 doc-tests
 
 # 1b. Voice mode — pure logic + the native edges (no mic needed):
 cargo test -p richos-voice                      # 163 tests

@@ -1,0 +1,9 @@
+# c6cf4ea, GUI condition, a scratch machine WITH a provisioned corpus: the desk is still closed.
+# command: cd / && env -i HOME=/private/tmp/richos-e2e-home ... <c6cf4ea>/examples/gui_desk_e2e_red
+# captured: 2026-09-01T16:38:54Z
+
+cwd  : /
+HOME : Some("/private/tmp/richos-e2e-home")
+DESK   : None — the correction desk is CLOSED and the app says nothing about it
+RESULT : the CEO can be shown a proposal and confirm it, and nothing is written
+exit=1

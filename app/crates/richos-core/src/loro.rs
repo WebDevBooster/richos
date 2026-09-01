@@ -1429,6 +1429,99 @@ pub fn resolve_tools(
     Ok((None, tried))
 }
 
+// ---------------------------------------------------------------------------
+// ONE RESOLUTION, BOTH HALVES — the seam a third copy would have become
+// ---------------------------------------------------------------------------
+
+/// WHERE LORO IS, resolved ONCE, for every consumer.
+///
+/// # Why this type exists at all
+///
+/// On 2026-09-01 the same premise failure — *"read your configuration from an environment
+/// variable a real launch does not have"* — was found and fixed three times in one day: the
+/// engine directory (`engine.rs`), the corpus READ path ([`resolve_corpus`], landed at
+/// `46d8f56`), and then the corpus WRITE path, one file over, which never got the twin.
+/// The obvious fourth move was a `CliLoroWriter::locate` repeating the reader's candidate
+/// walk. **That would have been the third near-identical resolver, and three near-identical
+/// resolvers is how the fourth one gets forgotten** — which is the mechanism that produced
+/// the defect this type closes.
+///
+/// So resolution happens here, once, and both halves of loro are BUILT FROM THE RESULT:
+/// [`CliContextCompiler::from_install`] reads, `correction::CliLoroWriter::from_install`
+/// writes. The agreement property — *the reader and the writer are looking at the same
+/// corpus* — is therefore structural rather than merely tested for. It is still tested for,
+/// because a future edit could reintroduce a second walk, and the test is what would catch
+/// it.
+///
+/// Why that agreement matters more than either half on its own: a build where the read path
+/// resolves one root and the write path another shows the CEO a proposal computed against
+/// one record and writes his confirmation into a different corpus. That is worse than the
+/// dead desk it replaced — a dead desk refuses, a disagreeing pair succeeds and is wrong.
+#[derive(Debug, Clone)]
+pub struct LoroInstall {
+    root: LoroRoot,
+    source: CorpusSource,
+    tools: LoroTools,
+    tools_source: ToolsSource,
+}
+
+impl LoroInstall {
+    /// The corpus root, and which of `--corpus` / `--root` names it.
+    pub fn root(&self) -> &LoroRoot {
+        &self.root
+    }
+
+    /// Which candidate answered, for the boot line.
+    pub fn source(&self) -> CorpusSource {
+        self.source
+    }
+
+    /// The loro checkout, with `node` already resolved for a launch that has launchd's
+    /// `PATH` and nothing else.
+    pub fn tools(&self) -> &LoroTools {
+        &self.tools
+    }
+
+    /// Which candidate supplied the compiler.
+    pub fn tools_source(&self) -> ToolsSource {
+        self.tools_source
+    }
+
+    /// RESOLVE, ONCE. `Ok((None, tried))` = no corpus, which is the ordinary state of an
+    /// install with no corpus and is not an error; `tried` travels with it so the caller can
+    /// say what was looked for instead of only that it failed.
+    ///
+    /// [`LoroError::CompilerNotInstalled`] = a corpus resolved and the program that reads and
+    /// writes it did not. Also not a misconfiguration, and also its own sentence.
+    pub fn locate(p: &CorpusPaths) -> Result<(Option<Self>, Vec<String>), LoroError> {
+        let resolved = resolve_corpus(p);
+        let Some(root) = resolved.root else { return Ok((None, resolved.tried)) };
+
+        // TOOLS. Explicit first and exclusive; otherwise the `loro/` directory of the root
+        // that was just resolved — which is where it is in the in-repo shape by definition
+        // (`repo_root_looks_valid` required it), and where a provisioned corpus may or may
+        // not have one. Never inferred from THIS checkout: richos ships no `loro/`.
+        let (found, tools_tried) = resolve_tools(p, &root)?;
+        let Some((mut tools, tools_source)) = found else {
+            return Err(LoroError::CompilerNotInstalled {
+                root: root.path().display().to_string(),
+                tried: tools_tried.join("; "),
+            });
+        };
+        tools.set_node(resolve_node_bin(p));
+
+        Ok((
+            Some(LoroInstall {
+                root,
+                source: resolved.source.expect("a root has a source"),
+                tools,
+                tools_source,
+            }),
+            resolved.tried,
+        ))
+    }
+}
+
 impl CliContextCompiler {
     /// Build from a launch's paths, or explain why not — the GUI-safe twin of
     /// [`Self::from_env`], which stays exactly as it was because its name is a promise
@@ -1438,28 +1531,19 @@ impl CliContextCompiler {
     /// corpus and is not an error. The [`CorpusResolution::tried`] list travels with it so
     /// the caller can say what was looked for.
     pub fn locate(p: &CorpusPaths) -> Result<(Option<(Self, CorpusSource)>, Vec<String>), LoroError> {
-        let resolved = resolve_corpus(p);
-        let Some(root) = resolved.root else { return Ok((None, resolved.tried)) };
+        let (install, tried) = LoroInstall::locate(p)?;
+        let Some(install) = install else { return Ok((None, tried)) };
+        let source = install.source();
+        Ok((Some((CliContextCompiler::from_install(&install)?, source)), tried))
+    }
 
-        // TOOLS. Explicit first and exclusive; otherwise the `loro/` directory of the root
-        // that was just resolved — which is where it is in the in-repo shape by definition
-        // (`repo_root_looks_valid` required it), and where a provisioned corpus may or may
-        // not have one. Never inferred from THIS checkout: richos ships no `loro/`.
-        let (found, tools_tried) = resolve_tools(p, &root)?;
-        let Some((mut tools, _tools_source)) = found else {
-            return Err(LoroError::CompilerNotInstalled {
-                root: root.path().display().to_string(),
-                tried: tools_tried.join("; "),
-            });
-        };
-        tools.set_node(resolve_node_bin(p));
-
+    /// The READ half of a resolved install. The lane map is this half's own configuration —
+    /// it narrows what a slice may CONTAIN and has nothing to say about where a write goes —
+    /// so it is read here and not in [`LoroInstall`].
+    pub fn from_install(install: &LoroInstall) -> Result<Self, LoroError> {
         let lanes = LaneMap::from_env()?;
         lanes.validate_against(&crate::entity::EntityRegistry::ceos_companies())?;
-        Ok((
-            Some((CliContextCompiler::new(tools, root, lanes), resolved.source.expect("a root has a source"))),
-            resolved.tried,
-        ))
+        Ok(CliContextCompiler::new(install.tools.clone(), install.root.clone(), lanes))
     }
 }
 
