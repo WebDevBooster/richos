@@ -1,0 +1,805 @@
+/* THE HOME SCREEN — `round-11.1/v1` "Constellation", in the app.
+   =============================================================================================
+
+   TERMINOLOGY. The CEO ruled it on 2026-09-01: *"I'm going to refer to it as the home screen
+   only from now"*. So this surface is the HOME SCREEN everywhere — in code, in comments, in
+   tests and in every string. `splash` keeps its name for the thing that comes BEFORE it.
+
+   WHERE THIS CAME FROM. `richos-hq/design/mockups/rounds/round-11.1/v1/index.html` plus its
+   round's own `shared/base.css`. Design rounds are frozen and append-only, so nothing there was
+   touched; this file is the port. The palette, the type sizes and the composition are the
+   round's, unchanged. What is NEW here and belongs to the app rather than to the round is
+   marked `APP:` and there are exactly three pieces of it — the entity row, the provisional
+   switch control, and the clickable rail wordmark that comes back here.
+
+   WHY EVERYTHING IS SCOPED UNDER `#home`. The round's `base.css` declares `--ground`,
+   `--surface`, `--light`, `--signal`, `--trim` and `--gold` on `:root`, and `app/ui/style.css`
+   declares four of those same names on `:root` with different values for two themes. Two files
+   writing one `:root` is how a palette silently changes on the OTHER surface. Every declaration
+   below is inside `#home`, so the round's values reach the home screen's own subtree and
+   nothing else, in either theme.
+
+   THE HOME SCREEN IS ALWAYS DARK — `ceo-decisions.md` §15's one permanent exception: *"Because
+   of its nature the start screen will always need to be in dark mode."* That is enforced in JS
+   (`home.js` raises `RichTheme.forceDark`, the same clamp `splash.js` uses) rather than by
+   hard-coding values here, because the SETTINGS BUTTON floats above this surface, reads the
+   app's own tokens, and would otherwise be an ivory control on a midnight picture. This file
+   needs no theme branch of its own: its palette is the ruled dark five, always.
+
+   NO SYSTEM FONT IS NAMED — `ceo-decisions.md` §22. Both faces are vendored beside this file
+   under `home/fonts/`, both SIL OFL 1.1, with their license texts and provenance. The generic
+   keyword at the end of each stack is a last-ditch generic, not a named platform face.
+   `zach-opus-ft1` is vendoring faces into `app/ui` in parallel; if his copies land first, the
+   `@font-face` block below and `home/fonts/` are the two things to delete.
+   ============================================================================================= */
+
+/* ---- the vendored type. Verbatim from round-11.1/v1/fonts/fonts.css, paths re-based. ------- */
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("home/fonts/Newsreader-Regular-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Newsreader";
+  font-style: italic;
+  font-weight: 400;
+  font-display: block;
+  src: url("home/fonts/Newsreader-Italic-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("home/fonts/Inter-Regular-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url("home/fonts/Inter-Medium-latin.woff2") format("woff2");
+}
+
+/* =============================================================================================
+   THE SURFACE
+   ============================================================================================= */
+
+#home {
+  /* Above the app shell, BELOW the opening curtain (200) and below the settings button (300).
+     The curtain has to paint over the home screen while it is up, and §15 requires the settings
+     button to be reachable from every screen INCLUDING this one. */
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+
+  /* the ruled five (ceo-decisions.md §14), scoped */
+  --ground: #0c1322;
+  --surface: #141e34;
+  --light: #dfe4ee;
+  --signal: #c2a35c;
+  --trim: #4c6087;
+
+  /* the round's three text tones. Ratios are the round's own, re-measured on the rendered
+     frame in `tests/home.js` rather than trusted from here. */
+  --t1: #dfe4ee;
+  --t2: #b6c0d4;
+  --t3: #98a5be;
+  --bone-dim: rgba(223, 228, 238, 0.78);
+  --gold: #c2a35c;
+
+  --serif: "Newsreader", serif;
+  --caps: "Inter", sans-serif;
+  --sans: "Inter", sans-serif;
+
+  /* how far the round's composition is pushed down to make room for the entity row; set from
+     `home.js` once the row's real height is known, so the reservation is measured and not
+     guessed at a fixed number of rows */
+  --home-top-inset: 0px;
+  /* the clear space reserved on each side for the two text columns — see #home-entities */
+  --home-col: 220px;
+  --home-entities-max: 500px;
+
+  background: var(--ground);
+  color: var(--light);
+  font-family: var(--sans);
+}
+
+#home[hidden] {
+  display: none;
+}
+
+/* THE DOOR. Leaving and returning are a compositor-only opacity crossfade — no layout, no
+   paint, no repositioning — because the logo brings him straight back and a transition he
+   crosses often should feel like a door rather than an exit.
+
+   IT IS DELIBERATELY THE LEAST OPINIONATED TRANSITION THERE IS. `iris-opus-r112` is designing
+   six switch affordances for the CEO to choose between; a fade constrains none of them,
+   because it acts on this whole surface and says nothing about what the control looks like or
+   where it sits. A transition that ANIMATED the control — a door swinging, a chip expanding —
+   would have picked one of the six by accident. */
+#home {
+  transition: opacity var(--home-fade, 200ms) ease;
+}
+#home.home-leaving {
+  opacity: 0;
+}
+
+#home * {
+  box-sizing: border-box;
+}
+
+/* While the home screen is up the shell underneath must not scroll behind it. Set on `body`
+   from `home.js` and removed the moment the CEO switches, so the app UI scrolls normally. */
+body.home-open {
+  overflow: hidden;
+}
+
+/* ---- the ground. The round's `#bg`, plus v1's own inline override, in one rule. ------------
+   The ruled ground, the ruled surface bloomed behind the picture, the ruled trim as a cool haze
+   high right and low left, and one whisper of the ruled signal low in the middle so the core
+   reads as a lamp inside the picture rather than a hole punched in it. */
+#home-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(23% 25% at 52% 57%, rgba(194, 163, 92, 0.115) 0%, rgba(194, 163, 92, 0) 72%),
+    radial-gradient(62% 58% at 54% 44%, rgba(20, 30, 52, 1) 0%, rgba(20, 30, 52, 0) 74%),
+    radial-gradient(46% 26% at 74% 4%, rgba(76, 96, 135, 0.15) 0%, rgba(76, 96, 135, 0) 76%),
+    radial-gradient(30% 32% at 10% 88%, rgba(76, 96, 135, 0.14) 0%, rgba(76, 96, 135, 0) 74%),
+    var(--ground);
+}
+#home-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(92% 92% at 50% 46%, rgba(0, 0, 0, 0) 42%, rgba(0, 0, 0, 0.62) 100%);
+}
+
+#home-stage {
+  position: absolute;
+  inset: 0;
+}
+#home-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#home-bokeh {
+  animation: home-drift 38s ease-in-out infinite alternate;
+  opacity: 0.85;
+}
+@keyframes home-drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(7px, -10px);
+  }
+}
+#home-overlay {
+  cursor: default;
+}
+#home-overlay.grab {
+  cursor: grab;
+}
+#home-overlay.grabbing {
+  cursor: grabbing;
+}
+#home-overlay.point {
+  cursor: pointer;
+}
+
+#home-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+}
+
+/* =============================================================================================
+   THE TOP-LEFT BLOCK — the mark, the owner line, the sub line, the five signals.
+   Positions, sizes and palette are the round's, with ONE change: everything moved down by
+   `--home-top-inset` to clear the entity row above it.
+   ============================================================================================= */
+
+#home-brand {
+  position: absolute;
+  top: calc(30px + var(--home-top-inset));
+  left: 34px;
+  pointer-events: none;
+  user-select: none;
+}
+#home-brand .mark {
+  display: block;
+  line-height: 0;
+}
+#home-brand .mark svg {
+  display: block;
+  height: 27px;
+  width: auto;
+}
+/* THE APPROVED LOGO TREATMENT (`round-8.1/v0`): the letterforms are the ruled light and the
+   arrow inside the R is the ruled signal — a drawn shape in the signal tone, not the
+   black-and-white inversion the source file is authored in, and not a knockout. */
+#home-brand .p-ink {
+  fill: #dfe4ee;
+}
+#home-brand .p-signal {
+  fill: #c2a35c;
+}
+#home-brand .owner {
+  margin-top: 11px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--t2);
+  letter-spacing: 0.005em;
+  line-height: 1.2;
+}
+#home-brand .sub {
+  margin-top: 10px;
+  font-family: var(--caps);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--t3);
+  line-height: 1.2;
+}
+#home-brand .sub b {
+  font-weight: 500;
+  color: var(--t2);
+}
+
+#home-signals {
+  position: absolute;
+  left: 34px;
+  top: calc(168px + var(--home-top-inset));
+  display: flex;
+  flex-direction: column;
+  gap: 19px;
+  pointer-events: none;
+  user-select: none;
+}
+#home-signals .sig {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#home-signals .sig .n {
+  font-family: var(--serif);
+  font-size: 31px;
+  color: var(--t1);
+  letter-spacing: 0;
+  line-height: 1;
+  font-weight: 400;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+#home-signals .sig .n .v {
+  display: inline-block;
+  transition: color 0.9s ease;
+}
+#home-signals .sig .n .v.tick {
+  color: var(--gold);
+  transition: color 0.08s ease;
+}
+#home-signals .sig .n small {
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--t2);
+  margin-left: 8px;
+  letter-spacing: 0.005em;
+}
+#home-signals .sig .l {
+  font-family: var(--caps);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.135em;
+  text-transform: uppercase;
+  color: var(--t3);
+  line-height: 1.2;
+}
+
+/* =============================================================================================
+   TOP-RIGHT — the workforce, and what just landed.
+   ============================================================================================= */
+
+#home-live {
+  position: absolute;
+  top: calc(32px + var(--home-top-inset));
+  right: 34px;
+  text-align: right;
+  pointer-events: none;
+  user-select: none;
+  max-width: 460px;
+}
+#home-live .cap {
+  font-family: var(--caps);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 11px;
+}
+#home-live ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#home-live li {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--t2);
+  white-space: nowrap;
+}
+#home-live li .fn {
+  color: var(--t3);
+  font-style: italic;
+}
+#home-live li .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 11px;
+  background: var(--gold);
+  box-shadow: 0 0 7px 1px rgba(194, 163, 92, 0.55);
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+  opacity: 0.55;
+  transform: scale(0.85);
+  transition: opacity 1.1s ease, transform 1.1s ease;
+}
+#home-live li .dot.hit {
+  opacity: 1;
+  transform: scale(1.5);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+#home-live .ticker {
+  margin-top: 14px;
+  font-family: var(--serif);
+  font-size: 16px;
+  color: var(--t2);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  font-style: italic;
+}
+#home-live .ticker.on {
+  opacity: 1;
+}
+#home-live .ticker i {
+  font-style: normal;
+  color: var(--gold);
+}
+
+/* =============================================================================================
+   APP: THE ENTITY ROW — "at the very top there should be a slim row with buttons named after
+   the user's entities/companies" (CEO, 2026-09-01).
+
+   FOUR THINGS HE ASKED FOR AND WHERE EACH ONE IS, so a later pass can see them rather than
+   infer them:
+
+     1. IT WRAPS INTO ROWS. `flex-wrap: wrap` — not a scroller, not an overflow menu, not a
+        truncation. *"if the user has many companies, then they might need more than one row"*.
+     2. IT IS CENTERED. `left: 50%` + `translateX(-50%)`, `justify-content: center`.
+     3. IT DOES NOT FILL THE GAP BETWEEN THE TWO COLUMNS. This is the one that is easy to get
+        wrong: a container that grows to the viewport and merely centers its contents is exactly
+        the failure. So it has a REAL maximum. `--home-entities-max` is the cap; the `calc`
+        reserves `--home-col` of clear space on each side for the `#home-brand` column on the
+        left and the `#home-live` aside on the right, so the row cannot reach either one at any
+        window width. Below ~1120px the reservation wins and the row narrows (and so wraps to
+        another line) rather than crowding the columns.
+     4. BREATHING ROOM. The cap above, plus 12px between chips and 10px between rows.
+
+   SIZED FOR HIS SIX, which is the real case (CEO: *"Use my companies as an example. Hardly any
+   CEO will have more entities that I already have now."*). The two long labels — `Webinar
+   Booster` and `GPT Exporter` — set the width, and at 460px the seven controls take two rows.
+
+   TYPE: 16px — §15's floor for text meant to be easily read. NOT 14px: a chip a person picks
+   with is a control, and the 14px tier is for text that is genuinely skippable. Wrapping is
+   what pays for the larger type, and wrapping is what he asked for.
+   ============================================================================================= */
+
+#home-entities {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(var(--home-entities-max), calc(100vw - 2 * var(--home-col)));
+  min-width: 232px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  gap: 10px 12px;
+}
+
+#home-entities-label {
+  /* the grouping name, for assistive technology only */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.home-chip {
+  font-family: var(--caps);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0.005em;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+
+  /* A ONE-CHARACTER LABEL HAS TO LOOK INTENTIONAL. The CEO's own example is `1`, `2`, `3` —
+     "if the user wanted to anonymize their home screen (for sharing on social media)" — and
+     that is a state he means to SHOW PEOPLE, not a degraded fallback. At 16px Inter a `1`
+     measures 8.9px, which with the padding alone would be a 36.9 x 29px lozenge: taller than
+     it is wide by a hair, and it reads as a cramped mistake rather than a considered chip.
+
+     46px is the smallest width at which the pill's corner radius resolves into a shape and a
+     row of `1 2 3 4 5 6` sits on a rhythm. It costs the named state NOTHING: the shortest
+     real label in his registry is `Deeply`, which is already 78px, so nothing is padded out
+     and `Webinar Booster` is unaffected. Sizing on text width alone is what would have made
+     the anonymized row look accidental. */
+  min-width: 46px;
+
+  /* OPAQUE ON PURPOSE. Everything else on this screen sits on a background the renderer hushes
+     for it (the `u_quiet` pass, whose eight rectangles are the round's own chrome and are not
+     extensible without a shader change). This row is not in that set, so the picture behind it
+     is whatever the field is doing — which means a translucent chip has NO computable contrast
+     ratio. A solid fill is the only honest way to hold AA here, and it is measured against that
+     fill in `tests/home.js`. */
+  background: #111b30;
+  color: #dfe4ee; /* 13.71:1 on #111b30 */
+  border: 1px solid #4c6087; /* 3.19:1 on #111b30 — a non-text boundary, owes 3:1 */
+}
+
+.home-chip:hover {
+  background: #182440;
+  border-color: #6b7ea8;
+}
+
+.home-chip:focus-visible {
+  outline: 2px solid #dfe4ee;
+  outline-offset: 2px;
+}
+
+/* THE SELECTED STATE IS NOT ONE HUE AND NOTHING ELSE. A filled chip is a different SHAPE of
+   thing from an outlined one at a glance, `aria-pressed` carries it to assistive technology,
+   and the weight moves too. The ink on the signal is the dark ink, restated locally because
+   this file must not depend on the app's token layer. */
+.home-chip[aria-pressed="true"] {
+  background: #c2a35c;
+  color: #0c1322; /* 7.68:1 on #c2a35c */
+  border-color: #c2a35c; /* the chip's own edge; the fill is what carries the state */
+  font-weight: 500;
+}
+.home-chip[aria-pressed="true"]:hover {
+  background: #cdb175;
+  border-color: #cdb175;
+}
+
+/* v1: the buttons are REAL controls with their effect not yet built (the CEO: "For RichOS v1
+   those buttons don't need to do anything"). They are not disabled and not decoration — the id
+   each one carries, the selection and the click target are all live, so the filter drops in
+   later without a redesign. The cursor stays a pointer for the same reason. */
+
+/* =============================================================================================
+   APP: THE SWITCH — the way out of the home screen and into the regular app UI.
+
+   PROVISIONAL, AND DELIBERATELY PLAIN. The CEO is choosing the real affordance from six designs
+   (`round-11.2/v1`-`v6`). Everything about the switch that matters — the transition, the state,
+   the return path — is in `home.js`; what is HERE is one control in one place so replacing it is
+   an edit to this block and to `buildSwitch()` in `home.js`, and to nothing else.
+   ============================================================================================= */
+
+#home-switch {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+}
+
+#home-enter {
+  font-family: var(--caps);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  padding: 11px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  /* Opaque for the same reason the chips are: this sits over the river, which is bright. */
+  background: #141e34;
+  color: #dfe4ee; /* 13.05:1 on #141e34 */
+  border: 1px solid #c2a35c; /* 6.87:1 on #141e34 — non-text, owes 3:1 */
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+#home-enter:hover {
+  background: #1d2b48;
+  border-color: #cdb175;
+}
+#home-enter:focus-visible {
+  outline: 2px solid #dfe4ee;
+  outline-offset: 3px;
+}
+#home-enter .home-enter-arrow {
+  margin-left: 9px;
+  color: #c2a35c; /* 6.87:1 on #141e34 */
+}
+
+/* =============================================================================================
+   THE LOADING STATE — the round's own, unchanged.
+
+   It covers the composition until the field is built, exactly as the round does it. In the
+   normal launch nobody sees it: the opening curtain holds for 3s and the field is up well
+   inside that. On a launch with no curtain it is what an honest "not ready yet" looks like, and
+   on a RETURN from the app UI it never appears at all, because nothing is rebuilt.
+   ============================================================================================= */
+
+@keyframes home-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+#home-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--ground);
+  z-index: 10;
+  transition: opacity 0.8s ease;
+}
+#home-loading.gone {
+  opacity: 0;
+  pointer-events: none;
+}
+#home-loading .pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: home-breathe 1.2s ease-in-out infinite;
+}
+#home-loading .txt {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--bone-dim); /* 9.19:1 on the ground */
+}
+
+#home-debug {
+  display: none;
+}
+
+/* =============================================================================================
+   APP: THE WAY BACK — "in the regular app UI a click on the logo (in the upper left corner)
+   brings the user back to the home screen" (CEO, 2026-09-01).
+
+   The mark itself lives in `index.html` and its ink is `app/ui/style.css`'s (`currentColor` per
+   theme). Neither is touched here — `home.js` promotes the existing element to a control at
+   runtime and this block dresses that promotion, so the rule matches only once the promotion
+   has actually happened and never styles a plain graphic as if it were pressable.
+
+   BOTH THEMES. The focus ring is `--gold`, which is `#c2a35c` on the dark rail (`#0a101b`,
+   9.53:1) and `#9c7c34` on the light rail (`#e4dfd3`, 3.53:1) — a non-text indicator, owing
+   3:1, clear in both. The hover is an opacity lift, which is theme-blind by construction.
+   ============================================================================================= */
+
+#rail-wordmark[role="button"] {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: opacity 0.18s ease;
+}
+#rail-wordmark[role="button"]:hover {
+  opacity: 0.78;
+}
+#rail-wordmark[role="button"]:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 4px;
+}
+
+/* =============================================================================================
+   APP: THE COMPANY-BUTTON SETTINGS — "the user should also be able to customize in the settings
+   the labels on those company buttons and well as which to display on their home screen"
+   (CEO, 2026-09-01).
+
+   THIS IS THE ONE PART OF THE HOME-SCREEN WORK THAT RENDERS OUTSIDE `#home`, and so the one
+   part that has TWO lightings. It opens from the settings button, which §15 puts on every
+   screen, so it can be on screen in light mode over the app UI. It therefore paints in the
+   APP's tokens, not the round's, and every ratio below is one `app/ui/style.css` has already
+   measured at its own token:
+
+     `--ink` on `--card`            14.55:1 dark / 14.90:1 light   text, needs 4.5
+     `--ink-soft` on `--card`        5.51:1 dark /  5.86:1 light   the note, needs 4.5
+     `--ink` on `--surface-sunk`    14.55:1 dark / 14.90:1 light   the label field, needs 4.5
+     `--line-control` (a border)     3.79:1 dark /  3.14:1 light   non-text, needs 3
+     `--on-gold` on `--gold`         7.68:1 dark /  4.72:1 light   the Done button, needs 4.5
+
+   Every one of them is re-measured on the RENDERED panel, in both themes, by `tests/home.js`.
+
+   TYPE: the heading is 1.125rem (18px), everything else is 1rem (16px) — §15's floor for text
+   meant to be easily read, and nothing here is skippable: it is all names and controls.
+   ============================================================================================= */
+
+/* The settings menu's own row shape has no "opens a panel" control, because nothing in it
+   opened one before. This is `.set-select`'s geometry with a button's affordances, so the row
+   still reads as one label and one control on the right. */
+.set-open {
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line-control);
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  max-width: 168px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.set-open:hover {
+  background: var(--tint-soft);
+}
+.set-open:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.home-prefs {
+  position: fixed;
+  inset: 0;
+  /* Above the settings menu (300), because it is what that menu opened. */
+  z-index: 340;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-prefs[hidden] {
+  display: none;
+}
+.home-prefs-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+.home-prefs-panel {
+  position: relative;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 48px var(--shadow-strong);
+  padding: 22px 24px 18px;
+  font-family: var(--font);
+}
+.home-prefs-title {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.home-prefs-note {
+  margin: 0 0 18px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.home-prefs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.home-prefs-row {
+  display: grid;
+  grid-template-columns: 1fr 168px auto;
+  align-items: center;
+  gap: 12px;
+}
+.home-prefs-name {
+  font-size: 1rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-prefs-label {
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line-control);
+  border-radius: 8px;
+  padding: 6px 9px;
+  width: 100%;
+}
+.home-prefs-label:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+/* A placeholder is a HINT, and this one is NOT skippable, so it is not exempt: it carries the
+   company's real name, which is the thing that tells him an empty box is not a broken button.
+   `--ink-soft` holds it to the reading floor — 5.51:1 dark / 5.86:1 light on this field's own
+   background — rather than the browser's default placeholder grey, which is roughly 2.9:1. */
+.home-prefs-label::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+.home-prefs-show {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.home-prefs-show input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+.home-prefs-foot {
+  margin: 16px 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.home-prefs-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+}
+.home-prefs-done {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--on-gold);
+  background: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+.home-prefs-done:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
