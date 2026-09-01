@@ -1,0 +1,50 @@
+code     ch   vendored WxH   system WxH     height ratio
+--------------------------------------------------------------------
+U+00A7   §    30x58          24x54          1.07
+U+00B7   ·    10x9           8x9            1.00
+U+2013   –    34x7           34x5           1.40
+U+2014   —    66x7           50x5           1.40
+U+2022   •    22x22          20x19          1.16
+U+2026   …    38x9           52x9           1.00
+U+203A   ›    19x29          16x26          1.12
+U+2192   →    49x42          60x24          1.75
+U+2193   ↓    42x49          24x57          0.86
+U+21D2   ⇒    49x42          50x29          1.45
+U+2212   −    30x7           34x6           1.17
+U+2265   ≥    31x35          33x34          1.03
+U+2298   ⊘    88x89          38x38          2.34
+U+22EF   ⋯    48x9           52x9           1.00
+U+2304   ⌄    38x23          31x23          1.00
+U+2318   ⌘    50x51          50x50          1.02
+U+25AA   ▪    20x20          16x16          1.25
+U+25B3   △    60x50          54x47          1.06
+U+25B7   ▷    51x59          44x61          0.97
+U+25BE   ▾    20x20          39x20          1.00
+U+25C6   ◆    63x63          36x35          1.80
+U+25C7   ◇    63x63          37x36          1.75
+U+25C9   ◉    53x53          58x58          0.91
+U+25CB   ○    50x49          29x29          1.69
+U+25CF   ●    50x49          29x29          1.69
+U+25D0   ◐    53x53          56x55          0.96
+U+2630   ☰    50x38          39x34          1.12
+U+2699   ⚙    56x56          38x40          1.40
+U+2713   ✓    46x33          45x47          0.70
+U+2715   ✕    50x50          46x46          1.09
+
+Glyphs whose ink height moved by more than 25% -- the ones a design
+reviewer should actually look at:
+   U+2713   ✓    SMALLER  45x47 -> 46x33  (70% of the system glyph's height)  width 102%
+   U+2193   ↓    SMALLER  24x57 -> 42x49  (86% of the system glyph's height)  width 175%
+   U+2026   …    larger   52x9 -> 38x9  (100% of the system glyph's height)  width 73%
+   U+25BE   ▾    larger   39x20 -> 20x20  (100% of the system glyph's height)  width 51%
+   U+2630   ☰    larger   39x34 -> 50x38  (112% of the system glyph's height)  width 128%
+   U+2013   –    larger   34x5 -> 34x7  (140% of the system glyph's height)  width 100%
+   U+2014   —    larger   50x5 -> 66x7  (140% of the system glyph's height)  width 132%
+   U+2699   ⚙    larger   38x40 -> 56x56  (140% of the system glyph's height)  width 147%
+   U+21D2   ⇒    larger   50x29 -> 49x42  (145% of the system glyph's height)  width 98%
+   U+25CB   ○    larger   29x29 -> 50x49  (169% of the system glyph's height)  width 172%
+   U+25CF   ●    larger   29x29 -> 50x49  (169% of the system glyph's height)  width 172%
+   U+2192   →    larger   60x24 -> 49x42  (175% of the system glyph's height)  width 82%
+   U+25C7   ◇    larger   37x36 -> 63x63  (175% of the system glyph's height)  width 170%
+   U+25C6   ◆    larger   36x35 -> 63x63  (180% of the system glyph's height)  width 175%
+   U+2298   ⊘    larger   38x38 -> 88x89  (234% of the system glyph's height)  width 232%

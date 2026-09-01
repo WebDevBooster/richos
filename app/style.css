@@ -111,8 +111,27 @@
   --shadow-soft: rgba(0, 0, 0, 0.55);
   --shadow-strong: rgba(0, 0, 0, 0.7);
 
-  --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* ---- TYPE. See ui/style.css and ui/fonts/fonts.css — the faces are vendored,
+     SIL OFL, and embedded in the binary. ceo-decisions.md §22: "there cannot be
+     any reliance on any system fonts." These two lines used to name nine faces
+     between them and every one of them belonged to the operating system.
+
+     NOTE FOR WHOEVER READS THIS FILE NEXT: it is a stale copy. `app/ui/style.css`
+     is the stylesheet the product loads and the one `src-tauri/build.rs` stages
+     into the binary; nothing loads THIS file, and it was already 348 lines behind
+     its twin when these names were taken out of it. It is corrected here so that
+     no named platform face survives anywhere in `app/`, not because it is live.
+     The duplication is itself the hazard — two files holding the same font tokens
+     is how a rule gets fixed in one place and lost in the other — and removing
+     this file is a separate decision, raised in the handoff rather than taken
+     here. */
+  --font-symbols: "RichOS Symbols";
+  --font: "Inter", var(--font-symbols), sans-serif;
+  --font-serif: "Newsreader", var(--font-symbols), serif;
+  /* No vendored monospace: the CEO's two faces are Newsreader and Inter, and a
+     third is his decision to make. The GENERIC keyword is the permitted last
+     resort; a named platform face is not. See ui/style.css for the full note. */
+  --mono: var(--font-symbols), monospace;
   --radius: 10px;
 
   /* ---- Legacy names, kept as aliases ----------------------------------------------
@@ -134,7 +153,10 @@
        and it never reaches the opening screen (§15's one permanent exception). ---- */
 :root[data-theme="light"] {
   --ground: #eae6dd;
-  --rail-bg: #e4dfd3;
+  /* The ruled "Daybreak" ground (round-9/v1, §15). `#e4dfd3` was never ruled — it does not
+     appear in the approved standard at all — and the ruled light gold fails the 3:1
+     non-text floor on it and passes on this. See ui/style.css for the full note. */
+  --rail-bg: #eae6dd;
   --surface-sunk: #efebe0;
   --surface-raised: #f7f5ef;
   --card: #fdfcf8;
@@ -2817,7 +2839,7 @@ body.bp-narrow .tl-user-bubble {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 8px;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   line-height: 1.5;
   color: var(--ink);
@@ -2878,7 +2900,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .desk-suppressed-id {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
@@ -2967,7 +2989,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .feedback-entry-key {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   color: var(--ink-soft);
 }
@@ -3053,7 +3075,7 @@ body.bp-narrow .tl-user-bubble {
 .tl-tech-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
   font-size: 0.6875rem;
   color: var(--ink);
   overflow-wrap: anywhere;
@@ -3103,7 +3125,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .tl-tech-path {
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
 }
 
 /* The raw pane (§5: "expands to the raw input and output"). Capped and scrollable: a single
@@ -3119,7 +3141,7 @@ body.bp-narrow .tl-user-bubble {
   background: var(--paper-rail);
   border: 1px solid var(--line);
   border-radius: 6px;
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
   font-size: 0.875rem;
   line-height: 1.45;
   color: var(--ink-soft);
@@ -3173,7 +3195,7 @@ body.bp-narrow .tl-user-bubble {
 #techy-state .techy-reason {
   display: block;
   margin-top: 6px;
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
   font-size: 0.875rem;
   color: var(--ink-faint);
   overflow-wrap: anywhere;

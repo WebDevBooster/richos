@@ -1,0 +1,54 @@
+
+=== 1. the vendored faces are LOADED, not merely declared ===
+  PASS  Inter: 1 face(s) loaded
+  PASS  Newsreader: 1 face(s) loaded
+  PASS  RichOS Symbols: 3 face(s) loaded
+
+=== 2. every character the UI renders is DRAWN by a vendored face ===
+      (raster in the vendored families vs raster in the browser default)
+        vendored  U+00A7  §   vendored= 34.375  default=     32  starved=     32
+        vendored  U+00B7  ·   vendored= 14.063  default=     16  starved=     16
+        vendored  U+2013  –   vendored=     32  default=     32  starved=     32
+        vendored  U+2014  —   vendored=     64  default=     64  starved=     64
+        vendored  U+2022  •   vendored=     32  default= 22.406  starved= 22.406
+        vendored  U+2026  …   vendored= 42.188  default=     64  starved=     64
+        vendored  U+203A  ›   vendored= 20.781  default= 21.313  starved= 21.313
+        vendored  U+2192  →   vendored= 59.063  default=     64  starved=     64
+        vendored  U+2193  ↓   vendored= 51.375  default=     32  starved=     32
+        vendored  U+21D2  ⇒   vendored= 59.063  default= 55.488  starved= 55.488
+        vendored  U+2212  −   vendored= 40.188  default= 36.094  starved= 36.094
+        vendored  U+2265  ≥   vendored= 40.188  default= 35.125  starved= 35.125
+        vendored  U+2298  ⊘   vendored= 88.938  default= 46.219  starved= 46.219
+        vendored  U+22EF  ⋯   vendored=  53.12  default=     64  starved=     64
+        vendored  U+2304  ⌄   vendored= 47.875  default= 38.531  starved= 38.531
+        vendored  U+2318  ⌘   vendored= 62.063  default=     64  starved=     64
+        vendored  U+25AA  ▪   vendored=     32  default= 22.688  starved= 22.688
+        vendored  U+25B3  △   vendored= 62.563  default=     64  starved=     64
+        vendored  U+25B7  ▷   vendored= 56.563  default=     64  starved=     64
+        vendored  U+25BE  ▾   vendored=  23.68  default= 40.875  starved= 40.875
+        vendored  U+25C6  ◆   vendored=  65.25  default=  46.25  starved=  46.25
+        vendored  U+25C7  ◇   vendored=  65.25  default= 39.344  starved= 39.344
+        vendored  U+25C9  ◉   vendored= 57.216  default=     64  starved=     64
+        vendored  U+25CB  ○   vendored=   56.5  default= 38.656  starved= 38.656
+        vendored  U+25CF  ●   vendored=   56.5  default= 38.656  starved= 38.656
+        vendored  U+25D0  ◐   vendored= 57.216  default=     64  starved=     64
+        vendored  U+2630  ☰   vendored=  60.16  default= 56.281  starved= 56.281
+        vendored  U+2699  ⚙   vendored= 60.416  default= 38.531  starved= 38.531
+        vendored  U+2713  ✓   vendored= 54.375  default= 48.313  starved= 48.313
+        vendored  U+2715  ✕   vendored= 55.296  default= 48.781  starved= 48.781
+  PASS  all 30 characters rasterize differently from the browser default
+
+=== 3. THE CONTROLS HE CLICKS are drawn by a vendored face ===
+      (each element's own text, its own computed family, shipped vs fonts-starved)
+  PASS  the settings gear #rail-settings [Inter, RichOS Symbols, sans-serif @ 17px] — raster changes when the faces are starved
+  PASS  the navigation toggle #rail-toggle [Inter, RichOS Symbols, sans-serif @ 12px] — raster changes when the faces are starved
+  PASS  a close button #inspector-close [Inter, RichOS Symbols, sans-serif @ 12px] — raster changes when the faces are starved
+  PASS  the voice control glyph .voice-footnote-glyph [Inter, RichOS Symbols, sans-serif @ 14px] — raster changes when the faces are starved
+  PASS  ordinary body text body [Inter, RichOS Symbols, sans-serif @ 16px] — raster changes when the faces are starved
+
+=== 4. THE OTHER SIDE: the starved pass really is starved ===
+  PASS  with .woff2 aborted, zero faces load (7 declared, none loaded)
+  PASS  all 30 characters rasterize differently once the faces are gone
+
+ALL CHECKS PASSED
+evidence: /Users/alex/ab/richos-wt/zach-opus-ft1/docs/verification/vendored-fonts-2026-09-01/raw

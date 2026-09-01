@@ -111,8 +111,66 @@
   --shadow-soft: rgba(0, 0, 0, 0.55);
   --shadow-strong: rgba(0, 0, 0, 0.7);
 
-  --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* ---- TYPE. The two lines below are the only place this app composes a font
+     stack, and `fonts/fonts.css` is the only place it names a face.
+
+     ceo-decisions.md §22: "there cannot be any reliance on any system fonts."
+     These two declarations used to list nine faces between them — Apple's
+     interface face and its monospace companion, the Windows and generic
+     equivalents behind them, and one open face named but never shipped with
+     anything. Every one was supplied by the operating system. Nine more
+     hand-written copies of the monospace list were scattered further down this
+     file; they are all `var(--mono)` now, which is the part that makes this stay
+     fixed. Two sweeps have already cleaned those names up and both decayed,
+     because a stylesheet with eleven places to write a stack has eleven places
+     to get it wrong. There is one now. (The old values are in `git log`, where a
+     name the product does not ship can be read without being grep-able in the
+     product.)
+
+     THE TWO FACES ARE THE CEO'S, decided 2026-09-01: "Typeface: GO." Serif is
+     Newsreader, sans is Inter, both SIL OFL 1.1. There is no third role.
+
+     `--font-symbols` is not decoration. Of the 30 non-ASCII characters this UI
+     renders — the gear, the hamburger, every close button, the voice control,
+     the working state — Inter carries 23 and Newsreader 9, all nine of them
+     inside Inter's. Seven are in neither, and they come from three tiny
+     vendored Noto subsets, because a browser that cannot find a character in the
+     named family walks silently to the next one and without these it would have
+     walked to a system font for the controls the CEO clicks. Those three are
+     declared with `unicode-range`, so listing the token FIRST in a stack costs
+     nothing: the browser will not consult them for any other character.
+
+     The trailing `sans-serif` / `serif` / `monospace` are GENERIC keywords, not
+     faces. They are the browser's own last resort, they exist so text outside
+     the vendored subset ranges is never invisible, and they are the one fallback
+     the ruling leaves permitted. A NAMED platform face is not. */
+  --font-symbols: "RichOS Symbols";
+  --font: "Inter", var(--font-symbols), sans-serif;
+  --font-serif: "Newsreader", var(--font-symbols), serif;
+
+  /* ---- MONOSPACE: NO VENDORED FACE, AND THAT IS AN OPEN CEO DECISION --------
+     Ten rules in this file use `--mono` — the memory location, the desk record
+     and its suppressed id, the feedback entry key, the technical view's title,
+     path and raw output, the techy reason and the update detail. All of them are
+     technical text where column alignment is the point.
+
+     There is no monospace in the approved pair, and choosing one was explicitly
+     ruled to be the CEO's decision rather than an implementation detail. So this
+     resolves to the GENERIC `monospace` keyword: the browser's own last resort,
+     which is permitted, rather than a named platform face, which is not.
+
+     Be clear about what that costs, because it is the one place this pass does
+     not fully deliver the ruling's spirit: the generic keyword resolves to
+     whatever monospace the machine has, so those ten rules still look different
+     on a different computer. They are diagnostic surfaces rather than the
+     product's voice, which is why this is a tolerable place to stop and wait for
+     an answer — but it is stopping, not finishing. See BLOCKED.md at the root of
+     this branch for the three options and what each costs.
+
+     `--font-symbols` leads the stack for the reason given above: the technical
+     view renders ▾ and ⋯, and unicode-range keeps the face away from everything
+     else. */
+  --mono: var(--font-symbols), monospace;
   --radius: 10px;
 
   /* ---- Legacy names, kept as aliases ----------------------------------------------
@@ -134,7 +192,14 @@
        and it never reaches the opening screen (§15's one permanent exception). ---- */
 :root[data-theme="light"] {
   --ground: #eae6dd;
-  --rail-bg: #e4dfd3;
+  /* THE RULED GROUND, AND THE RAIL IS PART OF IT. `#e4dfd3` was never ruled: the CEO's
+     light standard is round-9/v1 "Daybreak" (§15, 2026-08-30), which contains `#EAE6DD`,
+     `#9C7C34`, `#0C1322` and `#4C6087` — and does not contain `#e4dfd3` anywhere. It was
+     typed while the app was built, half a step darker than the standard, and the mark paid
+     for it: the ruled light gold computes 2.95:1 on the drift, a fail against the 3:1
+     non-text floor, and 3.15:1 on this, a pass. Restoring the SURFACE is the fix; repainting
+     the CEO's trademark to survive a background nobody approved is not. */
+  --rail-bg: #eae6dd;
   --surface-sunk: #efebe0;
   --surface-raised: #f7f5ef;
   --card: #fdfcf8;
@@ -1611,7 +1676,7 @@ button {
    is read character by character. */
 .memory-location {
   margin: 0 0 14px;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   line-height: 1.4;
   color: var(--ink);
@@ -2879,7 +2944,7 @@ body.bp-narrow .tl-user-bubble {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 8px;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   line-height: 1.5;
   color: var(--ink);
@@ -2940,7 +3005,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .desk-suppressed-id {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
@@ -3029,7 +3094,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .feedback-entry-key {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--mono);
   font-size: 1rem;
   color: var(--ink-soft);
 }
@@ -3115,7 +3180,7 @@ body.bp-narrow .tl-user-bubble {
 .tl-tech-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
   font-size: 0.6875rem;
   color: var(--ink);
   overflow-wrap: anywhere;
@@ -3165,7 +3230,7 @@ body.bp-narrow .tl-user-bubble {
 }
 
 .tl-tech-path {
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
 }
 
 /* The raw pane (§5: "expands to the raw input and output"). Capped and scrollable: a single
@@ -3181,7 +3246,7 @@ body.bp-narrow .tl-user-bubble {
   background: var(--paper-rail);
   border: 1px solid var(--line);
   border-radius: 6px;
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
   font-size: 0.875rem;
   line-height: 1.45;
   color: var(--ink-soft);
@@ -3235,7 +3300,7 @@ body.bp-narrow .tl-user-bubble {
 #techy-state .techy-reason {
   display: block;
   margin-top: 6px;
-  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--mono);
   font-size: 0.875rem;
   color: var(--ink-faint);
   overflow-wrap: anywhere;

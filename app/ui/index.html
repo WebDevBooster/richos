@@ -10,6 +10,16 @@
          launch. See theme-boot.js — the durable answer still lives in config.rs; this
          applies a mirror of it and main.js reconciles the two at init. -->
     <script src="theme-boot.js"></script>
+    <!-- THE FACES, BEFORE ANYTHING THAT SETS TYPE IN THEM. First so the webview has the
+         @font-face declarations in hand the moment it meets text that needs them — the
+         splash is render-blocking and part of the window's first paint, and a font
+         request that starts after it would show the tagline slot empty for a frame.
+
+         These are not fetched from anywhere: tauri-codegen brotli-compresses everything
+         under the staged frontend into the executable, so this resolves to a read out of
+         memory the process is already holding. See fonts/fonts.css — the only file in
+         this product that names a typeface (ceo-decisions.md §22). -->
+    <link rel="stylesheet" href="fonts/fonts.css" />
     <link rel="stylesheet" href="style.css" />
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->
@@ -25,7 +35,7 @@
          Two values rather than one, and the second is not a preference:
 
            dark   #C2A35C   the ruled signal (ceo-decisions.md 14), 7.88:1 on the dark rail
-           light  #8F7030   3.49:1 on the light rail, and 4.00:1 against the ink beside it
+           light  #9C7C34   the CEO's ruled light signal, 3.15:1 on his ruled ground
 
          The ruled LIGHT signal is #9C7C34, and on this rail (#E4DFD3, a shade under the
          ruled light ground) it computes 2.95:1 - under the 3:1 floor a non-text indicator
@@ -38,7 +48,7 @@
          accent never silently retones the logo. -->
     <style>
       #rail-wordmark { --mark-signal: #c2a35c; }
-      :root[data-theme="light"] #rail-wordmark { --mark-signal: #8f7030; }
+      :root[data-theme="light"] #rail-wordmark { --mark-signal: #9c7c34; }
     </style>
   </head>
   <body>

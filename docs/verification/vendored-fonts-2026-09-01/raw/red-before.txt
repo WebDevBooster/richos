@@ -1,0 +1,83 @@
+
+=== 1. the vendored faces are LOADED, not merely declared ===
+  FAIL  Inter: no loaded face — declared but not rendering
+  FAIL  JetBrains Mono: no loaded face — declared but not rendering
+  FAIL  RichOS Symbols: no loaded face — declared but not rendering
+
+=== 2. every character the UI renders is DRAWN by a vendored face ===
+      (raster in the vendored families vs raster in the browser default)
+        DEFAULT   U+00A7  §   vendored=     32  default=     32  starved=     32
+        DEFAULT   U+00B7  ·   vendored=     16  default=     16  starved=     16
+        DEFAULT   U+2013  –   vendored=     32  default=     32  starved=     32
+        DEFAULT   U+2014  —   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+2022  •   vendored= 22.406  default= 22.406  starved= 22.406
+        DEFAULT   U+2026  …   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+203A  ›   vendored= 21.313  default= 21.313  starved= 21.313
+        DEFAULT   U+2192  →   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+2193  ↓   vendored=     32  default=     32  starved=     32
+        DEFAULT   U+21D2  ⇒   vendored= 55.488  default= 55.488  starved= 55.488
+        DEFAULT   U+2212  −   vendored= 36.094  default= 36.094  starved= 36.094
+        DEFAULT   U+2265  ≥   vendored= 35.125  default= 35.125  starved= 35.125
+        DEFAULT   U+2298  ⊘   vendored= 46.219  default= 46.219  starved= 46.219
+        DEFAULT   U+22EF  ⋯   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+2304  ⌄   vendored= 38.531  default= 38.531  starved= 38.531
+        DEFAULT   U+2318  ⌘   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+25AA  ▪   vendored= 22.688  default= 22.688  starved= 22.688
+        DEFAULT   U+25B3  △   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+25B7  ▷   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+25BE  ▾   vendored= 40.875  default= 40.875  starved= 40.875
+        DEFAULT   U+25C6  ◆   vendored=  46.25  default=  46.25  starved=  46.25
+        DEFAULT   U+25C7  ◇   vendored= 39.344  default= 39.344  starved= 39.344
+        DEFAULT   U+25C9  ◉   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+25CB  ○   vendored= 38.656  default= 38.656  starved= 38.656
+        DEFAULT   U+25CF  ●   vendored= 38.656  default= 38.656  starved= 38.656
+        DEFAULT   U+25D0  ◐   vendored=     64  default=     64  starved=     64
+        DEFAULT   U+2630  ☰   vendored= 56.281  default= 56.281  starved= 56.281
+        DEFAULT   U+2699  ⚙   vendored= 38.531  default= 38.531  starved= 38.531
+        DEFAULT   U+2713  ✓   vendored= 48.313  default= 48.313  starved= 48.313
+        DEFAULT   U+2715  ✕   vendored= 48.781  default= 48.781  starved= 48.781
+  FAIL  U+00A7 § — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+00B7 · — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2013 – — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2014 — — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2022 • — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2026 … — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+203A › — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2192 → — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2193 ↓ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+21D2 ⇒ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2212 − — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2265 ≥ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2298 ⊘ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+22EF ⋯ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2304 ⌄ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2318 ⌘ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25AA ▪ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25B3 △ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25B7 ▷ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25BE ▾ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25C6 ◆ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25C7 ◇ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25C9 ◉ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25CB ○ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25CF ● — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+25D0 ◐ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2630 ☰ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2699 ⚙ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2713 ✓ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+  FAIL  U+2715 ✕ — rasterizes IDENTICALLY to the browser default, so a system font is drawing it
+
+=== 3. THE CONTROLS HE CLICKS are drawn by a vendored face ===
+      (each element's own text, its own computed family, shipped vs fonts-starved)
+  FAIL  the settings gear #rail-settings [-apple-system, SF Pro Text, Segoe UI, Inter, system-ui, sans-serif @ 17px] — renders IDENTICALLY with every font file aborted, so nothing vendored is drawing it
+  FAIL  the navigation toggle #rail-toggle [-apple-system, SF Pro Text, Segoe UI, Inter, system-ui, sans-serif @ 12px] — renders IDENTICALLY with every font file aborted, so nothing vendored is drawing it
+  FAIL  a close button #inspector-close [-apple-system, SF Pro Text, Segoe UI, Inter, system-ui, sans-serif @ 12px] — renders IDENTICALLY with every font file aborted, so nothing vendored is drawing it
+  FAIL  the voice control glyph .voice-footnote-glyph [-apple-system, SF Pro Text, Segoe UI, Inter, system-ui, sans-serif @ 14px] — renders IDENTICALLY with every font file aborted, so nothing vendored is drawing it
+  FAIL  ordinary body text body [-apple-system, SF Pro Text, Segoe UI, Inter, system-ui, sans-serif @ 16px] — renders IDENTICALLY with every font file aborted, so nothing vendored is drawing it
+
+=== 4. THE OTHER SIDE: the starved pass really is starved ===
+  PASS  with .woff2 aborted, zero faces load (0 declared, none loaded)
+  FAIL  0 of 30 characters changed — the rest were never coming from a vendored face
+
+39 CHECK(S) FAILED
+evidence: /private/tmp/claude-501/-Users-alex-ab-femcboost/374e6f14-2ac1-4f4a-bed0-160f79d64a7b/scratchpad/red-before

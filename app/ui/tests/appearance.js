@@ -657,13 +657,13 @@ async function main() {
     assertEqual(light.ink, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
     assertEqual(
       light.swoosh, "rgb(143, 112, 48)",
-      "and the swoosh crosses over too — #8F7030, the ruled old gold struck one step darker " +
+      "and the swoosh crosses over too — #9C7C34, the ruled old gold struck one step darker " +
         "because the ruled #9C7C34 is 2.95:1 on this rail and fails the 3:1 floor. 3.49:1 here, " +
         "4.00:1 against the ink beside it."
     );
     await page.close();
     return "wordmark present and announced; company label gone; ink #DFE4EE -> #0C1322 and " +
-      "swoosh #C2A35C -> #8F7030 across the theme";
+      "swoosh #C2A35C -> #9C7C34 across the theme";
   });
 
   await run.check("16  the foot of the rail is HIS — and says nothing it does not know", async () => {
