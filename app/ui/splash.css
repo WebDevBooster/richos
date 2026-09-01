@@ -24,7 +24,7 @@
   background-color: var(--splash-ground);
   background-image: var(--splash-atmosphere);
   color: var(--splash-ink);
-  font-family: "Söhne", "Soehne", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   opacity: 1;
 }
