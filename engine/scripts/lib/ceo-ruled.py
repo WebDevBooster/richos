@@ -44,32 +44,48 @@ The orchestrator then answers from the record instead of asking. A refusal that
 only said "already decided" would send him hunting and would be waived.
 
 ===========================================================================
-THE THREE ANCHORS — and why each is hard to trip by accident
+ONE ANCHOR: THE RULING'S OWN TITLE, CARRIED WHOLE
 ===========================================================================
-An anchor is a piece of a question that is evidence the question is ABOUT a
-ruling rather than merely sharing vocabulary with it. All three carry the same
-two-part shape: RARE ACROSS THE RECORD, and CENTRAL TO THE ONE RULING IT HITS.
+A question is refused only when it contains EVERY content word of a ruling's
+title-subject — the part of its heading before the em dash. Nothing else
+matches. That is the narrow version, and it is narrow because the alternative
+was measured and was unusable.
 
-  TITLE   Every content word of a ruling's title-subject (the part before the
-          em dash) appears in the question, and that subject is at least
-          MIN_SUBJECT words long. One-word titles — "The payload", "The logo",
-          "Type" — are NOT matchable this way, because one shared word is a
-          coincidence. They are reachable only through the anchors below, which
-          demand repetition.
+TWO OTHER ANCHORS WERE BUILT, MEASURED AND DELETED. Against the 27 real
+questions ever put to the CEO on this machine they fired on 18 — 67% — on
+words like "days", "char", "walk", "much", "hole", "assets" and phrases like
+"anything else", "per session", "all companies". A ruling's BODY cites half the
+register; sharing words with it is not evidence of anything. Their remains are
+the corroboration rule below, which is the only place a body word can still
+count and which never fires on its own.
 
-  PHRASE  A 2- or 3-word contiguous content phrase from the question occurs in
-          at most DF_MAX rulings and at least TF_PHRASE times in the ruling it
-          hits. "ship nothing extra" is a phrase somebody quoting the record
-          produces; it is not a phrase two unrelated questions share.
+TWO CONDITIONS ON THE TITLE, each forced by a measured false positive:
 
-  TOKEN   A single content word occurring in at most DF_MAX rulings and at
-          least TF_TOKEN times inside one of them. TF IS THE WHOLE DEFENSE
-          HERE: an incidental mention appears once, a SUBJECT repeats. The
-          record says "monospaced" exactly once, in a finding about vendored
-          fonts — so a question asking which monospace face to ship is NOT
-          refused, which is precisely right, because nobody ever ruled on it.
-          The record says "swoosh" five times inside one ruling — so the
-          question about the mark's second tone IS refused, and cited.
+  MULTI-WORD    a one-word title never fires alone, however rare the word looks
+                here. "Surfaces" and "Pipeline" are rare in the CEO's register
+                and ordinary everywhere else, and between them they refused
+                three unrelated questions — about design-round surfaces and a
+                prospects pipeline.
+
+  DISTINCTIVE   at least one title word must appear in no more than
+                RARE_FRACTION of the rulings. "start screen" is two words of
+                pure register vocabulary, and it refused two questions about
+                when to schedule a migration because one option said "It starts
+                fresh" and another said "against your screen".
+
+A title failing either condition may still match, but only WITH CORROBORATION:
+a word or phrase from the question that is rare across the register (df <=
+DF_MAX) AND REPEATED inside that one ruling (tf >= TF_TOKEN / TF_PHRASE).
+Repetition is the whole defense — an incidental mention appears once and a
+SUBJECT repeats. The register says "swoosh" five times inside the logo ruling
+and nowhere else, so the question about the mark's second tone is refused and
+cited. It says "monospaced" exactly once in its entirety, so the question
+nobody ever ruled on is not.
+
+SPECIFICITY IS MEASURED OVER TITLES FOR THE TITLE TEST AND OVER BODIES FOR THE
+CORROBORATION TEST, and the split is deliberate: body frequency answers "does
+the record talk about this", only title frequency answers "is this what a
+ruling is ABOUT".
 
 MATCHING IS EXACT, NOT PREFIX-TOLERANT. This is the opposite choice from
 ceo-asks.py, whose job is to be SATISFIED by a good-faith rendering of an item
