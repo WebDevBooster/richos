@@ -60,6 +60,13 @@
 #      a raw main-checkout source write (functional canary against the first
 #      PROTECTED_PATHS tree) — closing the cwd-default drift vector the Write/Edit
 #      guard never sees. Warn-only (not fail) when PROTECTED_PATHS is empty.
+#   IP. INTERACTIVE-PROMPT GUARD: settings.local.json wires PreToolUse[Bash] ->
+#      guard-interactive-prompt.sh (path-confined, manifest-matched) with its
+#      shape table scripts/lib/interactive-prompt.py present and hashed, and the
+#      wired guard both REFUSES `security import` with no -P — the command that
+#      put a password window on the CEO's screen at 02:01 on 2026-09-01 — and
+#      PASSES the same command carrying the -P the refusal names. Two-sided,
+#      because this guard exits 2 to refuse and 2 when it cannot start.
 #   P. DEFINITION-DRIFT GUARD PAIR: SessionStart wires
 #      snapshot-agent-definitions.sh and PreToolUse[Agent] wires
 #      guard-definition-drift.sh, EACH EXACTLY ONCE, both present + executable
@@ -336,6 +343,7 @@ run_layer_R() {
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
     guard-completeness-commits \
     guard-row-currency-commits \
+    guard-interactive-prompt \
     guard-resume-isolation guard-bash-main-writes guard-inflight-notify guard-worktree-removal guard-workflow-ban detect-nonnative-worktree \
     session-start-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
@@ -639,6 +647,7 @@ guard-publication-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
+guard-interactive-prompt.sh|PreToolUse
 guard-inflight-notify.sh|PreToolUse
 guard-worktree-removal.sh|PreToolUse
 guard-publication-commits.sh|PreToolUse
@@ -1499,6 +1508,11 @@ CANONICAL_SECRETS_HOOK="$REPO_ROOT/scripts/hooks/scan-secrets.sh"
 CANONICAL_DIALECT_HOOK="$REPO_ROOT/scripts/hooks/guard-dialect.sh"
 CANONICAL_DIALECT_DICT="$REPO_ROOT/scripts/lib/dialect-en-US.dict"
 CANONICAL_BASHGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-bash-main-writes.sh"
+CANONICAL_INTERACTIVE_HOOK="$REPO_ROOT/scripts/hooks/guard-interactive-prompt.sh"
+# NOT under scripts/hooks/ — the guard above decides nothing itself; every
+# shape it refuses and every fix it names comes out of this file, which is
+# why Layer IP hashes it the way Layer T hashes the dialect vocabulary.
+CANONICAL_INTERACTIVE_LIB="$REPO_ROOT/scripts/lib/interactive-prompt.py"
 CANONICAL_DRIFTGUARD_HOOK="$REPO_ROOT/scripts/hooks/guard-definition-drift.sh"
 CANONICAL_DEFSNAPSHOT_HOOK="$REPO_ROOT/scripts/hooks/snapshot-agent-definitions.sh"
 CANONICAL_REAPHOOK="$REPO_ROOT/scripts/hooks/session-start-reap-worktrees.sh"
@@ -2097,6 +2111,12 @@ CANON = [
     "verify-agent-prompt.sh",
     "guard-main-checkout-writes.sh",
     "guard-bash-main-writes.sh",
+    # The interactive-prompt guard. A BLOCKING Bash-matcher guard, and the one
+    # whose double-registration would be read as two separate hazards in one
+    # command line — a refusal that names the same missing -P twice invites the
+    # reader to conclude the guard is confused, which is how a correct refusal
+    # gets argued with.
+    "guard-interactive-prompt.sh",
     "scan-secrets.sh",
     # A BLOCKING Write/Edit-matcher guard: registered twice it would print the
     # same dialect refusal twice, which reads as two separate wrong words in one
@@ -2339,6 +2359,88 @@ else
             emit_fail "O. wired Bash-guard did NOT block a main-checkout '$BASHGUARD_FIRST' source write (exit=$bashguard_rc, expected 2)"
         else
             emit_pass "O. Bash-write guard wired + denies a main-checkout source write (path-confined, manifest-matched, exit=2 canary)"
+        fi
+    fi
+fi
+
+# --- Layer IP: interactive-prompt guard wired + path-confined + manifest-matched
+# + REFUSES a command that can wait on a human and PASSES one that cannot, AND
+# its shape table is hashed (HARD gate) ---
+#
+# A HARD gate, because the thing it proves is the thing that failed. At 02:01 on
+# 2026-09-01 a macOS password window appeared on the CEO's screen: an agent ran
+# `security import D.p12 -k <scratch>/t3.keychain-db -T /usr/bin/codesign` with
+# no -P, macOS escalated to SecurityAgent, and the process blocked on a dialog
+# nobody had asked for. Forty-one guards were registered and not one of them
+# asked whether a command can wait on a human.
+#
+# THE ANALYZER IS HASHED TOO, and that half is the point, exactly as it is for
+# Layer T's vocabulary: guard-interactive-prompt.sh decides nothing itself.
+# Every shape it refuses and every fix it names comes out of
+# scripts/lib/interactive-prompt.py. A hash-matched hook over a gutted shape
+# table is a green tick over an enforcement outage.
+#
+# TWO-SIDED CANARY, NON-NEGOTIABLE HERE. This guard exits 2 to refuse, and 2
+# when it cannot start — missing python3, missing resolve-roots.sh, missing the
+# analyzer. Same number, opposite meanings; that ambiguity is what left Layer K
+# green over a dead secrets scanner for as long as it had existed. So the
+# incident command must return 2 AND the same command carrying its fix must
+# return 0, in the same breath. A dead hook fails the second half.
+INTERACTIVE_WIRED_CMD=""
+for c in "${BASH_MATCHER_CMDS[@]}"; do
+    RESOLVED_C="${c//\$CLAUDE_PROJECT_DIR/$REPO_ROOT}"
+    RESOLVED_C="${RESOLVED_C//\$\{CLAUDE_PROJECT_DIR\}/$REPO_ROOT}"
+    WIRED_PATH_C="${RESOLVED_C%% *}"
+    if [ "$(realpath_of "$WIRED_PATH_C")" = "$(realpath_of "$CANONICAL_INTERACTIVE_HOOK")" ]; then
+        INTERACTIVE_WIRED_CMD="$RESOLVED_C"
+        break
+    fi
+done
+
+if [ -z "$INTERACTIVE_WIRED_CMD" ]; then
+    emit_fail "IP. PreToolUse[Bash] interactive-prompt guard (guard-interactive-prompt.sh) NOT wired in settings.json — run scripts/hooks/install.sh. Without it nothing asks whether a command can stop and wait for a human."
+else
+    IP_HOOK_EXE="${INTERACTIVE_WIRED_CMD%% *}"
+    IP_REAL="$(realpath_of "$IP_HOOK_EXE")"
+    IP_HASH="$(sha256_of "$IP_REAL")"
+    IP_MANIFEST="$(manifest_hash_of "$CANONICAL_INTERACTIVE_HOOK")"
+    IP_LIB_HASH="$(sha256_of "$CANONICAL_INTERACTIVE_LIB" 2>/dev/null || true)"
+    IP_LIB_MANIFEST="$(manifest_hash_of "$CANONICAL_INTERACTIVE_LIB" 2>/dev/null || true)"
+    if [ ! -x "$IP_HOOK_EXE" ]; then
+        emit_fail "IP. wired interactive-prompt guard not found / not executable: $IP_HOOK_EXE"
+    elif [ -z "$IP_HASH" ]; then
+        emit_fail "IP. interactive-prompt guard content hash could not be computed"
+    elif [ -z "$IP_MANIFEST" ]; then
+        emit_fail "IP. interactive-prompt guard manifest missing or unreadable: $CANONICAL_INTERACTIVE_HOOK.sha256 — run scripts/hooks/install.sh to regenerate, then commit."
+    elif [ "$IP_HASH" != "$IP_MANIFEST" ]; then
+        emit_fail "IP. interactive-prompt guard content hash mismatch — live hook differs from manifest (tamper or stale manifest). Run scripts/hooks/install.sh and review the diff."
+    elif [ ! -f "$CANONICAL_INTERACTIVE_LIB" ]; then
+        emit_fail "IP. the shape table is MISSING: $CANONICAL_INTERACTIVE_LIB. The guard decides nothing without it."
+    elif [ -z "$IP_LIB_MANIFEST" ]; then
+        emit_fail "IP. shape table unhashed: $CANONICAL_INTERACTIVE_LIB.sha256 missing — run scripts/hooks/install.sh to regenerate, then commit."
+    elif [ -n "$IP_LIB_HASH" ] && [ "$IP_LIB_HASH" != "$IP_LIB_MANIFEST" ]; then
+        emit_fail "IP. shape table MODIFIED since install: $CANONICAL_INTERACTIVE_LIB (sha256 $IP_LIB_HASH != manifest $IP_LIB_MANIFEST). Every refusal this guard issues comes out of this file — review the change, then re-run scripts/hooks/install.sh."
+    else
+        # The incident command itself, verbatim apart from the scratch path.
+        IP_CANARY_BLOCK="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"security import D.p12 -k "+sys.argv[1]+"/t3.keychain-db -T /usr/bin/codesign"}}))' "$REPO_ROOT" 2>/dev/null || true)"
+        # THE SAME COMMAND, CARRYING THE FIX THE REFUSAL NAMES. This half proves
+        # two things at once that no single-sided canary can: the guard is
+        # READING rather than merely failing to start, and the remedy it tells
+        # people to use actually works. A guard whose named fix is still refused
+        # leaves an author with nowhere to go but a waiver.
+        IP_CANARY_CLEAN="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"security import D.p12 -k "+sys.argv[1]+"/t3.keychain-db -P \"\" -T /usr/bin/codesign"}}))' "$REPO_ROOT" 2>/dev/null || true)"
+        set +e
+        printf '%s' "$IP_CANARY_BLOCK" | "$IP_HOOK_EXE" >/dev/null 2>&1
+        ip_block_rc=$?
+        printf '%s' "$IP_CANARY_CLEAN" | "$IP_HOOK_EXE" >/dev/null 2>&1
+        ip_clean_rc=$?
+        set -e
+        if [ "$ip_block_rc" -eq 2 ] && [ "$ip_clean_rc" -ne 0 ]; then
+            emit_fail "IP. the interactive-prompt guard refused BOTH the prompting command and the corrected one (exit=$ip_clean_rc on the fixed command). It is not enforcing, it is failing to start — check scripts/lib/interactive-prompt.py, scripts/lib/resolve-roots.sh and python3."
+        elif [ "$ip_block_rc" -ne 2 ]; then
+            emit_fail "IP. the wired interactive-prompt guard did NOT block \`security import\` with no -P (exit=$ip_block_rc, expected 2). This is the exact command that put a password window on the CEO's screen at 02:01 on 2026-09-01."
+        else
+            emit_pass "IP. interactive-prompt guard wired + REFUSES \`security import\` with no -P and PASSES the same command with -P '' + shape table hashed (path-confined, manifest-matched, two-sided canary)"
         fi
     fi
 fi

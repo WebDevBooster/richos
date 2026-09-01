@@ -357,6 +357,12 @@ HOOK_FILES+=(
     # of the decision. Edit a question and every transcript on file stops
     # counting, which is correct: nobody has answered the new question.
     "$REPO_ROOT/scripts/lib/cold-open-prompt.md"
+    # The interactive-prompt shape table. Same argument as the dialect
+    # vocabulary directly above: guard-interactive-prompt.sh refuses a command
+    # on nothing but what this file says, so a quietly trimmed copy would leave
+    # the guard wired, hashed, executable and blocking nothing — and the thing
+    # it stops blocking draws a window on the logged-in user's screen.
+    "$REPO_ROOT/scripts/lib/interactive-prompt.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

@@ -214,6 +214,14 @@ ALL_ROOT_SCRIPTS=(
     # That half stays a human judgment, made at this list, which is why each
     # entry states its own reason.
     scripts/lib/teammate-identity.py
+    # The interactive-prompt shape table. FIRST reason on this list, in its
+    # strongest form: guard-interactive-prompt.sh REFUSES TO START without it,
+    # by exiting 2 and naming it — and Layer IP's canary asserts that guard
+    # exits 2 on a prompting command. Same number, opposite meanings, which is
+    # exactly the shape that left Layer K green over a dead scanner. A sandbox
+    # missing this file would model an engine whose newest blocking guard is
+    # off, and Layer IP would report it as on.
+    scripts/lib/interactive-prompt.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -312,6 +320,11 @@ data["hooks"] = {
             {"type": "command", "command": P + "/guard-resume-isolation.sh", "timeout": 10},
         ]},
         {"matcher": "Bash", "hooks": [
+            # FIRST, mirroring the shipped table. Layer IP scans the whole Bash
+            # matcher list so order does not decide the layer — it is first
+            # because a command that can hang the session should be refused
+            # before anything slower has spent time on it.
+            {"type": "command", "command": P + "/guard-interactive-prompt.sh", "timeout": 10},
             {"type": "command", "command": P + "/guard-bash-main-writes.sh", "timeout": 10},
             {"type": "command", "command": P + "/guard-worktree-removal.sh", "timeout": 10},
         ]},
@@ -1591,6 +1604,114 @@ else
     printf '  FAIL  %s\n' "S4b.layer-S-names-the-missing-helper"
 fi
 rm -rf "$ROOT"
+
+# ---------------------------------------------------------------------------
+# Layer IP — the interactive-prompt guard and its shape table
+# ---------------------------------------------------------------------------
+# Six ways the pair can be broken, each of which reopens the hole that put a
+# macOS password window on the CEO's screen at 02:01 on 2026-09-01. The positive
+# baseline is covered by cases 1/2, which now include Layer IP.
+#
+# IP5 is the case worth reading. This guard exits 2 to refuse and 2 when it
+# cannot start, so a one-sided canary would be satisfied by a corpse — the exact
+# way Layer K stayed green over a dead secrets scanner. The two-sided canary is
+# what makes IP5 possible, and IP5 is what proves the two-sided canary is real.
+
+# IP1 — the guard is not wired at all.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/.claude/settings.local.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p) as f: d = json.load(f)
+for entry in d["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        entry["hooks"] = [h for h in entry["hooks"]
+                          if "guard-interactive-prompt.sh" not in h.get("command", "")]
+with open(p, "w") as f: json.dump(d, f, indent=2)
+PY
+set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IP1.interactive-prompt-guard-not-wired-fails" 2 "$rc"
+if printf '%s' "$IP_OUT" | grep -q 'IP\. PreToolUse\[Bash\] interactive-prompt guard'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IP1b.layer-IP-is-the-layer-that-caught-it"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IP1b.layer-IP-is-the-layer-that-caught-it")
+    printf '  FAIL  %s  (some other layer absorbed it)\n' "IP1b.layer-IP-is-the-layer-that-caught-it"
+fi
+rm -rf "$ROOT"
+
+# IP2 — wired TWICE. Hook sources merge additively, so the same missing -P is
+# reported as two separate hazards in one command line.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/.claude/settings.local.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p) as f: d = json.load(f)
+for entry in d["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        dup = [h for h in entry["hooks"] if "guard-interactive-prompt.sh" in h.get("command", "")]
+        entry["hooks"].extend(dup)
+with open(p, "w") as f: json.dump(d, f, indent=2)
+PY
+set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IP2.interactive-prompt-guard-wired-twice-fails" 2 "$rc"
+rm -rf "$ROOT"
+
+# IP3 — the guard is gutted into a no-op. Still wired, still present; the hash
+# catches it, and the canary would too if the hash did not.
+ROOT="$(make_sandbox)"
+cat >"$ROOT/scripts/hooks/guard-interactive-prompt.sh" <<'NOOP_SH'
+#!/usr/bin/env bash
+exit 0
+NOOP_SH
+chmod +x "$ROOT/scripts/hooks/guard-interactive-prompt.sh"
+set +e; run_probe_in "$ROOT" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IP3.gutted-interactive-prompt-guard-fails" 2 "$rc"
+rm -rf "$ROOT"
+
+# IP4 — THE PAIR SPLIT. The guard is perfect; the shape table it takes every
+# decision from is gone. Like Layer S's helper and Layer T's vocabulary, the
+# table is not a hook and does not live in scripts/hooks/, so a directory-shaped
+# sweep misses it entirely.
+ROOT="$(make_sandbox)"
+rm -f "$ROOT/scripts/lib/interactive-prompt.py" "$ROOT/scripts/lib/interactive-prompt.py.sha256"
+set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IP4.shape-table-missing-fails" 2 "$rc"
+if printf '%s' "$IP_OUT" | grep -q 'the shape table is MISSING'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IP4b.layer-IP-names-the-missing-shape-table"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IP4b.layer-IP-names-the-missing-shape-table")
+    printf '  FAIL  %s\n' "IP4b.layer-IP-names-the-missing-shape-table"
+fi
+rm -rf "$ROOT"
+
+# IP5 — A DEAD GUARD, WHOSE CORPSE EXITS 2. This is the failure a one-sided
+# canary cannot see: refusing everything looks identical to refusing the right
+# thing. Layer IP must say it is failing to START, not failing to catch.
+ROOT="$(make_sandbox)"
+cat >"$ROOT/scripts/hooks/guard-interactive-prompt.sh" <<'DEAD_SH'
+#!/usr/bin/env bash
+exit 2
+DEAD_SH
+chmod +x "$ROOT/scripts/hooks/guard-interactive-prompt.sh"
+shasum -a 256 "$ROOT/scripts/hooks/guard-interactive-prompt.sh" | awk '{print $1}' \
+    > "$ROOT/scripts/hooks/guard-interactive-prompt.sh.sha256"
+set +e; IP_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash" 2 "$rc"
+if printf '%s' "$IP_OUT" | grep -q 'refused BOTH the prompting command and the corrected one'; then
+    PASS=$((PASS+1)); printf '  PASS  %s\n' "IP5b.layer-IP-says-failing-to-start-not-failing-to-catch"
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("IP5b.layer-IP-says-failing-to-start-not-failing-to-catch")
+    printf '  FAIL  %s\n' "IP5b.layer-IP-says-failing-to-start-not-failing-to-catch"
+fi
+rm -rf "$ROOT"
+
+# IP6 — the guard's OWN behavioral suite (113 cases, two-sided throughout) and
+# the mutation harness that proves that suite can fail, both against the live
+# scripts. Case 48 does the same for the reaper wrapper.
+set +e; "$SCRIPT_DIR/guard-interactive-prompt.test.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IP6.interactive-prompt-guard-suite-passes" 0 "$rc"
+set +e; "$SCRIPT_DIR/interactive-prompt.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IP7.interactive-prompt-mutations-all-load-bearing" 0 "$rc"
 
 echo ""
 echo "=== summary ==="

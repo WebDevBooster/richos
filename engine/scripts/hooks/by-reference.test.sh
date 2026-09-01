@@ -281,14 +281,32 @@ expect_only_layer_failed "2b.BR2-guard-not-registered" "BR2" "guard-resume-isola
 rm -rf "$SB"
 
 # The additive-merge double-fire, arriving through the plugin door.
+#
+# THE GUARD IS DUPLICATED BY NAME, NOT BY POSITION. This case used to take
+# entry["hooks"][0] and assert BR2 named guard-bash-main-writes.sh — which
+# quietly meant "whatever happens to be first in the Bash chain". On 2026-09-01
+# guard-interactive-prompt.sh was wired ahead of it and the case went red while
+# testing something it had never meant to test. An index is a second, invisible
+# inventory of the chain order; a name is the property the case is actually
+# about.
 SB="$(make_sandbox)"
 python3 - "$SB/engine/hooks/hooks.json" <<'PY'
 import copy, json, sys
 p = sys.argv[1]
 d = json.load(open(p))
+TARGET = "guard-bash-main-writes.sh"
+found = False
 for entry in d["hooks"]["PreToolUse"]:
-    if entry.get("matcher") == "Bash":
-        entry["hooks"].append(copy.deepcopy(entry["hooks"][0]))
+    if entry.get("matcher") != "Bash":
+        continue
+    for h in list(entry["hooks"]):
+        if TARGET in h.get("command", ""):
+            entry["hooks"].append(copy.deepcopy(h))
+            found = True
+            break
+if not found:
+    sys.stderr.write("2c: %s is not wired on the Bash matcher\n" % TARGET)
+    sys.exit(3)
 json.dump(d, open(p, "w"), indent=2)
 PY
 run_probe "$SB"

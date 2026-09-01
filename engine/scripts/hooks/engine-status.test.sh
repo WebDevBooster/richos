@@ -305,7 +305,17 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # green only at main + this branch. Deliberate: the alternative, 39, was green
 # here and would have been wrong the instant it landed — a tripwire that fires
 # on a CORRECT merge, which is worse than one that fires on a wrong one.
-if [ "$REGISTERED_N" -eq 41 ]; then
+#
+# 41 -> 42 on 2026-09-01: guard-interactive-prompt.sh — the first guard in this
+# engine that asks whether a COMMAND CAN WAIT ON A HUMAN, rather than what a
+# file or a name says. Tenth firing, and the one where the tripwire's premise is
+# most literally true: forty-one guards were registered on the night a macOS
+# password window appeared on the CEO's screen, and the count is the only place
+# a reader is made to notice that a forty-second kind of question now exists.
+# Verified post-merge rather than assumed: main registers 41 at 62507d0, and no
+# other live branch (zach-opus-c1, zach-opus-n1, the three echo branches) adds a
+# hook to hooks.json, so 42 is the merged truth and is green here too.
+if [ "$REGISTERED_N" -eq 42 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"

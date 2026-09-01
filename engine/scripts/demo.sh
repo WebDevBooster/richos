@@ -248,6 +248,11 @@ DEMO_FILES+=(
     # verifies and exercises them, so Beat 7 fails without them for a reason that
     # is not about the demo — which is the same sentence the helper carries, one
     # file further down the chain.
+    # The interactive-prompt shape table. guard-interactive-prompt.sh refuses
+    # to start without it, so a sample repo missing it would ship a buyer an
+    # engine whose newest blocking guard is dead on arrival — while the probe's
+    # Layer IP reported it as wired.
+    "scripts/lib/interactive-prompt.py"
     "scripts/lib/agent-liveness.py"
     "scripts/lib/agent-liveness.sh"
     "scripts/agent-liveness.sh"
