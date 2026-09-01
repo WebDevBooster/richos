@@ -915,6 +915,60 @@ async function main() {
     return `field live at ${t}ms from navigation, inside the curtain's 3000ms hold`;
   });
 
+  await run.check("a launch with NO curtain at all lands on the home screen, dark, and usable", async () => {
+    // THE CEO'S OWN MACHINE IS ABOUT TO TAKE THIS PATH. His `launches.json` carries a start
+    // this branch's own `open(1)` runs put there, and `splash.js` declines to draw on anything
+    // that is not a fresh launch — so the next thing he sees may well be the home screen with
+    // nothing in front of it. It is also what every reload, every crash-restart and every
+    // second window gets, and what a CEO who switched the opening screen off gets forever.
+    //
+    // The reason it is worth its own check rather than being covered by the others: the
+    // always-dark clamp has TWO owners, and every other check in this file runs after the
+    // curtain has yielded, which means after it has handed the clamp over. This one runs where
+    // the curtain never held it at all.
+    const p4 = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    // The shell injects this before any page script; `"reload"` is one of the kinds `splash.js`
+    // declines on. Nothing here disables the home screen — that is the point.
+    await p4.addInitScript(() => {
+      window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "reload" });
+    });
+    await p4.goto(APP);
+    await p4.waitForFunction("typeof window.RichHome === 'object'");
+    await p4.waitForFunction("typeof window.RichTimeline === 'object'");
+    const r = await p4.evaluate(() => ({
+      splashDrew: window.RichSplash.state.shown,
+      splashDeclined: window.RichSplash.state.declined,
+      homeOpen: window.RichHome.state.open,
+      homeHidden: document.getElementById("home").hidden,
+      curtainNodes: document.querySelectorAll("#splash, .splash").length,
+      theme: document.documentElement.getAttribute("data-theme"),
+      forced: window.RichTheme.forcedDark(),
+      appInert: document.getElementById("app").hasAttribute("inert"),
+      switchReachable: !!document.getElementById("home-enter"),
+      settingsReachable: !!document.querySelector(".setbtn"),
+    }));
+    assert(!r.splashDrew, "the curtain drew on a launch it should have declined");
+    assert(/not a fresh launch/.test(r.splashDeclined || ""), "it declined for the wrong reason: " + r.splashDeclined);
+    assertEqual(r.curtainNodes, 0, "a curtain node is in the document");
+    assert(r.homeOpen && !r.homeHidden, "the home screen is not the surface he landed on");
+    assertEqual(r.theme, "dark", "§15's exception did not hold without a curtain to hand it over");
+    assert(r.forced, "the always-dark clamp was never raised — it was the curtain's to raise, and there was none");
+    assert(r.appInert, "#app is live behind the home screen");
+    assert(r.switchReachable && r.settingsReachable, "the way out or the settings button is missing");
+    // ...and it is still a working surface, not just a correct one.
+    await p4.evaluate(() => window.RichHome.startField());
+    await p4.waitForFunction("window.RichHome.state.field === 'live'", { timeout: 60000 });
+    await p4.click("#home-enter");
+    await p4.waitForFunction(() => document.getElementById("home").hidden);
+    const left = await p4.evaluate(() => ({
+      open: window.RichHome.state.open,
+      forced: window.RichTheme.forcedDark(),
+    }));
+    assert(!left.open && !left.forced, "the switch did not work on a launch with no curtain");
+    await p4.close();
+    return `curtain declined ("${r.splashDeclined}"), 0 curtain nodes, home screen up and dark with the clamp raised by itself, switch works`;
+  });
+
   await run.check("no page errors, across all of it", async () => {
     assertEqual(page.__errors, [], "uncaught errors in the real shell");
     return `${page.__errors.length} uncaught errors, ${page.__errors.length} console errors, over the whole run`;
