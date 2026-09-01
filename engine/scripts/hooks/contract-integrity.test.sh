@@ -170,8 +170,17 @@ ALL_ROOT_SCRIPTS=(
     # AL fails outright, so a sandbox missing it models an engine whose worktree
     # removal is permanently jammed and whose Stop-time claim check is off. It
     # is also the file three separate callers take their entire answer from, so
-    # a sandbox that carries the callers and not the resolver is modelling an
+    # a sandbox that carries the callers and not the resolver is modeling an
     # engine that cannot be assembled.
+    #
+    # FOURTH CALLER, added 2026-09-01, and it is on the SOFT side of the line
+    # SC1 can see — stated here because that is the whole point of this list.
+    # scripts/reap-stale-worktrees.sh asks this resolver whether a hand-rolled
+    # worktree's OWNER is still alive. Without it the reaper does not refuse to
+    # start: it declares the blindness and treats EVERY hand-rolled worktree as
+    # undecidable, which is safe and is also a reaper that can never reap the
+    # class it was rebuilt to handle. A sandbox missing it would model that
+    # engine while looking entirely healthy.
     scripts/lib/agent-liveness.py
     scripts/lib/agent-liveness.sh
     scripts/agent-liveness.sh
