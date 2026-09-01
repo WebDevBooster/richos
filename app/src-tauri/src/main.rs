@@ -409,6 +409,30 @@ const LEASE_UNAVAILABLE_MESSAGE: &str =
      open it again — that clears it most of the time. If it keeps happening, whoever set \
      RichOS up has to sign me back in; that part isn't yours to fix.";
 
+/// What the CEO is told when there is no corpus this install could write a correction to.
+///
+/// **A CONST, and it became one because it being prose inside a closure cost two test
+/// suites.** `49e2cd4` rewrote this sentence in place — it had said *"No loro corpus is
+/// configured for this install…"*, a word that is false when the corpus is sitting at a path
+/// nobody looked at — and left `app/ui/mock.js` and `tests/lib/state-registry.js` holding the
+/// old one. `affordances.js` and `corrections.js` have been failing ever since and NOBODY
+/// SAW IT, because `app/ui/tests` had no `node_modules` and eighteen of the nineteen suites
+/// could not start.
+///
+/// The affordance scrape (`tests/lib/state-strings.js::RUST_CEO_CONTEXT`) finds a CEO-facing
+/// sentence by the shape of the code around it — `Err(`, `ok_or`, `.into()`, or a
+/// `const … : &str =` on the line above. Three lines below an `ok_or_else(|| {`, inside a
+/// `String::from(`, it matched none of them, so the string was invisible to the very
+/// machinery that exists to notice it drifting. As a const it is found the same way
+/// [`LEASE_UNAVAILABLE_MESSAGE`] is, and `mock.js` copies it the way `_notConnected` copies
+/// that one.
+///
+/// The candidate list `desk()` appends is deliberately NOT part of it: the list is a fact
+/// about one machine, this is the sentence.
+const LORO_DESK_ABSENT_MESSAGE: &str =
+    "This install has no company memory it can write to, so there is nothing to read or \
+     correct here. That is a statement about this install, not about what is recorded.";
+
 /// What the CEO is told when the repository root does not deterministically select one
 /// entity. UX §21 "Entity binding failure": state that Rich cannot safely determine which
 /// entity the work belongs to, and require an explicit choice. Never default.
@@ -3037,11 +3061,7 @@ fn desk(state: &State<AppState>) -> Result<SharedCorrectionDesk, String> {
     let held = state.correction.lock().unwrap().clone();
     held.ok_or_else(|| {
         let status = state.memory.lock().unwrap().clone();
-        let mut msg = String::from(
-            "This install has no company memory it can write to, so there is nothing to read \
-             or correct here. That is a statement about this install, not about what is \
-             recorded.",
-        );
+        let mut msg = String::from(LORO_DESK_ABSENT_MESSAGE);
         if !status.tried.is_empty() {
             msg.push_str("\n\nLooked for it in:");
             for t in &status.tried {

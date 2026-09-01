@@ -676,8 +676,8 @@
   // `LEASE_UNAVAILABLE_MESSAGE`. `corrections.js` asserts each is byte-identical to the
   // Rust const, so this preview can never rehearse a sentence the product no longer says.
   const LORO_DESK_ABSENT =
-    "No loro corpus is configured for this install, so there is nothing to read or correct. " +
-    "That is a statement about this install, not about what is recorded.";
+    "This install has no company memory it can write to, so there is nothing to read " +
+    "or correct here. That is a statement about this install, not about what is recorded.";
   const SPOKEN_DESK_ABSENT =
     "I can't record corrections right now — my correction log could not be opened. " +
     "Nothing you say is being lost from the conversation itself.";
