@@ -55,6 +55,8 @@ mutant() {
        "$ENGINE_ROOT/scripts/hooks/notice-inflight-acks.sh" \
        "$ENGINE_ROOT/scripts/hooks/inflight-notify.test.sh" "$dir/scripts/hooks/"
     cp "$ENGINE_ROOT/scripts/lib/inflight.sh" "$ENGINE_ROOT/scripts/lib/inflight.py" \
+       "$ENGINE_ROOT/scripts/lib/teammate-identity.py" \
+       "$ENGINE_ROOT/scripts/lib/agent-liveness.py" \
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" \
@@ -182,6 +184,38 @@ mutant abspath-not-realpath "5j." scripts/lib/inflight.py \
     '    return os.path.realpath(os.path.abspath(path)).rstrip("/")' \
     '    return os.path.abspath(path).rstrip("/")' \
     "The symlinked-tmpdir mismatch would come straight back."
+
+# 13. IDENTITY IS THE UNIQUE NAME, NEVER THE ROLE. This is the 2026-08-31
+#     defect itself: resolve a teammate as its agent_type and the debt side
+#     writes `zach` while the witness writes `zach-opus-s1`, so a notice that
+#     was genuinely sent can never be credited and the land is waived through.
+mutant identity-is-the-role "10c." scripts/lib/inflight.py \
+    '        name = index["names"].get(agent_id, "")' \
+    '        name = index["roles"].get(agent_id, "")' \
+    "The sweep would call the teammate 'zach' again — the exact string that could not be joined to 'zach-opus-s1'."
+
+# 14. THE ROLE IS NOT AN ADDRESS. The tempting shortcut — credit a notice to
+#     any live worktree whose role matches — reports a teammate as told when a
+#     DIFFERENT teammate of the same role was told. Three Zachs ran at once on
+#     the day this was measured.
+mutant credits-by-role "10d." scripts/lib/inflight.py \
+    '        addresses = {a for a in (name, base, agent_id,' \
+    '        addresses = {a for a in (name, base, agent_id, role,' \
+    "A notice to the bare role would clear one arbitrary teammate's debt."
+
+# 14b. BOTH EXACT JOINS AT ONCE. The reproduction is defended twice over —
+#      by the agent id the witness resolved at send time, and by the unique
+#      name the debt side resolves at push time. Removing either alone leaves
+#      the other standing (which is the point of having two). Removing both in
+#      one edit leaves only the token readings, which is precisely the state
+#      that produced the 2026-08-31 false positive.
+mutant credit-by-tokens-only "10b." scripts/lib/inflight.py \
+    '        hits = [w for w in worktrees if to_aid and w.get("agent_id") == to_aid]
+        # 2. The address set: unique spawn name, agent id, directory name.
+        if len(hits) != 1:
+            hits = [w for w in worktrees if to in w.get("addresses", ())]' \
+    '        hits = []' \
+    "A notice to zach-opus-s1 could not be credited to agent-<id> at all — the measured defect, verbatim."
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

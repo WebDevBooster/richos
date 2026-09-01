@@ -50,6 +50,26 @@
 # is by construction a bare hex token.
 #
 # ===========================================================================
+# THE RECIPIENT IS RECORDED TWICE: AS ADDRESSED, AND AS RESOLVED
+# ===========================================================================
+# `to` is what SendMessage was handed — always the teammate's MANDATORY UNIQUE
+# NAME (`zach-opus-s1`), because that is the only thing it can be addressed
+# with. That is recorded verbatim and always.
+#
+# `to_agent_id` is that name resolved to an agent id, HERE, in the lead's own
+# execution, by scripts/lib/teammate-identity.py — the same module the guard
+# resolves worktrees with. It is added because of 2026-08-31: two notices were
+# genuinely sent, witnessed and logged, and the guard still reported
+# OWED-NO-NOTICE, because the debt side was resolving teammates as the ROLE
+# (`zach`, from worker-events `agent_type`) and nothing could ever join `zach`
+# to `zach-opus-s1`. Recording the resolved id makes the join exact and makes
+# it independent of what the debt side can still resolve at push time.
+#
+# BEST EFFORT, NEVER LOAD-BEARING HERE: an unresolvable name records an empty
+# `to_agent_id` and the guard falls back to matching on the name. This hook
+# never fails, never blocks, and never delays a send over an identity lookup.
+#
+# ===========================================================================
 # WHAT THIS LEDGER DOES NOT PROVE — named, not implied
 # ===========================================================================
 # It proves the lead SENT a message naming a SHA to a named recipient. It does
@@ -60,10 +80,13 @@
 # this engine claims to stop it.
 #
 # NEVER BLOCKS, ALWAYS EXIT 0. Env override for tests: INFLIGHT_TEAMS_DIR
-# (WORKER_EVENTS_TEAMS_DIR is honoured too, so a test harness that already sets
+# (WORKER_EVENTS_TEAMS_DIR is honored too, so a test harness that already sets
 # one does not have to set two).
 
 set -o pipefail
+
+INFLIGHT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" 2>/dev/null && pwd)"
+export INFLIGHT_LIB_DIR
 
 PAYLOAD="$(cat)"
 
@@ -74,6 +97,23 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+
+
+def identity_module():
+    """scripts/lib/teammate-identity.py — the SAME module the guard resolves
+    worktrees with. Absent or broken costs a field, never the record."""
+    try:
+        import importlib.util as ilu
+        path = os.path.join(os.environ.get("INFLIGHT_LIB_DIR", ""),
+                            "teammate-identity.py")
+        if not os.path.isfile(path):
+            return None
+        spec = ilu.spec_from_file_location("teammate_identity_witness", path)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
 
 
 def finish():
@@ -126,6 +166,8 @@ shas = sorted({m.group(0) for m in re.finditer(r"\b[0-9a-f]{7,40}\b", body.lower
 
 session_id = payload.get("session_id") or ""
 home = os.path.expanduser("~")
+
+IDENTITY = identity_module()
 teams_dir = (os.environ.get("INFLIGHT_TEAMS_DIR")
              or os.environ.get("WORKER_EVENTS_TEAMS_DIR")
              or os.path.join(home, ".claude", "teams"))
@@ -147,18 +189,32 @@ def resolve_team_dir():
     return sessions[0] if len(sessions) == 1 else None
 
 
-team_dir = resolve_team_dir()
+team_dir = resolve_team_dir() or ""
+
 log_path = (
     os.path.join(team_dir, "inflight-notices.jsonl")
     if team_dir
     else os.path.join(home, ".claude", "inflight-notices.jsonl")
 )
 
+# The recipient, resolved to an agent id at the moment the send happened.
+to_agent_id = ""
+to_identity_source = ""
+if IDENTITY is not None:
+    try:
+        index = IDENTITY.identity_index(
+            team_dir, str(payload.get("transcript_path", "") or ""), session_id)
+        to_agent_id, to_identity_source = IDENTITY.agent_id_for_name(to, index)
+    except Exception:
+        to_agent_id, to_identity_source = "", ""
+
 record = {
     "timestamp": datetime.now(timezone.utc).isoformat(),
     "event": "InflightNotice",
     "source_hook": "PostToolUse[SendMessage]",
     "to": to[:200],
+    "to_agent_id": to_agent_id[:64],
+    "to_identity_source": to_identity_source[:120],
     "summary": str(tool_input.get("summary", "") or "")[:200],
     "message_kind": kind,
     "message_chars": len(body),

@@ -49,6 +49,16 @@ THE THREE FACTS, AND WHERE EACH ONE COMES FROM
    sent the message is gone. See ack_status() for exactly which parts of that
    artifact a machine checks and which part it cannot.
 
+AND, UNDERNEATH ALL THREE, WHO A TEAMMATE IS — scripts/lib/teammate-identity.py,
+imported rather than re-derived. Facts 2 and 3 are joined by NAME, and until
+2026-08-31 this file resolved that name from `worker-events.jsonl`'s
+`agent_type`, which is the ROLE (`zach`), while the witness recorded
+SendMessage's `to`, which is the mandatory unique name (`zach-opus-s1`). Two
+notices that were genuinely sent, witnessed and logged were reported as
+OWED-NO-NOTICE and waived through, because one half of the engine wrote `zach`
+and the other wrote `zach-opus-s1`. There is now ONE definition of a teammate's
+name and both halves import it.
+
 ===========================================================================
 LIVENESS — TWO KINDS OF WORKTREE, TWO DIFFERENT ANSWERS
 ===========================================================================
@@ -93,6 +103,27 @@ import sys
 import time
 
 DEFAULT_ACK_TIMEOUT_MIN = 30
+
+
+def _identity_module():
+    """scripts/lib/teammate-identity.py — THE definition of a teammate's name.
+
+    Loaded by path because the filename is hyphenated. If it is missing this
+    predicate degrades to the role, which is exactly the 2026-08-31 defect, so
+    the absence is RECORDED in the assessment rather than swallowed."""
+    try:
+        import importlib.util as ilu
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = ilu.spec_from_file_location(
+            "teammate_identity", os.path.join(here, "teammate-identity.py"))
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+IDENTITY = _identity_module()
 
 # Tokens that carry no identity: the model alias in <role>-<model>-<id> names,
 # and dates in hand-rolled worktree names. Stripped before name matching.
@@ -237,56 +268,77 @@ def name_tokens(text, strip_digits=True):
     return toks
 
 
-def worker_name_index(teams_dir):
-    """agent_id -> teammate name, from the worker lifecycle stream.
+def identity_index(teams_dir, transcript_path="", session_id=""):
+    """The shared identity index, or an empty one that says why it is empty.
 
-    WorkerStarted rows carry agent_type (the teammate's name) alongside
-    agent_id, and a native worktree directory is literally agent-<agent_id>.
-    That makes the native join EXACT rather than inferred."""
-    index = {}
-    path = os.path.join(teams_dir, "worker-events.jsonl") if teams_dir else ""
-    if not path or not os.path.isfile(path):
-        return index
+    Delegated in full to scripts/lib/teammate-identity.py. Kept as a wrapper so
+    that a missing module degrades to "no names, and here is the reason"
+    instead of silently reverting to the role — the failure mode this whole
+    change exists to remove."""
+    if IDENTITY is None:
+        return {"names": {}, "sources": {}, "roles": {}, "spawned": [],
+                "tried": ["scripts/lib/teammate-identity.py — MISSING, so no "
+                          "exact name join was possible at all"],
+                "found": []}
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                try:
-                    row = json.loads(line)
-                except Exception:
-                    continue
-                aid = row.get("agent_id") or ""
-                name = row.get("agent_type") or ""
-                if aid and name:
-                    index[aid] = name
-    except Exception:
-        pass
-    return index
+        return IDENTITY.identity_index(teams_dir, transcript_path, session_id)
+    except Exception as exc:
+        return {"names": {}, "sources": {}, "roles": {}, "spawned": [],
+                "tried": ["scripts/lib/teammate-identity.py raised %s" % exc],
+                "found": []}
 
 
-def resolve_worktree_identity(wt_path, name_index):
-    """(kind, agent_id, resolved_name, how) for a worktree path."""
+def resolve_worktree_identity(wt_path, index):
+    """(kind, agent_id, name, role, how) for a worktree path.
+
+    NAME and ROLE are different fields and are never conflated again. `name` is
+    the unique spawn name SendMessage addresses; `role` is the agent_type, and
+    a role is not an address. When no exact source resolves the name, `name` is
+    EMPTY and `how` says which sources were tried — an honest unresolved beats
+    a role wearing a name's field, which is what produced two waivers on
+    2026-08-31."""
     base = os.path.basename(wt_path.rstrip("/"))
     if base.startswith("agent-"):
         agent_id = base[len("agent-"):]
-        name = name_index.get(agent_id, "")
-        how = "worker-events"
-        if not name:
-            m = _NATIVE_ID_RE.match(agent_id)
-            if m:
-                name = m.group("name")
-                how = "agent-id"
-        return "native", agent_id, name, (how if name else "unresolved")
-    return "hand-rolled", "", "", "token-match"
+        name = index["names"].get(agent_id, "")
+        role = index["roles"].get(agent_id, "")
+        if name:
+            return "native", agent_id, name, role, index["sources"].get(agent_id, "")
+        # The agent id itself sometimes embeds the name (a<name>-<hex>). Exact,
+        # and it costs nothing to read when the ledgers are silent.
+        m = _NATIVE_ID_RE.match(agent_id)
+        if m:
+            return "native", agent_id, m.group("name"), role, "agent-id"
+        return "native", agent_id, "", role, "unresolved"
+    # A hand-rolled worktree IS named for its teammate by convention — that is
+    # the only naming rule it has — so a basename of the enforced spawn shape
+    # is the name, not a guess about one.
+    if IDENTITY is not None and IDENTITY.looks_like_teammate_name(base):
+        return "hand-rolled", "", base, IDENTITY.role_of(base), "worktree basename"
+    return "hand-rolled", "", "", "", "token-match"
 
 
 def credit_notices(worktrees, notices, tip):
     """Attach each notice to at most ONE live worktree.
 
-    Exact name match wins. Otherwise the token rule in name_tokens(): the role
-    token plus at least one more must agree. AMBIGUITY CREDITS NOTHING — if a
-    notice's recipient matches two live worktrees, neither is credited, because
-    a notice credited to the wrong worktree is a guard reporting a teammate was
-    told when it was not."""
+    THE ADDRESS IS THE JOIN. A notice records who it was addressed to; a
+    worktree resolves to the set of things that address it (its unique spawn
+    name, its agent id, its directory). Equality between the two is the whole
+    rule, and it is exact.
+
+    The witness now also records `to_agent_id` — resolved at send time, in the
+    lead's own execution, from the same identity module — so the first reading
+    does not depend on the debt side being able to resolve the name at all.
+    Two independent exact paths to the same fact; either one suffices.
+
+    NO ROLE FALLBACK. `zach-opus-s1` is not credited to a worktree known only
+    as `zach`: three Zachs ran at once on the day of the defect, and a
+    role-prefix credit would report a teammate as told when a different
+    teammate was told. When nothing resolves, the debt stands and the report
+    names the sources that came up empty.
+
+    AMBIGUITY CREDITS NOTHING — if a notice's recipient matches two live
+    worktrees, neither is credited."""
     tip = (tip or "").lower()
     for wt in worktrees:
         wt["notice"] = None
@@ -296,13 +348,15 @@ def credit_notices(worktrees, notices, tip):
         to = note.get("to", "") or ""
         if not to:
             continue
-        # FOUR READINGS, STRICTEST FIRST. Each is tried only when the one
-        # before it produced no single answer, so a loose reading can never
-        # override a precise one.
-        hits = [w for w in worktrees if w.get("resolved_name") and w["resolved_name"] == to]
+        # 1. THE WITNESS'S OWN RESOLUTION, joined on agent id. Independent of
+        #    whatever the debt side can resolve now.
+        to_aid = (note.get("to_agent_id") or "").strip()
+        hits = [w for w in worktrees if to_aid and w.get("agent_id") == to_aid]
+        # 2. The address set: unique spawn name, agent id, directory name.
         if len(hits) != 1:
-            hits = [w for w in worktrees
-                    if os.path.basename(w["path"].rstrip("/")) == to]
+            hits = [w for w in worktrees if to in w.get("addresses", ())]
+        # 3/4. The token readings, unchanged, for names that predate the
+        #    enforced <role>-<model>-<id> shape.
         if len(hits) != 1:
             strict = name_tokens(to, strip_digits=False)
             hits = [w for w in worktrees
@@ -491,7 +545,8 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min):
 # --------------------------------------------------------------------------
 # the assessment
 # --------------------------------------------------------------------------
-def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
+def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
+           session_id="", transcript_path=""):
     root = main_checkout(repo)
     if not tip:
         tip = git(root, "rev-parse", "HEAD").strip()
@@ -503,7 +558,7 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
                if r.get("event") == "InflightWaiver"]
     updates = [r for r in read_jsonl(os.path.join(teams_dir, "worker-events.jsonl"))
                if r.get("event") == "WorkerUpdated"] if teams_dir else []
-    name_index = worker_name_index(teams_dir)
+    index = identity_index(teams_dir, transcript_path, session_id)
 
     result = {
         "repo": os.path.abspath(repo),
@@ -513,6 +568,8 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
         "notice_ledger": notice_ledger_path(teams_dir),
         "waiver_ledger": waiver_ledger_path(teams_dir),
         "ack_timeout_min": timeout_min,
+        "identity_sources_tried": index.get("tried", []),
+        "identity_sources_found": index.get("found", []),
         "worktrees": [],
         "blocking": [],
         "unacked": [],
@@ -526,7 +583,13 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
         path = entry["path"]
         if norm(path) == norm(root):
             continue  # the main checkout is not a teammate
-        kind, agent_id, name, how = resolve_worktree_identity(path, name_index)
+        kind, agent_id, name, role, how = resolve_worktree_identity(path, index)
+        base = os.path.basename(path.rstrip("/"))
+        # EVERY EXACT WAY THIS WORKTREE CAN BE ADDRESSED. A notice is credited
+        # on equality with one of these and on nothing looser; the role is
+        # deliberately absent, because a role is not an address.
+        addresses = {a for a in (name, base, agent_id,
+                                 ("agent-" + agent_id) if agent_id else "") if a}
         wt = {
             "path": path,
             "branch": entry["branch"],
@@ -534,10 +597,11 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN):
             "kind": kind,
             "agent_id": agent_id,
             "resolved_name": name,
+            "role": role,
             "name_source": how,
-            "identity_tokens": name_tokens(name or os.path.basename(path.rstrip("/"))),
-            "identity_tokens_strict": name_tokens(
-                name or os.path.basename(path.rstrip("/")), strip_digits=False),
+            "addresses": sorted(addresses),
+            "identity_tokens": name_tokens(name or base),
+            "identity_tokens_strict": name_tokens(name or base, strip_digits=False),
             "present": os.path.isdir(path),
         }
 
@@ -641,6 +705,10 @@ def render_text(res):
     a("  tip            : %s" % res["tip"])
     a("  ack timeout    : %s min" % res["ack_timeout_min"])
     a("  notice ledger  : %s" % (res["notice_ledger"] or "<no team dir resolved>"))
+    a("  identity from  : %s"
+      % ("; ".join(res.get("identity_sources_found") or [])
+         or "NOTHING RESOLVED — sources tried: %s"
+            % "; ".join(res.get("identity_sources_tried") or ["<none>"])))
     if res.get("error"):
         a("  ERROR: %s" % res["error"])
         return "\n".join(out)
@@ -651,7 +719,15 @@ def render_text(res):
         a("")
         a("  %-22s %s" % (wt["verdict"], wt["path"]))
         a("      branch     : %s @ %s" % (wt["branch"] or "(detached)", (wt["head"] or "")[:12]))
-        a("      teammate   : %s (%s)" % (wt["resolved_name"] or "<unresolved>", wt["name_source"]))
+        a("      teammate   : %s (%s)%s"
+          % (wt["resolved_name"] or "<unresolved>", wt["name_source"],
+             ("   role: %s" % wt["role"]) if wt.get("role") else ""))
+        if not wt["resolved_name"]:
+            a("                   NO EXACT NAME JOIN. A notice is addressed to the")
+            a("                   unique spawn name, so nothing can be credited to this")
+            a("                   worktree until one of these resolves it:")
+            for src in (res.get("identity_sources_tried") or []):
+                a("                     - %s" % src)
         a("      liveness   : %s" % wt["liveness"])
         if wt["behind"] and wt["moved_shas"]:
             a("      base       : %s" % wt["base"][:12])
@@ -690,10 +766,13 @@ def main(argv):
     ap.add_argument("--tip", default="")
     ap.add_argument("--teams-dir", default="")
     ap.add_argument("--timeout-min", type=int, default=DEFAULT_ACK_TIMEOUT_MIN)
+    ap.add_argument("--session", default="")
+    ap.add_argument("--transcript", default="")
     ap.add_argument("--format", choices=("json", "text"), default="text")
     args = ap.parse_args(argv)
 
-    res = assess(args.repo, args.tip, args.teams_dir, args.timeout_min)
+    res = assess(args.repo, args.tip, args.teams_dir, args.timeout_min,
+                 args.session, args.transcript)
     if args.format == "json":
         print(json.dumps(res, indent=2, sort_keys=True))
     else:

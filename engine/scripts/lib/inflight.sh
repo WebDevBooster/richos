@@ -16,6 +16,7 @@ _INFLIGHT_SH_SOURCED=1
 
 INFLIGHT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFLIGHT_PY="$INFLIGHT_LIB_DIR/inflight.py"
+INFLIGHT_IDENTITY_PY="$INFLIGHT_LIB_DIR/teammate-identity.py"
 
 # inflight_require — 0 if the predicate can run, else 1 with INFLIGHT_BROKEN set.
 inflight_require() {
@@ -26,6 +27,15 @@ inflight_require() {
     fi
     if [ ! -f "$INFLIGHT_PY" ]; then
         INFLIGHT_BROKEN="the predicate is missing at $INFLIGHT_PY"
+        return 1
+    fi
+    if [ ! -f "$INFLIGHT_IDENTITY_PY" ]; then
+        # Without it the sweep can still run, but only ever knows a teammate by
+        # its ROLE — which is exactly the 2026-08-31 false positive. A guard
+        # that would report OWED-NO-NOTICE against notices that were sent is
+        # worse than one that refuses to start, because the fix on the day is
+        # to waive it.
+        INFLIGHT_BROKEN="the identity resolver is missing at $INFLIGHT_IDENTITY_PY"
         return 1
     fi
     return 0
@@ -103,9 +113,15 @@ inflight_register_repo() {
     return 0
 }
 
-# inflight_assess <repo> <tip-or-empty> <teams-dir> <timeout-min> <format>
+# inflight_assess <repo> <tip-or-empty> <teams-dir> <timeout-min> <format> [session] [transcript]
+#
+# The session id and the transcript path are how the predicate reaches the
+# EXACT name join (Agent tool_use -> toolUseResult.agentId). A caller that has
+# either one must pass it: without them a native worktree resolves to its role
+# and no notice can ever be credited to it.
 inflight_assess() {
     local repo="${1:-}" tip="${2:-}" teams="${3:-}" tmo="${4:-30}" fmt="${5:-text}"
+    local sid="${6:-}" transcript="${7:-}"
     python3 "$INFLIGHT_PY" --repo "$repo" --tip "$tip" --teams-dir "$teams" \
-        --timeout-min "$tmo" --format "$fmt"
+        --timeout-min "$tmo" --format "$fmt" --session "$sid" --transcript "$transcript"
 }
