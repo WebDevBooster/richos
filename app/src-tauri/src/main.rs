@@ -24,9 +24,7 @@ use richos_core::feedback::{
 };
 use richos_core::journal::{MachineryJournal, RawRetention};
 use richos_core::ledger::{AttentionTier, Ledger, Message, Source};
-use richos_core::loro::{
-    CliContextCompiler, CorpusLanes, CorpusPaths, SharedSliceProvenance, SliceProvenance,
-};
+use richos_core::loro::{SharedSliceProvenance, SliceProvenance};
 use richos_core::machinery::{MachineryObserver, MachineryRecord, EVENT_MACHINERY};
 use richos_core::spine::{Spine, WorkerEventsSource};
 use richos_core::heard::{DictationJournal, HeardSource};
@@ -67,6 +65,12 @@ use timeline_view::timeline_payload;
 /// JSON the webview receives.
 mod machinery_view;
 use machinery_view::machinery_payload;
+
+/// COMPANY MEMORY: where it is, whether it is readable, and — new on 2026-09-01 — how a
+/// machine that has none gets one. Its own file because `wire_company_memory` runs twice:
+/// once at boot, and once more the moment the CEO answers the first-run question.
+mod memory;
+use memory::MemoryStatus;
 
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
@@ -243,6 +247,22 @@ struct AppState {
     /// paragraph gives: that file holds mutable point-in-time preference, and this is an
     /// append-only event log. They share a directory and a durability posture, nothing else.
     launch: Mutex<LaunchStore>,
+    /// WHERE HIS MEMORY IS, AND WHETHER THIS INSTALL CAN READ IT (`memory.rs`).
+    ///
+    /// Behind its own mutex and NOT the spine's, for the fourth time and the same reason:
+    /// `send_message` holds the spine lock for a whole turn, and "set my memory up" is
+    /// something the CEO does before he has sent anything at all — but the surface that
+    /// asks it also re-reads this after a turn may have started.
+    ///
+    /// It MOVES: `provision_memory` rewrites it after wiring a corpus that did not exist
+    /// when the process started. That is the whole point — the answer must not cost a
+    /// relaunch, exactly as `choose_entity`'s answer does not.
+    memory: Mutex<MemoryStatus>,
+    /// The same `Arc` the spine holds. Kept here so provisioning can re-run
+    /// `wire_company_memory` with the provenance sink the correction desk reads from — a
+    /// second `SliceProvenance` would mean the desk could not propose against a slice the
+    /// compiler had just accepted.
+    loro_provenance: SharedSliceProvenance,
 }
 
 #[tauri::command]
@@ -755,120 +775,13 @@ fn main() {
             // reaches the two per-user pointers an operator can put in place. Measured
             // before and after on the signed bundle:
             // `docs/verification/installed-app-2026-09-01/`.
-            match CliContextCompiler::locate(&CorpusPaths::from_process()) {
-                Ok((Some((mut compiler, source)), _tried)) => {
-                    eprintln!(
-                        "[richos] loro Tier C: compiling from {} (via {}), node {}",
-                        compiler.root().path().display(),
-                        source.as_str(),
-                        compiler.tools().node()
-                    );
-                    // THE LANE MAP, RECONCILED AGAINST THE CORPUS — open item 3.5, and the
-                    // reason it is safe to stop being empty.
-                    //
-                    // The map defaults to the CEO's six companies now that he has ratified
-                    // the layout (`wiki/ceo-decisions.md` §5). A mapping is a CLAIM that a
-                    // partition exists, and loro refuses one it does not have — `exit 2: no
-                    // such company partition "femcboost" in this corpus. Known: (none).`
-                    // His corpus has zero partitions today, so a map that were merely
-                    // filled in would make every re-prime `Unavailable`. Asking the corpus
-                    // costs 0.06 s (measured, three runs) and turns the map from a claim
-                    // into a fact.
-                    //
-                    // A FAILED PROBE IS NOT "NO PARTITIONS". It leaves the map exactly as
-                    // configured and says so — inventing an empty corpus from a failure to
-                    // read one is the same class of lie the whole seam is built against.
-                    match CorpusLanes::probe(compiler.tools(), compiler.root()) {
-                        Ok(corpus) => {
-                            for note in compiler.reconcile_lanes(&corpus) {
-                                eprintln!("[richos] loro lane: {note}");
-                            }
-                            let unmapped =
-                                compiler.entities_with_no_lane(&EntityRegistry::ceos_companies(), &corpus);
-                            if !unmapped.is_empty() {
-                                // Loud, because the CEO's side of this is a re-prime that
-                                // says "loro could not be consulted" every turn: with no
-                                // lane the compile widens, loro returns another company's
-                                // items, and the cross-entity re-assertion refuses the
-                                // slice whole. Fail-closed and correct, and useless to him.
-                                eprintln!(
-                                    "[richos] loro lane: this corpus has partitions ({}) but {} \
-                                     {} bound to none of them — every slice for {} will be \
-                                     REFUSED by the cross-entity guard. Set RICHOS_LORO_LANES.",
-                                    corpus.companies().join(", "),
-                                    unmapped.join(", "),
-                                    if unmapped.len() == 1 { "is" } else { "are" },
-                                    if unmapped.len() == 1 { "it" } else { "them" },
-                                );
-                            }
-                            if compiler.lanes().is_empty() {
-                                eprintln!(
-                                    "[richos] loro lane: no lane narrowing in force — every company \
-                                     reads the CEO layer, which is the whole of an unpartitioned corpus."
-                                );
-                            }
-                            // WHOSE RECORD IS THIS, when the corpus is one repository's own
-                            // AND HAS NO PARTITIONS.
-                            //
-                            // An UNPARTITIONED in-repo corpus has no company field on any
-                            // item, so the lane map has nothing to narrow and the
-                            // cross-entity guard has nothing to refuse — both work, and
-                            // neither can see that a FemcBoost thread is being handed
-                            // RichOS's record under a heading reading COMPANY MEMORY.
-                            // Measured on 2026-09-01 against the CEO's only corpus.
-                            //
-                            // Once that corpus IS partitioned, `repo_layout_root()` returns
-                            // None and this block does not run: the caveat asserts "holds no
-                            // <entity> partition", which would then be false, and a false
-                            // caveat tells a fresh Rich to discount memory correctly his.
-                            //
-                            // The REGISTRY answers whose it is, which it could not do
-                            // before today: `richos-hq` became a registered root of the
-                            // `richos` entity in this same pass. An unowned path leaves the
-                            // owner unstated rather than guessed.
-                            if let Some(repo) = corpus.repo_layout_root() {
-                                let registry = EntityRegistry::ceos_companies();
-                                match registry.resolve_root(repo) {
-                                    Ok(owner) => {
-                                        eprintln!(
-                                            "[richos] loro corpus: in-repo layout at {} — this is {}'s own \
-                                             record, and every other company's slice will say so.",
-                                            repo.display(),
-                                            owner.id
-                                        );
-                                        compiler.set_repo_corpus_owner(Some(owner.id.to_string()));
-                                    }
-                                    Err(e) => eprintln!(
-                                        "[richos] loro corpus: in-repo layout at {} but no registered \
-                                         company owns that path ({e}) — the owner is left unstated \
-                                         rather than guessed.",
-                                        repo.display()
-                                    ),
-                                }
-                            }
-                        }
-                        Err(e) => eprintln!(
-                            "[richos] loro lane: could not read which partitions this corpus has ({e}) \
-                             — the lane map is left exactly as configured rather than assumed empty."
-                        ),
-                    }
-                    compiler.set_provenance_sink(std::sync::Arc::clone(&loro_provenance));
-                    spine.set_loro_context_compiler(Box::new(compiler));
-                    spine.set_loro_provenance(std::sync::Arc::clone(&loro_provenance));
-                }
-                Ok((None, tried)) => {
-                    eprintln!(
-                        "[richos] loro Tier C: no corpus configured — re-primes carry no company memory"
-                    );
-                    // WHAT WAS LOOKED FOR, not merely that it failed. This is the line that
-                    // would have turned "no corpus configured" from a shrug into an
-                    // instruction the first time anyone read it on a double-click.
-                    for t in tried {
-                        eprintln!("[richos] loro Tier C: tried {t}");
-                    }
-                }
-                Err(e) => eprintln!("[richos] loro Tier C: configured but unusable, continuing without it: {e}"),
-            }
+            // MOVED, UNCHANGED, TO `memory.rs` ON 2026-09-01, and moved for one reason:
+            // first-run provisioning has to run all of it a SECOND time. The CEO answers
+            // "set my memory up", a corpus appears on disk, and the app has to start using
+            // it without being relaunched — so the wiring cannot be a hundred lines that
+            // only exist inside `setup`. Two copies would drift and the drifted one would
+            // be the one he hits.
+            let memory_status = memory::wire_company_memory(&mut spine, &loro_provenance);
 
             // Attach the compute lease. A boot with no Claude auth, no `claude` binary, or a
             // binary that rejects our flags does NOT silently degrade: `lease_ready` goes
@@ -1130,6 +1043,8 @@ fn main() {
                 spoken,
                 feedback,
                 launch: Mutex::new(launch_store),
+                memory: Mutex::new(memory_status),
+                loro_provenance,
             });
 
             // ================================================================
@@ -1213,6 +1128,8 @@ fn main() {
             // --- which company this copy of Rich works for (slice 4, 2026-09-01) ---
             entity_choice,
             choose_entity,
+            memory_status,
+            provision_memory,
             // --- Codex-UX slice 5 (2026-08-29): the timeline reload path ---
             get_timeline,
             // --- Codex-UX slice 7 (2026-08-29): the read-only worker inspector ---
@@ -1910,6 +1827,109 @@ fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
         options,
         active: active_binding_view(&spine),
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// FIRST-RUN PROVISIONING — the CEO's memory, on a machine that has none
+//
+// THE DEFECT THIS CLOSES, in the words of the person who found it: RichOS is installed and
+// signed and it reaches his memory ONLY because an engineer created a symlink by hand
+// (`docs/verification/installed-app-2026-09-01/README.md` §6). Delete
+// `~/Library/Application Support/RichOS/loro-root` and his company memory is gone — measured
+// on the installed bundle, in `docs/verification/first-run-provisioning-2026-09-01/`. No
+// installer, no first-run flow, nothing in the product creates it.
+//
+// HIS PART IS ONE CLICK AND NO PATH. `memory_status` carries `offered_location`
+// (`~/RichOS/corpus`, pre-filled), the window renders it as a sentence with a button, and
+// `provision_memory` takes the target it is GIVEN. There is no branch anywhere below that
+// picks a location when nobody named one: `provision` returns `NoTarget` for that, which is
+// `loro-structure.md`'s "no silent default" enforced at the only door that can create a
+// corpus.
+// ---------------------------------------------------------------------------------------
+
+/// Read the state of his memory. The window calls it at boot, and a `state` of `none` is
+/// what makes it ask — the same shape `entity_choice`'s `chosen: None` already uses.
+#[tauri::command]
+fn memory_status(state: State<AppState>) -> MemoryStatus {
+    let status = state.memory.lock().unwrap().clone();
+    memory::with_offered_location(status, std::env::var_os("HOME").map(PathBuf::from).as_deref())
+}
+
+/// THE CEO ANSWERS "yes, set it up". Provision, then wire it into the running spine.
+///
+/// Four properties this has and must keep:
+///
+///   1. **It creates nothing outside what it was told.** The target arrives from the caller.
+///      A missing one is refused by `provision` rather than defaulted, and the window's
+///      pre-filled value is the only place `~/RichOS/corpus` is chosen — by him.
+///   2. **It never touches a corpus that exists.** `AlreadyACorpus` is a refusal, not a
+///      merge. His live pointer at `richos-hq` with 626 records has to survive this command
+///      existing, including being called by accident.
+///   3. **It never puts a corpus in the product repo**, matching the refusal
+///      `loro/lib/layout.js:441` already makes for reading one.
+///   4. **It re-wires without a relaunch**, through the same `wire_company_memory` the boot
+///      ran, so what he gets after answering is what he would have got by restarting.
+///
+/// `(async)` for the reason `choose_entity` is async: it takes the spine's mutex, which
+/// `send_message` holds for a whole turn.
+#[tauri::command(async)]
+fn provision_memory(state: State<AppState>, location: Option<String>) -> Result<MemoryStatus, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    // The caller's value, and NOTHING ELSE IS SUBSTITUTED FOR IT. An absent one reaches
+    // `provision` as an empty target and is refused there by name.
+    let target = PathBuf::from(location.unwrap_or_default().trim());
+
+    // THE COMPANIES THIS BUILD KNOWS. `create-company` is given the registry rather than a
+    // list invented here, so the partitions a fresh corpus gets are exactly the entity areas
+    // the rail renders — the condition `entities_with_no_lane` warns about at boot is
+    // therefore satisfied on the first launch instead of after a manual pass.
+    let registry = EntityRegistry::ceos_companies();
+    let companies: Vec<(String, String)> = registry
+        .entities()
+        .iter()
+        .map(|e| (e.id.to_string(), e.display_name.clone()))
+        .collect();
+
+    let report = richos_core::provision::provision(&richos_core::provision::ProvisionRequest {
+        target,
+        home: home.clone(),
+        companies,
+        compiler_source: None,
+    })
+    .map_err(|e| e.to_string())?;
+
+    // WHAT ACTUALLY HAPPENED, on the operator's line, before anything is claimed to the CEO.
+    eprintln!("[richos] provisioned a corpus at {}", report.root.display());
+    match &report.git {
+        richos_core::provision::GitOutcome::Committed { sha, branch } => {
+            eprintln!("[richos] corpus git: {branch} @ {sha}, no remote")
+        }
+        richos_core::provision::GitOutcome::Unavailable(why) => eprintln!(
+            "[richos] corpus git: NOT a git repository — {why}. The record is on disk and is his; \
+             what is missing is the history under it."
+        ),
+    }
+    for c in &report.companies {
+        if let Some(problem) = &c.problem {
+            eprintln!("[richos] corpus company {}: not created — {problem}", c.id);
+        }
+    }
+    if let richos_core::provision::CompilerOutcome::NoSource { looked_in } = &report.compiler {
+        eprintln!(
+            "[richos] corpus compiler: NOT installed — looked in: {}. The corpus exists and is his; \
+             what is missing is the program that reads it.",
+            looked_in.join("; ")
+        );
+    }
+
+    // RE-WIRE, through the same function the boot ran. Lock order everywhere in this file is
+    // config, then entity, then spine — nothing above holds any of them.
+    let mut spine = state.spine.lock().unwrap();
+    let mut status = memory::wire_company_memory(&mut spine, &state.loro_provenance);
+    drop(spine);
+    status.provisioned_now = true;
+    *state.memory.lock().unwrap() = status.clone();
+    Ok(memory::with_offered_location(status, home.as_deref()))
 }
 
 /// Read the state of the question. The UI calls this at boot: a `chosen` of `None` is what
