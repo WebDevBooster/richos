@@ -26,42 +26,23 @@
    app's own tokens, and would otherwise be an ivory control on a midnight picture. This file
    needs no theme branch of its own: its palette is the ruled dark five, always.
 
-   NO SYSTEM FONT IS NAMED — `ceo-decisions.md` §22. Both faces are vendored beside this file
-   under `home/fonts/`, both SIL OFL 1.1, with their license texts and provenance. The generic
-   keyword at the end of each stack is a last-ditch generic, not a named platform face.
-   `zach-opus-ft1` is vendoring faces into `app/ui` in parallel; if his copies land first, the
-   `@font-face` block below and `home/fonts/` are the two things to delete.
-   ============================================================================================= */
+   NO TYPEFACE IS NAMED IN THIS FILE — `ceo-decisions.md` §22, and `fonts/fonts.css` is now the
+   ONE place in the product that names one. This surface asks for `"Newsreader"` and `"Inter"`
+   by family and gets whatever that file declares.
 
-/* ---- the vendored type. Verbatim from round-11.1/v1/fonts/fonts.css, paths re-based. ------- */
-@font-face {
-  font-family: "Newsreader";
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url("home/fonts/Newsreader-Regular-latin.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Newsreader";
-  font-style: italic;
-  font-weight: 400;
-  font-display: block;
-  src: url("home/fonts/Newsreader-Italic-latin.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 400;
-  font-display: block;
-  src: url("home/fonts/Inter-Regular-latin.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 500;
-  font-display: block;
-  src: url("home/fonts/Inter-Medium-latin.woff2") format("woff2");
-}
+   IT USED TO CARRY ITS OWN. The port arrived with the round's four WOFF2 files under
+   `home/fonts/` and an `@font-face` block here, and both are gone as of the merge with
+   `6fd6fe7` — not for tidiness, for a real defect. `home.css` is the LAST stylesheet in the
+   head, so a second `@font-face` for `Inter` here would have won the cascade for the whole
+   application and handed every screen this screen's latin-only 400/500 static cut in place of
+   the variable 400-700 face the app is set in. One family, one declaration, one file.
+
+   The Newsreader files are the same bytes either way, verified rather than assumed:
+   `Newsreader-Regular` e71a3bea… and `Newsreader-Italic` e384e318… are byte-identical between
+   the round's `-latin` subset and `app/ui/fonts/`. The Inter the app now ships is a WIDER cut
+   of the same face — the round's two static instances against a variable 400-700 — so this
+   screen loses nothing and the app keeps the weights it uses.
+   ============================================================================================= */
 
 /* =============================================================================================
    THE SURFACE
@@ -586,8 +567,12 @@ body.home-open {
   outline: 2px solid #dfe4ee;
   outline-offset: 3px;
 }
+/* Drawn rather than typed — see `buildSwitch()` in home.js. `currentColor` on the stroke is
+   what makes the ruled signal reach it, so the value stays in one place. */
 #home-enter .home-enter-arrow {
   margin-left: 9px;
+  display: inline-flex;
+  align-items: center;
   color: #c2a35c; /* 6.87:1 on #141e34 */
 }
 

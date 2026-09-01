@@ -369,8 +369,16 @@ window.RichHome = (function () {
     var box = elem("div", null, { id: "home-switch" });
     var b = elem("button", null, { id: "home-enter", type: "button" });
     b.appendChild(document.createTextNode("Talk to Rich"));
+    // THE ARROW IS DRAWN, NOT TYPED, and that is a §22 decision rather than a stylistic one.
+    // A text arrow is a glyph the shipped faces have to carry, and when a face does not carry
+    // one the browser does not fail — it silently walks to the next family, which is a system
+    // font. `fonts/fonts.css` had to vendor three Noto subsets for exactly seven characters
+    // the interface was drawing that way. This adds an eighth to nobody's list.
     var arrow = elem("span", "home-enter-arrow", { "aria-hidden": "true" });
-    arrow.textContent = "→";
+    arrow.innerHTML =
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M4 12h15M13 6l6 6-6 6"/></svg>';
     b.appendChild(arrow);
     b.addEventListener("click", function () {
       hide("switch");

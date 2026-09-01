@@ -81,6 +81,56 @@
 #                   way through, and deliberately a committed one: the failure
 #                   being fixed here was in-the-moment judgment, so there is no
 #                   in-the-moment override token for these two guards.
+#
+# PRIVATE_FILES     Material that is private BY IDENTITY rather than by looking
+#                   like a recording. Entries are `<64-hex-sha256>:<name>`, space
+#                   separated, and THIS KEY MAY BE REPEATED — entries accumulate
+#                   across lines, so declaring the next file is a one-line diff a
+#                   reviewer can read at a glance. Every other key in this file
+#                   refuses a second occurrence rather than letting the last line
+#                   silently win.
+#
+#                   WHY IT EXISTS. The two detectors above are scoring functions,
+#                   measured against transcripts and sharp for transcripts. A
+#                   seven-line note about which typeface a wordmark was drawn in
+#                   scores nothing at all, and on 2026-09-01 that file's exact
+#                   bytes were written into this tree and staged and both guards
+#                   returned 0. The instruction to keep it in the private record
+#                   had been given twice by then, and twice it was honored by
+#                   somebody remembering — which is the thing this file exists to
+#                   stop depending on.
+#
+#                   MINT AN ENTRY, against the file where it actually lives:
+#
+#                     python3 <engine>/scripts/lib/publication-boundary.py \
+#                         --digest <path-to-the-private-file>
+#
+#                   It prints the line to paste. The digest may be over the
+#                   file's BYTES or over its normalized word sequence; the word
+#                   form is what survives re-encoding, re-wrapping and a change of
+#                   case, so it is the one the minter recommends for text.
+#
+#                   WHAT IS ENFORCED: the file does not enter this repository
+#                   under another name (the digest travels with the content),
+#                   reformatted or re-encoded (the word digest), into a gitignored
+#                   path (an identity-declared file has ONE home and this is not
+#                   it), or as a binary blob the text filters would otherwise
+#                   drop. WHAT DEFEATS IT: a rewrite AND a rename together, or a
+#                   partial excerpt under a new name. Either alone is caught.
+#
+#                   WHAT IT COSTS TO DECLARE ONE: the NAME becomes public, here,
+#                   in a repository that gets published. The CONTENT does not — a
+#                   sha256 is one-way. That trade is deliberate: a refusal that
+#                   cannot say which file it means teaches nobody the rule, and a
+#                   refusal nobody understands gets worked around. If a name is
+#                   itself too much to disclose, the file does not belong in a
+#                   declaration; keep it out of reach by other means.
+#
+#                   NOTHING HERE READS THE PRIVATE RECORD. The digest and the
+#                   name are committed, so a fresh clone with no sibling checkout
+#                   enforces exactly what this machine does — which is the
+#                   machine that matters, because it is the one where nobody has
+#                   heard the rule.
 
 PRIVATE_RECORD="richos-hq (/Users/alex/ab/richos-hq) — the private HQ repository"
 
@@ -102,3 +152,5 @@ ALLOWLIST=""
 # empty corpus here means the guard lost sight of it, not that there is nothing
 # to see.
 CORPUS_MAY_BE_EMPTY=0
+
+PRIVATE_FILES="74d5d76ea4f55c82dcaa18e4e2ab58ffca5525b3db6b0b4c60191b495cb156fc:RichOS-logo-wordmark_v3.5_font-info.md"

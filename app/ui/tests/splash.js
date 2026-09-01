@@ -299,7 +299,11 @@ const SIDE_BY_SIDE = async (o) => {
   x.drawImage(a, 0, 0, CW, CH, 0, BAR + halfH + BAR, CW, CH);
   if (b) x.drawImage(b, 0, 0, CW, CH, CW + GAP, BAR + halfH + BAR, CW, CH);
   x.fillStyle = "rgb(150,168,200)";
-  x.font = "12px -apple-system, Helvetica, Arial, sans-serif";
+  // The caption on the comparison sheet. Named the vendored family rather than three
+  // platform faces — this is evidence, not product, so nothing here reaches a customer,
+  // but a platform face name is a platform face name and leaving one here is how the next
+  // person learns that the rule has exceptions (ceo-decisions.md §22).
+  x.font = "12px Inter, sans-serif";
   x.fillText(o.left + " — whole mat, half scale", 2, 16);
   if (b) x.fillText(o.right + " — whole mat, half scale", halfW + GAP + 2, 16);
   x.fillText(o.left + " — top-left corner, native", 2, BAR + halfH + 16);

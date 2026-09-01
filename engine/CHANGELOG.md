@@ -10,7 +10,140 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added
+
+- **A file can now be declared private BY IDENTITY, and both publication guards
+  enforce it** (`scripts/lib/publication-boundary.sh`,
+  `scripts/lib/publication-boundary.py`, `scripts/hooks/guard-publication-writes.sh`,
+  `scripts/hooks/guard-publication-commits.sh`,
+  `scripts/hooks/publication-boundary.test.sh`) — MINOR.
+
+  The boundary's two detectors are scoring functions. They were measured against
+  the 2026-08-29 transcripts and they are sharp for transcripts, and they are
+  blind to a small named file that is private for a reason no scoring function
+  can see. **Measured 2026-09-01, both halves: a seven-line note about which
+  typeface a wordmark was drawn in was written into the publication-bound tree
+  and staged, and both guards returned 0.** The instruction to keep that file in
+  the private record had been given twice, and twice it was honored by somebody
+  remembering.
+
+  `PRIVATE_FILES` in `.publication-boundary` takes `<64-hex-sha256>:<name>`
+  entries and MAY BE REPEATED, so declaring the next file is a one-line diff;
+  every other key now refuses a second occurrence instead of letting the last
+  line silently win. A declared file is refused **renamed** (the digest travels
+  with the content), **reformatted, recased or re-encoded** (the digest covers
+  the normalized word sequence as well as the bytes), **into a gitignored path**
+  (a file with one home does not belong here in any form), and **as a binary
+  blob** — which is not a hypothetical: the first file declared is UTF-16, so
+  every text-shaped filter in the pipeline called it binary and dropped it before
+  anything looked at it. What defeats it is a rewrite AND a rename together, or a
+  partial excerpt under a new name, and the header says so rather than leaving it
+  to be discovered.
+
+  **Nothing reads the private record at guard time.** The digest and the name are
+  committed, so a fresh clone with no sibling checkout enforces exactly what the
+  author's machine does — the machine that matters, being the one where nobody
+  has heard the rule. The cost is that the NAME is public; the content is not,
+  and that trade is written down where an operator declaring the next file will
+  see it.
+
+  Mint an entry with `publication-boundary.py --digest <file>`. The minter lives
+  inside the scanner rather than beside it, because a second copy of the recipe
+  is a declaration that protects nothing while looking exactly like one that
+  does — pinned by a mutation case that fails the moment the two disagree.
+
+  Suite 85 -> 121 cases; nine mutations, one at a time, each turning red before
+  the case it belongs to was believed. Zero findings across all 1,159 tracked
+  files in the repository, against a corpus of 14 files / 130,466 words.
+
+  **ADDING A KEY TO THIS DECLARATION IS A TWO-LAND CHANGE, by construction, and
+  the next person should expect it rather than discover it.** An unknown key is
+  BROKEN to the engine reading the file, the engine every repository reads is
+  the one on main, and a branch is not on main — so a declaration carrying the
+  new key refuses every commit in its own repository until the engine that
+  understands it has landed. Measured on this change: three registered hooks
+  refused, by name. The mechanism lands first and the entry that arms it is a
+  one-line commit after that. This is the unknown-key rule working, not a defect
+  in it; the alternative is an engine that quietly ignores settings it does not
+  understand, which is the failure this whole file is about.
+
 ### Fixed
+
+- **The worktree reaper ran, reported success, and swept a room that was
+  already empty** (`scripts/reap-stale-worktrees.sh`,
+  `scripts/hooks/agent-finished-reap-worktrees.sh`, both wrappers,
+  `hooks/hooks.json`, probe Layer Q, two new suites) — MINOR.
+
+  At session start on 2026-09-01 it printed
+  `reaped=1 skipped=0 errors=0 residue=0`. By evening there were 19 registered
+  worktrees in one repository and 6 more in another that it had never looked
+  at, in that session or any session before it. **Nothing was broken.** Three
+  scope assumptions were wrong and the summary line was written as if none of
+  them existed:
+
+  1. **One repository.** It resolved a single repo root. The engineers were
+     working in two others.
+  2. **One path convention.** It scanned `.claude/worktrees/agent-*`, the
+     native isolation layout. The trees that accumulated were hand-rolled.
+     **The design assumption was inverted:** the project's own doctrine
+     REQUIRES hand-rolled worktrees for cross-repository work, so the reaper
+     covered the rare case and missed the standard one.
+  3. **One moment.** SessionStart only. A twelve-hour session accumulated
+     everything and cleared nothing until the next session opened.
+
+  Fixed as SCOPE, not as a second reaper — two sweeps each certain about their
+  own half is the same defect one level up. Repositories are now DISCOVERED
+  from named sources (primary, engine, the session's in-flight repo list and
+  event-log cwds, a ledger, and the neighborhood of a known checkout), never
+  from a typed inventory of repo names, which is the drift this repo has
+  shipped five times. Worktrees come from `git worktree list`; path shape now
+  decides only native vs hand-rolled.
+
+  **The safety rule, which is the reason this is careful rather than clever:**
+  a hand-rolled worktree takes no lock, so quiet is not death there. It is
+  reaped only on a positive termination signal for its OWNER, taken from the
+  owner's native isolation-worktree lock through the one liveness resolver.
+  ALIVE, INDETERMINATE, and a name that resolves to no agent all mean leave it
+  alone. **So does NOT-ALIVE when the verdict rests on the native worktree
+  being ABSENT** — absence is the exact inference doctrine forbids, and it is
+  refused even with every other gate open. That is also why the agent-finish
+  trigger is correctness rather than throughput: the owner's native worktree,
+  the only evidence a lockless tree ever has, is removed at land time, so a
+  session-start-only reaper is structurally incapable of ever deciding a
+  hand-rolled worktree however often it runs.
+
+  Two smaller things the first run of the rewrite got wrong and the second
+  caught, recorded because both were silent: `/private/tmp` became a "worktree
+  container" after one throwaway checkout landed there, and 39 launchd sockets
+  were reported as residue (a signal buried in noise is a signal ignored); and
+  the ledger recorded every DISCOVERED repository, so its own `ledger` source
+  promoted a neighborhood-only repository to reap-eligible on the next sweep
+  and the report-only boundary evaporated after exactly one run.
+
+  **The summary now carries its own denominator** — coverage, per-source
+  counts, and a `blind:` line for every thing the run could not see.
+  `reaped=1 residue=0` over one repository out of three is a false green, and
+  it was one all day.
+
+  Probe **Layer Q** grew the checks that go red when the reaper GOES BLIND
+  rather than only when it is unregistered: Q1b (the agent-finish trigger
+  wired exactly once on each of its two events), Q4 (a sibling repository
+  found only by discovery is swept; a LIVE owner's hand-rolled tree is never
+  selected; a terminated owner's merged+clean one IS, so the layer cannot be
+  satisfied by a reaper that refuses everything; an unmerged one never is; the
+  coverage line is present) and Q5 (the second trigger actually sweeps).
+  BR2's "exactly once" became a PER-EVENT invariant with a derived expected
+  total — the double-fire it guards against is one hook wired twice on the
+  SAME event, and a hook legitimately wired on two events was being called a
+  defect.
+
+  A mutation test earned its keep here: deleting the "an absent isolation
+  worktree is not a termination signal" branch changed nothing and all 15
+  cases stayed green, because the owner table was built from a CLI that only
+  ever describes worktrees that exist — so the flag that branch read was a
+  constant and the branch was unreachable on the day it was written. The table
+  is now built by importing the resolver and joining `names_to_ids` with
+  `enumerate_all`, which makes the absence case a real row.
 
 - **Four of the five commit/push guards were walked around by typing `cd`
   instead of `-C`** (`scripts/lib/git-jurisdiction.sh`,

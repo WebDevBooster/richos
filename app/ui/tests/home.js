@@ -619,7 +619,9 @@ async function main() {
       // surrounds it.
       { name: "chip, selected fill", sel: '.home-chip[data-entity=""]', needs: 3, kind: "paint" },
       { name: "the switch", sel: "#home-enter", needs: 4.5 },
-      { name: "the switch arrow", sel: "#home-enter .home-enter-arrow", needs: 3 },
+      // Drawn, not typed: the ink is the span's `color`, which the SVG strokes as
+      // `currentColor`, and the region is the button's own fill behind it.
+      { name: "the switch arrow", sel: "#home-enter .home-enter-arrow", needs: 3, kind: "fill" },
       { name: "the switch edge", sel: "#home-enter", needs: 3, kind: "edge" },
     ]);
     const bad = failures(rows);
@@ -675,6 +677,63 @@ async function main() {
     const loaded = r.faces.filter((f) => f.endsWith("=loaded"));
     assert(loaded.length >= 2, "the vendored faces did not load: " + JSON.stringify(r.faces));
     return `${r.stacks.length} distinct stacks, all vendored: ${r.stacks.join(" | ")}; faces ${r.faces.join(", ")}`;
+  });
+
+  await run.check("§22: every non-ASCII character on this screen is drawn by a vendored face", async () => {
+    // THE HALF OF THE RULING A STYLESHEET AUDIT CANNOT SEE. A browser that cannot find a
+    // character in the named family does not fail — it silently walks to the next family, and
+    // the next family here is a generic keyword, which is the machine's own font. That is §22
+    // broken in a way nothing in the CSS shows: `fonts/fonts.css` had to vendor three Noto
+    // subsets for exactly seven characters the interface was drawing out of Unicode.
+    //
+    // So every non-ASCII character this surface RENDERS is collected off the live DOM and
+    // asked of the face that is actually set on it, two ways — `FontFaceSet.check`, and an
+    // advance-width probe against a family that certainly does not exist. Either one alone can
+    // be fooled; both agreeing is what makes this a measurement.
+    const r = await page.evaluate(async () => {
+      await document.fonts.ready;
+      const found = new Map(); // char -> the family stack it is set in
+      const walk = (el) => {
+        const cs = getComputedStyle(el);
+        for (const n of el.childNodes) {
+          if (n.nodeType !== 3) continue;
+          for (const ch of n.textContent) {
+            if (ch.codePointAt(0) > 127 && !found.has(ch)) found.set(ch, cs.fontFamily);
+          }
+        }
+        for (const c of el.children) walk(c);
+      };
+      walk(document.getElementById("home"));
+
+      const c = document.createElement("canvas").getContext("2d");
+      const probe = (family, ch) => {
+        c.font = '16px ' + family;
+        return c.measureText(ch).width;
+      };
+      const out = [];
+      for (const [ch, stack] of found) {
+        // The FIRST family in the stack is the one that is meant to draw it; everything after
+        // it is the fallback this check exists to catch.
+        const first = stack.split(",")[0].trim();
+        out.push({
+          ch,
+          code: "U+" + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0"),
+          family: first,
+          declared: document.fonts.check('16px ' + first, ch),
+          width: Math.round(probe('"' + first.replace(/^"|"$/g, "") + '"', ch) * 100) / 100,
+          fallbackWidth: Math.round(probe('"__a_face_that_does_not_exist__"', ch) * 100) / 100,
+        });
+      }
+      return out;
+    });
+    const uncovered = r.filter((g) => !g.declared || g.width === g.fallbackWidth);
+    assertEqual(
+      uncovered.map((g) => g.code + " " + g.ch + " in " + g.family),
+      [],
+      "these characters are NOT in the face they are set in, so a system font is drawing them"
+    );
+    assert(r.length > 0, "POSITIVE CONTROL: no non-ASCII character was found at all, so this check proved nothing");
+    return r.map((g) => `${g.code} ${g.ch} in ${g.family} (${g.width}px vs ${g.fallbackWidth}px fallback)`).join(", ");
   });
 
   // -------------------------------------------------------------------------------------

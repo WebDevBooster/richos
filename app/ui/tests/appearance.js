@@ -618,7 +618,7 @@ async function main() {
 
   // ---- 15-16. the wordmark, and whose rail this is ---------------------------------------
 
-  await run.check("15  the wordmark replaced 'My Company', and is inked per theme", async () => {
+  await run.check("15  the wordmark replaced 'My Company', and carries the approved treatment", async () => {
     assert(
       /id="rail-wordmark"/.test(INDEX_HTML),
       "the wordmark is not in the rail header"
@@ -632,6 +632,12 @@ async function main() {
         label: w ? w.getAttribute("aria-label") : null,
         role: w ? w.getAttribute("role") : null,
         ink: w ? getComputedStyle(w).color : null,
+        // THE SWOOSH. The mark is two-tone by the approved treatment (round-8.1/v0 dark,
+        // round-9/v1 light): ink letterforms, signal swoosh. It shipped as a KNOCK-OUT
+        // painted `var(--rail-bg)`, which made the app's mark monochrome while the standard
+        // it is drawn from has gold in it, and that is exactly what this check exists to
+        // stop happening twice.
+        swoosh: w ? getComputedStyle(w.querySelector("#arrow")).fill : null,
         companyRendered: !!c && c.getBoundingClientRect().width > 0,
       };
     });
@@ -654,13 +660,45 @@ async function main() {
     assertEqual(dark.role, "button", "the mark is the way back to the home screen and must say so");
     assertEqual(dark.companyRendered, false, "'My Company' must no longer be rendered here (§15)");
     assertEqual(dark.ink, "rgb(223, 228, 238)", "inked with the dark theme's own ink");
+    assertEqual(
+      dark.swoosh, "rgb(194, 163, 92)",
+      "the swoosh inside the R is the ruled signal #C2A35C, not a knock-out — 7.88:1 on the " +
+        "dark rail, non-text floor 3:1"
+    );
     await openMenu(page);
     await page.click('.theme-opt[data-th="light"]');
     await page.waitForTimeout(350);
-    const lightInk = await page.evaluate(() => getComputedStyle(document.getElementById("rail-wordmark")).color);
-    assertEqual(lightInk, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
+    const light = await page.evaluate(() => {
+      const w = document.getElementById("rail-wordmark");
+      return {
+        ink: getComputedStyle(w).color,
+        swoosh: getComputedStyle(w.querySelector("#arrow")).fill,
+      };
+    });
+    assertEqual(light.ink, "rgb(12, 19, 34)", "and re-inked when the theme crosses over");
+    // THIS EXPECTATION WAS STALE THE MOMENT THE RAIL WAS PUT RIGHT, and correcting it here is
+    // following the ruling rather than relaxing the check.
+    //
+    // `6fd6fe7` did two things in one commit: it restored `--rail-bg` to the CEO's ruled light
+    // ground `#EAE6DD` (`round-9/v1`, §15) from the `#E4DFD3` an engineer had substituted, and
+    // it put the ruled signal `#9C7C34` back into the mark. `index.html` and `style.css` both
+    // carry those values. This line did not: it still asserted `#8F7030`, the darker tone that
+    // existed only to survive the drifted background — so the suite went red against a product
+    // that is now correct, and against its own file's stated intent.
+    //
+    // The darker tone is not needed any more, and the arithmetic is why rather than the
+    // ruling: `#9C7C34` computes 2.95:1 on the OLD `#E4DFD3` and 3.15:1 on the ruled `#EAE6DD`,
+    // which clears the 3:1 a non-text indicator owes. Restoring the ground is what let the
+    // ruled value come back.
+    assertEqual(
+      light.swoosh, "rgb(156, 124, 52)",
+      "and the swoosh crosses over too — the ruled light signal #9C7C34, which computes 3.15:1 " +
+        "on the CEO's ruled light ground #EAE6DD, non-text floor 3:1. It is NOT #8F7030: that " +
+        "tone was a fit to a background that has since been put back to what he ruled."
+    );
     await page.close();
-    return `wordmark present and announced as "${dark.label}" (role=${dark.role}); company label gone; ink #DFE4EE dark -> #0C1322 light`;
+    return `wordmark present and announced as "${dark.label}" (role=${dark.role}); company label ` +
+      `gone; ink #DFE4EE -> #0C1322 and swoosh ${dark.swoosh} -> ${light.swoosh} across the theme`;
   });
 
   await run.check("16  the foot of the rail is HIS — and says nothing it does not know", async () => {

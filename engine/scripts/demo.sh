@@ -250,9 +250,12 @@ DEMO_FILES+=(
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"
     "scripts/hooks/contract-integrity-probe.sh"
-    # The half of the SessionStart worktree-reaper chain that actually removes
-    # worktrees. install.sh mints its sidecar and probe Layer Q hashes +
-    # exercises it, so the sample repo needs it.
+    # The half of the worktree-reaper chain that actually removes worktrees.
+    # install.sh mints its sidecar and probe Layer Q hashes + exercises it, so
+    # the sample repo needs it. Since 2026-09-01 it is reached by TWO triggers
+    # — the SessionStart wrapper and the TeammateIdle/TaskCompleted one — and
+    # both are derived from hooks.json above; this file is the one they share
+    # and the one no hook table names.
     "scripts/reap-stale-worktrees.sh"
     # The sanctioned worktree-removal helper. It ships as a PAIR with
     # guard-worktree-removal.sh — the guard blocks every raw removal and names
@@ -286,6 +289,14 @@ DEMO_FILES+=(
     "scripts/hooks/guard-agent-state-claims.py"
     "scripts/hooks/guard-unasked-deferral.py"
     "scripts/hooks/turn-manifest.py"
+    # The agent-liveness resolver. A FOURTH caller joined it on 2026-09-01 and
+    # it fails SOFT, which puts it in the teammate-identity.py category rather
+    # than the refuse-to-start one: scripts/reap-stale-worktrees.sh asks this
+    # resolver whether a hand-rolled worktree's OWNER is alive, and without it
+    # the reaper starts fine, declares the blindness, and treats every
+    # hand-rolled worktree as undecidable forever. A sample repo missing it
+    # would demonstrate a reaper that cannot reap the class it was rebuilt for,
+    # and would look perfectly healthy doing it.
     "scripts/lib/agent-liveness.py"
     "scripts/lib/agent-liveness.sh"
     "scripts/agent-liveness.sh"
