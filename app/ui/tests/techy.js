@@ -325,6 +325,34 @@ async function main() {
     const state = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
     assertEqual(state, { default: true, threads: { acme: false } }, "global on, acme's own answer kept");
     assert(await page.locator("#techy-chip").isHidden(), "acme is pinned off and stays off");
+    // DISMISS THE POPOVER BEFORE REACHING PAST IT, which is what the CEO does and what this
+    // check never had to say out loud until 2026-09-01. The rail row this next line clicks
+    // sits BEHIND the open settings popover; it used to be a couple of rows clear of it and
+    // now it is not, because the app stopped borrowing the platform's typeface and Inter's
+    // metrics make the popover 38px taller (581 -> 619 at 1400x950, measured, still well
+    // inside its 880px max-height and not overflowing). Five rail rows are covered where
+    // four were.
+    //
+    // Clicking the settings button again is THIS popover's own dismissal (main.js: the
+    // toggle at `assertivenessPopover.hidden = open`, and the outside-click at
+    // `!assertivenessPopover.contains(e.target) && e.target !== settingsBtn`), so this is
+    // the user's path and not a way around the product.
+    //
+    // NOT Escape, which was tried first and does not work: main.js's Escape handler closes
+    // the thread menu, search, the entity picker, corrections, feedback, the slide-over and
+    // the inspector, and the assertiveness popover is in none of those branches. That looks
+    // like a §18 gap ("Escape closes overlays and inspector detail") but it is somebody
+    // else's to rule on, so it is named here rather than fixed from a test.
+    //
+    // Nothing about what this check PROVES has changed: its subject is that the global
+    // switch reaches an unpinned conversation, never that the rail is clickable through an
+    // open popover — that it was, was an accident of the old font's metrics.
+    //
+    // `state: "hidden"` and not a `[hidden]` selector: waitForSelector's default is
+    // "visible", so waiting for `#assertiveness-popover[hidden]` waits for an element to be
+    // hidden AND visible at once and can only ever time out.
+    await page.click("#rail-settings");
+    await page.waitForSelector("#assertiveness-popover", { state: "hidden" });
     await openThread(page, "hiring");
     assert(await page.locator("#techy-chip").isVisible(), "an unpinned thread follows the global switch");
     assertEqual(await page.textContent("#techy-chip-label"), "Technical view · everywhere",

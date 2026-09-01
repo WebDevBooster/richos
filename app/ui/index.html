@@ -10,6 +10,16 @@
          launch. See theme-boot.js — the durable answer still lives in config.rs; this
          applies a mirror of it and main.js reconciles the two at init. -->
     <script src="theme-boot.js"></script>
+    <!-- THE FACES, BEFORE ANYTHING THAT SETS TYPE IN THEM. First so the webview has the
+         @font-face declarations in hand the moment it meets text that needs them — the
+         splash is render-blocking and part of the window's first paint, and a font
+         request that starts after it would show the tagline slot empty for a frame.
+
+         These are not fetched from anywhere: tauri-codegen brotli-compresses everything
+         under the staged frontend into the executable, so this resolves to a read out of
+         memory the process is already holding. See fonts/fonts.css — the only file in
+         this product that names a typeface (ceo-decisions.md §22). -->
+    <link rel="stylesheet" href="fonts/fonts.css" />
     <link rel="stylesheet" href="style.css" />
     <!-- The opening screen. Render-blocking on purpose: the composition has to be part
          of the window's first paint, not something that arrives after it. -->

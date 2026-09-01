@@ -24,7 +24,12 @@
   background-color: var(--splash-ground);
   background-image: var(--splash-atmosphere);
   color: var(--splash-ink);
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* The vendored interface face, same as the rest of the app. This slot used to name
+     three platform faces, which meant the FIRST THING RICHOS EVER SHOWED was set in
+     whatever the machine happened to have — the most visible possible version of the
+     thing ceo-decisions.md §22 forbids. `--font` is defined once in style.css, which
+     loads before this file; the mark itself is outlines and needs no font at all. */
+  font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   opacity: 1;
 }
