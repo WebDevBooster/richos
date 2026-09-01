@@ -637,6 +637,17 @@ case "$SOUT" in
     *) bad "11b. status reports its team-dir resolution" "$SOUT" ;;
 esac
 
+# INFLIGHT_TEAMS_DIR pointing STRAIGHT AT a team directory: the reading its own
+# error message tells the operator to use.
+WOUT="$(INFLIGHT_TEAMS_DIR="$TEAM_DIR" CLAUDE_SESSION_ID="" bash "$RUNNER" waive "$NWT_S1" \
+        --reason "documented escape hatch, exercised as documented" --repo "$REPO" 2>&1)"
+WRC=$?
+say "11c waive via INFLIGHT_TEAMS_DIR" "rc=$WRC out=$WOUT"
+if [ "$WRC" -eq 0 ] && printf '%s' "$WOUT" | grep -q "recorded a waiver in $TEAM_DIR/inflight-waivers.jsonl"; then
+    ok "11c. waive works via INFLIGHT_TEAMS_DIR pointed straight at a team directory — the variable its own error message names"
+else
+    bad "11c. waive honors INFLIGHT_TEAMS_DIR as documented" "exit $WRC: $WOUT"
+fi
 unset INFLIGHT_TRANSCRIPT
 
 echo ""

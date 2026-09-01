@@ -225,6 +225,14 @@ mutant teams-dir-single-or-nothing "11a." scripts/lib/teammate-identity.py \
     '    return "", "more than one session team directory"' \
     "status goes blind exactly when the operator reaches for it."
 
+# 16. THE DOCUMENTED ESCAPE HATCH MUST WORK AS DOCUMENTED. `waive` names
+#     INFLIGHT_TEAMS_DIR in its own error message; a variable that fails for
+#     whoever follows the instructions printed on it is worse than none.
+mutant teams-dir-pointer-ignored "11c." scripts/lib/teammate-identity.py \
+    '    if explicit and not sessions:' \
+    '    if False and not sessions:' \
+    "The escape hatch fails for whoever reads the error message it prints."
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '\033[32m✓ %s/%s mutants killed — every property is load-bearing.\033[0m\n' "$PASS" "$PASS"

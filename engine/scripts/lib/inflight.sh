@@ -50,8 +50,10 @@ inflight_require() {
 # from another is the same class of defect as a teammate called two names.
 # Both halves now call the one resolver.
 #
-# INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR are read by that resolver as the
-# parent directory of the session-* directories.
+# INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR are read by that resolver, and —
+# as every header and `waive`'s own error message has always claimed — they are
+# honored BOTH as the parent directory of session-* dirs AND as a direct
+# pointer at a team directory.
 inflight_teams_dir() {
     python3 "$INFLIGHT_IDENTITY_PY" --resolve-teams-dir --session "${1:-}" 2>/dev/null || printf '%s' ""
 }

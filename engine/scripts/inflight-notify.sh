@@ -37,9 +37,12 @@
 #
 # Where the ledgers live: <session team dir>/inflight-notices.jsonl (written by
 # the PostToolUse[SendMessage] witness) and inflight-waivers.jsonl (written
-# here). Point both at a sandbox with INFLIGHT_TEAMS_DIR. `status` prints which
-# directory it resolved and why, so a sweep that is looking in the wrong place
-# says so instead of reporting an empty ledger as an empty world.
+# here). INFLIGHT_TEAMS_DIR points at either the directory session-* dirs live
+# under, OR straight at one team directory — both readings work, which is what
+# every header here has claimed since the beginning and what the code did not
+# do until 2026-09-01. `status` prints which directory it resolved and why, so
+# a sweep that is looking in the wrong place says so instead of reporting an
+# empty ledger as an empty world.
 
 set -uo pipefail
 
@@ -135,7 +138,16 @@ if not any_ack:
     waive)
         [ -n "$TARGET" ] || { echo "inflight-notify.sh waive: give the worktree path to waive." >&2; exit 2; }
         [ -n "$REASON" ] || { echo "inflight-notify.sh waive: --reason is required. A waiver with no reason is a silent skip wearing a ledger row." >&2; exit 2; }
-        [ -n "$TEAMS_DIR" ] || { echo "inflight-notify.sh waive: could not resolve a session team directory to record the waiver in. Set INFLIGHT_TEAMS_DIR or pass --session." >&2; exit 2; }
+        if [ -z "$TEAMS_DIR" ]; then
+            {
+                echo "inflight-notify.sh waive: could not resolve a session team directory to record the waiver in."
+                echo "  tried: $(inflight_teams_dir_how "$SESSION_ID")"
+                echo "  Either:"
+                echo "    INFLIGHT_TEAMS_DIR=<dir>   the directory session-* dirs live under, OR one team directory itself"
+                echo "    --session <id>             name the session whose ledgers to use"
+            } >&2
+            exit 2
+        fi
         IF_ARGS_REPO="$REPO" IF_ARGS_TIP="$TIP" IF_ARGS_TEAMS="$TEAMS_DIR" \
         IF_ARGS_TMO="$TIMEOUT_MIN" IF_ARGS_TARGET="$TARGET" IF_ARGS_REASON="$REASON" \
         IF_ARGS_SID="$SESSION_ID" IF_ARGS_TRANSCRIPT="$TRANSCRIPT" \

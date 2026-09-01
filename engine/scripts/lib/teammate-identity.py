@@ -272,12 +272,12 @@ def agent_id_for_name(name, index):
 # where the record lives
 # --------------------------------------------------------------------------
 def _teams_base():
-    """The directory session team dirs live under."""
+    """(base, explicit) — the directory session team dirs live under."""
     for var in ("INFLIGHT_TEAMS_DIR", "WORKER_EVENTS_TEAMS_DIR"):
         val = os.environ.get(var, "").strip()
         if val:
-            return val
-    return os.path.join(os.path.expanduser("~"), ".claude", "teams")
+            return val, var
+    return os.path.join(os.path.expanduser("~"), ".claude", "teams"), ""
 
 
 def _session_dirs(base):
@@ -316,22 +316,31 @@ def resolve_teams_dir(session_id="", base=None):
     `notice ledger: <no team dir resolved>`: the operator's own diagnostic,
     blind at exactly the moment he needs it.
 
-      1. The session id, exactly.
-      2. The only session directory under the base.
-      3. The only session directory carrying a live team stream.
-      4. The most recently active one, NAMED as such with the count it was
+      1. INFLIGHT_TEAMS_DIR / WORKER_EVENTS_TEAMS_DIR pointing STRAIGHT AT a
+         team directory (no session-* children). Documented in three headers
+         and in `waive`'s own error message, and until now honored by none of
+         them. The code follows the documentation, not the other way round.
+      2. The session id, exactly.
+      3. The only session directory under the base.
+      4. The only session directory carrying a live team stream.
+      5. The most recently active one, NAMED as such with the count it was
          chosen from — a guess the caller can see is a guess.
 
-    Rungs 3 and 4 can only ever reduce false blocks: a wrong pick finds no
+    Rungs 4 and 5 can only ever reduce false blocks: a wrong pick finds no
     notices, and no notices is a REFUSAL. There is no reading of this ladder
     that lets a land through that the old one would have stopped.
     """
+    explicit = ""
     if base is None:
-        base = _teams_base()
+        base, explicit = _teams_base()
     if not base or not os.path.isdir(base):
         return "", "no team directory exists at %s" % (base or "<unset>")
 
     sessions = _session_dirs(base)
+
+    # 1. an explicit pointer straight at a team directory
+    if explicit and not sessions:
+        return base, "%s points straight at the team directory" % explicit
 
     sid = (session_id or "").strip()
     if sid:
