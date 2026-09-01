@@ -111,7 +111,7 @@
   --shadow-soft: rgba(0, 0, 0, 0.55);
   --shadow-strong: rgba(0, 0, 0, 0.7);
 
-  --font: "Söhne", "Soehne", -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  --font: -apple-system, "SF Pro Text", "Segoe UI", "Inter", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 10px;
 
