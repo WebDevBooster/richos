@@ -1109,6 +1109,29 @@ fn main() {
                 }
                 None => updates::spawn_launch_check(app.handle().clone()),
             }
+
+            // ================================================================
+            // THE END OF RESOLUTION, SAID OUT LOUD
+            // ================================================================
+            //
+            // Everything above this line is this launch answering "where is my
+            // configuration?" — the engine directory, the compute lease, the corpus, both
+            // halves of loro, the company, the four durable stores. Everything below it and
+            // after it is conduct rather than resolution: `spawn_launch_check` sleeps three
+            // seconds and then talks to the network, and the window is already up.
+            //
+            // IT IS HERE SO A CHECK CAN KNOW WHEN TO STOP READING, and that is not a
+            // convenience. `gui-boot.test.sh` boots this binary under launchd's environment
+            // and holds every line it printed to account; without a terminator, "the boot
+            // log" would be "whatever had appeared after N seconds", and a check whose input
+            // depends on a sleep is a check that goes red for no reason on a slow morning
+            // and gets ignored by the third time. The marker makes the boundary a FACT the
+            // program states rather than a duration the harness guesses.
+            //
+            // It is also the honest answer to an operator reading a terminal: the lines
+            // above are all of it, so nothing further is coming and a missing line is
+            // missing rather than late.
+            eprintln!("[richos] boot complete — every line above is what this launch resolved");
             Ok(())
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
