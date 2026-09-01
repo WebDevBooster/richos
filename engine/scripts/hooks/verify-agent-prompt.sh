@@ -427,7 +427,7 @@ fi
 # that exists inside the governed repository — a teammate reaches the helper at
 # ~/.claude/richos-engine/scripts/inflight-ack.sh, and only if the operator has
 # installed it. A prompt that spells out the ack FILE instead
-# (<worktree>/.claude/inflight-acks/<sha12>.ack and its four keys) has satisfied
+# (<worktree>/.claude/inflight-acks/<sha12>.<teammate>.ack and its keys) has satisfied
 # the requirement completely, and a check that insisted on the script name would
 # be refusing the more robust of the two.
 #
@@ -444,7 +444,7 @@ if [ -n "$SUBAGENT_TYPE" ] && [ -n "$PROMPT" ]; then
     if ! printf '%s' "$PROMPT" | grep -qE 'inflight-ack\.sh|inflight-acks/' \
        && ! printf '%s' "$(sanitized_prompt)" | grep -qiE '^[[:space:]]*no-inflight-ack:[[:space:]]*[^[:space:]]'; then
       FAIL=1
-      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.ack with its sha/impact/detail/paths keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
+      FAIL_REASONS+=("ack-contract-missing: this spawn gets a worktree (isolation='${ISOLATION:-unset}'), so a land can move main under it and nothing will tell it. The prompt must carry the ack contract — either name the helper (scripts/inflight-ack.sh, reachable at ~/.claude/richos-engine/scripts/inflight-ack.sh) or spell out the ack file itself (<worktree>/.claude/inflight-acks/<sha12>.<teammate>.ack with its sha/impact/detail/paths/teammate keys) — because an instruction sent LATER travels the same lossy channel as the notice it is supposed to make verifiable. If this teammate genuinely writes nothing and reads nothing that can go stale, opt out on the record with a live prompt line: 'no-inflight-ack: <reason>'.")
     fi
   fi
 fi

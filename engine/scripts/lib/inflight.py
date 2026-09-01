@@ -441,8 +441,64 @@ def sha_tokens(text):
 # --------------------------------------------------------------------------
 # the ack artifact
 # --------------------------------------------------------------------------
-def ack_path(worktree, tip):
-    return os.path.join(worktree, ACK_DIR_REL, "%s.ack" % (tip or "")[:12])
+def ack_slug(name):
+    """A teammate's name as a filename component. Anything that is not a
+    filename character becomes a dash; the name itself is repeated INSIDE the
+    file, so nothing depends on this being reversible."""
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", (name or "").strip()).strip("-.")
+    return s or "unnamed"
+
+
+def ack_path(worktree, tip, teammate=""):
+    """Where THIS teammate's ack for this tip lives.
+
+    KEYED ON THE TEAMMATE AS WELL AS THE SHA, and that is the whole of row g6.
+    It used to be `<sha12>.ack` — the sha and nothing else — so when two
+    teammates both acknowledged the same land, which is the CORRECT behavior
+    because both were notified and both answered, their branches carried two
+    different files at ONE path and the merge was an add/add conflict. It
+    happened twice on 2026-09-01. A lander in a hurry resolves that with
+    `--ours` and silently destroys the evidence that a teammate acknowledged a
+    land, after which the witness ledger and the worktree disagree for a reason
+    nobody can reconstruct.
+
+    An ack is per-teammate-per-SHA. The multi-teammate case is the NORMAL case;
+    it merely took until the fifth concurrent teammate of the night for the
+    filename to say so."""
+    stem = (tip or "")[:12]
+    if teammate:
+        return os.path.join(worktree, ACK_DIR_REL, "%s.%s.ack" % (stem, ack_slug(teammate)))
+    return os.path.join(worktree, ACK_DIR_REL, "%s.ack" % stem)
+
+
+def ack_paths(worktree, tip):
+    """EVERY ack record for this tip in this worktree, oldest naming scheme
+    first.
+
+    Both shapes are read, deliberately and permanently: `<sha12>.ack` is what
+    every ack already on main is called, and orphaning those would delete the
+    only evidence that those teammates ever answered. A reader that handled one
+    record was the other half of the same defect — it could not have reported
+    two even once the writer stopped colliding."""
+    d = os.path.join(worktree, ACK_DIR_REL)
+    stem = (tip or "")[:12]
+    if not stem:
+        return []
+    found = []
+    legacy = os.path.join(d, "%s.ack" % stem)
+    if os.path.isfile(legacy):
+        found.append(legacy)
+    try:
+        for name in sorted(os.listdir(d)):
+            if name == "%s.ack" % stem:
+                continue
+            if name.startswith(stem + ".") and name.endswith(".ack"):
+                p = os.path.join(d, name)
+                if os.path.isfile(p):
+                    found.append(p)
+    except Exception:
+        pass
+    return found
 
 
 def parse_ack(path):
@@ -457,6 +513,70 @@ def parse_ack(path):
         if m:
             fields.setdefault(m.group(1), m.group(2).strip())
     return fields, raw
+
+
+def _ack_record(path, tip, wt):
+    """One ack file, checked, and attributed to a teammate.
+
+    ATTRIBUTION FAILS SAFE. A record is treated as this worktree's unless there
+    is POSITIVE evidence it belongs to somebody else — an explicit `teammate:`
+    that is none of this worktree's addresses, or a `worktree:` naming a
+    different directory that still exists. Every ack written before this file
+    existed carries neither claim, so all of them keep counting; a renamed or
+    moved worktree keeps counting too. Only a record that says out loud that it
+    came from elsewhere is set aside, which is exactly the case a merge
+    produces."""
+    fields, _raw = parse_ack(path)
+    fields = fields or {}
+    problems = []
+    got_sha = fields.get("sha", "").lower()
+    if got_sha != tip:
+        problems.append(
+            "sha: is %r, must be the full 40-char tip %r"
+            % (got_sha or "<missing>", tip))
+    impact = fields.get("impact", "")
+    if impact not in ACK_IMPACTS:
+        problems.append(
+            "impact: is %r, must be one of %s"
+            % (impact or "<missing>", "/".join(ACK_IMPACTS)))
+    detail = fields.get("detail", "")
+    if len(detail) < ACK_MIN_DETAIL:
+        problems.append(
+            "detail: %d chars, needs >= %d in the teammate's own words"
+            % (len(detail), ACK_MIN_DETAIL))
+    paths_field = fields.get("paths", "")
+    if not paths_field:
+        problems.append("paths: missing — list affected paths, or the word 'none'")
+    elif paths_field.strip() != "none":
+        moved = set(wt.get("moved_paths", []))
+        for p in paths_field.split():
+            if p in moved:
+                continue
+            if os.path.exists(os.path.join(wt["path"], p)):
+                continue
+            problems.append(
+                "paths: %r is neither in the moved changeset nor present in "
+                "this worktree — it cannot have been read off either" % p)
+
+    teammate = fields.get("teammate", "")
+    claimed_wt = fields.get("worktree", "")
+    addresses = set(a.lower() for a in (wt.get("addresses") or []) if a)
+    addresses.add(os.path.basename(wt["path"].rstrip("/")).lower())
+    if teammate:
+        own = teammate.lower() in addresses
+    elif claimed_wt and norm(claimed_wt) != norm(wt["path"]) and os.path.isdir(claimed_wt):
+        own = False
+    else:
+        own = True
+
+    age = None
+    try:
+        age = int(time.time() - os.path.getmtime(path))
+    except Exception:
+        pass
+    return {"path": path, "teammate": teammate, "worktree": claimed_wt,
+            "problems": problems, "verified": not problems, "detail": detail,
+            "own": own, "age_sec": age}
 
 
 def ack_status(wt, tip, notices_ts, worker_updates, timeout_min):
@@ -496,50 +616,40 @@ def ack_status(wt, tip, notices_ts, worker_updates, timeout_min):
     It proves DELIVERY AND READING. It does not prove content."""
     tip = (tip or "").lower()
     short = tip[:12]
-    path = ack_path(wt["path"], tip)
+    paths = ack_paths(wt["path"], tip)
     out = {"state": "none", "verified": False, "problems": [], "detail": "",
-           "path": path, "channel": "", "age_sec": None, "overdue": False}
+           "path": ack_path(wt["path"], tip, wt.get("resolved_name") or ""),
+           "records": [], "channel": "", "age_sec": None, "overdue": False}
 
-    if os.path.isfile(path):
-        fields, raw = parse_ack(path)
+    if paths:
         out["state"] = "artifact"
         out["channel"] = "artifact"
-        problems = []
-        got_sha = (fields or {}).get("sha", "").lower()
-        if got_sha != tip:
-            problems.append(
-                "sha: is %r, must be the full 40-char tip %r"
-                % (got_sha or "<missing>", tip))
-        impact = (fields or {}).get("impact", "")
-        if impact not in ACK_IMPACTS:
-            problems.append(
-                "impact: is %r, must be one of %s"
-                % (impact or "<missing>", "/".join(ACK_IMPACTS)))
-        detail = (fields or {}).get("detail", "")
-        if len(detail) < ACK_MIN_DETAIL:
-            problems.append(
-                "detail: %d chars, needs >= %d in the teammate's own words"
-                % (len(detail), ACK_MIN_DETAIL))
-        paths_field = (fields or {}).get("paths", "")
-        if not paths_field:
-            problems.append("paths: missing — list affected paths, or the word 'none'")
-        elif paths_field.strip() != "none":
-            moved = set(wt.get("moved_paths", []))
-            for p in paths_field.split():
-                if p in moved:
-                    continue
-                if os.path.exists(os.path.join(wt["path"], p)):
-                    continue
-                problems.append(
-                    "paths: %r is neither in the moved changeset nor present in "
-                    "this worktree — it cannot have been read off either" % p)
-        out["problems"] = problems
-        out["verified"] = not problems
-        out["detail"] = detail
-        try:
-            out["age_sec"] = int(time.time() - os.path.getmtime(path))
-        except Exception:
-            pass
+        records = [_ack_record(p, tip, wt) for p in paths]
+        out["records"] = records
+        own = [r for r in records if r["own"]]
+        chosen = own or []
+        if chosen:
+            best = ([r for r in chosen if r["verified"]] or chosen)[0]
+            out["path"] = best["path"]
+            out["problems"] = best["problems"]
+            out["verified"] = best["verified"]
+            out["detail"] = best["detail"]
+            out["age_sec"] = best["age_sec"]
+        else:
+            # RECORDS ARE HERE, BUT NONE OF THEM IS THIS TEAMMATE'S. That is
+            # what a merge carrying somebody else's ack into this worktree looks
+            # like, and crediting it would let one teammate's answer discharge
+            # another's debt. Named, never silently counted.
+            out["path"] = records[0]["path"]
+            out["problems"] = [
+                "no ack here was written by this teammate — the %d record(s) "
+                "present belong to: %s"
+                % (len(records),
+                   ", ".join(r["teammate"] or os.path.basename(r["path"])
+                             for r in records))]
+            out["verified"] = False
+            out["detail"] = ""
+            out["age_sec"] = records[0]["age_sec"]
         return out
 
     for row in worker_updates:
@@ -726,8 +836,8 @@ def assess(repo, tip=None, teams_dir="", timeout_min=DEFAULT_ACK_TIMEOUT_MIN,
                 wt["verdict"] = "NOTIFIED-NO-ACK"
                 result["unacked"].append(wt["path"])
         wt.setdefault("ack", {"state": "n/a", "verified": False, "problems": [],
-                              "detail": "", "path": "", "channel": "",
-                              "age_sec": None, "overdue": False})
+                              "detail": "", "path": "", "records": [],
+                              "channel": "", "age_sec": None, "overdue": False})
     return result
 
 
@@ -779,6 +889,17 @@ def render_text(res):
         ack = wt.get("ack") or {}
         if ack.get("state") == "artifact":
             a("      ack        : %s  %s" % (ack["path"], "VERIFIED" if ack["verified"] else "INVALID"))
+            # EVERY record, not just the one that decided. Two teammates
+            # acknowledging one land is the normal case, and a reader that
+            # printed one of them would hide the very collision row g6 is about.
+            recs = ack.get("records") or []
+            if len(recs) > 1:
+                a("      records    : %d for this tip in this worktree" % len(recs))
+                for r in recs:
+                    a("        %-9s %s  %s"
+                      % ("(this)" if r.get("own") else "(another)",
+                         os.path.basename(r["path"]),
+                         "verified" if r.get("verified") else "INVALID"))
             for p in ack.get("problems", []):
                 a("        - %s" % p)
             if ack.get("detail"):

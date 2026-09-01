@@ -123,6 +123,15 @@ for wt in res["worktrees"]:
     print("  %s" % wt["path"])
     print("    channel  : %s" % ack.get("channel", ""))
     print("    verified : %s" % ("YES" if ack.get("verified") else "NO"))
+    # EVERY record for this tip, with whose it is. Two teammates acknowledging
+    # one land is the normal case; printing only the deciding record would hide
+    # the collision this key was changed to survive.
+    for r in (ack.get("records") or []):
+        print("    record   : %s  %s  %s"
+              % (os.path.basename(r["path"]),
+                 ("this teammate" if r.get("own") else "ANOTHER teammate: %s"
+                  % (r.get("teammate") or r.get("worktree") or "unnamed")),
+                 "verified" if r.get("verified") else "INVALID"))
     for p in ack.get("problems", []):
         print("      - %s" % p)
     if ack.get("detail"):
