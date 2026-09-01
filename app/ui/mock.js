@@ -64,12 +64,48 @@
   // The four dogfood entity areas, mirroring `EntityRegistry::dogfood()` (entity.rs) —
   // same ids, same display names, same roots — so the rail's grouping is exercised against
   // the real registry's shape rather than an invented one.
+  // THE CEO'S OWN SIX, mirroring `EntityRegistry::ceos_companies()` in richos-core's
+  // entity.rs:227-238 — id, display name and roots, in registry order. It was four here and
+  // six there; `gpt-exporter` and `webinar-booster` were added to the registry and this
+  // harness was not updated, which is drift of the exact kind a mock exists to avoid.
+  //
+  // `richos` HAS TWO ROOTS AND IS ONE ENTITY. That is the property the home screen's company
+  // row would get wrong if anything ever built its list from directories instead of from the
+  // registry, so the harness carries it rather than flattening it.
   const entities = [
     { id: "femcboost", display_name: "FemcBoost", status: "active", roots: ["/Users/alex/ab/femcboost"] },
     { id: "deeply", display_name: "Deeply", status: "active", roots: ["/Users/alex/ab/deeply"] },
     { id: "prospects", display_name: "Prospects", status: "active", roots: ["/Users/alex/ab/prospects"] },
-    { id: "richos", display_name: "RichOS", status: "active", roots: ["/Users/alex/ab/richos"] },
+    { id: "richos", display_name: "RichOS", status: "active", roots: ["/Users/alex/ab/richos", "/Users/alex/ab/richos-hq"] },
+    { id: "gpt-exporter", display_name: "GPT Exporter", status: "active", roots: ["/Users/alex/ab/gpt-exporter"] },
+    { id: "webinar-booster", display_name: "Webinar Booster", status: "active", roots: ["/Users/alex/ab/webinar-booster"] },
   ];
+
+  // THE HOME SCREEN'S COMPANY BUTTONS (CEO, 2026-09-01) — his two preferences, mirroring
+  // `home_entity_labels` and `home_entity_hidden` in config.rs. Durable there; in-memory here,
+  // which is enough: every test that needs them drives both ends in one page.
+  //
+  // Both start EMPTY, because that is the state every install is in until he opens the panel:
+  // no label overrides, nothing hidden. `homeEntityRowOf` resolves them the way the Rust
+  // command does — an absent label means the registry's display name, an absent hidden flag
+  // means visible — so a surface can never be tested against a resolution the app does not do.
+  const homeEntityLabels = {};
+  const homeEntityHidden = {};
+
+  function homeEntityRowOf() {
+    return entities.map((e) => {
+      const custom = typeof homeEntityLabels[e.id] === "string" && homeEntityLabels[e.id].trim()
+        ? homeEntityLabels[e.id].trim()
+        : null;
+      return {
+        id: e.id,
+        display_name: e.display_name,
+        label: custom || e.display_name,
+        custom_label: custom,
+        visible: homeEntityHidden[e.id] !== true,
+      };
+    });
+  }
 
   // `entity_id: null` is the LEGACY-THREAD case slice 1 introduced (`ThreadEntity::Unbound`):
   // a record written before entity scoping existed. It is LISTED — an operator has to be
@@ -1346,6 +1382,37 @@
         }
         case "entity_choice":
           return entityChoiceOf();
+        // --- the home screen's company buttons (2026-09-01) ---
+        case "home_entity_row":
+          return homeEntityRowOf();
+        case "set_home_entity_label": {
+          const id = args.entityId ?? args.entity_id;
+          if (!entities.some((e) => e.id === id))
+            return Promise.reject(
+              'I don\'t have a company called "' + id + '" on file, so I won\'t file ' +
+                "anything under it. Pick one of the companies I do have, or whoever set " +
+                "RichOS up can add it."
+            );
+          const label = args.label == null ? "" : String(args.label).trim();
+          // Empty CLEARS, exactly as `ConfigStore::set_home_entity_label` does — that is how
+          // he un-anonymizes the screen, so the mock does it too rather than simplifying it
+          // away into something the app does not actually do.
+          if (label) homeEntityLabels[id] = label;
+          else delete homeEntityLabels[id];
+          return homeEntityRowOf();
+        }
+        case "set_home_entity_visible": {
+          const id = args.entityId ?? args.entity_id;
+          if (!entities.some((e) => e.id === id))
+            return Promise.reject(
+              'I don\'t have a company called "' + id + '" on file, so I won\'t file ' +
+                "anything under it. Pick one of the companies I do have, or whoever set " +
+                "RichOS up can add it."
+            );
+          if (args.visible === false) homeEntityHidden[id] = true;
+          else delete homeEntityHidden[id];
+          return homeEntityRowOf();
+        }
         case "choose_entity": {
           const entityId = args.entityId ?? args.entity_id;
           if (entityPinnedByEnvironment)
