@@ -152,3 +152,5 @@ ALLOWLIST=""
 # empty corpus here means the guard lost sight of it, not that there is nothing
 # to see.
 CORPUS_MAY_BE_EMPTY=0
+
+PRIVATE_FILES="74d5d76ea4f55c82dcaa18e4e2ab58ffca5525b3db6b0b4c60191b495cb156fc:RichOS-logo-wordmark_v3.5_font-info.md"
