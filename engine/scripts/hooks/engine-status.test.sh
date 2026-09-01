@@ -315,6 +315,23 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # Verified post-merge rather than assumed: main registers 41 at 62507d0, and no
 # other live branch (zach-opus-c1, zach-opus-n1, the three echo branches) adds a
 # hook to hooks.json, so 42 is the merged truth and is green here too.
+# 42 -> 42 on 2026-09-01, and the NON-MOVE is the thing to have been made to
+# look at. The idle-land gate's predicate was rewritten — a second completion
+# trigger, the removal of a stand-down that was waving through 41% of landing
+# turns, three new routes for a legitimate stop — and the engine's first
+# FUNCTIONAL probe layer on the Stop event (IL) landed with it. Not one of those
+# is a new registration, so this line does not move.
+#
+# That is worth a paragraph rather than silence, because the tripwire's own
+# premise invites the wrong inference. It exists so a guard cannot slip in
+# unregistered; it says nothing about whether the forty-two already registered
+# are ENFORCING. This gate was registered, hashed, executable and counted here
+# for two days while refusing almost nothing, and this number was green
+# throughout. A count of guards is not a measure of enforcement, and eleventh
+# firing or not, the thing that caught the defect was a functional canary.
+#
+# Verified post-merge rather than assumed: main registers 42 at 7738675, this
+# branch adds no hook to hooks.json, so 42 is the merged truth and is green here.
 if [ "$REGISTERED_N" -eq 42 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else

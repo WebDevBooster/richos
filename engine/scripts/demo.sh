@@ -253,6 +253,22 @@ DEMO_FILES+=(
     # engine whose newest blocking guard is dead on arrival — while the probe's
     # Layer IP reported it as wired.
     "scripts/lib/interactive-prompt.py"
+    # THE STOP-HOOK ANALYZERS, on this list for the teammate-identity.py reason
+    # rather than the refuse-to-start one, and it is the harder half to notice.
+    # Five registered Stop hooks decide NOTHING themselves: the .sh resolves the
+    # two roots, reads config, and hands the entire verdict to a sibling .py.
+    # Without it the wrapper does not fail — it STARTS PERFECTLY, announces "NOT
+    # RUNNING: the analyzer is missing" into a channel this sample repo has no
+    # reader for, and exits 0 on every turn. So the completeness check below,
+    # which asks whether every hook can START, would pass a sample repo whose
+    # blocking turn gate refuses nothing at all — and it would show a buyer an
+    # engine that reports "on" while protecting nothing, which is the one
+    # sentence this whole demo is asking to be trusted about.
+    "scripts/hooks/guard-idle-land.py"
+    "scripts/hooks/guard-unresolved-claims.py"
+    "scripts/hooks/guard-agent-state-claims.py"
+    "scripts/hooks/guard-unasked-deferral.py"
+    "scripts/hooks/turn-manifest.py"
     "scripts/lib/agent-liveness.py"
     "scripts/lib/agent-liveness.sh"
     "scripts/agent-liveness.sh"
