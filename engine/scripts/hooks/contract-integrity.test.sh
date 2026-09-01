@@ -315,6 +315,14 @@ data["hooks"] = {
             # last in the shipped table: the two above decide whether the write
             # is ALLOWED AT ALL, and this one decides what the words say.
             {"type": "command", "command": P + "/guard-dialect.sh", "timeout": 10},
+            # The loro capitalization guard, wired after the dialect guard for
+            # the same reason the dialect guard is wired after the two above it:
+            # the earlier hooks decide whether the write is ALLOWED AT ALL, and
+            # these two decide what the words say. It is in the SANDBOX list —
+            # not only in the shipped table — because the sandbox's registered
+            # hook set is what SC1 starts, and a guard missing from here is a
+            # guard nothing ever proves can start.
+            {"type": "command", "command": P + "/guard-loro-capitalization.sh", "timeout": 10},
         ]},
         {"matcher": "SendMessage", "hooks": [
             {"type": "command", "command": P + "/guard-resume-isolation.sh", "timeout": 10},
