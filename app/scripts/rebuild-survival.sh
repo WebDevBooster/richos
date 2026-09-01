@@ -177,10 +177,32 @@ if [ "$cmd" = "record" ]; then
   mkdir -p "$state_dir" || { warn "error: cannot create $state_dir"; exit 2; }
 
   desc="$(codesign -dvvv "$app" 2>&1 || true)"
-  dr="$(codesign -d -r- "$app" 2>/dev/null | sed -n 's/^# *designated => //p' | head -1)"
+  # THE `#` IS OPTIONAL AND ASSUMING IT WAS A BUG, measured 2026-09-01 on the first
+  # two Developer ID signed builds this project has ever produced. `codesign -d -r-`
+  # prints the IMPLICIT requirement commented out —
+  #     # designated => cdhash H"7c718675…"
+  # — and an EXPLICIT one, which is what a Developer ID signature carries, with no
+  # comment marker at all:
+  #     designated => identifier "com.richos.app" and anchor apple generic and …
+  # A pattern anchored on `^# ` therefore read `none` off exactly the bundles this
+  # harness exists to measure, and read the ad-hoc failure case perfectly. Layer 1
+  # would have reported "none -> none", i.e. identical, i.e. no complaint, on a
+  # bundle whose requirement it never saw.
+  dr="$(codesign -d -r- "$app" 2>/dev/null | sed -n 's/^#\{0,1\} *designated => //p' | head -1)"
   cdhash="$(printf '%s\n' "$desc" | sed -n 's/^CDHash=//p' | head -1)"
   authority="$(printf '%s\n' "$desc" | sed -n 's/^Authority=//p' | head -1)"
+  # `Signature=adhoc` is printed for an ad-hoc signature; a REAL one prints
+  # `Signature size=9043` instead, which `^Signature=` does not match — so a
+  # Developer ID build recorded `signature: none`, indistinguishable in the record
+  # from an unsigned one. Measured 2026-09-01 on the two builds below.
   sigkind="$(printf '%s\n' "$desc" | sed -n 's/^Signature=//p' | head -1)"
+  if [ -z "$sigkind" ]; then
+    case "$authority" in
+      "Developer ID Application:"*) sigkind="developer-id" ;;
+      "") sigkind="unsigned" ;;
+      *)  sigkind="signed-by: $authority" ;;
+    esac
+  fi
   ident="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null || true)"
 
   {
@@ -266,7 +288,17 @@ if [ "$cmd" = "compare" ]; then
     say "    FAIL: the designated requirements DIFFER. Whatever macOS granted to the"
     say "    first expression, the second one does not satisfy. Grants cannot survive."
     fail=1
-  elif [ "$dr_a" != "none" ] && [ -n "$dr_a" ]; then
+  elif [ "$dr_a" = "none" ] || [ -z "$dr_a" ]; then
+    # NEVER let "both are none" fall through as "identical, therefore fine". Before
+    # 2026-09-01 the requirement parser missed every Developer ID bundle and this
+    # branch did not exist, so Layer 1 printed the two lines above and then no
+    # verdict at all — the quietest possible way for the one decisive layer to say
+    # nothing on exactly the input it was written for.
+    say "    INCOMPLETE: no designated requirement was read off either build. That is"
+    say "    a reading failure, not a passing comparison: two unknowns are not a match."
+    say "    Check by hand:  codesign -d -r- <the bundle>"
+    incomplete=1
+  elif [ -n "$dr_a" ]; then
     say "    PASS: identical, identifier-and-team shaped. Every future build satisfies"
     say "    it. THIS IS THE MECHANISM, NOT THE ACCEPTANCE TEST."
   fi

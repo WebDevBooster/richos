@@ -3,13 +3,28 @@
 <!--
   Hardened-runtime entitlements for a Developer ID signed RichOS.app.
 
-  APPLIED ON ONE PATH ONLY, AND NOT TODAY. `app/scripts/package-app.sh` passes this
-  file to the bundler as a config overlay when, and only when, it runs with
-  `--sign developer-id`. It is referenced nowhere in `tauri.conf.json`, so an
+  NO DOUBLE HYPHEN MAY APPEAR ANYWHERE IN THIS COMMENT, and that is not a style
+  note. XML forbids the two-hyphen sequence inside a comment, so a flag written
+  out literally here makes the whole file malformed. It cost a signing run on
+  2026-09-01: this comment said "sign developer-id" with the flag's two leading
+  hyphens on its line 8, and `codesign` refused the file outright with
+  "Failed to parse entitlements: AMFIUnserializeXML: syntax error near line 8".
+  The trap is that `plutil -lint` reports this file OK — Apple's lenient plist
+  parser skips the malformed comment and AMFI's strict one does not — so the
+  obvious check passes on a file that cannot sign. `xmllint` and Python's expat
+  both name it correctly ("not well-formed, line 8, column 5"), and
+  `app/scripts/signing-setup.test.sh` case F10 now signs a throwaway binary with
+  this file so a regression is caught by the thing that actually consumes it.
+  Refer to the signing mode in prose, as this paragraph does.
+
+  APPLIED ON ONE PATH ONLY. `app/scripts/package-app.sh` passes this file to the
+  bundler as a config overlay when, and only when, it is asked for the
+  developer-id signing mode. It is referenced nowhere in `tauri.conf.json`, so an
   ordinary `cargo tauri build` and the ad-hoc packaging path never see it. Whether
-  to enrol with Apple at all is an open CEO decision (1.1 in
-  richos-hq/wiki/ceo-decisions.md); this file is the half of that decision that can
-  be prepared without answering it.
+  to enroll with Apple at all was CEO decision 1.1 in
+  richos-hq/wiki/ceo-decisions.md, and it is closed: the membership exists, and a
+  Developer ID Application certificate has existed on this machine since
+  2026-09-01.
 
   WHY THE ONE ENTITLEMENT. `app/src-tauri/Info.plist` carries
   NSMicrophoneUsageDescription, which is what macOS shows the user in the prompt.
@@ -42,11 +57,16 @@
   hatch is `com.apple.security.cs.disable-library-validation`, which should be
   argued for explicitly at that point and not pre-added here.
 
-  UNVERIFIED, and it cannot be verified until a signing identity exists: that this
-  entitlement set both notarizes and leaves voice mode working. No Developer ID
-  certificate exists on any machine here — `security find-identity -v -p codesigning`
-  reported 0 valid identities on 2026-08-24 and again on 2026-08-30. Nothing in this
-  file has ever been used to sign anything.
+  WHAT IS VERIFIED NOW, and what is still not. As of 2026-09-01 a Developer ID
+  Application identity exists on this machine (BF4D68E6…, team TZ33A4QCZJ) and
+  this file HAS been used to sign: two RichOS.app builds carry it, the signed
+  entitlements read back out of the signature with codesign contain
+  com.apple.security.device.audio-input, the hardened runtime is on, and both
+  builds produced the identifier-and-team designated requirement the certificate
+  was bought for. STILL UNVERIFIED: that this set notarizes (no notarization run
+  has been made), and that voice mode works under the hardened runtime with a
+  granted microphone (that is a human sitting in front of the app, not a
+  property any file holds).
 -->
 <plist version="1.0">
   <dict>
