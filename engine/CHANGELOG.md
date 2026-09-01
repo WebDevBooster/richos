@@ -12,6 +12,79 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **Four of the five commit/push guards were walked around by typing `cd`
+  instead of `-C`** (`scripts/lib/git-jurisdiction.sh`,
+  `scripts/lib/git-jurisdiction.test.sh`, and the five guards) — MINOR.
+
+  Each guard resolved the repository it was about to judge from an explicit
+  `git -C`, and failing that from the hook payload's cwd. A worktree-isolated
+  agent's cwd is the checkout the harness gave it, so `cd <worktree> && git
+  commit` — the way that agent types a commit — resolved the SESSION's
+  repository, found no adoption declaration there, and stood down. **Measured
+  2026-09-01: the identical commit was REFUSED through the `-C` form and
+  ACCEPTED through the `cd` form minutes apart.**
+
+  Enumerated rather than assumed, by reading each guard's own jurisdiction
+  announcement over eight command shapes: completeness 8/8 wrong, ceo-todos
+  8/8, row-currency 8/8, inflight-notify 8/8, and publication 1/8 — that one
+  already tracked `cd` for a reason of its own and missed only
+  `(cd X && git commit)`, where a glued paren made the segment's first token
+  `(` instead of `cd`. All 40 now resolve the repository the command points at.
+
+  Resolution moved into ONE library that all five refuse to start without,
+  because it was five hand-copied blocks and four of them had the same hole.
+  **The difference from the old answer is two sentences wide and both are
+  pinned by cases:** a command that `cd`s into a repository is judged against
+  that repository, and where one command carries several git invocations the
+  anchor is the repository of the invocation being judged rather than the first
+  `-C` on the line (which `guard-publication-commits.sh` had already corrected
+  locally). For every single-invocation cd-free shape the answer is the legacy
+  answer, byte for byte, over a 15-shape corpus. What it cannot expand — `cd
+  "$D"`, `popd`, an untokenizable line — it REPORTS under a named `how` and
+  falls back to today's answer rather than guessing.
+
+- **Two teammates acknowledging one land collided on a single filename**
+  (`scripts/inflight-ack.sh`, `scripts/lib/inflight.py`,
+  `scripts/inflight-notify.sh`, `reference/ack-protocol-seam.md`) — MINOR.
+
+  In-flight acks were keyed on the SHA and nothing else, so two teammates
+  answering the same notice — the correct behavior — wrote two different files
+  at one path and the merge was an add/add conflict. It happened twice on
+  2026-09-01. **A lander in a hurry resolves that with `--ours`, and the proof
+  that a teammate acknowledged a land is gone with nothing to reconstruct it
+  from.** The key is now `<sha12>.<teammate>.ack`, defaulting to the worktree's
+  own directory name — which the sweep already treats as one of that teammate's
+  addresses — and the name is repeated inside the file.
+
+  The reader was the other half of the same defect: it could not have reported
+  two records even once the writer stopped colliding. It now returns every
+  record for a tip and both renderers print all of them with whose each is.
+  Pinned in the suite in both directions: the new key merges clean with both
+  records intact, and the same fixture on the OLD key conflicts and loses one
+  answer to `--ours`. Every ack already on main keeps verifying — attribution
+  fails safe, setting a record aside only when it positively says it came from
+  somebody else.
+
+- **A red run moved the operator's engine pointer and left it moved**
+  (`scripts/hooks/install.sh`, `scripts/lib/global-state-witness.sh`,
+  `scripts/lib/global-state-witness.test.sh`) — MINOR.
+
+  `~/.claude/richos-engine` — the pointer every session and the shipped app
+  resolve the engine through — was found dangling at a Layer R red-run fixture
+  that had been deleted after the run that made it. **Measured consequence: a
+  double-clicked RichOS reported NO COMPUTE LEASE**, having attached its lease
+  through that pointer an hour earlier.
+
+  The defect was not the dangling link; it was that a test could move a global
+  pointer `install.sh` owns and report success. `install.sh` now refuses to mint
+  the pointer when the checkout is EPHEMERAL and the target is the operator's
+  real config dir — narrow on purpose, so a suite that sandboxes
+  `CLAUDE_CONFIG_DIR` is untouched and only the run that forgot is stopped, with
+  `--force-engine-pointer` as the deliberate way through. Alongside it, one
+  witness replaces two hand-rolled `readlink` checks that could not tell a
+  DELETED pointer from an unchanged one, wired into every suite that runs the
+  installer.
+
 - **The turn gate blocked once in 107 landing turns, because anything running
   switched it off** (`scripts/hooks/guard-idle-land.py`,
   `scripts/hooks/guard-idle-land.sh`, `scripts/hooks/guard-idle-land.test.sh`,

@@ -1246,7 +1246,11 @@ rm -rf "$FAKEBIN"
 TMPENG="$(mktemp -d -t cqtest-eng.XXXXXX)"
 mkdir -p "$TMPENG/scripts/hooks" "$TMPENG/scripts/lib"
 cp "$GUARD" "$TMPENG/scripts/hooks/"
-cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" "$TMPENG/scripts/lib/"
+# git-jurisdiction.sh is carried for the same reason seat-jurisdiction.sh is:
+# the guard REFUSES TO START without it, so a fixture missing it would refuse
+# for the wrong reason and this case would pass over a guard that never reached
+# the predicate it is about. That is the sandbox-list defect, one suite down.
+cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" "$ENGINE_ROOT/scripts/lib/git-jurisdiction.sh" "$TMPENG/scripts/lib/"
 rc=0
 out="$(printf '{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"git commit -m x"}}' \
        | "$BASH_BIN" "$TMPENG/scripts/hooks/guard-ceo-todos-commits.sh" 2>&1 >/dev/null)" || rc=$?

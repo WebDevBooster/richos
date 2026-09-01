@@ -194,6 +194,23 @@ DEMO_FILES+=(
     # ran. Layer T now carries a clean-content canary that a dead hook cannot
     # satisfy, and this file makes both of them run for real.
     "scripts/lib/seat-jurisdiction.sh"
+    # The git-jurisdiction resolver — WHICH REPOSITORY a `git commit`/`git push`
+    # on the Bash tool is actually talking to. All five commit/push guards REFUSE
+    # TO START without it, for the same reason they refuse without
+    # seat-jurisdiction.sh above. It is one file rather than five copies because
+    # it WAS five copies, and four of them resolved the session's repository
+    # instead of the one being committed to whenever the command said
+    # `cd <repo> && git commit` — which is how an agent in a hand-rolled
+    # worktree types a commit by default.
+    "scripts/lib/git-jurisdiction.sh"
+    # The global-state witness — carried for the READING reason, not the running
+    # one, and the difference is worth stating because nothing in this sample
+    # repo will refuse without it. It is what the suites that run install.sh use
+    # to prove they gave back the operator's engine pointer. A sample engine
+    # missing it looks fine and cannot answer "did this run leave the pointer
+    # moved?" — which is the question a red-run fixture got wrong on 2026-09-01
+    # while reporting success, leaving a double-clicked RichOS with no lease.
+    "scripts/lib/global-state-witness.sh"
     # The dialect vocabulary. guard-dialect.sh decides nothing without it and
     # Layer T fails loudly when it is absent — which is how this omission was
     # found, by the probe rather than by a reader.

@@ -50,7 +50,11 @@ for h in guard-inflight-notify.sh notice-inflight-sends.sh notice-inflight-acks.
     cp "$SRC_DIR/$h" "$REPO/scripts/hooks/$h"
     chmod +x "$REPO/scripts/hooks/$h"
 done
-for l in inflight.sh inflight.py teammate-identity.py agent-liveness.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh stop-hook-notice.sh; do
+# git-jurisdiction.sh is on this list for the same reason seat-jurisdiction.sh
+# is: the guard REFUSES TO START without it. A sandbox missing it would model an
+# engine that cannot run, and every case here would be reading a BROKEN INSTALL
+# banner rather than a decision.
+for l in inflight.sh inflight.py teammate-identity.py agent-liveness.py resolve-roots.sh resolve-main-checkout.sh seat-jurisdiction.sh git-jurisdiction.sh stop-hook-notice.sh; do
     cp "$SRC_DIR/../lib/$l" "$REPO/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_ROOT/scripts/inflight-notify.sh" "$REPO/scripts/"
@@ -271,7 +275,12 @@ esac
 # The filename carries the sha, so a wrong-commit ack lands under a different
 # name and is simply absent (5d). This is the other half: the RIGHT filename
 # with a STALE sha INSIDE, which is what copying an old ack forward produces.
-python3 - "$WT/.claude/inflight-acks/$(printf '%s' "$TIP" | cut -c1-12).ack" "$BASE_SHA" <<'STALEPY'
+#
+# Found by GLOB, not by construction: the name is `<sha12>.<teammate>.ack` and
+# this suite must not become the second place that knows how to spell it.
+ACKFILE="$(ls "$WT/.claude/inflight-acks/$(printf '%s' "$TIP" | cut -c1-12)".*.ack 2>/dev/null | head -1)"
+[ -n "$ACKFILE" ] || ACKFILE="$WT/.claude/inflight-acks/$(printf '%s' "$TIP" | cut -c1-12).ack"
+python3 - "$ACKFILE" "$BASE_SHA" <<'STALEPY'
 import re, sys
 p, stale = sys.argv[1], sys.argv[2]
 src = open(p).read()
@@ -691,6 +700,158 @@ else
     bad "11c. waive honors INFLIGHT_TEAMS_DIR as documented" "exit $WRC: $WOUT"
 fi
 unset INFLIGHT_TRANSCRIPT
+
+# ==========================================================================
+# 12. TWO TEAMMATES, ONE LAND — the filename collision, and the merge
+#
+# Two teammates acknowledging the same land is CORRECT: both were notified and
+# both answered. Keyed on the sha alone their branches carried two different
+# files at ONE path, and the merge was an add/add conflict — twice on
+# 2026-09-01. A lander in a hurry resolves that with `--ours`, and the evidence
+# that a teammate acknowledged a land is gone with no trace left anywhere.
+#
+# 12a/12b are the fix. 12c is the NEGATIVE CONTROL, and it is not optional: it
+# reproduces the old key in the same fixture and shows the conflict and the
+# silent loss, so 12a cannot pass by the merge being trivial for some other
+# reason.
+# ==========================================================================
+MERGE_REPO="$(mktemp -d -t inflight-merge.XXXXXX)"
+git -C "$MERGE_REPO" init -q -b main 2>/dev/null || { git init -q "$MERGE_REPO"; git -C "$MERGE_REPO" checkout -q -b main 2>/dev/null; }
+printf 'seed\n' > "$MERGE_REPO/seed.txt"
+git -C "$MERGE_REPO" add -A >/dev/null 2>&1
+git -C "$MERGE_REPO" commit -qm seed >/dev/null 2>&1
+MERGE_TIP="$(git -C "$MERGE_REPO" rev-parse HEAD)"
+
+ack_on_branch() { # <branch> <teammate> [--legacy]
+    git -C "$MERGE_REPO" checkout -q main
+    git -C "$MERGE_REPO" checkout -q -b "$1" 2>/dev/null || git -C "$MERGE_REPO" checkout -q "$1"
+    if [ "${3:-}" = "--legacy" ]; then
+        mkdir -p "$MERGE_REPO/.claude/inflight-acks"
+        {
+            printf 'sha: %s\n' "$MERGE_TIP"
+            printf 'impact: none\n'
+            # The detail names its author, because in life two teammates never
+            # write the same sentence — and identical bytes at one path is the
+            # ONE case git merges without complaint, which would make this
+            # control pass for the wrong reason.
+            printf 'detail: %s here: I read the land and it does not touch anything I am holding open.\n' "$2"
+            printf 'paths: none\n'
+            printf 'worktree: %s\n' "$MERGE_REPO"
+        } > "$MERGE_REPO/.claude/inflight-acks/$(printf '%s' "$MERGE_TIP" | cut -c1-12).ack"
+    else
+        bash "$ACKER" --sha "$MERGE_TIP" --impact none \
+            --detail "I read the land and it does not touch anything I am holding open here." \
+            --paths "none" --worktree "$MERGE_REPO" --teammate "$2" >/dev/null 2>&1
+    fi
+    git -C "$MERGE_REPO" add -A >/dev/null 2>&1
+    git -C "$MERGE_REPO" commit -qm "ack from $2" >/dev/null 2>&1
+    rm -rf "$MERGE_REPO/.claude/inflight-acks"
+    git -C "$MERGE_REPO" checkout -q main
+}
+
+ack_on_branch zach-branch zach-opus-c1
+ack_on_branch norm-branch norm-sonnet-feature1
+git -C "$MERGE_REPO" merge -q --no-edit zach-branch >/dev/null 2>&1
+MRC=0
+git -C "$MERGE_REPO" merge --no-edit norm-branch >/dev/null 2>&1 || MRC=$?
+NACKS="$(ls "$MERGE_REPO/.claude/inflight-acks/" 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$MRC" -eq 0 ] && [ "$NACKS" = "2" ]; then
+    ok "12a. two teammates acking ONE sha merge with NO conflict, and both records survive"
+else
+    bad "12a. two acks for one sha merge cleanly" "merge rc=$MRC, $NACKS record(s): $(ls "$MERGE_REPO/.claude/inflight-acks/" 2>/dev/null | tr '\n' ' ')"
+fi
+
+# Both records are READABLE as two records, not silently collapsed to one. A
+# writer that stopped colliding while the reader still handled one file would
+# have moved the loss from the merge to the sweep.
+BOTH=1
+for who in zach-opus-c1 norm-sonnet-feature1; do
+    [ -f "$MERGE_REPO/.claude/inflight-acks/$(printf '%s' "$MERGE_TIP" | cut -c1-12).$who.ack" ] || BOTH=0
+done
+READ_N="$(python3 -c '
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import importlib.util as ilu
+spec = ilu.spec_from_file_location("inflight", os.path.join(sys.argv[1], "inflight.py"))
+m = ilu.module_from_spec(spec); spec.loader.exec_module(m)
+print(len(m.ack_paths(sys.argv[2], sys.argv[3])))
+' "$REPO/scripts/lib" "$MERGE_REPO" "$MERGE_TIP" 2>/dev/null || echo 0)"
+if [ "$BOTH" = 1 ] && [ "$READ_N" = "2" ]; then
+    ok "12b. the READER returns both records — the multi-teammate case is the normal case"
+else
+    bad "12b. the reader handles more than one record" "named-files=$BOTH reader-count=$READ_N"
+fi
+
+# 12c — THE NEGATIVE CONTROL. The old key, same fixture: the merge conflicts,
+# and `--ours` resolves it by throwing one teammate's answer away in silence.
+git -C "$MERGE_REPO" checkout -q main
+git -C "$MERGE_REPO" branch -q -D legacy-a legacy-b 2>/dev/null || true
+ack_on_branch legacy-a zach-opus-c1 --legacy
+ack_on_branch legacy-b norm-sonnet-feature1 --legacy
+git -C "$MERGE_REPO" merge -q --no-edit legacy-a >/dev/null 2>&1
+LRC=0
+git -C "$MERGE_REPO" merge --no-edit legacy-b >/dev/null 2>&1 || LRC=$?
+if [ "$LRC" -ne 0 ]; then
+    git -C "$MERGE_REPO" checkout --ours -- .claude/inflight-acks >/dev/null 2>&1
+    git -C "$MERGE_REPO" add -A >/dev/null 2>&1
+    git -C "$MERGE_REPO" commit -qm "resolved with --ours" >/dev/null 2>&1
+    LEGACY_N="$(ls "$MERGE_REPO/.claude/inflight-acks/"*.ack 2>/dev/null | grep -c '\.ack$' || true)"
+    ok "12c. NEGATIVE CONTROL: the OLD sha-only key conflicts on the merge, and --ours leaves $LEGACY_N of the 2 answers"
+else
+    bad "12c. the old key must conflict — otherwise 12a proves nothing" "merge rc=$LRC"
+fi
+
+# 12d/12e — ATTRIBUTION, exercised on the predicate directly so the two answers
+# cannot be confused with anything else the sweep decides.
+#
+#   12d  every ack already on main is called `<sha12>.ack` and carries no
+#        teammate line at all. Those must keep counting — orphaning them would
+#        delete the only proof that those teammates ever answered.
+#   12e  a record that says out loud it came from ANOTHER teammate must not
+#        discharge this one's debt. That is what a merge deposits in a worktree,
+#        and crediting it would let one answer cover a silence.
+ATTR="$(python3 - "$REPO/scripts/lib" <<'ATTRPY' 2>&1
+import os, sys, importlib.util as ilu, tempfile
+libdir = sys.argv[1]
+spec = ilu.spec_from_file_location("inflight", os.path.join(libdir, "inflight.py"))
+m = ilu.module_from_spec(spec); spec.loader.exec_module(m)
+
+tip = "a" * 40
+root = tempfile.mkdtemp()
+d = os.path.join(root, ".claude", "inflight-acks")
+os.makedirs(d)
+detail = "I read the land and none of my open assumptions depend on it at all."
+
+
+def write(name, extra):
+    with open(os.path.join(d, name), "w") as fh:
+        fh.write("sha: %s\nimpact: none\ndetail: %s\npaths: none\n%s" % (tip, detail, extra))
+
+
+wt = {"path": root, "addresses": ["zach-opus-ss1"], "resolved_name": "zach-opus-ss1",
+      "moved_paths": []}
+
+write("%s.ack" % tip[:12], "worktree: %s\n" % root)
+legacy = m.ack_status(wt, tip, "", [], 30)
+os.remove(os.path.join(d, "%s.ack" % tip[:12]))
+
+write("%s.norm-sonnet-f1.ack" % tip[:12], "teammate: norm-sonnet-f1\nworktree: /elsewhere\n")
+foreign = m.ack_status(wt, tip, "", [], 30)
+
+print("legacy=%s foreign=%s says=%s"
+      % (legacy["verified"], foreign["verified"],
+         "named" if any("belong to" in p for p in foreign["problems"]) else "silent"))
+ATTRPY
+)"
+case "$ATTR" in
+    *"legacy=True"*) ok "12d. an ack in the OLD sha-only name, with no teammate line, still verifies" ;;
+    *) bad "12d. pre-existing acks keep working" "$ATTR" ;;
+esac
+case "$ATTR" in
+    *"foreign=False"*"says=named"*) ok "12e. another teammate's record does not discharge this one's debt, and is NAMED" ;;
+    *) bad "12e. a foreign record is not credited, and says so" "$ATTR" ;;
+esac
+rm -rf "$MERGE_REPO"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

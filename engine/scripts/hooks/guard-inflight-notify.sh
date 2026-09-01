@@ -167,6 +167,28 @@ fi
 # shellcheck source=../lib/inflight.sh
 . "$_IF_LIB"
 
+# --- GIT JURISDICTION ------------------------------------------------------
+# The question UNDERNEATH the seat: which repository is this git command talking
+# to? It was answered in five hand-copied blocks and every one of them missed
+# `cd <repo> && git push`. This file's own header already documents the
+# jurisdiction lesson; this is the same lesson one layer down. REFUSING TO START
+# is deliberate — a guard that resolved the repository by guessing would be the
+# 2026-09-01 bypass with a nicer error message.
+_GJ_LIB="$SCRIPT_DIR/../lib/git-jurisdiction.sh"
+if [ ! -f "$_GJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-inflight-notify.sh"
+        echo "  scripts/lib/git-jurisdiction.sh is missing at: $_GJ_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY the command"
+        echo "  it was handed will actually push, and the fallback it used to"
+        echo "  carry is the exact bypass that library exists to close."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/git-jurisdiction.sh
+. "$_GJ_LIB"
+
 INPUT="$(cat)"
 
 if resolve_entity_root "$INPUT"; then
@@ -247,7 +269,11 @@ for seg in re.split(r"(?:\|\||&&|[;\n|])", cmd):
     positional = [a for a in rest if not a.startswith("-")]
     # positional[0] is the remote; anything after it is a refspec.
     refspecs = positional[1:] if len(positional) > 1 else []
-    out("ACT", repo, cwd, sid, " ".join(refspecs), tpath)
+    # `repo` is deliberately NOT emitted. WHERE the push points is resolved by
+    # scripts/lib/git-jurisdiction.sh, which understands the `cd <repo> && git
+    # push` form this walk cannot see. A second answer here would be the
+    # divergent copy that put the same hole in five files.
+    out("ACT", sid, " ".join(refspecs), tpath)
 
 out("PASS")
 PYEOF
@@ -255,17 +281,16 @@ PYEOF
 CLASS="$(GUARD_PAYLOAD="$INPUT" python3 -c "$_IF_CLASSIFIER" 2>/dev/null || printf 'PASS')"
 [ "$(printf '%s' "$CLASS" | cut -f1)" = "ACT" ] || exit 0
 
-REPO_HINT="$(printf '%s' "$CLASS" | cut -f2)"
-PAYLOAD_CWD="$(printf '%s' "$CLASS" | cut -f3)"
-SESSION_ID="$(printf '%s' "$CLASS" | cut -f4)"
-REFSPECS="$(printf '%s' "$CLASS" | cut -f5)"
-TRANSCRIPT="$(printf '%s' "$CLASS" | cut -f6)"
+SESSION_ID="$(printf '%s' "$CLASS" | cut -f2)"
+REFSPECS="$(printf '%s' "$CLASS" | cut -f3)"
+TRANSCRIPT="$(printf '%s' "$CLASS" | cut -f4)"
 
-ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
-case "$ANCHOR" in
-  /*) ;;
-  *) ANCHOR="${PAYLOAD_CWD:-$PWD}/$ANCHOR" ;;
-esac
+# --- WHICH REPOSITORY IS THIS COMMAND TALKING TO? --------------------------
+# ONE resolver, shared by every guard that asks (scripts/lib/git-jurisdiction.sh),
+# never a local copy — a copy is how the same hole ended up in five files.
+_IF_GJ="$(richos_git_anchor "$INPUT" "push")"
+ANCHOR="$(printf '%s' "$_IF_GJ" | cut -f2)"
+[ -n "$ANCHOR" ] || ANCHOR="$PWD"
 
 REPO="$(git -C "$ANCHOR" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$REPO" ] || exit 0

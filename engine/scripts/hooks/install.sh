@@ -38,8 +38,10 @@
 #      hooks against these).
 #
 #   4. MINT THE ENGINE POINTER (~/.claude/richos-engine), unless this checkout
-#      is a LINKED GIT WORKTREE — see the pointer section at the bottom for why
-#      that one step, and only that step, is withheld there.
+#      is a LINKED GIT WORKTREE, or is EPHEMERAL (a temp directory or a
+#      scratchpad) while the target is the operator's real config dir — see the
+#      pointer section at the bottom for why that one step, and only that step,
+#      is withheld in each case.
 #
 # Idempotent. Re-running converges: an old duplicated settings.json is removed
 # on the first run and stays absent on every subsequent run. The operator
@@ -48,8 +50,10 @@
 #   scripts/hooks/install.sh [--force-engine-pointer]
 #
 #   --force-engine-pointer   mint the engine pointer even from a linked git
-#                            worktree. Deliberate, auditable, and almost never
-#                            what you want; the pointer section explains.
+#                            worktree, or from an ephemeral checkout onto the
+#                            operator's real config dir. Deliberate, auditable,
+#                            and almost never what you want; the pointer section
+#                            explains both.
 #
 # Exit codes:
 #   0  migration (or no-op) succeeded
@@ -285,6 +289,14 @@ HOOK_FILES+=(
     # mean the file that decides whether a guard enforces at all is the one file
     # nobody verifies — check the lock, ignore the key.
     "$REPO_ROOT/scripts/lib/seat-jurisdiction.sh"
+    # The git-jurisdiction resolver, same argument one step further down. FIVE
+    # registered guards refuse to start without scripts/lib/git-jurisdiction.sh
+    # and take the repository they are about to judge from it, so an unhashed
+    # copy would be the file that decides WHICH TREE a guard inspects and the
+    # one nobody verifies. It exists because that resolution used to live in
+    # five hand-copied blocks and four of them resolved the session's
+    # repository rather than the one being committed to.
+    "$REPO_ROOT/scripts/lib/git-jurisdiction.sh"
     # The publication-boundary predicate, in both its halves. Not hooks, and
     # hashed for the reaper's reason: TWO registered guards
     # (guard-publication-writes.sh, guard-publication-commits.sh) delegate
@@ -468,7 +480,66 @@ fi
 
 ENGINE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 ENGINE_POINTER="$ENGINE_CONFIG_DIR/richos-engine"
-if [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
+
+# --- A TEST FIXTURE MUST NOT BE ABLE TO AIM THE OPERATOR'S POINTER AT ITSELF
+#
+# On 2026-09-01 ~/.claude/richos-engine — the pointer EVERY session and the
+# shipped app resolve the engine through — was found dangling at
+# .../scratchpad/g4/red/layerR: a Layer R red-run fixture, deleted after the run
+# that made it. The consequence was measured rather than imagined. A
+# double-clicked RichOS reported NO COMPUTE LEASE, having attached its lease
+# through that same pointer an hour earlier.
+#
+# THE DEFECT IS NOT THE DANGLING LINK. It is that a test could move a global
+# pointer this script owns and leave it moved. The rule that follows is "a red
+# run must restore what it borrows, or must never borrow the real one" — and a
+# rule enforced by the person running the red run is a rule enforced by
+# attention, which is the thing this engine keeps proving it cannot buy.
+#
+# So it is enforced HERE, at the only place that writes the pointer, and the
+# condition is deliberately narrow: the source checkout is EPHEMERAL (a temp
+# directory or a scratchpad) AND the target is the OPERATOR'S REAL config
+# directory. A suite that sandboxes CLAUDE_CONFIG_DIR — the correct discipline,
+# which contract-integrity.test.sh and locate-engine.test.sh already follow — is
+# untouched, because it is not borrowing the real one. Only the run that forgot
+# is stopped, and it is stopped BEFORE the irreversible act rather than warned
+# about after it.
+#
+# --force-engine-pointer remains the deliberate way through, for the same reason
+# it exists for the worktree case: there is a legitimate need (exercising
+# pointer behavior itself) and an opt-in flag leaves a record in shell history.
+POINTER_EPHEMERAL=0
+if [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
+    _PTR_PHYS="$( (cd "$REPO_ROOT" 2>/dev/null && pwd -P) || printf '%s' "$REPO_ROOT" )"
+    _PTR_CFG="$( (cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P) || printf '%s' "$ENGINE_CONFIG_DIR" )"
+    _PTR_HOME_CFG="$( (cd "$HOME/.claude" 2>/dev/null && pwd -P) || printf '%s' "$HOME/.claude" )"
+    if [ "$_PTR_CFG" = "$_PTR_HOME_CFG" ]; then
+        case "$_PTR_PHYS" in
+            /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*|*/scratchpad/*|*/scratch/*)
+                POINTER_EPHEMERAL=1 ;;
+        esac
+        if [ "$POINTER_EPHEMERAL" -eq 0 ] && [ -n "${TMPDIR:-}" ]; then
+            _PTR_TMP="$( (cd "$TMPDIR" 2>/dev/null && pwd -P) || printf '%s' "$TMPDIR" )"
+            case "$_PTR_PHYS" in
+                "${_PTR_TMP%/}"/*) POINTER_EPHEMERAL=1 ;;
+            esac
+        fi
+    fi
+fi
+
+if [ "$POINTER_EPHEMERAL" -eq 1 ]; then
+    echo "NOTE: engine pointer SKIPPED — this checkout is EPHEMERAL:" >&2
+    echo "        $REPO_ROOT" >&2
+    echo "      and $ENGINE_POINTER is the OPERATOR'S REAL pointer, which every session and" >&2
+    echo "      the shipped app resolve the engine through. Aiming it at a temp or scratch" >&2
+    echo "      directory leaves a DANGLING pointer the moment that directory is cleaned up." >&2
+    echo "      That is not hypothetical: on 2026-09-01 a red-run fixture did exactly this" >&2
+    echo "      and a double-clicked RichOS reported NO COMPUTE LEASE." >&2
+    echo "      Everything else in this run completed normally." >&2
+    echo "      If you are testing pointer behavior, borrow a scratch one instead — it costs" >&2
+    echo "      nothing:  CLAUDE_CONFIG_DIR=\$(mktemp -d) install.sh" >&2
+    echo "      To repoint the real one from HERE anyway, deliberately:  install.sh --force-engine-pointer" >&2
+elif [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
     echo "NOTE: engine pointer SKIPPED — this checkout is a LINKED GIT WORKTREE:" >&2
     echo "        $REPO_ROOT" >&2
     echo "      $ENGINE_POINTER is unchanged, which is what you want: a worktree is removed at" >&2

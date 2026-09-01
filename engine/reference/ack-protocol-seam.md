@@ -15,16 +15,24 @@ the lead can `stat`.
 **Write a file in your own worktree. That file IS the acknowledgement.**
 
 ```
-<your worktree>/.claude/inflight-acks/<first-12-characters-of-the-sha>.ack
+<your worktree>/.claude/inflight-acks/<first-12-characters-of-the-sha>.<your name>.ack
 ```
 
-Four lines, exactly these keys:
+**Your name is in that filename, and it is there for a reason that cost real evidence.** The
+key used to be the sha alone. Two teammates acknowledging the same land — which is correct,
+both were told and both answered — then wrote two different files at one path, and the merge
+was an add/add conflict; a lander in a hurry resolves that with `--ours` and the proof that
+one of them answered is gone without a trace. An ack is per-teammate-per-sha. Use your
+worktree's directory name if you have nothing better.
+
+Five lines, exactly these keys:
 
 ```
 sha: <the FULL 40-character commit the lead named>
 impact: conflict | stale-record | grew-scope | none
 detail: <at least 40 characters, in your own words, naming which of YOUR assumptions this breaks>
 paths: <space-separated repo-relative paths this lands on, or the word none>
+teammate: <your name — the same one the filename carries>
 ```
 
 `impact` forces a judgment where "got it" forces none. **conflict** — it touched files I have

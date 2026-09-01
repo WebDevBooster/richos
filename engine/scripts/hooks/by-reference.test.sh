@@ -47,6 +47,18 @@ bad() { FAIL=$((FAIL + 1)); FAIL_NAMES+=("$1"); printf '  FAIL  %s — %s\n' "$1
 # The launching session's own environment must not leak in as a candidate root.
 unset CLAUDE_PROJECT_DIR RICHOS_ENTITY_ROOT RICHOS_ENGINE_ROOT CLAUDE_PLUGIN_ROOT
 
+# This suite runs the real install.sh against ~10 throwaway sandboxes. Each call
+# threads CLAUDE_CONFIG_DIR into the sandbox — but INTENDING to sandbox is not
+# evidence of having sandboxed, and the one time that intention slipped, the
+# operator's pointer spent an hour aimed at a deleted fixture and a double-
+# clicked RichOS reported NO COMPUTE LEASE. Snapshot now, verify at the end.
+STATE_BEFORE=""
+if [ -f "$SRC_ENGINE/scripts/lib/global-state-witness.sh" ]; then
+    # shellcheck source=../lib/global-state-witness.sh
+    . "$SRC_ENGINE/scripts/lib/global-state-witness.sh"
+    STATE_BEFORE="$(richos_global_snapshot)"
+fi
+
 # ---------------------------------------------------------------------------
 # Sandbox
 # ---------------------------------------------------------------------------
@@ -839,6 +851,16 @@ else
     bad "9c.BR9-guard-that-never-reads-the-roster-is-caught" "BR9 accepted a guard that only pattern-matches its payload"
 fi
 rm -rf "$SB"
+
+# ---------------------------------------------------------------------------
+# The suite gives back what it borrowed — asserted, not intended.
+if [ -z "$STATE_BEFORE" ]; then
+    bad "10.global-state-witness-present" "scripts/lib/global-state-witness.sh is missing, so nothing checked what this suite left behind"
+elif richos_global_verify "$STATE_BEFORE" 2>/dev/null; then
+    ok "10.the-operator-global-state-is-unchanged-by-this-suite"
+else
+    bad "10.the-operator-global-state-is-unchanged-by-this-suite" "$(richos_global_verify "$STATE_BEFORE" 2>&1 | tr '\n' ' ')"
+fi
 
 # ---------------------------------------------------------------------------
 echo ""

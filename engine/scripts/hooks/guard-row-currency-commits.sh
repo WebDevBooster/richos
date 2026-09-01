@@ -104,6 +104,27 @@ fi
 # shellcheck source=../lib/seat-jurisdiction.sh
 . "$_SJ_LIB"
 
+# --- GIT JURISDICTION ------------------------------------------------------
+# The question UNDERNEATH the one above: which repository is this git command
+# talking to? It was answered in five hand-copied blocks and every one of them
+# missed `cd <repo> && git commit`. REFUSING TO START is deliberate — a guard
+# that resolved the repository by guessing would be the 2026-09-01 bypass with
+# a nicer error message.
+_GJ_LIB="$SCRIPT_DIR/../lib/git-jurisdiction.sh"
+if [ ! -f "$_GJ_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-row-currency-commits.sh"
+        echo "  scripts/lib/git-jurisdiction.sh is missing at: $_GJ_LIB"
+        echo "  Without it this guard cannot tell WHICH REPOSITORY the command"
+        echo "  it was handed will actually commit to, and the fallback it used"
+        echo "  to carry is the exact bypass that library exists to close."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/git-jurisdiction.sh
+. "$_GJ_LIB"
+
 INPUT="$(cat)"
 
 if resolve_entity_root "$INPUT"; then
@@ -282,7 +303,11 @@ for seg in segments:
         continue
     if parts:
         message = "\n\n".join(parts)
-    out("ACT", sub, repo, stage_all, merge_ref, msource,
+    # `repo` is deliberately NOT emitted. WHERE the command points is resolved
+    # by scripts/lib/git-jurisdiction.sh, which understands the `cd <repo> &&
+    # git commit` form this walk cannot see. Emitting a second answer here would
+    # be the divergent copy that put the same hole in five files.
+    out("ACT", sub, stage_all, merge_ref, msource,
         json.dumps(message) if message is not None else "")
 
 out("PASS")
@@ -293,24 +318,17 @@ KIND="$(printf '%s' "$CLASS" | cut -f1)"
 [ "$KIND" = "ACT" ] || exit 0
 
 ACTION="$(printf '%s' "$CLASS" | cut -f2)"
-REPO_HINT="$(printf '%s' "$CLASS" | cut -f3)"
-STAGE_ALL="$(printf '%s' "$CLASS" | cut -f4)"
-MERGE_REF="$(printf '%s' "$CLASS" | cut -f5)"
-MSRC="$(printf '%s' "$CLASS" | cut -f6)"
-MSG_JSON="$(printf '%s' "$CLASS" | cut -f7-)"
+STAGE_ALL="$(printf '%s' "$CLASS" | cut -f3)"
+MERGE_REF="$(printf '%s' "$CLASS" | cut -f4)"
+MSRC="$(printf '%s' "$CLASS" | cut -f5)"
+MSG_JSON="$(printf '%s' "$CLASS" | cut -f6-)"
 
-PAYLOAD_CWD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
-try:
-    d = json.load(sys.stdin)
-    print(str(d.get("cwd", "") or "") if isinstance(d, dict) else "")
-except Exception:
-    print("")' 2>/dev/null || true)"
-
-ANCHOR="${REPO_HINT:-${PAYLOAD_CWD:-$PWD}}"
-case "$ANCHOR" in
-  /*) ;;
-  *) ANCHOR="${PAYLOAD_CWD:-$PWD}/$ANCHOR" ;;
-esac
+# --- WHICH REPOSITORY IS THIS COMMAND TALKING TO? --------------------------
+# ONE resolver, shared by every guard that asks (scripts/lib/git-jurisdiction.sh),
+# never a local copy — a copy is how the same hole ended up in five files.
+_RC_GJ="$(richos_git_anchor "$INPUT" "commit merge")"
+ANCHOR="$(printf '%s' "$_RC_GJ" | cut -f2)"
+[ -n "$ANCHOR" ] || ANCHOR="$PWD"
 
 rc_require_ceo_todos_lib || { rc_broken_banner "guard-row-currency-commits.sh" "$RC_BROKEN_REASON" >&2; exit 2; }
 
