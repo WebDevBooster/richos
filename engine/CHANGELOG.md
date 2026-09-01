@@ -10,6 +10,63 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Added
+
+- **A file can now be declared private BY IDENTITY, and both publication guards
+  enforce it** (`scripts/lib/publication-boundary.sh`,
+  `scripts/lib/publication-boundary.py`, `scripts/hooks/guard-publication-writes.sh`,
+  `scripts/hooks/guard-publication-commits.sh`,
+  `scripts/hooks/publication-boundary.test.sh`) — MINOR.
+
+  The boundary's two detectors are scoring functions. They were measured against
+  the 2026-08-29 transcripts and they are sharp for transcripts, and they are
+  blind to a small named file that is private for a reason no scoring function
+  can see. **Measured 2026-09-01, both halves: a seven-line note about which
+  typeface a wordmark was drawn in was written into the publication-bound tree
+  and staged, and both guards returned 0.** The instruction to keep that file in
+  the private record had been given twice, and twice it was honored by somebody
+  remembering.
+
+  `PRIVATE_FILES` in `.publication-boundary` takes `<64-hex-sha256>:<name>`
+  entries and MAY BE REPEATED, so declaring the next file is a one-line diff;
+  every other key now refuses a second occurrence instead of letting the last
+  line silently win. A declared file is refused **renamed** (the digest travels
+  with the content), **reformatted, recased or re-encoded** (the digest covers
+  the normalized word sequence as well as the bytes), **into a gitignored path**
+  (a file with one home does not belong here in any form), and **as a binary
+  blob** — which is not a hypothetical: the first file declared is UTF-16, so
+  every text-shaped filter in the pipeline called it binary and dropped it before
+  anything looked at it. What defeats it is a rewrite AND a rename together, or a
+  partial excerpt under a new name, and the header says so rather than leaving it
+  to be discovered.
+
+  **Nothing reads the private record at guard time.** The digest and the name are
+  committed, so a fresh clone with no sibling checkout enforces exactly what the
+  author's machine does — the machine that matters, being the one where nobody
+  has heard the rule. The cost is that the NAME is public; the content is not,
+  and that trade is written down where an operator declaring the next file will
+  see it.
+
+  Mint an entry with `publication-boundary.py --digest <file>`. The minter lives
+  inside the scanner rather than beside it, because a second copy of the recipe
+  is a declaration that protects nothing while looking exactly like one that
+  does — pinned by a mutation case that fails the moment the two disagree.
+
+  Suite 85 -> 121 cases; nine mutations, one at a time, each turning red before
+  the case it belongs to was believed. Zero findings across all 1,159 tracked
+  files in the repository, against a corpus of 14 files / 130,466 words.
+
+  **ADDING A KEY TO THIS DECLARATION IS A TWO-LAND CHANGE, by construction, and
+  the next person should expect it rather than discover it.** An unknown key is
+  BROKEN to the engine reading the file, the engine every repository reads is
+  the one on main, and a branch is not on main — so a declaration carrying the
+  new key refuses every commit in its own repository until the engine that
+  understands it has landed. Measured on this change: three registered hooks
+  refused, by name. The mechanism lands first and the entry that arms it is a
+  one-line commit after that. This is the unknown-key rule working, not a defect
+  in it; the alternative is an engine that quietly ignores settings it does not
+  understand, which is the failure this whole file is about.
+
 ### Fixed
 
 - **The worktree reaper ran, reported success, and swept a room that was

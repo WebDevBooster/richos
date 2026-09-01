@@ -533,8 +533,17 @@ IDX=0
 #
 # Binary blobs are skipped by a NUL test: an image or an audio file carries no
 # reproducible speech text, and the old check already covered media.
+#
+# UNLESS PRIVATE_FILES IS DECLARED, in which case a binary blob is carried into
+# the scan MARKED identity-only rather than dropped. That is not a hypothetical
+# generosity toward images: the first file declared under PRIVATE_FILES is
+# UTF-16, so it CONTAINS NUL BYTES and this very test calls it binary. Declaring
+# "this exact file never enters the repository" and then dropping the file
+# before anything looks at it would be enforcement in name only. Identity-only
+# items are hashed and never handed to the text detectors, so the corpus
+# predicate is untouched and so is its measured precision.
 pb_materialise() {
-    local mode="$1" rel BLOB _RAW _TXT
+    local mode="$1" rel BLOB _RAW _TXT _MODE
     while IFS= read -r rel; do
         [ -n "$rel" ] || continue
         if pb_allowlisted "$PB_REPO" "$PB_REPO/$rel"; then
@@ -559,14 +568,18 @@ pb_materialise() {
         # NUL in a variable and BSD grep has no portable binary-match flag, so a
         # `grep $'\0'` here silently never matches and every binary blob would
         # be handed to the text scanner.
+        _MODE=full
         _RAW="$(head -c 8192 "$BLOB" | wc -c | tr -d ' ')"
         _TXT="$(head -c 8192 "$BLOB" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')"
         if [ "$_RAW" != "$_TXT" ]; then
-            rm -f "$BLOB"
-            IDX=$((IDX - 1))
-            continue
+            if [ -z "$PB_PRIVATE_FILES" ]; then
+                rm -f "$BLOB"
+                IDX=$((IDX - 1))
+                continue
+            fi
+            _MODE=identity
         fi
-        printf '%s\t%s\n' "$rel" "$BLOB" >> "$WORK/manifest"
+        printf '%s\t%s\t%s\n' "$rel" "$BLOB" "$_MODE" >> "$WORK/manifest"
     done
 }
 
@@ -588,6 +601,7 @@ PB_MANIFEST="$WORK/manifest" PB_JOB="$JOB" \
   PB_MAX_FILES="$PB_CORPUS_MAX_FILES" PB_MAX_BYTES="$PB_CORPUS_MAX_BYTES" \
   PB_MAY_BE_EMPTY="$PB_CORPUS_MAY_BE_EMPTY" \
   PB_SOURCES_RAW="$PB_SOURCES_OK" \
+  PB_PRIVATE_FILES="$PB_PRIVATE_FILES" \
   python3 -c '
 import json, os
 items = []
@@ -596,8 +610,12 @@ with open(os.environ["PB_MANIFEST"], encoding="utf-8") as fh:
         line = line.rstrip("\n")
         if not line:
             continue
-        label, path = line.split("\t", 1)
-        items.append({"label": label, "path": path})
+        parts = line.split("\t")
+        label, path = parts[0], parts[1]
+        item = {"label": label, "path": path}
+        if len(parts) > 2 and parts[2] == "identity":
+            item["identity_only"] = True
+        items.append(item)
 job = {
     "min_speech_lines": int(os.environ.get("PB_MIN_SPEECH", "8")),
     "min_quote_words": int(os.environ.get("PB_MIN_QUOTE", "10")),
@@ -605,6 +623,7 @@ job = {
     "corpus_max_bytes": int(os.environ.get("PB_MAX_BYTES", "67108864")),
     "corpus_may_be_empty": os.environ.get("PB_MAY_BE_EMPTY", "0") == "1",
     "sources": [s for s in os.environ.get("PB_SOURCES_RAW", "").split("\t") if s],
+    "private_files": (os.environ.get("PB_PRIVATE_FILES", "") or "").split(),
     "items": items,
 }
 with open(os.environ["PB_JOB"], "w", encoding="utf-8") as fh:

@@ -159,19 +159,38 @@ case "$PB_DECL_RC" in
   *) pb_broken_banner "guard-publication-writes.sh" "$PB_BROKEN_REASON" >&2; exit 2 ;;
 esac
 
-# A gitignored destination is NOT publication-bound. Private material belongs
-# there — it is how the source audio was handled correctly all along — so this
-# is an allow, not a grudging exception.
-if pb_path_is_ignored "$PB_REPO" "$FILE_PATH"; then
-    exit 0
-fi
+# ALLOWLIST FIRST, and it is now checked before the gitignore allowance rather
+# than after it. It is the one sanctioned way through this mechanism, it is
+# committed and reviewable, and it exempts a path from EVERY detector including
+# identity — so it cannot sit downstream of a branch that exits before it.
 if pb_allowlisted "$PB_REPO" "$FILE_PATH"; then
     exit 0
 fi
 
-if ! pb_resolve_sources "$PB_REPO"; then
-    pb_broken_banner "guard-publication-writes.sh" "$PB_BROKEN_REASON" >&2
-    exit 2
+# A gitignored destination is NOT publication-bound. Private material belongs
+# there — it is how the source audio was handled correctly all along — so this
+# is an allow, not a grudging exception.
+#
+# WITH ONE EXCEPTION, AND IT IS THE WHOLE POINT OF PRIVATE_FILES: a file
+# declared private by identity has ONE home, named in the declaration, and this
+# repository is not it in any form. "Never enters this repository" that stopped
+# at .gitignore would be a rule about publication when the instruction was about
+# the file. So an ignored destination downgrades to an IDENTITY-ONLY scan
+# instead of exiting: no corpus is built, nothing is judged by resemblance, and
+# with no PRIVATE_FILES declared this branch is byte-for-byte the old behavior.
+PB_IDENTITY_ONLY=0
+if pb_path_is_ignored "$PB_REPO" "$FILE_PATH"; then
+    [ -n "$PB_PRIVATE_FILES" ] || exit 0
+    PB_IDENTITY_ONLY=1
+fi
+
+PB_SOURCES_OK=""
+PB_SOURCES_SKIPPED=""
+if [ "$PB_IDENTITY_ONLY" = "0" ]; then
+    if ! pb_resolve_sources "$PB_REPO"; then
+        pb_broken_banner "guard-publication-writes.sh" "$PB_BROKEN_REASON" >&2
+        exit 2
+    fi
 fi
 
 # --- The new text this call would introduce ---------------------------------
@@ -192,6 +211,7 @@ printf '%s' "$INPUT" | PB_LABEL="$FILE_PATH" PB_JOB="$JOB" \
     PB_MAX_FILES="$PB_CORPUS_MAX_FILES" PB_MAX_BYTES="$PB_CORPUS_MAX_BYTES" \
     PB_MAY_BE_EMPTY="$PB_CORPUS_MAY_BE_EMPTY" \
     PB_SOURCES="$PB_SOURCES_JSON" \
+    PB_PRIVATE_FILES="$PB_PRIVATE_FILES" PB_IDENTITY_ONLY="$PB_IDENTITY_ONLY" \
     python3 -c '
 import json, os, sys
 try:
@@ -211,6 +231,10 @@ elif tool == "MultiEdit":
             texts.append(e.get("new_string") or "")
 elif tool == "NotebookEdit":
     texts.append(ti.get("new_source") or "")
+item = {"label": os.environ.get("PB_LABEL", "<file>"),
+        "text": "\n".join(t for t in texts if isinstance(t, str))}
+if os.environ.get("PB_IDENTITY_ONLY") == "1":
+    item["identity_only"] = True
 job = {
     "min_speech_lines": int(os.environ.get("PB_MIN_SPEECH", "8")),
     "min_quote_words": int(os.environ.get("PB_MIN_QUOTE", "10")),
@@ -218,8 +242,8 @@ job = {
     "corpus_max_bytes": int(os.environ.get("PB_MAX_BYTES", "67108864")),
     "corpus_may_be_empty": os.environ.get("PB_MAY_BE_EMPTY", "0") == "1",
     "sources": json.loads(os.environ.get("PB_SOURCES", "[]")),
-    "items": [{"label": os.environ.get("PB_LABEL", "<file>"),
-               "text": "\n".join(t for t in texts if isinstance(t, str))}],
+    "private_files": (os.environ.get("PB_PRIVATE_FILES", "") or "").split(),
+    "items": [item],
 }
 with open(os.environ["PB_JOB"], "w", encoding="utf-8") as fh:
     json.dump(job, fh)
