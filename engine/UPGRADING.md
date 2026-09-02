@@ -254,7 +254,7 @@ engine's structural improvements** — never replace.
   value you set. Never take the upstream config wholesale — it would reset your
   paths to the sample literals.
   **New key since 2026-09-02: `MODEL_TIERS`** (the model capability order as
-  data, e.g. `MODEL_TIERS="fable opus > sonnet > haiku"`). Copy the sample
+  data, e.g. `MODEL_TIERS="fable > opus > sonnet > haiku"`). Copy the sample
   line and re-derive it for the models your harness actually offers; its alias
   set must equal your `ALLOWED_MODELS`. Until it is present the spawn guard's
   clause 6 fails OPEN with a notice (nothing blocks, nothing checks) and the

@@ -51,9 +51,9 @@ version heading with Added / Changed / Fixed groupings.
   caught all three. A rule left as prose was broken; a guard built on the same
   prose would have made the error permanent and given it authority.
 
-  So the order is declared ONCE, as data: `MODEL_TIERS="fable opus > sonnet >
+  So the order is declared ONCE, as data: `MODEL_TIERS="fable > opus > sonnet >
   haiku"` beside `ALLOWED_MODELS` — `>` separates tiers, leftmost is most
-  capable, aliases inside one tier are equal — with a re-derivation note and
+  capable, aliases sharing a tier are equal — with a re-derivation note and
   a rule that no consumer may infer capability from an alias name. Every
   consumer reads it through one parser. Clause 6 of the spawn guard fires only
   on an explicit `model:` override: a LOWER tier than the definition's own

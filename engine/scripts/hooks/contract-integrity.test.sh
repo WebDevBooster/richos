@@ -333,7 +333,7 @@ DIALECT_TARGET="en-US"
 # declaration — and so the sandbox models the engine with the capability order
 # where it belongs: in data, beside the alias set it must equal.
 ALLOWED_MODELS="fable opus sonnet haiku"
-MODEL_TIERS="fable opus > sonnet > haiku"
+MODEL_TIERS="fable > opus > sonnet > haiku"
 CFG
 }
 
@@ -2162,7 +2162,7 @@ rm -rf "$ROOT"
 # MT2 — the alias sets disagree: ALLOWED_MODELS names an alias the order does
 # not rank. A spawn on that alias is one the guard cannot rank.
 ROOT="$(make_sandbox)"
-sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS="fable opus > sonnet"/' "$ROOT/orchestration.config"
+sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS="fable > opus > sonnet"/' "$ROOT/orchestration.config"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT2.model-tiers-alias-set-drifts-from-allowed-models-fails" 2 "$rc"
 if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS and ALLOWED_MODELS disagree.*haiku'; then
@@ -2177,7 +2177,7 @@ ROOT="$(make_sandbox)"
 printf '**Models:** the order is `MODEL_TIERS="opus > fable > sonnet > haiku"` and never move a teammate down it.\n' >"$ROOT/CLAUDE.md"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 emit_case "MT3.doctrine-quotes-a-different-order-fails" 2 "$rc"
-if printf '%s' "$MT_OUT" | grep -q 'MT\. .*CLAUDE.md quotes MODEL_TIERS="opus > fable > sonnet > haiku" but orchestration.config declares MODEL_TIERS="fable opus > sonnet > haiku"'; then
+if printf '%s' "$MT_OUT" | grep -q 'MT\. .*CLAUDE.md quotes MODEL_TIERS="opus > fable > sonnet > haiku" but orchestration.config declares MODEL_TIERS="fable > opus > sonnet > haiku"'; then
     emit_case "MT3b.the-refusal-names-both-orders" 0 0
 else
     emit_case "MT3b.the-refusal-names-both-orders" 0 1
@@ -2200,7 +2200,7 @@ rm -rf "$ROOT"
 # layer passes, two-sided canary included. Without this the four above could
 # be a layer that fails on everything.
 ROOT="$(make_sandbox)"
-printf '**Models:** the order is `MODEL_TIERS="fable opus > sonnet > haiku"`; do not move a teammate to a lower tier without saying why.\n' >"$ROOT/CLAUDE.md"
+printf '**Models:** the order is `MODEL_TIERS="fable > opus > sonnet > haiku"`; do not move a teammate to a lower tier without saying why.\n' >"$ROOT/CLAUDE.md"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
 # The probe styles its check mark (C_GREEN ... C_RESET) so "✓ MT." never
 # appears as plain text; match the layer's own words, as MT1-MT4 do.

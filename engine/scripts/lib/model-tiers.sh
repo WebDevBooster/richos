@@ -25,7 +25,7 @@
 # ===========================================================================
 # THE GRAMMAR
 # ===========================================================================
-#     MODEL_TIERS="fable opus > sonnet > haiku"
+#     MODEL_TIERS="fable > opus > sonnet > haiku"
 #
 #   - tiers are separated by `>`; the LEFTMOST tier is the most capable
 #   - aliases inside one tier are separated by whitespace and are EQUAL —

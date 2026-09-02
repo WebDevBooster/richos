@@ -391,7 +391,7 @@ DIALECT_EXEMPT_PATHS=""
 # Beat 7's Layer MT refuses a blank declaration, a set that drifts from
 # ALLOWED_MODELS, and a doctrine file that quotes a different order.
 ALLOWED_MODELS="fable opus sonnet haiku"
-MODEL_TIERS="fable opus > sonnet > haiku"
+MODEL_TIERS="fable > opus > sonnet > haiku"
 CFG
 
 # ---------------------------------------------------------------------------

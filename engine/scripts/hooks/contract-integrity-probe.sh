@@ -503,7 +503,7 @@ run_layer_MT() {
         . "$MT_LIB"
         mt_problem="$(model_tiers_problem "${MODEL_TIERS:-}" 2>/dev/null || true)"
         if [ -n "$mt_problem" ]; then
-            emit_fail "MT. MODEL_TIERS in $REPO_ROOT/orchestration.config: $mt_problem. The capability order must be declared as data, once, there — until it is, the spawn guard's clause 6 fails OPEN and nothing checks a move to a lower tier. Declare it beside ALLOWED_MODELS, e.g. MODEL_TIERS=\"fable opus > sonnet > haiku\", re-derived for the models this harness actually offers."
+            emit_fail "MT. MODEL_TIERS in $REPO_ROOT/orchestration.config: $mt_problem. The capability order must be declared as data, once, there — until it is, the spawn guard's clause 6 fails OPEN and nothing checks a move to a lower tier. Declare it beside ALLOWED_MODELS, e.g. MODEL_TIERS=\"fable > opus > sonnet > haiku\", re-derived for the models this harness actually offers."
             MT_OK=0
         else
             mt_set="$(model_tiers_set_problem "$MODEL_TIERS" "${ALLOWED_MODELS:-fable opus sonnet haiku}" 2>/dev/null || true)"
@@ -540,7 +540,7 @@ MT_Q_EOF
         else
             MT_SB="$(mktemp -d -t mt-canary.XXXXXX)"
             mkdir -p "$MT_SB/entity/.claude/agents" "$MT_SB/home"
-            printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\nALLOWED_MODELS="fable opus sonnet haiku"\nMODEL_TIERS="fable opus > sonnet > haiku"\n' \
+            printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\nALLOWED_MODELS="fable opus sonnet haiku"\nMODEL_TIERS="fable > opus > sonnet > haiku"\n' \
                 >"$MT_SB/entity/orchestration.config"
             printf -- '---\nname: mtjudge\nmodel: opus\n---\nA sandbox judgment role that exists only for this canary.\n' \
                 >"$MT_SB/entity/.claude/agents/mtjudge.md"
@@ -3427,7 +3427,7 @@ Integrity probe FAILED — $FAIL layer(s) broken. Most fixes:
   - "MODEL_TIERS ... is blank" / "MODEL_TIERS and ALLOWED_MODELS disagree" /
     "quotes ... but orchestration.config declares" (Layer MT)
        -> declare the capability order ONCE in orchestration.config
-          (MODEL_TIERS="fable opus > sonnet > haiku", re-derived for your
+          (MODEL_TIERS="fable > opus > sonnet > haiku", re-derived for your
           models), keep its alias set equal to ALLOWED_MODELS, and make
           CLAUDE.md quote that exact line. Never edit a consumer to fix it.
 

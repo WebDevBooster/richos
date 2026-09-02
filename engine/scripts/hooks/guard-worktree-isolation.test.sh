@@ -313,7 +313,7 @@ run_case "undeterminable but garbage token still BLOCKED (2a floor holds)" 2 \
 
 # --- (n) CLAUSE 6 — a move to a LOWER capability tier is stated, never silent ---
 # The order is DATA: this engine's orchestration.config declares
-# MODEL_TIERS="fable opus > sonnet > haiku", read only through
+# MODEL_TIERS="fable > opus > sonnet > haiku", read only through
 # scripts/lib/model-tiers.sh. Engine live defs: frank=opus, reed=sonnet. The
 # first two cases are the REAL shapes from 2026-09-02 — the first is the one
 # the killed guard had backwards (it would have refused it forever), the
@@ -336,7 +336,7 @@ run_case "frank (opus default) on sonnet, no reason -> BLOCKED" 2 "$C6_DOWN"
 run_case_msg "the tier refusal names the teammate" "'frank-sonnet-c6g' of 'frank'" "$C6_DOWN"
 run_case_msg "the tier refusal names the definition default" "defaults to 'opus'" "$C6_DOWN"
 run_case_msg "the tier refusal names the requested model" "requests model 'sonnet'" "$C6_DOWN"
-run_case_msg "the tier refusal names the declaration it read" 'MODEL_TIERS="fable opus > sonnet > haiku"' "$C6_DOWN"
+run_case_msg "the tier refusal names the declaration it read" 'MODEL_TIERS="fable > opus > sonnet > haiku"' "$C6_DOWN"
 run_case_msg "the tier refusal names the exact line to add" 'model-downgrade-ack: <why' "$C6_DOWN"
 run_case_msg "the tier refusal says equal-or-higher never needs it" 'Equal or higher tier never needs it' "$C6_DOWN"
 run_case "frank on haiku, no reason -> BLOCKED" 2 \
@@ -373,7 +373,7 @@ c6_case() { # <name> <expected-exit> <expected-substring-or-empty-for-silence> <
 }
 
 # Accepted ack is logged, with both models; a refusal is never logged.
-c6_config "fable opus > sonnet > haiku"
+c6_config "fable > opus > sonnet > haiku"
 C6_MARK="c6-log-canary-$$"
 c6_out "$(json_agent_model 'judge' 'judge-sonnet-log1' 'worktree' 'sonnet' "Judge.
 model-downgrade-ack: logging fixture $C6_MARK")" >/dev/null
@@ -415,7 +415,7 @@ mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
 cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
 cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$C6NOLIB/scripts/lib/"
 chmod +x "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
-c6_config "fable opus > sonnet > haiku"
+c6_config "fable > opus > sonnet > haiku"
 C6NL_OUT="$(printf '%s' "$(json_agent_model 'judge' 'judge-haiku-fo6' 'worktree' 'haiku' 'Judge.')" | RICHOS_ENTITY_ROOT="$C6SB" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh" 2>&1)"
 C6NL_RC=$?
 if [ "$C6NL_RC" -eq 0 ] && printf '%s' "$C6NL_OUT" | grep -qF "model-tiers.sh is missing"; then
