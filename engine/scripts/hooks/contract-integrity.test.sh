@@ -164,6 +164,19 @@ ALL_ROOT_SCRIPTS=(
     # silently off — and it would look fine doing it.
     scripts/lib/ceo-asks.sh
     scripts/lib/ceo-asks.py
+    # The CEO-RULED predicate and its operator CLI. On this list for the FIRST
+    # reason, and for a second one the SC1 check cannot see. FIRST:
+    # guard-ceo-ruled-ask.sh fails OPEN without ceo-ruled.sh and announces it,
+    # so a sandbox missing it models an engine whose newest blocking guard is
+    # silently off. SECOND, the soft half: ceo-ruled.py loads its tokenizer out
+    # of ceo-asks.py, so a sandbox carrying one and not the other assembles an
+    # engine that STARTS FINE and reads questions differently from the one that
+    # ships. ceo-ruled-exempt.sh is here because the refusal names it as the
+    # only way through — a sandbox with a gate and no escape hatch models a
+    # wall, which is the thing this gate was designed not to be.
+    scripts/lib/ceo-ruled.sh
+    scripts/lib/ceo-ruled.py
+    scripts/ceo-ruled-exempt.sh
     # The agent-liveness resolver, both halves plus its operator CLI. On this
     # list for the FIRST reason and the hardest version of it:
     # remove-agent-worktree.sh refuses EVERY removal without it, and probe Layer

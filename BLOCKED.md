@@ -1,90 +1,62 @@
-# Two font questions that are the CEO's, not mine — `zach-opus-ft1`
+# Not blocked — but a premise in the brief is false, and it changes what you can rely on
 
-**Neither blocks the branch.** The font cleanup is done and verified; these are
-two decisions the work ran into that I am not entitled to make, and the position
-I proceeded on meanwhile is stated for each. Both are one-line reversals if he
-rules the other way.
+**Status: the work is done and committed. Nothing is waiting on an answer.** This file exists
+because the brief rests on a factual premise that turned out to be wrong, and if you act on the
+brief's version of it you will believe you are protected where you are not.
 
-The governing ruling is `wiki/ceo-decisions.md` §22 — *"there cannot be any
-reliance on any system fonts"* — and the 2026-09-01 decision **"Typeface: GO":
-serif is Newsreader, sans is Inter, and there is no third role.**
+## The false premise
 
----
+The brief says: build a `PreToolUse[AskUserQuestion]` gate, and *"Reproduce all three of tonight's
+failures and show each refused."*
 
-## 1. There is no monospace, and ten rules want one
+**All three of those failures were PROSE, not `AskUserQuestion` calls.** Verified against the
+session transcripts on this machine, not inferred:
 
-**What I am blocked on.** Ten rules in `app/ui/style.css` use `var(--mono)`: the
-memory location, the desk record and its suppressed id, the feedback entry key,
-the technical view's title, path and raw output, the techy reason, and the update
-detail. All are technical text where column alignment is the point of the type.
+| Failure | Where it actually happened |
+|---|---|
+| Option D / what the customer installs | assistant text, 2026-09-01 22:01:46 — *"**Options:** build your Option D..."* |
+| The logo's two tones | assistant text, 2026-09-01 20:01:59 — *"is your mark one color, or does the swoosh get the gold?"* |
+| The seven splash screens | assistant text, 2026-09-01 19:45:55 — an **assertion**, not a question |
 
-Neither approved face is monospaced, and I was told in terms that choosing a
-third family is his decision and not an implementation detail.
+Every `AskUserQuestion` call ever made on this machine was extracted (18 calls, 27 questions,
+2026-07-27 to 2026-09-01). None of them is any of the three.
 
-**What I tried.** I had vendored JetBrains Mono (SIL OFL 1.1, 75,048 bytes) and
-it worked. I removed it when the typeface decision landed, because keeping it
-would have been exactly the third family the decision rules out.
+**So a `PreToolUse[AskUserQuestion]` gate on its own would have caught NONE of the three.** It would
+have shipped green over exactly the failure it was built for.
 
-**The smallest question that would unblock me.** *Do those ten diagnostic
-surfaces get a vendored monospace, or do they keep the browser's generic one?*
+## What I did about it
 
-Three options, cheapest first:
+Built both surfaces rather than one:
 
-| | what happens | cost |
-|---|---|---|
-| **1. Leave it** (what I did) | `--mono` resolves to the generic `monospace` keyword. Permitted by the ruling — it is the browser's own last resort, not a named platform face — but it resolves to whatever monospace the machine has, so those ten rules look different on a different computer. | 0 bytes |
-| **2. Vendor one** | JetBrains Mono, or IBM Plex Mono, or Newsreader's own sibling. Any is OFL and the work is a `rebuild.sh` edit. | ~40–75 KB |
-| **3. Drop monospace entirely** | Set those ten rules in Inter with `font-variant-numeric: tabular-nums`. Columns still align for digits; they stop aligning for paths and identifiers, which is most of what these surfaces show. | 0 bytes, and a design change |
+- **`guard-ceo-ruled-ask.sh`** — `PreToolUse[AskUserQuestion]`, blocking. The brief's gate. It
+  refuses all three questions when they are put through the tool, citing the ruling. That is the
+  completion criterion, met.
+- **`notice-ceo-ruled-prose.sh`** — `Stop`, non-blocking. The only event that can see a prose ask
+  at all. It catches **1 of the 3** (the Option D turn, citing row 3.14 and quoting his standing
+  instruction).
 
-**What I proceeded on.** Option 1. It is within the letter of both rulings, and
-these are diagnostic surfaces rather than the product's voice — the least costly
-place to stop and wait. **But it is stopping, not finishing:** the ruling's spirit
-is that RichOS ships what it renders, and for those ten rules it does not.
+## What you must NOT assume
 
----
+1. **Prose questions are not blocked and cannot be.** There is no PreToolUse event for a sentence
+   in a reply. The Stop notice fires *after* the CEO has read the message. It buys you the chance to
+   answer from the record before he does — not prevention.
+2. **The prose notice catches 1 of 3, not 3 of 3.** The logo question never used the word "logo"
+   (it said "your mark"), so no title anchor can reach it. The splash failure was not a question at
+   all. Neither is reachable by anything that looks for an ask.
+3. **The durable fix for the prose half is behavioral, not mechanical.** The record is already
+   carrying that instruction, in your own words at 22:30 that night: *"search the record for an
+   existing ruling before putting anything to you."* This mechanism hardens the structured ask and
+   reports the prose one. It does not replace the habit.
 
-## 2. Seven glyphs are in neither approved face, and they are the controls he clicks
+## One optional follow-up, one line, not done here because it is cross-repo
 
-**What I am blocked on.** The interface draws its own controls out of Unicode.
-The settings gear is a literal `⚙` in `index.html`; the navigation toggle is `☰`;
-every close button is `✕`; the voice control he taps to stop talking is `◉`; the
-"working" state is `◐`.
-
-Measured against each face's own character map — not assumed — of the **30
-non-ASCII characters the shipped UI renders, Inter carries 23 and Newsreader
-carries 9, all nine of them inside Inter's. Seven are in neither:**
+`femcboost/orchestration.config` could declare the record explicitly instead of relying on the
+convention the library falls back to:
 
 ```
-⋯ U+22EF   ▾ U+25BE   ◉ U+25C9   ◐ U+25D0   ☰ U+2630   ⚙ U+2699   ✕ U+2715
+CEO_RULINGS_PATHS="../richos-hq/wiki/ceo-decisions.md ../richos-hq/wiki/open-items.md CLAUDE.md"
 ```
 
-A browser that cannot find a character in the named family does not fail — it
-walks silently to the next family. So with **only** the two approved faces
-vendored, a system font draws the gear, the hamburger and every close button in
-the app: the ruling broken in the most visible place there is, in a stylesheet
-that looks perfect.
-
-**What I tried.** I checked whether the approved pair could cover them and it
-cannot; the numbers above are that check. I also checked the approved
-`round-11.1` mockup's own files — they cover 9 of the 30, because that screen
-renders 5 non-ASCII characters and this app renders 30.
-
-**The smallest question that would unblock me.** *Are three tiny symbol subsets
-acceptable, or should those seven controls stop being text characters?*
-
-| | what happens | cost |
-|---|---|---|
-| **1. Keep the subsets** (what I did) | Three Noto faces (all SIL OFL 1.1), each cut to exactly the codepoints it answers for and declared with a `unicode-range` so the browser never consults them for anything else. **They set no text and hold no role in the type system** — they are glyph coverage, the way an icon file is. | **3,080 bytes** |
-| **2. SVG icons** | Stop drawing controls with text characters. Cleaner, and the honest long-term answer — the gear was never really a letter. | A design change, and Urban's |
-| **3. Drop them** | The seven controls are drawn by macOS, differently on Windows. | 0 bytes, and §22 is broken |
-
-**What I proceeded on.** Option 1, because option 3 is the defect this whole task
-exists to remove and option 2 is not mine to make. Removing them is deleting
-three files and one token.
-
-**Worth seeing before ruling:** taking these controls off Apple's artwork changed
-how some of them look, and that is a consequence of complying rather than a
-defect. `docs/verification/vendored-fonts-2026-09-01/raw/compare-sidebar.png` is
-the side-by-side; `raw/glyph-ink.txt` has all 30 measured. The gear reads better
-(140% of the height it had); the disclosure caret reads narrower (51% of the
-width). Neither was tuned — reporting them is the job, changing them is not.
+Without it the library derives the same three files from the existing `CEO_TODOS_REPOS` declaration
+and works today — verified live, and the suite's section 8 proves it against the real record. With
+it, a record file that moves becomes a loud BROKEN rather than a quiet convention miss.
