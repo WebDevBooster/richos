@@ -1,7 +1,0 @@
-sha: 789a0fbf584bf9141220f9ede231393257248036
-impact: none
-detail: richos main moved to 789a0fb while I rebuild the worktree reaper on branch zach-opus-rp1 (base 646aa50). All 8 landed commits are under app/ and docs/verification/; my change set is entirely engine/ (reap-stale-worktrees.sh, agent-finished-reap-worktrees.sh, session-start-reap-worktrees.sh, hooks/hooks.json, contract-integrity-probe.sh Layer Q/BR2, contract-integrity.test.sh, demo.sh, README, CHANGELOG, two new suites). Zero path overlap, no rebase needed. Noted that f41c837's double-fork orphan is exactly the class my ORPHAN-PROCESS report names; my reaper reports such processes and never kills them. Noted echo-opus-bt1 has finished: my live-skip proof against it was captured while its lock was held by a running pid and a node process was live inside its worktree, and the same owner-alive skip is now demonstrated live against zach-opus-ft1, zach-opus-pb1 and zach-opus-rp1.
-paths: engine/scripts/reap-stale-worktrees.sh engine/scripts/reap-stale-worktrees.test.sh engine/scripts/hooks/agent-finished-reap-worktrees.sh engine/scripts/hooks/agent-finished-reap-worktrees.test.sh engine/scripts/hooks/session-start-reap-worktrees.sh engine/scripts/hooks/contract-integrity-probe.sh engine/scripts/hooks/contract-integrity.test.sh engine/hooks/hooks.json engine/scripts/demo.sh engine/README.md engine/CHANGELOG.md
-teammate: zach-opus-rp1
-worktree: /Users/alex/ab/richos-wt/zach-opus-rp1
-written: 2026-09-01T19:00:48Z

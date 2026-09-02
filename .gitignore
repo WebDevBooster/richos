@@ -39,3 +39,11 @@
 __pycache__/
 *.pyc
 .worktrees/
+
+# Agent coordination scratch. These are per-run ack files written into a
+# teammate worktree and read from the filesystem, never from git — nothing
+# reads them through git ls-files or git show. They carry agent names, session
+# ids and absolute home paths, and this repository is the v1 open-source
+# launch target, so they do not belong in version control. femcboost has
+# carried the same allowlist shape since it adopted the engine.
+/.claude/*

@@ -1,7 +1,0 @@
-sha: 6fd6fe71f35752581ecc690c169cd1abe556e9af
-impact: conflict
-detail: Three of my files moved. app/ui/index.html: my two added lines are a stylesheet link in <head> and a script tag in <body> after settings-button.js; zach's is one <link> plus a comment in <head> — adjacent, no overlap, both hunks take. app/ui/tests/appearance.js: I changed the settings-menu order assertion (a Home screen row was added) and the wordmark's accessible name (it is a control now and says where it goes); if zach also changed the light rail-bg expectation I take main's value and keep my two edits. app/ui/tests/techy.js: I never touched it, so main's wins outright. FONT COLLISION TO RESOLVE AT THE MERGE: I vendored round-11.1/v1's own Inter+Newsreader subsets under app/ui/home/fonts/ and declared them in home.css; if zach's faces cover the same families I drop mine, because two @font-face blocks for Inter with home.css loading last would hand the whole app my latin-only 400/500 subset in place of his variable face. The only non-ASCII glyph I ship is the right arrow on the provisional switch, which round-11.1/v1 measured present in both vendored subsets. I am not touching the light swoosh; my home screen is always dark and its two fill values live in one place, --home-mark-ink and --home-mark-swoosh in home.css.
-paths: app/ui/index.html app/ui/tests/appearance.js app/ui/home.css app/ui/home/fonts/
-teammate: echo-opus-hs1
-worktree: /Users/alex/ab/richos-wt/echo-opus-hs1
-written: 2026-09-01T20:36:27Z
