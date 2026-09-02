@@ -187,6 +187,37 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **The evidence collector read the wrong repository's directory list and
+  mirrored into the wrong checkout** (`scripts/collect-worktree-artifacts.sh`;
+  new `scripts/collect-worktree-artifacts.test.sh`) — PATCH by
+  `VERSIONING.md`'s adopter-impact question: the only path that changed was one
+  that never produced a correct result, and what an adopter can now observe is
+  a refusal where there was a mis-write.
+
+  Run by reference, the collector resolved "the main checkout" as its own
+  parent — the ENGINE — and sourced the engine's `orchestration.config`. For
+  femcboost that meant three directories where nine are declared: both
+  `visual-screenshots` trees and both per-tree `playwright-report` trees were
+  invisible to the one step whose job is saving QA evidence before a worktree
+  is destroyed, and the three it did see were rsynced into the engine checkout.
+  It reported `done`. Two collections ran that way on 2026-09-02 ahead of
+  worktree removals; both trees happened to be docs-only. The same call sits
+  inside `reap-stale-worktrees.sh` before every removal it performs.
+
+  Now: the root comes from the two-root contract (`scripts/lib/resolve-roots.sh`,
+  as `remove-agent-worktree.sh` already does) — `$RICHOS_ENTITY_ROOT`, else
+  `$CLAUDE_PROJECT_DIR`, else `$PWD`; never `$SCRIPT_DIR/..`. No governed
+  entity, no `orchestration.config`, or a config declaring neither
+  `ARTIFACT_MERGE_DIRS` nor `ARTIFACT_REPLACE_DIRS` is a REFUSAL (exit 2, root
+  contract banner), not a fallback: the built-in default list is gone, because
+  a step that proceeds on a wrong-but-plausible value reports success over the
+  evidence it never saved. A declared-empty list is honored. Every run states
+  the entity root and how it was resolved, the config file it loaded, and each
+  list with its count, before it touches anything. The suite reproduces the
+  bug against the previous source (0 of 13 pass: 3 of 9 collected, into the
+  engine) and is discovered by `run-all-tests.sh` (52 -> 53 suites); 7 mutants,
+  7 killed.
+
 - **A `**Blocked:** nothing` declaration silenced the row it was written to
   surface** (`scripts/lib/unstarted-rows.py`). Rows 3.19 and 3.20 of the real
   record each read `**Blocked:** nothing — buildable now, nobody blocked.` and were
