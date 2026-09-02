@@ -12,6 +12,31 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A turn whose report does not match its actions is refused**
+  (`scripts/hooks/guard-stated-actions.sh` + `.py`, `stated-actions.corpus.md`,
+  `guard-stated-actions.test.sh`, `stated-actions.mutation.sh`) — MINOR.
+
+  On 2026-09-02 the lead wrote "Zach builds it tomorrow" and "Frank breaks it
+  first" in turns that made no Agent call, and six times answered a returned
+  teammate with a report and started nothing; the CEO restarted each one by hand
+  ("WHERE THE FUCK IS FRANK THIS FUCKING TIME"). `guard-idle-land.sh` saw all
+  three of the evening's finishes and stood down on its backlog term. A blocking
+  `Stop` hook now reconciles the final text against the turn's own tool calls in
+  two arms. ARM 1: a roster role as the subject of a present-simple act with a
+  pronoun or determiner object, or a first-person dispatch naming who, in a turn
+  with no Agent call — replayed through the shipped analyzer over 1,278 real
+  turns: 2 fires, both the defect, 0 false; the role-future shape measured 0/2
+  and only reports. ARM 2: a host-written Agent-finished notice in the turn, no
+  Agent call, no backgrounded command, no question to the CEO, no hold, and no
+  `stop-declared:` line — every term imported from `guard-idle-land.py`, so the
+  engine has one declaration vocabulary; 263 of 366 completion turns in the
+  corpus were undeclared stops and an independent reader agrees on all 263. The
+  refusal names the clause or the finished agent and the exact declaration line;
+  fails open on every error; cannot fire on its own output (quotes, fences and
+  code spans are stripped before reading). Registered on both surfaces, in the
+  probe's spec table and Layer R, and in the demo's analyzer list; 29 mutants,
+  each proven load-bearing; the harness runs from the house suite as SA2.
+
 - **A defect the tree can show you becomes a row, written by the machine that
   found it** (`scripts/hooks/notice-mechanical-findings.sh`,
   `scripts/lib/mechanical-findings.{sh,py}`, `scripts/mechanical-findings-lint.sh`,
