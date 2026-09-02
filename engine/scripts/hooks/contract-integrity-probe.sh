@@ -348,6 +348,7 @@ run_layer_R() {
     session-start-reap-worktrees agent-finished-reap-worktrees snapshot-agent-definitions guard-unresolved-claims \
     turn-manifest \
     snapshot-enforcing-hooks notice-hook-staleness notice-inflight-acks \
+    notice-mechanical-findings \
     notice-unstarted-rows \
     notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
     notice-unasked-deferral \
@@ -670,6 +671,7 @@ guard-unresolved-claims.sh|Stop
 turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-inflight-acks.sh|Stop
+notice-mechanical-findings.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop

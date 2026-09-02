@@ -309,6 +309,11 @@ DEMO_FILES+=(
     # reports "WATCH IS OFF" into a channel the demo has no reader for, and
     # exits 0 on every turn.
     "scripts/hooks/notice-waiver-repetition.py"
+    # The mechanical-findings sweep, both halves, for the reason the waiver
+    # analyzer above is here: notice-mechanical-findings.sh starts without
+    # them and says "MECHANICAL SWEEP IS OFF" where the demo has no reader.
+    "scripts/lib/mechanical-findings.sh"
+    "scripts/lib/mechanical-findings.py"
     # The agent-liveness resolver. A FOURTH caller joined it on 2026-09-01 and
     # it fails SOFT, which puts it in the teammate-identity.py category rather
     # than the refuse-to-start one: scripts/reap-stale-worktrees.sh asks this

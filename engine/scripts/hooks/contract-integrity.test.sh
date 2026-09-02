@@ -301,6 +301,13 @@ ALL_ROOT_SCRIPTS=(
     # for, and exits 0 — so SC1's can-every-hook-start question passes over a
     # sandbox modelling an engine whose newest Stop notice reads no ledger.
     scripts/hooks/notice-waiver-repetition.py
+    # The mechanical-findings sweep, both halves, on this list for the
+    # stop-hook-notice reason: notice-mechanical-findings.sh does NOT refuse
+    # without them — it starts, announces "MECHANICAL SWEEP IS OFF" into a
+    # channel a sandbox has no reader for, and exits 0. A sandbox missing them
+    # models an engine whose newest Stop hook writes no row.
+    scripts/lib/mechanical-findings.sh
+    scripts/lib/mechanical-findings.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -434,6 +441,7 @@ data["hooks"] = {
         {"hooks": [{"type": "command", "command": P + "/turn-manifest.sh", "timeout": 15}]},
         {"hooks": [{"type": "command", "command": P + "/notice-hook-staleness.sh", "timeout": 15}]},
         {"hooks": [{"type": "command", "command": P + "/notice-inflight-acks.sh", "timeout": 15}]},
+        {"hooks": [{"type": "command", "command": P + "/notice-mechanical-findings.sh", "timeout": 15}]},
         {"hooks": [{"type": "command", "command": P + "/notice-unstarted-rows.sh", "timeout": 15}]},
         {"hooks": [{"type": "command", "command": P + "/notice-ceo-unasked.sh", "timeout": 15}]},
         {"hooks": [{"type": "command", "command": P + "/notice-unasked-deferral.sh", "timeout": 15}]},
@@ -2118,6 +2126,13 @@ emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
 # shortcuts. An unrun mutant refuses nothing.
 set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
+
+# MF1 — the mechanical-findings mutation harness, registered for the reason
+# WTR1 and WTI1 are: a *.mutation.sh is invisible to run-all-tests.sh's
+# discovery. Unregistered, it is itself an `unrun-harness` finding of the very
+# sweep it proves, and the sweep will write that row.
+set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
 
 echo ""
 echo "=== summary ==="
