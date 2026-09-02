@@ -36,6 +36,11 @@ INPUT   one JSON job, path given as argv[1] (or on stdin when argv[1] is "-"):
       "blocked_state":    "BLOCKED-ON-RICH",
       "done_check_required": false,   # true = an item with no **Done-check:**
                                       # line is a violation rather than a note
+      "premise_sections":  ["1", "2"], # which CEO sections carry a
+                                       # **Premise:** warrant. NOT checked
+                                       # here — see PREMISE_FIELD below
+      "premise_required":  false,      # read by row-currency.py, carried here
+                                       # so one declaration has one meaning
 
       # --- the entry point ---
       "todo_view":       "CEO-TODOs.md",     # repo-relative, top-level
@@ -130,7 +135,7 @@ ITEM_RE = re.compile(
 # otherwise match the first four characters of 'Done-check' and then fail on the
 # colon, which reads as "not a field" — silently.
 FIELD_RE = re.compile(
-    r"^\s*[-*]\s+\*\*(?P<name>Done-check|Open|Time|Done|Unblocks):\*\*\s*(?P<value>.*?)\s*$"
+    r"^\s*[-*]\s+\*\*(?P<name>Done-check|Open|Time|Done|Unblocks|Premise):\*\*\s*(?P<value>.*?)\s*$"
 )
 
 # ANY '- **Key:**' line, so a key that is NOT one of the five can be REFUSED
@@ -186,7 +191,21 @@ REQUIRED_FIELDS = ("Open", "Time", "Done", "Unblocks")
 # DONE_CHECK_REQUIRED in scripts/lib/ceo-todos.sh — but never *unknown*: it is
 # in KNOWN_FIELDS, so every other key inside an item is a typo and is refused.
 DONE_CHECK_FIELD = "Done-check"
-KNOWN_FIELDS = REQUIRED_FIELDS + (DONE_CHECK_FIELD,)
+
+# THE SIXTH FIELD — the PREMISE. Optional, like Done-check, and known here for
+# the same reason Done-check is: UNKNOWN_META_RE below REFUSES any key this
+# parser does not know, so a field this file had never heard of would take
+# an item's premise warrant off the air by making the whole item a violation.
+#
+# THIS FILE DOES NOT CHECK IT. The pin is an object id, and object ids are
+# compared in exactly one place — scripts/lib/row-currency.py — because a
+# staleness predicate in two copies is how one of them silently becomes the
+# stale one. What this file owns is the field's EXISTENCE: it is legal, it is
+# never rendered onto the CEO's page (it is machinery, and his attention is the
+# scarcest thing in the system), and a Premise written in a section nobody
+# checks is NAMED rather than ignored.
+PREMISE_FIELD = "Premise"
+KNOWN_FIELDS = REQUIRED_FIELDS + (DONE_CHECK_FIELD, PREMISE_FIELD)
 
 MIN_DONE_WORDS = 4
 MIN_UNBLOCKS_WORDS = 3
@@ -710,6 +729,25 @@ def main():
                       "a refusal."
                       % (len(dc["unchecked"]), checked, DONE_CHECK_FIELD,
                          ", ".join(dc["unchecked"]))))
+    # A PREMISE NOTHING READS. The realistic failure is not a malformed premise
+    # — row-currency.py refuses those loudly. It is a correct one written into a
+    # section this repository never declared, which parses fine, renders
+    # nothing, blocks nothing, and reads to its author as a live warrant. That
+    # is the "a key nobody reads is a setting somebody believes is in force"
+    # failure one level in, so it goes on the NOTE channel, which is printed on
+    # a clean verdict as well as a refusal.
+    premise_sections = set(str(x) for x in (job.get("premise_sections") or []))
+    unread = [i["id"] for i in items
+              if (i["fields"].get(PREMISE_FIELD) or "").strip()
+              and i["section"] not in premise_sections]
+    if unread:
+        notes.append(("PREMISE-NOT-CHECKED",
+                      "%d item(s) carry a **%s:** line in a section this repository "
+                      "does not declare in PREMISE_SECTIONS: %s. The line parses, and "
+                      "nothing checks it — so the pin looks like a live warrant and "
+                      "is not one. Declare the section in PREMISE_SECTIONS, or "
+                      "delete the line."
+                      % (len(unread), PREMISE_FIELD, ", ".join(unread))))
     if dc["manual_items"]:
         notes.append(("DONE-CHECK-MANUAL",
                       "%d item(s) declare their end state unobservable from disk and "

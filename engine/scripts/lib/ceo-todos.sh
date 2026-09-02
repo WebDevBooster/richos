@@ -152,6 +152,29 @@
 #                     switches ON the cold-open freshness gate; NOT declaring
 #                     it is a stated, printed limit in every verdict, never a
 #                     silent absence.
+#   PREMISE_SECTIONS  optional, a subset of CEO_SECTIONS. Which CEO sections
+#                     carry a `- **Premise:**` warrant: the observable fact the
+#                     item's question RESTS ON, pinned by object id the way a
+#                     section-3 row pins work. Undeclared = the premise warrant
+#                     is not adopted here, and every verdict says so rather
+#                     than passing silently.
+#
+#                     WHY IT IS DECLARED HERE AND NOT IN .row-currency, since
+#                     .row-currency is what CHECKS it: because the CEO sections
+#                     are this declaration's jurisdiction. CEO_SECTIONS is
+#                     stated here, once; naming a subset of it in a second file
+#                     would be the copy-of-a-fact drift this engine keeps
+#                     finding in itself, and the two would disagree the first
+#                     time a section was renumbered. One declaration, two
+#                     readers: ceo-todos.py to know the field is expected,
+#                     row-currency.py to check the pin.
+#   PREMISE_REQUIRED  optional, "0" (default) or "1". With 0, a CEO item
+#                     carrying no '- **Premise:**' line is named in a NOTE on
+#                     every verdict and never blocks. With 1 it is a violation.
+#                     DEFAULT 0 for the DONE_CHECK_REQUIRED reason, which is
+#                     the same reason: shipping it as a requirement would refuse
+#                     the next commit in every repository that already has a
+#                     record.
 #
 # ===========================================================================
 # MAIN CHECKOUT, NOT THE CURRENT ONE — measured, not assumed
@@ -266,7 +289,7 @@ _CT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Every key the declaration may carry. A key outside this set is a typo, and a
 # typo that silently does nothing is the defect class this file exists to
 # remove — so it is refused, loudly, by name.
-_CT_KNOWN_KEYS="TODO_RECORD CEO_SECTIONS PREPARER_SECTION ARTIFACT_ROOTS READY_STATE BLOCKED_STATE TODO_VIEW ROOT_README COLD_OPEN_DIR DONE_CHECK_REQUIRED"
+_CT_KNOWN_KEYS="TODO_RECORD CEO_SECTIONS PREPARER_SECTION ARTIFACT_ROOTS READY_STATE BLOCKED_STATE TODO_VIEW ROOT_README COLD_OPEN_DIR DONE_CHECK_REQUIRED PREMISE_SECTIONS PREMISE_REQUIRED"
 
 # The verbatim cold-open prompt. Its sha256 is baked into every transcript, so
 # changing a question invalidates every transcript on file — which is correct:
@@ -363,6 +386,8 @@ ct_load_declaration() {
     CT_ROOT_README="README.md"
     CT_COLD_OPEN_DIR=""
     CT_DONE_CHECK_REQUIRED="0"
+    CT_PREMISE_SECTIONS=""
+    CT_PREMISE_REQUIRED="0"
     CT_BROKEN_REASON=""
     CT_DECLARATION_FILE=""
     CT_LEGACY_DECL=""
@@ -435,6 +460,8 @@ ct_load_declaration() {
             ROOT_README)      CT_ROOT_README="$val" ;;
             COLD_OPEN_DIR)    CT_COLD_OPEN_DIR="$val" ;;
             DONE_CHECK_REQUIRED) CT_DONE_CHECK_REQUIRED="$val" ;;
+            PREMISE_SECTIONS) CT_PREMISE_SECTIONS="$val" ;;
+            PREMISE_REQUIRED) CT_PREMISE_REQUIRED="$val" ;;
         esac
     done < "$f"
 
@@ -517,6 +544,42 @@ ct_load_declaration() {
         1|yes|true) CT_DONE_CHECK_REQUIRED="1" ;;
         *)          CT_DONE_CHECK_REQUIRED="0" ;;
     esac
+    case "$CT_PREMISE_REQUIRED" in
+        0|1|""|no|yes|false|true) ;;
+        *)
+            CT_BROKEN_REASON="PREMISE_REQUIRED must be 0 or 1, not '$CT_PREMISE_REQUIRED'. A value this parser cannot read would be taken as 'off' while looking like 'on'."
+            return 2 ;;
+    esac
+    case "$CT_PREMISE_REQUIRED" in
+        1|yes|true) CT_PREMISE_REQUIRED="1" ;;
+        *)          CT_PREMISE_REQUIRED="0" ;;
+    esac
+    if [ -n "$CT_PREMISE_SECTIONS" ]; then
+        case "$CT_PREMISE_SECTIONS" in
+            *[!0-9\ ]*)
+                CT_BROKEN_REASON="PREMISE_SECTIONS must be space-separated section NUMBERS ('1 2'), not '$CT_PREMISE_SECTIONS'"
+                return 2 ;;
+        esac
+        # A SUBSET OF CEO_SECTIONS, never a free list. The premise warrant asks
+        # "is the reason for asking HIM this still true?", which is only a
+        # question about a section that is waiting on him. Naming any other
+        # section would either duplicate .row-currency's jurisdiction over the
+        # preparer's section or govern a section that does not exist — and
+        # both would look like enforcement while checking the wrong page.
+        for sec in $CT_PREMISE_SECTIONS; do
+            _ct_found=0
+            for _ct_c in $CT_CEO_SECTIONS; do
+                [ "$sec" = "$_ct_c" ] && _ct_found=1
+            done
+            if [ "$_ct_found" -ne 1 ]; then
+                CT_BROKEN_REASON="PREMISE_SECTIONS names section $sec, which is not one of CEO_SECTIONS ($CT_CEO_SECTIONS). A premise warrant governs a section that is waiting on the CEO; anywhere else it would either collide with the row-currency contract or govern nothing while looking switched on."
+                return 2
+            fi
+        done
+    elif [ "$CT_PREMISE_REQUIRED" = "1" ]; then
+        CT_BROKEN_REASON="PREMISE_REQUIRED=1 with no PREMISE_SECTIONS. That is a requirement switched on over no section at all: it would report clean forever while reading as enforcement."
+        return 2
+    fi
     if [ "$CT_READY_STATE" = "$CT_BLOCKED_STATE" ]; then
         CT_BROKEN_REASON="READY_STATE and BLOCKED_STATE are the same string, so the two states are indistinguishable"
         return 2
@@ -618,6 +681,8 @@ ct_build_job() {
     CT_J_READY="$CT_READY_STATE" CT_J_BLOCKED="$CT_BLOCKED_STATE" \
     CT_J_VIEW="$CT_TODO_VIEW" CT_J_README="$CT_ROOT_README" CT_J_COLD="$CT_COLD_OPEN_DIR" \
     CT_J_DCR="${CT_DONE_CHECK_REQUIRED:-0}" \
+    CT_J_PREMISE_SECTIONS="${CT_PREMISE_SECTIONS:-}" \
+    CT_J_PREMISE_REQUIRED="${CT_PREMISE_REQUIRED:-0}" \
     CT_J_OVR_VIEW="${CT_OVERRIDE_VIEW:-}" CT_J_OVR_README="${CT_OVERRIDE_README:-}" \
     CT_J_LEGACY_DECL="${CT_LEGACY_DECL:-}" CT_J_LEGACY_KEYS="${CT_LEGACY_KEYS:-}" \
     CT_J_PROMPT_FP="$prompt_fp" CT_J_OUT="$out" python3 -c '
@@ -704,6 +769,12 @@ job = {
     "legacy_declaration": os.environ.get("CT_J_LEGACY_DECL") or "",
     "legacy_keys": [k for k in (os.environ.get("CT_J_LEGACY_KEYS") or "").split() if k],
     "done_check_required": (os.environ.get("CT_J_DCR") or "0") == "1",
+    # Carried so the predicate knows a `- **Premise:**` line is EXPECTED here
+    # and can say so when one is written in a section nothing checks. The pin
+    # itself is resolved by row-currency.py, which is the only place an object
+    # id is ever compared.
+    "premise_sections": [s for s in os.environ.get("CT_J_PREMISE_SECTIONS", "").split() if s],
+    "premise_required": (os.environ.get("CT_J_PREMISE_REQUIRED") or "0") == "1",
 }
 with open(os.environ["CT_J_OUT"], "w", encoding="utf-8") as fh:
     json.dump(job, fh)
