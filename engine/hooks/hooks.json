@@ -314,6 +314,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-mechanical-findings.sh",
+            "timeout": 25
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-unstarted-rows.sh",
             "timeout": 25
           },

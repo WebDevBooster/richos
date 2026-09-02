@@ -12,6 +12,30 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A defect the tree can show you becomes a row, written by the machine that
+  found it** (`scripts/hooks/notice-mechanical-findings.sh`,
+  `scripts/lib/mechanical-findings.{sh,py}`, `scripts/mechanical-findings-lint.sh`,
+  `reference/mechanical-findings/`) — MINOR.
+
+  On 2026-09-02 an audit found eight real defects in twenty minutes that six weeks
+  of attention had missed, and the one known for six weeks sat under a CI comment
+  reading "Tracked separately" — tracked in none of the three queue files. The
+  audit ran because the CEO asked; the findings became rows because the lead typed
+  them. Both links were a person. Now a `Stop` hook reads the record's own declared
+  artifact roots at HEAD for three MECHANICAL facts — a suite skipped in a workflow
+  by name, a mutation harness no script or workflow names on a code line, a
+  registered hook no test names — and appends a row for each finding it does not
+  already see, in the record's own format, with a warrant minted by the landing
+  guard's own `identity()`, carrying its identity as `` `finding:<class>:<path>` ``
+  so the same defect on the next run is one row and not two. It never edits an
+  existing row; it names a row whose finding is gone and a row closed over a live
+  finding; `finding-exempt: <reason>` in the source is honored and reported.
+  Calibrated on the real roots: reproduces the audit's F5 list exactly (7 of 7
+  unrun harnesses) and F2 until its fix landed, zero false positives. Proven on the
+  real record: nine rows written by the machine, read back off disk, accepted by
+  `row-currency-lint.sh`, named by `unstarted-rows-lint.sh`, and a second run
+  wrote nothing. 44 cases, 28 mutants killed. Named blind spots in the reference.
+
 - **A generic agent is not a teammate: staffing is now gated separately from
   worktree isolation** (`scripts/hooks/guard-worktree-isolation.sh` clause 5,
   `orchestration.config`: `HARNESS_UTILITY_TYPES` / `GENERIC_AGENT_TYPES`).
@@ -162,6 +186,20 @@ version heading with Added / Changed / Fixed groupings.
   list carry the two new files.
 
 ### Fixed
+
+- **A `**Blocked:** nothing` declaration silenced the row it was written to
+  surface** (`scripts/lib/unstarted-rows.py`). Rows 3.19 and 3.20 of the real
+  record each read `**Blocked:** nothing — buildable now, nobody blocked.` and were
+  classified DECLARED because the construct's presence was taken as a declaration
+  without reading what it declared. A `**Blocked:**` is now judged by its first
+  word, as the queue's `Blocked by` cell already was; six rows of the real record
+  surfaced the moment it was fixed. Suite 35 -> 38, harness 37 killed / 0 survived.
+
+- **The unstarted-row sweep had been standing down in the seat the operator
+  actually runs in.** `femcboost` had no `.row-currency`, so every turn-end
+  sweep resolved no record and wrote `verdict: STOOD-DOWN` to a receipt nobody
+  read. Fixed on the femcboost side by a one-line peer declaration; recorded here
+  because it is the engine's third link that was dark.
 
 - Three suites (`reap-stale-worktrees.test.sh`, both reaper-wrapper suites)
   set `RC` inside a command substitution — a subshell — so every

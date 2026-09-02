@@ -280,6 +280,27 @@ if grep -qE '^  DECLARED   3\.1 .*CEO' "$SANDBOX/lint3.txt"; then
     ok "3e  the section's in-place \`**Blocked:**\` declaration is what silenced 3.1"
 else bad "3e  the section's in-place declaration silenced 3.1" "$(cat "$SANDBOX/lint3.txt")"; fi
 
+# A DECLARATION THAT NAMES NOBODY IS NOT A DECLARATION. Found live 2026-09-02:
+# rows 3.19 and 3.20 of the real record each read `**Blocked:** nothing —
+# buildable now, nobody blocked.` and were SILENT, because the construct's
+# presence was taken as a declaration without reading what it declared.
+write_record '**Blocked:** nothing — buildable now, nobody blocked. '
+run_hook
+if spoke && names '3.1'; then
+    ok "3f  \`**Blocked:** nothing — …\` names NOBODY, so 3.1 is unstarted and NAMED"
+else bad "3f  a blocker of 'nothing' must not silence the row" "$HOUT"; fi
+bash "$LINT" "$REPO" > "$SANDBOX/lint3f.txt" 2>&1
+if grep -qE '^  UNSTARTED  3\.1 ' "$SANDBOX/lint3f.txt"; then
+    ok "3g  the lint classifies it UNSTARTED, not DECLARED"
+else bad "3g  UNSTARTED not DECLARED" "$(grep ' 3\.1 ' "$SANDBOX/lint3f.txt")"; fi
+write_record '**Blocked:** the CEO — he has to decide. '
+write_queue 'nothing — buildable, see the row'
+run_hook
+if spoke && names '12'; then
+    ok "3h  the queue's cell reading 'nothing — <why>' names nobody by its first word, so row 12 is unstarted and NAMED"
+else bad "3h  a queue cell of 'nothing — …' must not silence the row" "$HOUT"; fi
+write_queue '**CEO — his Railway credentials**'
+
 rm -f "$WT/.claude/row-claims.txt"
 
 # ===========================================================================
