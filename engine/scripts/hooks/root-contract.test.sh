@@ -164,10 +164,12 @@ fi
 # 3. guard-worktree-isolation.sh — the model-truthfulness clause, and the
 #    namespaced subagent_type that used to defeat it silently.
 # ===========================================================================
-SPAWN() { # <subagent_type> <name> [model]
-    local st="$1" nm="$2" md="${3:-}"
-    printf '{"tool_name":"Agent","cwd":"%s","session_id":"deadbeef-0000","tool_input":{"subagent_type":"%s","name":"%s","isolation":"worktree"%s}}' \
-        "$SESSREPO" "$st" "$nm" "$([ -n "$md" ] && printf ',"model":"%s"' "$md")"
+SPAWN() { # <subagent_type> <name> [model] [prompt]
+    local st="$1" nm="$2" md="${3:-}" pr="${4:-}"
+    printf '{"tool_name":"Agent","cwd":"%s","session_id":"deadbeef-0000","tool_input":{"subagent_type":"%s","name":"%s","isolation":"worktree"%s%s}}' \
+        "$SESSREPO" "$st" "$nm" \
+        "$([ -n "$md" ] && printf ',"model":"%s"' "$md")" \
+        "$([ -n "$pr" ] && printf ',"prompt":"%s"' "$pr")"
 }
 # mark.md in the SESSION repo declares model: opus.
 run guard-worktree-isolation.sh "$(SPAWN mark mark-opus-1)" "CLAUDE_PROJECT_DIR=$SESSREPO"
@@ -212,9 +214,16 @@ if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'cannot verify the model toke
 else
     bad "3e unresolvable namespace not refused (rc=$RC out=${OUT:0:300})"
 fi
-# 3f NEGATIVE — a bare host built-in still passes; 3e is a discrimination, not
-# a blanket rule.
-run guard-worktree-isolation.sh "$(SPAWN general-purpose gp-sonnet-1)" "CLAUDE_PROJECT_DIR=$SESSREPO"
+# 3f NEGATIVE — a bare host built-in still passes CLAUSE 2b; 3e is a
+# discrimination, not a blanket rule.
+# The clause-5 staffing hatch is supplied here on purpose. general-purpose is a
+# GENERIC type, so since 2026-09-02 it needs a staffing justification — a
+# different clause, and one this case is not about. Carrying the hatch keeps 3f
+# asserting exactly one thing: an unresolvable NAMESPACE is refused by the
+# model-truthfulness clause while a bare built-in with no definition is not.
+run guard-worktree-isolation.sh \
+    "$(SPAWN general-purpose gp-sonnet-1 '' 'generic-agent: a bare host built-in with no roster definition, exercised here for the model-truthfulness clause')" \
+    "CLAUDE_PROJECT_DIR=$SESSREPO"
 if [ "$RC" -eq 0 ]; then
     ok "3f NEGATIVE  a bare built-in type with no definition is still allowed"
 else

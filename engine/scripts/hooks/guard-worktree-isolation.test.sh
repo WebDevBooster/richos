@@ -23,6 +23,15 @@
 # a non-live templates/ name never resolves (undeterminable), verbose-id
 # override normalized to its alias, and undeterminable model (no live def /
 # model:"inherit") accepts a valid alias while still enforcing the 2a floor.
+# (m) CLAUSE 5 — the STAFFING gate: a generic/built-in agent type is refused
+# unless the prompt carries a reasoned "generic-agent: <why>" line; the refusal
+# names the roster alternative and why it matters; a well-formed reason passes
+# and is logged; a bare/trivial/filler marker and a speed-or-convenience excuse
+# are refused; harness utilities (statusline-setup, claude-code-guide) carry no
+# hatch at all; general-purpose is closed via GENERIC_AGENT_TYPES; roster types
+# are wholly unaffected; and the WORKTREE-ISOLATION exemption for allowlisted
+# types still holds independently (block (c) proves it with the hatch present,
+# so neither property can silently absorb the other).
 #
 # NOTE: the truthfulness cases resolve against the engine's REAL live agent defs
 # (frank=opus); if that frontmatter default changes, update the expected tokens.
@@ -154,9 +163,17 @@ run_case "isolation remote, well-formed name" 0 \
     "$(json_agent 'dev' 'dev-sonnet-r1' 'remote' 'Do the thing.')"
 
 # --- (c) read-only agent type -> exit 0, no isolation/name required ---
-run_case "read-only type Explore, no isolation/name" 0 \
-    "$(json_agent 'Explore' '' '' 'Find where the login button is defined.')"
-run_case "read-only type Plan" 0 "$(json_agent 'Plan' '' '' 'Plan the next sprint.')"
+# THE ISOLATION EXEMPTION, PROVEN ON ITS OWN. Explore/Plan carry the clause-5
+# staffing hatch here so that what these cases assert is exactly one thing: an
+# allowlisted type needs NO isolation and NO name. Clause 5 is proven separately
+# in block (m); if a future change collapsed the two, block (m) goes red.
+GA_OK='generic-agent: a read-only sweep across three repositories that no roster teammate has a seat for'
+run_case "read-only type Explore, no isolation/name (isolation exemption holds)" 0 \
+    "$(json_agent 'Explore' '' '' "Find where the login button is defined.
+$GA_OK")"
+run_case "read-only type Plan, no isolation/name (isolation exemption holds)" 0 \
+    "$(json_agent 'Plan' '' '' "Plan the next sprint.
+$GA_OK")"
 run_case "read-only type claude-code-guide" 0 "$(json_agent 'claude-code-guide' '' '' 'Explain a feature.')"
 run_case "read-only type statusline-setup" 0 "$(json_agent 'statusline-setup' '' '' 'Configure statusline.')"
 
@@ -535,6 +552,172 @@ if grep -qF 'echo-opus-hr2' "$RICHOS_ENTITY_ROOT/.claude/state/hand-roll-acks.lo
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  hand-roll-ack use not logged\n'
 fi
+
+# ---------------------------------------------------------------------------
+# (m) CLAUSE 5 — THE STAFFING GATE.
+# ---------------------------------------------------------------------------
+# READONLY_ALLOWLIST answers "does this type need a worktree?". It never
+# answered "may delegated work be STAFFED here?", and on 2026-09-02 the two
+# were read as one permission: an engine-wide audit went to `Explore` because a
+# roster teammate would have needed a worktree created first. These cases are a
+# TWO-SIDED canary — a gate that refuses everything would satisfy "refused
+# without a hatch" and is caught by the WITH-hatch and roster arms.
+
+M_GOOD='generic-agent: a read-only sweep across three repositories that no roster teammate has a seat for'
+
+# (m1) NO hatch -> BLOCKED, for every non-utility generic type.
+run_case "Explore with NO generic-agent: line -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit every hook in the engine and report what is unwired.')"
+run_case "Plan with NO generic-agent: line -> BLOCKED" 2 \
+    "$(json_agent 'Plan' '' '' 'Draft the sprint plan.')"
+
+# (m2) the refusal NAMES THE ALTERNATIVE and says why it matters — a refusal
+# that only says no teaches nothing and gets worked around.
+run_case_msg "refusal names the roster teammate as the fix" 'ROSTER TEAMMATE' \
+    "$(json_agent 'Explore' '' '' 'Audit every hook in the engine.')"
+run_case_msg "refusal says a generic agent is invisible in the team display" "team display" \
+    "$(json_agent 'Explore' '' '' 'Audit every hook in the engine.')"
+run_case_msg "refusal says a generic agent leaves no commit" 'leaves no commit' \
+    "$(json_agent 'Explore' '' '' 'Audit every hook in the engine.')"
+run_case_msg "refusal names the hatch line by its exact shape" 'generic-agent: <why no roster teammate fits this work>' \
+    "$(json_agent 'Explore' '' '' 'Audit every hook in the engine.')"
+run_case_msg "refusal separates the isolation exemption from the staffing question" 'has never been a permission to STAFF' \
+    "$(json_agent 'Explore' '' '' 'Audit every hook in the engine.')"
+
+# (m3) a WELL-FORMED reason PASSES (the other side of the canary).
+run_case "Explore WITH a well-formed generic-agent: reason -> allowed" 0 \
+    "$(json_agent 'Explore' '' '' "Audit every hook in the engine.
+$M_GOOD")"
+run_case "the hatch is recognized anywhere in the prompt, not only on line 1" 0 \
+    "$(json_agent 'Explore' '' '' "$M_GOOD
+Audit every hook in the engine.")"
+run_case "the hatch tolerates leading whitespace" 0 \
+    "$(json_agent 'Explore' '' '' "Audit.
+   $M_GOOD")"
+
+# (m4) A BARE OR TRIVIAL MARKER EXEMPTS NOTHING.
+run_case "bare 'generic-agent:' with no reason -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent:')"
+run_case "'generic-agent: because' -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: because')"
+run_case "'generic-agent: n/a' -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: n/a')"
+run_case "'generic-agent: -' -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: -')"
+run_case_msg "a too-short reason is refused BY LENGTH, named" 'A bare or token marker exempts nothing' \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: because')"
+# long enough in characters, but filler: five stopwords carrying nothing.
+run_case "a long-but-empty reason (stopwords only) -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: this is the one that will just do it and that is all there is')"
+run_case_msg "the filler refusal says so in those terms" 'reads as filler' \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: this is the one that will just do it and that is all there is')"
+
+# (m5) SPEED/CONVENIENCE is refused BY NAME — it is the incident's own reason.
+run_case "reason 'faster to dispatch' -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: a roster teammate would need a worktree created first and this is faster to dispatch')"
+run_case "reason 'saves time' -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: dispatching a built-in here saves time versus provisioning a teammate worktree')"
+run_case "reason 'more convenient' -> BLOCKED" 2 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: it is simply more convenient than provisioning a roster teammate right now')"
+run_case_msg "the speed refusal names create-teammate-worktree.sh as the answer" 'create-teammate-worktree.sh' \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: a roster teammate would need a worktree created first and this is faster to dispatch')"
+# NO FALSE POSITIVE: a genuine reason that happens to mention worktrees passes.
+run_case "a genuine reason mentioning worktrees is NOT read as a speed excuse" 0 \
+    "$(json_agent 'Explore' '' '' 'Audit.
+generic-agent: this enumerates worktree tooling across repositories the roster has no seat in')"
+
+# (m6) HARNESS UTILITIES DO NOT CARRY THE HATCH — an over-broad guard that
+# fires on a statusline change is how a defense becomes a formality.
+run_case "statusline-setup needs NO hatch (harness utility)" 0 \
+    "$(json_agent 'statusline-setup' '' '' 'Configure the statusline.')"
+run_case "claude-code-guide needs NO hatch (harness utility)" 0 \
+    "$(json_agent 'claude-code-guide' '' '' 'Explain how hooks work.')"
+
+# (m7) GENERIC_AGENT_TYPES closes the obvious detour: general-purpose is NOT on
+# the read-only allowlist, so before clause 5 it sailed through the whole
+# contract on isolation + a truthful name alone.
+run_case "general-purpose, isolated + well-named, NO hatch -> BLOCKED" 2 \
+    "$(json_agent 'general-purpose' 'gen-sonnet-d1' 'worktree' 'Do the work.')"
+run_case "general-purpose, isolated + well-named, WITH hatch -> allowed" 0 \
+    "$(json_agent 'general-purpose' 'gen-sonnet-d2' 'worktree' "Do the work.
+$M_GOOD")"
+# ...and the hatch does NOT relax the rest of the contract for a file-capable type.
+run_case "general-purpose WITH hatch but NO isolation -> still BLOCKED (clauses 1-2 hold)" 2 \
+    "$(json_agent 'general-purpose' 'gen-sonnet-d3' '' "Do the work.
+$M_GOOD")"
+
+# (m8) ROSTER TEAMMATES ARE WHOLLY UNAFFECTED — the gate must not tax the
+# normal path, or it will be routed around.
+run_case "roster-style type, isolated, no hatch -> allowed (clause 5 inert)" 0 \
+    "$(json_agent 'dev' 'dev-sonnet-m8a' 'worktree' 'Fix the bug and commit.')"
+run_case "roster-style type, isolated, no hatch, second name -> allowed" 0 \
+    "$(json_agent 'deviceqa' 'deviceqa-sonnet-m8b' 'worktree' 'Run device QA.')"
+run_case "roster-style type WITHOUT isolation is still blocked by clause 1, not 5" 2 \
+    "$(json_agent 'dev' 'dev-sonnet-m8c' '' 'Fix the bug.')"
+run_case_msg "a roster-type refusal is the ISOLATION message, never the staffing one" 'missing native isolation' \
+    "$(json_agent 'dev' 'dev-sonnet-m8d' '' 'Fix the bug.')"
+
+# (m9) CONFIG IS THE SWITCH, AND ITS DEFAULT IS DENY. A type declared a harness
+# utility in the entity's own config is exempt; a type merely added to
+# READONLY_ALLOWLIST is NOT.
+M9="$(mktemp -d -t guard-isolation-clause5.XXXXXX)"
+mkdir -p "$M9/scripts/hooks" "$M9/scripts/lib" "$M9/.claude"
+cp "$HOOK" "$M9/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$M9/scripts/hooks/guard-worktree-isolation.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$M9/scripts/lib/" 2>/dev/null || true
+{
+    printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
+    printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup housekeeping"\n'
+    printf 'HARNESS_UTILITY_TYPES="claude-code-guide statusline-setup housekeeping"\n'
+} >"$M9/orchestration.config"
+m9_run() { # <payload> -> echoes rc
+    printf '%s' "$1" | RICHOS_ENTITY_ROOT="$M9" "$M9/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
+    echo $?
+}
+rc="$(m9_run "$(json_agent 'housekeeping' '' '' 'Tidy the config.')")"
+[ "$rc" -eq 0 ] && { PASS=$((PASS + 1)); printf '  PASS  a type DECLARED in HARNESS_UTILITY_TYPES needs no hatch\n'; } \
+                || { FAIL=$((FAIL + 1)); printf '  FAIL  declared harness utility was blocked (exit %s)\n' "$rc"; }
+{
+    printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
+    printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup housekeeping"\n'
+    printf 'HARNESS_UTILITY_TYPES="claude-code-guide statusline-setup"\n'
+} >"$M9/orchestration.config"
+rc="$(m9_run "$(json_agent 'housekeeping' '' '' 'Tidy the config.')")"
+[ "$rc" -eq 2 ] && { PASS=$((PASS + 1)); printf '  PASS  a type merely ADDED to READONLY_ALLOWLIST still needs the hatch (default is deny)\n'; } \
+                || { FAIL=$((FAIL + 1)); printf '  FAIL  undeclared allowlist type waved through (exit %s)\n' "$rc"; }
+rm -rf "$M9"
+
+# (m10) THE USE IS LOGGED, so a habit of waiving is visible rather than invisible.
+GA_LOG="$RICHOS_ENTITY_ROOT/.claude/state/generic-agent-dispatches.log"
+GA_MARK="clause5-log-canary-$$"
+printf '%s' "$(json_agent 'Explore' '' '' "Audit.
+generic-agent: no roster teammate covers this cross-repository enumeration $GA_MARK")" \
+    | "$HOOK" >/dev/null 2>&1
+if grep -qF "$GA_MARK" "$GA_LOG" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  an accepted generic-agent: hatch is logged to .claude/state/generic-agent-dispatches.log\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  accepted generic-agent: hatch was NOT logged to %s\n' "$GA_LOG"
+fi
+# and a REFUSED dispatch is never logged (a refusal is not a waiver).
+GA_MARK2="clause5-refused-canary-$$"
+printf '%s' "$(json_agent 'Explore' '' '' "Audit.
+generic-agent: nope $GA_MARK2")" | "$HOOK" >/dev/null 2>&1
+if grep -qF "$GA_MARK2" "$GA_LOG" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); printf '  FAIL  a REFUSED generic-agent dispatch was logged as if it were a waiver\n'
+else
+    PASS=$((PASS + 1)); printf '  PASS  a REFUSED generic-agent dispatch is not logged (a refusal is not a waiver)\n'
+fi
+
 rm -rf "$NOLIB" "$CR"
 unset RICHOS_WORKTREE_LEDGER
 
