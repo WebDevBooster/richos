@@ -324,6 +324,39 @@ if applied M10 "the refusal no longer names the alternative" \
         "refusal separates the isolation exemption from the staffing question"
 fi
 
+# --- M11 (OVER-BLOCKING, the speed check's OWN false-positive arm): the
+# speed/convenience pattern is widened to catch a bare mention of "worktree".
+# That is the tempting version -- the incident's reason was "a roster teammate
+# would have needed a worktree set up first" -- and it is wrong, because a
+# genuine justification may name worktrees innocently ("no worktree is needed
+# for a read-only sweep"). Refusing that is a false positive on a TRUE reason,
+# which is how an escape hatch stops being usable and starts being lied to.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'r"(fastest|faster|quickest|quicker|save[sd]?\\s+time|saving\\s+time|"'
+assert old in s, "speed pattern anchor not found"
+new = 'r"(worktree|fastest|faster|quickest|quicker|save[sd]?\\s+time|saving\\s+time|"'
+open(p, "w", encoding="utf-8").write(s.replace(old, new, 1))
+PY
+if applied M11 "the speed pattern widened to catch any mention of worktrees" \
+   && alive M11 "the speed pattern widened to catch any mention of worktrees"; then
+    check M11 "the speed pattern widened to catch any mention of worktrees" \
+        "a genuine reason mentioning worktrees is NOT read as a speed excuse"
+fi
+
+# --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
+# hold under every mutation above because they assert that the NORMAL path is
+# still normal, and every mutant here changes an ABNORMAL path:
+#   - "the hatch is recognized anywhere in the prompt, not only on line 1"
+#   - "the hatch tolerates leading whitespace"
+#   - "general-purpose, isolated + well-named, WITH hatch -> allowed"
+# They are regression pins on the grep anchor and on the hatch actually
+# working, not claims of mutation coverage. Naming them here is cheaper than
+# letting a future reader assume a silent green means a proven check.
+
 restore
 echo ""
 echo "=== summary: $PROVEN proven load-bearing, $UNPROVEN unproven ==="
