@@ -89,8 +89,45 @@ from a session transcript only as a fallback. Then, per registration:
                                                             becomes decidable
                                                             the moment that
                                                             session ends.
+    no pid on record, native absent, but the SESSION is
+      provably over by EXHAUSTION (below) .................. NOT-ALIVE
     no session identity on record, native absent .......... INDETERMINATE
     no registration and no transcript join at all ......... UNRESOLVED
+
+THE TRANSCRIPT FALLBACK INDEXES EVERY TRANSCRIPT, NOT THE NEWEST ONE. The
+reaper used to read `ls -1t | head -1` under the swept repository's project
+directory — a directory that holds zero transcripts for a cross-repository
+sweep, and even where it holds some, the newest file never names last week's
+agent. `transcript_index()` reads `~/.claude/projects/*/*.jsonl` (measured:
+~150 files, 0.7s) and joins every spawn name to (agent id, session id, the
+transcript's last-write time).
+
+===========================================================================
+SESSION DEATH BY EXHAUSTION — for owners the ledger never saw
+===========================================================================
+A spawn that predates the ledger has no pid on record. What exists for it is
+its session id (the transcript's file name) and the transcript's last-write
+time. The session that made that last write was a running `claude` process at
+that moment. So:
+
+    1. enumerate every `claude` process now running (`ps -axo`; pgrep cannot
+       see them on this machine — measured), with its start time;
+    2. self-check: the process this code runs inside (CLAUDE_PID) must appear
+       in that enumeration, or the enumeration is not trusted and the answer
+       is INDETERMINATE;
+    3. keep the processes that started BEFORE the transcript's last write —
+       only those could have made it;
+    4. account for each one through the harness's own live-session registry,
+       ~/.claude/sessions/<pid>.json (pid, sessionId, startedAt; written at
+       start, removed at exit): a registry row naming a DIFFERENT session id,
+       whose startedAt matches the process start, rules that process out; a
+       row naming THIS session id means the session is alive; a process with
+       no row is unaccounted for and keeps the answer INDETERMINATE;
+    5. nothing left that could be the session -> the session is over.
+
+This is evidence about what IS running, positively enumerated and fully
+accounted for — the same class as "the lock's pid is dead" — not an inference
+from quiet. Every step that cannot be completed fails toward INDETERMINATE.
 
 Several registrations can match one name (the reuse guard is per-session,
 names recur across sessions). ALL must be NOT-ALIVE for the tree's owner to
@@ -250,6 +287,166 @@ def process_status(pid, recorded_start):
     return "alive" if cur == rec else "reused"
 
 
+def _parse_lstart(text):
+    """`ps -o lstart=` text -> epoch seconds, or None."""
+    t = _ws(text)
+    for fmt in ("%a %d %b %H:%M:%S %Y", "%a %b %d %H:%M:%S %Y"):
+        try:
+            return datetime.strptime(t, fmt).timestamp()
+        except Exception:
+            continue
+    return None
+
+
+def claude_processes():
+    """[(pid, start_epoch)] for every running `claude` process, or None when
+    the table could not be read. RICHOS_CLAUDE_PROCESSES="pid:epoch ..." (or
+    "none") stands in for the process table in tests."""
+    override = os.environ.get("RICHOS_CLAUDE_PROCESSES")
+    if override is not None:
+        out = []
+        for tok in override.split():
+            if tok == "none":
+                continue
+            try:
+                pid, ep = tok.split(":", 1)
+                out.append((int(pid), float(ep)))
+            except Exception:
+                return None
+        return out
+    try:
+        res = subprocess.run(["ps", "-axo", "pid=,lstart=,comm="],
+                             capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    if res.returncode != 0:
+        return None
+    out = []
+    for line in res.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        if os.path.basename(parts[-1]) != "claude":
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        ep = _parse_lstart(" ".join(parts[1:6]))
+        if ep is None:
+            return None  # an unparseable start time makes the whole table untrusted
+        out.append((pid, ep))
+    return out
+
+
+def sessions_dir():
+    return (os.environ.get("RICHOS_SESSIONS_DIR") or "").strip() \
+        or os.path.join(os.path.expanduser("~"), ".claude", "sessions")
+
+
+def session_registry():
+    """{pid: {"session_id": ..., "started_at": epoch}} from the harness's own
+    live-session registry, ~/.claude/sessions/<pid>.json."""
+    out = {}
+    d = sessions_dir()
+    try:
+        names = os.listdir(d)
+    except Exception:
+        return out
+    for n in names:
+        if not n.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(d, n), encoding="utf-8") as f:
+                rec = json.load(f)
+            pid = int(rec.get("pid") or n[:-5])
+            started = rec.get("startedAt")
+            started = float(started) / 1000.0 if started else None
+            out[pid] = {"session_id": str(rec.get("sessionId") or ""), "started_at": started}
+        except Exception:
+            continue
+    return out
+
+
+def session_gone_by_exhaustion(session_id, last_write_epoch, tolerance=300.0):
+    """("gone"|"alive"|"unknown", reason). See the module docstring."""
+    if not session_id or not last_write_epoch:
+        return "unknown", "no session id or no last-write time to reason from"
+    procs = claude_processes()
+    if procs is None:
+        return "unknown", "the claude process table could not be read"
+    self_pid = (os.environ.get("CLAUDE_PID") or "").strip()
+    if self_pid.isdigit() and int(self_pid) not in {p for p, _e in procs}:
+        return "unknown", ("the process enumeration does not contain this session's own pid %s; "
+                           "it is not trusted" % self_pid)
+    registry = session_registry()
+    unaccounted = []
+    for pid, start in procs:
+        if start > last_write_epoch + tolerance:
+            continue  # started after the last write: cannot have made it
+        row = registry.get(pid)
+        if row and row.get("session_id") == session_id:
+            return "alive", ("session %s is registered to running pid %d (%s)"
+                             % (session_id[:8], pid, sessions_dir()))
+        if row and row.get("session_id") and row.get("started_at") \
+                and abs(row["started_at"] - start) <= 120:
+            continue  # accounted for: a different session, same process identity
+        unaccounted.append(pid)
+    if unaccounted:
+        return "unknown", ("running claude pid(s) %s started before this session's last write and "
+                           "are not accounted for by %s; one of them could be it"
+                           % (",".join(str(p) for p in unaccounted), sessions_dir()))
+    return "gone", ("no running claude process predates session %s's last write at %s, and every "
+                    "running one is registered to another session in %s"
+                    % (session_id[:8], datetime.fromtimestamp(last_write_epoch).isoformat(timespec="seconds"),
+                       sessions_dir()))
+
+
+def projects_dir():
+    return (os.environ.get("RICHOS_PROJECTS_DIR") or "").strip() \
+        or os.path.join(os.path.expanduser("~"), ".claude", "projects")
+
+
+def transcript_for_session(session_id, base=None):
+    base = base or projects_dir()
+    sid = (session_id or "").strip()
+    if not sid:
+        return ""
+    import glob
+    hits = [h for h in glob.glob(os.path.join(base, "*", "%s*.jsonl" % sid[:8])) if os.path.isfile(h)]
+    return hits[0] if len(hits) == 1 else ""
+
+
+def transcript_index(paths=None, base=None, mod=None):
+    """{name: [{"agent_id", "session_id", "path", "last_write"}]} over the
+    given transcript paths, or over EVERY top-level transcript under the
+    projects directory when none are given."""
+    out = {}
+    if mod is None:
+        return out
+    if paths is None:
+        import glob
+        base = base or projects_dir()
+        paths = sorted(glob.glob(os.path.join(base, "*", "*.jsonl")))
+    for p in paths:
+        if not p or not os.path.isfile(p):
+            continue
+        try:
+            names = mod.names_to_ids(p) or {}
+        except Exception:
+            continue
+        if not names:
+            continue
+        try:
+            mtime = os.path.getmtime(p)
+        except OSError:
+            mtime = None
+        sid = os.path.basename(p)[:-len(".jsonl")]
+        for n, a in names.items():
+            out.setdefault(n, []).append({"agent_id": a, "session_id": sid, "path": p, "last_write": mtime})
+    return out
+
+
 def session_pid_from_env():
     """The host session pid: CLAUDE_PID when the harness exports it, else the
     nearest ancestor process named `claude`. Returns int or None."""
@@ -391,6 +588,11 @@ def finished_signals(records, agent_id="", worktree=""):
     return out
 
 
+def registered_names(records):
+    return sorted({r.get("teammate") for r in records
+                   if r.get("event") == "registered" and r.get("teammate")})
+
+
 def registered_branches(records, repo):
     rp = norm_path(repo)
     out = set()
@@ -454,6 +656,29 @@ def _judge_registration(reg, entity, records, mod, write, ledger):
                                "while its session pid %s is still running; "
                                "decidable once that session ends (absence is not a termination "
                                "signal)" % (aid or "?", name, pid))
+
+    # 4. no pid on record — the session may still be PROVABLY over, by
+    #    exhaustion of the process table against the harness's own registry
+    full_sid = reg.get("session_id") or ""
+    last_write = reg.get("last_write")
+    if full_sid and not last_write:
+        tp = transcript_for_session(full_sid)
+        if tp:
+            try:
+                last_write = os.path.getmtime(tp)
+            except OSError:
+                last_write = None
+    if full_sid and last_write:
+        ex, why = session_gone_by_exhaustion(full_sid, last_write)
+        if ex == "gone":
+            return NOT_ALIVE, ("its session %s is over by exhaustion: %s" % (sid, why))
+        if ex == "alive":
+            return INDETERMINATE, ("no native isolation worktree is registered for agent %s (%s) "
+                                   "while %s; decidable once that session ends"
+                                   % (aid or "?", name, why))
+        return INDETERMINATE, ("no session identity on record for agent %s (%s), its isolation "
+                              "worktree is absent, and exhaustion could not decide: %s"
+                              % (aid or "?", name, why))
     return INDETERMINATE, ("no session identity on record for agent %s (%s) and its isolation "
                           "worktree is absent; absence is not a termination signal"
                           % (aid or "?", name))
@@ -463,13 +688,17 @@ def judge(entity, worktree, names, records, transcript_names=None, mod=None,
           write=True, ledger=None, repo=None):
     """The owner verdict for one hand-rolled worktree."""
     transcript_names = transcript_names or {}
+    # branch name and directory name are usually the same string; one lookup.
+    seen = set()
+    names = [n for n in names if n and not (n in seen or seen.add(n))]
     regs = registrations(records, worktree=worktree, names=names, repo=repo)
     source = "ledger" if regs else ""
     if not regs:
         for n in names:
-            aid = transcript_names.get(n)
-            if aid:
-                regs.append({"event": "registered", "teammate": n, "agent_id": aid,
+            for hit in transcript_names.get(n) or []:
+                regs.append({"event": "registered", "teammate": n, "agent_id": hit.get("agent_id"),
+                             "session_id": hit.get("session_id") or "",
+                             "last_write": hit.get("last_write"),
                              "class": "native", "repo": entity, "source": "transcript"})
                 source = "transcript"
     if not regs:
@@ -542,28 +771,35 @@ def _cmd_record(args):
         if "=" in kv:
             k, v = kv.split("=", 1)
             rec[k] = v
+    if args.once and rec["event"] == "terminated":
+        # One witnessed termination per agent is the whole record; a second
+        # copy per sweep would only grow the file.
+        if terminations(read_all(args.ledger), rec.get("agent_id") or ""):
+            print(json.dumps({"skipped": "already on record", "agent_id": rec.get("agent_id")}))
+            return 0
     ok = append(rec, args.ledger)
     print(json.dumps(rec, sort_keys=True))
     return 0 if ok else 1
 
 
-def _load_transcripts(paths, mod):
-    names = {}
+def _load_transcripts(paths, mod, projects=None):
+    """Explicit transcript paths when given; otherwise every transcript under
+    the projects directory (--projects-dir, RICHOS_PROJECTS_DIR, or the
+    default). Explicit paths are what a hermetic test passes; the directory
+    scan is what a real sweep needs."""
     if mod is None:
-        return names
-    for p in paths or []:
-        try:
-            for n, a in (mod.names_to_ids(p) or {}).items():
-                names.setdefault(n, a)
-        except Exception:
-            continue
-    return names
+        return {}
+    if paths:
+        return transcript_index(paths=paths, mod=mod)
+    if projects is None:
+        return {}
+    return transcript_index(paths=None, base=projects or None, mod=mod)
 
 
 def _cmd_judge_batch(args):
     records = read_all(args.ledger)
     mod = _liveness_module()
-    tnames = _load_transcripts(args.transcript, mod)
+    tnames = _load_transcripts(args.transcript, mod, args.projects_dir)
     write = not args.no_write
     for line in sys.stdin:
         line = line.rstrip("\n")
@@ -584,7 +820,7 @@ def _cmd_judge_batch(args):
 def _cmd_judge(args):
     records = read_all(args.ledger)
     mod = _liveness_module()
-    tnames = _load_transcripts(args.transcript, mod)
+    tnames = _load_transcripts(args.transcript, mod, args.projects_dir)
     names = [n for n in ([args.name] + list(args.alias or [])) if n]
     res = judge(args.entity, args.worktree, names, records, tnames, mod,
                 not args.no_write, args.ledger)
@@ -602,6 +838,29 @@ def _cmd_registrations(args):
     for r in regs:
         print(json.dumps(r, sort_keys=True))
     return 0 if regs else 1
+
+
+def _cmd_session_status(args):
+    lw = args.last_write
+    if not lw:
+        tp = transcript_for_session(args.session_id)
+        lw = os.path.getmtime(tp) if tp else 0.0
+    st, why = session_gone_by_exhaustion(args.session_id, lw)
+    print("%s\t%s" % (st, why))
+    return 0
+
+
+def _cmd_names(args):
+    """Every teammate name this machine has a record of spawning: the ledger's
+    registrations plus every name any transcript joins to an agent id. Used by
+    the reaper for repository ELIGIBILITY only — never as liveness."""
+    names = set(registered_names(read_all(args.ledger)))
+    mod = _liveness_module()
+    idx = _load_transcripts(args.transcript, mod, args.projects_dir)
+    names |= set(idx.keys())
+    for n in sorted(names):
+        print(n)
+    return 0
 
 
 def _cmd_branches(args):
@@ -641,6 +900,8 @@ def main(argv=None):
     p.add_argument("--class", dest="cls", default="", choices=("", "native", "hand-rolled"))
     p.add_argument("--pid-start-of-session", action="store_true",
                    help="fill pid_start from ps for --session-pid")
+    p.add_argument("--once", action="store_true",
+                   help="terminated: skip if one is already on record for this agent id")
     p.add_argument("--extra", action="append", default=[], help="k=v")
 
     p = sub.add_parser("judge")
@@ -649,12 +910,16 @@ def main(argv=None):
     p.add_argument("--name", default="")
     p.add_argument("--alias", action="append", default=[])
     p.add_argument("--transcript", action="append", default=[])
+    p.add_argument("--projects-dir", default=None,
+                   help="index EVERY transcript under this directory ('' = the default)")
     p.add_argument("--no-write", action="store_true")
     p.add_argument("--format", choices=("json", "triple"), default="json")
 
     p = sub.add_parser("judge-batch")
     p.add_argument("--entity", required=True)
     p.add_argument("--transcript", action="append", default=[])
+    p.add_argument("--projects-dir", default=None,
+                   help="index EVERY transcript under this directory ('' = the default)")
     p.add_argument("--no-write", action="store_true")
 
     p = sub.add_parser("registrations")
@@ -663,6 +928,14 @@ def main(argv=None):
 
     p = sub.add_parser("branches")
     p.add_argument("--repo", required=True)
+
+    p = sub.add_parser("names")
+    p.add_argument("--transcript", action="append", default=[])
+    p.add_argument("--projects-dir", default=None)
+
+    p = sub.add_parser("session-status")
+    p.add_argument("--session-id", required=True)
+    p.add_argument("--last-write", type=float, default=0.0)
 
     p = sub.add_parser("pid-start")
     p.add_argument("pid")
@@ -679,6 +952,8 @@ def main(argv=None):
         "judge-batch": _cmd_judge_batch,
         "registrations": _cmd_registrations,
         "branches": _cmd_branches,
+        "names": _cmd_names,
+        "session-status": _cmd_session_status,
         "pid-start": _cmd_pid_start,
         "session-pid": _cmd_session_pid,
     }[args.cmd](args)

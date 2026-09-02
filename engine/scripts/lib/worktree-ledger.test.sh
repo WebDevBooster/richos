@@ -248,6 +248,122 @@ L record registered --teammate mark-opus-p1 --agent-id gone002 --session-id sess
 V="$(L judge --entity "$ENTITY" --worktree "$SANDBOX/other-wt/feature-x" --name feature-x --format triple --no-write)"
 printf '%s' "$V" | grep -q '^NOT-ALIVE.*host session pid' && ok "a path-registered tree is judged by its registration, not its name" || bad "path registration: $V"
 
+# =========================================================================
+# SESSION DEATH BY EXHAUSTION — owners the ledger never saw. The process
+# table and the harness registry are PINNED through their test overrides so
+# these cases mean the same thing on every machine. Every case has its
+# opposite beside it.
+# =========================================================================
+NOW="$(python3 -c 'import time; print(int(time.time()))')"
+SESS_DIR="$SANDBOX/sessions"; mkdir -p "$SESS_DIR"
+PROJ="$SANDBOX/projects"; mkdir -p "$PROJ/-some-project"
+OLD_SID="aaaaaaaa-0000-4000-8000-000000000001"
+NEW_SID="bbbbbbbb-0000-4000-8000-000000000002"
+write_tx() { # <path> <name>=<aid> ... ; a transcript in the shape names_to_ids reads
+    local out="$1"; shift
+    python3 - "$out" "$@" <<'PY'
+import json, sys
+with open(sys.argv[1], "w") as f:
+    for i, spec in enumerate(sys.argv[2:]):
+        name, aid = spec.split("=", 1)
+        tu = "tu%d" % i
+        f.write(json.dumps({"message": {"content": [{"type": "tool_use", "name": "Agent", "id": tu, "input": {"name": name}}]}}) + "\n")
+        f.write(json.dumps({"message": {"content": [{"type": "tool_result", "tool_use_id": tu}]}, "toolUseResult": {"agentId": aid}}) + "\n")
+PY
+}
+write_tx "$PROJ/-some-project/$OLD_SID.jsonl" "art-opus-old1=oldart1"
+touch -t "$(date -r $((NOW - 7200)) +%Y%m%d%H%M.%S)" "$PROJ/-some-project/$OLD_SID.jsonl"   # last write: 2h ago
+write_tx "$PROJ/-some-project/$NEW_SID.jsonl" "art-opus-new1=newart1"
+registry() { # <pid> <session-id> <started-epoch>
+    printf '{"pid":%s,"sessionId":"%s","startedAt":%s000}\n' "$1" "$2" "$3" >"$SESS_DIR/$1.json"
+}
+EX() { # <processes> <extra env...> -- judge args ; pins CLAUDE_PID to the first listed pid
+    local procs="$1"; shift
+    local first="${procs%%:*}"
+    RICHOS_CLAUDE_PROCESSES="$procs" RICHOS_SESSIONS_DIR="$SESS_DIR" RICHOS_PROJECTS_DIR="$PROJ" CLAUDE_PID="$first" \
+        python3 "$LEDGER_PY" --ledger "$LEDGER" judge --entity "$ENTITY" --format triple --no-write --projects-dir "$PROJ" "$@"
+}
+
+# E1. GONE. One claude process, started 30 min ago (AFTER the old session's
+#     last write), registered to another session. Nothing could be the old
+#     session -> NOT-ALIVE by exhaustion. The name appears in an OLDER
+#     transcript only — the acceptance case the newest-file lookup failed.
+rm -f "$SESS_DIR"/*.json; registry 4242 "$NEW_SID" $((NOW - 1800))
+V="$(EX "4242:$((NOW - 1800))" --name art-opus-old1)"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*over by exhaustion: no running claude process predates'; then
+    ok "EXHAUSTION: a name found only in an OLDER transcript, whose session no running process predates -> NOT-ALIVE"
+else
+    bad "exhaustion gone: $V"
+fi
+
+# E2. ALIVE SESSION. The registry says the running pid IS the old session.
+rm -f "$SESS_DIR"/*.json; registry 4242 "$OLD_SID" $((NOW - 9000))
+V="$(EX "4242:$((NOW - 9000))" --name art-opus-old1)"
+if printf '%s' "$V" | grep -q "^INDETERMINATE.*session ${OLD_SID:0:8} is registered to running pid 4242"; then
+    ok "EXHAUSTION: the registry names the running pid as THIS session -> INDETERMINATE (session alive)"
+else
+    bad "exhaustion alive: $V"
+fi
+
+# E3. UNACCOUNTED. A process started BEFORE the last write with no registry
+#     row could be the session -> INDETERMINATE, naming the pid.
+rm -f "$SESS_DIR"/*.json
+V="$(EX "4242:$((NOW - 9000))" --name art-opus-old1)"
+if printf '%s' "$V" | grep -q '^INDETERMINATE.*running claude pid(s) 4242 started before this session.s last write and are not accounted for'; then
+    ok "EXHAUSTION: an unaccounted process that predates the last write -> INDETERMINATE (never guessed)"
+else
+    bad "exhaustion unaccounted: $V"
+fi
+
+# E4. ACCOUNTED FOR. Same process, but the registry says it is ANOTHER
+#     session with a matching start -> ruled out -> NOT-ALIVE.
+rm -f "$SESS_DIR"/*.json; registry 4242 "$NEW_SID" $((NOW - 9000))
+V="$(EX "4242:$((NOW - 9000))" --name art-opus-old1)"
+if printf '%s' "$V" | grep -q '^NOT-ALIVE.*over by exhaustion'; then
+    ok "EXHAUSTION: a predating process registered to a DIFFERENT session is ruled out -> NOT-ALIVE"
+else
+    bad "exhaustion accounted: $V"
+fi
+
+# E4b. ...but a registry row whose startedAt does NOT match the process start
+#      does not account for it (pid reuse in the registry's own terms).
+rm -f "$SESS_DIR"/*.json; registry 4242 "$NEW_SID" $((NOW - 100))
+V="$(EX "4242:$((NOW - 9000))" --name art-opus-old1)"
+if printf '%s' "$V" | grep -q '^INDETERMINATE.*not accounted for'; then
+    ok "EXHAUSTION: a registry row with a mismatched start does not account for the process"
+else
+    bad "exhaustion start mismatch: $V"
+fi
+
+# E5. BROKEN ENUMERATION. CLAUDE_PID is not in the enumerated table -> the
+#     table is not trusted -> INDETERMINATE, whatever else it says.
+rm -f "$SESS_DIR"/*.json; registry 4242 "$NEW_SID" $((NOW - 1800))
+V="$(RICHOS_CLAUDE_PROCESSES="4242:$((NOW - 1800))" RICHOS_SESSIONS_DIR="$SESS_DIR" RICHOS_PROJECTS_DIR="$PROJ" CLAUDE_PID=99999 \
+     python3 "$LEDGER_PY" --ledger "$LEDGER" judge --entity "$ENTITY" --format triple --no-write --projects-dir "$PROJ" --name art-opus-old1)"
+if printf '%s' "$V" | grep -q '^INDETERMINATE.*does not contain this session.s own pid 99999'; then
+    ok "EXHAUSTION: an enumeration missing our own pid is refused -> INDETERMINATE"
+else
+    bad "exhaustion self-check: $V"
+fi
+
+# E6. A LEDGER registration with NO pid but a session id whose transcript is
+#     on disk is judged the same way (last write from the transcript).
+L record registered --teammate mark-opus-nopid --agent-id nopid1 --session-id "$OLD_SID" --repo "$ENTITY" --class native >/dev/null
+rm -f "$SESS_DIR"/*.json; registry 4242 "$NEW_SID" $((NOW - 1800))
+V="$(EX "4242:$((NOW - 1800))" --name mark-opus-nopid)"
+printf '%s' "$V" | grep -q '^NOT-ALIVE.*over by exhaustion' \
+    && ok "a ledger registration without a pid falls back to exhaustion on its session id" \
+    || bad "ledger no-pid exhaustion: $V"
+
+# E7. NEGATIVE: the newest transcript's own agent, with a live registered
+#     session, is INDETERMINATE — exhaustion never fires against a session that
+#     is registered as running.
+rm -f "$SESS_DIR"/*.json; registry 4242 "$NEW_SID" $((NOW - 1800))
+V="$(EX "4242:$((NOW - 1800))" --name art-opus-new1)"
+printf '%s' "$V" | grep -q '^INDETERMINATE.*registered to running pid 4242' \
+    && ok "the running session's own agent stays INDETERMINATE" \
+    || bad "live session's agent: $V"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== worktree-ledger tests: $FAIL FAILED, $PASS passed ==="
