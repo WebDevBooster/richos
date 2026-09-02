@@ -12,6 +12,67 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **RichOS owns the worktree ownership record, so a worktree's owner can be
+  judged after the harness's lock is gone** (`scripts/lib/worktree-ledger.py`,
+  `scripts/create-teammate-worktree.sh`, `docs/worktree-ownership-ledger.md`)
+  — MINOR for the record, **MAJOR-class for the two contract changes below**.
+
+  A hand-rolled worktree (cross-repository work) takes no git lock, so the
+  reaper judged it from its owner's NATIVE isolation-worktree lock — which a
+  land deletes. From that moment the tree was permanently undecidable:
+  cleaning up one repository destroyed the only evidence that could ever clean
+  up another. Four forward-only fixes left 29 of 29 `richos` worktrees
+  `owner-undecidable` on 2026-09-02. Now `~/.claude/state/worktree-ledger.jsonl`
+  records every spawn that ran (teammate, agent id, session id, session pid +
+  start time, paths, branch), every WITNESSED termination the reaper or the
+  remover observes (copied the moment it is seen, once per agent), and the
+  three lifecycle signals as advisory. Owners are judged from the ledger
+  first, then from an index of EVERY transcript (not the newest file under
+  the swept repository's slug — a directory that never holds one for a
+  cross-repository sweep), and a session with no pid on record is proven over
+  by exhaustion of the process table against the harness's own
+  `~/.claude/sessions/<pid>.json` registry. INDETERMINATE and UNRESOLVED are
+  never collapsed; absence is never death; finish signals never decide.
+
+  Cross-repository worktrees are created, seeded from `.worktreeinclude`, and
+  registered by `scripts/create-teammate-worktree.sh`, which prints the two
+  spawn shapes (`cwd:` without isolation, or a `cross-repo-worktree:` prompt
+  line with it).
+
+### Changed
+
+- **`guard-worktree-isolation.sh` clause 4 — a cross-repository spawn is
+  admitted only into a worktree RichOS registered** (MAJOR-class: the guard
+  now blocks shapes it previously allowed). A `cwd` spawn passes only when
+  `cwd` is the top level of a linked worktree with a ledger registration;
+  `cwd` together with `isolation` is refused as mutually exclusive; every
+  `cross-repo-worktree:` line must name a registered path; and a prompt that
+  instructs the teammate to run `git worktree add` is refused (`hand-roll-ack:
+  <reason>` is the audited escape hatch). Clauses 1-3 are not relaxed.
+- **`scripts/reap-stale-worktrees.sh` — exit-code contract and report**
+  (MAJOR-class): a hand-rolled worktree with NO ownership record is
+  `owner-unresolved` and the run ends `verdict: FAIL`, **exit 3**; a known
+  owner whose session still runs is `owner-indeterminate`, `verdict: PENDING`;
+  everything decided is `verdict: CLEAN`. Both wrappers announce the verdict
+  FIRST. Non-teammate worktrees (a CI checkout, another tool's) are
+  `operator-worktree`: inventoried, never mutated, never a verdict. A pass
+  over `refs/heads/` sweeps merged teammate-shaped orphan branches
+  (`branches-swept=N branches-skipped=N`); an unmerged orphan is reported and
+  kept. `--transcript` is repeatable; `REAP_WORKTREE_LEDGER` is a new test
+  affordance that every sandbox run must set.
+- `scripts/remove-agent-worktree.sh` copies an observation-based NOT-ALIVE
+  verdict to the ledger before removing; never an absence-based one.
+- `scripts/hooks/install.sh`, `scripts/demo.sh` and the meta-suite's sandbox
+  list carry the two new files.
+
+### Fixed
+
+- Three suites (`reap-stale-worktrees.test.sh`, both reaper-wrapper suites)
+  set `RC` inside a command substitution — a subshell — so every
+  `[ "$rc" -eq 0 ]` assertion they carried was true by initialization. They
+  now capture the exit code. `task-completed-handoff.test.sh` had been dying
+  at EOF.
+
 - **A file can now be declared private BY IDENTITY, and both publication guards
   enforce it** (`scripts/lib/publication-boundary.sh`,
   `scripts/lib/publication-boundary.py`, `scripts/hooks/guard-publication-writes.sh`,
