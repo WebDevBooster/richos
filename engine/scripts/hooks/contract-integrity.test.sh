@@ -294,6 +294,13 @@ ALL_ROOT_SCRIPTS=(
     scripts/hooks/guard-agent-state-claims.py
     scripts/hooks/guard-unasked-deferral.py
     scripts/hooks/turn-manifest.py
+    # The waiver-repetition analyzer, on this list for the stop-hook-notice
+    # reason rather than the refuse-to-start one. notice-waiver-repetition.sh
+    # does NOT refuse without it: it starts, announces "WAIVER-REPETITION WATCH
+    # IS OFF: the analyzer is missing" into a channel a sandbox has no reader
+    # for, and exits 0 — so SC1's can-every-hook-start question passes over a
+    # sandbox modelling an engine whose newest Stop notice reads no ledger.
+    scripts/hooks/notice-waiver-repetition.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -2098,6 +2105,19 @@ emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
 # refuses that shortcut. An unrun mutant refuses nothing.
 set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
+
+# WTI1 — the spawn guard's CLAUSE 5 (staffing) mutation harness, registered for
+# the reason WTR1 is: run-all-tests.sh discovers every *.test.sh from disk, so
+# the guard's behavioral suite IS run, but a *.mutation.sh is invisible to that
+# discovery and nothing would run this one.
+#
+# Clause 5's arms are the two-sided kind a corpse satisfies: "a generic dispatch
+# without a hatch is refused" is passed by a guard that refuses everything, and
+# "a statusline change needs no hatch" is passed by a guard that refuses
+# nothing. M5, M6, M7 and M11 are the over-blocking mutants that refuse both
+# shortcuts. An unrun mutant refuses nothing.
+set +e; "$SCRIPT_DIR/guard-worktree-isolation.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
 
 echo ""
 echo "=== summary ==="
