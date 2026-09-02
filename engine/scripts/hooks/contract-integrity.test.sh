@@ -2058,6 +2058,19 @@ emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
 set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
 
+# WTR1 — the worktree-removal guard's mutation harness, for the reason CL1/CL2
+# exist and one step further along the same road. The guard's own behavioral
+# suite IS run, because run-all-tests.sh discovers every *.test.sh from disk.
+# Its mutation harness is a *.mutation.sh, so that discovery never saw it, and
+# on 2026-09-02 nothing in this engine ran it at all.
+#
+# That matters more than usual for this guard, because the fix landed that day
+# was a fix to a FALSE POSITIVE — and the cheapest way to stop a guard
+# false-firing is to stop it firing. The harness's M6 mutant is the arm that
+# refuses that shortcut. An unrun mutant refuses nothing.
+set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
+
 echo ""
 echo "=== summary ==="
 echo "passed: $PASS"
