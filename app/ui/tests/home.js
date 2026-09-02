@@ -61,6 +61,23 @@ const REGISTRY = [
   ["webinar-booster", "Webinar Booster"],
 ];
 
+/// The row as it renders: the ids, what each button SAYS at rest, and the name each one is
+/// hiding. A chip carries both labels at all times now, so `textContent` on the button is the
+/// two of them run together and is never the right thing to read.
+const READ_ROW = `(() => {
+  const chips = Array.from(document.querySelectorAll('.home-chip'));
+  return {
+    ids: chips.map(c => c.getAttribute('data-entity')),
+    rest: chips.map(c => (c.querySelector('.home-chip-rest') || {}).textContent),
+    names: chips.map(c => { const n = c.querySelector('.home-chip-name'); return n ? n.textContent : null; }),
+    aria: chips.map(c => c.getAttribute('aria-label')),
+    pressed: chips.filter(c => c.getAttribute('aria-pressed') === 'true')
+                  .map(c => (c.querySelector('.home-chip-rest') || {}).textContent),
+    widths: chips.map(c => Math.round(c.getBoundingClientRect().width)),
+    heights: chips.map(c => Math.round(c.getBoundingClientRect().height)),
+  };
+})()`;
+
 async function openApp(browser, viewport) {
   const page = await browser.newPage({ viewport: viewport || { width: 1440, height: 900 } });
   const errors = [];
@@ -157,7 +174,19 @@ async function installMeter(page) {
         },
 
         /// The interior of a box, inside its border and clear of its corner radius.
-        interior(el) {
+        ///
+        /// padX steps the region further in from BOTH ends, and it exists because a control
+        /// can carry an indicator of its own inside the area an edge measurement samples.
+        /// The door does: its breathing dot starts 29px from the left edge, one pixel inside
+        /// the default inset, so the door's gold border came back at 1.77:1 against
+        /// rgb(121,106,69) — which is not the border against its own fill, it is the border
+        /// against THE DOT. A boundary measured against a different indicator is not a
+        /// measurement of anything.
+        ///
+        /// NO BACKTICKS ANYWHERE IN THIS BLOCK. Everything from installMeter's opening brace
+        /// down is a template literal handed to addScriptTag, so one backtick in a comment
+        /// ends the string and the file stops parsing.
+        interior(el, padX) {
           const r = el.getBoundingClientRect();
           const cs = getComputedStyle(el);
           const bw = Math.max(
@@ -165,7 +194,7 @@ async function installMeter(page) {
             parseFloat(cs.borderRightWidth) || 0, parseFloat(cs.borderBottomWidth) || 0);
           let rad = parseFloat(cs.borderTopLeftRadius) || 0;
           rad = Math.min(rad, r.height / 2, r.width / 2);
-          const insetX = bw + rad + 1;
+          const insetX = bw + rad + 1 + (padX || 0);
           const insetY = bw + 1;
           const w = Math.max(1, r.width - insetX * 2);
           const h = Math.max(1, r.height - insetY * 2);
@@ -236,7 +265,7 @@ async function installMeter(page) {
               if (!regions.length) regions = this.interior(el);
             } else if (kind === 'edge') {
               ink = ink || cs.borderTopColor;
-              regions = this.ring(el, 3).concat(this.interior(el));
+              regions = this.ring(el, 3).concat(this.interior(el, t.padX));
             } else if (kind === 'paint') {
               ink = ink || cs.backgroundColor;
               regions = this.ring(el, t.ringWidth || 4, t.ringGap || 0);
@@ -245,7 +274,7 @@ async function installMeter(page) {
               regions = this.interior(el);
             } else if (kind === 'fill') {
               ink = ink || cs.color;
-              regions = this.interior(el);
+              regions = this.interior(el, t.padX);
             }
             // THE ELEMENT'S OWN OPACITY IS PART OF ITS INK. The live dot is painted in the
             // ruled signal at 55 percent opacity while it rests; measuring the token as though it
@@ -445,34 +474,42 @@ async function main() {
   // The entity row
   // -------------------------------------------------------------------------------------
 
-  await run.check("the company buttons are the REGISTRY's six, not a list somebody typed", async () => {
+  await run.check("THE ROW IS `All 1 2 3 4 5 6` FOR EVERYONE, and the names are the registry's", async () => {
+    // CEO, 2026-09-02: *"This will be the default for company buttons for everyone. Note: I
+    // removed the word 'companies' from the 'All companies' button."*
     await page.waitForFunction("window.RichHome.state.entitySource === 'registry'");
-    const r = await page.evaluate(() => ({
-      ids: Array.from(document.querySelectorAll(".home-chip")).map((c) => c.getAttribute("data-entity")),
-      labels: Array.from(document.querySelectorAll(".home-chip")).map((c) => c.textContent),
+    const r = await page.evaluate(READ_ROW);
+    const state = await page.evaluate(() => ({
       source: window.RichHome.state.entitySource,
       count: window.RichHome.state.entityCount,
     }));
     assertEqual(r.ids, [""].concat(REGISTRY.map((e) => e[0])), "the row is not the registry, in registry order");
-    assertEqual(r.labels, ["All companies"].concat(REGISTRY.map((e) => e[1])), "the labels are not the registry's display names");
-    assertEqual(r.count, 6, "the row is not carrying his six companies");
+    // WHAT IT SAYS OUT OF THE BOX. Numbers, not names — this is the reversal, and it is the
+    // one assertion that would catch it being quietly put back.
+    assertEqual(r.rest, ["All", "1", "2", "3", "4", "5", "6"], "the row is not his ruled default");
+    // ...and the names are still the registry's, waiting behind them.
+    assertEqual(r.names.slice(1), REGISTRY.map((e) => e[1]), "the hidden names are not the registry's display names");
+    assertEqual(r.names[0], null, "the All button is carrying a second label with nothing to reveal");
+    // BOTH LABELS IN THE ACCESSIBLE NAME — a screen reader saying "1, button" says nothing.
+    assertEqual(r.aria.slice(1), REGISTRY.map((e, i) => String(i + 1) + " " + e[1]), "a numbered button does not name its company to assistive technology");
+    assertEqual(state.count, 6, "the row is not carrying his six companies");
     // `richos` is ONE entity with TWO roots. A row built from directories would show two.
     assertEqual(r.ids.filter((i) => i === "richos").length, 1, "richos appeared more than once — two roots became two buttons");
-    return `${r.count} companies from the registry, in order: ${r.labels.slice(1).join(", ")}`;
+    return `${r.rest.join(" ")} — and behind them, in registry order: ${r.names.slice(1).join(", ")}`;
   });
 
-  await run.check('"All companies" is a visible DEFAULT STATE, not the absence of a selection', async () => {
+  await run.check('"All" is a visible DEFAULT STATE, not the absence of a selection', async () => {
     const before = await page.evaluate(() => ({
-      pressed: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"]')).map((c) => c.textContent),
+      pressed: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"]')).map((c) => c.querySelector(".home-chip-rest").textContent),
       entity: window.RichHome.state.entity,
     }));
-    assertEqual(before.pressed, ["All companies"], "the default is not the pressed state on arrival");
+    assertEqual(before.pressed, ["All"], "the default is not the pressed state on arrival");
     assertEqual(before.entity, "", "the default is not recorded as the selection");
     // The buttons do NOTHING to the picture in v1 — but they are real controls, not decoration.
     const framesBefore = await page.evaluate(() => window.__loro.frames);
     await page.click('.home-chip[data-entity="deeply"]');
     const after = await page.evaluate(() => ({
-      pressed: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"]')).map((c) => c.textContent),
+      pressed: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"]')).map((c) => c.querySelector(".home-chip-name").textContent),
       entity: window.RichHome.state.entity,
       disabled: !!document.querySelector(".home-chip[disabled]"),
       N: window.__loro.N,
@@ -485,7 +522,7 @@ async function main() {
     return `default pressed on arrival; pressing Deeply moves the selection and leaves the picture at 7,500 (frames ${framesBefore} -> ${await page.evaluate(() => window.__loro.frames)})`;
   });
 
-  await run.check("the row wraps into rows, is centered, and does NOT fill the gap between the two columns", async () => {
+  await run.check("the row is ONE line of discs, centered, and does NOT fill the gap between the two columns", async () => {
     const r = await page.evaluate(() => {
       const box = document.getElementById("home-entities");
       const b = box.getBoundingClientRect();
@@ -504,6 +541,8 @@ async function main() {
         bottom: Math.round(b.bottom),
         rows: Object.keys(tops).length,
         perRow: Object.keys(tops).sort((a, c) => a - c).map((k) => tops[k]),
+        wrap: getComputedStyle(box).flexWrap,
+        content: Math.round(Array.from(document.querySelectorAll(".home-chip")).reduce((w, c) => w + c.getBoundingClientRect().width, 0) + 6 * 12),
         clearLeft: Math.round(b.left),
         clearRight: Math.round(innerWidth - b.right),
         brandTop: Math.round(brand.top),
@@ -511,7 +550,12 @@ async function main() {
         inset: getComputedStyle(document.getElementById("home")).getPropertyValue("--home-top-inset").trim(),
       };
     });
-    assert(r.rows >= 2, "his six did not wrap — the requirement is rows, and this is one line");
+    // ONE LINE, and that is the numbering's doing rather than a relaxed requirement. Seven
+    // NAMED capsules measured about 790px in `round-11.3` and had to wrap; seven discs measure
+    // 311px. `flex-wrap: wrap` is still declared and still asserted below, because a customer
+    // with more companies than his six is exactly who it is for.
+    assertEqual(r.rows, 1, "the numbered row is not on one line");
+    assertEqual(r.wrap, "wrap", "the row can no longer wrap — a customer with more companies than his six would be cut off");
     assert(r.width <= 500, `the row is ${r.width}px wide; the cap is 500px so it cannot sprawl`);
     // Centered: the clear space on the two sides is equal to within a pixel.
     assert(Math.abs(r.clearLeft - r.clearRight) <= 1, `the row is not centered (${r.clearLeft}px left, ${r.clearRight}px right)`);
@@ -520,54 +564,142 @@ async function main() {
     // ...and the composition it displaces is BELOW it, by a measured inset rather than a guess.
     assert(r.brandTop > r.bottom, "the mark is not clear of the row");
     assert(r.liveTop > r.bottom, "the workforce list is not clear of the row");
-    return `${r.rows} rows (${r.perRow.join("+")}), ${r.width}px wide in a ${r.vw}px window, ${r.clearLeft}px clear each side, inset ${r.inset}, mark at ${r.brandTop} clear of a row ending at ${r.bottom}`;
+    return `${r.rows} row (${r.perRow.join("+")}), ${r.content}px of controls in a ${r.width}px box capped at 500, ${r.clearLeft}px clear each side of a ${r.vw}px window, flex-wrap still ${r.wrap}, inset ${r.inset}, mark at ${r.brandTop} clear of a row ending at ${r.bottom}`;
   });
 
-  await run.check("a one-character label is a considered pill, not a cramped lozenge", async () => {
-    await page.evaluate(async () => {
-      const ids = ["femcboost", "deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"];
-      for (let i = 0; i < ids.length; i++) {
-        await window.RichBridge.invoke("set_home_entity_label", { entityId: ids[i], label: String(i + 1) });
-      }
-      await window.RichHome.reloadEntities();
-    });
-    const r = await page.evaluate(() => {
-      const chips = Array.from(document.querySelectorAll(".home-chip"));
-      const tops = {};
-      chips.forEach((c) => {
-        const t = Math.round(c.getBoundingClientRect().top);
-        tops[t] = (tops[t] || 0) + 1;
-      });
-      return {
-        labels: chips.map((c) => c.textContent),
-        ids: chips.map((c) => c.getAttribute("data-entity")),
-        widths: chips.map((c) => Math.round(c.getBoundingClientRect().width)),
-        heights: chips.map((c) => Math.round(c.getBoundingClientRect().height)),
-        rows: Object.keys(tops).length,
-        inset: getComputedStyle(document.getElementById("home")).getPropertyValue("--home-top-inset").trim(),
-      };
-    });
-    assertEqual(r.labels, ["All companies", "1", "2", "3", "4", "5", "6"], "the anonymized labels are not what he typed");
-    // A LABEL IS A MASK, NEVER A RENAME. This is the check that would catch an anonymized home
-    // screen having re-homed his work.
-    assertEqual(r.ids, [""].concat(REGISTRY.map((e) => e[0])), "the entity ids moved when the labels did");
-    const single = r.widths.slice(1);
-    assert(single.every((w) => w >= 46), `a single-character chip came out ${Math.min.apply(null, single)}px wide`);
-    assert(single.every((w, i) => w > r.heights[i + 1]), "a single-character chip is taller than it is wide — that reads as a mistake, not a chip");
+  await run.check("every numbered button is a DISC — width equal to height, not a shrunken capsule", async () => {
+    // The check before this one leaves a selection moving. A pill measured mid-slide is a
+    // lozenge by construction, which is how this first ran: `2` came back 84x33 because
+    // "Deeply" was still collapsing. `--home-chip-slide` is 240ms.
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('.home-chip:not([aria-pressed="true"])')).every((c) => {
+        const b = c.getBoundingClientRect();
+        return Math.abs(b.width - b.height) <= 1 || c.classList.contains("plain");
+      }),
+      { timeout: 4000 }
+    );
+    const r = await page.evaluate(READ_ROW);
+    // The numerals are the default now, so this is no longer a state somebody switches on: it
+    // is what a stranger opening the app sees, and a numeral in a lozenge reads as a mistake.
+    // `round-11.3`'s rule, verbatim: "A single character is a disc, not a shrunken capsule.
+    // The minimum width equals the height and the padding is symmetric."
+    const discs = r.widths.slice(1);
+    const tall = r.heights.slice(1);
+    for (let i = 0; i < discs.length; i++) {
+      assert(Math.abs(discs[i] - tall[i]) <= 1, `button ${r.rest[i + 1]} is ${discs[i]}x${tall[i]} — that is a lozenge, not a disc`);
+    }
+    // `All` is a capsule and is meant to be: it is a word, not a numeral.
+    assert(r.widths[0] > r.heights[0], "the All button came out as a disc — it is a word and needs its own room");
     await shot(page, "home-anonymized", { fullPage: false });
     fs.copyFileSync(path.join(SHOT_DIR, "home-anonymized.png"), path.join(SHOTS, "home-anonymized.png"));
-    return `labels ${r.labels.slice(1).join(" ")} at ${single.join("/")}px wide x ${r.heights[1]}px, ${r.rows} row(s), inset ${r.inset}; every entity id unchanged`;
+    return `All ${r.widths[0]}x${r.heights[0]}; six discs at ${discs.join("/")}px wide x ${tall.join("/")}px tall`;
   });
 
-  await run.check("clearing a label puts the real name back — anonymizing is reversible", async () => {
+  await run.check("clicking a number SLIDES the company's name out, left to right, over the number", async () => {
+    // CEO, 2026-09-02: *"Only when the user clicks one of the numbers, will the company name
+    // slide out (from left to right) and replace the number on the button."*
+    //
+    // WHAT IS PLACEHOLDER AND WHOSE IT IS: the finer conduct of the row — what the other
+    // buttons do while one is expanded, whether a name persists, what `All` does to an expanded
+    // one — is `iris-opus-row1`'s design and is deliberately not decided here. What is
+    // implemented, and what this checks, is his sentence and nothing more: THE EXPANSION IS
+    // THE SELECTION.
+    const before = await page.evaluate(() => {
+      const c = document.querySelector('.home-chip[data-entity="webinar-booster"]');
+      const nm = c.querySelector(".home-chip-name");
+      const cs = getComputedStyle(c.querySelector(".home-chip-track"));
+      return {
+        pill: Math.round(c.getBoundingClientRect().width),
+        nameLeft: Math.round(nm.getBoundingClientRect().left),
+        pillLeft: Math.round(c.getBoundingClientRect().left),
+        track: cs.transform,
+        rowH: Math.round(document.getElementById("home-entities").getBoundingClientRect().height),
+        rowRows: new Set(Array.from(document.querySelectorAll(".home-chip")).map((x) => Math.round(x.getBoundingClientRect().top))).size,
+        overflow: getComputedStyle(c).overflow,
+        slide: getComputedStyle(document.getElementById("home")).getPropertyValue("--home-chip-slide").trim(),
+      };
+    });
+    // AT REST the name is parked OFF TO THE LEFT of the pill — which is what makes the reveal
+    // travel rightward rather than leftward. Not the transform string, the actual geometry.
+    assert(before.nameLeft < before.pillLeft, `the hidden name is not parked left of the pill (name at ${before.nameLeft}, pill at ${before.pillLeft})`);
+    assertEqual(before.overflow, "hidden", "the pill does not clip its track — the second label would be sitting in the open");
+
+    await page.click('.home-chip[data-entity="webinar-booster"]');
+    // MID-SLIDE, at about a third of the duration: the name has left its parking position and
+    // has not arrived. A reveal that were a swap would show nothing here.
+    await page.waitForTimeout(80);
+    const mid = await page.evaluate(() => {
+      const c = document.querySelector('.home-chip[data-entity="webinar-booster"]');
+      return {
+        pill: Math.round(c.getBoundingClientRect().width),
+        nameLeft: Math.round(c.querySelector(".home-chip-name").getBoundingClientRect().left),
+        pillLeft: Math.round(c.getBoundingClientRect().left),
+      };
+    });
+
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => {
+      const c = document.querySelector('.home-chip[data-entity="webinar-booster"]');
+      const nm = c.querySelector(".home-chip-name");
+      const num = c.querySelector(".home-chip-rest");
+      return {
+        pill: Math.round(c.getBoundingClientRect().width),
+        nameLeft: Math.round(nm.getBoundingClientRect().left),
+        nameRight: Math.round(nm.getBoundingClientRect().right),
+        pillLeft: Math.round(c.getBoundingClientRect().left),
+        pillRight: Math.round(c.getBoundingClientRect().right),
+        numLeft: Math.round(num.getBoundingClientRect().left),
+        rowH: Math.round(document.getElementById("home-entities").getBoundingClientRect().height),
+        rowRows: new Set(Array.from(document.querySelectorAll(".home-chip")).map((x) => Math.round(x.getBoundingClientRect().top))).size,
+        rowW: Math.round(document.getElementById("home-entities").getBoundingClientRect().width),
+        others: Array.from(document.querySelectorAll('.home-chip:not([data-entity="webinar-booster"])')).map((x) => x.querySelector(".home-chip-rest").textContent),
+        pressedNames: Array.from(document.querySelectorAll('.home-chip[aria-pressed="true"] .home-chip-name')).map((x) => x.textContent),
+      };
+    });
+
+    // THE DIRECTION, from the geometry: the name's left edge moved RIGHT, monotonically, from
+    // outside the pill to inside it.
+    assert(mid.nameLeft > before.nameLeft, `the name did not move right during the slide (${before.nameLeft} -> ${mid.nameLeft})`);
+    assert(after.nameLeft > mid.nameLeft, `the name did not keep moving right (${mid.nameLeft} -> ${after.nameLeft})`);
+    assert(mid.pill > before.pill && after.pill > mid.pill, `the pill did not grow with it (${before.pill} -> ${mid.pill} -> ${after.pill})`);
+    // ...and it ENDED inside the pill, with the number pushed out past the right edge.
+    assert(after.nameLeft >= after.pillLeft && after.nameRight <= after.pillRight + 1, "the revealed name is not inside its pill");
+    assert(after.numLeft >= after.pillRight - 1, "the number is still inside the pill it was replaced on");
+    // ONE name out, and it is the selected one — the whole of the placeholder rule.
+    assertEqual(after.pressedNames, ["Webinar Booster"], "more or fewer than one company's name is out");
+    assertEqual(after.others, ["All", "1", "2", "3", "4", "5"], "the other buttons did not stay on their numbers");
+    // AND THE COMPOSITION DID NOT MOVE. His longest name is the worst case for this.
+    assertEqual(after.rowH, before.rowH, "the row got taller when a name came out — the whole composition sits on that height");
+    assertEqual(after.rowRows, 1, "the row wrapped when a name came out");
+    assert(after.rowW <= 500, `the row went past its cap at ${after.rowW}px`);
+
+    await page.click('.home-chip[data-entity=""]');
+    await page.waitForTimeout(400);
+    const back = await page.evaluate(READ_ROW);
+    assertEqual(back.rest, ["All", "1", "2", "3", "4", "5", "6"], "the name did not collapse back to its number");
+
+    return (
+      `at rest the name is parked at x=${before.nameLeft}, ${before.pillLeft - before.nameLeft}px left of a ${before.pill}px pill\n          ` +
+      `on click it travels right, ${before.nameLeft} -> ${mid.nameLeft} -> ${after.nameLeft}, while the pill grows ${before.pill} -> ${mid.pill} -> ${after.pill}px over ${before.slide}\n          ` +
+      `one name out (the selected one), the other six on their numbers, row still 1 line at ${after.rowH}px and ${after.rowW}px wide`
+    );
+  });
+
+  await run.check("clearing a label puts the NUMBER back — a customer's own label is the exception, not the default", async () => {
     await page.evaluate(async () => {
-      const ids = ["femcboost", "deeply", "prospects", "richos", "gpt-exporter", "webinar-booster"];
-      for (const id of ids) await window.RichBridge.invoke("set_home_entity_label", { entityId: id, label: null });
+      await window.RichBridge.invoke("set_home_entity_label", { entityId: "webinar-booster", label: "WB" });
       await window.RichHome.reloadEntities();
     });
-    const labels = await page.evaluate(() => Array.from(document.querySelectorAll(".home-chip")).map((c) => c.textContent));
-    assertEqual(labels, ["All companies"].concat(REGISTRY.map((e) => e[1])), "clearing the overrides did not restore the registry's names");
-    return "cleared six overrides; every button reads its registry name again";
+    const typed = await page.evaluate(READ_ROW);
+    assertEqual(typed.rest, ["All", "1", "2", "3", "4", "5", "WB"], "a customer's own label did not replace the number on its button");
+    assertEqual(typed.names[6], "Webinar Booster", "the company's real name stopped being what the button reveals");
+    await page.evaluate(async () => {
+      await window.RichBridge.invoke("set_home_entity_label", { entityId: "webinar-booster", label: null });
+      await window.RichHome.reloadEntities();
+    });
+    const cleared = await page.evaluate(READ_ROW);
+    assertEqual(cleared.rest, ["All", "1", "2", "3", "4", "5", "6"], "clearing the override did not put the number back");
+    return `typed "WB" -> All 1 2 3 4 5 WB, still revealing "Webinar Booster"; cleared -> All 1 2 3 4 5 6`;
   });
 
   await run.check("with one company shown the row is ABSENT, and the composition is the round's", async () => {
@@ -595,9 +727,22 @@ async function main() {
       }
       await window.RichHome.reloadEntities();
     });
-    const back = await page.evaluate(() => document.querySelectorAll(".home-chip").length);
-    assertEqual(back, 7, "un-hiding did not bring the row back");
-    return `1 company shown -> row absent, inset 0px, mark back at y=30; 6 shown -> 7 buttons again`;
+    const back = await page.evaluate(READ_ROW);
+    assertEqual(back.rest.length, 7, "un-hiding did not bring the row back");
+    // AND THE NUMBERING FOLLOWS WHAT IS SHOWN, not the registry. Hide the middle two and the
+    // rest close up rather than leaving gaps where they were.
+    await page.evaluate(async () => {
+      for (const id of ["prospects", "richos"]) await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: false });
+      await window.RichHome.reloadEntities();
+    });
+    const gapped = await page.evaluate(READ_ROW);
+    assertEqual(gapped.rest, ["All", "1", "2", "3", "4"], "the numbering left holes where the hidden companies were");
+    assertEqual(gapped.names.slice(1), ["FemcBoost", "Deeply", "GPT Exporter", "Webinar Booster"], "the row is not the shown companies in registry order");
+    await page.evaluate(async () => {
+      for (const id of ["prospects", "richos"]) await window.RichBridge.invoke("set_home_entity_visible", { entityId: id, visible: true });
+      await window.RichHome.reloadEntities();
+    });
+    return `1 company shown -> row absent, inset 0px, mark back at y=30; 6 shown -> All 1..6 again; 4 shown -> All 1 2 3 4 with no holes`;
   });
 
   // -------------------------------------------------------------------------------------
@@ -771,18 +916,24 @@ async function main() {
       { name: "workforce name", sel: "#home-live li", needs: 4.5 },
       // Stepped out past its own 7px glow, or the indicator would be measured against itself.
       { name: "the live dot", sel: "#home-live li .dot", needs: 3, kind: "paint", ringGap: 9, ringWidth: 4 },
-      { name: "chip, unselected", sel: '.home-chip[data-entity="femcboost"]', needs: 4.5 },
-      { name: "chip, unselected edge", sel: '.home-chip[data-entity="femcboost"]', needs: 3, kind: "edge" },
-      { name: "chip, selected", sel: '.home-chip[data-entity=""]', needs: 4.5 },
+      // The label is in a span now — a chip carries two of them and the button itself has no
+      // text node, so measuring the button would measure its box and not its glyphs.
+      { name: "a numbered button", sel: '.home-chip[data-entity="femcboost"] .home-chip-rest', needs: 4.5 },
+      { name: "a numbered button's edge", sel: '.home-chip[data-entity="femcboost"]', needs: 3, kind: "edge" },
+      { name: '"All", selected', sel: '.home-chip[data-entity=""] .home-chip-rest', needs: 4.5 },
       // The selected chip's indicator is its FILL — its border is struck in the same tone, so
       // an `edge` measurement would be the fill against itself. What it owes 3:1 to is what
       // surrounds it.
       { name: "chip, selected fill", sel: '.home-chip[data-entity=""]', needs: 3, kind: "paint" },
-      { name: "the switch", sel: "#home-enter", needs: 4.5 },
-      // Drawn, not typed: the ink is the span's `color`, which the SVG strokes as
-      // `currentColor`, and the region is the button's own fill behind it.
-      { name: "the switch arrow", sel: "#home-enter .home-enter-arrow", needs: 3, kind: "fill" },
-      { name: "the switch edge", sel: "#home-enter", needs: 3, kind: "edge" },
+      { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
+      // `padX` steps the inward half of this measurement past the breathing dot — see
+      // `interior()`. Without it the door's border is measured against the dot, which is a
+      // different indicator with its own floor, on the line below.
+      { name: "the door's edge", sel: "#home-enter", needs: 3, kind: "edge", padX: 24 },
+      // The breathing dot at the DIMMEST point of its cycle, which is what `opacity` reports
+      // while the animation is held at zero by the meter's own transition-killing sheet.
+      { name: "the door's dot", sel: "#home-enter .dot", needs: 3, kind: "paint", ringGap: 3, ringWidth: 3 },
+      { name: '"Enter" under the door', sel: "#home-door-cap", needs: 4.5 },
       // The first-run banner. `needs: 4.5` — it is normal text meant to be read, and no
       // exemption is claimed for it. Its plate has NO border, so there is no `edge` target
       // here; the plate's own boundary is measured and reported in the check below.
@@ -791,6 +942,50 @@ async function main() {
     const bad = failures(rows);
     assertEqual(bad.length, 0, "these are under the floor:\n" + reportRatios(bad));
     return reportRatios(rows) + `\n          worst on the screen: ${Math.min.apply(null, rows.map((r) => r.ratio))}:1`;
+  });
+
+  await run.check("CONTRAST, BOTH THEMES: the three new things, with the CEO's own choice set to light", async () => {
+    // "BOTH THEMES" ON THIS SURFACE IS A CLAIM THAT NEEDS PROVING RATHER THAN ASSUMING, and
+    // the honest answer is not "it was checked twice" — it is that there is only one lighting
+    // here BY RULING. §15's one permanent exception: *"Because of its nature the start screen
+    // will always need to be in dark mode."* The clamp is a FORCE flag over the CEO's own
+    // preference, not a write to it, so the case that matters is a CEO who has CHOSEN light.
+    //
+    // So this drives that case and MEASURES the result, rather than asserting the attribute and
+    // stopping. If the clamp ever leaked, these numbers would move and this check would say so
+    // in the same breath as the ones above.
+    const targets = [
+      { name: "the first-run banner", sel: "#home-note-line", needs: 4.5 },
+      { name: "the door's label", sel: "#home-enter .home-enter-label", needs: 4.5 },
+      { name: "the door's edge", sel: "#home-enter", needs: 3, kind: "edge", padX: 24 },
+      { name: '"Enter" under the door', sel: "#home-door-cap", needs: 4.5 },
+      { name: "a numbered button", sel: '.home-chip[data-entity="femcboost"] .home-chip-rest', needs: 4.5 },
+      { name: "a numbered button's edge", sel: '.home-chip[data-entity="femcboost"]', needs: 3, kind: "edge" },
+    ];
+    const seen = {};
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((t) => window.RichTheme.setTheme(t), theme);
+      await page.waitForTimeout(400);
+      const state = await page.evaluate(() => ({
+        pref: window.RichTheme.theme(),
+        rendered: document.documentElement.getAttribute("data-theme"),
+        forced: window.RichTheme.forcedDark(),
+      }));
+      assertEqual(state.pref, theme, "the CEO's own preference was not set to " + theme);
+      assertEqual(state.rendered, "dark", "§15's clamp let " + theme + " mode reach the home screen");
+      assert(state.forced, "the always-dark clamp is not raised while the preference is " + theme);
+      const rows = await measure(page, targets);
+      const bad = failures(rows);
+      assertEqual(bad.length, 0, "under the floor with the preference set to " + theme + ":\n" + reportRatios(bad));
+      seen[theme] = rows.map((r) => r.name + " " + r.ratio + ":1");
+    }
+    await page.evaluate(() => window.RichTheme.setTheme("dark"));
+    // The two runs must agree, because there is one lighting. A drift here IS the leak.
+    assertEqual(seen.light, seen.dark, "the same elements measured differently under the two preferences — the clamp is leaking");
+    return (
+      "preference dark and preference light both render dark, and measure identically:\n          " +
+      seen.dark.join("\n          ")
+    );
   });
 
   await run.check("TYPE SCALE §15: nothing readable on the home screen is below 14px", async () => {
@@ -815,9 +1010,13 @@ async function main() {
     const under = r.filter((x) => x.px < 14);
     assertEqual(under.length, 0, "below the floor: " + JSON.stringify(under));
     const sizes = Array.from(new Set(r.map((x) => x.px))).sort((a, b) => a - b);
-    const chip = r.find((x) => x.text === "FemcBoost");
-    assertEqual(chip && chip.px, 16, "the company buttons are not at §15's 16px reading floor");
-    return `${r.length} rendered strings, sizes ${sizes.join("/")}px, smallest ${sizes[0]}px; the company buttons are 16px`;
+    // A numeral a CEO is meant to aim at is not fine print — the discs take §15's 16px reading
+    // floor, exactly as the names they hide do.
+    const disc = r.find((x) => x.text === "1");
+    const name = r.find((x) => x.text === "FemcBoost");
+    assertEqual(disc && disc.px, 16, "the numbered buttons are not at §15's 16px reading floor");
+    assertEqual(name && name.px, 16, "the names behind them are not at 16px either");
+    return `${r.length} rendered strings, sizes ${sizes.join("/")}px, smallest ${sizes[0]}px; the company buttons are 16px, numbered and named alike`;
   });
 
   await run.check("§22: no system font is named, and every string resolves to a vendored face", async () => {
@@ -833,10 +1032,16 @@ async function main() {
       walk(document.getElementById("home"));
       return { faces, stacks: Array.from(stacks) };
     });
-    // The only families this surface may name are the two vendored ones; everything after
-    // them must be a GENERIC keyword, never a platform face.
-    const allowed = /^("Newsreader"|"Inter"|Newsreader|Inter)(,\s*(serif|sans-serif|monospace|system-ui))?$/;
-    const bad = r.stacks.filter((s) => !allowed.test(s.trim()));
+    // The only families this surface may name are the vendored ones; a stack may list more
+    // than one of them — `#home-live .ticker` names Newsreader and then Inter, because the
+    // engine writes a `\u2192` into it that Newsreader does not carry — and whatever comes
+    // last must be a GENERIC keyword, never a platform face. Split and check every entry
+    // rather than pattern-matching the whole stack: a regex over the join was already wrong
+    // for two families and would be wrong again for three.
+    const VENDORED = new Set(["Newsreader", "Inter", "RichOS Symbols"]);
+    const GENERIC = new Set(["serif", "sans-serif", "monospace", "system-ui"]);
+    const named = (stack) => stack.split(",").map((f) => f.trim().replace(/^["']|["']$/g, ""));
+    const bad = r.stacks.filter((s) => named(s).some((f) => !VENDORED.has(f) && !GENERIC.has(f)));
     assertEqual(bad, [], "these stacks name something that is not a vendored face or a generic keyword");
     const loaded = r.faces.filter((f) => f.endsWith("=loaded"));
     assert(loaded.length >= 2, "the vendored faces did not load: " + JSON.stringify(r.faces));
@@ -874,27 +1079,47 @@ async function main() {
         c.font = '16px ' + family;
         return c.measureText(ch).width;
       };
+      const GENERIC = new Set(["serif", "sans-serif", "monospace", "system-ui", "cursive", "fantasy"]);
+      const fallbackWidth = Math.round(probe('"__a_face_that_does_not_exist__"', "x") * 100) / 100;
       const out = [];
       for (const [ch, stack] of found) {
-        // The FIRST family in the stack is the one that is meant to draw it; everything after
-        // it is the fallback this check exists to catch.
-        const first = stack.split(",")[0].trim();
+        // EVERY NAMED FAMILY AHEAD OF THE FIRST GENERIC KEYWORD gets asked, not just the first
+        // one. That is what the cascade really does: the browser walks the stack and stops at
+        // the first family that has the character, and only reaches the generic — the machine's
+        // own font, which is what this check exists to catch — if none of them did.
+        //
+        // It used to ask the first family alone, which was right while every stack on this
+        // screen named exactly one. `#home-live .ticker` now names two, because the engine
+        // writes an arrow into it that Newsreader does not carry and Inter does, so the old
+        // form reported a pass as a failure.
+        const families = [];
+        for (const raw of stack.split(",")) {
+          const f = raw.trim().replace(/^["']|["']$/g, "");
+          if (GENERIC.has(f)) break;
+          families.push(f);
+        }
+        const asked = families.map((f) => {
+          const w = Math.round(probe('"' + f + '"', ch) * 100) / 100;
+          return { f, declared: document.fonts.check('16px "' + f + '"', ch), w, has: w !== Math.round(probe('"__a_face_that_does_not_exist__"', ch) * 100) / 100 };
+        });
+        const drawn = asked.find((a) => a.declared && a.has);
         out.push({
           ch,
           code: "U+" + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0"),
-          family: first,
-          declared: document.fonts.check('16px ' + first, ch),
-          width: Math.round(probe('"' + first.replace(/^"|"$/g, "") + '"', ch) * 100) / 100,
+          family: drawn ? drawn.f : families.join(" -> "),
+          declared: !!drawn,
+          width: drawn ? drawn.w : 0,
           fallbackWidth: Math.round(probe('"__a_face_that_does_not_exist__"', ch) * 100) / 100,
+          covered: !!drawn,
         });
       }
       return out;
     });
-    const uncovered = r.filter((g) => !g.declared || g.width === g.fallbackWidth);
+    const uncovered = r.filter((g) => !g.covered);
     assertEqual(
       uncovered.map((g) => g.code + " " + g.ch + " in " + g.family),
       [],
-      "these characters are NOT in the face they are set in, so a system font is drawing them"
+      "these characters are in NONE of the vendored faces they are set in, so a system font is drawing them"
     );
     assert(r.length > 0, "POSITIVE CONTROL: no non-ASCII character was found at all, so this check proved nothing");
     return r.map((g) => `${g.code} ${g.ch} in ${g.family} (${g.width}px vs ${g.fallbackWidth}px fallback)`).join(", ");
@@ -982,6 +1207,127 @@ async function main() {
     return "Enter on the switch leaves; Enter on the focused wordmark returns";
   });
 
+  await run.check("THE DOOR is round-11.2/v1's sill, in the LEFT COLUMN, off the picture", async () => {
+    // CEO, 2026-09-02: *"All of the doors are shit because they are covering the spectacle of
+    // the home screen. NOTHING can cover the spectacle of the home screen. Put V1 button from
+    // round-11.2 under 'your attention saved' in the left column and change the button label to
+    // 'Talk to Rich'."*
+    const r = await page.evaluate(() => {
+      const box = document.getElementById("home-switch");
+      const b = document.getElementById("home-enter");
+      const cap = document.getElementById("home-door-cap");
+      const sig = document.getElementById("home-signals");
+      const brand = document.getElementById("home-brand");
+      const last = sig.querySelector(".sig:last-child .l");
+      const R = (e) => {
+        const x = e.getBoundingClientRect();
+        return { l: Math.round(x.left), t: Math.round(x.top), r: Math.round(x.right), b: Math.round(x.bottom), w: Math.round(x.width), h: Math.round(x.height) };
+      };
+      const bs = getComputedStyle(b);
+      const cs = getComputedStyle(cap);
+      return {
+        box: R(box),
+        sill: R(b),
+        cap: R(cap),
+        sig: R(sig),
+        brand: R(brand),
+        lastSignal: last ? last.textContent.trim() : null,
+        lastSignalRect: last ? R(last) : null,
+        label: b.querySelector(".home-enter-label").textContent,
+        capText: cap.textContent,
+        arrow: !!b.querySelector("svg, .home-enter-arrow"),
+        h: bs.height,
+        radius: bs.borderTopLeftRadius,
+        px: Math.round(parseFloat(bs.fontSize)),
+        color: bs.color,
+        capPx: Math.round(parseFloat(cs.fontSize)),
+        capColor: cs.color,
+        gap: getComputedStyle(box).rowGap,
+        keys: b.getAttribute("aria-keyshortcuts"),
+        vw: innerWidth,
+        vh: innerHeight,
+      };
+    });
+
+    assertEqual(r.label, "Talk to Rich", "the door does not carry his label");
+    assert(!r.arrow, "the arrow is still there — his ruling names the label and nothing else");
+    assertEqual(r.capText, "Enter", "the word under the button is not `Enter`");
+    // round-11.2/v1's `.sill` and `#door .cap`, carried.
+    assertEqual(r.h, "52px", "the capsule is not the sill's 52px");
+    assertEqual(r.radius, "26px", "the capsule is not the sill's 26px radius");
+    assertEqual(r.px, 17, "the label is not the sill's 17px");
+    assertEqual(r.color, "rgb(234, 238, 246)", "the label is not the sill's #EAEEF6");
+    assertEqual(r.capPx, 14, "the caption is not the mockup's 14px");
+    assertEqual(r.capColor, "rgb(166, 179, 203)", "the caption is not the mockup's #A6B3CB");
+    assertEqual(r.gap, "15px", "the block's gap is not the mockup's 15px");
+    assertEqual(r.keys, "Enter", "the caption's claim is not in the accessibility tree");
+
+    // THE LEFT COLUMN, under the last signal. Not centered, not at the foot of the screen.
+    assertEqual(r.lastSignal, "of your attention saved", "the last signal is not the line he named");
+    assert(r.sill.l === r.sig.l && r.sill.l === r.brand.l, `the sill is not on the left column's line (sill ${r.sill.l}, signals ${r.sig.l}, mark ${r.brand.l})`);
+    assert(r.sill.t > r.lastSignalRect.b, `the sill is not under "of your attention saved" (sill top ${r.sill.t}, that line ends at ${r.lastSignalRect.b})`);
+    const mid = r.box.l + r.box.w / 2;
+    assert(mid < r.vw * 0.25, `the door is still near the middle of the window (its midpoint is at ${Math.round(mid)} of ${r.vw})`);
+    assert(r.box.b < r.vh - 60, "the door is at the foot of the screen rather than in the column");
+
+    // NOTHING CAN COVER THE SPECTACLE. The measurable form of that: the whole block stays
+    // inside the width the left column already occupies, so it takes no picture the
+    // composition was not already taking.
+    const columnRight = Math.max(r.sig.r, r.brand.r);
+    assert(r.box.r <= columnRight, `the door reaches ${r.box.r - columnRight}px further into the picture than the column it sits in`);
+
+    // ...and the provisional pill at the foot of the screen is gone rather than hidden.
+    const stale = await page.evaluate(() => document.querySelectorAll("#home-switch").length);
+    assertEqual(stale, 1, "there is more than one door on the screen");
+
+    return (
+      `"${r.label}" in a ${r.sill.w}x${r.sill.h} capsule at radius ${r.radius}, ${r.px}px ${r.color}, with "${r.capText}" ${r.capPx}px ${r.capColor} ${r.gap} under it\n          ` +
+      `left column: mark at x=${r.brand.l}, signals at x=${r.sig.l}, sill at x=${r.sill.l}; "of your attention saved" ends at y=${r.lastSignalRect.b}, the sill starts at y=${r.sill.t}\n          ` +
+      `the block ends at x=${r.box.r}, inside the column's own ${columnRight}; its midpoint is at x=${Math.round(mid)} of a ${r.vw}px window`
+    );
+  });
+
+  await run.check('the word "Enter" is a promise the key keeps, from anywhere on the screen', async () => {
+    // The caption is not decoration: *"So, the user can either click the button or hit the
+    // Enter key on their keyboard."* The button already answered Enter WHEN IT HAD FOCUS, which
+    // is not what the caption says.
+    assert(await page.evaluate(() => window.RichHome.isOpen()), "the home screen is not up to start with");
+    // Focus deliberately NOT on the door — the case the older arrangement did not cover.
+    await page.evaluate(() => {
+      const b = document.getElementById("home-enter");
+      if (b && b.blur) b.blur();
+      document.body.focus && document.body.focus();
+    });
+    const focused = await page.evaluate(() => (document.activeElement && document.activeElement.id) || document.activeElement.tagName);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.getElementById("home").hidden, { timeout: 4000 });
+    const why = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+    assertEqual(why, "enter-key", "the home screen left for some other reason than the key");
+
+    // AND IT DOES NOT FIRE WHERE ENTER ALREADY MEANS SOMETHING. Back home, open the panel, and
+    // press Enter inside it: the screen must stay.
+    await page.evaluate(() => window.RichHome.show("suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.evaluate(() => window.RichHome.openSettings());
+    await page.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
+    await page.focus('.home-prefs-label[data-entity="femcboost"]');
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(150);
+    const stillHome = await page.evaluate(() => window.RichHome.isOpen());
+    await page.evaluate(() => window.RichHome.closeSettings());
+    assert(stillHome, "Enter inside the company-buttons panel walked out of the home screen");
+
+    // ...and it still works from the door itself, which is where focus lands on arrival.
+    await page.evaluate(() => document.getElementById("home-enter").focus());
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.getElementById("home").hidden, { timeout: 4000 });
+    const why2 = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+    await page.evaluate(() => window.RichHome.show("suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+
+    return `Enter with focus on <${focused}> leaves ("${why}"); Enter inside the settings panel does not; Enter on the door itself leaves ("${why2}")`;
+  });
+
   // -------------------------------------------------------------------------------------
   // The settings panel — both themes
   // -------------------------------------------------------------------------------------
@@ -1008,7 +1354,10 @@ async function main() {
       assertEqual(shape.theme, theme, "the panel is not rendering in the theme under test");
       assertEqual(shape.rows, 6, "the panel does not list every company — a hidden one could never come back");
       assertEqual(shape.names, REGISTRY.map((e) => e[1]), "the panel is not listing the registry");
-      assertEqual(shape.placeholders, REGISTRY.map((e) => e[1]), "an empty field does not show the real name as its hint");
+      // THE PLACEHOLDER IS THE NUMBER NOW, because an empty field means the button shows its
+      // number. It said the company's name until 2026-09-02, and that would be the panel
+      // describing a default the product no longer has.
+      assertEqual(shape.placeholders, ["1", "2", "3", "4", "5", "6"], "an empty field does not show the number the button will carry");
       assertEqual(shape.values, ["", "", "", "", "", ""], "a field is pre-filled — clearing it would then be indistinguishable from leaving it");
       // An `<input>` has no text node, so its ink is measured over its own interior — that is
       // the surface a typed label sits on, and it is the region a value would occupy.
@@ -1037,17 +1386,21 @@ async function main() {
     await page.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
     await page.fill('.home-prefs-label[data-entity="webinar-booster"]', "WB");
     await page.evaluate(() => document.querySelector('.home-prefs-label[data-entity="webinar-booster"]').blur());
-    await page.waitForFunction(() => Array.from(document.querySelectorAll(".home-chip")).some((c) => c.textContent === "WB"));
+    await page.waitForFunction(() => Array.from(document.querySelectorAll(".home-chip-rest")).some((c) => c.textContent === "WB"));
     await page.uncheck('.home-prefs-show input[data-entity="gpt-exporter"]');
-    await page.waitForFunction(() => !Array.from(document.querySelectorAll(".home-chip")).some((c) => c.textContent === "GPT Exporter"));
+    await page.waitForFunction(() => !Array.from(document.querySelectorAll(".home-chip-name")).some((c) => c.textContent === "GPT Exporter"));
     const r = await page.evaluate(() => ({
-      labels: Array.from(document.querySelectorAll(".home-chip")).map((c) => c.textContent),
+      labels: Array.from(document.querySelectorAll(".home-chip-rest")).map((c) => c.textContent),
+      names: Array.from(document.querySelectorAll(".home-chip-name")).map((c) => c.textContent),
       foot: document.getElementById("home-prefs-foot").textContent,
       // the panel still lists the hidden one, or he could never bring it back
       panelRows: document.querySelectorAll(".home-prefs-row").length,
     }));
     assert(r.labels.includes("WB"), "the typed label did not reach the home screen");
-    assert(!r.labels.includes("GPT Exporter"), "the hidden company is still on the home screen");
+    assert(!r.names.includes("GPT Exporter"), "the hidden company is still on the home screen");
+    // With one company off the row the numbering closes up: five shown, numbered 1-5, and the
+    // one carrying a label of its own keeps it.
+    assertEqual(r.labels, ["All", "1", "2", "3", "4", "WB"], "the numbering did not follow what is shown: " + JSON.stringify(r.labels));
     assertEqual(r.panelRows, 6, "the hidden company vanished from the panel too");
     assert(/5 of 6/.test(r.foot), "the count line does not say what is showing: " + r.foot);
     // put it back
