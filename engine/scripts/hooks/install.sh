@@ -270,6 +270,12 @@ REGISTERED_EOF
 # from — each is here for a reason stated at its own line.
 HOOK_FILES+=(
     "$REPO_ROOT/scripts/reap-stale-worktrees.sh"
+    # The model-tier parser. guard-worktree-isolation.sh sources it to decide
+    # clause 6 (is this explicit model: override a move DOWN the declared
+    # capability order?), and a trimmed or inverted copy would leave the guard
+    # wired, hashed, executable and deciding the wrong direction — which is the
+    # exact defect the clause exists to end. Layer MT compares this sidecar.
+    "$REPO_ROOT/scripts/lib/model-tiers.sh"
     # Not a hook either, and hashed for the same reason as the reaper: it is the
     # OTHER piece of engine code that DELETES worktrees, and it is the escape
     # route guard-worktree-removal.sh points every blocked operator at. The two

@@ -179,6 +179,41 @@
 #   exactly as before. Both properties hold independently, and the suite proves
 #   each without the other.
 #
+# CLAUSE 6 — A MOVE TO A LOWER CAPABILITY TIER IS STATED, NEVER SILENT (2026-09-02).
+#   The doctrine said "don't downgrade" for weeks and never said which way down
+#   was. On 2026-09-02 the orchestrator decided, out of nothing, that a spawn
+#   of a Sonnet-default teammate on Fable was a downgrade, killed the correctly
+#   configured teammate, told the CEO he was fixing an error that did not
+#   exist, and commissioned a guard whose fixtures would have refused that
+#   correct shape forever. It is an upgrade. A guard built on an invented
+#   ordering does not stop the error; it makes it permanent and gives it
+#   authority. So the ordering is DATA, and this clause reads nothing else:
+#     6a. orchestration.config MODEL_TIERS declares the order ("fable opus >
+#         sonnet > haiku": `>` separates tiers, leftmost is most capable,
+#         aliases inside one tier are EQUAL). scripts/lib/model-tiers.sh is
+#         the only parser. No consumer infers capability from an alias name.
+#     6b. The clause fires ONLY when the spawn carries an explicit `model:`
+#         override that is not "inherit" AND the definition's own model:
+#         frontmatter default resolves. It compares the two RANKS.
+#           lower tier than the default  -> REFUSED unless the prompt carries
+#                                           a live  model-downgrade-ack: <reason>
+#                                           line (a bare marker exempts
+#                                           nothing); accepted uses are logged
+#                                           to .claude/state/model-downgrade-acks.log
+#           same or higher tier          -> SILENT, always. Upgrades were
+#                                           never the defect.
+#     6c. FAIL OPEN on its own error. A missing library, a blank or malformed
+#         MODEL_TIERS, or an alias the declaration does not rank all SKIP the
+#         clause for that spawn, with a notice on stderr and a systemMessage
+#         naming what is broken — never a refusal. A crashing guard that
+#         blocks every spawn is worse than the defect it was built for.
+#     6d. The refusal names the teammate, the definition default, the
+#         requested model, both ranks, the declaration, and the exact line to
+#         add.
+#   Clauses 1-5 are NOT relaxed by an accepted ack, and clause 6 never touches
+#   a spawn with no override or with model:"inherit" (the boot model is then
+#   the definition's own default, which is by definition not a downgrade).
+#
 # ALLOWED (exit 0):
 #   - any non-Agent tool (passthrough)
 #   - spawns of READ-ONLY agent types (they never write repo files) — the
@@ -664,6 +699,77 @@ else
     # know the boot model, so we accept the (already-valid) alias token rather
     # than fail the spawn on unknowable information.
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# CLAUSE 6 — a move to a LOWER capability tier is stated, never silent.
+# The order is DATA (orchestration.config MODEL_TIERS) read through
+# scripts/lib/model-tiers.sh. Nothing here infers capability from an alias.
+# See the header for the incident this exists to end.
+# ---------------------------------------------------------------------------
+_c6_announce_skip() {   # <reason> — fail-open notice: stderr + systemMessage
+  local _m="NOTICE: guard-worktree-isolation.sh clause 6 (model tier) SKIPPED for spawn '${NAME:-<unset>}' of '${SUBAGENT_TYPE:-<unset>}' — $1. The spawn is ALLOWED (fail-open), but the tier check protected nothing here. Fix the declaration: MODEL_TIERS in orchestration.config must be well-formed and rank every alias in ALLOWED_MODELS."
+  printf '%s\n' "$_m" >&2
+  SYSMSG="$_m" python3 -c '
+import json, os
+print(json.dumps({"systemMessage": os.environ.get("SYSMSG", "")}))
+' 2>/dev/null || true
+}
+
+C6_OVERRIDE_LC="$(printf '%s' "$MODEL_OVERRIDE" | tr '[:upper:]' '[:lower:]')"
+if [ -n "$MODEL_OVERRIDE" ] && [ "$C6_OVERRIDE_LC" != "inherit" ]; then
+  MODEL_TIERS_LIB="$SCRIPT_DIR/../lib/model-tiers.sh"
+  C6_SKIP=""
+  if [ -f "$MODEL_TIERS_LIB" ]; then
+    # shellcheck source=../lib/model-tiers.sh
+    . "$MODEL_TIERS_LIB"
+    C6_SPEC_PROBLEM="$(model_tiers_problem "${MODEL_TIERS:-}")"
+    [ -z "$C6_SPEC_PROBLEM" ] || C6_SKIP="MODEL_TIERS in orchestration.config is unusable (${C6_SPEC_PROBLEM})"
+  else
+    C6_SKIP="scripts/lib/model-tiers.sh is missing at ${MODEL_TIERS_LIB}"
+  fi
+  if [ -z "$C6_SKIP" ]; then
+    C6_DEFAULT="$(resolve_expected_model "" "$SUBAGENT_TYPE")"
+    C6_REQUESTED="$(resolve_expected_model "$MODEL_OVERRIDE" "$SUBAGENT_TYPE")"
+    # No resolvable definition default (host built-in, or a def with no model:
+    # line) means there is nothing to be lower THAN: the clause is inert, and
+    # that is not a skip worth announcing. UNRESOLVABLE is clause 2b's refusal
+    # and has already been added to PROBLEMS above.
+    if [ -n "$C6_DEFAULT" ] && [ "$C6_DEFAULT" != "UNRESOLVABLE" ] && [ -n "$C6_REQUESTED" ]; then
+      C6_RANK_DEFAULT="$(model_tier_rank "$C6_DEFAULT" "$MODEL_TIERS")"
+      C6_RANK_REQUESTED="$(model_tier_rank "$C6_REQUESTED" "$MODEL_TIERS")"
+      if [ -z "$C6_RANK_DEFAULT" ] || [ -z "$C6_RANK_REQUESTED" ]; then
+        C6_UNRANKED=""
+        [ -n "$C6_RANK_DEFAULT" ] || C6_UNRANKED="'${C6_DEFAULT}'"
+        [ -n "$C6_RANK_REQUESTED" ] || C6_UNRANKED="${C6_UNRANKED:+$C6_UNRANKED and }'${C6_REQUESTED}'"
+        C6_SKIP="MODEL_TIERS=\"${MODEL_TIERS}\" ranks no alias named ${C6_UNRANKED}"
+      elif [ "$C6_RANK_REQUESTED" -gt "$C6_RANK_DEFAULT" ]; then
+        # LOWER tier than the definition's default. Stated, or refused.
+        C6_ACK=""
+        if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*model-downgrade-ack:[[:space:]]*[^[:space:]]'; then
+          C6_ACK="$(printf '%s' "$PROMPT" | grep -E '^[[:space:]]*model-downgrade-ack:[[:space:]]*[^[:space:]]' | head -1 | sed -E 's/^[[:space:]]*//')"
+        fi
+        if [ -n "$C6_ACK" ]; then
+          # Accepted. Best-effort log — never fail the spawn because logging
+          # failed; the line in the prompt is itself the audit trail.
+          C6_LOG_DIR="$ENTITY_ROOT/.claude/state"
+          mkdir -p "$C6_LOG_DIR" 2>/dev/null || true
+          printf '%s\tagent=%s\tname=%s\tdefault=%s\trequested=%s\t%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${SUBAGENT_TYPE:-<unset>}" \
+            "${NAME:-<unset>}" \
+            "$C6_DEFAULT" \
+            "$C6_REQUESTED" \
+            "$C6_ACK" \
+            >>"$C6_LOG_DIR/model-downgrade-acks.log" 2>/dev/null || true
+        else
+          PROBLEMS+=("model tier — spawn '${NAME:-<unset>}' of '${SUBAGENT_TYPE}' requests model '${C6_REQUESTED}' (tier ${C6_RANK_REQUESTED}), but the '${SUBAGENT_TYPE}' definition defaults to '${C6_DEFAULT}' (tier ${C6_RANK_DEFAULT}). That is a LOWER capability tier under the declared order MODEL_TIERS=\"${MODEL_TIERS}\" (orchestration.config; tier 1 is the most capable, aliases inside one tier are equal, and nothing infers this order from a name). A move DOWN a tier must state its reason. Fix: add ONE live prompt line  model-downgrade-ack: <why this task needs less than the definition's default>  — a bare marker exempts nothing; accepted uses are logged to .claude/state/model-downgrade-acks.log. Equal or higher tier never needs it.")
+        fi
+      fi
+      # Same or higher tier: silent, by design. Upgrades were never the defect.
+    fi
+  fi
+  [ -z "$C6_SKIP" ] || _c6_announce_skip "$C6_SKIP"
 fi
 
 if [ "${#PROBLEMS[@]}" -gt 0 ]; then
