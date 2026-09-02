@@ -90,6 +90,10 @@ make_sandbox() {
 PROTECTED_PATHS="src"
 READONLY_ALLOWLIST="Explore Plan"
 ALLOWED_MODELS="opus sonnet haiku"
+# Declared, and DIFFERENT from the engine's (no fable), for the same reason
+# ALLOWED_MODELS is: Layer MT reads the ENTITY's declaration, and a layer that
+# read the engine's would be visible here rather than plausible.
+MODEL_TIERS="opus > sonnet > haiku"
 READER_TEAMMATE="reed"
 CREATOR_TEAMMATE="dean"
 CFG
