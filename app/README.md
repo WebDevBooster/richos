@@ -116,6 +116,18 @@ app/
                               the proactive-attention seam + stop settlement at the boundary
                               + the correction trigger at submit_prompt step 1b (every CEO
                               utterance, voice or typed, with no command typed)
+    src/setup.rs             FIRST-RUN SETUP — OPTION D. The two executables a customer's Mac
+                              does not have, detected, fetched and verified: Claude Code by
+                              driving ANTHROPIC'S OWN installer (never redistributing their
+                              binary, never re-signing it), and the engine directory as a
+                              pinned release asset. §19's launch blocker in its own words —
+                              "today RichOS runs on his Mac and would not run on anyone
+                              else's" — and this is the half that closes it. Digest before
+                              extraction; the RESOLVER'S OWN shape predicate after it; an
+                              atomic swap that keeps the old engine until the new one lands;
+                              and an unset pin that REFUSES rather than fetching whatever a
+                              URL returns. Proved end to end on a clean HOME in
+                              docs/verification/first-run-setup-2026-09-02/
     src/config.rs            durable CEO preferences: company_name, the assertiveness dial
     src/worker_status.rs     the optional AI-worker drill-down (reads the engine's event logs)
     src/feedback.rs          the in-app feedback channel, LOCAL HALF ONLY: the 1/2/3/0 rating
@@ -619,6 +631,18 @@ cargo run -p richos-voice --example device_probe       # what the audio hardware
 
 # 2. The desktop shell (from app/src-tauri/):
 cargo build                                     # -> target/debug/richos-tauri (Mach-O)
+
+# 2b. A SHIPPING build must carry the ENGINE PIN, or first-run setup refuses to install an
+#     engine (SetupError::EngineUnpinned) rather than fetching whatever the URL returns.
+#     `make-engine-asset.sh` builds the release asset deterministically, proves it is
+#     deterministic by building it twice, and prints the three values:
+app/scripts/make-engine-asset.sh --check
+source app/target/engine-asset/engine-pin.env   # RICHOS_ENGINE_{VERSION,URL,SHA256}
+#     Upload the asset to the public repository's Releases BEFORE shipping a build that
+#     carries the pin — a pin is a claim about bytes that must already be there, and a
+#     build that ships first gives every customer a 404 and a named DownloadFailed.
+#     `crates/richos-core/build.rs` declares rerun-if-env-changed for all three, so
+#     changing the pin is a rebuild and not a cache hit carrying the old digest.
 
 # 3. The LIVE round-trip. Needs Claude Code installed and signed in — and NOTHING else:
 #    no npm, no Node, no adapter. $RICHOS_CLAUDE_BIN overrides the binary; by default
