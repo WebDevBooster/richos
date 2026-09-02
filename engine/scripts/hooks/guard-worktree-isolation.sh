@@ -12,6 +12,8 @@
 # subagent_type NOT on the read-only allowlist, which is read from
 # orchestration.config: READONLY_ALLOWLIST):
 #   1. Native isolation:  isolation == "worktree" (or the isolated "remote")
+#      -- OR -- a `cwd` inside a REGISTERED cross-repository worktree (clause
+#      4, below)
 #      -- OR -- an explicit "main-checkout-run:" marker line in the prompt (the
 #      fallback escape hatch, see below).
 #   2. A unique, well-formed, TRUTHFUL name:  "<role>-<model>-<identifier>"
@@ -104,6 +106,32 @@
 #   point that inspects a whole in-flight tool-call batch. Narrow (distinct
 #   identifiers are cheap) and self-healing (the second collides normally on
 #   any subsequent attempt, once the first append has landed).
+#
+# CLAUSE 4 — CROSS-REPOSITORY WORK RUNS IN A WORKTREE RICHOS REGISTERED (2026-09-02).
+#   Native isolation roots at the SESSION's repository; the Agent tool's own
+#   escape hatch is `cwd`, "mutually exclusive with isolation: worktree". Until
+#   now a cross-repository teammate improvised its worktree from a sentence in
+#   its prompt ("git -C <repo> worktree add ..."), and nothing on disk said who
+#   owned it — so the moment its native worktree was landed, the improvised
+#   tree was permanently undecidable to the reaper. The rule is inverted:
+#     4a. A `cwd` spawn is ALLOWED without isolation ONLY when `cwd` is the top
+#         level of a LINKED git worktree AND that path is registered in the
+#         ownership ledger (scripts/lib/worktree-ledger.py — written by
+#         scripts/create-teammate-worktree.sh). Anything else -> BLOCKED,
+#         naming the helper.
+#     4b. `cwd` together with isolation:"worktree" -> BLOCKED (the harness
+#         refuses the pair; saying so here is cheaper than a failed spawn).
+#     4c. Every `cross-repo-worktree: <path>` line in the prompt (the shape
+#         that keeps native isolation in the session repo AND names the
+#         cross-repo tree) must be registered the same way -> else BLOCKED.
+#     4d. A prompt that INSTRUCTS the teammate to run `git worktree add` is
+#         BLOCKED: that is the improvisation this clause ends. The audited
+#         escape hatch is a `hand-roll-ack: <reason>` prompt line, logged to
+#         .claude/state/hand-roll-acks.log like main-checkout-run: is.
+#   Clauses 1-3 are NOT relaxed by any of this: the name contract holds, and a
+#   `cwd` spawn still needs a truthful <role>-<model>-<identifier> name. When
+#   the ledger library is missing, a cwd/marker spawn is BLOCKED (fail-closed):
+#   an unverifiable registration is not a registration.
 #
 # ALLOWED (exit 0):
 #   - any non-Agent tool (passthrough)
@@ -278,12 +306,13 @@ try:
     nm = str(ti.get("name", "") or "")
     md = str(ti.get("model", "") or "")
     sid = str(d.get("session_id", "") or "")
+    cwd = str(ti.get("cwd", "") or "")
     pr = str(ti.get("prompt", "") or "")
     pr = pr.replace("\t", " ").replace("\n", "\x01")
-    print("OK\t%s\t%s\t%s\t%s\t%s\t%s" % (st, iso, nm, sid, md, pr))
+    print("OK\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (st, iso, nm, sid, md, cwd, pr))
 except Exception:
-    print("PARSEFAIL\t\t\t\t\t\t")
-' 2>/dev/null || printf 'PARSEFAIL\t\t\t\t\t\t')"
+    print("PARSEFAIL\t\t\t\t\t\t\t")
+' 2>/dev/null || printf 'PARSEFAIL\t\t\t\t\t\t\t')"
 
 STATUS="$(printf '%s' "$PARSED" | cut -f1)"
 SUBAGENT_TYPE="$(printf '%s' "$PARSED" | cut -f2)"
@@ -291,7 +320,8 @@ ISOLATION="$(printf '%s' "$PARSED" | cut -f3)"
 NAME="$(printf '%s' "$PARSED" | cut -f4)"
 SESSION_ID="$(printf '%s' "$PARSED" | cut -f5)"
 MODEL_OVERRIDE="$(printf '%s' "$PARSED" | cut -f6)"
-PROMPT="$(printf '%s' "$PARSED" | cut -f7- | tr '\001' '\n')"
+SPAWN_CWD="$(printf '%s' "$PARSED" | cut -f7)"
+PROMPT="$(printf '%s' "$PARSED" | cut -f8- | tr '\001' '\n')"
 
 # Fail-closed: an Agent spawn we cannot parse is blocked, never waved through.
 if [ "$STATUS" = "PARSEFAIL" ]; then
@@ -324,10 +354,48 @@ if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*main-checkout-run:[[:space:]]*
   MAIN_CHECKOUT_MARKER="$(printf '%s' "$PROMPT" | grep -oE '^[[:space:]]*main-checkout-run:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
 fi
 
+# --- CLAUSE 4 helpers ------------------------------------------------------
+# registered_teammate_worktree <path> -> 0 when <path> is the top level of a
+# LINKED git worktree AND the ownership ledger holds a registration for it;
+# prints the reason for a refusal on stdout otherwise.
+LEDGER_PY="$SCRIPT_DIR/../lib/worktree-ledger.py"
+registered_teammate_worktree() {
+  local p="$1" top common gitdir
+  [ -n "$p" ] || { printf 'no path given'; return 1; }
+  [ -d "$p" ] || { printf "'%s' does not exist" "$p"; return 1; }
+  top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$top" ] || { printf "'%s' is not inside a git worktree" "$p"; return 1; }
+  if [ "$(cd "$top" && pwd -P)" != "$(cd "$p" && pwd -P)" ]; then
+    printf "'%s' is not the top level of a worktree (that is '%s')" "$p" "$top"; return 1
+  fi
+  common="$(git -C "$p" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  gitdir="$(git -C "$p" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+  if [ -z "$common" ] || [ "$common" = "$gitdir" ]; then
+    printf "'%s' is a MAIN checkout, not a linked worktree — a teammate never works in the main checkout" "$p"; return 1
+  fi
+  if [ ! -f "$LEDGER_PY" ]; then
+    printf "the ownership ledger library is missing at %s, so the registration of '%s' cannot be verified (fail-closed)" "$LEDGER_PY" "$p"; return 1
+  fi
+  if ! python3 "$LEDGER_PY" registrations --worktree "$p" >/dev/null 2>&1; then
+    printf "'%s' is a linked worktree but the ownership ledger holds NO registration for it — it was not created by scripts/create-teammate-worktree.sh" "$p"; return 1
+  fi
+  return 0
+}
+HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with cwd:\"<path>\" (no isolation) or add the prompt line  cross-repo-worktree: <path>  (with isolation:\"worktree\")."
+
 case "$ISOLATION" in
-  worktree|remote) ;;
+  worktree|remote)
+    if [ -n "$SPAWN_CWD" ]; then
+      PROBLEMS+=("cwd and isolation are mutually exclusive — the Agent tool refuses the pair (got cwd='${SPAWN_CWD}' with isolation='${ISOLATION}'). For cross-repository work either drop isolation and spawn with cwd inside a registered worktree, or keep isolation and name the registered worktree on a 'cross-repo-worktree: <path>' prompt line.")
+    fi
+    ;;
   *)
-    if [ -n "$MAIN_CHECKOUT_MARKER" ]; then
+    if [ -n "$SPAWN_CWD" ]; then
+      # CLAUSE 4a — a cwd spawn stands in for native isolation ONLY inside a
+      # registered cross-repository worktree.
+      CWD_WHY="$(registered_teammate_worktree "$SPAWN_CWD")" || \
+        PROBLEMS+=("cwd spawn refused — ${CWD_WHY}. A cross-repository teammate works only in a worktree RichOS registered, so its owner can be judged after this session is gone: ${HELPER_HINT}")
+    elif [ -n "$MAIN_CHECKOUT_MARKER" ]; then
       # Auditable fallback opt-out taken. Best-effort log — never fail the
       # spawn because logging failed; the marker itself is the audit trail.
       LOG_DIR="$ENTITY_ROOT/.claude/state"
@@ -340,10 +408,35 @@ case "$ISOLATION" in
           "$MAIN_CHECKOUT_MARKER"
       } >>"$LOG_DIR/main-checkout-runs.log" 2>/dev/null || true
     else
-      PROBLEMS+=("missing native isolation — add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='${ISOLATION:-unset}'); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.")
+      PROBLEMS+=("missing native isolation — add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='${ISOLATION:-unset}'); OR, for cross-repository work, spawn with cwd inside a worktree registered by scripts/create-teammate-worktree.sh; OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.")
     fi
     ;;
 esac
+
+# CLAUSE 4c — every cross-repo-worktree: line names a REGISTERED worktree.
+while IFS= read -r _marker_path; do
+  [ -n "$_marker_path" ] || continue
+  MK_WHY="$(registered_teammate_worktree "$_marker_path")" || \
+    PROBLEMS+=("cross-repo-worktree: line refused — ${MK_WHY}. ${HELPER_HINT}")
+done <<MARKERS_EOF
+$(printf '%s' "$PROMPT" | sed -n -E 's/^[[:space:]]*cross-repo-worktree:[[:space:]]*([^[:space:]]+).*$/\1/p')
+MARKERS_EOF
+
+# CLAUSE 4d — a prompt that tells the teammate to hand-roll a worktree is the
+# improvisation this clause ends. Audited escape hatch: hand-roll-ack: <reason>.
+if printf '%s' "$PROMPT" | grep -qE 'git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+worktree[[:space:]]+add'; then
+  HAND_ROLL_ACK=""
+  if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*hand-roll-ack:[[:space:]]*.+'; then
+    HAND_ROLL_ACK="$(printf '%s' "$PROMPT" | grep -oE '^[[:space:]]*hand-roll-ack:[[:space:]]*.+' | head -1 | sed -E 's/^[[:space:]]*//')"
+  fi
+  if [ -n "$HAND_ROLL_ACK" ]; then
+    LOG_DIR="$ENTITY_ROOT/.claude/state"
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
+    printf '%s\tagent=%s\tname=%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${SUBAGENT_TYPE:-<unset>}" "${NAME:-<unset>}" "$HAND_ROLL_ACK" >>"$LOG_DIR/hand-roll-acks.log" 2>/dev/null || true
+  else
+    PROBLEMS+=("the prompt instructs the teammate to run 'git worktree add' — an improvised worktree carries no ownership record and becomes undecidable to the reaper the moment this session's evidence is gone. ${HELPER_HINT} If this instruction is genuinely intended (a task ABOUT worktree tooling), add a live prompt line 'hand-roll-ack: <reason>' — logged to .claude/state/hand-roll-acks.log.")
+  fi
+fi
 
 if ! printf '%s' "$NAME" | grep -qE "$NAME_SHAPE_RE"; then
   PROBLEMS+=("missing/malformed name — give a unique '<role>-<model>-<identifier>' name, e.g. dev-sonnet-1 / qa-opus-r3 (got name='${NAME:-unset}'). Needs THREE dash-joined parts (role, model, identifier). Never bare ('dev'), 2-part ('dev-1'), or run-together ('devsonnet1'). NOT relaxed by main-checkout-run:.")

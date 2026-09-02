@@ -440,6 +440,104 @@ rc=$?
 unset GUARD_ISOLATION_TEAMS_DIR
 rm -rf "$REUSE_TEAMS"
 
+# --- (l) CLAUSE 4 — cross-repository work runs in a worktree RichOS registered ---
+#
+# The Agent tool's `cwd` is "mutually exclusive with isolation: worktree", so a
+# cross-repository teammate cannot be natively isolated; it works in a
+# hand-rolled worktree. The rule is inverted from "improvise one" to "only a
+# REGISTERED one": every pair below has its refusal beside its pass.
+CR="$(cd "$(mktemp -d -t guard-isolation-crossrepo.XXXXXX)" && pwd -P)"
+export RICHOS_WORKTREE_LEDGER="$CR/wt-ledger.jsonl"
+CR_REPO="$CR/other"
+mkdir -p "$CR_REPO"
+git -C "$CR_REPO" init -q -b main
+printf 'seed\n' >"$CR_REPO/seed.txt"
+git -C "$CR_REPO" add -A
+git -C "$CR_REPO" commit -q -m seed
+# a REGISTERED linked worktree (what scripts/create-teammate-worktree.sh makes)
+git -C "$CR_REPO" worktree add -q -b echo-opus-reg1 "$CR/other-wt/echo-opus-reg1"
+python3 "$SCRIPT_DIR/../lib/worktree-ledger.py" record registered --teammate echo-opus-reg1 \
+    --repo "$CR_REPO" --worktree "$CR/other-wt/echo-opus-reg1" --branch echo-opus-reg1 --class hand-rolled >/dev/null
+# an UNREGISTERED linked worktree (improvised)
+git -C "$CR_REPO" worktree add -q -b echo-opus-imp1 "$CR/other-wt/echo-opus-imp1"
+
+json_cwd() { # <name> <isolation> <cwd> <prompt>
+    python3 - "$1" "$2" "$3" "$4" <<'PY'
+import json, sys
+name, isolation, cwd, prompt = sys.argv[1:5]
+ti = {"subagent_type": "dev", "name": name, "prompt": prompt}
+if isolation: ti["isolation"] = isolation
+if cwd: ti["cwd"] = cwd
+print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000"}))
+PY
+}
+
+# (l1) cwd = REGISTERED linked worktree, no isolation -> ALLOWED
+run_case "cwd into a REGISTERED cross-repo worktree, no isolation -> allowed" 0 \
+    "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+# (l2) cwd = linked worktree with NO registration -> BLOCKED, naming the helper
+run_case "cwd into an UNREGISTERED linked worktree -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-imp1' '' "$CR/other-wt/echo-opus-imp1" 'Work there.')"
+run_case_msg "unregistered-cwd message names the helper" 'create-teammate-worktree.sh' \
+    "$(json_cwd 'echo-opus-imp1' '' "$CR/other-wt/echo-opus-imp1" 'Work there.')"
+run_case_msg "unregistered-cwd message says the ledger holds no registration" 'holds NO registration' \
+    "$(json_cwd 'echo-opus-imp1' '' "$CR/other-wt/echo-opus-imp1" 'Work there.')"
+# (l3) cwd = the MAIN checkout -> BLOCKED (a teammate never works in main)
+run_case "cwd = a main checkout -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-main1' '' "$CR_REPO" 'Work there.')"
+# (l4) cwd = nonexistent -> BLOCKED
+run_case "cwd = nonexistent path -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-none1' '' "$CR/nowhere" 'Work there.')"
+# (l5) cwd + isolation -> BLOCKED, named as mutually exclusive
+run_case "cwd together with isolation:worktree -> BLOCKED (mutually exclusive)" 2 \
+    "$(json_cwd 'echo-opus-both1' 'worktree' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+run_case_msg "cwd+isolation message says mutually exclusive" 'mutually exclusive' \
+    "$(json_cwd 'echo-opus-both1' 'worktree' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+# (l6) cwd spawn still needs a well-formed name (clause 2 not relaxed)
+run_case "cwd spawn with a bare name -> BLOCKED (name contract not relaxed)" 2 \
+    "$(json_cwd 'echo' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+# (l7) cross-repo-worktree: line with isolation: registered -> allowed; unregistered -> blocked
+run_case "cross-repo-worktree: REGISTERED path + isolation -> allowed" 0 \
+    "$(json_cwd 'echo-opus-mk1' 'worktree' '' $'Do it.\ncross-repo-worktree: '"$CR/other-wt/echo-opus-reg1")"
+run_case "cross-repo-worktree: UNREGISTERED path + isolation -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-mk2' 'worktree' '' $'Do it.\ncross-repo-worktree: '"$CR/other-wt/echo-opus-imp1")"
+# (l8) a prompt that instructs a hand-rolled worktree -> BLOCKED; hand-roll-ack: -> allowed + logged
+run_case "prompt instructing 'git -C <repo> worktree add' -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-hr1' 'worktree' '' "Create a worktree: git -C $CR_REPO worktree add $CR/other-wt/x -b x, then work.")"
+run_case_msg "hand-roll refusal names the helper and the ack" 'hand-roll-ack:' \
+    "$(json_cwd 'echo-opus-hr1' 'worktree' '' "Create a worktree: git -C $CR_REPO worktree add $CR/other-wt/x -b x, then work.")"
+run_case "prompt instructing 'git worktree add' with a hand-roll-ack: line -> allowed" 0 \
+    "$(json_cwd 'echo-opus-hr2' 'worktree' '' $'Fix the helper that runs git worktree add.\nhand-roll-ack: this task is about the worktree tooling itself')"
+run_case "an ordinary prompt mentioning neither -> allowed (no false positive)" 0 \
+    "$(json_cwd 'echo-opus-plain1' 'worktree' '' 'Add a worktree-lifecycle section to the README and commit.')"
+# (l9) FAIL-CLOSED without the ledger library: a cwd spawn in a sandbox copy
+#      of the guard that lacks scripts/lib/worktree-ledger.py is BLOCKED and
+#      the message names the missing file; a plain isolated spawn there still passes.
+NOLIB="$(mktemp -d -t guard-isolation-nolib.XXXXXX)"
+mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib" "$NOLIB/.claude"
+cp "$HOOK" "$NOLIB/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$NOLIB/scripts/hooks/guard-worktree-isolation.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$NOLIB/scripts/lib/"
+printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$NOLIB/orchestration.config"
+NOLIB_OUT="$(printf '%s' "$(json_cwd 'echo-opus-nolib1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" \
+    | RICHOS_ENTITY_ROOT="$NOLIB" "$NOLIB/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$NOLIB_OUT" | grep -qF 'ownership ledger library is missing'; then
+    PASS=$((PASS + 1)); printf '  PASS  cwd spawn with the ledger library MISSING -> BLOCKED, naming the missing file (fail-closed)\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  cwd spawn without the ledger library (exit %s): %s\n' "$rc" "$NOLIB_OUT"
+fi
+printf '%s' "$(json_cwd 'echo-opus-nolib2' 'worktree' '' 'Do the thing.')" \
+    | RICHOS_ENTITY_ROOT="$NOLIB" "$NOLIB/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && { PASS=$((PASS + 1)); printf '  PASS  an isolated spawn without the ledger library still passes (clause 4 is inert for it)\n'; } \
+                || { FAIL=$((FAIL + 1)); printf '  FAIL  isolated spawn without the ledger library blocked (exit %s)\n' "$rc"; }
+# (l10) the hand-roll-ack use is logged
+if grep -qF 'echo-opus-hr2' "$RICHOS_ENTITY_ROOT/.claude/state/hand-roll-acks.log" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  hand-roll-ack use is logged to .claude/state/hand-roll-acks.log\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  hand-roll-ack use not logged\n'
+fi
+rm -rf "$NOLIB" "$CR"
+unset RICHOS_WORKTREE_LEDGER
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== guard-worktree-isolation tests: $FAIL FAILED, $PASS passed ==="
