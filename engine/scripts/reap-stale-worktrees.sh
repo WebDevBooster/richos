@@ -95,40 +95,82 @@
 #
 # A HAND-ROLLED WORKTREE HAS NO LOCK. None is ever taken there, so quiet is
 # not death and inactivity proves nothing at all. So a hand-rolled tree is
-# reaped only when a positive termination signal for its OWNER exists:
+# reaped only when a positive termination signal for its OWNER exists.
 #
-#   owner name   the worktree's branch name, else its directory name. The
-#                convention this project actually uses is that a hand-rolled
-#                worktree is named for the teammate that owns it.
-#   owner id     resolved from the session transcript by the ONE liveness
-#                resolver (scripts/lib/agent-liveness.py), which is the only
-#                place the name -> agentId join exists on disk.
-#   verdict      that same resolver's verdict, taken from the owner's NATIVE
-#                isolation worktree lock in the entity repository.
+# ===========================================================================
+# WHERE THAT SIGNAL COMES FROM (2026-09-02) — THE LEDGER, NOT THE LOCK
+# ===========================================================================
+# This used to read the owner's NATIVE isolation-worktree lock and nothing
+# else. That native worktree is deleted at land time, so from that moment the
+# hand-rolled tree was PERMANENTLY undecidable: cleaning up one repository
+# destroyed the only evidence that could ever clean up another. Four fixes
+# (repositories, path shapes, the agent-finish trigger, a guard tightening)
+# were each correct and each forward-only, and 29 worktrees in `richos` sat
+# `owner-undecidable` through all of them with the blind line "no session
+# transcript found for entity '/Users/alex/ab/richos'" — a project directory
+# that holds zero transcripts and always will, because no session starts there.
 #
-#   ALIVE .................................. SKIP owner-alive
-#   INDETERMINATE .......................... SKIP owner-indeterminate
-#   name does not resolve to any agent ..... SKIP owner-unresolved
-#   NOT-ALIVE, native worktree ABSENT ...... SKIP owner-unresolved
-#   NOT-ALIVE, native worktree OBSERVED .... positive signal; continue to the
-#                                            remaining gates
+# So RichOS now OWNS the record: scripts/lib/worktree-ledger.py, at
+# ~/.claude/state/worktree-ledger.jsonl, outside every repository and every
+# session team directory. Registrations are written at spawn (teammate, agent
+# id, session id, session pid + start time, repo, worktree, branch); witnessed
+# terminations are written the moment this reaper or the sanctioned remover
+# SEES a native worktree registered-and-unlocked; finish signals are retained
+# as advisory. The judgment, per registration, is:
 #
-# READ THE FOURTH LINE AGAIN. An absent native worktree is an ABSENCE, and
-# absence is the exact inference doctrine forbids. It is deliberately NOT
-# treated as a termination signal even though the resolver's verdict for it is
-# NOT-ALIVE. That is the difference between "I watched it stop" and "it is not
-# where I looked".
+#   witnessed termination on record ................ NOT-ALIVE
+#   native isolation worktree LOCKED, pid running ... ALIVE
+#   native registered and unlocked / stale-locked ... NOT-ALIVE — OBSERVED now,
+#                                                     and WRITTEN to the ledger
+#                                                     so the land cannot
+#                                                     destroy it
+#   native ABSENT, session pid+start provably gone .. NOT-ALIVE — the process
+#                                                     every agent of that
+#                                                     session ran inside no
+#                                                     longer exists. Same
+#                                                     evidence class as a stale
+#                                                     lock, retained past the
+#                                                     lock's deletion
+#   native ABSENT, session pid still running ........ INDETERMINATE, naming the
+#                                                     pid; decidable when that
+#                                                     session ends
+#   no session identity recorded, native absent ..... INDETERMINATE
+#   no registration and no transcript join .......... UNRESOLVED
 #
-# And that is why C above matters: at the moment a teammate finishes, its
-# native worktree is still registered and now unlocked — the signal is
-# OBSERVABLE. An hour later the native tree has been reaped and the same
-# hand-rolled tree is permanently undecidable. Sweeping at agent-finish is
-# what makes the evidence available at all.
+#   ALIVE ............ SKIP owner-alive
+#   INDETERMINATE .... SKIP owner-indeterminate   (owner KNOWN; transient)
+#   UNRESOLVED ....... SKIP owner-unresolved      (NO record; permanent, and a
+#                                                  FAILURE of the record — see
+#                                                  the verdict line)
+#   NOT-ALIVE ........ positive signal; continue to the remaining gates
+#
+# Owner name = the worktree's branch name, else its directory name (the
+# convention this project actually uses), OR an exact worktree-path
+# registration written by scripts/create-teammate-worktree.sh, which needs no
+# name at all. The session transcript's name -> agentId join is kept as a
+# FALLBACK only; it was the PRIMARY source and it is the wrong key by
+# construction (looked up under the swept repository's project directory,
+# newest transcript only).
+#
+# ABSENCE IS STILL NEVER A TERMINATION SIGNAL. Nothing above accepts "not where
+# I looked". A native worktree that is simply gone lands in INDETERMINATE until
+# the session that owned it is provably gone — which is process evidence, not
+# filesystem inactivity.
+#
+# TeammateIdle / TaskCompleted / SubagentStop are RECORDED and REPORTED and do
+# not decide: an idle teammate can be resumed by a message (the engine's own
+# guard-resume-isolation.sh permits exactly that), a completed task is
+# task-grain, and SubagentStop fires at the end of every turn.
+#
+# C above still matters — at agent-finish the evidence is freshest — but it is
+# no longer the ONLY moment the evidence exists. That is the whole change.
 #
 # INDETERMINATE IS A REAL ANSWER AND IS NEVER GUESSED INTO EITHER OTHER ONE.
-# A class that cannot be judged safely is REPORTED, not reaped, and it is
-# counted in the summary as `undecidable=N` so the number is visible rather
-# than absent.
+# UNRESOLVED IS NOT INDETERMINATE: one is "owner known, verdict pending", the
+# other is "nobody ever recorded an owner", and only the second one grows
+# forever. They are counted apart (`indeterminate=N unresolved=N`) and the
+# second one FAILS the run (verdict FAIL, exit 3) so it can never again print
+# as a routine line beside `reaped=5`.
 #
 # ===========================================================================
 # THE GATES — a tree is REAP-eligible only if ALL of them hold, in order
@@ -153,6 +195,26 @@
 # refuses -d, which is the backstop for a gate 3 that is somehow wrong.
 #
 # ===========================================================================
+# THE BRANCH SWEEP — orphan branches whose worktree is already gone
+# ===========================================================================
+# `git branch -d` above lives inside the per-worktree loop, so it only ever
+# sees a branch still attached to a registered worktree. A branch whose
+# worktree vanished by any other route (a raw removal, the harness's own
+# auto-clean, a prune) was unreachable by the only code that could delete it —
+# permanently. femcboost held four such orphans on 2026-09-02.
+#
+# So after the worktree loop, every reap-eligible repository gets a pass over
+# refs/heads/. A branch is a CANDIDATE only if it is teammate-shaped —
+# `worktree-*` (native isolation), `<role>-<model>-<identifier>` (the spawn
+# name contract), or a branch the ledger registered for this repository — so
+# an operator's own topic branches are never touched. A candidate is swept
+# only if ALL hold: it is not the repository's current branch; no worktree is
+# registered on it; it is a merge-base ancestor of HEAD; no live process
+# references it. Unmerged -> SKIP-BRANCH unmerged(+N), and `-d` (never `-D`)
+# is the backstop. `worktree-agent-a66286903967ee525` in femcboost is
+# UNMERGED (+1) and is the standing live negative for this pass.
+#
+# ===========================================================================
 # PROCESSES, NOT JUST DIRECTORIES
 # ===========================================================================
 # A background child can outlive BOTH its agent AND its worktree, then
@@ -171,14 +233,25 @@
 # everything. So the summary now carries its own scope:
 #
 #   === summary (MODE): reaped=N skipped=N errors=N residue=N
-#       orphan-processes=N ===
+#       orphan-processes=N branches-swept=N branches-skipped=N ===
 #   === coverage (MODE): repos=N reap-eligible=N report-only=N unreachable=N
-#       worktrees=N native=N hand-rolled=N undecidable=N ===
+#       worktrees=N native=N hand-rolled=N undecidable=N unresolved=N
+#       indeterminate=N ===
 #   === sources: <label>=<count> ... ===
 #   === blind: <what this run could NOT see>  (or: none declared) ===
+#   === verdict: CLEAN | PENDING — ... | FAIL — ... ===
 #
 # A number that is not known is printed as not known. `blind:` is where a
 # future version of this defect has to declare itself.
+#
+# THE VERDICT LINE IS THE PART THAT CANNOT READ AS ROUTINE. On 2026-09-02 the
+# session banner said `reaped=5 skipped=49 errors=0` — a success-shaped line —
+# for a run in which zero of the 47 real offenders could ever be touched;
+# `undecidable=47` sat beside it as information. Now: `unresolved>0` is a FAIL
+# (exit 3) because it means the record has a hole that only an operator can
+# close; `indeterminate>0` is PENDING because every one of those names a
+# session pid and resolves itself when that session ends; anything else is
+# CLEAN. The wrappers put the verdict FIRST in what they announce.
 #
 # ===========================================================================
 # USAGE
@@ -197,14 +270,21 @@
 #     --entity <path>    The repository whose NATIVE isolation-worktree locks
 #                        are authoritative for owner liveness. Defaults to the
 #                        primary repo root.
-#     --transcript <p>   A session transcript, for the name -> agentId join.
-#                        Auto-detected from ~/.claude/projects/<slug>/ when
-#                        absent; its absence is DECLARED in `blind:`.
+#     --transcript <p>   A session transcript for the name -> agentId join
+#                        (FALLBACK source; repeatable). Auto-detected when
+#                        absent: the newest under ~/.claude/projects/<entity
+#                        slug>/ AND the newest anywhere under
+#                        ~/.claude/projects/. Its absence is DECLARED.
 #
 #   Environment (test affordances; never set in a real session):
 #     REAP_DISCOVERY_SOURCES   comma list restricting the sources above
 #     REAP_TEAM_DIR            stands in for ~/.claude/teams
 #     REAP_LEDGER              stands in for the known-repositories ledger
+#     REAP_WORKTREE_LEDGER     stands in for ~/.claude/state/worktree-ledger.jsonl
+#                              (the ownership ledger). EVERY sandbox run MUST
+#                              set it: a sweep writes witnessed terminations,
+#                              and a test that writes them into the operator's
+#                              real ledger is a test with side effects.
 #     REAP_ENGINE_ROOT         stands in for the engine checkout
 #     REAP_PROJECTS_DIR        stands in for ~/.claude/projects
 #     REAP_NEIGHBORHOOD_MAX    max entries in a parent dir before the
@@ -219,8 +299,11 @@
 # and covered by the integrity probe's Layer Q.
 #
 # Exit codes:
-#   0  clean run (a SKIP is not an error)
+#   0  clean run (a SKIP is not an error; verdict CLEAN or PENDING)
 #   1  unexpected error (missing/invalid repo, a removal failed, etc.)
+#   3  ran clean, but verdict FAIL: at least one hand-rolled worktree has NO
+#      ownership record (owner-unresolved). Nothing was mutated wrongly; the
+#      RECORD has a hole, and that is not allowed to print as routine.
 
 set -euo pipefail
 
@@ -239,7 +322,8 @@ Usage: scripts/reap-stale-worktrees.sh [repo-root] [options]
                       neighborhood). Off by default.
   --entity <path>    Repository whose native isolation locks decide owner
                       liveness. Defaults to the primary repo root.
-  --transcript <p>   Session transcript for the teammate-name -> agentId join.
+  --transcript <p>   Session transcript for the teammate-name -> agentId join
+                      (fallback source; repeatable).
   -h, --help         Show this help.
 EOF
 }
@@ -249,7 +333,7 @@ UNLOCK_STALE=0
 DISCOVER=0
 REPO_ROOT_ARG=""
 ENTITY_ARG=""
-TRANSCRIPT_ARG=""
+TRANSCRIPT_ARGS=()
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -258,7 +342,7 @@ while [ "$#" -gt 0 ]; do
     --discover)     DISCOVER=1; shift ;;
     --no-discover)  DISCOVER=0; shift ;;
     --entity)       ENTITY_ARG="${2:-}"; shift 2 ;;
-    --transcript)   TRANSCRIPT_ARG="${2:-}"; shift 2 ;;
+    --transcript)   TRANSCRIPT_ARGS+=("${2:-}"); shift 2 ;;
     -h | --help)    usage; exit 0 ;;
     -*)
         echo "ERROR: unknown flag: $1" >&2
@@ -492,102 +576,53 @@ else
 fi
 
 # ===========================================================================
-# OWNER LIVENESS — one table, built once, from the ONE resolver
+# OWNER JUDGMENT — the ledger first, the transcript as fallback, ONE resolver
 # ===========================================================================
-# The table is
-#     <teammate-name>  <verdict>  <native worktree OBSERVED?>
-# and it is built by IMPORTING scripts/lib/agent-liveness.py and calling its
-# two entry points — `names_to_ids` (the name -> agentId join, which exists
-# nowhere else on disk) and `enumerate_all` (the authoritative verdict for
-# every native isolation worktree REGISTERED in the entity).
+# The verdict for every hand-rolled worktree comes from ONE call into
+# scripts/lib/worktree-ledger.py (judge-batch), which itself IMPORTS
+# scripts/lib/agent-liveness.py for the lock rule rather than paraphrasing it.
+# There is deliberately no second implementation of "alive" here: two of them
+# is how one silently becomes the stale one.
 #
-# THE THIRD COLUMN IS THE WHOLE SAFETY RULE AND IT IS WHY THIS IMPORTS THE
-# MODULE RATHER THAN SHELLING ITS `--all` CLI. Written the CLI way first, and
-# a mutation test caught it: `--all` only ever describes worktrees that EXIST,
-# so `registered` was true in every row it could ever emit, the third column
-# was a constant, and the branch reading it was unreachable. Deleting the
-# check changed nothing and every test stayed green — a guard that had already
-# rotted on the day it was written.
-#
-# Joining the two calls makes the distinction real, because it produces a row
-# for a name whose agent has NO registered worktree:
-#
-#   name maps to an agent with a worktree ...... its verdict, OBSERVED=1
-#   name maps to an agent with NO worktree ..... NOT-ALIVE, OBSERVED=0
-#                                                (an ABSENCE, not a death)
-#   name maps to no agent at all ............... no row: UNRESOLVED
-#
-# There is deliberately no second implementation of "alive" here. Two of them
-# is how one of them silently becomes the stale one, which is the sentence
-# scripts/lib/agent-liveness.py was extracted to stop having to write again —
-# so this borrows its functions rather than paraphrasing its logic.
-OWNER_TABLE=""
+# The table is built AFTER the inventory (it needs the candidate list) and
+# BEFORE the sweep. Its absence is DECLARED, never silently treated as "every
+# owner is dead" or "every owner is alive".
+LEDGER_PY="$LIB_DIR/worktree-ledger.py"
 LIVENESS_PY="$LIB_DIR/agent-liveness.py"
-TRANSCRIPT="$TRANSCRIPT_ARG"
+WT_LEDGER="${REAP_WORKTREE_LEDGER:-${RICHOS_WORKTREE_LEDGER:-$HOME/.claude/state/worktree-ledger.jsonl}}"
+export RICHOS_WORKTREE_LEDGER="$WT_LEDGER"
 
-if [ -z "$TRANSCRIPT" ]; then
-    _slug="$(printf '%s' "$ENTITY_ROOT" | sed 's|/|-|g')"
-    _projdir="${REAP_PROJECTS_DIR:-$HOME/.claude/projects}/$_slug"
-    if [ -d "$_projdir" ]; then
-        TRANSCRIPT="$(ls -1t "$_projdir"/*.jsonl 2>/dev/null | head -1 || true)"
-    fi
-fi
-
-if [ ! -f "$LIVENESS_PY" ]; then
-    blind "owner liveness: the resolver is missing at $LIVENESS_PY — EVERY hand-rolled worktree is undecidable in this run and none can be reaped"
-elif ! command -v python3 >/dev/null 2>&1; then
-    blind "owner liveness: python3 is not on PATH — EVERY hand-rolled worktree is undecidable in this run"
-elif [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
-    blind "owner liveness: no session transcript found for entity '$ENTITY_ROOT' — the teammate-name -> agentId join is unavailable, so EVERY hand-rolled worktree is undecidable in this run"
+# --- The transcript FALLBACK ----------------------------------------------
+# Kept for spawns that predate the ledger. It was the ONLY source, keyed by
+# the SWEPT repository's project directory and reading the newest transcript
+# there — for a cross-repository sweep, a directory holding no transcript at
+# all, and even elsewhere never the file that names last week's agent. Now
+# the ledger library indexes EVERY transcript under the projects directory
+# (measured: ~150 files, 0.7s) unless explicit --transcript paths were given,
+# which is what a hermetic test passes.
+TRANSCRIPTS=()
+TRANSCRIPT_MODE=""
+_projects="${REAP_PROJECTS_DIR:-$HOME/.claude/projects}"
+if [ "${#TRANSCRIPT_ARGS[@]}" -gt 0 ]; then
+    for _t in "${TRANSCRIPT_ARGS[@]}"; do
+        [ -n "$_t" ] && [ -f "$_t" ] && TRANSCRIPTS+=("$_t")
+    done
+    TRANSCRIPT_MODE="explicit"
+    [ "${#TRANSCRIPTS[@]}" -gt 0 ] \
+        || blind "owner liveness: no session transcript found at the --transcript path(s) given — the transcript FALLBACK is unavailable; owners are judged from the ownership ledger alone"
+elif [ -d "$_projects" ] && [ -n "$(ls -1 "$_projects"/*/*.jsonl 2>/dev/null | head -1)" ]; then
+    TRANSCRIPT_MODE="index"
 else
-    OWNER_TABLE="$(REAP_LIVENESS_PY="$LIVENESS_PY" \
-                   REAP_ENTITY="$ENTITY_ROOT" \
-                   REAP_TRANSCRIPT_PATH="$TRANSCRIPT" \
-                   python3 - <<'PY' 2>/dev/null || true
-import importlib.util, os, sys
-
-spec = importlib.util.spec_from_file_location(
-    "richos_agent_liveness", os.environ["REAP_LIVENESS_PY"])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
-names = mod.names_to_ids(os.environ["REAP_TRANSCRIPT_PATH"])
-if not names:
-    sys.exit(0)
-
-by_id = {}
-for rec in mod.enumerate_all(os.environ["REAP_ENTITY"]):
-    aid = rec.get("agent_id")
-    if aid:
-        by_id[aid] = rec
-
-for name in sorted(names):
-    rec = by_id.get(names[name])
-    if rec is None:
-        # The name resolves to a real agent whose isolation worktree is not
-        # registered in the entity at all. The resolver would call that
-        # NOT-ALIVE; this row records that the verdict rests on an ABSENCE,
-        # and the caller refuses it for exactly that reason.
-        print("%s\tNOT-ALIVE\t0" % name)
-        continue
-    observed = "1" if (rec.get("evidence") or {}).get("registered") else "0"
-    print("%s\t%s\t%s" % (name, rec.get("verdict") or "INDETERMINATE", observed))
-PY
-                   )"
-    if [ -z "$OWNER_TABLE" ]; then
-        blind "owner liveness: the resolver produced no name->verdict rows for entity '$ENTITY_ROOT' (transcript: $TRANSCRIPT) — every hand-rolled worktree is undecidable in this run"
-    fi
+    blind "owner liveness: no session transcript found under '$_projects' — the transcript FALLBACK is unavailable; owners are judged from the ownership ledger alone"
 fi
-
-owner_row() { # <name> -> "<verdict><TAB><observed>" or empty
-    [ -n "$OWNER_TABLE" ] || return 0
-    printf '%s\n' "$OWNER_TABLE" | awk -F'\t' -v n="$1" '$1==n {print $2"\t"$3; exit}'
-}
 
 # --- Teammate names this machine has a record of spawning -------------------
 # Used ONLY to decide whether a neighborhood-discovered repository is
 # reap-eligible or report-only. It is evidence that a session touched that
-# repository; it is never evidence that anyone is dead.
+# repository; it is never evidence that anyone is dead. Three sources: the
+# per-session spawned-names.log, the ledger's registered teammates, and every
+# name any transcript joins to an agent id — the last two outlive the session
+# directory, which is what lets a prior session's repository stay eligible.
 SPAWNED_NAMES=""
 if [ -d "$TEAM_DIR_BASE" ]; then
     for _f in "$TEAM_DIR_BASE"/*/spawned-names.log; do
@@ -595,6 +630,16 @@ if [ -d "$TEAM_DIR_BASE" ]; then
         SPAWNED_NAMES="$SPAWNED_NAMES
 $(cat "$_f" 2>/dev/null || true)"
     done
+fi
+if [ -f "$LEDGER_PY" ] && command -v python3 >/dev/null 2>&1; then
+    _nargs=()
+    if [ "$TRANSCRIPT_MODE" = "explicit" ] && [ "${#TRANSCRIPTS[@]}" -gt 0 ]; then
+        for _t in "${TRANSCRIPTS[@]}"; do _nargs+=(--transcript "$_t"); done
+    elif [ "$TRANSCRIPT_MODE" = "index" ]; then
+        _nargs+=(--projects-dir "$_projects")
+    fi
+    SPAWNED_NAMES="$SPAWNED_NAMES
+$(RICHOS_PROJECTS_DIR="$_projects" python3 "$LEDGER_PY" --ledger "$WT_LEDGER" names ${_nargs[@]+"${_nargs[@]}"} 2>/dev/null || true)"
 fi
 is_spawned_name() { # <name>
     [ -n "${1:-}" ] || return 1
@@ -737,6 +782,52 @@ if [ "$DISCOVER" -eq 1 ] && src_on ledger && [ "${#REPOS[@]}" -gt 0 ]; then
     fi
 fi
 
+# --- The owner-verdict table: one judge-batch call over every hand-rolled
+# candidate in a reap-eligible repository -----------------------------------
+OWNER_VERDICTS=""
+_hr_tsv=""
+if [ "${#WT_PATH[@]}" -gt 0 ]; then
+    for _i in $(seq 0 $(( ${#WT_PATH[@]} - 1 ))); do
+        [ "${WT_CLASS[$_i]}" = "hand-rolled" ] || continue
+        _hr_tsv="$_hr_tsv${WT_REPO[$_i]}	${WT_PATH[$_i]}	${WT_BRANCH[$_i]}	$(basename "${WT_PATH[$_i]}")
+"
+    done
+fi
+if [ -n "$_hr_tsv" ]; then
+    if [ ! -f "$LEDGER_PY" ]; then
+        blind "owner liveness: the ownership ledger library is missing at $LEDGER_PY — EVERY hand-rolled worktree is undecidable in this run and none can be reaped"
+    elif ! command -v python3 >/dev/null 2>&1; then
+        blind "owner liveness: python3 is not on PATH — EVERY hand-rolled worktree is undecidable in this run"
+    else
+        [ -f "$LIVENESS_PY" ] || blind "owner liveness: the lock resolver is missing at $LIVENESS_PY — native locks cannot be read; owners are judged from recorded session identity and witnessed terminations only"
+        [ -f "$WT_LEDGER" ] || blind "owner liveness: no ownership ledger exists yet at $WT_LEDGER — no spawn has been registered on this machine; owners can be judged only through the transcript fallback"
+        _targs=()
+        if [ "$TRANSCRIPT_MODE" = "explicit" ] && [ "${#TRANSCRIPTS[@]}" -gt 0 ]; then
+            for _t in "${TRANSCRIPTS[@]}"; do _targs+=(--transcript "$_t"); done
+        elif [ "$TRANSCRIPT_MODE" = "index" ]; then
+            _targs+=(--projects-dir "$_projects")
+        fi
+        OWNER_VERDICTS="$(printf '%s' "$_hr_tsv" | RICHOS_PROJECTS_DIR="$_projects" python3 "$LEDGER_PY" --ledger "$WT_LEDGER" judge-batch --entity "$ENTITY_ROOT" ${_targs[@]+"${_targs[@]}"} 2>/dev/null || true)"
+        if [ -z "$OWNER_VERDICTS" ]; then
+            blind "owner liveness: judge-batch produced no verdicts (ledger: $WT_LEDGER) — every hand-rolled worktree is undecidable in this run"
+        fi
+    fi
+fi
+
+owner_verdict_for() { # <path> -> "<verdict><TAB><agent-ids><TAB><reason>" or empty
+    [ -n "$OWNER_VERDICTS" ] || return 0
+    printf '%s\n' "$OWNER_VERDICTS" | awk -F'\t' -v p="$1" '$1==p {print $2"\t"$3"\t"$4; exit}'
+}
+
+# record_terminated <agent-id> <worktree> <reason> <witness> — copy a witnessed
+# termination into the ledger, once per agent. Best-effort: an unwritable
+# ledger never changes a sweep's verdict, it only loses tomorrow's evidence.
+record_terminated() {
+    [ -f "$LEDGER_PY" ] && command -v python3 >/dev/null 2>&1 || return 0
+    python3 "$LEDGER_PY" --ledger "$WT_LEDGER" record terminated --once \
+        --agent-id "$1" --worktree "$2" --reason "$3" --witness "$4" >/dev/null 2>&1 || true
+}
+
 # ===========================================================================
 # THE SWEEP
 # ===========================================================================
@@ -756,8 +847,11 @@ SKIP_LIVE_PROCESS=0
 SKIP_MISSING_DIR=0
 SKIP_NO_BRANCH=0
 SKIP_OWNER_ALIVE=0
-SKIP_OWNER_UNDECIDABLE=0
+SKIP_OWNER_INDETERMINATE=0
+SKIP_OWNER_UNRESOLVED=0
 SKIP_REPORT_ONLY=0
+BR_SWEPT=0
+BR_SKIPPED=0
 N_NATIVE=0
 N_HANDROLLED=0
 
@@ -824,6 +918,14 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
         fi
 
         # --- Gate 1: lock ---
+        if [ "$locked" -eq 0 ] && [ "$class" = "native" ]; then
+            # A registered, UNLOCKED native isolation worktree is the positive
+            # termination signal the resolver already accepts. It is about to
+            # be destroyed by this very sweep (or by a land), so it is copied to
+            # the ledger NOW — that is the evidence that lets a hand-rolled
+            # worktree in another repository be judged after this one is gone.
+            record_terminated "${id#agent-}" "$path" "native isolation worktree registered and unlocked" "reaper-observation"
+        fi
         if [ "$locked" -eq 1 ]; then
             if [ "$UNLOCK_STALE" -eq 0 ]; then
                 skip "$id" "locked($class)"
@@ -864,6 +966,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                     continue
                 fi
                 echo "  (unlocked stale lock on $id — age ${age}s, no live process)"
+                [ "$class" = "native" ] && record_terminated "${id#agent-}" "$path" "stale lock broken: ${age}s old, no live process" "reaper-observation"
             else
                 echo "  (DRY-RUN: would unlock stale lock on $id — age ${age}s, no live process — then re-evaluate)"
             fi
@@ -871,36 +974,34 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
 
         # --- Gate 2: owner termination signal (hand-rolled only) ---
         # A hand-rolled worktree takes NO lock, so gate 1 proved nothing about
-        # it. See the header: an ABSENT native worktree is an absence, and
-        # absence is not death.
+        # it. The verdict comes from the ownership ledger (see the header);
+        # NOT-ALIVE is only ever emitted on POSITIVE evidence, so there is no
+        # "observed" column to check any more — absence never reaches here as
+        # NOT-ALIVE at all.
         if [ "$class" = "hand-rolled" ]; then
             owner="$branch_name"
             [ -n "$owner" ] || owner="$id"
-            row="$(owner_row "$owner")"
-            [ -n "$row" ] || row="$(owner_row "$id")"
-            if [ -z "$row" ]; then
-                skip "$id" "owner-unresolved(no agent matches '$owner' — a hand-rolled worktree takes no lock, so quiet is not death)"
-                SKIP_OWNER_UNDECIDABLE=$((SKIP_OWNER_UNDECIDABLE + 1))
-                continue
-            fi
+            row="$(owner_verdict_for "$path")"
             verdict="$(printf '%s' "$row" | cut -f1)"
-            observed="$(printf '%s' "$row" | cut -f2)"
+            reason="$(printf '%s' "$row" | cut -f3-)"
             case "$verdict" in
             ALIVE)
-                skip "$id" "owner-alive($owner — its isolation worktree is LOCKED by a running pid)"
+                skip "$id" "owner-alive($owner — $reason)"
                 SKIP_OWNER_ALIVE=$((SKIP_OWNER_ALIVE + 1))
                 continue
                 ;;
             NOT-ALIVE)
-                if [ "$observed" != "1" ]; then
-                    skip "$id" "owner-unresolved($owner — verdict NOT-ALIVE only because its isolation worktree is ABSENT; absence is not a termination signal)"
-                    SKIP_OWNER_UNDECIDABLE=$((SKIP_OWNER_UNDECIDABLE + 1))
-                    continue
-                fi
+                echo "  (owner $owner terminated — $reason)"
+                ;;
+            INDETERMINATE)
+                skip "$id" "owner-indeterminate($owner — $reason; INDETERMINATE is never guessed into dead)"
+                SKIP_OWNER_INDETERMINATE=$((SKIP_OWNER_INDETERMINATE + 1))
+                continue
                 ;;
             *)
-                skip "$id" "owner-indeterminate($owner — liveness could not be resolved; INDETERMINATE is never guessed into dead)"
-                SKIP_OWNER_UNDECIDABLE=$((SKIP_OWNER_UNDECIDABLE + 1))
+                [ -n "$reason" ] || reason="no owner verdict was produced for this path (see blind:)"
+                skip "$id" "owner-unresolved($owner — $reason — a hand-rolled worktree takes no lock, so quiet is not death)"
+                SKIP_OWNER_UNRESOLVED=$((SKIP_OWNER_UNRESOLVED + 1))
                 continue
                 ;;
             esac
@@ -951,6 +1052,7 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                 fi
             fi
             if git -C "$repo" worktree remove "$path"; then
+                [ "$class" = "native" ] && record_terminated "${id#agent-}" "$path" "native isolation worktree reaped: unlocked, merged, clean, no live process" "reaper-removal"
                 if git -C "$repo" branch -d "$branch_name" >/dev/null 2>&1; then
                     echo "REAP $id"
                     REAP_COUNT=$((REAP_COUNT + 1))
@@ -966,6 +1068,78 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             echo "DRY-RUN REAP $id"
             REAP_COUNT=$((REAP_COUNT + 1))
         fi
+    done
+fi
+
+# ===========================================================================
+# THE BRANCH SWEEP — refs/heads/ of every reap-eligible repository
+# ===========================================================================
+# See the header. Candidates are teammate-shaped branches only; every gate is
+# named in the SKIP-BRANCH reason. Computed AFTER the worktree loop so a branch
+# whose worktree was just reaped (and whose -d succeeded) is not reported
+# twice, and a branch whose -d was refused is caught on the next pass.
+_models="${ALLOWED_MODELS:-}"
+if [ -z "$_models" ] && [ -f "$ENTITY_ROOT/orchestration.config" ]; then
+    _models="$(sed -n 's/^ALLOWED_MODELS="\(.*\)"$/\1/p' "$ENTITY_ROOT/orchestration.config" | head -1)"
+fi
+[ -n "$_models" ] || _models="fable opus sonnet haiku"
+TEAMMATE_BRANCH_RE="^[a-z][a-z0-9]{1,15}-($(printf '%s' "$_models" | tr ' ' '|'))-[a-z0-9]{1,12}$"
+
+if [ "${#REPOS[@]}" -gt 0 ]; then
+    for _ri in $(seq 0 $(( ${#REPOS[@]} - 1 ))); do
+        [ "${REPO_ELIGIBLE[$_ri]}" = "1" ] || continue
+        [ "${REPO_REACHABLE[$_ri]}" = "1" ] || continue
+        _repo="${REPOS[$_ri]}"
+        _current="$(git -C "$_repo" symbolic-ref -q --short HEAD 2>/dev/null || true)"
+        _attached="$(git -C "$_repo" worktree list --porcelain 2>/dev/null | sed -n 's|^branch refs/heads/||p' || true)"
+        _registered=""
+        if [ -f "$LEDGER_PY" ] && [ -f "$WT_LEDGER" ] && command -v python3 >/dev/null 2>&1; then
+            _registered="$(python3 "$LEDGER_PY" --ledger "$WT_LEDGER" branches --repo "$_repo" 2>/dev/null || true)"
+        fi
+        _target="$_current"
+        [ -n "$_target" ] || _target="$(git -C "$_repo" rev-parse HEAD 2>/dev/null || true)"
+        while IFS= read -r _b || [ -n "$_b" ]; do
+            [ -n "$_b" ] || continue
+            _cand=0
+            case "$_b" in worktree-*) _cand=1 ;; esac
+            if [ "$_cand" -eq 0 ] && printf '%s' "$_b" | grep -qE "$TEAMMATE_BRANCH_RE"; then _cand=1; fi
+            if [ "$_cand" -eq 0 ] && [ -n "$_registered" ] && printf '%s\n' "$_registered" | grep -qxF -- "$_b"; then _cand=1; fi
+            [ "$_cand" -eq 1 ] || continue
+            if [ -n "$_current" ] && [ "$_b" = "$_current" ]; then
+                echo "SKIP-BRANCH $_b current-branch($_repo)"
+                BR_SKIPPED=$((BR_SKIPPED + 1))
+                continue
+            fi
+            if printf '%s\n' "$_attached" | grep -qxF -- "$_b"; then
+                continue   # attached to a registered worktree: the worktree loop owns it
+            fi
+            if [ -z "$_target" ] || ! git -C "$_repo" merge-base --is-ancestor "refs/heads/$_b" "$_target" 2>/dev/null; then
+                _n="$(git -C "$_repo" rev-list --count "$_target..refs/heads/$_b" 2>/dev/null || echo '?')"
+                echo "SKIP-BRANCH $_b unmerged(+$_n)"
+                BR_SKIPPED=$((BR_SKIPPED + 1))
+                continue
+            fi
+            _pids="$(live_pids_for "$_b")"
+            if [ -n "$_pids" ]; then
+                echo "SKIP-BRANCH $_b live-process($_pids)"
+                BR_SKIPPED=$((BR_SKIPPED + 1))
+                continue
+            fi
+            if [ "$EXECUTE" -eq 1 ]; then
+                if git -C "$_repo" branch -d "$_b" >/dev/null 2>&1; then
+                    echo "SWEEP-BRANCH $_b"
+                    BR_SWEPT=$((BR_SWEPT + 1))
+                else
+                    echo "ERROR: branch deletion of $_b in $_repo refused (unmerged commits protecting it?) — investigate manually" >&2
+                    ERROR_COUNT=$((ERROR_COUNT + 1))
+                fi
+            else
+                echo "DRY-RUN SWEEP-BRANCH $_b"
+                BR_SWEPT=$((BR_SWEPT + 1))
+            fi
+        done <<BRANCHES_EOF
+$(git -C "$_repo" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null || true)
+BRANCHES_EOF
     done
 fi
 
@@ -1104,7 +1278,9 @@ if [ "$N_REPOS" -gt 0 ]; then
     done
 fi
 N_WORKTREES="${#WT_PATH[@]}"
-N_UNDECIDABLE=$((SKIP_OWNER_UNDECIDABLE + SKIP_REPORT_ONLY))
+# Undecidable = the owner could not be judged. Report-only repositories are a
+# deliberate boundary, not a judgment failure, and are counted on their own.
+N_UNDECIDABLE=$((SKIP_OWNER_INDETERMINATE + SKIP_OWNER_UNRESOLVED))
 
 SRC_SUMMARY=""
 for _s in primary engine inflight-repos event-logs ledger neighborhood; do
@@ -1117,10 +1293,10 @@ for _s in primary engine inflight-repos event-logs ledger neighborhood; do
     SRC_SUMMARY="$SRC_SUMMARY $_s=$_n"
 done
 
-echo "=== summary ($MODE_LABEL): reaped=$REAP_COUNT skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT ==="
-echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE ==="
+echo "=== summary ($MODE_LABEL): reaped=$REAP_COUNT skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
+echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE ==="
 echo "=== sources:$SRC_SUMMARY ==="
-echo "    skip breakdown: locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-undecidable=$SKIP_OWNER_UNDECIDABLE report-only-repo=$SKIP_REPORT_ONLY"
+echo "    skip breakdown: locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED report-only-repo=$SKIP_REPORT_ONLY"
 if [ "${#BLIND[@]}" -gt 0 ]; then
     for _b in "${BLIND[@]}"; do
         echo "=== blind: $_b ==="
@@ -1129,7 +1305,18 @@ else
     echo "=== blind: none declared ==="
 fi
 
+# --- THE VERDICT — the one line that is not allowed to read as routine -------
 if [ "$ERROR_COUNT" -gt 0 ]; then
+    echo "=== verdict: FAIL — errors=$ERROR_COUNT (a removal, unlock or branch deletion failed; see ERROR lines above) ==="
     exit 1
 fi
+if [ "$SKIP_OWNER_UNRESOLVED" -gt 0 ]; then
+    echo "=== verdict: FAIL — unresolved=$SKIP_OWNER_UNRESOLVED hand-rolled worktree(s) have NO ownership record (no ledger registration, no transcript join). This tool can NEVER judge them; they accumulate until an operator clears them under an explicit amnesty. That is a hole in the record, not a routine skip. ==="
+    exit 3
+fi
+if [ "$SKIP_OWNER_INDETERMINATE" -gt 0 ]; then
+    echo "=== verdict: PENDING — indeterminate=$SKIP_OWNER_INDETERMINATE hand-rolled worktree(s) have a KNOWN owner whose session is still running (or whose identity was not recorded); each names its session pid above and becomes decidable when that session ends ==="
+    exit 0
+fi
+echo "=== verdict: CLEAN — every candidate was decided ==="
 exit 0
