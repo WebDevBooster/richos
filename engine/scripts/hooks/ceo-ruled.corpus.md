@@ -125,6 +125,20 @@ Two further refinements, each forced by a measured false positive:
      about when to schedule a migration, because one option said "It starts
      fresh" and another said "against your screen".
 
+3. **The corroborating signal must be INDEPENDENT of the title.** Found by
+   re-measuring against the live register *after another branch landed a ruling
+   in it*: a section titled "The door" repeated the word "door", "door"
+   corroborated "door", and a question from 2026-07-27 about extending the
+   in-app recording door to the men's intros came back refused. One coincidence
+   wearing two hats. The subject's own words are excluded now, the rate went
+   back to 2 in 27, and `ceo-ruled.test.sh` case 3e reproduces the exact shape.
+
+   **Worth saying plainly: the suite was green throughout that defect.** It was
+   found by running the predicate against the real record one more time after
+   the record had moved, which is the only kind of check that finds this class
+   — and it is the reason section 8 of the suite runs against the live record
+   rather than against the fixture alone.
+
 Distinctive means: appearing in at most `RARE_FRACTION` (10%) of the rulings.
 Over the live register that is 8 of 82, which puts "swoosh" (1), "certificate"
 (2), "american" (3), "extra" (3), "splash" (6) and "payload" (8) on the
