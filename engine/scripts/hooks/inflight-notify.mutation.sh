@@ -264,6 +264,89 @@ mutant teams-dir-pointer-ignored "11c." scripts/lib/teammate-identity.py \
     '    if False and not sessions:' \
     "The escape hatch fails for whoever reads the error message it prints."
 
+# ==========================================================================
+# 17-25. THE GENERATOR — added 2026-09-02
+# ==========================================================================
+# The guard already computed everything mechanical in the notice and then made
+# the lander type it back by hand and checked the typing. That produced a
+# 25-line message whose mandatory content is five short fields, and the CEO
+# called it "needlessly feeding tons of garbage shit to agents in flight". The
+# reply was "it stops now", and he rejected that on the spot — correctly,
+# because an intention is not a mechanism, and his standing ruling on exactly
+# this is "I cannot rely on your promises. There must be a guarantee."
+#
+# So every property of the generator is removed here one at a time. These are
+# the ones most exposed to passing for free: "the body is short" and "the field
+# was pre-filled" are both satisfied by a generator that emits nothing at all.
+
+# 17. THE REFUSAL POINTS AT THE GENERATOR. Point it back at a message to
+#     compose and the whole mechanism is a suggestion again.
+mutant refusal-points-at-hand-composition "2d." scripts/hooks/guard-inflight-notify.sh \
+    'echo "        scripts/inflight-notify.sh notice \\"' \
+    'echo "        (compose it yourself, and name the sha) \\"' \
+    "The lander would be told to write the message, which is what produced 25 lines."
+
+# 18. AND IT DOES NOT ALSO HAND OUT A TEMPLATE. A refusal that prints a
+#     fill-in-the-blanks ack command next to the generator invites the hand
+#     path back in, and the hand path is the defect.
+mutant refusal-reprints-ack-template "2e." scripts/hooks/guard-inflight-notify.sh \
+    'echo "      Send the body VERBATIM: the SHA in it is what the witness matches"' \
+    'echo "        scripts/inflight-ack.sh --sha $TIP --impact <kind> --detail x"
+    echo "      Send the body VERBATIM: the SHA in it is what the witness matches"' \
+    "Two paths would be offered, and the hand-typed one is the one that failed."
+
+# 19. THE SHA IS PRE-FILLED. A generated notice that asks for the sha is a
+#     template, and a typed sha is the 2026-09-01 in-flight notice that
+#     discharged nothing because the lander typed it rather than read it.
+mutant generator-asks-for-the-sha "2g." scripts/inflight-notify.sh \
+    'print("  main moved to %s" % tip)' \
+    'print("  main moved to <FILL: the tip sha>")' \
+    "The one field that must never be typed would be typed."
+
+# 20. THE TEAMMATE IS PRE-FILLED, from the exact name join. Addressing the
+#     directory instead means the witness cannot credit the send.
+mutant generator-drops-the-name "2h." scripts/inflight-notify.sh \
+    '    to = wt.get("resolved_name") or ""' \
+    '    wt["resolved_name"] = ""
+    to = ""' \
+    "The notice would be addressed to something the witness cannot join to a debt."
+
+# 21. THE PATHS LINE IS PRE-FILLED, from the predicate own overlap computation.
+mutant generator-drops-paths "2i." scripts/inflight-notify.sh \
+    'print("  paths: %s" % paths)' \
+    'pass' \
+    "The teammate would not be told which of its own files moved."
+
+# 22. EXACTLY TWO OPERATOR FIELDS. Not "few" — two. A third blank is a third
+#     place to inflate, and the CEO rejected "shorter next time" as the fix.
+mutant generator-third-blank-field "2j." scripts/inflight-notify.sh \
+    'print("  paths: %s" % paths)' \
+    'print("  paths: <FILL: type the paths yourself>")' \
+    "A third fill-in field reopens the blank space the generator exists to close."
+
+# 23. THE OPERATOR FIELDS ACTUALLY BAKE IN. A generator that ignores --impact
+#     and --detail leaves the lander editing the output by hand, which is the
+#     hand path with extra steps.
+mutant generator-ignores-operator-fields "2l." scripts/inflight-notify.sh \
+    'impact = (os.environ.get("IF_ARGS_IMPACT") or "").strip()' \
+    'impact = ""' \
+    "The two fields that ARE the operator's would have to be pasted in afterwards."
+
+# 24. THE BODY IS FIVE LINES. This is the shape constraint itself.
+mutant generator-body-grows "2m." scripts/inflight-notify.sh \
+    'print("  ack: %s" % ack_cmd)' \
+    'print("  context: %s" % wt["path"])
+    print("  branch: %s" % wt["branch"])
+    print("  ack: %s" % ack_cmd)' \
+    "The body would grow back, one well-meant line at a time — exactly how it got to 25."
+
+# 25. THE TWO OPERATOR FIELDS ARE VALIDATED, not merely requested. A
+#     multi-line detail is the single easiest way back to a wall of text.
+mutant generator-detail-unvalidated "2o." scripts/inflight-notify.sh \
+    'if [ "$(printf '"'"'%s'"'"' "$DETAIL" | wc -l | tr -d '"'"' '"'"')" != "0" ]; then' \
+    'if false; then' \
+    "A pasted paragraph would go straight into the body."
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '\033[32m✓ %s/%s mutants killed — every property is load-bearing.\033[0m\n' "$PASS" "$PASS"
