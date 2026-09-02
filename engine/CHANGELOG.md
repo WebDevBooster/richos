@@ -12,6 +12,62 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A CEO item can now state the fact its question rests on, and a landing that
+  moves that fact is refused** (`scripts/lib/row-currency.py`,
+  `scripts/lib/row-currency.sh`, `scripts/lib/ceo-todos.py`,
+  `scripts/lib/ceo-todos.sh`) — MINOR, and opt-in per repository.
+
+  Two mechanisms already stood over the CEO's page and neither answered the
+  question that rotted an item on it. `.row-currency` asks *is this row still
+  describing the work?* — and it governs section 3 only. The `Done-check` asks
+  *is this already finished?* On 2026-09-02 an item was neither: it asked the
+  CEO to rule on whether a repository should enforce its own rules, resting on a
+  measurement taken on 2026-08-30 — both contracts committed, "nothing reads
+  either of them", 28 commits that day with no check running. Three days later
+  that was false: scope is declared by the DESTINATION, and both guards had
+  refused commits into that repository three separate times that same day while
+  34 commits landed checked. The item was never finished, so its Done-check was
+  correctly unsatisfied and correctly silent. **Its premise had rotted, and no
+  machinery had an opinion about premises.**
+
+  So an item in a CEO section may carry a `- **Premise:**` warrant that pins the
+  observable fact its question rests on, by object id, exactly as a section-3
+  row pins work:
+
+  ```
+  - **Premise:** `richos/engine/scripts/hooks/guard-x.sh`@`1789d2589cde` — this
+    guard exits before it reads the destination's declaration
+  ```
+
+  When that object id moves, the next landing is refused, naming the item and
+  what moved, and printing the warrant to paste beside a sentence somebody has
+  to decide is still true. There is no re-stamp command and no override, for the
+  reasons the row contract already states. The STATED FACT is part of the
+  warrant: a pin with no sentence beside it clears by retyping a hex string,
+  which is the original defect wearing a fix's clothes — and is what the rotted
+  item had, its premise sentence thirty lines below in prose, attached to
+  nothing.
+
+  Not every question rests on something observable, and forcing a pin would
+  produce fiction — "run `railway login`" rests on no artifact. An item may
+  declare `unobservable "<why not>"`, on the `DONE-CHECK-MANUAL` precedent: a
+  bare marker exempts nothing, the reason is required, and every such
+  declaration is COUNTED AND PRINTED by a census that rides on every verdict,
+  clean or not, because the correct output for an unobservable premise is
+  silence and silence is also what a checker that never ran produces.
+
+  Declared in the record repository's `.ceo-todos` — `PREMISE_SECTIONS` (a
+  subset of `CEO_SECTIONS`; undeclared = not adopted, and the census says so)
+  and `PREMISE_REQUIRED` (`0` names every premise-less item, `1` refuses).
+  It lives there rather than in `.row-currency` because the CEO sections are
+  that declaration's jurisdiction and `CEO_SECTIONS` is already stated there
+  once; a subset named in a second file is the copy-of-a-fact drift this engine
+  keeps finding in itself. It is CHECKED by `row-currency.py`, which is the only
+  place in the engine that compares an object id — the stamp walk was extracted
+  into one function serving both warrants rather than a second staleness
+  implementation, and the section-3 refusal sentences are asserted at runtime,
+  byte for byte, against what they said before.
+
 - **RichOS owns the worktree ownership record, so a worktree's owner can be
   judged after the harness's lock is gone** (`scripts/lib/worktree-ledger.py`,
   `scripts/create-teammate-worktree.sh`, `docs/worktree-ownership-ledger.md`)

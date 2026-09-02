@@ -45,6 +45,63 @@ which is the original defect wearing a fix's clothes. The refusal prints the
 warrant to paste, into a row you are already looking at, beside a sentence you
 have to decide is still true.
 
+## The second warrant: a CEO item's PREMISE
+
+The mechanism above answers *is this row still describing the work?* The
+CEO-TODOs contract answers *is this item already finished?* Neither answers the
+question that rots a question on the CEO's own page:
+
+> Is the reason for asking him this still true?
+
+The case it was built from: an item asked the CEO to rule on whether a
+repository should enforce its own rules, resting on a measurement taken three
+days earlier — the contracts were committed and nothing read them. By the time
+he read it that was false; the mechanism had been fixed and had been refusing
+commits all day. The item was never *finished*, so its Done-check was correctly
+unsatisfied and correctly silent. **Its premise had rotted, and nothing had an
+opinion about premises.** His attention is the scarcest thing in the system, and
+a question whose reason has evaporated spends it directly.
+
+So an item in a CEO section may pin the observable fact its question rests on:
+
+```
+- **Premise:** `<repo>/src/scope.rs`@`4f2a9c1e83bd` — this resolver exits before
+  it reads the destination's declaration, so both contracts are read by nothing
+```
+
+Same identity rule, same refusal, same absence of a re-stamp command. When that
+object id moves, the next landing is refused, naming the item and what moved.
+
+**The stated fact is part of the warrant, not decoration.** A pin with no
+sentence beside it can be cleared by retyping a hex string, which is the
+original defect wearing a fix's clothes — and it is exactly what the rotted item
+had: its premise sentence lived thirty lines below in prose, attached to
+nothing.
+
+**Not every question has a pinnable premise, and forcing one would produce
+fiction.** "Run `railway login`" rests on no artifact. An item may say
+`unobservable "<why not>"` instead — and a bare marker exempts nothing, it must
+carry a reason. Every such declaration is counted and printed by the census on
+every run, clean or not:
+
+```
+PREMISE CENSUS  sections=1,2 items=9 evaluated=1 pinned=1 stamps=1 moved=1
+                unobservable=0 broken=0 skipped=0 unstated=8
+```
+
+That line rides on passes as well as refusals, because the correct output for an
+unobservable premise is silence — and silence is also what a checker that never
+ran produces.
+
+**It is opt-in, in the record repository's `.ceo-todos`**, not here: the CEO
+sections are that declaration's jurisdiction and `CEO_SECTIONS` is already
+stated there once.
+
+| key | meaning |
+|---|---|
+| `PREMISE_SECTIONS` | a subset of `CEO_SECTIONS`. Undeclared = not adopted, and the census says so rather than passing in silence. |
+| `PREMISE_REQUIRED` | `0` (default) names every premise-less item in a notice; `1` makes it a refusal. Default 0 for the reason `DONE_CHECK_REQUIRED` is: shipping it as a requirement would refuse the next commit in every repository that already has a record. |
+
 ## The second check, and why it is second
 
 A commit or merge message that NAMES an item ("we closed item 4.2") is claiming
