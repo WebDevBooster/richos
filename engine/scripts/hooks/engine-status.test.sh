@@ -353,7 +353,11 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # session wrote — and every one of them was green. A count of guards is not a
 # measure of what is being checked; the two-sided canary in ceo-ruled.test.sh
 # is, and it is the thing that would catch this pair going dead.
-if [ "$REGISTERED_N" -eq 45 ]; then
+# 45 -> 46 on 2026-09-02: notice-mechanical-findings.sh, the Stop-time sweep
+# that turns a skipped suite, an unrun harness or an untested hook into a row
+# of the working record. A sibling branch landing the same day adds
+# notice-waiver-repetition.sh; whichever lands second reads 47 here.
+if [ "$REGISTERED_N" -eq 46 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
