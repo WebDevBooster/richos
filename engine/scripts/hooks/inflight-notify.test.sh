@@ -161,6 +161,90 @@ case "$GOUT" in
     *"$TIP"*) ok "2c. the refusal names the SHA that has to appear in the message" ;;
     *) bad "2c. the refusal names the tip" "$GOUT" ;;
 esac
+# 2d/2e. THE REFUSAL POINTS AT THE GENERATOR, NOT AT A TEMPLATE TO TYPE.
+# On 2026-09-02 the lander hand-composed a 25-line notice whose mandatory
+# content is five short fields, and the CEO called it "needlessly feeding tons
+# of garbage shit to agents in flight". The answer offered was that the lander
+# would write shorter ones; he rejected it on the spot, because an intention is
+# not a mechanism. So the refusal must name the command that GENERATES the
+# message — and must NOT hand out a template to fill in by hand, which is the
+# thing that produced the 25 lines.
+case "$GOUT" in
+    *"inflight-notify.sh notice"*) ok "2d. the refusal points at the GENERATOR, not at a message to compose" ;;
+    *) bad "2d. the refusal points at the generator" "$GOUT" ;;
+esac
+case "$GOUT" in
+    *"scripts/inflight-ack.sh --sha"*)
+        bad "2e. the refusal does NOT hand out a hand-typed ack template (the generator emits it)" "$GOUT" ;;
+    *) ok "2e. the refusal does NOT hand out a hand-typed ack template — the generator emits it inside the body" ;;
+esac
+
+# ==========================================================================
+# 2f-2k. THE GENERATOR ITSELF
+# ==========================================================================
+# `notice` emits a ready-to-send body per owed teammate. sha, paths and
+# teammate come from the SAME predicate the guard refuses on; impact and detail
+# are the only two operator fields. THE POINT IS THAT THERE IS NO BLANK SPACE
+# TO INFLATE, so the shape is asserted as well as the content.
+NOUT="$(bash "$RUNNER" notice --repo "$REPO" 2>&1)"; NRC=$?
+say "2f notice" "$NOUT"
+[ "$NRC" -eq 0 ] && ok "2f. the generator runs clean when a notice is owed" \
+                 || bad "2f. the generator runs clean" "exit $NRC: $NOUT"
+case "$NOUT" in
+    *"main moved to $TIP"*) ok "2g. the generated body carries the FULL tip sha, pre-filled" ;;
+    *) bad "2g. the generated body carries the tip sha" "$NOUT" ;;
+esac
+# ADDRESSED to the EXACT resolved name, not merely mentioning it somewhere: a
+# notice addressed to a directory the witness cannot join to a teammate
+# discharges nothing, and the generator must say so out loud when the join fails.
+if printf '%s' "$NOUT" | grep -q 'SendMessage to : norm-sonnet-feature1' \
+   && ! printf '%s' "$NOUT" | grep -q 'NO EXACT NAME JOIN'; then
+    ok "2h. the generated notice is ADDRESSED to the resolved teammate, pre-filled"
+else
+    bad "2h. the generated notice is addressed to the resolved teammate" "$NOUT"
+fi
+case "$NOUT" in
+    *"paths:"*) ok "2i. the generated body carries a paths: line, pre-filled from the predicate" ;;
+    *) bad "2i. the generated body carries paths:" "$NOUT" ;;
+esac
+# EXACTLY TWO FIELDS ARE THE OPERATOR'S. Not "few". Two.
+FILLS="$(printf '%s\n' "$NOUT" | grep -c '<FILL:')"
+[ "$FILLS" -eq 2 ] && ok "2j. EXACTLY two fields are left for the operator (impact, detail)" \
+                   || bad "2j. exactly two operator fields" "found $FILLS <FILL: markers"
+# ...and they are those two, by name.
+if printf '%s' "$NOUT" | grep -q '  impact: <FILL:' && printf '%s' "$NOUT" | grep -q '  detail: <FILL:'; then
+    ok "2k. and they are impact and detail — sha, paths and teammate are never blank"
+else
+    bad "2k. the two operator fields are impact and detail" "$NOUT"
+fi
+# Supplying them bakes them in, and nothing is left to fill.
+NOUT2="$(bash "$RUNNER" notice --repo "$REPO" --impact stale-record \
+    --detail "the seven variations you were given became nineteen; size your library for all of them" 2>&1)"
+say "2l notice filled" "$NOUT2"
+if printf '%s' "$NOUT2" | grep -q '  impact: stale-record' \
+   && printf '%s' "$NOUT2" | grep -q 'the seven variations you were given became nineteen' \
+   && ! printf '%s' "$NOUT2" | grep -q '<FILL:'; then
+    ok "2l. --impact/--detail bake in, and nothing is left to fill"
+else
+    bad "2l. --impact/--detail bake in" "$NOUT2"
+fi
+# THE BODY IS FIVE LINES. That is the whole mechanism: a generated notice with
+# two operator fields cannot become twenty-five.
+BODY_LINES="$(printf '%s\n' "$NOUT2" | awk '/--------------------------- message body/{f=1;next} /^  ------------------------------------/{f=0} f' | wc -l | tr -d ' ')"
+[ "$BODY_LINES" -eq 5 ] && ok "2m. the generated body is EXACTLY 5 lines" \
+                        || bad "2m. the generated body is exactly 5 lines" "got $BODY_LINES lines"
+# The two operator fields are VALIDATED, not merely requested.
+bash "$RUNNER" notice --repo "$REPO" --impact "sort of" >/dev/null 2>&1
+[ $? -eq 2 ] && ok "2n. an --impact outside the four kinds is refused" \
+             || bad "2n. an --impact outside the four kinds is refused" "it was accepted"
+bash "$RUNNER" notice --repo "$REPO" --detail "$(printf 'line one\nline two')" >/dev/null 2>&1
+[ $? -eq 2 ] && ok "2o. a MULTI-LINE --detail is refused — that is how five fields became twenty-five" \
+             || bad "2o. a multi-line --detail is refused" "it was accepted"
+# AND IT DOES NOT SEND. The generator must leave the debt exactly where it was:
+# if running it cleared anything, the send would have stopped being the record.
+run_guard
+[ "$GRC" -eq 2 ] && ok "2p. GENERATING a notice does not SEND it — the debt is untouched" \
+                 || bad "2p. generating a notice does not send it" "exit $GRC: $GOUT"
 
 # ==========================================================================
 # 3. what does NOT satisfy it
