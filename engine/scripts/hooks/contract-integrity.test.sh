@@ -2042,8 +2042,17 @@ emit_case "IL7.idle-land-mutations-all-load-bearing" 0 "$rc"
 # claim gets refused, and asserts that the POSITIVE case goes red.
 set +e; "$SCRIPT_DIR/guard-unresolved-claims.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
-set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+# Output KEPT on failure. IL7 discards it, and when CL2 first went red inside
+# this suite while passing standalone, "exit=1" was the entire diagnosis. A
+# mutation harness that can only say "something survived" is a harness you end
+# up re-running by hand anyway.
+CL2_LOG="$(mktemp -t claim-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >"$CL2_LOG" 2>&1; rc=$?; set -e
 emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^  FAIL|survived or misfired' "$CL2_LOG" | sed 's/^/        /'
+fi
+rm -f "$CL2_LOG"
 
 echo ""
 echo "=== summary ==="
