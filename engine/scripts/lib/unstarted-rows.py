@@ -154,6 +154,25 @@ NOTHING_NAMED = {"", "-", "--", "—", "–", "n/a", "na", "none", "nobody", "no
 # one live row reads "done, but unrun", which is a true and useful sentence.
 DONE_WORDS = {"done", "closed", "landed", "finished", "shipped"}
 
+
+def names_nobody(who):
+    """True when a `**Blocked:**` declaration names NOBODY — "nothing",
+    "nobody", "none", a dash — judged by its FIRST word, the way the queue's
+    `Blocked by` cell already is.
+
+    Found 2026-09-02: rows 3.19 and 3.20 of the real record each read
+    `**Blocked:** nothing — buildable now, nobody blocked.` and were SILENT,
+    because the construct's presence was taken as a declaration without
+    reading what it declared. A row that says in so many words that nothing
+    blocks it is the most unstarted row on the page, and it was the one the
+    sweep could not see. The first word decides, not the whole string,
+    because the record's own style is `nothing — <why it is buildable>`."""
+    norm = strip_markdown(who or "").strip().lower()
+    if not norm:
+        return True
+    first = re.split(r"[\s,;.:]+", norm, 1)[0]
+    return first in NOTHING_NAMED or norm in NOTHING_NAMED
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -283,13 +302,13 @@ def parse_queue(text, label):
             state = "CLOSED"
             detail = "struck through" if is_done_cell or not norm \
                 else "struck through; residual: %s" % strip_markdown(blocker)
-        elif norm in NOTHING_NAMED:
+        elif names_nobody(blocker):
             state, detail = "OPEN", ""
         else:
             state, detail = "DECLARED", strip_markdown(blocker)
 
         bm = BLOCKED_RE.search(item)
-        if state == "OPEN" and bm:
+        if state == "OPEN" and bm and not names_nobody(bm.group("who")):
             state, detail = "DECLARED", strip_markdown(bm.group("who"))
 
         rows.append({"id": ident, "where": label, "state": state,
@@ -345,7 +364,7 @@ def parse_section(rc, text, label, sections, status_tokens, terminal, actionable
         bm = BLOCKED_RE.search(body.split(WARRANT_MARK)[0])
         if tok in terminal:
             state, detail = "CLOSED", tok
-        elif bm:
+        elif bm and not names_nobody(bm.group("who")):
             state, detail = "DECLARED", strip_markdown(bm.group("who"))
         elif tok in actionable:
             state, detail = "OPEN", tok

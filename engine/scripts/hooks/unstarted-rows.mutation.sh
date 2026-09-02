@@ -142,8 +142,8 @@ mutant wildcard-id "6a " "$P" \
 
 # --- 3. DECLARED BLOCKERS --------------------------------------------------
 mutant queue-blocker-ignored "3a " "$P" \
-    '        elif norm in NOTHING_NAMED:' \
-    '        elif True or norm in NOTHING_NAMED:' \
+    '        elif names_nobody(blocker):' \
+    '        elif True or names_nobody(blocker):' \
     "the Blocked by cell IS the declaration; ignoring it shouts about the CEO's own rows every turn."
 
 mutant section-blocker-ignored "3e " "$P" \
@@ -281,6 +281,17 @@ mutant lint-never-clean "7b " "$T" \
     '\nfi\nexit 0' \
     '\nfi\nexit 3' \
     "a lint that cannot say 'all accounted for' can never be wired into a gate."
+
+# --- 8. A DECLARATION THAT NAMES NOBODY ------------------------------------
+mutant blocked-nothing-silences "3f " "$P" \
+    '        elif bm and not names_nobody(bm.group("who")):' \
+    '        elif bm:' \
+    "a row saying in so many words that nothing blocks it must be the loudest row on the page, not a silent one (rows 3.19/3.20, 2026-09-02)."
+
+mutant queue-nothing-silences "3h " "$P" \
+    '        elif names_nobody(blocker):' \
+    '        elif norm in NOTHING_NAMED:' \
+    "the queue cell 'nothing — because…' names nobody; only its first word says so, and the whole string does not match."
 
 echo ""
 echo "  $PASS mutant(s) killed, $FAIL survived or misfired"
