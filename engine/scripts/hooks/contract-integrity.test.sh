@@ -2143,6 +2143,22 @@ emit_case "WTI1.staffing-gate-mutations-all-load-bearing" 0 "$rc"
 set +e; "$SCRIPT_DIR/mechanical-findings.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "MF1.mechanical-findings-mutations-all-load-bearing" 0 "$rc"
 
+# SA1/SA2 — the stated-actions gate's behavioral suite and its mutation
+# harness, registered here for the reason IL6/IL7 are and with the same
+# two-sided risk: "a stated-but-untaken action is refused" is satisfied by a
+# gate that refuses everything, and "a same-turn dispatch is let through" by
+# one that refuses nothing. The harness carries both kinds of mutant, and an
+# unrun mutant refuses nothing. Output KEPT on failure, for CL2's reason.
+set +e; "$SCRIPT_DIR/guard-stated-actions.test.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "SA1.stated-actions-gate-suite-passes" 0 "$rc"
+SA2_LOG="$(mktemp -t stated-actions-mutations.XXXXXX)"
+set +e; "$SCRIPT_DIR/stated-actions.mutation.sh" >"$SA2_LOG" 2>&1; rc=$?; set -e
+emit_case "SA2.stated-actions-mutations-all-load-bearing" 0 "$rc"
+if [ "$rc" -ne 0 ]; then
+    grep -E '^  FAIL' "$SA2_LOG" | sed 's/^/        /'
+fi
+rm -f "$SA2_LOG"
+
 echo ""
 echo "=== summary ==="
 echo "passed: $PASS"

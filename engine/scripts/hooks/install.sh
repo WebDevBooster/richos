@@ -402,6 +402,13 @@ HOOK_FILES+=(
     # already been quietly wrong once, in a way nobody could see: the shipped
     # version stood itself down on 41% of landing turns.
     "$REPO_ROOT/scripts/hooks/guard-idle-land.py"
+    # The stated-actions analyzer. Same argument as guard-idle-land.py directly
+    # above, with one more reason: this one IMPORTS guard-idle-land.py and
+    # turn-manifest.py for its terms, so a trimmed copy could keep both siblings
+    # hashed and intact while deciding nothing itself — the wrapper would start,
+    # announce nothing, and exit 0 on every turn that stated an action it never
+    # took, which is the failure the CEO named seven times in one day.
+    "$REPO_ROOT/scripts/hooks/guard-stated-actions.py"
     # The waiver-repetition analyzer. Same argument as guard-idle-land.py
     # directly above, one notch weaker because this wrapper reports rather
     # than blocks: it decides nothing itself, so an unhashed copy is the file
