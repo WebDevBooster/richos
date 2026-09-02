@@ -316,5 +316,26 @@ if [ -n "$BRANCH" ]; then
     fi
 fi
 
+# --- Ownership ledger: copy the witnessed termination before it is gone ------
+# This removal just destroyed the native worktree that was the only evidence a
+# hand-rolled tree in another repository ever had about its owner. The verdict
+# that authorized it is copied to scripts/lib/worktree-ledger.py so that tree
+# stays decidable — but ONLY when the verdict rested on an OBSERVATION (the
+# entity worktree registered and unlocked, or stale-locked by a dead pid). A
+# NOT-ALIVE that rested on the entity worktree being ABSENT is this helper's
+# rule for removal; it is not a termination signal, and writing it as one
+# would launder absence into positive evidence for every later sweep.
+LV_REASON="$(printf '%s' "$LIVENESS" | cut -f2)"
+case "$LV_REASON" in
+    *"absent/unregistered"*) : ;;
+    *)
+        if [ -f "$SCRIPT_DIR/lib/worktree-ledger.py" ]; then
+            python3 "$SCRIPT_DIR/lib/worktree-ledger.py" record terminated --once \
+                --agent-id "${OWNER_ID#agent-}" --worktree "$WT_PATH" \
+                --reason "$LV_REASON" --witness "remove-agent-worktree" >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
 echo "✓ removed agent worktree: $WT_PATH${BRANCH:+ (branch $BRANCH)} — agent '$OWNER_ID' confirmed not alive. $HOOK_TAG"
 exit 0

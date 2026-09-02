@@ -277,6 +277,13 @@ printf 'seed\n' > "$ENT/seed.txt"
 git -C "$ENT" add seed.txt >/dev/null 2>&1
 git -C "$ENT" commit -qm seed >/dev/null 2>&1
 
+# The ownership ledger every removal below may write to is pinned into the
+# sandbox: a removal whose verdict rested on an OBSERVATION copies it there as
+# a witnessed termination; one that rested on ABSENCE must not.
+WL="$HB/wt-ledger.jsonl"
+export RICHOS_WORKTREE_LEDGER="$WL"
+wl_has() { grep -q "\"agent_id\": \"$1\"" "$WL" 2>/dev/null; }
+
 helper_case() { # <name> <expected-rc> <expected-wt-exists yes|no> <wt-path> <extra-args...>
     local name="$1" exp_rc="$2" exp_exists="$3" wt="$4"; shift 4
     "$HELPER" --entity-repo "$ENT" "$@" >/dev/null 2>&1
@@ -304,6 +311,11 @@ else
 fi
 kill "$LIVE_PID" 2>/dev/null
 wait "$LIVE_PID" 2>/dev/null
+if ! wl_has live0001; then
+    printf '  PASS  H1c a REFUSED removal writes no termination to the ownership ledger\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  H1c a refused removal wrote a termination for a LIVE agent\n'; FAIL=$((FAIL + 1))
+fi
 
 # (H2) STALE lock — dead pid -> removed.
 WT_STALE="$ENT/.claude/worktrees/agent-stale002"
@@ -311,12 +323,22 @@ git -C "$ENT" worktree add -q -b worktree-agent-stale002 "$WT_STALE" >/dev/null 
 git -C "$ENT" worktree lock --reason "claude agent agent-stale002 (pid 999999 start old)" "$WT_STALE" >/dev/null 2>&1
 helper_case "H2 STALE lock (dead pid) -> removed" 0 no "$WT_STALE" \
     --owner agent-stale002 "$WT_STALE" --branch worktree-agent-stale002 --force
+if wl_has stale002 && grep -q '"witness": "remove-agent-worktree"' "$WL"; then
+    printf '  PASS  H2b the stale-lock verdict is copied to the ownership ledger as a witnessed termination\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  H2b stale-lock removal left no witnessed termination in the ledger\n'; FAIL=$((FAIL + 1))
+fi
 
 # (H3) UNLOCKED entity worktree -> removed.
 WT_UNLK="$ENT/.claude/worktrees/agent-unlk003"
 git -C "$ENT" worktree add -q -b worktree-agent-unlk003 "$WT_UNLK" >/dev/null 2>&1
 helper_case "H3 UNLOCKED entity wt -> removed" 0 no "$WT_UNLK" \
     --owner agent-unlk003 "$WT_UNLK" --force
+if wl_has unlk003; then
+    printf '  PASS  H3b the unlocked-worktree verdict is copied to the ownership ledger\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  H3b unlocked removal left no witnessed termination in the ledger\n'; FAIL=$((FAIL + 1))
+fi
 
 # (H4) hand-rolled external-repo worktree, no entity worktree at all -> removed there.
 OTHER="$HB/other"
@@ -331,6 +353,14 @@ WT_HAND="$HB/other-norm-wt"
 git -C "$OTHER" worktree add -q -b feat "$WT_HAND" >/dev/null 2>&1
 helper_case "H4 hand-rolled external wt (no entity wt) -> removed" 0 no "$WT_HAND" \
     --owner agent-norm999 "$WT_HAND" --repo "$OTHER" --branch feat --force
+# THE NEGATIVE THAT MATTERS: this verdict rested on the entity worktree being
+# ABSENT. Writing it as a termination would launder absence into positive
+# evidence for every later sweep. Nothing is written.
+if ! wl_has norm999; then
+    printf '  PASS  H4b an ABSENCE-based verdict is NOT written to the ownership ledger\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  H4b an absence-based verdict was laundered into a witnessed termination\n'; FAIL=$((FAIL + 1))
+fi
 
 # (H5) THE INCIDENT: a LIVE pid on the HAND-ROLLED worktree must NOT be trusted.
 # The entity wt is UNLOCKED (the agent finished its entity-side isolation) while
