@@ -90,11 +90,28 @@
   --serif: "Newsreader", serif;
   --caps: "Inter", sans-serif;
   --sans: "Inter", sans-serif;
+  /* THE SERIF WITH THE SANS BEHIND IT, and it exists for one character. `field-engine.js:672`
+     writes the ticker as `... <i>Product</i> \u2192 3 new memories`, and the vendored
+     Newsreader does not carry U+2192 — probed two ways, `FontFaceSet.check` and an advance
+     width against a family that does not exist: Newsreader measures 16px for it, which is
+     exactly the fallback's width, while Inter measures 15.21px and therefore really has it.
+     With `--serif` on that element the generic `serif` came next and the machine's own font
+     drew the arrow, which is §22 broken in the one way a stylesheet audit cannot see. The
+     engine is a port of a frozen round and its template is not ours to edit; putting the other
+     VENDORED face in front of the generic is, and it changes nothing else on the screen. */
+  --serif-vendored-fallback: "Newsreader", "Inter", serif;
 
   /* how far the round's composition is pushed down to make room for the entity row; set from
      `home.js` once the row's real height is known, so the reservation is measured and not
      guessed at a fixed number of rows */
   --home-top-inset: 0px;
+  /* how far the top-right column is pushed down to make room for the first-run banner;
+     measured from `home.js`, and 0px whenever that banner is not up — see #home-note */
+  --home-note-inset: 0px;
+  /* how long a company's name takes to slide out over its number, and how long the pill takes
+     to grow to fit it. One value so the two halves of that motion cannot drift apart, and one
+     place for `iris-opus-row1`'s design to change it. */
+  --home-chip-slide: 240ms;
   /* the clear space reserved on each side for the two text columns — see #home-entities */
   --home-col: 220px;
   --home-entities-max: 500px;
@@ -313,7 +330,11 @@ body.home-open {
 
 #home-live {
   position: absolute;
-  top: calc(32px + var(--home-top-inset));
+  /* `--home-note-inset` is the first-run banner's MEASURED height plus its 26px of clear
+     space, set from `home.js`, and it is `0px` whenever that banner is not up — so with a real
+     customer's loro drawing the picture this line is `calc(32px + var(--home-top-inset))` and
+     the composition is byte-identical to the one the CEO approved. See `#home-note` below. */
+  top: calc(32px + var(--home-top-inset) + var(--home-note-inset, 0px));
   right: 34px;
   text-align: right;
   pointer-events: none;
@@ -367,7 +388,9 @@ body.home-open {
 }
 #home-live .ticker {
   margin-top: 14px;
-  font-family: var(--serif);
+  /* Not `--serif`: this is the one element on the screen whose text the ENGINE writes, and the
+     one arrow it writes is not in Newsreader. See `--serif-vendored-fallback`. */
+  font-family: var(--serif-vendored-fallback);
   font-size: 16px;
   color: var(--t2);
   opacity: 0;
@@ -383,8 +406,182 @@ body.home-open {
 }
 
 /* =============================================================================================
-   APP: THE ENTITY ROW — "at the very top there should be a slim row with buttons named after
-   the user's entities/companies" (CEO, 2026-09-01).
+   APP: THE FIRST-RUN BANNER — "On first launch, the home screen draws synthetic data, yes.
+   Show a small banner in the top right corner saying something like: 'This is what your home
+   screen could look like once Rich gets enough information about you and your business.'"
+   (CEO, 2026-09-01.)
+
+   WHY IT EXISTS. v1 is an open-source launch on GitHub, so strangers open this app, and a new
+   customer's loro corpus is empty by definition. The picture they land on is
+   `home/field-data.js` — a wholly synthetic corpus generated for design exploration, whose own
+   `meta.synthetic` is `true` — and every number down the left column is somebody else's. The
+   banner is what stops the screen from pretending otherwise.
+
+   THE CONDITION THAT RAISES IT IS NOT HERE. It is `fieldDataIsCustomers()` in `home.js`,
+   because it is a fact about the DATA and not about the styling, and it is positive-signal
+   only: the banner goes away when the dataset says it is the customer's, never before.
+
+   WHERE IT SITS, AND WHY NOT THE LITERAL CORNER PIXEL. That corner is taken twice over, and
+   both were measured rather than eyeballed (WebKit, `#home` mounted, six companies in the row,
+   at 1440x900 / 1280x800 / 1120x760 / 960x720):
+
+     * THE SETTINGS BUTTON is `position: fixed; top: 18px; right: 18px`, 40x40, z-index 300
+       (`style.css` `.settings` / `.setbtn`). It owns y=[18,58] hard against the right edge on
+       every screen, this one included — §15 puts it everywhere.
+     * THE ENTITY ROW is `top: 22px`, `bottom: 98px`, and its right edge measured 970 / 890 /
+       810 / 730px at the four widths above. Between that edge and the settings button there is
+       470 / 390 / 310 / 172px of clear width. At 960 — the app's own default window size —
+       a banner squeezed into 172px would be a six-line column in the corner.
+
+   So the banner takes THE TOP OF THE RIGHT COLUMN: the line the "Working now" aside used to
+   start on, `top: calc(32px + var(--home-top-inset))`, which measured y=116 at all four
+   widths. It is below the entity row's band, so it has the whole right column's width at any
+   window size, and below the settings button, so it never reaches it.
+
+   THE ASIDE MOVES DOWN BY EXACTLY THE BANNER'S HEIGHT, and that is the only change this
+   feature makes to anything that was already on the screen: one `top:` on `#home-live`, driven
+   by `--home-note-inset`, which `home.js` sets from the banner's MEASURED height and sets to
+   `0px` whenever the banner is not up. With the banner gone — which is what a real customer's
+   loro will do — the geometry is byte-identical to the composition the CEO approved. The right
+   column's top line still aligns with the left column's (`#home-brand` at 114px), because the
+   banner is now the thing holding it.
+
+   IT MUST NOT FIGHT THE PICTURE, AND IT MUST STILL BE READABLE OVER 7,500 MOVING STARS.
+   The chips' answer to the second half is an opaque fill plus a struck border, and a bordered
+   card in the corner of a nebula is a dialog box. So this reuses the chips' HALO and drops
+   their border: a plate of the ruled ground at 0.97 alpha, a 3px hard ring at 0.96, and two
+   soft falloffs that dissolve it into the picture instead of ending it at a line.
+
+     * BEHIND THE GLYPHS the background is deterministic and bounded by the alpha rather than
+       by what the picture is doing: the worst possible composite is over a pure white star,
+       0.97*#0C1322 + 0.03*#FFF = rgb(19,26,41), and `--t2` (#b6c0d4) against that computes
+       9.51:1. Re-measured on the rendered frame in `tests/home.js` rather than trusted here.
+     * THERE IS NO NON-TEXT INDICATOR ON THIS ELEMENT, and that is stated rather than assumed.
+       No border, no state, no boundary that identifies anything: it is a wash behind a
+       sentence. WCAG 1.4.11's 3:1 has nothing here to attach to. `tests/home.js` asserts
+       `border-width: 0` so this stays true, and MEASURES the plate's own edge anyway and
+       prints the number — a claim nobody has to take on faith. Over the dark top-right corner
+       the plate is invisible; over a bright object it reads as a shadow, which is the most a
+       wash is allowed to do.
+
+   TYPE: 16px, AND DELIBERATELY NOT THE 14px FLOOR. §15 puts 14px under text that is genuinely
+   skippable and 16px under text meant to be easily read. This sentence is the one thing on the
+   screen a stranger MUST take in — it is the whole difference between a demonstration and a
+   lie — so it is not skippable, and no contrast or type exemption is claimed for it anywhere.
+   Newsreader at the aside's own 16px in the aside's own `--t2`, so it reads as the quiet head
+   of that column rather than as an alert.
+   ============================================================================================= */
+
+#home-note {
+  position: absolute;
+  /* The TEXT's top edge is `32px + inset` — the aside's old line — and the box starts one
+     vertical padding higher so the wash extends past the first line rather than clipping it.
+     THE FLOOR IS THE SETTINGS BUTTON. It is `position: fixed; top: 18px`, 40px tall, so it owns
+     y=[18,58] on every screen; with the entity row on one line the inset is 41px and the
+     unclamped box top is 59, which measured 1px of clearance under it. 66px is that 58 plus
+     8px of air. `reserveNoteInset()` reads the sentence's REAL bottom edge rather than its
+     height, so the aside follows the clamp instead of riding up into the banner. */
+  top: max(calc(32px + var(--home-top-inset) - 14px), 66px);
+  /* 34px is the composition's own right margin (`#home-live`, `#home-brand`); 18px of that is
+     this box's horizontal padding, so the TEXT lands on the same 34px line as everything else
+     in the column. */
+  right: 16px;
+  /* 356px of text plus the 36px of padding, and the 356 is measured rather than chosen.
+     The sentence was set at seven candidate measures in WebKit with the vendored Newsreader
+     loaded; the line boxes came back 300px -> 282/299/96, 320px -> 311/306/61, 356px ->
+     347/335, 392px -> 381/300. 356 is the narrowest measure that sets the sentence in TWO
+     nearly equal lines (347 and 335) instead of three with a one-word widow, and two lines is
+     50px of text against three lines' 74px — a quarter less banner in the corner for the same
+     sentence. It also stays inside the aside's own 460px cap, so the banner is never the
+     widest thing in the column. The `calc` is the small-window floor: it holds the same clear
+     space on the left that the box holds on the right, down to a 488px window. */
+  width: min(392px, calc(100vw - 96px));
+  padding: 14px 18px;
+  border-radius: 16px;
+  text-align: right;
+  /* A note, not a control: it takes no pointer and no selection, exactly as `#home-live` does
+     three rules up. */
+  pointer-events: none;
+  user-select: none;
+
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0.005em;
+  color: var(--t2); /* 9.51:1 on the plate's worst composite — see the header */
+
+  /* NO BORDER, and the declaration is here so that breaking it takes a deletion rather than an
+     omission. See the header: there is no non-text indicator on this element. */
+  border: 0;
+  background: rgba(12, 19, 34, 0.97);
+  /* THE CHIPS' HALO, RAMPED. `.home-chip` carries two stops —
+     `0 0 0 3px rgba(12,19,34,0.96), 0 0 16px 8px rgba(12,19,34,0.55)` — which is right for a
+     33px pill and wrong for a block this size: those two stops composite to about 0.685 just
+     outside the hard ring's 0.96, and a 0.28 step over 390px of edge reads as a card rather
+     than as a wash. Four stops close that: outside the ring the three soft layers composite to
+     1 - (1-0.8)(1-0.5)(1-0.26) = 0.926 against the ring's 0.94, and the falloff then runs 76px
+     into the picture. None of this touches the arithmetic behind the GLYPHS, which is the
+     plate's own 0.97 and is measured in `tests/home.js`. */
+  box-shadow:
+    0 0 0 3px rgba(12, 19, 34, 0.94),
+    0 0 14px 6px rgba(12, 19, 34, 0.8),
+    0 0 34px 18px rgba(12, 19, 34, 0.5),
+    0 0 76px 46px rgba(12, 19, 34, 0.26);
+}
+
+/* The sentence itself. `margin: 0` is not housekeeping: a `<p>` carries a 1em default margin,
+   which put 16px of untouchable space inside the wash at both ends and pushed the plate's
+   bottom edge to y=236 while the aside's cap sat at y=216 — measured, a 20px overlap of
+   exactly the crowding this placement exists to avoid. */
+#home-note-line {
+  margin: 0;
+}
+
+#home-note[hidden] {
+  display: none;
+}
+
+/* =============================================================================================
+   APP: THE ENTITY ROW — numbered discs by default, and a name that slides out over one.
+
+   THE CEO RULED THE DEFAULT ON 2026-09-02, looking at `round-11.3`'s row:
+
+     *"This will be the default for company buttons for everyone. Note: I removed the word
+      'companies' from the 'All companies' button. Only when the user clicks one of the
+      numbers, will the company name slide out (from left to right) and replace the number on
+      the button."*
+
+     *"And as always: If the user only has only one company, then no company buttons."*
+
+   THAT REVERSES WHAT THIS ROW WAS. Names were the default and numbers were an anonymizing
+   option a customer switched on; numbers are now what everyone sees out of the box, and the
+   name is what a click reveals. His label-override and visibility settings are unchanged — an
+   override still replaces the number on the button it belongs to.
+
+   WHAT IS PLACEHOLDER HERE, SAID PLAINLY BECAUSE IT IS SOMEBODY ELSE'S JOB. `iris-opus-row1`
+   is designing the row's finer conduct for him: what the other buttons do while one is
+   expanded, whether a name persists or collapses, and what `All` does to an expanded button.
+   Nothing here decides any of that. What is implemented is the plainest reading of his
+   sentence and nothing more — THE EXPANSION IS THE SELECTION. The row was already a
+   single-select group; a company being picked is what puts its name out, picking another puts
+   that one's name out and returns the first to its number, and `All` is a selection like any
+   other, so it leaves no name out. There is no second rule, no timer and no hover state to
+   unpick. It is one CSS attribute selector (`[aria-pressed="true"]`) and one duration token
+   (`--home-chip-slide`), so a design that wants something else changes those and
+   `renderEntities()` and touches nothing else.
+
+   IT FITS ON ONE LINE NOW, which the named row did not. `round-11.3` measured seven named
+   capsules at about 790px against about 800px of free ground — the gap-filling he ruled out —
+   so it wrapped to two lines. Measured here: `All` is a 45px capsule and each disc is 33px, so
+   seven controls and six 12px gaps come to 313px inside a 500px cap. An expanded name is the
+   only thing that widens it; his longest, `Webinar Booster`, takes the row to about 428px,
+   still one line and still inside the cap, so clicking a number does not reflow the
+   composition. `tests/home.js` asserts that rather than assuming it.
+
+   HIS ORIGINAL FOUR REQUIREMENTS, all still true of the row and all still where they were
+   (CEO, 2026-09-01: "at the very top there should be a slim row with buttons named after the
+   user's entities/companies").
 
    FOUR THINGS HE ASKED FOR AND WHERE EACH ONE IS, so a later pass can see them rather than
    infer them:
@@ -402,12 +599,11 @@ body.home-open {
      4. BREATHING ROOM. The cap above, plus 12px between chips and 10px between rows.
 
    SIZED FOR HIS SIX, which is the real case (CEO: *"Use my companies as an example. Hardly any
-   CEO will have more entities that I already have now."*). The two long labels — `Webinar
-   Booster` and `GPT Exporter` — set the width, and at 460px the seven controls take two rows.
+   CEO will have more entities that I already have now."*).
 
    TYPE: 16px — §15's floor for text meant to be easily read. NOT 14px: a chip a person picks
-   with is a control, and the 14px tier is for text that is genuinely skippable. Wrapping is
-   what pays for the larger type, and wrapping is what he asked for.
+   with is a control, and the 14px tier is for text that is genuinely skippable. That applies to
+   the numerals as much as to the names: a `1` a CEO is meant to aim at is not fine print.
    ============================================================================================= */
 
 #home-entities {
@@ -435,37 +631,43 @@ body.home-open {
 }
 
 .home-chip {
+  /* MEASURED, from `measureChips()` in home.js — the natural width of each of the two label
+     spans, in CSS pixels, with the vendored face loaded. The defaults below are the disc's own
+     size, so a chip that is on screen before the measurement lands is already the right shape
+     rather than a placeholder that jumps. */
+  --sw-rest: 31.2px;
+  --sw-name: 31.2px;
+
   font-family: var(--caps);
   font-size: 16px;
   font-weight: 400;
   line-height: 1.2;
   letter-spacing: 0.005em;
-  padding: 6px 14px;
+  /* The HORIZONTAL padding lives on the two label spans, not here: each label needs its own,
+     and the disc's is not the name's. Vertical padding stays here, where it sets the height. */
+  padding: 6px 0;
   border-radius: 999px;
   cursor: pointer;
-  white-space: nowrap;
   text-align: center;
-  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  /* THE SLIDE HAPPENS INSIDE THIS BOX. Without it the number would still be sitting outside
+     the pill, in the open, while the name comes in. */
+  overflow: hidden;
+  /* +2px for the 1px border on each side — `box-sizing: border-box` is set on `#home *`. */
+  width: calc(var(--sw-rest) + 2px);
 
-  /* A ONE-CHARACTER LABEL HAS TO LOOK INTENTIONAL. The CEO's own example is `1`, `2`, `3` —
-     "if the user wanted to anonymize their home screen (for sharing on social media)" — and
-     that is a state he means to SHOW PEOPLE, not a degraded fallback. At 16px Inter a `1`
-     measures 8.9px, which with the padding alone would be a 36.9 x 29px lozenge: taller than
-     it is wide by a hair, and it reads as a cramped mistake rather than a considered chip.
-
-     46px is the smallest width at which the pill's corner radius resolves into a shape and a
-     row of `1 2 3 4 5 6` sits on a rhythm. It costs the named state NOTHING: the shortest
-     real label in his registry is `Deeply`, which is already 78px, so nothing is padded out
-     and `Webinar Booster` is unaffected. Sizing on text width alone is what would have made
-     the anonymized row look accidental. */
-  min-width: 46px;
+  transition:
+    width var(--home-chip-slide) ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
 
   /* OPAQUE ON PURPOSE. Everything else on this screen sits on a background the renderer hushes
-     for it (the `u_quiet` pass, whose eight rectangles are the round's own chrome and are not
-     extensible without a shader change). This row is not in that set, so the picture behind it
-     is whatever the field is doing — which means a translucent chip has NO computable contrast
-     ratio. A solid fill is the only honest way to hold AA here, and it is measured against that
-     fill in `tests/home.js`. */
+     for it (the `u_quiet` pass). This row is not in that set — `home/field-engine.js:407`
+     builds its eight groups from `#home-brand > *`, the five `#home-signals .sig`, and the two
+     `#home-live` groups, and `QUIET_N` is 8, so there is no ninth slot without a shader change
+     to a ported round. The picture behind this row is therefore whatever the field is doing,
+     which means a translucent chip has NO computable contrast ratio. A solid fill is the only
+     honest way to hold AA here, and it is measured against that fill in `tests/home.js`. */
   background: #111b30;
   color: #dfe4ee; /* 13.71:1 on #111b30 */
   border: 1px solid #6b7ea8; /* 4.23:1 on #111b30 — a non-text boundary, owes 3:1 */
@@ -493,6 +695,60 @@ body.home-open {
     0 0 16px 8px rgba(12, 19, 34, 0.55);
 }
 
+/* THE TRACK — the two labels side by side, in the order [name][number], and the whole thing
+   slid sideways. The order is what makes the direction his: with the name FIRST and the track
+   parked at `-sw-name`, revealing it means moving the track back toward zero, so the name
+   enters at the pill's left edge and travels right while the number leaves to the right. Put
+   the number first instead and the same motion runs the other way. */
+.home-chip-track {
+  display: flex;
+  align-items: center;
+  transform: translateX(calc(-1 * var(--sw-name)));
+  transition: transform var(--home-chip-slide) ease;
+}
+.home-chip[aria-pressed="true"] .home-chip-track {
+  transform: none;
+}
+/* The `All` chip has one label and nothing to reveal, so its track never moves. */
+.home-chip.plain .home-chip-track {
+  transform: none;
+}
+.home-chip.plain,
+.home-chip.plain[aria-pressed="true"] {
+  width: calc(var(--sw-rest) + 2px);
+}
+
+.home-chip-name,
+.home-chip-rest {
+  /* `0 0 auto`, not the `0 1 auto` default: these must keep their natural width when the pill
+     is narrower than the track, which is the whole of the clipping mechanism. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* THE DISC. `1.2em + 12px` is the chip's own content height written out — 16px at
+   `line-height: 1.2` is 19.2px, plus the 6px of vertical padding above and below — so the
+   resting chip comes to 19.2 + 12 + 2 = 33.2px in BOTH directions and a one-character label is
+   a circle rather than a lozenge. It is expressed as arithmetic rather than as `33px` so that
+   changing the type size cannot silently make it an oval. */
+.home-chip-rest {
+  padding: 0 10px;
+  min-width: calc(1.2em + 12px);
+}
+
+/* The name's own padding is the capsule padding the row had before the numbers: a name needs
+   room at both ends and a numeral does not. */
+.home-chip-name {
+  padding: 0 14px;
+  /* THE WEIGHT IS ON THE NAME, NOT ON THE PRESSED STATE, and that is not a style choice — it
+     is what keeps `--sw-name` true. The pressed rule used to carry `font-weight: 500`, which
+     would now widen the name AFTER `measureChips()` had measured it at 400 and clip the last
+     letter off inside `overflow: hidden`. Declaring it here means the width that is measured
+     is the width that renders. */
+  font-weight: 500;
+}
+
 .home-chip:hover {
   background: #182440;
   border-color: #93a3c4;
@@ -503,77 +759,215 @@ body.home-open {
   outline-offset: 2px;
 }
 
-/* THE SELECTED STATE IS NOT ONE HUE AND NOTHING ELSE. A filled chip is a different SHAPE of
-   thing from an outlined one at a glance, `aria-pressed` carries it to assistive technology,
-   and the weight moves too. The ink on the signal is the dark ink, restated locally because
-   this file must not depend on the app's token layer. */
+/* THE SELECTED STATE IS NOT ONE HUE AND NOTHING ELSE. It carries the gold fill, the dark ink,
+   `aria-pressed` for assistive technology, the heavier weight on the name — and, since the
+   CEO's ruling, the whole label changes from a numeral to the company's name, which is the
+   loudest difference of the five. The ink on the signal is the dark ink, restated locally
+   because this file must not depend on the app's token layer. */
 .home-chip[aria-pressed="true"] {
+  width: calc(var(--sw-name) + 2px);
   background: #c2a35c;
   color: #0c1322; /* 7.68:1 on #c2a35c */
   border-color: #c2a35c; /* the chip's own edge; the fill is what carries the state */
-  font-weight: 500;
 }
 .home-chip[aria-pressed="true"]:hover {
   background: #cdb175;
   border-color: #cdb175;
 }
 
-/* v1: the buttons are REAL controls with their effect not yet built (the CEO: "For RichOS v1
-   those buttons don't need to do anything"). They are not disabled and not decoration — the id
-   each one carries, the selection and the click target are all live, so the filter drops in
-   later without a redesign. The cursor stays a pointer for the same reason. */
+/* A CEO who has asked his machine for less motion gets the same reversal with no travel. The
+   row still says exactly the same thing; it just says it at once. */
+@media (prefers-reduced-motion: reduce) {
+  #home {
+    --home-chip-slide: 0ms;
+  }
+}
+
+/* v1: the buttons' effect ON THE PICTURE is not built (the CEO: "For RichOS v1 those buttons
+   don't need to do anything"). Everything else about them is live — the id each one carries,
+   the selection, the click target, and now the reveal — so filtering the field by entity drops
+   into `select()` later without a redesign. */
 
 /* =============================================================================================
-   APP: THE SWITCH — the way out of the home screen and into the regular app UI.
+   APP: THE DOOR — `round-11.2/v1` "The sill", in the left column.
 
-   PROVISIONAL, AND DELIBERATELY PLAIN. The CEO is choosing the real affordance from six designs
-   (`round-11.2/v1`-`v6`). Everything about the switch that matters — the transition, the state,
-   the return path — is in `home.js`; what is HERE is one control in one place so replacing it is
-   an edit to this block and to `buildSwitch()` in `home.js`, and to nothing else.
+   THE CEO RULED IT ON 2026-09-02, and the ruling is two sentences, one of which outranks the
+   other:
+
+     *"All of the doors are shit because they are covering the spectacle of the home screen.
+      NOTHING can cover the spectacle of the home screen. Put V1 button from round-11.2 under
+      'your attention saved' in the left column and change the button label to 'Talk to Rich'."*
+
+     *"Actually, under that 'Talk to Rich' button there should a text (same type/font/style as
+      in V1) and that text should be simply 'Enter'. So, the user can either click the button
+      or hit the Enter key on their keyboard. Also, what I said about 'NOTHING can cover the
+      spectacle of the home screen' refers only to the company buttons and the 'door'."*
+
+   TWELVE DESIGNED DOORS WERE REJECTED FOR SITTING ON THE PICTURE. So this one is not on the
+   picture: it is the last thing in the LEFT COLUMN, under the fifth signal's
+   "of your attention saved", where the composition already has chrome. It is not centered, not
+   at the foot of the screen, and it replaces the provisional bottom-centered pill entirely.
+
+   THE TREATMENT IS `round-11.2/v1`'s `.sill`, CARRIED RATHER THAN REDESIGNED: a 52px capsule
+   at `border-radius: 26px`, a gold hairline, a hushed translucent fill with a 9px backdrop
+   blur, `#EAEEF6` at 17px, the breathing gold dot, a 2px lift on hover with the border going
+   solid and the fill warming, and the caption below at 14px `#A6B3CB` with the block's 15px
+   gap. What is NOT carried: the arrow (his ruling names the label and nothing else) and the
+   mockup's caption text, which is now the word `Enter`.
+
+   THREE VALUES DEVIATE FROM THE MOCKUP, AND ALL THREE ARE THE CONTRAST FLOOR RATHER THAN
+   TASTE. Each is the smallest change that clears it, computed against the worst composite the
+   plate below can produce, then re-measured on the rendered frame in `tests/home.js`:
+
+     1. THE BORDER, `rgba(194,163,92,0.50)` -> `rgba(194,163,92,0.70)`. Gold at half alpha over
+        this ground is dim: 0.50 composites to rgb(105,93,65) against an interior of
+        rgb(15,22,37), which is 2.79:1 outward and 2.69:1 inward — under the 3:1 a control's
+        own boundary owes. At 0.70 it is rgb(140,121,76): 4.26:1 against the interior and
+        4.10:1 against the plate. Same hue, same 1px, same hairline.
+     2. THE DOT'S BREATH, `opacity: 0.45` -> `0.60` at the bottom of the cycle. At 0.45 the
+        signal composites to rgb(96,86,62) on the interior, 2.49:1. At 0.60 it is
+        rgb(122,107,70), 3.46:1. The dot could have been called decorative and exempted
+        instead — it is `aria-hidden` and carries no state — but an exemption is a claim that
+        something is skippable, and 0.15 of alpha is cheaper than the claim.
+     3. THE HOVER FILL, `rgba(194,163,92,0.16)` -> the same tint LAYERED OVER the resting fill
+        rather than replacing it. A 0.16 fill is 84% picture, so the hovered button would have
+        had no computable ratio at all. Stacked, the interior is rgb(62,62,62) worst case:
+        9.20:1 for the label and 4.42:1 for the solid gold border it hovers to.
+
+   THE PLATE, AND THE ONE THING ON THIS SCREEN IT COSTS. A 1px gold hairline over 7,500 moving
+   stars measured 1.02:1 in the entity chips, and `#A6B3CB` at 14px over a bright strand
+   computes 2.11:1 — neither is fixable by choosing a better tone, because the background will
+   not hold still. The field cannot be asked to hush behind this either: `field-engine.js:407`
+   builds its quiet rectangles from a hard-coded list of eight groups and `QUIET_N` is 8, with
+   no ninth slot short of editing a ported round's shader.
+
+   So the wrapper carries the chips' own halo device: a plate of the ruled ground at 0.97 with a
+   3px ring at 0.96 and two soft falloffs, sized to the sill by `inline-flex` and rounded to
+   match it. It is the ground color, in the part of the composition that is already ground, and
+   the falloffs dissolve it rather than ending it at a line — but it is ~200x104px of the
+   picture held still, and that is stated here rather than left for someone to notice. The
+   alternative is a door whose edge and whose caption are both under the floor.
+
+   IT IS ALSO WHAT MAKES THE BLUR HONEST. `backdrop-filter` samples what is painted behind the
+   element, which now includes this plate, so the sill's 0.62 fill composites over a known
+   ground instead of over whatever star is passing. The blur itself is close to a no-op behind
+   a flat plate; it is kept because it is part of the treatment he picked and because it still
+   works on the 3% of picture that reaches through.
+
+   A SWAP STILL TOUCHES TWO THINGS: `buildSwitch()` in `home.js`, and this block. Nothing else
+   refers to either.
    ============================================================================================= */
 
 #home-switch {
   position: absolute;
-  left: 50%;
-  bottom: 34px;
-  transform: translateX(-50%);
+  /* 34px is the left column's own margin (`#home-brand`, `#home-signals`); 12px of that is the
+     plate's padding, so the SILL's left edge lands on the column line and not the plate's. */
+  left: 22px;
+  /* MEASURED from `#home-signals`' real bottom by `reserveDoorTop()` in home.js, because the
+     signal block's height depends on what the field put in it. The fallback is that block's
+     own measured height (345px) plus the 30px of clear space under it, so the door is in the
+     right place from the first frame and does not jump when the picture arrives. */
+  top: var(--home-door-top, calc(168px + var(--home-top-inset) + 375px));
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  padding: 12px;
+  border-radius: 34px;
+  background: rgba(12, 19, 34, 0.97);
+  /* The banner's ramp, for the banner's reason — see `#home-note`. */
+  box-shadow:
+    0 0 0 3px rgba(12, 19, 34, 0.94),
+    0 0 14px 6px rgba(12, 19, 34, 0.8),
+    0 0 34px 18px rgba(12, 19, 34, 0.5),
+    0 0 76px 46px rgba(12, 19, 34, 0.26);
 }
 
 #home-enter {
-  font-family: var(--caps);
-  font-size: 16px;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  height: 52px;
+  padding: 0 28px;
+  border-radius: 26px;
+  border: 1px solid rgba(194, 163, 92, 0.7); /* 4.26:1 in / 4.10:1 out — see the header */
+  background: rgba(12, 19, 34, 0.62);
+  -webkit-backdrop-filter: blur(9px);
+  backdrop-filter: blur(9px);
+  color: #eaeef6; /* 15.42:1 on the plate's worst composite */
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 400;
   line-height: 1.2;
-  letter-spacing: 0.01em;
-  padding: 11px 22px;
-  border-radius: 999px;
+  letter-spacing: 0.015em;
   cursor: pointer;
-  /* Opaque for the same reason the chips are: this sits over the river, which is bright. */
-  background: #141e34;
-  color: #dfe4ee; /* 13.05:1 on #141e34 */
-  border: 1px solid #c2a35c; /* 6.87:1 on #141e34 — non-text, owes 3:1 */
-  /* The same halo the chips carry, and for the same measured reason — this control sits over
-     the river, which is the brightest thing on the screen. See `.home-chip`. */
-  box-shadow:
-    0 0 0 3px rgba(12, 19, 34, 0.96),
-    0 0 18px 9px rgba(12, 19, 34, 0.55);
-  transition: background-color 0.18s ease, border-color 0.18s ease;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.2s cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 0.25s ease;
 }
-#home-enter:hover {
-  background: #1d2b48;
-  border-color: #cdb175;
+
+#home-enter:hover,
+#home-enter:focus-visible {
+  border-color: #c2a35c;
+  /* The mockup's warm tint LAYERED over the resting fill rather than replacing it — see the
+     header, deviation 3. */
+  background:
+    linear-gradient(rgba(194, 163, 92, 0.16), rgba(194, 163, 92, 0.16)),
+    rgba(12, 19, 34, 0.62);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 34px -18px rgba(194, 163, 92, 0.6);
+  outline: none;
 }
 #home-enter:focus-visible {
-  outline: 2px solid #dfe4ee;
-  outline-offset: 3px;
+  box-shadow: 0 0 0 2px rgba(194, 163, 92, 0.75);
 }
-/* Drawn rather than typed — see `buildSwitch()` in home.js. `currentColor` on the stroke is
-   what makes the ruled signal reach it, so the value stays in one place. */
-#home-enter .home-enter-arrow {
-  margin-left: 9px;
-  display: inline-flex;
-  align-items: center;
-  color: #c2a35c; /* 6.87:1 on #141e34 */
+#home-enter:active {
+  transform: translateY(0);
+}
+
+#home-enter .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #c2a35c;
+  /* THE STATIC VALUE IS THE DIMMEST POINT OF THE CYCLE, and that is a measurement decision
+     rather than a stylistic one. `tests/home.js` measures with every animation held at
+     `none`, so whatever is declared HERE is the value the meter sees — declare 1 and the
+     check reports the dot at its brightest and never at the moment that could fail. */
+  opacity: 0.6;
+  animation: home-sill-breathe 2.4s ease-in-out infinite;
+}
+@keyframes home-sill-breathe {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #home-enter .dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* THE WORD UNDER THE BUTTON, and it is a promise the keyboard keeps — `onHomeKey()` in
+   `home.js` is what makes Enter leave from anywhere on this screen, not only from the focused
+   button. `round-11.2/v1`'s `#door .cap` values, unchanged. */
+#home-door-cap {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: #a6b3cb; /* 8.23:1 on the plate's worst composite */
+  letter-spacing: 0.02em;
 }
 
 /* =============================================================================================

@@ -84,10 +84,33 @@ window.RichHome = (function () {
   // six designs, and a fade constrains none of them.
   var FADE_MS = 200;
 
+  // THE FIRST-RUN BANNER'S SENTENCE, and it is the CEO's own with one tightening.
+  //
+  // His words, 2026-09-01, which are the whole specification for it: *"On first launch, the
+  // home screen draws synthetic data, yes. Show a small banner in the top right corner saying
+  // something like: 'This is what your home screen could look like once Rich gets enough
+  // information about you and your business.'"*
+  //
+  // "Something like" is his own permission to tighten, and exactly one thing is tightened:
+  // `gets enough information about` -> `knows enough about`. Five words to three, the same
+  // claim, the same plain register. BOTH HALVES OF THE MEANING ARE INTACT and neither is
+  // negotiable: what is on the screen is a DEMONSTRATION, and it BECOMES HIS as Rich learns
+  // about him and his business.
+  //
+  // What it deliberately does not say: "sample data", "demo mode", "placeholder", "preview",
+  // or anything carrying an asterisk. On an open-source launch this is the first sentence a
+  // stranger reads inside RichOS, and it has to sound like Rich rather than like a EULA.
+  var NOTE =
+    "This is what your home screen could look like once Rich knows enough about you and your business.";
+
   // The default selection in the entity row. Not the absence of a selection — the CEO was
   // explicit that "all companies" is a STATE and it is the one showing: "switch their loro
   // visual from all companies (which is default) to display the loro for just one".
   var ALL_COMPANIES = "";
+
+  // WHAT THAT BUTTON SAYS, and the word that is gone is the point. CEO, 2026-09-02:
+  // *"Note: I removed the word 'companies' from the 'All companies' button."*
+  var ALL_LABEL = "All";
 
   var root = null;
   var appEl = null;
@@ -111,6 +134,16 @@ window.RichHome = (function () {
     entitySource: "unanswered",
     /// How many company buttons the row is carrying, the default NOT included.
     entityCount: 0,
+    /// Is the picture being drawn from the CUSTOMER'S OWN loro? `false` until a dataset
+    /// positively says otherwise — see `fieldDataIsCustomers()`.
+    dataIsCustomers: false,
+    /// Is the first-run banner up? Exactly `!dataIsCustomers`, kept separately so a test can
+    /// catch the two drifting apart rather than assume they cannot.
+    noteShown: false,
+    /// What the answer was derived FROM, in one word: `"synthetic"` (the dataset says it is),
+    /// `"unknown"` (no dataset has loaded, or it does not say), `"customer"` (it says it is
+    /// his). Never a guess with no name on it.
+    dataSource: "unknown",
   };
 
   // =========================================================================================
@@ -175,6 +208,11 @@ window.RichHome = (function () {
     r.appendChild(brand);
     r.appendChild(elem("section", null, { id: "home-signals" }));
 
+    // APP: the first-run banner, at the top of the right column and therefore before the
+    // aside in the DOM. Neither overlaps the other — see `--home-note-inset` — so this is
+    // reading order rather than paint order.
+    r.appendChild(buildNote());
+
     var live = elem("aside", null, { id: "home-live" });
     var cap = elem("div", "cap");
     cap.textContent = "Working now";
@@ -198,6 +236,135 @@ window.RichHome = (function () {
   }
 
   // -----------------------------------------------------------------------------------------
+  // APP: THE FIRST-RUN BANNER — and the condition is the important half of it.
+  //
+  // THE CONDITION IS DERIVED FROM THE DATA THAT IS BEING DRAWN. Not a launch counter, not a
+  // "first run" flag somebody sets, not a preference: those all drift away from the truth the
+  // moment anything else changes, and the failure they produce is the one that matters here —
+  // a screen telling a customer that a picture is his when it is not.
+  //
+  // The dataset says so itself. `home/field-data.js` opens with
+  // `window.MATURE_LORO = {"meta":{"name":"RichOS synthetic mature loro","version":1,
+  // "synthetic":true, ...`, and `home/field-engine.js:99` is `const loro = window.MATURE_LORO;`
+  // — so the object this reads IS the object the picture is drawn from, not a proxy for it.
+  //
+  // POSITIVE SIGNAL ONLY, which is the same discipline the continuity design requires of crash
+  // detection (`docs/plans/richos-session-continuity-2026-08-24.md` §5.2: a positive
+  // termination signal, never an inference from silence). The answer is "his" only when a
+  // dataset SAYS it is his. No dataset yet — which is the state at first paint, because the
+  // field loads on an idle callback — is not "his". A dataset that simply omits the flag is
+  // not "his" either. The banner stays up through every uncertainty, and only a positive
+  // `"synthetic": false` takes it down.
+  //
+  // THE SEAM THAT DOES NOT EXIST YET, NAMED PRECISELY BECAUSE IT IS NOT BUILT.
+  //
+  // Nothing in this product compiles a customer's own loro corpus into the shape the field
+  // consumes, so today this function returns `false` on every launch on every machine — the
+  // CEO's included — and the banner is always up. That is honest rather than convenient: the
+  // picture on his screen right now IS the synthetic corpus.
+  //
+  // What would close it: the Rust side already HAS the corpus. `richos_core::loro::
+  // CliContextCompiler` is wired in `app/src-tauri/src/memory.rs:87` (`wire_company_memory`)
+  // and `memory_status` (`app/src-tauri/src/main.rs:2010`) already reports whether one is
+  // provisioned. What is missing is a command — call it `home_field_data` — that compiles that
+  // corpus into the `{meta, nodes, links, sources, ...}` structure `home/field-*.js` reads,
+  // and stamps its `meta` with `"synthetic": false` plus the corpus root it came from.
+  // `startField()` would prefer its answer over the baked `field-data.js`, and this function
+  // would go from `false` to `true` with no other change anywhere: the banner would take
+  // itself down, `--home-note-inset` would go to `0px`, and the composition would be the
+  // frozen round's again.
+  //
+  // NOTE WHAT IS NOT PROPOSED: gating on `memory_status`. A provisioned corpus is not the same
+  // fact as a drawn picture, and a banner that vanished the moment a customer created a folder
+  // would be claiming his data was on screen while 7,500 synthetic objects were still on it.
+  // That is precisely the lie this element exists to prevent.
+  // -----------------------------------------------------------------------------------------
+
+  function buildNote() {
+    // `role="status"` and not `role="alert"`: it is a standing statement about what is on the
+    // screen, not an interruption. `aria-live` is deliberately absent for the same reason —
+    // the sentence is there when the screen is, so there is no change to announce.
+    var box = elem("aside", null, { id: "home-note", role: "status" });
+    var line = elem("p", null, { id: "home-note-line" });
+    line.textContent = NOTE;
+    box.appendChild(line);
+    return box;
+  }
+
+  /// Is the picture being drawn from the CUSTOMER'S OWN loro, or from a demonstration?
+  /// See the section header above for why this is positive-signal-only and what the missing
+  /// seam is. Returns `false` for "not his, or nobody has said".
+  function fieldDataIsCustomers() {
+    var d = window.MATURE_LORO;
+    var meta = d && d.meta;
+    if (!meta) return false;
+    // `=== false` rather than `!== true`: a dataset that forgets to say is not evidence.
+    return meta.synthetic === false;
+  }
+
+  /// Raise or drop the banner from the dataset that is actually loaded, and reserve the space
+  /// the top-right column needs for it. Safe to call at any time and as often as wanted.
+  function refreshNote() {
+    if (!root) return;
+    var box = root.querySelector("#home-note");
+    if (!box) return;
+
+    var meta = window.MATURE_LORO && window.MATURE_LORO.meta;
+    state.dataIsCustomers = fieldDataIsCustomers();
+    state.dataSource = state.dataIsCustomers ? "customer" : meta && meta.synthetic === true ? "synthetic" : "unknown";
+    box.hidden = state.dataIsCustomers;
+    state.noteShown = !box.hidden;
+
+    reserveNoteInset();
+  }
+
+  /// Push the top-right aside down by exactly the height the banner turned out to need.
+  ///
+  /// MEASURED, never a constant: the sentence wraps, and how many lines it wraps to depends on
+  /// the window width and on the face that ended up loading. The measurement is the TEXT's own
+  /// box (`#home-note-line`), not the banner's, because the banner's box carries 14px of
+  /// padding on each side that the wash needs and the layout must not pay for twice.
+  ///
+  /// 26px is the clear space between the sentence's last line and the aside's "Working now"
+  /// cap — one line of the aside's own 16px/1.75 leading, rounded to the composition's rhythm.
+  function reserveNoteInset() {
+    if (!root) return;
+    var box = root.querySelector("#home-note");
+    var line = root.querySelector("#home-note-line");
+    // FROM THE SENTENCE'S REAL BOTTOM EDGE, not from its height. `#home-note`'s `top` is a
+    // `max()` — it is normally the aside's own line, but on a one-line entity row that line is
+    // 1px under the settings button, so the clamp pushes it down. A reservation computed from
+    // the height alone would not know that had happened and the aside would ride up into the
+    // banner by exactly the clamp's distance.
+    //
+    // `#home` is `position: fixed; inset: 0`, so its box and the viewport's are the same and
+    // the rect below needs no conversion. 32px is `#home-live`'s own offset, declared six rules
+    // above the banner in `home.css`; 26px is the clear space under the sentence.
+    var h = box && !box.hidden && line ? line.getBoundingClientRect().height : 0;
+    var next = "0px";
+    if (h > 0) {
+      var base = 32 + (parseFloat(getComputedStyle(root).getPropertyValue("--home-top-inset")) || 0);
+      next = Math.max(0, Math.round(line.getBoundingClientRect().bottom + 26 - base)) + "px";
+    }
+
+    // IT ONLY SPEAKS WHEN SOMETHING MOVED, and that is not an optimization — it is the
+    // termination condition. This function both LISTENS for `resize` (the sentence re-wraps
+    // when the window changes width) and DISPATCHES one (the aside moved, so the field's
+    // quiet-rectangle pass has to re-read the layout, which is how `reserveTopInset()` tells
+    // it). Dispatching unconditionally made those two the same edge of a cycle: measured, the
+    // first launch after that landed the picture at 10402 ms instead of 464 ms and the shell
+    // reported `RangeError: Maximum call stack size exceeded`. Comparing first is what makes
+    // the recursion depth two — change, notify, re-measure, agree, stop.
+    if (root.style.getPropertyValue("--home-note-inset") === next) return;
+    root.style.setProperty("--home-note-inset", next);
+    try {
+      window.dispatchEvent(new Event("resize"));
+    } catch (e) {
+      /* a webview with no Event constructor would have failed long before here */
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------
   // THE ENTITY ROW
   //
   // The names come from the REGISTRY (`EntityRegistry::ceos_companies`, reached through the
@@ -217,26 +384,105 @@ window.RichHome = (function () {
     label.textContent = "Which company this picture is of";
     box.appendChild(label);
     box.hidden = true; // ...until the backend says he has more than one. See renderEntities().
+
+    // A NAME COMING OUT MAKES THE ROW WIDER, AND THE COMPOSITION SITS ON THE ROW'S HEIGHT.
+    // Measured, his longest name leaves the row on one line — but a customer's could not, and
+    // a row that silently wrapped would leave the picture 33px too high until the next resize.
+    // `transitionend` bubbles from the pill that grew, so this is the moment the new width is
+    // real rather than a guess at when the animation ended.
+    box.addEventListener("transitionend", function (e) {
+      if (e.propertyName === "width") reserveTopInset();
+    });
     return box;
   }
 
-  function chip(id, label, pressed) {
+  /// A company's button: TWO labels in one pill, and only one of them showing.
+  ///
+  /// `rest` is what it says out of the box — its number, or the label the customer typed for
+  /// it. `name` is the company's own name, which is what a click brings out. Both are in the
+  /// DOM at all times; the pill is only as wide as one of them and clips the other, which is
+  /// what makes the reveal a slide rather than a swap.
+  ///
+  /// THE TRACK'S ORDER IS THE DIRECTION HE ASKED FOR. `[name][number]`, parked one name-width
+  /// to the left, so revealing the name means moving the track back toward zero and the name
+  /// travels from the pill's left edge to the right — *"the company name slide out (from left
+  /// to right) and replace the number on the button"*. The reverse order would run the same
+  /// motion backwards.
+  function chip(id, rest, name, pressed) {
     var b = elem("button", "home-chip", {
       type: "button",
       "data-entity": id,
       "aria-pressed": pressed ? "true" : "false",
+      // BOTH LABELS IN THE ACCESSIBLE NAME. A screen reader announcing "1, button" tells its
+      // user nothing about which company that is; announcing only "FemcBoost" would leave the
+      // visible label out of the name, which is what SC 2.5.3 is about. `1 FemcBoost` is both.
+      "aria-label": rest === name ? name : rest + " " + name,
     });
-    b.textContent = label;
+    var track = elem("span", "home-chip-track");
+    var nm = elem("span", "home-chip-name");
+    nm.textContent = name;
+    var num = elem("span", "home-chip-rest");
+    num.textContent = rest;
+    track.appendChild(nm);
+    track.appendChild(num);
+    b.appendChild(track);
     b.addEventListener("click", function () {
       select(id);
     });
     return b;
   }
 
-  /// Set the selection. THE EFFECT ON THE PICTURE IS DELIBERATELY ABSENT (CEO: "For RichOS v1
-  /// those buttons don't need to do anything") — but everything else about the control is
-  /// real: it carries its entity id, it presses, it is a single-select group, and it reports
-  /// on `RichHome.state`. Filtering the field by entity drops in HERE and changes nothing else.
+  /// `All` — one label, nothing to reveal, and therefore no track to move. A separate builder
+  /// rather than a branch inside `chip()`, because a chip carrying its own label twice so the
+  /// slide has something to slide would put the same string in the accessibility tree twice.
+  function plainChip(id, label, pressed) {
+    var b = elem("button", "home-chip plain", {
+      type: "button",
+      "data-entity": id,
+      "aria-pressed": pressed ? "true" : "false",
+    });
+    var track = elem("span", "home-chip-track");
+    var num = elem("span", "home-chip-rest");
+    num.textContent = label;
+    track.appendChild(num);
+    b.appendChild(track);
+    b.addEventListener("click", function () {
+      select(id);
+    });
+    return b;
+  }
+
+  /// MEASURE THE TWO LABELS, because the pill's width is one of them and the slide's distance
+  /// is the other, and neither can be guessed: they depend on the string, on the vendored face
+  /// and on whether that face has finished loading.
+  ///
+  /// The spans are `flex: 0 0 auto` inside a track the pill clips, so each one reports its own
+  /// natural width whatever the pill is currently set to — which is what makes this measurable
+  /// at all rather than a chicken-and-egg.
+  function measureChips() {
+    if (!root) return;
+    var chips = root.querySelectorAll(".home-chip");
+    for (var i = 0; i < chips.length; i++) {
+      var rest = chips[i].querySelector(".home-chip-rest");
+      var name = chips[i].querySelector(".home-chip-name");
+      if (rest) chips[i].style.setProperty("--sw-rest", rest.getBoundingClientRect().width.toFixed(2) + "px");
+      if (name) chips[i].style.setProperty("--sw-name", name.getBoundingClientRect().width.toFixed(2) + "px");
+    }
+  }
+
+  /// Set the selection, WHICH IS ALSO THE REVEAL.
+  ///
+  /// This function does not touch a label, a width or a transition. `aria-pressed` is the only
+  /// thing it moves, and `home.css` hangs the whole slide off that one attribute — so the rule
+  /// "the company whose name is out is the company that is picked" is not a rule anybody has
+  /// to maintain, it is the same fact written once. `iris-opus-row1` is designing what this
+  /// should really be; whatever she lands, it changes that selector and this function and
+  /// nothing else.
+  ///
+  /// THE EFFECT ON THE PICTURE IS DELIBERATELY ABSENT (CEO: "For RichOS v1 those buttons don't
+  /// need to do anything") — but everything else about the control is real: it carries its
+  /// entity id, it presses, it is a single-select group, and it reports on `RichHome.state`.
+  /// Filtering the field by entity drops in HERE and changes nothing else.
   function select(id) {
     if (!root) return;
     state.entity = id;
@@ -308,13 +554,24 @@ window.RichHome = (function () {
     box.hidden = false;
     state.entityRowShown = true;
     // THE DEFAULT IS A STATE, NOT AN ABSENCE (CEO: "all companies (which is default)").
-    box.appendChild(chip(ALL_COMPANIES, "All companies", state.entity === ALL_COMPANIES));
+    box.appendChild(plainChip(ALL_COMPANIES, ALL_LABEL, state.entity === ALL_COMPANIES));
+    state.entityLabels = [];
     for (var k = 0; k < visible.length; k++) {
       var id = String(visible[k].id);
-      // `label` is already resolved by the backend: his override if he set one, the
-      // registry's display name otherwise. Never blank and never the raw id.
-      box.appendChild(chip(id, String(visible[k].label || visible[k].display_name || id), state.entity === id));
+      // WHAT IT SAYS AT REST is the number it is in the row — his ruled default for everyone —
+      // unless the customer has typed a label for it, in which case that is what he wanted the
+      // button to say and it is what it says. The numbering follows the row, so it is over the
+      // companies that are SHOWN and not over the registry: hide one and the rest close up.
+      var custom = visible[k].custom_label ? String(visible[k].custom_label).trim() : "";
+      var rest = custom || String(k + 1);
+      // WHAT A CLICK REVEALS is the company's own name from the registry. Not `label`, which
+      // the backend has already resolved to the override when there is one — that would make
+      // the reveal a no-op for exactly the customer who told us what to call it.
+      var name = String(visible[k].display_name || visible[k].label || id);
+      state.entityLabels.push(rest);
+      box.appendChild(chip(id, rest, name, state.entity === id));
     }
+    measureChips();
     // If his selection was a company that is no longer in the row, fall back to the default
     // rather than leaving a selection with nothing pressed.
     if (state.entity !== ALL_COMPANIES && !box.querySelector('.home-chip[aria-pressed="true"]')) {
@@ -349,42 +606,100 @@ window.RichHome = (function () {
   }
 
   // -----------------------------------------------------------------------------------------
-  // THE SWITCH — PROVISIONAL.
+  // THE DOOR — `round-11.2/v1`'s sill, in the left column. RULED, no longer provisional.
   //
-  // The CEO asked for "some way for the user to switch from the home screen to the regular app
-  // screen/UI" and did not name one; `iris-opus-r112` is designing six for him to choose from.
-  // So this is ONE plain control in ONE place, and it is the only visible part of the switch:
-  // everything that matters — `hide()`, `show()`, the pause/resume, the return path from the
-  // logo — is below and is unaffected by which of the six he picks.
+  // CEO, 2026-09-02: *"All of the doors are shit because they are covering the spectacle of the
+  // home screen. NOTHING can cover the spectacle of the home screen. Put V1 button from
+  // round-11.2 under 'your attention saved' in the left column and change the button label to
+  // 'Talk to Rich'."* And, immediately after: *"under that 'Talk to Rich' button there should a
+  // text (same type/font/style as in V1) and that text should be simply 'Enter'. So, the user
+  // can either click the button or hit the Enter key on their keyboard."*
   //
-  // A SWAP TOUCHES TWO THINGS: this function, and the `#home-switch` / `#home-enter` block in
-  // `home.css`. Nothing else refers to either.
+  // THE CAPTION IS A PROMISE, NOT A DECORATION. `Enter` under the button says the key works, so
+  // the key has to work from anywhere on this screen and not only when the button happens to
+  // hold focus — that is `onHomeKey()` below. A caption that were only true for the focused
+  // control would be the kind of small lie this screen exists not to tell.
   //
-  // The label names the destination in the product's own voice — "Talk to Rich." is the app
-  // bundle's own one-line description — so it is obvious without instruction what is on the
-  // other side of it. Enter also works, which is the keyboard's obvious answer to one control.
+  // The bottom-centered pill this replaces is gone. A SWAP STILL TOUCHES TWO THINGS: this
+  // function, and the `#home-switch` / `#home-enter` block in `home.css`.
+  //
+  // THE DOT IS CARRIED FROM THE MOCKUP AND CARRIES NOTHING. `round-11.2/v1` describes it as
+  // "one breathing gold dot for the live thing"; nothing in this app feeds it, so it is
+  // `aria-hidden` presence and not a count. Kept because the CEO named that button and asked
+  // for its treatment rather than a redesign of it — flagged here because wiring it to
+  // `get_worker_status` is one line, and so is deleting it.
   // -----------------------------------------------------------------------------------------
+
+  var DOOR_LABEL = "Talk to Rich";
+  var DOOR_CAPTION = "Enter";
 
   function buildSwitch() {
     var box = elem("div", null, { id: "home-switch" });
-    var b = elem("button", null, { id: "home-enter", type: "button" });
-    b.appendChild(document.createTextNode("Talk to Rich"));
-    // THE ARROW IS DRAWN, NOT TYPED, and that is a §22 decision rather than a stylistic one.
-    // A text arrow is a glyph the shipped faces have to carry, and when a face does not carry
-    // one the browser does not fail — it silently walks to the next family, which is a system
-    // font. `fonts/fonts.css` had to vendor three Noto subsets for exactly seven characters
-    // the interface was drawing that way. This adds an eighth to nobody's list.
-    var arrow = elem("span", "home-enter-arrow", { "aria-hidden": "true" });
-    arrow.innerHTML =
-      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
-      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<path d="M4 12h15M13 6l6 6-6 6"/></svg>';
-    b.appendChild(arrow);
+
+    var b = elem("button", null, {
+      id: "home-enter",
+      type: "button",
+      // The caption's claim, said to assistive technology too.
+      "aria-keyshortcuts": "Enter",
+    });
+    b.appendChild(elem("span", "dot", { "aria-hidden": "true" }));
+    var label = elem("span", "home-enter-label");
+    label.textContent = DOOR_LABEL;
+    b.appendChild(label);
+    // NO ARROW. The mockup's sill ends in a `\u2192`; his ruling names the label and nothing
+    // else, and the glyph would have been an eighth character on the list of non-ASCII the
+    // vendored faces have to carry (§22).
     b.addEventListener("click", function () {
       hide("switch");
     });
     box.appendChild(b);
+
+    var cap = elem("p", null, { id: "home-door-cap" });
+    cap.textContent = DOOR_CAPTION;
+    box.appendChild(cap);
+
     return box;
+  }
+
+  /// Enter leaves. Bound while the home screen is up and removed when it is not.
+  ///
+  /// FOUR THINGS IT REFUSES TO ACT ON, and each is a place Enter already means something:
+  /// a modifier is held (that is a different shortcut); the settings menu or the company-buttons
+  /// panel has the keystroke (both float ABOVE this surface and own their own Enter); the
+  /// keystroke is on a control inside the home screen that already answers it, which is the
+  /// case every time the CEO arrives, because `focusHome()` puts focus on the door; or
+  /// something else has already handled it.
+  function onHomeKey(e) {
+    if (!state.open || !e || e.key !== "Enter") return;
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    var t = e.target;
+    if (t && t.closest) {
+      if (t.closest(".settings") || t.closest(".home-prefs")) return;
+      if (t.closest("#home button, #home a[href], #home input, #home textarea, #home select, #home [tabindex]")) return;
+    }
+    e.preventDefault();
+    hide("enter-key");
+  }
+
+  /// Put the door where the left column ends.
+  ///
+  /// MEASURED FROM `#home-signals`, because that block's height is whatever the field put in
+  /// it — five signals today, and the engine owns how tall each one is. 30px is the clear space
+  /// under "of your attention saved", which is the rhythm the column already uses between its
+  /// own blocks (19px between signals, 11px inside one).
+  ///
+  /// It returns without writing anything while the signals are still empty, so the door sits on
+  /// the CSS fallback — that block's own measured 345px — rather than jumping up to y=282 for
+  /// the second and a half before the picture arrives and then back down.
+  function reserveDoorTop() {
+    if (!root) return;
+    var sig = root.querySelector("#home-signals");
+    if (!sig) return;
+    var r = sig.getBoundingClientRect();
+    if (r.height < 1) return;
+    var next = Math.round(r.bottom + 30) + "px";
+    if (root.style.getPropertyValue("--home-door-top") === next) return;
+    root.style.setProperty("--home-door-top", next);
   }
 
   // =========================================================================================
@@ -445,6 +760,15 @@ window.RichHome = (function () {
       })
       .then(function () {
         state.field = "live";
+        // The signal block is only now carrying its five lines, so the left column has a real
+        // bottom edge for the first time and the door can sit on it rather than on the
+        // fallback.
+        reserveDoorTop();
+        // THE DATASET IS ONLY NOW ON THE PAGE. Until this line `window.MATURE_LORO` did not
+        // exist, so the banner has been up on the honest default ("nobody has said it is
+        // his"). Re-derive from what actually loaded: if it ever says it is his, this is where
+        // the banner takes itself down.
+        refreshNote();
         // If the CEO already left for the app UI while this was loading, the picture must not
         // start burning frames behind an opaque surface.
         if (!state.open && window.__loro && window.__loro.pause) window.__loro.pause();
@@ -531,6 +855,7 @@ window.RichHome = (function () {
     if (appEl) appEl.removeAttribute("inert");
     document.body.classList.remove("home-open");
     document.removeEventListener("focusin", onFocusIn, true);
+    document.removeEventListener("keydown", onHomeKey, true);
 
     root.classList.add("home-leaving");
     if (fadeTimer) clearTimeout(fadeTimer);
@@ -573,6 +898,7 @@ window.RichHome = (function () {
     document.body.classList.add("home-open");
     if (appEl) appEl.setAttribute("inert", "");
     document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("keydown", onHomeKey, true);
 
     // NOTHING IS REBUILT. If the picture was already up it resumes; if the CEO never waited
     // for it the first time, the load is still in flight and finishes on its own.
@@ -619,6 +945,14 @@ window.RichHome = (function () {
     if (!t || t === document.body || t === document) return;
     if (root.contains(t)) return;
     if (t.closest && t.closest(".settings")) return;
+    // ...AND THE COMPANY-BUTTONS PANEL, for exactly the same reason, which this file was
+    // missing. `openSettings()` focuses the first label field; `#home-prefs` is appended to
+    // `document.body` rather than to `#home`, so `root.contains` is false for everything in it
+    // and this listener pulled focus straight back to the door. Measured, driving the real
+    // panel: focus landed on the field and was on `#home-enter` before the next keystroke, so
+    // the panel he reaches FROM the home screen could not be typed into at all. `page.fill()`
+    // hid it from the older checks because it writes the value without holding focus.
+    if (t.closest && t.closest(".home-prefs")) return;
     focusHome();
   }
 
@@ -712,8 +1046,9 @@ window.RichHome = (function () {
 
     var note = elem("p", "home-prefs-note");
     note.textContent =
-      "Change what a button says, or take it off the home screen. This changes the button " +
-      "only — the company itself, and everything filed under it, stays exactly as it is.";
+      "Every button shows a number, and clicking one slides that company's name out. Give a " +
+      "button its own label here instead, or take it off the home screen. This changes the " +
+      "button only — the company itself, and everything filed under it, stays exactly as it is.";
     panel.appendChild(note);
 
     panel.appendChild(elem("ul", "home-prefs-list", { id: "home-prefs-list" }));
@@ -762,14 +1097,23 @@ window.RichHome = (function () {
     var list = prefsEl && prefsEl.querySelector("#home-prefs-list");
     if (!list) return;
     list.innerHTML = "";
-    for (var i = 0; i < rows.length; i++) list.appendChild(prefsRow(rows[i]));
+    // The number each button shows, worked out the same way the row works it out — over the
+    // companies that are SHOWN, in order. A company he has hidden gets the number it would take
+    // if he showed it again, which is the next one at its own position: that is what its field
+    // has to promise, because an empty label box means "show the number".
+    var n = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var shown = rows[i] && rows[i].visible !== false;
+      if (shown) n++;
+      list.appendChild(prefsRow(rows[i], String(shown ? n : n + 1)));
+    }
     prefsFoot(rows);
     // The home screen's own row follows the same answer, live, so he can see what he is doing
     // to it while the panel is open.
     renderEntities(rows);
   }
 
-  function prefsRow(row) {
+  function prefsRow(row, number) {
     var li = elem("li", "home-prefs-row");
     var id = String(row.id);
 
@@ -779,11 +1123,13 @@ window.RichHome = (function () {
 
     var input = elem("input", "home-prefs-label", {
       type: "text",
-      // The REGISTRY name as the placeholder, and the OVERRIDE as the value. That is what
-      // makes "no override" and "an override that happens to match" different states on
-      // screen — pre-filling with the registry name would make clearing the box look like
-      // deleting a name he chose.
-      placeholder: row.display_name || id,
+      // THE NUMBER as the placeholder, and the OVERRIDE as the value. It used to be the
+      // registry name, and that stopped being true on 2026-09-02: an empty box now means the
+      // button shows its number, and a placeholder saying otherwise would be the panel
+      // describing a default the product no longer has. The override stays the VALUE, so
+      // "no override" and "an override that happens to match" are still different states on
+      // screen and clearing the box still reads as clearing rather than as deleting a name.
+      placeholder: number || "",
       "aria-label": "What the " + (row.display_name || id) + " button says on the home screen",
       "data-entity": id,
       maxlength: "24",
@@ -887,6 +1233,7 @@ window.RichHome = (function () {
     if (window.RichTheme) window.RichTheme.forceDark(true);
 
     document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("keydown", onHomeKey, true);
 
     // THE CLAMP HAS TO BE RE-ASSERTED, AND THIS IS NOT BELT AND BRACES — it is a real defect
     // this file would otherwise ship, caught by `tests/home.js`.
@@ -915,6 +1262,19 @@ window.RichHome = (function () {
       bindWordmark();
       loadEntities();
       reserveTopInset();
+      refreshNote();
+      reserveDoorTop();
+      // The sentence re-wraps when the window changes width, and the aside sits on its
+      // measured height. Nothing else in this file listens for resize, so this is scoped to
+      // the reservation it owns rather than re-running the whole layout.
+      window.addEventListener("resize", reserveNoteInset);
+      window.addEventListener("resize", reserveDoorTop);
+      // The two labels' widths depend on the vendored face, and at first paint it may not have
+      // arrived: a fallback-metrics measurement would leave every pill a few pixels wrong for
+      // the rest of the launch. `document.fonts` is the only event that says otherwise.
+      if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+        document.fonts.ready.then(measureChips).catch(function () {});
+      }
       focusHome();
 
       // The settings menu gets ONE row — "Home screen", with a button that opens the panel
@@ -961,5 +1321,14 @@ window.RichHome = (function () {
     /// Re-read the row from the backend. The acceptance suite drives this directly rather
     /// than reloading the page after every write.
     reloadEntities: loadEntities,
+    /// Re-derive the first-run banner from whatever dataset is currently loaded. Exported so
+    /// the acceptance suite can drive BOTH sides of the condition — including the real-loro
+    /// side, which no code path in the product can produce yet.
+    refreshNote: refreshNote,
+    /// The condition itself, exported for the same reason.
+    fieldDataIsCustomers: fieldDataIsCustomers,
+    /// The sentence, exported so a test asserts the rendered string against the source of
+    /// truth rather than against a copy of it typed into the test.
+    NOTE: NOTE,
   };
 })();
