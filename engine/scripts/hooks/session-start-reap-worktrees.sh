@@ -86,6 +86,18 @@ ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 # outranks the payload cwd anyway. Paying a hang risk for a candidate that
 # never wins is a bad trade.
 
+# HERMETIC UNDER THE TEST OVERRIDE. A sweep WRITES witnessed terminations into
+# the ownership ledger and READS every transcript under the projects directory
+# and the harness's live-session registry. Under REAP_WORKTREES_ROOT all three
+# are pinned inside the sandbox unless the caller pinned them already, for the
+# same reason discovery is suppressed: a unit test must never touch, or even
+# read, the operator's real record.
+if [ -n "${REAP_WORKTREES_ROOT:-}" ]; then
+    export REAP_WORKTREE_LEDGER="${REAP_WORKTREE_LEDGER:-$REAP_WORKTREES_ROOT/.claude/state/worktree-ledger.jsonl}"
+    export REAP_PROJECTS_DIR="${REAP_PROJECTS_DIR:-$REAP_WORKTREES_ROOT/.claude/projects-sandbox}"
+    export RICHOS_SESSIONS_DIR="${RICHOS_SESSIONS_DIR:-$REAP_WORKTREES_ROOT/.claude/sessions-sandbox}"
+fi
+
 # TWO ROOTS. The reaper SCRIPT is an ENGINE asset; the tree it SWEEPS is the
 # ENTITY. The old code took both from one variable, so a plugin-loaded engine
 # looked for its own script inside the session's repository, did not find it,
@@ -141,8 +153,17 @@ else
     # line says what this run could not see at all.
     COVERAGE_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== coverage' || true)"
     BLIND_LINES="$(printf '%s\n' "$RAW_OUTPUT" | grep '^=== blind:' | tr '\n' ' ' || true)"
-    if [ -n "$SUMMARY_LINE" ]; then
-        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
+    # THE VERDICT LEADS. `reaped=5 skipped=49 errors=0` is success-shaped and
+    # was printed on 2026-09-02 for a run in which zero of the 47 real offenders
+    # could ever be touched; `undecidable=47` sat beside it as information. The
+    # reaper now closes every run with a verdict line, and this wrapper puts it
+    # FIRST — a FAIL is announced as one, before any count.
+    VERDICT_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== verdict' || true)"
+    VERDICT_WORD="$(printf '%s' "$VERDICT_LINE" | sed -n 's/^=== verdict: \([A-Z]*\).*/\1/p')"
+    if [ -n "$SUMMARY_LINE" ] && [ "$VERDICT_WORD" = "FAIL" ]; then
+        SUMMARY="WORKTREE REAP FAIL [$SWEEP_ROOT]: ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
+    elif [ -n "$SUMMARY_LINE" ]; then
+        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
     else
         SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
     fi

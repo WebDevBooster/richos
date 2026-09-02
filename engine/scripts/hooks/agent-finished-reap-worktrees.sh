@@ -96,6 +96,18 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
+# HERMETIC UNDER THE TEST OVERRIDE. A sweep WRITES witnessed terminations into
+# the ownership ledger and READS every transcript under the projects directory
+# and the harness's live-session registry. Under REAP_WORKTREES_ROOT all three
+# are pinned inside the sandbox unless the caller pinned them already, for the
+# same reason discovery is suppressed: a unit test must never touch, or even
+# read, the operator's real record.
+if [ -n "${REAP_WORKTREES_ROOT:-}" ]; then
+    export REAP_WORKTREE_LEDGER="${REAP_WORKTREE_LEDGER:-$REAP_WORKTREES_ROOT/.claude/state/worktree-ledger.jsonl}"
+    export REAP_PROJECTS_DIR="${REAP_PROJECTS_DIR:-$REAP_WORKTREES_ROOT/.claude/projects-sandbox}"
+    export RICHOS_SESSIONS_DIR="${RICHOS_SESSIONS_DIR:-$REAP_WORKTREES_ROOT/.claude/sessions-sandbox}"
+fi
+
 # TWO ROOTS. The reaper SCRIPT is an ENGINE asset; the tree it SWEEPS is the
 # ENTITY.
 REAPER="$ENGINE_ROOT/scripts/reap-stale-worktrees.sh"
@@ -129,8 +141,17 @@ else
     RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale $DISCOVER_ARGS 2>&1)" || true
     SUMMARY_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== summary' || true)"
     COVERAGE_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== coverage' || true)"
-    if [ -n "$SUMMARY_LINE" ]; then
-        SUMMARY="agent-finished worktree reap [$SWEEP_ROOT]: ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== }"
+    # THE VERDICT LEADS. `reaped=5 skipped=49 errors=0` is success-shaped and
+    # was printed on 2026-09-02 for a run in which zero of the 47 real offenders
+    # could ever be touched; `undecidable=47` sat beside it as information. The
+    # reaper now closes every run with a verdict line, and this wrapper puts it
+    # FIRST — a FAIL is announced as one, before any count.
+    VERDICT_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== verdict' || true)"
+    VERDICT_WORD="$(printf '%s' "$VERDICT_LINE" | sed -n 's/^=== verdict: \([A-Z]*\).*/\1/p')"
+    if [ -n "$SUMMARY_LINE" ] && [ "$VERDICT_WORD" = "FAIL" ]; then
+        SUMMARY="WORKTREE REAP FAIL [$SWEEP_ROOT]: ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== }"
+    elif [ -n "$SUMMARY_LINE" ]; then
+        SUMMARY="agent-finished worktree reap [$SWEEP_ROOT]: ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== }"
     else
         SUMMARY="agent-finished worktree reap [$SWEEP_ROOT]: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
     fi
@@ -175,7 +196,15 @@ record = {
               for ln in raw.splitlines()
               if ln.startswith("=== blind: ") and ln.endswith(" ===")],
     "reaped": [ln.split(" ", 1)[1] for ln in raw.splitlines() if ln.startswith("REAP ")],
+    "swept_branches": [ln.split(" ", 1)[1] for ln in raw.splitlines() if ln.startswith("SWEEP-BRANCH ")],
     "orphan_processes": [ln for ln in raw.splitlines() if ln.startswith("ORPHAN-PROCESS ")],
+    # The verdict, as its own field, so a reader of this log never has to
+    # parse the summary sentence to learn whether the sweep FAILED.
+    "verdict": next((ln[len("=== verdict: "):].split(" ", 1)[0].rstrip(" —")
+                     for ln in raw.splitlines() if ln.startswith("=== verdict: ")), ""),
+    "unresolved": next((int(m) for ln in raw.splitlines() if ln.startswith("=== coverage")
+                        for m in [ln.split("unresolved=", 1)[1].split(" ", 1)[0]]
+                        if m.isdigit()), None),
 }
 
 try:

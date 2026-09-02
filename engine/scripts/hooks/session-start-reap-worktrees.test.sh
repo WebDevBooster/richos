@@ -85,13 +85,15 @@ add_tree() {
     git -C "$repo" worktree add -q -b "worktree-agent-$id" "$repo/.claude/worktrees/agent-$id"
 }
 
-# run_hook <repo> -> hook stdout; exit code preserved in $RC.
+# run_hook <repo> -> hook stdout in $OUT_HOOK; exit code in $RC. CALLED
+# DIRECTLY, never inside $(...): a command substitution is a subshell, so RC
+# never reached the caller and every `[ "$rc" -eq 0 ]` below was true by
+# initialization. Found 2026-09-02 in the sibling suite.
 RC=0
+OUT_HOOK=""
 run_hook() {
-    local out
-    out="$(REAP_WORKTREES_ROOT="$1" "$HOOK" </dev/null 2>/dev/null)"
+    OUT_HOOK="$(REAP_WORKTREES_ROOT="$1" "$HOOK" </dev/null 2>/dev/null)"
     RC=$?
-    printf '%s' "$out"
 }
 
 json_context() { # <hook stdout> -> additionalContext string ("" if unparseable)
@@ -107,7 +109,7 @@ echo "=== session-start-reap-worktrees (SessionStart reaper wrapper) tests ==="
 
 # 1. Nothing to reap -> exit 0, valid SessionStart JSON, reaped=0.
 REPO="$(make_repo clean)"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 if [ "$rc" -eq 0 ] && printf '%s' "$CTX" | grep -q 'reaped=0 skipped=0'; then
     ok "empty repo: exit 0 + SessionStart JSON reporting reaped=0"
@@ -128,7 +130,7 @@ fi
 #    its branch deleted (the anti-accumulation half of the contract).
 REPO="$(make_repo reapable)"
 add_tree "$REPO" "aaaa0001"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 BRANCH_GONE=1
 git -C "$REPO" rev-parse --verify --quiet refs/heads/worktree-agent-aaaa0001 >/dev/null && BRANCH_GONE=0
@@ -144,7 +146,7 @@ fi
 REPO="$(make_repo dirty)"
 add_tree "$REPO" "bbbb0002"
 printf 'unlanded work\n' >"$REPO/.claude/worktrees/agent-bbbb0002/unlanded.txt"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 if [ "$rc" -eq 0 ] && [ -f "$REPO/.claude/worktrees/agent-bbbb0002/unlanded.txt" ] \
    && printf '%s' "$CTX" | grep -q 'reaped=0 skipped=1'; then
@@ -161,7 +163,7 @@ TREE="$REPO/.claude/worktrees/agent-cccc0003"
 printf 'committed but unlanded\n' >"$TREE/work.txt"
 git -C "$TREE" add work.txt
 git -C "$TREE" commit -q -m "teammate work not yet landed"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 if [ "$rc" -eq 0 ] && [ -d "$TREE" ] && printf '%s' "$CTX" | grep -q 'reaped=0 skipped=1'; then
     ok "unmerged branch survives (skipped=1)"
@@ -174,7 +176,7 @@ fi
 REPO="$(make_repo locked)"
 add_tree "$REPO" "dddd0004"
 git -C "$REPO" worktree lock "$REPO/.claude/worktrees/agent-dddd0004"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 if [ "$rc" -eq 0 ] && [ -d "$REPO/.claude/worktrees/agent-dddd0004" ] && printf '%s' "$CTX" | grep -q 'reaped=0 skipped=1'; then
     ok "freshly-locked worktree survives (skipped=1)"
@@ -187,7 +189,7 @@ fi
 REPO="$(make_repo scope)"
 git -C "$REPO" worktree add -q -b feature-branch "$SANDBOX/scope-external"
 add_tree "$REPO" "eeee0005"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && [ -d "$SANDBOX/scope-external" ] && [ -f "$REPO/seed.txt" ] \
    && [ ! -d "$REPO/.claude/worktrees/agent-eeee0005" ]; then
     ok "hand-rolled worktree + main checkout untouched, agent tree still swept"
@@ -228,7 +230,7 @@ fi
 #    wrapper still exits 0 and reports the absent summary line.
 NOTGIT="$SANDBOX/not-a-repo"
 mkdir -p "$NOTGIT"
-OUT="$(run_hook "$NOTGIT")"; rc=$RC
+run_hook "$NOTGIT"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 if [ "$rc" -eq 0 ] && [ -n "$CTX" ]; then
     ok "non-git target: exits 0 with a diagnostic summary (fail-open)"
@@ -252,13 +254,47 @@ fi
 # 11. Idempotence: a second sweep over an already-swept repo is a clean no-op.
 REPO="$(make_repo idempotent)"
 add_tree "$REPO" "ffff0006"
-run_hook "$REPO" >/dev/null
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 CTX="$(json_context "$OUT")"
 if [ "$rc" -eq 0 ] && printf '%s' "$CTX" | grep -q 'reaped=0 skipped=0 errors=0'; then
     ok "second sweep is a clean no-op (reaped=0 errors=0)"
 else
     bad "idempotent sweep (rc=$rc ctx=$CTX)"
+fi
+
+# 12. THE VERDICT LEADS. A hand-rolled worktree whose owner nobody recorded is
+#     an UNRESOLVED owner: the reaper's verdict is FAIL, and the SessionStart
+#     context line must open with it — never a success-shaped count first.
+REPO="$(make_repo failing)"
+git -C "$REPO" worktree add -q -b nobody-opus-x1 "$SANDBOX/failing-wt/nobody-opus-x1"
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
+CTX="$(json_context "$OUT")"
+if [ "$rc" -eq 0 ] && printf '%s' "$CTX" | grep -q '^WORKTREE REAP FAIL \[' \
+   && printf '%s' "$CTX" | grep -q 'verdict: FAIL — unresolved=1' \
+   && [ -d "$SANDBOX/failing-wt/nobody-opus-x1" ]; then
+    ok "an unjudgeable worktree makes the context line open with WORKTREE REAP FAIL (and nothing is removed)"
+else
+    bad "failing verdict (rc=$rc ctx=$CTX)"
+fi
+# 12b. NEGATIVE: with every candidate decided, the line is NOT a FAIL and
+#      carries the CLEAN verdict.
+REPO="$(make_repo clean-verdict)"
+add_tree "$REPO" "aaaa0007"
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
+CTX="$(json_context "$OUT")"
+if [ "$rc" -eq 0 ] && ! printf '%s' "$CTX" | grep -q 'WORKTREE REAP FAIL' \
+   && printf '%s' "$CTX" | grep -q 'verdict: CLEAN'; then
+    ok "a fully decided sweep reports verdict CLEAN and no FAIL banner"
+else
+    bad "clean verdict (rc=$rc ctx=$CTX)"
+fi
+# 12c. HERMETIC: the sandbox sweep wrote its witnessed termination into the
+#      SANDBOX ledger, not the operator's record.
+if [ -f "$REPO/.claude/state/worktree-ledger.jsonl" ] && grep -q '"agent_id": "aaaa0007"' "$REPO/.claude/state/worktree-ledger.jsonl"; then
+    ok "under REAP_WORKTREES_ROOT the ledger write lands inside the sandbox"
+else
+    bad "ledger redirection (looked in $REPO/.claude/state/worktree-ledger.jsonl)"
 fi
 
 echo ""

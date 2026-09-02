@@ -77,20 +77,24 @@ add_tree() { # <repo> <id>
 
 RC=0
 LOGDIR=""
-run_hook() { # <repo> -> stderr text; exit code in $RC
-    local out
+OUT_HOOK=""
+# run_hook <repo> -> stderr text in $OUT_HOOK; exit code in $RC; team dir in
+# $LOGDIR. CALLED DIRECTLY, never inside $(...): every caller used to run it in
+# a command substitution, i.e. a subshell, so RC and LOGDIR never reached the
+# caller and `[ "$rc" -eq 0 ]` was true by initialization in every case.
+# Found 2026-09-02 when a new case read a stale LOGDIR from a previous case.
+run_hook() {
     LOGDIR="$SANDBOX/teams-$RANDOM"
     mkdir -p "$LOGDIR/session-test"
-    out="$(REAP_WORKTREES_ROOT="$1" REAP_TEAM_DIR="$LOGDIR" "$HOOK" </dev/null 2>&1 >/dev/null)"
+    OUT_HOOK="$(REAP_WORKTREES_ROOT="$1" REAP_TEAM_DIR="$LOGDIR" "$HOOK" </dev/null 2>&1 >/dev/null)"
     RC=$?
-    printf '%s' "$out"
 }
 
 echo "=== agent-finished-reap-worktrees (TeammateIdle/TaskCompleted) tests ==="
 
 # 1. Nothing to reap -> exit 0, and it SAYS it swept rather than saying nothing.
 REPO="$(make_repo clean)"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'reaped=0'; then
     ok "empty repo: exit 0 and a summary reporting reaped=0"
 else
@@ -102,7 +106,7 @@ fi
 #    next session to start.
 REPO="$(make_repo reapable)"
 add_tree "$REPO" "aaaa1001"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 BRANCH_GONE=1
 git -C "$REPO" rev-parse --verify --quiet refs/heads/worktree-agent-aaaa1001 >/dev/null && BRANCH_GONE=0
 if [ "$rc" -eq 0 ] && [ ! -d "$REPO/.claude/worktrees/agent-aaaa1001" ] && [ "$BRANCH_GONE" -eq 1 ]; then
@@ -116,7 +120,7 @@ fi
 REPO="$(make_repo dirty)"
 add_tree "$REPO" "bbbb1002"
 printf 'unlanded work\n' >"$REPO/.claude/worktrees/agent-bbbb1002/unlanded.txt"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && [ -f "$REPO/.claude/worktrees/agent-bbbb1002/unlanded.txt" ]; then
     ok "dirty worktree survives with its uncommitted file"
 else
@@ -131,7 +135,7 @@ TREE="$REPO/.claude/worktrees/agent-cccc1003"
 printf 'committed but unlanded\n' >"$TREE/work.txt"
 git -C "$TREE" add work.txt
 git -C "$TREE" commit -q -m "teammate work not yet landed"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && [ -d "$TREE" ]; then
     ok "unmerged branch survives"
 else
@@ -143,7 +147,7 @@ fi
 REPO="$(make_repo locked)"
 add_tree "$REPO" "dddd1004"
 git -C "$REPO" worktree lock "$REPO/.claude/worktrees/agent-dddd1004"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && [ -d "$REPO/.claude/worktrees/agent-dddd1004" ]; then
     ok "freshly-locked worktree survives"
 else
@@ -155,7 +159,7 @@ fi
 #    the operator's own. The reaper declares the suppression, so it is
 #    assertable rather than assumed.
 REPO="$(make_repo scoped)"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q 'repos=1'; then
     ok "under REAP_WORKTREES_ROOT the sweep is confined to one repository"
 else
@@ -166,7 +170,7 @@ fi
 #    a bare `reaped=N` is the shape that read as a clean machine for months.
 REPO="$(make_repo coverage)"
 add_tree "$REPO" "eeee1005"
-OUT="$(run_hook "$REPO")"; rc=$RC
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
 if printf '%s' "$OUT" | grep -q 'coverage' && printf '%s' "$OUT" | grep -q 'worktrees='; then
     ok "the reported summary carries the coverage denominator"
 else
@@ -177,7 +181,7 @@ fi
 #    read afterwards is how a wrong summary survives.
 REPO="$(make_repo audit)"
 add_tree "$REPO" "ffff1006"
-run_hook "$REPO" >/dev/null
+run_hook "$REPO"
 LOG="$LOGDIR/session-test/reap-events.jsonl"
 if [ -f "$LOG" ] && python3 -c '
 import json, sys
@@ -215,7 +219,7 @@ fi
 #     wrapper still exits 0.
 NOTGIT="$SANDBOX/not-a-repo"
 mkdir -p "$NOTGIT"
-OUT="$(run_hook "$NOTGIT")"; rc=$RC
+run_hook "$NOTGIT"; OUT="$OUT_HOOK"; rc=$RC
 if [ "$rc" -eq 0 ] && [ -n "$OUT" ]; then
     ok "non-git target: exits 0 with a diagnostic (fail-open)"
 else
@@ -234,6 +238,49 @@ if [ "$rc" -eq 0 ] && [ -n "$OUT" ]; then
     ok "garbage stdin is a silent no-op (exit 0, summary still produced)"
 else
     bad "garbage stdin (rc=$rc)"
+fi
+
+# 12. THE VERDICT LEADS, and it is a FIELD in the audit record. An unresolved
+#     owner -> the announced line opens with WORKTREE REAP FAIL and the
+#     reap-events record carries verdict=FAIL, unresolved=1.
+REPO="$(make_repo failing)"
+git -C "$REPO" worktree add -q -b nobody-opus-x2 "$SANDBOX/failing-wt/nobody-opus-x2"
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
+LOG="$LOGDIR/session-test/reap-events.jsonl"
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q '^WORKTREE REAP FAIL \[' \
+   && [ -d "$SANDBOX/failing-wt/nobody-opus-x2" ] \
+   && python3 -c '
+import json, sys
+rec = json.loads(open(sys.argv[1], encoding="utf-8").read().strip().splitlines()[-1])
+assert rec["verdict"] == "FAIL" and rec["unresolved"] == 1, rec
+' "$LOG" 2>/dev/null; then
+    ok "an unjudgeable worktree: announced as WORKTREE REAP FAIL, recorded as verdict=FAIL unresolved=1, nothing removed"
+else
+    bad "failing verdict (rc=$rc out=$OUT log=$(tail -1 "$LOG" 2>/dev/null))"
+fi
+# 12b. NEGATIVE: a decided sweep records verdict=CLEAN and no FAIL banner.
+REPO="$(make_repo clean-verdict)"
+add_tree "$REPO" "aaaa1007"
+run_hook "$REPO"; OUT="$OUT_HOOK"; rc=$RC
+LOG="$LOGDIR/session-test/reap-events.jsonl"
+if [ "$rc" -eq 0 ] && ! printf '%s' "$OUT" | grep -q 'WORKTREE REAP FAIL' \
+   && python3 -c '
+import json, sys
+rec = json.loads(open(sys.argv[1], encoding="utf-8").read().strip().splitlines()[-1])
+assert rec["verdict"] == "CLEAN" and rec["unresolved"] == 0, rec
+' "$LOG" 2>/dev/null; then
+    ok "a fully decided sweep records verdict=CLEAN"
+else
+    bad "clean verdict (rc=$rc out=$OUT)"
+fi
+
+# 12c. HERMETIC: the sandbox sweep's witnessed termination landed in the
+#      SANDBOX ledger — this trigger fires at every TeammateIdle, so a leak
+#      here would write the operator's real record from every unit test run.
+if [ -f "$REPO/.claude/state/worktree-ledger.jsonl" ] && grep -q '"agent_id": "aaaa1007"' "$REPO/.claude/state/worktree-ledger.jsonl"; then
+    ok "under REAP_WORKTREES_ROOT the ledger write lands inside the sandbox"
+else
+    bad "ledger redirection (looked in $REPO/.claude/state/worktree-ledger.jsonl)"
 fi
 
 echo ""
