@@ -18,6 +18,14 @@
 # Every mutant is a throwaway copy of the engine subtree. Nothing here touches
 # the real tree.
 #
+# THE COPY LIST IS PART OF THE TEST. It lacked scripts/lib/git-jurisdiction.sh
+# until 2026-09-02, so every mutant sandbox ran a guard that REFUSED TO START —
+# and a guard that never ran refuses everything, which reads exactly like a
+# guard that caught the mutation. Four mutants were reported as "the suite went
+# red, but not at <case>" for that reason alone, and the whole harness was one
+# missing library away from proving nothing at all. If a mutant here goes red in
+# a place you did not expect, check this list before you check the property.
+#
 # Run directly: scripts/hooks/inflight-notify.mutation.sh
 # Exit 0 = every property is proven load-bearing.
 
@@ -60,6 +68,7 @@ mutant() {
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
        "$ENGINE_ROOT/scripts/lib/seat-jurisdiction.sh" \
+       "$ENGINE_ROOT/scripts/lib/git-jurisdiction.sh" \
        "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/scripts/inflight-notify.sh" "$ENGINE_ROOT/scripts/inflight-ack.sh" "$dir/scripts/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh
@@ -143,17 +152,17 @@ mutant fires-inside-worktrees "7g." scripts/hooks/guard-inflight-notify.sh \
 # 7. THE ACK IS ABOUT ONE COMMIT. An ack that matches any sha is a teammate
 #    acknowledging a land it has never heard of.
 mutant ack-any-sha "5m." scripts/lib/inflight.py \
-    '        if got_sha != tip:' \
-    '        if False:' \
+    '    if got_sha != tip:' \
+    '    if False:' \
     "A stale ack from a previous land would satisfy this one."
 
 # 8. THE PATHS FIELD IS THE ONLY UNCOPYABLE ONE. Drop its check and the whole
 #    ack becomes transcribable from the notice without looking at anything.
 mutant ack-paths-unchecked "5e." scripts/lib/inflight.py \
-    '                problems.append(
-                    "paths: %r is neither in the moved changeset nor present in "
-                    "this worktree — it cannot have been read off either" % p)' \
-    '                pass' \
+    '            problems.append(
+                "paths: %r is neither in the moved changeset nor present in "
+                "this worktree — it cannot have been read off either" % p)' \
+    '            pass' \
     "The ack could be filled in entirely by copying the message back."
 
 # 9. THE POSITIVE PROBE ITSELF. If the guard leaves no footprint, "silent no-op"
