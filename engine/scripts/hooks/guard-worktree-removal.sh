@@ -154,22 +154,99 @@ cmd = (ti.get("command", "") if isinstance(ti, dict) else "") or ""
 reasons = []
 candidates = []
 
-# 1) git worktree remove — incl. `git -C <repo> worktree remove ...`. The
-#    [^\n;|]* between git and worktree carries -C/flags but stops at a
-#    statement separator so a later, unrelated `git` cannot bleed in.
-if re.search(r"\bgit\b[^\n;|]*\bworktree\s+remove\b", cmd):
-    reasons.append("git worktree remove")
+# --- 1-3) The GIT worktree/branch-destroying ops, decided PER GIT INVOCATION.
+#
+# THE FALSE POSITIVE THIS REPLACES, measured 2026-09-02 on a pure READ:
+#
+#     ls -d <path> 2>&1; git branch --list 'worktree-agent-a58289*'
+#
+# BLOCKED. The three conjuncts of the old branch rule were three INDEPENDENT
+# searches over the WHOLE command string: `git ... branch` matched the listing,
+# `worktree-\S+` matched its glob, and `-[dD]` matched the `ls -d` -- a
+# different verb, in a different clause, that deletes nothing. `git merge-base
+# --is-ancestor <branch> main` went the same way whenever anything else on the
+# line carried a -d.
+#
+# Both of those are the VERIFICATION step of a removal. A guard that fires when
+# you look at what you just removed is a guard you learn to waive, and a waived
+# guard is not a defense, it is a formality. So:
+#
+#   * the flags of a rule are read from the arguments of the git invocation that
+#     OWNS them, never from the rest of the line, and
+#   * a git invocation whose subcommand is READ-ONLY can never contribute a
+#     reason at all -- `list`, `for-each-ref`, `merge-base`, `rev-list`, `show`,
+#     `log`, `status`, `diff` and their kin are enumerated below.
+#
+# What deliberately did NOT change: a destructive invocation is still caught
+# wherever it sits on the line, so a read-only verb in an earlier clause cannot
+# launder a `git worktree remove` in a later one. Both halves are pinned by the
+# suite (RO*/RD*) and by mutants M5/M6.
 
-# 2) git worktree prune --expire (plain prune is non-destructive -> allowed)
-if re.search(r"\bgit\b[^\n;|]*\bworktree\s+prune\b", cmd) and re.search(r"--expire\b", cmd):
-    reasons.append("git worktree prune --expire")
+# git's own options that CONSUME the next token; skipping them is what lets
+# `git -C <repo> worktree remove` find `worktree` as the subcommand.
+GIT_GLOBAL_OPTS_WITH_VALUE = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+    "--super-prefix", "--config-env",
+}
 
-# 3) git branch -d/-D of a worktree-* branch (a bare -d/-D of a NON-worktree
-#    branch is NOT blocked — precision).
-if (re.search(r"\bgit\b[^\n;|]*\bbranch\b", cmd)
-        and re.search(r"(?:^|\s)-[dD]\b", cmd)
-        and re.search(r"\bworktree-\S+", cmd)):
-    reasons.append("git branch -D of a worktree-* branch")
+# Subcommands that CANNOT destroy a worktree or a branch. Enumerated rather than
+# inferred: an unknown subcommand is treated as potentially destructive and
+# falls through to the specific rules below, which then find nothing. Adding a
+# read verb here is safe; adding a write verb is not, and M6 proves it.
+GIT_READ_ONLY_SUBCOMMANDS = {
+    "annotate", "blame", "cat-file", "cherry", "config", "count-objects",
+    "describe", "diff", "for-each-ref", "grep", "help", "log", "ls-files",
+    "ls-remote", "ls-tree", "merge-base", "name-rev", "range-diff", "reflog",
+    "rev-list", "rev-parse", "shortlog", "show", "show-ref", "status",
+    "symbolic-ref", "var", "verify-commit", "verify-tag", "version",
+    "whatchanged",
+}
+
+# A git invocation and ITS OWN arguments. The leading class admits a statement
+# separator, whitespace or a quote (so `bash -c "git worktree remove x"` is
+# still seen, exactly as before); the argument run stops at the next separator
+# so a later, unrelated command cannot lend this one its flags.
+GIT_INVOCATION = re.compile(r"(?:^|[;&|(\n\"'`]|\s)git\b(?P<args>[^\n;|&)]*)")
+
+
+def _git_subcommand(tokens):
+    """(subcommand, remaining-args) for one git invocation, or (None, [])."""
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t in GIT_GLOBAL_OPTS_WITH_VALUE:
+            i += 2
+            continue
+        if t.startswith("-"):
+            i += 1
+            continue
+        return t, tokens[i + 1:]
+    return None, []
+
+
+for m in GIT_INVOCATION.finditer(cmd):
+    sub, rest = _git_subcommand(m.group("args").split())
+    if sub is None or sub in GIT_READ_ONLY_SUBCOMMANDS:
+        continue
+
+    if sub == "worktree":
+        sub2 = next((t for t in rest if not t.startswith("-")), None)
+        if sub2 == "remove":
+            reasons.append("git worktree remove")
+        elif sub2 == "prune" and any(
+                t == "--expire" or t.startswith("--expire=") for t in rest):
+            # Plain prune is harmless -> allowed. So are list/add/lock/unlock/
+            # move/repair.
+            reasons.append("git worktree prune --expire")
+
+    elif sub == "branch":
+        # -d, -D, a short bundle containing either, or --delete. A bare delete
+        # of a NON-worktree branch is still NOT blocked -- precision.
+        deletes = any(
+            t == "--delete" or re.fullmatch(r"-[A-Za-z]*[dD][A-Za-z]*", t)
+            for t in rest)
+        if deletes and any(re.search(r"\bworktree-\S+", t) for t in rest):
+            reasons.append("git branch -D of a worktree-* branch")
 
 # 4) A FILESYSTEM recursive rm whose OWN argument list names a worktree.
 #

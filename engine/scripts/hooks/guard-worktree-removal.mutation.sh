@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Mutation harness for guard-worktree-removal.sh's rule-4 rewrite.
+# Mutation harness for guard-worktree-removal.sh: M1-M4 cover the rule-4
+# (filesystem rm) rewrite, M5-M7 the 2026-09-02 clause-scoping fix to the git
+# rules. M5 and M7 are the under-blocking direction, M6 the over-permissive
+# one -- a fix for a false positive can always be faked by disabling the
+# guard, so that direction gets a mutant of its own.
 # Each mutant strips ONE fix back out and asserts (a) the suite fails, (b) the
 # SPECIFIC named case fails, and (c) the mutation actually applied — a sed that
 # matched nothing would give a green run that looked like a green run.
@@ -107,6 +111,41 @@ restore
 perl -0pi -e 's/is_linked_worktree\(\) \{ # <path>/is_linked_worktree() { return 1; }\nunused_is_linked_worktree() { # <path>/' "$GUARD"
 if applied M4 "no rm -r target ever counts as a worktree"; then
     check M4 "no rm -r target ever counts as a worktree" "d2 "
+fi
+
+# --- M5: the fix's clause scoping is reverted -- the git argument run stops at
+# a newline instead of at a statement separator, so a later, unrelated command
+# lends this one its flags again. This is the 2026-09-02 defect in one edit.
+#
+# It goes red in BOTH directions at once, which is worth stating because it was
+# not obvious before the harness said it: RO2 starts false-firing (the `ls -d`
+# is read as the branch rule's delete flag again), AND RD3/RD4/RD5 stop firing
+# at all (the first verb on the line is read-only, it now owns the whole line,
+# and the destructive verb behind it is never classified). One edit, a false
+# positive and a false negative. Only RO2 and RD3 are asserted; the other two
+# ride along and are left unasserted so this check keeps naming the minimum.
+restore
+perl -0pi -e 's/\(\?P<args>\[\^\\n;\|&\)\]\*\)/(?P<args>[^\\n]*)/' "$GUARD"
+if applied M5 "the git argument run bleeds across statement separators"; then
+    check M5 "the git argument run bleeds across statement separators" "RO2" "RD3"
+fi
+
+# --- M6: the OTHER direction. The read-only allowlist is made to swallow the
+# two destructive subcommands, which silences every false positive by silencing
+# the guard. A suite that only asserted the RO half would call this green.
+restore
+perl -0pi -e 's/    "whatchanged",/    "whatchanged", "worktree", "branch",/' "$GUARD"
+if applied M6 "the read-only allowlist swallows worktree and branch"; then
+    check M6 "the read-only allowlist swallows worktree and branch" "a  " "b  " "c  "
+fi
+
+# --- M7: git's value-taking global options stop being skipped, so `git -C
+# <repo> worktree remove` reads the REPO PATH as its subcommand and finds no
+# rule. The cross-repo removal is exactly the shape an operator sweep uses.
+restore
+perl -0pi -e 's/    "-C", "-c", "--git-dir",/    "-c", "--git-dir",/' "$GUARD"
+if applied M7 "git -C's value is no longer skipped when finding the subcommand"; then
+    check M7 "git -C's value is no longer skipped when finding the subcommand" "a2 "
 fi
 
 restore

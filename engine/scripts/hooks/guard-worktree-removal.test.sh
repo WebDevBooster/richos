@@ -20,6 +20,8 @@
 #   (g7) *** `git rm -r <dir>` is NOT a filesystem removal ***  -> exit 0
 #   (g8) *** a plain directory merely NAMED `*-wt` ***          -> exit 0
 #   (g9) *** the MAIN checkout of a repo (not a linked worktree) *** -> exit 0
+#   RO1-RO11 *** a READ never fires, even beside another verb's -d ***  -> exit 0
+#   RD1-RD8  *** ...and every destructive shape still blocks ***        -> exit 2
 #   (h)  block message names the helper, the ENTITY liveness rule and the ack
 #   (i)  missing python3                          -> exit 2 (fail-closed)
 #   (j)  unadopted repository                     -> exit 0 (stand down)
@@ -182,6 +184,60 @@ run_case "g9 REGRESSION: the MAIN checkout is not a linked worktree -> allow" 0 
     "$(bash_payload "rm -rf $MAINREPO")"
 run_case "g10 rm -r of a SUBDIR of a worktree -> allow" 0 \
     "$(bash_payload "rm -rf $REAL_WT/scripts")"
+
+# --- The 2026-09-02 read-only false positive, BOTH halves -------------------
+# The defect: the branch rule's three conjuncts were three independent searches
+# over the WHOLE command, so a `-d` belonging to a completely different verb in
+# a different clause satisfied one of them. RO1 is the measured reproduction --
+# it fired on the VERIFICATION read taken immediately after a removal that had
+# just succeeded, which is the moment a guard most needs to stay quiet.
+#
+# RO* and RD* ship as a PAIR on purpose. A guard can be made to stop
+# false-firing by making it allow everything, and a suite that only asserts the
+# allow half would call that a fix. So every RO case has RD cases holding the
+# other side, including the shapes where a read-only verb sits in FRONT of a
+# destructive one and must not launder it.
+echo "  -- read-only git verbs never fire (2026-09-02) --"
+run_case "RO1 REGRESSION: ls -d then git branch --list -> allow" 0 \
+    "$(bash_payload "ls -d /x/.claude/worktrees/agent-abc 2>&1; git branch --list 'worktree-agent-abc*'")"
+run_case "RO2 REGRESSION: git branch --list then ls -d -> allow" 0 \
+    "$(bash_payload "git branch --list 'worktree-agent-*' && ls -d /x/wt/*")"
+run_case "RO3 REGRESSION: git merge-base --is-ancestor + ls -d -> allow" 0 \
+    "$(bash_payload 'git merge-base --is-ancestor worktree-agent-abc main && ls -d /tmp/*')"
+run_case "RO4 git for-each-ref + ls -d -> allow" 0 \
+    "$(bash_payload 'git for-each-ref --format=%(refname:short) refs/heads/ ; ls -d /tmp')"
+run_case "RO5 git rev-list + sort -d -> allow" 0 \
+    "$(bash_payload 'git rev-list --count main..worktree-agent-abc; sort -d /tmp/x')"
+run_case "RO6 git log + ls -d -> allow" 0 \
+    "$(bash_payload 'git log --oneline main..worktree-agent-abc; ls -d /tmp')"
+run_case "RO7 git show + ls -d -> allow" 0 \
+    "$(bash_payload 'git show --stat worktree-agent-abc; ls -d /tmp')"
+run_case "RO8 git status + ls -d -> allow" 0 \
+    "$(bash_payload 'git status --porcelain; ls -d /tmp')"
+run_case "RO9 git worktree list + ls -d -> allow" 0 \
+    "$(bash_payload 'git worktree list --porcelain; ls -d /tmp')"
+run_case "RO10 git branch --merged + ls -d -> allow" 0 \
+    "$(bash_payload 'git branch --merged main; ls -d /tmp')"
+run_case "RO11 git worktree add of a worktree-* branch -> allow" 0 \
+    "$(bash_payload 'git worktree add /tmp/wt -b worktree-agent-new')"
+
+echo "  -- ...and the destructive shapes still do (the other half) --"
+run_case "RD1 ls -d THEN git branch -D worktree-* -> block" 2 \
+    "$(bash_payload 'ls -d /tmp/* ; git branch -D worktree-agent-abc')"
+run_case "RD2 git branch --list THEN git branch -D worktree-* -> block" 2 \
+    "$(bash_payload "git branch --list 'worktree-agent-*' ; git branch -D worktree-agent-abc")"
+run_case "RD3 a read-only verb does not launder a later worktree remove -> block" 2 \
+    "$(bash_payload 'git log --oneline; git worktree remove /x/.claude/worktrees/agent-abc')"
+run_case "RD4 git worktree list THEN prune --expire -> block" 2 \
+    "$(bash_payload 'git worktree list ; git worktree prune --expire now')"
+run_case "RD5 git status THEN git -C <repo> worktree remove -> block" 2 \
+    "$(bash_payload "git status --porcelain && git -C $MAINREPO worktree remove $REAL_WT")"
+run_case "RD6 long-form git branch --delete worktree-* -> block" 2 \
+    "$(bash_payload 'git branch --delete worktree-agent-abc')"
+run_case "RD7 short bundle git branch -fD worktree-* -> block" 2 \
+    "$(bash_payload 'git branch -fD worktree-agent-abc')"
+run_case "RD8 git worktree prune --expire=now (attached value) -> block" 2 \
+    "$(bash_payload 'git worktree prune --expire=now')"
 
 echo "  -- block message content --"
 run_case_msg "h1 block message names the helper" 'remove-agent-worktree.sh' \

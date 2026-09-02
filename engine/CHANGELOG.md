@@ -130,6 +130,59 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **The removal guard blocked the read that CHECKS a removal, and did it during
+  the sweep it exists to protect** (`scripts/hooks/guard-worktree-removal.sh`,
+  `scripts/hooks/guard-worktree-removal.test.sh`,
+  `scripts/hooks/guard-worktree-removal.mutation.sh`,
+  `scripts/hooks/contract-integrity.test.sh`) — PATCH.
+
+  Measured 2026-09-02, mid-amnesty-sweep. The command was
+
+  ```
+  ls -d <path> 2>&1; git branch --list 'worktree-agent-a58289*'
+  ```
+
+  the verification step taken immediately after a removal had succeeded — two
+  reads, no mutation of any kind. It was BLOCKED as `git branch -D of a
+  worktree-* branch`.
+
+  The rule's three conjuncts were three INDEPENDENT `re.search` calls over the
+  WHOLE command string. `git ... branch` matched the listing, `worktree-\S+`
+  matched its glob, and `-[dD]` matched the **`ls -d`** — a different verb, in a
+  different clause, that deletes nothing. `sort -d`, an earlier `ls -d`, or a
+  `-D` inside an `echo` would each have done it, and the sibling report was
+  `git merge-base --is-ancestor <branch> main` going the same way.
+
+  **This is not a nuisance, it is how a defense decays.** The one command an
+  operator runs immediately after every removal is the command that proves the
+  removal happened — the "verify the ARTIFACT, not the exit code" discipline.
+  A guard that fires on THAT is a guard whose ack token gets pasted in by habit,
+  and an ack pasted in by habit is a guard that no longer decides anything.
+
+  Fixed by scoping: flags are read from the arguments of the git invocation that
+  OWNS them (`git -C <repo>` and friends skipped so the subcommand is found),
+  and an invocation whose subcommand is read-only — `list`, `for-each-ref`,
+  `merge-base`, `rev-list`, `rev-parse`, `show`, `log`, `status`, `diff` and
+  their kin — can no longer contribute a reason at all. Recall is unchanged: a
+  destructive invocation is still caught wherever it sits, so a read-only verb
+  in an earlier clause cannot launder a `git worktree remove` in a later one.
+
+  **The test is two-sided on purpose, because a false positive can always be
+  "fixed" by disabling the guard.** 11 `RO*` cases assert the reads pass, 8
+  `RD*` cases assert every destructive shape still blocks (44 -> 63). Three new
+  mutants hold both directions: M5 reverts the clause scoping, M6 lets the
+  read-only allowlist swallow `worktree` and `branch`, M7 stops skipping
+  `git -C`'s value. M5 is the instructive one — widening the argument run turns
+  RO2 into a false positive **and** RD3/RD4/RD5 into false negatives at the same
+  time, because the read-only verb at the head of the line then owns the whole
+  line.
+
+  And the harness that proves all of this was **run by nothing**:
+  `run-all-tests.sh` discovers `*.test.sh` from disk, so the behavioral suite
+  ran, but a `*.mutation.sh` is outside that glob and no house suite invoked
+  this one. Contract-integrity now runs it as `WTR1`, the way `IL7` and `CL2`
+  already run theirs.
+
 - **The worktree reaper ran, reported success, and swept a room that was
   already empty** (`scripts/reap-stale-worktrees.sh`,
   `scripts/hooks/agent-finished-reap-worktrees.sh`, both wrappers,
