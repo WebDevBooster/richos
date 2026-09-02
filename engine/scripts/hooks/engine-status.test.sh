@@ -358,7 +358,15 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # ledgers, read at last) and notice-mechanical-findings.sh (the Stop-time sweep
 # that turns a skipped suite, an unrun harness or an untested hook into a row of
 # the working record).
-if [ "$REGISTERED_N" -eq 47 ]; then
+# 47 -> 48 on 2026-09-02: guard-stated-actions.sh was wired on Stop — the
+# guard that refuses a turn whose REPORT does not match its ACTIONS: a stated
+# dispatch the turn never made ("Frank breaks it first", no Agent call), or a
+# teammate's completion answered with a report and nothing started or declared.
+# Seven narrated-not-taken actions in one day, six "where is the next Sage"
+# messages from the CEO, and guard-idle-land's own log showing it stood down on
+# every one of them because the backlog had no free row. This paragraph is a
+# human having looked.
+if [ "$REGISTERED_N" -eq 48 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
