@@ -2202,7 +2202,9 @@ rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
 printf '**Models:** the order is `MODEL_TIERS="fable opus > sonnet > haiku"`; do not move a teammate to a lower tier without saying why.\n' >"$ROOT/CLAUDE.md"
 set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
-if printf '%s' "$MT_OUT" | grep -q '✓ MT\. capability order declared as data'; then
+# The probe styles its check mark (C_GREEN ... C_RESET) so "✓ MT." never
+# appears as plain text; match the layer's own words, as MT1-MT4 do.
+if printf '%s' "$MT_OUT" | grep -q 'MT\. capability order declared as data'; then
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 0
 else
     emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 1
