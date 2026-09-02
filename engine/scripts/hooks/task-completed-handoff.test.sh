@@ -28,9 +28,11 @@ FAIL=0
 pass() { printf '  ok   %s\n' "$1"; }
 fail() { printf '  FAIL %s\n' "$1"; FAIL=$((FAIL+1)); }
 
+WL="$SANDBOX/wt-ledger.jsonl"
+export RICHOS_WORKTREE_LEDGER="$WL"
 run_hook() {
     # $1 = payload JSON. Echoes exit code on stdout.
-    printf '%s' "$1" | TASK_COMPLETED_TEAMS_DIR="$TEAMS_DIR" "$HOOK" >/dev/null 2>&1
+    printf '%s' "$1" | TASK_COMPLETED_TEAMS_DIR="$TEAMS_DIR" RICHOS_WORKTREE_LEDGER="$WL" "$HOOK" >/dev/null 2>&1
     echo $?
 }
 
@@ -86,6 +88,15 @@ if [ "$rc" = "0" ]; then pass "empty input exits 0"; else fail "empty input exit
 mkdir -p "$SANDBOX/home/.claude"
 rc="$(printf '%s' '{"hook_event_name":"TaskCompleted","session_id":"zzzzzzzz-nodir","task_id":"1"}' | TASK_COMPLETED_TEAMS_DIR="$SANDBOX/does-not-exist" HOME="$SANDBOX/home" "$HOOK" >/dev/null 2>&1; echo $?)"
 if [ "$rc" = "0" ]; then pass "missing team dir exits 0"; else fail "missing team dir exit ($rc != 0)"; fi
+
+# --- Ownership ledger: an ADVISORY finish signal carrying task id + teammate ---
+if grep -q '"signal": "TaskCompleted"' "$WL" 2>/dev/null && python3 - "$WL" <<'PY'
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+r = next(r for r in rows if r.get("task_id") == "7")
+assert r["event"] == "finished" and r["signal"] == "TaskCompleted" and r["teammate"] == "infra-coord", r
+PY
+then pass "ownership ledger: TaskCompleted retained as an advisory finish signal (task 7, infra-coord)"; else fail "ownership ledger: TaskCompleted finish signal missing or malformed"; fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then

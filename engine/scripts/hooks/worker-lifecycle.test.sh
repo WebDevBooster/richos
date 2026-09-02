@@ -59,8 +59,10 @@ reset_log() { : >"$LOG"; }
 lines() { grep -c . "$LOG" 2>/dev/null | tr -d ' '; }
 
 # run <hook> <payload> -> echoes the hook's exit code
+WL="$SANDBOX/wt-ledger.jsonl"
+export RICHOS_WORKTREE_LEDGER="$WL"
 run() {
-    printf '%s' "$2" | WORKER_EVENTS_TEAMS_DIR="$TEAMS_DIR" "$1" >/dev/null 2>&1
+    printf '%s' "$2" | WORKER_EVENTS_TEAMS_DIR="$TEAMS_DIR" RICHOS_WORKTREE_LEDGER="$WL" "$1" >/dev/null 2>&1
     echo $?
 }
 
@@ -291,7 +293,18 @@ else fail "5b  ended: field assertions failed"
 fi
 
 reset_log
+# ownership ledger: the stop above is retained as an ADVISORY finish signal
+# keyed to the agent id — and the id-less stop below writes nothing there.
+if grep -q '"signal": "SubagentStop"' "$WL" 2>/dev/null && grep -q '"agent_id": "aTESTWORKER00001"' "$WL"; then
+    pass "5a2 ended: retained in the ownership ledger as an advisory SubagentStop signal for aTESTWORKER00001"
+else
+    fail "5a2 ended: ownership ledger has no SubagentStop signal for aTESTWORKER00001"
+fi
+WL_BEFORE="$(grep -c . "$WL" 2>/dev/null || echo 0)"
 rc="$(run "$ENDED_HOOK" '{"hook_event_name":"SubagentStop","session_id":"'"$SESSION_ID"'","agent_type":"dev"}')"
+[ "$(grep -c . "$WL" 2>/dev/null || echo 0)" -eq "$WL_BEFORE" ] \
+    && pass "5c2 ended: an id-less stop writes no ledger signal either" \
+    || fail "5c2 ended: id-less stop wrote a ledger signal"
 [ "$rc" = "0" ] && [ "$(lines)" = "0" ] \
     && pass "5c  ended: no agent_id -> no line (an unpaired end could close out the wrong worker)" \
     || fail "5c  ended: exit $rc, wrote $(lines) lines"
