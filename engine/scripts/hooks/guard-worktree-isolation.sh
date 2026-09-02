@@ -133,10 +133,57 @@
 #   the ledger library is missing, a cwd/marker spawn is BLOCKED (fail-closed):
 #   an unverifiable registration is not a registration.
 #
+# CLAUSE 5 — A GENERIC AGENT IS NOT A TEAMMATE (STAFFING, 2026-09-02).
+#   READONLY_ALLOWLIST answers ONE question: does this agent need an isolated
+#   worktree? It has never answered a second one: may delegated work be STAFFED
+#   to this type at all? On 2026-09-02 those two were read as the same
+#   permission — an engine-wide audit was dispatched to `Explore`, a generic
+#   built-in, because a roster teammate would have needed a worktree created
+#   first and the built-in could be dispatched immediately. Momentum over
+#   correctness. Nothing refused it, correctly by the old contract. A comment
+#   was added to orchestration.config saying the exemption is not a staffing
+#   permission, and a comment is prose; prose does not hold.
+#
+#   So the staffing question now has its own gate, in front of the isolation
+#   exemption and independent of it:
+#     5a. The gate fires for a subagent_type that is on READONLY_ALLOWLIST or on
+#         GENERIC_AGENT_TYPES (orchestration.config; default "general-purpose",
+#         which closes the obvious detour — it is file-capable, so it passes the
+#         whole contract today), MINUS anything on HARNESS_UTILITY_TYPES.
+#     5b. HARNESS_UTILITY_TYPES (default: claude-code-guide statusline-setup
+#         output-style-setup) is the declared exemption. Those types configure
+#         or explain the harness itself; they never carry delegated project
+#         work, so there is no roster teammate who should have had the job, and
+#         demanding a justification for a statusline change is how a defense
+#         becomes a nuisance and then a formality typed by reflex. The list is
+#         CONFIG, not code, and the default is deny: a type newly added to
+#         READONLY_ALLOWLIST needs the hatch until someone declares it a
+#         utility.
+#     5c. The escape hatch is one live prompt line, in the established shape:
+#           generic-agent: <why no roster teammate fits this work>
+#         A BARE MARKER EXEMPTS NOTHING. The reason must be >= 30 characters,
+#         >= 5 words and carry >= 3 distinct substantive words, so "because" and
+#         "n/a" are refused. It must also not be a SPEED or CONVENIENCE argument
+#         ("faster", "saves time", "momentum", "convenient") — that was the
+#         rationale in the incident, and it is the one reason this gate exists
+#         to refuse. Every accepted use is logged to
+#         .claude/state/generic-agent-dispatches.log, so a habit of waiving is
+#         visible rather than invisible.
+#     5d. The refusal NAMES THE ALTERNATIVE: pick the roster teammate whose
+#         domain this is (the live roster is listed inline), and says why it
+#         matters — a generic agent is invisible in the CEO's team display and
+#         leaves no committed artifact, so work sent to one disappears from his
+#         view and from the record.
+#   CLAUSE 5 DOES NOT TOUCH THE ISOLATION EXEMPTION. An allowlisted type that
+#   passes the staffing gate still exits with NO isolation and NO name required,
+#   exactly as before. Both properties hold independently, and the suite proves
+#   each without the other.
+#
 # ALLOWED (exit 0):
 #   - any non-Agent tool (passthrough)
 #   - spawns of READ-ONLY agent types (they never write repo files) — the
-#     allowlist below — with no further requirement.
+#     allowlist below — with no ISOLATION or NAME requirement, once the
+#     clause-5 staffing gate is satisfied.
 #   - a file-capable spawn that satisfies BOTH contract clauses.
 # BLOCKED (exit 2): every other Agent spawn — with the exact clause(s) it
 # failed AND the exact fix, inline.
@@ -200,6 +247,12 @@ CONFIG="$ENTITY_ROOT/orchestration.config"
 [ -f "$CONFIG" ] && . "$CONFIG"
 # Default to Claude Code's built-in read-only agent types if unset.
 : "${READONLY_ALLOWLIST:=Explore Plan claude-code-guide statusline-setup}"
+# Staffing gate (clause 5). HARNESS_UTILITY_TYPES is the DECLARED exemption from
+# it; GENERIC_AGENT_TYPES extends it to generic built-ins that are not on the
+# read-only allowlist at all. Deny-by-default: a type added to READONLY_ALLOWLIST
+# needs the hatch until someone declares it a harness utility.
+: "${HARNESS_UTILITY_TYPES:=claude-code-guide statusline-setup output-style-setup}"
+: "${GENERIC_AGENT_TYPES:=general-purpose}"
 # Default the session teams dir to the platform location when unset/blank.
 : "${SESSION_TEAMS_DIR:=$HOME/.claude/teams}"
 # Default the allowed <model> name-token set to Claude Code's aliases if unset.
@@ -334,6 +387,144 @@ if [ "$STATUS" = "PARSEFAIL" ]; then
     echo "(hook: scripts/hooks/guard-worktree-isolation.sh)"
   } >&2
   exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# CLAUSE 5 — STAFFING GATE. Runs BEFORE the isolation exemption and is entirely
+# separate from it: this asks "may work be staffed to this type at all?", the
+# allowlist below asks "does this type need a worktree?". See the header.
+# ---------------------------------------------------------------------------
+_type_in_set() {   # <type> <space-separated set>
+  local _t="$1" _set="$2" _x
+  for _x in $_set; do [ "$_t" = "$_x" ] && return 0; done
+  return 1
+}
+
+# _staffing_reason_problem <reason> — echo NOTHING when the reason is a
+# well-formed justification; echo the refusal reason otherwise. Kept as a
+# function (not an inline $(...) heredoc) because bash will not parse a
+# quoted heredoc containing an apostrophe inside a command substitution.
+_staffing_reason_problem() {
+  GA_REASON="$1" python3 - <<'PY'
+import os, re
+r = (os.environ.get("GA_REASON", "") or "").strip()
+MIN_CHARS = 30
+MIN_WORDS = 5
+MIN_CONTENT = 3
+STOP = {
+    "the","and","for","that","this","with","have","has","had","been","from",
+    "just","only","need","needs","needed","want","wants","because","none",
+    "null","reason","tbd","todo","fine","okay","yes","not","but","was","were",
+    "are","its","here","there","thing","things","stuff","some","any","all",
+    "does","doesnt","dont","cant","will","would","should","could","which",
+    "them","they","their","when","what","also","into","over","than","then",
+    "very","really","quite","sure","done","doing","make","made","use","used",
+    "using","work","works","working","task","agent","one","two",
+}
+if not r:
+    print("no 'generic-agent: <reason>' line is present in the prompt.")
+else:
+    low = r.lower()
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", r)
+    content = {w.lower() for w in words if len(w) >= 4 and w.lower() not in STOP}
+    speed = re.search(
+        r"(fastest|faster|quickest|quicker|save[sd]?\s+time|saving\s+time|"
+        r"too\s+slow|no\s+time|momentum|convenien\w*|expedien\w*)", low)
+    if len(r) < MIN_CHARS:
+        print("the reason given is %d character(s) long; a real justification needs "
+              "at least %d. A bare or token marker exempts nothing."
+              % (len(r), MIN_CHARS))
+    elif len(words) < MIN_WORDS:
+        print("the reason given is %d word(s) long; a real justification needs at "
+              "least %d. A bare or token marker exempts nothing."
+              % (len(words), MIN_WORDS))
+    elif len(content) < MIN_CONTENT:
+        print("the reason given carries %d substantive word(s) (needs %d) — it "
+              "reads as filler, not a justification." % (len(content), MIN_CONTENT))
+    elif speed:
+        print("the reason given is SPEED or CONVENIENCE (%r). That is the exact "
+              "rationale this gate exists to refuse: on 2026-09-02 an engine-wide "
+              "audit went to a generic built-in because a roster teammate would "
+              "have needed a worktree created first. Creating one is a single call "
+              "to scripts/create-teammate-worktree.sh, or one isolation:\"worktree\" "
+              "parameter. Being quicker to dispatch is never a reason to staff work "
+              "to a non-teammate." % speed.group(0))
+    else:
+        print("")
+PY
+}
+
+NEEDS_STAFFING_HATCH=0
+if ! _type_in_set "$SUBAGENT_TYPE" "$HARNESS_UTILITY_TYPES"; then
+  if _type_in_set "$SUBAGENT_TYPE" "$READONLY_ALLOWLIST" \
+     || _type_in_set "$SUBAGENT_TYPE" "$GENERIC_AGENT_TYPES"; then
+    NEEDS_STAFFING_HATCH=1
+  fi
+fi
+
+if [ "$NEEDS_STAFFING_HATCH" -eq 1 ]; then
+  GENERIC_REASON=""
+  if printf '%s' "$PROMPT" | grep -qE '^[[:space:]]*generic-agent:[[:space:]]*.+'; then
+    GENERIC_REASON="$(printf '%s' "$PROMPT" \
+      | grep -E '^[[:space:]]*generic-agent:[[:space:]]*.+' \
+      | head -1 \
+      | sed -E 's/^[[:space:]]*generic-agent:[[:space:]]*//')"
+  fi
+
+  # Empty output = the hatch is well-formed. Non-empty = the refusal reason.
+  STAFFING_WHY="$(_staffing_reason_problem "$GENERIC_REASON" 2>/dev/null || printf 'the justification could not be evaluated (fail-closed).')"
+
+  if [ -n "$STAFFING_WHY" ]; then
+    ROSTER_HINT=""
+    if [ -d "$ENTITY_ROOT/.claude/agents" ]; then
+      ROSTER_HINT="$(ls "$ENTITY_ROOT/.claude/agents"/*.md 2>/dev/null \
+        | while IFS= read -r _f; do _b="${_f##*/}"; printf '%s ' "${_b%.md}"; done)"
+    fi
+    {
+      echo "=== Teammate-spawn guard: BLOCKED (clause 5 — staffing) ==="
+      echo "  subagent_type '${SUBAGENT_TYPE}' is a GENERIC agent type, not a roster teammate,"
+      echo "  and ${STAFFING_WHY}"
+      echo ""
+      echo "  WHY THIS IS REFUSED, not merely discouraged:"
+      echo "    - a generic agent never appears in the CEO's team display, so work sent"
+      echo "      to one disappears from his view of what is running;"
+      echo "    - it has no worktree and leaves no commit, so the work leaves no artifact"
+      echo "      in the record — only this session's transcript, which does not survive."
+      echo ""
+      echo "  FIX (preferred): re-issue with the ROSTER TEAMMATE whose domain this work is,"
+      echo "  with isolation: \"worktree\" and a truthful '<role>-<model>-<identifier>' name."
+      if [ -n "$ROSTER_HINT" ]; then
+        echo "    roster: ${ROSTER_HINT}"
+      fi
+      echo "  Needing a worktree first is NOT a reason to reach for a generic agent —"
+      echo "  scripts/create-teammate-worktree.sh creates and registers one in a single call."
+      echo ""
+      echo "  FIX (only when no roster teammate genuinely fits): add ONE live prompt line"
+      echo "      generic-agent: <why no roster teammate fits this work>"
+      echo "  It must be a real reason — at least 30 characters, at least 5 words, at least"
+      echo "  3 substantive words — and it must not be a speed or convenience argument."
+      echo "  Every accepted use is logged to .claude/state/generic-agent-dispatches.log,"
+      echo "  so a habit of waiving is visible rather than invisible."
+      echo ""
+      echo "  (READONLY_ALLOWLIST exempts this type from WORKTREE ISOLATION — a safety"
+      echo "   question. It has never been a permission to STAFF work here. A harness"
+      echo "   utility that carries no delegated work belongs in HARNESS_UTILITY_TYPES"
+      echo "   in orchestration.config, not in a waiver typed on every dispatch.)"
+      echo "(hook: scripts/hooks/guard-worktree-isolation.sh)"
+    } >&2
+    exit 2
+  fi
+
+  # Hatch accepted. Best-effort log — never fail the spawn because logging
+  # failed; the marker in the prompt is itself the audit trail.
+  GA_LOG_DIR="$ENTITY_ROOT/.claude/state"
+  mkdir -p "$GA_LOG_DIR" 2>/dev/null || true
+  printf '%s\tagent=%s\tname=%s\tgeneric-agent: %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "${SUBAGENT_TYPE:-<unset>}" \
+    "${NAME:-<unset>}" \
+    "$GENERIC_REASON" \
+    >>"$GA_LOG_DIR/generic-agent-dispatches.log" 2>/dev/null || true
 fi
 
 # Read-only agent types are exempt from the teammate contract (frictionless).
