@@ -308,6 +308,14 @@ ALL_ROOT_SCRIPTS=(
     # models an engine whose newest Stop hook writes no row.
     scripts/lib/mechanical-findings.sh
     scripts/lib/mechanical-findings.py
+    # The model-tier parser. Carried for the DECIDING reason, and SC1 below
+    # cannot see it: guard-worktree-isolation.sh does not refuse without it —
+    # clause 6 fails OPEN by design, announces the skip into a channel a
+    # sandbox has no reader for, and allows the spawn. A sandbox without it
+    # starts every hook and models an engine in which a move to a lower
+    # capability tier is checked by nobody. Layer MT fails loudly when it is
+    # absent, which is how a sandbox missing it stops looking healthy.
+    scripts/lib/model-tiers.sh
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -321,6 +329,11 @@ CREATOR_TEAMMATE="dean"
 # "declared nothing, enforcing nothing" WARN branch. A sandbox that models the
 # engine with a guard stood down is modelling a different engine.
 DIALECT_TARGET="en-US"
+# Declared, so Layer MT exercises the tier gate instead of failing on a blank
+# declaration — and so the sandbox models the engine with the capability order
+# where it belongs: in data, beside the alias set it must equal.
+ALLOWED_MODELS="fable opus sonnet haiku"
+MODEL_TIERS="fable opus > sonnet > haiku"
 CFG
 }
 
@@ -2122,6 +2135,82 @@ emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
 # refuses that shortcut. An unrun mutant refuses nothing.
 set +e; "$SCRIPT_DIR/guard-worktree-removal.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "WTR1.worktree-removal-mutations-all-load-bearing" 0 "$rc"
+
+# ---------------------------------------------------------------------------
+# LAYER MT — THE MODEL CAPABILITY ORDER IS DATA, AND THE PROSE IS HELD TO IT
+# ---------------------------------------------------------------------------
+# Every case below is a way the 2026-09-02 defect could come back: the order
+# undeclared (MT1), declared but disagreeing with the alias set (MT2), stated
+# in prose that quotes a DIFFERENT order than the data (MT3), and the original
+# shape — "don't downgrade" in prose with no data behind it at all (MT4). MT5
+# is the control: a sandbox with the declaration, the parser and a doctrine
+# file that quotes it passes the layer, so the four refusals above are refusals
+# and not a layer that fails on everything.
+
+# MT1 — MODEL_TIERS blank: the order is not declared.
+ROOT="$(make_sandbox)"
+sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS=""/' "$ROOT/orchestration.config"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MT1.model-tiers-undeclared-fails" 2 "$rc"
+if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS in .*: MODEL_TIERS is blank'; then
+    emit_case "MT1b.the-refusal-names-the-blank-declaration" 0 0
+else
+    emit_case "MT1b.the-refusal-names-the-blank-declaration" 0 1
+fi
+rm -rf "$ROOT"
+
+# MT2 — the alias sets disagree: ALLOWED_MODELS names an alias the order does
+# not rank. A spawn on that alias is one the guard cannot rank.
+ROOT="$(make_sandbox)"
+sed -i '' 's/^MODEL_TIERS=.*/MODEL_TIERS="fable opus > sonnet"/' "$ROOT/orchestration.config"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MT2.model-tiers-alias-set-drifts-from-allowed-models-fails" 2 "$rc"
+if printf '%s' "$MT_OUT" | grep -q 'MT\. MODEL_TIERS and ALLOWED_MODELS disagree.*haiku'; then
+    emit_case "MT2b.the-refusal-names-the-unranked-alias" 0 0
+else
+    emit_case "MT2b.the-refusal-names-the-unranked-alias" 0 1
+fi
+rm -rf "$ROOT"
+
+# MT3 — the doctrine file quotes a DIFFERENT order than the declaration.
+ROOT="$(make_sandbox)"
+printf '**Models:** the order is `MODEL_TIERS="opus > fable > sonnet > haiku"` and never move a teammate down it.\n' >"$ROOT/CLAUDE.md"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MT3.doctrine-quotes-a-different-order-fails" 2 "$rc"
+if printf '%s' "$MT_OUT" | grep -q 'MT\. .*CLAUDE.md quotes MODEL_TIERS="opus > fable > sonnet > haiku" but orchestration.config declares MODEL_TIERS="fable opus > sonnet > haiku"'; then
+    emit_case "MT3b.the-refusal-names-both-orders" 0 0
+else
+    emit_case "MT3b.the-refusal-names-both-orders" 0 1
+fi
+rm -rf "$ROOT"
+
+# MT4 — the original defect: "don't downgrade" in prose, no data behind it.
+ROOT="$(make_sandbox)"
+printf '**Models:** definitions default to Opus for the judgment-critical roles (do not downgrade) and Sonnet for the rest.\n' >"$ROOT/CLAUDE.md"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MT4.doctrine-says-downgrade-without-quoting-the-data-fails" 2 "$rc"
+if printf '%s' "$MT_OUT" | grep -q 'MT\. .*says "downgrade" but never quotes the declaration'; then
+    emit_case "MT4b.the-refusal-names-the-missing-quotation" 0 0
+else
+    emit_case "MT4b.the-refusal-names-the-missing-quotation" 0 1
+fi
+rm -rf "$ROOT"
+
+# MT5 — CONTROL: declaration + parser + a doctrine file that quotes it -> the
+# layer passes, two-sided canary included. Without this the four above could
+# be a layer that fails on everything.
+ROOT="$(make_sandbox)"
+printf '**Models:** the order is `MODEL_TIERS="fable opus > sonnet > haiku"`; do not move a teammate to a lower tier without saying why.\n' >"$ROOT/CLAUDE.md"
+set +e; MT_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+# The probe styles its check mark (C_GREEN ... C_RESET) so "✓ MT." never
+# appears as plain text; match the layer's own words, as MT1-MT4 do.
+if printf '%s' "$MT_OUT" | grep -q 'MT\. capability order declared as data'; then
+    emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 0
+else
+    emit_case "MT5.control-declared-and-quoted-passes-the-layer" 0 1
+    printf '%s\n' "$MT_OUT" | grep -E 'MT\.' | sed 's/^/        /'
+fi
+rm -rf "$ROOT"
 
 # WTI1 — the spawn guard's CLAUSE 5 (staffing) mutation harness, registered for
 # the reason WTR1 is: run-all-tests.sh discovers every *.test.sh from disk, so

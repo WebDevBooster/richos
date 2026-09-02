@@ -253,6 +253,15 @@ engine's structural improvements** — never replace.
   documented default) or a comment. Merge the new keys/comments in; keep every
   value you set. Never take the upstream config wholesale — it would reset your
   paths to the sample literals.
+  **New key since 2026-09-02: `MODEL_TIERS`** (the model capability order as
+  data, e.g. `MODEL_TIERS="fable opus > sonnet > haiku"`). Copy the sample
+  line and re-derive it for the models your harness actually offers; its alias
+  set must equal your `ALLOWED_MODELS`. Until it is present the spawn guard's
+  clause 6 fails OPEN with a notice (nothing blocks, nothing checks) and the
+  integrity probe's Layer MT FAILS — so the upgrade is not green until you
+  declare it. If your `CLAUDE.md` says "downgrade" anywhere, Layer MT also
+  requires it to quote the declaration verbatim (`` `MODEL_TIERS="…"` ``) so
+  the prose cannot drift from the data; the template's §Models shows the shape.
 - **`.claude/agents/<slug>.md`** (your instantiated teammates) and their
   **`team/<name>.md`** profiles + **`team/ROSTER.md`** — these are staffed by
   Dean for your domain. Engine upgrades change the *templates*, not your instances;

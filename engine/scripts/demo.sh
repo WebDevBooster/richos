@@ -215,6 +215,12 @@ DEMO_FILES+=(
     # Layer T fails loudly when it is absent — which is how this omission was
     # found, by the probe rather than by a reader.
     "scripts/lib/dialect-en-US.dict"
+    # The model-tier parser. guard-worktree-isolation.sh decides clause 6 (is
+    # this explicit model: override a move DOWN the declared capability order?)
+    # with it and fails OPEN without it — announced per spawn, into a channel
+    # this sample repo has no reader for. Layer MT fails loudly when it is
+    # absent, which is how a sample engine missing it stops passing Beat 7.
+    "scripts/lib/model-tiers.sh"
     # ---- The four predicate pairs, every one of which was MISSING here. ----
     #
     # Six registered guards — the CEO-TODOs guard, the row-currency guard, the
@@ -381,6 +387,11 @@ SECRET_SCAN_ALLOWLIST=""
 DIALECT_TARGET="en-US"
 DIALECT_SCAN_ALLOWLIST=""
 DIALECT_EXEMPT_PATHS=""
+# The model capability order as DATA, beside the alias set it must equal.
+# Beat 7's Layer MT refuses a blank declaration, a set that drifts from
+# ALLOWED_MODELS, and a doctrine file that quotes a different order.
+ALLOWED_MODELS="fable opus sonnet haiku"
+MODEL_TIERS="fable opus > sonnet > haiku"
 CFG
 
 # ---------------------------------------------------------------------------

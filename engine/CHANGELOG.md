@@ -24,18 +24,52 @@ version heading with Added / Changed / Fixed groupings.
   `Stop` hook now reconciles the final text against the turn's own tool calls in
   two arms. ARM 1: a roster role as the subject of a present-simple act with a
   pronoun or determiner object, or a first-person dispatch naming who, in a turn
-  with no Agent call — replayed through the shipped analyzer over 1,278 real
+  with no Agent call — replayed through the shipped analyzer over 1,280 real
   turns: 2 fires, both the defect, 0 false; the role-future shape measured 0/2
   and only reports. ARM 2: a host-written Agent-finished notice in the turn, no
   Agent call, no backgrounded command, no question to the CEO, no hold, and no
   `stop-declared:` line — every term imported from `guard-idle-land.py`, so the
-  engine has one declaration vocabulary; 263 of 366 completion turns in the
-  corpus were undeclared stops and an independent reader agrees on all 263. The
+  engine has one declaration vocabulary; 265 of 368 completion turns in the
+  corpus were undeclared stops and an independent reader agrees on all 265. The
   refusal names the clause or the finished agent and the exact declaration line;
   fails open on every error; cannot fire on its own output (quotes, fences and
   code spans are stripped before reading). Registered on both surfaces, in the
-  probe's spec table and Layer R, and in the demo's analyzer list; 29 mutants,
+  probe's spec table and Layer R, and in the demo's analyzer list; 31 mutants,
   each proven load-bearing; the harness runs from the house suite as SA2.
+
+- **The model capability order is data in one place, and a move DOWN it is
+  stated or refused** (`orchestration.config` `MODEL_TIERS`,
+  `scripts/lib/model-tiers.sh`, `scripts/hooks/guard-worktree-isolation.sh`
+  clause 6, `scripts/hooks/contract-integrity-probe.sh` Layer MT) — MINOR.
+
+  The doctrine had said "don't downgrade" since it was written and never once
+  said which direction down was. On 2026-09-02 the orchestrator decided, out of
+  nothing, that a Sonnet-default teammate spawned on Fable was a downgrade,
+  killed the correctly-configured teammate, told the CEO he was correcting an
+  error that did not exist, and commissioned a guard whose fixtures would have
+  refused that correct spawn shape permanently. It is an upgrade. The CEO
+  caught all three. A rule left as prose was broken; a guard built on the same
+  prose would have made the error permanent and given it authority.
+
+  So the order is declared ONCE, as data: `MODEL_TIERS="fable opus > sonnet >
+  haiku"` beside `ALLOWED_MODELS` — `>` separates tiers, leftmost is most
+  capable, aliases inside one tier are equal — with a re-derivation note and
+  a rule that no consumer may infer capability from an alias name. Every
+  consumer reads it through one parser. Clause 6 of the spawn guard fires only
+  on an explicit `model:` override: a LOWER tier than the definition's own
+  default is refused, naming the teammate, both models, both ranks and the
+  exact `model-downgrade-ack: <reason>` line to add (logged like every other
+  hatch); equal or higher is silent, always. It fails OPEN on its own error —
+  a missing parser, a malformed or blank declaration, an unranked alias —
+  with a notice, never a refusal. Layer MT refuses a declaration whose alias
+  set drifts from `ALLOWED_MODELS`, a doctrine file that quotes a different
+  order than the declaration, and a doctrine file that still says "downgrade"
+  without pointing at the data; it also runs the guard two-sided (a lower
+  tier refused, a higher tier silent) so a dead guard cannot pass. Mutation
+  harness extended with the incident's own inversion (the comparison flipped:
+  Sonnet -> Fable refused, Opus -> Sonnet waved through) and the over-blocking
+  arm (same tier taxed), all run by `contract-integrity.test.sh` WTI1 — no
+  ninth unrun harness.
 
 - **A defect the tree can show you becomes a row, written by the machine that
   found it** (`scripts/hooks/notice-mechanical-findings.sh`,

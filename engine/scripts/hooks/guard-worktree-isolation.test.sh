@@ -33,6 +33,18 @@
 # types still holds independently (block (c) proves it with the hatch present,
 # so neither property can silently absorb the other).
 #
+# (n) CLAUSE 6 — the model capability order is DATA (orchestration.config
+# MODEL_TIERS, parsed only by scripts/lib/model-tiers.sh): an explicit model:
+# override to a LOWER tier than the definition's default is BLOCKED naming the
+# teammate, both models, both ranks, the declaration and the exact line to add;
+# a reasoned `model-downgrade-ack:` line permits it and is logged; a bare
+# marker exempts nothing; equal-or-higher tier is SILENT (no output at all —
+# the 2026-09-02 incident's own shapes: a Sonnet-default teammate on Fable, an
+# Opus-default teammate on Fable); the clause fails OPEN with a notice on a
+# missing parser / blank / malformed / unranking declaration and never
+# announces on a spawn that needed no ranking; and a declaration that
+# contradicts the alias names is OBEYED, proving nothing infers from a name.
+#
 # NOTE: the truthfulness cases resolve against the engine's REAL live agent defs
 # (frank=opus); if that frontmatter default changes, update the expected tokens.
 #
@@ -74,6 +86,23 @@ run_case() {
         PASS=$((PASS + 1))
     else
         printf '  FAIL  %s (expected exit %s, got %s)\n' "$name" "$expected" "$actual"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# run_case_silent <name> <json> — asserts exit 0 AND no output on either
+# stream. "Silent" is a contract, not a nicety: clause 6 must say NOTHING on an
+# equal-or-higher tier, and a notice there is a nag that becomes noise.
+run_case_silent() {
+    local name="$1" json="$2"
+    local out actual
+    out="$(printf '%s' "$json" | "$HOOK" 2>&1)"
+    actual=$?
+    if [ "$actual" -eq 0 ] && [ -z "$out" ]; then
+        printf '  PASS  %s\n' "$name"
+        PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s (expected exit 0 with NO output, got exit %s: %s)\n' "$name" "$actual" "${out:0:160}"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -257,9 +286,12 @@ run_case "template-named type does NOT resolve from templates/ (undeterminable)"
     "$(json_agent 'backend-engineer' 'be-opus-1' 'worktree' 'Build a feature.')"
 
 # Explicit override WINS over frontmatter (precedence proof). frank=opus; override
-# to sonnet, name claims sonnet -> exit 0.
+# to sonnet, name claims sonnet -> exit 0. Since clause 6 (2026-09-02) that
+# override is also a move to a LOWER tier, so the fixture carries the stated
+# reason the clause demands — the precedence intent is unchanged, and block (n)
+# below pins the no-reason refusal on its own.
 run_case "correct token via override (override sonnet beats frontmatter opus)" 0 \
-    "$(json_agent_model 'frank' 'frank-sonnet-ov1' 'worktree' 'sonnet' 'Stress-test.')"
+    "$(json_agent_model 'frank' 'frank-sonnet-ov1' 'worktree' 'sonnet' $'Stress-test.\nmodel-downgrade-ack: precedence fixture; the stated reason clause 6 requires for opus -> sonnet.')"
 # Override sonnet, name claims opus (matches frontmatter but NOT the override) -> BLOCKED.
 run_case "wrong token vs override (override sonnet, name says opus) -> BLOCKED" 2 \
     "$(json_agent_model 'frank' 'frank-opus-ov2' 'worktree' 'sonnet' 'Stress-test.')"
@@ -278,6 +310,132 @@ run_case "undeterminable via model:inherit accepts valid alias token" 0 \
 # Undeterminable STILL requires a valid alias (garbage token -> BLOCKED).
 run_case "undeterminable but garbage token still BLOCKED (2a floor holds)" 2 \
     "$(json_agent 'worker' 'worker-gpt-u3' 'worktree' 'Do the thing.')"
+
+# --- (n) CLAUSE 6 — a move to a LOWER capability tier is stated, never silent ---
+# The order is DATA: this engine's orchestration.config declares
+# MODEL_TIERS="fable opus > sonnet > haiku", read only through
+# scripts/lib/model-tiers.sh. Engine live defs: frank=opus, reed=sonnet. The
+# first two cases are the REAL shapes from 2026-09-02 — the first is the one
+# the killed guard had backwards (it would have refused it forever), the
+# second is the spawn the CEO ordered himself.
+run_case_silent "reed (sonnet default) on fable, no reason -> allowed, SILENT (an upgrade)" \
+    "$(json_agent_model 'reed' 'reed-fable-c6a' 'worktree' 'fable' 'Read the sources.')"
+run_case_silent "frank (opus default) on fable, no reason -> allowed, SILENT (same tier; the CEO's own spawn shape)" \
+    "$(json_agent_model 'frank' 'frank-fable-c6b' 'worktree' 'fable' 'Stress-test.')"
+run_case_silent "frank on opus, its own default, explicit -> SILENT" \
+    "$(json_agent_model 'frank' 'frank-opus-c6c' 'worktree' 'opus' 'Stress-test.')"
+run_case_silent "reed upgraded to opus -> SILENT" \
+    "$(json_agent_model 'reed' 'reed-opus-c6d' 'worktree' 'opus' 'Read the sources.')"
+run_case_silent "reed on sonnet, its own default, explicit -> SILENT" \
+    "$(json_agent_model 'reed' 'reed-sonnet-c6e' 'worktree' 'sonnet' 'Read the sources.')"
+run_case_silent "frank with NO override -> clause 6 never fires" \
+    "$(json_agent 'frank' 'frank-opus-c6f' 'worktree' 'Stress-test.')"
+
+C6_DOWN="$(json_agent_model 'frank' 'frank-sonnet-c6g' 'worktree' 'sonnet' 'Stress-test.')"
+run_case "frank (opus default) on sonnet, no reason -> BLOCKED" 2 "$C6_DOWN"
+run_case_msg "the tier refusal names the teammate" "'frank-sonnet-c6g' of 'frank'" "$C6_DOWN"
+run_case_msg "the tier refusal names the definition default" "defaults to 'opus'" "$C6_DOWN"
+run_case_msg "the tier refusal names the requested model" "requests model 'sonnet'" "$C6_DOWN"
+run_case_msg "the tier refusal names the declaration it read" 'MODEL_TIERS="fable opus > sonnet > haiku"' "$C6_DOWN"
+run_case_msg "the tier refusal names the exact line to add" 'model-downgrade-ack: <why' "$C6_DOWN"
+run_case_msg "the tier refusal says equal-or-higher never needs it" 'Equal or higher tier never needs it' "$C6_DOWN"
+run_case "frank on haiku, no reason -> BLOCKED" 2 \
+    "$(json_agent_model 'frank' 'frank-haiku-c6h' 'worktree' 'haiku' 'Stress-test.')"
+run_case "reed (sonnet default) on haiku, no reason -> BLOCKED" 2 \
+    "$(json_agent_model 'reed' 'reed-haiku-c6i' 'worktree' 'haiku' 'Read the sources.')"
+run_case "frank on sonnet WITH a reasoned model-downgrade-ack: -> allowed" 0 \
+    "$(json_agent_model 'frank' 'frank-sonnet-c6j' 'worktree' 'sonnet' $'Stress-test.\nmodel-downgrade-ack: a mechanical grep pass; the judgment seat is not needed for it.')"
+run_case "a BARE model-downgrade-ack: exempts nothing -> BLOCKED" 2 \
+    "$(json_agent_model 'frank' 'frank-sonnet-c6k' 'worktree' 'sonnet' $'Stress-test.\nmodel-downgrade-ack:')"
+run_case "model-downgrade-ack: tolerates leading whitespace" 0 \
+    "$(json_agent_model 'frank' 'frank-sonnet-c6l' 'worktree' 'sonnet' $'Stress-test.\n   model-downgrade-ack: leading-whitespace fixture, a real reason.')"
+run_case "model-downgrade-ack: does NOT relax clause 2b (untruthful name still BLOCKED)" 2 \
+    "$(json_agent_model 'frank' 'frank-opus-c6m' 'worktree' 'sonnet' $'Stress-test.\nmodel-downgrade-ack: a real reason, but the name lies about the model.')"
+run_case "a verbose lower-tier override id is normalized before ranking -> BLOCKED" 2 \
+    "$(json_agent_model 'frank' 'frank-sonnet-c6n' 'worktree' 'claude-sonnet-4-5' 'Stress-test.')"
+
+# Sandbox entity: a judgment role defaulting to opus, and a declaration this
+# block rewrites per case. Same shape as the (i) sandbox above.
+C6SB="$(mktemp -d -t guard-c6.XXXXXX)"
+mkdir -p "$C6SB/.claude/agents"
+printf -- '---\nname: judge\nmodel: opus\n---\nA sandbox judgment role that exists only for these cases.\n' >"$C6SB/.claude/agents/judge.md"
+c6_config() { printf 'ALLOWED_MODELS="fable opus sonnet haiku"\nMODEL_TIERS="%s"\n' "$1" >"$C6SB/orchestration.config"; }
+c6_out() { printf '%s' "$1" | RICHOS_ENTITY_ROOT="$C6SB" "$HOOK" 2>&1; }
+c6_case() { # <name> <expected-exit> <expected-substring-or-empty-for-silence> <json>
+    local name="$1" expected="$2" needle="$3" json="$4" out rc
+    out="$(c6_out "$json")"; rc=$?
+    if [ "$rc" -eq "$expected" ] && { { [ -z "$needle" ] && [ -z "$out" ]; } || { [ -n "$needle" ] && printf '%s' "$out" | grep -qF "$needle"; }; }; then
+        printf '  PASS  %s\n' "$name"; PASS=$((PASS + 1))
+    else
+        local want="with NO output"; [ -z "$needle" ] || want="mentioning \"$needle\""
+        printf '  FAIL  %s (expected exit %s %s, got exit %s: %s)\n' "$name" "$expected" "$want" "$rc" "${out:0:160}"; FAIL=$((FAIL + 1))
+    fi
+}
+
+# Accepted ack is logged, with both models; a refusal is never logged.
+c6_config "fable opus > sonnet > haiku"
+C6_MARK="c6-log-canary-$$"
+c6_out "$(json_agent_model 'judge' 'judge-sonnet-log1' 'worktree' 'sonnet' "Judge.
+model-downgrade-ack: logging fixture $C6_MARK")" >/dev/null
+C6_LOG="$C6SB/.claude/state/model-downgrade-acks.log"
+if grep -qF "$C6_MARK" "$C6_LOG" 2>/dev/null && grep -qF "default=opus" "$C6_LOG" && grep -qF "requested=sonnet" "$C6_LOG"; then
+    PASS=$((PASS + 1)); printf '  PASS  an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models\n'
+fi
+c6_out "$(json_agent_model 'judge' 'judge-sonnet-log2' 'worktree' 'sonnet' 'Judge, no reason.')" >/dev/null
+if grep -qF "judge-sonnet-log2" "$C6_LOG" 2>/dev/null; then
+    FAIL=$((FAIL + 1)); printf '  FAIL  a REFUSED downgrade was logged as if it were a waiver\n'
+else
+    PASS=$((PASS + 1)); printf '  PASS  a REFUSED downgrade is not logged (a refusal is not a waiver)\n'
+fi
+
+# FAIL OPEN on the clause's own error — allowed, and announced.
+c6_config "opus > sonnet"
+c6_case "an alias MODEL_TIERS does not rank -> allowed (fail-open)" 0 "SKIPPED" \
+    "$(json_agent_model 'judge' 'judge-haiku-fo1' 'worktree' 'haiku' 'Judge.')"
+c6_case "the fail-open skip is announced, naming the unranked alias" 0 "'haiku'" \
+    "$(json_agent_model 'judge' 'judge-haiku-fo1' 'worktree' 'haiku' 'Judge.')"
+c6_case "the fail-open skip reaches the orchestrator as a systemMessage" 0 '"systemMessage"' \
+    "$(json_agent_model 'judge' 'judge-haiku-fo1' 'worktree' 'haiku' 'Judge.')"
+c6_config ""
+c6_case "a BLANK MODEL_TIERS -> allowed (fail-open), announced as blank" 0 "blank" \
+    "$(json_agent_model 'judge' 'judge-haiku-fo2' 'worktree' 'haiku' 'Judge.')"
+c6_config "opus > > sonnet"
+c6_case "a MALFORMED MODEL_TIERS -> allowed (fail-open), announced as malformed" 0 "empty" \
+    "$(json_agent_model 'judge' 'judge-haiku-fo3' 'worktree' 'haiku' 'Judge.')"
+c6_case "a broken declaration is NOT announced on a spawn that never needed it (no override)" 0 "" \
+    "$(json_agent 'judge' 'judge-opus-fo4' 'worktree' 'Judge.')"
+c6_case "a broken declaration is NOT announced on model:inherit" 0 "" \
+    "$(json_agent_model 'judge' 'judge-opus-fo5' 'worktree' 'inherit' 'Judge.')"
+
+# Parser library missing -> allowed (fail-open), announced.
+C6NOLIB="$(mktemp -d -t guard-c6-nolib.XXXXXX)"
+mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
+cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$C6NOLIB/scripts/lib/"
+chmod +x "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
+c6_config "fable opus > sonnet > haiku"
+C6NL_OUT="$(printf '%s' "$(json_agent_model 'judge' 'judge-haiku-fo6' 'worktree' 'haiku' 'Judge.')" | RICHOS_ENTITY_ROOT="$C6SB" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh" 2>&1)"
+C6NL_RC=$?
+if [ "$C6NL_RC" -eq 0 ] && printf '%s' "$C6NL_OUT" | grep -qF "model-tiers.sh is missing"; then
+    PASS=$((PASS + 1)); printf '  PASS  parser library missing -> allowed (fail-open), announced\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  parser library missing -> allowed (fail-open), announced (got exit %s: %s)\n' "$C6NL_RC" "${C6NL_OUT:0:160}"
+fi
+rm -rf "$C6NOLIB"
+
+# DATA, NEVER INFERENCE. A declaration that contradicts the alias names is
+# obeyed to the letter. If any consumer ranked by name, this block is the one
+# that goes red — and it is the property the whole clause exists for.
+c6_config "haiku > opus fable > sonnet"
+c6_case "the declared order is obeyed even when it contradicts the alias names: opus-default on haiku -> SILENT" 0 "" \
+    "$(json_agent_model 'judge' 'judge-haiku-dn1' 'worktree' 'haiku' 'Judge.')"
+c6_case "the declared order is obeyed even when it contradicts the alias names: opus-default on fable (same tier) -> SILENT" 0 "" \
+    "$(json_agent_model 'judge' 'judge-fable-dn2' 'worktree' 'fable' 'Judge.')"
+c6_case "the declared order is obeyed even when it contradicts the alias names: opus-default on sonnet -> BLOCKED" 2 "model tier" \
+    "$(json_agent_model 'judge' 'judge-sonnet-dn3' 'worktree' 'sonnet' 'Judge.')"
+rm -rf "$C6SB"
 
 # --- (g) unparseable Agent payload -> exit 2 (fail-closed) ---
 run_case "tool_input is not a dict (tool_name IS Agent)" 2 \

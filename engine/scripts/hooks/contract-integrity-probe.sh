@@ -445,6 +445,131 @@ run_layer_R() {
 # files. Appending a byte to scripts/lib/agent-liveness.py and re-running the
 # probe was GREEN before this function existed — the sidecar was being minted
 # and never read.
+# --- Layer MT: the MODEL CAPABILITY ORDER is data, declared once, read by
+# every consumer, and the spawn guard obeys it in BOTH directions (HARD gate) ---
+#
+# On 2026-09-02 the orchestrator inferred a capability order from alias names,
+# read Sonnet -> Fable as a downgrade (it is an upgrade), killed a correctly
+# configured teammate on the inference, and commissioned a guard whose fixtures
+# would have refused that shape permanently. The doctrine had said "don't
+# downgrade" for weeks and never said which way down was. Prose does not hold;
+# a guard on wrong prose holds the wrong thing. So the order is DATA —
+# orchestration.config MODEL_TIERS — and this layer is what keeps every
+# statement of it pointing at that one line:
+#
+#   1. the parser (scripts/lib/model-tiers.sh) is present and hash-matched —
+#      it is the only thing that turns the declaration into a verdict, and a
+#      trimmed or inverted copy would leave the guard wired and wrong;
+#   2. MODEL_TIERS is declared, well-formed, and names exactly the aliases
+#      ALLOWED_MODELS names — an alias one has and the other lacks is a spawn
+#      the guard cannot rank (it fails open and says so, but says so to nobody
+#      a probe reads);
+#   3. the doctrine file (CLAUDE.md) does not DRIFT: every `MODEL_TIERS="..."`
+#      it quotes equals the declaration, and a CLAUDE.md that says "downgrade"
+#      without quoting the declaration at all is the original defect — a
+#      direction in prose with no data behind it;
+#   4. the guard obeys it, TWO-SIDED, in a sandbox entity (so the layer proves
+#      the mechanism, not this repository's roster): an opus-default teammate
+#      overridden to sonnet is refused naming the remedy line, and the same
+#      teammate overridden to fable (same tier) is allowed IN SILENCE. A dead
+#      guard fails the second half; a guard refusing everything fails it too.
+#
+# Runs in BOTH probe modes: the declaration and the doctrine are the ENTITY's,
+# the parser and the guard are the ENGINE's, and the layer reads each from its
+# own root.
+run_layer_MT() {
+    MT_LIB="$ENGINE_ROOT/scripts/lib/model-tiers.sh"
+    MT_GUARD="$ENGINE_ROOT/scripts/hooks/guard-worktree-isolation.sh"
+    MT_DOCTRINE="$REPO_ROOT/CLAUDE.md"
+    MT_OK=1
+
+    if [ ! -f "$MT_LIB" ]; then
+        emit_fail "MT. the model-tier parser is MISSING: $MT_LIB. Clause 6 of the spawn guard fails OPEN without it (announced per spawn, read by nobody here), so a move to a lower capability tier is checked by nothing."
+        MT_OK=0
+    else
+        mt_live="$(sha256_of "$MT_LIB" 2>/dev/null || true)"
+        mt_want="$(manifest_hash_of "$MT_LIB" 2>/dev/null || true)"
+        if [ -z "$mt_want" ]; then
+            emit_fail "MT. model-tier parser unhashed: $MT_LIB.sha256 missing — run scripts/hooks/install.sh to regenerate."
+            MT_OK=0
+        elif [ -n "$mt_live" ] && [ "$mt_live" != "$mt_want" ]; then
+            emit_fail "MT. model-tier parser MODIFIED since install: $MT_LIB (sha256 $mt_live != manifest $mt_want). Every tier verdict the spawn guard issues comes out of this file — review the change, then re-run scripts/hooks/install.sh."
+            MT_OK=0
+        fi
+    fi
+
+    if [ "$MT_OK" -eq 1 ]; then
+        # shellcheck disable=SC1090
+        . "$MT_LIB"
+        mt_problem="$(model_tiers_problem "${MODEL_TIERS:-}" 2>/dev/null || true)"
+        if [ -n "$mt_problem" ]; then
+            emit_fail "MT. MODEL_TIERS in $REPO_ROOT/orchestration.config: $mt_problem. The capability order must be declared as data, once, there — until it is, the spawn guard's clause 6 fails OPEN and nothing checks a move to a lower tier. Declare it beside ALLOWED_MODELS, e.g. MODEL_TIERS=\"fable opus > sonnet > haiku\", re-derived for the models this harness actually offers."
+            MT_OK=0
+        else
+            mt_set="$(model_tiers_set_problem "$MODEL_TIERS" "${ALLOWED_MODELS:-fable opus sonnet haiku}" 2>/dev/null || true)"
+            if [ -n "$mt_set" ]; then
+                emit_fail "MT. MODEL_TIERS and ALLOWED_MODELS disagree in $REPO_ROOT/orchestration.config: $mt_set. Both live in that file; an alias one names and the other does not is a spawn the guard cannot rank. Re-derive MODEL_TIERS so the two sets are equal."
+                MT_OK=0
+            fi
+        fi
+    fi
+
+    if [ "$MT_OK" -eq 1 ] && [ -f "$MT_DOCTRINE" ]; then
+        mt_expected="MODEL_TIERS=\"$MODEL_TIERS\""
+        mt_quotes="$(grep -oE 'MODEL_TIERS="[^"]*"' "$MT_DOCTRINE" 2>/dev/null | sort -u || true)"
+        if [ -n "$mt_quotes" ]; then
+            while IFS= read -r mt_q; do
+                [ -n "$mt_q" ] || continue
+                if [ "$mt_q" != "$mt_expected" ]; then
+                    emit_fail "MT. $MT_DOCTRINE quotes $mt_q but orchestration.config declares $mt_expected — the prose has DRIFTED from the data. The declaration is canonical: fix the quotation in CLAUDE.md, never the other way around."
+                    MT_OK=0
+                fi
+            done <<MT_Q_EOF
+$mt_quotes
+MT_Q_EOF
+        elif grep -qi 'downgrade' "$MT_DOCTRINE" 2>/dev/null; then
+            emit_fail "MT. $MT_DOCTRINE says \"downgrade\" but never quotes the declaration it means (no MODEL_TIERS=\"...\" anywhere in the file). That is the 2026-09-02 defect exactly: a direction stated in prose with no data behind it. Add the quotation \`$mt_expected\` to the Models paragraph so this probe can hold the prose to the declaration."
+            MT_OK=0
+        fi
+    fi
+
+    if [ "$MT_OK" -eq 1 ]; then
+        if [ ! -x "$MT_GUARD" ]; then
+            emit_fail "MT. spawn guard not found / not executable: $MT_GUARD"
+            MT_OK=0
+        else
+            MT_SB="$(mktemp -d -t mt-canary.XXXXXX)"
+            mkdir -p "$MT_SB/entity/.claude/agents" "$MT_SB/home"
+            printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\nALLOWED_MODELS="fable opus sonnet haiku"\nMODEL_TIERS="fable opus > sonnet > haiku"\n' \
+                >"$MT_SB/entity/orchestration.config"
+            printf -- '---\nname: mtjudge\nmodel: opus\n---\nA sandbox judgment role that exists only for this canary.\n' \
+                >"$MT_SB/entity/.claude/agents/mtjudge.md"
+            mt_spawn() { # <name> <model>
+                printf '{"tool_name":"Agent","cwd":"%s","session_id":"mt-canary-0000","tool_input":{"subagent_type":"mtjudge","name":"%s","isolation":"worktree","model":"%s","prompt":"canary"}}' \
+                    "$MT_SB/entity" "$1" "$2"
+            }
+            set +e
+            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" bash "$MT_GUARD" 2>&1 >/dev/null)"
+            MT_DOWN_RC=$?
+            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" bash "$MT_GUARD" 2>&1)"
+            MT_UP_RC=$?
+            set -e
+            rm -rf "$MT_SB"
+            if [ "$MT_DOWN_RC" -ne 2 ]; then
+                emit_fail "MT. the spawn guard did NOT refuse an override to a LOWER tier (opus-default teammate on sonnet: exit=$MT_DOWN_RC, expected 2). Clause 6 is not enforcing the declared order."
+            elif ! printf '%s' "$MT_DOWN_ERR" | grep -qF 'model-downgrade-ack:'; then
+                emit_fail "MT. the spawn guard refused a lower-tier override but did NOT name the remedy line (model-downgrade-ack:) — a refusal that says only \"no\" gets routed around instead of obeyed."
+            elif [ "$MT_UP_RC" -ne 0 ]; then
+                emit_fail "MT. the spawn guard REFUSED a SAME-TIER override (opus-default teammate on fable: exit=$MT_UP_RC, expected 0). It is not enforcing the order, it is refusing everything or refusing to start — exit 2 is ambiguous, which is why this canary is two-sided."
+            elif [ -n "$MT_UP_OUT" ]; then
+                emit_fail "MT. a same-tier override was allowed but NOT SILENTLY (output: ${MT_UP_OUT:0:160}). Equal-or-higher must say nothing — a notice on an allowed move is a nag that becomes noise."
+            else
+                emit_pass "MT. capability order declared as data (MODEL_TIERS=\"$MODEL_TIERS\"; alias set = ALLOWED_MODELS), parser hash-matched, doctrine quotation matches, spawn guard REFUSES a lower tier naming the remedy and is SILENT on a same tier (two-sided canary)"
+            fi
+        fi
+    fi
+}
+
 run_layer_AL() {
     AL_OK=1
     AL_FILES="scripts/lib/agent-liveness.py scripts/lib/agent-liveness.sh scripts/agent-liveness.sh"
@@ -1397,6 +1522,7 @@ PY
     # is what makes a by-reference engine possible at all.
     run_layer_R
     run_layer_AL
+    run_layer_MT
 
     if [ "$FAIL" -gt 0 ]; then
         cat >&2 <<'BREOF'
@@ -3247,6 +3373,7 @@ fi
 
 run_layer_R
 run_layer_AL
+run_layer_MT
 
 if [ "$FAIL" -gt 0 ]; then
     cat >&2 <<EOF
@@ -3296,6 +3423,13 @@ Integrity probe FAILED — $FAIL layer(s) broken. Most fixes:
             scripts/hooks/session-start-reap-worktrees.sh \\
             scripts/reap-stale-worktrees.sh
           then: scripts/hooks/install.sh
+
+  - "MODEL_TIERS ... is blank" / "MODEL_TIERS and ALLOWED_MODELS disagree" /
+    "quotes ... but orchestration.config declares" (Layer MT)
+       -> declare the capability order ONCE in orchestration.config
+          (MODEL_TIERS="fable opus > sonnet > haiku", re-derived for your
+          models), keep its alias set equal to ALLOWED_MODELS, and make
+          CLAUDE.md quote that exact line. Never edit a consumer to fix it.
 
 See README.md (First-time setup) and orchestration.config.
 EOF
