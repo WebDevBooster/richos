@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Mutation harness for guard-worktree-isolation.sh, CLAUSE 5 (the staffing gate
+# — M1-M11) and CLAUSE 6 (the model-tier gate added the same evening — M12-M19;
+# see the block below its own header for why the INCIDENT is a mutant here).
+#
+# Clause 5 (the staffing gate
 # added 2026-09-02 after an engine-wide audit was dispatched to `Explore`, a
 # generic built-in, because a roster teammate would have needed a worktree
 # created first).
@@ -98,7 +102,7 @@ check() {
     fi
 }
 
-echo "=== guard-worktree-isolation CLAUSE 5 mutation harness ==="
+echo "=== guard-worktree-isolation CLAUSE 5 + CLAUSE 6 mutation harness ==="
 
 # --- M1: the whole staffing gate deleted — the state the engine shipped in on
 # the morning of 2026-09-02, when READONLY_ALLOWLIST's isolation exemption was
@@ -345,6 +349,181 @@ if applied M11 "the speed pattern widened to catch any mention of worktrees" \
    && alive M11 "the speed pattern widened to catch any mention of worktrees"; then
     check M11 "the speed pattern widened to catch any mention of worktrees" \
         "a genuine reason mentioning worktrees is NOT read as a speed excuse"
+fi
+
+# ===========================================================================
+# CLAUSE 6 — the model-tier gate. THE INCIDENT IS A MUTANT (M13, M18).
+# ===========================================================================
+# On 2026-09-02 the orchestrator inferred a capability order from alias names,
+# read Sonnet -> Fable as a downgrade (it is an upgrade), killed a correctly
+# configured teammate on that belief, and commissioned a guard whose fixtures
+# would have refused that shape forever. The suite's (n) block pins the
+# correct verdicts; these mutants prove those pins are load-bearing by
+# planting tonight's exact errors in the shipped guard and watching the suite
+# go red at the named cases. Both directions again: under-blocking (M12, M15,
+# M16), the inversion itself (M13), over-blocking (M14, M17), inference from
+# names (M18), and a silenced fail-open (M19).
+
+# --- M12: clause 6 deleted entirely — the engine as it shipped before tonight,
+# when "don't downgrade" was a sentence and nothing read it.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+start = s.index('C6_OVERRIDE_LC="$(printf')
+end_marker = '[ -z "$C6_SKIP" ] || _c6_announce_skip "$C6_SKIP"\nfi\n'
+end = s.index(end_marker) + len(end_marker)
+open(p, "w", encoding="utf-8").write(s[:start] + s[end:])
+PY
+if applied M12 "clause 6 deleted entirely (the pre-fix engine)" \
+   && alive M12 "clause 6 deleted entirely (the pre-fix engine)"; then
+    check M12 "clause 6 deleted entirely (the pre-fix engine)" \
+        "frank \(opus default\) on sonnet, no reason -> BLOCKED" \
+        "frank on haiku, no reason -> BLOCKED" \
+        "reed \(sonnet default\) on haiku, no reason -> BLOCKED"
+fi
+
+# --- M13: THE INCIDENT — the comparison inverted. A move UP the order is now
+# refused and a move DOWN is waved through. This is exactly what the killed
+# version of this task would have shipped; the (n) block must go red at the
+# Sonnet -> Fable case that its fixtures had backwards.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'elif [ "$C6_RANK_REQUESTED" -gt "$C6_RANK_DEFAULT" ]; then'
+assert old in s, "comparison anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, 'elif [ "$C6_RANK_REQUESTED" -lt "$C6_RANK_DEFAULT" ]; then', 1))
+PY
+if applied M13 "THE INCIDENT: the comparison inverted (upgrade refused, downgrade waved)" \
+   && alive M13 "THE INCIDENT: the comparison inverted (upgrade refused, downgrade waved)"; then
+    check M13 "THE INCIDENT: the comparison inverted (upgrade refused, downgrade waved)" \
+        "reed \(sonnet default\) on fable, no reason -> allowed, SILENT \(an upgrade\)" \
+        "reed upgraded to opus -> SILENT" \
+        "frank \(opus default\) on sonnet, no reason -> BLOCKED"
+fi
+
+# --- M14 (OVER-BLOCKING): same tier taxed. -gt becomes -ge, so an Opus-default
+# teammate spawned on Fable — the spawn the CEO ordered himself — now demands a
+# justification. A guard that refuses work the CEO explicitly ordered is a
+# false positive, and the suite must measure it rather than assume it.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'elif [ "$C6_RANK_REQUESTED" -gt "$C6_RANK_DEFAULT" ]; then'
+assert old in s, "comparison anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, 'elif [ "$C6_RANK_REQUESTED" -ge "$C6_RANK_DEFAULT" ]; then', 1))
+PY
+if applied M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refused)" \
+   && alive M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refused)"; then
+    check M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refused)" \
+        "frank \(opus default\) on fable, no reason -> allowed, SILENT \(same tier; the CEO's own spawn shape\)" \
+        "frank on opus, its own default, explicit -> SILENT" \
+        "reed on sonnet, its own default, explicit -> SILENT"
+fi
+
+# --- M15: the hatch degrades to a bare marker — any "model-downgrade-ack:"
+# with nothing after it now exempts. The formality failure, clause 6 edition.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = "model-downgrade-ack:[[:space:]]*[^[:space:]]"
+assert s.count(old) == 2, "hatch pattern anchor count %d" % s.count(old)
+open(p, "w", encoding="utf-8").write(s.replace(old, "model-downgrade-ack:"))
+PY
+if applied M15 "a bare model-downgrade-ack: exempts (hatch as formality)" \
+   && alive M15 "a bare model-downgrade-ack: exempts (hatch as formality)"; then
+    check M15 "a bare model-downgrade-ack: exempts (hatch as formality)" \
+        "a BARE model-downgrade-ack: exempts nothing -> BLOCKED"
+fi
+
+# --- M16: the accepted ack stops being logged. A waiver nobody can count is a
+# waiver that becomes a habit invisibly.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = '>>"$C6_LOG_DIR/model-downgrade-acks.log" 2>/dev/null || true'
+assert old in s, "log anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, ">/dev/null 2>&1 || true", 1))
+PY
+if applied M16 "the accepted-ack log removed" \
+   && alive M16 "the accepted-ack log removed"; then
+    check M16 "the accepted-ack log removed" \
+        "an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models"
+fi
+
+# --- M17 (FAIL-CLOSED ON ITS OWN ERROR): an alias the declaration does not
+# rank becomes a refusal instead of an announced skip. A crashing guard that
+# blocks every spawn is worse than the defect it was built for; the brief
+# said so in those words.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'C6_SKIP="MODEL_TIERS=\\"${MODEL_TIERS}\\" ranks no alias named ${C6_UNRANKED}"'
+assert old in s, "unranked anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, 'PROBLEMS+=("model tier — unranked alias ${C6_UNRANKED}")', 1))
+PY
+if applied M17 "an unranked alias refuses instead of failing open" \
+   && alive M17 "an unranked alias refuses instead of failing open"; then
+    check M17 "an unranked alias refuses instead of failing open" \
+        "an alias MODEL_TIERS does not rank -> allowed \(fail-open\)"
+fi
+
+# --- M18 (INFERENCE FROM NAMES — the defect, stated literally): the ranks come
+# from a hardcoded table keyed on the alias name (tonight's invented belief:
+# fable below sonnet) instead of from the declaration. The (n) block's
+# contradicting-declaration cases exist for exactly this mutant.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old_d = 'C6_RANK_DEFAULT="$(model_tier_rank "$C6_DEFAULT" "$MODEL_TIERS")"'
+old_r = 'C6_RANK_REQUESTED="$(model_tier_rank "$C6_REQUESTED" "$MODEL_TIERS")"'
+assert old_d in s and old_r in s, "rank call anchors not found"
+new_d = 'case "$C6_DEFAULT" in opus) C6_RANK_DEFAULT=1;; sonnet) C6_RANK_DEFAULT=2;; fable) C6_RANK_DEFAULT=3;; haiku) C6_RANK_DEFAULT=4;; *) C6_RANK_DEFAULT="";; esac'
+new_r = 'case "$C6_REQUESTED" in opus) C6_RANK_REQUESTED=1;; sonnet) C6_RANK_REQUESTED=2;; fable) C6_RANK_REQUESTED=3;; haiku) C6_RANK_REQUESTED=4;; *) C6_RANK_REQUESTED="";; esac'
+open(p, "w", encoding="utf-8").write(s.replace(old_d, new_d, 1).replace(old_r, new_r, 1))
+PY
+if applied M18 "ranks inferred from alias names instead of the declaration" \
+   && alive M18 "ranks inferred from alias names instead of the declaration"; then
+    check M18 "ranks inferred from alias names instead of the declaration" \
+        "reed \(sonnet default\) on fable, no reason -> allowed, SILENT \(an upgrade\)" \
+        "the declared order is obeyed even when it contradicts the alias names: opus-default on haiku -> SILENT" \
+        "the declared order is obeyed even when it contradicts the alias names: opus-default on fable \(same tier\) -> SILENT"
+fi
+# (The "opus-default on sonnet -> BLOCKED" case is deliberately NOT named for
+# M18: a name-keyed table that puts opus above sonnet refuses it too, so it
+# cannot tell the mutant from the guard. It is M13's kind of case, not M18's.)
+
+# --- M19: the fail-open skip is silenced. Still allows, so every exit-code
+# case stays green; only the announcement cases notice. A guard that stops
+# guarding without saying so is the failure class this engine keeps finding
+# in itself.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = '[ -z "$C6_SKIP" ] || _c6_announce_skip "$C6_SKIP"'
+assert old in s, "announce anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, "true", 1))
+PY
+if applied M19 "the fail-open skip silenced" \
+   && alive M19 "the fail-open skip silenced"; then
+    check M19 "the fail-open skip silenced" \
+        "the fail-open skip is announced, naming the unranked alias" \
+        "parser library missing -> allowed \(fail-open\), announced"
 fi
 
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
