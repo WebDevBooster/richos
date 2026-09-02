@@ -21,7 +21,8 @@
 # reasoning, token by token, for whatever message it was handed.
 #
 # Exit codes:
-#   0  every governed row still describes the work it points at
+#   0  every governed row still describes the work it points at, and every CEO
+#      item's stated premise still holds
 #   1  at least one row does not (each is named, with the warrant it should
 #      now carry)
 #   2  broken: no declaration, a malformed one, or a checker that could not run
@@ -132,6 +133,7 @@ fi
 
 case "$VERDICT" in
   CLEAN)
+    printf '%s\n' "$BODY" | awk -F'\t' '$1=="PC" {printf "  PREMISE CENSUS  %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}'
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  NOTE   %s\n         %s\n", $2, $3}'
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="SKIP" {printf "  SKIP   item %s — %s\n         %s\n", $2, $3, $4}'
     printf '✓ row currency: %s governed row(s) still describe the work they point at (%s not checkable).\n' \

@@ -453,6 +453,12 @@ case "$VERDICT" in
   CLEAN)
     # A clean pass still says what it did NOT check. The only way to silence
     # these lines is to fix what they name.
+    # THE POSITIVE PROBE, on every single clean pass. `PC evaluated=0` and no PC
+    # line at all are two very different facts — "the premise check ran and had
+    # nothing to say" versus "the premise check did not run" — and a reader who
+    # cannot tell them apart is the reader who trusted a green layer over a
+    # scanner that never started.
+    printf '%s\n' "$BODY" | awk -F'\t' '$1=="PC" {printf "  ROW CURRENCY — PREMISE CENSUS: %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}' >&2
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="NOTE" {printf "  ROW CURRENCY — NOTE: %s\n         %s\n", $2, $3}' >&2
     printf '%s\n' "$BODY" | awk -F'\t' '$1=="SKIP" {printf "  ROW CURRENCY — NOT CHECKED: item %s, %s\n         %s\n", $2, $3, $4}' >&2
     exit 0 ;;
