@@ -672,6 +672,9 @@ turn-manifest.sh|Stop
 notice-hook-staleness.sh|Stop
 notice-inflight-acks.sh|Stop
 notice-mechanical-findings.sh|Stop
+guard-ceo-ruled-ask.sh|PreToolUse
+notice-ceo-ruled-prose.sh|Stop
+notice-waiver-repetition.sh|Stop
 notice-unstarted-rows.sh|Stop
 notice-ceo-unasked.sh|Stop
 notice-unasked-deferral.sh|Stop
