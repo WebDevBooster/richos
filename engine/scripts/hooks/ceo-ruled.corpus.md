@@ -109,7 +109,7 @@ A ruling's body cites half the register; sharing words with it is not evidence
 of anything. Both were deleted. What survives is the record's own statement of
 what each ruling is ABOUT — its **title** — carried whole by the question.
 
-Two further refinements, each forced by a measured false positive:
+Three further refinements. The first two were forced by a measured false positive; the third was not designed at all, it was found:
 
 1. **Specificity is measured over TITLES, not bodies.** "splash screens"
    appears in the body of three rulings and is the title of exactly one. Body
