@@ -12,6 +12,46 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **A generic agent is not a teammate: staffing is now gated separately from
+  worktree isolation** (`scripts/hooks/guard-worktree-isolation.sh` clause 5,
+  `orchestration.config`: `HARNESS_UTILITY_TYPES` / `GENERIC_AGENT_TYPES`).
+
+  `READONLY_ALLOWLIST` answered one question — does this agent need an isolated
+  worktree? — and it was read as answering a second: may work be STAFFED to this
+  type at all? On 2026-09-02 an engine-wide audit was dispatched to `Explore`, a
+  generic built-in, because a roster teammate would have needed a worktree
+  created first and the built-in could be dispatched immediately. Nothing
+  refused it, correctly by the old contract. A comment was added to
+  `orchestration.config` saying the exemption is not a staffing permission, and
+  a comment is prose; prose did not hold.
+
+  Clause 5 refuses a spawn of a generic type unless the prompt carries a live
+  `generic-agent: <why no roster teammate fits this work>` line, in the shape
+  already used by `main-checkout-run:`, `resume-ack:` and `hand-roll-ack:`. A
+  bare marker exempts nothing (≥ 30 characters, ≥ 5 words, ≥ 3 distinct
+  substantive words), and a SPEED or CONVENIENCE reason is refused by name —
+  that was the rationale in the incident, and needing a worktree first is a
+  single call to `scripts/create-teammate-worktree.sh`. Accepted uses are logged
+  to `.claude/state/generic-agent-dispatches.log`. The refusal names the
+  alternative rather than saying only no: a generic agent never appears in the
+  team display and leaves no commit, so work sent to one disappears from the
+  CEO's view and from the record.
+
+  `statusline-setup` and `claude-code-guide` are NOT gated — they configure or
+  explain the harness itself and carry no delegated work, and a gate that fires
+  on a statusline change is how a defense becomes a nuisance and then a
+  formality. That exemption is config (`HARNESS_UTILITY_TYPES`), not code, and
+  the default is deny. `GENERIC_AGENT_TYPES` closes the obvious detour:
+  `general-purpose` is file-capable, is not on the read-only allowlist, and
+  passed the whole contract before.
+
+  **The isolation exemption is unchanged.** An allowlisted type that satisfies
+  clause 5 still spawns with no isolation and no name. Both properties are
+  proven separately: 37 new suite cases, and a new
+  `scripts/hooks/guard-worktree-isolation.mutation.sh` whose 10 mutants are all
+  load-bearing — three of them in the OVER-blocking direction, including the one
+  that folds the isolation exemption into the staffing gate.
+
 - **A CEO item can now state the fact its question rests on, and a landing that
   moves that fact is refused** (`scripts/lib/row-currency.py`,
   `scripts/lib/row-currency.sh`, `scripts/lib/ceo-todos.py`,

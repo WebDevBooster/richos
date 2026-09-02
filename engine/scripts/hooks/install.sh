@@ -402,6 +402,11 @@ HOOK_FILES+=(
     # already been quietly wrong once, in a way nobody could see: the shipped
     # version stood itself down on 41% of landing turns.
     "$REPO_ROOT/scripts/hooks/guard-idle-land.py"
+    # The waiver-repetition analyzer. Same argument as guard-idle-land.py
+    # directly above, one notch weaker because this wrapper reports rather
+    # than blocks: it decides nothing itself, so an unhashed copy is the file
+    # that decides whether a repeatedly-waived guard is ever named.
+    "$REPO_ROOT/scripts/hooks/notice-waiver-repetition.py"
 )
 for f in "${HOOK_FILES[@]}"; do
     [ -f "$f" ] || continue

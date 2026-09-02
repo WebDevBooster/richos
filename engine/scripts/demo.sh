@@ -303,6 +303,12 @@ DEMO_FILES+=(
     "scripts/hooks/guard-agent-state-claims.py"
     "scripts/hooks/guard-unasked-deferral.py"
     "scripts/hooks/turn-manifest.py"
+    # The waiver-repetition analyzer, for the same reason as the five above:
+    # notice-waiver-repetition.sh hands its entire verdict to this file, and
+    # without it the sample repo shows a buyer a Stop notice that starts,
+    # reports "WATCH IS OFF" into a channel the demo has no reader for, and
+    # exits 0 on every turn.
+    "scripts/hooks/notice-waiver-repetition.py"
     # The agent-liveness resolver. A FOURTH caller joined it on 2026-09-01 and
     # it fails SOFT, which puts it in the teammate-identity.py category rather
     # than the refuse-to-start one: scripts/reap-stale-worktrees.sh asks this
