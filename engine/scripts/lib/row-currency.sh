@@ -53,6 +53,48 @@
 # looking at, next to a sentence you have to decide is still true.
 #
 # ===========================================================================
+# THE SECOND WARRANT — A CEO ITEM'S PREMISE (added 2026-09-02)
+# ===========================================================================
+# The mechanism above answers "is this row still describing the work?". The
+# CEO-TODOs contract answers "is this item already finished?". On 2026-09-02 an
+# item on the CEO's own page was neither stale in that sense nor finished, and
+# was still wrong:
+#
+#   Item 1.8 asked him to rule on whether this repository should enforce its own
+#   rules. The question rested on a measurement taken three days earlier —
+#   both declarations committed, "nothing reads either of them", 28 commits
+#   with no check running. By the time he read it that was FALSE: scope is
+#   declared by the destination, and both guards had refused commits into that
+#   repository three times that same day. Its Done-check was correctly
+#   unsatisfied, because he had never ruled. The item was never FINISHED.
+#
+#   ITS PREMISE HAD ROTTED, AND NOTHING IN THIS ENGINE HAD AN OPINION ABOUT
+#   PREMISES.
+#
+# His attention is the scarcest thing in the system, and a question whose reason
+# has evaporated spends it directly. So a CEO item may state the observable fact
+# its question rests on, pinned exactly as a row pins work:
+#
+#     - **Premise:** `richos/engine/scripts/hooks/guard-x.sh`@`4f2a9c1e83bd` —
+#       the guard exits before it reads this repository's declaration
+#
+# When that object id moves, the next landing is refused, naming the item and
+# what moved. Same identity rule, same absence of a re-stamp command, same
+# absence of an override.
+#
+# NOT EVERY QUESTION HAS A PINNABLE PREMISE, and forcing one would produce
+# fiction. "Run `railway login`" rests on no artifact. The DONE-CHECK-MANUAL
+# precedent is exactly right and is reused: an item may declare its premise
+# unobservable — `unobservable "<why not>"` — and that declaration is COUNTED
+# AND PRINTED by the census on every run, never a silent omission. A bare
+# marker exempts nothing; it must carry a reason.
+#
+# WHERE IT IS DECLARED: `.ceo-todos`, key PREMISE_SECTIONS, because the CEO
+# sections are that declaration's jurisdiction and CEO_SECTIONS is already
+# stated there once. Undeclared = not adopted, and every verdict carries a
+# `PC sections=-` census line saying so rather than passing in silence.
+#
+# ===========================================================================
 # WHERE IT FIRES, AND WHY NOT EVERYWHERE
 # ===========================================================================
 # ONLY IN A MAIN CHECKOUT, ON AN ATTACHED HEAD — a LANDING.
@@ -473,6 +515,8 @@ rc_build_job() {
     RC_JOB_OUT="$out" RC_JOB_REC="$rec" RC_JOB_B1="$b1" RC_JOB_B2="$b2" \
     RC_JOB_MSG="$msg" RC_JOB_MSRC="$msrc" RC_JOB_ACTION="$action" \
     RC_JOB_LABEL="$RC_RECORD_REL" RC_JOB_SECTIONS="$RC_ROW_SECTIONS" \
+    RC_JOB_PREMISE_SECTIONS="${CT_PREMISE_SECTIONS:-}" \
+    RC_JOB_PREMISE_REQUIRED="${CT_PREMISE_REQUIRED:-0}" \
     RC_JOB_TOKENS="$RC_STATUS_TOKENS" RC_JOB_TERMINAL="$RC_TERMINAL_TOKENS" \
     RC_JOB_CLAIM_WORDS="$RC_CLAIM_WORDS" \
     RC_JOB_ROOTS_OK="$CT_ROOTS_OK" RC_JOB_ROOTS_ABSENT="$CT_ROOTS_ABSENT" \
@@ -517,6 +561,8 @@ job = {
     "record_text":     read(os.environ.get("RC_JOB_REC")) or "",
     "baselines":       baselines,
     "row_sections":    (os.environ.get("RC_JOB_SECTIONS") or "").split(),
+    "premise_sections": (os.environ.get("RC_JOB_PREMISE_SECTIONS") or "").split(),
+    "premise_required": (os.environ.get("RC_JOB_PREMISE_REQUIRED") or "0") == "1",
     "status_tokens":   (os.environ.get("RC_JOB_TOKENS") or "").split(),
     "terminal_tokens": (os.environ.get("RC_JOB_TERMINAL") or "").split(),
     "claim_words":     (os.environ.get("RC_JOB_CLAIM_WORDS") or "").split(),
@@ -569,6 +615,11 @@ rc_refusal() {
     echo "  record : $label"
     echo "  guard  : $who"
     echo ""
+    # The census first, and with awk rather than inside the read loop below: a
+    # `read -r kind a b c` splits a ten-field line into four and prints the tail
+    # with its tab characters still in it. Same reason the guard and the CLI
+    # both use awk for this line.
+    printf '%s\n' "$result" | awk -F'\t' '$1=="PC" {printf "  PREMISE CENSUS  %s %s %s %s %s %s %s %s %s %s\n", $2,$3,$4,$5,$6,$7,$8,$9,$10,$11}'
     printf '%s\n' "$result" | while IFS="$(printf '\t')" read -r kind a b c; do
         case "$kind" in
             V)    printf '  BLOCK  item %s — %s\n         %s\n' "$a" "$b" "$c" ;;

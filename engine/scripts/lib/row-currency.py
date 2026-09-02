@@ -73,6 +73,10 @@ INPUT — one JSON job, path given as argv[1] (or "-" for stdin)
       "record_text":    "<the record as it will be after this commit>",
       "baselines":      ["<record at HEAD>", "<record one commit earlier>"],
       "row_sections":   ["3"],
+      "premise_sections": ["1", "2"],  # the CEO sections, from .ceo-todos;
+                                       # [] = the premise warrant is not adopted
+      "premise_required": false,       # true = an item with no **Premise:**
+                                       # line is a violation rather than a note
       "status_tokens":  ["OPEN", "BUILT", "BOUNDED", "BLOCKED-ON-RICH", "CLOSED"],
       "terminal_tokens":["CLOSED"],
       "claim_words":   ["item", "open-items", "decision"],  # the dialect
@@ -96,6 +100,16 @@ then one line per finding:
     SKIP  <item-id>  <path>     <reason>
     NOTE  <CODE>     <message>
     FIX   <item-id>  <warrant>  the warrant this row should carry now
+
+and, ALWAYS, whether or not premise sections are declared:
+
+    PC    sections=<list|->  items=<n>  evaluated=<n>  pinned=<n>  stamps=<n>
+          moved=<n>  unobservable=<n>  broken=<n>  skipped=<n>  unstated=<n>
+
+          The premise census. On every verdict, clean or not, for the reason
+          ceo-todos.py's DC line is: the right outcome for an unobservable
+          premise is silence, and silence is what a checker that never ran
+          produces too.
 
 EXIT  0 always, unless the job itself is unreadable (2). The VERDICT is the
       product: a non-zero exit would make "the record is stale" and "the
@@ -124,15 +138,75 @@ TABLE_ITEM_RE = re.compile(r"^\|\s*(?P<id>\d+\.\d+[a-z]?)\s*\|")
 # `|---|---|---|` and `| # | Item | ... |` - structure, never an item.
 TABLE_RULE_RE = re.compile(r"^\|[\s:|-]*\|\s*$")
 
-# THE WARRANT. One construct, one regex, in both row shapes - a table cell and
-# a `- **State:**` line under a heading parse identically, because two parsers
-# of one grammar is the defect this engine keeps finding in itself.
-WARRANT_RE = re.compile(r"\*\*State:\*\*\s*(?P<body>.*?)\s*$")
+# THE WARRANT. One construct, one regex builder, in both row shapes and in both
+# KINDS of warrant - a table cell, a `- **State:**` line and a `- **Premise:**`
+# line all parse identically, because two parsers of one grammar is the defect
+# this engine keeps finding in itself.
+def field_re(name):
+    return re.compile(r"\*\*%s:\*\*\s*(?P<body>.*?)\s*$" % re.escape(name))
+
+
+WARRANT_RE = field_re("State")
 STATUS_RE = re.compile(r"^\s*`(?P<tok>[A-Z][A-Z0-9-]*)`")
 STAMP_RE = re.compile(r"`(?P<path>[^`\s]+)`\s*@\s*`(?P<oid>[0-9a-f]{6,40}|-)`")
 
+ROW_DECLARATION_LABEL = ".row-currency"
+
 STAMP_LEN = 12          # how much of the object id a warrant carries
 ABSENT = "-"            # the stamp for "this path does not exist"
+
+# ===========================================================================
+# THE SECOND WARRANT - a CEO item's PREMISE
+# ===========================================================================
+# A section-3 row answers "is this work still what the row says it is?". A CEO
+# item's Done-check answers "is this already finished?". NEITHER of them
+# answers the question that rotted item 1.8:
+#
+#     IS THE REASON FOR ASKING HIM THIS STILL TRUE?
+#
+# 1.8 asked "should this repository enforce its own rules?", resting on a
+# measurement taken on 2026-08-30: the two declarations were committed and
+# "nothing reads either of them". Three days later that was false - scope is
+# declared by the destination, both guards had been refusing commits into that
+# repository all day - and the item was NEVER FINISHED, so its Done-check was
+# correctly unsatisfied and correctly silent. The item was not stale. Its
+# PREMISE was, and no machinery had an opinion about premises.
+#
+# So a CEO item may state the observable fact its question rests on, pinned the
+# way a section-3 row pins work:
+#
+#     - **Premise:** `richos/engine/scripts/hooks/guard-x.sh`@`4f2a9c1e83bd` -
+#       the guard exits before reading this repository's declaration
+#
+# and when that object id moves, the next landing is refused until somebody
+# re-reads the item and decides whether the question survives. Same identity
+# rule, same refusal, same no-re-stamp-command rule. The only new thing is WHICH
+# sentence the pin is attached to.
+#
+# THE STATED FACT IS PART OF THE WARRANT, not decoration. A pin with no sentence
+# beside it can be re-stamped mechanically, which is the original defect wearing
+# a fix's clothes - and it is precisely what 1.8 had: its premise sentence lived
+# thirty lines below in prose, connected to nothing.
+PREMISE_RE = field_re("Premise")
+
+# The escape hatch, and it is the DONE-CHECK-MANUAL precedent exactly: not every
+# question rests on something a machine can see. "Run `railway login`" rests on
+# no artifact at all, and forcing a pin onto it would produce fiction. So an
+# item may declare its premise unobservable - and must say WHY, in words, or it
+# is a way to switch the check off while looking like a considered decision.
+#
+# WHY `unobservable` AND NOT `manual`. Done-check's `manual` means "a human must
+# look". This means "there is nothing to look AT". Reusing the word would make
+# the census read as though somebody had undertaken to check something.
+PREMISE_UNOBSERVABLE_RE = re.compile(
+    r'^\s*`?\s*unobservable\s+"(?P<why>[^"]*)"\s*`?\s*$')
+MIN_PREMISE_WORDS = 4      # the stated fact, matching Done's own floor
+MIN_UNOBSERVABLE_WORDS = 3  # matching Done-check's MIN_MANUAL_WORDS
+
+
+def _words(value):
+    return [w for w in re.split(r"\s+", re.sub(r"[`*_\[\]()@]", " ", value or ""))
+            if w]
 
 
 def fail(reason):
@@ -144,11 +218,17 @@ def fail(reason):
 # THE PARSE - one function; the lint, the claim check and the FIX line all
 # use its output, so there is no second reading of the record anywhere.
 # ===========================================================================
-def parse_record(text, row_sections):
+def parse_record(text, row_sections, premise_sections=()):
     """-> (items, violations, seen_sections)
 
-    items: [{"section", "id", "span": [line...], "line0", "governed", "shape"}]
-    in document order.
+    items: [{"section", "id", "span": [line...], "line0", "governed",
+             "premised", "shape"}] in document order.
+
+    "governed" is section-3's warrant; "premised" is the CEO sections'. They
+    are two flags on ONE parse rather than two parses, for the reason stated at
+    the top of this file and in ceo-todos.py: two readings of one record agree
+    until they don't, and the day they disagree somebody reads a page a gate
+    called fine.
     """
     lines = text.split("\n")
     items = []
@@ -183,7 +263,9 @@ def parse_record(text, row_sections):
             if bm:
                 cur[0] = {"section": section, "id": bm.group("id"),
                           "span": [line], "line0": n + 1,
-                          "governed": section in row_sections, "shape": "block"}
+                          "governed": section in row_sections,
+                          "premised": section in premise_sections,
+                          "shape": "block"}
             continue
 
         if line.lstrip().startswith("|"):
@@ -196,6 +278,7 @@ def parse_record(text, row_sections):
                 items.append({"section": section, "id": tm.group("id"),
                               "span": [line], "line0": n + 1,
                               "governed": section in row_sections,
+                              "premised": section in premise_sections,
                               "shape": "table"})
                 continue
             # A table row inside a governed section that carries no item id in
@@ -221,9 +304,9 @@ def _looks_like_header(line):
     return first in ("#", "id", "item", "no", "no.", "")
 
 
-def warrant_of(item):
+def warrant_of(item, regex=WARRANT_RE):
     for line in item["span"]:
-        m = WARRANT_RE.search(line)
+        m = regex.search(line)
         if m:
             return m.group("body")
     return None
@@ -271,11 +354,10 @@ def identity(root, rev, relpath):
 # ===========================================================================
 # THE STAMP WALK - one implementation, both warrants
 # ===========================================================================
-# The stamp resolution is lifted out of CHECK 1 unchanged so that a SECOND
-# warrant can pin artifacts through the same code rather than through a second
-# staleness implementation - two of those is how one silently becomes the stale
-# one. The only thing that will differ is what a mismatch MEANS, which is a
-# table of sentences and three violation codes rather than a second walk.
+# A section-3 `**State:**` warrant and a CEO item's `**Premise:**` warrant pin
+# artifacts in exactly the same way, so they resolve them with exactly the same
+# code. The only thing that differs is what a mismatch MEANS, which is a table
+# of sentences and three violation codes rather than a second walk.
 #
 # The section-3 sentences below are byte-identical to the ones this function
 # was extracted from. That is deliberate and is asserted by the suite: a
@@ -295,6 +377,25 @@ ROW_STAMP_CODES = {
              "still describes what it used to be.",
     "bare_root_msg": "`%s` names a repository, not the work",
 }
+
+PREMISE_STAMP_CODES = {
+    "unknown_prefix": "PREMISE-UNKNOWN-PREFIX",
+    "bare_root": "PREMISE-BARE-ROOT",
+    "stale": "PREMISE-MOVED",
+    "skip": "declared root '%s' (%s) is not on this machine, so the fact this "
+            "question rests on could not be identified",
+    "vanished": "`%s` is pinned @`%s` and no longer exists. The fact this "
+                "question rests on has changed; re-read the item before it "
+                "reaches him again.",
+    "appeared": "`%s` is pinned @`-` (absent) and now EXISTS as %s. The fact "
+                "this question rests on has changed; re-read the item before "
+                "it reaches him again.",
+    "moved": "`%s` is pinned @`%s` and is now %s. The fact this question rests "
+             "on has changed; re-read the item and decide whether the question "
+             "survives before it reaches him again.",
+    "bare_root_msg": "`%s` names a repository, not the fact",
+}
+
 
 def walk_stamps(iid, stamps, roots, absent_roots, revs, skips, violations,
                 codes):
@@ -343,6 +444,116 @@ def walk_stamps(iid, stamps, roots, absent_roots, revs, skips, violations,
             moved = True
             violations.append((iid, codes["stale"], codes["moved"] % (path, oid, short)))
     return wanted, moved
+
+
+# ===========================================================================
+# CHECK 1b - IS THE REASON FOR ASKING HIM THIS STILL TRUE?
+# ===========================================================================
+# Same identity rule as CHECK 1, attached to a different sentence. See the
+# PREMISE_RE block at the top for the argument and for item 1.8, the case that
+# produced it.
+#
+# THE CENSUS IS NOT OPTIONAL. It rides on every verdict, clean or not, for the
+# reason ceo-todos.py's DC line rides on every verdict: the correct outcome for
+# an item whose premise is unobservable is SILENCE, and silence is also exactly
+# what a checker that never ran produces. `PC evaluated=0` and no PC line at all
+# are two very different facts and a reader must be able to tell them apart.
+def check_premises(items, premise_sections, premise_required, roots,
+                   absent_roots, revs, violations, skips, notes, fixes, pc):
+    for it in items:
+        if not it.get("premised"):
+            continue
+        iid = it["id"]
+        pc["items"] += 1
+        body = warrant_of(it, PREMISE_RE)
+
+        if body is None or not body.strip():
+            pc["unstated"].append(iid)
+            if premise_required:
+                violations.append((
+                    iid, "PREMISE-MISSING",
+                    "this item states no `**Premise:**`, and this record declares "
+                    "PREMISE_REQUIRED=1. Every item in a CEO section must either "
+                    "pin the observable fact its question rests on, or say "
+                    "`unobservable \"<why not>\"`. An item whose premise nothing "
+                    "watches goes on asking him a question that has already "
+                    "answered itself - which is what item 1.8 did for three days."))
+            continue
+
+        um = PREMISE_UNOBSERVABLE_RE.match(body)
+        if um:
+            why = um.group("why").strip()
+            if len(_words(why)) < MIN_UNOBSERVABLE_WORDS:
+                pc["broken"] += 1
+                violations.append((
+                    iid, "PREMISE-UNOBSERVABLE-NO-REASON",
+                    "`unobservable` must say WHY this question rests on nothing a "
+                    "machine can see, in at least %d words. A bare marker exempts "
+                    "nothing - it is a way to switch the check off while looking "
+                    "like a considered decision." % MIN_UNOBSERVABLE_WORDS))
+                continue
+            pc["evaluated"] += 1
+            pc["unobservable"] += 1
+            pc["unobservable_items"].append((iid, why))
+            continue
+
+        stamps = STAMP_RE.findall(body)
+        if not stamps:
+            pc["broken"] += 1
+            violations.append((
+                iid, "PREMISE-UNPINNED",
+                "the premise names no `<prefix>/path`@`<oid>` pin and does not "
+                "declare itself unobservable, so nothing can tell when the fact "
+                "it rests on stops being true. Either pin the artifact, or write "
+                "`unobservable \"<why not>\"`: %s" % body[:110]))
+            continue
+
+        # THE STATED FACT. Its absence is the whole of item 1.8's defect: a pin
+        # with no sentence beside it re-stamps mechanically, and 1.8's premise
+        # sentence lived thirty lines below in prose, attached to nothing.
+        fact = STAMP_RE.sub(" ", body)
+        fact = fact.strip().lstrip("-\u2013\u2014").strip().strip(",;").strip()
+        if len(_words(fact)) < MIN_PREMISE_WORDS:
+            pc["broken"] += 1
+            violations.append((
+                iid, "PREMISE-NO-FACT",
+                "the premise pins an artifact and states no fact about it. Say, in "
+                "at least %d words, WHAT is true of that artifact that makes this "
+                "question worth his time - otherwise a mismatch can be cleared by "
+                "re-typing an object id, which is the original defect wearing a "
+                "fix's clothes." % MIN_PREMISE_WORDS))
+            continue
+
+        pc["evaluated"] += 1
+        pc["pinned"] += 1
+        pc["stamps"] += len(stamps)
+        before = len(skips)
+        wanted, moved = walk_stamps(iid, stamps, roots, absent_roots, revs,
+                                    skips, violations, PREMISE_STAMP_CODES)
+        pc["skipped"] += len(skips) - before
+        if moved:
+            pc["moved"] += 1
+            fixes.append((iid, "**Premise:** %s - %s"
+                          % (", ".join("`%s`@`%s`" % (path, oid)
+                                       for path, oid in wanted), fact)))
+
+    if pc["unstated"] and not premise_required:
+        notes.append((
+            "PREMISE-NOT-STATED",
+            "%d item(s) in the CEO sections state no `**Premise:**`, so nothing "
+            "can tell whether the reason for asking has stopped being true: %s. "
+            "On 2026-09-02 an item in this state had been asking the CEO to "
+            "decide something that had already resolved itself. Declare "
+            "PREMISE_REQUIRED=1 in the CEO-TODOs declaration to make this a "
+            "refusal." % (len(pc["unstated"]), ", ".join(pc["unstated"]))))
+    if pc["unobservable_items"]:
+        notes.append((
+            "PREMISE-UNOBSERVABLE",
+            "%d item(s) declare that their question rests on nothing observable "
+            "and are deliberately NOT checked: %s. This is a stated decision, "
+            "not a gap - and the PC line proves the evaluator ran."
+            % (len(pc["unobservable_items"]),
+               "; ".join("%s (%s)" % (i, r) for i, r in pc["unobservable_items"]))))
 
 
 # ===========================================================================
@@ -533,6 +744,16 @@ def main():
         fail("no ROW_SECTIONS declared. A currency check over no sections would "
              "report clean on every run, which is worse than no check at all.")
 
+    premise_sections = [str(s) for s in (job.get("premise_sections") or [])]
+    premise_required = bool(job.get("premise_required"))
+    overlap = sorted(set(premise_sections) & set(row_sections))
+    if overlap:
+        fail("section(s) %s are declared BOTH as row sections (a `**State:**` "
+             "warrant, in %s) and as premise sections (a `**Premise:**` warrant, "
+             "in the CEO-TODOs declaration). One section cannot carry two "
+             "warrants, and guessing which was meant is how the wrong one stays "
+             "live." % (", ".join(overlap), ROW_DECLARATION_LABEL))
+
     tokens = [str(t) for t in (job.get("status_tokens") or [])]
     if not tokens:
         fail("no ROW_STATUS_TOKENS declared - every warrant would be rejected")
@@ -541,12 +762,18 @@ def main():
     absent_roots = job.get("absent_roots") or {}
     revs = job.get("identity_revs") or {}
 
-    items, violations, seen_sections = parse_record(text, row_sections)
+    items, violations, seen_sections = parse_record(text, row_sections,
+                                                    premise_sections)
     for want in row_sections:
         if want not in seen_sections:
             fail("%s declares row section %s and no '## %s.' heading exists in "
                  "the record. The check would have had nothing to look at and "
                  "would have reported clean." % (label, want, want))
+    for want in premise_sections:
+        if want not in seen_sections:
+            fail("%s declares premise section %s and no '## %s.' heading exists "
+                 "in the record. The premise check would have had nothing to "
+                 "look at and would have reported clean." % (label, want, want))
 
     by_id = {}
     dupes = []
@@ -625,6 +852,13 @@ def main():
                           % (tok, ", ".join("`%s`@`%s`" % (p, o)
                                             for p, o in wanted))))
 
+    # --- CHECK 1b: PREMISE -------------------------------------------------
+    pc = {"items": 0, "evaluated": 0, "pinned": 0, "stamps": 0, "moved": 0,
+          "unobservable": 0, "broken": 0, "skipped": 0, "unstated": [],
+          "unobservable_items": []}
+    check_premises(items, premise_sections, premise_required, roots,
+                   absent_roots, revs, violations, skips, notes, fixes, pc)
+
     # --- CHECK 2: CLAIM ----------------------------------------------------
     message = job.get("message")
     msource = job.get("message_source") or "unavailable"
@@ -675,6 +909,13 @@ def main():
         out.append("NOTE\t%s\t%s" % n)
     for f in fixes:
         out.append("FIX\t%s\t%s" % f)
+    # ALWAYS emitted, clean or not, declared or not. A consumer that prints this
+    # line cannot report a reassuring verdict over an evaluator that did not run.
+    out.append("PC\tsections=%s\titems=%d\tevaluated=%d\tpinned=%d\tstamps=%d"
+               "\tmoved=%d\tunobservable=%d\tbroken=%d\tskipped=%d\tunstated=%d"
+               % (",".join(premise_sections) or "-", pc["items"], pc["evaluated"],
+                  pc["pinned"], pc["stamps"], pc["moved"], pc["unobservable"],
+                  pc["broken"], pc["skipped"], len(pc["unstated"])))
     if job.get("explain"):
         for tok, why in rejected:
             out.append("REJECTED\t%s\t%s" % (tok, why))
