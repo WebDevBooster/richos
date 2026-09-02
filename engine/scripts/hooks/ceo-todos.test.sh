@@ -1227,6 +1227,89 @@ else
     bad "p32. the renderer must add nothing for an item that carries no Done-check"
 fi
 
+# --- THE PREMISE FIELD — legal here, checked next door ----------------------
+# This file owns the field's EXISTENCE, not its truth. The pin is an object id
+# and object ids are compared in exactly one place (scripts/lib/row-currency.py),
+# because a staleness predicate in two copies is how one of them silently
+# becomes the stale one. What must hold HERE is that a `- **Premise:**` line is
+# a known field — because UNKNOWN_META_RE refuses every key this parser does not
+# know, so an unrecognized Premise would not be ignored: it would turn every
+# premised item into a violation and take the warrant off the air by making it
+# impossible to write.
+R="$(mk_repo premisefield)"
+printf 'PREMISE_SECTIONS="1 2"\n' >> "$R/.ceo-todos"
+write_record "$R" '### 2.7 READY-FOR-CEO — a question resting on something observable
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 10 minutes
+- **Done:** a ruling recorded on the decisions page
+- **Unblocks:** the two build items downstream of it
+- **Premise:** `repo/docs/prepared.md`@`abcdef123456` — nothing on this machine reads it yet
+'
+run_guard "$R"
+if [ "$GRC" -eq 0 ]; then
+    ok  "p33. a '- **Premise:**' line is a KNOWN field — an unknown one would make every premised item a violation"
+else
+    bad "p33. the Premise field was rejected by the item parser (rc=$GRC): $GOUT"
+fi
+
+# ...and the declaration keys that switch it on are known keys, not typos.
+if printf '%s' "$GOUT" | grep -qF "unknown key 'PREMISE_SECTIONS'"; then
+    bad "p34. PREMISE_SECTIONS is not a known declaration key: $GOUT"
+else
+    ok  "p34. PREMISE_SECTIONS is accepted by the declaration parser"
+fi
+
+# A PREMISE NOBODY READS. The realistic failure is not a malformed premise —
+# the checker refuses those loudly — it is a correct one written into a section
+# this repository never declared. It parses, renders nothing, blocks nothing,
+# and reads to its author as a live warrant.
+R="$(mk_repo premiseunread)"
+write_record "$R" '### 2.7 READY-FOR-CEO — a question resting on something observable
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 10 minutes
+- **Done:** a ruling recorded on the decisions page
+- **Unblocks:** the two build items downstream of it
+- **Premise:** `repo/docs/prepared.md`@`abcdef123456` — nothing on this machine reads it yet
+'
+run_lint "$R"
+if printf '%s' "$LOUT" | grep -qF 'PREMISE-NOT-CHECKED' && printf '%s' "$LOUT" | grep -qF '2.7'; then
+    ok  "p35. a Premise in a section PREMISE_SECTIONS does not name is NAMED, never silently inert"
+else
+    bad "p35. an unread Premise passed without a word: $LOUT"
+fi
+# ...and the two-sided half: with the section declared, the notice is gone.
+printf 'PREMISE_SECTIONS="1 2"\n' >> "$R/.ceo-todos"
+run_lint "$R"
+if printf '%s' "$LOUT" | grep -qF 'PREMISE-NOT-CHECKED'; then
+    bad "p36. the unread-premise notice fires even when the section IS declared: $LOUT"
+else
+    ok  "p36. declaring the section clears the notice — it names a real gap, not every premise"
+fi
+
+# THE CEO NEVER SEES IT. His attention is the scarcest thing in the system and
+# a pin is machinery; the rendered page must be byte-identical with and without.
+R="$(mk_repo premiserender)"
+printf 'PREMISE_SECTIONS="1 2"\n' >> "$R/.ceo-todos"
+PREM_BODY='### 2.8 READY-FOR-CEO — a question resting on something observable
+
+- **Open:** `repo/docs/prepared.md`
+- **Time:** 10 minutes
+- **Done:** a ruling recorded on the decisions page
+- **Unblocks:** the two build items downstream of it
+'
+write_record "$R" "$PREM_BODY"
+VIEW_WITHOUT="$(cat "$R/CEO-TODOs.md" 2>/dev/null)"
+write_record "$R" "$PREM_BODY- **Premise:** \`repo/docs/prepared.md\`@\`abcdef123456\` — nothing on this machine reads it yet
+"
+VIEW_WITH="$(cat "$R/CEO-TODOs.md" 2>/dev/null)"
+if [ -n "$VIEW_WITHOUT" ] && [ "$VIEW_WITHOUT" = "$VIEW_WITH" ]; then
+    ok  "p37. the premise pin never reaches the CEO's page — the view is byte-identical with and without it"
+else
+    bad "p37. the rendered view changed when a Premise line was added"
+fi
+
 # ---------------------------------------------------------------------------
 # (k) FAIL-CLOSED conventions
 # ---------------------------------------------------------------------------

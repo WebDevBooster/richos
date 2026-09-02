@@ -50,6 +50,17 @@
 #       work.
 #   (j) FAIL-CLOSED conventions, matching the hook family.
 #   (k) REGISTRATION on both surfaces, plus the probe's oracle and Layer R.
+#   (l) THE PREMISE WARRANT — a CEO item's stated reason for asking. Adopted
+#       and unadopted; moved and unmoved (two-sided, both directions asserted);
+#       the paste that clears it; `unobservable` with a reason and without;
+#       a pin with no stated fact; required and not required; and every way the
+#       declaration can be wrong. Plus the census, which is asserted to be
+#       PRESENT on a clean run — the whole point of it is that "nothing to say"
+#       and "never ran" must not be the same output.
+#   (m) SECTION 3 IS UNCHANGED. The stamp walk was extracted so both warrants
+#       share one implementation; the three section-3 refusal sentences are
+#       asserted AT RUNTIME, out of real refusals, so a refactor cannot quietly
+#       reword a contract 20 governed rows are written against.
 #
 # Run directly: scripts/hooks/row-currency.test.sh
 # Exit 0 = all cases pass; exit 1 = at least one failure.
@@ -161,6 +172,44 @@ write_record() {
         for r in "$@"; do printf '%s\n' "$r"; done
         printf '\n## Deliberately NOT open\n\nnothing\n'
     } > "$rec/wiki/open-items.md"
+}
+
+# write_ceo_record <record-repo> <section-1-item-block> <section-3-rows...>
+# The same record shape as write_record, with a real '### <id> <STATE> - ...'
+# item in section 1. A CEO item is a BLOCK, not a table row, and the two shapes
+# are parsed by one function — so a suite that only ever wrote table rows would
+# prove the easy half of that claim.
+write_ceo_record() {
+    local rec="$1" ceo="$2"; shift 2
+    {
+        printf '# Open items\n\n'
+        printf '## 1. Waiting on the CEO — a decision\n\n'
+        printf '%s\n\n' "$ceo"
+        printf '## 2. Waiting on the CEO — his hands\n\n_Nothing._\n\n'
+        printf '## 3. Buildable now — nobody blocked\n\n'
+        printf '| # | Item | State |\n|---|---|---|\n'
+        local r
+        for r in "$@"; do printf '%s\n' "$r"; done
+        printf '\n## Deliberately NOT open\n\nnothing\n'
+    } > "$rec/wiki/open-items.md"
+}
+
+# ceo_item <id> <premise-line-or-empty>
+ceo_item() {
+    printf '### %s READY-FOR-CEO — a ruling only he can give\n' "$1"
+    printf -- '- **Open:** `rec/docs/note.md`\n'
+    printf -- '- **Time:** 10 minutes\n'
+    printf -- '- **Done:** a ruling recorded in the decisions page\n'
+    printf -- '- **Unblocks:** the thing that waits on it\n'
+    [ -n "${2:-}" ] && printf -- '- **Premise:** %s\n' "$2"
+    printf '\nSome prose explaining the choice.\n'
+}
+
+# declare_premise <record-repo> <sections> [required]
+declare_premise() {
+    printf 'PREMISE_SECTIONS="%s"\n' "$2" >> "$1/.ceo-todos"
+    [ -n "${3:-}" ] && printf 'PREMISE_REQUIRED="%s"\n' "$3" >> "$1/.ceo-todos"
+    return 0
 }
 
 commit_record() { git -C "$1" add -A >/dev/null 2>&1; git -C "$1" commit -qm "${2:-record}" >/dev/null 2>&1; }
@@ -577,6 +626,258 @@ if printf '%s' "$LOUT" | grep -q 'rejected' && printf '%s' "$LOUT" | grep -q 'CL
 else
     bad "--explain did not report its own reasoning: $LOUT"
 fi
+
+# ---------------------------------------------------------------------------
+# (l) THE PREMISE WARRANT — is the reason for asking him this still true?
+# ---------------------------------------------------------------------------
+# The case this exists for, in one line: item 1.8 asked the CEO to rule on a
+# question whose premise had been false for three days. It was not finished, so
+# its Done-check was correctly silent; it was not a section-3 row, so nothing
+# pinned it. Every case below is a shape of that.
+
+# NOT ADOPTED — the precision floor, and it comes first for the same reason
+# stand-down does. A repository that declares no PREMISE_SECTIONS must be
+# untouched by all of this, however its CEO items are written.
+set -- $(mk_pair prem_unadopted); REC="$1"; WORK="$2"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_ceo_record "$REC" "$(ceo_item 1.1 "\`work/lib/thing.js\`@\`$OLD\` — the thing still says what it said")" \
+    '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+printf 'the shipped thing, moved on\n' > "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work moves\"'
+if [ "$GRC" -eq 0 ]; then
+    ok "premise: an undeclared PREMISE_SECTIONS checks nothing and blocks nothing"
+else
+    bad "premise: unadopted repository was blocked (rc=$GRC): $GOUT"
+fi
+if printf '%s' "$GOUT" | grep -q 'PREMISE CENSUS: sections=-'; then
+    ok "premise: the census SAYS it is not adopted rather than passing in silence"
+else
+    bad "premise: no census line on an unadopted run: $GOUT"
+fi
+
+# THE TWO-SIDED CANARY. Both directions, on one fixture, so neither can pass
+# for the wrong reason: an UNMOVED premise passes, and the moment the pinned
+# artifact moves the same landing is refused.
+set -- $(mk_pair prem_moved); REC="$1"; WORK="$2"
+declare_premise "$REC" "1"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_ceo_record "$REC" "$(ceo_item 1.1 "\`work/lib/thing.js\`@\`$OLD\` — nothing reads the thing, measured on the 30th")" \
+    '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+printf 'unrelated work\n' > "$WORK/lib/other.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"chore: something else entirely\"'
+if [ "$GRC" -eq 0 ]; then
+    ok "premise: an UNMOVED premise passes (the negative half of the canary)"
+else
+    bad "premise: unmoved premise was refused (rc=$GRC): $GOUT"
+fi
+if printf '%s' "$GOUT" | grep -q 'PREMISE CENSUS: sections=1 items=1 evaluated=1 pinned=1'; then
+    ok "premise: the census proves the evaluator ran on the passing side"
+else
+    bad "premise: census wrong or absent on the passing side: $GOUT"
+fi
+
+printf 'the shipped thing, and now something DOES read it\n' > "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"feat: the destination declares the scope now\"'
+if [ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'item 1.1' \
+   && printf '%s' "$GOUT" | grep -q 'PREMISE-MOVED'; then
+    ok "premise: a MOVED premise refuses the landing, naming the item and the code"
+else
+    bad "premise: moved premise not refused (rc=$GRC): $GOUT"
+fi
+if printf '%s' "$GOUT" | grep -q 'work/lib/thing.js'; then
+    ok "premise: the refusal names WHAT moved, not just that something did"
+else
+    bad "premise: the refusal does not name the artifact: $GOUT"
+fi
+
+# THE PASTE. The refusal prints the warrant the item should now carry, fact and
+# all, and pasting it clears the same landing — the same contract section 3 has.
+NEWP="$(printf '%s' "$GOUT" | sed -n 's/.*`work\/lib\/thing.js`@`\([0-9a-f]*\)`.*/\1/p' | head -1)"
+if [ -n "$NEWP" ]; then
+    write_ceo_record "$REC" "$(ceo_item 1.1 "\`work/lib/thing.js\`@\`$NEWP\` — something DOES read it now, and the question is narrower")" \
+        '| 3.1 | fine | **State:** `CLOSED` |'
+    commit_record "$REC" "record: 1.1 re-read"
+    run_guard "$WORK" 'git commit -m \"feat: the destination declares the scope now\"'
+    [ "$GRC" -eq 0 ] && ok "premise: re-stating the premise with the printed pin clears the refusal" \
+                     || bad "premise: the printed warrant did not clear it (rc=$GRC): $GOUT"
+else
+    bad "premise: could not read a replacement object id out of the refusal"
+fi
+if printf '%s' "$GOUT" | grep -q 'PREMISE CENSUS'; then
+    ok "premise: the census rides on the clean verdict too, never only on refusals"
+else
+    bad "premise: no census on the cleared run: $GOUT"
+fi
+
+# UNOBSERVABLE — the DONE-CHECK-MANUAL precedent. Counted, printed, never silent.
+set -- $(mk_pair prem_unobs); REC="$1"; WORK="$2"
+declare_premise "$REC" "1"
+write_ceo_record "$REC" "$(ceo_item 1.1 '`unobservable "railway login is a shell command and leaves nothing on disk"`')" \
+    '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -q 'PREMISE-UNOBSERVABLE'; then
+    ok "premise: an item may declare its premise unobservable, and is NAMED for it"
+else
+    bad "premise: unobservable declaration wrong (rc=$GRC): $GOUT"
+fi
+if printf '%s' "$GOUT" | grep -q 'unobservable=1'; then
+    ok "premise: the unobservable declaration is COUNTED by the census"
+else
+    bad "premise: unobservable not counted: $GOUT"
+fi
+
+# ...and a BARE marker exempts nothing.
+write_ceo_record "$REC" "$(ceo_item 1.1 '`unobservable "dunno"`')" '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'PREMISE-UNOBSERVABLE-NO-REASON' \
+    && ok "premise: a bare or unreasoned unobservable marker is refused, never accepted" \
+    || bad "premise: unreasoned unobservable should block (rc=$GRC): $GOUT"
+
+# A PIN WITH NO STATED FACT. The pin alone can be cleared by retyping a hex
+# string; the sentence is what forces a human to decide the question survives.
+write_ceo_record "$REC" "$(ceo_item 1.1 "\`rec/docs/note.md\`@\`$(oid_of "$REC" docs/note.md)\`")" \
+    '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'PREMISE-NO-FACT' \
+    && ok "premise: a pin with no stated fact is refused — a re-stamp must not be mechanical" \
+    || bad "premise: factless pin should block (rc=$GRC): $GOUT"
+
+# NEITHER SHAPE.
+write_ceo_record "$REC" "$(ceo_item 1.1 'we are fairly sure nothing reads it')" \
+    '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'PREMISE-UNPINNED' \
+    && ok "premise: prose that pins nothing and claims nothing is refused" \
+    || bad "premise: unpinned premise should block (rc=$GRC): $GOUT"
+
+# NOT REQUIRED (the default): named on every verdict, blocks nothing.
+set -- $(mk_pair prem_optional); REC="$1"; WORK="$2"
+declare_premise "$REC" "1"
+write_ceo_record "$REC" "$(ceo_item 1.1 '')" '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+if [ "$GRC" -eq 0 ] && printf '%s' "$GOUT" | grep -q 'PREMISE-NOT-STATED'; then
+    ok "premise: with PREMISE_REQUIRED unset, a premise-less item is NAMED and never blocked"
+else
+    bad "premise: optional mode wrong (rc=$GRC): $GOUT"
+fi
+if printf '%s' "$GOUT" | grep -q 'unstated=1'; then
+    ok "premise: the unstated item is counted by the census, not merely mentioned"
+else
+    bad "premise: unstated not counted: $GOUT"
+fi
+
+# REQUIRED: the same record, one line of declaration different.
+set -- $(mk_pair prem_required); REC="$1"; WORK="$2"
+declare_premise "$REC" "1" "1"
+write_ceo_record "$REC" "$(ceo_item 1.1 '')" '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'PREMISE-MISSING' \
+    && ok "premise: PREMISE_REQUIRED=1 turns the notice into a refusal" \
+    || bad "premise: required mode should block (rc=$GRC): $GOUT"
+
+# EVERY WAY THE DECLARATION CAN BE WRONG IS BROKEN, never a quiet pass.
+set -- $(mk_pair prem_reqnosec); REC="$1"; WORK="$2"
+printf 'PREMISE_REQUIRED="1"\n' >> "$REC/.ceo-todos"
+write_ceo_record "$REC" "$(ceo_item 1.1 '')" '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'BROKEN' \
+    && ok "premise: PREMISE_REQUIRED=1 over no section is BROKEN — a requirement over nothing" \
+    || bad "premise: required-with-no-sections should be broken (rc=$GRC): $GOUT"
+
+set -- $(mk_pair prem_notceo); REC="$1"; WORK="$2"
+declare_premise "$REC" "3"
+write_ceo_record "$REC" "$(ceo_item 1.1 '')" '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+# THE REASON, not just the verdict. This case was first written asserting only
+# "BROKEN" and it passed with the subset check surgically removed — because
+# section 3 is also the ROW section, so the overlap check refused instead and
+# the output looked identical. A case that cannot tell which check fired is a
+# case that cannot tell whether its own check exists.
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'not one of CEO_SECTIONS' \
+    && ok "premise: a premise section outside CEO_SECTIONS is BROKEN, and says so" \
+    || bad "premise: non-CEO premise section should be broken by the SUBSET check (rc=$GRC): $GOUT"
+
+# The overlap the two contracts must never have: one section, two warrants.
+set -- $(mk_pair prem_overlap); REC="$1"; WORK="$2"
+declare_premise "$REC" "1"
+printf 'ROW_SECTIONS="1 3"\nROW_STATUS_TOKENS="OPEN BUILT CLOSED"\nROW_TERMINAL_TOKENS="CLOSED"\n' > "$REC/.row-currency"
+write_ceo_record "$REC" "$(ceo_item 1.1 '')" '| 3.1 | fine | **State:** `CLOSED` |'
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'BROKEN' \
+    && ok "premise: a section declared as BOTH a row section and a premise section is BROKEN" \
+    || bad "premise: overlap should be broken (rc=$GRC): $GOUT"
+
+# A declared premise section that is not in the record: BROKEN, for exactly the
+# reason a missing ROW_SECTION is — the check would look at nothing and pass.
+set -- $(mk_pair prem_nosection); REC="$1"; WORK="$2"
+declare_premise "$REC" "2"
+{
+    printf '# Open items\n\n## 1. Waiting on the CEO — a decision\n\n_Nothing._\n\n'
+    printf '## 3. Buildable now\n\n| # | Item | State |\n|---|---|---|\n| 3.1 | fine | **State:** `CLOSED` |\n'
+} > "$REC/wiki/open-items.md"
+commit_record "$REC"
+run_guard "$REC" 'git commit -m \"anything\"'
+[ "$GRC" -eq 2 ] && printf '%s' "$GOUT" | grep -q 'BROKEN' \
+    && ok "premise: a declared premise section absent from the record is BROKEN" \
+    || bad "premise: absent premise section should be broken (rc=$GRC): $GOUT"
+
+# ---------------------------------------------------------------------------
+# (m) SECTION 3 IS UNCHANGED BY THE EXTRACTION
+# ---------------------------------------------------------------------------
+# The stamp walk now serves two warrants. Twenty governed rows in the real
+# record are written against the sentences it produced when it served one, so
+# each of the three is asserted HERE, AT RUNTIME, out of a real refusal —
+# never by grepping the source, which would only prove a string is present
+# somewhere and not that this code path still emits it.
+set -- $(mk_pair sec3_words); REC="$1"; WORK="$2"
+
+# 1. MOVED.
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "| 3.1 | open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
+commit_record "$REC"
+printf 'moved on\n' > "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+printf '%s' "$GOUT" | grep -qF 'The work moved; this row still describes what it used to be.' \
+    && ok "section 3 wording unchanged: the MOVED refusal" \
+    || bad "section 3 MOVED refusal was reworded: $GOUT"
+
+# 2. APPEARED — stamped absent, and the work now exists.
+set -- $(mk_pair sec3_appeared); REC="$1"; WORK="$2"
+write_record "$REC" '| 3.1 | unbuilt | **State:** `OPEN` — `work/lib/new.js`@`-` |'
+commit_record "$REC"
+printf 'it landed\n' > "$WORK/lib/new.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+printf '%s' "$GOUT" | grep -qF 'The row was written before the work was.' \
+    && ok "section 3 wording unchanged: the APPEARED refusal" \
+    || bad "section 3 APPEARED refusal was reworded: $GOUT"
+
+# 3. VANISHED — stamped at an id, and the work is gone.
+set -- $(mk_pair sec3_vanished); REC="$1"; WORK="$2"
+OLD="$(oid_of "$WORK" lib/thing.js)"
+write_record "$REC" "| 3.1 | open | **State:** \`OPEN\` — \`work/lib/thing.js\`@\`$OLD\` |"
+commit_record "$REC"
+rm -f "$WORK/lib/thing.js"
+git -C "$WORK" add -A >/dev/null 2>&1
+run_guard "$WORK" 'git commit -m \"work\"'
+printf '%s' "$GOUT" | grep -qF 'no longer exists. The row describes work that is not there.' \
+    && ok "section 3 wording unchanged: the VANISHED refusal" \
+    || bad "section 3 VANISHED refusal was reworded: $GOUT"
 
 # ---------------------------------------------------------------------------
 # (k) REGISTRATION — both surfaces, or the engine ships a guard nobody loads
