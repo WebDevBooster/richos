@@ -1,6 +1,6 @@
 {
-  "//": "THE DEBT LEDGER, AND IT IS NOW EMPTY. It recorded what the shipping app was already failing on 2026-08-30 — 456 nodes over 53 colour pairings, measured against a floor that never moves — so that a red run meant \"someone made this worse today\" rather than \"this repository has old debt\". Every one of those 53 is fixed as of the theme/type/contrast pass on 2026-08-31, and check 13 reported all 53 as no longer reachable, so they are deleted rather than left to rot into a list nobody reads. `cap: 0` is the consequence and the point: the ledger can shrink and never grow, and there is no longer any debt for a new failure to hide behind. Adding an entry here is now a deliberate, visible act. The threshold (4.5 / 3.0) is untouched and has never moved.",
-  "generated": "2026-08-31 — re-baselined when the app reached zero contrast failures in both themes. Amended the same day for RICH-TODOs row 12: three `updates-*` surfaces were ADDED, and they are the first drivers ever to walk the UNIVERSAL settings menu (the `settings` surface drives the RAIL's preferences popover, which is a different menu). Their first run found a SHIPPED failure nothing had covered — `.set-switch`, the Techy Mode toggle, whose off-state border was 1.24:1 dark / 1.50:1 light against a 3:1 floor, its fill being 1.18:1 / 1.17:1 and therefore invisible. It was FIXED (`--line` -> `--line-control`, 3.79:1 / 4.06:1) rather than entered here as debt, so `cap` is still 0 and this ledger is still empty. No existing floor moved.",
+  "//": "THE DEBT LEDGER, AND IT IS NOW EMPTY. It recorded what the shipping app was already failing on 2026-08-30 \u2014 456 nodes over 53 colour pairings, measured against a floor that never moves \u2014 so that a red run meant \"someone made this worse today\" rather than \"this repository has old debt\". Every one of those 53 is fixed as of the theme/type/contrast pass on 2026-08-31, and check 13 reported all 53 as no longer reachable, so they are deleted rather than left to rot into a list nobody reads. `cap: 0` is the consequence and the point: the ledger can shrink and never grow, and there is no longer any debt for a new failure to hide behind. Adding an entry here is now a deliberate, visible act. The threshold (4.5 / 3.0) is untouched and has never moved.",
+  "generated": "2026-08-31 \u2014 re-baselined when the app reached zero contrast failures in both themes. Amended the same day for RICH-TODOs row 12: three `updates-*` surfaces were ADDED, and they are the first drivers ever to walk the UNIVERSAL settings menu (the `settings` surface drives the RAIL's preferences popover, which is a different menu). Their first run found a SHIPPED failure nothing had covered \u2014 `.set-switch`, the Techy Mode toggle, whose off-state border was 1.24:1 dark / 1.50:1 light against a 3:1 floor, its fill being 1.18:1 / 1.17:1 and therefore invisible. It was FIXED (`--line` -> `--line-control`, 3.79:1 / 4.06:1) rather than entered here as debt, so `cap` is still 0 and this ledger is still empty. No existing floor moved.",
   "cap": 0,
   "exemptionCap": 0,
   "knownUnresolvable": [
@@ -46,7 +46,7 @@
       "considered": 236
     },
     "settings": {
-      "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here — every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
+      "//": "74 -> 72 on 2026-09-01, when the app stopped borrowing the platform's typeface and started shipping its own. Inter's metrics are not SF Pro's, so the rail's thread rows sit at slightly different heights, and ONE MORE nav-thread-title now falls underneath the assertiveness popover. Diffed node by node rather than assumed: `considered` is 132 per theme before and after, `invisible` is 77 before and after, and the single lost path is li.nav-thread-item > div.nav-thread-row > button.nav-thread > span.nav-thread-title, which moves from measured into `obscured` (its recorded example goes from \"Partner book review\" to \"Q4 hiring\"). Nothing stopped rendering, which is the failure this floor exists to catch (see mutation 9b in contrast.js: `.nav-thread-title { display: none }`). Check 11 still passes, which is the proof that matters here \u2014 every obscured node is measured on some other surface, so no contrast coverage was lost, only relocated.",
       "checked": 72,
       "considered": 252
     },
@@ -81,6 +81,14 @@
     "memory-no-compiler": {
       "checked": 10,
       "considered": 268
+    },
+    "setup-sheet": {
+      "checked": 20,
+      "considered": 394
+    },
+    "setup-blocked": {
+      "checked": 18,
+      "considered": 394
     }
   },
   "signatures": {}

@@ -235,6 +235,33 @@ const SURFACES = [
     },
     preset: { memory: "no-compiler" },
   },
+  // FIRST-RUN SETUP, IN TWO STATES, and neither is reachable from any surface above: a
+  // machine that has Claude Code and an engine renders neither. §19 says every machine but
+  // the CEO's is in the first of them, so an uncovered sheet here would be an uncovered
+  // sheet on every customer's very first screen.
+  //
+  // Between them they paint every color the sheet can: the item rows and the account
+  // caveat (missing-both), and `--danger` on the sentence that explains why no button is
+  // drawn (unpinned).
+  {
+    name: "setup-sheet",
+    what: "the first-run consent step: what is missing, why, and the account he still needs",
+    drive: async (p) => {
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+    preset: { setup: "missing-both" },
+  },
+  {
+    name: "setup-blocked",
+    what: "a build that cannot install an engine, and the sentence naming who can",
+    drive: async (p) => {
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await p.waitForSelector("#setup-error:not([hidden])");
+      await p.waitForTimeout(300);
+    },
+    preset: { setup: "unpinned" },
+  },
   // THE UPDATE ROW, IN THREE STATES, because one state cannot paint the colours the others
   // do (RICH-TODOs row 12, `app/ui/updates.js`). It lives in the UNIVERSAL settings menu —
   // which the `settings` surface above does NOT reach, since that one drives the rail's

@@ -160,8 +160,16 @@ impl EngineResolution {
 /// The predicate is `locate-engine.sh`'s `richos_engine_looks_valid`, verbatim in intent:
 /// `scripts/hooks/` and `VERSION`. Two files, cheap to test, and specific enough that no
 /// unrelated directory called `engine` passes.
+///
+/// **It DELEGATES to `richos_core::setup::engine_looks_valid`, and that is the point.** As of
+/// 2026-09-01 something finally writes into candidate 7 (`setup.rs` installs a fetched engine
+/// there), so the same question is now asked by an installer and by this resolver. Two copies
+/// of it is precisely the fault this file's own header warns about — *"a second,
+/// differently-shaped resolution order is a thing that can disagree with the first"* — and the
+/// disagreement it would produce is the worst-behaved kind: an install that succeeds and a
+/// boot that then cannot find what was installed.
 pub fn looks_like_engine(dir: &Path) -> bool {
-    dir.join("scripts/hooks").is_dir() && dir.join("VERSION").is_file()
+    richos_core::setup::engine_looks_valid(dir)
 }
 
 /// Climb from `start` looking for a child `engine/` that passes [`looks_like_engine`].

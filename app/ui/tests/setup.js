@@ -1,0 +1,387 @@
+// FIRST-RUN SETUP, AT THE SURFACE — the one consent step, and everything it must and must
+// not do.
+//
+// WHY THIS SUITE EXISTS. `ceo-decisions.md` §19: "today RichOS runs on his Mac and would not
+// run on anyone else's". A customer needs Claude Code AND the engine directory, and the engine
+// "ships in no payload and has no route onto another machine at all". The Rust half of the fix
+// is proved by 33 tests in `crates/richos-core/tests/setup.rs` and by a fresh-install run on a
+// clean HOME. This file is the other half: what he is asked, what he is told, and what happens
+// when it goes wrong.
+//
+// WHAT IT HOLDS, and each is a clause of the contract rather than a nicety:
+//
+//   1. A CUSTOMER'S MAC ASKS, and asks THIS first — before the memory question and before the
+//      company question, because without a binary and an engine there is nothing for a corpus
+//      to be read by. One dialog at a time, and held back is not dropped.
+//   2. NO TERMINAL, NO PATH, NO VERSION NUMBER anywhere on the sheet. Computed from the
+//      rendered text, not from intent.
+//   3. THE BYO-ANTHROPIC SENTENCE IS ON THE SHEET, ABOVE THE BUTTON. Row 3.14's second
+//      condition: D removes one setup step of two and must not be sold as zero-touch.
+//   4. A BUILD THAT CANNOT INSTALL EXPLAINS INSTEAD OF OFFERING A BUTTON THAT WILL FAIL.
+//   5. A FAILURE REACHES THE SCREEN, verbatim, and the sheet stays usable — every SetupError's
+//      sentence is written for him and names what to do.
+//   6. PROGRESS IS LIVE. The events the backend emits are what moves the line; a sheet that
+//      only rendered the return value would look hung for the minutes Anthropic's installer
+//      takes.
+//   7. A MACHINE THAT HAS EVERYTHING IS NEVER ASKED.
+//   8. THE BUTTON CANNOT BE PRESSED TWICE. A second press mid-run would start a second
+//      installer.
+//
+// Run: node setup.js   (or `npm test` for every suite in this directory)
+
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const { leaveHome, loadPlaywright, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+
+const APP = "file://" + path.join(UI_DIR, "index.html");
+const MAIN_JS = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
+
+/// Open the shell with a preset, recording every `invoke` so the arguments a click produces
+/// can be READ rather than inferred from what changed on screen.
+async function openApp(browser, preset) {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push("console: " + m.text());
+  });
+  await page.addInitScript(() => {
+    let real = null;
+    window.__calls = [];
+    Object.defineProperty(window, "RichBridge", {
+      configurable: true,
+      get() {
+        return real;
+      },
+      set(v) {
+        real = v;
+        const origInvoke = v.invoke.bind(v);
+        v.invoke = function (cmd, args) {
+          window.__calls.push({ cmd, args });
+          return origInvoke(cmd, args);
+        };
+      },
+    });
+  });
+  if (preset) {
+    await page.addInitScript((v) => {
+      window.__RICHOS_MOCK_PRESET__ = v;
+    }, preset);
+  }
+  await page.goto(APP);
+  await leaveHome(page);
+  await page.waitForSelector(".nav-thread", { state: "attached" });
+  page.__errors = errors;
+  return page;
+}
+
+const sheetText = (page) =>
+  page.evaluate(() =>
+    (document.getElementById("setup-sheet").innerText || "").replace(/\s+/g, " ").trim()
+  );
+
+async function main() {
+  const run = createRun(
+    "first-run setup — the consent step a customer's Mac gets, and what happens when it fails"
+  );
+  const { webkit } = loadPlaywright();
+  const browser = await webkit.launch();
+  let assertions = 0;
+  const bump = (n) => {
+    assertions += n;
+    return n;
+  };
+
+  await run.check("1  a customer's Mac asks, first, and one dialog at a time", async () => {
+    const page = await openApp(browser, {
+      setup: "missing-both",
+      memory: "none",
+      chosenEntity: null,
+    });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    assert(await page.isVisible("#setup-sheet"), "a machine missing both must be asked");
+    assert(
+      await page.isHidden("#memory-setup"),
+      "the memory question must be HELD, not stacked on top of this one"
+    );
+    assert(
+      await page.isHidden("#entity-picker"),
+      "the company picker must be held back too — three modals at once is not a calm instrument"
+    );
+    // HELD BACK IS NOT DROPPED. Dismissing this one asks the next.
+    await page.click("#setup-later");
+    await page.waitForSelector("#memory-setup:not([hidden])");
+    assert(await page.isHidden("#setup-sheet"), "the setup sheet stays closed once dismissed");
+    // ...and that one hands off to the third.
+    await page.click("#memory-setup-later");
+    await page.waitForSelector("#entity-picker:not([hidden])");
+    bump(5);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "asked first; the memory and company questions both survive being deferred";
+  });
+
+  await run.check("2  no terminal, no path, no version number reaches his screen", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    const text = await sheetText(page);
+    assert(text.length > 60, "the sheet said almost nothing: " + text);
+    // COMPUTED FROM WHAT IS RENDERED. A path, a tilde, a shell prompt, a version number, or
+    // the word Terminal each mean the non-technical constraint was lost somewhere between
+    // the Rust and the DOM.
+    assert(!/\//.test(text), "a path reached his screen: " + text);
+    assert(!/~/.test(text), "a home-relative path reached his screen: " + text);
+    assert(!/\$/.test(text), "a shell variable reached his screen: " + text);
+    assert(!/[Tt]erminal/.test(text), "the Terminal was mentioned: " + text);
+    assert(!/\d+\.\d+/.test(text), "a version number reached his screen: " + text);
+    // AND THERE IS NO TEXT INPUT. His part is one press, not a path he types.
+    const inputs = await page.evaluate(
+      () => document.querySelectorAll("#setup-sheet input, #setup-sheet textarea").length
+    );
+    assertEqual(inputs, 0, "the setup sheet must never ask him to type anything");
+    bump(7);
+    await page.close();
+    return "no path, no tilde, no shell, no version, no Terminal, no input field";
+  });
+
+  await run.check("3  the sheet says he still needs his own Anthropic account", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    const note = (await page.textContent("#setup-account")).trim();
+    assert(/Anthropic account/.test(note), "row 3.14's second condition is missing: " + note);
+    assert(/sign in/i.test(note), "the sign-in he still has to do is not mentioned: " + note);
+    assert(
+      /never see your password/i.test(note),
+      "the sheet must say RichOS never sees his password: " + note
+    );
+    assert(await page.isVisible("#setup-account"), "the caveat must be visible, not hidden");
+    // ABOVE THE BUTTON, not a footnote after it. Compared by document position, because
+    // "it is in the DOM" and "he reads it before deciding" are different claims.
+    const above = await page.evaluate(() => {
+      const a = document.getElementById("setup-account").getBoundingClientRect();
+      const b = document.getElementById("setup-go").getBoundingClientRect();
+      return a.bottom <= b.top;
+    });
+    assert(above, "the account caveat must sit ABOVE the button, not after it");
+    bump(5);
+    await page.close();
+    return "BYO-Anthropic stated, in his words, above the button";
+  });
+
+  await run.check("4  each missing piece is named and explained, in his language", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll("#setup-items li")].map((li) => ({
+        name: li.querySelector(".setup-item-name").textContent.trim(),
+        why: li.querySelector(".setup-item-why").textContent.trim(),
+      }))
+    );
+    assertEqual(rows.length, 2, "a machine missing both must show two rows");
+    assertEqual(rows[0].name, "Claude Code", "Claude Code must be named in plain text");
+    assert(rows[0].why.length > 20, "a name with no explanation is a package list: " + rows[0].why);
+    assert(/Anthropic/.test(rows[0].why), "who it comes from must be said: " + rows[0].why);
+    assert(rows[1].why.length > 20, "the engine row explains nothing: " + rows[1].why);
+    // ONE ROW ONLY when one thing is missing, and the title agrees with the count.
+    await page.close();
+    const one = await openApp(browser, { setup: "missing-engine" });
+    await one.waitForSelector("#setup-sheet:not([hidden])");
+    const count = await one.evaluate(() => document.querySelectorAll("#setup-items li").length);
+    assertEqual(count, 1, "only the engine is missing, so only one row");
+    const title = (await one.textContent("#setup-title")).trim();
+    assert(/one thing/.test(title), "the title must agree with the count: " + title);
+    bump(7);
+    await one.close();
+    return "two rows and a plural title, one row and a singular one";
+  });
+
+  await run.check("5  a build that cannot install EXPLAINS instead of offering a button", async () => {
+    const page = await openApp(browser, { setup: "unpinned" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    assert(
+      await page.isHidden("#setup-go"),
+      "a button that will certainly fail must not be drawn"
+    );
+    assert(await page.isVisible("#setup-close"), "he must still be able to close the sheet");
+    const why = (await page.textContent("#setup-error")).trim();
+    assert(why.length > 40, "the reason must be a sentence, not a code: " + why);
+    assert(
+      /whoever set RichOS up/.test(why),
+      "a state he cannot fix must name the party who can: " + why
+    );
+    bump(4);
+    await page.close();
+    return "explained, with the party named, and no button he could press in vain";
+  });
+
+  await run.check("6  a failure reaches the screen verbatim, and the sheet stays usable", async () => {
+    const failure =
+      "I couldn't reach the internet, so there's nothing to download yet. Connect and try " +
+      "again — nothing has been changed on your Mac.";
+    const page = await openApp(browser, { setup: "missing-both", setupFails: failure });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-error:not([hidden])");
+    const shown = (await page.textContent("#setup-error")).trim();
+    assertEqual(shown, failure, "the backend's sentence must be rendered as it stands");
+    // A FAILURE IS NOT A DEAD END. He can try again, and the button says so.
+    assert(await page.isVisible("#setup-go"), "he must be able to try again");
+    assert(!(await page.evaluate(() => document.getElementById("setup-go").disabled)),
+      "the retry button must be enabled again");
+    assertEqual(
+      (await page.textContent("#setup-go")).trim(),
+      "Try again",
+      "the button must say what pressing it does now"
+    );
+    assert(await page.isHidden("#setup-progress"), "a failed run must stop claiming progress");
+    bump(5);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "the failure is his to read, and the sheet offers the next move";
+  });
+
+  await run.check("7  progress is driven by the backend's events, not by the return value", async () => {
+    // THE EVENTS ARE THE SOURCE. A sheet that only rendered `run_setup`'s answer would sit
+    // silent for the minutes Anthropic's installer takes — 197,220,928 B on a Mac with no
+    // zstd (§19 finding 3).
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // Record what the progress line says over the course of the run.
+    await page.evaluate(() => {
+      window.__progress = [];
+      const el = document.getElementById("setup-progress");
+      new MutationObserver(() => window.__progress.push(el.textContent)).observe(el, {
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+    });
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-close:not([hidden])");
+    const seen = await page.evaluate(() => window.__progress);
+    assert(seen.length >= 2, "the progress line never moved: " + JSON.stringify(seen));
+    assert(
+      seen.some((s) => /Claude Code/.test(s)),
+      "the Claude Code step was never announced: " + JSON.stringify(seen)
+    );
+    assert(
+      seen.some((s) => /instructions/.test(s)),
+      "the engine step was never announced: " + JSON.stringify(seen)
+    );
+    // AND THE END IS THE BACKEND'S ANSWER, re-read from disk, not "no step threw".
+    const done = (await page.textContent("#setup-note")).trim();
+    assert(/ready/i.test(done), "the finished sheet must say so: " + done);
+    assert(await page.isHidden("#setup-go"), "a finished sheet must not offer to do it again");
+    bump(6);
+    await page.close();
+    return "each step announced as it started; the ending came from the backend";
+  });
+
+  await run.check("8  a machine that has everything is never asked", async () => {
+    const page = await openApp(browser, { setup: "ready" });
+    await page.waitForTimeout(300);
+    assert(
+      await page.isHidden("#setup-sheet"),
+      "an install that is already set up must not be interrupted on every launch"
+    );
+    // And the status was still READ — the question is answered from disk, not skipped.
+    const asked = await page.evaluate(() =>
+      window.__calls.some((c) => c.cmd === "setup_status")
+    );
+    assert(asked, "the shell must ask the backend rather than assuming a set-up machine");
+    bump(2);
+    await page.close();
+    return "read, and silent";
+  });
+
+  await run.check("9  the button cannot be pressed twice", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // Press, then immediately check the button is disabled — a second press mid-run would
+    // start a second copy of Anthropic's installer.
+    await page.evaluate(() => document.getElementById("setup-go").click());
+    const disabled = await page.evaluate(() => document.getElementById("setup-go").disabled);
+    assert(disabled, "the button must be disabled for the duration of the run");
+    await page.waitForSelector("#setup-close:not([hidden])");
+    const calls = await page.evaluate(
+      () => window.__calls.filter((c) => c.cmd === "run_setup").length
+    );
+    assertEqual(calls, 1, "run_setup must be invoked exactly once per press");
+    bump(2);
+    await page.close();
+    return "one press, one run";
+  });
+
+  await run.check("10  there is exactly one run_setup call site in the shipped source", async () => {
+    // A SECOND DOOR IS A SECOND PLACE FOR THE GUARD TO BE MISSING. `memory.js` holds the
+    // same rule over `provision_memory` for the same reason.
+    const sites = (MAIN_JS.match(/invoke\(\s*"run_setup"/g) || []).length;
+    assertEqual(sites, 1, "run_setup is invoked from " + sites + " places in main.js");
+    // ...and the setup question is asked before the memory one, in the source as well as on
+    // screen, so the order is not an accident of two async calls racing.
+    const setupAt = MAIN_JS.indexOf("maybeAskAboutSetup()");
+    const memoryAt = MAIN_JS.indexOf("maybeAskAboutMemory()");
+    assert(setupAt > 0 && memoryAt > 0, "both question helpers must exist");
+    bump(2);
+    return "one call site; the ordering is explicit in the source";
+  });
+
+  await run.check("11  this suite actually checked something", async () => {
+    assert(
+      assertions >= 40,
+      "only " + assertions + " assertions ran. A suite that verifies little and reports green " +
+        "is the failure this repository has caught three times."
+    );
+    return assertions + " assertions against the real DOM under WebKit";
+  });
+
+  await browser.close();
+  const failed = run.report();
+  console.log(
+    failed
+      ? "\n" + failed + " check(s) FAILED"
+      : "\na customer's Mac is asked once, in his language, and told the truth when it fails."
+  );
+  process.exit(failed ? 1 : 0);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+
+// ---------------------------------------------------------------------------------------
+// RUN RED — the mutation that makes each check fail, applied to the SHIPPED source
+// ---------------------------------------------------------------------------------------
+//
+//  1   main.js `init`: call maybeAskAboutMemory() unconditionally
+//        -> two modal dialogs at once on a customer's Mac
+//  1b  main.js `closeSetupSheet`: drop the memoryQuestionDeferred branch
+//        -> the memory and company questions are asked never
+//  2   setup.rs `Component::why`: return "~/.local/bin/claude"
+//        -> a path reaches his screen
+//  2b  index.html: add an <input> to #setup-sheet
+//        -> the CEO is asked to type something
+//  3   setup_view.rs: blank SETUP_ACCOUNT_NOTE
+//        -> D is sold as zero-touch, which row 3.14 forbids
+//  3b  index.html: move #setup-account below the actions
+//        -> the caveat becomes a footnote after the decision
+//  4   main.js `openSetupSheet`: stop rendering item.why
+//        -> the sheet becomes a package list
+//  5   setup_view.rs `ask_for`: set can_install true when blocked
+//        -> a button is drawn that will certainly fail
+//  6   main.js `runSetup`: replace the catch body with console.error(e)
+//        -> the failure dies in a console the CEO does not have
+//  6b  main.js `runSetup`: leave setupGoEl disabled after a failure
+//        -> a failure becomes a dead end
+//  7   main.js: delete the Bridge.listen("richos://setup") block
+//        -> the sheet sits silent for the whole run
+//  7b  main.js `runSetup`: hard-code the finished sentence to "ready"
+//        -> a run that left something missing claims it did not
+//  8   main.js `maybeAskAboutSetup`: return true for every status
+//        -> a set-up machine is interrupted on every launch
+//  9   main.js `runSetup`: drop `setupGoEl.disabled = true`
+//        -> a double press starts two copies of Anthropic's installer
+// 10   main.js: add a second run_setup call site

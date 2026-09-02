@@ -138,6 +138,12 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
     // Not "the launch module does not call the network" — the stronger claim that there is
     // nothing here to call. Duplicated from the feedback suite ON PURPOSE: if that file is
     // ever deleted, this guarantee must not go with it.
+    //
+    // **`sha2` ARRIVED 2026-09-01.** The reasoning is written out once, in
+    // `feedback_no_outbound_tests.rs`, and it is short enough to restate: pure-Rust SHA-256
+    // for `setup.rs`'s engine pin, `no_std`-capable, and no dependency of it links a socket
+    // or a TLS stack. Where the network actually is, is `/usr/bin/curl` — a subprocess,
+    // spawned only by `CurlFetcher`, which nothing in this module can reach.
     let mut found: BTreeSet<&str> = BTreeSet::new();
     let mut in_deps = false;
     for line in MANIFEST.lines() {
@@ -153,7 +159,8 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
             found.insert(name.trim());
         }
     }
-    let expected: BTreeSet<&str> = ["serde", "serde_json", "uuid", "thiserror"].into_iter().collect();
+    let expected: BTreeSet<&str> =
+        ["serde", "serde_json", "uuid", "thiserror", "sha2"].into_iter().collect();
     assert_eq!(
         found, expected,
         "richos-core's dependency set changed. The launch record's 'never outbound' \

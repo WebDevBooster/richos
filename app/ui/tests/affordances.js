@@ -410,6 +410,43 @@ const FIXTURES = {
     return page;
   },
 
+  /// A CUSTOMER'S MAC — no Claude Code, no engine directory. `ceo-decisions.md` §19: "today
+  /// RichOS runs on his Mac and would not run on anyone else's", and the engine "ships in no
+  /// payload and has no route onto another machine at all". Every machine but the CEO's is
+  /// in this state, so it is the first screen a customer ever sees.
+  async "setup-missing-both"(browser) {
+    const page = await openApp(browser, undefined, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    return page;
+  },
+
+  /// CLAUDE CODE IS THERE AND THE ENGINE IS NOT — a customer who installed Claude Code
+  /// himself. It has its own fixture because the singular title and the plural one cannot
+  /// both render at once, and asserting one against a fixture showing the other proves
+  /// nothing.
+  async "setup-missing-engine"(browser) {
+    const page = await openApp(browser, undefined, { setup: "missing-engine" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    return page;
+  },
+
+  /// A build carrying no engine pin. It CANNOT install one, so it explains and names the
+  /// party who can, rather than drawing a button that would certainly fail.
+  async "setup-unpinned"(browser) {
+    const page = await openApp(browser, undefined, { setup: "unpinned" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    return page;
+  },
+
+  /// The end of a successful run: everything installed, nothing left to press.
+  async "setup-finished"(browser) {
+    const page = await openApp(browser, undefined, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-close:not([hidden])");
+    return page;
+  },
+
   /// The same variable, naming something this build does not have — so it pins the answer
   /// AND fails to produce one. No picker opens, because every answer would be refused.
   async "company-pinned-unresolved"(browser) {
@@ -815,6 +852,13 @@ const TEXT_RENDERING_FIXTURES = new Set([
   // only the button beneath it.
   "memory-unprovisioned",
   "memory-no-compiler",
+  // The first-run setup sheet renders the BACKEND's words — `Component::why`,
+  // `SETUP_ACCOUNT_NOTE`, and each `SetupError`'s own Display — with no hardware behind any
+  // of them, so the sentences themselves are asserted present rather than only the button.
+  "setup-missing-both",
+  "setup-missing-engine",
+  "setup-unpinned",
+  "setup-finished",
 ]);
 
 // ---------------------------------------------------------------------------------------

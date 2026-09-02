@@ -572,6 +572,47 @@
         </div>
       </div>
 
+      <!-- FIRST-RUN SETUP — Option D (`setup.rs`, `setup_view.rs`, `main.js`).
+
+           THE LAUNCH BLOCKER THIS CLOSES, in the record's own words (`ceo-decisions.md`
+           §19): "today RichOS runs on his Mac and would not run on anyone else's". A
+           customer needs Claude Code AND the engine directory, and the engine "ships in no
+           payload and has no route onto another machine at all". This is the sheet that
+           offers to fix both.
+
+           HIS PART IS ONE CONSENT STEP. What is about to be installed and what each thing
+           is for, in his language — no terminal, no path, no version number, asserted in
+           `setup.rs` and `setup_view.rs` rather than intended.
+
+           AND IT DOES NOT IMPLY ZERO-TOUCH. `#setup-account` carries row 3.14's second
+           condition — he still needs his own Anthropic account and one sign-in, and RichOS
+           cannot do that part. It sits above the button, not in a footnote after it. -->
+      <div id="setup-sheet" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
+        <div class="overlay-panel overlay-panel--compact">
+          <p id="setup-title" class="overlay-title">There's a bit of setting up to do first.</p>
+          <p id="setup-note" class="overlay-note"></p>
+          <!-- ONE ROW PER MISSING PIECE: its name, and what it is for. Not a checklist of
+               packages — a sentence each, because "the program I think with" is what the
+               thing is and "claude-code@2.1.257" is what it is called. -->
+          <ul id="setup-items" class="setup-items"></ul>
+          <p id="setup-account" class="setup-account"></p>
+          <!-- PROGRESS, live. `role="status"` so it is announced rather than silently
+               replaced; a download that takes minutes with a still window is the state this
+               line exists to prevent. -->
+          <p id="setup-progress" class="setup-progress" role="status" hidden></p>
+          <!-- WHERE A FAILURE LANDS, verbatim. Every `SetupError`'s Display is written for
+               him and names what to do; paraphrasing one here would lose the instruction.
+               `role="alert"` because a failure that scrolls past silently is the same thing
+               as a failure that was not reported. -->
+          <p id="setup-error" class="setup-error" role="alert" hidden></p>
+          <div class="memory-setup-actions">
+            <button id="setup-go" class="desk-btn desk-btn--confirm" type="button">Set it up</button>
+            <button id="setup-later" class="desk-btn" type="button">Not now</button>
+            <button id="setup-close" class="desk-btn" type="button" hidden>Close</button>
+          </div>
+        </div>
+      </div>
+
       <!-- FIRST-RUN MEMORY SETUP.
 
            THE DEFECT THIS CLOSES: RichOS reaches the CEO's memory only because an engineer

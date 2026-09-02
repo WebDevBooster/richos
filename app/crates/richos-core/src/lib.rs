@@ -67,6 +67,7 @@ pub mod machinery;
 pub mod native;
 pub mod provision;
 pub mod reprime;
+pub mod setup;
 pub mod spine;
 pub mod spoken;
 pub mod staging;
