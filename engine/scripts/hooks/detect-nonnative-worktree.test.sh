@@ -390,6 +390,128 @@ else
 fi
 rm -rf "$LEDGER_TEAMS" "$ROOT"
 
+# --- THIRD JOB: the OWNERSHIP LEDGER registration ---------------------------
+#
+# spawned-names.log is names only. The ownership ledger is what lets a
+# worktree's owner be judged after its native lock is gone, so it must carry
+# the agent id, the session identity and the paths. The sandbox for these
+# cases carries the ledger library (the hook records nothing without it, by
+# design — a sandbox modeling an engine without the library records nothing,
+# and that is the honest answer, not a silent success).
+ROOT="$(make_sandbox)"
+cp "$SCRIPT_DIR/../lib/worktree-ledger.py" "$SCRIPT_DIR/../lib/agent-liveness.py" "$ROOT/scripts/lib/"
+ROOT_PHYS="$(cd "$ROOT" && pwd -P)"
+WL="$ROOT/wt-ledger.jsonl"
+ACK='Async agent launched successfully.\nagentId: a1b2c3d4e5f60718\nYou can check on it later.'
+json_spawn() { # <name> <isolation> <prompt> <tool_response|""> <cwd|"">
+    python3 - "$1" "$2" "$3" "$4" "$5" <<'PY'
+import json, sys
+name, isolation, prompt, resp, cwd = sys.argv[1:6]
+ti = {"subagent_type": "dev", "name": name, "prompt": prompt}
+if isolation: ti["isolation"] = isolation
+if cwd: ti["cwd"] = cwd
+d = {"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000"}
+if resp: d["tool_response"] = resp.replace("\\n", "\n")
+print(json.dumps(d))
+PY
+}
+wl_run() { # <json> ; runs the hook with the ledger pinned, our own pid as the session
+    printf '%s' "$1" | RICHOS_WORKTREE_LEDGER="$WL" CLAUDE_PID="$$" GUARD_ISOLATION_TEAMS_DIR="$ROOT/teams" \
+        RICHOS_ENTITY_ROOT="$ROOT" "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1 || true
+}
+wl_last() { tail -1 "$WL" 2>/dev/null; }
+
+# (W1) an ASYNC native spawn: the acknowledgement names the agent id; the
+#      native worktree exists and is LOCKED with a session pid -> registered
+#      with agent_id, worktree path, branch, session_pid from the LOCK, pid_start.
+add_worktree "$ROOT" "agent-a1b2c3d4e5f60718" "worktree-agent-a1b2c3d4e5f60718"
+git -C "$ROOT" worktree lock --reason "claude agent agent-a1b2c3d4e5f60718 (pid $$ start test)" "$ROOT/.claude/worktrees/agent-a1b2c3d4e5f60718"
+wl_run "$(json_spawn 'dev-sonnet-wl1' 'worktree' 'Do the thing.' "$ACK" '')"
+if wl_last | python3 -c '
+import json, os, sys
+d = json.loads(sys.stdin.read())
+assert d["event"] == "registered" and d["class"] == "native", d
+assert d["teammate"] == "dev-sonnet-wl1" and d["agent_id"] == "a1b2c3d4e5f60718", d
+assert d["session_pid"] == int(sys.argv[1]) and d.get("pid_start"), d
+assert d["worktree"].endswith("/.claude/worktrees/agent-a1b2c3d4e5f60718"), d
+assert d["branch"] == "worktree-agent-a1b2c3d4e5f60718" and d["native_registered"] is True, d
+assert d["session_id"].startswith("deadbeef"), d
+' "$$" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: an async native spawn is REGISTERED with agent id, lock pid, start time, path, branch\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: async native spawn registration: %s\n' "$(wl_last)"
+fi
+
+# (W2) a `cwd` spawn (no isolation — the harness forbids both) into a linked
+#      worktree of another repository -> a HAND-ROLLED registration keyed by
+#      the exact path, with that repository and branch.
+OTHER="$ROOT/../other-$RANDOM"; mkdir -p "$OTHER"
+git -C "$OTHER" init -q -b main; printf 'r\n' >"$OTHER/r.txt"; git -C "$OTHER" add -A; git -C "$OTHER" commit -q -m r
+git -C "$OTHER" worktree add -q -b dev-sonnet-wl2 "$OTHER-wt/dev-sonnet-wl2"
+wl_run "$(json_spawn 'dev-sonnet-wl2' '' 'Work in the other repo.' "$ACK" "$OTHER-wt/dev-sonnet-wl2")"
+if grep -q '"class": "hand-rolled"' "$WL" && wl_last | python3 -c '
+import json, os, sys
+d = json.loads(sys.stdin.read())
+assert d["event"] == "registered" and d["class"] == "hand-rolled", d
+assert d["teammate"] == "dev-sonnet-wl2" and d["agent_id"] == "a1b2c3d4e5f60718", d
+assert os.path.realpath(d["worktree"]) == os.path.realpath(sys.argv[1]), (d["worktree"], sys.argv[1])
+assert d["branch"] == "dev-sonnet-wl2" and d["repo"] == os.path.realpath(sys.argv[2]), d
+assert d["session_pid"] == int(sys.argv[3]), d
+' "$OTHER-wt/dev-sonnet-wl2" "$OTHER" "$$" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: a cwd spawn is REGISTERED hand-rolled by exact path, repo and branch\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: cwd spawn registration: %s\n' "$(wl_last)"
+fi
+
+# (W3) `cross-repo-worktree: <path>` prompt lines register the same way,
+#      alongside the native registration.
+git -C "$OTHER" worktree add -q -b dev-sonnet-wl3 "$OTHER-wt/dev-sonnet-wl3"
+BEFORE="$(grep -c . "$WL")"
+wl_run "$(json_spawn 'dev-sonnet-wl3' 'worktree' $'Do it.\ncross-repo-worktree: '"$OTHER-wt/dev-sonnet-wl3"$'\nThen commit.' "$ACK" '')"
+AFTER="$(grep -c . "$WL")"
+if [ "$AFTER" -eq $((BEFORE + 2)) ] && wl_last | python3 -c '
+import json, os, sys
+d = json.loads(sys.stdin.read())
+assert d["class"] == "hand-rolled" and d["teammate"] == "dev-sonnet-wl3", d
+assert os.path.realpath(d["worktree"]) == os.path.realpath(sys.argv[1]), d
+' "$OTHER-wt/dev-sonnet-wl3" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: a cross-repo-worktree: prompt line registers the path beside the native record\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: marker registration (lines %s -> %s): %s\n' "$BEFORE" "$AFTER" "$(wl_last)"
+fi
+
+# (W4) NEGATIVE — a read-only type registers nothing.
+BEFORE="$(grep -c . "$WL" 2>/dev/null || echo 0)"
+wl_run "$(python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"Explore","name":"Explore","prompt":"look"},"session_id":"deadbeef-0000-4000-8000-000000000000"}))')"
+[ "$(grep -c . "$WL" 2>/dev/null || echo 0)" -eq "$BEFORE" ] \
+    && { PASS=$((PASS + 1)); printf '  PASS  ledger: a read-only type is NOT registered\n'; } \
+    || { FAIL=$((FAIL + 1)); printf '  FAIL  ledger: read-only type was registered\n'; }
+
+# (W5) a SYNCHRONOUS run (no acknowledgement, no agent id) still registers the
+#      name with its session identity, so a name-owned tree can be judged by
+#      session — agent_id empty, never invented.
+wl_run "$(json_spawn 'dev-sonnet-wl5' 'worktree' 'Quick sync task.' 'Done: the answer is 42.' '')"
+if wl_last | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+assert d["event"] == "registered" and d["teammate"] == "dev-sonnet-wl5" and d["agent_id"] == "", d
+assert d["session_pid"] == int(sys.argv[1]) and d["worktree"] == "", d
+' "$$" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  ledger: a synchronous run registers name + session identity with NO invented agent id\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  ledger: sync-run registration: %s\n' "$(wl_last)"
+fi
+
+# (W6) the write is best-effort: an unwritable ledger leaves the verdict alone.
+printf '%s' "$(json_spawn 'dev-sonnet-wl6' 'worktree' 'Do the thing.' "$ACK" '')" \
+    | RICHOS_WORKTREE_LEDGER="/nonexistent-dir/ledger.jsonl" CLAUDE_PID="$$" RICHOS_ENTITY_ROOT="$ROOT" \
+      "$ROOT/scripts/hooks/detect-nonnative-worktree.sh" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 0 ] \
+    && { PASS=$((PASS + 1)); printf '  PASS  ledger: an unwritable ledger does not change the detector verdict\n'; } \
+    || { FAIL=$((FAIL + 1)); printf '  FAIL  ledger: unwritable ledger changed the verdict (exit %s)\n' "$rc"; }
+rm -rf "$ROOT" "$OTHER" "$OTHER-wt"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== detect-nonnative-worktree tests: $FAIL FAILED, $PASS passed ==="

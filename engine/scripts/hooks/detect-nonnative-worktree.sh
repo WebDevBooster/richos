@@ -2,6 +2,17 @@
 #
 # detect-nonnative-worktree.sh — PostToolUse (Agent) DETECTOR.
 #
+# THIRD JOB (2026-09-02) — the OWNERSHIP LEDGER REGISTRATION. Beside the
+# spawned-names append below, this hook writes the durable record that lets a
+# worktree's owner be judged AFTER the harness's lock is gone:
+# scripts/lib/worktree-ledger.py, ~/.claude/state/worktree-ledger.jsonl. It
+# records teammate, agent id (from the async-launch acknowledgement), session
+# id, session pid + start time (from the native worktree's lock line, else
+# CLAUDE_PID), the native worktree path, a `cwd` spawn's hand-rolled path, and
+# every `cross-repo-worktree: <path>` line in the prompt. Same reason it lives
+# HERE and not in the PreToolUse guard: PostToolUse fires only for a spawn that
+# ran. Best-effort, never changes this hook's verdict.
+#
 # SECOND JOB — the spawned-names ledger APPEND. This hook is also the ONLY
 # place a spawned teammate's name is written to the session-scoped
 # spawned-names.log that guard-worktree-isolation.sh's name-reuse clause reads.
@@ -121,17 +132,19 @@ try:
     iso = str(ti.get("isolation","") or "")
     nm = str(ti.get("name","") or "")
     sid = str(d.get("session_id","") or "")
+    cwd = str(ti.get("cwd","") or "")
     pr = str(ti.get("prompt","") or "")
     pr = pr.replace("\t", " ").replace("\n", "\x01")
-    print("%s\t%s\t%s\t%s\t%s" % (st, iso, nm, sid, pr))
+    print("%s\t%s\t%s\t%s\t%s\t%s" % (st, iso, nm, sid, cwd, pr))
 except Exception:
-    print("\t\t\t\t")
-' 2>/dev/null || printf '\t\t\t\t')"
+    print("\t\t\t\t\t")
+' 2>/dev/null || printf '\t\t\t\t\t')"
 SUBAGENT_TYPE="$(printf '%s' "$PARSED" | cut -f1)"
 ISOLATION="$(printf '%s' "$PARSED" | cut -f2)"
 NAME="$(printf '%s' "$PARSED" | cut -f3)"
 SESSION_ID="$(printf '%s' "$PARSED" | cut -f4)"
-PROMPT="$(printf '%s' "$PARSED" | cut -f5- | tr '\001' '\n')"
+SPAWN_CWD="$(printf '%s' "$PARSED" | cut -f5)"
+PROMPT="$(printf '%s' "$PARSED" | cut -f6- | tr '\001' '\n')"
 
 # Respect the same "main-checkout-run:" marker guard-worktree-isolation.sh
 # honors — a sanctioned un-isolated run must not be re-flagged here.
@@ -176,6 +189,119 @@ if [ "$is_readonly" -eq 0 ] && [ -n "$NAME" ] && [ -n "$SESSION_ID" ]; then
   GI_TEAM_DIR="$GI_TEAMS_DIR/session-$(printf '%s' "$SESSION_ID" | cut -c1-8)"
   mkdir -p "$GI_TEAM_DIR" 2>/dev/null || true
   printf '%s\n' "$NAME" >>"$GI_TEAM_DIR/spawned-names.log" 2>/dev/null || true
+fi
+
+# --- THIRD JOB — the OWNERSHIP LEDGER registration -------------------------
+#
+# The spawned-names.log above is names only: no path, no session, no pid, no
+# repository. That is why a hand-rolled worktree became permanently
+# undecidable the moment its owner's native worktree was landed — nothing
+# durable said who owned it. This block writes what the reaper needs LATER,
+# at the one moment all of it is in hand: the spawn that actually ran.
+#
+#   agent_id     from the async-launch acknowledgement in tool_response (the
+#                same witness worker-created-handoff.sh reads). A synchronous
+#                subagent run carries none; the name + session identity are
+#                still recorded so a name-owned tree can be judged by session.
+#   session pid  the native worktree's lock line names the host session pid
+#                (measured identical for every agent of a session); CLAUDE_PID
+#                is the fallback. The start time comes from `ps`, never from
+#                the lock's own start string (different format and zone).
+#   worktrees    the native isolation tree (<entity>/.claude/worktrees/agent-
+#                <id>), a `cwd` spawn's hand-rolled tree, and every
+#                `cross-repo-worktree: <path>` line in the prompt — the exact
+#                path joins that need no name convention at all.
+#
+# Best-effort: never fails this detector. RICHOS_WORKTREE_LEDGER redirects the
+# record for tests; a sandbox that lacks the library records nothing.
+_LEDGER_PY="$SCRIPT_DIR/../lib/worktree-ledger.py"
+if [ "$is_readonly" -eq 0 ] && [ -n "$NAME" ] && [ -f "$_LEDGER_PY" ]; then
+  INPUT="$INPUT" NAME="$NAME" SESSION_ID="$SESSION_ID" SPAWN_CWD="$SPAWN_CWD" ISOLATION="$ISOLATION" \
+  ENTITY_ROOT="$ENTITY_ROOT" LEDGER_PY="$_LEDGER_PY" PROMPT_TEXT="$PROMPT" \
+  python3 - <<'PY' 2>/dev/null || true
+import importlib.util, json, os, re, subprocess
+spec = importlib.util.spec_from_file_location("wl", os.environ["LEDGER_PY"])
+wl = importlib.util.module_from_spec(spec); spec.loader.exec_module(wl)
+
+try:
+    payload = json.loads(os.environ["INPUT"])
+except Exception:
+    payload = {}
+resp = payload.get("tool_response")
+try:
+    resp_text = resp if isinstance(resp, str) else json.dumps(resp)
+except Exception:
+    resp_text = str(resp)
+agent_id = wl.agent_id_from_response(resp_text) if "Async agent launched" in (resp_text or "") else ""
+
+entity = os.environ.get("ENTITY_ROOT", "")
+name = os.environ["NAME"]
+sid = os.environ.get("SESSION_ID", "")
+base = {"teammate": name, "session_id": sid, "agent_id": agent_id,
+        "source": "detect-nonnative-worktree.sh", "isolation": os.environ.get("ISOLATION", "")}
+
+# session identity: the native lock line first, CLAUDE_PID second
+entries = wl.worktree_entries(entity) if entity else None
+native_path = os.path.join(entity, ".claude", "worktrees", "agent-" + agent_id) if (entity and agent_id) else ""
+lock_pid = None
+native_branch = ""
+native_registered = False
+if entries and native_path:
+    for path, branch, lock in entries:
+        if wl.norm_path(path) == wl.norm_path(native_path):
+            native_registered = True
+            native_branch = branch
+            lock_pid, _start = wl.lock_identity(lock)
+            break
+pid = lock_pid or wl.session_pid_from_env()
+if pid:
+    base["session_pid"] = int(pid)
+    st = wl.pid_start(pid)
+    if st:
+        base["pid_start"] = st
+
+def repo_of(path):
+    try:
+        r = subprocess.run(["git", "-C", path, "worktree", "list", "--porcelain"],
+                           capture_output=True, text=True, timeout=10)
+        first = next((l[len("worktree "):] for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
+        return os.path.realpath(first) if first else ""
+    except Exception:
+        return ""
+
+def branch_of(path):
+    try:
+        r = subprocess.run(["git", "-C", path, "symbolic-ref", "-q", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+wrote = 0
+if agent_id or not os.environ.get("SPAWN_CWD"):
+    rec = dict(base)
+    rec.update({"event": "registered", "class": "native", "repo": entity,
+                "worktree": native_path, "branch": native_branch or ("worktree-agent-" + agent_id if agent_id else ""),
+                "native_registered": native_registered})
+    wl.append(rec); wrote += 1
+
+paths = []
+cwd = os.environ.get("SPAWN_CWD", "").strip()
+if cwd:
+    paths.append(cwd)
+for m in re.finditer(r"^[ \t]*cross-repo-worktree:[ \t]*(\S+)", os.environ.get("PROMPT_TEXT", ""), re.M):
+    paths.append(m.group(1).strip())
+seen = set()
+for p in paths:
+    p = os.path.realpath(p)
+    if p in seen:
+        continue
+    seen.add(p)
+    rec = dict(base)
+    rec.update({"event": "registered", "class": "hand-rolled", "repo": repo_of(p),
+                "worktree": p, "branch": branch_of(p)})
+    wl.append(rec); wrote += 1
+PY
 fi
 
 # (b) Any non-native worktree on disk (name != agent-<hex>).
