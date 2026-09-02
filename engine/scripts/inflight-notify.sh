@@ -14,6 +14,32 @@
 #       The guard's predicate, exactly. Exit 0 clean, 1 if a live teammate is
 #       behind and un-notified, 2 if it could not run.
 #
+#   inflight-notify.sh notice [--repo R] [--tip SHA] [--teammate N | --worktree P]
+#                             [--impact <kind>] [--detail "<one sentence>"]
+#       GENERATES the notice. Does not send it, does not decide who gets one.
+#
+#       The guard ALREADY computes everything mechanical in this message in
+#       order to decide whom to refuse for: which live worktrees are behind,
+#       which teammate each belongs to, the tip main is moving to, and the path
+#       overlap. It then used to make the lander type all of that back by hand
+#       and checked the typing. On 2026-09-02 that produced a 25-line notice
+#       whose mandatory content is five short fields, and the CEO called it
+#       "needlessly feeding tons of garbage shit to agents in flight". The
+#       answer offered was that the lander would write shorter ones, and he
+#       rejected it on the spot, correctly: an intention is not a mechanism, and
+#       his standing ruling on exactly this is "I cannot rely on your promises.
+#       There must be a guarantee."
+#
+#       So the notice is GENERATED. `sha`, `paths` and `teammate` come from the
+#       predicate. EXACTLY TWO FIELDS ARE THE OPERATOR'S: impact and detail.
+#       There is no blank space left to inflate — that is the whole mechanism.
+#
+#       It does NOT send, and it does NOT filter by path overlap. Relevance is a
+#       human judgment: the costlier of the two §8b failures — twelve design
+#       variations landing under an agent building a library from seven — had
+#       ZERO file overlap. The agent's assumptions went stale, not its files.
+#       This removes the typing, not the judgment.
+#
 #   inflight-notify.sh waive <worktree-path> --reason "<why>" [--repo R]
 #       THE ESCAPE HATCH, and the only one. Records a dated row naming the tip,
 #       the worktree and the reason. Never silent: it prints what it recorded,
@@ -62,6 +88,10 @@ esac
 REPO=""
 TIP=""
 REASON=""
+IMPACT=""
+DETAIL=""
+TEAMMATE=""
+WORKTREE=""
 SESSION_ID="${CLAUDE_SESSION_ID:-}"
 TRANSCRIPT="${INFLIGHT_TRANSCRIPT:-}"
 TARGET=""
@@ -70,6 +100,10 @@ while [ "$#" -gt 0 ]; do
         --repo)       REPO="${2:-}"; shift 2 ;;
         --tip)        TIP="${2:-}"; shift 2 ;;
         --reason)     REASON="${2:-}"; shift 2 ;;
+        --impact)     IMPACT="${2:-}"; shift 2 ;;
+        --detail)     DETAIL="${2:-}"; shift 2 ;;
+        --teammate)   TEAMMATE="${2:-}"; shift 2 ;;
+        --worktree)   WORKTREE="${2:-}"; shift 2 ;;
         --session)    SESSION_ID="${2:-}"; shift 2 ;;
         --transcript) TRANSCRIPT="${2:-}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -143,6 +177,154 @@ if not any_ack:
     print("  no ack artifacts and no witnessed replies for this tip.")
 '
         exit 0 ;;
+
+    notice)
+        # THE TWO OPERATOR FIELDS, validated before anything is generated. An
+        # impact outside the four kinds is not a notice, it is a sentence; and a
+        # detail that spans lines is where 25 lines came from last time.
+        if [ -n "$IMPACT" ]; then
+            case "$IMPACT" in
+                conflict|stale-record|grew-scope|none) ;;
+                *) echo "inflight-notify.sh notice: --impact must be one of: conflict stale-record grew-scope none (got '$IMPACT')." >&2; exit 2 ;;
+            esac
+        fi
+        if [ -n "$DETAIL" ]; then
+            if [ "$(printf '%s' "$DETAIL" | wc -l | tr -d ' ')" != "0" ]; then
+                echo "inflight-notify.sh notice: --detail must be ONE line. A multi-line detail is how a five-field notice became twenty-five." >&2
+                exit 2
+            fi
+            if [ "${#DETAIL}" -gt 240 ]; then
+                echo "inflight-notify.sh notice: --detail is ${#DETAIL} characters; the cap is 240. Say which assumption breaks, not the whole land." >&2
+                exit 2
+            fi
+        fi
+        [ -n "$WORKTREE" ] || WORKTREE="$TARGET"
+        RC=0
+        IF_ARGS_REPO="$REPO" IF_ARGS_TIP="$TIP" IF_ARGS_TEAMS="$TEAMS_DIR" \
+        IF_ARGS_TMO="$TIMEOUT_MIN" IF_ARGS_SID="$SESSION_ID" IF_ARGS_TRANSCRIPT="$TRANSCRIPT" \
+        IF_ARGS_IMPACT="$IMPACT" IF_ARGS_DETAIL="$DETAIL" \
+        IF_ARGS_TEAMMATE="$TEAMMATE" IF_ARGS_WORKTREE="$WORKTREE" \
+        IF_LIB_DIR="$SCRIPT_DIR/lib" python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["IF_LIB_DIR"])
+import inflight
+
+res = inflight.assess(os.environ["IF_ARGS_REPO"], os.environ["IF_ARGS_TIP"] or None,
+                      os.environ["IF_ARGS_TEAMS"], int(os.environ["IF_ARGS_TMO"]),
+                      os.environ.get("IF_ARGS_SID", ""),
+                      os.environ.get("IF_ARGS_TRANSCRIPT", ""))
+if res.get("error"):
+    sys.stderr.write("inflight-notify.sh notice: %s\n" % res["error"])
+    raise SystemExit(2)
+
+tip = res["tip"]
+want_wt = inflight.norm(os.environ.get("IF_ARGS_WORKTREE") or "")
+want_name = (os.environ.get("IF_ARGS_TEAMMATE") or "").strip()
+
+# WHO GETS ONE is the guards own predicate, unchanged and un-second-guessed.
+# OWED-NO-NOTICE is exactly the set it refuses the push for. An explicit
+# selector widens it to any live worktree that is behind, so a lander can
+# regenerate a notice it has already sent.
+owed = [w for w in res["worktrees"] if w["verdict"] == "OWED-NO-NOTICE"]
+if want_wt or want_name:
+    pool = [w for w in res["worktrees"] if w["live"] and w["behind"] and w["moved_shas"]]
+    sel = []
+    for w in pool:
+        if want_wt and inflight.norm(w["path"]) == want_wt:
+            sel.append(w)
+        elif want_name and (want_name in (w.get("addresses") or [])
+                            or want_name == (w.get("resolved_name") or "")):
+            sel.append(w)
+    if not sel:
+        sys.stderr.write(
+            "inflight-notify.sh notice: %r matches no live worktree of %s that is behind %s.\n"
+            "  Run `inflight-notify.sh status` for the list.\n"
+            % (want_name or want_wt, res["main_checkout"], tip[:12]))
+        raise SystemExit(2)
+    owed = sel
+
+print("in-flight notices for tip %s" % tip)
+print("  repository : %s" % res["main_checkout"])
+if not owed:
+    print("")
+    print("  Nothing is owed a notice. Either nothing is in flight, or every live")
+    print("  teammate is already notified, waived, landed, or not behind.")
+    raise SystemExit(0)
+
+impact = (os.environ.get("IF_ARGS_IMPACT") or "").strip()
+detail = (os.environ.get("IF_ARGS_DETAIL") or "").strip()
+missing = []
+if not impact:
+    impact = "<FILL: conflict | stale-record | grew-scope | none>"
+    missing.append("--impact")
+if not detail:
+    detail = "<FILL: one sentence — which of ITS assumptions this breaks>"
+    missing.append("--detail")
+
+for i, wt in enumerate(owed, 1):
+    # THE ADDRESS. A notice addressed to something the witness cannot credit
+    # discharges nothing, so the generator uses the unique spawn name when the
+    # exact join resolved it and says so out loud when it did not.
+    to = wt.get("resolved_name") or ""
+    addr_note = ""
+    if not to:
+        to = wt.get("agent_id") or os.path.basename(wt["path"].rstrip("/"))
+        addr_note = ("NO EXACT NAME JOIN (%s). Check this address before sending: a "
+                     "notice the witness cannot credit will not clear the debt."
+                     % wt.get("name_source", "unresolved"))
+
+    # PATHS, from the predicate. Overlap when there is overlap — that is the
+    # merge-conflict case and it is the thing worth naming. Otherwise the size
+    # of the move, which is the honest answer to "does this touch me".
+    if wt["overlap"]:
+        shown = wt["overlap"][:8]
+        paths = " ".join(shown)
+        if len(wt["overlap"]) > len(shown):
+            paths += " (+%d more)" % (len(wt["overlap"]) - len(shown))
+    else:
+        paths = ("none of yours (%d file(s) in %d commit(s) moved)"
+                 % (len(wt["moved_paths"]), len(wt["moved_shas"])))
+
+    ack_paths = " ".join(wt["overlap"][:8]) if wt["overlap"] else "none"
+    # NO SINGLE QUOTES ANYWHERE IN THIS PYTHON: it lives inside a single-quoted
+    # shell string, and one would end it — silently turning the pipes in
+    # <conflict|stale-record|...> into shell pipes.
+    ack_cmd = ("scripts/inflight-ack.sh --sha %s --impact <conflict|stale-record|grew-scope|none> "
+               "--detail \"<40+ chars, your own words>\" --paths \"%s\"" % (tip, ack_paths))
+    if wt.get("resolved_name"):
+        ack_cmd += " --teammate %s" % wt["resolved_name"]
+
+    print("")
+    print("=== notice %d of %d ===" % (i, len(owed)))
+    print("  SendMessage to : %s" % to)
+    print("  worktree       : %s" % wt["path"])
+    if addr_note:
+        print("  ** %s" % addr_note)
+    if wt["overlap"]:
+        print("  ** OVERLAPS %d of its own file(s) — the merge-conflict case." % len(wt["overlap"]))
+    print("  --------------------------- message body ---------------------------")
+    print("  main moved to %s" % tip)
+    print("  impact: %s" % impact)
+    print("  detail: %s" % detail)
+    print("  paths: %s" % paths)
+    print("  ack: %s" % ack_cmd)
+    print("  --------------------------------------------------------------------")
+
+print("")
+if missing:
+    # NOTE the wording: this line must NOT contain the FILL marker itself, or a
+    # reader counting the markers to prove there are exactly two would count it.
+    print("  %s not given, so %s left as a FILL placeholder in the body above."
+          % (" and ".join(missing), "it is" if len(missing) == 1 else "they are"))
+    print("  Pass them and the body comes out ready to send:")
+    print("      scripts/inflight-notify.sh notice --impact <kind> --detail \"<one sentence>\"")
+print("  sha, paths and teammate are GENERATED from the same predicate the guard")
+print("  refuses on. impact and detail are the only two fields that are yours.")
+print("  RELEVANCE IS STILL YOURS TOO: the costlier of the two failures this")
+print("  mechanism exists for had ZERO file overlap. Waive with a reason, or send.")
+'
+        RC=$?
+        exit "$RC" ;;
 
     waive)
         [ -n "$TARGET" ] || { echo "inflight-notify.sh waive: give the worktree path to waive." >&2; exit 2; }

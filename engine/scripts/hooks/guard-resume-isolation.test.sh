@@ -23,6 +23,21 @@
 #   (k2) valid non-SendMessage payload carrying a `to` -> exit 0 (passthrough,
 #        not blocked — only PARSE FAILURE blocks)
 #   (l) positive-shape probe: block message carries the remediation text
+#   (m) THE LIVE BACKGROUND AGENT — two-sided, and the reason this suite grew.
+#       Background native-isolation agents NEVER appear in the session roster
+#       (CLAUDE.md: "absence != terminated"), so the roster reading refuses them
+#       structurally, every time. The authoritative signal is the isolation
+#       worktree LOCK, read by scripts/lib/agent-liveness.py.
+#         (m1) live agent, addressed by NAME            -> exit 0 (allow)
+#         (m2) live agent, addressed by agent-<id>      -> exit 0 (allow)
+#         (m3) live agent, addressed by raw agent id    -> exit 0 (allow)
+#         (m4) completed + worktree REMOVED             -> exit 2 (still blocks)
+#         (m5) locked by a DEAD pid (stale lock)        -> exit 2 (still blocks)
+#         (m6) git unqueryable -> INDETERMINATE         -> exit 2 (never "allow")
+#         (m7) the refusal NAMES the authoritative source and its verdict
+#         (m8) NEGATIVE CONTROL: agent-liveness.py absent -> the live agent is
+#              BLOCKED. Proves the allow in (m1)-(m3) is driven by that file and
+#              is not a fall-through that would pass with the resolver gone.
 #
 # Run directly: scripts/hooks/guard-resume-isolation.test.sh
 # Exit 0 = all pass; exit 1 = at least one failure.
@@ -337,6 +352,153 @@ else
     printf '  FAIL  missing python3 -> fail-closed (got exit %s)\n' "$NOPY_RC"; FAIL=$((FAIL + 1))
 fi
 rm -rf "$FAKEBIN"
+
+
+# ===========================================================================
+# (m) THE LIVE BACKGROUND AGENT — the two-sided canary
+# ===========================================================================
+# Measured 2026-09-02: three agents that scripts/agent-liveness.sh had confirmed
+# ALIVE seconds earlier — isolation worktree LOCKED, locking pid running — were
+# refused by this guard, by teammate NAME and by raw agentId, with "not in
+# session roster". The roster is not where liveness lives. The lock is.
+#
+# A ONE-SIDED TEST HERE WOULD BE THE WHOLE DEFECT AGAIN, so this fixture carries
+# a live agent AND a completed-and-cleaned one AND a stale lock in ONE repository
+# and asserts all three outcomes against the same guard invocation shape.
+#
+# The fixture is a real git repository with real registered worktrees and real
+# `git worktree lock` reasons in the exact form the harness writes them
+# (measured, quoted in agent-liveness.py's docstring):
+#     claude agent agent-<id> (pid <host session pid> start <date>)
+# The LIVE lock carries THIS TEST'S OWN PID, which is running by construction;
+# the stale lock carries 999999, which cannot be a pid on macOS (max 99999).
+#
+# NO COMMIT IS MADE. `git worktree add -b <branch>` works on an unborn HEAD, and
+# a repository-identity pre-commit hook on the developer's machine would
+# otherwise make this suite's result depend on the machine it runs on.
+LIVE_ID="aaaa1111bbbb2222"
+GONE_ID="cccc3333dddd4444"
+STALE_ID="eeee5555ffff6666"
+BG="$(mktemp -d -t guard-resume-bg.XXXXXX)"
+BG_REPO="$BG/repo"
+BG_TEAMS="$BG/teams"
+BG_TDIR="$BG_TEAMS/session-feedface"
+mkdir -p "$BG_REPO" "$BG_TDIR"
+printf 'SESSION_TEAMS_DIR=""\n' >"$BG_REPO/orchestration.config"
+git -C "$BG_REPO" init -q >/dev/null 2>&1
+git -C "$BG_REPO" worktree add -q -b br-live  "$BG_REPO/.claude/worktrees/agent-$LIVE_ID"  >/dev/null 2>&1
+git -C "$BG_REPO" worktree add -q -b br-stale "$BG_REPO/.claude/worktrees/agent-$STALE_ID" >/dev/null 2>&1
+git -C "$BG_REPO" worktree add -q -b br-gone  "$BG_REPO/.claude/worktrees/agent-$GONE_ID"  >/dev/null 2>&1
+git -C "$BG_REPO" worktree lock \
+    --reason "claude agent agent-$LIVE_ID (pid $$ start Tue Sep  2 09:00:00 2026)" \
+    "$BG_REPO/.claude/worktrees/agent-$LIVE_ID" >/dev/null 2>&1
+git -C "$BG_REPO" worktree lock \
+    --reason "claude agent agent-$STALE_ID (pid 999999 start Tue Sep  2 09:00:00 2026)" \
+    "$BG_REPO/.claude/worktrees/agent-$STALE_ID" >/dev/null 2>&1
+# the completed one: landed and REMOVED, exactly as the land sequence leaves it
+git -C "$BG_REPO" worktree remove --force "$BG_REPO/.claude/worktrees/agent-$GONE_ID" >/dev/null 2>&1
+git -C "$BG_REPO" worktree prune >/dev/null 2>&1
+
+# THE ROSTER DOES NOT LIST ANY OF THEM. That is not an omission in the fixture,
+# it is the documented shape of a background native-isolation agent.
+cat >"$BG_TDIR/config.json" <<JSON
+{ "name": "session-feedface",
+  "members": [
+    { "agentId": "team-lead@session-feedface", "name": "team-lead", "cwd": "$BG_REPO" }
+  ] }
+JSON
+# The EXACT name -> agent id join, from the source teammate-identity.py reads
+# first (worker-events.jsonl WorkerCreated.worker_name).
+cat >"$BG_TDIR/worker-events.jsonl" <<JSON
+{"event":"WorkerCreated","agent_id":"$LIVE_ID","worker_name":"zach-opus-live1","agent_type":"zach"}
+{"event":"WorkerCreated","agent_id":"$STALE_ID","worker_name":"zach-opus-stale1","agent_type":"zach"}
+{"event":"WorkerCreated","agent_id":"$GONE_ID","worker_name":"zach-opus-gone1","agent_type":"zach"}
+JSON
+
+# PRE-FLIGHT: assert the fixture is what it claims to be. A `git worktree lock`
+# that silently did nothing would make (m1)-(m3) pass for the wrong reason —
+# "the lock is held" and "the lock was never taken" must not read the same.
+if git -C "$BG_REPO" worktree list --porcelain 2>/dev/null \
+     | grep -qF "locked claude agent agent-$LIVE_ID (pid $$"; then
+    printf '  PASS  fixture: the live agent worktree really is LOCKED by a running pid\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  fixture: the live agent worktree is NOT locked — every (m) case below is meaningless\n'; FAIL=$((FAIL + 1))
+fi
+
+bg_case() { # <name> <expected-exit> <to> [entity-root]
+    local name="$1" expected="$2" to="$3" root="${4:-$BG_REPO}" actual
+    printf '%s' "$(send_json "$to" '"main moved to abc1234. Please ack."')" \
+        | RESUME_GUARD_TEAMS_DIR="$BG_TEAMS" RICHOS_ENTITY_ROOT="$root" "$HOOK" >/dev/null 2>&1
+    actual=$?
+    if [ "$actual" -eq "$expected" ]; then
+        printf '  PASS  %s\n' "$name"; PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s (expected exit %s, got %s)\n' "$name" "$expected" "$actual"; FAIL=$((FAIL + 1))
+    fi
+}
+
+bg_case_msg() { # <name> <needle> <to> [entity-root]
+    local name="$1" needle="$2" to="$3" root="${4:-$BG_REPO}" out
+    out="$(printf '%s' "$(send_json "$to" '"main moved to abc1234. Please ack."')" \
+        | RESUME_GUARD_TEAMS_DIR="$BG_TEAMS" RICHOS_ENTITY_ROOT="$root" "$HOOK" 2>&1 >/dev/null)"
+    if printf '%s' "$out" | grep -qF "$needle"; then
+        printf '  PASS  %s\n' "$name"; PASS=$((PASS + 1))
+    else
+        printf '  FAIL  %s (stderr missing "%s")\n' "$name" "$needle"; FAIL=$((FAIL + 1))
+    fi
+}
+
+# (m1)-(m3) THE LIVE AGENT, in all three legal addressing forms. Every one of
+# these exited 2 against the pre-fix guard, and needed a resume-ack: waiver.
+bg_case "live background agent by NAME (not in roster) -> allow" 0 "zach-opus-live1"
+bg_case "live background agent by agent-<id> -> allow" 0 "agent-$LIVE_ID"
+bg_case "live background agent by RAW agent id -> allow" 0 "$LIVE_ID"
+
+# (m4)-(m5) THE PROTECTION, UNTOUCHED. Same fixture, same guard, same shape.
+bg_case "completed + worktree REMOVED -> still BLOCKED" 2 "zach-opus-gone1"
+bg_case "locked by a DEAD pid (stale lock) -> still BLOCKED" 2 "zach-opus-stale1"
+
+# (m6) INDETERMINATE IS NOT "ALLOW". Point the guard at a root that is not a git
+# checkout: `git worktree list` cannot be answered, agent-liveness.py returns
+# INDETERMINATE, and the ack is still required.
+BG_NOGIT="$BG/nogit"
+mkdir -p "$BG_NOGIT"
+printf 'SESSION_TEAMS_DIR=""\n' >"$BG_NOGIT/orchestration.config"
+bg_case "INDETERMINATE liveness (git unqueryable) -> BLOCKED, not allowed" 2 \
+    "agent-$LIVE_ID" "$BG_NOGIT"
+
+# (m7) the refusal NAMES the authoritative source, its verdict, and the tree it
+# swept. A refusal that only quotes the roster is the 2026-09-02 defect again.
+bg_case_msg "refusal names the authoritative liveness source" "agent-liveness.py" "zach-opus-gone1"
+bg_case_msg "refusal names the NOT-ALIVE verdict" "NOT-ALIVE" "zach-opus-gone1"
+bg_case_msg "refusal names the main checkout it swept" "main checkout swept" "zach-opus-gone1"
+bg_case_msg "INDETERMINATE refusal says so in those words" "INDETERMINATE" \
+    "agent-$LIVE_ID" "$BG_NOGIT"
+
+# (m8) NEGATIVE CONTROL — the allow above must be CAUSED by agent-liveness.py.
+# Copy the guard into a tree with every library it needs EXCEPT that one. If the
+# live agent is still allowed, the allow was a fall-through and (m1)-(m3) prove
+# nothing.
+NOLIVE="$(mktemp -d -t guard-resume-nolive.XXXXXX)"
+mkdir -p "$NOLIVE/scripts/hooks" "$NOLIVE/scripts/lib"
+cp "$HOOK" "$NOLIVE/scripts/hooks/guard-resume-isolation.sh"
+chmod +x "$NOLIVE/scripts/hooks/guard-resume-isolation.sh"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" \
+   "$SCRIPT_DIR/../lib/teammate-identity.py" "$NOLIVE/scripts/lib/"
+printf '%s' "$(send_json 'zach-opus-live1' '"main moved to abc1234. Please ack."')" \
+    | RESUME_GUARD_TEAMS_DIR="$BG_TEAMS" RICHOS_ENTITY_ROOT="$BG_REPO" \
+      "$NOLIVE/scripts/hooks/guard-resume-isolation.sh" >/dev/null 2>&1
+NOLIVE_RC=$?
+if [ "$NOLIVE_RC" -eq 2 ]; then
+    printf '  PASS  NEGATIVE CONTROL: agent-liveness.py absent -> the live agent is BLOCKED\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  NEGATIVE CONTROL: agent-liveness.py absent still allowed (exit %s) — the allow is a fall-through, not a decision\n' "$NOLIVE_RC"; FAIL=$((FAIL + 1))
+fi
+rm -rf "$NOLIVE"
+
+git -C "$BG_REPO" worktree unlock "$BG_REPO/.claude/worktrees/agent-$LIVE_ID"  >/dev/null 2>&1
+git -C "$BG_REPO" worktree unlock "$BG_REPO/.claude/worktrees/agent-$STALE_ID" >/dev/null 2>&1
+rm -rf "$BG"
 
 rm -rf "$SANDBOX"
 
