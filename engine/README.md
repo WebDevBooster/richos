@@ -680,6 +680,28 @@ moves that path or narrows which warrant states count. Run it by hand with
 exit 2 means nothing was read, and those are never the same answer. Full
 documentation in [`reference/unstarted-rows/`](./reference/unstarted-rows/README.md).
 
+## A defect the tree can show you becomes a row — the mechanical-findings sweep
+
+An audit found eight real defects in twenty minutes that six weeks of attention had
+missed, and the one that had been known for six weeks sat under a CI comment reading
+"Tracked separately" — tracked nowhere. The audit ran because somebody asked; the
+findings became rows because somebody typed them. Both links were a person.
+
+`notice-mechanical-findings.sh` runs at **every turn end** and reads the record's own
+declared artifact roots at HEAD for three MECHANICAL facts: a test suite skipped in a
+workflow by name, a mutation harness that no script or workflow names on a code line,
+and a registered hook that no test names. Each finding it does not already see in the
+record becomes a row — in the record's own format, with a warrant minted by the
+landing guard's own code, carrying its identity as `` `finding:<class>:<path>` `` so the
+same defect on the next run is one row and not two. It never edits an existing row; it
+NAMES a row whose finding has gone, and a row closed over a finding still in the tree.
+Whether a finding matters is never decided here, and `finding-exempt: <reason>` in the
+source is honored and reported.
+
+Run it by hand with `scripts/mechanical-findings-lint.sh <repo>` (`--write` to do what
+the hook does). Full documentation, including the named blind spots, in
+[`reference/mechanical-findings/`](./reference/mechanical-findings/README.md).
+
 ## If your repository gets published — the two publication contracts
 
 Some repositories go public. If yours does, create a **`.publication-boundary`**
