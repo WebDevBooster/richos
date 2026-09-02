@@ -2073,6 +2073,19 @@ emit_case "CL1.claim-gate-suite-passes" 0 "$rc"
 set +e; "$SCRIPT_DIR/claim-roles.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "CL2.claim-gate-mutations-all-load-bearing" 0 "$rc"
 
+# RI1/RI2/IN2 — the resume-isolation guard's suite and mutation harness, and the
+# in-flight notify mutations. Registered here for the reason CL1/CL2 are: a
+# harness nothing runs is a harness that rots. IN2 earned its row the hard way —
+# at pristine HEAD it killed 11 of 18, because five mutant sandboxes lacked
+# scripts/lib/git-jurisdiction.sh and so ran a guard that REFUSED TO START, which
+# reads exactly like a guard that caught the mutation.
+set +e; "$SCRIPT_DIR/guard-resume-isolation.test.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "RI1.resume-isolation-suite-passes" 0 "$rc"
+set +e; "$SCRIPT_DIR/guard-resume-isolation.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "RI2.resume-isolation-mutations-all-load-bearing" 0 "$rc"
+set +e; "$SCRIPT_DIR/inflight-notify.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "IN2.inflight-notify-mutations-all-load-bearing" 0 "$rc"
+
 # WTR1 — the worktree-removal guard's mutation harness, for the reason CL1/CL2
 # exist and one step further along the same road. The guard's own behavioral
 # suite IS run, because run-all-tests.sh discovers every *.test.sh from disk.
