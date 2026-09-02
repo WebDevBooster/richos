@@ -269,6 +269,83 @@ def identity(root, rev, relpath):
 
 
 # ===========================================================================
+# THE STAMP WALK - one implementation, both warrants
+# ===========================================================================
+# The stamp resolution is lifted out of CHECK 1 unchanged so that a SECOND
+# warrant can pin artifacts through the same code rather than through a second
+# staleness implementation - two of those is how one silently becomes the stale
+# one. The only thing that will differ is what a mismatch MEANS, which is a
+# table of sentences and three violation codes rather than a second walk.
+#
+# The section-3 sentences below are byte-identical to the ones this function
+# was extracted from. That is deliberate and is asserted by the suite: a
+# refactor that quietly reworded an existing refusal would be a change to a
+# contract twenty governed rows are already written against.
+ROW_STAMP_CODES = {
+    "unknown_prefix": "ROW-UNKNOWN-PREFIX",
+    "bare_root": "ROW-BARE-ROOT",
+    "stale": "ROW-STALE",
+    "skip": "declared root '%s' (%s) is not on this machine, so the work could "
+            "not be identified",
+    "vanished": "`%s` is stamped @`%s` and no longer exists. The row describes "
+                "work that is not there.",
+    "appeared": "`%s` is stamped @`-` (absent) and now EXISTS as %s. The row "
+                "was written before the work was.",
+    "moved": "`%s` is stamped @`%s` and is now %s. The work moved; this row "
+             "still describes what it used to be.",
+    "bare_root_msg": "`%s` names a repository, not the work",
+}
+
+def walk_stamps(iid, stamps, roots, absent_roots, revs, skips, violations,
+                codes):
+    """-> (wanted, moved) - the warrant this row should carry now, and whether
+    anything under it moved."""
+    wanted = []
+    moved = False
+    for path, oid in stamps:
+        prefix = path.split("/", 1)[0]
+        remainder = path.split("/", 1)[1] if "/" in path else ""
+        if prefix in absent_roots:
+            skips.append((iid, path, codes["skip"] % (prefix, absent_roots[prefix])))
+            wanted.append((path, oid))
+            continue
+        if prefix not in roots:
+            violations.append((
+                iid, codes["unknown_prefix"],
+                "`%s` starts with '%s', which is not a declared artifact "
+                "root. Declared: %s." % (path, prefix,
+                                         ", ".join(sorted(roots)) or "<none>")))
+            wanted.append((path, oid))
+            continue
+        if not remainder:
+            violations.append((iid, codes["bare_root"], codes["bare_root_msg"] % path))
+            wanted.append((path, oid))
+            continue
+        rev = revs.get(prefix) or "HEAD"
+        now = identity(roots[prefix], rev, remainder)
+        if now is None:
+            skips.append((iid, path,
+                          "the path could not be identified in %s (%s) - "
+                          "reported, never counted as a mismatch"
+                          % (roots[prefix], rev)))
+            wanted.append((path, oid))
+            continue
+        short = now if now == ABSENT else now[:STAMP_LEN]
+        wanted.append((path, short))
+        if now == ABSENT:
+            if oid != ABSENT:
+                moved = True
+                violations.append((iid, codes["stale"], codes["vanished"] % (path, oid)))
+        elif oid == ABSENT:
+            moved = True
+            violations.append((iid, codes["stale"], codes["appeared"] % (path, short)))
+        elif not now.startswith(oid):
+            moved = True
+            violations.append((iid, codes["stale"], codes["moved"] % (path, oid, short)))
+    return wanted, moved
+
+
+# ===========================================================================
 # CHECK 2 - WHICH ITEM IDS DOES THIS MESSAGE CLAIM?
 # ===========================================================================
 # AN ALLOWLIST OF LEAD-IN WORDS, NOT A BLOCKLIST OF EXCLUSIONS. That choice
@@ -540,63 +617,9 @@ def main():
                 "defect this contract removes." % tok))
             continue
 
-        wanted = []
-        stale_here = False
-        for path, oid in stamps:
-            prefix = path.split("/", 1)[0]
-            remainder = path.split("/", 1)[1] if "/" in path else ""
-            if prefix in absent_roots:
-                skips.append((iid, path,
-                              "declared root '%s' (%s) is not on this machine, "
-                              "so the work could not be identified"
-                              % (prefix, absent_roots[prefix])))
-                wanted.append((path, oid))
-                continue
-            if prefix not in roots:
-                violations.append((
-                    iid, "ROW-UNKNOWN-PREFIX",
-                    "`%s` starts with '%s', which is not a declared artifact "
-                    "root. Declared: %s." % (path, prefix,
-                                             ", ".join(sorted(roots)) or "<none>")))
-                wanted.append((path, oid))
-                continue
-            if not remainder:
-                violations.append((
-                    iid, "ROW-BARE-ROOT",
-                    "`%s` names a repository, not the work" % path))
-                wanted.append((path, oid))
-                continue
-            rev = revs.get(prefix) or "HEAD"
-            now = identity(roots[prefix], rev, remainder)
-            if now is None:
-                skips.append((iid, path,
-                              "the path could not be identified in %s (%s) - "
-                              "reported, never counted as a mismatch"
-                              % (roots[prefix], rev)))
-                wanted.append((path, oid))
-                continue
-            short = now if now == ABSENT else now[:STAMP_LEN]
-            wanted.append((path, short))
-            if now == ABSENT:
-                if oid != ABSENT:
-                    stale_here = True
-                    violations.append((
-                        iid, "ROW-STALE",
-                        "`%s` is stamped @`%s` and no longer exists. The row "
-                        "describes work that is not there." % (path, oid)))
-            elif oid == ABSENT:
-                stale_here = True
-                violations.append((
-                    iid, "ROW-STALE",
-                    "`%s` is stamped @`-` (absent) and now EXISTS as %s. The "
-                    "row was written before the work was." % (path, short)))
-            elif not now.startswith(oid):
-                stale_here = True
-                violations.append((
-                    iid, "ROW-STALE",
-                    "`%s` is stamped @`%s` and is now %s. The work moved; this "
-                    "row still describes what it used to be."
-                    % (path, oid, short)))
+        wanted, stale_here = walk_stamps(
+            iid, stamps, roots, absent_roots, revs, skips, violations,
+            ROW_STAMP_CODES)
         if stale_here:
             fixes.append((iid, "**State:** `%s` - %s"
                           % (tok, ", ".join("`%s`@`%s`" % (p, o)
