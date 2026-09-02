@@ -135,19 +135,19 @@ import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
-    print("PARSEFAIL\t\t\t\t\t")
+    print("PARSEFAIL\t\t\t\t\t\t")
     sys.exit(0)
 if not isinstance(d, dict):
-    print("PARSEFAIL\t\t\t\t\t")
+    print("PARSEFAIL\t\t\t\t\t\t")
     sys.exit(0)
 tool_name = str(d.get("tool_name", "") or "")
 if tool_name != "SendMessage":
     # A well-formed payload for a different tool is not our concern.
-    print("NOTSENDMSG\t\t\t\t\t")
+    print("NOTSENDMSG\t\t\t\t\t\t")
     sys.exit(0)
 ti = d.get("tool_input", {})
 if not isinstance(ti, dict):
-    print("PARSEFAIL\t\t\t\t\t")
+    print("PARSEFAIL\t\t\t\t\t\t")
     sys.exit(0)
 to = str(ti.get("to", "") or "")
 msg = ti.get("message", None)
@@ -167,16 +167,22 @@ else:
 mt = ti.get("messageType") or ti.get("message_type") or ti.get("type") or ""
 mt = str(mt or "")
 sid = str(d.get("session_id", "") or "")
-text = text.replace("\t", " ").replace("\n", "\x01")
-print("OK\t%s\t%s\t%s\t%s\t%s" % (to, kind, mt, sid, text))
-' 2>/dev/null || printf 'PARSEFAIL\t\t\t\t\t')"
+# The lead transcript, carried on every hook payload. It holds the ONLY complete
+# name -> agent id join (Agent tool_use -> toolUseResult.agentId), which is how a
+# recipient NAME reaches the authoritative liveness signal below. NO APOSTROPHES
+# IN THIS BLOCK: it is a single-quoted shell string, and one would end it.
+tpath = str(d.get("transcript_path", "") or "").replace("\t", " ").replace("\n", " ")
+text = text.replace("\t", " ").replace("\x01", " ").replace("\n", "\x01")
+print("OK\t%s\t%s\t%s\t%s\t%s\t%s" % (to, kind, mt, sid, tpath, text))
+' 2>/dev/null || printf 'PARSEFAIL\t\t\t\t\t\t')"
 
 STATUS="$(printf '%s' "$PARSED" | cut -f1)"
 TO="$(printf '%s' "$PARSED" | cut -f2)"
 MSG_KIND="$(printf '%s' "$PARSED" | cut -f3)"
 MSG_TYPE="$(printf '%s' "$PARSED" | cut -f4)"
 SESSION_ID="$(printf '%s' "$PARSED" | cut -f5)"
-MESSAGE="$(printf '%s' "$PARSED" | cut -f6- | tr '\001' '\n')"
+TRANSCRIPT="$(printf '%s' "$PARSED" | cut -f6)"
+MESSAGE="$(printf '%s' "$PARSED" | cut -f7- | tr '\001' '\n')"
 
 # Not a SendMessage payload — a well-formed event for a different tool passes
 # through untouched (preserving the PreToolUse[SendMessage] matcher semantics).
@@ -268,7 +274,56 @@ if [ -n "$RESUME_ACK" ]; then
   exit 0
 fi
 
-# --- (1/2/3) liveness resolution against the session team roster ---------
+# --- (1/2/3) LIVENESS RESOLUTION — TWO SOURCES, ONE OF THEM AUTHORITATIVE
+#
+# THE DEFECT THIS SECTION EXISTS TO CLOSE — measured 2026-09-02
+# ---------------------------------------------------------------------------
+# The lead sent in-flight notices to three agents that scripts/agent-liveness.sh
+# had confirmed ALIVE seconds earlier by the authoritative signal (isolation
+# worktree LOCKED, locking pid running). This guard refused all three — by
+# teammate NAME and by raw agentId — with "could not be confirmed as an ACTIVE
+# teammate (not in session roster)".
+#
+# It was not a bug in the matching. It was the SOURCE. This guard decided
+# "active" from the session team roster, and CLAUDE.md documents that background
+# native-isolation agents NEVER appear in that roster: "Background
+# native-isolation agents don't appear in the SendMessage roster — absence !=
+# terminated." So the roster cannot distinguish "completed and cleaned up" from
+# "running but invisible", and this guard failed closed on both. Every notice to
+# a live background agent had to be waived — not occasionally, STRUCTURALLY,
+# every single time. A guard that must be overridden every time it fires is a
+# guard nobody reads, and the override becomes reflex.
+#
+# THE PROTECTION IS UNCHANGED AND MUST STAY THAT WAY. A SendMessage to a
+# genuinely completed teammate resumes it from its transcript; if its worktree
+# was already landed and REMOVED it wakes with no workspace and improvises —
+# main-checkout writes, lost work. That is still blocked, and the two-sided
+# canaries in guard-resume-isolation.test.sh prove both directions at once.
+#
+# THE FIX: consult the AUTHORITATIVE liveness signal before refusing.
+#   roster  — cheap, advisory, checked FIRST because a hit is free and covers
+#             every in-process teammate. An ACTIVE roster answer allows, exactly
+#             as before. It is never trusted to REFUSE on its own.
+#   lock    — scripts/lib/agent-liveness.py, THE ONE implementation of "is this
+#             agent alive?", consulted on the refusal path only. It already
+#             returns ALIVE / NOT-ALIVE / INDETERMINATE with its evidence, and a
+#             second implementation here is how one of the two silently becomes
+#             the stale one. Read its docstring: the lock pid is the HOST
+#             SESSION's pid, shared across every agent of that session, so the
+#             lock's PRESENCE is the per-agent signal and the pid check is the
+#             stale-lock filter.
+#
+# INDETERMINATE IS NOT "ALLOW". It stays a real outcome and it keeps requiring
+# the ack — a resolver that collapses "I could not tell" into "fine, go ahead"
+# is the failure this whole engine keeps finding in itself.
+#
+# WHY A LOCKED, PRESENT WORKTREE IS NOT A WEAKENING: this guard has ALWAYS
+# treated a present worktree as positive liveness regardless of a stale roster
+# status (see wt_present() below — "A present worktree is positive liveness").
+# The lock is a strictly STRONGER signal than mere directory presence. The only
+# thing that changes is that an agent the roster never listed can now produce
+# that evidence too.
+#
 # Resolve the team config the SAME way the SendMessage tool resolves `to`: the
 # session team dir under SESSION_TEAMS_DIR/session-<first8>. Tests override the
 # teams dir via RESUME_GUARD_TEAMS_DIR. EXACT session match only (never a
@@ -276,8 +331,19 @@ fi
 # unrelated team.
 TEAMS_DIR="${RESUME_GUARD_TEAMS_DIR:-$SESSION_TEAMS_DIR}"
 TEAM_CONFIG=""
+TEAM_DIR=""
 if [ -n "$SESSION_ID" ]; then
-  TEAM_CONFIG="$TEAMS_DIR/session-$(printf '%s' "$SESSION_ID" | cut -c1-8)/config.json"
+  TEAM_DIR="$TEAMS_DIR/session-$(printf '%s' "$SESSION_ID" | cut -c1-8)"
+  TEAM_CONFIG="$TEAM_DIR/config.json"
+fi
+
+# The agent worktrees this guard reasons about are registered in the ENTITY'S
+# MAIN CHECKOUT, never in whatever worktree a caller happens to stand in. One
+# resolver, shared (scripts/lib/resolve-main-checkout.sh, sourced by
+# resolve-roots.sh) — a local re-derivation here is the copy that goes stale.
+MAIN_CHECKOUT="$ENTITY_ROOT"
+if command -v resolve_main_checkout >/dev/null 2>&1; then
+  MAIN_CHECKOUT="$(resolve_main_checkout "$ENTITY_ROOT" "$ENTITY_ROOT" 2>/dev/null || printf '%s' "$ENTITY_ROOT")"
 fi
 
 emit_block_completed() { # <detail>
@@ -300,7 +366,6 @@ emit_block_completed() { # <detail>
     echo "        serialized external-repo writer) -> add a live message line:"
     echo "          resume-ack: <where any writes will land + why this resume is safe>"
     echo "        (allowed + logged to .claude/state/resume-acks.log)."
-    echo "$HOOK_TAG"
   } >&2
 }
 
@@ -321,25 +386,49 @@ emit_block_unresolvable() { # <detail>
     echo "      external-repo writer), add a live message line:"
     echo "        resume-ack: <where any writes will land + why this resume is safe>"
     echo "      (allowed + logged to .claude/state/resume-acks.log)."
-    echo "$HOOK_TAG"
   } >&2
 }
 
-if [ -z "$TEAM_CONFIG" ] || [ ! -f "$TEAM_CONFIG" ]; then
-  emit_block_unresolvable "no readable session team config for session '${SESSION_ID:-<unset>}'"
-  exit 2
-fi
+# emit_liveness_evidence — WHAT THE AUTHORITATIVE SOURCE SAID, on every refusal.
+# Naming the disagreement is half the job (agent-liveness.py's own words): a
+# refusal that only quotes the roster is the 2026-09-02 defect wearing a nicer
+# error message.
+emit_liveness_evidence() { # <kind> <detail>
+  {
+    echo ""
+    echo "  Authoritative liveness (scripts/lib/agent-liveness.py — the isolation-"
+    echo "  worktree lock, NOT the roster): ${1}"
+    echo "    ${2}"
+    echo "    main checkout swept: ${MAIN_CHECKOUT}"
+    if [ "${1}" = "INDETERMINATE" ]; then
+      echo "    INDETERMINATE is not 'alive'. The ack is still required."
+    fi
+  } >&2
+}
 
-VERDICT="$(TO_ARG="$TO" python3 - "$TEAM_CONFIG" <<'PY'
+# --- THE ROSTER READING (cheap, advisory, allows but never refuses alone) ---
+# Emits three TAB-separated fields: KIND, detail, and the roster's own cwd for
+# the matched member (handed to the authoritative resolver below, so a member
+# the roster knows is checked against the worktree the roster itself names).
+roster_verdict() {
+  if [ -z "$TEAM_CONFIG" ] || [ ! -f "$TEAM_CONFIG" ]; then
+    printf 'NOCONFIG\tno readable session team config for session %s\t\n' "'${SESSION_ID:-<unset>}'"
+    return 0
+  fi
+  TO_ARG="$TO" python3 - "$TEAM_CONFIG" <<'PY'
 import json, os, sys
 
 recipient = os.environ.get("TO_ARG", "")
+
+def out(kind, detail, cwd=""):
+    print("%s\t%s\t%s" % (kind, detail.replace("\t", " "), cwd.replace("\t", " ")))
+    raise SystemExit
+
 try:
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         data = json.load(f)
 except Exception:
-    print("NOCONFIG|unreadable")
-    raise SystemExit
+    out("NOCONFIG", "unreadable")
 
 members = data.get("members", []) or []
 TERMINAL = {
@@ -367,54 +456,193 @@ if not matches:
     if len(pfx) == 1:
         matches = pfx
     elif len(pfx) > 1:
-        print("AMBIGUOUS|%d roster names start with '%s'" % (len(pfx), recipient))
-        raise SystemExit
+        out("AMBIGUOUS", "%d roster names start with '%s'" % (len(pfx), recipient))
 
 if not matches:
-    print("NOTFOUND|not in session roster")
-    raise SystemExit
+    out("NOTFOUND", "not in session roster")
 
 m = matches[0]
 status = str(m.get("status") or "").lower()
+cwd = str(m.get("cwd") or "")
 wt = wt_present(m)
 
 # A present worktree is positive liveness regardless of a stale status.
 if wt is True:
-    print("ACTIVE|worktree present")
-    raise SystemExit
+    out("ACTIVE", "worktree present", cwd)
 # The worktree once existed (cwd under .claude/worktrees/) and is now gone —
 # THE failure state (landed + removed).
 if wt is False:
-    print("TERMINAL|its worktree %s was landed + removed" % (m.get("cwd") or ""))
-    raise SystemExit
+    out("TERMINAL", "its worktree %s was landed + removed" % (cwd or ""), cwd)
 # In-process / non-worktree member: liveness is the roster status.
 if status in TERMINAL:
-    print("TERMINAL|roster status is '%s'" % status)
-    raise SystemExit
-print("ACTIVE|roster status '%s'" % (status or "present"))
+    out("TERMINAL", "roster status is '%s'" % status, cwd)
+out("ACTIVE", "roster status '%s'" % (status or "present"), cwd)
 PY
-)"
+}
 
-VKIND="${VERDICT%%|*}"
-VDETAIL="${VERDICT#*|}"
+VERDICT="$(roster_verdict 2>/dev/null || printf 'NOCONFIG\tthe roster reader could not run\t\n')"
+VKIND="$(printf '%s' "$VERDICT" | cut -f1)"
+VDETAIL="$(printf '%s' "$VERDICT" | cut -f2)"
+VCWD="$(printf '%s' "$VERDICT" | cut -f3)"
+
+# The roster's ONE decisive power: a positive hit allows. It is never asked to
+# refuse by itself again. Written as an `if` rather than an `&&` list because
+# `set -e` is on and the two forms are only accidentally equivalent.
+if [ "$VKIND" = "ACTIVE" ]; then
+  exit 0
+fi
+
+# --- THE AUTHORITATIVE READING (the lock) ----------------------------------
+# Consulted ONLY on the path that would otherwise refuse — so the common case
+# pays nothing, and the expensive, correct answer is taken exactly where the
+# wrong one used to be given.
+authoritative_liveness() {
+  RESUME_LIB_DIR="$SCRIPT_DIR/../lib" \
+  RESUME_MAIN_CHECKOUT="$MAIN_CHECKOUT" \
+  RESUME_TO="$TO" \
+  RESUME_CWD_HINT="$VCWD" \
+  RESUME_TEAM_DIR="$TEAM_DIR" \
+  RESUME_TRANSCRIPT="$TRANSCRIPT" \
+  RESUME_SESSION_ID="$SESSION_ID" \
+  RICHOS_LIVENESS_TEAMS_DIR="$TEAMS_DIR" \
+  INFLIGHT_TEAMS_DIR="$TEAMS_DIR" \
+  python3 - <<'PY' 2>/dev/null || printf 'UNRESOLVED\tthe authoritative liveness resolver could not run\n'
+import importlib.util, os, re, sys
+
+
+def emit(kind, detail):
+    sys.stdout.write("%s\t%s\n" % (kind, (detail or "").replace("\t", " ").replace("\n", " ")))
+    sys.stdout.flush()
+    raise SystemExit(0)
+
+
+LIB = os.environ.get("RESUME_LIB_DIR", "")
+
+
+def load(mod, filename):
+    """Load a hyphenated module by path. Missing -> None, never a guess."""
+    path = os.path.join(LIB, filename)
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location(mod, path)
+    if spec is None or spec.loader is None:
+        return None
+    m = importlib.util.module_from_spec(spec)
+    sys.modules[mod] = m
+    spec.loader.exec_module(m)
+    return m
+
+
+try:
+    al = load("richos_agent_liveness", "agent-liveness.py")
+except Exception as e:
+    emit("UNRESOLVED", "agent-liveness.py failed to load: %s" % e)
+if al is None:
+    emit("UNRESOLVED",
+         "agent-liveness.py is missing from %s — that file is THE one "
+         "implementation of 'is this agent alive?' and this guard will not "
+         "write a second one" % (LIB or "<no lib dir>"))
+
+to = (os.environ.get("RESUME_TO") or "").strip()
+root = (os.environ.get("RESUME_MAIN_CHECKOUT") or "").strip()
+if not root:
+    emit("UNRESOLVED", "no main checkout resolved for the governed repository")
+
+# EVERY EXACT WAY THIS RECIPIENT CAN NAME AN AGENT. No role prefixes, no fuzzy
+# matching: `zach-opus-a1` is not `zach`, and three Zachs have run at once. A
+# target that cannot be joined exactly is simply not a target.
+targets = []
+hint = (os.environ.get("RESUME_CWD_HINT") or "").strip()
+if hint:
+    targets.append((hint, "the roster's own cwd for this recipient"))
+if re.match(r"^agent-[A-Za-z0-9_]+$", to):
+    targets.append((to, "addressed by agent directory name"))
+
+identity_note = "teammate-identity.py unavailable"
+try:
+    ti = load("richos_teammate_identity", "teammate-identity.py")
+except Exception as e:
+    ti = None
+    identity_note = "teammate-identity.py failed to load: %s" % e
+if ti is not None:
+    try:
+        index = ti.identity_index(os.environ.get("RESUME_TEAM_DIR", ""),
+                                  os.environ.get("RESUME_TRANSCRIPT", ""),
+                                  os.environ.get("RESUME_SESSION_ID", ""))
+    except Exception as e:
+        index = None
+        identity_note = "the identity index raised: %s" % e
+    if index is not None:
+        identity_note = ("; ".join(index.get("found") or [])
+                         or "nothing resolved from: %s"
+                            % "; ".join(index.get("tried") or ["<none>"]))
+        if to in (index.get("names") or {}):
+            targets.append((to, "addressed by raw agent id"))
+        try:
+            aid, how = ti.agent_id_for_name(to, index)
+        except Exception:
+            aid, how = "", ""
+        if aid:
+            targets.append((aid, "exact name join via %s" % (how or "the identity index")))
+
+seen = set()
+uniq = []
+for t, how in targets:
+    if t in seen:
+        continue
+    seen.add(t)
+    uniq.append((t, how))
+
+if not uniq:
+    emit("UNRESOLVED",
+         "nothing joins '%s' to an agent worktree (identity sources: %s)"
+         % (to, identity_note))
+
+worst = None
+for t, how in uniq:
+    try:
+        rec = al.resolve(root, t)
+    except Exception as e:
+        rec = {"verdict": al.INDETERMINATE, "reason": "resolve() raised: %s" % e}
+    v = rec.get("verdict")
+    line = "%s (%s) — %s" % (t, how, rec.get("reason") or "")
+    if v == al.ALIVE:
+        emit("ALIVE", line)
+    # INDETERMINATE outranks NOT-ALIVE in the report: "I could not tell" is the
+    # more honest headline, and both refuse.
+    if worst is None or (worst[0] != al.INDETERMINATE and v == al.INDETERMINATE):
+        worst = (v, line)
+
+emit(worst[0] if worst[0] in (al.NOT_ALIVE, al.INDETERMINATE) else "UNRESOLVED",
+     worst[1])
+PY
+}
+
+LIVENESS="$(authoritative_liveness)"
+LKIND="$(printf '%s' "$LIVENESS" | cut -f1)"
+LDETAIL="$(printf '%s' "$LIVENESS" | cut -f2-)"
+
+# THE ONE NEW ALLOW PATH. The roster could not see this teammate; the lock can.
+# A live background isolation agent has a workspace by definition — it is
+# holding the lock on it — so the failure mode this guard exists to prevent
+# cannot occur, and no resume-ack: is owed.
+if [ "$LKIND" = "ALIVE" ]; then
+  exit 0
+fi
 
 case "$VKIND" in
-  ACTIVE)
-    exit 0 ;;
   TERMINAL)
-    emit_block_completed "$VDETAIL"
-    exit 2 ;;
+    emit_block_completed "$VDETAIL" ;;
   AMBIGUOUS)
-    emit_block_unresolvable "ambiguous: $VDETAIL"
-    exit 2 ;;
+    emit_block_unresolvable "ambiguous: $VDETAIL" ;;
   NOTFOUND)
-    emit_block_unresolvable "$VDETAIL"
-    exit 2 ;;
+    emit_block_unresolvable "$VDETAIL" ;;
   NOCONFIG)
-    emit_block_unresolvable "team config unreadable: $VDETAIL"
-    exit 2 ;;
+    emit_block_unresolvable "team config unreadable: $VDETAIL" ;;
   *)
     # Any unexpected resolver output -> fail closed.
-    emit_block_unresolvable "recipient liveness indeterminate"
-    exit 2 ;;
+    emit_block_unresolvable "recipient liveness indeterminate" ;;
 esac
+emit_liveness_evidence "$LKIND" "$LDETAIL"
+echo "$HOOK_TAG" >&2
+exit 2
