@@ -197,6 +197,21 @@ ALL_ROOT_SCRIPTS=(
     scripts/lib/agent-liveness.py
     scripts/lib/agent-liveness.sh
     scripts/agent-liveness.sh
+    # THE OWNERSHIP LEDGER and the cross-repository worktree helper (2026-09-02).
+    # On this list for BOTH reasons at once. HARD: guard-worktree-isolation.sh
+    # BLOCKS a `cwd` spawn when scripts/lib/worktree-ledger.py is missing
+    # (fail-closed: an unverifiable registration is not one), so a sandbox
+    # without it models an engine that refuses every cross-repository spawn.
+    # SOFT, and the harder half: the reaper does not refuse without it — it
+    # declares the blindness and treats EVERY hand-rolled worktree as
+    # UNRESOLVED, which is the exact backlog this file was written to end;
+    # detect-nonnative-worktree.sh and the three lifecycle hooks record
+    # nothing without it and say so nowhere a sandbox reads. A sandbox missing
+    # this file would model the engine of 2026-09-01 while looking perfectly
+    # healthy. The helper is carried because the guard's refusal names it as
+    # the only way through — a gate with no escape route models a wall.
+    scripts/lib/worktree-ledger.py
+    scripts/create-teammate-worktree.sh
     # The jurisdiction predicate — and it was MISSING from this list, silently,
     # for as long as the list has existed. scan-secrets.sh and guard-dialect.sh
     # both REFUSE TO START without it, by exiting 2, and Layer K's canary

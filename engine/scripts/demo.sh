@@ -314,6 +314,15 @@ DEMO_FILES+=(
     "scripts/lib/agent-liveness.py"
     "scripts/lib/agent-liveness.sh"
     "scripts/agent-liveness.sh"
+    # THE OWNERSHIP LEDGER and the cross-repository worktree helper (2026-09-02).
+    # Both reasons at once: guard-worktree-isolation.sh BLOCKS a cwd spawn
+    # without scripts/lib/worktree-ledger.py (fail-closed), and the reaper,
+    # the spawn detector and the three lifecycle hooks degrade SOFTLY without
+    # it — every hand-rolled worktree reads UNRESOLVED and nothing is recorded
+    # — which is the 2026-09-01 engine, looking fine. The helper is the escape
+    # route the guard's refusal names.
+    "scripts/lib/worktree-ledger.py"
+    "scripts/create-teammate-worktree.sh"
     # Cosmetic but buyer-facing: without it Beat 7's probe banner opens with
     # "richos-engine (VERSION file absent)", which reads to someone evaluating
     # the engine like a broken install rather than a sample repo the demo built

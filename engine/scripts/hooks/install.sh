@@ -366,6 +366,14 @@ HOOK_FILES+=(
     "$REPO_ROOT/scripts/lib/agent-liveness.py"
     "$REPO_ROOT/scripts/lib/agent-liveness.sh"
     "$REPO_ROOT/scripts/agent-liveness.sh"
+    # The ownership ledger, hashed for the reaper's reason one step further:
+    # it is the file the reaper's REMOVAL decision for every hand-rolled
+    # worktree now rests on, and the file a blocking guard consults to admit a
+    # cross-repository spawn. A quietly edited copy that said NOT-ALIVE for
+    # everything would leave the reaper hashed, wired, and deleting live work.
+    # The helper is hashed because it WRITES that record.
+    "$REPO_ROOT/scripts/lib/worktree-ledger.py"
+    "$REPO_ROOT/scripts/create-teammate-worktree.sh"
     # The dialect vocabulary. Not a hook, and hashed for the cold-open prompt's
     # reason rather than the reaper's: it is not documentation, it IS the
     # decision. guard-dialect.sh blocks a write on nothing but what this file
