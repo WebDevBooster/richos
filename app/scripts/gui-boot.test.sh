@@ -173,7 +173,7 @@ declare_rules() {
     'the entity this launch files work under (main.rs::boot_entity)'
 
   # -- lines that are facts about the launch, not about configuration ---------------------
-  routine '^\[richos\] launch: [a-z-]+ \([0-9]+ window\(s\)\)$' \
+  routine '^\[richos\] launch: [a-z-]+ \((start [0-9]+, )?[0-9]+ window\(s\)\)$' \
     'which kind of start this is; carries no claim about anything being found'
   routine '^\[richos\] boot complete' \
     'the terminator, printed by setup as its last act'
