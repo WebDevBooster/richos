@@ -34,9 +34,13 @@
 #      everything and clears nothing until the next session opens.
 #
 # And the design assumption was inverted. It was built for native isolation
-# worktrees, while the project's own doctrine REQUIRES hand-rolled worktrees
-# for cross-repository work — which is most of the work. It covered the rare
-# case and missed the standard one.
+# worktrees, while cross-repository work runs in hand-rolled worktrees BY
+# CONSTRUCTION (native isolation roots at the session's repository) — and that
+# is the common case, not the exception: 48 of 53 worktrees on this machine on
+# 2026-09-02. It covered the rare case and missed the standard one. Since
+# 2026-09-02 every cross-repository worktree is created and registered by
+# scripts/create-teammate-worktree.sh, and the ownership ledger — not the
+# lock — is the record this reaper judges it by (see the safety rule below).
 #
 # The fix is scope, not a second reaper. A second reaper would be the same
 # defect one level up: two sweeps, each certain about its own half.
@@ -141,7 +145,14 @@
 #   INDETERMINATE .... SKIP owner-indeterminate   (owner KNOWN; transient)
 #   UNRESOLVED ....... SKIP owner-unresolved      (NO record; permanent, and a
 #                                                  FAILURE of the record — see
-#                                                  the verdict line)
+#                                                  the verdict line) — unless
+#                                                  the tree is not teammate-
+#                                                  shaped and no spawn record
+#                                                  names it: then it is an
+#                                                  OPERATOR worktree (a CI
+#                                                  checkout, another tool's),
+#                                                  SKIP operator-worktree,
+#                                                  inventoried, never a verdict
 #   NOT-ALIVE ........ positive signal; continue to the remaining gates
 #
 # Owner name = the worktree's branch name, else its directory name (the
@@ -647,6 +658,47 @@ is_spawned_name() { # <name>
     printf '%s\n' "$SPAWNED_NAMES" | grep -qx -- "$1"
 }
 
+# --- What counts as a TEAMMATE's worktree at all ----------------------------
+# The inventory is not exclusively ours: `richos` holds a CI checkout at
+# /private/tmp/ci-base and a Codex worktree at ~/.codex/worktrees/2204/richos
+# (measured 2026-09-02). Neither is teammate-shaped, neither is in any spawn
+# record, and neither is a hole in OUR record — so neither may FAIL the run.
+# A hand-rolled tree is teammate-owned when its branch or directory name is
+# teammate-shaped (`worktree-*`, `<role>-<model>-<identifier>`) OR is a name
+# this machine has a record of spawning. Anything else is an OPERATOR worktree:
+# inventoried and printed every run, never mutated, never a verdict.
+# (A registration by exact path is judged BEFORE this question is asked, so a
+# helper-created tree with any name at all is still a teammate's.)
+_models="${ALLOWED_MODELS:-}"
+if [ -z "$_models" ] && [ -f "$ENTITY_ROOT/orchestration.config" ]; then
+    _models="$(sed -n 's/^ALLOWED_MODELS="\(.*\)"$/\1/p' "$ENTITY_ROOT/orchestration.config" | head -1)"
+fi
+[ -n "$_models" ] || _models="fable opus sonnet haiku"
+TEAMMATE_BRANCH_RE="^[a-z][a-z0-9]{1,15}-($(printf '%s' "$_models" | tr ' ' '|'))-[a-z0-9]{1,12}$"
+is_teammate_shaped() { # <name>
+    [ -n "${1:-}" ] || return 1
+    case "$1" in worktree-*) return 0 ;; esac
+    printf '%s' "$1" | grep -qE "$TEAMMATE_BRANCH_RE"
+}
+is_teammate_owned() { # <branch-or-owner> <dirname>
+    is_teammate_shaped "${1:-}" || is_teammate_shaped "${2:-}" \
+        || is_spawned_name "${1:-}" || is_spawned_name "${2:-}"
+}
+
+# Worktree PATHS the ledger has registered — what create-teammate-worktree.sh
+# writes. A registration by path makes a repository reap-eligible and its tree
+# a teammate's, whatever the tree is named.
+REGISTERED_PATHS=""
+if [ -f "$LEDGER_PY" ] && [ -f "$WT_LEDGER" ] && command -v python3 >/dev/null 2>&1; then
+    REGISTERED_PATHS="$(python3 "$LEDGER_PY" --ledger "$WT_LEDGER" paths 2>/dev/null || true)"
+fi
+is_registered_path() { # <path>
+    [ -n "${1:-}" ] && [ -n "$REGISTERED_PATHS" ] || return 1
+    local real
+    real="$(cd "$1" 2>/dev/null && pwd -P)" || real="$1"
+    printf '%s\n' "$REGISTERED_PATHS" | grep -qxF -- "$real"
+}
+
 # ===========================================================================
 # INVENTORY — every linked worktree of every discovered repository
 # ===========================================================================
@@ -689,7 +741,8 @@ $_cur_path"
     "$_repo_now"/.claude/worktrees/agent-*) WT_CLASS+=("native") ;;
     *)                                      WT_CLASS+=("hand-rolled") ;;
     esac
-    if is_spawned_name "$_cur_branch" || is_spawned_name "$(basename "$_cur_path")"; then
+    if is_spawned_name "$_cur_branch" || is_spawned_name "$(basename "$_cur_path")" \
+       || is_registered_path "$_cur_path"; then
         _repo_has_teammate=1
     fi
     _cont="$(dirname "$_cur_path")"
@@ -849,6 +902,7 @@ SKIP_NO_BRANCH=0
 SKIP_OWNER_ALIVE=0
 SKIP_OWNER_INDETERMINATE=0
 SKIP_OWNER_UNRESOLVED=0
+SKIP_OPERATOR=0
 SKIP_REPORT_ONLY=0
 BR_SWEPT=0
 BR_SKIPPED=0
@@ -999,6 +1053,11 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
                 continue
                 ;;
             *)
+                if ! is_teammate_owned "$owner" "$id"; then
+                    skip "$id" "operator-worktree('$owner' is neither teammate-shaped nor a name this machine recorded spawning, and no registration names this path — not ours; inventoried, never mutated, not a hole in the record)"
+                    SKIP_OPERATOR=$((SKIP_OPERATOR + 1))
+                    continue
+                fi
                 [ -n "$reason" ] || reason="no owner verdict was produced for this path (see blind:)"
                 skip "$id" "owner-unresolved($owner — $reason — a hand-rolled worktree takes no lock, so quiet is not death)"
                 SKIP_OWNER_UNRESOLVED=$((SKIP_OWNER_UNRESOLVED + 1))
@@ -1078,13 +1137,6 @@ fi
 # named in the SKIP-BRANCH reason. Computed AFTER the worktree loop so a branch
 # whose worktree was just reaped (and whose -d succeeded) is not reported
 # twice, and a branch whose -d was refused is caught on the next pass.
-_models="${ALLOWED_MODELS:-}"
-if [ -z "$_models" ] && [ -f "$ENTITY_ROOT/orchestration.config" ]; then
-    _models="$(sed -n 's/^ALLOWED_MODELS="\(.*\)"$/\1/p' "$ENTITY_ROOT/orchestration.config" | head -1)"
-fi
-[ -n "$_models" ] || _models="fable opus sonnet haiku"
-TEAMMATE_BRANCH_RE="^[a-z][a-z0-9]{1,15}-($(printf '%s' "$_models" | tr ' ' '|'))-[a-z0-9]{1,12}$"
-
 if [ "${#REPOS[@]}" -gt 0 ]; then
     for _ri in $(seq 0 $(( ${#REPOS[@]} - 1 ))); do
         [ "${REPO_ELIGIBLE[$_ri]}" = "1" ] || continue
@@ -1101,8 +1153,7 @@ if [ "${#REPOS[@]}" -gt 0 ]; then
         while IFS= read -r _b || [ -n "$_b" ]; do
             [ -n "$_b" ] || continue
             _cand=0
-            case "$_b" in worktree-*) _cand=1 ;; esac
-            if [ "$_cand" -eq 0 ] && printf '%s' "$_b" | grep -qE "$TEAMMATE_BRANCH_RE"; then _cand=1; fi
+            is_teammate_shaped "$_b" && _cand=1
             if [ "$_cand" -eq 0 ] && [ -n "$_registered" ] && printf '%s\n' "$_registered" | grep -qxF -- "$_b"; then _cand=1; fi
             [ "$_cand" -eq 1 ] || continue
             if [ -n "$_current" ] && [ "$_b" = "$_current" ]; then
@@ -1294,9 +1345,9 @@ for _s in primary engine inflight-repos event-logs ledger neighborhood; do
 done
 
 echo "=== summary ($MODE_LABEL): reaped=$REAP_COUNT skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
-echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE ==="
+echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
 echo "=== sources:$SRC_SUMMARY ==="
-echo "    skip breakdown: locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED report-only-repo=$SKIP_REPORT_ONLY"
+echo "    skip breakdown: locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY"
 if [ "${#BLIND[@]}" -gt 0 ]; then
     for _b in "${BLIND[@]}"; do
         echo "=== blind: $_b ==="

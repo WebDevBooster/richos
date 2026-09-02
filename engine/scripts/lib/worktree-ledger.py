@@ -593,6 +593,12 @@ def registered_names(records):
                    if r.get("event") == "registered" and r.get("teammate")})
 
 
+def registered_paths(records):
+    """Every worktree path the ledger has ever registered, realpath-normalized."""
+    return sorted({norm_path(r.get("worktree")) for r in records
+                   if r.get("event") == "registered" and r.get("worktree")})
+
+
 def registered_branches(records, repo):
     rp = norm_path(repo)
     out = set()
@@ -850,6 +856,12 @@ def _cmd_session_status(args):
     return 0
 
 
+def _cmd_paths(args):
+    for p in registered_paths(read_all(args.ledger)):
+        print(p)
+    return 0
+
+
 def _cmd_names(args):
     """Every teammate name this machine has a record of spawning: the ledger's
     registrations plus every name any transcript joins to an agent id. Used by
@@ -929,6 +941,8 @@ def main(argv=None):
     p = sub.add_parser("branches")
     p.add_argument("--repo", required=True)
 
+    p = sub.add_parser("paths")
+
     p = sub.add_parser("names")
     p.add_argument("--transcript", action="append", default=[])
     p.add_argument("--projects-dir", default=None)
@@ -953,6 +967,7 @@ def main(argv=None):
         "registrations": _cmd_registrations,
         "branches": _cmd_branches,
         "names": _cmd_names,
+        "paths": _cmd_paths,
         "session-status": _cmd_session_status,
         "pid-start": _cmd_pid_start,
         "session-pid": _cmd_session_pid,

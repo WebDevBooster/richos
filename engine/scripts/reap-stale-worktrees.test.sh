@@ -301,10 +301,12 @@ DIR="$(make_world unknown-owner)"
 # repository would be report-only and this case would pass for the wrong
 # reason — a stranger's tree skipped by gate 0 rather than by gate 2.
 add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
-add_handrolled "$DIR/other" "$DIR/other-wt" nobody-owns-this
+# The tree is TEAMMATE-SHAPED (<role>-<model>-<identifier>) and nothing
+# records it: that is a hole in the record, and the case that must FAIL.
+add_handrolled "$DIR/other" "$DIR/other-wt" nobody-opus-x9
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
-if [ "$RC" -eq 3 ] && [ -d "$DIR/other-wt/nobody-owns-this" ] \
-   && printf '%s' "$OUT" | grep -q '^SKIP nobody-owns-this owner-unresolved' \
+if [ "$RC" -eq 3 ] && [ -d "$DIR/other-wt/nobody-opus-x9" ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP nobody-opus-x9 owner-unresolved' \
    && printf '%s' "$OUT" | grep -q '^=== verdict: FAIL — unresolved=1 '; then
     ok "hand-rolled worktree with an unresolvable owner survives (owner-unresolved), and the run is a FAIL (exit 3)"
 else
@@ -654,6 +656,52 @@ if [ -f "$DIR/wt-ledger.jsonl" ] || [ -f "$SANDBOX/witness/wt-ledger.jsonl" ]; t
     ok "witnessed terminations are written to the ledger the run was pointed at"
 else
     bad "ledger redirection"
+fi
+
+# 22. OPERATOR WORKTREES ARE NOT A FAILURE OF THE RECORD. A hand-rolled tree
+#     whose name is neither teammate-shaped nor a spawned name (a CI checkout,
+#     another tool's worktree — /private/tmp/ci-base and a Codex worktree in
+#     richos, measured) is inventoried, never mutated, and never a verdict.
+DIR="$(make_world operator)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" ci-base
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/ci-base" ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP ci-base operator-worktree(' \
+   && printf '%s' "$OUT" | grep -q 'unresolved=0 indeterminate=0 operator=1' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN'; then
+    ok "a non-teammate worktree is SKIP operator-worktree, counted apart, kept, and the run is CLEAN"
+else
+    bad "operator worktree (rc=$RC): $(printf '%s' "$OUT" | grep -E 'ci-base|^=== (verdict|coverage)' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 22b. NEGATIVE: the SAME unshaped name, once it is a name this machine
+#      recorded spawning, is a teammate's tree with no record -> unresolved, FAIL.
+DIR="$(make_world operator-neg)"
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" ci-base
+spawned_names "$DIR" live-owner done-owner ci-base
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q '^SKIP ci-base owner-unresolved('; then
+    ok "the same unshaped name, once recorded as spawned, is a teammate's unresolved tree and FAILS the run"
+else
+    bad "operator negative (rc=$RC): $(printf '%s' "$OUT" | grep -E 'ci-base' | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# 23. A REGISTRATION BY PATH BEATS THE NAME RULE. A tree with an unshaped name
+#     registered by exact path (what create-teammate-worktree.sh writes) to a
+#     session that has ended is reaped — no name convention needed.
+DIR="$(make_world path-reg)"
+add_handrolled "$DIR/other" "$DIR/other-wt" feature-topic
+ledger_record "$DIR" registered --teammate mark-opus-p9 --agent-id p9 --session-id sess-old \
+    --session-pid "$DEAD_PID" --pid-start "$DEAD_START" --repo "$DIR/other" \
+    --worktree "$DIR/other-wt/feature-topic" --branch feature-topic --class hand-rolled
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/feature-topic" ] \
+   && printf '%s' "$OUT" | grep -q '(owner feature-topic terminated — its host session pid'; then
+    ok "a path-registered tree with an unshaped name is judged by its registration and reaped"
+else
+    bad "path registration (rc=$RC): $(printf '%s' "$OUT" | grep -E 'feature-topic' | tr '\n' ' ' | cut -c1-300)"
 fi
 
 echo ""
