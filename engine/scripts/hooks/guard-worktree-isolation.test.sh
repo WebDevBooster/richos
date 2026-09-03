@@ -656,8 +656,17 @@ print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbee
 PY
 }
 
-# (l1) cwd = REGISTERED linked worktree, no isolation -> ALLOWED
-run_case "cwd into a REGISTERED cross-repo worktree, no isolation -> allowed" 0 \
+# (l1) cwd = REGISTERED linked worktree, no isolation -> BLOCKED at clause 7f
+# (INVERTED 2026-09-03, CEO specification section 6: until this revision this
+# case certified the cwd-only form as ALLOWED. A cwd-only worker has no
+# platform-owned lifecycle witness — measured: a killed worker's hand-rolled
+# worktree leaked with no exact event delivered — so the form is refused and
+# the prepared tree rides along a native spawn on a cross-repo-worktree: line.)
+run_case "cwd into a REGISTERED cross-repo worktree, no isolation -> BLOCKED (external-only: no platform lifecycle witness)" 2 \
+    "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+run_case_msg "external-only refusal names the witness it lacks and the form to use" 'NO platform-owned lifecycle witness' \
+    "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+run_case_msg "external-only refusal names the cross-repo-worktree line" 'cross-repo-worktree: ' \
     "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
 # (l2) cwd = linked worktree with NO registration -> BLOCKED, naming the helper
 run_case "cwd into an UNREGISTERED linked worktree -> BLOCKED" 2 \
@@ -744,20 +753,15 @@ else
     FAIL=$((FAIL + 1)); printf '  FAIL  Q01  native spawn-intent (rc=%s): %s\n' "$rc" "$(cat "$(intent_file "$TEST_SID" toolu_test_agent)" 2>/dev/null | tr '\n' ' ')"
 fi
 
-# (q2) a cwd spawn into a PREPARED tree writes kind cwd with the exact external member
+# (q2) a cwd-only spawn into a PREPARED tree is REFUSED and writes NO intent
+# (INVERTED 2026-09-03, CEO specification section 6; it used to certify that
+# the spawn wrote kind cwd with the exact external member)
 rm -rf "$TX_SANDBOX/tx"
-printf '%s' "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" | "$HOOK" >/dev/null 2>&1; rc=$?
-if [ "$rc" -eq 0 ] && python3 -c '
-import json, os, sys
-d = json.load(open(sys.argv[1]))
-assert d["kind"] == "cwd" and len(d["externals"]) == 1, d
-e = d["externals"][0]
-assert os.path.realpath(e["path"]) == os.path.realpath(sys.argv[2]) and e["branch"] == "echo-opus-reg1", e
-assert os.path.realpath(e["repo"]) == os.path.realpath(sys.argv[3]), e
-' "$(intent_file "$TEST_SID" toolu_test_cwd)" "$CR/other-wt/echo-opus-reg1" "$CR_REPO" 2>/dev/null; then
-    PASS=$((PASS + 1)); printf '  PASS  Q02  a cwd spawn writes kind cwd with the exact prepared external member (repo, path, branch)\n'
+OUT_Q2="$(printf '%s' "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" | "$HOOK" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && [ ! -f "$(intent_file "$TEST_SID" toolu_test_cwd)" ] && printf '%s' "$OUT_Q2" | grep -q 'external-only spawn refused'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q02  a cwd-only spawn into a prepared tree is REFUSED at clause 7f and writes no spawn-intent (INVERTED: it used to write kind cwd)\n'
 else
-    FAIL=$((FAIL + 1)); printf '  FAIL  Q02  cwd spawn-intent (rc=%s)\n' "$rc"
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q02  cwd-only spawn (rc=%s) intent=%s: %s\n' "$rc" "$([ -f "$(intent_file "$TEST_SID" toolu_test_cwd)" ] && echo written || echo none)" "$(printf '%s' "$OUT_Q2" | tr '\n' ' ' | cut -c1-160)"
 fi
 
 # (q3) cross-repo-worktree: line with isolation -> kind native+external
@@ -790,8 +794,17 @@ run_case "Q08  prepared tree now on a DIFFERENT branch -> BLOCKED" 2 \
 run_case_msg "Q09  the refusal names both branches" "not the branch it was prepared on ('echo-opus-reg1')" \
     "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
 git -C "$CR/other-wt/echo-opus-reg1" checkout -q echo-opus-reg1
-run_case "Q10  ...and back on the prepared branch -> allowed (positive control for Q08)" 0 \
+# INVERTED 2026-09-03 (CEO specification section 6): a cwd-only spawn is never
+# allowed, so the positive control for Q08 is now "the BRANCH refusal is gone
+# and only the external-only refusal remains".
+run_case "Q10  ...and back on the prepared branch -> still BLOCKED, by the external-only rule alone (positive control for Q08)" 2 \
     "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+OUT_Q10="$(printf '%s' "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" | "$HOOK" 2>&1 >/dev/null)"
+if ! printf '%s' "$OUT_Q10" | grep -qF "not the branch it was prepared on" && printf '%s' "$OUT_Q10" | grep -qF 'external-only spawn refused'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q10b ...the branch finding is gone and the external-only refusal is the only one left\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q10b stderr: %s\n' "$(printf '%s' "$OUT_Q10" | tr '\n' ' ' | cut -c1-200)"
+fi
 
 # (q11) SYNCHRONOUS file-writing spawn -> refused; async/unspecified -> allowed
 SYNC_JSON="$(python3 -c '

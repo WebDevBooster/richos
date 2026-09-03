@@ -21,7 +21,7 @@ agent might return. It is forbidden to return."*
 | Step | Hook / script | What it writes | Refuses when |
 |---|---|---|---|
 | prepare an external worktree | `scripts/create-teammate-worktree.sh` | `prepared` (ledger) — repo, exact path, branch, session id | the path is not in `git worktree list`, no session id resolves, or the record does not read back: the tree is **rolled back** |
-| spawn intent | `guard-worktree-isolation.sh` clause 7 (PreToolUse[Agent]) | `intents/<tool_use_id>.json` — the exact member set | an external path has no `prepared` record for this session and teammate, its repo or branch drifted, `run_in_background: false`, or a lifecycle component is missing |
+| spawn intent | `guard-worktree-isolation.sh` clause 7 (PreToolUse[Agent]) | `intents/<tool_use_id>.json` — the exact member set | an external path has no `prepared` record for this session and teammate, its repo or branch drifted, `run_in_background: false`, a lifecycle component is missing, or the spawn is cwd-only (external-only: no platform-owned lifecycle witness — spawn with `isolation: "worktree"` and a `cross-repo-worktree:` line instead; CEO specification 2026-09-03 section 6) |
 | bind | `detect-nonnative-worktree.sh` (PostToolUse[Agent]) | `bound/<agent_id>.json` — intent + agent id | no intent, no agent id (synchronous run), or a rebind: announced loudly, exit 2 |
 | start fact | `record-subagent-start.sh` (SubagentStart) | `starts/<agent_id>.json` — the worker's exact cwd | never; it cannot block and does not pretend to |
 | seal | `worktree-transactions.py try_seal` (called by both writers above and by the barrier) | `<agent_id>.json` with `sealed: true` | the cwd is not `agent-<id>`, not a linked worktree git lists, or not the prepared external path |
