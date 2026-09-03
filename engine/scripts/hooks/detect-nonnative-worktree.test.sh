@@ -103,7 +103,7 @@ add_worktree() {
 json_agent() {
     local subagent="$1" name="$2" isolation="$3" prompt="$4" tuid="${5:-toolu_test_agent}" aid="${6:-$TEST_AID}" tp="${7:-}"
     python3 - "$subagent" "$name" "$isolation" "$prompt" "$tuid" "$aid" "$tp" <<'PY'
-import json, sys
+import json, os, sys
 subagent, name, isolation, prompt, tuid, aid, tp = sys.argv[1:8]
 ti = {"prompt": prompt}
 if subagent:
@@ -113,10 +113,28 @@ if name:
 if isolation:
     ti["isolation"] = isolation
 d = {"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": tuid}
-if aid and aid != "none":
-    d["tool_response"] = "Async agent launched successfully. (internal)\nagentId: %s (internal ID - do not mention)\nThe agent is working in the background." % aid
+# The REAL shape, measured 2026-09-03 from three live spawns: the Agent result
+# is a structured object, not prose. Until this revision every fixture here
+# emitted prose, which is why 56 assertions passed while the binder bound
+# nothing on a real machine. Set RESP_PROSE=1 to exercise the prose fallback.
+if os.environ.get("RESP_ASYNC_NO_ID"):
+    # asynchronous, but the result carries no readable agentId: the binder-defect
+    # shape that every real spawn hit on 2026-09-03 and no fixture reproduced.
+    # Checked FIRST so a caller can request it while still naming an agent id.
+    d["tool_response"] = {"isAsync": True, "status": "async_launched",
+                          "description": "fixture", "prompt": "fixture",
+                          "outputFile": "/dev/null", "canReadOutputFile": True}
+elif aid and aid != "none":
+    if os.environ.get("RESP_PROSE"):
+        d["tool_response"] = "Async agent launched successfully. (internal)\nagentId: %s (internal ID - do not mention)\nThe agent is working in the background." % aid
+    else:
+        d["tool_response"] = {"agentId": aid, "isAsync": True, "status": "async_launched",
+                              "description": "fixture", "prompt": "fixture",
+                              "outputFile": "/dev/null", "canReadOutputFile": True,
+                              "resolvedModel": "claude-fable-5-1"}
 else:
-    d["tool_response"] = "Done. The task completed: nothing to report."
+    d["tool_response"] = {"isAsync": False, "status": "completed",
+                          "description": "fixture", "prompt": "fixture"}
 if tp:
     d["transcript_path"] = tp
 print(json.dumps(d))
@@ -356,7 +374,7 @@ if python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
 assert d["record"] == "bound" and d["agent_id"] == sys.argv[2] and d["tool_use_id"] == "toolu_test_agent"
-assert d["kind"] == "native" and d["bound_source"] == "tool_response", d
+assert d["kind"] == "native" and d["bound_source"] == "tool_response.agentId", d
 ' "$(bound_file "$ROOT" "$TEST_AID")" "$TEST_AID" 2>/dev/null; then
     printf '  PASS  B02  the bound record carries the acknowledged agent id, the tool_use_id and the intent kind\n'; PASS=$((PASS + 1))
 else
@@ -392,8 +410,20 @@ rm -rf "$ROOT"
 ROOT="$(make_sandbox)"
 run_case "B06  intent + no agent id (synchronous return) -> exit 2" 2 "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none)"
-run_case_msg "B07  ...naming the synchronous-run cause" "SYNCHRONOUS run" "$ROOT" \
+# B07 INVERTED 2026-09-03. Old assertion: stderr must say "SYNCHRONOUS run".
+# That message was asserted from a FAILED TEXT MATCH while isAsync sat unread in
+# the payload, and it sent the reader to re-issue a spawn that was already
+# asynchronous. New assertion: an async result with no readable id must name the
+# BINDER as the defect. The synchronous case is covered separately by isAsync
+# false in the fixture builder.
+run_case_msg "B07  ...naming a genuinely synchronous run from isAsync, not from a failed match" "was SYNCHRONOUS (isAsync false)" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none)"
+# B07b, NEW 2026-09-03: asynchronous result with no readable agentId. This is the
+# shape every real spawn produced while the binder parsed prose, and no fixture
+# had ever reproduced it. It must blame the BINDER, never tell the caller to
+# re-issue a spawn that was already asynchronous.
+RESP_ASYNC_NO_ID=1 run_case_msg "B07b ...naming the BINDER when an async result carries no id" "BINDER DEFECT" "$ROOT" \
+    "$(RESP_ASYNC_NO_ID=1 json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent aaaa1111bbbb2222)"
 run_case_msg "B08  ...under the binding-failed banner" "WORKTREE BINDING FAILED" "$ROOT" \
     "$(json_agent 'dev' 'dev-1' 'worktree' 'Do the thing.' toolu_test_agent none)"
 [ ! -e "$(bound_file "$ROOT" "$TEST_AID")" ] && { printf '  PASS  B09  ...and nothing was bound\n'; PASS=$((PASS + 1)); } \

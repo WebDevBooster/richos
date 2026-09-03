@@ -14,9 +14,13 @@ mutation_begin "detect-nonnative-worktree binder" "scripts/hooks/detect-nonnativ
 
 D="scripts/hooks/detect-nonnative-worktree.sh"
 
+# NEEDLE RETARGETED 2026-09-03: the no-id branch stopped opening with a single
+# problem() call when it learned to read is_async, so the old needle no longer
+# applied and this property was silently unproven. The property is unchanged: a
+# run with no readable id must never be bound to an invented one.
 mutant sync-run-fabricates-id "B06" "$D" \
-    'elif not agent_id:{NL}    problem("this file-capable spawn' \
-    'elif not agent_id:{NL}    agent_id = "fabricated00000001"; tx.bind(sid, tuid, agent_id, "fabricated"){NL}    problem("") if False else None{NL}elif False:{NL}    problem("this file-capable spawn' \
+    'elif not agent_id:{NL}    # NEVER infer synchronous from a missing id again.' \
+    'elif not agent_id:{NL}    agent_id = "fabricated00000001"; tx.bind(sid, tuid, agent_id, "fabricated"){NL}elif False:{NL}    # NEVER infer synchronous from a missing id again.' \
     "a synchronous run would be bound to an invented agent id — ownership fabricated for a worker that has already finished."
 
 mutant missing-intent-invented "B10" "$D" \
@@ -29,9 +33,13 @@ mutant library-missing-silent "B14" "$D" \
     '    _UNUSED_NOTICE=("scripts/lib/worktree-transactions.py is MISSING at $_TX_PY' \
     "an engine that cannot bind would report clean spawns; every worker would be refused at its first write with nothing having said why."
 
+# NEEDLE RETARGETED 2026-09-03: the fallback anchor moved from
+# `elif al is not None and tuid:` to `if not agent_id and al is not None and tuid:`
+# when the structured agentId read was put in front of it. The property is
+# unchanged; only the line it hangs on moved.
 mutant transcript-join-dropped "B04" "$D" \
-    'elif al is not None and tuid:{NL}    tp = str(payload.get("transcript_path") or "")' \
-    'elif False:{NL}    tp = str(payload.get("transcript_path") or "")' \
+    'if not agent_id and al is not None and tuid:{NL}    tp = str(payload.get("transcript_path") or "")' \
+    'if False:{NL}    tp = str(payload.get("transcript_path") or "")' \
     "a spawn whose acknowledgement was not in tool_response would never bind, even though the parent transcript carries the exact join."
 
 mutant bind-failure-swallowed "B18" "$D" \
