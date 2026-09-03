@@ -308,6 +308,21 @@ ALL_ROOT_SCRIPTS=(
     # models an engine whose newest Stop hook writes no row.
     scripts/lib/mechanical-findings.sh
     scripts/lib/mechanical-findings.py
+    # The model RESOLVER — which model does this spawn boot on? Carried for the
+    # HARD reason, in its strongest form: guard-worktree-isolation.sh REFUSES TO
+    # START without it, by exiting 2 and naming it, because neither its
+    # truthful-name clause nor its capability-tier clause can be evaluated
+    # without a resolved model. Layer C's canary asserts that guard is present
+    # and hash-matched, and a sandbox missing this file would model an engine in
+    # which EVERY spawn is blocked — every spawn-shaped case in this file would
+    # go red for a reason having nothing to do with what it tests.
+    #
+    # The SOFT half, stated because SC1 cannot see it: guard-model-ceiling.sh
+    # does NOT refuse without it. It announces "the ceiling is off" into a
+    # channel a sandbox has no reader for and allows the spawn, so a sandbox
+    # carrying one consumer and not the other models an engine whose newest
+    # blocking guard is silently unenforced.
+    scripts/lib/resolve-model.sh
     # The model-tier parser. Carried for the DECIDING reason, and SC1 below
     # cannot see it: guard-worktree-isolation.sh does not refuse without it —
     # clause 6 fails OPEN by design, announces the skip into a channel a
@@ -348,6 +363,11 @@ DIALECT_TARGET="en-US"
 # where it belongs: in data, beside the alias set it must equal.
 ALLOWED_MODELS="fable opus sonnet haiku"
 MODEL_TIERS="fable > opus > sonnet > haiku"
+# Declared, so Layer MC exercises the COST ceiling instead of taking its
+# "no ceiling declared" WARN branch. Capability and cost are two different
+# orders, and a sandbox declaring only the first models an engine whose newest
+# blocking guard is standing down.
+MODEL_CEILING="opus"
 CFG
 }
 
@@ -420,6 +440,11 @@ data["hooks"] = {
             # own probe — and every "probe passes" case in this file would go
             # red for a reason that has nothing to do with what it is testing.
             {"type": "command", "command": P + "/guard-ceo-ask-first.sh", "timeout": 20},
+            # LAST, mirroring the shipped chain again. Same argument as the line
+            # above: Layer C compares this chain position by position against
+            # CANONICAL_AGENT_CHAIN, so a sandbox that stopped at five would
+            # model an engine that cannot pass its own probe.
+            {"type": "command", "command": P + "/guard-model-ceiling.sh", "timeout": 10},
         ]},
         {"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
             {"type": "command", "command": P + "/guard-main-checkout-writes.sh", "timeout": 10},
@@ -2301,6 +2326,117 @@ else
     printf '%s\n' "$MT_OUT" | grep -E 'MT\.' | sed 's/^/        /'
 fi
 rm -rf "$ROOT"
+
+# ---------------------------------------------------------------------------
+# LAYER MC — THE COST CEILING IS DATA, THE PROSE IS HELD TO IT, AND THE GUARD
+#            THAT READS IT IS PROVEN ALIVE
+# ---------------------------------------------------------------------------
+# Layer MT's cases are the ways the CAPABILITY order could go wrong. These are
+# the ways the SPEND order could, and one of them is a state MT has no analogue
+# for: MC1, where the ceiling is simply NOT DECLARED. That is a WARN and not a
+# failure on purpose — an adopter who has not chosen a ceiling is unconfigured,
+# not broken, and failing the probe over it would make the first thing every
+# adopter does be switching a layer off. The guard is loud about it per spawn,
+# which is where that belongs.
+#
+# MC4 is the case this group exists for. Everything else here reads a config
+# file; MC4 breaks the SHIPPED GUARD, re-mints its sidecar so the hash check
+# cannot mask the result, and requires the layer to notice. Without it, a dead
+# ceiling guard and a working one look identical to this suite — which is the
+# exact false green this engine has shipped twice.
+
+# MC1 — the ceiling is not declared: WARN, never a failure, and it says so.
+ROOT="$(make_sandbox)"
+sed -i '' '/^MODEL_CEILING=/d' "$ROOT/orchestration.config"
+set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MC1.no-ceiling-declared-warns-and-does-not-fail" 0 "$rc"
+if printf '%s' "$MC_OUT" | grep -q 'MC\. no MODEL_CEILING declared'; then
+    emit_case "MC1b.the-warning-names-the-missing-declaration" 0 0
+else
+    emit_case "MC1b.the-warning-names-the-missing-declaration" 0 1
+fi
+rm -rf "$ROOT"
+
+# MC2 — a ceiling MODEL_TIERS ranks nowhere. It is not a ceiling, and it looks
+# exactly like one.
+ROOT="$(make_sandbox)"
+sed -i '' 's/^MODEL_CEILING=.*/MODEL_CEILING="mythic"/' "$ROOT/orchestration.config"
+set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MC2.unrankable-ceiling-fails" 2 "$rc"
+if printf '%s' "$MC_OUT" | grep -q 'MC\. MODEL_CEILING="mythic" is declared .* ranks it NOWHERE'; then
+    emit_case "MC2b.the-refusal-names-the-unrankable-ceiling" 0 0
+else
+    emit_case "MC2b.the-refusal-names-the-unrankable-ceiling" 0 1
+fi
+rm -rf "$ROOT"
+
+# MC3 — the doctrine file quotes a DIFFERENT ceiling than the declaration.
+ROOT="$(make_sandbox)"
+printf '**Models:** the cost ceiling is `MODEL_CEILING="haiku"` and the tier above it is for one-offs.\n' >"$ROOT/CLAUDE.md"
+set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+emit_case "MC3.doctrine-quotes-a-different-ceiling-fails" 2 "$rc"
+if printf '%s' "$MC_OUT" | grep -q 'MC\. .*CLAUDE.md quotes MODEL_CEILING="haiku" but orchestration.config declares MODEL_CEILING="opus"'; then
+    emit_case "MC3b.the-refusal-names-both-ceilings" 0 0
+else
+    emit_case "MC3b.the-refusal-names-both-ceilings" 0 1
+fi
+rm -rf "$ROOT"
+
+# MC4 — THE DEAD-GUARD CASE. The comparison is removed from the shipped guard
+# and its sidecar re-minted, so the hash check passes and the ONLY thing left
+# that can notice is the canary. A layer that reads config and never runs the
+# guard passes MC1-MC3 and fails here.
+ROOT="$(make_sandbox)"
+MC_G="$ROOT/scripts/hooks/guard-model-ceiling.sh"
+python3 - "$MC_G" <<'MCPY'
+import sys
+p = sys.argv[1]
+src = open(p, encoding="utf-8").read()
+old = '[ "$RESOLVED_RANK" -lt "$CEILING_RANK" ] || exit 0'
+if old not in src:
+    sys.stderr.write("MC4 FIXTURE STALE: the comparison line has moved\n")
+    sys.exit(3)
+open(p, "w", encoding="utf-8").write(src.replace(old, "exit 0", 1))
+MCPY
+MC4_MUTATED=$?
+shasum -a 256 "$MC_G" | awk '{print $1}' > "$MC_G.sha256"
+set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if [ "$MC4_MUTATED" -ne 0 ]; then
+    # The fixture could not be applied, so the case below would pass or fail for
+    # a reason that has nothing to do with the layer. Say so, loudly.
+    emit_case "MC4.dead-ceiling-guard-is-caught" 0 1
+    emit_case "MC4b.the-refusal-says-the-guard-did-not-refuse" 0 1
+else
+    emit_case "MC4.dead-ceiling-guard-is-caught" 2 "$rc"
+    if printf '%s' "$MC_OUT" | grep -q 'MC\. the guard did NOT refuse a spawn one tier ABOVE'; then
+        emit_case "MC4b.the-refusal-says-the-guard-did-not-refuse" 0 0
+    else
+        emit_case "MC4b.the-refusal-says-the-guard-did-not-refuse" 0 1
+    fi
+fi
+rm -rf "$ROOT"
+
+# MC5 — CONTROL: declaration + guard + a doctrine file that quotes it -> the
+# layer passes. Without it, MC2-MC4 could be a layer that fails on everything.
+ROOT="$(make_sandbox)"
+printf '**Models:** the cost ceiling is `MODEL_CEILING="opus"`; the tier above it is for super-critical one-offs.\n' >"$ROOT/CLAUDE.md"
+set +e; MC_OUT="$(run_probe_in "$ROOT" 2>&1)"; rc=$?; set -e
+if printf '%s' "$MC_OUT" | grep -q 'MC\. cost ceiling declared as data'; then
+    emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 0
+else
+    emit_case "MC5.control-declared-and-quoted-passes-the-layer" 0 1
+    printf '%s\n' "$MC_OUT" | grep -E 'MC\.' | sed 's/^/        /'
+fi
+rm -rf "$ROOT"
+
+# MC6 — the ceiling guard's own suite and its mutation harness, registered here
+# for the reason WTR1 and WTI1 are: run-all-tests.sh discovers *.test.sh from
+# disk, so the behavioral suite IS run, but a *.mutation.sh is invisible to that
+# discovery. Every property of this guard is of the shape "it allowed the spawn
+# and said nothing", which a hook that never ran also satisfies — so the mutants
+# are the only thing standing between this guard and a permanent false green.
+set +e; "$SCRIPT_DIR/guard-model-ceiling.mutation.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "MC6.model-ceiling-mutations-all-load-bearing" 0 "$rc"
 
 # WTI1 — the spawn guard's CLAUSE 5 (staffing) mutation harness, registered for
 # the reason WTR1 is: run-all-tests.sh discovers every *.test.sh from disk, so

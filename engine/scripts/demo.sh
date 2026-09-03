@@ -229,6 +229,14 @@ DEMO_FILES+=(
     # this sample repo has no reader for. Layer MT fails loudly when it is
     # absent, which is how a sample engine missing it stops passing Beat 7.
     "scripts/lib/model-tiers.sh"
+    # The model resolver — which model does this spawn boot on? On this list for
+    # the HARD reason and the strongest version of it: guard-worktree-
+    # isolation.sh REFUSES TO START without it (its truthful-name and
+    # capability-tier clauses have nothing to judge), so Beat 1 and Beat 3 would
+    # both fail in a sample repo missing it. guard-model-ceiling.sh needs it too
+    # and fails SOFT — it announces that the ceiling is off, into a channel this
+    # sample repo has no reader for.
+    "scripts/lib/resolve-model.sh"
     # ---- The four predicate pairs, every one of which was MISSING here. ----
     #
     # Six registered guards — the CEO-TODOs guard, the row-currency guard, the
@@ -413,6 +421,12 @@ DIALECT_EXEMPT_PATHS=""
 # ALLOWED_MODELS, and a doctrine file that quotes a different order.
 ALLOWED_MODELS="fable opus sonnet haiku"
 MODEL_TIERS="fable > opus > sonnet > haiku"
+# The COST ceiling, which is a DIFFERENT order from the capability one above:
+# the top tier is the most capable alias and also roughly twice the price. Beat
+# 7's Layer MC warns on a blank declaration and runs its three-sided canary on a
+# declared one — a sample repo with no ceiling would demonstrate an engine whose
+# newest blocking guard announces that it is enforcing nothing.
+MODEL_CEILING="opus"
 CFG
 
 # ---------------------------------------------------------------------------

@@ -316,68 +316,38 @@ model_in_allowed_set() {
   return 1
 }
 
-# resolve_expected_model <override> <subagent_type> — echo the model this spawn
-# is EXPECTED to boot on, or "" (empty) if undeterminable. Precedence: an
-# explicit override (arg 1) wins; else the model: line in the YAML frontmatter
-# of the LIVE agent definition .claude/agents/<subagent>.md (arg 2, FIRST
-# frontmatter block only). LIVE agents ONLY — a non-live template under
-# .claude/agents/templates/ is never a spawnable subagent_type, so the plain
-# .claude/agents/<subagent>.md path can never reach templates/. A "inherit"
-# override, a missing/non-live definition, or a def with no frontmatter model
-# line all yield "" (undeterminable). Always returns 0.
-resolve_expected_model() {
-  local override="$1" subagent="$2" lo m def
-  if [ -n "$override" ]; then
-    lo="$(printf '%s' "$override" | tr '[:upper:]' '[:lower:]')"
-    [ "$lo" = "inherit" ] && { printf ''; return 0; }
-    # Normalize a verbose id (e.g. "claude-opus-4-8") down to its alias.
-    for m in $ALLOWED_MODELS; do
-      case "$lo" in *"$m"*) printf '%s' "$m"; return 0;; esac
-    done
-    printf '%s' "$lo"   # unknown override: emit as-is (will mismatch -> block)
-    return 0
-  fi
-  # Resolve the LIVE definition through the shared resolver, which strips a
-  # plugin namespace (`richos-engine:clark` -> `clark`) and searches the
-  # entity roster, then the engine's own, then AGENT_NAMESPACE_ROOTS.
-  #
-  # WHAT THIS FIXES: this lookup used to be a bare
-  # "$REPO_ROOT/.claude/agents/${subagent}.md" stat. A plugin-supplied type
-  # carries a namespace, so that path could NEVER exist, the function returned
-  # "undeterminable", and clause 2b — the model-truthfulness check — silently
-  # stopped checking. A guard clause that stops guarding without saying so is
-  # exactly the failure class this contract exists to remove.
-  #
-  # rc 2 means the type is NAMESPACED and its definition could not be found
-  # anywhere. That is NOT the same as "this type legitimately has no
-  # definition" (host built-ins), so it is not laundered into "undeterminable":
-  # it is reported as UNRESOLVABLE and the caller blocks.
-  def="$(resolve_agent_def "$ENTITY_ROOT" "$ENGINE_ROOT" "$subagent")"
-  case $? in
-    0) ;;
-    2) printf 'UNRESOLVABLE'; return 0 ;;
-    *) printf ''; return 0 ;;
-  esac
-  [ -n "$def" ] || { printf ''; return 0; }
-  python3 - "$def" 2>/dev/null <<'PY' || true
-import sys
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        lines = f.read().split("\n")
-except Exception:
-    sys.exit(0)
-# frontmatter = the block between the FIRST '---' and the next '---' only.
-if not lines or lines[0].strip() != "---":
-    sys.exit(0)
-for ln in lines[1:]:
-    if ln.strip() == "---":
-        break
-    s = ln.strip()
-    if s.lower().startswith("model:"):
-        print(s.split(":", 1)[1].strip().strip('"').strip("'").lower())
-        break
-PY
-}
+# THE MODEL RESOLVER — SOURCED, NOT CARRIED. resolve_expected_model() lived
+# inline here until 2026-09-03, when guard-model-ceiling.sh became the SECOND
+# consumer of the same fact ("which model does this spawn actually boot on?").
+# Two copies of that answer is the defect this engine keeps re-discovering —
+# the capability order guessed from prose, the root resolution hand-copied into
+# ~35 hooks, the git jurisdiction copied five times and wrong in four. So the
+# function moved to scripts/lib/resolve-model.sh byte-for-byte, and both guards
+# now read one answer. It still uses ALLOWED_MODELS / ENTITY_ROOT / ENGINE_ROOT
+# from this scope, and resolve_agent_def from the bootstrap above.
+#
+# FAIL-CLOSED, matching this guard's contract and NOT the ceiling guard's:
+# clause 2b (is the name's <model> token truthful?) and clause 6 (is this a move
+# down the capability order?) cannot be evaluated at all without it, and this
+# guard already refuses rather than waves through when a model cannot be
+# resolved. guard-model-ceiling.sh makes the opposite choice on the same missing
+# file, on purpose, and says why in its own header.
+_RM_LIB="$SCRIPT_DIR/../lib/resolve-model.sh"
+if [ ! -f "$_RM_LIB" ]; then
+    {
+        echo "=== RICHOS ENGINE: BROKEN INSTALL — ENFORCEMENT IS NOT ACTIVE ==="
+        echo "  hook: scripts/hooks/guard-worktree-isolation.sh"
+        echo "  scripts/lib/resolve-model.sh is missing at: $_RM_LIB"
+        echo "  Without it this guard cannot tell WHICH MODEL a spawn boots on,"
+        echo "  so neither the truthful-name clause nor the capability-tier"
+        echo "  clause can be evaluated. It will not guess, and it will not"
+        echo "  carry on quietly — a defense that reports 'on' while protecting"
+        echo "  nothing is worse than none."
+    } >&2
+    exit 2
+fi
+# shellcheck source=../lib/resolve-model.sh
+. "$_RM_LIB"
 
 # Parse subagent_type / isolation / name / prompt (with embedded newlines
 # preserved via a \001 placeholder so the "main-checkout-run:" marker can be
