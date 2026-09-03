@@ -12,6 +12,52 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Teammate worktrees are bound to the platform agent id at spawn and
+  terminalized at the first terminal event; no sweep decides liveness any
+  more** (`scripts/lib/worktree-transactions.py`,
+  `scripts/hooks/guard-sealed-worktree.sh`, `record-subagent-start.sh`,
+  `terminalize-agent-worktrees.sh`, `scripts/reconcile-terminal-worktrees.py`,
+  and the rewritten `create-teammate-worktree.sh`,
+  `guard-worktree-isolation.sh` clause 7, `detect-nonnative-worktree.sh`
+  binder, `guard-resume-isolation.sh` terminal refusal,
+  `session-start-reap-worktrees.sh`; `docs/worktree-lifecycle-transactions.md`)
+  — MINOR, implementing femcboost `docs/plans/worktree-real-fix-2026-09-03.md`.
+
+  Seven designs were rejected before this one, nine rounds failed in nine
+  shapes, and the CEO ruled: *"The system should stop trying to discover
+  whether the agent might return. It is forbidden to return."* So ownership is
+  recorded at the one moment it is certain — the spawn — keyed by the
+  platform's own `session_id`, `tool_use_id` and `agent_id`: a `prepared`
+  record when `create-teammate-worktree.sh` creates a cross-repository tree
+  (verified against git, fsynced, rolled back with the tree if it cannot be
+  written); a `spawn-intent` written by the isolation guard with the EXACT
+  member set before the Agent call may run; a `bound` record when the lead's
+  PostToolUse joins the acknowledged agent id to that intent (or the parent
+  transcript's exact call/result join, shared with every other consumer);
+  a start fact from the worker's own SubagentStart; and a `sealed` manifest
+  when both agree, in either order. Until sealed, a matcherless PreToolUse
+  barrier refuses every potentially writing tool (Bash, Agent, editors,
+  unknown and MCP tools) and permits only a read-only allowlist. The FIRST
+  SubagentStop or WorktreeRemove claims the transaction by compare-and-set
+  (exactly one wins; the loser resumes idempotently), writes a backup ref
+  `refs/richos/handoffs/<session>/<agent>/<branch>` in each repository BEFORE
+  anything moves, quarantines every member by atomic rename beside its path,
+  and re-points git at the quarantine so a prune cannot orphan it. A
+  persistent launchd job (installed by `install.sh`) then kills residual
+  writers, requires two identical manifests across a settle, archives raw
+  bytes plus index blobs plus provenance, verifies every digest, unregisters
+  and removes — each transition persisted so a crash at any boundary is
+  recovered from disk; SessionStart runs the same reconciler as crash
+  recovery with a budget. A terminal agent is refused every `SendMessage`
+  with no escape hatch. TeammateIdle and TaskCompleted hold no destructive
+  authority (the agent-finish reaper is gone); the session-start reaper is a
+  DRY-RUN inventory. Ownership in the ledger is exact-path only: names,
+  branches and transcript joins are reported and never authorize a removal.
+  Every piece is registered on both surfaces and the probe's managed set,
+  and every suite runs a mutation harness that turns a named case red per
+  property: 51 + 37 + 20 + 32 + 162 + 58 + 12 + 35 + 27 + 58 + 26 + 15 + 10
+  cases, 85 mutants.
+
 - **A turn whose report does not match its actions is refused**
   (`scripts/hooks/guard-stated-actions.sh` + `.py`, `stated-actions.corpus.md`,
   `guard-stated-actions.test.sh`, `stated-actions.mutation.sh`) — MINOR.
