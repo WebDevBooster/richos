@@ -155,6 +155,30 @@ run "$(payload Write "$TERM_AID")"
 run "$(payload Read "$TERM_AID")"
 [ "$RC" -eq 2 ] && ok "G16  a TERMINAL agent's Read is refused too (nothing to read from; forbidden to return)" || bad "G16  terminal read rc=$RC"
 
+# G26 a TERMINAL agent of a READ-ONLY TYPE is refused BEFORE the type
+# exemption (landed review 2026-09-03, blocker 5). Until this revision
+# READONLY_ALLOWLIST / HARNESS_UTILITY_TYPES returned EXEMPT before
+# is_terminal_agent() ran, so a terminal Explore passed the barrier for Read,
+# Bash and any unknown tool, and terminal finality depended on
+# guard-resume-isolation.sh having run first. The Explore agent here is
+# terminal by a pending terminal event (start-only, then its SubagentStop).
+TERM_EXP="a00000000000tex1"
+T start --session-id "$SID" --agent-id "$TERM_EXP" --cwd "$ENTITY" --agent-type Explore >/dev/null
+T claim --session-id "$SID" --agent-id "$TERM_EXP" --ingress SubagentStop >/dev/null 2>&1
+T terminal-agent --agent-id "$TERM_EXP" >/dev/null 2>&1 || bad "G26-setup  the Explore agent did not become terminal"
+for tool in Read Bash mcp__unknown__thing; do
+    run "$(payload "$tool" "$TERM_EXP" Explore)"
+    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)'; then
+        ok "G26  a TERMINAL Explore worker: $tool -> REFUSED as terminal (the terminal check runs BEFORE the type exemption)"
+    else
+        bad "G26  terminal Explore $tool rc=$RC: ${OUT:0:120}"
+    fi
+done
+run "$(payload Bash "$TERM_EXP" "richos-engine:Explore")"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)' && ok "G27  ...and the plugin-namespaced terminal Explore is refused the same way" || bad "G27  namespaced terminal Explore rc=$RC"
+run "$(payload Bash "a00000000000exp3" Explore)"
+[ "$RC" -eq 0 ] && ok "G28  a NON-terminal Explore worker is still exempt for Bash (negative control for G26)" || bad "G28  live Explore rc=$RC: ${OUT:0:120}"
+
 # G17 FAIL CLOSED on the guard's own error (review 2026-09-03, blocker 3).
 # Until this revision G17, G18 and G21 asserted the OPPOSITE — that a missing
 # python3, a missing transaction library and an unparseable payload each let

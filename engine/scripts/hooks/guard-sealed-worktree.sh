@@ -33,18 +33,20 @@
 # for it. Measured on this machine 2026-09-02: PreToolUse inside a teammate
 # carries the same agent id the native worktree is named for.
 #
-# READ-ONLY AGENT TYPES (orchestration.config READONLY_ALLOWLIST and
-# HARNESS_UTILITY_TYPES) are exempt from the worktree contract entirely — they
-# own no worktree, so there is nothing to seal — and this guard stands down
-# for them by agent_type. Their writes, if any, are still subject to every
-# tool-specific guard that follows.
+# A TERMINAL agent (its transaction claimed by a terminal ingress, or its
+# terminal event recorded pending) is refused EVERY tool, sealed or not,
+# read-only or not, whatever its declared agent_type: it is forbidden to
+# return, and a resumed turn that slipped past guard-resume-isolation.sh must
+# find nothing it can use. Terminal is decided FIRST, before the type
+# exemption below (landed review 2026-09-03, blocker 5), and is read from the
+# transaction itself when the index is absent, and from the sealed
+# transaction after a seal.
 #
-# A TERMINAL agent (its transaction claimed by SubagentStop or WorktreeRemove,
-# or its terminal event recorded pending) is refused every potentially
-# writing tool, sealed or not: it is forbidden to return, and a resumed turn
-# that slipped past guard-resume-isolation.sh must find nothing it can write
-# with. Terminal is read from the transaction itself when the index is
-# absent (blocker 5), and from the sealed transaction after a seal.
+# READ-ONLY AGENT TYPES (orchestration.config READONLY_ALLOWLIST and
+# HARNESS_UTILITY_TYPES) are otherwise exempt from the worktree contract —
+# they own no worktree, so there is nothing to seal — and this guard stands
+# down for a NON-terminal one by agent_type. Their writes, if any, are still
+# subject to every tool-specific guard that follows.
 #
 # ===========================================================================
 # FAIL CLOSED — ON AN UNSEALED MANIFEST AND ON ITS OWN ERROR ALIKE
@@ -241,28 +243,37 @@ tool = str(d.get("tool_name") or "")
 if not sid:
     out("ERROR", "payload carries an agent_id but no session_id")
 
-# A plugin-namespaced type ("richos-engine:clark") is the same type.
-bare = atype.split(":", 1)[1] if ":" in atype else atype
-exempt = set((os.environ.get("READONLY_ALLOWLIST") or "").split()) | set((os.environ.get("HARNESS_UTILITY_TYPES") or "").split())
-if bare and bare in exempt:
-    out("EXEMPT", "agent_type %s owns no worktree" % atype)
-
 try:
     spec = importlib.util.spec_from_file_location("tx", os.environ["TX_PY"])
     tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
 except Exception as e:
     out("ERROR", "the transaction library could not be loaded: %s" % e)
 
+# TERMINAL IS DECIDED FIRST, BEFORE THE AGENT-TYPE EXEMPTION (landed review
+# 2026-09-03, blocker 5). Until this revision a read-only or harness-utility
+# type was returned EXEMPT above this check, so a terminal Explore agent
+# passed the barrier for Read, Bash and any unknown tool, and terminal
+# finality depended on guard-resume-isolation.sh having run first and
+# resolved the recipient. A terminal agent is refused every tool whatever
+# its declared type: a type exemption says the agent owns no worktree, which
+# is not the same as saying it may return.
+#
 # Terminal by the index OR by the transaction itself: a crash between the
-# terminal write of the transaction and the index write (blocker 5) must
-# still read as terminal here, and the exact (session, agent) lookup repairs
-# the index on the way. (No apostrophes in these comments: they sit inside
-# a command substitution, and bash pairs quotes across a heredoc there.)
+# terminal write of the transaction and the index write must still read as
+# terminal here, and the exact (session, agent) lookup repairs the index on
+# the way. (No apostrophes in these comments: they sit inside a command
+# substitution, and bash pairs quotes across a heredoc there.)
 try:
     if tx.is_terminal_agent(aid, sid):
         out("TERMINAL", "agent %s is terminal: its worktrees are quarantined or removed and it is forbidden to return" % aid)
 except Exception as e:
     out("ERROR", "terminal state unreadable: %s" % e)
+
+# A plugin-namespaced type ("richos-engine:clark") is the same type.
+bare = atype.split(":", 1)[1] if ":" in atype else atype
+exempt = set((os.environ.get("READONLY_ALLOWLIST") or "").split()) | set((os.environ.get("HARNESS_UTILITY_TYPES") or "").split())
+if bare and bare in exempt:
+    out("EXEMPT", "agent_type %s owns no worktree" % atype)
 
 readonly_tools = set((os.environ.get("SEAL_READONLY_TOOLS") or "").split())
 deadline = time.time() + float(os.environ.get("SEAL_WAIT_SECONDS") or "0")
