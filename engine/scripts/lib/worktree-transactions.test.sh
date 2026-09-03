@@ -378,6 +378,40 @@ py "tx.terminalize('$SID', 'aaaaaa000015', '$NAT15')"
 STATES="$(T members --session-id "$SID" --agent-id aaaaaa000015 | cut -f5 | tr '\n' ' ')"
 [ "$STATES" = "quarantined quarantined " ] && [ ! -d "$EXT6" ] && ok "T52  ...and the next run, with the repository responsive again, finishes the external member" || bad "T52  states=[$STATES]"
 
+# --- 9c. A FAILED `git worktree repair` DOES NOT ADVANCE THE MEMBER --------------
+# (review 2026-09-03, blocker 6). The repair's return code was ignored and the
+# member marked `quarantined` regardless; a prune then deleted the admin
+# directory the quarantine's .git file points at. Now the member advances only
+# when git lists the quarantine as the exact registered, non-prunable path.
+add_native "$ENTITY" aaaaaa000016
+intent "$SID" tu-16 '{"kind":"native","teammate":"dev-opus-c16","externals":[]}'
+T bind --session-id "$SID" --tool-use-id tu-16 --agent-id aaaaaa000016 >/dev/null
+T start --session-id "$SID" --agent-id aaaaaa000016 --cwd "$ENTITY/.claude/worktrees/agent-aaaaaa000016" >/dev/null
+T seal --session-id "$SID" --agent-id aaaaaa000016 >/dev/null
+NAT16="$ENTITY/.claude/worktrees/agent-aaaaaa000016"; Q16="$NAT16.richos-terminal-11111111-aaaaaa000016"
+NOREPAIR="$SANDBOX/norepairbin"; mkdir -p "$NOREPAIR"
+cat >"$NOREPAIR/git" <<SH
+#!/usr/bin/env bash
+if [ "\$3" = "worktree" ] && [ "\$4" = "repair" ]; then echo "fatal: simulated repair failure" >&2; exit 128; fi
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$NOREPAIR/git"
+PATH="$NOREPAIR:$PATH" py "tx.claim_terminal('$SID', 'aaaaaa000016', 'SubagentStop'); tx.terminalize('$SID', 'aaaaaa000016')"
+STATE="$(T members --session-id "$SID" --agent-id aaaaaa000016 | cut -f5)"
+ERR="$(T show --session-id "$SID" --agent-id aaaaaa000016 | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m.get("attempts"), m.get("last_error",""))')"
+if [ "$STATE" = "ref_saved" ] && [ ! -d "$NAT16" ] && [ -d "$Q16" ] && printf '%s' "$ERR" | grep -q '^1 quarantine not advanced: git worktree repair'; then
+    ok "T53  a failed \`git worktree repair\` leaves the member at ref_saved with the directory preserved, the failure recorded, retryable"
+else
+    bad "T53  state=$STATE err=[$ERR] orig=$([ -d "$NAT16" ] && echo present || echo gone) quar=$([ -d "$Q16" ] && echo present || echo absent)"
+fi
+py "tx.terminalize('$SID', 'aaaaaa000016')"
+STATE="$(T members --session-id "$SID" --agent-id aaaaaa000016 | cut -f5)"
+if [ "$STATE" = "quarantined" ] && git -C "$ENTITY" worktree list --porcelain | grep -qx "worktree $Q16"; then
+    ok "T54  ...and the retry, with git working, repairs the registration and advances to quarantined"
+else
+    bad "T54  state=$STATE registered=$(git -C "$ENTITY" worktree list --porcelain | grep -c "$Q16")"
+fi
+
 # --- 10. reused teammate + branch names in a LATER session match nothing ------------
 SID2="22222222-0000-4000-8000-000000000002"
 EXT5="$SANDBOX/other-wt/echo-opus-e2-again"

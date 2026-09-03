@@ -292,6 +292,21 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **A failed `git worktree repair` was recorded as a successful quarantine**
+  (`scripts/lib/worktree-transactions.py` `quarantine`;
+  `scripts/reconcile-terminal-worktrees.py` no-progress reporting;
+  `worktree-transactions.test.sh` T53–T54, mutant `repair-result-ignored`) —
+  PATCH, review 2026-09-03 blocker 6. The repair's return code, stdout and
+  stderr were ignored and the member advanced to `quarantined` regardless;
+  the main repository could still point at the vanished original, and the
+  next prune deleted the admin directory the quarantine's `.git` file points
+  at — the index the reconciler claims to preserve. The member now advances
+  only when the repair exits 0 AND git lists the quarantine as the exact
+  registered, non-prunable path; otherwise it stays `ref_saved` with the
+  quarantine recorded, the directory preserved, `attempts`/`last_error`
+  written on the member, and the step retried by the next run (reported
+  once after the soft-attempt ceiling, like any other retryable failure).
+
 - **Native evidence could be deleted before quarantine: the terminal ingress
   saved every repository's backup ref before renaming anything**
   (`scripts/lib/worktree-transactions.py` `terminalize`;

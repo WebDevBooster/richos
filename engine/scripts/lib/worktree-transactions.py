@@ -665,7 +665,27 @@ def quarantine(session_id, agent_id, index):
     # quarantine (measured: rc 0, "repair: gitdir incorrect" is its normal
     # output), so the registration is valid again and the branch stays
     # checked out here — which also makes the harness's `branch -D` refuse.
-    _git(m["repo"], "worktree", "repair", quar)
+    #
+    # THE RESULT IS CHECKED, AND THE POSTCONDITION IS VERIFIED (review
+    # 2026-09-03, blocker 6). A repair whose return code was ignored recorded
+    # `quarantined` over a registration that still named the vanished
+    # original; the next prune deleted the admin directory the quarantine's
+    # `.git` file points at, and the reconciler lost the index it claimed to
+    # preserve. The member advances only when git lists the quarantine as the
+    # exact registered path and not prunable. Otherwise it stays `ref_saved`
+    # with the quarantine recorded, the directory preserved, the failure
+    # written on the member, and the step retried by the next run — the
+    # same call is idempotent on the "only the quarantine exists" branch.
+    rc, out, err = _git(m["repo"], "worktree", "repair", quar)
+    reg = registered_worktrees(m["repo"])
+    entry = (reg or {}).get(norm_path(quar))
+    if rc != 0 or entry is None or entry.get("prunable"):
+        why = ("git worktree repair %s exited %d: %s" % (quar, rc, (err or out).strip()[:200]) if rc != 0
+               else "git does not list %s as a registered worktree of %s after repair" % (quar, m["repo"]) if entry is None
+               else "git lists %s as PRUNABLE after repair" % quar)
+        return update_member(session_id, agent_id, index, quarantine=quar,
+                             attempts=int(m.get("attempts") or 0) + 1,
+                             last_error="quarantine not advanced: " + why, last_attempt=now_iso())
     return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar)
 
 

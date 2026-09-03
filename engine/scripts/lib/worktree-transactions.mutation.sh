@@ -104,6 +104,11 @@ mutant refs-before-any-rename "T51" "$F" \
     '        for i in order:{NL}            save_ref(session_id, agent_id, i){NL}        for i in order:{NL}            quarantine(session_id, agent_id, i)' \
     "every repository's ref would be saved before the first rename; a stalled external repository would exhaust the hook budget with the native path still at its original name, and the harness would delete it with its uncommitted bytes (review 2026-09-03, blocker 1)."
 
+mutant repair-result-ignored "T53" "$F" \
+    '    if rc != 0 or entry is None or entry.get("prunable"):' \
+    '    if False:' \
+    "a failed worktree repair would be recorded as a successful quarantine; the next prune deletes the admin directory the quarantine points at and the reconciler loses the index it claims to preserve (review 2026-09-03, blocker 6)."
+
 mutant ref-not-saved "T33" "$F" \
     '    rc, _, err = _git(m["repo"], "update-ref", ref, head)' \
     '    rc, _, err = 0, "", ""' \

@@ -531,7 +531,18 @@ def reconcile_transaction(t, deadline=None):
                     break
                 t = t2 if isinstance(t2, dict) else tx.load_tx(sid, aid)
                 if t["members"][i].get("state") == st:
-                    break  # no progress and no error: leave it for the next run
+                    # No progress and no exception: the step declined to
+                    # advance (a `git worktree repair` whose postcondition did
+                    # not hold, blocker 6) and wrote why on the member. It is
+                    # retried by the next run; after MAX attempts it is
+                    # reported once, like any other soft failure.
+                    m2 = t["members"][i]
+                    if m2.get("last_error"):
+                        attempts = int(m2.get("attempts") or 0)
+                        if attempts == MAX_SOFT_ATTEMPTS_BEFORE_NOTICE:
+                            notice_once(t, i, "still failing after %d attempts: %s" % (attempts, m2.get("last_error")))
+                        log("member %s of %s/%s: %s (attempt %d, retrying later)" % (m2.get("path"), sid[:8], aid, m2.get("last_error"), attempts))
+                    break
                 if t["members"][i].get("state") in ("failed", "missing"):
                     notice_once(t, i, t["members"][i].get("error") or "hard failure")
                     break
