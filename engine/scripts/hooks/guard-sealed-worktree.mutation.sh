@@ -100,8 +100,8 @@ mutant lead-proof-is-raw-grep-only "G17d" "$G" \
     "without python3 every payload would be proven the lead's, and every worker write would pass."
 
 mutant half-sealed-passes "G08" "$G" \
-    '    if sealed:{NL}        out("SEALED", "")' \
-    '    if sealed or "no start record" in str(res):{NL}        out("SEALED", "")' \
+    '    if sealed:{NL}        # The sealed transaction is re-read for a terminal record: sealing' \
+    '    if sealed or "no start record" in str(res):{NL}        # The sealed transaction is re-read for a terminal record: sealing' \
     "a worker whose start was never recorded would write before its native member is known — the member would have to be invented later."
 
 mutation_end
