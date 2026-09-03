@@ -269,12 +269,33 @@ except Exception:
 resp_text = resp_text or ""
 
 # 1. the agent id — the acknowledgement first, the shared transcript join second
+# MEASURED 2026-09-03 from three real spawns in a live session transcript:
+# the Agent result reaches this hook as a STRUCTURED OBJECT, never as the prose
+# a human sees. Keys: agentId, canReadOutputFile, description, isAsync,
+# outputFile, prompt, resolvedModel, status. Example values: agentId
+# "a5a82090e9729e92f", isAsync true, status "async_launched".
+# The first version searched resp_text for the phrase "Async agent launched"
+# and regexed agentId out of it. json.dumps of that object contains neither:
+# no such phrase, and "agentId": "..." whose quote defeats the pattern. BOTH
+# gates failed on EVERY real spawn, nothing was ever bound, and the diagnostic
+# then asserted a SYNCHRONOUS run from that absence while isAsync sat unread
+# two keys away. Read the field.
 agent_id = ""
 source = ""
-m = re.search(r"agentId:\s*([A-Za-z0-9_-]+)", resp_text) if "Async agent launched" in resp_text else None
-if m:
-    agent_id, source = m.group(1), "tool_response"
-elif al is not None and tuid:
+is_async = None
+if isinstance(resp, dict):
+    cand = str(resp.get("agentId") or "").strip()
+    if cand and re.fullmatch(r"[A-Za-z0-9_-]+", cand):
+        agent_id, source = cand, "tool_response.agentId"
+    if isinstance(resp.get("isAsync"), bool):
+        is_async = resp["isAsync"]
+    elif str(resp.get("status") or ""):
+        is_async = str(resp["status"]) == "async_launched"
+if not agent_id:
+    m = re.search(r"agentId:\s*([A-Za-z0-9_-]+)", resp_text) if "Async agent launched" in resp_text else None
+    if m:
+        agent_id, source = m.group(1), "tool_response.prose"
+if not agent_id and al is not None and tuid:
     tp = str(payload.get("transcript_path") or "")
     try:
         agent_id = (al.tool_use_ids_to_agent_ids(tp) or {}).get(tuid, "")
@@ -295,7 +316,16 @@ if not tuid:
 elif intent is None:
     problem("NO spawn-intent is on disk for tool_use %s (session %s). guard-worktree-isolation.sh writes it before every file-capable spawn it allows; either that guard is not wired, failed to write, or this spawn reached the harness by a route the guard never saw. The worker is UNBOUND: guard-sealed-worktree.sh will refuse every potentially writing tool call it makes." % (tuid, sid[:8] or "?"))
 elif not agent_id:
-    problem("this file-capable spawn (teammate %s) returned with NO agent id — a SYNCHRONOUS run, whose PostToolUse arrives after the work is over. It ran unbound: no manifest was sealed for it and nothing it wrote is owned by any transaction. A file-writing Agent call must be asynchronous; re-issue it as a background teammate." % (os.environ.get("NAME") or "?"))
+    # NEVER infer synchronous from a missing id again. is_async is read from the
+    # structured result (isAsync, else status == async_launched); only None means
+    # the payload genuinely did not say. See the MEASURED note above.
+    who = os.environ.get("NAME") or "?"
+    if is_async is False:
+        problem("this file-capable spawn (teammate %s) was SYNCHRONOUS (isAsync false), so its PostToolUse arrives after the work is over and it cannot be bound. It ran unbound: nothing it wrote is owned by any transaction. Re-issue it as a background teammate." % who)
+    elif is_async is True:
+        problem("this file-capable spawn (teammate %s) was ASYNCHRONOUS and the result carried no readable agentId, so the binder could not bind it. This is a BINDER DEFECT, not a caller mistake: the id is expected at tool_response.agentId. Do not re-issue the spawn differently; fix the binder. Keys seen: %s" % (who, ",".join(sorted(resp.keys())) if isinstance(resp, dict) else type(resp).__name__))
+    else:
+        problem("this file-capable spawn (teammate %s) returned no agent id and the result did not say whether it was asynchronous (no isAsync, no status). The binder cannot tell a synchronous run from its own failure, so it refuses to guess. Result shape: %s" % (who, ",".join(sorted(resp.keys())) if isinstance(resp, dict) else type(resp).__name__))
 else:
     try:
         tx.bind(sid, tuid, agent_id, source)
