@@ -698,10 +698,10 @@ PY
 # all hook scripts + their .sha256 sidecars + orchestration.config, and NO
 # generated settings.json. Returns the absolute path of the new sandbox.
 # ---------------------------------------------------------------------------
-make_sandbox() {
+build_sandbox_template() {
     local root _ts0 _ts1 _ts2 _ts3 _ts4
     _ts0="$(_t)"
-    root="$(mktemp -d -t contract-integrity.XXXXXX)"
+    root="$(mktemp -d -t contract-integrity-template.XXXXXX)"
     mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
     cp "$SCRIPT_DIR/install.sh" "$root/scripts/hooks/"
     cp "$SCRIPT_DIR/contract-integrity-probe.sh" "$root/scripts/hooks/"
@@ -729,11 +729,62 @@ make_sandbox() {
     _ts3="$(_t)"
     gen_sidecars "$root"
     _ts4="$(_t)"
-    _trec sandbox.hooks     "$_ts0" "$_ts1" copy-hooks
-    _trec sandbox.root      "$_ts1" "$_ts2" copy-root-scripts
-    _trec sandbox.settings  "$_ts2" "$_ts3" write-config-and-settings
-    _trec sandbox.sidecars  "$_ts3" "$_ts4" gen-sidecars
-    _trec sandbox           "$_ts0" "$_ts4" TOTAL
+    _trec template.hooks     "$_ts0" "$_ts1" copy-hooks
+    _trec template.root      "$_ts1" "$_ts2" copy-root-scripts
+    _trec template.settings  "$_ts2" "$_ts3" write-config-and-settings
+    _trec template.sidecars  "$_ts3" "$_ts4" gen-sidecars
+    _trec template           "$_ts0" "$_ts4" TOTAL
+    echo "$root"
+}
+
+# ---------------------------------------------------------------------------
+# ONE assembly, eighty-one clones.
+#
+# Assembling a sandbox costs about 105 subprocess spawns -- one `cp` per hook,
+# one per managed root script, one `shasum` per sidecar -- and it was paid once
+# per case. Measured on 2026-09-03: 1.05 s a sandbox, ~85 s a run, against 24 ms
+# for a copy-on-write clone of the finished article.
+#
+# NOTHING ABOUT WHAT IS TESTED CHANGES. The clone is byte-identical to the
+# template (verified: file hashes, exec bits, the empty .claude/state directory
+# and the directory mode all survive), so every sidecar still matches the file
+# it was minted from, and APFS clones are independent on write -- a case that
+# tampers with its sandbox cannot reach the template or any sibling. That is
+# asserted, not assumed: `cp -c` is TRIED once here and the suite says out loud
+# which mode it got, because a silent fall back to a slow copy is the kind of
+# degradation this repository keeps having to relearn.
+#
+# The template is built at top level rather than lazily inside make_sandbox,
+# because make_sandbox is called in a command substitution -- a subshell -- and
+# a template memoized there would be rebuilt, and leaked, 81 times.
+# ---------------------------------------------------------------------------
+SANDBOX_TEMPLATE="$(build_sandbox_template)"
+[ -d "$SANDBOX_TEMPLATE" ] || { echo "FATAL: the sandbox template was not built — refusing to run a suite whose cases would each verify an empty directory" >&2; exit 1; }
+trap 'rm -rf "$CLAUDE_CONFIG_DIR" "$SANDBOX_TEMPLATE"' EXIT
+
+_CLONE_PROBE="$(mktemp -d -t contract-integrity-clonetest.XXXXXX)"
+if cp -c -R "$SANDBOX_TEMPLATE/." "$_CLONE_PROBE/" 2>/dev/null; then
+    SANDBOX_COPY_FLAGS="-c -R"
+else
+    cp -R "$SANDBOX_TEMPLATE/." "$_CLONE_PROBE/"
+    SANDBOX_COPY_FLAGS="-R"
+    echo "note: copy-on-write clones are unavailable under ${TMPDIR:-/tmp} — using a plain recursive copy. Identical sandboxes, slower run." >&2
+fi
+rm -rf "$_CLONE_PROBE"
+
+# Clone the template into an EXISTING directory (so the caller keeps the
+# mktemp -d name it already holds, and there is no unlink/recreate window).
+clone_sandbox_into() { # <existing-directory>
+    cp $SANDBOX_COPY_FLAGS "$SANDBOX_TEMPLATE/." "$1/"
+}
+
+make_sandbox() {
+    local root _ts0 _ts1
+    _ts0="$(_t)"
+    root="$(mktemp -d -t contract-integrity.XXXXXX)"
+    clone_sandbox_into "$root"
+    _ts1="$(_t)"
+    _trec sandbox "$_ts0" "$_ts1" TOTAL
     echo "$root"
 }
 
@@ -1227,29 +1278,11 @@ fi  # _section — manifest
 make_git_main() {
     local root
     root="$(cd "$(mktemp -d -t contract-integrity-git.XXXXXX)" && pwd -P)"
-    mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
-    cp "$SCRIPT_DIR/install.sh" "$root/scripts/hooks/"
-    cp "$SCRIPT_DIR/contract-integrity-probe.sh" "$root/scripts/hooks/"
-    for h in "${ALL_HOOKS[@]}"; do
-        cp "$SCRIPT_DIR/$h" "$root/scripts/hooks/"
-    done
-    cp "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$root/scripts/lib/"
-    # The guard inventory and the table it derives from. Every real engine
-    # ships hooks/hooks.json — a seated engine registers its guards in
-    # .claude/settings.local.json AND publishes the same set here for adopters
-    # loading it as a plugin, which is exactly the pair Layer R's R4 compares.
-    # A sandbox without it was modelling an engine that cannot exist, and it
-    # went unnoticed only while nothing read the file.
-    mkdir -p "$root/hooks"
-    cp "$SCRIPT_DIR/../../hooks/hooks.json" "$root/hooks/hooks.json"
-    cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
-    # The sandbox is its own engine root, so it identifies itself like one.
-    cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
-    copy_root_scripts "$root"
-    chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
-    write_sandbox_config "$root"
-    write_sandbox_settings_local "$root" "1" "head"
-    gen_sidecars "$root"
+    # The same skeleton make_sandbox produces, from the same template. This
+    # function used to carry its own copy of the inventory -- a second hand-
+    # maintained list of the engine's files, in the suite whose entire subject
+    # is lists that fall behind the engine.
+    clone_sandbox_into "$root"
     # Gitignore the generated settings.json + nested worktrees so a linked
     # worktree does NOT receive its own settings.json — mirroring the real repo,
     # where a probe run from a worktree reaches back to the MAIN checkout. The
