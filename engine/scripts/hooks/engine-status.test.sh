@@ -372,7 +372,10 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # guard-sealed-worktree.sh, matcherless and FIRST under PreToolUse (the write
 # barrier: a worker whose worktree manifest is not sealed can read and cannot
 # write). Both are on the probe's managed set and both surfaces.
-if [ "$REGISTERED_N" -eq 50 ]; then
+# 50 -> 51 on 2026-09-03: terminalize-agent-worktrees.sh, the terminal ingress,
+# wired on SubagentStop and on WorktreeRemove (one script, two events, one
+# compare-and-set claim between them).
+if [ "$REGISTERED_N" -eq 51 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"

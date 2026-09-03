@@ -229,6 +229,12 @@ REF6E="$(git -C "$OTHER" rev-parse --verify -q "refs/richos/handoffs/$SID/aaaaaa
 [ ! -d "$ENTITY/.claude/worktrees/agent-aaaaaa000006" ] && [ -d "$Q6" ] && [ ! -d "$EXT2" ] && [ -d "$Q6E" ] \
     && ok "T34  both members were renamed beside their originals: <path>.richos-terminal-<sid8>-<aid>" || bad "T34  quarantine: $(ls "$ENTITY/.claude/worktrees" "$SANDBOX/other-wt")"
 [ -f "$Q6E/untracked-evidence.txt" ] && ok "T35  untracked evidence traveled with the quarantine byte-for-byte (a rename, not a copy)" || bad "T35  evidence lost"
+if git -C "$OTHER" worktree list --porcelain | grep -qx "worktree $Q6E" && git -C "$Q6E" status --porcelain >/dev/null 2>&1 \
+   && ! git -C "$OTHER" worktree list --porcelain | grep -q "^prunable"; then
+    ok "T35b  the quarantine is a REGISTERED, readable worktree (git worktree repair ran): a prune cannot orphan it"
+else
+    bad "T35b  quarantine registration: $(git -C "$OTHER" worktree list --porcelain | tr '\n' ' ' | cut -c1-300)"
+fi
 STATES="$(T members --session-id "$SID" --agent-id aaaaaa000006 | cut -f5 | tr '\n' ' ')"
 [ "$STATES" = "quarantined quarantined " ] && ok "T36  every member is persisted as quarantined" || bad "T36  states: $STATES"
 # The loser's resume touched nothing: run the claim again and compare.

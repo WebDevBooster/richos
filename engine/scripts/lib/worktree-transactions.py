@@ -656,6 +656,16 @@ def quarantine(session_id, agent_id, index):
             return update_member(session_id, agent_id, index, state="failed",
                                  error="rename %s -> %s failed: %s" % (orig, quar, e))
         _fsync_dir(os.path.dirname(orig))
+    # RE-POINT GIT AT THE QUARANTINE. After a raw rename the repository's
+    # registration still names the ORIGINAL path and is "prunable"; the
+    # harness's own cleanup (or anyone's `git worktree prune`) would then
+    # delete the admin directory the quarantine's `.git` file points at, and
+    # every later git read of the quarantine (index, status, HEAD) would fail.
+    # `git worktree repair <new path>` rewrites the admin pointer to the
+    # quarantine (measured: rc 0, "repair: gitdir incorrect" is its normal
+    # output), so the registration is valid again and the branch stays
+    # checked out here — which also makes the harness's `branch -D` refuse.
+    _git(m["repo"], "worktree", "repair", quar)
     return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar)
 
 

@@ -288,8 +288,24 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/terminalize-agent-worktrees.sh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/worker-ended-handoff.sh",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/terminalize-agent-worktrees.sh",
+            "timeout": 20
           }
         ]
       }

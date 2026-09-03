@@ -790,6 +790,8 @@ notice-inflight-sends.sh|PostToolUse
 notice-ceo-asks.sh|PostToolUse
 record-subagent-start.sh|SubagentStart
 worker-started-handoff.sh|SubagentStart
+terminalize-agent-worktrees.sh|SubagentStop
+terminalize-agent-worktrees.sh|WorktreeRemove
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted
@@ -883,12 +885,13 @@ for event, entries in hooks.items():
                 # the SAME event, which fires it twice per occurrence of that
                 # event. A hook legitimately wired on two DIFFERENT events fires
                 # once on each, which is not a double-fire and must not be
-                # reported as one — agent-finished-reap-worktrees.sh is wired on
-                # both TeammateIdle and TaskCompleted because a teammate can
-                # finish either way, and the old per-script count called that a
-                # defect. The expected total is DERIVED from how many events the
-                # managed set declares for this script, so it can never be a
-                # typed number that falls behind.
+                # reported as one — terminalize-agent-worktrees.sh is wired on
+                # both SubagentStop and WorktreeRemove because the two race for
+                # one terminal claim (and agent-finished-reap-worktrees.sh on
+                # both TeammateIdle and TaskCompleted), and the old per-script
+                # count would call that a defect. The expected total is DERIVED
+                # from how many events the managed set declares for this script,
+                # so it can never be a typed number that falls behind.
                 _declared_events="$(printf '%s\n' "$BR_EXPECTED" | awk -F'|' -v s="$_script" '$1==s' | grep -c . || true)"
                 if [ "$_count" -eq 0 ]; then
                     BR2_PROBLEMS="$BR2_PROBLEMS $_script(NOT registered)"

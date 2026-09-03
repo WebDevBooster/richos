@@ -934,7 +934,7 @@ if [ "$INTENT_KIND" = "native" ] && [ -n "$INTENT_EXTERNALS" ]; then
 fi
 
 C7_PROBLEMS=()
-for _c in "scripts/lib/worktree-transactions.py" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/guard-sealed-worktree.sh"; do
+for _c in "scripts/lib/worktree-transactions.py" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
   [ -f "$SCRIPT_DIR/../../$_c" ] || C7_PROBLEMS+=("lifecycle component MISSING: $_c — without it this spawn's worktrees could be recorded but never bound, sealed, barred or cleaned up. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
 done
 RUN_IN_BG="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("tool_input") or {}).get("run_in_background"); print("false" if v is False else ("true" if v is True else ""))' 2>/dev/null || true)"
