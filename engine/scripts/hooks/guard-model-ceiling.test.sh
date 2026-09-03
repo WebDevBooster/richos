@@ -202,6 +202,17 @@ for reflex in \
         "$(payload mcjudge mcjudge-fable-9 fable "Build it.
 model-ceiling-ack: $reflex")"
 done
+case_msg "a REJECTED ack is quoted back with the reason it failed" "THE LINE YOU GAVE WAS NOT ACCEPTED" \
+    "$(payload mcjudge mcjudge-fable-9 fable 'Build it.
+model-ceiling-ack: needed')"
+# ... and the no-ack refusal does NOT carry that prefix: telling an operator
+# "no line is present" directly under the instruction to add one is noise.
+run "$(payload mcjudge mcjudge-fable-9 fable 'Build it.')"
+if printf '%s' "$OUT" | grep -qF "THE LINE YOU GAVE WAS NOT ACCEPTED"; then
+    bad "a refusal with NO ack attempted does not diagnose one"
+else
+    ok "a refusal with NO ack attempted does not diagnose one"
+fi
 case_msg "the reflex refusal names the assertion it read" "ASSERTION OF MERIT" \
     "$(payload mcjudge mcjudge-fable-9 fable 'Build it.
 model-ceiling-ack: it is simply the most capable model we have')"

@@ -461,7 +461,14 @@ fi
     echo ""
     echo "      ${ACK_MARKER}: <why this is a one-off whose output everything downstream inherits>"
     echo ""
-    echo "  ${ACK_WHY}"
+    # Only when a line was actually attempted. "No line is present" under an
+    # instruction that just told you to add one is noise, and the reason a
+    # REJECTED line was rejected is the most useful sentence in this whole
+    # refusal — so it is printed where it cannot be mistaken for boilerplate.
+    if [ -n "$ACK_REASON" ]; then
+        echo "  THE LINE YOU GAVE WAS NOT ACCEPTED: ${ACK_WHY}"
+        echo ""
+    fi
     echo "  The founder greenlighting this tier in conversation IS a good reason —"
     echo "  write that as the reason and the log preserves that he said it. Accepted"
     echo "  uses are appended to .claude/state/model-ceiling-acks.log, so a habit of"
