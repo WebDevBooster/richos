@@ -96,8 +96,8 @@ mutant mode-unchecked "C33" "$R" \
     "an executable restored as non-executable, or the reverse, would verify."
 
 mutant artifacts-not-private "C34" "$R" \
-    '    os.umask(0o077){AND}    os.makedirs(path, mode=0o700, exist_ok=True){NL}    os.chmod(path, 0o700){AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)' \
-    '    pass{AND}    os.makedirs(path, exist_ok=True){AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)' \
+    '    os.umask(0o077){AND}        os.chmod(p, 0o700){AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)' \
+    '    pass{AND}        pass{AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)' \
     "captures holding ignored secrets would be created at the ambient umask, readable by every account on the machine."
 
 mutant retention-never-runs "C37" "$R" \
