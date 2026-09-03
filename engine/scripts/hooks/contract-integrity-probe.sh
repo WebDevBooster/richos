@@ -351,6 +351,7 @@ run_layer_R() {
     notice-mechanical-findings \
     notice-unstarted-rows \
     notice-ceo-asks guard-ceo-ask-first notice-ceo-unasked session-start-ceo-ask \
+    guard-model-ceiling \
     notice-unasked-deferral \
     guard-agent-state-claims \
     guard-idle-land notice-waiver-repetition \
@@ -570,6 +571,172 @@ MT_Q_EOF
     fi
 }
 
+# --- Layer MC: the COST CEILING is declared as data, the guard reads it, and
+# it refuses ONE tier while staying silent on the next one down (HARD gate) ---
+#
+# Layer MT keeps the CAPABILITY order honest. This keeps the SPEND order honest,
+# and they are not the same order: the top tier is the most capable alias AND
+# roughly twice the price of the one below it. The founder ruled on 2026-09-03
+# that the normal ceiling for critical work is one tier down, with the top
+# reserved for super-critical work and extreme one-off cases, and ordered a
+# guard rather than another paragraph — because the ruling of the day before had
+# "no guard reads this today" written into it and this repository's own
+# measurement is that a rule left as prose gets broken.
+#
+# WHAT THIS LAYER ASSERTS, and why each half is here:
+#
+#   1. the guard exists, is executable and is hash-matched — Layer C already
+#      pins its CHAIN POSITION, so what is left is the file itself;
+#   2. scripts/lib/resolve-model.sh is present and hash-matched. It is not a
+#      hook and appears in no hook table, and BOTH the spawn guard and this one
+#      take their entire answer to "which model does this spawn boot on" out of
+#      it. Hashing the guards and leaving the thing that decides unverified is
+#      checking the lock and ignoring the key, for the Nth time in this probe;
+#   3. MODEL_CEILING is declared and RANKABLE under MODEL_TIERS. Undeclared is a
+#      WARN, not a failure: the guard fails open and announces per spawn, and an
+#      adopter that has not chosen a ceiling yet is unconfigured rather than
+#      broken. Declared-but-unrankable IS a failure — an unrankable ceiling is
+#      not a ceiling, and it looks exactly like one;
+#   4. THE GUARD OBEYS IT, THREE-SIDED, in a sandbox entity (so the layer proves
+#      the mechanism, not this repository's roster): a spawn one tier ABOVE the
+#      declared ceiling is refused AND the refusal names the ack line; the same
+#      teammate AT the ceiling is allowed IN SILENCE; and with no ceiling
+#      declared at all the spawn is allowed WITH AN ANNOUNCEMENT. The third arm
+#      is the one a dead hook cannot satisfy: a script that never runs exits 0
+#      silently, which passes arm two and fails arm three.
+#
+# Runs in BOTH probe modes: the declaration is the ENTITY's, the guard and the
+# resolver are the ENGINE's, and the layer reads each from its own root.
+run_layer_MC() {
+    MC_GUARD="$ENGINE_ROOT/scripts/hooks/guard-model-ceiling.sh"
+    MC_RESOLVER="$ENGINE_ROOT/scripts/lib/resolve-model.sh"
+    MC_TIERS_LIB="$ENGINE_ROOT/scripts/lib/model-tiers.sh"
+    MC_OK=1
+
+    for mc_f in "$MC_GUARD" "$MC_RESOLVER"; do
+        if [ ! -f "$mc_f" ]; then
+            emit_fail "MC. the cost-ceiling gate is MISSING a half: $mc_f. Without the guard nothing refuses a spawn above the declared ceiling; without scripts/lib/resolve-model.sh neither this guard NOR the spawn guard can tell which model a spawn boots on."
+            MC_OK=0
+            continue
+        fi
+        mc_live="$(sha256_of "$mc_f" 2>/dev/null || true)"
+        mc_want="$(manifest_hash_of "$mc_f" 2>/dev/null || true)"
+        if [ -z "$mc_want" ]; then
+            emit_fail "MC. cost-ceiling file unhashed: $mc_f.sha256 missing — run scripts/hooks/install.sh to regenerate."
+            MC_OK=0
+        elif [ -n "$mc_live" ] && [ "$mc_live" != "$mc_want" ]; then
+            emit_fail "MC. cost-ceiling file MODIFIED since install: $mc_f (sha256 $mc_live != manifest $mc_want). Every ceiling verdict — and every model-truthfulness verdict the spawn guard issues — comes out of these two files. Review the change, then re-run scripts/hooks/install.sh."
+            MC_OK=0
+        fi
+    done
+
+    if [ "$MC_OK" -eq 1 ] && [ ! -x "$MC_GUARD" ]; then
+        emit_fail "MC. the cost-ceiling guard is not executable: $MC_GUARD. A hook the shell cannot run is a hook that enforces nothing, and the chain does not notice."
+        MC_OK=0
+    fi
+
+    # The DECLARATION. Undeclared -> WARN (unconfigured, and announced at every
+    # spawn by the guard itself). Declared-but-unrankable -> FAIL.
+    MC_DECLARED="$(printf '%s' "${MODEL_CEILING:-}" | tr -d '[:space:]')"
+    MC_CEIL_RANK=""
+    if [ "$MC_OK" -eq 1 ] && [ -f "$MC_TIERS_LIB" ]; then
+        # shellcheck disable=SC1090
+        . "$MC_TIERS_LIB"
+        if [ -z "$MC_DECLARED" ]; then
+            emit_warn "MC. no MODEL_CEILING declared in $REPO_ROOT/orchestration.config — the cost ceiling is UNENFORCED here (the guard allows every spawn and announces that per spawn, which is loud but is not a ceiling). Declare it beside MODEL_TIERS, e.g. MODEL_CEILING=\"opus\": the normal ceiling for critical work, with the tier above reserved for super-critical work and extreme one-off cases."
+        else
+            MC_CEIL_RANK="$(model_tier_rank "$MC_DECLARED" "${MODEL_TIERS:-}" 2>/dev/null || true)"
+            if [ -z "$MC_CEIL_RANK" ]; then
+                emit_fail "MC. MODEL_CEILING=\"$MC_DECLARED\" is declared in $REPO_ROOT/orchestration.config but MODEL_TIERS=\"${MODEL_TIERS:-}\" ranks it NOWHERE. An unrankable ceiling is not a ceiling: the guard fails open on every spawn while the declaration sits there looking enforced. Both values live in that one file — re-derive them together."
+                MC_OK=0
+            fi
+        fi
+    fi
+
+    # THE PROSE MUST NOT DRIFT FROM THE DATA — the half of Layer MT's doctrine
+    # check that costs an adopter nothing. If CLAUDE.md quotes a MODEL_CEILING
+    # declaration, it must be THIS one. The converse rule MT carries ("the file
+    # talks about downgrades but quotes nothing") is deliberately NOT mirrored
+    # here: a repository is entitled to run an enforced ceiling without writing a
+    # paragraph about it, and a probe that demanded the paragraph would be
+    # failing an entity for prose rather than for a hole.
+    MC_DOCTRINE="$REPO_ROOT/CLAUDE.md"
+    if [ "$MC_OK" -eq 1 ] && [ -n "$MC_DECLARED" ] && [ -f "$MC_DOCTRINE" ]; then
+        mc_expected="MODEL_CEILING=\"$MC_DECLARED\""
+        mc_quotes="$(grep -oE 'MODEL_CEILING="[^"]*"' "$MC_DOCTRINE" 2>/dev/null | sort -u || true)"
+        while IFS= read -r mc_q; do
+            [ -n "$mc_q" ] || continue
+            if [ "$mc_q" != "$mc_expected" ]; then
+                emit_fail "MC. $MC_DOCTRINE quotes $mc_q but orchestration.config declares $mc_expected — the prose has DRIFTED from the data. The declaration is canonical: fix the quotation, never the other way around."
+                MC_OK=0
+            fi
+        done <<MC_Q_EOF
+$mc_quotes
+MC_Q_EOF
+    fi
+
+    if [ "$MC_OK" -eq 1 ]; then
+        MC_SB="$(mktemp -d -t mc-canary.XXXXXX)"
+        mkdir -p "$MC_SB/entity/.claude/agents" "$MC_SB/home"
+        printf -- '---\nname: mcprobe\nmodel: opus\n---\nA sandbox role that exists only for this canary.\n' \
+            >"$MC_SB/entity/.claude/agents/mcprobe.md"
+        mc_config() { # <ceiling-line-or-empty>
+            {
+                printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\n'
+                printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
+                printf 'MODEL_TIERS="fable > opus > sonnet > haiku"\n'
+                if [ -n "$1" ]; then printf '%s\n' "$1"; fi
+            } >"$MC_SB/entity/orchestration.config"
+        }
+        mc_spawn() { # <name> <model>
+            printf '{"tool_name":"Agent","cwd":"%s","session_id":"mc-canary-0000","tool_use_id":"mc-canary-tu","tool_input":{"subagent_type":"mcprobe","name":"%s","isolation":"worktree","model":"%s","prompt":"canary"}}' \
+                "$MC_SB/entity" "$1" "$2"
+        }
+        mc_run() { # <name> <model> — sets MC_OUT / MC_RC
+            set +e
+            MC_OUT="$(printf '%s' "$(mc_spawn "$1" "$2")" | env HOME="$MC_SB/home" RICHOS_ENTITY_ROOT="$MC_SB/entity" bash "$MC_GUARD" 2>&1)"
+            MC_RC=$?
+            set -e
+        }
+
+        mc_config 'MODEL_CEILING="opus"'
+        mc_run mcprobe-fable-1 fable
+        MC_OVER_OUT="$MC_OUT"; MC_OVER_RC="$MC_RC"
+        mc_run mcprobe-opus-1 opus
+        MC_AT_OUT="$MC_OUT"; MC_AT_RC="$MC_RC"
+        mc_config ''
+        mc_run mcprobe-fable-2 fable
+        MC_NONE_OUT="$MC_OUT"; MC_NONE_RC="$MC_RC"
+        rm -rf "$MC_SB"
+
+        if [ "$MC_OVER_RC" -ne 2 ]; then
+            emit_fail "MC. the guard did NOT refuse a spawn one tier ABOVE the declared ceiling (opus ceiling, fable spawn: exit=$MC_OVER_RC, expected 2). The cost ceiling is declared and enforcing nothing."
+        elif ! printf '%s' "$MC_OVER_OUT" | grep -qF 'model-ceiling-ack:'; then
+            emit_fail "MC. the guard refused an over-ceiling spawn but did NOT name the remedy line (model-ceiling-ack:) — the founder asked for acknowledge-OR-reconsider, and a refusal that offers neither gets routed around instead of obeyed."
+        elif ! printf '%s' "$MC_OVER_OUT" | grep -qF 'EVERYTHING DOWNSTREAM INHERITS'; then
+            emit_fail "MC. the over-ceiling refusal no longer carries the ONE-OFF test. It is the whole instruction: the note has to REACH the reader, not be pointed at."
+        elif [ "$MC_AT_RC" -ne 0 ]; then
+            emit_fail "MC. the guard REFUSED a spawn AT the ceiling (opus ceiling, opus spawn: exit=$MC_AT_RC, expected 0). It is not enforcing a ceiling, it is refusing everything or refusing to start — exit 2 is ambiguous, which is why this canary has more than one side."
+        elif [ -n "$MC_AT_OUT" ]; then
+            emit_fail "MC. a spawn AT the ceiling was allowed but NOT SILENTLY (output: ${MC_AT_OUT:0:160}). A ceiling that comments on the normal case is a nag, and a nag is how a guard becomes something to disable."
+        elif [ "$MC_NONE_RC" -ne 0 ]; then
+            emit_fail "MC. with NO ceiling declared the guard did not fail OPEN (exit=$MC_NONE_RC, expected 0). An undeclared ceiling must never wedge a dispatch — a guard that blocks over its own configuration is a guard that gets switched off."
+        elif ! printf '%s' "$MC_NONE_OUT" | grep -qF 'NOT DECLARED'; then
+            emit_fail "MC. with NO ceiling declared the guard was SILENT. That is the arm a dead hook passes for free — an absent ceiling and an enforced one must never look the same."
+        else
+            if [ -n "$MC_DECLARED" ]; then
+                MC_DECL_NOTE="cost ceiling declared as data (MODEL_CEILING=\"$MC_DECLARED\")"
+            else
+                # Never read as "declared". The canary proves the MECHANISM in a
+                # sandbox that declares its own ceiling; this repository has not
+                # declared one, and the warning above is the finding.
+                MC_DECL_NOTE="cost ceiling mechanism proven in a sandbox (this repository declares NO ceiling — see the warning above)"
+            fi
+            emit_pass "MC. ${MC_DECL_NOTE}, guard + shared model resolver hash-matched, and the guard REFUSES one tier above naming the remedy, is SILENT at the ceiling, and ANNOUNCES when no ceiling is declared (three-sided canary)"
+        fi
+    fi
+}
+
 run_layer_AL() {
     AL_OK=1
     AL_FILES="scripts/lib/agent-liveness.py scripts/lib/agent-liveness.sh scripts/agent-liveness.sh"
@@ -769,6 +936,7 @@ guard-definition-drift.sh|PreToolUse
 reader-teammate-hint.sh|PreToolUse
 verify-agent-prompt.sh|PreToolUse
 guard-ceo-ask-first.sh|PreToolUse
+guard-model-ceiling.sh|PreToolUse
 guard-main-checkout-writes.sh|PreToolUse
 scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
@@ -919,7 +1087,7 @@ BR_EOF
             # dispatch that is malformed AND unasked should be told it is
             # malformed first, because that is the one the operator can fix
             # without leaving the keyboard.
-            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh "
+            BR_AGENT_WANT="guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh guard-ceo-ask-first.sh guard-model-ceiling.sh "
             if [ "$BR_AGENT_ORDER" != "$BR_AGENT_WANT" ]; then
                 emit_fail "BR2. PreToolUse[Agent] chain ORDER wrong. want: ${BR_AGENT_WANT}got: ${BR_AGENT_ORDER}"
                 BR2_OK=0
@@ -1525,6 +1693,7 @@ PY
     run_layer_R
     run_layer_AL
     run_layer_MT
+    run_layer_MC
 
     if [ "$FAIL" -gt 0 ]; then
         cat >&2 <<'BREOF'
@@ -1710,6 +1879,14 @@ CANONICAL_AGENT_CHAIN=(
     # unasked is told it is malformed first, because that is the half the
     # operator can fix without leaving the keyboard.
     "$REPO_ROOT/scripts/hooks/guard-ceo-ask-first.sh"
+    # LAST, appended rather than inserted, and both halves of that are
+    # deliberate. The four structural guards settle whether the SPAWN is well
+    # formed, and a dispatch that is malformed AND over the cost ceiling should
+    # hear about the malformed half first — the half the operator can fix
+    # without leaving the keyboard. Against the CEO-ask gate the order is not
+    # load-bearing (both are policy questions), so the tie was broken by the
+    # merge-safe choice: appending, while another engineer held hooks.json open.
+    "$REPO_ROOT/scripts/hooks/guard-model-ceiling.sh"
 )
 
 # Resolve settings.json $CLAUDE_PROJECT_DIR placeholder → absolute path.
@@ -2463,6 +2640,11 @@ CANON = [
     # read as the CEO having been asked the same question twice.
     "guard-ceo-ask-first.sh",
     "notice-ceo-asks.sh",
+    # The cost ceiling. BLOCKING, and registered twice it would print its whole
+    # refusal — the ruling, the examples, the ack line — twice per spawn, which
+    # reads as two separate rulings and is exactly the noise that gets a guard
+    # routed around.
+    "guard-model-ceiling.sh",
 ]
 
 def load(p):
@@ -3432,6 +3614,7 @@ fi
 run_layer_R
 run_layer_AL
 run_layer_MT
+run_layer_MC
 
 if [ "$FAIL" -gt 0 ]; then
     cat >&2 <<EOF
@@ -3488,6 +3671,16 @@ Integrity probe FAILED — $FAIL layer(s) broken. Most fixes:
           (MODEL_TIERS="fable > opus > sonnet > haiku", re-derived for your
           models), keep its alias set equal to ALLOWED_MODELS, and make
           CLAUDE.md quote that exact line. Never edit a consumer to fix it.
+
+  - "MODEL_CEILING ... ranks it NOWHERE" / "did NOT refuse a spawn one tier
+    ABOVE" / "was allowed but NOT SILENTLY" (Layer MC)
+       -> the COST ceiling, which is a different order from the capability one.
+          Declare MODEL_CEILING once in orchestration.config, naming an alias
+          MODEL_TIERS ranks (shipped: "opus" — the normal ceiling for critical
+          work, with the tier above reserved for super-critical work and extreme
+          one-off cases). If the canary itself fails, the guard is dead or
+          inverted: \`git diff scripts/hooks/guard-model-ceiling.sh\` and
+          scripts/lib/resolve-model.sh, then run scripts/hooks/install.sh.
 
 See README.md (First-time setup) and orchestration.config.
 EOF

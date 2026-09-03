@@ -276,6 +276,15 @@ HOOK_FILES+=(
     # wired, hashed, executable and deciding the wrong direction — which is the
     # exact defect the clause exists to end. Layer MT compares this sidecar.
     "$REPO_ROOT/scripts/lib/model-tiers.sh"
+    # The model resolver: which model does THIS spawn actually boot on? Not a
+    # hook, and hashed for the reason every entry on this list is hashed — TWO
+    # registered guards take their entire answer from it. guard-worktree-
+    # isolation.sh decides the truthful-name and capability-tier clauses with
+    # it, and guard-model-ceiling.sh decides the cost ceiling with it. A
+    # tampered copy would leave both guards wired, hashed, executable and
+    # judging the wrong model, and they would agree with each other while doing
+    # it. Layer MC compares this sidecar.
+    "$REPO_ROOT/scripts/lib/resolve-model.sh"
     # Not a hook either, and hashed for the same reason as the reaper: it is the
     # OTHER piece of engine code that DELETES worktrees, and it is the escape
     # route guard-worktree-removal.sh points every blocked operator at. The two

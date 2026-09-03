@@ -308,6 +308,21 @@ ALL_ROOT_SCRIPTS=(
     # models an engine whose newest Stop hook writes no row.
     scripts/lib/mechanical-findings.sh
     scripts/lib/mechanical-findings.py
+    # The model RESOLVER — which model does this spawn boot on? Carried for the
+    # HARD reason, in its strongest form: guard-worktree-isolation.sh REFUSES TO
+    # START without it, by exiting 2 and naming it, because neither its
+    # truthful-name clause nor its capability-tier clause can be evaluated
+    # without a resolved model. Layer C's canary asserts that guard is present
+    # and hash-matched, and a sandbox missing this file would model an engine in
+    # which EVERY spawn is blocked — every spawn-shaped case in this file would
+    # go red for a reason having nothing to do with what it tests.
+    #
+    # The SOFT half, stated because SC1 cannot see it: guard-model-ceiling.sh
+    # does NOT refuse without it. It announces "the ceiling is off" into a
+    # channel a sandbox has no reader for and allows the spawn, so a sandbox
+    # carrying one consumer and not the other models an engine whose newest
+    # blocking guard is silently unenforced.
+    scripts/lib/resolve-model.sh
     # The model-tier parser. Carried for the DECIDING reason, and SC1 below
     # cannot see it: guard-worktree-isolation.sh does not refuse without it —
     # clause 6 fails OPEN by design, announces the skip into a channel a
@@ -348,6 +363,11 @@ DIALECT_TARGET="en-US"
 # where it belongs: in data, beside the alias set it must equal.
 ALLOWED_MODELS="fable opus sonnet haiku"
 MODEL_TIERS="fable > opus > sonnet > haiku"
+# Declared, so Layer MC exercises the COST ceiling instead of taking its
+# "no ceiling declared" WARN branch. Capability and cost are two different
+# orders, and a sandbox declaring only the first models an engine whose newest
+# blocking guard is standing down.
+MODEL_CEILING="opus"
 CFG
 }
 
@@ -420,6 +440,11 @@ data["hooks"] = {
             # own probe — and every "probe passes" case in this file would go
             # red for a reason that has nothing to do with what it is testing.
             {"type": "command", "command": P + "/guard-ceo-ask-first.sh", "timeout": 20},
+            # LAST, mirroring the shipped chain again. Same argument as the line
+            # above: Layer C compares this chain position by position against
+            # CANONICAL_AGENT_CHAIN, so a sandbox that stopped at five would
+            # model an engine that cannot pass its own probe.
+            {"type": "command", "command": P + "/guard-model-ceiling.sh", "timeout": 10},
         ]},
         {"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
             {"type": "command", "command": P + "/guard-main-checkout-writes.sh", "timeout": 10},

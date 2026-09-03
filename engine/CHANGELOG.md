@@ -12,6 +12,52 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **The model COST ceiling is enforced at the spawn** (`MODEL_CEILING` in
+  `orchestration.config`, `scripts/hooks/guard-model-ceiling.sh`,
+  `scripts/lib/resolve-model.sh`, `contract-integrity-probe.sh` Layer MC) —
+  MINOR.
+
+  `MODEL_TIERS` declares which model is STRONGER and has never declared which
+  to SPEND. The two orders are not the same order: the top-tier alias is also
+  roughly twice the price of the one below it and burns a subscription
+  allowance fastest, so an orchestrator reading the capability order as a
+  spending order picks the top of the list whenever something feels important.
+  The founder's ruling of 2026-09-03 — normal ceiling one tier down,
+  super-critical work and extreme ONE-OFF cases above it — was recorded with
+  "no guard reads this today" written into it, and a day later he ordered the
+  guard: *"Whenever [a top-tier] pick is attempted it should simply get the
+  orchestrator to reach that note I've just written and get him to acknowledge
+  (if he continues with the pick) or reconsider."*
+
+  So the ceiling is DATA (`MODEL_CEILING="opus"`, parsed only through
+  `scripts/lib/model-tiers.sh`) and a blocking `PreToolUse[Agent]` guard
+  compares TIER RANKS — never an alias by name, so a model shipped above the
+  current top needs a re-derived declaration and no code edit. It fires on the
+  RESOLVED model (explicit `model:` override, else the definition's own
+  frontmatter default), and the refusal CARRIES the rule rather than pointing
+  at it: the ceiling in one line, the
+  one-off-whose-output-everything-downstream-inherits test, the worked
+  examples, the model to drop to AND the rename that drop forces, and the exact
+  ack line. Escape hatch: one live `model-ceiling-ack: <reason>` prompt line,
+  logged; a bare marker exempts nothing, and neither does a reason that is only
+  an assertion of merit — though a written sentence merely CONTAINING such a
+  word is allowed through, because judging a real reason's merit is not a
+  machine's job.
+
+  Undeclared, unrankable, unreadable or unresolvable = ALLOW and ANNOUNCE,
+  every time. 58 cases, 17 mutants, and a three-sided probe canary whose third
+  arm (announce when no ceiling is declared) is the one a dead hook cannot pass.
+
+- **The model a spawn boots on is resolved by ONE function**
+  (`scripts/lib/resolve-model.sh`, extracted byte-for-byte from
+  `guard-worktree-isolation.sh`) — PATCH for existing adopters, no behavior
+  change (proven by the spawn guard's full suite, green over the extraction).
+  Two guards now decide something from that fact; two copies of it would be the
+  one-question-two-answers defect this engine keeps re-discovering. The spawn
+  guard REFUSES to start without it (neither the truthful-name clause nor the
+  capability-tier clause can be evaluated); the ceiling guard fails open and
+  says so.
+
 - **Teammate worktrees are bound to the platform agent id at spawn and
   terminalized at the first terminal event; no sweep decides liveness any
   more** (`scripts/lib/worktree-transactions.py`,

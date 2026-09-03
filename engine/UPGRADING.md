@@ -262,6 +262,16 @@ engine's structural improvements** — never replace.
   declare it. If your `CLAUDE.md` says "downgrade" anywhere, Layer MT also
   requires it to quote the declaration verbatim (`` `MODEL_TIERS="…"` ``) so
   the prose cannot drift from the data; the template's §Models shows the shape.
+  **New key since 2026-09-03: `MODEL_CEILING`** (the COST ceiling, which is a
+  DIFFERENT order from the capability one above — the top-tier alias is also the
+  most expensive seat). Ships as `MODEL_CEILING="opus"`: the normal ceiling for
+  critical work, with the tier above it reserved for super-critical work and
+  extreme one-off cases. Re-derive it for your models and your budget. Until it
+  is present, `guard-model-ceiling.sh` allows every spawn and ANNOUNCES per
+  spawn that nothing is checking, and the probe's Layer MC WARNS — the upgrade
+  is green without it, but you are running with no ceiling and being told so on
+  every dispatch. A declared value your `MODEL_TIERS` cannot rank IS a Layer MC
+  failure: an unrankable ceiling looks exactly like an enforced one.
 - **`.claude/agents/<slug>.md`** (your instantiated teammates) and their
   **`team/<name>.md`** profiles + **`team/ROSTER.md`** — these are staffed by
   Dean for your domain. Engine upgrades change the *templates*, not your instances;
