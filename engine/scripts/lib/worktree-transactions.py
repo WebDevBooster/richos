@@ -805,6 +805,63 @@ def find_unsealed_by_native_path(session_id, path):
     return ""
 
 
+def taskstop_result_id(tool_response):
+    """The exact task id a SUCCESSFUL TaskStop result returned, or "".
+
+    THE EXPLICIT-KILL INGRESS (CEO specification 2026-09-03, femcboost
+    docs/plans/worktree-terminal-authority-fix-recommendation-2026-09-03.md,
+    section 1). Measured on this machine 2026-09-03 (lead transcript, session
+    df2b4fd1): the lead issued TaskStop with the REUSABLE teammate name
+    ("zach-opus-b1") and the tool result was a JSON string —
+        {"message": "Successfully stopped task: a5d5a2e681fa0f003 (...)",
+         "task_id": "a5d5a2e681fa0f003", "task_type": "local_agent",
+         "command": "..."}
+    — whose task_id is exactly the transaction's ownership id, supplied by
+    the platform after the task actually stopped. Nothing consumed it, and
+    the killed worker's cross-repository worktree leaked.
+
+    Accepted structured forms: a dict; a JSON string encoding a dict; a list
+    of content blocks whose text encodes such a dict. The id comes from the
+    structured `task_id` field ONLY — never from the human-readable message
+    sentence, never from the request's task_id (the name). A result carrying
+    an error marker, no structured task_id, or an id of the wrong shape
+    resolves nothing: TaskStop may legitimately target an agent that owns no
+    RichOS worktree, and a failed stop stops nothing."""
+    obj = _structured_result(tool_response, 0)
+    if not isinstance(obj, dict):
+        return ""
+    if obj.get("is_error") or obj.get("error") or obj.get("success") is False:
+        return ""
+    tid = obj.get("task_id")
+    if not isinstance(tid, str) or not AGENT_ID_RE.match(tid):
+        return ""
+    return tid
+
+
+def _structured_result(value, depth):
+    if depth > 3:
+        return None
+    if isinstance(value, dict):
+        if "task_id" not in value and value.get("type") == "text" and isinstance(value.get("text"), str):
+            return _structured_result(value["text"], depth + 1)
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s.startswith("{"):
+            return None
+        try:
+            return _structured_result(json.loads(s), depth + 1)
+        except ValueError:
+            return None
+    if isinstance(value, list):
+        for item in value:
+            r = _structured_result(item, depth + 1)
+            if isinstance(r, dict) and "task_id" in r:
+                return r
+        return None
+    return None
+
+
 def iter_pending_terminals():
     """Every unconsumed pending terminal record, as (session_id, agent_id, record)."""
     root = tx_root()

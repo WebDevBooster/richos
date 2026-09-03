@@ -792,6 +792,7 @@ record-subagent-start.sh|SubagentStart
 worker-started-handoff.sh|SubagentStart
 terminalize-agent-worktrees.sh|SubagentStop
 terminalize-agent-worktrees.sh|WorktreeRemove
+terminalize-agent-worktrees.sh|PostToolUse
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
 task-completed-handoff.sh|TaskCompleted

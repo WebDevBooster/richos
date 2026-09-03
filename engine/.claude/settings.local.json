@@ -265,6 +265,16 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "matcher": "TaskStop",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/terminalize-agent-worktrees.sh",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "SubagentStart": [

@@ -208,6 +208,68 @@ run "$(stop_payload "$A3C")"
 [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "SubagentStop ingress WON the claim for agent $A3C" && [ ! -d "$NAT3C" ] \
     && ok "R29  ...while the SubagentStop whose agent_id IS the ownership id claims it (exact authority, not a preferred event)" || bad "R29  rc=$RC: ${OUT:0:160}"
 
+# --- 4d. TaskStop: THE EXPLICIT-KILL INGRESS ------------------------------------
+# (CEO specification 2026-09-03, section 1). Measured shape of the TaskStop
+# result on this machine (lead transcript, session df2b4fd1, 17:10): the tool
+# result is a JSON STRING
+#   {"message":"Successfully stopped task: <id> (<desc>)","task_id":"<id>","task_type":"local_agent","command":"<desc>"}
+# and the REQUEST carried task_id = the reusable teammate name ("zach-opus-b1").
+# Only the result supplied the immutable ownership id; the hook joins on the
+# structured task_id and nothing else — not the request, not the sentence.
+taskstop_payload() { # <requested-name> <shape: str|dict|list|noid|error> <returned-id>
+    python3 - "$SID" "$1" "$2" "$3" <<'PY'
+import json, sys
+sid, requested, shape, tid = sys.argv[1:5]
+obj = {"message": "Successfully stopped task: %s (Close six blockers)" % tid, "task_id": tid,
+       "task_type": "local_agent", "command": "Close six blockers"}
+if shape == "str":     resp = json.dumps(obj)
+elif shape == "dict":  resp = obj
+elif shape == "list":  resp = [{"type": "text", "text": json.dumps(obj)}]
+elif shape == "noid":  resp = {"message": "Successfully stopped task: %s (Close six blockers)" % tid}
+elif shape == "error": resp = dict(obj, error="task not found", is_error=True)
+else: raise SystemExit("bad shape")
+print(json.dumps({"session_id": sid, "hook_event_name": "PostToolUse", "tool_name": "TaskStop", "tool_use_id": "toolu_ts",
+                  "tool_input": {"task_id": requested}, "tool_response": resp}))
+PY
+}
+A3D="a000000000000t3d"
+seal "$A3D" dev-opus-t3d "$OTHER:$SANDBOX/other-wt/dev-opus-t3d:dev-opus-t3d"
+run "$(taskstop_payload dev-opus-t3d str "$A3D")"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "TaskStop ingress WON the claim for agent $A3D" \
+   && [ ! -d "$ENTITY/.claude/worktrees/agent-$A3D" ] && [ ! -d "$SANDBOX/other-wt/dev-opus-t3d" ] && T terminal-agent --agent-id "$A3D" >/dev/null 2>&1; then
+    ok "R30  a successful TaskStop whose request named the TEAMMATE and whose result (a JSON string, the measured shape) returned the ownership id claims that exact transaction: both members quarantined, agent terminal"
+else
+    bad "R30  rc=$RC native=$([ -d "$ENTITY/.claude/worktrees/agent-$A3D" ] && echo present || echo gone) out=${OUT:0:200}"
+fi
+DET="$(T show --session-id "$SID" --agent-id "$A3D" | python3 -c 'import json,sys; t=json.load(sys.stdin)["terminal"]; print(t["ingress"], t["detail"])')"
+[ "$DET" = "TaskStop requested=dev-opus-t3d" ] && ok "R31  the record names TaskStop as the ingress and keeps the requested name as provenance only" || bad "R31  detail=[$DET]"
+run "$(taskstop_payload dev-opus-t3d str "$A3D")"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'TaskStop ingress resumed the claim' && ok "R32  a second TaskStop result resumes idempotently" || bad "R32  rc=$RC: ${OUT:0:120}"
+A3E="a000000000000t3e"; seal "$A3E" dev-opus-t3e
+run "$(taskstop_payload dev-opus-t3e dict "$A3E")"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "TaskStop ingress WON" && [ ! -d "$ENTITY/.claude/worktrees/agent-$A3E" ] \
+    && ok "R33  tool_response as a structured dict claims too" || bad "R33  dict rc=$RC: ${OUT:0:120}"
+A3F="a000000000000t3f"; seal "$A3F" dev-opus-t3f
+run "$(taskstop_payload dev-opus-t3f list "$A3F")"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "TaskStop ingress WON" && [ ! -d "$ENTITY/.claude/worktrees/agent-$A3F" ] \
+    && ok "R34  tool_response as content blocks whose text is the JSON claims too" || bad "R34  list rc=$RC: ${OUT:0:120}"
+A3G="a000000000000t3g"; seal "$A3G" dev-opus-t3g
+run "$(taskstop_payload dev-opus-t3g noid "$A3G")"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3G" ] && ! T terminal-agent --agent-id "$A3G" >/dev/null 2>&1; then
+    ok "R35  a result with NO structured task_id claims nothing — even though its success sentence names the id and its request names a sealed teammate (neither prose nor the request is authority)"
+else
+    bad "R35  noid rc=$RC terminal=$(T terminal-agent --agent-id "$A3G" >/dev/null 2>&1 && echo yes || echo no) out=${OUT:0:120}"
+fi
+run "$(taskstop_payload dev-opus-t3g error "$A3G")"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3G" ] && ! T terminal-agent --agent-id "$A3G" >/dev/null 2>&1 \
+    && ok "R36  a result carrying an error marker claims nothing, task_id or not (a failed stop stops nothing)" || bad "R36  error rc=$RC out=${OUT:0:120}"
+run "$(taskstop_payload some-helper str helper0000000000001)"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ ! -f "$SANDBOX/tx/terminal/helper0000000000001" ] \
+    && ok "R37  a successful TaskStop for an id RichOS never recorded is a silent no-op (TaskStop may target an agent that owns no worktree)" || bad "R37  helper rc=$RC out=${OUT:0:120}"
+run "$(printf '{"session_id":"%s","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_x","tool_input":{"command":"ls"},"tool_response":{"task_id":"%s","stdout":"x"}}' "$SID" "$A3G")"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && ! T terminal-agent --agent-id "$A3G" >/dev/null 2>&1 \
+    && ok "R38  a PostToolUse for any tool other than TaskStop is ignored even when its response happens to carry a task_id" || bad "R38  other-tool rc=$RC out=${OUT:0:120}"
+
 # --- 5. a reused name in a LATER session matches nothing ------------------------
 SID2="22222222-0000-4000-8000-000000000002"
 A4="b000000000000t04"

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 #
-# terminalize-agent-worktrees.sh — THE TERMINAL INGRESS. Registered on BOTH
-# SubagentStop and WorktreeRemove; the two race for one compare-and-set claim.
+# terminalize-agent-worktrees.sh — THE TERMINAL INGRESS. Registered on
+# SubagentStop, WorktreeRemove AND PostToolUse[TaskStop]; all race for one
+# compare-and-set claim. Each supplies an EXACT join to the ownership id —
+# the event's own agent_id, the exact native member path, the structured
+# task_id a successful TaskStop returned — and none is promoted from a cwd,
+# a name or a sentence (CEO specification 2026-09-03: femcboost docs/plans/
+# worktree-terminal-authority-fix-recommendation-2026-09-03.md).
 #
 # ===========================================================================
 # THE RULING THIS IMPLEMENTS
@@ -113,6 +118,25 @@ elif event == "WorktreeRemove":
         raise SystemExit(0)
     first_path = path
     ingress = "WorktreeRemove"
+elif event == "PostToolUse":
+    # THE EXPLICIT-KILL INGRESS (CEO specification 2026-09-03, section 1).
+    # A successful TaskStop RESULT carries the immutable ownership id of the
+    # task that actually stopped; the REQUEST carried only the reusable
+    # teammate name and is never read as authority. The structured task_id
+    # is parsed (dict / JSON string / content blocks — the measured shape is
+    # a JSON string), never scraped from the success sentence. Measured
+    # 2026-09-03: this was the one exact join available for a killed worker,
+    # and nothing consumed it, so its cross-repository worktree leaked.
+    if str(d.get("tool_name") or "") != "TaskStop":
+        raise SystemExit(0)
+    aid = tx.taskstop_result_id(d.get("tool_response"))
+    if not aid:
+        # No structured task id, an error result, or a malformed id: a
+        # failed stop stops nothing, and nothing is guessed from prose.
+        raise SystemExit(0)
+    ti = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
+    detail = "requested=%s" % (str(ti.get("task_id") or "") or "?")
+    ingress = "TaskStop"
 else:
     raise SystemExit(0)
 if not aid:
@@ -121,7 +145,7 @@ if not aid:
     raise SystemExit(0)
 
 try:
-    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or ""))
+    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or (detail if ingress == "TaskStop" else "")))
 except Exception as e:
     sys.stderr.write("claim for agent %s FAILED: %s — nothing was mutated; the next ingress or the reconciler retries.\n" % (aid, e))
     raise SystemExit(0)

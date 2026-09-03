@@ -41,6 +41,21 @@ mutant stop-promotes-cwd-to-owner "R28" "$H" \
     'if event in ("SubagentStop", ""):{NL}    aid = str(d.get("agent_id") or ""){NL}    if aid and not tx.load_tx(sid, aid):{NL}        aid = tx.find_by_native_path(sid, str(d.get("cwd") or "")) or aid' \
     "a nested or helper agent stopping inside a LIVE teammate's cwd would terminalize the teammate — measured 2026-09-03: nine such stops fired in one live worker's cwd in eight minutes (CEO specification, terminal-authority recommendation section 2)."
 
+mutant taskstop-ignored "R30" "$H" \
+    'elif event == "PostToolUse":' \
+    'elif False:' \
+    "the one exact join the platform supplies for a killed worker — the task id its TaskStop result returns — would go unconsumed, and the killed worker's cross-repository worktree would leak, as it did on 2026-09-03 (CEO specification, section 1)."
+
+mutant taskstop-error-accepted "R36" "$L" \
+    '    if obj.get("is_error") or obj.get("error") or obj.get("success") is False:{NL}        return ""' \
+    '    if False:{NL}        return ""' \
+    "a FAILED TaskStop whose error result still echoed a task id would terminalize a worker the platform did not stop."
+
+mutant taskstop-scrapes-prose "R35" "$L" \
+    '    tid = obj.get("task_id"){NL}    if not isinstance(tid, str) or not AGENT_ID_RE.match(tid):' \
+    '    tid = obj.get("task_id"){NL}    if not tid:{NL}        _m = re.search(r"Successfully stopped task: ([A-Za-z0-9_-]+)", str(obj.get("message") or "")){NL}        tid = _m.group(1) if _m else None{NL}    if not isinstance(tid, str) or not AGENT_ID_RE.match(tid):' \
+    "the human-readable success sentence would be authority; a message that merely mentions an id would terminalize it (the specification forbids scraping the sentence when the structured id is absent)."
+
 mutant stop-acts-on-teammateidle "R25" "$H" \
     'if event in ("SubagentStop", ""):' \
     'if event in ("SubagentStop", "", "TeammateIdle", "TaskCompleted"):' \
