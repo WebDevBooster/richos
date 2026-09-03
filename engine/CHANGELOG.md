@@ -603,13 +603,12 @@ version heading with Added / Changed / Fixed groupings.
   `scripts/hooks/publication-boundary.test.sh`) — MINOR.
 
   The boundary's two detectors are scoring functions. They were measured against
-  the 2026-08-29 transcripts and they are sharp for transcripts, and they are
+  real transcripts and they are sharp for transcripts, and they are
   blind to a small named file that is private for a reason no scoring function
-  can see. **Measured 2026-09-01, both halves: a seven-line note about which
-  typeface a wordmark was drawn in was written into the publication-bound tree
-  and staged, and both guards returned 0.** The instruction to keep that file in
-  the private record had been given twice, and twice it was honored by somebody
-  remembering.
+  can see. **Measured, both halves: a short note about a design decision was
+  written into the publication-bound tree and staged, and both guards returned
+  0.** The instruction to keep that file in the private record had been given
+  twice, and twice it was honored by somebody remembering.
 
   `PRIVATE_FILES` in `.publication-boundary` takes `<64-hex-sha256>:<name>`
   entries and MAY BE REPEATED, so declaring the next file is a one-line diff;
@@ -620,9 +619,10 @@ version heading with Added / Changed / Fixed groupings.
   (a file with one home does not belong here in any form), and **as a binary
   blob** — which is not a hypothetical: the first file declared is UTF-16, so
   every text-shaped filter in the pipeline called it binary and dropped it before
-  anything looked at it. What defeats it is a rewrite AND a rename together, or a
-  partial excerpt under a new name, and the header says so rather than leaving it
-  to be discovered.
+  anything looked at it. What an identity check does NOT cover is stated in the
+  header rather than left to be discovered; the specific ways it can be missed
+  are in the operator's private record, because an evasion recipe and a coverage
+  limit are two different objects.
 
   **Nothing reads the private record at guard time.** The digest and the name are
   committed, so a fresh clone with no sibling checkout enforces exactly what the
@@ -1519,7 +1519,7 @@ version heading with Added / Changed / Fixed groupings.
   (`scripts/lib/publication-boundary.py`) — PATCH, and it was a live leak, not a
   theoretical one.
 
-  A 6,000-character extract of a real private podcast transcript was written
+  A 6,000-character extract of a real private recording transcript was written
   into the publication-bound repository and BOTH guards returned exit 0 in
   silence. The commit guard — the backstop that exists precisely to catch what
   the write hook misses — runs the same predicate and missed it identically, so
@@ -1532,9 +1532,9 @@ version heading with Added / Changed / Fixed groupings.
   the shape filter rejects it — and the closure can only EXTEND a seed, never
   create one. A recording transcribed straight to plain text, with no
   timestamped rendering anywhere, was therefore invisible to the corpus whole.
-  Three podcast transcripts of two named third-party guests — 5,713, 6,424 and
-  22,375 words — sat inside the declared `PRIVATE_SOURCES` while the corpus held
-  ten files, every one a rendering of the same webinar.
+  Three transcripts of private recordings — 5,713, 6,424 and 22,375 words — sat
+  inside the declared `PRIVATE_SOURCES` while the corpus held ten files, every
+  one a rendering of a single other recording.
 
   The fix is provenance rather than content, because there is no reliable
   content shape for plain whisper output and every content-side widening was
@@ -1583,7 +1583,7 @@ version heading with Added / Changed / Fixed groupings.
 - **The derived-from-private corpus was one recording deep**
   (`scripts/lib/publication-boundary.py`) — PATCH.
 
-  Measured on the real private record: 481 candidate text files, of which the
+  Measured on a real private record: 481 candidate text files, of which the
   shape filter kept TWO, while seven more two-channel transcripts of real
   recordings sat in the same tree carrying no timestamps and no speaker labels —
   whisper's plain `.txt` output has neither. The verbatim-quote detector, the

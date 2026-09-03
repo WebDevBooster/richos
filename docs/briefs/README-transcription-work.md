@@ -4,24 +4,22 @@ The 2026-08-29 long-form transcription briefs — the 92-minute real-audio
 measurement, the `-mc 0` long-form fix, and the Parakeet coverage benchmark —
 are **not in this repository**, deliberately.
 
-They are built on a recording of the CEO's own webinar: full transcripts of both
-channels, a named third-party speaker, and business content. `open-source-strategy.md`
-designates **this** repo as the one that goes public and states that development
-runs in it. A transcript of a private call has no business here at any point,
-regardless of the repo's visibility today.
+They are built on **private recordings**: full transcripts of both channels, real
+business content, and people who are not part of this project and never agreed to
+appear in it. `.publication-boundary` designates **this** repo as the one that goes
+public, and development runs in it. A transcript of a private call has no business
+here at any point, regardless of the repo's visibility today.
 
-The same applies to the **podcast-corpus measurement** of the same date, which is built on three
-recordings of the CEO's own podcast — full transcripts, six per-speaker raw tracks, and three named
-third-party guests — and to the **silence-fabrication fix** measured on the same six tracks.
+The same applies to the **multi-track corpus measurement** of the same date and to
+the **silence-fabrication fix** measured on the same tracks.
 
-They live in the private record instead:
-
-    richos-hq/docs/briefs/norm-brief-real-audio-92min-2026-08-29.md
-    richos-hq/docs/briefs/norm-brief-longform-fix-2026-08-29.md
-    richos-hq/docs/briefs/norm-brief-parakeet-coverage-2026-08-29.md
-    richos-hq/docs/briefs/norm-brief-podcast-corpus-2026-08-29.md
-    richos-hq/docs/briefs/norm-brief-silence-fabrication-2026-08-29.md
-    richos-hq/docs/briefs/norm-*-2026-08-29-assets/
+They live in the private record instead, under `docs/briefs/`, as
+`norm-brief-real-audio-92min-2026-08-29.md`, `norm-brief-longform-fix-2026-08-29.md`,
+`norm-brief-parakeet-coverage-2026-08-29.md`, `norm-brief-podcast-corpus-2026-08-29.md`,
+`norm-brief-silence-fabrication-2026-08-29.md` and their `-assets/` directories.
+**Which recordings, whose, and who else was on them is recorded there and not here** —
+that is the rule, not an omission: see `engine/CLAUDE.md.template`, *"Writing for a
+Repository That PUBLISHES — the same doctrine, in two modes"*.
 
 **What DID land here, and is the product change itself:** decode context is now a
 pipeline-wide invariant (`MAX_CONTEXT_TOKENS = 0` in `tools/richos-service/lib/config.js`),
@@ -39,7 +37,7 @@ failed was "no media committed" — applied three times, on three consecutive la
 while the sensitive payload went in as text. **The privacy question is what the
 bytes SAY, not what format they are in.**
 
-**Two things the podcast-corpus measurement adds to that lesson**, because they
+**Two things the multi-track measurement adds to that lesson**, because they
 generalize beyond one incident:
 
 1. **Result files are speech.** A measurement JSON that carries decoded span text

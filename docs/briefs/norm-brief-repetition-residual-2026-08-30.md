@@ -18,7 +18,7 @@ threshold and one hand-off inside the post-decode guard, and one new wire in the
 built, installed, rendered or tested; nothing touched an emulator, simulator or device.
 
 **Privacy.** This repository is PUBLISHED (`.publication-boundary` at the root). The 92-minute
-corpus is the CEO's own webinar, so **no phrase from it appears anywhere in this brief, its assets
+corpus is a private recording, so **no phrase from it appears anywhere in this brief, its assets
 or the new tests** — every finding is named by its offsets, its word count and its verdict. The
 tools were edited to print offsets rather than text before their output was committed. The one place
 speech is quoted at all is sample C, which is macOS `say` TTS of an invented script and was already
@@ -32,7 +32,7 @@ so the scan was live rather than vacuous.
 
 ### (a) The corpus is the same corpus — proven, not assumed
 
-The four 92-minute channels were re-decoded from the two gitignored mp3s at bare whisper.cpp
+The four 92-minute channels were re-decoded from the two gitignored source recordings at bare whisper.cpp
 defaults, with the 2026-08-29 measurement's own command. **All four came back byte-identical** to
 that brief's committed transcripts (969 / 728 / 1,856 / 1,146 lines). The same four channels were
 then re-decoded at the shipping `-mc 0`, and those reproduce the long-form brief's acceptance table

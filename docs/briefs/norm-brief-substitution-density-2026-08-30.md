@@ -15,7 +15,7 @@ below about how much the shipping decode loses are findings, not a licence to re
 `data-contract-bypass`: a local model measurement plus a service-side detector. No Avelor/fitapp app
 was built, installed, rendered or tested; nothing touched an emulator, simulator or device.
 
-**Privacy.** This brief and its assets are in `richos`, which is PUBLISHED, so they contain **no
+**Privacy.** This brief and its assets are in a PUBLISHED repository, so they contain **no
 transcribed speech at all** — not a quoted sentence, not a recovered clause, not a fixture line.
 Every span below is a time offset, a level and a count. The committed results were passed through
 `norm-substitution-density-2026-08-30-assets/tools/redact.mjs`, which deletes `recovered` / `text` / `nearbyText` recursively and reports the
