@@ -67,6 +67,34 @@ PASS=0
 FAIL=0
 FAIL_NAMES=()
 
+# ---------------------------------------------------------------------------
+# TIMING INSTRUMENTATION — opt-in, and a NO-OP unless CI_TEST_TIMING names a
+# file. It exists because the record asserted where this suite's 42 minutes go
+# ("SETUP repeated 81 times") without ever measuring it. An optimization aimed
+# at an unmeasured cost center is a guess with a commit message.
+#
+# It records absolute start/end stamps rather than durations, so the analyzer
+# can attribute a sandbox build to the case whose segment contains it — no call
+# site has to know which case it belongs to. Nothing here touches stdout;
+# make_sandbox's stdout IS its return value.
+# ---------------------------------------------------------------------------
+CI_TEST_TIMING="${CI_TEST_TIMING:-}"
+if [ -n "$CI_TEST_TIMING" ]; then
+    : >"$CI_TEST_TIMING" || { echo "FATAL: cannot write CI_TEST_TIMING=$CI_TEST_TIMING" >&2; exit 1; }
+    export CI_TEST_TIMING
+fi
+# perl, not python3: measured at ~7ms per call against python3's ~20ms, and
+# this is called several hundred times. BSD date has no sub-second format and
+# bash 3.2 has no EPOCHREALTIME.
+_t() {
+    [ -n "$CI_TEST_TIMING" ] || { printf '0\n'; return 0; }
+    perl -MTime::HiRes=time -e 'printf "%.4f\n", time'
+}
+_trec() { # <kind> <start> <end-or-dash> <label>
+    [ -n "$CI_TEST_TIMING" ] || return 0
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$CI_TEST_TIMING"
+}
+
 # All canonical hook scripts the probe/install manage — DERIVED FROM
 # hooks/hooks.json, NEVER TYPED.
 #
@@ -519,7 +547,8 @@ PY
 # generated settings.json. Returns the absolute path of the new sandbox.
 # ---------------------------------------------------------------------------
 make_sandbox() {
-    local root
+    local root _ts0 _ts1 _ts2 _ts3 _ts4
+    _ts0="$(_t)"
     root="$(mktemp -d -t contract-integrity.XXXXXX)"
     mkdir -p "$root/scripts/hooks" "$root/scripts/lib" "$root/.claude/state"
     cp "$SCRIPT_DIR/install.sh" "$root/scripts/hooks/"
@@ -539,11 +568,20 @@ make_sandbox() {
     cp "$SCRIPT_DIR/../lib/registered-hooks.sh" "$root/scripts/lib/"
     # The sandbox is its own engine root, so it identifies itself like one.
     cp "$SCRIPT_DIR/../../VERSION" "$root/VERSION" 2>/dev/null || printf '0.0.0-sandbox\n' >"$root/VERSION"
+    _ts1="$(_t)"
     copy_root_scripts "$root"
     chmod +x "$root/scripts/hooks/"*.sh 2>/dev/null || true
+    _ts2="$(_t)"
     write_sandbox_config "$root"
     write_sandbox_settings_local "$root" "1" "head"
+    _ts3="$(_t)"
     gen_sidecars "$root"
+    _ts4="$(_t)"
+    _trec sandbox.hooks     "$_ts0" "$_ts1" copy-hooks
+    _trec sandbox.root      "$_ts1" "$_ts2" copy-root-scripts
+    _trec sandbox.settings  "$_ts2" "$_ts3" write-config-and-settings
+    _trec sandbox.sidecars  "$_ts3" "$_ts4" gen-sidecars
+    _trec sandbox           "$_ts0" "$_ts4" TOTAL
     echo "$root"
 }
 
@@ -598,6 +636,7 @@ run_probe_in() {
 
 emit_case() {
     local name="$1" expected="$2" actual="$3"
+    _trec case "$(_t)" - "$name"
     if [ "$expected" = "$actual" ]; then
         PASS=$((PASS+1))
         printf '  PASS  %s\n' "$name"
@@ -625,6 +664,7 @@ with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 }
 
+_trec run "$(_t)" - START
 echo "=== contract-integrity.test.sh ==="
 echo ""
 
@@ -2474,6 +2514,7 @@ if [ "$rc" -ne 0 ]; then
 fi
 rm -f "$SA2_LOG"
 
+_trec run "$(_t)" - END
 echo ""
 echo "=== summary ==="
 echo "passed: $PASS"
