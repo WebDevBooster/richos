@@ -291,9 +291,13 @@ fi
 #    both, so it reported "skipped (... not found ...)".
 # ===========================================================================
 run session-start-reap-worktrees.sh "$SS" "CLAUDE_PROJECT_DIR=$SESSREPO"
-if printf '%s' "$OUT" | grep -q "worktree reap \[$SESSREPO\]" \
+# The needle is "inventory", not "reap", since 2026-09-03: the wrapper removes
+# nothing and its line reads `worktree inventory [<repo>] (DRY-RUN, ...)`. What
+# this case asserts is unchanged and is the whole point of the root split — the
+# ENGINE's script is found, and the repository it names is the SESSION's.
+if printf '%s' "$OUT" | grep -q "worktree inventory \[$SESSREPO\]" \
    && ! printf '%s' "$OUT" | grep -q 'not found or not executable'; then
-    ok "6a POSITIVE  finds the ENGINE's reaper and sweeps the SESSION's repo"
+    ok "6a POSITIVE  finds the ENGINE's inventory and reads the SESSION's repo"
 else
     bad "6a reaper root split (out=${OUT:0:400})"
 fi
