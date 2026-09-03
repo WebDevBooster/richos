@@ -273,6 +273,48 @@ R --agent "$SID/$A9" >/dev/null 2>&1
 R >/dev/null 2>&1
 [ "$(states "$A10")" = "removed " ] && ok "C25  an unbudgeted run finishes what the budgeted one left" || bad "C25  states=$(states "$A10")"
 
+# --- 11. a PENDING terminal event that can never seal is routed through
+# creation-time cleanup (review 2026-09-03, blocker 4) --------------------------
+# The agent was bound (native+external: the lead prepared an external tree)
+# but its start fact never arrived, and its SubagentStop came first. After the
+# grace period the reconciler builds the transaction from the BOUND record's
+# prepared external member — verified against git exactly as the seal would —
+# and drives it to removed. The native tree, which no start fact ever named,
+# is NOT invented: it stays where it is for the inventory to report.
+A11="a00000000000rc11"
+EXT11="$SANDBOX/other-wt/dev-opus-r11"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$A11" "$ENTITY/.claude/worktrees/agent-$A11"
+git -C "$OTHER" worktree add -q -b dev-opus-r11 "$EXT11"
+printf 'unstaged evidence\n' >"$EXT11/notes.txt"
+printf '{"kind":"native+external","teammate":"dev-opus-r11","externals":[{"repo":"%s","path":"%s","branch":"dev-opus-r11"}]}' "$OTHER" "$EXT11" \
+    | T intent --session-id "$SID" --tool-use-id "tu-$A11" >/dev/null
+T bind --session-id "$SID" --tool-use-id "tu-$A11" --agent-id "$A11" >/dev/null
+T claim --session-id "$SID" --agent-id "$A11" --ingress SubagentStop >/dev/null 2>&1   # unsealed -> pending
+[ -f "$SANDBOX/tx/$SID/pending-terminal/$A11.json" ] || bad "C26-setup  no pending record"
+RICHOS_PENDING_TERMINAL_GRACE=3600 R >/dev/null 2>&1
+if [ -d "$EXT11" ] && [ -f "$SANDBOX/tx/$SID/pending-terminal/$A11.json" ] && ! T show --session-id "$SID" --agent-id "$A11" >/dev/null 2>&1; then
+    ok "C26  within the grace period a pending event waits: no transaction is built, nothing moves"
+else
+    bad "C26  ext=$([ -d "$EXT11" ] && echo present || echo gone) pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A11.json" ] && echo kept || echo gone)"
+fi
+OUT="$(RICHOS_PENDING_TERMINAL_GRACE=0 R 2>&1)"
+SEALED_BY="$(T show --session-id "$SID" --agent-id "$A11" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("sealed_by",""), len(d["members"]), (d.get("terminal") or {}).get("ingress",""))')"
+if [ "$SEALED_BY" = "pending-terminal-fallback 1 SubagentStop" ] && [ "$(states "$A11")" = "removed " ] && [ ! -e "$EXT11" ] \
+   && [ -d "$ENTITY/.claude/worktrees/agent-$A11" ] && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A11.json" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A11/member-0/tree.tar" notes.txt)" = "unstaged evidence" ]; then
+    ok "C27  after the grace period the BOUND record's prepared external member is verified, terminalized and removed with its evidence captured; the never-started native tree is not invented"
+else
+    bad "C27  sealed_by=[$SEALED_BY] states=$(states "$A11") ext=$([ -e "$EXT11" ] && echo present || echo gone) native=$([ -d "$ENTITY/.claude/worktrees/agent-$A11" ] && echo present || echo GONE) out=${OUT:0:200}"
+fi
+# a pending event with NO bound record owned nothing: dropped after grace, nothing touched
+A12="a00000000000rc12"
+T start --session-id "$SID" --agent-id "$A12" --cwd "$ENTITY" >/dev/null
+T claim --session-id "$SID" --agent-id "$A12" --ingress SubagentStop >/dev/null 2>&1
+[ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] || bad "C28-setup  no pending record for the start-only agent"
+RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
+[ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && ! T show --session-id "$SID" --agent-id "$A12" >/dev/null 2>&1 && [ -d "$ENTITY" ] \
+    && ok "C28  a pending event for an agent that was never bound is dropped after grace: no transaction, nothing owned, nothing touched" || bad "C28  pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && echo kept || echo gone)"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="

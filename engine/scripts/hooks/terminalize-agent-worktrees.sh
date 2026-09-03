@@ -101,17 +101,23 @@ elif event == "WorktreeRemove":
         raise SystemExit(0)
     try:
         aid = tx.find_by_native_path(sid, path)
+        if not aid:
+            # No SEALED transaction holds this path. If it is the platform's
+            # native worktree of an agent this session has a bound or start
+            # record for (exact id from the platform's own `agent-<id>`
+            # naming, never a teammate name), the removal is that agent's
+            # terminal event and is recorded as PENDING (blocker 4).
+            aid = tx.find_unsealed_by_native_path(sid, path)
     except Exception as e:
-        sys.stderr.write("could not resolve %s to a sealed transaction: %s\n" % (path, e))
+        sys.stderr.write("could not resolve %s to a transaction: %s\n" % (path, e))
         raise SystemExit(0)
     first_path = path
     ingress = "WorktreeRemove"
 else:
     raise SystemExit(0)
 if not aid:
-    # No sealed transaction owns this: a helper subagent, a read-only type, a
-    # spawn that never bound, or a path RichOS never sealed. Silence, never a
-    # search.
+    # No transaction and no record owns this: a path RichOS never prepared,
+    # bound or started. Silence, never a search.
     raise SystemExit(0)
 
 try:
@@ -120,7 +126,18 @@ except Exception as e:
     sys.stderr.write("claim for agent %s FAILED: %s — nothing was mutated; the next ingress or the reconciler retries.\n" % (aid, e))
     raise SystemExit(0)
 if t is None:
-    raise SystemExit(0)   # unsealed or unknown: nothing bound, nothing to terminalize
+    # Unsealed. The event was NOT discarded (review 2026-09-03, blocker 4): if
+    # this agent has a bound or start record the claim persisted it as a
+    # pending terminal fact keyed by (session_id, agent_id); the manifest
+    # that seals later is terminalized at once by try_seal, and one that
+    # never seals is routed through the reconciler's creation-time cleanup
+    # after PENDING_TERMINAL_GRACE_SECONDS. An agent nobody recorded (a
+    # helper subagent) is silence.
+    p = tx.read_pending_terminal(sid, aid)
+    if p:
+        sys.stderr.write("%s ingress for agent %s: manifest NOT sealed; the terminal event is recorded as PENDING (%s) — it terminalizes automatically once the manifest seals, else the reconciler routes the prepared members through creation-time cleanup after the grace period.\n"
+                         % (ingress, aid, tx.pending_terminal_path(sid, aid)))
+    raise SystemExit(0)
 try:
     t = tx.terminalize(sid, aid, first_path)
 except Exception as e:

@@ -126,21 +126,39 @@ def log(msg):
     sys.stderr.write("reconcile: %s\n" % msg)
 
 
-def disposable_paths(repo):
-    """The committed disposable-path policy: the entity's orchestration.config
-    if it declares one, else the engine's, else the default above."""
-    for cfg in (os.path.join(repo or "", "orchestration.config"),
-                os.path.join(HERE, "..", "orchestration.config")):
+def config_value(key, default, repo=None):
+    """One committed setting: the entity's orchestration.config if it
+    declares it, else the engine's, else the default. Data a reviewer can
+    read, never a constant hidden in code."""
+    for cfg in ([os.path.join(repo, "orchestration.config")] if repo else []) + [os.path.join(HERE, "..", "orchestration.config")]:
         try:
             with open(cfg, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith("CAPTURE_DISPOSABLE_PATHS="):
-                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        return set(val.split())
+                    if line.startswith(key + "="):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
         except OSError:
             continue
-    return set(DEFAULT_DISPOSABLE.split())
+    return default
+
+
+def disposable_paths(repo):
+    """The committed disposable-path policy: the entity's orchestration.config
+    if it declares one, else the engine's, else the default above."""
+    return set(config_value("CAPTURE_DISPOSABLE_PATHS", DEFAULT_DISPOSABLE, repo).split())
+
+
+def pending_terminal_grace():
+    """Seconds a pending terminal event waits for the seal it needs before the
+    reconciler routes the agent's creation-time members through cleanup
+    without it. Env override for tests: RICHOS_PENDING_TERMINAL_GRACE."""
+    v = os.environ.get("RICHOS_PENDING_TERMINAL_GRACE")
+    if v is None or v == "":
+        v = config_value("PENDING_TERMINAL_GRACE_SECONDS", "600")
+    try:
+        return float(v)
+    except ValueError:
+        return 600.0
 
 
 # --------------------------------------------------------------------------
@@ -556,9 +574,97 @@ def notice_once(t, index, msg):
     log("HARD FAILURE (reported once) %s/%s member %s: %s" % (t["session_id"][:8], t["agent_id"], t["members"][index].get("path"), msg))
 
 
+def process_pending_terminals(only=None):
+    """A terminal event recorded before its manifest sealed (review
+    2026-09-03, blocker 4). For each: a transaction that is terminal consumed
+    it; a sealed one is claimed and terminalized now (a crash between seal and
+    claim); otherwise try_seal — which itself consumes the pending event when
+    it succeeds. When nothing can seal and the grace period has passed, the
+    agent's CREATION-TIME ownership — the bound record's prepared external
+    members, verified against git exactly as the seal would have, plus the
+    native member if a start fact names one that still verifies — becomes a
+    fallback transaction that is claimed and terminalized like any other.
+    Nothing is discovered by name; a member that no longer verifies is
+    recorded `failed`/`missing` and counted, never guessed at. A pending
+    record with NO bound record after the grace period owned nothing and is
+    removed."""
+    grace = pending_terminal_grace()
+    handled = 0
+    for sid, aid, p in list(tx.iter_pending_terminals()):
+        if only and "%s/%s" % (sid, aid) != only:
+            continue
+        ppath = tx.pending_terminal_path(sid, aid)
+        t = tx.load_tx(sid, aid)
+        if t and t.get("terminal"):
+            _unlink(ppath); continue
+        if t and t.get("sealed"):
+            tx.claim_terminal(sid, aid, p.get("ingress") or "SubagentStop", detail=p.get("detail") or "", via_pending=p)
+            tx.terminalize(sid, aid, p.get("first_path") or None)
+            _unlink(ppath); handled += 1; continue
+        sealed, res = tx.try_seal(sid, aid)
+        if sealed:
+            handled += 1; continue
+        age = time.time() - float(p.get("epoch") or 0)
+        if age < grace:
+            continue
+        bound = tx.read_bound(sid, aid)
+        if not bound:
+            log("pending terminal for %s/%s: no bound record after %.0fs — nothing was ever owned; record dropped" % (sid[:8], aid, age))
+            _unlink(ppath); continue
+        members = []
+        for e in bound.get("externals") or []:
+            ext, why = tx._verify_external_member(e)
+            if ext is not None:
+                members.append(ext)
+            else:
+                real = tx.norm_path(e.get("path"))
+                members.append({"class": "hand-rolled", "repo": tx.norm_path(e.get("repo")), "path": real,
+                                "branch": e.get("branch") or "", "head_at_seal": "",
+                                "state": "missing" if not os.path.isdir(real) else "failed", "error": why})
+        start = tx.read_start(sid, aid)
+        if (bound.get("kind") or "") in ("native", "native+external") and start:
+            nat, _why = tx._verify_native_member(start.get("cwd_real") or tx.norm_path(start.get("cwd")), aid)
+            if nat is not None:
+                members.insert(0, nat)
+        if not members:
+            log("pending terminal for %s/%s: unbindable after %.0fs (%s) and no creation-time member survives to clean — record kept as unbindable" % (sid[:8], aid, age, res))
+            if not p.get("unbindable"):
+                p["unbindable"] = True; p["unbindable_reason"] = str(res); p["unbindable_ts"] = tx.now_iso()
+                tx.atomic_write_json(ppath, p)
+            continue
+        fallback = {
+            "record": "transaction", "session_id": sid, "agent_id": aid,
+            "tool_use_id": bound.get("tool_use_id"), "teammate": bound.get("teammate") or "",
+            "subagent_type": bound.get("subagent_type") or "", "kind": bound.get("kind") or "",
+            "members": members, "sealed": True, "sealed_ts": tx.now_iso(), "state": "sealed",
+            "sealed_by": "pending-terminal-fallback", "seal_reason": str(res),
+            "start_cwd": (start or {}).get("cwd_real") or "", "terminal": None,
+        }
+        with tx.tx_lock(sid, aid):
+            if tx.load_tx(sid, aid) is None:
+                tx.atomic_write_json(tx.tx_path(sid, aid), fallback)
+        tx.claim_terminal(sid, aid, p.get("ingress") or "SubagentStop", detail=p.get("detail") or "", via_pending=p)
+        tx.terminalize(sid, aid, p.get("first_path") or None)
+        _unlink(ppath)
+        log("pending terminal for %s/%s: unsealable after %.0fs (%s); %d creation-time member(s) routed through cleanup" % (sid[:8], aid, age, res, len(members)))
+        handled += 1
+    return handled
+
+
+def _unlink(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def run(max_seconds=None, only=None):
     deadline = time.time() + max_seconds if max_seconds else None
     n = 0
+    try:
+        n += process_pending_terminals(only)
+    except Exception as e:
+        log("pending terminal pass: %s" % e)
     for t in list(tx.iter_transactions()):
         if not t.get("terminal"):
             continue

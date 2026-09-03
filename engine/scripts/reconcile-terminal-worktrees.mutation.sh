@@ -65,6 +65,16 @@ mutant status-exit-always-zero "C19" "$R" \
     '        return 0' \
     "every caller that checks the exit code would read a dead-present machine as clean."
 
+mutant grace-ignored "C26" "$R" \
+    '        if age < grace:{NL}            continue' \
+    '        if False:{NL}            continue' \
+    "a pending event would be routed through fallback cleanup the instant it was recorded, before the bind or start fact that would have sealed it properly had any chance to arrive (review 2026-09-03, blocker 4)."
+
+mutant fallback-never-built "C27" "$R" \
+    '        with tx.tx_lock(sid, aid):{NL}            if tx.load_tx(sid, aid) is None:{NL}                tx.atomic_write_json(tx.tx_path(sid, aid), fallback)' \
+    '        with tx.tx_lock(sid, aid):{NL}            pass' \
+    "a permanently unbindable agent's prepared worktrees would never be cleaned: the pending event would sit forever and the trees with it."
+
 mutant budget-ignored "C23" "$R" \
     '        if deadline and time.time() > deadline:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \
     '        if False:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \

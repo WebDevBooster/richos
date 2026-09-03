@@ -326,6 +326,33 @@ version heading with Added / Changed / Fixed groupings.
   idempotently; and a test-only crash point after each of the three writes
   proves each is survivable.
 
+- **An unsealed worker's only terminal event was discarded, and the suite
+  asserted it** (`scripts/lib/worktree-transactions.py`
+  `record_pending_terminal`, `claim_terminal`, `try_seal`,
+  `find_unsealed_by_native_path`, `iter_pending_terminals`;
+  `terminalize-agent-worktrees.sh`; `reconcile-terminal-worktrees.py`
+  `process_pending_terminals`; `orchestration.config`
+  `PENDING_TERMINAL_GRACE_SECONDS`; `terminalize-agent-worktrees.test.sh`
+  R21 INVERTED + R21b–R21e, `reconcile-terminal-worktrees.test.sh` C26–C28;
+  mutants `pending-not-recorded`, `seal-ignores-pending`,
+  `worktreeremove-unsealed-ignored`, `pending-for-nobody`, `grace-ignored`,
+  `fallback-never-built`) — PATCH, review 2026-09-03 blocker 4. R21 used to
+  assert that a bound-but-unstarted agent's `SubagentStop` left its worktree
+  present and created no terminal marker; that was the defect written as a
+  test, and it is inverted. Now every attributable terminal event (the
+  session holds a bound or a start record for the exact agent id) is
+  persisted at once as `pending-terminal/<agent_id>.json`, the agent is
+  terminal by policy from that moment, and `try_seal` consumes the pending
+  event the instant the manifest seals — claim, terminalize, quarantine.
+  `WorktreeRemove` for an unsealed native path resolves the platform's own
+  `agent-<id>` to an agent this session has a record for and records the
+  same fact. A pending event nothing can seal within the grace period is
+  routed by the reconciler through creation-time ownership: the bound
+  record's prepared external members, verified against git exactly as the
+  seal would have, plus the native member only if a start fact names one
+  that still verifies — never a name, never a guess. A pending event with no
+  bound record owned nothing and is dropped after grace.
+
 - **Native evidence could be deleted before quarantine: the terminal ingress
   saved every repository's backup ref before renaming anything**
   (`scripts/lib/worktree-transactions.py` `terminalize`;

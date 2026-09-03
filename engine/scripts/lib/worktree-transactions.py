@@ -140,6 +140,14 @@ def terminal_name_path(session_id, teammate):
     return os.path.join(tx_root(), "terminal-names", _seg(session_id, "session_id"), _seg(teammate, "teammate"))
 
 
+def pending_terminal_path(session_id, agent_id):
+    """A terminal event that arrived BEFORE the manifest sealed (review
+    2026-09-03, blocker 4). Keyed by (session_id, agent_id); consumed when the
+    manifest later seals, or routed through the reconciler's creation-time
+    cleanup after PENDING_TERMINAL_GRACE_SECONDS."""
+    return os.path.join(session_dir(session_id), "pending-terminal", _seg(agent_id, "agent_id") + ".json")
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -437,9 +445,42 @@ def _verify_external_member(m):
 
 
 def try_seal(session_id, agent_id):
-    """(sealed, tx_or_reason). Transaction-locked. Both facts — the bound
-    record from the parent's PostToolUse[Agent] and the start record from the
-    worker's own SubagentStart — must exist; they may arrive in either order."""
+    """(sealed, tx_or_reason). Both facts — the bound record from the parent's
+    PostToolUse[Agent] and the start record from the worker's own
+    SubagentStart — must exist; they may arrive in either order.
+
+    A PENDING TERMINAL EVENT IS CONSUMED HERE (review 2026-09-03, blocker 4):
+    if the agent's only terminal event arrived before the manifest could seal,
+    the seal is immediately followed by the claim and the terminalization it
+    would have triggered, and the returned transaction is terminal. The
+    caller that sealed a dead agent's manifest learns it is dead."""
+    sealed, res = _try_seal_locked(session_id, agent_id)
+    if sealed:
+        res = _consume_pending_terminal(session_id, agent_id, res)
+    return sealed, res
+
+
+def _consume_pending_terminal(session_id, agent_id, tx):
+    """Outside the seal lock (claim_terminal and terminalize take it
+    themselves). Idempotent: a pending record with a terminal transaction
+    behind it is simply removed."""
+    p = read_pending_terminal(session_id, agent_id)
+    if not p:
+        return tx
+    if not tx.get("terminal"):
+        won, t2 = claim_terminal(session_id, agent_id, p.get("ingress") or "SubagentStop",
+                                 detail=p.get("detail") or "", via_pending=p)
+        if t2 is not None:
+            tx = terminalize(session_id, agent_id, p.get("first_path") or None) or t2
+    if tx.get("terminal"):
+        try:
+            os.unlink(pending_terminal_path(session_id, agent_id))
+        except OSError:
+            pass
+    return tx
+
+
+def _try_seal_locked(session_id, agent_id):
     with tx_lock(session_id, agent_id):
         tx = load_tx(session_id, agent_id)
         if tx and tx.get("sealed"):
@@ -542,10 +583,44 @@ def _repair_terminal_indexes(tx):
             pass
 
 
-def claim_terminal(session_id, agent_id, ingress, detail=""):
+def record_pending_terminal(session_id, agent_id, ingress, detail="", first_path=""):
+    """Persist an attributable terminal event for an agent whose manifest is
+    NOT sealed (review 2026-09-03, blocker 4). The FIRST event is the terminal
+    one and is kept; a later one changes nothing. The agent-id index is
+    written too: the first SubagentStop is terminal by policy, sealed or not,
+    so the agent is forbidden to return from this moment and the barrier and
+    the resume guard refuse it in O(1). Returns the record."""
+    if not AGENT_ID_RE.match(agent_id or ""):
+        raise ValueError("not an agent id: %r" % (agent_id,))
+    p = pending_terminal_path(session_id, agent_id)
+    existing = read_json(p)
+    if existing:
+        return existing
+    rec = {"record": "pending-terminal", "session_id": session_id, "agent_id": agent_id,
+           "ingress": ingress, "detail": detail, "first_path": first_path or "", "ts": now_iso(),
+           "epoch": time.time()}
+    atomic_write_json(p, rec)
+    try:
+        touch_marker(terminal_index_path(agent_id), session_id + "\n")
+    except ValueError:
+        pass
+    return rec
+
+
+def read_pending_terminal(session_id, agent_id):
+    try:
+        return read_json(pending_terminal_path(session_id, agent_id))
+    except ValueError:
+        return None
+
+
+def claim_terminal(session_id, agent_id, ingress, detail="", via_pending=None):
     """(won, tx). Exactly one caller wins the claim on a sealed transaction;
     every later caller gets (False, tx) and resumes idempotently. An unsealed
-    or unknown agent is (False, None): nothing bound, nothing to terminalize.
+    or unknown agent is (False, None) — and its terminal event is RECORDED as
+    pending (blocker 4), never discarded: the manifest that seals later is
+    terminalized at once, and one that never seals is routed through the
+    reconciler's creation-time cleanup.
 
     ORDER OF WRITES, AND WHY EACH IS SURVIVABLE: the transaction's terminal
     record is written first and is the source of truth; the agent-id index and
@@ -556,11 +631,20 @@ def claim_terminal(session_id, agent_id, ingress, detail=""):
     with tx_lock(session_id, agent_id):
         tx = load_tx(session_id, agent_id)
         if not tx or not tx.get("sealed"):
+            # ATTRIBUTABLE means this lifecycle has a fact about the agent — a
+            # bound record (the lead meant to own something) or a start record
+            # (the binder may still be on its way). An agent id nobody has
+            # ever recorded is silence: a stop event about nobody.
+            if AGENT_ID_RE.match(agent_id or "") and (read_bound(session_id, agent_id) or read_start(session_id, agent_id)):
+                record_pending_terminal(session_id, agent_id, ingress, detail,
+                                        first_path=(detail if ingress == "WorktreeRemove" else ""))
             return False, None
         if tx.get("terminal"):
             _repair_terminal_indexes(tx)
             return False, tx
         tx["terminal"] = {"ingress": ingress, "detail": detail, "ts": now_iso()}
+        if via_pending:
+            tx["terminal"]["via_pending"] = {"ts": via_pending.get("ts"), "ingress": via_pending.get("ingress")}
         tx["state"] = "terminal"
         atomic_write_json(tx_path(session_id, agent_id), tx)
         _crash_point("tx")
@@ -610,6 +694,15 @@ def is_terminal_agent(agent_id, session_id=None):
         if tx and tx.get("record") == "transaction" and tx.get("terminal"):
             _repair_terminal_indexes(tx)
             return True
+        # A pending terminal event (unsealed at the time) is terminal by
+        # policy too; its index write may have been lost to the same crash.
+        pend = read_json(os.path.join(os.path.dirname(p), "pending-terminal", os.path.basename(p)))
+        if pend and pend.get("record") == "pending-terminal":
+            try:
+                touch_marker(terminal_index_path(agent_id), (pend.get("session_id") or "") + "\n")
+            except ValueError:
+                pass
+            return True
     return False
 
 
@@ -647,6 +740,51 @@ def find_by_native_path(session_id, path):
             if norm_path(m.get("quarantine") or "") == want:
                 return tx.get("agent_id") or ""
     return ""
+
+
+def find_unsealed_by_native_path(session_id, path):
+    """The agent id an UNSEALED native worktree belongs to, for recording a
+    pending terminal event (blocker 4) — never for a claim. The platform names
+    its native isolation worktree `agent-<agent_id>`, so the basename IS the
+    platform id; it is accepted only when this session holds a bound record
+    or a start record for that EXACT id. A directory that merely looks like
+    one, with no record behind it, resolves nothing."""
+    want = norm_path(path)
+    base = os.path.basename(want.rstrip("/")) if want else ""
+    if not base.startswith("agent-"):
+        return ""
+    aid = base[len("agent-"):]
+    if not AGENT_ID_RE.match(aid):
+        return ""
+    try:
+        if read_bound(session_id, aid) or read_start(session_id, aid):
+            return aid
+    except ValueError:
+        return ""
+    return ""
+
+
+def iter_pending_terminals():
+    """Every unconsumed pending terminal record, as (session_id, agent_id, record)."""
+    root = tx_root()
+    try:
+        sessions = sorted(os.listdir(root))
+    except OSError:
+        return
+    for s in sessions:
+        pd = os.path.join(root, s, "pending-terminal")
+        if s in ("terminal", "terminal-names") or not os.path.isdir(pd):
+            continue
+        try:
+            names = sorted(os.listdir(pd))
+        except OSError:
+            continue
+        for n in names:
+            if not n.endswith(".json"):
+                continue
+            rec = read_json(os.path.join(pd, n))
+            if rec and rec.get("record") == "pending-terminal":
+                yield s, n[:-5], rec
 
 
 def update_member(session_id, agent_id, index, **fields):
@@ -842,7 +980,12 @@ def metrics():
     denominator: a failed member with a directory present is counted."""
     out = {"transactions": 0, "sealed_live": 0, "terminal": 0, "removed": 0,
            "terminal_members": 0, "terminal_members_present": 0,
-           "pending_retry": 0, "failed": 0, "failed_present": 0}
+           "pending_retry": 0, "failed": 0, "failed_present": 0,
+           "pending_terminals": 0, "pending_terminals_unbindable": 0}
+    for _s, _a, rec in iter_pending_terminals():
+        out["pending_terminals"] += 1
+        if rec.get("unbindable"):
+            out["pending_terminals_unbindable"] += 1
     for tx in iter_transactions():
         out["transactions"] += 1
         if not tx.get("terminal"):
@@ -921,6 +1064,10 @@ def _main(argv):
     p.add_argument("--session-id", required=True)
     p.add_argument("--path", required=True)
 
+    p = sub.add_parser("pending", help="show the pending terminal record, exit 1 if none")
+    p.add_argument("--session-id", required=True)
+    p.add_argument("--agent-id", required=True)
+
     p = sub.add_parser("show")
     p.add_argument("--session-id", required=True)
     p.add_argument("--agent-id", required=True)
@@ -950,10 +1097,14 @@ def _main(argv):
         return 0 if ok else 1
     if a.cmd == "sealed":
         return 0 if is_sealed(a.session_id, a.agent_id) else 1
+    if a.cmd == "pending":
+        rec = read_pending_terminal(a.session_id, a.agent_id)
+        print(json.dumps(rec, sort_keys=True, indent=1)); return 0 if rec else 1
     if a.cmd == "claim":
         won, tx = claim_terminal(a.session_id, a.agent_id, a.ingress, a.detail)
         if tx is None:
-            print(json.dumps({"claimed": False, "reason": "no sealed transaction"})); return 3
+            print(json.dumps({"claimed": False, "reason": "no sealed transaction",
+                              "pending": bool(read_pending_terminal(a.session_id, a.agent_id))})); return 3
         tx = terminalize(a.session_id, a.agent_id, a.first_path or None)
         print(json.dumps({"claimed": won, "transaction": tx}, sort_keys=True))
         return 0 if won else 2

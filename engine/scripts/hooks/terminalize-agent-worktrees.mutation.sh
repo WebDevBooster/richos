@@ -41,9 +41,26 @@ mutant stop-acts-on-teammateidle "R25" "$H" \
     'if event in ("SubagentStop", "", "TeammateIdle", "TaskCompleted"):' \
     "the two diagnostic-only events (never fired for a real agent; 580 fixture rows) would acquire destructive authority."
 
-mutant unsealed-claimed "R21" "$H" \
-    'if t is None:{NL}    raise SystemExit(0)   # unsealed or unknown: nothing bound, nothing to terminalize' \
-    'if t is None:{NL}    tx.touch_marker(tx.terminal_index_path(aid), sid + "\n"); raise SystemExit(0)' \
-    "an agent that never sealed would be sealed and claimed by its own stop event — ownership invented at the moment of death."
+L="scripts/lib/worktree-transactions.py"
+
+mutant pending-not-recorded "R21" "$L" \
+    '            if AGENT_ID_RE.match(agent_id or "") and (read_bound(session_id, agent_id) or read_start(session_id, agent_id)):{NL}                record_pending_terminal(' \
+    '            if False:{NL}                record_pending_terminal(' \
+    "an unsealed worker's only terminal event would be discarded; a later bind or seal could never recover it and the worktree would remain forever (review 2026-09-03, blocker 4)."
+
+mutant seal-ignores-pending "R21b" "$L" \
+    '    sealed, res = _try_seal_locked(session_id, agent_id){NL}    if sealed:{NL}        res = _consume_pending_terminal(session_id, agent_id, res)' \
+    '    sealed, res = _try_seal_locked(session_id, agent_id)' \
+    "a manifest that sealed after its agent's stop would sit sealed and live, with a pending event nobody consumed, until the reconciler's grace period — and the barrier would let the dead agent write meanwhile."
+
+mutant worktreeremove-unsealed-ignored "R21d" "$H" \
+    '            aid = tx.find_unsealed_by_native_path(sid, path)' \
+    '            aid = ""' \
+    "the harness's removal of an unsealed agent's native worktree would be nobody's terminal event; the agent's prepared external members would leak."
+
+mutant pending-for-nobody "R21e" "$L" \
+    '            if AGENT_ID_RE.match(agent_id or "") and (read_bound(session_id, agent_id) or read_start(session_id, agent_id)):' \
+    '            if AGENT_ID_RE.match(agent_id or ""):' \
+    "every helper subagent's stop would leave a pending record and a terminal marker; the store would fill with facts about agents that never owned anything."
 
 mutation_end

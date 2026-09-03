@@ -9,6 +9,7 @@ agent might return. It is forbidden to return."*
 ```
 ~/.claude/state/worktree-transactions/<session_id>/<agent_id>.json   the transaction
 ~/.claude/state/worktree-transactions/<session_id>/{intents,bound,starts}/  its facts
+~/.claude/state/worktree-transactions/<session_id>/pending-terminal/<agent_id>.json  a terminal event that arrived before the seal
 ~/.claude/state/worktree-transactions/terminal/<agent_id>              terminal index
 ~/.claude/state/worktree-captures/<session_id>/<agent_id>/member-N/    the archive
 ~/.claude/state/worktree-ledger.jsonl                                  prepared records
@@ -25,7 +26,8 @@ agent might return. It is forbidden to return."*
 | start fact | `record-subagent-start.sh` (SubagentStart) | `starts/<agent_id>.json` — the worker's exact cwd | never; it cannot block and does not pretend to |
 | seal | `worktree-transactions.py try_seal` (called by both writers above and by the barrier) | `<agent_id>.json` with `sealed: true` | the cwd is not `agent-<id>`, not a linked worktree git lists, or not the prepared external path |
 | write barrier | `guard-sealed-worktree.sh` (PreToolUse, matcherless, first) | nothing | the manifest is not sealed (after waiting `SEAL_WAIT_SECONDS`): every tool but `SEAL_READONLY_TOOLS` is refused; a terminal agent is refused everything |
-| terminal claim | `terminalize-agent-worktrees.sh` (SubagentStop, WorktreeRemove) | `terminal` on the transaction; backup refs; quarantines; the terminal indexes | never blocks; an agent with no sealed transaction produces no claim |
+| terminal claim | `terminalize-agent-worktrees.sh` (SubagentStop, WorktreeRemove) | `terminal` on the transaction; backup refs; quarantines; the terminal indexes — the named native path first, one member at a time | never blocks; an agent with no sealed transaction produces no claim — its event is persisted as `pending-terminal/<agent_id>.json` instead (below) |
+| pending terminal | `worktree-transactions.py claim_terminal` (unsealed) → `try_seal` (consumes) → `reconcile-terminal-worktrees.py process_pending_terminals` (fallback) | `pending-terminal/<agent_id>.json`; the agent-id index (terminal by policy at once) | recorded only for an agent this session has a bound or start record for; consumed the moment the manifest seals; after `PENDING_TERMINAL_GRACE_SECONDS` with no seal, the bound record's prepared members are verified and cleaned as a `pending-terminal-fallback` transaction — no bound record means nothing was owned and the record is dropped |
 | resume refusal | `guard-resume-isolation.sh` (PreToolUse[SendMessage]) | nothing | the recipient's agent id or session-scoped name is terminal — before `resume-ack:`, before protocol bodies |
 | capture → removal | `scripts/reconcile-terminal-worktrees.py` (launchd every `RECONCILE_INTERVAL_SECONDS`; SessionStart with a budget) | member states `captured → verified → unregistered → removed`; the archive | a member has both its original and its quarantine present, or provenance contradicts git: `failed`, reported once, counted as dead-present |
 

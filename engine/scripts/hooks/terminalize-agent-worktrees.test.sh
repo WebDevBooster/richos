@@ -128,14 +128,58 @@ mkdir -p "$ENTITY/.claude/worktrees/agent-stranger0000001"
 run "$(remove_payload "$ENTITY/.claude/worktrees/agent-stranger0000001")"
 [ "$RC" -eq 0 ] && [ -d "$ENTITY/.claude/worktrees/agent-stranger0000001" ] && [ -z "$OUT" ] \
     && ok "R20  WorktreeRemove for a path RichOS never sealed: not adopted, not moved, silent" || bad "R20  rc=$RC: $OUT"
-# a bound-but-unsealed agent (no start fact) is not claimable either
+# --- 4b. an UNSEALED agent's terminal event is REMEMBERED, never discarded ------
+# (review 2026-09-03, blocker 4). Until this revision the assertion here was
+# the opposite: that a bound-but-unstarted agent's SubagentStop left its
+# worktree present AND created no terminal marker — the event was dropped,
+# and a later bind or seal could never recover it. The old assertion was the
+# defect wearing a test's clothes. Now: the event is persisted as PENDING
+# keyed by (session_id, agent_id); the agent is terminal by policy from that
+# moment (first SubagentStop is terminal, sealed or not); nothing is
+# quarantined yet because nothing is sealed; and the moment the manifest
+# seals, the pending event claims and terminalizes it automatically.
 A3="a000000000000t03"
 git -C "$ENTITY" worktree add -q -b "worktree-agent-$A3" "$ENTITY/.claude/worktrees/agent-$A3"
 printf '{"kind":"native","teammate":"dev-opus-t3","externals":[]}' | T intent --session-id "$SID" --tool-use-id "tu-$A3" >/dev/null
 T bind --session-id "$SID" --tool-use-id "tu-$A3" --agent-id "$A3" >/dev/null
 run "$(stop_payload "$A3")"
-[ "$RC" -eq 0 ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && ! T terminal-agent --agent-id "$A3" 2>/dev/null \
-    && ok "R21  an UNSEALED (bound, never started) agent is not claimed and its worktree is not touched" || bad "R21  unsealed claimed"
+if [ "$RC" -eq 0 ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && [ -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ] \
+   && printf '%s' "$OUT" | grep -q 'recorded as PENDING' && T terminal-agent --agent-id "$A3" >/dev/null 2>&1; then
+    ok "R21  an UNSEALED (bound, never started) agent's SubagentStop is PERSISTED as pending, the agent is terminal by policy, and its worktree is not touched yet (nothing is sealed)"
+else
+    bad "R21  rc=$RC pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ] && echo yes || echo no) terminal=$(T terminal-agent --agent-id "$A3" >/dev/null 2>&1 && echo yes || echo no) out=${OUT:0:160}"
+fi
+# the start fact arrives late (the race the review names): sealing consumes the
+# pending event — the transaction is claimed, the worktree quarantined
+T start --session-id "$SID" --agent-id "$A3" --cwd "$ENTITY/.claude/worktrees/agent-$A3" >/dev/null
+T seal --session-id "$SID" --agent-id "$A3" >/dev/null 2>&1
+ING3="$(T show --session-id "$SID" --agent-id "$A3" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); t=d.get("terminal") or {}; print(t.get("ingress",""), "via" if t.get("via_pending") else "direct")')"
+if [ "$ING3" = "SubagentStop via" ] && [ ! -d "$ENTITY/.claude/worktrees/agent-$A3" ] && [ -d "$(q "$ENTITY/.claude/worktrees/agent-$A3" "$A3")" ] \
+   && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ]; then
+    ok "R21b ...and when the manifest later SEALS, the pending event claims it (ingress SubagentStop, via pending), quarantines the worktree and is consumed"
+else
+    bad "R21b ingress=[$ING3] orig=$([ -d "$ENTITY/.claude/worktrees/agent-$A3" ] && echo present || echo gone) pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A3.json" ] && echo kept || echo consumed)"
+fi
+run "$(stop_payload "$A3")"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'resumed the claim' && ok "R21c ...and a later SubagentStop resumes the same transaction (idempotent)" || bad "R21c rc=$RC: ${OUT:0:120}"
+# WorktreeRemove for the native path of an UNSEALED agent this session has a
+# record for: the exact platform id in `agent-<id>`, accepted only because a
+# bound record exists for it; the removal is recorded as pending too
+A3B="a000000000000t3b"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$A3B" "$ENTITY/.claude/worktrees/agent-$A3B"
+printf '{"kind":"native","teammate":"dev-opus-t3b","externals":[]}' | T intent --session-id "$SID" --tool-use-id "tu-$A3B" >/dev/null
+T bind --session-id "$SID" --tool-use-id "tu-$A3B" --agent-id "$A3B" >/dev/null
+run "$(remove_payload "$ENTITY/.claude/worktrees/agent-$A3B")"
+if [ "$RC" -eq 0 ] && [ -f "$SANDBOX/tx/$SID/pending-terminal/$A3B.json" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A3B" ] \
+   && [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ingress"])' "$SANDBOX/tx/$SID/pending-terminal/$A3B.json")" = "WorktreeRemove" ]; then
+    ok "R21d WorktreeRemove for an unsealed-but-bound agent's native path is recorded as a pending WorktreeRemove (exact platform id; nothing moved)"
+else
+    bad "R21d rc=$RC pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A3B.json" ] && echo yes || echo no) out=${OUT:0:160}"
+fi
+# an agent with NO record of any kind (a helper subagent) still produces nothing
+run "$(stop_payload "aba6d9fa03bc418f4")"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/aba6d9fa03bc418f4.json" ] \
+    && ok "R21e an agent with neither a bound nor a start record gets NO pending record (a stop event about nobody is silence)" || bad "R21e rc=$RC out=${OUT:0:120}"
 
 # --- 5. a reused name in a LATER session matches nothing ------------------------
 SID2="22222222-0000-4000-8000-000000000002"
