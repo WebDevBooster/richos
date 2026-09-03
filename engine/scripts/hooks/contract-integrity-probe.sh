@@ -585,8 +585,12 @@ MT_Q_EOF
 #
 # WHAT THIS LAYER ASSERTS, and why each half is here:
 #
-#   1. the guard exists, is executable and is hash-matched — Layer C already
-#      pins its CHAIN POSITION, so what is left is the file itself;
+#   1. the guard exists and is executable. Its CONTENT is deliberately NOT
+#      hashed here: Layer C (seated) and BR2 (by-reference) already pin its path
+#      and hash under REPO_ROOT, and a second hash under ENGINE_ROOT is a false
+#      failure rather than a belt — a probe run FROM A LINKED WORKTREE keeps
+#      ENGINE_ROOT at the worktree, which carries no scripts/hooks/*.sha256
+#      until install.sh has run inside it;
 #   2. scripts/lib/resolve-model.sh is present and hash-matched. It is not a
 #      hook and appears in no hook table, and BOTH the spawn guard and this one
 #      take their entire answer to "which model does this spawn boot on" out of
@@ -613,26 +617,38 @@ run_layer_MC() {
     MC_TIERS_LIB="$ENGINE_ROOT/scripts/lib/model-tiers.sh"
     MC_OK=1
 
-    for mc_f in "$MC_GUARD" "$MC_RESOLVER"; do
-        if [ ! -f "$mc_f" ]; then
-            emit_fail "MC. the cost-ceiling gate is MISSING a half: $mc_f. Without the guard nothing refuses a spawn above the declared ceiling; without scripts/lib/resolve-model.sh neither this guard NOR the spawn guard can tell which model a spawn boots on."
-            MC_OK=0
-            continue
-        fi
-        mc_live="$(sha256_of "$mc_f" 2>/dev/null || true)"
-        mc_want="$(manifest_hash_of "$mc_f" 2>/dev/null || true)"
-        if [ -z "$mc_want" ]; then
-            emit_fail "MC. cost-ceiling file unhashed: $mc_f.sha256 missing — run scripts/hooks/install.sh to regenerate."
-            MC_OK=0
-        elif [ -n "$mc_live" ] && [ "$mc_live" != "$mc_want" ]; then
-            emit_fail "MC. cost-ceiling file MODIFIED since install: $mc_f (sha256 $mc_live != manifest $mc_want). Every ceiling verdict — and every model-truthfulness verdict the spawn guard issues — comes out of these two files. Review the change, then re-run scripts/hooks/install.sh."
-            MC_OK=0
-        fi
-    done
-
-    if [ "$MC_OK" -eq 1 ] && [ ! -x "$MC_GUARD" ]; then
+    # THE GUARD: present and executable, NOT hashed here. Its content hash is
+    # already pinned twice — Layer C pins it as a member of the PreToolUse[Agent]
+    # chain in seated mode, BR2 in by-reference mode — and both read it under
+    # REPO_ROOT, where the sidecars live. Hashing it AGAIN under ENGINE_ROOT is
+    # not redundancy, it is a false failure: a probe invoked FROM A LINKED
+    # WORKTREE resolves REPO_ROOT back to the main checkout but keeps
+    # ENGINE_ROOT at the worktree, and a real linked worktree carries NO
+    # scripts/hooks/*.sha256 at all until install.sh has been run inside it.
+    # Layer MT makes the same distinction for the same reason and only checks
+    # its guard is executable. (The RESOLVER below IS hashed here, because
+    # nothing else hashes it: it is not a hook and appears in no hook table.)
+    if [ ! -f "$MC_GUARD" ]; then
+        emit_fail "MC. the cost-ceiling guard is MISSING: $MC_GUARD. Nothing refuses a spawn above the declared ceiling."
+        MC_OK=0
+    elif [ ! -x "$MC_GUARD" ]; then
         emit_fail "MC. the cost-ceiling guard is not executable: $MC_GUARD. A hook the shell cannot run is a hook that enforces nothing, and the chain does not notice."
         MC_OK=0
+    fi
+
+    if [ ! -f "$MC_RESOLVER" ]; then
+        emit_fail "MC. the shared model resolver is MISSING: $MC_RESOLVER. Without it neither the cost-ceiling guard NOR the spawn guard can tell which model a spawn boots on — one refuses to start, the other announces that the ceiling is off."
+        MC_OK=0
+    else
+        mc_live="$(sha256_of "$MC_RESOLVER" 2>/dev/null || true)"
+        mc_want="$(manifest_hash_of "$MC_RESOLVER" 2>/dev/null || true)"
+        if [ -z "$mc_want" ]; then
+            emit_fail "MC. shared model resolver unhashed: $MC_RESOLVER.sha256 missing — run scripts/hooks/install.sh to regenerate."
+            MC_OK=0
+        elif [ -n "$mc_live" ] && [ "$mc_live" != "$mc_want" ]; then
+            emit_fail "MC. shared model resolver MODIFIED since install: $MC_RESOLVER (sha256 $mc_live != manifest $mc_want). Every ceiling verdict AND every model-truthfulness verdict the spawn guard issues starts from this one file. Review the change, then re-run scripts/hooks/install.sh."
+            MC_OK=0
+        fi
     fi
 
     # The DECLARATION. Undeclared -> WARN (unconfigured, and announced at every
@@ -732,7 +748,7 @@ MC_Q_EOF
                 # declared one, and the warning above is the finding.
                 MC_DECL_NOTE="cost ceiling mechanism proven in a sandbox (this repository declares NO ceiling — see the warning above)"
             fi
-            emit_pass "MC. ${MC_DECL_NOTE}, guard + shared model resolver hash-matched, and the guard REFUSES one tier above naming the remedy, is SILENT at the ceiling, and ANNOUNCES when no ceiling is declared (three-sided canary)"
+            emit_pass "MC. ${MC_DECL_NOTE}, guard present and executable, shared model resolver hash-matched, and the guard REFUSES one tier above naming the remedy, is SILENT at the ceiling, and ANNOUNCES when no ceiling is declared (three-sided canary)"
         fi
     fi
 }
