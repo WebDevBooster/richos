@@ -15,6 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mutation_begin "terminalize-agent-worktrees (the terminal ingress)" "scripts/hooks/terminalize-agent-worktrees.test.sh"
 
 H="scripts/hooks/terminalize-agent-worktrees.sh"
+L="scripts/lib/worktree-transactions.py"
 
 mutant worktreeremove-ignored "R14" "$H" \
     'elif event == "WorktreeRemove":{NL}    path = str(d.get("worktree_path") or d.get("path") or d.get("cwd") or "")' \
@@ -27,7 +28,7 @@ mutant worktreeremove-adopts-stranger "R20" "$H" \
     "a path RichOS never sealed would be resolved to SOME sealed transaction and acted on — exact-path resolution is what keeps a stranger's directory out of every claim."
 
 mutant claim-not-made "R07" "$H" \
-    '    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or ""))' \
+    '    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or (detail if ingress == "TaskStop" else "")))' \
     '    won, t = False, tx.load_tx(sid, aid)' \
     "no terminal record would ever be written; the resume guard and the write barrier would never learn the agent is over."
 
@@ -36,12 +37,30 @@ mutant terminalize-not-run "R05" "$H" \
     '    t = tx.load_tx(sid, aid)' \
     "the claim would be recorded and nothing quarantined; the harness's own removal would delete uncaptured bytes."
 
+mutant stop-promotes-cwd-to-owner "R28" "$H" \
+    'if event in ("SubagentStop", ""):{NL}    aid = str(d.get("agent_id") or "")' \
+    'if event in ("SubagentStop", ""):{NL}    aid = str(d.get("agent_id") or ""){NL}    if aid and not tx.load_tx(sid, aid):{NL}        aid = tx.find_by_native_path(sid, str(d.get("cwd") or "")) or aid' \
+    "a nested or helper agent stopping inside a LIVE teammate's cwd would terminalize the teammate — measured 2026-09-03: nine such stops fired in one live worker's cwd in eight minutes (CEO specification, terminal-authority recommendation section 2)."
+
+mutant taskstop-ignored "R30" "$H" \
+    'elif event == "PostToolUse":' \
+    'elif False:' \
+    "the one exact join the platform supplies for a killed worker — the task id its TaskStop result returns — would go unconsumed, and the killed worker's cross-repository worktree would leak, as it did on 2026-09-03 (CEO specification, section 1)."
+
+mutant taskstop-error-accepted "R36" "$L" \
+    '    if obj.get("is_error") or obj.get("error") or obj.get("success") is False:{NL}        return ""' \
+    '    if False:{NL}        return ""' \
+    "a FAILED TaskStop whose error result still echoed a task id would terminalize a worker the platform did not stop."
+
+mutant taskstop-scrapes-prose "R35" "$L" \
+    '    tid = obj.get("task_id"){NL}    if not isinstance(tid, str) or not AGENT_ID_RE.match(tid):' \
+    '    tid = obj.get("task_id"){NL}    if not tid:{NL}        _m = re.search(r"Successfully stopped task: ([A-Za-z0-9_-]+)", str(obj.get("message") or "")){NL}        tid = _m.group(1) if _m else None{NL}    if not isinstance(tid, str) or not AGENT_ID_RE.match(tid):' \
+    "the human-readable success sentence would be authority; a message that merely mentions an id would terminalize it (the specification forbids scraping the sentence when the structured id is absent)."
+
 mutant stop-acts-on-teammateidle "R25" "$H" \
     'if event in ("SubagentStop", ""):' \
     'if event in ("SubagentStop", "", "TeammateIdle", "TaskCompleted"):' \
-    "the two diagnostic-only events (never fired for a real agent; 580 fixture rows) would acquire destructive authority."
-
-L="scripts/lib/worktree-transactions.py"
+    "an UNMEASURED event (TeammateIdle has never fired live on this machine: 1,171 rows on 2026-09-03, all fixtures) would acquire destructive authority before any field of it is proven to join to the ownership id — the CEO specification (section 3) forbids exactly that."
 
 mutant pending-not-recorded "R21" "$L" \
     '            if AGENT_ID_RE.match(agent_id or "") and (read_bound(session_id, agent_id) or read_start(session_id, agent_id)):{NL}                record_pending_terminal(' \

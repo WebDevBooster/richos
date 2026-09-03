@@ -104,4 +104,9 @@ mutant half-sealed-passes "G08" "$G" \
     '    if sealed or "no start record" in str(res):{NL}        # The sealed transaction is re-read for a terminal record: sealing' \
     "a worker whose start was never recorded would write before its native member is known — the member would have to be invented later."
 
+mutant exemption-before-terminal "G26" "$G" \
+    'try:{NL}    if tx.is_terminal_agent(aid, sid):' \
+    'bare0 = atype.split(":", 1)[1] if ":" in atype else atype{NL}if bare0 and bare0 in set((os.environ.get("READONLY_ALLOWLIST") or "").split()) | set((os.environ.get("HARNESS_UTILITY_TYPES") or "").split()):{NL}    out("EXEMPT", "early exemption restored"){NL}try:{NL}    if tx.is_terminal_agent(aid, sid):' \
+    "a terminal read-only agent would pass the barrier for Read, Bash and any unknown tool because its type was exempted before its terminal state was read; terminal finality would depend on a different guard running first (landed review 2026-09-03, blocker 5)."
+
 mutation_end

@@ -561,6 +561,26 @@ if applied M20 "the reconciler contract unchecked (clause 7e deleted)" \
 fi
 fi
 
+# --- M21: the external-only refusal deleted (clause 7f, CEO specification
+# 2026-09-03 section 6) — a cwd-only file-writing spawn would be allowed again,
+# owning hand-rolled worktrees with no platform-owned lifecycle witness: the
+# exact shape that leaked zach-opus-b1's richos worktree on 2026-09-03.
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'if kind == "cwd":\n    # 7f. EXTERNAL-ONLY WORKERS ARE REFUSED'
+assert old in s, "clause 7f anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, 'if kind == "cwd" and False:\n    # 7f. EXTERNAL-ONLY WORKERS ARE REFUSED', 1))
+PY
+if applied M21 "the external-only refusal deleted (clause 7f)" \
+   && alive M21 "the external-only refusal deleted (clause 7f)"; then
+    check M21 "the external-only refusal deleted (clause 7f)" \
+        "cwd into a REGISTERED cross-repo worktree, no isolation -> BLOCKED" \
+        "Q02"
+fi
+
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
 # hold under every mutation above because they assert that the NORMAL path is
 # still normal, and every mutant here changes an ABNORMAL path:
