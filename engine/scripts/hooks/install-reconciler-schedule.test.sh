@@ -75,6 +75,79 @@ else
     bad "S10  rc=$RC out=${OUT:0:200}"
 fi
 
+# 4. THE LEAK OF 2026-09-03. --force-engine-pointer is the POINTER's escape
+# hatch, and install.sh computed the ephemeral/worktree facts only when it was
+# off — so a forced run from a temp checkout with a faked HOME (exactly
+# global-state-witness.test.sh case c4) fell through every withholding branch
+# and ran a REAL `launchctl bootstrap gui/<uid>` on a plist inside the fake
+# home. The job outlived the temp directory: gui/501/com.richos.worktree-
+# reconciler, RunAtLoad, every 300s, program path already deleted, found by
+# `launchctl list` on the operator's machine. Two rules follow, each asserted
+# below: the force flag governs the pointer and NOTHING else, and a HOME that
+# is not this account's passwd home is a test — gui/<uid> is per-account and
+# reads nothing from $HOME. launchctl is SHIMMED for these cases, so a
+# regression can never re-create the leak they exist to catch; that the shim is
+# the launchctl which resolves is asserted too, or an empty log proves nothing.
+SHIM="$SANDBOX/shim"; mkdir -p "$SHIM"
+cat >"$SHIM/launchctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${LAUNCHCTL_SHIM_LOG:?}"
+exit 0
+SH
+chmod +x "$SHIM/launchctl"
+SHIMLOG="$SANDBOX/launchctl.log"
+RESOLVED="$(env PATH="$SHIM:$PATH" bash -c 'command -v launchctl')"
+FAKEHOME="$SANDBOX/home"; mkdir -p "$FAKEHOME/.claude"
+FAKEPLIST="$FAKEHOME/Library/LaunchAgents/com.richos.worktree-reconciler.plist"
+OUT="$(env -u CLAUDE_CONFIG_DIR HOME="$FAKEHOME" PATH="$SHIM:$PATH" LAUNCHCTL_SHIM_LOG="$SHIMLOG" \
+        bash "$ENG/scripts/hooks/install.sh" --force-engine-pointer 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'reconciler NOT scheduled' && [ ! -e "$FAKEPLIST" ]; then
+    ok "S11  --force-engine-pointer from a temp checkout with a faked HOME: exit 0, NOT scheduled, no plist under the fake home"
+else
+    bad "S11  rc=$RC plist=$([ -e "$FAKEPLIST" ] && echo WRITTEN || echo absent) out=${OUT:0:300}"
+fi
+if [ "$RESOLVED" = "$SHIM/launchctl" ] && [ ! -s "$SHIMLOG" ]; then
+    ok "S12  ...and launchctl was never invoked (the shim at $SHIM/launchctl is the one that resolves, and its log is empty)"
+else
+    bad "S12  resolved=$RESOLVED log=$(cat "$SHIMLOG" 2>/dev/null | tr '\n' ';')"
+fi
+printf '%s' "$OUT" | grep -q "not this account's home" && ok "S13  ...and the refusal names the faked HOME as the reason" || bad "S13  out=${OUT:0:300}"
+[ -L "$FAKEHOME/.claude/richos-engine" ] && ok "S14  ...while the forced POINTER was still minted — the flag governs the pointer and nothing else" || bad "S14  the escape hatch must still mint the pointer"
+
+# 5. the same force flag, the operator's real HOME, and the engine inside a
+# LINKED GIT WORKTREE of a throwaway repository. The worktree fact comes from
+# git alone (private --git-dir != shared --git-common-dir), so it is the one
+# withholding wall that neither the fake-HOME wall nor the sandboxed-config
+# wall can stand in for — which makes this the case that isolates the fix:
+# the fact must be computed whether or not the pointer step was forced past it.
+# (The ephemeral rule is deliberately narrow — it only fires when the config
+# dir IS the real ~/.claude — so with this suite's sandboxed config dir it is
+# the sandbox wall that would catch a forced temp checkout, and that proves
+# nothing about the flag.)
+WTREPO="$SANDBOX/wt-repo"
+git init -q -b main "$WTREPO" 2>/dev/null
+# The seed commit is made with plumbing (commit-tree + update-ref), which runs
+# no hooks: a porcelain `git commit` here is refused on any machine whose
+# global pre-commit identity guard rejects a throwaway author, and the case
+# must not depend on what that machine's hooks think of a fixture.
+WT_TREE="$(git -C "$WTREPO" hash-object -w -t tree /dev/null 2>/dev/null)"
+WT_SEED="$(git -C "$WTREPO" -c user.name=t -c user.email=t@t commit-tree "$WT_TREE" -m seed 2>/dev/null)"
+git -C "$WTREPO" update-ref refs/heads/main "$WT_SEED" 2>/dev/null
+git -C "$WTREPO" worktree add -q -b linked "$SANDBOX/wt-linked" 2>/dev/null
+ENG2="$SANDBOX/wt-linked/engine"
+mkdir -p "$ENG2/.claude"
+cp -R "$ENG/scripts" "$ENG2/scripts"; cp -R "$ENG/hooks" "$ENG2/hooks"
+cp "$ENG/orchestration.config" "$ENG2/orchestration.config"; cp "$ENG/.claude/settings.local.json" "$ENG2/.claude/"; cp "$ENG/VERSION" "$ENG2/VERSION"
+find "$ENG2" -name '*.sha256' -delete
+: >"$SHIMLOG"
+OUT="$(env PATH="$SHIM:$PATH" LAUNCHCTL_SHIM_LOG="$SHIMLOG" bash "$ENG2/scripts/hooks/install.sh" --force-engine-pointer 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'ephemeral or a linked worktree' && [ ! -s "$SHIMLOG" ]; then
+    ok "S15  --force-engine-pointer from a LINKED WORKTREE with the real HOME: the worktree fact is still computed, NOT scheduled, launchctl untouched"
+else
+    bad "S15  rc=$RC log=$(cat "$SHIMLOG" 2>/dev/null | tr '\n' ';') out=${OUT:0:300}"
+fi
+[ -L "$CLAUDE_CONFIG_DIR/richos-engine" ] && ok "S16  ...and the forced pointer was minted into the sandboxed config dir (positive control: the force did its own job)" || bad "S16  the escape hatch must still mint the pointer"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== install-reconciler-schedule tests: $FAIL FAILED, $PASS passed ==="

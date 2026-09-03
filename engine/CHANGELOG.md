@@ -292,6 +292,18 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **`install.sh --force-engine-pointer` scheduled the reconciler from a test
+  fixture** (`scripts/hooks/install.sh`; `install-reconciler-schedule.test.sh`
+  S11–S16) — PATCH. The ephemeral/worktree facts were computed only when the
+  flag was off, and the launchd step read them; a forced run from a temp
+  checkout with a redirected HOME (`global-state-witness.test.sh` c4) passed
+  every withholding branch and bootstrapped `gui/<uid>/com.richos.worktree-
+  reconciler` at a directory deleted a second later. The facts are now
+  computed unconditionally and the flag governs the pointer alone; a HOME that
+  is not the account's passwd home withholds the schedule outright, because
+  `gui/<uid>` is per-account and cannot see a redirected HOME; the suite shims
+  `launchctl` so it can never re-create the leak it catches.
+
 - **The evidence collector read the wrong repository's directory list and
   mirrored into the wrong checkout** (`scripts/collect-worktree-artifacts.sh`;
   new `scripts/collect-worktree-artifacts.test.sh`) — PATCH by

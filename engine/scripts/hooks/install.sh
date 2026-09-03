@@ -507,7 +507,13 @@ echo "✓ refreshed hook sha256 manifests"
 # before this paragraph existed.
 POINTER_IN_WORKTREE=0
 POINTER_MAIN_HINT=""
-if [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
+# The FACT is computed whether or not --force-engine-pointer is set; the flag
+# is consulted where the POINTER decision is made, below, and nowhere else.
+# Until 2026-09-03 this block was skipped under the flag, which left the flag
+# at 0 for every later reader — and the launchd step reads it. A forced run
+# from a temp checkout therefore scheduled a machine-wide job at a directory
+# that was deleted a second later (install-reconciler-schedule.test.sh S11).
+if true; then
     _PTR_GIT_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
     _PTR_GIT_COMMON="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
     if [ -n "$_PTR_GIT_DIR" ] && [ -n "$_PTR_GIT_COMMON" ] && [ "$_PTR_GIT_DIR" != "$_PTR_GIT_COMMON" ]; then
@@ -556,7 +562,9 @@ ENGINE_POINTER="$ENGINE_CONFIG_DIR/richos-engine"
 # it exists for the worktree case: there is a legitimate need (exercising
 # pointer behavior itself) and an opt-in flag leaves a record in shell history.
 POINTER_EPHEMERAL=0
-if [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
+# Computed unconditionally, for the reason given at POINTER_IN_WORKTREE: the
+# force flag decides the pointer step only, and the launchd step reads this.
+if true; then
     _PTR_PHYS="$( (cd "$REPO_ROOT" 2>/dev/null && pwd -P) || printf '%s' "$REPO_ROOT" )"
     _PTR_CFG="$( (cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P) || printf '%s' "$ENGINE_CONFIG_DIR" )"
     _PTR_HOME_CFG="$( (cd "$HOME/.claude" 2>/dev/null && pwd -P) || printf '%s' "$HOME/.claude" )"
@@ -574,7 +582,7 @@ if [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
     fi
 fi
 
-if [ "$POINTER_EPHEMERAL" -eq 1 ]; then
+if [ "$POINTER_EPHEMERAL" -eq 1 ] && [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
     echo "NOTE: engine pointer SKIPPED — this checkout is EPHEMERAL:" >&2
     echo "        $REPO_ROOT" >&2
     echo "      and $ENGINE_POINTER is the OPERATOR'S REAL pointer, which every session and" >&2
@@ -586,7 +594,7 @@ if [ "$POINTER_EPHEMERAL" -eq 1 ]; then
     echo "      If you are testing pointer behavior, borrow a scratch one instead — it costs" >&2
     echo "      nothing:  CLAUDE_CONFIG_DIR=\$(mktemp -d) install.sh" >&2
     echo "      To repoint the real one from HERE anyway, deliberately:  install.sh --force-engine-pointer" >&2
-elif [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
+elif [ "$POINTER_IN_WORKTREE" -eq 1 ] && [ "$FORCE_ENGINE_POINTER" -ne 1 ]; then
     echo "NOTE: engine pointer SKIPPED — this checkout is a LINKED GIT WORKTREE:" >&2
     echo "        $REPO_ROOT" >&2
     echo "      $ENGINE_POINTER is unchanged, which is what you want: a worktree is removed at" >&2
@@ -621,13 +629,24 @@ fi
 # waits for a later session start and no human is asked to run anything
 # (docs/plans/worktree-real-fix-2026-09-03.md, "Capture and removal").
 #
-# It is withheld under EXACTLY the conditions the engine pointer is withheld —
-# a linked worktree, an ephemeral checkout, a sandboxed CLAUDE_CONFIG_DIR — for
-# the same reason: this is a machine-wide registration and a test fixture must
-# never be able to point it at a directory that is deleted a second later. It
-# is also withheld on a non-macOS host (launchd is macOS), with a note naming
-# what to schedule instead. RICHOS_LAUNCH_AGENTS_DIR redirects the plist for
-# tests, in which case launchctl is never invoked.
+# It is withheld under the conditions the engine pointer is withheld — a linked
+# worktree, an ephemeral checkout, a sandboxed CLAUDE_CONFIG_DIR — for the same
+# reason: this is a machine-wide registration and a test fixture must never be
+# able to point it at a directory that is deleted a second later. UNLIKE the
+# pointer, --force-engine-pointer does not open a way through: the flag is the
+# pointer's escape hatch and governs nothing here. On 2026-09-03 it did — the
+# ephemeral/worktree facts were only computed when the flag was off — and a
+# test's forced run from a temp checkout bootstrapped gui/501/
+# com.richos.worktree-reconciler at a path that was gone a second later; the
+# job survived, RunAtLoad, every 300s, until somebody ran `launchctl list`.
+# One more wall the pointer does not need: HOME must be this account's passwd
+# home. A redirected HOME is a test fixture by definition, and the sandbox
+# check below (config dir == $HOME/.claude) cannot see it, because both sides
+# of that comparison move together. gui/<uid> is per-account and reads nothing
+# from $HOME, so a plist under any other home is a machine-wide job aimed at a
+# fixture. It is also withheld on a non-macOS host (launchd is macOS), with a
+# note naming what to schedule instead. RICHOS_LAUNCH_AGENTS_DIR redirects the
+# plist for tests, in which case launchctl is never invoked.
 # `|| true` IS LOAD-BEARING under `set -eo pipefail`, which this script runs.
 # Without it, an engine checkout with no orchestration.config (every fixture in
 # locate-engine.test.sh and global-state-witness.test.sh, and any adopter tree
@@ -673,6 +692,10 @@ if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
 elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
     # A redirected plist directory is a test: write the definition, never load it.
     write_reconciler_plist && echo "✓ reconciler plist written (not loaded: RICHOS_LAUNCH_AGENTS_DIR is set) -> $LAUNCHD_PLIST"
+elif LAUNCHD_ACCOUNT_HOME="$("$PYTHON_BIN" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"; \
+     [ -z "$LAUNCHD_ACCOUNT_HOME" ] \
+     || [ "$( (cd "$HOME" 2>/dev/null && pwd -P) || printf '%s' "$HOME" )" != "$( (cd "$LAUNCHD_ACCOUNT_HOME" 2>/dev/null && pwd -P) || printf '%s' "$LAUNCHD_ACCOUNT_HOME" )" ]; then
+    echo "NOTE: reconciler NOT scheduled — HOME ($HOME) is not this account's home (${LAUNCHD_ACCOUNT_HOME:-unresolvable}); a redirected HOME is a test fixture, and gui/$(id -u) is machine-wide. (install.sh)" >&2
 elif [ "$POINTER_EPHEMERAL" -eq 1 ] || [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
     echo "NOTE: reconciler NOT scheduled from this checkout (ephemeral or a linked worktree) — the schedule would point at a directory that goes away. Run install.sh from the main checkout to schedule it. (install.sh)" >&2
 elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then

@@ -48,8 +48,10 @@ lists every transaction with its member states; `show` prints one.
 launchctl print gui/$(id -u)/com.richos.worktree-reconciler
 ```
 shows the scheduled job; `scripts/hooks/install.sh` from the main checkout
-installs it (withheld from a worktree, an ephemeral checkout, or a sandboxed
-`CLAUDE_CONFIG_DIR`, for the engine-pointer reason).
+installs it (withheld from a worktree, an ephemeral checkout, a sandboxed
+`CLAUDE_CONFIG_DIR`, or a HOME that is not the account's own, for the
+engine-pointer reason — and `--force-engine-pointer` does not open a way
+through: `gui/<uid>` is machine-wide, and the flag governs the pointer only).
 
 ## Recovering work
 
