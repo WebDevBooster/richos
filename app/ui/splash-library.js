@@ -10,10 +10,12 @@
 // THERE ARE EXACTLY TWO, AND THAT IS THE WHOLE APPROVED SET
 // ================================================================================
 //
-// CEO, 2026-09-01, verbatim: *"I have never fucking approved more than 2 splash screens.
-// The other MOCKUP DESIGNS ARE NOT FUCKING READY FOR USE IN SPLASH SCREENS YET."*
+// Ruled by the owner, 2026-09-01: exactly two splash screens are approved, and the other
+// mockup designs are NOT approved for use as splash screens. The ruling's own wording is in
+// the private record (`wiki/ceo-decisions.md`, "The splash screens"); this file is the set it
+// produced.
 //
-// So this file holds his two and nothing else:
+// So this file holds those two and nothing else:
 //
 //   round-11/v1   SPLASH SCREEN #1 — the ruled dark standard, with the loading bar drawn as
 //                 the `.rule` at the width of the plinth, striking along its own unstruck
@@ -25,18 +27,17 @@
 //                 border's 10.5px pitch. Composition from round-8.1/v7.
 //
 // WHAT WAS REMOVED, AND WHY IT WAS NOT A DEMOTION. Until this commit this file shipped
-// EIGHTEEN entries lifted from round 8.1. Round 8.1 was approved as a PALETTE and visual
-// standard (`richos-hq/wiki/ceo-decisions.md` §14 — `the actual colour palette for dark
-// mode in general as well as the overall design of the page elements`), and that approval
-// was read here as an approval of eighteen splash screens. It was not one. The two entries
-// above are the only compositions the CEO has ever approved AS splash screens, and they
-// were commissioned as splash screens, with a loading bar, in round 11. The other sixteen
-// remain exactly where they were approved: as studies in richos-hq, unchanged.
+// EIGHTEEN entries lifted from round 8.1. Round 8.1 was approved as a PALETTE and a visual
+// standard — the dark-mode palette and the overall design of the page elements — and that
+// approval was read here as an approval of eighteen splash screens. **A palette approval is
+// not a splash-screen approval**, and that laundering is the defect this file exists to
+// prevent. The two entries above are the only compositions ever approved AS splash screens,
+// and they were commissioned as such, with a loading bar, in round 11. The other sixteen
+// remain exactly where they were approved: as studies in the private record, unchanged.
 //
-// IT IS STILL AN ARRAY, AND IT GROWS. His words: *"eventually, there will be many splash
-// screens added to the array where the splash screen will be randomly picked for the user
-// (and sometimes semi-randomly or deterministically picked for a user based on certain
-// criteria)"*. Nothing here or in `splash.js` knows the number two: the selection rule in
+// IT IS STILL AN ARRAY, AND IT GROWS. The ruling is explicit that many more will be added
+// over time, selected randomly for a user — and sometimes semi-randomly or deterministically,
+// on criteria not yet fixed. Nothing here or in `splash.js` knows the number two: the selection rule in
 // `splash.js` reads the array's length, and a third screen is a third object here.
 //
 // WHICH ONE IS SHOWN IS NOT DECIDED HERE. `splash.js`'s `choose()` holds the CEO's v1 rule
