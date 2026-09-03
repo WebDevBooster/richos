@@ -65,9 +65,9 @@ mutant both-present-renames-over "T39" "$F" \
     "with both directories present the code would rename the original over the existing quarantine — choosing, which recovery must never do; the failed rename parks the member instead of advancing the quarantine that is already ours."
 
 mutant rename-not-idempotent "T38" "$F" \
-    '    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing",' \
-    '    if not o:{NL}        return update_member(session_id, agent_id, index, state="missing",' \
-    "a crash between the rename and the state write would leave a quarantined tree recorded as MISSING forever."
+    '    if not o and not q:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))' \
+    '    if not o:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))' \
+    "a crash between the rename and the state write would close a quarantined tree as ABSENT — removed on paper, its bytes still on disk."
 
 mutant native-path-prefix "T44" "$F" \
     '            if m.get("class") == "native" and norm_path(m.get("path")) == want:' \
@@ -115,8 +115,8 @@ mutant terminal-index-is-truth "T55" "$F" \
     "a crash between the transaction's terminal write and the index write would leave a terminal worker that every guard reads as live — it could write into a quarantine (review 2026-09-03, blocker 5)."
 
 mutant loser-does-not-repair "T56" "$F" \
-    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    order = list(' \
-    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    order = list(' \
+    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    if not tx.get("members"):' \
+    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    if not tx.get("members"):' \
     "the losing ingress would see the transaction terminal and return without healing a missing index, and terminalize (the other caller every ingress reaches) would not either; the O(1) guards would stay wrong until a reconciler pass happened to run. Both carry the property, so both are removed at once."
 
 mutant ref-not-saved "T33" "$F" \

@@ -28,7 +28,7 @@ mutant worktreeremove-adopts-stranger "R20" "$H" \
     "a path RichOS never sealed would be resolved to SOME sealed transaction and acted on — exact-path resolution is what keeps a stranger's directory out of every claim."
 
 mutant claim-not-made "R07" "$H" \
-    '    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or ""))' \
+    '    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or (detail if ingress == "TaskStop" else "")))' \
     '    won, t = False, tx.load_tx(sid, aid)' \
     "no terminal record would ever be written; the resume guard and the write barrier would never learn the agent is over."
 

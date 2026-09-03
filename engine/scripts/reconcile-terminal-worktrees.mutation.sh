@@ -46,8 +46,8 @@ mutant writers-not-killed "C14" "$R" \
     "a process standing in the quarantine would survive capture and could recreate the path after removal."
 
 mutant residue-not-reclaimed "C15" "$R" \
-    '    if os.path.lexists(orig):{NL}        left = kill_and_reap(processes_using([orig]))' \
-    '    if False:{NL}        left = kill_and_reap(processes_using([orig]))' \
+    '    if os.path.lexists(orig):{NL}        foreign = _foreign_registration(m, orig)' \
+    '    if False:{NL}        foreign = _foreign_registration(m, orig)' \
     "a recreated original path would sit beside a removed quarantine forever, uncounted."
 
 mutant backup-ref-not-protected "C04" "$R" \
