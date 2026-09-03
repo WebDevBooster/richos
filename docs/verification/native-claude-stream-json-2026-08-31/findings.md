@@ -23,7 +23,7 @@ linked libraries and all four are system: `libicucore.A.dylib`, `libresolv.9.dyl
 
 **Twelve runs**, raw output committed unedited under `raw/`, indexed by `raw/README.md`.
 Run 9 is the definitive one: **all four legs from Rust, in one process**, driven by
-`spike/native-claude-stdio`, which is deliberately shaped like `acp.rs` (spawn → one reader
+`tools/native-claude-stdio`, which is deliberately shaped like `acp.rs` (spawn → one reader
 thread → dispatch → per-turn mpsc, same first-`allow*` auto-approve policy as
 `acp.rs:469-479`) because "does the structure port" is half of what is being asked.
 
@@ -236,7 +236,7 @@ Named so that nobody reads a stronger claim into it than the evidence carries:
 
 ## 10. One probe artifact, corrected
 
-`spike/native-claude-stdio`'s console line prints `ctxWindow` by taking an arbitrary entry
+`tools/native-claude-stdio`'s console line prints `ctxWindow` by taking an arbitrary entry
 from the `modelUsage` map, so its stderr shows `ctxWindow=200000` — that is
 `claude-haiku-4-5`'s window, from a background side-call, not the session model's. The
 committed raw JSONL has both, and the session model `claude-sonnet-5` reports

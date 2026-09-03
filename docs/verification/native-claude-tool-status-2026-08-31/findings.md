@@ -44,7 +44,7 @@ Observed frame, verbatim from `raw/run13-longtool-bash-ticking.jsonl:22`:
 **The trap, and it would have cost a day:** the frame's own `tool_use_id` is a synthetic
 `<real-id>-heartbeat-<n>` that matches no row anywhere. The row it belongs to is
 **`parent_tool_use_id`**. A consumer that keys on `tool_use_id` — the obvious choice, and the
-field `acp.rs` keys on everywhere else — silently updates nothing. `spike/native-claude-stdio/
+field `acp.rs` keys on everywhere else — silently updates nothing. `tools/native-claude-stdio/
 src/bin/tool_status.rs` keys on `parent_tool_use_id` and its live row moves; that is what the
 `ROW UPDATE` lines in the Rust run are.
 
@@ -148,7 +148,7 @@ Two things were **not** observed and are recorded as such, not as absences:
 
 ## 5. What `acp.rs` would consume — and the one place it is better than today
 
-The Rust probe (`spike/native-claude-stdio/src/bin/tool_status.rs`) is deliberately
+The Rust probe (`tools/native-claude-stdio/src/bin/tool_status.rs`) is deliberately
 `acp.rs`-shaped — spawn → one reader thread → dispatch → per-turn mpsc, same first-`allow*`
 auto-approve policy (`acp.rs:469-479`) — and keeps the one piece of state a live renderer
 needs. Its output, verbatim (`run16`):
