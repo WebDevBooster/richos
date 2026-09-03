@@ -156,21 +156,62 @@ def now_iso():
 # durable writes
 # --------------------------------------------------------------------------
 
+# THE ONE NARROW PORTABILITY EXCEPTION for the directory fsync (landed review
+# 2026-09-03, blocker 6). These errnos are a filesystem's statement that a
+# directory descriptor HAS no fsync — EINVAL is the documented answer of a
+# descriptor type that cannot be synced (seen on some network and FUSE mounts),
+# ENOTSUP/EOPNOTSUPP the FUSE spelling of the same statement. They are the
+# only errors swallowed, and they are swallowed with a notice. EIO, ENOSPC,
+# EBADF, EACCES, ENOENT and every other error mean the sync FAILED, and are
+# raised: the caller was promised durability and must not be told it got it.
+_DIR_FSYNC_UNSUPPORTED = frozenset(
+    x for x in (errno.EINVAL, getattr(errno, "ENOTSUP", None), getattr(errno, "EOPNOTSUPP", None))
+    if x is not None)
+_dir_fsync_unsupported_noted = set()
+
+
 def _fsync_dir(path):
+    """Make the rename that just landed in `path` durable, or RAISE.
+
+    Until this revision every error here — opening the directory AND syncing
+    it — was swallowed, while atomic_write_json documented "temp file, fsync,
+    rename, directory fsync; raises on failure". A terminal claim reported
+    durable could therefore vanish after a crash, because the directory entry
+    naming it was never forced to disk (landed review 2026-09-03, blocker 6).
+
+    THE WEAKER GUARANTEE ON A FILESYSTEM THAT CANNOT SYNC A DIRECTORY (the
+    errnos in _DIR_FSYNC_UNSUPPORTED, and only those): the rename is still
+    atomic — a reader sees the old record or the new, never a torn one — and
+    the file's own bytes were fsynced; what is NOT guaranteed is that the new
+    directory entry survives a crash or power loss before the filesystem's
+    own metadata flush. On such a mount a claim can be lost to a crash in
+    that window and is re-made by the next ingress or reconciler pass. The
+    exception is announced once per process on stderr, naming the mount and
+    the errno, so it is never silent."""
+    fd = os.open(path, os.O_RDONLY)
     try:
-        fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(fd)
-    except OSError:
-        pass
+        try:
+            os.fsync(fd)
+        except OSError as e:
+            if e.errno in _DIR_FSYNC_UNSUPPORTED:
+                if path not in _dir_fsync_unsupported_noted:
+                    _dir_fsync_unsupported_noted.add(path)
+                    sys.stderr.write("worktree-transactions: NOTICE: %s cannot fsync a directory (errno %d %s); "
+                                     "renames there are atomic but not crash-durable until the filesystem flushes "
+                                     "its own metadata. Every other write here is fully durable.\n"
+                                     % (path, e.errno, errno.errorcode.get(e.errno, "?")))
+                return
+            raise
     finally:
         os.close(fd)
 
 
 def atomic_write_json(path, obj):
-    """temp file -> fsync -> rename -> directory fsync. Raises on failure."""
+    """temp file -> fsync -> rename -> directory fsync. Raises on failure —
+    including on a failed directory fsync (blocker 6): by then the rename has
+    landed, so the record IS on disk, but it is not durable, and the caller is
+    told so by the exception rather than told it succeeded. Every caller is
+    idempotent on a re-read of what exists, so a retry converges."""
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
     tmp = "%s.tmp.%d.%d" % (path, os.getpid(), int(time.time() * 1000000))

@@ -131,4 +131,9 @@ mutant missing-not-counted "T40" "$F" \
     '    if not src:{NL}        return update_member(session_id, agent_id, index, state="ref_saved", quarantine=quar){NL}    head = head_of(src){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar){NL}    if o:' \
     "a vanished member would be recorded as quarantined — a success-shaped state over a directory nobody can find."
 
+mutant dir-fsync-swallowed "T61" "$F" \
+    '            if e.errno in _DIR_FSYNC_UNSUPPORTED:{NL}                if path not in _dir_fsync_unsupported_noted:' \
+    '            if True:{NL}                if path not in _dir_fsync_unsupported_noted:' \
+    "every directory-fsync error would be swallowed again — a terminal claim reported durable could vanish after a crash, the exact overstatement the landed review named (2026-09-03, blocker 6)."
+
 mutation_end

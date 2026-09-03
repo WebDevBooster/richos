@@ -503,6 +503,81 @@ holder.wait()
 print('WAITED %.2f' % waited)
 " | grep -qE 'WAITED (0\.[7-9]|1\.[0-9])' && ok "T50  tx_lock: a second writer waits for the holder (kernel flock, released on exit)" || bad "T50  lock did not serialize"
 
+# --- 13. AUTHORITATIVE WRITES RAISE ON A FAILED FSYNC OR RENAME --------------------
+# (landed review 2026-09-03, blocker 6). Until this revision _fsync_dir swallowed
+# EVERY error opening or syncing the parent directory while atomic_write_json
+# documented "temp file, fsync, rename, directory fsync; raises on failure" —
+# a terminal claim reported durable could vanish after a crash. Fault injection
+# replaces os.fsync / os.replace inside the module's own process, so the
+# shipped code runs unchanged: a file fsync, the rename and the directory
+# fsync each fail with EIO in turn, and the ONE documented exception (a
+# filesystem answering EINVAL to a directory fsync) is proven to be the only
+# swallowed error, and announced.
+fault_write() { # <fault> <target> -> prints RAISED:<errno-name> or OK (+ any stderr notice)
+    py "
+import errno as E, os, stat, sys
+fault, target = '$1', '$2'
+real_fsync, real_replace = os.fsync, os.replace
+def fsync(fd):
+    is_dir = stat.S_ISDIR(os.fstat(fd).st_mode)
+    if fault == 'file_fsync' and not is_dir: raise OSError(E.EIO, 'injected file fsync failure')
+    if fault == 'dir_fsync' and is_dir: raise OSError(E.EIO, 'injected directory fsync failure')
+    if fault == 'dir_fsync_einval' and is_dir: raise OSError(E.EINVAL, 'injected: this filesystem cannot fsync a directory')
+    return real_fsync(fd)
+def replace(a, b):
+    if fault == 'rename': raise OSError(E.EIO, 'injected rename failure')
+    return real_replace(a, b)
+os.fsync, os.replace = fsync, replace
+try:
+    if target == 'marker':
+        tx.touch_marker('$SANDBOX/fault/' + fault + '.marker', 'x')
+    else:
+        tx.atomic_write_json('$SANDBOX/fault/' + fault + '.json', {'fault': fault})
+    print('OK')
+except OSError as e:
+    print('RAISED:' + E.errorcode.get(e.errno, str(e.errno)))
+" 2>&1
+}
+R="$(fault_write file_fsync json)"
+[ "$R" = "RAISED:EIO" ] && [ ! -e "$SANDBOX/fault/file_fsync.json" ] && [ -z "$(ls "$SANDBOX/fault" 2>/dev/null | grep file_fsync)" ] \
+    && ok "T59  a failed FILE fsync raises EIO; nothing is left at the path and no temp file beside it" || bad "T59  file fsync: [$R] $(ls "$SANDBOX/fault" 2>/dev/null | tr '\n' ' ')"
+R="$(fault_write rename json)"
+[ "$R" = "RAISED:EIO" ] && [ ! -e "$SANDBOX/fault/rename.json" ] && [ -z "$(ls "$SANDBOX/fault" 2>/dev/null | grep rename)" ] \
+    && ok "T60  a failed RENAME raises EIO; nothing is left at the path and the temp file is removed" || bad "T60  rename: [$R] $(ls "$SANDBOX/fault" 2>/dev/null | tr '\n' ' ')"
+R="$(fault_write dir_fsync json)"
+[ "$R" = "RAISED:EIO" ] && [ -f "$SANDBOX/fault/dir_fsync.json" ] \
+    && ok "T61  a failed DIRECTORY fsync raises EIO: the record is on disk but the caller is NOT told it is durable (INVERTED: it used to be swallowed)" || bad "T61  dir fsync: [$R] present=$([ -f "$SANDBOX/fault/dir_fsync.json" ] && echo yes || echo no)"
+R="$(fault_write dir_fsync marker)"
+[ "$R" = "RAISED:EIO" ] && ok "T61b ...and touch_marker (the terminal indexes) raises the same way" || bad "T61b marker dir fsync: [$R]"
+R="$(fault_write dir_fsync_einval json)"
+if printf '%s' "$R" | grep -q '^OK$' && printf '%s' "$R" | grep -q 'cannot fsync a directory (errno 22 EINVAL)' && [ -f "$SANDBOX/fault/dir_fsync_einval.json" ]; then
+    ok "T62  the ONE documented exception: a filesystem answering EINVAL to a directory fsync is accepted, and announced with the errno (the weaker guarantee is named, never silent)"
+else
+    bad "T62  einval: [$R]"
+fi
+# a terminal claim whose directory fsync fails is REPORTED as a failure, and
+# the next (unfaulted) claim converges on the record that did land
+add_native "$ENTITY" aaaaaa000022
+intent "$SID" tu-22 '{"kind":"native","teammate":"dev-opus-fs22","externals":[]}'
+T bind --session-id "$SID" --tool-use-id tu-22 --agent-id aaaaaa000022 >/dev/null
+T start --session-id "$SID" --agent-id aaaaaa000022 --cwd "$ENTITY/.claude/worktrees/agent-aaaaaa000022" >/dev/null
+T seal --session-id "$SID" --agent-id aaaaaa000022 >/dev/null
+R="$(py "
+import errno as E, os, stat
+real_fsync = os.fsync
+def fsync(fd):
+    if stat.S_ISDIR(os.fstat(fd).st_mode): raise OSError(E.EIO, 'injected directory fsync failure')
+    return real_fsync(fd)
+os.fsync = fsync
+try:
+    tx.claim_terminal('$SID', 'aaaaaa000022', 'SubagentStop'); print('OK')
+except OSError as e:
+    print('RAISED:' + E.errorcode.get(e.errno, str(e.errno)))
+" 2>&1)"
+R2="$(T claim --session-id "$SID" --agent-id aaaaaa000022 --ingress WorktreeRemove 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("claimed"), (d.get("transaction") or {}).get("terminal", {}).get("ingress"))')"
+[ "$R" = "RAISED:EIO" ] && [ "$R2" = "False SubagentStop" ] && T terminal-agent --agent-id aaaaaa000022 --session-id "$SID" >/dev/null 2>&1 \
+    && ok "T63  a claim whose directory fsync fails RAISES (not reported durable); the next ingress resumes the claim that did land and the agent reads terminal" || bad "T63  claim under dir-fsync fault: [$R] next=[$R2]"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== worktree-transactions tests: $FAIL FAILED, $PASS passed ==="
