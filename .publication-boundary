@@ -8,22 +8,64 @@
 #
 # WHY IT EXISTS
 # -------------
-# On 2026-08-29 three measurement briefs and 137 asset files carrying full
-# two-channel transcripts of the CEO's own webinar — a named third-party
-# speaker, real business content, 28 verbatim quotes inside the brief prose —
-# landed here across three consecutive lands. Each land was checked, by a human,
-# against the rule "no media committed". Each check passed. The payload was
-# TEXT.
+# Private speech reached this repository as TEXT, more than once, while the
+# rule in force was "no media committed" — a rule a human applied by hand, on
+# every land, and passed every time. The audio was correctly gitignored the
+# whole while. The payload was not audio.
 #
 #   THE PRIVACY QUESTION IS WHAT THE BYTES SAY, NOT WHAT FORMAT THEY ARE IN.
 #
 # The split used to be enforced by judgment at land time, on every commit,
 # forever. This file is the point where it stops being judgment.
 #
-# RELATIONSHIP TO richos-hq/wiki/open-source-strategy.md
-# -----------------------------------------------------
+# The dated incident record — what leaked, when, and what each detector below
+# was measured against — is in the PRIVATE record, at
+# `wiki/publication-boundary-incidents.md`. It identifies private recordings and
+# a third party, so it is not published; the rule and the reasoning are here,
+# which is what a reader of this file needs.
+#
+# WHAT MAY BE WRITTEN IN A FILE THIS REPOSITORY PUBLISHES
+# -------------------------------------------------------
+# This project's documentation habit is to write the WHY into the file,
+# including the failure that produced the rule, because a rule nobody
+# understands gets worked around. That habit is right, and in a repository that
+# gets published it needs one amendment. Without it, every well-written file
+# here is also a disclosure — this file was, until 2026-09-03.
+#
+#   THE PUBLIC FILE CARRIES THE RULE AND THE GENERAL REASONING.
+#   THE IDENTIFYING DETAIL LIVES IN THE PRIVATE RECORD, WITH A ONE-LINE
+#   POINTER TO THE PAGE THAT HOLDS IT.
+#
+# IDENTIFYING DETAIL IS THE TEST — not "is it an incident". A dated failure with
+# nobody in it (a guard that shipped with no switch; a claim derived from the
+# wrong source) is engineering rationale, it is useful to a stranger, and it
+# stays. What moves is anything that names or identifies:
+#
+#   * A PERSON WHO IS NOT THIS PROJECT — a speaker, a guest, a customer, a
+#     prospect, a partner. They did not agree to appear in a public repository.
+#   * PRIVATE MATERIAL BY WHAT IT IS rather than by what it says — somebody's
+#     recording, calendar, private repository, notes.
+#   * PRIVATE BUSINESS CONTENT — commercial terms, pipeline, a quoted private
+#     conversation, an internal decision that is nobody else's business.
+#   * THE OWNER PERSONALLY — home-directory layout, machine names, the list of
+#     other ventures they run.
+#
+# THE POINTER IS PART OF THE RULE. Deleting the detail without saying where it
+# went is how the reasoning dies, and a rule whose reasoning has died is the
+# thing this whole file exists to prevent. One line, naming the private page.
+#
+# AND IT IS NOT ONLY PROSE. The same test applies to test fixtures, example
+# data, default configuration tables, refusal messages and committed evidence.
+# A real person's name in a test fixture is the same disclosure as a real name
+# in a paragraph, and it is easier to miss.
+#
+# This is the canonical statement of that rule. The engine's
+# docs/failures-playbook.md points here rather than restating it.
+#
+# RELATIONSHIP TO THE PRIVATE RECORD'S open-source-strategy.md
+# ------------------------------------------------------------
 # That page is the STRATEGY: why the split exists, what the end state is, what
-# the CEO decided. THIS FILE IS THE ENFORCEABLE RECORD — the only one any
+# the owner decided. THIS FILE IS THE ENFORCEABLE RECORD — the only one any
 # machinery reads. The two must not become two copies of one fact.
 #
 # The strategy page's directory table was measured against this tree before this
@@ -92,13 +134,12 @@
 #
 #                   WHY IT EXISTS. The two detectors above are scoring functions,
 #                   measured against transcripts and sharp for transcripts. A
-#                   seven-line note about which typeface a wordmark was drawn in
-#                   scores nothing at all, and on 2026-09-01 that file's exact
-#                   bytes were written into this tree and staged and both guards
-#                   returned 0. The instruction to keep it in the private record
-#                   had been given twice by then, and twice it was honored by
-#                   somebody remembering — which is the thing this file exists to
-#                   stop depending on.
+#                   short note about a design decision scores nothing at all, and
+#                   a file like that has been written into this tree and staged
+#                   with both guards returning 0. Keeping it out had been an
+#                   instruction somebody remembered — which is the thing this
+#                   file exists to stop depending on. Dated detail: the private
+#                   record's `wiki/publication-boundary-incidents.md`.
 #
 #                   MINT AN ENTRY, against the file where it actually lives:
 #
@@ -115,8 +156,16 @@
 #                   reformatted or re-encoded (the word digest), into a gitignored
 #                   path (an identity-declared file has ONE home and this is not
 #                   it), or as a binary blob the text filters would otherwise
-#                   drop. WHAT DEFEATS IT: a rewrite AND a rename together, or a
-#                   partial excerpt under a new name. Either alone is caught.
+#                   drop.
+#
+#                   WHAT IS NOT COVERED, stated so nobody assumes more than is
+#                   there: this is an IDENTITY check over a declared digest and a
+#                   declared name. Content that is neither those bytes nor that
+#                   name is outside its reach, and deciding such a case needs the
+#                   private record rather than this file. The residual is real,
+#                   it is why the content detectors exist alongside it, and the
+#                   specific ways it can be missed are recorded privately rather
+#                   than published as instructions.
 #
 #                   WHAT IT COSTS TO DECLARE ONE: the NAME becomes public, here,
 #                   in a repository that gets published. The CONTENT does not — a
@@ -132,7 +181,11 @@
 #                   machine that matters, because it is the one where nobody has
 #                   heard the rule.
 
-PRIVATE_RECORD="richos-hq (/Users/alex/ab/richos-hq) — the private HQ repository"
+# Named in every refusal. Deliberately not an absolute path: this repository is
+# published, and a home directory is not something a public file should carry.
+# The machine-readable location is PRIVATE_SOURCES below, resolved relative to
+# this repository's main checkout.
+PRIVATE_RECORD="richos-hq — the private HQ repository, a sibling checkout of this one"
 
 # docs/reference/local/ is the in-repo home for recordings and anything derived
 # from them; it is gitignored, so nothing there is ever published.
