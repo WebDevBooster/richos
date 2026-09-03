@@ -290,11 +290,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/teammate-idle-handoff.sh",
             "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/agent-finished-reap-worktrees.sh",
-            "timeout": 60
           }
         ]
       }
@@ -306,11 +301,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/task-completed-handoff.sh",
             "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/agent-finished-reap-worktrees.sh",
-            "timeout": 60
           }
         ]
       }

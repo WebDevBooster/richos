@@ -1,48 +1,50 @@
 #!/usr/bin/env bash
 #
-# session-start-reap-worktrees.sh — SessionStart hook. Runs
-# scripts/reap-stale-worktrees.sh in `--execute --unlock-stale` mode so
-# landed-but-never-removed teammate worktrees under .claude/worktrees/agent-*
-# get swept automatically at the start of every session, instead of quietly
-# accumulating across restarts. In the upstream production project this engine
-# was extracted from, 43 stale worktrees had piled up before anyone noticed —
-# this hook exists to keep that from recurring anywhere the engine is adopted.
+# session-start-reap-worktrees.sh — SessionStart hook. CRASH RECOVERY for the
+# worktree transactions, plus a read-only inventory. It deletes nothing itself
+# and infers nothing about any agent's liveness.
 #
-# LOG-ONLY / NEVER BLOCKS: mirrors teammate-idle-handoff.sh's fail-open
-# contract. Any failure (missing script, git error, unexpected exception,
-# missing python3) is swallowed — this hook ALWAYS exits 0 and NEVER holds
-# up a session start. The reaper itself is the real safety boundary (four
-# gates — not-locked-or-provably-stale, merged, clean, no-live-process —
-# plus `git worktree remove`/`git branch -d`, never --force/-D); this hook
-# only decides WHEN to invoke it. See scripts/reap-stale-worktrees.sh for the
-# full contract and README.md ("What ships") for the shipped description.
+# ===========================================================================
+# WHAT CHANGED ON 2026-09-03, AND WHY
+# ===========================================================================
+# Until now this hook ran scripts/reap-stale-worktrees.sh with --execute at
+# every session start: a sweep that DECIDED, from locks, names, transcripts and
+# process tables, whether an agent might still return, and removed its
+# worktree when it decided not. Nine rounds of that design failed in nine
+# different shapes (richos-hq/wiki/worktree-lifecycle.md §14), the last one by
+# removing a live agent's worktree. The CEO's ruling ended the question:
 #
-# FAST WHEN NOTHING TO REAP: each candidate costs a handful of cheap git
-# plumbing calls (status --porcelain, merge-base --is-ancestor, pgrep).
-# Measured upstream against a real 45-worktree registration (43 candidates):
-# ~2.1s wall time in DRY-RUN. Once this hook has run once and the backlog is
-# cleared, the steady state (0-3 new worktrees per session) completes in well
-# under 2s. Working through a large backlog on first adoption naturally takes
-# longer — an acceptable one-time cost, not the steady-state case this timing
-# target describes.
+#     The system should stop trying to discover whether the agent might
+#     return. It is forbidden to return.
 #
-# Never touches unlanded work: delegates entirely to
-# reap-stale-worktrees.sh, which is DRY-RUN by default and only mutates
-# under --execute with every removal gated (see that script's header).
+# So removal is no longer a decision any sweep makes. A worktree is owned by
+# a TRANSACTION bound at spawn to the platform's agent id (scripts/lib/
+# worktree-transactions.py); its first terminal event (SubagentStop or
+# WorktreeRemove, terminalize-agent-worktrees.sh) claims that transaction and
+# quarantines every member; and the persistent reconciler
+# (scripts/reconcile-terminal-worktrees.py, driven by launchd) captures,
+# verifies, unregisters and removes them. Specification: femcboost
+# docs/plans/worktree-real-fix-2026-09-03.md.
 #
-# Repo-agnostic: resolves the main checkout via
-# scripts/lib/resolve-main-checkout.sh (tolerates its absence, falling back
-# to plain current-checkout resolution) exactly like the reaper itself, so
-# this hook is copy-paste portable to any repo adopting the same
-# .claude/worktrees/agent-<hex> convention.
+# THIS HOOK'S TWO JOBS NOW:
+#   1. RECOVERY. Run the reconciler with a short time budget, so a
+#      transaction a crash left mid-way is resumed at the next session start
+#      even if launchd is not installed on this machine. SessionStart is NOT
+#      the scheduler — launchd is — and nothing waits for a later session.
+#   2. INVENTORY. Run the reaper in DRY-RUN (report only, never --execute,
+#      never --unlock-stale) so the session opens with the same denominator it
+#      always had: every repository, every worktree, and the ones nothing
+#      owns. That count is the "unbound RichOS-created worktrees" figure of
+#      the definition of done, and it is reported, never acted on.
 #
-# TEST OVERRIDE: REAP_WORKTREES_ROOT retargets the SWEEP at another repo root
-# (test-only; never set in a real session — the sibling hooks use the same
-# convention, cf. DEFINITION_DRIFT_ROOT). Only the sweep TARGET changes: the
-# reaper script itself is still resolved from THIS script's own location, so a
-# sandbox sweep still exercises the canonical, sidecar-hashed reaper rather than
-# a copy of it. Used by scripts/hooks/session-start-reap-worktrees.test.sh and
-# by contract-integrity-probe.sh Layer Q so neither ever mutates a real worktree.
+# LOG-ONLY / NEVER BLOCKS: this hook ALWAYS exits 0 and NEVER holds up a
+# session start. Every failure is announced into the orchestrator's context
+# rather than swallowed.
+#
+# TEST OVERRIDES: REAP_WORKTREES_ROOT retargets the inventory at another repo
+# root and suppresses discovery; RICHOS_WORKTREE_TX_DIR retargets the
+# transaction store. Under REAP_WORKTREES_ROOT the ledger, projects and
+# sessions paths are pinned inside the sandbox, as before.
 #
 # NOTE: hooks are snapshotted per session, so this hook takes effect from the
 # NEXT session. It assumes nothing about being live in the session that adds it.
@@ -72,37 +74,20 @@ fi
 . "$_RR_LIB"
 ENGINE_ROOT="$(resolve_engine_root "$SCRIPT_DIR")"
 
-# NOTE ON STDIN — this hook does NOT read the payload.
-#
-# It is a SessionStart hook AND a plain CLI tool, and in the CLI case stdin is
-# an inherited pipe that nobody closes, so an unconditional `cat` hangs forever
-# (`[ ! -t 0 ]` does not help: an inherited pipe is not a TTY). Measured: 92
-# seconds and counting, inside the contract-integrity probe, before this was
-# reverted.
-#
-# It costs nothing, because the payload's `cwd` is a REDUNDANT resolution
-# candidate here: CLAUDE_PROJECT_DIR is measured present and correct in a
-# plugin-loaded hook's environment at SessionStart (probe, 2026-08-28), and it
-# outranks the payload cwd anyway. Paying a hang risk for a candidate that
-# never wins is a bad trade.
+# NOTE ON STDIN — this hook does NOT read the payload (see the previous
+# version's measurement: an inherited pipe nobody closes hangs an unconditional
+# `cat` for 92 seconds inside the probe; CLAUDE_PROJECT_DIR outranks the
+# payload cwd anyway).
 
-# HERMETIC UNDER THE TEST OVERRIDE. A sweep WRITES witnessed terminations into
-# the ownership ledger and READS every transcript under the projects directory
-# and the harness's live-session registry. Under REAP_WORKTREES_ROOT all three
-# are pinned inside the sandbox unless the caller pinned them already, for the
-# same reason discovery is suppressed: a unit test must never touch, or even
-# read, the operator's real record.
 if [ -n "${REAP_WORKTREES_ROOT:-}" ]; then
     export REAP_WORKTREE_LEDGER="${REAP_WORKTREE_LEDGER:-$REAP_WORKTREES_ROOT/.claude/state/worktree-ledger.jsonl}"
     export REAP_PROJECTS_DIR="${REAP_PROJECTS_DIR:-$REAP_WORKTREES_ROOT/.claude/projects-sandbox}"
     export RICHOS_SESSIONS_DIR="${RICHOS_SESSIONS_DIR:-$REAP_WORKTREES_ROOT/.claude/sessions-sandbox}"
 fi
 
-# TWO ROOTS. The reaper SCRIPT is an ENGINE asset; the tree it SWEEPS is the
-# ENTITY. The old code took both from one variable, so a plugin-loaded engine
-# looked for its own script inside the session's repository, did not find it,
-# and reported "skipped (...)" — indistinguishable from a routine no-op.
 REAPER="$ENGINE_ROOT/scripts/reap-stale-worktrees.sh"
+RECONCILER="$ENGINE_ROOT/scripts/reconcile-terminal-worktrees.py"
+: "${SESSION_START_RECONCILE_BUDGET:=20}"
 
 if resolve_entity_root ""; then
     SWEEP_ROOT="${REAP_WORKTREES_ROOT:-$RICHOS_ENTITY_ROOT_RESOLVED}"
@@ -112,62 +97,69 @@ else
     SWEEP_ROOT="${REAP_WORKTREES_ROOT:-}"
 fi
 
+# --- 1. RECOVERY: the reconciler, with a budget --------------------------------
+RECONCILE_SUMMARY=""
+if [ ! -f "$RECONCILER" ]; then
+    printf '%s\n' "$(require_asset "$RECONCILER" "scripts/hooks/session-start-reap-worktrees.sh" "the worktree reconciler (an ENGINE asset)")" >&2
+    RECONCILE_SUMMARY="ENGINE INSTALL FAILURE — scripts/reconcile-terminal-worktrees.py is missing at $RECONCILER; no terminal worktree transaction was recovered."
+elif ! command -v python3 >/dev/null 2>&1; then
+    RECONCILE_SUMMARY="RECONCILER NOT RUN — python3 is unavailable; terminal worktree transactions were not recovered."
+else
+    RECONCILE_RAW="$(python3 "$RECONCILER" --max-seconds "$SESSION_START_RECONCILE_BUDGET" 2>&1)" || true
+    RECONCILE_SUMMARY="$(printf '%s\n' "$RECONCILE_RAW" | python3 -c '
+import json, sys
+lines = sys.stdin.read().splitlines()
+notes = [l for l in lines if l.startswith("reconcile:")]
+try:
+    d = json.loads(next(l for l in lines if l.startswith("{")))
+except Exception:
+    d = None
+if d is None:
+    print("worktree reconciler: ran but produced no status (%s)" % ("; ".join(notes)[:300] or "no output"))
+else:
+    s = d.get("status", {})
+    done = s.get("done")
+    dd = s.get("definition_of_done", {})
+    print("worktree reconciler: %s — terminal members with a directory present=%s, pending retry=%s, hard failures (dead-present)=%s, transactions touched=%s%s"
+          % ("DONE (zero dead worktrees)" if done else "PENDING",
+             dd.get("terminal_members_with_a_directory_present"), dd.get("terminal_transactions_pending_normal_retry"),
+             dd.get("hard_failures_counted_as_dead_present"), d.get("reconciled"),
+             ("; " + "; ".join(notes)[:300]) if notes else ""))
+' 2>/dev/null || printf 'worktree reconciler: ran; status unreadable')"
+fi
+
+# --- 2. INVENTORY: the reaper in DRY-RUN, never --execute ------------------------
 if [ "$RICHOS_ROOT_STATUS" = "broken" ] && [ -z "${REAP_WORKTREES_ROOT:-}" ]; then
-    # FAIL LOUD. The guard believes it is governing a repository and cannot
-    # resolve it. Both channels, because a SessionStart hook must never block:
-    # stderr for the operator, additionalContext for the orchestrator.
     BANNER="$(root_failure_banner "scripts/hooks/session-start-reap-worktrees.sh")"
     printf '%s\n' "$BANNER" >&2
-    SUMMARY="ROOT RESOLUTION FAILURE — the session-start worktree reaper could not resolve the repository it governs, so NO worktrees were swept and none will be. ${RICHOS_ROOT_REASON}"
+    INVENTORY="ROOT RESOLUTION FAILURE — the worktree inventory could not resolve the repository it governs. ${RICHOS_ROOT_REASON}"
 elif [ -z "$SWEEP_ROOT" ]; then
-    # not-adopted. Announced once, by engine-status.sh, rather than by every
-    # hook — but stated plainly here too so this hook's own output can never be
-    # read as "swept, nothing found".
-    SUMMARY="session-start worktree reap: not run — this repository has not adopted the engine (no orchestration.config at its root). Nothing was swept."
+    INVENTORY="worktree inventory: not run — this repository has not adopted the engine (no orchestration.config at its root)."
 elif [ ! -x "$REAPER" ]; then
-    # The ENGINE is broken, not the entity: the reaper is an engine asset and
-    # it is missing from the engine's own tree. That is an install failure and
-    # it gets said as one, not as "skipped".
-    printf '%s\n' "$(require_asset "$REAPER" "scripts/hooks/session-start-reap-worktrees.sh" "the worktree reaper (an ENGINE asset)")" >&2
-    SUMMARY="ENGINE INSTALL FAILURE — scripts/reap-stale-worktrees.sh is missing or not executable at $REAPER. No worktrees were swept. This is a broken engine install, NOT a routine skip."
+    printf '%s\n' "$(require_asset "$REAPER" "scripts/hooks/session-start-reap-worktrees.sh" "the worktree inventory (an ENGINE asset)")" >&2
+    INVENTORY="ENGINE INSTALL FAILURE — scripts/reap-stale-worktrees.sh is missing or not executable at $REAPER. No inventory was taken. This is a broken engine install, NOT a routine skip."
 else
-    # DISCOVERY IS ON for a real session start and SUPPRESSED under the test
-    # override, and only under it. Without --discover this sweep sees ONE
-    # repository, which is scope hole #1: on 2026-09-01 it reported
-    # `reaped=1 skipped=0 errors=0 residue=0` while 25 worktrees sat unswept
-    # in two OTHER repositories it had never been pointed at. With
-    # REAP_WORKTREES_ROOT set, discovery must stay off — the probe's Layer Q
-    # canary drives this wrapper with --execute against a throwaway sandbox,
-    # and a discovering sweep there would reach the operator's real checkouts.
     DISCOVER_ARGS="--discover"
-    if [ -n "${REAP_WORKTREES_ROOT:-}" ]; then
-        DISCOVER_ARGS=""
-    fi
+    [ -n "${REAP_WORKTREES_ROOT:-}" ] && DISCOVER_ARGS=""
+    # DRY-RUN BY CONSTRUCTION: no --execute, no --unlock-stale. This hook has
+    # no destructive authority and passes none on.
     # shellcheck disable=SC2086
-    RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale $DISCOVER_ARGS 2>&1)" || true
+    RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" $DISCOVER_ARGS 2>&1)" || true
     SUMMARY_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== summary' || true)"
-    # THE DENOMINATOR TRAVELS WITH THE SUMMARY. A context line that says
-    # `reaped=1 residue=0` and nothing else is what let a one-repository sweep
-    # read as a clean machine for months; the coverage line says how many
-    # repositories and worktrees that number is out of, and every `blind:`
-    # line says what this run could not see at all.
     COVERAGE_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== coverage' || true)"
     BLIND_LINES="$(printf '%s\n' "$RAW_OUTPUT" | grep '^=== blind:' | tr '\n' ' ' || true)"
-    # THE VERDICT LEADS. `reaped=5 skipped=49 errors=0` is success-shaped and
-    # was printed on 2026-09-02 for a run in which zero of the 47 real offenders
-    # could ever be touched; `undecidable=47` sat beside it as information. The
-    # reaper now closes every run with a verdict line, and this wrapper puts it
-    # FIRST — a FAIL is announced as one, before any count.
     VERDICT_LINE="$(printf '%s\n' "$RAW_OUTPUT" | grep -m1 '^=== verdict' || true)"
     VERDICT_WORD="$(printf '%s' "$VERDICT_LINE" | sed -n 's/^=== verdict: \([A-Z]*\).*/\1/p')"
     if [ -n "$SUMMARY_LINE" ] && [ "$VERDICT_WORD" = "FAIL" ]; then
-        SUMMARY="WORKTREE REAP FAIL [$SWEEP_ROOT]: ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
+        INVENTORY="WORKTREE INVENTORY FAIL [$SWEEP_ROOT] (report only, nothing removed): ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
     elif [ -n "$SUMMARY_LINE" ]; then
-        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
+        INVENTORY="worktree inventory [$SWEEP_ROOT] (DRY-RUN, nothing removed): ${VERDICT_LINE#=== } | ${SUMMARY_LINE#=== } ${COVERAGE_LINE#=== } ${BLIND_LINES}"
     else
-        SUMMARY="session-start worktree reap [$SWEEP_ROOT]: ran but produced no summary line — check reaper output manually if worktrees seem stuck"
+        INVENTORY="worktree inventory [$SWEEP_ROOT]: ran but produced no summary line — check the reaper's dry-run output manually if worktrees seem stuck"
     fi
 fi
+
+SUMMARY="$RECONCILE_SUMMARY || $INVENTORY"
 
 if command -v python3 >/dev/null 2>&1; then
     SUMMARY="$SUMMARY" python3 - <<'PY' 2>/dev/null || true
@@ -182,8 +174,6 @@ print(json.dumps({
 }))
 PY
 else
-    # No python3 — degrade to a minimal hand-escaped JSON line rather than
-    # emitting nothing.
     ESCAPED="${SUMMARY//\\/\\\\}"
     ESCAPED="${ESCAPED//\"/\\\"}"
     printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESCAPED"

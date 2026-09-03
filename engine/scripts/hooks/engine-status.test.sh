@@ -375,7 +375,12 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # 50 -> 51 on 2026-09-03: terminalize-agent-worktrees.sh, the terminal ingress,
 # wired on SubagentStop and on WorktreeRemove (one script, two events, one
 # compare-and-set claim between them).
-if [ "$REGISTERED_N" -eq 51 ]; then
+# 51 -> 50 on 2026-09-03: agent-finished-reap-worktrees.sh REMOVED. TeammateIdle
+# and TaskCompleted are diagnostic only (every one of their 580 ledger rows is
+# a test fixture; never fired for a real agent) and hold no destructive
+# authority any more; the only removal path is the terminal ingress plus the
+# reconciler.
+if [ "$REGISTERED_N" -eq 50 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"
