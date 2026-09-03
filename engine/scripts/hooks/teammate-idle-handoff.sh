@@ -137,6 +137,18 @@ record = {
     "transcript_path": payload.get("transcript_path") or "",
     "cwd": payload.get("cwd") or "",
     "decision": "logged",
+    # MEASUREMENT FIXTURE (CEO specification 2026-09-03, worktree-terminal-
+    # authority-fix-recommendation section 3). TeammateIdle is a candidate
+    # terminal ingress whose payload has never been observed live on this
+    # machine (every row of this log is a test fixture). The first live
+    # firing must show whether any field joins to the spawn-side ownership
+    # id, so the record carries the payload's top-level KEY NAMES — never
+    # values: a prompt or a model message must not land in an evidence log —
+    # plus its identity, type and task fields, which are the only values
+    # the specification asks to keep.
+    "payload_keys": sorted(k for k in payload.keys() if isinstance(k, str)),
+    "agent_type": str(payload.get("agent_type") or ""),
+    "task_id": first("task_id", "taskId"),
 }
 
 uncommitted = os.environ.get("UNCOMMITTED", "")

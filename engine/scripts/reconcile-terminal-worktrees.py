@@ -83,14 +83,56 @@ OBSERVED residue and does not claim more.
 ===========================================================================
 FAILURE POLICY
 ===========================================================================
-Normal failures (disk full, an archive that did not verify, a member whose
-manifest would not settle) leave the quarantine exactly where it is, record
-the attempt count and the last error on the member, and are retried
-silently on the next run. A member that reaches `failed` or `missing`
-(both-present, provenance contradicts git, vanished) is a HARD failure:
-reported once (a marker file beside the transaction), never retried
-automatically, and COUNTED as dead-present by `--status` until an operator
-resolves it. Nothing here searches for something with a similar name.
+NOTHING HERE IS A QUEUE FOR A PERSON (landed review 2026-09-03, blocker 3;
+until this revision `failed` and `missing` were permanent states that
+"remain until an operator resolves them" — babysitting as a lifecycle
+state). Every condition has one of two automatic policies:
+
+  RETRY, with persistent backoff — anything transient: disk full, an
+  archive that did not verify, a manifest that would not settle, a git
+  command that failed, a process that would not die. The quarantine stays
+  exactly where it is; the attempt count, the last error and a
+  retry_after time (RECONCILE_RETRY_BACKOFF_SECONDS doubling per attempt
+  up to RECONCILE_RETRY_BACKOFF_MAX_SECONDS, persisted on the member) are
+  recorded; after MAX_SOFT_ATTEMPTS_BEFORE_NOTICE attempts it is reported
+  ONCE, and the retries continue. External conditions clear; the next run
+  after they do finishes the member.
+
+  ARCHIVE-AND-CLOSE, deterministically — anything that will never change
+  by waiting:
+    both original and quarantine present  the quarantine (its name embeds
+                                          the session prefix and agent id)
+                                          proceeds; the original is
+                                          archived as residue, VERIFIED,
+                                          and removed — unless git
+                                          registers it as ANOTHER worktree,
+                                          in which case it is recorded and
+                                          never touched
+    the path vanished                     closed absent (the library): the
+                                          backup ref re-created from the
+                                          recorded head while the commit
+                                          object survives, the absence
+                                          recorded
+    the quarantine's HEAD moved           the exact bytes are already
+                                          captured; the moved HEAD is saved
+                                          under <backup-ref>@drift-<n>, the
+                                          drift recorded, and the member
+                                          proceeds
+    git cannot read the directory and     the RAW bytes are captured and
+    no longer registers it                verified; the backup ref comes
+                                          from head_at_seal
+    the backup ref is gone                re-created from the recorded head
+                                          while the object survives, else
+                                          recorded lost (the verified
+                                          archive holds the tree)
+    no repository is recorded             read from the quarantine; if
+                                          neither, there is no registration
+                                          to remove
+    a state this revision does not drive  re-derived from what exists on
+    (`failed` from an earlier revision,   disk: bound / ref_saved / absent
+    or unknown)
+Alerts and metrics report trouble; they never transfer cleanup to a user.
+Nothing here searches for something with a similar name.
 
 ===========================================================================
 WHO RUNS IT
@@ -137,6 +179,10 @@ tx = _load("worktree_transactions", os.path.join(HERE, "lib", "worktree-transact
 
 DEFAULT_DISPOSABLE = "node_modules .venv venv target build dist .gradle .next .turbo __pycache__ .pytest_cache .DS_Store .cache"
 MAX_SOFT_ATTEMPTS_BEFORE_NOTICE = 12
+# A member that keeps changing state without reaching `removed` in one run
+# (a re-derivation that keeps re-deriving) is left for the next run rather
+# than looping: every transition is persisted, nothing is lost by stopping.
+MAX_STEPS_PER_MEMBER_PER_RUN = 24
 
 
 def log(msg):
@@ -163,6 +209,54 @@ def disposable_paths(repo):
     """The committed disposable-path policy: the entity's orchestration.config
     if it declares one, else the engine's, else the default above."""
     return set(config_value("CAPTURE_DISPOSABLE_PATHS", DEFAULT_DISPOSABLE, repo).split())
+
+
+def retry_backoff():
+    """(base, cap) seconds for the persistent retry backoff (landed review
+    2026-09-03, blocker 3): a member that failed `attempts` times is next
+    tried after min(base * 2^(attempts-1), cap) seconds, recorded on the
+    member so the schedule survives restarts. base 0 disables backoff
+    entirely (tests). Env overrides: RICHOS_RECONCILE_BACKOFF_BASE,
+    RICHOS_RECONCILE_BACKOFF_MAX."""
+    def val(env, key, default):
+        v = os.environ.get(env)
+        if v is None or v == "":
+            v = config_value(key, default)
+        try:
+            return float(v)
+        except ValueError:
+            return float(default)
+    return (val("RICHOS_RECONCILE_BACKOFF_BASE", "RECONCILE_RETRY_BACKOFF_SECONDS", "60"),
+            val("RICHOS_RECONCILE_BACKOFF_MAX", "RECONCILE_RETRY_BACKOFF_MAX_SECONDS", "21600"))
+
+
+def _record_soft_failure(sid, aid, i, attempts, err, base, cap, bump=True):
+    fields = {"last_error": (err or "")[:300], "last_attempt": tx.now_iso()}
+    if bump:
+        fields["attempts"] = attempts
+    if base > 0:
+        delay = min(base * (2 ** max(attempts - 1, 0)), cap)
+        fields["retry_after_epoch"] = time.time() + delay
+        fields["retry_after"] = tx.now_iso() + " + %ds" % int(delay)
+    tx.update_member(sid, aid, i, **fields)
+
+
+def _rederive_state(t, i, why):
+    """A member in a state this revision does not drive — `failed` written by
+    an earlier revision, or an unknown state — is RE-DERIVED from what exists
+    on disk (landed review 2026-09-03, blocker 3), never parked: a directory
+    at the quarantine or the original path means the member re-enters the
+    state machine at `bound` (no backup ref yet) or `ref_saved`, and the
+    normal steps take it from there; neither means it is closed absent."""
+    m = t["members"][i]
+    sid, aid = t["session_id"], t["agent_id"]
+    orig = m["path"]
+    quar = m.get("quarantine") or tx.quarantine_name(orig, sid, aid)
+    if os.path.isdir(quar) or os.path.isdir(orig):
+        new = "ref_saved" if m.get("backup_ref") else "bound"
+        return tx.update_member(sid, aid, i, state=new, quarantine=quar, rederived_from=m.get("state"),
+                                rederived_reason=why, rederived_ts=tx.now_iso(), error=None)
+    return tx.close_absent(sid, aid, i, "re-derived from %s (%s): neither original nor quarantine exists" % (m.get("state"), why))
 
 
 def pending_terminal_grace():
@@ -344,6 +438,49 @@ def git_must(cwd, *args):
     return out
 
 
+def _archive_tree(src, manifest, tar_path):
+    """Write every manifest entry under `src` into `tar_path` — temp file,
+    fsync, rename — PRIVATE from the first byte (0600). Files, symlinks and
+    directories, with modes and targets; nothing the manifest does not name."""
+    tmp_tar = tar_path + ".tmp"
+    if os.path.exists(tmp_tar):
+        os.unlink(tmp_tar)
+    with private_open(tmp_tar) as raw, tarfile.open(fileobj=raw, mode="w") as tar:
+        for rel in sorted(manifest):
+            full = os.path.join(src, rel)
+            info = manifest[rel]
+            if info["kind"] == "file":
+                tar.add(full, arcname=rel, recursive=False)
+            elif info["kind"] == "symlink":
+                ti = tarfile.TarInfo(rel); ti.type = tarfile.SYMTYPE; ti.linkname = info["target"]; ti.mode = info["mode"]
+                tar.addfile(ti)
+            elif info["kind"] == "dir":
+                ti = tarfile.TarInfo(rel); ti.type = tarfile.DIRTYPE; ti.mode = info["mode"]
+                tar.addfile(ti)
+        raw.flush(); os.fsync(raw.fileno())
+    os.replace(tmp_tar, tar_path)
+
+
+def _foreign_registration(m, orig):
+    """A description of the worktree git registers at the ORIGINAL path when
+    that registration is not this member's own (this member's registration
+    was re-pointed at its quarantine by `git worktree repair`), else "".
+    A prunable entry — a directory with no valid .git file — is residue,
+    not a worktree."""
+    repo = m.get("repo") or ""
+    if not repo or not os.path.isdir(repo):
+        return ""
+    reg = tx.registered_worktrees(repo)
+    if not reg:
+        return ""
+    entry = reg.get(tx.norm_path(orig))
+    if entry is None or entry.get("prunable"):
+        return ""
+    if tx.norm_path(m.get("quarantine") or "") == tx.norm_path(orig):
+        return ""
+    return "branch %s HEAD %s" % (entry.get("branch") or "(detached)", (entry.get("head") or "?")[:12])
+
+
 def capture_member(t, index):
     """quarantined -> captured. Raises on a NORMAL (retryable) failure."""
     m = t["members"][index]
@@ -354,26 +491,44 @@ def capture_member(t, index):
     settle = float(os.environ.get("RICHOS_RECONCILE_SETTLE") or "1.0")
     disposable = disposable_paths(m.get("repo"))
 
-    # 1. a recreated ORIGINAL path is residue: its writers are killed, its
-    #    bytes kept as residue-<n>.tar, and it is removed.
+    # 1. something at the ORIGINAL path after the rename (landed review
+    #    2026-09-03, blocker 3: "both present" is a policy, not a hard
+    #    failure). If git registers that path as ANOTHER worktree it is not
+    #    this member's: recorded, never touched. Otherwise it is residue —
+    #    a process that recreated the path after quarantine, or the original
+    #    of a both-present recovery — and its writers are killed, its bytes
+    #    archived as residue-<n>.tar AND VERIFIED against their manifest
+    #    before anything is deleted, then it is removed.
     residue_n = int(m.get("residue_count") or 0)
     if os.path.lexists(orig):
-        left = kill_and_reap(processes_using([orig]))
-        if left:
-            raise RuntimeError("processes still using the recreated original %s: %s" % (orig, left))
-        residue_n += 1
-        cdir = capture_dir(t, index)
-        private_makedirs(cdir)
-        rpath = os.path.join(cdir, "residue-%d.tar" % residue_n)
-        if os.path.isdir(orig) and not os.path.islink(orig):
-            with private_open(rpath) as raw, tarfile.open(fileobj=raw, mode="w") as tar:
-                tar.add(orig, arcname="residue")
-            shutil.rmtree(orig)
+        foreign = _foreign_registration(m, orig)
+        if foreign:
+            if not m.get("foreign_worktree_at_original"):
+                tx.update_member(t["session_id"], t["agent_id"], index,
+                                 foreign_worktree_at_original=foreign, foreign_noted_ts=tx.now_iso())
+                log("original path %s is registered by git as ANOTHER worktree (%s): not this member's, not touched; its quarantine proceeds"
+                    % (orig, foreign))
         else:
-            os.unlink(orig)
-        tx.update_member(t["session_id"], t["agent_id"], index, residue_count=residue_n,
-                         residue_last=rpath)
-        log("reclaimed residue at the original path %s -> %s" % (orig, rpath))
+            left = kill_and_reap(processes_using([orig]))
+            if left:
+                raise RuntimeError("processes still using the recreated original %s: %s" % (orig, left))
+            residue_n += 1
+            cdir = capture_dir(t, index)
+            private_makedirs(cdir)
+            rpath = os.path.join(cdir, "residue-%d.tar" % residue_n)
+            residue_verified = False
+            if os.path.isdir(orig) and not os.path.islink(orig):
+                rman = build_manifest(orig, disposable)
+                _archive_tree(orig, rman, rpath)
+                _verify_tar(rpath, rman)
+                residue_verified = True
+                tx.atomic_write_json(rpath[:-4] + ".manifest.json", rman)
+                shutil.rmtree(orig)
+            else:
+                os.unlink(orig)
+            tx.update_member(t["session_id"], t["agent_id"], index, residue_count=residue_n,
+                             residue_last=rpath, residue_verified=residue_verified)
+            log("reclaimed residue at the original path %s -> %s (verified)" % (orig, rpath))
 
     # 2. writers inside the quarantine are terminated and reaped
     left = kill_and_reap(processes_using([quar]))
@@ -392,24 +547,27 @@ def capture_member(t, index):
     #    ignored evidence, which is where secrets live (blocker 8).
     cdir = capture_dir(t, index)
     private_makedirs(cdir)
-    tree_tar = os.path.join(cdir, "tree.tar")
-    tmp_tar = tree_tar + ".tmp"
-    if os.path.exists(tmp_tar):
-        os.unlink(tmp_tar)
-    with private_open(tmp_tar) as raw, tarfile.open(fileobj=raw, mode="w") as tar:
-        for rel in sorted(man_a):
-            full = os.path.join(quar, rel)
-            info = man_a[rel]
-            if info["kind"] == "file":
-                tar.add(full, arcname=rel, recursive=False)
-            elif info["kind"] == "symlink":
-                ti = tarfile.TarInfo(rel); ti.type = tarfile.SYMTYPE; ti.linkname = info["target"]; ti.mode = info["mode"]
-                tar.addfile(ti)
-            elif info["kind"] == "dir":
-                ti = tarfile.TarInfo(rel); ti.type = tarfile.DIRTYPE; ti.mode = info["mode"]
-                tar.addfile(ti)
-        raw.flush(); os.fsync(raw.fileno())
-    os.replace(tmp_tar, tree_tar)
+    _archive_tree(quar, man_a, os.path.join(cdir, "tree.tar"))
+    captured_files = len([k for k, v in man_a.items() if v["kind"] == "file"])
+
+    if m.get("git_unreadable"):
+        # RAW-BYTES CAPTURE (blocker 3): git cannot read this directory and
+        # no longer registers it, so no index, HEAD or status can be read and
+        # none is claimed. The archive holds every byte on disk, verified
+        # against the manifest like any other; the backup ref (if any) came
+        # from head_at_seal when the member advanced.
+        prov = {"repo": m.get("repo"), "original_path": orig, "quarantine": quar, "branch": m.get("branch"),
+                "head": m.get("head") or "", "head_at_seal": m.get("head_at_seal"), "backup_ref": m.get("backup_ref"),
+                "session_id": t["session_id"], "agent_id": t["agent_id"], "teammate": t.get("teammate"),
+                "captured_ts": tx.now_iso(), "disposable_paths": sorted(disposable), "git_unreadable": True,
+                "git_unreadable_reason": m.get("git_unreadable_reason") or "", "object_format": "", "index_entries": 0,
+                "standalone_blobs": 0, "unarchivable_entries": sorted(k for k, v in man_a.items() if v["kind"] == "other"),
+                "git_status_porcelain_ignored_z": ""}
+        tx.atomic_write_json(os.path.join(cdir, "manifest.json"), man_a)
+        tx.atomic_write_json(os.path.join(cdir, "index.json"), [])
+        tx.atomic_write_json(os.path.join(cdir, "provenance.json"), prov)
+        return tx.update_member(t["session_id"], t["agent_id"], index, state="captured", capture_dir=cdir,
+                                captured_files=captured_files, capture_kind="raw-bytes")
 
     # THE INDEX, EXACTLY, OR NOT `captured` AT ALL (review 2026-09-03,
     # blocker 2). Every git command needed for provenance or index capture
@@ -472,13 +630,27 @@ def capture_member(t, index):
     tx.atomic_write_json(os.path.join(cdir, "manifest.json"), man_a)
     tx.atomic_write_json(os.path.join(cdir, "index.json"), index_entries)
     tx.atomic_write_json(os.path.join(cdir, "provenance.json"), prov)
-    # PROVENANCE MUST AGREE WITH GIT. A quarantine whose HEAD moved away from
-    # the backup ref, or whose branch is not the bound one, is a hard failure.
+    # PROVENANCE MUST AGREE WITH GIT — AND WHEN IT DOES NOT, THE DIFFERENCE
+    # IS PRESERVED, NOT PARKED (landed review 2026-09-03, blocker 3). A
+    # quarantine whose HEAD moved away from the one the backup ref saved
+    # used to be a hard failure for an operator. The exact bytes are
+    # captured above; the moved HEAD is saved under <backup-ref>@drift-<n>
+    # (it must succeed, or this is a normal retryable failure), the drift is
+    # recorded on the member, and the member proceeds. Nothing is lost:
+    # both commits are reachable and both are named in the record.
+    fields = {"state": "captured", "capture_dir": cdir, "captured_files": captured_files}
     if m.get("head") and head and head != m.get("head"):
-        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",
-                                error="HEAD of the quarantine (%s) is not the HEAD the backup ref saved (%s)" % (head, m.get("head")))
-    return tx.update_member(t["session_id"], t["agent_id"], index, state="captured", capture_dir=cdir,
-                            captured_files=len([k for k, v in man_a.items() if v["kind"] == "file"]))
+        n = int(m.get("head_drift_count") or 0) + 1
+        drift_ref = "%s@drift-%d" % (m.get("backup_ref") or tx.backup_ref(t["session_id"], t["agent_id"], m.get("branch")), n)
+        rc, _, err = git_out(m["repo"], "update-ref", drift_ref, head)
+        if rc != 0:
+            raise RuntimeError("HEAD of the quarantine moved from %s to %s and the drift ref %s could not be saved: %s"
+                               % (m.get("head"), head, drift_ref, err.strip()[:200]))
+        fields.update(head_drift={"saved": m.get("head"), "found": head, "ref": drift_ref, "ts": tx.now_iso()},
+                      head_drift_count=n)
+        log("HEAD of %s moved from %s to %s after the backup ref was saved: the moved HEAD is preserved under %s; the member proceeds"
+            % (quar, m.get("head")[:12], head[:12], drift_ref))
+    return tx.update_member(t["session_id"], t["agent_id"], index, **fields)
 
 
 class ArchiveMismatch(RuntimeError):
@@ -518,10 +690,34 @@ def _verify_archive(m, cdir):
     if not isinstance(manifest, dict) or not isinstance(index, list) or not isinstance(prov, dict):
         raise ArchiveMismatch("manifest.json, index.json or provenance.json is missing or unreadable")
     object_format = prov.get("object_format") or "sha1"
+    _verify_tar(os.path.join(cdir, "tree.tar"), manifest)
+    # the quarantine's live digests must STILL match: nothing wrote since capture
+    disposable = disposable_paths(m.get("repo"))
+    live = build_manifest(m["quarantine"], disposable)
+    if live != manifest:
+        raise ArchiveMismatch("the quarantine changed after capture")
+    if prov.get("git_unreadable"):
+        return   # a raw-bytes capture: no index was readable and none is claimed
+    # every index entry that needs a standalone blob has one, and it hashes
+    # to the entry under the repository's object format
+    for e in index:
+        if not e.get("needs_blob"):
+            continue
+        bpath = os.path.join(cdir, "blobs", e["sha"])
+        if not os.path.isfile(bpath):
+            raise ArchiveMismatch("staged blob %s for %s is missing from the archive" % (e["sha"], e.get("path")))
+        if git_object_id(bpath, object_format) != e["sha"]:
+            raise ArchiveMismatch("staged blob %s does not hash to its index entry" % e["sha"])
+
+
+def _verify_tar(tar_path, manifest):
+    """EVERY manifest entry against the archive — type, mode, symlink
+    target, size and digest — and no entry the manifest does not name.
+    Shared by the tree archive and every residue archive."""
     try:
-        tar = tarfile.open(os.path.join(cdir, "tree.tar"), "r")
+        tar = tarfile.open(tar_path, "r")
     except Exception as e:
-        raise ArchiveMismatch("tree.tar unreadable: %s" % e)
+        raise ArchiveMismatch("%s unreadable: %s" % (os.path.basename(tar_path), e))
     with tar:
         entries = {}
         for ti in tar:
@@ -559,21 +755,6 @@ def _verify_archive(m, cdir):
                 raise ArchiveMismatch("manifest entry %s has unknown kind %r" % (rel, kind))
         if entries:
             raise ArchiveMismatch("archive holds %s which the manifest does not name" % sorted(entries)[0])
-    # the quarantine's live digests must STILL match: nothing wrote since capture
-    disposable = disposable_paths(m.get("repo"))
-    live = build_manifest(m["quarantine"], disposable)
-    if live != manifest:
-        raise ArchiveMismatch("the quarantine changed after capture")
-    # every index entry that needs a standalone blob has one, and it hashes
-    # to the entry under the repository's object format
-    for e in index:
-        if not e.get("needs_blob"):
-            continue
-        bpath = os.path.join(cdir, "blobs", e["sha"])
-        if not os.path.isfile(bpath):
-            raise ArchiveMismatch("staged blob %s for %s is missing from the archive" % (e["sha"], e.get("path")))
-        if git_object_id(bpath, object_format) != e["sha"]:
-            raise ArchiveMismatch("staged blob %s does not hash to its index entry" % e["sha"])
 
 
 def _tar_kind(ti):
@@ -591,28 +772,56 @@ def git_object_id(path, object_format="sha1"):
     return h.hexdigest()
 
 
+def _ensure_backup_ref(m, repo, ref):
+    """present | re-created | lost | none. A backup ref that vanished is
+    re-created from the recorded head while that commit object survives
+    (a failure to write it is a normal retryable failure); when the object
+    itself is gone the loss is recorded — the verified archive holds the
+    tree and the commit id is in the record — and the member proceeds."""
+    if not ref:
+        return "none"
+    if _ref_exists(repo, ref):
+        return "present"
+    head = m.get("head") or m.get("head_at_seal") or ""
+    if head and git_out(repo, "cat-file", "-e", head + "^{commit}")[0] == 0:
+        rc, _, err = git_out(repo, "update-ref", ref, head)
+        if rc != 0:
+            raise RuntimeError("backup ref %s is gone and could not be re-created from %s: %s" % (ref, head[:12], err.strip()[:200]))
+        return "re-created"
+    return "lost"
+
+
 def unregister_member(t, index):
     """verified -> unregistered: git no longer lists the worktree. The backup
-    ref is never touched; the branch is left alone."""
+    ref is never touched; the branch is left alone. Every failure here has
+    an automatic outcome (landed review 2026-09-03, blocker 3): no recorded
+    repository is read from the quarantine, and if neither exists there is
+    no registration to remove; a vanished backup ref is re-created from the
+    recorded head or recorded lost; a directory git cannot operate on is
+    left for `git worktree prune` once it is removed."""
     m = t["members"][index]
     quar = m.get("quarantine")
-    repo = m.get("repo")
+    sid, aid = t["session_id"], t["agent_id"]
+    repo = m.get("repo") or tx.main_checkout_of(quar) or ""
     if not repo:
-        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed", error="no repository recorded")
+        return tx.update_member(sid, aid, index, state="unregistered", unregistered_by="no-repository-known",
+                                note="no repository is recorded and none can be read from the quarantine: there is no registration to remove; the verified archive holds the tree")
     ref = m.get("backup_ref")
-    if ref and not tx.head_of(quar) and not _ref_exists(repo, ref):
-        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",
-                                error="backup ref %s is gone and the quarantine has no readable HEAD" % ref)
+    outcomes = [_ensure_backup_ref(m, repo, ref)]
     reg = tx.registered_worktrees(repo) or {}
     if tx.norm_path(quar) in reg:
         rc, _, err = git_out(repo, "worktree", "remove", "--force", quar)
-        if rc != 0:
+        if rc != 0 and not m.get("git_unreadable"):
             raise RuntimeError("git worktree remove --force %s failed: %s" % (quar, err.strip()[:200]))
     git_out(repo, "worktree", "prune")
-    if ref and not _ref_exists(repo, ref):
-        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",
-                                error="backup ref %s vanished during unregistering" % ref)
-    return tx.update_member(t["session_id"], t["agent_id"], index, state="unregistered")
+    outcomes.append(_ensure_backup_ref(m, repo, ref))
+    fields = {"state": "unregistered", "repo": repo}
+    if "lost" in outcomes:
+        fields["backup_ref_lost"] = True
+        log("backup ref %s of %s/%s is gone and its commit object no longer exists: recorded lost; the verified archive holds the tree" % (ref, sid[:8], aid))
+    if "re-created" in outcomes:
+        fields["backup_ref_recreated"] = True
+    return tx.update_member(sid, aid, index, **fields)
 
 
 def _ref_exists(repo, ref):
@@ -629,6 +838,8 @@ def remove_member(t, index):
         if left:
             raise RuntimeError("processes still using %s: %s" % (quar, left))
         shutil.rmtree(quar)
+        if m.get("repo") and os.path.isdir(m["repo"]):
+            git_out(m["repo"], "worktree", "prune")   # a registration git could not remove is stale now
     return tx.update_member(t["session_id"], t["agent_id"], index, state="removed", removed_ts=tx.now_iso())
 
 
@@ -639,59 +850,138 @@ STEPS = {
     "captured": verify_member,
     "verified": unregister_member,
     "unregistered": remove_member,
+    # A `missing` member written by an earlier revision is closed absent by
+    # the same policy the library now applies at the moment of discovery; a
+    # `failed` one is re-derived from disk and re-enters the state machine.
+    "missing": lambda t, i: tx.close_absent(t["session_id"], t["agent_id"], i,
+                                            "recorded missing by an earlier revision: %s" % (t["members"][i].get("error") or "?")),
+    "failed": lambda t, i: _rederive_state(t, i, "recorded failed by an earlier revision: %s" % (t["members"][i].get("error") or "?")),
 }
+
+
+def native_member_gone(m):
+    """(gone, why) — ONE definition, the library's, shared with the metrics
+    so what --status calls missing is exactly what this backstop retires."""
+    return tx.native_member_gone(m)
+
+
+def orphan_backstop_pass(only=None):
+    """NATIVE DISAPPEARANCE IS A TERMINAL INGRESS (CEO specification
+    2026-09-03, worktree-terminal-authority-fix-recommendation section 4).
+
+    Every sealed, non-terminal transaction with a native member carries an
+    exact durable assertion: this agent owns this exact registered native
+    worktree. The platform tears that worktree down when the worker ends —
+    and on 2026-09-03 it did so for a worker killed by TaskStop while no
+    hook delivered the worker's id: the native member vanished, the
+    transaction stayed `sealed`, --status said done, and the worker's
+    hand-rolled richos worktree leaked. A worker whose native workspace is
+    gone has lost the workspace the write barrier requires; it cannot
+    safely continue. So on every pass the native member is verified against
+    its recorded repository and path, and if it is absent or unregistered
+    the transaction is claimed — ingress NativeMemberGone, through the same
+    compare-and-set every other ingress uses — and terminalized: the native
+    member closes absent (backup ref from head_at_seal when the object
+    survives, absence recorded), and every surviving hand-rolled member is
+    quarantined, captured, verified, unregistered and removed by the normal
+    state machine. Exact transaction, exact member, no name, no orchestrator
+    decision. This is what retires the preserved zach-opus-b1 reproduction."""
+    claimed = 0
+    for t in list(tx.iter_transactions()):
+        if t.get("terminal") or not t.get("sealed"):
+            continue
+        sid, aid = t["session_id"], t["agent_id"]
+        if only and "%s/%s" % (sid, aid) != only:
+            continue
+        nat = next((m for m in t.get("members") or [] if m.get("class") == "native"), None)
+        if nat is None:
+            continue
+        gone, why = native_member_gone(nat)
+        if not gone:
+            continue
+        try:
+            won, t2 = tx.claim_terminal(sid, aid, "NativeMemberGone", detail=why)
+            if t2 is None:
+                continue
+            t2 = tx.terminalize(sid, aid, nat.get("path"))
+        except Exception as e:
+            log("native-gone backstop for %s/%s: %s — retried next run" % (sid[:8], aid, e))
+            continue
+        members = t2.get("members") or []
+        log("NATIVE MEMBER GONE for %s/%s (%s): %s — transaction claimed (%s); %d member(s): %s"
+            % (sid[:8], aid, t2.get("teammate") or "?", why, "won" if won else "resumed", len(members),
+               ", ".join("%s:%s" % (os.path.basename(m.get("path") or "?"), m.get("state")) for m in members)))
+        claimed += 1
+    return claimed
 
 
 def reconcile_transaction(t, deadline=None):
     sid, aid = t["session_id"], t["agent_id"]
+    base, cap = retry_backoff()
     with tx.tx_lock(sid, aid, timeout=5):
         for i in range(len(t.get("members") or [])):
+            steps_this_run = 0
             while True:
                 if deadline and time.time() > deadline:
                     return
                 t = tx.load_tx(sid, aid)
                 m = t["members"][i]
                 st = m.get("state")
-                if st in ("removed", "failed", "missing"):
+                if st == "removed":
+                    break
+                # PERSISTENT BACKOFF (blocker 3): a member that failed keeps
+                # its retry time on disk; it is skipped until then and never
+                # abandoned. base 0 (tests) disables the wait.
+                if base > 0 and float(m.get("retry_after_epoch") or 0) > time.time():
+                    log("member %s of %s/%s: in backoff until %s after %s attempt(s) — skipped this run"
+                        % (m.get("path"), sid[:8], aid, m.get("retry_after") or "?", m.get("attempts") or "?"))
+                    break
+                steps_this_run += 1
+                if steps_this_run > MAX_STEPS_PER_MEMBER_PER_RUN:
+                    log("member %s of %s/%s: %d transitions in one run without reaching removed — the rest waits for the next run"
+                        % (m.get("path"), sid[:8], aid, steps_this_run - 1))
                     break
                 step = STEPS.get(st)
                 if step is None:
-                    tx.update_member(sid, aid, i, state="failed", error="unknown state %r" % st)
-                    break
+                    step = lambda tt, ii, _st=st: _rederive_state(tt, ii, "unknown state %r" % _st)
                 try:
                     t2 = step(t, i)
                 except Exception as e:
                     attempts = int(m.get("attempts") or 0) + 1
-                    tx.update_member(sid, aid, i, attempts=attempts, last_error=str(e)[:300], last_attempt=tx.now_iso())
+                    _record_soft_failure(sid, aid, i, attempts, str(e), base, cap)
                     if attempts == MAX_SOFT_ATTEMPTS_BEFORE_NOTICE:
                         notice_once(t, i, "still failing after %d attempts: %s" % (attempts, e))
-                    log("member %s of %s/%s: %s (attempt %d, retrying later)" % (m.get("path"), sid[:8], aid, e, attempts))
+                    log("member %s of %s/%s: %s (attempt %d, retrying with backoff)" % (m.get("path"), sid[:8], aid, e, attempts))
                     break
                 t = t2 if isinstance(t2, dict) else tx.load_tx(sid, aid)
                 if t["members"][i].get("state") == st:
                     # No progress and no exception: the step declined to
                     # advance (a `git worktree repair` whose postcondition did
-                    # not hold, blocker 6) and wrote why on the member. It is
-                    # retried by the next run; after MAX attempts it is
-                    # reported once, like any other soft failure.
+                    # not hold; a HEAD git could not read; a rename that
+                    # failed) and wrote why on the member. It is scheduled
+                    # with backoff like any other soft failure; after MAX
+                    # attempts it is reported once, and the retries continue.
                     m2 = t["members"][i]
-                    if m2.get("last_error"):
+                    if m2.get("last_error") and m2.get("last_attempt") != m.get("last_attempt"):
                         attempts = int(m2.get("attempts") or 0)
+                        _record_soft_failure(sid, aid, i, attempts, m2.get("last_error"), base, cap, bump=False)
                         if attempts == MAX_SOFT_ATTEMPTS_BEFORE_NOTICE:
                             notice_once(t, i, "still failing after %d attempts: %s" % (attempts, m2.get("last_error")))
-                        log("member %s of %s/%s: %s (attempt %d, retrying later)" % (m2.get("path"), sid[:8], aid, m2.get("last_error"), attempts))
+                        log("member %s of %s/%s: %s (attempt %d, retrying with backoff)" % (m2.get("path"), sid[:8], aid, m2.get("last_error"), attempts))
                     break
-                if t["members"][i].get("state") in ("failed", "missing"):
-                    notice_once(t, i, t["members"][i].get("error") or "hard failure")
-                    break
+                if m.get("retry_after_epoch"):
+                    tx.update_member(sid, aid, i, retry_after_epoch=0)
 
 
 def notice_once(t, index, msg):
+    """ONE report per member, ever — an alert, not a transfer of ownership:
+    the retries continue with backoff after it (blocker 3)."""
     marker = tx.tx_path(t["session_id"], t["agent_id"]) + ".member-%d.notice" % index
     if os.path.exists(marker):
         return
     tx.touch_marker(marker, "%s\n%s\n" % (tx.now_iso(), msg))
-    log("HARD FAILURE (reported once) %s/%s member %s: %s" % (t["session_id"][:8], t["agent_id"], t["members"][index].get("path"), msg))
+    log("PERSISTENT FAILURE (reported once; retries continue with backoff, nothing waits for a person) %s/%s member %s: %s"
+        % (t["session_id"][:8], t["agent_id"], t["members"][index].get("path"), msg))
 
 
 def process_pending_terminals(only=None):
@@ -705,9 +995,22 @@ def process_pending_terminals(only=None):
     native member if a start fact names one that still verifies — becomes a
     fallback transaction that is claimed and terminalized like any other.
     Nothing is discovered by name; a member that no longer verifies is
-    recorded `failed`/`missing` and counted, never guessed at. A pending
-    record with NO bound record after the grace period owned nothing and is
-    removed."""
+    recorded and closed by policy, never guessed at.
+
+    A PENDING RECORD WITH NO BOUND RECORD IS NOT "NOTHING WAS OWNED" (landed
+    review 2026-09-03, blocker 2). A SubagentStart record can name the exact
+    native path `.claude/worktrees/agent-<agent_id>`, and a WorktreeRemove
+    can name it as first_path; either verifies through _verify_native_member
+    (platform agent-id basename, exact registered worktree). That is
+    precisely the path taken when SubagentStart succeeded but the parent's
+    PostToolUse[Agent] binder failed — and until this revision the record
+    was dropped there, with the native worktree left behind. Now the start
+    fact and the first_path are inspected, a verified native member becomes
+    a one-member fallback transaction, and an agent with NO verifiable
+    member becomes a ZERO-member terminal transaction: the terminal event
+    stands as a tombstone, the agent stays terminal, nothing on disk is
+    touched, and the record is never reinterpreted as if it had not
+    happened."""
     grace = pending_terminal_grace()
     handled = 0
     for sid, aid, p in list(tx.iter_pending_terminals()):
@@ -728,36 +1031,16 @@ def process_pending_terminals(only=None):
         if age < grace:
             continue
         bound = tx.read_bound(sid, aid)
-        if not bound:
-            log("pending terminal for %s/%s: no bound record after %.0fs — nothing was ever owned; record dropped" % (sid[:8], aid, age))
-            _unlink(ppath); continue
-        members = []
-        for e in bound.get("externals") or []:
-            ext, why = tx._verify_external_member(e)
-            if ext is not None:
-                members.append(ext)
-            else:
-                real = tx.norm_path(e.get("path"))
-                members.append({"class": "hand-rolled", "repo": tx.norm_path(e.get("repo")), "path": real,
-                                "branch": e.get("branch") or "", "head_at_seal": "",
-                                "state": "missing" if not os.path.isdir(real) else "failed", "error": why})
         start = tx.read_start(sid, aid)
-        if (bound.get("kind") or "") in ("native", "native+external") and start:
-            nat, _why = tx._verify_native_member(start.get("cwd_real") or tx.norm_path(start.get("cwd")), aid)
-            if nat is not None:
-                members.insert(0, nat)
-        if not members:
-            log("pending terminal for %s/%s: unbindable after %.0fs (%s) and no creation-time member survives to clean — record kept as unbindable" % (sid[:8], aid, age, res))
-            if not p.get("unbindable"):
-                p["unbindable"] = True; p["unbindable_reason"] = str(res); p["unbindable_ts"] = tx.now_iso()
-                tx.atomic_write_json(ppath, p)
-            continue
+        members = _creation_time_members(sid, aid, bound, start, p)
         fallback = {
             "record": "transaction", "session_id": sid, "agent_id": aid,
-            "tool_use_id": bound.get("tool_use_id"), "teammate": bound.get("teammate") or "",
-            "subagent_type": bound.get("subagent_type") or "", "kind": bound.get("kind") or "",
+            "tool_use_id": (bound or {}).get("tool_use_id"), "teammate": (bound or {}).get("teammate") or "",
+            "subagent_type": (bound or {}).get("subagent_type") or (start or {}).get("agent_type") or "",
+            "kind": (bound or {}).get("kind") or ("native" if members else "unowned"),
             "members": members, "sealed": True, "sealed_ts": tx.now_iso(), "state": "sealed",
             "sealed_by": "pending-terminal-fallback", "seal_reason": str(res),
+            "bound_record": bool(bound), "start_record": bool(start),
             "start_cwd": (start or {}).get("cwd_real") or "", "terminal": None,
         }
         with tx.tx_lock(sid, aid):
@@ -766,9 +1049,59 @@ def process_pending_terminals(only=None):
         tx.claim_terminal(sid, aid, p.get("ingress") or "SubagentStop", detail=p.get("detail") or "", via_pending=p)
         tx.terminalize(sid, aid, p.get("first_path") or None)
         _unlink(ppath)
-        log("pending terminal for %s/%s: unsealable after %.0fs (%s); %d creation-time member(s) routed through cleanup" % (sid[:8], aid, age, res, len(members)))
+        if members:
+            log("pending terminal for %s/%s: unsealable after %.0fs (%s); %d creation-time member(s) routed through cleanup%s"
+                % (sid[:8], aid, age, res, len(members), "" if bound else " (no bound record: the native member came from the start fact / first_path, verified against git)"))
+        else:
+            log("pending terminal for %s/%s: unsealable after %.0fs (%s) and no verifiable member: closed as a ZERO-member terminal transaction — the terminal event stands, the agent stays terminal, nothing on disk was owned"
+                % (sid[:8], aid, age, res))
         handled += 1
     return handled
+
+
+def _creation_time_members(sid, aid, bound, start, p):
+    """The exact members a pending terminal agent owned at creation time,
+    verified against git as the seal would have — never discovered by name.
+
+    External members come from the BOUND record's prepared set: one that
+    still verifies is bound as-is; one whose directory is gone is bound
+    absent (closed by the library's vanished-member policy); one that is
+    still the exact prepared path inside the exact prepared repository but
+    has drifted (branch, HEAD) is bound with the drift recorded, so its exact
+    bytes are captured before anything is unregistered; a directory at the
+    prepared path that is NOT a worktree of the prepared repository is not
+    ours and is not touched.
+
+    The native member comes from the START fact's cwd, else from the exact
+    path a WorktreeRemove named (first_path) — blocker 2 — and only when
+    _verify_native_member accepts it: platform `agent-<id>` basename, exact
+    registered linked worktree. Nothing here needs a bound record."""
+    members = []
+    for e in (bound or {}).get("externals") or []:
+        ext, why = tx._verify_external_member(e)
+        if ext is not None:
+            members.append(ext)
+            continue
+        real = tx.norm_path(e.get("path"))
+        repo = tx.norm_path(e.get("repo"))
+        if not os.path.isdir(real):
+            members.append({"class": "hand-rolled", "repo": repo, "path": real, "branch": e.get("branch") or "",
+                            "head_at_seal": "", "state": "bound", "prepared_but_absent": why})
+            continue
+        if tx.worktree_toplevel(real) == real and tx.main_checkout_of(real) == repo:
+            members.append({"class": "hand-rolled", "repo": repo, "path": real, "branch": tx.branch_of(real) or e.get("branch") or "",
+                            "head_at_seal": tx.head_of(real), "state": "bound", "provenance_drift": why})
+            continue
+        log("pending terminal for %s/%s: %s is not a worktree of the prepared repository %s (%s) — not owned, not touched"
+            % (sid[:8], aid, real, repo, why))
+    for cand in ((start or {}).get("cwd_real") or tx.norm_path((start or {}).get("cwd")), p.get("first_path") or ""):
+        if not cand:
+            continue
+        nat, _why = tx._verify_native_member(tx.norm_path(cand), aid)
+        if nat is not None:
+            members.insert(0, nat)
+            break
+    return members
 
 
 def _unlink(path):
@@ -835,10 +1168,19 @@ def retention_pass():
                     expired["captures"] += 1
                 ref = m.get("backup_ref")
                 if ref and not m.get("backup_ref_expired_ts") and age >= ref_days:
-                    if os.path.isdir(m.get("repo") or ""):
-                        git_out(m["repo"], "update-ref", "-d", ref)
-                    tx.update_member(sid, aid, i, backup_ref_expired_ts=tx.now_iso())
-                    expired["backup_refs"] += 1
+                    gone, why = _expire_backup_ref(m.get("repo"), ref)
+                    if gone:
+                        tx.update_member(sid, aid, i, backup_ref_expired_ts=tx.now_iso())
+                        expired["backup_refs"] += 1
+                    else:
+                        # STILL TRACKED (landed review 2026-09-03, blocker 4):
+                        # no expiry timestamp, so artifacts_gone below stays
+                        # false and the record that names the ref outlives it.
+                        n = int(m.get("backup_ref_expire_attempts") or 0) + 1
+                        tx.update_member(sid, aid, i, backup_ref_expire_attempts=n,
+                                         backup_ref_expire_error=why[:300], backup_ref_expire_last_attempt=tx.now_iso())
+                        log("retention: backup ref %s of %s/%s NOT expired (attempt %d): %s — the ref and its record stay tracked; retried next run"
+                            % (ref, sid[:8], aid, n, why))
             t = tx.load_tx(sid, aid)
             artifacts_gone = all(
                 (not m.get("capture_dir") or m.get("capture_expired_ts") or not os.path.isdir(m["capture_dir"]))
@@ -860,6 +1202,31 @@ def retention_pass():
     if any(expired.values()):
         log("retention: expired %d capture(s), %d backup ref(s), %d transaction record(s)" % (expired["captures"], expired["backup_refs"], expired["transactions"]))
     return expired
+
+
+def _expire_backup_ref(repo, ref):
+    """(gone, why). A backup ref is `gone` only when the EXACT ref no longer
+    resolves in its repository — verified by rev-parse after `update-ref -d`,
+    never assumed from the deletion's exit code, and never assumed at all
+    (landed review 2026-09-03, blocker 4). Until this revision the deletion's
+    result was ignored and the member marked expired regardless; if git had
+    rejected it, the ref lived on forever while the only record saying it
+    existed was deleted by the transaction retention that trusted the stamp.
+
+    A repository that is not present is NOT `gone`: an unmounted volume
+    would otherwise drop the record while the ref survives on it. The
+    record is kept and retried; a repository deleted for good keeps a tiny
+    record forever, which is the right side of that trade."""
+    if not repo or not os.path.isdir(repo):
+        return False, "repository %s is not present, so the ref cannot be verified gone" % (repo or "?")
+    if not _ref_exists(repo, ref):
+        return True, "already absent"
+    rc, _, err = git_out(repo, "update-ref", "-d", ref)
+    if rc != 0:
+        return False, "git update-ref -d %s exited %d: %s" % (ref, rc, err.strip()[:200])
+    if _ref_exists(repo, ref):
+        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref
+    return True, "deleted and verified absent"
 
 
 def _expire_transaction_record(t):
@@ -913,6 +1280,10 @@ def run(max_seconds=None, only=None):
         n += process_pending_terminals(only)
     except Exception as e:
         log("pending terminal pass: %s" % e)
+    try:
+        n += orphan_backstop_pass(only)
+    except Exception as e:
+        log("native-gone backstop pass: %s" % e)
     for t in list(tx.iter_transactions()):
         if not t.get("terminal"):
             continue
@@ -950,13 +1321,32 @@ def run(max_seconds=None, only=None):
 
 
 def status():
+    """The definition of done (CEO specification 2026-09-03, section 5).
+    `done` may stay true while positively live workers exist — they are not
+    cleanup debt — and MUST be false over any orphan witness: a terminal
+    member with a directory present, a terminal member pending retry, a
+    sealed transaction whose native member is missing or unregistered, a
+    pending terminal event past its grace period, or one recorded
+    unbindable. No unexamined non-terminal transaction is called live."""
     m = tx.metrics()
+    grace = pending_terminal_grace()
+    overdue = 0
+    for _sid, _aid, rec in tx.iter_pending_terminals():
+        if time.time() - float(rec.get("epoch") or 0) > grace:
+            overdue += 1
+    m["pending_terminals_overdue"] = overdue
     m["definition_of_done"] = {
         "terminal_members_with_a_directory_present": m["terminal_members_present"],
         "terminal_transactions_pending_normal_retry": m["pending_retry"],
         "hard_failures_counted_as_dead_present": m["failed_present"],
+        "sealed_transactions_whose_native_member_is_gone": m["sealed_native_missing"],
+        "pending_terminal_events_overdue": overdue,
+        "pending_terminal_events_unbindable": m["pending_terminals_unbindable"],
     }
-    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0)
+    m["live_workers_positively_present"] = m["sealed_native_present"]
+    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0
+                 and m["sealed_native_missing"] == 0 and overdue == 0
+                 and m["pending_terminals_unbindable"] == 0)
     return m
 
 

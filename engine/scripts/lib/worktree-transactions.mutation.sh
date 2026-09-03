@@ -59,15 +59,15 @@ mutant rebind-allowed "T06" "$F" \
     '    if False:{NL}        raise RuntimeError(' \
     "one agent id could be bound to two intents; the later one silently replaces the member set the first one owns."
 
-mutant both-present-chooses "T39" "$F" \
-    '    if o and q:{NL}        return update_member(session_id, agent_id, index, state="failed",' \
-    '    if False:{NL}        return update_member(session_id, agent_id, index, state="failed",' \
-    "with both directories present the code would rename over an existing quarantine — choosing, which recovery must never do."
+mutant both-present-renames-over "T39" "$F" \
+    '    if o and not q:{NL}        try:{NL}            os.rename(orig, quar)' \
+    '    if o:{NL}        try:{NL}            os.rename(orig, quar)' \
+    "with both directories present the code would rename the original over the existing quarantine — choosing, which recovery must never do; the failed rename parks the member instead of advancing the quarantine that is already ours."
 
 mutant rename-not-idempotent "T38" "$F" \
-    '    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing",' \
-    '    if not o:{NL}        return update_member(session_id, agent_id, index, state="missing",' \
-    "a crash between the rename and the state write would leave a quarantined tree recorded as MISSING forever."
+    '    if not o and not q:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))' \
+    '    if not o:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))' \
+    "a crash between the rename and the state write would close a quarantined tree as ABSENT — removed on paper, its bytes still on disk."
 
 mutant native-path-prefix "T44" "$F" \
     '            if m.get("class") == "native" and norm_path(m.get("path")) == want:' \
@@ -115,8 +115,8 @@ mutant terminal-index-is-truth "T55" "$F" \
     "a crash between the transaction's terminal write and the index write would leave a terminal worker that every guard reads as live — it could write into a quarantine (review 2026-09-03, blocker 5)."
 
 mutant loser-does-not-repair "T56" "$F" \
-    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    order = list(' \
-    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    order = list(' \
+    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    if not tx.get("members"):' \
+    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    if not tx.get("members"):' \
     "the losing ingress would see the transaction terminal and return without healing a missing index, and terminalize (the other caller every ingress reaches) would not either; the O(1) guards would stay wrong until a reconciler pass happened to run. Both carry the property, so both are removed at once."
 
 mutant ref-not-saved "T33" "$F" \
@@ -124,11 +124,22 @@ mutant ref-not-saved "T33" "$F" \
     '    rc, _, err = 0, "", ""' \
     "the terminal path would quarantine a tree whose unlanded commits are held by nothing but a branch the harness deletes on cleanup (PF11)."
 
-# Two places record MISSING — save_ref (first to look) and quarantine (second).
-# Either alone catches a vanished member, so both are removed in one mutant.
-mutant missing-not-counted "T40" "$F" \
-    '    if not src:{NL}        return update_member(session_id, agent_id, index, state="missing",{NL}                             error="neither %s nor %s exists" % (orig, quar)){NL}    head = head_of(src){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing",{NL}                             error="neither %s nor %s exists" % (orig, quar)){NL}    if o:' \
-    '    if not src:{NL}        return update_member(session_id, agent_id, index, state="ref_saved", quarantine=quar){NL}    head = head_of(src){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar){NL}    if o:' \
-    "a vanished member would be recorded as quarantined — a success-shaped state over a directory nobody can find."
+# Two places see a vanished member — save_ref (first to look) and quarantine
+# (second). Either alone closes it, so both are mutated in one mutant: back to
+# the manual MISSING state this revision retired.
+mutant absent-parked-as-missing "T40" "$F" \
+    '    if not src:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at ref_saved" % (orig, quar)){AND}    if not o and not q:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))' \
+    '    if not src:{NL}        return update_member(session_id, agent_id, index, state="missing", error="neither %s nor %s exists" % (orig, quar)){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing", error="neither %s nor %s exists" % (orig, quar))' \
+    "a vanished member would park in a manual MISSING state with no backup ref and wait for a person — the babysitting state the landed review (blocker 3) and the CEO specification (section 4) both forbid."
+
+mutant absent-loses-the-head "T40" "$F" \
+    '            rc2, _, err = _git(repo, "update-ref", ref, head)' \
+    '            rc2, _, err = 0, "", ""' \
+    "closing an absent member would claim the head was preserved under a backup ref it never wrote; the harness deletes the branch, and the unlanded commits would be unreachable."
+
+mutant dir-fsync-swallowed "T61" "$F" \
+    '            if e.errno in _DIR_FSYNC_UNSUPPORTED:{NL}                if path not in _dir_fsync_unsupported_noted:' \
+    '            if True:{NL}                if path not in _dir_fsync_unsupported_noted:' \
+    "every directory-fsync error would be swallowed again — a terminal claim reported durable could vanish after a crash, the exact overstatement the landed review named (2026-09-03, blocker 6)."
 
 mutation_end

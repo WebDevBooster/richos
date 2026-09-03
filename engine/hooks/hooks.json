@@ -243,6 +243,16 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "matcher": "TaskStop",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/terminalize-agent-worktrees.sh",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "SubagentStart": [

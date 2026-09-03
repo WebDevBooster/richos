@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
 #
-# terminalize-agent-worktrees.sh — THE TERMINAL INGRESS. Registered on BOTH
-# SubagentStop and WorktreeRemove; the two race for one compare-and-set claim.
+# terminalize-agent-worktrees.sh — THE TERMINAL INGRESS. Registered on
+# SubagentStop, WorktreeRemove AND PostToolUse[TaskStop]; all race for one
+# compare-and-set claim. Each supplies an EXACT join to the ownership id —
+# the event's own agent_id, the exact native member path, the structured
+# task_id a successful TaskStop returned — and none is promoted from a cwd,
+# a name or a sentence (CEO specification 2026-09-03: femcboost docs/plans/
+# worktree-terminal-authority-fix-recommendation-2026-09-03.md).
+#
+# NOT (yet) registered: TeammateIdle. Idle IS done by the CEO's rule, but
+# the event's payload has never been observed live on this machine (every
+# idle-events row is a test fixture), so no field of it is proven to join
+# to the ownership id, and the specification (section 3) forbids granting
+# an unmeasured event destructive authority. teammate-idle-handoff.sh
+# records the first live payload's key names and identity fields as the
+# fixture; when one proves an exact join, this hook accepts it through the
+# same claim. Meanwhile the reconciler's native-disappearance backstop
+# covers native workers.
 #
 # ===========================================================================
 # THE RULING THIS IMPLEMENTS
@@ -47,8 +62,10 @@
 #
 # NEVER BLOCKS. Exit 0 always: a terminal event must never be prevented, and
 # a worker must never be kept alive by this hook's own failure. Every failure
-# is written into the transaction (a member state of `failed` or `missing`,
-# COUNTED as dead-present by the metrics) and announced on stderr.
+# is written into the transaction (an attempt and its reason on the member,
+# retried by the reconciler with backoff; a vanished member is closed absent
+# with its backup ref re-created) and announced on stderr. No member state
+# waits for a person (landed review 2026-09-03, blocker 3).
 #
 # NOTHING HERE IS NAME-BASED. An agent with no sealed transaction — a helper
 # subagent, a read-only type, a spawn that never bound — produces no claim
@@ -113,6 +130,25 @@ elif event == "WorktreeRemove":
         raise SystemExit(0)
     first_path = path
     ingress = "WorktreeRemove"
+elif event == "PostToolUse":
+    # THE EXPLICIT-KILL INGRESS (CEO specification 2026-09-03, section 1).
+    # A successful TaskStop RESULT carries the immutable ownership id of the
+    # task that actually stopped; the REQUEST carried only the reusable
+    # teammate name and is never read as authority. The structured task_id
+    # is parsed (dict / JSON string / content blocks — the measured shape is
+    # a JSON string), never scraped from the success sentence. Measured
+    # 2026-09-03: this was the one exact join available for a killed worker,
+    # and nothing consumed it, so its cross-repository worktree leaked.
+    if str(d.get("tool_name") or "") != "TaskStop":
+        raise SystemExit(0)
+    aid = tx.taskstop_result_id(d.get("tool_response"))
+    if not aid:
+        # No structured task id, an error result, or a malformed id: a
+        # failed stop stops nothing, and nothing is guessed from prose.
+        raise SystemExit(0)
+    ti = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
+    detail = "requested=%s" % (str(ti.get("task_id") or "") or "?")
+    ingress = "TaskStop"
 else:
     raise SystemExit(0)
 if not aid:
@@ -121,7 +157,7 @@ if not aid:
     raise SystemExit(0)
 
 try:
-    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or ""))
+    won, t = tx.claim_terminal(sid, aid, ingress, detail=(first_path or (detail if ingress == "TaskStop" else "")))
 except Exception as e:
     sys.stderr.write("claim for agent %s FAILED: %s — nothing was mutated; the next ingress or the reconciler retries.\n" % (aid, e))
     raise SystemExit(0)
@@ -150,7 +186,7 @@ bad = [m for m in members if m.get("state") in ("failed", "missing")]
 sys.stderr.write("%s ingress %s the claim for agent %s (%s); members: %s\n"
                  % (ingress, "WON" if won else "resumed", aid, t.get("teammate") or "?", summary or "none"))
 for m in bad:
-    sys.stderr.write("  member %s is %s: %s — counted as dead-present until an operator resolves it\n"
+    sys.stderr.write("  member %s is %s (recorded by an earlier revision): %s — the reconciler re-derives it from disk and closes it by policy; nothing waits for a person\n"
                      % (m.get("path"), m.get("state"), m.get("error") or "?"))
 PY
 

@@ -577,12 +577,12 @@ registered_teammate_worktree() {
   fi
   return 0
 }
-HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with cwd:\"<path>\" (no isolation) or add the prompt line  cross-repo-worktree: <path>  (with isolation:\"worktree\")."
+HELPER_HINT="create it with  <engine>/scripts/create-teammate-worktree.sh <repo> <teammate-name>  which creates, seeds .worktreeinclude, and REGISTERS the tree; then spawn with isolation:\"worktree\" and add the prompt line  cross-repo-worktree: <path>  (a cwd-only spawn is refused: it has no platform-owned lifecycle witness)."
 
 case "$ISOLATION" in
   worktree|remote)
     if [ -n "$SPAWN_CWD" ]; then
-      PROBLEMS+=("cwd and isolation are mutually exclusive — the Agent tool refuses the pair (got cwd='${SPAWN_CWD}' with isolation='${ISOLATION}'). For cross-repository work either drop isolation and spawn with cwd inside a registered worktree, or keep isolation and name the registered worktree on a 'cross-repo-worktree: <path>' prompt line.")
+      PROBLEMS+=("cwd and isolation are mutually exclusive — the Agent tool refuses the pair (got cwd='${SPAWN_CWD}' with isolation='${ISOLATION}'). For cross-repository work keep isolation and name the registered worktree on a 'cross-repo-worktree: <path>' prompt line (a cwd-only spawn is refused: it has no platform-owned lifecycle witness).")
     fi
     ;;
   *)
@@ -604,7 +604,7 @@ case "$ISOLATION" in
           "$MAIN_CHECKOUT_MARKER"
       } >>"$LOG_DIR/main-checkout-runs.log" 2>/dev/null || true
     else
-      PROBLEMS+=("missing native isolation — add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='${ISOLATION:-unset}'); OR, for cross-repository work, spawn with cwd inside a worktree registered by scripts/create-teammate-worktree.sh; OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.")
+      PROBLEMS+=("missing native isolation — add  isolation: \"worktree\"  to run in an isolated worktree (got isolation='${ISOLATION:-unset}'); for cross-repository work ALSO add a 'cross-repo-worktree: <path>' prompt line naming a worktree registered by scripts/create-teammate-worktree.sh (a cwd-only spawn is refused); OR, if this is a deliberate main-checkout run, add a live prompt line starting with 'main-checkout-run: <reason>'.")
     fi
     ;;
 esac
@@ -1013,8 +1013,25 @@ for p in paths:
         continue
     externals.append({"repo": repo_now, "path": real, "branch": branch_now,
                       "prepared_ts": rec.get("ts"), "class": "hand-rolled"})
-if kind == "cwd" and not externals:
-    problem("a cwd spawn with no bindable external member cannot be recorded.")
+if kind == "cwd":
+    # 7f. EXTERNAL-ONLY WORKERS ARE REFUSED (CEO specification 2026-09-03,
+    # worktree-terminal-authority-fix-recommendation section 6), after the
+    # 7a checks above so every finding about the prepared tree is still
+    # reported. A cwd-only spawn owns hand-rolled worktrees and nothing the
+    # platform owns: no WorktreeRemove will ever name its member and the
+    # reconciler's native-disappearance backstop has no native member to
+    # watch, so its only terminal signals are a SubagentStop carrying its
+    # exact id (never observed for a natural completion on this machine) or
+    # an explicit TaskStop. Measured 2026-09-03: a killed worker's
+    # hand-rolled worktree leaked with no exact event delivered. Until an
+    # exact natural-completion or idle event is MEASURED, a file-writing
+    # worker must carry the platform-owned lifecycle witness: isolation
+    # "worktree" plus a `cross-repo-worktree: <path>` prompt line per
+    # prepared tree (kind native+external), so the transaction holds the
+    # native member the backstop verifies and every hand-rolled member it
+    # retires.
+    first = (paths[0] if paths else "<path>")
+    problem("external-only spawn refused — a cwd-only worker (no isolation) has NO platform-owned lifecycle witness: no WorktreeRemove ever names its worktree and the reconciler's native-disappearance backstop has nothing to verify, so a kill or a natural completion that delivers no exact event would leak it forever (measured 2026-09-03). Spawn it with isolation:\"worktree\" and put the prepared tree on a 'cross-repo-worktree: %s' prompt line instead (kind native+external). CEO specification 2026-09-03, section 6." % first)
     raise SystemExit(0)
 try:
     tx.write_intent(sid, tuid, {"kind": kind, "teammate": name,

@@ -52,20 +52,29 @@ THE STATE MACHINE, PER MEMBER
     unregistered  git no longer lists the worktree
     removed       the quarantine directory is gone
 
-Two terminal ingresses — SubagentStop (by agent id) and WorktreeRemove (by the
-exact native path) — race for ONE compare-and-set claim on the transaction.
-Exactly one wins; the loser resumes the already-started transaction
-idempotently. Neither waits for the other and no ordering is assumed.
+The terminal ingresses — SubagentStop (by its OWN agent id, never a cwd),
+WorktreeRemove (by the exact native path), a successful TaskStop (by the
+task id its RESULT returned) and the reconciler's NativeMemberGone (the
+sealed native member verified absent or unregistered) — race for ONE
+compare-and-set claim on the transaction. Exactly one wins; every later
+one resumes the already-started transaction idempotently. None waits for
+another and no ordering is assumed.
 
-A member whose recovery finds BOTH the original and the quarantine present,
-or whose provenance disagrees with git, is `failed`: refused, reported, and
-COUNTED as dead-present. It is never resolved by looking for a similar name.
+NO MEMBER STATE WAITS FOR A PERSON (landed review 2026-09-03, blocker 3).
+Both original and quarantine present: the quarantine (its name embeds the
+session prefix and the agent id) advances, and the original is left for the
+reconciler to archive, verify and reclaim as residue — or to leave alone
+when git registers it as another worktree. Neither present: closed absent,
+the backup ref re-created from the recorded head while the commit object
+survives. A transient git failure: recorded on the member and retried with
+persistent backoff. Nothing is ever resolved by looking for a similar name.
 
 ===========================================================================
 WHAT IS NOT HERE, DELIBERATELY
 ===========================================================================
 No liveness inference. No name lookup. No lead acceptance. No feature flag
-that turns cleanup off. `TeammateIdle` and `TaskCompleted` are not read.
+that turns cleanup off. `TeammateIdle` (its payload unmeasured on this
+platform) and `TaskCompleted` hold no authority here.
 """
 
 import errno
@@ -156,21 +165,62 @@ def now_iso():
 # durable writes
 # --------------------------------------------------------------------------
 
+# THE ONE NARROW PORTABILITY EXCEPTION for the directory fsync (landed review
+# 2026-09-03, blocker 6). These errnos are a filesystem's statement that a
+# directory descriptor HAS no fsync — EINVAL is the documented answer of a
+# descriptor type that cannot be synced (seen on some network and FUSE mounts),
+# ENOTSUP/EOPNOTSUPP the FUSE spelling of the same statement. They are the
+# only errors swallowed, and they are swallowed with a notice. EIO, ENOSPC,
+# EBADF, EACCES, ENOENT and every other error mean the sync FAILED, and are
+# raised: the caller was promised durability and must not be told it got it.
+_DIR_FSYNC_UNSUPPORTED = frozenset(
+    x for x in (errno.EINVAL, getattr(errno, "ENOTSUP", None), getattr(errno, "EOPNOTSUPP", None))
+    if x is not None)
+_dir_fsync_unsupported_noted = set()
+
+
 def _fsync_dir(path):
+    """Make the rename that just landed in `path` durable, or RAISE.
+
+    Until this revision every error here — opening the directory AND syncing
+    it — was swallowed, while atomic_write_json documented "temp file, fsync,
+    rename, directory fsync; raises on failure". A terminal claim reported
+    durable could therefore vanish after a crash, because the directory entry
+    naming it was never forced to disk (landed review 2026-09-03, blocker 6).
+
+    THE WEAKER GUARANTEE ON A FILESYSTEM THAT CANNOT SYNC A DIRECTORY (the
+    errnos in _DIR_FSYNC_UNSUPPORTED, and only those): the rename is still
+    atomic — a reader sees the old record or the new, never a torn one — and
+    the file's own bytes were fsynced; what is NOT guaranteed is that the new
+    directory entry survives a crash or power loss before the filesystem's
+    own metadata flush. On such a mount a claim can be lost to a crash in
+    that window and is re-made by the next ingress or reconciler pass. The
+    exception is announced once per process on stderr, naming the mount and
+    the errno, so it is never silent."""
+    fd = os.open(path, os.O_RDONLY)
     try:
-        fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(fd)
-    except OSError:
-        pass
+        try:
+            os.fsync(fd)
+        except OSError as e:
+            if e.errno in _DIR_FSYNC_UNSUPPORTED:
+                if path not in _dir_fsync_unsupported_noted:
+                    _dir_fsync_unsupported_noted.add(path)
+                    sys.stderr.write("worktree-transactions: NOTICE: %s cannot fsync a directory (errno %d %s); "
+                                     "renames there are atomic but not crash-durable until the filesystem flushes "
+                                     "its own metadata. Every other write here is fully durable.\n"
+                                     % (path, e.errno, errno.errorcode.get(e.errno, "?")))
+                return
+            raise
     finally:
         os.close(fd)
 
 
 def atomic_write_json(path, obj):
-    """temp file -> fsync -> rename -> directory fsync. Raises on failure."""
+    """temp file -> fsync -> rename -> directory fsync. Raises on failure —
+    including on a failed directory fsync (blocker 6): by then the rename has
+    landed, so the record IS on disk, but it is not durable, and the caller is
+    told so by the exception rather than told it succeeded. Every caller is
+    idempotent on a re-read of what exists, so a retry converges."""
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
     tmp = "%s.tmp.%d.%d" % (path, os.getpid(), int(time.time() * 1000000))
@@ -764,6 +814,63 @@ def find_unsealed_by_native_path(session_id, path):
     return ""
 
 
+def taskstop_result_id(tool_response):
+    """The exact task id a SUCCESSFUL TaskStop result returned, or "".
+
+    THE EXPLICIT-KILL INGRESS (CEO specification 2026-09-03, femcboost
+    docs/plans/worktree-terminal-authority-fix-recommendation-2026-09-03.md,
+    section 1). Measured on this machine 2026-09-03 (lead transcript, session
+    df2b4fd1): the lead issued TaskStop with the REUSABLE teammate name
+    ("zach-opus-b1") and the tool result was a JSON string —
+        {"message": "Successfully stopped task: a5d5a2e681fa0f003 (...)",
+         "task_id": "a5d5a2e681fa0f003", "task_type": "local_agent",
+         "command": "..."}
+    — whose task_id is exactly the transaction's ownership id, supplied by
+    the platform after the task actually stopped. Nothing consumed it, and
+    the killed worker's cross-repository worktree leaked.
+
+    Accepted structured forms: a dict; a JSON string encoding a dict; a list
+    of content blocks whose text encodes such a dict. The id comes from the
+    structured `task_id` field ONLY — never from the human-readable message
+    sentence, never from the request's task_id (the name). A result carrying
+    an error marker, no structured task_id, or an id of the wrong shape
+    resolves nothing: TaskStop may legitimately target an agent that owns no
+    RichOS worktree, and a failed stop stops nothing."""
+    obj = _structured_result(tool_response, 0)
+    if not isinstance(obj, dict):
+        return ""
+    if obj.get("is_error") or obj.get("error") or obj.get("success") is False:
+        return ""
+    tid = obj.get("task_id")
+    if not isinstance(tid, str) or not AGENT_ID_RE.match(tid):
+        return ""
+    return tid
+
+
+def _structured_result(value, depth):
+    if depth > 3:
+        return None
+    if isinstance(value, dict):
+        if "task_id" not in value and value.get("type") == "text" and isinstance(value.get("text"), str):
+            return _structured_result(value["text"], depth + 1)
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s.startswith("{"):
+            return None
+        try:
+            return _structured_result(json.loads(s), depth + 1)
+        except ValueError:
+            return None
+    if isinstance(value, list):
+        for item in value:
+            r = _structured_result(item, depth + 1)
+            if isinstance(r, dict) and "task_id" in r:
+                return r
+        return None
+    return None
+
+
 def iter_pending_terminals():
     """Every unconsumed pending terminal record, as (session_id, agent_id, record)."""
     root = tx_root()
@@ -823,30 +930,114 @@ def backup_ref(session_id, agent_id, branch):
 # the two transitions the terminal ingress performs synchronously
 # --------------------------------------------------------------------------
 
+def close_absent(session_id, agent_id, index, reason):
+    """A member whose original AND quarantine are both gone is closed
+    AUTOMATICALLY — never parked in a manual `missing` state (landed review
+    2026-09-03, blocker 3; CEO specification section 4). What is preserved
+    is exactly what remains, and nothing is searched for:
+      - the backup ref is (re)created from the recorded head (the HEAD
+        save_ref read, else head_at_seal) when that commit object still
+        exists in the repository — the platform can delete a native
+        worktree and its branch, but the objects outlive both;
+      - a registration git still holds for the vanished path is pruned
+        (`git worktree prune` drops only registrations whose directory is
+        gone);
+      - the absence, its reason and what was preserved are recorded on the
+        member, and it is `removed`.
+    A backup-ref write that FAILS while the object exists is a transient
+    failure and raises, so the caller retries; the member is not closed on
+    a lost ref that could still be saved."""
+    tx = load_tx(session_id, agent_id)
+    m = tx["members"][index]
+    repo = m.get("repo") or ""
+    ref = m.get("backup_ref") or backup_ref(session_id, agent_id, m.get("branch"))
+    head = m.get("head") or m.get("head_at_seal") or ""
+    preserved = "no-head-recorded"
+    repo_present = bool(repo) and os.path.isdir(repo)
+    if repo_present and head:
+        rc, _, _ = _git(repo, "cat-file", "-e", head + "^{commit}")
+        if rc == 0:
+            rc2, _, err = _git(repo, "update-ref", ref, head)
+            if rc2 != 0:
+                raise RuntimeError("closing absent member %s: update-ref %s failed: %s" % (m["path"], ref, err.strip()[:200]))
+            preserved = "backup-ref"
+        else:
+            preserved = "commit-object-gone"
+    elif head and not repo_present:
+        preserved = "repository-not-present"
+    if repo_present:
+        _git(repo, "worktree", "prune")
+    return update_member(session_id, agent_id, index, state="removed", closed="absent",
+                         absence_reason=reason, absence_recorded_ts=now_iso(), removed_ts=now_iso(),
+                         head=head or m.get("head") or "", head_preserved=preserved,
+                         backup_ref=(ref if preserved == "backup-ref" else m.get("backup_ref")))
+
+
 def save_ref(session_id, agent_id, index):
     """bound -> ref_saved. Idempotent: the HEAD is read from whichever of the
-    original or the quarantine exists."""
+    original or the quarantine exists; neither present closes the member
+    absent (close_absent)."""
     tx = load_tx(session_id, agent_id)
     m = tx["members"][index]
     if m.get("state") != "bound":
         return tx
     orig = m["path"]
     quar = m.get("quarantine") or quarantine_name(orig, session_id, agent_id)
-    src = orig if os.path.isdir(orig) else (quar if os.path.isdir(quar) else "")
+    # The quarantine is preferred as the source when it exists: its name
+    # embeds this session prefix and this agent id, so it is this member's
+    # own tree; whatever stands at the original path after a rename is
+    # residue or somebody else's registration, never the HEAD to save.
+    src = quar if os.path.isdir(quar) else (orig if os.path.isdir(orig) else "")
     if not src:
-        return update_member(session_id, agent_id, index, state="missing",
-                             error="neither %s nor %s exists" % (orig, quar))
+        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at ref_saved" % (orig, quar))
     head = head_of(src)
-    if not head:
-        return update_member(session_id, agent_id, index, state="failed",
-                             error="could not read HEAD of %s" % src)
     ref = backup_ref(session_id, agent_id, m.get("branch"))
+    if not head:
+        # git cannot read the directory (landed review 2026-09-03, blocker 3
+        # — no `failed` state waits for a person). If git still REGISTERS it,
+        # the failure is transient (a lock, a busy index): recorded on the
+        # member and retried with backoff by the reconciler. If git no longer
+        # registers it, the directory is orphaned from its repository — its
+        # administrative directory is gone — and no git command will ever
+        # succeed inside it: the backup ref is taken from head_at_seal while
+        # that commit object survives, the member is marked git_unreadable,
+        # and it advances so the reconciler captures its RAW bytes, verifies
+        # them and closes it.
+        reg = registered_worktrees(m["repo"]) if os.path.isdir(m.get("repo") or "") else None
+        if reg is not None and norm_path(src) in reg and not reg[norm_path(src)].get("prunable"):
+            return _soft_failure(session_id, agent_id, index,
+                                 "could not read HEAD of %s (git still registers it; retried with backoff)" % src)
+        sealed_head = m.get("head_at_seal") or ""
+        preserved = "no-head-at-seal"
+        if sealed_head and os.path.isdir(m.get("repo") or ""):
+            rc, _, _ = _git(m["repo"], "cat-file", "-e", sealed_head + "^{commit}")
+            if rc == 0:
+                rc2, _, err = _git(m["repo"], "update-ref", ref, sealed_head)
+                if rc2 != 0:
+                    return _soft_failure(session_id, agent_id, index, "update-ref %s failed: %s" % (ref, err.strip()[:200]))
+                preserved = "backup-ref"
+            else:
+                preserved = "commit-object-gone"
+        return update_member(session_id, agent_id, index, state="ref_saved", git_unreadable=True,
+                             git_unreadable_reason="git cannot read %s and no longer registers it" % src,
+                             head=sealed_head, head_preserved=preserved,
+                             backup_ref=(ref if preserved == "backup-ref" else None), quarantine=quar)
     rc, _, err = _git(m["repo"], "update-ref", ref, head)
     if rc != 0:
-        return update_member(session_id, agent_id, index, state="failed",
-                             error="update-ref %s failed: %s" % (ref, err.strip()[:200]))
+        return _soft_failure(session_id, agent_id, index, "update-ref %s failed: %s" % (ref, err.strip()[:200]))
     return update_member(session_id, agent_id, index, state="ref_saved",
                          backup_ref=ref, head=head, quarantine=quar)
+
+
+def _soft_failure(session_id, agent_id, index, why):
+    """A TRANSIENT failure: the member keeps its state, the attempt and the
+    reason are recorded, and the reconciler retries it with persistent
+    backoff (landed review 2026-09-03, blocker 3). Nothing here is a queue
+    for a person."""
+    tx = load_tx(session_id, agent_id)
+    m = tx["members"][index]
+    return update_member(session_id, agent_id, index, attempts=int(m.get("attempts") or 0) + 1,
+                         last_error=why[:300], last_attempt=now_iso())
 
 
 def quarantine(session_id, agent_id, index):
@@ -859,19 +1050,31 @@ def quarantine(session_id, agent_id, index):
     orig = m["path"]
     quar = m.get("quarantine") or quarantine_name(orig, session_id, agent_id)
     o, q = os.path.isdir(orig), os.path.isdir(quar)
-    if o and q:
-        return update_member(session_id, agent_id, index, state="failed",
-                             error="both %s and %s exist; refusing to choose" % (orig, quar))
     if not o and not q:
-        return update_member(session_id, agent_id, index, state="missing",
-                             error="neither %s nor %s exists" % (orig, quar))
-    if o:
+        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))
+    # BOTH PRESENT IS A POLICY, NOT A HARD FAILURE (landed review 2026-09-03,
+    # blocker 3). The quarantine name embeds this session prefix and this
+    # agent id, so a directory at that exact name is this member's own
+    # quarantine, produced by this member's own rename (a crash between the
+    # rename and its record, or a re-run); whatever stands at the original
+    # path afterwards is residue, or a registration somebody else made.
+    # Nothing is chosen between them and nothing is renamed over anything:
+    # the quarantine is ours and advances; the original is recorded present
+    # and left EXACTLY where it is for the reconciler, which archives and
+    # verifies residue before removing it and never touches a path git
+    # registers as another worktree.
+    both = o and q
+    if o and not q:
         try:
             os.rename(orig, quar)
         except OSError as e:
-            return update_member(session_id, agent_id, index, state="failed",
-                                 error="rename %s -> %s failed: %s" % (orig, quar, e))
+            return _soft_failure(session_id, agent_id, index, "rename %s -> %s failed: %s" % (orig, quar, e))
         _fsync_dir(os.path.dirname(orig))
+    both_fields = {"original_present_at_quarantine": True, "original_present_ts": now_iso()} if both else {}
+    if m.get("git_unreadable"):
+        # No administrative directory to repair and nothing for git to list:
+        # the raw bytes are what the reconciler captures.
+        return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar, **both_fields)
     # RE-POINT GIT AT THE QUARANTINE. After a raw rename the repository's
     # registration still names the ORIGINAL path and is "prunable"; the
     # harness's own cleanup (or anyone's `git worktree prune`) would then
@@ -902,7 +1105,7 @@ def quarantine(session_id, agent_id, index):
         return update_member(session_id, agent_id, index, quarantine=quar,
                              attempts=int(m.get("attempts") or 0) + 1,
                              last_error="quarantine not advanced: " + why, last_attempt=now_iso())
-    return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar)
+    return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar, **both_fields)
 
 
 def terminalize(session_id, agent_id, first_path=None):
@@ -929,6 +1132,8 @@ def terminalize(session_id, agent_id, first_path=None):
     if not tx or not tx.get("terminal"):
         return tx
     _repair_terminal_indexes(tx)
+    if not tx.get("members"):
+        return close_if_empty(session_id, agent_id)
     order = list(range(len(tx["members"])))
     first = norm_path(first_path) if first_path else ""
 
@@ -944,6 +1149,25 @@ def terminalize(session_id, agent_id, first_path=None):
             save_ref(session_id, agent_id, i)
             quarantine(session_id, agent_id, i)
         return load_tx(session_id, agent_id)
+
+
+def close_if_empty(session_id, agent_id):
+    """A terminal transaction with NO members — a main-checkout-run or remote
+    spawn, or a pending terminal event whose agent had no verifiable member
+    (landed review 2026-09-03, blocker 2) — is `removed` the moment it is
+    terminal: there is nothing to quarantine, capture or delete, and a
+    tombstone that never reaches `removed` would be counted as pending and
+    never expire. The terminal record, the ingress and the agent-id index
+    all stand; only the state advances."""
+    with tx_lock(session_id, agent_id):
+        tx = load_tx(session_id, agent_id)
+        if not tx or not tx.get("terminal") or tx.get("members") or tx.get("state") == "removed":
+            return tx
+        tx["state"] = "removed"
+        tx["removed_ts"] = now_iso()
+        tx["closed"] = "no-members"
+        atomic_write_json(tx_path(session_id, agent_id), tx)
+        return tx
 
 
 # --------------------------------------------------------------------------
@@ -975,10 +1199,53 @@ def member_present(m):
     return os.path.isdir(m.get("path") or "") or os.path.isdir(m.get("quarantine") or "")
 
 
+def native_member_gone(m):
+    """(gone, why) for a sealed transaction's native member, verified against
+    the RECORDED repository and path and nothing else: the directory no
+    longer exists, or git no longer lists it as a worktree of that
+    repository, or lists it prunable. When git itself cannot be read nothing
+    is decided (not gone). ONE definition, shared by the reconciler's
+    native-disappearance backstop and by the metrics, so what `--status`
+    calls missing is exactly what the backstop retires."""
+    path = m.get("path") or ""
+    repo = m.get("repo") or ""
+    if not path:
+        return False, ""
+    if not os.path.isdir(path):
+        return True, "native member %s no longer exists on disk" % path
+    if not repo or not os.path.isdir(repo):
+        return False, ""
+    reg = registered_worktrees(repo)
+    if reg is None:
+        return False, ""
+    entry = reg.get(norm_path(path))
+    if entry is None:
+        return True, "git no longer lists %s as a worktree of %s" % (path, repo)
+    if entry.get("prunable"):
+        return True, "git lists %s as PRUNABLE (its administrative directory is gone)" % path
+    return False, ""
+
+
 def metrics():
-    """The definition of done. No dead directory is omitted from the
-    denominator: a failed member with a directory present is counted."""
-    out = {"transactions": 0, "sealed_live": 0, "terminal": 0, "removed": 0,
+    """The definition of done, with nothing omitted and NOTHING CALLED LIVE
+    THAT WAS NOT EXAMINED (CEO specification 2026-09-03, section 5).
+    `sealed_live` used to mean only "sealed and not terminal", and on this
+    machine it counted a killed worker whose native worktree the platform
+    had torn down as live while --status said done. Now every sealed
+    non-terminal transaction is examined: its native member is PRESENT
+    (directory exists and git registers it, non-prunable, in the recorded
+    repository) or MISSING (cleanup debt: the backstop retires it); a
+    transaction with no native member is external-only (its termination has
+    no platform witness) or member-less (a main-checkout-run or remote
+    spawn; nothing to clean). Terminal members are counted present only
+    while they are not `removed`: a directory that reappears at a removed
+    member's old path is somebody else's, never dead-present. A failed
+    member with a directory present is always counted."""
+    out = {"transactions": 0,
+           "sealed_native_present": 0, "sealed_native_missing": 0,
+           "sealed_external_only_unclaimed": 0, "sealed_no_member": 0,
+           "terminal": 0, "removed": 0,
+           "terminal_pending_cleanup": 0, "terminal_cleanup_failed": 0,
            "terminal_members": 0, "terminal_members_present": 0,
            "pending_retry": 0, "failed": 0, "failed_present": 0,
            "pending_terminals": 0, "pending_terminals_unbindable": 0}
@@ -988,24 +1255,35 @@ def metrics():
             out["pending_terminals_unbindable"] += 1
     for tx in iter_transactions():
         out["transactions"] += 1
+        members = tx.get("members") or []
         if not tx.get("terminal"):
-            out["sealed_live"] += 1
+            nat = next((m for m in members if m.get("class") == "native"), None)
+            if nat is None:
+                out["sealed_external_only_unclaimed" if members else "sealed_no_member"] += 1
+            elif native_member_gone(nat)[0]:
+                out["sealed_native_missing"] += 1
+            else:
+                out["sealed_native_present"] += 1
             continue
         out["terminal"] += 1
         if tx.get("state") == "removed":
             out["removed"] += 1
-        for m in tx.get("members") or []:
+        for m in members:
             out["terminal_members"] += 1
-            present = member_present(m)
             st = m.get("state")
+            if st == "removed":
+                continue
+            present = member_present(m)
             if present:
                 out["terminal_members_present"] += 1
             if st in TERMINAL_STATES:
                 out["failed"] += 1
                 if present:
                     out["failed_present"] += 1
-            elif st != "removed":
+            else:
                 out["pending_retry"] += 1
+    out["terminal_pending_cleanup"] = out["pending_retry"]
+    out["terminal_cleanup_failed"] = out["failed"]
     return out
 
 

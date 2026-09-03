@@ -96,6 +96,19 @@ BEFORE_WL="$(grep -c . "$WL" 2>/dev/null || echo 0)"
 run_hook '{"hook_event_name":"SomethingElse","session_id":"cafebabe-1111-4222-8333-444455556666","cwd":"/repo/.claude/worktrees/agent-f00dcafe02"}'
 [ "$(grep -c . "$WL" 2>/dev/null || echo 0)" -eq "$BEFORE_WL" ] && ok "ledger: a non-TeammateIdle event writes no finish signal" || bad "ledger wrote for the wrong event"
 
+# 8. MEASUREMENT FIXTURE (CEO specification 2026-09-03, section 3): the record
+#    carries the payload's top-level key NAMES and its identity/type/task
+#    fields, and never a value that could be a prompt or model output.
+run_hook '{"hook_event_name":"TeammateIdle","session_id":"cafebabe-1111-4222-8333-444455556666","agent_id":"a0000000000000idl","agent_type":"zach","teammate_name":"zach-fable-x1","task_id":"t-42","cwd":"/tmp","last_assistant_message":"PROSE THAT MUST NOT BE LOGGED"}'
+LAST="$(tail -1 "$LOG" 2>/dev/null)"
+if printf '%s' "$LAST" | grep -qF '"payload_keys": ["agent_id", "agent_type", "cwd", "hook_event_name", "last_assistant_message", "session_id", "task_id", "teammate_name"]' \
+   && printf '%s' "$LAST" | grep -qF '"agent_type": "zach"' && printf '%s' "$LAST" | grep -qF '"task_id": "t-42"' \
+   && printf '%s' "$LAST" | grep -qF '"agent_id": "a0000000000000idl"' && ! printf '%s' "$LAST" | grep -q 'PROSE THAT MUST NOT'; then
+    ok "measurement fixture: the record carries payload key NAMES + agent_id/agent_type/task_id/teammate, and no message value"
+else
+    bad "measurement fixture ($LAST)"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== teammate-idle-handoff tests: $FAIL FAILED, $PASS passed ==="

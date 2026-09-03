@@ -46,21 +46,21 @@ mutant writers-not-killed "C14" "$R" \
     "a process standing in the quarantine would survive capture and could recreate the path after removal."
 
 mutant residue-not-reclaimed "C15" "$R" \
-    '    if os.path.lexists(orig):{NL}        left = kill_and_reap(processes_using([orig]))' \
-    '    if False:{NL}        left = kill_and_reap(processes_using([orig]))' \
+    '    if os.path.lexists(orig):{NL}        foreign = _foreign_registration(m, orig)' \
+    '    if False:{NL}        foreign = _foreign_registration(m, orig)' \
     "a recreated original path would sit beside a removed quarantine forever, uncounted."
 
 mutant backup-ref-not-protected "C04" "$R" \
-    '    if ref and not _ref_exists(repo, ref):{NL}        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",{NL}                                error="backup ref %s vanished during unregistering" % ref){NL}    return tx.update_member(t["session_id"], t["agent_id"], index, state="unregistered")' \
-    '    git_out(repo, "update-ref", "-d", ref){NL}    return tx.update_member(t["session_id"], t["agent_id"], index, state="unregistered")' \
+    '    if "re-created" in outcomes:{NL}        fields["backup_ref_recreated"] = True{NL}    return tx.update_member(sid, aid, index, **fields)' \
+    '    if "re-created" in outcomes:{NL}        fields["backup_ref_recreated"] = True{NL}    git_out(repo, "update-ref", "-d", ref) if ref else None{NL}    return tx.update_member(sid, aid, index, **fields)' \
     "unregistering would delete the backup ref — the only thing that keeps unlanded commits reachable once the harness deletes the branch (PF11)."
 
-mutant hard-failure-hidden "C19" "$R" \
-    '    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0)' \
-    '    m["done"] = (m["pending_retry"] == 0)' \
-    "a failed member with its directory still on disk would read as done — the reporting exemption finding 10 of the archiver review names."
+# (retired 2026-09-03: hard-failure-hidden mutated `done` to ignore present
+# directories. No member state parks a directory any more — every condition
+# retries or closes — so the mutant has no case to turn red here; the
+# denominator property lives in worktree-transactions.mutation.sh metrics-hide-failed / T49.)
 
-mutant status-exit-always-zero "C19" "$R" \
+mutant status-exit-always-zero "C42" "$R" \
     '        return 0 if s["done"] else 1' \
     '        return 0' \
     "every caller that checks the exit code would read a dead-present machine as clean."
@@ -74,6 +74,68 @@ mutant fallback-never-built "C27" "$R" \
     '        with tx.tx_lock(sid, aid):{NL}            if tx.load_tx(sid, aid) is None:{NL}                tx.atomic_write_json(tx.tx_path(sid, aid), fallback)' \
     '        with tx.tx_lock(sid, aid):{NL}            pass' \
     "a permanently unbindable agent's prepared worktrees would never be cleaned: the pending event would sit forever and the trees with it."
+
+mutant start-only-native-dropped "C28b" "$R" \
+    '        nat, _why = tx._verify_native_member(tx.norm_path(cand), aid){NL}        if nat is not None:{NL}            members.insert(0, nat)' \
+    '        nat, _why = None, "dropped"{NL}        if nat is not None:{NL}            members.insert(0, nat)' \
+    "a start-only exact native worktree — the binder-failure path — would never be retired: the pending record would close as a zero-member tombstone with the worktree left behind forever (landed review 2026-09-03, blocker 2)."
+
+mutant tombstone-dropped "C28a" "$R" \
+    '        members = _creation_time_members(sid, aid, bound, start, p)' \
+    '        members = _creation_time_members(sid, aid, bound, start, p){NL}        if not members:{NL}            _unlink(ppath); continue' \
+    "a recorded terminal event for an agent with no verifiable member would be reinterpreted as if it never happened — no transaction, no tombstone — which is the certification C28 used to carry (landed review 2026-09-03, blocker 2)."
+
+mutant native-gone-backstop-blind "C39" "$R" \
+    '        gone, why = native_member_gone(nat)' \
+    '        gone, why = False, ""' \
+    "a worker whose native worktree the platform tore down with no hook delivered (the measured TaskStop kill) would stay sealed-live forever and its hand-rolled worktree would leak — the reproduction of 2026-09-03 (CEO specification, section 4)."
+
+mutant native-gone-backstop-trigger-happy "C40" "$R" \
+    '        gone, why = native_member_gone(nat)' \
+    '        gone, why = True, "always"' \
+    "every sealed LIVE worker would be terminalized on the next reconciler pass — the old sweep, back, deleting a live agent's worktrees with every guard reporting green."
+
+L="scripts/lib/worktree-transactions.py"
+
+mutant residue-unverified "C19" "$R" \
+    '                _verify_tar(rpath, rman){NL}                residue_verified = True' \
+    '                residue_verified = False' \
+    "the residue at an original path would be deleted on the strength of an archive nobody verified — the both-present policy requires both exact paths archived AND verified before anything is removed (landed review 2026-09-03, blocker 3)."
+
+mutant foreign-original-deleted "C45" "$R" \
+    '        foreign = _foreign_registration(m, orig)' \
+    '        foreign = ""' \
+    "a worktree git registers at the original path — somebody else's, prepared later at the same path — would be archived as residue and DELETED: a live worker's tree destroyed by name resemblance."
+
+mutant drift-parked-as-failed "C44" "$R" \
+    '    if m.get("head") and head and head != m.get("head"):{NL}        n = int(m.get("head_drift_count") or 0) + 1' \
+    '    if m.get("head") and head and head != m.get("head"):{NL}        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed", error="drift"){NL}        n = int(m.get("head_drift_count") or 0) + 1' \
+    "a quarantine whose HEAD moved would park as FAILED for an operator instead of preserving the moved HEAD under a drift ref and proceeding (landed review 2026-09-03, blocker 3)."
+
+mutant backoff-ignored "C42" "$R" \
+    '                if base > 0 and float(m.get("retry_after_epoch") or 0) > time.time():' \
+    '                if False:' \
+    "a failing member would be hammered on every pass with no backoff — the persistent schedule the landed review requires (blocker 3) would be prose."
+
+mutant legacy-failed-parked "C46" "$R" \
+    '                if st == "removed":{NL}                    break' \
+    '                if st in ("removed", "failed", "missing"):{NL}                    break' \
+    "a member an earlier revision left FAILED or MISSING would never be re-derived: the permanent manual queue, back."
+
+mutant unregistered-native-parked "C43" "$L" \
+    '        if reg is not None and norm_path(src) in reg and not reg[norm_path(src)].get("prunable"):' \
+    '        if True:' \
+    "a directory git can neither read nor list would be retried forever as a transient failure instead of having its raw bytes captured and closed (landed review 2026-09-03, blocker 3)."
+
+mutant native-missing-not-in-done "C47b" "$R" \
+    '                 and m["sealed_native_missing"] == 0 and overdue == 0' \
+    '                 and overdue == 0' \
+    "--status would report done: true over a sealed transaction whose native member the platform tore down — the measured defect: a leaked hand-rolled worktree behind a clean status (CEO specification, section 5)."
+
+mutant native-presence-unexamined "C47b" "$L" \
+    '            elif native_member_gone(nat)[0]:{NL}                out["sealed_native_missing"] += 1' \
+    '            elif False:{NL}                out["sealed_native_missing"] += 1' \
+    "every sealed non-terminal transaction would be called present without examining its native member — `sealed_live` under a new name."
 
 mutant index-failure-swallowed "C29" "$R" \
     '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
@@ -109,6 +171,16 @@ mutant record-expires-before-artifacts "C36" "$R" \
     '            if age >= tx_days and artifacts_gone:' \
     '            if age >= tx_days:' \
     "a transaction record would be deleted while its backup ref still existed — an artifact orphaned from the record that explains it."
+
+mutant backup-ref-expiry-assumed "C38" "$R" \
+    '                    gone, why = _expire_backup_ref(m.get("repo"), ref)' \
+    '                    gone, why = True, "assumed"' \
+    "a rejected `git update-ref -d` would still stamp the member expired; transaction retention trusts the stamp and deletes the only record saying the ref exists, and the ref lives on forever, untracked (landed review 2026-09-03, blocker 4)."
+
+mutant backup-ref-exit-code-trusted "C38b" "$R" \
+    '    if _ref_exists(repo, ref):{NL}        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref' \
+    '    if False:{NL}        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref' \
+    "a deletion that exited 0 without removing the ref would be believed — the exact ref is what must be verified absent, not the exit code."
 
 mutant budget-ignored "C23" "$R" \
     '        if deadline and time.time() > deadline:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \

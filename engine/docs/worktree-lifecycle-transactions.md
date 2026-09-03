@@ -21,15 +21,17 @@ agent might return. It is forbidden to return."*
 | Step | Hook / script | What it writes | Refuses when |
 |---|---|---|---|
 | prepare an external worktree | `scripts/create-teammate-worktree.sh` | `prepared` (ledger) — repo, exact path, branch, session id | the path is not in `git worktree list`, no session id resolves, or the record does not read back: the tree is **rolled back** |
-| spawn intent | `guard-worktree-isolation.sh` clause 7 (PreToolUse[Agent]) | `intents/<tool_use_id>.json` — the exact member set | an external path has no `prepared` record for this session and teammate, its repo or branch drifted, `run_in_background: false`, or a lifecycle component is missing |
+| spawn intent | `guard-worktree-isolation.sh` clause 7 (PreToolUse[Agent]) | `intents/<tool_use_id>.json` — the exact member set | an external path has no `prepared` record for this session and teammate, its repo or branch drifted, `run_in_background: false`, a lifecycle component is missing, or the spawn is cwd-only (external-only: no platform-owned lifecycle witness — spawn with `isolation: "worktree"` and a `cross-repo-worktree:` line instead; CEO specification 2026-09-03 section 6) |
 | bind | `detect-nonnative-worktree.sh` (PostToolUse[Agent]) | `bound/<agent_id>.json` — intent + agent id | no intent, no agent id (synchronous run), or a rebind: announced loudly, exit 2 |
 | start fact | `record-subagent-start.sh` (SubagentStart) | `starts/<agent_id>.json` — the worker's exact cwd | never; it cannot block and does not pretend to |
 | seal | `worktree-transactions.py try_seal` (called by both writers above and by the barrier) | `<agent_id>.json` with `sealed: true` | the cwd is not `agent-<id>`, not a linked worktree git lists, or not the prepared external path |
 | write barrier | `guard-sealed-worktree.sh` (PreToolUse, matcherless, first) | nothing | the manifest is not sealed (after waiting `SEAL_WAIT_SECONDS`): every tool but `SEAL_READONLY_TOOLS` is refused; a terminal agent (by index, by transaction, or by a pending terminal event) is refused everything; and the barrier FAILS CLOSED on its own error — python3 missing, the library missing, the root unresolvable, the payload unparseable, the resolver raising — refusing every potentially writing or unknown tool and passing only a proven lead call or a proven read-only tool (probe Layer Q6 proves it live) |
-| terminal claim | `terminalize-agent-worktrees.sh` (SubagentStop, WorktreeRemove) | `terminal` on the transaction; backup refs; quarantines; the terminal indexes — the named native path first, one member at a time | never blocks; an agent with no sealed transaction produces no claim — its event is persisted as `pending-terminal/<agent_id>.json` instead (below) |
-| pending terminal | `worktree-transactions.py claim_terminal` (unsealed) → `try_seal` (consumes) → `reconcile-terminal-worktrees.py process_pending_terminals` (fallback) | `pending-terminal/<agent_id>.json`; the agent-id index (terminal by policy at once) | recorded only for an agent this session has a bound or start record for; consumed the moment the manifest seals; after `PENDING_TERMINAL_GRACE_SECONDS` with no seal, the bound record's prepared members are verified and cleaned as a `pending-terminal-fallback` transaction — no bound record means nothing was owned and the record is dropped |
+| terminal claim | `terminalize-agent-worktrees.sh` (SubagentStop by its OWN agent id — never a cwd, nested agents run inside the parent's cwd; WorktreeRemove by exact native path; PostToolUse[TaskStop] by the task id the RESULT returned, never the requested name) | `terminal` on the transaction; backup refs; quarantines; the terminal indexes — the named native path first, one member at a time | never blocks; an agent with no sealed transaction produces no claim — its event is persisted as `pending-terminal/<agent_id>.json` instead (below) |
+| pending terminal | `worktree-transactions.py claim_terminal` (unsealed) → `try_seal` (consumes) → `reconcile-terminal-worktrees.py process_pending_terminals` (fallback) | `pending-terminal/<agent_id>.json`; the agent-id index (terminal by policy at once) | recorded only for an agent this session has a bound or start record for; consumed the moment the manifest seals; after `PENDING_TERMINAL_GRACE_SECONDS` with no seal, the creation-time members are verified and cleaned as a `pending-terminal-fallback` transaction: the bound record's prepared trees, plus the exact native worktree a start fact or a WorktreeRemove first_path names (with or without a bound record); an agent with no verifiable member becomes a zero-member terminal tombstone — a recorded terminal event is never reinterpreted as if it had not happened |
+| native-gone backstop | `scripts/reconcile-terminal-worktrees.py orphan_backstop_pass` (every reconciler pass) | the claim (ingress `NativeMemberGone`) on a sealed transaction whose exact native member is absent or no longer registered in its recorded repository; the native member closed absent with its backup ref from `head_at_seal`; every hand-rolled member quarantined and retired by the normal state machine | git that cannot be read decides nothing; a present, registered native member is never claimed |
+| TeammateIdle (not an ingress) | `teammate-idle-handoff.sh` (log-only) | each payload's top-level key names and identity/type/task fields in `idle-events.jsonl` — the measurement fixture | it never fired live on this machine; it holds no destructive authority until an observed field is proven to join to the ownership id |
 | resume refusal | `guard-resume-isolation.sh` (PreToolUse[SendMessage]) | nothing | the recipient's agent id or session-scoped name is terminal — before `resume-ack:`, before protocol bodies |
-| capture → removal | `scripts/reconcile-terminal-worktrees.py` (launchd every `RECONCILE_INTERVAL_SECONDS`; SessionStart with a budget) | member states `captured → verified → unregistered → removed`; the archive | a member has both its original and its quarantine present, or provenance contradicts git: `failed`, reported once, counted as dead-present |
+| capture → removal | `scripts/reconcile-terminal-worktrees.py` (launchd every `RECONCILE_INTERVAL_SECONDS`; SessionStart with a budget) | member states `captured → verified → unregistered → removed`; the archive | never permanently: a transient failure is recorded on the member and retried with persistent backoff (`RECONCILE_RETRY_BACKOFF_SECONDS`, doubling to `RECONCILE_RETRY_BACKOFF_MAX_SECONDS`), reported once after repeated failures and retried on; both-present, a vanished path, a drifted HEAD, a lost backup ref, an unreadable git state and a legacy `failed` record each have an automatic close (below) |
 
 ## What to run
 
@@ -137,29 +139,51 @@ launchd job does it), no user action. Ages count from the transaction's
 A transaction record is deleted only after every artifact it names is gone,
 so nothing on disk is ever orphaned from the record that explains it. The
 agent-id terminal index (`terminal/<agent_id>`, ~50 bytes) is kept forever:
-an agent id is terminal forever and the resume guard reads it. Hard failures
-(`failed`/`missing` members) never reach `removed` and are never expired;
-they wait for a person, as they should.
+an agent id is terminal forever and the resume guard reads it. No member
+waits for a person: every condition retries or closes automatically (next
+section), so every transaction reaches `removed` and expires.
 
-## What a hard failure looks like, and what to do
+## What a persistent failure looks like, and why nobody has to act
 
-`reconcile-terminal-worktrees.py --status` reports
-`hard_failures_counted_as_dead_present > 0`; a `<agent_id>.json.member-N.notice`
-file sits beside the transaction with the reason. The two causes: both the
-original path and the quarantine exist (something recreated the original
-after the rename and the reconciler refused to choose), or the quarantine's
-HEAD no longer matches the backup ref. Resolve by hand — inspect both, keep
-what matters, remove the one that is residue — then set the member's state
-back to the last good one in the JSON (`ref_saved` or `quarantined`) and run
-`--agent`. Nothing automated will do this; it is the one place a person is
-supposed to look.
+Landed review 2026-09-03, blocker 3: until that revision `failed` and
+`missing` were permanent member states that "remain until an operator
+resolves them" — babysitting as a lifecycle state. Now every condition has one
+of two automatic policies, and `--status` reports trouble without ever
+transferring cleanup to a user.
+
+**Retry, with persistent backoff.** Anything transient — disk full, a git
+command that failed, an archive that did not verify, a manifest that would
+not settle, a process that would not die — keeps the quarantine exactly where
+it is and records the attempt, the reason and a `retry_after` time on the
+member (base `RECONCILE_RETRY_BACKOFF_SECONDS`, doubling per attempt up to
+`RECONCILE_RETRY_BACKOFF_MAX_SECONDS`, persisted so the schedule survives a
+restart). After `MAX_SOFT_ATTEMPTS_BEFORE_NOTICE` attempts it is reported once
+(`<agent_id>.json.member-N.notice` beside the transaction) and the retries
+continue. When the external condition clears, the next run finishes it.
+
+**Archive-and-close, deterministically.** Anything that will never change by
+waiting:
+
+| Condition | Automatic outcome |
+|---|---|
+| both the original and the quarantine exist | the quarantine (its name embeds the session prefix and the agent id, so it is this member's own) proceeds; the original is archived as `residue-<n>.tar`, verified against `residue-<n>.manifest.json`, then removed — unless git registers it as ANOTHER worktree, in which case it is recorded (`foreign_worktree_at_original`) and never touched |
+| the path vanished | closed absent: the backup ref re-created from the recorded head while the commit object survives, the absence recorded (`closed: absent`, `head_preserved`), the member removed |
+| the quarantine's HEAD moved after the ref was saved | the exact bytes are already captured; the moved HEAD is saved under `<backup-ref>@drift-<n>`, the drift recorded (`head_drift`), the member proceeds |
+| git can neither read the directory nor list it | the raw bytes are captured and verified (`capture_kind: raw-bytes`); the backup ref comes from `head_at_seal` |
+| the backup ref is gone | re-created from the recorded head while the object survives, else recorded lost (`backup_ref_lost`; the verified archive holds the tree) |
+| no repository is recorded | read from the quarantine; if neither, there is no registration to remove |
+| a state this revision does not drive (`failed` from an earlier revision, or unknown) | re-derived from what exists on disk (`rederived_from`): bound, ref_saved, or closed absent |
+
+Nothing here searches for something with a similar name, and nothing here
+asks a person to look.
 
 ## Test affordances
 
 `RICHOS_WORKTREE_TX_DIR`, `RICHOS_WORKTREE_CAPTURE_DIR`,
 `RICHOS_RECONCILE_SETTLE`, `RICHOS_RECONCILE_NO_KILL=1`, `SEAL_WAIT_SECONDS`,
 `SESSION_START_RECONCILE_BUDGET`, `RICHOS_LAUNCH_AGENTS_DIR`,
-`RICHOS_PENDING_TERMINAL_GRACE`, `RICHOS_CAPTURE_RETENTION_DAYS`,
+`RICHOS_PENDING_TERMINAL_GRACE`, `RICHOS_RECONCILE_BACKOFF_BASE` (0 disables
+backoff), `RICHOS_RECONCILE_BACKOFF_MAX`, `RICHOS_CAPTURE_RETENTION_DAYS`,
 `RICHOS_BACKUP_REF_RETENTION_DAYS`, `RICHOS_TRANSACTION_RETENTION_DAYS`,
 `RICHOS_TX_CRASH_AFTER=tx|index|name` (crash injection in `claim_terminal`).
 Every suite pins the first two; nothing they do reaches `~/.claude/state`.

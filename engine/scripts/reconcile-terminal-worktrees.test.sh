@@ -37,6 +37,7 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
 export RICHOS_RECONCILE_SETTLE=0.2
+export RICHOS_RECONCILE_BACKOFF_BASE=0   # C42 proves the backoff; every other case retries at once
 SID="deadbeef-0000-4000-8000-000000000000"
 T() { python3 "$TX_PY" "$@"; }
 R() { python3 "$REC" "$@"; }
@@ -221,14 +222,20 @@ fi
 R --agent "$SID/$A6" >/dev/null 2>&1
 [ "$(states "$A6")" = "removed removed " ] && ok "C18b ...and the next run re-captures from the untouched quarantine and completes" || bad "C18b states=$(states "$A6")"
 
-# --- 8. a hard failure is counted as dead-present, reported once, never retried ---
+# --- 8. BOTH PRESENT is resolved AUTOMATICALLY (landed review 2026-09-03,
+# blocker 3). Until this revision C19/C20 certified the opposite: original AND
+# quarantine present -> FAILED, both kept, reported once, never retried,
+# counted as dead-present "until an operator resolves it". That certification
+# is replaced. The quarantine name embeds the session prefix and the agent id,
+# so a directory at that exact name is this member's own quarantine; whatever
+# reappeared at the original path is residue — archived, VERIFIED against its
+# manifest, then removed — unless git registers it as another worktree (C45).
 A7="a00000000000rc07"
 seal "$A7" dev-opus-r7
 NAT7="$ENTITY/.claude/worktrees/agent-$A7"
 T claim --session-id "$SID" --agent-id "$A7" --ingress SubagentStop >/dev/null
 Q7="$(q "$NAT7" "$A7")"
-mkdir -p "$NAT7"    # both present now: the reconciler must refuse to choose
-mv "$Q7" "$Q7.hold"; mv "$Q7.hold" "$Q7"
+mkdir -p "$NAT7"; printf 'ghost\n' >"$NAT7/ghost.txt"    # residue reappears at the original path
 python3 - "$TX_PY" "$SID" "$A7" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
@@ -237,15 +244,16 @@ with tx.tx_lock(sys.argv[2], sys.argv[3]):
     tx.update_member(sys.argv[2], sys.argv[3], 0, state="ref_saved")
 PY
 OUT="$(R 2>&1)"
-S="$(R --status)"; SRC=$?
-if [ "$(states "$A7")" = "failed " ] && [ -d "$NAT7" ] && [ -d "$Q7" ] && printf '%s' "$OUT" | grep -q 'HARD FAILURE (reported once)' \
-   && [ "$SRC" -ne 0 ] && printf '%s' "$S" | grep -q '"hard_failures_counted_as_dead_present": 1'; then
-    ok "C19  original AND quarantine present -> FAILED, both kept, reported once, --status counts it as dead-present (exit 1)"
+M7="$(T show --session-id "$SID" --agent-id "$A7" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("original_present_at_quarantine"), m.get("residue_count"), m.get("residue_verified"))')"
+RES7="$SANDBOX/captures/$SID/$A7/member-0/residue-1.tar"
+if [ "$M7" = "removed True 1 True" ] && [ ! -e "$NAT7" ] && [ ! -e "$Q7" ] && [ -f "$RES7" ] && [ -f "${RES7%.tar}.manifest.json" ] \
+   && [ "$(tar -xOf "$RES7" ghost.txt)" = "ghost" ] && ! printf '%s' "$OUT" | grep -q 'FAILURE'; then
+    ok "C19  original AND quarantine present -> resolved AUTOMATICALLY: the residue at the original path is archived and VERIFIED (residue-1.tar + manifest) then removed, the quarantine is captured and removed, nothing is reported as a failure and nobody is asked (INVERTED: it used to park as FAILED for an operator)"
 else
-    bad "C19  states=$(states "$A7") status_rc=$SRC out=${OUT:0:160}"
+    bad "C19  member=[$M7] orig=$([ -e "$NAT7" ] && echo present || echo gone) quar=$([ -e "$Q7" ] && echo present || echo gone) residue=$([ -f "$RES7" ] && echo yes || echo no) out=${OUT:0:200}"
 fi
-OUT2="$(R 2>&1)"
-! printf '%s' "$OUT2" | grep -q 'HARD FAILURE' && ok "C20  ...and a second run does not report it again" || bad "C20  reported twice"
+S="$(R --status)"
+printf '%s' "$S" | grep -q '"hard_failures_counted_as_dead_present": 0' && ok "C20  ...and --status counts no hard failure: there is no manual queue" || bad "C20  status: ${S:0:200}"
 
 # --- 9. nothing is matched by name; only terminal transactions are touched ---------
 A8="a00000000000rc08"
@@ -306,14 +314,58 @@ if [ "$SEALED_BY" = "pending-terminal-fallback 1 SubagentStop" ] && [ "$(states 
 else
     bad "C27  sealed_by=[$SEALED_BY] states=$(states "$A11") ext=$([ -e "$EXT11" ] && echo present || echo gone) native=$([ -d "$ENTITY/.claude/worktrees/agent-$A11" ] && echo present || echo GONE) out=${OUT:0:200}"
 fi
-# a pending event with NO bound record owned nothing: dropped after grace, nothing touched
+# --- 11b. a START-ONLY pending event (landed review 2026-09-03, blocker 2).
+# Until this revision C28 certified that EVERY pending record with no bound
+# record was dropped after the grace period as "nothing was ever owned" — and
+# its fixture was the main checkout, so it never exercised the case that
+# leaks: a SubagentStart that named the exact native worktree while the
+# parent's binder failed. That certification is replaced by the three cases
+# below: only the helper-in-main case results in no filesystem mutation, and
+# even it keeps the terminal record rather than reinterpreting the event.
+# C28a — a harmless helper whose start fact names the MAIN checkout: no
+# mutation, but a zero-member terminal TOMBSTONE and the agent stays terminal
 A12="a00000000000rc12"
 T start --session-id "$SID" --agent-id "$A12" --cwd "$ENTITY" >/dev/null
 T claim --session-id "$SID" --agent-id "$A12" --ingress SubagentStop >/dev/null 2>&1
 [ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] || bad "C28-setup  no pending record for the start-only agent"
 RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
-[ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && ! T show --session-id "$SID" --agent-id "$A12" >/dev/null 2>&1 && [ -d "$ENTITY" ] \
-    && ok "C28  a pending event for an agent that was never bound is dropped after grace: no transaction, nothing owned, nothing touched" || bad "C28  pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && echo kept || echo gone)"
+TOMB="$(T show --session-id "$SID" --agent-id "$A12" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("state"), len(d.get("members") or []), d.get("sealed_by"), (d.get("terminal") or {}).get("ingress"), d.get("closed"))')"
+if [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && [ "$TOMB" = "removed 0 pending-terminal-fallback SubagentStop no-members" ] \
+   && T terminal-agent --agent-id "$A12" >/dev/null 2>&1 && [ -f "$ENTITY/seed.txt" ] && git -C "$ENTITY" status --porcelain >/dev/null 2>&1; then
+    ok "C28a a start-only helper in the MAIN checkout: no filesystem mutation, but the terminal event is KEPT as a zero-member terminal transaction (removed, no-members) and the agent stays terminal (INVERTED: the record used to be dropped)"
+else
+    bad "C28a tombstone=[$TOMB] pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && echo kept || echo gone) terminal=$(T terminal-agent --agent-id "$A12" >/dev/null 2>&1 && echo yes || echo no)"
+fi
+# C28b — a start-only EXACT native worktree (the binder failed): retired after grace
+A18="a00000000000rc18"
+NAT18="$ENTITY/.claude/worktrees/agent-$A18"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$A18" "$NAT18"
+printf 'work the binder never bound\n' >"$NAT18/unbound.txt"
+HEAD18="$(git -C "$NAT18" rev-parse HEAD)"
+T start --session-id "$SID" --agent-id "$A18" --cwd "$NAT18" --agent-type dev >/dev/null
+T claim --session-id "$SID" --agent-id "$A18" --ingress SubagentStop >/dev/null 2>&1
+[ -f "$SANDBOX/tx/$SID/pending-terminal/$A18.json" ] || bad "C28b-setup  no pending record"
+OUT="$(RICHOS_PENDING_TERMINAL_GRACE=0 R 2>&1)"
+FB18="$(T show --session-id "$SID" --agent-id "$A18" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(d.get("sealed_by"), d.get("bound_record"), len(m), m[0]["class"], m[0]["state"], d.get("state"))')"
+if [ "$FB18" = "pending-terminal-fallback False 1 native removed removed" ] && [ ! -e "$NAT18" ] && [ ! -e "$(q "$NAT18" "$A18")" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A18/worktree-agent-$A18")" = "$HEAD18" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A18/member-0/tree.tar" unbound.txt)" = "work the binder never bound" ] \
+   && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A18.json" ] && printf '%s' "$OUT" | grep -q 'no bound record: the native member came from the start fact'; then
+    ok "C28b a start-only EXACT native worktree (no bound record) is verified from the start fact, terminalized as a one-member fallback and RETIRED: backup ref saved, evidence captured, worktree removed (INVERTED: it used to leak forever)"
+else
+    bad "C28b fallback=[$FB18] native=$([ -e "$NAT18" ] && echo present || echo gone) quar=$([ -e "$(q "$NAT18" "$A18")" ] && echo present || echo gone) out=${OUT:0:200}"
+fi
+# C28c — the exact native path named by a WorktreeRemove (first_path) when the
+# start fact names somewhere else (the main checkout): verified from first_path
+A19="a00000000000rc19"
+NAT19="$ENTITY/.claude/worktrees/agent-$A19"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$A19" "$NAT19"
+T start --session-id "$SID" --agent-id "$A19" --cwd "$ENTITY" >/dev/null
+T claim --session-id "$SID" --agent-id "$A19" --ingress WorktreeRemove --detail "$NAT19" >/dev/null 2>&1
+RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
+FB19="$(T show --session-id "$SID" --agent-id "$A19" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(len(m), m[0]["path"] if m else "-", d.get("state"), (d.get("terminal") or {}).get("ingress"))')"
+[ "$FB19" = "1 $NAT19 removed WorktreeRemove" ] && [ ! -e "$NAT19" ] \
+    && ok "C28c the exact native path a WorktreeRemove named (first_path) is verified and retired even though the start fact named the main checkout" || bad "C28c fallback=[$FB19] native=$([ -e "$NAT19" ] && echo present || echo gone)"
 
 # --- 12. index capture must SUCCEED, or the member is not captured -------------
 # (review 2026-09-03, blocker 2). A failed `git ls-files -s` used to be
@@ -418,6 +470,209 @@ if [ ! -e "$SANDBOX/captures/$SID/a00000000000rc16" ] \
 else
     bad "C37  ref=$(git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/a00000000000rc16/dev-opus-a00000000000rc16" >/dev/null && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id a00000000000rc16 >/dev/null 2>&1 && echo present || echo gone) out=${OUT:0:200}"
 fi
+
+# --- 15. a FAILED backup-ref deletion cannot be marked expired, and cannot let
+# the record go (landed review 2026-09-03, blocker 4). Until this revision
+# `git update-ref -d` ran with its result ignored, the member was stamped
+# expired regardless, and transaction retention — which trusts the stamp —
+# then deleted the only record saying the ref existed. Fault injection: a
+# git shim rejects `update-ref -d`; the ref, the member's tracking and the
+# transaction record must all remain, and the next (unshimmed) run expires
+# them properly.
+A17="a00000000000rc17"
+EXT17="$SANDBOX/other-wt/dev-opus-r17"
+seal "$A17" dev-opus-r17 "$OTHER:$EXT17:dev-opus-r17"
+T claim --session-id "$SID" --agent-id "$A17" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A17" >/dev/null 2>&1
+[ "$(states "$A17")" = "removed removed " ] || bad "C38-setup  states=$(states "$A17")"
+REF17="refs/richos/handoffs/$SID/$A17/dev-opus-r17"
+NODEL="$SANDBOX/nodelbin"; mkdir -p "$NODEL"
+cat >"$NODEL/git" <<SH
+#!/usr/bin/env bash
+if [ "\$3" = "update-ref" ] && [ "\$4" = "-d" ]; then echo "fatal: simulated refusal to delete \$5" >&2; exit 128; fi
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$NODEL/git"
+OUT="$(PATH="$NODEL:$PATH" RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+M17="$(T show --session-id "$SID" --agent-id "$A17" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print("expired" if m.get("backup_ref_expired_ts") else "tracked", m.get("backup_ref_expire_attempts"), "named" if (m.get("backup_ref_expire_error") or "").startswith("git update-ref -d ") else "unnamed")')"
+if git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && [ "$M17" = "tracked 1 named" ] \
+   && T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && printf '%s' "$OUT" | grep -q 'NOT expired (attempt 1)'; then
+    ok "C38  git REJECTS the backup-ref deletion: the ref remains, the member is NOT stamped expired (attempt + error recorded), and the transaction record is NOT deleted"
+else
+    bad "C38  ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo GONE) member=[$M17] tx=$(T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && echo present || echo GONE) out=${OUT:0:200}"
+fi
+# a shim whose deletion "succeeds" but leaves the ref in place is caught by the verification, not the exit code
+cat >"$NODEL/git" <<SH
+#!/usr/bin/env bash
+if [ "\$3" = "update-ref" ] && [ "\$4" = "-d" ]; then exit 0; fi
+exec "$REAL_GIT" "\$@"
+SH
+OUT="$(PATH="$NODEL:$PATH" RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+if git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 \
+   && printf '%s' "$OUT" | grep -q 'exited 0 but the ref still resolves'; then
+    ok "C38b a deletion that exits 0 but leaves the ref resolving is NOT expired either: the exact ref is verified absent, the exit code is not trusted"
+else
+    bad "C38b ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo GONE) out=${OUT:0:200}"
+fi
+OUT="$(RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+if ! git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && ! T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1; then
+    ok "C38c ...and the next run with git working deletes the ref, verifies it gone, and only then expires the record"
+else
+    bad "C38c ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && echo present || echo gone)"
+fi
+
+# --- 16. NATIVE DISAPPEARANCE is a terminal ingress (CEO specification
+# 2026-09-03, section 4). Measured on this machine: a worker killed by
+# TaskStop had its native worktree torn down by the platform while no hook
+# delivered its id; the transaction stayed sealed, --status said done, and
+# the hand-rolled richos member leaked. The reconciler now verifies every
+# sealed live transaction's native member against its recorded repository
+# and path, claims the transaction when it is gone or unregistered, closes
+# the native member absent (backup ref from head_at_seal) and retires the
+# surviving hand-rolled member through the normal state machine.
+A20="a00000000000rc20"
+EXT20="$SANDBOX/other-wt/dev-opus-r20"
+seal "$A20" dev-opus-r20 "$OTHER:$EXT20:dev-opus-r20"
+NAT20="$ENTITY/.claude/worktrees/agent-$A20"
+HEAD20="$(git -C "$NAT20" rev-parse HEAD)"
+printf 'survives the kill\n' >"$EXT20/evidence.txt"
+# the platform's teardown: worktree AND branch, no hook (PF11)
+git -C "$ENTITY" worktree remove --force "$NAT20" >/dev/null 2>&1
+git -C "$ENTITY" branch -D "worktree-agent-$A20" >/dev/null 2>&1
+OUT="$(R 2>&1)"
+T20="$(T show --session-id "$SID" --agent-id "$A20" | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print((d.get("terminal") or {}).get("ingress"), d.get("state"), m[0]["state"], m[0].get("closed"), m[0].get("head_preserved"), m[1]["state"])')"
+if [ "$T20" = "NativeMemberGone removed removed absent backup-ref removed" ] && [ ! -e "$EXT20" ] && [ ! -e "$(q "$EXT20" "$A20")" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A20/worktree-agent-$A20")" = "$HEAD20" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A20/member-1/tree.tar" evidence.txt)" = "survives the kill" ] \
+   && printf '%s' "$OUT" | grep -q "NATIVE MEMBER GONE for deadbeef/$A20"; then
+    ok "C39  a sealed LIVE transaction whose native member the platform tore down (worktree + branch, no hook) is claimed with ingress NativeMemberGone: the native member closes absent with its backup ref re-created, and the hand-rolled member is captured and removed"
+else
+    bad "C39  tx=[$T20] ext=$([ -e "$EXT20" ] && echo present || echo gone) out=${OUT:0:240}"
+fi
+# NEGATIVE CONTROL: a sealed live transaction whose native member is present and registered is untouched
+A22="a00000000000rc22"
+EXT22="$SANDBOX/other-wt/dev-opus-r22"
+seal "$A22" dev-opus-r22 "$OTHER:$EXT22:dev-opus-r22"
+R >/dev/null 2>&1
+T22="$(T show --session-id "$SID" --agent-id "$A22" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("terminal"), d.get("state"))')"
+[ "$T22" = "None sealed" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A22" ] && [ -d "$EXT22" ] \
+    && ok "C40  a sealed live transaction whose native member is present and registered is NOT claimed by the backstop (negative control)" || bad "C40  tx=[$T22]"
+
+# --- 17. PERSISTENT BACKOFF: a transient failure is retried, later, forever;
+# never abandoned, never handed to a person (landed review 2026-09-03, blocker 3)
+A23="a00000000000rc23"
+EXT23="$SANDBOX/other-wt/dev-opus-r23"
+seal "$A23" dev-opus-r23 "$OTHER:$EXT23:dev-opus-r23"
+T claim --session-id "$SID" --agent-id "$A23" --ingress SubagentStop >/dev/null
+Q23="$(q "$EXT23" "$A23")"
+OUT="$(PATH="$NOLS:$PATH" RICHOS_RECONCILE_BACKOFF_BASE=1000 R --agent "$SID/$A23" 2>&1)"
+B23="$(T show --session-id "$SID" --agent-id "$A23" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], m.get("attempts"), bool(m.get("retry_after_epoch")))')"
+OUT2="$(RICHOS_RECONCILE_BACKOFF_BASE=1000 R --agent "$SID/$A23" 2>&1)"
+B23b="$(T show --session-id "$SID" --agent-id "$A23" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], m.get("attempts"))')"
+S="$(RICHOS_RECONCILE_BACKOFF_BASE=1000 R --status)"; SRC=$?
+if [ "$B23" = "quarantined 1 True" ] && [ "$B23b" = "quarantined 1" ] && printf '%s' "$OUT2" | grep -q 'in backoff until' && [ -d "$Q23" ] && [ "$SRC" -ne 0 ]; then
+    ok "C42  a transient failure (git ls-files rejected) records attempt 1 and a retry time; the next run within the backoff SKIPS the member (quarantine kept, --status not done), no operator named"
+else
+    bad "C42  first=[$B23] second=[$B23b] status_rc=$SRC out2=${OUT2:0:160}"
+fi
+R --agent "$SID/$A23" >/dev/null 2>&1
+[ "$(states "$A23")" = "removed removed " ] && ok "C42b ...and once the backoff has elapsed (base 0 here) the retry runs and the member completes" || bad "C42b states=$(states "$A23")"
+
+# --- 18. git cannot read the native directory and no longer registers it: the
+# native-gone backstop claims it and the RAW bytes are captured, verified and
+# closed; the backup ref comes from head_at_seal (blocker 3, spec section 4)
+A21="a00000000000rc21"
+EXT21="$SANDBOX/other-wt/dev-opus-r21"
+seal "$A21" dev-opus-r21 "$OTHER:$EXT21:dev-opus-r21"
+NAT21="$ENTITY/.claude/worktrees/agent-$A21"
+HEAD21="$(git -C "$NAT21" rev-parse HEAD)"
+printf 'bytes git can no longer read\n' >"$NAT21/orphaned.txt"
+rm -rf "$ENTITY/.git/worktrees/agent-$A21"      # the administrative directory is gone: git neither lists nor reads it
+OUT="$(R 2>&1)"
+T21="$(T show --session-id "$SID" --agent-id "$A21" | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print((d.get("terminal") or {}).get("ingress"), d.get("state"), m[0]["state"], m[0].get("git_unreadable"), m[0].get("capture_kind"), m[0].get("head_preserved"), m[1]["state"])')"
+if [ "$T21" = "NativeMemberGone removed removed True raw-bytes backup-ref removed" ] && [ ! -e "$NAT21" ] && [ ! -e "$(q "$NAT21" "$A21")" ] && [ ! -e "$EXT21" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A21/worktree-agent-$A21")" = "$HEAD21" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A21/member-0/tree.tar" orphaned.txt)" = "bytes git can no longer read" ]; then
+    ok "C43  a native directory git can neither list nor read is claimed by the backstop, its RAW bytes captured and verified, the backup ref taken from head_at_seal, and it is removed; the hand-rolled member is retired too"
+else
+    bad "C43  tx=[$T21] native=$([ -e "$NAT21" ] && echo present || echo gone) out=${OUT:0:240}"
+fi
+
+# --- 19. the quarantine's HEAD moved after the backup ref was saved: the moved
+# HEAD is preserved under <ref>@drift-1 and the member proceeds (blocker 3)
+A24="a00000000000rc24"
+seal "$A24" dev-opus-r24
+NAT24="$ENTITY/.claude/worktrees/agent-$A24"
+HEAD24="$(git -C "$NAT24" rev-parse HEAD)"
+T claim --session-id "$SID" --agent-id "$A24" --ingress SubagentStop >/dev/null
+Q24="$(q "$NAT24" "$A24")"
+git -C "$Q24" commit -q --allow-empty -m 'moved after the ref was saved'
+NEW24="$(git -C "$Q24" rev-parse HEAD)"
+OUT="$(R --agent "$SID/$A24" 2>&1)"
+REF24="refs/richos/handoffs/$SID/$A24/worktree-agent-$A24"
+D24="$(T show --session-id "$SID" --agent-id "$A24" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; d=m.get("head_drift") or {}; print(m["state"], d.get("found"), d.get("ref"))')"
+if [ "$D24" = "removed $NEW24 $REF24@drift-1" ] && [ "$(git -C "$ENTITY" rev-parse -q --verify "$REF24@drift-1")" = "$NEW24" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "$REF24")" = "$HEAD24" ] && printf '%s' "$OUT" | grep -q 'moved from'; then
+    ok "C44  a quarantine whose HEAD moved after the backup ref was saved: the moved HEAD is preserved under the drift ref, the original ref is untouched, the drift is recorded and the member is removed (INVERTED: provenance-contradicts-git used to park as FAILED)"
+else
+    bad "C44  member=[$D24] drift_ref=$(git -C "$ENTITY" rev-parse -q --verify "$REF24@drift-1" 2>/dev/null || echo none) out=${OUT:0:200}"
+fi
+
+# --- 20. something ELSE is registered at the original path: not ours, never
+# touched; this member's quarantine still completes (blocker 3)
+A25="a00000000000rc25"
+EXT25="$SANDBOX/other-wt/dev-opus-r25"
+seal "$A25" dev-opus-r25 "$OTHER:$EXT25:dev-opus-r25"
+T claim --session-id "$SID" --agent-id "$A25" --ingress SubagentStop >/dev/null
+Q25="$(q "$EXT25" "$A25")"
+git -C "$OTHER" worktree add -q -b someone-else-later "$EXT25"     # a NEW worktree, prepared later, at the same path
+printf 'a live worker lives here now\n' >"$EXT25/live.txt"
+OUT="$(R --agent "$SID/$A25" 2>&1)"
+F25="$(T show --session-id "$SID" --agent-id "$A25" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], bool(m.get("foreign_worktree_at_original")))')"
+if [ "$F25" = "removed True" ] && [ -f "$EXT25/live.txt" ] && git -C "$OTHER" worktree list --porcelain | grep -qx "worktree $EXT25" && [ ! -e "$Q25" ] \
+   && printf '%s' "$OUT" | grep -q 'ANOTHER worktree'; then
+    ok "C45  a worktree git registers at the original path is NOT this member's: recorded, never touched (its bytes intact, still registered); the member's own quarantine is captured and removed"
+else
+    bad "C45  member=[$F25] foreign=$([ -f "$EXT25/live.txt" ] && echo intact || echo DAMAGED) quar=$([ -e "$Q25" ] && echo present || echo gone) out=${OUT:0:200}"
+fi
+rm -rf "$EXT25"; git -C "$OTHER" worktree prune    # sandbox cleanup of the later worktree
+
+# --- 21. a member an EARLIER revision left `failed` is re-derived from disk and
+# completes; nothing waits for a person (blocker 3)
+A26="a00000000000rc26"
+seal "$A26" dev-opus-r26
+T claim --session-id "$SID" --agent-id "$A26" --ingress SubagentStop >/dev/null
+Q26="$(q "$ENTITY/.claude/worktrees/agent-$A26" "$A26")"
+python3 - "$TX_PY" "$SID" "$A26" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+with tx.tx_lock(sys.argv[2], sys.argv[3]):
+    tx.update_member(sys.argv[2], sys.argv[3], 0, state="failed", error="both present (written by an earlier revision)")
+PY
+R --agent "$SID/$A26" >/dev/null 2>&1
+L26="$(T show --session-id "$SID" --agent-id "$A26" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("rederived_from"))')"
+[ "$L26" = "removed failed" ] && [ ! -e "$Q26" ] && ok "C46  a legacy FAILED member is re-derived from what exists on disk, re-enters the state machine and is removed" || bad "C46  member=[$L26] quar=$([ -e "$Q26" ] && echo present || echo gone)"
+
+# --- 22. --status never calls an unexamined transaction live, and is NOT done
+# over a sealed transaction whose native member is gone (CEO specification
+# 2026-09-03, section 5). Measured: `sealed_live: 2, done: true` over a killed
+# worker's leaked hand-rolled worktree.
+A27="a00000000000rc27"
+EXT27="$SANDBOX/other-wt/dev-opus-r27"
+seal "$A27" dev-opus-r27 "$OTHER:$EXT27:dev-opus-r27"
+NAT27="$ENTITY/.claude/worktrees/agent-$A27"
+S="$(R --status)"; SRC=$?
+V="$(printf '%s' "$S" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("sealed_live" in d, d["sealed_native_present"] >= 1, d["sealed_native_missing"], d["done"])')"
+[ "$V" = "False True 0 True" ] && [ "$SRC" -eq 0 ] && ok "C47  a sealed transaction whose native member is present and registered is reported POSITIVELY present (there is no sealed_live key any more); status is done" || bad "C47  status=[$V] rc=$SRC"
+git -C "$ENTITY" worktree remove --force "$NAT27" >/dev/null 2>&1     # the platform's teardown, no hook delivered
+git -C "$ENTITY" branch -D "worktree-agent-$A27" >/dev/null 2>&1
+S="$(R --status)"; SRC=$?
+V="$(printf '%s' "$S" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["sealed_native_missing"], d["definition_of_done"]["sealed_transactions_whose_native_member_is_gone"], d["done"])')"
+[ "$V" = "1 1 False" ] && [ "$SRC" -ne 0 ] && [ -d "$EXT27" ] \
+    && ok "C47b ...with the native member torn down, --status (no run) reports sealed_native_missing=1, is NOT done, exits 1 — the orphan is named, not called live (INVERTED: it used to say done: true over exactly this)" || bad "C47b status=[$V] rc=$SRC"
+R >/dev/null 2>&1
+S="$(R --status)"; SRC=$?
+[ "$SRC" -eq 0 ] && [ ! -e "$EXT27" ] && [ "$(states "$A27")" = "removed removed " ] && ok "C47c ...and after one reconciler run the backstop has retired it and status is done again" || bad "C47c rc=$SRC states=$(states "$A27")"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
