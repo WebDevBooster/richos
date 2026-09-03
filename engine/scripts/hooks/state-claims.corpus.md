@@ -80,7 +80,7 @@ reachable (absent objects and rewrite casualties, both silent by construction).
 ### The relaxation that got it there, and the number that justifies it
 
 The first version tested ancestry alone and fired **41 times**. Every one of the
-41 was in `prospects`, and every one was a casualty of that repository's history
+41 were in one other repository, and every one was a casualty of that repository's history
 rewrite: the commit was real and on `master` when it was cited, the rewrite moved
 `master` to different objects, and the old commit survives in the object DB
 reachable from nothing. `Merged to master as 80cc943 and pushed` was true when
@@ -168,7 +168,7 @@ Measured over the corpus it fired **once, on the real failure**, and stayed sile
 on the only other value-absence claim there was. That reads like a perfect gate.
 
 **It is not, and the reason is worth writing down.** The surviving
-`rgb(143,112,48)` it found is in femcboost's `CLAUDE.md` — the file that
+`rgb(143,112,48)` it found is in an adopting project's `CLAUDE.md` — the file that
 **documents this very incident**. The one true positive was scored against a
 record written after the fact. Circular, and worth nothing as evidence.
 

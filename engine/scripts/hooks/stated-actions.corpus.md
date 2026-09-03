@@ -36,7 +36,7 @@ sample, and not turns written for this purpose.
 
 | | |
 |---|---|
-| Source | `~/.claude/projects/-Users-alex-ab-femcboost/*.jsonl` |
+| Source | `~/.claude/projects/<project>/*.jsonl`, over the project this engine was first adopted in |
 | Session files read | **19** |
 | Turns replayed | **1,280** |
 | Turns carrying a final assistant message | **1,226** |

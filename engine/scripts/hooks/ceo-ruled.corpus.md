@@ -43,7 +43,7 @@ Extracted from every session transcript under `~/.claude/projects`: **18 calls,
 that was really put to the CEO. Each was flattened exactly as the hook flattens
 it — header, question, and every option label and description — and run against
 the live `ceo-decisions.md` (1,431 lines), `open-items.md` (284 lines) and
-`femcboost/CLAUDE.md` (230 lines), which parse to **82 rulings**.
+the adopting project's own `CLAUDE.md` (230 lines), which parse to **82 rulings**.
 
 **Result: 2 of 27 fire. 7.4%.**
 
@@ -81,7 +81,7 @@ The prose notice cannot block anything; the Stop event fires after the CEO has
 read the message. Its only job is to put the ruling in front of the
 orchestrator before the CEO answers, so it has to be quiet enough to be read.
 
-**2,821 assistant text turns** across every femcboost session on this machine;
+**2,821 assistant text turns** across every session of one project on this machine;
 **193 of them carry an ask.** Three windows were measured before one was chosen:
 
 | Window | Fires | Rate of asking turns | Catches the three prose failures |
@@ -122,7 +122,7 @@ Three further refinements. The first two were forced by a measured false positiv
    across the register and *repeated* inside that one ruling.
    - Without the multi-word rule, the one-word CLAUDE.md titles "Surfaces" and
      "Pipeline" refused three unrelated questions about design-round surfaces
-     and a prospects pipeline.
+     and an outreach pipeline.
    - Without the distinctiveness rule, "start screen" refused two questions
      about when to schedule a migration, because one option said "It starts
      fresh" and another said "against your screen".
