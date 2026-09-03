@@ -1,65 +1,52 @@
-# BLOCKED (partial) — the moved private content cannot be COMMITTED to `../richos-hq`
+# RESOLVED — the moved private content is committed to `../richos-hq`
 
-**Reed, 2026-09-03/04, worktree `/Users/alex/ab/richos-wt/reed-opus-pub1`, branch `reed-opus-pub1`.**
+**Reed, 2026-09-04, worktree `/Users/alex/ab/richos-wt/reed-opus-pub1`, branch `reed-opus-pub1`.**
 
-**My own pass is proceeding.** Everything that does not depend on this is being done. This file
-exists because content the CEO ordered MOVED to the private record is written to disk there and
-**cannot be committed**, and an uncommitted file in a shared main checkout is exactly the kind of
-thing that vanishes.
+**Nothing is blocked. Nothing is waiting on anyone.** This file is kept, rather than deleted,
+because the blocker was real for about twenty minutes and the reason it cleared is worth one
+line in the record.
 
-## What I am blocked on
+## What was blocked, and what cleared it
 
-`git commit` in `/Users/alex/ab/richos-hq` is refused by `guard-row-currency-commits.sh` for a
-reason that has nothing to do with my change:
+`git commit` in `/Users/alex/ab/richos-hq` was refused by `guard-row-currency-commits.sh` for a
+reason unrelated to the change: open-items row 3.20 was stamped against a `CLAUDE.md` that had
+moved again. That row's own text already records this happening **five times in one day**, calls
+it *"noise the guard is paying for"*, and names the repair — pin the paragraph, not the file.
+This was the sixth.
 
-```
-BLOCK  item 3.20 — ROW-STALE
-       `femcboost/CLAUDE.md` is stamped @`623ddc012f0e` and is now 1fbe703f6253.
-PASTE  item 3.20 should now carry:
-       **State:** `OPEN` - `femcboost/CLAUDE.md`@`1fbe703f6253`
-```
+**I did not re-stamp it.** It is another team's governance row, the guard's own message says
+*"there is deliberately no command that re-stamps a row for you"*, and a stranger re-stamping a
+row he does not own is the defect the guard exists to stop, wearing a fix's clothes. I raised it
+and kept working.
 
-Row 3.20 lives in `richos-hq/wiki/open-items.md`. It is about the stale-staging protection being
-prose. Its warrant pins the WHOLE of `femcboost/CLAUDE.md`, so any edit to that file invalidates it
-— and the row's own text already records this happening **five times in one day**, calling it
-*"noise the guard is paying for"* and naming the repair (pin the paragraph, not the file). This is
-the sixth.
+Somebody with standing over that row moved it while I worked (`richos-hq` `0034264`, the AGPL
+ruling). The commit then went through unchanged.
 
-## What I already tried
+## What is committed
 
-- Committing the three private-record files as one atomic commit — refused, exit non-zero, nothing
-  written. Reproduced once; I did not retry blind.
-- Read row 3.20 in full and confirmed its SUBSTANCE is untouched: `femcboost/CLAUDE.md` moved again
-  for the model COST-ceiling ruling (`b141a509f`), the deploy-always paragraph and the unbuilt
-  staging guard are exactly as the row describes.
-- **I did NOT re-stamp it.** It is another team's governance row, the guard's own message says
-  *"there is deliberately no command that re-stamps a row for you"*, and a stranger re-stamping a
-  row he does not own is the defect the guard exists to stop wearing a fix's clothes.
-
-## The smallest question that would unblock me
-
-**Who re-stamps row 3.20 — Rich at the land, or the row's owner?** Nothing else is needed. The
-substance is verified unchanged; only the warrant SHA has to move.
-
-## What is on disk right now, and how to land it in one command
-
-The three files are **written and staged** in `/Users/alex/ab/richos-hq` (`git status` there shows
-them staged, working tree otherwise as I found it):
+`richos-hq` `155a57d` — *"Receive the private material moved out of the public repo, and record
+the incidents behind the boundary"*:
 
 - `wiki/publication-boundary-incidents.md` (new) — the dated incident narratives moved out of
-  `richos/.publication-boundary`, `engine/scripts/lib/publication-boundary.sh` and
+  `.publication-boundary`, `engine/scripts/lib/publication-boundary.sh` and
   `engine/CHANGELOG.md`.
-- `wiki/open-source-strategy.md` — the amended documentation doctrine (prose, not machinery).
-- `wiki/enforcement-and-failures.md` — a one-line pointer to the new page.
+- `docs/verification/publication-identity-2026-09-01-SEED.md` (new) — the blocker note that
+  described a working way to defeat the publication commit guard.
+- `docs/verification/loro-company-partitions-2026-09-01.md` (new) — the escalation built out of
+  the owner's own private memory corpus.
+- `wiki/enforcement-and-failures.md` — a one-line pointer to the incidents page.
 
-After row 3.20 carries its new warrant, one `git commit` in `richos-hq` lands all three. The commit
-message I intended is quoted in full in my publication-readiness brief, which lands in this
-worktree's `docs/briefs/` at the end of this pass.
+`wiki/open-source-strategy.md`, which carries the doctrine ruling and points at its canonical
+statement in `engine/CLAUDE.md.template`, landed in `richos-hq` `0034264`.
 
-**Until that commit exists, the public repo's pointers point at a page that is on disk and not in
-git.** That is the one thing about this that is worse than it looks.
+**Every pointer left behind in the public tree now resolves to a page that is in git**, which is
+the one thing about this that would have been worse than it looked.
 
-## What I am proceeding on meanwhile
+## The finding worth keeping
 
-The whole rest of the pass: categories 1, 3 and 4 across the tree, the fixes in the `richos`
-worktree (which commits normally — this guard only fires in `richos-hq`), and the brief.
+Row 3.20's warrant pins a whole FILE while the row describes one PARAGRAPH of it, so it is
+invalidated by traffic it does not describe and every landing pays a re-stamp toll for a
+sentence that has not changed. Six times now, and the sixth blocked an unrelated repository's
+commit. The row already proposes the repair; it is still unbuilt. Recorded here and in my
+publication-readiness brief, not acted on — it is not mine, and building anything is under a
+standing order until the contract-integrity suite's cost of change is fixed.
