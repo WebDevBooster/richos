@@ -15,7 +15,7 @@ mutation_begin "guard-resume-isolation terminal refusal" "scripts/hooks/guard-re
 G="scripts/hooks/guard-resume-isolation.sh"
 
 mutant terminal-id-not-checked "T03" "$G" \
-    'if tx.is_terminal_agent(to_id):{NL}    out("TERMINAL", "agent id %s is terminal" % to_id)' \
+    'if tx.is_terminal_agent(to_id, sid or None):{NL}    out("TERMINAL", "agent id %s is terminal" % to_id)' \
     'if False:{NL}    out("TERMINAL", "agent id %s is terminal" % to_id)' \
     "a terminal agent addressed by its id would be resumed; it would wake with no workspace and improvise."
 

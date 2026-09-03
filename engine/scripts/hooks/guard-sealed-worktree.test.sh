@@ -8,8 +8,11 @@
 # only the read-only allowlist and is REFUSED Bash, Agent, every editor and
 # every unknown or MCP tool; the barrier waits for a late binding and passes
 # once it seals; read-only agent types are exempt; a TERMINAL agent is refused
-# everything; the guard fails OPEN on its own error and CLOSED on an unsealed
-# manifest, and those are different exits with different words.
+# everything; the guard fails CLOSED on an unsealed manifest AND on its own
+# error alike (review 2026-09-03 blocker 3: python3 missing, the library
+# missing, the root unresolvable, the payload unparseable, the resolver
+# raising — every potentially writing or unknown worker tool is REFUSED, and
+# only a proven lead call or a proven read-only tool passes).
 #
 # The mutation harness proving each assertion load-bearing is
 # scripts/hooks/guard-sealed-worktree.mutation.sh, run at the end.
@@ -152,29 +155,80 @@ run "$(payload Write "$TERM_AID")"
 run "$(payload Read "$TERM_AID")"
 [ "$RC" -eq 2 ] && ok "G16  a TERMINAL agent's Read is refused too (nothing to read from; forbidden to return)" || bad "G16  terminal read rc=$RC"
 
-# G17 FAIL OPEN on the guard's own error: no python3 -> allowed, announced
+# G17 FAIL CLOSED on the guard's own error (review 2026-09-03, blocker 3).
+# Until this revision G17, G18 and G21 asserted the OPPOSITE — that a missing
+# python3, a missing transaction library and an unparseable payload each let
+# a worker's Write through. Those assertions were the defect written as
+# tests, and they are inverted here:
+#   old G17: python3 missing -> rc 0 + fail-open NOTICE      new: rc 2, REFUSED
+#   old G18: library missing -> rc 0 + NOTICE                new: rc 2, REFUSED
+#   old G21: unparseable payload -> rc 0 (read as the lead)  new: rc 2, REFUSED
+# What still passes when the guard cannot evaluate: a payload PROVEN to be the
+# lead's, and a tool PROVEN read-only, under the read-only policy.
 FAKEBIN="$(mktemp -d -t sealed-nopy.XXXXXX)"
 for t in cat grep sed cut tr date mkdir git mktemp basename dirname rm ln awk sort uniq wc head tail env sleep; do
     p="$(command -v "$t" 2>/dev/null || true)"; [ -n "$p" ] && ln -sf "$p" "$FAKEBIN/$t"
 done
 OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'fail-open on the guard'"'"'s own error'; then
-    ok "G17  python3 missing -> ALLOWED with a fail-open NOTICE (the guard's own error is not the worker's fault)"
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (the barrier cannot evaluate this call)' && printf '%s' "$OUT" | grep -q 'python3 is unavailable'; then
+    ok "G17  python3 missing -> a worker's Write is REFUSED (exit 2) naming python3 (INVERTED: it used to pass)"
 else
-    bad "G17  nopy rc=$RC: ${OUT:0:160}"
+    bad "G17  nopy rc=$RC: ${OUT:0:200}"
 fi
+OUT="$(printf '%s' "$(payload Write "")" | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G17b python3 missing -> a payload with NO agent_id (proven the lead's) still passes" || bad "G17b lead nopy rc=$RC: ${OUT:0:160}"
+OUT="$(printf '%s' "$(payload Read "$UNSEALED_AID")" | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'read-only policy' && ok "G17c python3 missing -> a worker's Read passes under the read-only policy (announced)" || bad "G17c read nopy rc=$RC: ${OUT:0:160}"
+OUT="$(printf '{"session_id":"x","agent_id":"a00000000000uns1","tool_name":"Bash","tool_input":{"command":"echo \\"agent_id\\""}}' | PATH="$FAKEBIN" "$(command -v bash)" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && ok "G17d python3 missing -> a worker's Bash is REFUSED even though the only readable tell is the raw key" || bad "G17d bash nopy rc=$RC"
 rm -rf "$FAKEBIN"
-# ...library missing -> allowed, announced
+# ...library missing -> REFUSED, naming it; Read still passes
 NOLIB="$(mktemp -d -t sealed-nolib.XXXXXX)"
 mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib"
 cp "$HOOK" "$NOLIB/scripts/hooks/"; cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$NOLIB/scripts/lib/"
 OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'worktree-transactions.py is missing' \
-    && ok "G18  transaction library missing -> ALLOWED with a NOTICE naming it (fail-open)" || bad "G18  nolib rc=$RC: ${OUT:0:160}"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'worktree-transactions.py is missing' && printf '%s' "$OUT" | grep -q 'cannot evaluate' \
+    && ok "G18  transaction library missing -> a worker's Write is REFUSED (exit 2) naming the library (INVERTED: it used to pass)" || bad "G18  nolib rc=$RC: ${OUT:0:200}"
+OUT="$(printf '%s' "$(payload Grep "$UNSEALED_AID")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G18b transaction library missing -> a worker's Grep passes under the read-only policy" || bad "G18b nolib grep rc=$RC: ${OUT:0:160}"
+OUT="$(printf '%s' "$(payload Write "")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G18c transaction library missing -> the lead's own Write passes" || bad "G18c nolib lead rc=$RC: ${OUT:0:160}"
+# ...resolve-roots.sh missing -> REFUSED
+rm "$NOLIB/scripts/lib/resolve-roots.sh"
+OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | "$NOLIB/scripts/hooks/guard-sealed-worktree.sh" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'resolve-roots.sh is missing' && ok "G18d resolve-roots.sh missing -> a worker's Write is REFUSED (exit 2)" || bad "G18d noroots rc=$RC: ${OUT:0:200}"
 rm -rf "$NOLIB"
-# ...and the two failure classes are NOT the same exit: the unsealed refusal stays 2
+# ...and the two failure classes are different refusals: the unsealed refusal says so
 run "$(payload Write "$UNSEALED_AID")"
-[ "$RC" -eq 2 ] && ok "G19  ...while an UNSEALED manifest with the guard healthy is still REFUSED (fail-closed) — different failure, different exit" || bad "G19  rc=$RC"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (worktree manifest not sealed)' && ok "G19  ...while an UNSEALED manifest with the guard healthy is REFUSED for THAT reason — a different banner, the same exit" || bad "G19  rc=$RC"
+
+# G20 not-adopted repository: stand down (a RESOLVED state, not a failure)
+NOADOPT="$(mktemp -d -t sealed-noadopt.XXXXXX)"
+OUT="$(cd "$NOADOPT" && printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="" CLAUDE_PROJECT_DIR="$NOADOPT" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G20  a repository that never adopted the engine: the barrier stands down" || bad "G20  noadopt rc=$RC: ${OUT:0:120}"
+rm -rf "$NOADOPT"
+
+# G21 an UNPARSEABLE payload is NOT the lead (INVERTED: it used to pass)
+OUT="$(printf 'not json' | "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'unparseable' && ok "G21  an unparseable payload -> REFUSED (exit 2): a payload that cannot be proven the lead's is treated as a worker's" || bad "G21  rc=$RC: ${OUT:0:160}"
+OUT="$(printf '{"tool_name": "Read", "broken' | "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G21b ...unless the raw text names a read-only tool, which passes under the read-only policy" || bad "G21b rc=$RC: ${OUT:0:120}"
+
+# G24 root resolution BROKEN (an explicit RICHOS_ENTITY_ROOT that is not adopted) -> REFUSED
+BROKENROOT="$(mktemp -d -t sealed-brokenroot.XXXXXX)"
+OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="$BROKENROOT" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'governed root could not be resolved' && ok "G24  a broken root resolution -> a worker's Write is REFUSED (exit 2)" || bad "G24  brokenroot rc=$RC: ${OUT:0:200}"
+OUT="$(printf '%s' "$(payload Read "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="$BROKENROOT" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G24b ...and a worker's Read still passes under the read-only policy" || bad "G24b brokenroot read rc=$RC"
+rm -rf "$BROKENROOT"
+
+# G25 the resolver RAISES (the transaction store is a file, not a directory) -> REFUSED
+NOTADIR="$(mktemp -t sealed-notadir.XXXXXX)"
+OUT="$(printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_WORKTREE_TX_DIR="$NOTADIR" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'cannot evaluate' && ok "G25  transaction state unreadable (the resolver raised) -> a worker's Write is REFUSED (exit 2)" || bad "G25  notadir rc=$RC: ${OUT:0:200}"
+OUT="$(printf '%s' "$(payload Glob "$UNSEALED_AID")" | RICHOS_WORKTREE_TX_DIR="$NOTADIR" "$HOOK" 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "G25b ...and a worker's Glob still passes under the read-only policy" || bad "G25b notadir glob rc=$RC"
+rm -f "$NOTADIR"
 
 # G22 a crash after the transaction's terminal write but BEFORE the index
 # write (blocker 5): the barrier must read terminal from the transaction.
@@ -187,15 +241,6 @@ run "$(payload Write "$CRASH_AID")"
     && ok "G22  a terminal transaction whose index write never happened is still REFUSED as terminal (the transaction is the truth)" || bad "G22  crash-orphaned terminal rc=$RC: ${OUT:0:160}"
 [ -f "$SANDBOX/tx/terminal/$CRASH_AID" ] && ok "G23  ...and the barrier's exact lookup repaired the index on its way out" || bad "G23  index not repaired"
 
-# G20 not-adopted repository: stand down
-NOADOPT="$(mktemp -d -t sealed-noadopt.XXXXXX)"
-OUT="$(cd "$NOADOPT" && printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="" CLAUDE_PROJECT_DIR="$NOADOPT" "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G20  a repository that never adopted the engine: the barrier stands down" || bad "G20  noadopt rc=$RC: ${OUT:0:120}"
-rm -rf "$NOADOPT"
-
-# G21 garbage payload with no agent id -> pass (a lead call the guard cannot read is still a lead call)
-OUT="$(printf 'not json' | "$HOOK" 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "G21  an unparseable payload carries no agent id -> passes (the lead)" || bad "G21  rc=$RC"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

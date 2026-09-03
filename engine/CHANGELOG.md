@@ -385,6 +385,33 @@ version heading with Added / Changed / Fixed groupings.
   backup refs 90, the transaction record 90 and only once every artifact it
   names is gone — inside the reconciler run the launchd job performs.
 
+- **The write barrier deliberately failed open, and its suite asserted it**
+  (`scripts/hooks/guard-sealed-worktree.sh` rewritten;
+  `guard-worktree-isolation.sh` clause 7c hardened;
+  `contract-integrity-probe.sh` Layer Q6; `guard-sealed-worktree.test.sh`
+  G17/G18/G21 INVERTED + G17b–d, G18b–d, G21b, G24–G25;
+  `guard-worktree-isolation.test.sh` Q18b–d; mutants
+  `fail-open-without-python`, `fail-open-without-library`,
+  `unparseable-is-the-lead`, `fail-open-on-resolver-error`,
+  `broken-root-allows`, `lead-proof-is-raw-grep-only` replacing the two
+  that proved the opposite) — PATCH, review 2026-09-03 blocker 3. The
+  barrier ALLOWED a worker's tool call when python3 was missing, when the
+  transaction library was missing, when root resolution broke, when its
+  resolver raised, and when the payload did not parse (no `agent_id` could
+  be extracted, so it read as the lead); G17, G18 and G21 asserted exactly
+  that. Now a payload proven to be the lead's (it parses and carries no
+  `agent_id`) passes; a sealed worker passes; a worker tool proven read-only
+  passes under the read-only policy even when the guard cannot evaluate;
+  and EVERYTHING ELSE when the guard cannot evaluate is refused with a
+  banner naming the dependency. Without python3 the lead is proven only by
+  the absence of an unescaped `"agent_id"` key in the raw payload. The
+  "bricked within the hour" worry is answered one level up: the spawn gate
+  now refuses to start a file-writing teammate when the library does not
+  load or a lifecycle hook is not executable (not merely absent), and probe
+  Layer Q6 runs ten arms — healthy, library missing, no python3,
+  unparseable — each refusal beside its pass, so a barrier that fails open
+  OR refuses everything turns the probe red.
+
 - **Native evidence could be deleted before quarantine: the terminal ingress
   saved every repository's backup ref before renaming anything**
   (`scripts/lib/worktree-transactions.py` `terminalize`;

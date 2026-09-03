@@ -3114,6 +3114,77 @@ elif [ "$Q_OK" -eq 1 ]; then
     emit_warn "Q. FUNCTIONAL CANARY DID NOT RUN — git, mktemp or python3 unavailable, or a prior Q check already failed. Wiring and hashes are verified; BEHAVIOR IS NOT."
 fi
 
+# --- Layer Q6: THE WRITE BARRIER FAILS CLOSED (HARD gate; review 2026-09-03
+# blocker 3) ---
+#
+# guard-sealed-worktree.sh is the mechanism that makes a nonblocking
+# SubagentStart usable: a worker cannot write until its manifest is sealed.
+# Until 2026-09-03 it ALLOWED the call whenever it could not evaluate — no
+# python3, no transaction library, a broken root, an unparseable payload —
+# and its own suite asserted that. The review ruled it the hole the barrier
+# exists to close. This layer proves, on the LIVE engine and a sandbox copy
+# with the library removed, that every one of those conditions now REFUSES a
+# worker's potentially writing tool (exit 2), while a proven lead call and a
+# proven read-only worker tool still pass. Every arm has its positive control
+# beside it, so a guard that refuses everything fails the layer too.
+#
+# SIDE-EFFECT SAFETY: the transaction store is pinned inside the sandbox; the
+# entity root is a throwaway directory; nothing here reads or writes
+# ~/.claude/state.
+Q6_GUARD="$ENGINE_ROOT/scripts/hooks/guard-sealed-worktree.sh"
+if [ ! -x "$Q6_GUARD" ]; then
+    emit_fail "Q6. write barrier not found / not executable: $Q6_GUARD — every worker write is ungoverned."
+elif ! command -v mktemp >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+    emit_warn "Q6. FAIL-CLOSED CANARY DID NOT RUN — mktemp or python3 unavailable. The barrier's wiring is verified; its fail-closed BEHAVIOR IS NOT."
+else
+    Q6_DIR="$(cd "$(mktemp -d -t contract-integrity-q6.XXXXXX 2>/dev/null)" 2>/dev/null && pwd -P || true)"
+    if [ -z "$Q6_DIR" ]; then
+        emit_warn "Q6. FAIL-CLOSED CANARY DID NOT RUN — no sandbox directory could be created (mktemp). BEHAVIOR IS NOT verified."
+    else
+        mkdir -p "$Q6_DIR/nolib/scripts/hooks" "$Q6_DIR/nolib/scripts/lib" "$Q6_DIR/entity" "$Q6_DIR/tx" "$Q6_DIR/home" "$Q6_DIR/nopy"
+        cp "$Q6_GUARD" "$Q6_DIR/nolib/scripts/hooks/" 2>/dev/null || true
+        cp "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" "$Q6_DIR/nolib/scripts/lib/" 2>/dev/null || true
+        chmod +x "$Q6_DIR/nolib/scripts/hooks/guard-sealed-worktree.sh" 2>/dev/null || true
+        printf 'PROTECTED_PATHS=""\nREADONLY_ALLOWLIST="Explore Plan"\n' >"$Q6_DIR/entity/orchestration.config"
+        for q6t in bash cat grep sed cut tr head env dirname basename; do
+            q6p="$(command -v "$q6t" 2>/dev/null || true)"; [ -n "$q6p" ] && ln -sf "$q6p" "$Q6_DIR/nopy/$q6t"
+        done
+        q6_run() { # <engine-dir> <payload> [path] -> Q6_RC
+            set +e
+            if [ -n "${3:-}" ]; then
+                printf '%s' "$2" | env HOME="$Q6_DIR/home" RICHOS_ENTITY_ROOT="$Q6_DIR/entity" RICHOS_WORKTREE_TX_DIR="$Q6_DIR/tx" SEAL_WAIT_SECONDS=0 PATH="$3" bash "$1/scripts/hooks/guard-sealed-worktree.sh" >/dev/null 2>&1
+            else
+                printf '%s' "$2" | env HOME="$Q6_DIR/home" RICHOS_ENTITY_ROOT="$Q6_DIR/entity" RICHOS_WORKTREE_TX_DIR="$Q6_DIR/tx" SEAL_WAIT_SECONDS=0 bash "$1/scripts/hooks/guard-sealed-worktree.sh" >/dev/null 2>&1
+            fi
+            Q6_RC=$?
+            set -e
+        }
+        Q6_WW='{"session_id":"q6canary-0000","agent_id":"q6canary00000001","agent_type":"dev","tool_name":"Write","tool_input":{"file_path":"/tmp/x"}}'
+        Q6_WR='{"session_id":"q6canary-0000","agent_id":"q6canary00000001","agent_type":"dev","tool_name":"Read","tool_input":{"file_path":"/tmp/x"}}'
+        Q6_LW='{"session_id":"q6canary-0000","tool_name":"Write","tool_input":{"file_path":"/tmp/x"}}'
+        Q6_PROBLEMS=""
+        q6_expect() { # <arm> <want-rc>
+            if [ "$Q6_RC" -ne "$2" ]; then Q6_PROBLEMS="$Q6_PROBLEMS [$1: exit $Q6_RC, expected $2]"; fi
+        }
+        q6_run "$ENGINE_ROOT" "$Q6_WW";                 q6_expect "healthy engine, UNSEALED worker Write" 2
+        q6_run "$ENGINE_ROOT" "$Q6_WR";                 q6_expect "healthy engine, unsealed worker Read (read-only policy)" 0
+        q6_run "$ENGINE_ROOT" "$Q6_LW";                 q6_expect "healthy engine, the lead's Write" 0
+        q6_run "$Q6_DIR/nolib" "$Q6_WW";                q6_expect "transaction LIBRARY MISSING, worker Write" 2
+        q6_run "$Q6_DIR/nolib" "$Q6_WR";                q6_expect "library missing, worker Read (read-only policy)" 0
+        q6_run "$Q6_DIR/nolib" "$Q6_LW";                q6_expect "library missing, the lead's Write" 0
+        q6_run "$ENGINE_ROOT" "$Q6_WW" "$Q6_DIR/nopy";  q6_expect "NO python3, worker Write" 2
+        q6_run "$ENGINE_ROOT" "$Q6_WR" "$Q6_DIR/nopy";  q6_expect "no python3, worker Read (read-only policy)" 0
+        q6_run "$ENGINE_ROOT" "$Q6_LW" "$Q6_DIR/nopy";  q6_expect "no python3, the lead's Write" 0
+        q6_run "$ENGINE_ROOT" "not json";               q6_expect "UNPARSEABLE payload" 2
+        if [ -z "$Q6_PROBLEMS" ]; then
+            emit_pass "Q6. the write barrier FAILS CLOSED: an unsealed worker, a missing transaction library, a missing python3 and an unparseable payload each REFUSE a worker's Write (exit 2), while the lead's own call and a worker's read-only tool pass — 10/10 arms"
+        else
+            emit_fail "Q6. the write barrier does NOT fail closed:$Q6_PROBLEMS. A worker whose ownership the barrier cannot evaluate must be refused every potentially writing or unknown tool (review 2026-09-03 blocker 3). Restore: git checkout -- scripts/hooks/guard-sealed-worktree.sh"
+        fi
+        rm -rf "$Q6_DIR" 2>/dev/null || true
+    fi
+fi
+
 # --- Layer Q4: SCOPE + SAFETY canary — a SECOND repository, a HAND-ROLLED
 # worktree, and the owner-liveness rule, all in one throwaway sandbox ---
 #
