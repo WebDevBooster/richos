@@ -306,14 +306,58 @@ if [ "$SEALED_BY" = "pending-terminal-fallback 1 SubagentStop" ] && [ "$(states 
 else
     bad "C27  sealed_by=[$SEALED_BY] states=$(states "$A11") ext=$([ -e "$EXT11" ] && echo present || echo gone) native=$([ -d "$ENTITY/.claude/worktrees/agent-$A11" ] && echo present || echo GONE) out=${OUT:0:200}"
 fi
-# a pending event with NO bound record owned nothing: dropped after grace, nothing touched
+# --- 11b. a START-ONLY pending event (landed review 2026-09-03, blocker 2).
+# Until this revision C28 certified that EVERY pending record with no bound
+# record was dropped after the grace period as "nothing was ever owned" — and
+# its fixture was the main checkout, so it never exercised the case that
+# leaks: a SubagentStart that named the exact native worktree while the
+# parent's binder failed. That certification is replaced by the three cases
+# below: only the helper-in-main case results in no filesystem mutation, and
+# even it keeps the terminal record rather than reinterpreting the event.
+# C28a — a harmless helper whose start fact names the MAIN checkout: no
+# mutation, but a zero-member terminal TOMBSTONE and the agent stays terminal
 A12="a00000000000rc12"
 T start --session-id "$SID" --agent-id "$A12" --cwd "$ENTITY" >/dev/null
 T claim --session-id "$SID" --agent-id "$A12" --ingress SubagentStop >/dev/null 2>&1
 [ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] || bad "C28-setup  no pending record for the start-only agent"
 RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
-[ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && ! T show --session-id "$SID" --agent-id "$A12" >/dev/null 2>&1 && [ -d "$ENTITY" ] \
-    && ok "C28  a pending event for an agent that was never bound is dropped after grace: no transaction, nothing owned, nothing touched" || bad "C28  pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && echo kept || echo gone)"
+TOMB="$(T show --session-id "$SID" --agent-id "$A12" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("state"), len(d.get("members") or []), d.get("sealed_by"), (d.get("terminal") or {}).get("ingress"), d.get("closed"))')"
+if [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && [ "$TOMB" = "removed 0 pending-terminal-fallback SubagentStop no-members" ] \
+   && T terminal-agent --agent-id "$A12" >/dev/null 2>&1 && [ -f "$ENTITY/seed.txt" ] && git -C "$ENTITY" status --porcelain >/dev/null 2>&1; then
+    ok "C28a a start-only helper in the MAIN checkout: no filesystem mutation, but the terminal event is KEPT as a zero-member terminal transaction (removed, no-members) and the agent stays terminal (INVERTED: the record used to be dropped)"
+else
+    bad "C28a tombstone=[$TOMB] pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && echo kept || echo gone) terminal=$(T terminal-agent --agent-id "$A12" >/dev/null 2>&1 && echo yes || echo no)"
+fi
+# C28b — a start-only EXACT native worktree (the binder failed): retired after grace
+A18="a00000000000rc18"
+NAT18="$ENTITY/.claude/worktrees/agent-$A18"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$A18" "$NAT18"
+printf 'work the binder never bound\n' >"$NAT18/unbound.txt"
+HEAD18="$(git -C "$NAT18" rev-parse HEAD)"
+T start --session-id "$SID" --agent-id "$A18" --cwd "$NAT18" --agent-type dev >/dev/null
+T claim --session-id "$SID" --agent-id "$A18" --ingress SubagentStop >/dev/null 2>&1
+[ -f "$SANDBOX/tx/$SID/pending-terminal/$A18.json" ] || bad "C28b-setup  no pending record"
+OUT="$(RICHOS_PENDING_TERMINAL_GRACE=0 R 2>&1)"
+FB18="$(T show --session-id "$SID" --agent-id "$A18" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(d.get("sealed_by"), d.get("bound_record"), len(m), m[0]["class"], m[0]["state"], d.get("state"))')"
+if [ "$FB18" = "pending-terminal-fallback False 1 native removed removed" ] && [ ! -e "$NAT18" ] && [ ! -e "$(q "$NAT18" "$A18")" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A18/worktree-agent-$A18")" = "$HEAD18" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A18/member-0/tree.tar" unbound.txt)" = "work the binder never bound" ] \
+   && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A18.json" ] && printf '%s' "$OUT" | grep -q 'no bound record: the native member came from the start fact'; then
+    ok "C28b a start-only EXACT native worktree (no bound record) is verified from the start fact, terminalized as a one-member fallback and RETIRED: backup ref saved, evidence captured, worktree removed (INVERTED: it used to leak forever)"
+else
+    bad "C28b fallback=[$FB18] native=$([ -e "$NAT18" ] && echo present || echo gone) quar=$([ -e "$(q "$NAT18" "$A18")" ] && echo present || echo gone) out=${OUT:0:200}"
+fi
+# C28c — the exact native path named by a WorktreeRemove (first_path) when the
+# start fact names somewhere else (the main checkout): verified from first_path
+A19="a00000000000rc19"
+NAT19="$ENTITY/.claude/worktrees/agent-$A19"
+git -C "$ENTITY" worktree add -q -b "worktree-agent-$A19" "$NAT19"
+T start --session-id "$SID" --agent-id "$A19" --cwd "$ENTITY" >/dev/null
+T claim --session-id "$SID" --agent-id "$A19" --ingress WorktreeRemove --detail "$NAT19" >/dev/null 2>&1
+RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
+FB19="$(T show --session-id "$SID" --agent-id "$A19" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print(len(m), m[0]["path"] if m else "-", d.get("state"), (d.get("terminal") or {}).get("ingress"))')"
+[ "$FB19" = "1 $NAT19 removed WorktreeRemove" ] && [ ! -e "$NAT19" ] \
+    && ok "C28c the exact native path a WorktreeRemove named (first_path) is verified and retired even though the start fact named the main checkout" || bad "C28c fallback=[$FB19] native=$([ -e "$NAT19" ] && echo present || echo gone)"
 
 # --- 12. index capture must SUCCEED, or the member is not captured -------------
 # (review 2026-09-03, blocker 2). A failed `git ls-files -s` used to be

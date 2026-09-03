@@ -705,9 +705,22 @@ def process_pending_terminals(only=None):
     native member if a start fact names one that still verifies — becomes a
     fallback transaction that is claimed and terminalized like any other.
     Nothing is discovered by name; a member that no longer verifies is
-    recorded `failed`/`missing` and counted, never guessed at. A pending
-    record with NO bound record after the grace period owned nothing and is
-    removed."""
+    recorded and closed by policy, never guessed at.
+
+    A PENDING RECORD WITH NO BOUND RECORD IS NOT "NOTHING WAS OWNED" (landed
+    review 2026-09-03, blocker 2). A SubagentStart record can name the exact
+    native path `.claude/worktrees/agent-<agent_id>`, and a WorktreeRemove
+    can name it as first_path; either verifies through _verify_native_member
+    (platform agent-id basename, exact registered worktree). That is
+    precisely the path taken when SubagentStart succeeded but the parent's
+    PostToolUse[Agent] binder failed — and until this revision the record
+    was dropped there, with the native worktree left behind. Now the start
+    fact and the first_path are inspected, a verified native member becomes
+    a one-member fallback transaction, and an agent with NO verifiable
+    member becomes a ZERO-member terminal transaction: the terminal event
+    stands as a tombstone, the agent stays terminal, nothing on disk is
+    touched, and the record is never reinterpreted as if it had not
+    happened."""
     grace = pending_terminal_grace()
     handled = 0
     for sid, aid, p in list(tx.iter_pending_terminals()):
@@ -728,36 +741,16 @@ def process_pending_terminals(only=None):
         if age < grace:
             continue
         bound = tx.read_bound(sid, aid)
-        if not bound:
-            log("pending terminal for %s/%s: no bound record after %.0fs — nothing was ever owned; record dropped" % (sid[:8], aid, age))
-            _unlink(ppath); continue
-        members = []
-        for e in bound.get("externals") or []:
-            ext, why = tx._verify_external_member(e)
-            if ext is not None:
-                members.append(ext)
-            else:
-                real = tx.norm_path(e.get("path"))
-                members.append({"class": "hand-rolled", "repo": tx.norm_path(e.get("repo")), "path": real,
-                                "branch": e.get("branch") or "", "head_at_seal": "",
-                                "state": "missing" if not os.path.isdir(real) else "failed", "error": why})
         start = tx.read_start(sid, aid)
-        if (bound.get("kind") or "") in ("native", "native+external") and start:
-            nat, _why = tx._verify_native_member(start.get("cwd_real") or tx.norm_path(start.get("cwd")), aid)
-            if nat is not None:
-                members.insert(0, nat)
-        if not members:
-            log("pending terminal for %s/%s: unbindable after %.0fs (%s) and no creation-time member survives to clean — record kept as unbindable" % (sid[:8], aid, age, res))
-            if not p.get("unbindable"):
-                p["unbindable"] = True; p["unbindable_reason"] = str(res); p["unbindable_ts"] = tx.now_iso()
-                tx.atomic_write_json(ppath, p)
-            continue
+        members = _creation_time_members(sid, aid, bound, start, p)
         fallback = {
             "record": "transaction", "session_id": sid, "agent_id": aid,
-            "tool_use_id": bound.get("tool_use_id"), "teammate": bound.get("teammate") or "",
-            "subagent_type": bound.get("subagent_type") or "", "kind": bound.get("kind") or "",
+            "tool_use_id": (bound or {}).get("tool_use_id"), "teammate": (bound or {}).get("teammate") or "",
+            "subagent_type": (bound or {}).get("subagent_type") or (start or {}).get("agent_type") or "",
+            "kind": (bound or {}).get("kind") or ("native" if members else "unowned"),
             "members": members, "sealed": True, "sealed_ts": tx.now_iso(), "state": "sealed",
             "sealed_by": "pending-terminal-fallback", "seal_reason": str(res),
+            "bound_record": bool(bound), "start_record": bool(start),
             "start_cwd": (start or {}).get("cwd_real") or "", "terminal": None,
         }
         with tx.tx_lock(sid, aid):
@@ -766,9 +759,59 @@ def process_pending_terminals(only=None):
         tx.claim_terminal(sid, aid, p.get("ingress") or "SubagentStop", detail=p.get("detail") or "", via_pending=p)
         tx.terminalize(sid, aid, p.get("first_path") or None)
         _unlink(ppath)
-        log("pending terminal for %s/%s: unsealable after %.0fs (%s); %d creation-time member(s) routed through cleanup" % (sid[:8], aid, age, res, len(members)))
+        if members:
+            log("pending terminal for %s/%s: unsealable after %.0fs (%s); %d creation-time member(s) routed through cleanup%s"
+                % (sid[:8], aid, age, res, len(members), "" if bound else " (no bound record: the native member came from the start fact / first_path, verified against git)"))
+        else:
+            log("pending terminal for %s/%s: unsealable after %.0fs (%s) and no verifiable member: closed as a ZERO-member terminal transaction — the terminal event stands, the agent stays terminal, nothing on disk was owned"
+                % (sid[:8], aid, age, res))
         handled += 1
     return handled
+
+
+def _creation_time_members(sid, aid, bound, start, p):
+    """The exact members a pending terminal agent owned at creation time,
+    verified against git as the seal would have — never discovered by name.
+
+    External members come from the BOUND record's prepared set: one that
+    still verifies is bound as-is; one whose directory is gone is bound
+    absent (closed by the library's vanished-member policy); one that is
+    still the exact prepared path inside the exact prepared repository but
+    has drifted (branch, HEAD) is bound with the drift recorded, so its exact
+    bytes are captured before anything is unregistered; a directory at the
+    prepared path that is NOT a worktree of the prepared repository is not
+    ours and is not touched.
+
+    The native member comes from the START fact's cwd, else from the exact
+    path a WorktreeRemove named (first_path) — blocker 2 — and only when
+    _verify_native_member accepts it: platform `agent-<id>` basename, exact
+    registered linked worktree. Nothing here needs a bound record."""
+    members = []
+    for e in (bound or {}).get("externals") or []:
+        ext, why = tx._verify_external_member(e)
+        if ext is not None:
+            members.append(ext)
+            continue
+        real = tx.norm_path(e.get("path"))
+        repo = tx.norm_path(e.get("repo"))
+        if not os.path.isdir(real):
+            members.append({"class": "hand-rolled", "repo": repo, "path": real, "branch": e.get("branch") or "",
+                            "head_at_seal": "", "state": "bound", "prepared_but_absent": why})
+            continue
+        if tx.worktree_toplevel(real) == real and tx.main_checkout_of(real) == repo:
+            members.append({"class": "hand-rolled", "repo": repo, "path": real, "branch": tx.branch_of(real) or e.get("branch") or "",
+                            "head_at_seal": tx.head_of(real), "state": "bound", "provenance_drift": why})
+            continue
+        log("pending terminal for %s/%s: %s is not a worktree of the prepared repository %s (%s) — not owned, not touched"
+            % (sid[:8], aid, real, repo, why))
+    for cand in ((start or {}).get("cwd_real") or tx.norm_path((start or {}).get("cwd")), p.get("first_path") or ""):
+        if not cand:
+            continue
+        nat, _why = tx._verify_native_member(tx.norm_path(cand), aid)
+        if nat is not None:
+            members.insert(0, nat)
+            break
+    return members
 
 
 def _unlink(path):

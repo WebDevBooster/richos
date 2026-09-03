@@ -1027,6 +1027,8 @@ def terminalize(session_id, agent_id, first_path=None):
     if not tx or not tx.get("terminal"):
         return tx
     _repair_terminal_indexes(tx)
+    if not tx.get("members"):
+        return close_if_empty(session_id, agent_id)
     order = list(range(len(tx["members"])))
     first = norm_path(first_path) if first_path else ""
 
@@ -1042,6 +1044,25 @@ def terminalize(session_id, agent_id, first_path=None):
             save_ref(session_id, agent_id, i)
             quarantine(session_id, agent_id, i)
         return load_tx(session_id, agent_id)
+
+
+def close_if_empty(session_id, agent_id):
+    """A terminal transaction with NO members — a main-checkout-run or remote
+    spawn, or a pending terminal event whose agent had no verifiable member
+    (landed review 2026-09-03, blocker 2) — is `removed` the moment it is
+    terminal: there is nothing to quarantine, capture or delete, and a
+    tombstone that never reaches `removed` would be counted as pending and
+    never expire. The terminal record, the ingress and the agent-id index
+    all stand; only the state advances."""
+    with tx_lock(session_id, agent_id):
+        tx = load_tx(session_id, agent_id)
+        if not tx or not tx.get("terminal") or tx.get("members") or tx.get("state") == "removed":
+            return tx
+        tx["state"] = "removed"
+        tx["removed_ts"] = now_iso()
+        tx["closed"] = "no-members"
+        atomic_write_json(tx_path(session_id, agent_id), tx)
+        return tx
 
 
 # --------------------------------------------------------------------------

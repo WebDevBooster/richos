@@ -75,6 +75,16 @@ mutant fallback-never-built "C27" "$R" \
     '        with tx.tx_lock(sid, aid):{NL}            pass' \
     "a permanently unbindable agent's prepared worktrees would never be cleaned: the pending event would sit forever and the trees with it."
 
+mutant start-only-native-dropped "C28b" "$R" \
+    '        nat, _why = tx._verify_native_member(tx.norm_path(cand), aid){NL}        if nat is not None:{NL}            members.insert(0, nat)' \
+    '        nat, _why = None, "dropped"{NL}        if nat is not None:{NL}            members.insert(0, nat)' \
+    "a start-only exact native worktree — the binder-failure path — would never be retired: the pending record would close as a zero-member tombstone with the worktree left behind forever (landed review 2026-09-03, blocker 2)."
+
+mutant tombstone-dropped "C28a" "$R" \
+    '        members = _creation_time_members(sid, aid, bound, start, p)' \
+    '        members = _creation_time_members(sid, aid, bound, start, p){NL}        if not members:{NL}            _unlink(ppath); continue' \
+    "a recorded terminal event for an agent with no verifiable member would be reinterpreted as if it never happened — no transaction, no tombstone — which is the certification C28 used to carry (landed review 2026-09-03, blocker 2)."
+
 mutant index-failure-swallowed "C29" "$R" \
     '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
     '    for rec in git_out(quar, "ls-files", "-s", "-z")[1].split("\0"):' \
