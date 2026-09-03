@@ -36,6 +36,11 @@ mutant terminalize-not-run "R05" "$H" \
     '    t = tx.load_tx(sid, aid)' \
     "the claim would be recorded and nothing quarantined; the harness's own removal would delete uncaptured bytes."
 
+mutant stop-promotes-cwd-to-owner "R28" "$H" \
+    'if event in ("SubagentStop", ""):{NL}    aid = str(d.get("agent_id") or "")' \
+    'if event in ("SubagentStop", ""):{NL}    aid = str(d.get("agent_id") or ""){NL}    if aid and not tx.load_tx(sid, aid):{NL}        aid = tx.find_by_native_path(sid, str(d.get("cwd") or "")) or aid' \
+    "a nested or helper agent stopping inside a LIVE teammate's cwd would terminalize the teammate — measured 2026-09-03: nine such stops fired in one live worker's cwd in eight minutes (CEO specification, terminal-authority recommendation section 2)."
+
 mutant stop-acts-on-teammateidle "R25" "$H" \
     'if event in ("SubagentStop", ""):' \
     'if event in ("SubagentStop", "", "TeammateIdle", "TaskCompleted"):' \

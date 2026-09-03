@@ -181,6 +181,33 @@ run "$(stop_payload "aba6d9fa03bc418f4")"
 [ "$RC" -eq 0 ] && [ -z "$OUT" ] && [ ! -f "$SANDBOX/tx/$SID/pending-terminal/aba6d9fa03bc418f4.json" ] \
     && ok "R21e an agent with neither a bound nor a start record gets NO pending record (a stop event about nobody is silence)" || bad "R21e rc=$RC out=${OUT:0:120}"
 
+# --- 4c. A MISMATCHED SubagentStop NEVER CLAIMS BY cwd -------------------------
+# (CEO specification 2026-09-03, worktree-terminal-authority-fix-recommendation
+# section 2). MEASURED on this machine 2026-09-03: nine SubagentStop events
+# carrying DIFFERENT agent ids, empty agent_type and cwd = a LIVE teammate's
+# native worktree fired while that teammate was working — nested / helper
+# agents execute inside the parent's cwd. Promoting such a stop to the
+# parent's ownership by cwd would have terminalized a live worker nine times.
+# The stop-side id is authority only when it IS the ownership id.
+A3C="a000000000000t3c"
+seal "$A3C" dev-opus-t3c "$OTHER:$SANDBOX/other-wt/dev-opus-t3c:dev-opus-t3c"
+NAT3C="$ENTITY/.claude/worktrees/agent-$A3C"
+STOPS_OK=1
+for n in 1 2 3 4 5 6 7 8 9 10; do
+    OUT="$(printf '{"session_id":"%s","hook_event_name":"SubagentStop","agent_id":"nested%02d00000000000","agent_type":"","cwd":"%s","stop_hook_active":false}' "$SID" "$n" "$NAT3C" | "$HOOK" 2>&1)"; RC=$?
+    { [ "$RC" -eq 0 ] && [ -z "$OUT" ]; } || STOPS_OK=0
+done
+STATE3C="$(T show --session-id "$SID" --agent-id "$A3C" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state"))')"
+if [ "$STOPS_OK" -eq 1 ] && [ -d "$NAT3C" ] && [ -d "$SANDBOX/other-wt/dev-opus-t3c" ] && [ "$STATE3C" = "sealed" ] \
+   && ! T terminal-agent --agent-id "$A3C" >/dev/null 2>&1 && [ "$(ls "$SANDBOX/tx/$SID/pending-terminal" 2>/dev/null | grep -c nested)" = "0" ]; then
+    ok "R28  TEN different nested stop ids from inside a live worker's cwd claim NOTHING: no terminal record, no pending record, both worktrees untouched, the transaction still sealed"
+else
+    bad "R28  stops_ok=$STOPS_OK state=$STATE3C native=$([ -d "$NAT3C" ] && echo present || echo GONE) ext=$([ -d "$SANDBOX/other-wt/dev-opus-t3c" ] && echo present || echo GONE) terminal=$(T terminal-agent --agent-id "$A3C" >/dev/null 2>&1 && echo yes || echo no)"
+fi
+run "$(stop_payload "$A3C")"
+[ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "SubagentStop ingress WON the claim for agent $A3C" && [ ! -d "$NAT3C" ] \
+    && ok "R29  ...while the SubagentStop whose agent_id IS the ownership id claims it (exact authority, not a preferred event)" || bad "R29  rc=$RC: ${OUT:0:160}"
+
 # --- 5. a reused name in a LATER session matches nothing ------------------------
 SID2="22222222-0000-4000-8000-000000000002"
 A4="b000000000000t04"
