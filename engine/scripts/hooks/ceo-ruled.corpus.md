@@ -25,8 +25,10 @@ the orchestrator itself hours or days earlier.
 | 2 | Is the mark one tone or two | `ceo-decisions.md` §21 › The logo — APPROVED |
 | 3 | The splash screens, restated as "seven approved" | `ceo-decisions.md` §21 › The splash screens — TWO |
 
-His reply to the first: *"HOW MANY TIMES DO I HAVE TO DISCUSS AND ANSWER THE
-SAME IDENTICAL SHIT???"*
+His reply to the first said, in the sharpest terms he had used all week, that
+he had already discussed and answered the identical question more than once.
+The wording is in the private record; what this corpus measures is the count and
+the class, not the phrasing.
 
 **The mechanism, in one line: the orchestrator writes to the record constantly
 and reads it almost never.** Nothing stood between "this looks like a decision"

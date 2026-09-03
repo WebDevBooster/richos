@@ -14,7 +14,7 @@
 # to SecurityAgent, which draws a window on the logged-in user's screen, and the
 # calling process waits on it forever. PID 70803, killed by hand.
 #
-# His question was "when will that fucking STOP?", and this hook is the answer.
+# His question was, bluntly, when that would STOP — and this hook is the answer.
 #
 # THE ROOT CAUSE IS A HOLE IN THE GUARD SET, NOT A CARELESS ENGINEER. Forty-one
 # guards were registered that night. Every one of them inspects text and state —

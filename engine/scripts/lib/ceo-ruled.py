@@ -19,8 +19,9 @@ the orchestrator itself hours or days earlier:
   3. The splash screens. A palette approval had been laundered into "seven
      approved splash screens" and repeated back to him as fact.
 
-His reply to the first: "HOW MANY TIMES DO I HAVE TO DISCUSS AND ANSWER THE
-SAME IDENTICAL SHIT???"
+His reply to the first said, in the sharpest terms he had used all week, that
+he had already discussed and answered the identical question more than once.
+The wording is in the private record; the count is what this file acts on.
 
 The mechanism, in one line: THE ORCHESTRATOR WRITES TO THE RECORD CONSTANTLY
 AND READS IT ALMOST NEVER. Every ruling is appended within minutes; nothing is

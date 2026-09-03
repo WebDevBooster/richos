@@ -270,7 +270,7 @@ mutant teams-dir-pointer-ignored "11c." scripts/lib/teammate-identity.py \
 # The guard already computed everything mechanical in the notice and then made
 # the lander type it back by hand and checked the typing. That produced a
 # 25-line message whose mandatory content is five short fields, and the CEO
-# called it "needlessly feeding tons of garbage shit to agents in flight". The
+# called it needlessly feeding piles of noise to agents in flight. The
 # reply was "it stops now", and he rejected that on the spot — correctly,
 # because an intention is not a mechanism, and his standing ruling on exactly
 # this is "I cannot rely on your promises. There must be a guarantee."

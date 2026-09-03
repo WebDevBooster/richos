@@ -139,7 +139,7 @@ version heading with Added / Changed / Fixed groupings.
   On 2026-09-02 the lead wrote "Zach builds it tomorrow" and "Frank breaks it
   first" in turns that made no Agent call, and six times answered a returned
   teammate with a report and started nothing; the CEO restarted each one by hand
-  ("WHERE THE FUCK IS FRANK THIS FUCKING TIME"). `guard-idle-land.sh` saw all
+  (asked, bluntly, where Frank was). `guard-idle-land.sh` saw all
   three of the evening's finishes and stood down on its backlog term. A blocking
   `Stop` hook now reconciles the final text against the turn's own tool calls in
   two arms. ARM 1: a roster role as the subject of a present-simple act with a

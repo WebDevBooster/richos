@@ -21,8 +21,10 @@
 # been laundered into "seven approved splash screens" and repeated back to him
 # as fact.
 #
-# His words on the first: "HOW MANY TIMES DO I HAVE TO DISCUSS AND ANSWER THE
-# SAME IDENTICAL SHIT???"
+# His answer to the first was, in substance, that he had already discussed and
+# answered the identical question more than once — put in the sharpest terms he
+# had used all week. The wording is in the private record; the count is what
+# matters here, and it was three in one evening.
 #
 # THE MECHANISM: the orchestrator WRITES to the record constantly and READS it
 # almost never. Nothing stood between "this looks like a decision" and "ask
@@ -257,8 +259,9 @@ fi
     echo ""
     echo "  On 2026-09-01 three questions went to the CEO that the record"
     echo "  already answered, each one written down by this session's own"
-    echo "  orchestrator hours or days earlier. His words: \"HOW MANY TIMES DO"
-    echo "  I HAVE TO DISCUSS AND ANSWER THE SAME IDENTICAL SHIT???\""
+    echo "  orchestrator hours or days earlier. He had answered every one of"
+    echo "  them before, and said so — the third time was not a question, it"
+    echo "  was the same question."
     echo ""
     echo "  WHAT THE RECORD SAYS:"
     echo ""

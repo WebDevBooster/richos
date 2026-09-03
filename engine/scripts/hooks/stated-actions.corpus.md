@@ -18,11 +18,11 @@ contain it:
 | 17:49 | "Zach builds it tomorrow."                     | Bash ×3, no Agent     |
 | 18:29 | "Frank breaks it first, and I want him …"      | Bash ×7, no Agent     |
 
-The CEO's next message after the second was "WHERE THE FUCK IS FRANK THIS
-FUCKING TIME"; after the apology, "Yeah, that fuckshit will never end, will it?"
+The CEO's next message after the second asked, in blunt terms, where Frank was
+this time; after the apology, he said this class of failure would never end.
 
 The same day he sent six messages of a second shape — "No Frank this time?",
-"Next Sage.", "WHERE THE FUCK IS THE NEXT SAGE?" — each restarting work that had
+"Next Sage.", then a blunter repeat of the same — each restarting work that had
 paused because a teammate returned and the lead answered with a report and no
 dispatch. `guard-idle-land.sh` saw all three of the evening's finishes and stood
 down each time on its backlog term (`verdict: backlog-empty, rows: 41, free: 0`,

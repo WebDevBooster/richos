@@ -12,7 +12,8 @@
 #   1. What a customer installs. His standing instruction was already in
 #      open-items.md row 3.14, in his own words: "automatically download and
 #      install whatever the user needs." His reply: "HOW MANY TIMES DO I HAVE
-#      TO DISCUSS AND ANSWER THE SAME IDENTICAL SHIT???"
+#      TO DISCUSS AND ANSWER THE SAME IDENTICAL QUESTION?" (paraphrased; the
+#      wording is in the private record)
 #   2. Whether the logo mark is one tone or two. Already approved, §21.
 #   3. The splash screens. A palette approval had been laundered into "seven
 #      approved splash screens" and repeated back to him as fact.

@@ -164,7 +164,7 @@ esac
 # 2d/2e. THE REFUSAL POINTS AT THE GENERATOR, NOT AT A TEMPLATE TO TYPE.
 # On 2026-09-02 the lander hand-composed a 25-line notice whose mandatory
 # content is five short fields, and the CEO called it "needlessly feeding tons
-# of garbage shit to agents in flight". The answer offered was that the lander
+# of noise to agents in flight. The answer offered was that the lander
 # would write shorter ones; he rejected it on the spot, because an intention is
 # not a mechanism. So the refusal must name the command that GENERATES the
 # message — and must NOT hand out a template to fill in by hand, which is the
