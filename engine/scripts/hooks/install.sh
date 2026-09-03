@@ -628,7 +628,14 @@ fi
 # is also withheld on a non-macOS host (launchd is macOS), with a note naming
 # what to schedule instead. RICHOS_LAUNCH_AGENTS_DIR redirects the plist for
 # tests, in which case launchctl is never invoked.
-RECONCILE_INTERVAL="$(sed -n 's/^RECONCILE_INTERVAL_SECONDS=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1)"
+# `|| true` IS LOAD-BEARING under `set -eo pipefail`, which this script runs.
+# Without it, an engine checkout with no orchestration.config (every fixture in
+# locate-engine.test.sh and global-state-witness.test.sh, and any adopter tree
+# before its first config lands) killed the whole installer HERE, with rc 1,
+# right after the pointer step and with 2>/dev/null hiding the reason. The
+# interval already has a default one line down; a missing config is a default,
+# never a failed install.
+RECONCILE_INTERVAL="$(sed -n 's/^RECONCILE_INTERVAL_SECONDS=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1 || true)"
 [ -n "$RECONCILE_INTERVAL" ] || RECONCILE_INTERVAL=300
 LAUNCHD_LABEL="com.richos.worktree-reconciler"
 LAUNCHD_DIR="${RICHOS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
