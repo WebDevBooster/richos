@@ -337,7 +337,7 @@ run_layer_R() {
     fi
 
     # R2/R3 — the hooks that resolve a root.
-    R_ROOTED_HOOKS="engine-status guard-worktree-isolation guard-definition-drift \
+    R_ROOTED_HOOKS="engine-status guard-sealed-worktree guard-worktree-isolation guard-definition-drift \
     reader-teammate-hint verify-agent-prompt guard-main-checkout-writes scan-secrets \
     guard-dialect \
     guard-publication-writes guard-publication-commits guard-ceo-todos-commits \
@@ -545,13 +545,13 @@ MT_Q_EOF
             printf -- '---\nname: mtjudge\nmodel: opus\n---\nA sandbox judgment role that exists only for this canary.\n' \
                 >"$MT_SB/entity/.claude/agents/mtjudge.md"
             mt_spawn() { # <name> <model>
-                printf '{"tool_name":"Agent","cwd":"%s","session_id":"mt-canary-0000","tool_input":{"subagent_type":"mtjudge","name":"%s","isolation":"worktree","model":"%s","prompt":"canary"}}' \
+                printf '{"tool_name":"Agent","cwd":"%s","session_id":"mt-canary-0000","tool_use_id":"mt-canary-tu","tool_input":{"subagent_type":"mtjudge","name":"%s","isolation":"worktree","model":"%s","prompt":"canary"}}' \
                     "$MT_SB/entity" "$1" "$2"
             }
             set +e
-            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" bash "$MT_GUARD" 2>&1 >/dev/null)"
+            MT_DOWN_ERR="$(printf '%s' "$(mt_spawn mtjudge-sonnet-1 sonnet)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKTREE_TX_DIR="$MT_SB/tx" bash "$MT_GUARD" 2>&1 >/dev/null)"
             MT_DOWN_RC=$?
-            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" bash "$MT_GUARD" 2>&1)"
+            MT_UP_OUT="$(printf '%s' "$(mt_spawn mtjudge-fable-1 fable)" | env HOME="$MT_SB/home" RICHOS_ENTITY_ROOT="$MT_SB/entity" RICHOS_WORKTREE_TX_DIR="$MT_SB/tx" bash "$MT_GUARD" 2>&1)"
             MT_UP_RC=$?
             set -e
             rm -rf "$MT_SB"
@@ -763,6 +763,7 @@ session-start-reap-worktrees.sh|SessionStart
 snapshot-agent-definitions.sh|SessionStart
 snapshot-enforcing-hooks.sh|SessionStart
 session-start-ceo-ask.sh|SessionStart
+guard-sealed-worktree.sh|PreToolUse
 guard-worktree-isolation.sh|PreToolUse
 guard-definition-drift.sh|PreToolUse
 reader-teammate-hint.sh|PreToolUse
@@ -787,6 +788,7 @@ worker-created-handoff.sh|PostToolUse
 worker-updated-handoff.sh|PostToolUse
 notice-inflight-sends.sh|PostToolUse
 notice-ceo-asks.sh|PostToolUse
+record-subagent-start.sh|SubagentStart
 worker-started-handoff.sh|SubagentStart
 worker-ended-handoff.sh|SubagentStop
 teammate-idle-handoff.sh|TeammateIdle
@@ -1475,12 +1477,12 @@ PY
         >"$BR9_SB/entity/.claude/agents/probeteammate.md"
 
     br9_spawn() { # <name> <isolation-json-or-empty>
-        printf '{"tool_name":"Agent","cwd":"%s","session_id":"br9-canary-0000","tool_input":{"subagent_type":"probeteammate","name":"%s","prompt":"canary"%s}}' \
+        printf '{"tool_name":"Agent","cwd":"%s","session_id":"br9-canary-0000","tool_use_id":"br9-canary-tu","tool_input":{"subagent_type":"probeteammate","name":"%s","prompt":"canary"%s}}' \
             "$BR9_SB/entity" "$1" "$2"
     }
     br9_run() { # <payload> -> sets BR9_RC
         set +e
-        printf '%s' "$1" | env HOME="$BR9_SB/home" RICHOS_ENTITY_ROOT="$BR9_SB/entity" \
+        printf '%s' "$1" | env HOME="$BR9_SB/home" RICHOS_ENTITY_ROOT="$BR9_SB/entity" RICHOS_WORKTREE_TX_DIR="$BR9_SB/tx" \
             bash "$ENGINE_ROOT/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
         BR9_RC=$?
         set -e

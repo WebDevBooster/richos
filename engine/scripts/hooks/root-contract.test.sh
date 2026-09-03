@@ -164,9 +164,12 @@ fi
 # 3. guard-worktree-isolation.sh — the model-truthfulness clause, and the
 #    namespaced subagent_type that used to defeat it silently.
 # ===========================================================================
+# Clause 7 writes a spawn-intent for every allowed file-capable spawn; pin the
+# transaction store into the sandbox so this suite never touches the record.
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 SPAWN() { # <subagent_type> <name> [model] [prompt]
     local st="$1" nm="$2" md="${3:-}" pr="${4:-}"
-    printf '{"tool_name":"Agent","cwd":"%s","session_id":"deadbeef-0000","tool_input":{"subagent_type":"%s","name":"%s","isolation":"worktree"%s%s}}' \
+    printf '{"tool_name":"Agent","cwd":"%s","session_id":"deadbeef-0000","tool_use_id":"toolu_root_contract","tool_input":{"subagent_type":"%s","name":"%s","isolation":"worktree"%s%s}}' \
         "$SESSREPO" "$st" "$nm" \
         "$([ -n "$md" ] && printf ',"model":"%s"' "$md")" \
         "$([ -n "$pr" ] && printf ',"prompt":"%s"' "$pr")"

@@ -268,8 +268,9 @@ def _worker_events_say(agent_id):
 # name -> agent id, from the orchestrator's own transcript
 # --------------------------------------------------------------------------
 
-def names_to_ids(transcript_path, limit_bytes=64 * 1024 * 1024):
-    """{'zach-opus-g1': 'a86f3ce81f7d36390', ...} from a session transcript.
+def agent_spawns(transcript_path, limit_bytes=64 * 1024 * 1024):
+    """[(tool_use_id, name_or_"", agent_id)] — every Agent call in a session
+    transcript that the harness answered with an agent id.
 
     THE MAPPING IS NOT ON DISK ANYWHERE ELSE, and this is why the guard cannot
     work from `spawned-names.log` alone. Verified on a real transcript
@@ -280,16 +281,15 @@ def names_to_ids(transcript_path, limit_bytes=64 * 1024 * 1024):
       * the following user record carries a tool_result with the SAME
         tool_use_id, and a `toolUseResult` object holding `agentId`
 
-    So the join is on tool_use_id and it is exact. Nothing here guesses, and a
-    name that cannot be joined is simply absent from the result -- the caller
-    then has no agent to check, which is the honest answer rather than a
-    role-prefix match that would be ambiguous the moment two teammates of the
-    same role run at once (three did, on the day of the defect).
+    So the join is on tool_use_id and it is exact. Nothing here guesses. This
+    is THE ONE parser of that join; names_to_ids() and tool_use_ids_to_agent_ids()
+    are two views of its output, and a third consumer must be a third view,
+    never a third parser.
     """
-    out = {}
+    out = []
     if not transcript_path or not os.path.isfile(transcript_path):
         return out
-    pending = {}     # tool_use_id -> name
+    pending = {}     # tool_use_id -> name ("" when the spawn carried none)
     try:
         size = os.path.getsize(transcript_path)
     except OSError:
@@ -315,16 +315,42 @@ def names_to_ids(transcript_path, limit_bytes=64 * 1024 * 1024):
                         if c.get("type") == "tool_use" and c.get("name") == "Agent":
                             inp = c.get("input") or {}
                             nm = inp.get("name")
-                            if isinstance(nm, str) and nm.strip() and c.get("id"):
-                                pending[c["id"]] = nm.strip()
+                            if c.get("id"):
+                                pending[c["id"]] = nm.strip() if isinstance(nm, str) else ""
                         elif c.get("type") == "tool_result" and c.get("tool_use_id"):
                             tur = d.get("toolUseResult")
                             if isinstance(tur, dict) and tur.get("agentId"):
-                                nm = pending.get(c["tool_use_id"])
-                                if nm:
-                                    out[nm] = str(tur["agentId"])
+                                tuid = c["tool_use_id"]
+                                if tuid in pending:
+                                    out.append((tuid, pending[tuid], str(tur["agentId"])))
     except Exception:
         return out
+    return out
+
+
+def names_to_ids(transcript_path, limit_bytes=64 * 1024 * 1024):
+    """{'zach-opus-g1': 'a86f3ce81f7d36390', ...} from a session transcript.
+
+    A name that cannot be joined is simply absent from the result -- the caller
+    then has no agent to check, which is the honest answer rather than a
+    role-prefix match that would be ambiguous the moment two teammates of the
+    same role run at once (three did, on the day of the defect).
+    """
+    out = {}
+    for _tuid, nm, aid in agent_spawns(transcript_path, limit_bytes):
+        if nm:
+            out[nm] = aid
+    return out
+
+
+def tool_use_ids_to_agent_ids(transcript_path, limit_bytes=64 * 1024 * 1024):
+    """{'toolu_01...': 'a86f3ce81f7d36390', ...} — the join keyed the way the
+    worktree lifecycle keys it: by the exact tool_use_id the PreToolUse[Agent]
+    spawn-intent was written under (worktree-transactions.py). Exact, and
+    name-free: a spawn with no name still binds."""
+    out = {}
+    for tuid, _nm, aid in agent_spawns(transcript_path, limit_bytes):
+        out[tuid] = aid
     return out
 
 
