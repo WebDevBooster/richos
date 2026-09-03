@@ -551,9 +551,13 @@ open(p, "w", encoding="utf-8").write(s.replace(old, "if false; then", 1))
 PY
 if applied M20 "the reconciler contract unchecked (clause 7e deleted)" \
    && alive M20 "the reconciler contract unchecked (clause 7e deleted)"; then
+    # `check` matches the suite's FAIL lines, whose wording differs from the
+    # PASS lines (the harness run of 2026-09-03 went red at exactly Q19a, Q19c
+    # and Q19d and was scored unproven only because these named the PASS text).
     check M20 "the reconciler contract unchecked (clause 7e deleted)" \
-        "Q19a reconciler job NOT loaded" \
-        "Q19c reconciler job loaded but pointing at a reconciler that DOES NOT EXIST"
+        "Q19a not-loaded" \
+        "Q19c dangling job" \
+        "Q19d wrong program"
 fi
 fi
 
