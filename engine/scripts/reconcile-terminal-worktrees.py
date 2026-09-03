@@ -1,0 +1,597 @@
+#!/usr/bin/env python3
+"""reconcile-terminal-worktrees.py — THE PERSISTENT RECONCILER. Drives every
+terminal worktree transaction from `quarantined` to `removed`, and recovers
+any transaction a crash left mid-way, from the durable state alone.
+
+===========================================================================
+WHAT IT DOES, PER TERMINAL TRANSACTION, PER MEMBER
+===========================================================================
+    bound        -> ref_saved      (the ingress normally did this; recovery)
+    ref_saved    -> quarantined    (same)
+    quarantined  -> captured       kill and reap every process using the
+                                   original or the quarantine; require two
+                                   identical manifests separated by a
+                                   settling interval; archive raw bytes +
+                                   index + provenance; reclaim a recreated
+                                   original path
+    captured     -> verified       re-read the archive and match every digest
+    verified     -> unregistered   git no longer lists the worktree (the
+                                   backup ref is untouched)
+    unregistered -> removed        the quarantine directory is gone
+The transaction is `removed` only when every member is. Every transition is
+persisted immediately (scripts/lib/worktree-transactions.py, temp file ->
+fsync -> rename -> directory fsync), so a crash at ANY boundary is recovered
+by rereading what exists and repeating only the idempotent step that follows.
+
+===========================================================================
+WHAT IS CAPTURED — and why "git tree equality" is not claimed
+===========================================================================
+For every quarantined member the archive holds:
+  - the member's HEAD under the backup ref (already in the repository);
+  - `index.txt`: exact index entries (`git ls-files -s`), and every staged
+    blob's bytes under blobs/<sha>;
+  - `tree.tar`: raw working-tree bytes of every file that is not on the
+    disposable-path policy (tracked or not, ignored or not), with modes and
+    symlink targets;
+  - `manifest.json`: relpath, kind, size, mode, symlink target, SHA-256 of
+    every raw file — computed twice, before and after the settle, and the
+    two must be identical;
+  - `provenance.json`: repository, original path, branch, HEAD, backup ref,
+    the transaction's session and agent ids.
+Raw files and index blobs are hashed independently. Git clean filters, LFS
+and line-ending conversion can make a git tree differ from the bytes on
+disk, so the archive is verified against the RAW digests, and a git tree id
+is never presented as byte equality.
+
+The disposable-path policy is COMMITTED (orchestration.config
+CAPTURE_DISPOSABLE_PATHS in the engine, overridable per entity): build
+outputs and dependency caches are the only things not captured, and the
+list is data a reviewer can read.
+
+===========================================================================
+PROCESS RESIDUE — what is handled and what is honestly not
+===========================================================================
+Before capture, every process whose cwd or open files resolve inside the
+original or the quarantine is terminated (SIGTERM, then SIGKILL) and reaped;
+then the manifest is taken twice with a settle between. A process that
+recreates the ORIGINAL path after quarantine is detected: its writers are
+killed, the residue is captured as `residue-<n>.tar` and removed.
+
+What cannot be removed by shell code: a detached process with no current
+filesystem reference that has remembered an absolute path and will write
+again later. Absolute prevention needs the platform to run each worker in an
+OS-owned job and end the job before cleanup. This reconciler handles
+OBSERVED residue and does not claim more.
+
+===========================================================================
+FAILURE POLICY
+===========================================================================
+Normal failures (disk full, an archive that did not verify, a member whose
+manifest would not settle) leave the quarantine exactly where it is, record
+the attempt count and the last error on the member, and are retried
+silently on the next run. A member that reaches `failed` or `missing`
+(both-present, provenance contradicts git, vanished) is a HARD failure:
+reported once (a marker file beside the transaction), never retried
+automatically, and COUNTED as dead-present by `--status` until an operator
+resolves it. Nothing here searches for something with a similar name.
+
+===========================================================================
+WHO RUNS IT
+===========================================================================
+launchd (com.richos.worktree-reconciler, installed by scripts/hooks/install.sh)
+every RECONCILE_INTERVAL_SECONDS; and SessionStart
+(session-start-reap-worktrees.sh) as crash recovery with a short time
+budget. SessionStart is not the scheduler. Nothing waits for a later session.
+
+Usage:
+  reconcile-terminal-worktrees.py                run every pending transaction
+  reconcile-terminal-worktrees.py --status       print the definition-of-done
+                                                 metrics as JSON and exit 0/1
+  reconcile-terminal-worktrees.py --max-seconds N  stop cleanly after N seconds
+  reconcile-terminal-worktrees.py --agent SID/AID  one transaction only
+Env (tests): RICHOS_WORKTREE_TX_DIR, RICHOS_WORKTREE_CAPTURE_DIR,
+RICHOS_RECONCILE_SETTLE (seconds, default 1.0), RICHOS_RECONCILE_NO_KILL=1.
+"""
+
+import argparse
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+tx = _load("worktree_transactions", os.path.join(HERE, "lib", "worktree-transactions.py"))
+
+DEFAULT_DISPOSABLE = "node_modules .venv venv target build dist .gradle .next .turbo __pycache__ .pytest_cache .DS_Store .cache"
+MAX_SOFT_ATTEMPTS_BEFORE_NOTICE = 12
+
+
+def log(msg):
+    sys.stderr.write("reconcile: %s\n" % msg)
+
+
+def disposable_paths(repo):
+    """The committed disposable-path policy: the entity's orchestration.config
+    if it declares one, else the engine's, else the default above."""
+    for cfg in (os.path.join(repo or "", "orchestration.config"),
+                os.path.join(HERE, "..", "orchestration.config")):
+        try:
+            with open(cfg, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("CAPTURE_DISPOSABLE_PATHS="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        return set(val.split())
+        except OSError:
+            continue
+    return set(DEFAULT_DISPOSABLE.split())
+
+
+# --------------------------------------------------------------------------
+# manifests
+# --------------------------------------------------------------------------
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_manifest(root, disposable):
+    """{relpath: {kind, size, mode, sha256|target}} over every non-disposable
+    entry. `.git` (the worktree pointer file) is included as data."""
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        keep = []
+        for d in dirnames:
+            rel = os.path.join(rel_dir, d) if rel_dir else d
+            if d in disposable or rel in disposable:
+                continue
+            full = os.path.join(dirpath, d)
+            if os.path.islink(full):
+                out[rel] = {"kind": "symlink", "target": os.readlink(full), "mode": os.lstat(full).st_mode & 0o7777}
+                continue
+            keep.append(d)
+            out[rel] = {"kind": "dir", "mode": os.lstat(full).st_mode & 0o7777}
+        dirnames[:] = keep
+        for fn in filenames:
+            rel = os.path.join(rel_dir, fn) if rel_dir else fn
+            if fn in disposable or rel in disposable:
+                continue
+            full = os.path.join(dirpath, fn)
+            st = os.lstat(full)
+            if os.path.islink(full):
+                out[rel] = {"kind": "symlink", "target": os.readlink(full), "mode": st.st_mode & 0o7777}
+            elif os.path.isfile(full):
+                out[rel] = {"kind": "file", "size": st.st_size, "mode": st.st_mode & 0o7777, "sha256": sha256_file(full)}
+            else:
+                out[rel] = {"kind": "other", "mode": st.st_mode & 0o7777}
+    return out
+
+
+# --------------------------------------------------------------------------
+# processes
+# --------------------------------------------------------------------------
+
+def processes_using(paths):
+    """pids whose cwd or open files resolve inside any of the given paths
+    (lsof, the measured tool that sees a cwd `pgrep -f` cannot), plus pids
+    whose argv names one of them. Never this process or its parents."""
+    pids = set()
+    existing = [p for p in paths if p and os.path.exists(p)]
+    if not existing:
+        return pids
+    try:
+        res = subprocess.run(["lsof", "-t"] + sum([["+D", p] for p in existing], []),
+                             capture_output=True, text=True, timeout=60)
+        for tok in res.stdout.split():
+            if tok.isdigit():
+                pids.add(int(tok))
+    except Exception:
+        pass
+    try:
+        res = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=20)
+        for line in res.stdout.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and parts[0].isdigit() and any(p in parts[1] for p in existing):
+                pids.add(int(parts[0]))
+    except Exception:
+        pass
+    me = os.getpid()
+    ancestors = set()
+    p = os.getppid()
+    for _ in range(6):
+        if p <= 1:
+            break
+        ancestors.add(p)
+        try:
+            r = subprocess.run(["ps", "-o", "ppid=", "-p", str(p)], capture_output=True, text=True, timeout=5)
+            p = int(r.stdout.strip() or "1")
+        except Exception:
+            break
+    return {x for x in pids if x != me and x not in ancestors}
+
+
+def kill_and_reap(pids, grace=2.0):
+    if not pids or os.environ.get("RICHOS_RECONCILE_NO_KILL") == "1":
+        return list(pids)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.time() + grace
+    while time.time() < deadline:
+        if all(not _alive(p) for p in pids):
+            return []
+        time.sleep(0.1)
+    for pid in pids:
+        if _alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+    time.sleep(0.2)
+    return [p for p in pids if _alive(p)]
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+# --------------------------------------------------------------------------
+# capture
+# --------------------------------------------------------------------------
+
+def capture_dir(t, index):
+    return os.path.join(tx.capture_root(), tx._seg(t["session_id"], "session_id"),
+                        tx._seg(t["agent_id"], "agent_id"), "member-%d" % index)
+
+
+def git_out(cwd, *args):
+    r = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=True, timeout=120)
+    return r.returncode, r.stdout, r.stderr
+
+
+def capture_member(t, index):
+    """quarantined -> captured. Raises on a NORMAL (retryable) failure."""
+    m = t["members"][index]
+    quar = m.get("quarantine")
+    orig = m["path"]
+    if not quar or not os.path.isdir(quar):
+        raise RuntimeError("quarantine %s is not present" % quar)
+    settle = float(os.environ.get("RICHOS_RECONCILE_SETTLE") or "1.0")
+    disposable = disposable_paths(m.get("repo"))
+
+    # 1. a recreated ORIGINAL path is residue: its writers are killed, its
+    #    bytes kept as residue-<n>.tar, and it is removed.
+    residue_n = int(m.get("residue_count") or 0)
+    if os.path.lexists(orig):
+        left = kill_and_reap(processes_using([orig]))
+        if left:
+            raise RuntimeError("processes still using the recreated original %s: %s" % (orig, left))
+        residue_n += 1
+        cdir = capture_dir(t, index)
+        os.makedirs(cdir, exist_ok=True)
+        rpath = os.path.join(cdir, "residue-%d.tar" % residue_n)
+        if os.path.isdir(orig) and not os.path.islink(orig):
+            with tarfile.open(rpath, "w") as tar:
+                tar.add(orig, arcname="residue")
+            shutil.rmtree(orig)
+        else:
+            os.unlink(orig)
+        tx.update_member(t["session_id"], t["agent_id"], index, residue_count=residue_n,
+                         residue_last=rpath)
+        log("reclaimed residue at the original path %s -> %s" % (orig, rpath))
+
+    # 2. writers inside the quarantine are terminated and reaped
+    left = kill_and_reap(processes_using([quar]))
+    if left:
+        raise RuntimeError("processes still using %s after SIGKILL: %s" % (quar, left))
+
+    # 3. two identical manifests, separated by the settle
+    man_a = build_manifest(quar, disposable)
+    time.sleep(settle)
+    man_b = build_manifest(quar, disposable)
+    if man_a != man_b:
+        raise RuntimeError("the quarantine changed during the settle interval; something is still writing to %s" % quar)
+
+    # 4. archive: raw tree, index entries + staged blobs, provenance
+    cdir = capture_dir(t, index)
+    os.makedirs(cdir, exist_ok=True)
+    tree_tar = os.path.join(cdir, "tree.tar")
+    tmp_tar = tree_tar + ".tmp"
+    with tarfile.open(tmp_tar, "w") as tar:
+        for rel in sorted(man_a):
+            full = os.path.join(quar, rel)
+            info = man_a[rel]
+            if info["kind"] == "file":
+                tar.add(full, arcname=rel, recursive=False)
+            elif info["kind"] == "symlink":
+                ti = tarfile.TarInfo(rel); ti.type = tarfile.SYMTYPE; ti.linkname = info["target"]; ti.mode = info["mode"]
+                tar.addfile(ti)
+            elif info["kind"] == "dir":
+                ti = tarfile.TarInfo(rel); ti.type = tarfile.DIRTYPE; ti.mode = info["mode"]
+                tar.addfile(ti)
+    with open(tmp_tar, "rb") as f:
+        os.fsync(f.fileno())
+    os.replace(tmp_tar, tree_tar)
+
+    rc, index_txt, err = git_out(quar, "ls-files", "-s")
+    blobs_dir = os.path.join(cdir, "blobs")
+    os.makedirs(blobs_dir, exist_ok=True)
+    index_entries = []
+    if rc == 0:
+        for line in index_txt.splitlines():
+            parts = line.split("\t", 1)
+            meta = parts[0].split()
+            if len(meta) >= 3 and len(parts) == 2:
+                mode, sha, stage = meta[0], meta[1], meta[2]
+                index_entries.append({"mode": mode, "sha": sha, "stage": stage, "path": parts[1]})
+        # staged blobs whose bytes differ from HEAD are the ones only the index holds
+        rc2, diff_out, _ = git_out(quar, "diff", "--cached", "--name-only")
+        staged = set(diff_out.split("\n")) if rc2 == 0 else set()
+        for e in index_entries:
+            if e["path"] in staged:
+                bpath = os.path.join(blobs_dir, e["sha"])
+                if not os.path.exists(bpath):
+                    r = subprocess.run(["git", "-C", quar, "cat-file", "blob", e["sha"]], capture_output=True, timeout=120)
+                    if r.returncode == 0:
+                        with open(bpath + ".tmp", "wb") as f:
+                            f.write(r.stdout); f.flush(); os.fsync(f.fileno())
+                        os.replace(bpath + ".tmp", bpath)
+    _, status_txt, _ = git_out(quar, "status", "--porcelain", "--ignored")
+    head = tx.head_of(quar)
+    prov = {"repo": m.get("repo"), "original_path": orig, "quarantine": quar, "branch": m.get("branch"),
+            "head": head, "head_at_seal": m.get("head_at_seal"), "backup_ref": m.get("backup_ref"),
+            "session_id": t["session_id"], "agent_id": t["agent_id"], "teammate": t.get("teammate"),
+            "captured_ts": tx.now_iso(), "disposable_paths": sorted(disposable),
+            "git_index_rc": rc, "git_status_porcelain_ignored": status_txt}
+    tx.atomic_write_json(os.path.join(cdir, "manifest.json"), man_a)
+    tx.atomic_write_json(os.path.join(cdir, "index.json"), index_entries)
+    tx.atomic_write_json(os.path.join(cdir, "provenance.json"), prov)
+    # PROVENANCE MUST AGREE WITH GIT. A quarantine whose HEAD moved away from
+    # the backup ref, or whose branch is not the bound one, is a hard failure.
+    if m.get("head") and head and head != m.get("head"):
+        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",
+                                error="HEAD of the quarantine (%s) is not the HEAD the backup ref saved (%s)" % (head, m.get("head")))
+    return tx.update_member(t["session_id"], t["agent_id"], index, state="captured", capture_dir=cdir,
+                            captured_files=len([k for k, v in man_a.items() if v["kind"] == "file"]))
+
+
+class ArchiveMismatch(RuntimeError):
+    """The archive does not match its manifest, or the quarantine moved on
+    since capture. Either way the capture is void: the member goes BACK to
+    quarantined and is captured again on the next run. A void archive is
+    never retried as-is, and never authorizes deletion."""
+
+
+def verify_member(t, index):
+    """captured -> verified: the archive is re-read and every digest matched."""
+    m = t["members"][index]
+    cdir = m.get("capture_dir")
+    if not cdir or not os.path.isdir(cdir):
+        raise ArchiveMismatch("capture directory %s is not present" % cdir)
+    try:
+        _verify_archive(m, cdir)
+    except ArchiveMismatch as e:
+        tx.update_member(t["session_id"], t["agent_id"], index, state="quarantined",
+                         capture_dir=None, void_captures=int(m.get("void_captures") or 0) + 1)
+        raise RuntimeError("%s — the capture is void; re-capturing on the next run" % e)
+    return tx.update_member(t["session_id"], t["agent_id"], index, state="verified",
+                            verified_ts=tx.now_iso(), verified_files=m.get("captured_files"))
+
+
+def _verify_archive(m, cdir):
+    manifest = tx.read_json(os.path.join(cdir, "manifest.json")) or {}
+    want_files = {k: v for k, v in manifest.items() if v.get("kind") == "file"}
+    seen = 0
+    try:
+        tar = tarfile.open(os.path.join(cdir, "tree.tar"), "r")
+    except Exception as e:
+        raise ArchiveMismatch("tree.tar unreadable: %s" % e)
+    with tar:
+        for ti in tar:
+            if not ti.isreg():
+                continue
+            info = want_files.get(ti.name)
+            if info is None:
+                raise ArchiveMismatch("archive holds %s which the manifest does not name" % ti.name)
+            h = hashlib.sha256()
+            f = tar.extractfile(ti)
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+            if h.hexdigest() != info["sha256"] or ti.size != info["size"]:
+                raise ArchiveMismatch("digest mismatch for %s" % ti.name)
+            seen += 1
+    if seen != len(want_files):
+        raise ArchiveMismatch("archive holds %d files, manifest names %d" % (seen, len(want_files)))
+    # the quarantine's live digests must STILL match: nothing wrote since capture
+    disposable = disposable_paths(m.get("repo"))
+    live = build_manifest(m["quarantine"], disposable)
+    if live != manifest:
+        raise ArchiveMismatch("the quarantine changed after capture")
+    for e in tx.read_json(os.path.join(cdir, "index.json")) or []:
+        bpath = os.path.join(cdir, "blobs", e["sha"])
+        if os.path.exists(bpath) and sha256_git_blob(bpath) != e["sha"]:
+            raise ArchiveMismatch("staged blob %s does not hash to its index entry" % e["sha"])
+
+
+def sha256_git_blob(path):
+    """The git object id of a blob file (sha1 header form) — what `ls-files
+    -s` recorded, so a captured blob can be checked against the index."""
+    data = open(path, "rb").read()
+    h = hashlib.sha1()
+    h.update(b"blob %d\0" % len(data))
+    h.update(data)
+    return h.hexdigest()
+
+
+def unregister_member(t, index):
+    """verified -> unregistered: git no longer lists the worktree. The backup
+    ref is never touched; the branch is left alone."""
+    m = t["members"][index]
+    quar = m.get("quarantine")
+    repo = m.get("repo")
+    if not repo:
+        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed", error="no repository recorded")
+    ref = m.get("backup_ref")
+    if ref and not tx.head_of(quar) and not _ref_exists(repo, ref):
+        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",
+                                error="backup ref %s is gone and the quarantine has no readable HEAD" % ref)
+    reg = tx.registered_worktrees(repo) or {}
+    if tx.norm_path(quar) in reg:
+        rc, _, err = git_out(repo, "worktree", "remove", "--force", quar)
+        if rc != 0:
+            raise RuntimeError("git worktree remove --force %s failed: %s" % (quar, err.strip()[:200]))
+    git_out(repo, "worktree", "prune")
+    if ref and not _ref_exists(repo, ref):
+        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",
+                                error="backup ref %s vanished during unregistering" % ref)
+    return tx.update_member(t["session_id"], t["agent_id"], index, state="unregistered")
+
+
+def _ref_exists(repo, ref):
+    rc, _, _ = git_out(repo, "rev-parse", "-q", "--verify", ref)
+    return rc == 0
+
+
+def remove_member(t, index):
+    """unregistered -> removed: the quarantine directory is gone."""
+    m = t["members"][index]
+    quar = m.get("quarantine")
+    if quar and os.path.lexists(quar):
+        left = kill_and_reap(processes_using([quar]))
+        if left:
+            raise RuntimeError("processes still using %s: %s" % (quar, left))
+        shutil.rmtree(quar)
+    return tx.update_member(t["session_id"], t["agent_id"], index, state="removed", removed_ts=tx.now_iso())
+
+
+STEPS = {
+    "bound": lambda t, i: tx.save_ref(t["session_id"], t["agent_id"], i),
+    "ref_saved": lambda t, i: tx.quarantine(t["session_id"], t["agent_id"], i),
+    "quarantined": capture_member,
+    "captured": verify_member,
+    "verified": unregister_member,
+    "unregistered": remove_member,
+}
+
+
+def reconcile_transaction(t, deadline=None):
+    sid, aid = t["session_id"], t["agent_id"]
+    with tx.tx_lock(sid, aid, timeout=5):
+        for i in range(len(t.get("members") or [])):
+            while True:
+                if deadline and time.time() > deadline:
+                    return
+                t = tx.load_tx(sid, aid)
+                m = t["members"][i]
+                st = m.get("state")
+                if st in ("removed", "failed", "missing"):
+                    break
+                step = STEPS.get(st)
+                if step is None:
+                    tx.update_member(sid, aid, i, state="failed", error="unknown state %r" % st)
+                    break
+                try:
+                    t2 = step(t, i)
+                except Exception as e:
+                    attempts = int(m.get("attempts") or 0) + 1
+                    tx.update_member(sid, aid, i, attempts=attempts, last_error=str(e)[:300], last_attempt=tx.now_iso())
+                    if attempts == MAX_SOFT_ATTEMPTS_BEFORE_NOTICE:
+                        notice_once(t, i, "still failing after %d attempts: %s" % (attempts, e))
+                    log("member %s of %s/%s: %s (attempt %d, retrying later)" % (m.get("path"), sid[:8], aid, e, attempts))
+                    break
+                t = t2 if isinstance(t2, dict) else tx.load_tx(sid, aid)
+                if t["members"][i].get("state") == st:
+                    break  # no progress and no error: leave it for the next run
+                if t["members"][i].get("state") in ("failed", "missing"):
+                    notice_once(t, i, t["members"][i].get("error") or "hard failure")
+                    break
+
+
+def notice_once(t, index, msg):
+    marker = tx.tx_path(t["session_id"], t["agent_id"]) + ".member-%d.notice" % index
+    if os.path.exists(marker):
+        return
+    tx.touch_marker(marker, "%s\n%s\n" % (tx.now_iso(), msg))
+    log("HARD FAILURE (reported once) %s/%s member %s: %s" % (t["session_id"][:8], t["agent_id"], t["members"][index].get("path"), msg))
+
+
+def run(max_seconds=None, only=None):
+    deadline = time.time() + max_seconds if max_seconds else None
+    n = 0
+    for t in list(tx.iter_transactions()):
+        if not t.get("terminal") or t.get("state") == "removed":
+            continue
+        if only and "%s/%s" % (t["session_id"], t["agent_id"]) != only:
+            continue
+        if deadline and time.time() > deadline:
+            log("time budget reached; the rest waits for the next run")
+            break
+        try:
+            reconcile_transaction(t, deadline)
+        except Exception as e:
+            log("transaction %s/%s: %s" % (t["session_id"][:8], t["agent_id"], e))
+        n += 1
+    return n
+
+
+def status():
+    m = tx.metrics()
+    m["definition_of_done"] = {
+        "terminal_members_with_a_directory_present": m["terminal_members_present"],
+        "terminal_transactions_pending_normal_retry": m["pending_retry"],
+        "hard_failures_counted_as_dead_present": m["failed_present"],
+    }
+    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0)
+    return m
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="reconcile-terminal-worktrees.py")
+    ap.add_argument("--status", action="store_true")
+    ap.add_argument("--max-seconds", type=float, default=None)
+    ap.add_argument("--agent", default=None, help="SESSION_ID/AGENT_ID: reconcile one transaction")
+    ap.add_argument("--quiet", action="store_true")
+    a = ap.parse_args(argv)
+    if a.status:
+        s = status()
+        print(json.dumps(s, sort_keys=True, indent=1))
+        return 0 if s["done"] else 1
+    n = run(a.max_seconds, a.agent)
+    s = status()
+    if not a.quiet:
+        print(json.dumps({"reconciled": n, "status": s}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

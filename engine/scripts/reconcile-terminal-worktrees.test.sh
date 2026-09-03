@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+#
+# reconcile-terminal-worktrees.test.sh — behavioral tests for the persistent
+# reconciler, scripts/reconcile-terminal-worktrees.py.
+#
+# What is proven: a terminal two-repository transaction is driven quarantined
+# -> captured -> verified -> unregistered -> removed with the backup refs
+# intact; staged, unstaged, untracked and ignored evidence survive
+# byte-for-byte in the archive while a disposable path does not; a process
+# holding the quarantine is terminated before capture; a recreated original
+# path is reclaimed; a crash after every transition is recovered on the next
+# run; a write during the settle defers capture (retried, never a torn
+# archive); an archive that does not verify keeps the quarantine; a hard
+# failure stays counted as dead-present; --status reports the definition of
+# done; a time budget stops cleanly; nothing is ever matched by name.
+#
+# The mutation harness proving each assertion load-bearing is
+# scripts/reconcile-terminal-worktrees.mutation.sh, run at the end.
+#
+# Run directly: scripts/reconcile-terminal-worktrees.test.sh
+# Exit 0 = all cases pass; exit 1 = at least one failure.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REC="$SCRIPT_DIR/reconcile-terminal-worktrees.py"
+TX_PY="$SCRIPT_DIR/lib/worktree-transactions.py"
+
+PASS=0
+FAIL=0
+SANDBOX="$(cd "$(mktemp -d -t reconcile-test.XXXXXX)" && pwd -P)"
+trap 'rm -rf "$SANDBOX"' EXIT
+ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
+bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
+[ -f "$REC" ] || { echo "FATAL: $REC missing" >&2; exit 1; }
+
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
+export RICHOS_RECONCILE_SETTLE=0.2
+SID="deadbeef-0000-4000-8000-000000000000"
+T() { python3 "$TX_PY" "$@"; }
+R() { python3 "$REC" "$@"; }
+
+seed_repo() { mkdir -p "$1"; git -C "$1" init -q -b main; printf 'seed\n' >"$1/seed.txt"; printf 'node_modules/\n*.log\n' >"$1/.gitignore"; git -C "$1" add -A; git -C "$1" commit -q -m seed; }
+ENTITY="$SANDBOX/entity"; seed_repo "$ENTITY"; mkdir -p "$ENTITY/.claude/worktrees"
+OTHER="$SANDBOX/other";   seed_repo "$OTHER"
+
+seal() { # <aid> <teammate> [external-repo:path:branch]
+    local aid="$1" name="$2" kind="native" ext="[]"
+    git -C "$ENTITY" worktree add -q -b "worktree-agent-$aid" "$ENTITY/.claude/worktrees/agent-$aid"
+    if [ -n "${3:-}" ]; then
+        local repo="${3%%:*}" rest="${3#*:}"; local path="${rest%%:*}" branch="${rest#*:}"
+        git -C "$repo" worktree add -q -b "$branch" "$path"
+        kind="native+external"; ext="[{\"repo\":\"$repo\",\"path\":\"$path\",\"branch\":\"$branch\"}]"
+    fi
+    printf '{"kind":"%s","teammate":"%s","externals":%s}' "$kind" "$name" "$ext" | T intent --session-id "$SID" --tool-use-id "tu-$aid" >/dev/null
+    T bind --session-id "$SID" --tool-use-id "tu-$aid" --agent-id "$aid" >/dev/null
+    T start --session-id "$SID" --agent-id "$aid" --cwd "$ENTITY/.claude/worktrees/agent-$aid" >/dev/null
+    T seal --session-id "$SID" --agent-id "$aid" >/dev/null
+}
+states() { T members --session-id "$SID" --agent-id "$1" | cut -f5 | tr '\n' ' '; }
+q() { printf '%s.richos-terminal-%s-%s' "$1" "${SID:0:8}" "$2"; }
+
+echo "=== reconcile-terminal-worktrees tests ==="
+
+# --- 1. the full path, two repositories, every evidence class ------------------
+A1="a00000000000rc01"
+EXT1="$SANDBOX/other-wt/dev-opus-r1"
+seal "$A1" dev-opus-r1 "$OTHER:$EXT1:dev-opus-r1"
+NAT1="$ENTITY/.claude/worktrees/agent-$A1"
+# unstaged tracked edit, staged new file, untracked file, ignored file, a disposable dir
+printf 'edited\n' >>"$EXT1/seed.txt"
+printf 'staged\n' >"$EXT1/staged.txt"; git -C "$EXT1" add staged.txt
+printf 'untracked\n' >"$EXT1/notes.txt"
+printf 'ignored secret-ish evidence\n' >"$EXT1/run.log"
+mkdir -p "$EXT1/node_modules/x"; printf 'disposable\n' >"$EXT1/node_modules/x/a.js"
+ln -s seed.txt "$EXT1/link-to-seed"
+HEAD_E="$(git -C "$EXT1" rev-parse HEAD)"; HEAD_N="$(git -C "$NAT1" rev-parse HEAD)"
+T claim --session-id "$SID" --agent-id "$A1" --ingress SubagentStop >/dev/null
+OUT="$(R 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && [ "$(states "$A1")" = "removed removed " ] && ok "C01  one run drives both members quarantined -> removed" || bad "C01  rc=$RC states=$(states "$A1") $OUT"
+[ ! -e "$(q "$NAT1" "$A1")" ] && [ ! -e "$(q "$EXT1" "$A1")" ] && [ ! -e "$NAT1" ] && [ ! -e "$EXT1" ] \
+    && ok "C02  both quarantine directories are gone and neither original was recreated" || bad "C02  directories remain"
+! git -C "$OTHER" worktree list --porcelain | grep -q "dev-opus-r1" && ! git -C "$ENTITY" worktree list --porcelain | grep -q "agent-$A1" \
+    && ok "C03  git no longer lists either worktree" || bad "C03  still registered"
+[ "$(git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/$A1/dev-opus-r1")" = "$HEAD_E" ] \
+    && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A1/worktree-agent-$A1")" = "$HEAD_N" ] \
+    && ok "C04  the backup refs survive in both repositories (unlanded commits stay reachable)" || bad "C04  backup refs"
+git -C "$OTHER" rev-parse -q --verify refs/heads/dev-opus-r1 >/dev/null && ok "C05  the member's branch itself is left alone" || bad "C05  branch deleted"
+CAP="$SANDBOX/captures/$SID/$A1/member-1"
+[ -f "$CAP/tree.tar" ] && [ -f "$CAP/manifest.json" ] && [ -f "$CAP/index.json" ] && [ -f "$CAP/provenance.json" ] \
+    && ok "C06  the archive holds tree.tar, manifest.json, index.json and provenance.json" || bad "C06  archive files: $(ls "$CAP" 2>/dev/null | tr '\n' ' ')"
+X="$SANDBOX/extract1"; mkdir -p "$X"; tar -xf "$CAP/tree.tar" -C "$X"
+if [ "$(cat "$X/seed.txt")" = "$(printf 'seed\nedited\n')" ] && [ "$(cat "$X/staged.txt")" = "staged" ] \
+   && [ "$(cat "$X/notes.txt")" = "untracked" ] && [ "$(cat "$X/run.log")" = "ignored secret-ish evidence" ] \
+   && [ "$(readlink "$X/link-to-seed")" = "seed.txt" ]; then
+    ok "C07  unstaged, staged, untracked, IGNORED evidence and a symlink survive byte-for-byte in the archive"
+else
+    bad "C07  archive contents: $(ls -la "$X" | tr '\n' ' ' | cut -c1-300)"
+fi
+[ ! -e "$X/node_modules" ] && ok "C08  the declared disposable path (node_modules) is not captured" || bad "C08  disposable captured"
+python3 - "$CAP/index.json" "$CAP/blobs" <<'PY' && ok "C09  the staged blob's bytes are archived under its index sha" || bad "C09  staged blob"
+import json, os, sys
+idx = json.load(open(sys.argv[1]))
+e = next(x for x in idx if x["path"] == "staged.txt")
+assert open(os.path.join(sys.argv[2], e["sha"])).read() == "staged\n"
+PY
+python3 - "$CAP/provenance.json" "$HEAD_E" "$EXT1" <<'PY' && ok "C10  provenance names the repo, original path, branch, HEAD and backup ref" || bad "C10  provenance"
+import json, sys
+p = json.load(open(sys.argv[1]))
+assert p["head"] == sys.argv[2] and p["original_path"] == sys.argv[3] and p["branch"] == "dev-opus-r1"
+assert p["backup_ref"].startswith("refs/richos/handoffs/") and p["repo"]
+PY
+
+# --- 2. --status is the definition of done -------------------------------------
+S="$(R --status)"; RC=$?
+[ "$RC" -eq 0 ] && printf '%s' "$S" | grep -q '"terminal_members_with_a_directory_present": 0' && ok "C11  --status: zero dead-present, zero pending -> done (exit 0)" || bad "C11  status rc=$RC: $S"
+
+# --- 3. crash recovery at EVERY transition ---------------------------------------
+A2="a00000000000rc02"
+EXT2="$SANDBOX/other-wt/dev-opus-r2"
+seal "$A2" dev-opus-r2 "$OTHER:$EXT2:dev-opus-r2"
+printf 'x\n' >"$EXT2/x.txt"
+T claim --session-id "$SID" --agent-id "$A2" --ingress WorktreeRemove --first-path "$ENTITY/.claude/worktrees/agent-$A2" >/dev/null
+# drive ONE member ONE step at a time through a subprocess we can "crash" after each step
+STEP_OK=1
+for expect in captured verified unregistered removed; do
+    python3 - "$REC" "$SID" "$A2" "$expect" <<'PY' || STEP_OK=0
+import importlib.util, sys, os
+spec = importlib.util.spec_from_file_location("rec", sys.argv[1]); rec = importlib.util.module_from_spec(spec); spec.loader.exec_module(rec)
+tx = rec.tx
+sid, aid, expect = sys.argv[2:5]
+t = tx.load_tx(sid, aid)
+st = t["members"][1]["state"]
+step = rec.STEPS[st]
+t = step(t, 1)
+t = tx.load_tx(sid, aid)
+assert t["members"][1]["state"] == expect, (t["members"][1]["state"], expect)
+os._exit(0)   # the "crash": no cleanup, no further steps
+PY
+done
+[ "$STEP_OK" -eq 1 ] && ok "C12  each transition of the external member can be taken alone and persists (crash after every step)" || bad "C12  stepwise"
+R >/dev/null 2>&1
+[ "$(states "$A2")" = "removed removed " ] && ok "C13  the next run finishes the OTHER member from wherever it was" || bad "C13  states=$(states "$A2")"
+
+# --- 4. a process using the quarantine is terminated before capture -------------
+A3="a00000000000rc03"
+EXT3="$SANDBOX/other-wt/dev-opus-r3"
+seal "$A3" dev-opus-r3 "$OTHER:$EXT3:dev-opus-r3"
+T claim --session-id "$SID" --agent-id "$A3" --ingress SubagentStop >/dev/null
+Q3="$(q "$EXT3" "$A3")"
+( cd "$Q3" && exec sleep 300 ) &
+HOLDER=$!
+sleep 0.3
+R >/dev/null 2>&1
+if ! kill -0 "$HOLDER" 2>/dev/null && [ "$(states "$A3")" = "removed removed " ]; then
+    ok "C14  a process whose cwd is inside the quarantine is terminated and the member still completes"
+else
+    bad "C14  holder alive=$(kill -0 "$HOLDER" 2>/dev/null && echo yes || echo no) states=$(states "$A3")"
+    kill "$HOLDER" 2>/dev/null
+fi
+wait "$HOLDER" 2>/dev/null
+
+# --- 5. a recreated ORIGINAL path is reclaimed --------------------------------
+A4="a00000000000rc04"
+EXT4="$SANDBOX/other-wt/dev-opus-r4"
+seal "$A4" dev-opus-r4 "$OTHER:$EXT4:dev-opus-r4"
+T claim --session-id "$SID" --agent-id "$A4" --ingress SubagentStop >/dev/null
+mkdir -p "$EXT4"; printf 'ghost write\n' >"$EXT4/ghost.txt"     # residue after quarantine
+R >/dev/null 2>&1
+if [ ! -e "$EXT4" ] && [ -f "$SANDBOX/captures/$SID/$A4/member-1/residue-1.tar" ] && [ "$(states "$A4")" = "removed removed " ]; then
+    ok "C15  a recreated original path is detected, its bytes kept as residue-1.tar, and it is removed"
+else
+    bad "C15  residue: exists=$([ -e "$EXT4" ] && echo yes || echo no) states=$(states "$A4")"
+fi
+
+# --- 6. a write during the settle DEFERS capture; nothing torn, nothing lost -------
+A5="a00000000000rc05"
+EXT5="$SANDBOX/other-wt/dev-opus-r5"
+seal "$A5" dev-opus-r5 "$OTHER:$EXT5:dev-opus-r5"
+T claim --session-id "$SID" --agent-id "$A5" --ingress SubagentStop >/dev/null
+Q5="$(q "$EXT5" "$A5")"
+( for i in 1 2 3 4 5 6 7 8; do printf '%s\n' "$i" >>"$Q5/churn.txt"; sleep 0.15; done ) &
+WRITER=$!
+OUT="$(RICHOS_RECONCILE_NO_KILL=1 RICHOS_RECONCILE_SETTLE=0.5 R 2>&1)"
+wait "$WRITER"
+if [ "$(states "$A5")" = "removed quarantined " ] && printf '%s' "$OUT" | grep -q 'changed during the settle interval' && [ -d "$Q5" ]; then
+    ok "C16  a quarantine that changes during the settle is NOT captured: retried later, the quarantine kept, no torn archive"
+else
+    bad "C16  states=$(states "$A5") out=${OUT:0:200}"
+fi
+R >/dev/null 2>&1
+[ "$(states "$A5")" = "removed removed " ] && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A5/member-1/tree.tar" churn.txt | wc -l | tr -d ' ')" = "8" ] \
+    && ok "C17  ...and the next run captures the settled bytes completely" || bad "C17  states=$(states "$A5")"
+
+# --- 7. an archive that does not verify keeps the quarantine --------------------
+A6="a00000000000rc06"
+EXT6="$SANDBOX/other-wt/dev-opus-r6"
+seal "$A6" dev-opus-r6 "$OTHER:$EXT6:dev-opus-r6"
+T claim --session-id "$SID" --agent-id "$A6" --ingress SubagentStop >/dev/null
+python3 - "$REC" "$SID" "$A6" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("rec", sys.argv[1]); rec = importlib.util.module_from_spec(spec); spec.loader.exec_module(rec)
+t = rec.tx.load_tx(sys.argv[2], sys.argv[3])
+rec.capture_member(t, 1)
+PY
+Q6="$(q "$EXT6" "$A6")"
+# damage the archive: overwrite the recorded digest of one file, so the tar's
+# real bytes no longer match what the manifest claims
+python3 - "$SANDBOX/captures/$SID/$A6/member-1/manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1])); m["seed.txt"]["sha256"] = "0" * 64
+json.dump(m, open(sys.argv[1], "w"))
+PY
+OUT="$(RICHOS_RECONCILE_MAX_ONE=1 R --agent "$SID/$A6" 2>&1)"
+if [ -d "$Q6" ] && printf '%s' "$OUT" | grep -q 'digest mismatch' && printf '%s' "$OUT" | grep -q 'the capture is void'; then
+    ok "C18  a damaged archive does not verify: the capture is VOID, the quarantine is kept, nothing is deleted on its strength"
+else
+    bad "C18  states=$(states "$A6") out=${OUT:0:200}"
+fi
+R --agent "$SID/$A6" >/dev/null 2>&1
+[ "$(states "$A6")" = "removed removed " ] && ok "C18b ...and the next run re-captures from the untouched quarantine and completes" || bad "C18b states=$(states "$A6")"
+
+# --- 8. a hard failure is counted as dead-present, reported once, never retried ---
+A7="a00000000000rc07"
+seal "$A7" dev-opus-r7
+NAT7="$ENTITY/.claude/worktrees/agent-$A7"
+T claim --session-id "$SID" --agent-id "$A7" --ingress SubagentStop >/dev/null
+Q7="$(q "$NAT7" "$A7")"
+mkdir -p "$NAT7"    # both present now: the reconciler must refuse to choose
+mv "$Q7" "$Q7.hold"; mv "$Q7.hold" "$Q7"
+python3 - "$TX_PY" "$SID" "$A7" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+# rewind the member to ref_saved so recovery re-evaluates the rename step with both paths present
+with tx.tx_lock(sys.argv[2], sys.argv[3]):
+    tx.update_member(sys.argv[2], sys.argv[3], 0, state="ref_saved")
+PY
+OUT="$(R 2>&1)"
+S="$(R --status)"; SRC=$?
+if [ "$(states "$A7")" = "failed " ] && [ -d "$NAT7" ] && [ -d "$Q7" ] && printf '%s' "$OUT" | grep -q 'HARD FAILURE (reported once)' \
+   && [ "$SRC" -ne 0 ] && printf '%s' "$S" | grep -q '"hard_failures_counted_as_dead_present": 1'; then
+    ok "C19  original AND quarantine present -> FAILED, both kept, reported once, --status counts it as dead-present (exit 1)"
+else
+    bad "C19  states=$(states "$A7") status_rc=$SRC out=${OUT:0:160}"
+fi
+OUT2="$(R 2>&1)"
+! printf '%s' "$OUT2" | grep -q 'HARD FAILURE' && ok "C20  ...and a second run does not report it again" || bad "C20  reported twice"
+
+# --- 9. nothing is matched by name; only terminal transactions are touched ---------
+A8="a00000000000rc08"
+seal "$A8" dev-opus-r1     # SAME teammate name as A1, live (never claimed)
+R >/dev/null 2>&1
+[ -d "$ENTITY/.claude/worktrees/agent-$A8" ] && [ "$(states "$A8")" = "bound " ] \
+    && ok "C21  a LIVE agent reusing a terminal agent's name is untouched (nothing is matched by name)" || bad "C21  live agent touched"
+mkdir -p "$SANDBOX/other-wt/dev-opus-r1"   # a stranger directory with a terminal member's old path
+R >/dev/null 2>&1
+[ -d "$SANDBOX/other-wt/dev-opus-r1" ] && ok "C22  a stranger directory at a REMOVED member's old path is not reclaimed (the member is done; no search)" || bad "C22  stranger removed"
+
+# --- 10. a time budget stops cleanly -------------------------------------------------
+A9="a00000000000rc09"; A10="a00000000000rc10"
+seal "$A9" dev-opus-r9; seal "$A10" dev-opus-r10
+T claim --session-id "$SID" --agent-id "$A9" --ingress SubagentStop >/dev/null
+T claim --session-id "$SID" --agent-id "$A10" --ingress SubagentStop >/dev/null
+OUT="$(R --max-seconds 0.001 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'time budget reached' && { [ "$(states "$A9")" != "removed " ] || [ "$(states "$A10")" != "removed " ]; }; then
+    ok "C23  --max-seconds stops cleanly, says so, and leaves the rest for the next run"
+else
+    bad "C23  rc=$RC states9=$(states "$A9") states10=$(states "$A10") out=${OUT:0:120}"
+fi
+R --agent "$SID/$A9" >/dev/null 2>&1
+[ "$(states "$A9")" = "removed " ] && ok "C24  --agent reconciles exactly one transaction" || bad "C24  states=$(states "$A9")"
+R >/dev/null 2>&1
+[ "$(states "$A10")" = "removed " ] && ok "C25  an unbudgeted run finishes what the budgeted one left" || bad "C25  states=$(states "$A10")"
+
+echo ""
+if [ "$FAIL" -gt 0 ]; then
+    echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="
+    exit 1
+fi
+echo "=== reconcile-terminal-worktrees tests: all $PASS passed ==="
+
+if [ -f "$SCRIPT_DIR/reconcile-terminal-worktrees.mutation.sh" ]; then
+    bash "$SCRIPT_DIR/reconcile-terminal-worktrees.mutation.sh" || exit 1
+fi
+exit 0

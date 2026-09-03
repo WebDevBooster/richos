@@ -387,6 +387,11 @@ HOOK_FILES+=(
     # sealed a wrong path, or matched by prefix, would be wired, executable and
     # deleting the wrong tree with every guard reporting green.
     "$REPO_ROOT/scripts/lib/worktree-transactions.py"
+    # The reconciler: the ONLY code in the engine that deletes a worktree
+    # directory now, and it deletes only a quarantine whose archive verified.
+    # Hashed for the reaper's original reason, which now applies to this file
+    # alone.
+    "$REPO_ROOT/scripts/reconcile-terminal-worktrees.py"
     # The dialect vocabulary. Not a hook, and hashed for the cold-open prompt's
     # reason rather than the reaper's: it is not documentation, it IS the
     # decision. guard-dialect.sh blocks a write on nothing but what this file
@@ -606,5 +611,80 @@ elif mkdir -p "$ENGINE_CONFIG_DIR" 2>/dev/null; then
     fi
 else
     echo "NOTE: could not create $ENGINE_CONFIG_DIR — engine pointer not minted. (install.sh)" >&2
+fi
+
+# --- The persistent reconciler, under launchd -------------------------------
+#
+# The worktree lifecycle's cleanup is a persistent, user-level job: every
+# RECONCILE_INTERVAL_SECONDS it drives terminal worktree transactions to
+# removal, retrying normal failures until they succeed, so that no cleanup ever
+# waits for a later session start and no human is asked to run anything
+# (docs/plans/worktree-real-fix-2026-09-03.md, "Capture and removal").
+#
+# It is withheld under EXACTLY the conditions the engine pointer is withheld —
+# a linked worktree, an ephemeral checkout, a sandboxed CLAUDE_CONFIG_DIR — for
+# the same reason: this is a machine-wide registration and a test fixture must
+# never be able to point it at a directory that is deleted a second later. It
+# is also withheld on a non-macOS host (launchd is macOS), with a note naming
+# what to schedule instead. RICHOS_LAUNCH_AGENTS_DIR redirects the plist for
+# tests, in which case launchctl is never invoked.
+RECONCILE_INTERVAL="$(sed -n 's/^RECONCILE_INTERVAL_SECONDS=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1)"
+[ -n "$RECONCILE_INTERVAL" ] || RECONCILE_INTERVAL=300
+LAUNCHD_LABEL="com.richos.worktree-reconciler"
+LAUNCHD_DIR="${RICHOS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
+LAUNCHD_PLIST="$LAUNCHD_DIR/$LAUNCHD_LABEL.plist"
+RECONCILER="$REPO_ROOT/scripts/reconcile-terminal-worktrees.py"
+PYTHON_BIN="$(command -v python3 || true)"
+write_reconciler_plist() {
+    mkdir -p "$LAUNCHD_DIR" || return 1
+    cat >"$LAUNCHD_PLIST.tmp" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>$LAUNCHD_LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$PYTHON_BIN</string>
+        <string>$RECONCILER</string>
+        <string>--quiet</string>
+        <string>--max-seconds</string>
+        <string>$RECONCILE_INTERVAL</string>
+    </array>
+    <key>StartInterval</key><integer>$RECONCILE_INTERVAL</integer>
+    <key>RunAtLoad</key><true/>
+    <key>ProcessType</key><string>Background</string>
+    <key>StandardOutPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
+    <key>StandardErrorPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
+</dict>
+</plist>
+PLIST
+    mv "$LAUNCHD_PLIST.tmp" "$LAUNCHD_PLIST"
+}
+if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
+    echo "NOTE: reconciler NOT scheduled — python3 or scripts/reconcile-terminal-worktrees.py is missing. (install.sh)" >&2
+elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
+    # A redirected plist directory is a test: write the definition, never load it.
+    write_reconciler_plist && echo "✓ reconciler plist written (not loaded: RICHOS_LAUNCH_AGENTS_DIR is set) -> $LAUNCHD_PLIST"
+elif [ "$POINTER_EPHEMERAL" -eq 1 ] || [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
+    echo "NOTE: reconciler NOT scheduled from this checkout (ephemeral or a linked worktree) — the schedule would point at a directory that goes away. Run install.sh from the main checkout to schedule it. (install.sh)" >&2
+elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
+    echo "NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '$PYTHON_BIN $RECONCILER --quiet' every $RECONCILE_INTERVAL seconds with your host's scheduler. (install.sh)" >&2
+elif [ "$(cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P)" != "$(cd "$HOME/.claude" 2>/dev/null && pwd -P)" ]; then
+    echo "NOTE: reconciler NOT scheduled — CLAUDE_CONFIG_DIR is not the operator's real ~/.claude, so this is a sandboxed install. (install.sh)" >&2
+elif write_reconciler_plist; then
+    mkdir -p "$ENGINE_CONFIG_DIR/state" 2>/dev/null || true
+    if command -v launchctl >/dev/null 2>&1; then
+        launchctl bootout "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
+        if launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_PLIST" >/dev/null 2>&1; then
+            echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL, every ${RECONCILE_INTERVAL}s) -> $LAUNCHD_PLIST"
+        else
+            echo "NOTE: reconciler plist written but launchctl bootstrap FAILED — load it by hand: launchctl bootstrap gui/$(id -u) $LAUNCHD_PLIST (install.sh)" >&2
+        fi
+    else
+        echo "NOTE: reconciler plist written but launchctl is unavailable; nothing was loaded. (install.sh)" >&2
+    fi
+else
+    echo "NOTE: could not write the reconciler plist at $LAUNCHD_PLIST. (install.sh)" >&2
 fi
 exit 0
