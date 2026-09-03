@@ -15,8 +15,8 @@ mutation_begin "worktree-transactions" "scripts/lib/worktree-transactions.test.s
 F="scripts/lib/worktree-transactions.py"
 
 mutant claim-never-loses "T27" "$F" \
-    '        if tx.get("terminal"):{NL}            return False, tx{NL}        tx["terminal"] =' \
-    '        if False:{NL}            return False, tx{NL}        tx["terminal"] =' \
+    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{NL}        tx["terminal"] =' \
+    '        if False:{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{NL}        tx["terminal"] =' \
     "both terminal ingresses would win, each rewriting the claim — two actors mutating one worktree set with no serialization."
 
 mutant seal-without-start "T08" "$F" \
@@ -115,9 +115,9 @@ mutant terminal-index-is-truth "T55" "$F" \
     "a crash between the transaction's terminal write and the index write would leave a terminal worker that every guard reads as live — it could write into a quarantine (review 2026-09-03, blocker 5)."
 
 mutant loser-does-not-repair "T56" "$F" \
-    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx' \
-    '        if tx.get("terminal"):{NL}            return False, tx' \
-    "the losing ingress would see the transaction terminal and return without healing a missing index; the O(1) guards would stay wrong until a reconciler pass happened to run."
+    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx{AND}        return tx{NL}    _repair_terminal_indexes(tx){NL}    order = list(' \
+    '        if tx.get("terminal"):{NL}            return False, tx{AND}        return tx{NL}    order = list(' \
+    "the losing ingress would see the transaction terminal and return without healing a missing index, and terminalize (the other caller every ingress reaches) would not either; the O(1) guards would stay wrong until a reconciler pass happened to run. Both carry the property, so both are removed at once."
 
 mutant ref-not-saved "T33" "$F" \
     '    rc, _, err = _git(m["repo"], "update-ref", ref, head)' \
