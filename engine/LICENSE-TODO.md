@@ -1,44 +1,42 @@
-# License — NOT YET CHOSEN
+# License — CHOSEN: GNU AGPL v3, unmodified
 
-**The RichOS engine does not yet have a license.** No `LICENSE` file exists at
-the engine root or at the repository root, and none should be added by an AI worker
-or teammate — the choice of license (or a commercial EULA, if sold rather than
-open-sourced) is a business/legal decision reserved for the owner, not an
-engineering decision.
+**Ruled by the owner on 2026-09-04: the RichOS license is the unmodified GNU
+Affero General Public License, version 3.**
 
-## Current status: all rights reserved by default
+The license text lives at the repository root in `LICENSE`, byte-identical to
+the Free Software Foundation's published text
+(<https://www.gnu.org/licenses/agpl-3.0.txt>), sha256
+`0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0`. It is at the
+root deliberately: GitHub's license detection reads only the repository root, so
+a `LICENSE` moved anywhere else silently loses the badge that tells a visitor
+what they are allowed to do.
 
-In the absence of an explicit license grant, standard copyright default
-applies: **all rights reserved.** Nobody outside the owner has any granted
-permission to copy, modify, distribute, or sublicense this directory's
-contents. That is true however you obtained it — including from a public
-repository: publishing source is not a license grant. Do not assume any
-permissions beyond what you were explicitly granted in writing, until a
-`LICENSE` file lands here or the owner states otherwise in writing.
+**Unmodified means unmodified.** Do not add exceptions, preambles, or a modified
+header to that file. A license with local edits is a bespoke license that no
+tool recognizes and no lawyer has read.
 
-## One documented exception
+## What this grants, and what it requires
+
+Anyone may use, study, modify and redistribute this software. The AGPL's
+distinguishing term is section 13: if someone runs a modified version and lets
+users interact with it **over a network**, those users must be offered the
+corresponding source. That is the clause a permissive license does not have, and
+it is why this one was chosen.
+
+Copyright remains the owner's. The AGPL binds everyone who receives the software
+under it; it does not bind the copyright holder, who may additionally offer the
+same code under separate commercial terms to anyone who does not want the
+AGPL's obligations.
+
+## The one documented exception
 
 `tools/gpt-exporter/LICENSE` is scoped **only** to the vendored GPT Exporter
-Chrome extension in that subdirectory (MIT) — that grant does not extend to
-the rest of the engine. Every other file here is covered by the
-all-rights-reserved default above until the owner picks a license for the engine
-as a whole.
+Chrome extension in that subdirectory (MIT). MIT is compatible with the AGPL —
+that subtree keeps its own notice, as vendored third-party code should.
 
-## What needs to happen
+## Standing obligation for anyone adding a dependency
 
-The owner needs to decide:
-
-1. **Is the engine open-sourced, or sold under a commercial EULA?** These are
-   different documents with different obligations.
-2. **If open-source:** which license (MIT, Apache-2.0, BSD, etc.)? Each has
-   different implications for redistribution, patent grants, and attribution.
-3. **If commercial:** what does the EULA permit — internal use only? Per-seat?
-   Redistribution rights? Support/warranty terms?
-
-Once decided, replace this file with a proper `LICENSE` (and/or `EULA.md`)
-at the engine root, and delete this placeholder.
-
-**No AI worker, teammate, or automated process should ever choose a license on
-the owner's behalf.** This file exists so a reader isn't left
-guessing about their rights — see `README.md`'s license section for the
-pointer to this file.
+The AGPL covers the whole combined work. **A dependency whose own license
+forbids that combination cannot be bundled**, however convenient it is. Check
+before vendoring — proprietary binaries and non-free redistributables are the
+usual trap, and the cost of finding out after publication is a re-release.
