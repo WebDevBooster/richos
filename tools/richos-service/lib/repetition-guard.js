@@ -20,7 +20,7 @@
  *      not identical, so class 1 caught only 6 of 353 segments. REMEDY: de-overlap.
  *   4. SILENCE FABRICATION — `large-v3-turbo` at `-mc 0` invented 159 of its 353 segments (45%) over
  *      MEASURED SILENCE on a 126-minute per-speaker track, covering 60.4% of that channel's
- *      timeline, 143 of them the single phrase "Thank you." (podcast-corpus brief 2026-08-29 §3.3).
+ *      timeline, 143 of them the single phrase "Thank you." (the private measurement brief, 2026-08-29 §3.3).
  *      Isolated re-decode confirmed 47 of 48 adjudicated spans across three channels: cut out and
  *      decoded alone, they return NOTHING. REMEDY: remove — see "WHY THIS ONE IS REPAIRABLE".
  *
@@ -39,7 +39,7 @@
  *      Deletion stays flat (0-0.38%) across the same range, so this is specific to fabrication and
  *      not a general "quiet audio decodes badly" effect. IN A REAL CALL THE `me` CHANNEL IS SILENT
  *      WHENEVER THE OTHER PERSON IS TALKING, WHICH IS MOST OF A CALL — so the shape that produces
- *      this defect at its worst is the shape of the channel carrying the CEO's own words.
+ *      this defect at its worst is the shape of the channel carrying the speaker's own words.
  *
  *      `-mc 0` is NOT implicated and was never going to be: the run that produced these 159 spans
  *      had it active and produced ZERO loop findings, the class it was introduced for. Class 1 (the
@@ -333,8 +333,8 @@ const DEFAULT_OPTS = {
   protectedSpans: null,
 
   // ---- class 4: SILENCE FABRICATION (see the header) -------------------------------------------
-  // Every threshold below was swept against the six raw per-speaker tracks of the 2026-08-29
-  // podcast corpus and every removal it produces was adjudicated by isolated re-decode. Nothing
+  // Every threshold below was swept against the six raw per-speaker tracks of the private
+  // measurement corpus and every removal it produces was adjudicated by isolated re-decode. Nothing
   // here is asserted. Consumes the SAME `speechBursts` the class-1 veto already receives.
   silenceFabrication: true, // inert anyway without a burst grid; this is the explicit off switch
   maxSilenceOverlapSec: 0.1, // absolute cap on speech energy inside the segment's own extent
@@ -1015,7 +1015,7 @@ function anyWordInBurst(bursts, times, tolMs) {
  * justify removing something the audio supports.
  *
  * ---------------------------------------------------------------------------------------------
- * MEASURED, on the six raw per-speaker tracks of the 2026-08-29 podcast corpus, with THIS grid
+ * MEASURED, on the six raw per-speaker tracks of the six-track private measurement corpus, with THIS grid
  * ---------------------------------------------------------------------------------------------
  * The corpus measurement drew its speech/silence line with Otsu on a 100 ms envelope. The product
  * does not have that; it has `normalize.js#detectSpeechBursts` at peak - 34 dB. So the rule was

@@ -11,11 +11,11 @@ construction set is expected to re-run it before shipping.
 transcript directories on this machine on 2026-08-31:
 
 ```
-~/.claude/projects/-Users-alex-ab-femcboost
-~/.claude/projects/-Users-alex-ab-richos
-~/.claude/projects/-Users-alex-ab-richos-engine
-~/.claude/projects/-Users-alex-ab-prospects
-~/.claude/projects/-Users-alex-ab-deeply
+~/.claude/projects/<project-1>
+~/.claude/projects/<project-2>
+~/.claude/projects/<project-5>
+~/.claude/projects/<project-3>
+~/.claude/projects/<project-4>
 ```
 
 Those are the orchestrator's OWN sessions. Subagent sidechains are excluded:

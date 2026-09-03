@@ -1134,10 +1134,9 @@ test('the veto collapses PARTIALLY when the audio holds some deliveries but not 
   // 5 emitted copies over 2 qualifying bursts -> keep 2, drop 3. Neither "delete it all" nor
   // "keep it all" is right when the audio says the truth is in between.
   // INVENTED, like every other fixture line here. The sentence that used to sit on this line was a
-  // verbatim 14-word run of the CEO's private webinar — the FIFTH instance of the leak the
-  // 2026-08-29 publication boundary was built for, and the second in this file after 2abf5ba fixed
-  // the retake fixture. Found by running `engine/scripts/lib/publication-boundary.py` by hand over
-  // this branch, because the guard's hooks snapshot at session start and this session predates them.
+  // verbatim 14-word run of the private corpus this guard was measured on, and it was caught by
+  // running `engine/scripts/lib/publication-boundary.py` by hand over the branch — the guard's
+  // hooks snapshot at session start, so "the hook did not block it" is evidence of nothing.
   // A phrase of the same length and the same "substantial repeated line" shape proves exactly the
   // same thing about burst capacity: 15 words -> needSec 4.55 s -> a 2.73 s floor per delivery, and
   // the two bursts below clear it, so capacity is 2.
@@ -1159,7 +1158,7 @@ test('a SHORT repeated phrase is clamped to what the audio holds — the 2026-08
   // to one and destroyed a real delivery — the last surviving false positive of the eight.
   // The word below is INVENTED, like every other fixture line in this file: what the test turns on
   // is the phrase's LENGTH and the burst structure under it, never which word it was. The corpus is
-  // the CEO's private webinar and it does not get quoted here.
+  // private material and it does not get quoted here.
   const segs = [0, 1, 2, 3, 4, 5].map((i) => ({
     startMs: 829900 + i * 600, endMs: 829900 + i * 600 + 500, text: 'Anyway...', speaker: 'me',
   }));
@@ -1558,9 +1557,9 @@ test('collapseStutter:false keeps detection while leaving the text untouched', (
 });
 
 // ---------------------------------------------------------------------------------------
-group('P5 hallucination guard, class 4 — SILENCE FABRICATION (the 2026-08-29 podcast corpus)');
+group('P5 hallucination guard, class 4 — SILENCE FABRICATION');
 
-// THE SHAPE, from the measurement. On a 126-minute per-speaker HOST track — the shape of the `me`
+// THE SHAPE, from the measurement. On a 126-minute per-speaker track — the shape of the `me`
 // channel of any real call, silent ~90% of the time — large-v3-turbo at `-mc 0` emitted 159 of its
 // 353 segments over measured silence, covering 60.4% of the timeline, 143 of them "Thank you.".
 // Almost every one is a FULL 30-SECOND WHISPER WINDOW carrying 1-3 words, which is the shape below.
@@ -2019,8 +2018,8 @@ test('with no caption, the diarized turn label fills the gap (better than generi
 // ---------------------------------------------------------------------------------------
 group('P5 deletion detector, stage A — COVERAGE: which speech the transcript never claims');
 
-// INVENTED FIXTURES, and that is deliberate. The real corpus this detector was measured on is the
-// CEO's private webinar; reproducing a line of it here would put private speech in the repository
+// INVENTED FIXTURES, and that is deliberate. The real corpus this detector was measured on is
+// private material; reproducing a line of it here would put private speech in the repository
 // that goes public. Invented lines of the same SHAPE prove the same properties, and the shapes are
 // taken from the measurement: a segment whose extent stretches tens of seconds across silence, a
 // burst holding one short clause, laughter at speech level, near-silence with a fabricated
@@ -2290,7 +2289,7 @@ test('SILENCE vs DELETION side by side: silent on the silence, loud on the claus
 group('P5 word-density instrument, stage A — THE BUDGET: how much speech, how many words');
 
 // INVENTED FIXTURES, like the deletion detector's beside them and for the same reason: the corpus
-// this instrument was measured on is the CEO's private webinar. The SHAPES are taken from the
+// this instrument was measured on is private material. The SHAPES are taken from the
 // measurement — an 8-second window of ordinary conversational speech, the same window reduced to
 // four words, a burst of laughter at speech level, a channel whose median density is itself below
 // the conversational floor. The rates are the measured ones: real conversational English on this
@@ -2760,7 +2759,7 @@ test('hunk expansion stops at a full stop — a sentence-initial capital is gram
     'the Brightmoor Dental on Cannery Street. That may be the problem.',
   );
   // And the ask itself drops the sentence's own full stop: a vocabulary entry reading
-  // "Cannery Street." is junk in the CEO's file and reads as a broken feature in the prompt.
+  // "Cannery Street." is junk in the user's vocabulary file and reads as a broken feature.
   assert.equal(asks[0].to, 'Cannery Street');
   assert.equal(asks[0].from, 'Canary Street');
 });

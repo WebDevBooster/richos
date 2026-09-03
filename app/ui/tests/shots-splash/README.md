@@ -4,12 +4,12 @@ Written by `../splash.js` out of WebKit's own compositor, every one decoded and
 pixel-counted before it counted as evidence (`lib/harness.js`, rule 3). Overwritten on
 every run and not byte-stable: read the suite's exit code, not a `git diff` over a PNG.
 
-**There are exactly two splash screens.** CEO, 2026-09-01: *"I have never fucking approved
-more than 2 splash screens. The other MOCKUP DESIGNS ARE NOT FUCKING READY FOR USE IN SPLASH
-SCREENS YET."* This directory used to hold thirteen material pairs and two composition shots
-of round-8.1 studies, because the library shipped eighteen of them on the strength of an
-approval that was of a **palette and a visual standard** (`ceo-decisions.md` §14), never of
-eighteen opening ceremonies. Those files are gone with those entries.
+**There are exactly two splash screens**, ruled by the owner on 2026-09-01: those two are
+approved, and the other mockup designs are not approved for use as splash screens. This
+directory used to hold thirteen material pairs and two composition shots of round-8.1 studies,
+because the library shipped eighteen of them on the strength of an approval that was of a
+**palette and a visual standard**, never of eighteen opening ceremonies. Those files are gone
+with those entries. The ruling's own wording is in the private record.
 
 **The composition shots are taken with the surface HELD OPEN**, and that is stated here
 rather than left for someone to discover: the real splash lands at three seconds and then

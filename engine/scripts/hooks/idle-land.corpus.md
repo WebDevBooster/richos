@@ -18,7 +18,7 @@ not a hand-picked set, and not turns written for this purpose.
 
 | | |
 |---|---|
-| Source | `~/.claude/projects/{-Users-alex-ab-femcboost, -Users-alex-ab-richos, -Users-alex-ab-richos-hq}/*.jsonl` |
+| Source | `~/.claude/projects/<project>/*.jsonl`, over the three project directories this engine runs in |
 | Session files read | 18 |
 | Turns replayed | **1,221** |
 | Turns where the backlog record existed yet | 923 |

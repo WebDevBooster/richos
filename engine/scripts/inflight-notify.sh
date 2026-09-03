@@ -24,7 +24,7 @@
 #       overlap. It then used to make the lander type all of that back by hand
 #       and checked the typing. On 2026-09-02 that produced a 25-line notice
 #       whose mandatory content is five short fields, and the CEO called it
-#       "needlessly feeding tons of garbage shit to agents in flight". The
+#       needlessly feeding piles of noise to agents in flight. The
 #       answer offered was that the lander would write shorter ones, and he
 #       rejected it on the spot, correctly: an intention is not a mechanism, and
 #       his standing ruling on exactly this is "I cannot rely on your promises.

@@ -608,12 +608,12 @@ window.RichHome = (function () {
   // -----------------------------------------------------------------------------------------
   // THE DOOR — `round-11.2/v1`'s sill, in the left column. RULED, no longer provisional.
   //
-  // CEO, 2026-09-02: *"All of the doors are shit because they are covering the spectacle of the
-  // home screen. NOTHING can cover the spectacle of the home screen. Put V1 button from
-  // round-11.2 under 'your attention saved' in the left column and change the button label to
-  // 'Talk to Rich'."* And, immediately after: *"under that 'Talk to Rich' button there should a
-  // text (same type/font/style as in V1) and that text should be simply 'Enter'. So, the user
-  // can either click the button or hit the Enter key on their keyboard."*
+  // Ruled by the owner, 2026-09-02, in three parts: NOTHING may cover the spectacle of the home
+  // screen — every door that did was rejected on that ground alone; the `round-11.2/v1` button
+  // goes in the LEFT COLUMN under "your attention saved", with the label "Talk to Rich"; and
+  // directly under it sits the word "Enter", in V1's own type, because the key must work as well
+  // as the button. A later clarification scoped "nothing can cover it" to the company buttons
+  // and the door. The ruling's own wording is in the private record (`wiki/ceo-decisions.md`).
   //
   // THE CAPTION IS A PROMISE, NOT A DECORATION. `Enter` under the button says the key works, so
   // the key has to work from anywhere on this screen and not only when the button happens to

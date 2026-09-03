@@ -14,12 +14,12 @@
 #   2026-09-02. Seven times in one session the lead wrote a sentence describing
 #   an action and treated having written it as having done it. "Zach builds it
 #   tomorrow." — no Agent call. "Frank breaks it first" — no Agent call. The
-#   CEO: "WHERE THE FUCK IS FRANK THIS FUCKING TIME", and then, on reading the
-#   apology: "Yeah, that fuckshit will never end, will it?"
+#   CEO: asked in blunt terms where Frank was this time, and then, on reading
+#   the apology, said this class of failure would never end.
 #
 #   The same day, six times, a teammate returned, the lead answered it with a
 #   report, and the turn ended having started nothing — and he had to send
-#   "No Frank this time?" / "Next Sage." / "WHERE THE FUCK IS THE NEXT SAGE?"
+#   "No Frank this time?" / "Next Sage." / a blunter repeat of the same
 #   to restart work that should never have paused. guard-idle-land.sh SAW all
 #   three of the evening's finishes and stood down on its backlog term (rows
 #   41, free 0): the next step after a returned design is not a backlog row.

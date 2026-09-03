@@ -192,13 +192,13 @@ SKIP_DIRS = {'.git', 'node_modules', '.venv', 'venv', 'dist', 'build',
 # EXTEND a seed, never create one — so a recording with no timestamped
 # rendering anywhere is invisible to the corpus entirely, whole.
 #
-# That was not hypothetical. Three real private podcast transcripts sat in the
-# declared PRIVATE_SOURCES — 5,713, 6,424 and 22,375 words of two named
-# third-party guests — and the corpus contained NONE of them: it held ten files,
-# every one a rendering of the same webinar, admitted because ONE timestamped
-# rendering of that webinar happened to exist. A 6,000-character extract of the
-# first of those transcripts was written into the publication-bound repository
-# and BOTH guards returned exit 0, silently. The write guard and the commit
+# That was not hypothetical. Three real private recording transcripts sat in a
+# declared PRIVATE_SOURCES tree — 5,713, 6,424 and 22,375 words — and the corpus
+# contained NONE of them: it held ten files, every one a rendering of a single
+# other recording, admitted because ONE timestamped rendering of that recording
+# happened to exist. A 6,000-character extract of the first of those transcripts
+# was written into the publication-bound repository and BOTH guards returned
+# exit 0, silently. The write guard and the commit
 # guard share this predicate, so the commit chokepoint — the backstop that
 # exists precisely to catch what the write hook misses — missed it identically.
 #
@@ -209,19 +209,19 @@ SKIP_DIRS = {'.git', 'node_modules', '.venv', 'venv', 'dist', 'build',
 # not — the transcript is sitting NEXT TO THE RECORDING IT CAME FROM, under a
 # name derived from it:
 #
-#     002 Liz Harris podcast.mp3          <- the recording
-#     002 Liz Harris podcast transcript.txt   <- a rendering of it
+#     002 Jane Marsh podcast.mp3          <- the recording
+#     002 Jane Marsh podcast transcript.txt   <- a rendering of it
 #
 # A text file in a declared-private directory whose stem extends the stem of a
 # media file in that same directory is a rendering of that recording. That is a
 # fact about the tree, not a heuristic about words, and it is the least
-# ambiguous case there is: the whole 2026-08-29 incident was "the audio was
-# correctly gitignored, the transcript was not".
+# ambiguous case there is: the whole incident this mechanism exists for was
+# "the audio was correctly gitignored, the transcript was not".
 #
 # MEASURED, both directions, across 5,353 tracked text files in eleven
 # repositories:
 #
-#   admits              exactly the 3 podcast transcripts. The closure then
+#   admits              exactly the 3 recording transcripts. The closure then
 #                       pulls in a fourth file on its own merits — a reference
 #                       worksheet 80.9% covered by them (763 of 943 windows),
 #                       i.e. genuinely another rendering. Corpus:
@@ -229,12 +229,12 @@ SKIP_DIRS = {'.git', 'node_modules', '.venv', 'venv', 'dist', 'build',
 #   costs               ONE new colliding phrase across all eleven trees: a
 #                       single 10-word run, 8 of its 10 words function words,
 #                       sitting at the MIN_QUOTE_WORDS floor and extending no
-#                       further, which appears in 4 files in `deeply` — a
-#                       repository that declares no publication boundary, so no
-#                       guard ever runs there.
-#   in richos          ZERO, before and after. richos is the only repository on
-#                       this machine that declares a boundary, and the count of
-#                       legitimate files it would block is unchanged.
+#                       further, which appears in 4 files in one repository that
+#                       declares no publication boundary, so no guard ever runs
+#                       there.
+#   where it counts    ZERO, before and after, in the only repository on that
+#                       machine that declares a boundary: the count of legitimate
+#                       files it would block is unchanged.
 #
 # THE WIDER RULE WAS REJECTED. "Any text file in a directory that holds media"
 # needs no stem match and reaches the SAME 14-file corpus — but it gets there by
@@ -251,7 +251,7 @@ MEDIA_EXT = {'.mp3', '.mp4', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus',
 # characters. Below it a stem is a generic word — `notes`, `readme`, `audio`,
 # `part1` — that matches by coincidence rather than by naming, and a coincidence
 # is not provenance. Conservative rather than measured: on the real tree the
-# stems in play are 19 characters ("002lizharrispodcast"), so every value from 1
+# stems in play are 19 characters ("002janemarshpodcast"), so every value from 1
 # to 19 admits exactly the same files and the measurement above cannot
 # distinguish them. Said plainly rather than dressed up as a finding.
 MEDIA_STEM_MIN_CHARS = 8
@@ -260,8 +260,8 @@ MEDIA_STEM_MIN_CHARS = 8
 def _stem_key(filename):
     """A filename's stem, reduced to lowercase alphanumerics.
 
-    Reduced rather than compared raw so that `002 Liz Harris podcast.mp3` and
-    `002_liz_harris_podcast.txt` are recognized as the same name — separators
+    Reduced rather than compared raw so that `002 Jane Marsh podcast.mp3` and
+    `002_jane_marsh_podcast.txt` are recognized as the same name — separators
     are an export-tool detail, not a difference in provenance.
     """
     return ''.join(c for c in os.path.splitext(filename)[0].lower() if c.isalnum())
@@ -305,14 +305,13 @@ def normalise(text):
 #
 # WHY THIS EXISTS BESIDE THE OTHER TWO, AND NOT INSTEAD OF THEM.
 # The corpus and shape detectors above answer "does this LOOK like private
-# speech?", and they were measured against the material that leaked on
-# 2026-08-29: two-channel transcripts, and prose quoting them. They are sharp
-# for that and they are BLIND to a small named file that is private for a
-# reason no scoring function can see — a note the CEO wrote about which
-# typeface he used, seven lines long, resembling nothing.
+# speech?", and they were measured against the material that leaked:
+# two-channel transcripts, and prose quoting them. They are sharp for that and
+# they are BLIND to a small named file that is private for a reason no scoring
+# function can see — a short note about a design decision, resembling nothing.
 #
-# Measured 2026-09-01, both halves: that file's exact bytes were written into
-# the publication-bound tree and staged, and both guards returned 0. The
+# Measured, both halves: that file's exact bytes were written into the
+# publication-bound tree and staged, and both guards returned 0. The
 # mechanism was sound for what it was aimed at and had nothing to say about
 # identity. This is the addition; the scanners above are untouched.
 #
@@ -475,9 +474,9 @@ class BrokenCorpus(Exception):
 # Measured on the real private record on 2026-08-30: 481 candidate text files
 # under the declared PRIVATE_SOURCES, and the shape filter kept TWO. The
 # verbatim-quote detector — the half that catches speech quoted inside ordinary
-# prose, which is how 28 quotes reached the public tree on 2026-08-29 — was
+# prose, which is how quotes reached the public tree in the first place — was
 # matching against 26,339 words, one recording, while the same private tree
-# held SEVEN MORE two-channel transcripts of the CEO's real recordings that the
+# held SEVEN MORE two-channel transcripts of real recordings that the
 # shape filter cannot see: whisper `.txt` output carries no timestamps and no
 # speaker labels, so it has zero transcript-shaped lines. 3,764 to 13,880 words
 # of private speech each, invisible.
@@ -521,8 +520,8 @@ class BrokenCorpus(Exception):
 # then blocked 206 of 5,333 files across the real public trees — including
 # LICENSE files, .gitignore and package.json. Admitting one mixed brief is
 # enough to do damage: at a 40-word inbound threshold the corpus took in a
-# single brief and its header line ("...requested by Rich on behalf of the
-# CEO") and a scratchpad PATH promptly blocked five legitimate public files,
+# single brief and its boilerplate header line and a scratchpad PATH promptly
+# blocked five legitimate public files,
 # one of them the technology evaluation .publication-boundary names as
 # deliberately public. Under the rule above, both of those documents are
 # excluded and the false-positive count across those same 5,333 public files is
@@ -530,8 +529,8 @@ class BrokenCorpus(Exception):
 #
 # WHAT WAS REJECTED, with its numbers, so nobody re-proposes it as an
 # improvement: harvesting every quoted prose run out of every private file
-# (1,339 runs) raises recall on the one shape this cannot see — the CEO's typed
-# words in a private wiki page, quoted nowhere else — and blocks 98 public
+# (1,339 runs) raises recall on the one shape this cannot see — typed words in
+# a private wiki page, quoted nowhere else — and blocks 98 public
 # files, 23 of them in the publication-bound repository itself, including its
 # README, its WALKTHROUGH and two agent definitions. Doctrine sentences live in
 # both trees on purpose. That widening is not available at any threshold and
@@ -710,7 +709,7 @@ def expand_items(items, max_files, identity_declared=False):
     that passes that entry through hands this scanner a DIRECTORY. `open()` on a
     directory raises IsADirectoryError, the unreadable-path branch in main()
     treats it exactly like a deleted or binary file, and the scan reports CLEAN
-    having examined zero bytes. Every leak on 2026-08-29 was a file inside a
+    having examined zero bytes. Every leak this was built after was a file inside a
     directory; a new directory of transcripts arriving in one go would have been
     waved through by a guard reporting, on its own terms, the truth.
 

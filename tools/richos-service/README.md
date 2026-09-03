@@ -293,10 +293,10 @@ Full tiering + hardware guidance: the P5 model-tiering note, 2026-08-24.
      6 of 353 segments). **De-overlapped**, content-preservingly: every word survives exactly once.
   4. **Silence fabrication** — text emitted over audio that carries **no speech energy at all**
      (`large-v3-turbo` at `-mc 0`, **159 of 353 segments / 60.4 % of the timeline** on a 126-minute
-     per-speaker track, 143 of them the single phrase "Thank you."; podcast-corpus brief
-     2026-08-29 §3.3). **It is a function of channel silence and of nothing else** — Spearman
+     per-speaker track, 143 of them the single phrase "Thank you."; the private measurement
+     brief, 2026-08-29 §3.3). **It is a function of channel silence and of nothing else** — Spearman
      ρ = 1.0000 over six tracks from two conversations — so it is worst on the channel shaped like
-     a real call's `me` side, **the one carrying the CEO's own words**. Classes 1–3 caught 29.5 %
+     a real call's `me` side, **the one carrying the speaker's own words**. Classes 1–3 caught 29.5 %
      of it by accident; the guard now takes the fabricated timeline on those three host channels
      from **69.4 minutes to 11.6 minutes** (87.4 % of it on the 126-minute channel). **REMOVED**,
      and repairable where class 2 is not because a span over measured silence has no speech in it

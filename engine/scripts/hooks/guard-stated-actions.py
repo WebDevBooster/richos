@@ -24,13 +24,13 @@ Two of the seven share an exact machine signature and are ARM 1:
     18:29  "Frank breaks it first, and I     turn's tool calls: Bash x7, no Agent
             want him attacking ..."
 
-The CEO's next message was "WHERE THE FUCK IS FRANK THIS FUCKING TIME", and
+The CEO's next message asked, in blunt terms, where Frank was this time — and
 after the apology — "I said 'Frank breaks it first' and then wrote a status
-report instead of spawning him" — his reply was: *"Yeah, that fuckshit will
+report instead of spawning him" — his reply was that this class of failure will
 never end, will it?"*
 
 The same day he sent six messages of one other shape — "No Frank this time?",
-"Next Sage.", "WHERE THE FUCK IS THE NEXT SAGE?" — each one restarting work
+"Next Sage.", then a blunter repeat of the same question — each one restarting work
 that had paused because a teammate returned and the lead answered it with a
 REPORT and no dispatch. That is ARM 2. His question, verbatim, was "when will
 this pattern STOP?". There was already a prose rule for it (the working record:

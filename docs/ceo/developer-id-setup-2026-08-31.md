@@ -1,30 +1,32 @@
-# Two things only you can do — about 20 minutes, once, ever
+# Two things only the account holder can do — about 20 minutes, once, ever
 
-You bought the Apple Developer membership today. Everything else about signing RichOS is
-built and waiting. Two items are locked to your Apple account and cannot be delegated: a
-**certificate**, and a **key**. Both are just files you download from a website.
+**Who this is for:** whoever owns the Apple Developer membership this copy of RichOS will be
+signed under. Everything else about signing is built and waiting. Two items are locked to an
+Apple account and cannot be delegated: a **certificate**, and a **key**. Both are just files
+downloaded from a website.
 
-**Why it is worth twenty minutes.** Right now, every time a new RichOS build reaches your
-Mac, macOS treats it as a completely different app and silently takes away its microphone
-and its permission to type into other windows. Rich comes back deaf. Turning the switch
-back on in System Settings does not fix it — that was measured, it genuinely does not
-work. After these twenty minutes, macOS recognises every future build as the same app and
-the permissions stay put forever.
+**Why it is worth twenty minutes.** Without a stable signing identity, every new RichOS build
+that reaches a Mac is treated by macOS as a completely different app, and macOS silently takes
+away the app's microphone and its permission to type into other windows. Rich comes back deaf.
+Turning the switch back on in System Settings does not fix it — that was measured, it genuinely
+does not work. After these twenty minutes macOS recognizes every future build as the same app
+and the permissions stay put.
 
 You do not need to understand any of the words below. Follow the steps.
 
 ---
 
-## Before you start — the file we made for you
+## Before you start — the file the tooling made for you
 
-We have already generated the file Apple will ask you to upload. It is here:
+`app/scripts/make-signing-csr.sh` generates the file Apple will ask you to upload, and prints
+its path when it finishes. By default it lands at:
 
 ```
-/Users/alex/.richos-signing/developer-id.certSigningRequest
+~/.richos-signing/developer-id.certSigningRequest
 ```
 
 In the Finder, press **⌘⇧G** and paste that path to find it. It is safe to send to Apple —
-it is the public half. The private half sits beside it and never leaves this Mac.
+it is the public half. The private half sits beside it and never leaves the machine.
 
 ---
 
@@ -60,8 +62,8 @@ it is the public half. The private half sits beside it and never leaves this Mac
 **One caution:** Apple lets you create at most **five** of these, ever. Do not make spares
 "just in case" — one is all RichOS will ever need.
 
-Tell Rich it has downloaded. That is all; the rest of task 1 is a single command on this
-Mac and nobody needs you for it.
+Tell Rich it has downloaded. That is all; the rest of task 1 is a single command on the build
+machine and nobody needs the account holder for it.
 
 ---
 
@@ -91,8 +93,8 @@ we are not doing that.
    - the **KEY ID** — ten characters, in the table row;
    - the **Issuer ID** — a long dashed code shown *above* the table.
 
-   Paste both to Rich, or leave them somewhere you can find them. Neither is secret in the
-   way the file is.
+   Paste both to Rich, or leave them somewhere findable. Neither is secret in the way the
+   file is.
 
 **You are done when** you have a file called `AuthKey_XXXXXXXXXX.p8` in your Downloads
 folder, plus those two codes.
@@ -113,7 +115,7 @@ You will not have to judge this. After task 1, the command that installs the cer
 prints one line, and it either says this or it refuses:
 
 ```
-OK: 'Developer ID Application: Alex Booster (XXXXXXXXXX)' is installed and usable.
+OK: 'Developer ID Application: <your name> (<your team id>)' is installed and usable.
 ```
 
 And the first properly signed, notarised build ends with a line that reads, in part:
@@ -127,13 +129,13 @@ refuses out loud rather than reporting a success it did not earn.
 
 ---
 
-## One thing that is still not proven, and you will be the one who proves it
+## One thing that is still not proven, and a human has to prove it
 
-The whole point is that your microphone permission survives the next update. That cannot
+The whole point is that the microphone permission survives the next update. That cannot
 be demonstrated by a single install — a build that has only ever been installed once has
 never tested the thing that breaks. So once there is a signed build, the sequence is:
 install it, grant the microphone and accessibility, then install the *next* one and check
-that Rich still hears you **without asking you for anything**.
+that Rich still hears you **without asking for anything**.
 
 There is a harness for it (`app/scripts/rebuild-survival.sh`) and it will do everything it
 can automatically. It cannot see whether a permission dialog appeared on your screen. That
@@ -146,6 +148,6 @@ last part is you, and it takes about thirty seconds.
 Being honest about the queue rather than letting these two look like the finish line:
 
 - **The app icon.** RichOS currently ships placeholder art, and the packaging script
-  refuses to build at all until real artwork exists. That is a separate decision of yours.
-- **Windows.** No certificate, and deliberately so — v1 is your Mac. Nothing here is
+  refuses to build at all until real artwork exists. That is a separate decision.
+- **Windows.** No certificate, and deliberately so — v1 is macOS only. Nothing here is
   wasted when Windows comes up; it is a different vendor and a different purchase.

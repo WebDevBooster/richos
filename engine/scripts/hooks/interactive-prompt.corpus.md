@@ -15,7 +15,7 @@ Not a sample, not a hand-picked set, and not commands written for this purpose.
 | Source | `~/.claude/projects/**/*.jsonl` |
 | Session files read | 1,762 |
 | Unique commands | 65,781 |
-| Projects covered | femcboost, richos, richos-hq, prospects, li-profile-data-grabber, and every scratchpad session |
+| Projects covered | five separate project repositories on one working machine, plus every scratchpad session |
 | Measured | 2026-09-01, against the shipped `scripts/lib/interactive-prompt.py` |
 
 It is the right corpus for this question for one reason: it is what agents on

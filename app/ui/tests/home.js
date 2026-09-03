@@ -1208,10 +1208,9 @@ async function main() {
   });
 
   await run.check("THE DOOR is round-11.2/v1's sill, in the LEFT COLUMN, off the picture", async () => {
-    // CEO, 2026-09-02: *"All of the doors are shit because they are covering the spectacle of
-    // the home screen. NOTHING can cover the spectacle of the home screen. Put V1 button from
-    // round-11.2 under 'your attention saved' in the left column and change the button label to
-    // 'Talk to Rich'."*
+    // Ruled by the owner, 2026-09-02: nothing may cover the spectacle of the home screen, so
+    // the `round-11.2/v1` button sits in the LEFT COLUMN under "your attention saved", with the
+    // label "Talk to Rich". Wording in the private record (`wiki/ceo-decisions.md`).
     const r = await page.evaluate(() => {
       const box = document.getElementById("home-switch");
       const b = document.getElementById("home-enter");

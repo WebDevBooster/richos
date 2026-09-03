@@ -5,21 +5,15 @@
 # ===========================================================================
 # WHY THIS FILE EXISTS
 # ===========================================================================
-# On 2026-08-29 three measurement briefs and 137 asset files carrying full
-# two-channel transcripts of the CEO's own webinar — a named third-party
-# speaker, real business content, 28 verbatim quotes inside the brief prose —
-# landed in `richos`, the repository `open-source-strategy.md` designates as
-# the one that goes PUBLIC. They were moved out at f1bb459.
-#
-# The source audio was correctly gitignored at docs/reference/local/ the entire
-# time. The check that failed was "no media committed", applied by a human on
-# three consecutive lands and verified each time, while the sensitive payload
-# went in as TEXT.
+# Private speech reached a publication-bound repository as TEXT, more than
+# once, while the rule in force was "no media committed" — a rule a human
+# applied by hand, on every land, and passed every time. The source audio was
+# correctly gitignored the whole while. The payload was not audio: it was
+# transcripts, measurement assets and quotes embedded in ordinary prose.
 #
 #   THE PRIVACY QUESTION IS WHAT THE BYTES SAY, NOT WHAT FORMAT THEY ARE IN.
 #
-# That is the CEO's own sentence from the removal commit, and it is the whole
-# specification for this file.
+# That sentence is the whole specification for this file.
 #
 # It belongs to a family. Four defects found the same week were one shape — a
 # correct rule, written down, with nothing enforcing it: a hand-typed "13/13
@@ -29,6 +23,13 @@
 # deriving the claim from a source of truth. This one is fixed the same way,
 # and the rule it must not break is the rule it exists to enforce: DO NOT ADD
 # A RULE A HUMAN MUST REMEMBER TO APPLY.
+#
+# THE DATED INCIDENT RECORD — what leaked, when, whose material it was, and
+# what each detector below was measured against — is in the operator's PRIVATE
+# record, not here. This file is published; that record identifies private
+# recordings and a third party. See the repository's `.publication-boundary`
+# header for the rule that puts it there, and the private record's
+# `wiki/publication-boundary-incidents.md` for the narrative itself.
 #
 # ===========================================================================
 # WHAT IS DERIVED, AND FROM WHAT
@@ -77,14 +78,13 @@
 #
 #                          IT EXISTS BECAUSE THE OTHER TWO ARE SCORING
 #                          FUNCTIONS. They were measured against transcripts and
-#                          they are sharp for transcripts; a seven-line note
-#                          about which typeface the CEO drew a wordmark in
-#                          scores nothing at all, and on 2026-09-01 its exact
-#                          bytes were written into this tree and staged and both
-#                          guards returned 0. The CEO had by then said twice
-#                          that the file stays in the private record. Twice it
-#                          was kept there by somebody remembering — which is the
-#                          thing this whole mechanism exists to stop relying on.
+#                          they are sharp for transcripts; a short note about a
+#                          design decision scores nothing at all, and a file
+#                          like that has been written into a publication-bound
+#                          tree and staged with both guards returning 0. Keeping
+#                          it out had been an instruction somebody remembered —
+#                          which is the thing this whole mechanism exists to
+#                          stop relying on.
 #
 #                          SELF-CONTAINED ON PURPOSE. The digest and the name
 #                          are committed here, in the public repository. Nothing
@@ -96,14 +96,18 @@
 #                          a refusal that cannot say which file it means teaches
 #                          nobody the rule.
 #
-#                          WHAT DEFEATS IT: a rewrite AND a rename together.
-#                          Either alone is caught — the digest survives a
-#                          rename, the name survives a rewrite — and both at
-#                          once is a different file under a different name,
-#                          which nothing short of reading the private record
-#                          could call. A partial excerpt under a new name is
-#                          likewise out of reach. Stated here rather than
-#                          discovered in a postmortem.
+#                          WHAT IT DOES NOT COVER, stated so nobody assumes
+#                          more than is there: this is an IDENTITY check over a
+#                          declared digest and a declared name, and content that
+#                          is neither those bytes nor that name is outside its
+#                          reach. Deciding such a case needs the private record,
+#                          which nothing here reads. The residual is real and it
+#                          is why the two content detectors exist alongside it;
+#                          the specific ways this check can be missed belong in
+#                          the private record rather than in a published file,
+#                          because a step-by-step recipe for defeating a privacy
+#                          control is a different object from an honest
+#                          statement of coverage.
 #
 #   derived-from-private   The sharpest signal that needs no file named in
 #                          advance, and it needs no heuristic at all. Any run of >= MIN_QUOTE_WORDS
@@ -123,11 +127,10 @@
 #                          list of transcript paths would have gone stale by
 #                          the next recording; this cannot.
 #
-#                          THE SECOND CLAUSE WAS MEASURED INTO EXISTENCE. On
-#                          2026-08-30 the real private record held 481 candidate
-#                          text files and the shape filter kept TWO — while
-#                          seven more two-channel transcripts of the CEO's own
-#                          recordings sat in the same tree, invisible, because
+#                          THE SECOND CLAUSE WAS MEASURED INTO EXISTENCE. On a
+#                          real private record of 481 candidate text files the
+#                          shape filter kept TWO — while seven more two-channel
+#                          transcripts sat in the same tree, invisible, because
 #                          whisper's plain `.txt` output carries no timestamps
 #                          and no speaker labels. The detector that catches
 #                          quotes inside prose was matching against one
@@ -145,10 +148,10 @@
 #                          collide with it. Measured both ways, across 5,333
 #                          tracked text files in eleven repositories: the
 #                          widened corpus blocks the same 8 files the narrow one
-#                          did — every one a genuine reproduction of the
-#                          recorded talk, in a repository that declares no
-#                          boundary — and ZERO files in the publication-bound
-#                          repository itself, before and after. The full sweep,
+#                          did — every one a genuine reproduction of a recording,
+#                          in a repository that declares no boundary — and ZERO
+#                          files in the publication-bound repository itself,
+#                          before and after. The full sweep,
 #                          including the two widenings that were REJECTED for
 #                          false positives, is in publication-boundary.py above
 #                          the closure constants.
@@ -161,12 +164,10 @@
 #
 #                          PRECISION IS THE CONTRACT here, so it was measured
 #                          rather than argued: across 57,034 files in eleven
-#                          repositories (richos, femcboost, prospects, deeply,
-#                          claude-orchestration-kit, li-profile-data-grabber,
-#                          webinar-booster, press-and-publicity, ai-book,
-#                          voice-profile, saferecord) it flagged 17 files, and
-#                          all 17 were genuine transcripts (.srt course
-#                          captions). Zero non-transcript false positives.
+#                          repositories on one working machine it flagged 17
+#                          files, and all 17 were genuine transcripts (.srt
+#                          course captions). Zero non-transcript false
+#                          positives.
 #                          Log lines are the near-miss it is built against:
 #                          `[12:34:56] ERROR: connection refused` is excluded by
 #                          a log-level denylist AND by a prose test that
@@ -479,9 +480,10 @@ pb_resolve_sources() {
 
     # A RELATIVE entry is anchored to the repository — but "the repository" has
     # two locations and only one of them is stable. Every agent works in a
-    # LINKED WORKTREE, and a worktree of richos lives at
-    # /Users/alex/ab/richos-wt/<branch>/, so `../richos-hq` resolves there to
-    # /Users/alex/ab/richos-wt/richos-hq — which does not exist. Measured, on
+    # LINKED WORKTREE, and a worktree conventionally lives beside the main
+    # checkout rather than inside it (`<parent>/<repo>-wt/<branch>/`), so a
+    # sibling entry like `../private-record` resolves there to
+    # `<parent>/<repo>-wt/private-record` — which does not exist. Measured, on
     # the first live run of this guard: the corpus detector, the sharpest signal
     # this mechanism has, went inert in exactly the place all the work happens,
     # and the only symptom was one honest line in a message nobody would have
