@@ -285,9 +285,22 @@ T terminal-name --session-id "$SID2" --teammate dev-opus-t1 2>/dev/null && bad "
 # --- 6. never blocks -------------------------------------------------------------
 OUT="$(printf 'not json' | "$HOOK" 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && ok "R24  unparseable payload -> exit 0" || bad "R24  rc=$RC"
-OUT="$(printf '{"session_id":"%s","hook_event_name":"TeammateIdle","agent_id":"%s"}' "$SID2" "$A4" | "$HOOK" 2>&1)"; RC=$?
+# R25 — TeammateIdle holds NO destructive authority until its payload is
+# MEASURED (CEO specification 2026-09-03, worktree-terminal-authority-fix-
+# recommendation section 3). The landed review's blocker 1 asked for the
+# opposite — register it as an exact-id ingress — and the specification
+# supersedes it: on this machine the event has never fired live (1,171
+# idle-events rows on 2026-09-03, every one a test fixture with an empty
+# session_id), so no field of it is proven to join to the ownership id. The
+# assertion below is therefore the same as before this revision, but what it
+# certifies is the measurement gate, not the retired "idle is not done"
+# doctrine: idle IS done by the CEO's rule; the event is simply unproven.
+# When a live payload proves an exact join, it is registered through the
+# same compare-and-set claim and this case is inverted. Until then the
+# native-disappearance backstop (reconciler) covers native workers.
+OUT="$(printf '{"session_id":"%s","hook_event_name":"TeammateIdle","agent_id":"%s","cwd":"%s"}' "$SID2" "$A4" "$ENTITY/.claude/worktrees/agent-$A4" | "$HOOK" 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && [ -d "$ENTITY/.claude/worktrees/agent-$A4" ] && ! T terminal-agent --agent-id "$A4" 2>/dev/null \
-    && ok "R25  TeammateIdle (diagnostic only) is ignored: no claim, no mutation" || bad "R25  TeammateIdle acted (rc=$RC)"
+    && ok "R25  TeammateIdle is NOT YET a terminal ingress (payload unmeasured on this platform; CEO specification section 3): no claim, no mutation, even with the exact id AND the exact cwd in the payload" || bad "R25  TeammateIdle acted (rc=$RC)"
 NOLIB="$(mktemp -d -t terminalize-nolib.XXXXXX)"; mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib"; cp "$HOOK" "$NOLIB/scripts/hooks/"
 OUT="$(printf '%s' "$(stop_payload "$A4")" | "$NOLIB/scripts/hooks/terminalize-agent-worktrees.sh" 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'worktree-transactions.py is missing' && ok "R26  library missing -> exit 0 with a NOTICE naming it" || bad "R26  nolib rc=$RC: $OUT"

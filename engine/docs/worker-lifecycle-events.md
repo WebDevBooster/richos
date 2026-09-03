@@ -47,20 +47,30 @@ The design names seven worker states. Here is what actually witnesses each one.
 
 ### waiting — why not `TeammateIdle`
 
-`TeammateIdle` is real, guaranteed, and already logged to `idle-events.jsonl`.
-It is tempting to render it as "Waiting", because an idle teammate is by
-definition not executing.
+`TeammateIdle` is documented by the platform and logged to `idle-events.jsonl`
+by `teammate-idle-handoff.sh`. It is tempting to render it as "Waiting",
+because an idle teammate is by definition not executing.
 
-It is not emitted as `waiting` here because the payload cannot distinguish a
-worker pausing for input from a worker that has finished for good — and the
-orchestration doctrine is explicit that idle does not mean done. Calling it
-`waiting` asserts "this worker will resume when spoken to", which is sometimes
-false. Calling it `completed` asserts the opposite, which is also sometimes
-false.
+It is not emitted as `waiting` because **by the CEO's rule an agent that goes
+idle is finished forever** — idle IS done, and there is no "will resume when
+spoken to" state to render. The reason it is not yet a *terminal ingress* for
+the worktree lifecycle is different and narrower: **its payload has never been
+observed live on this machine** (on 2026-09-03 every one of the 1,171 rows in
+the idle log was a test fixture with an empty `session_id`), so no field of it
+is proven to join to the spawn-side ownership id, and the terminal-authority
+specification (the private femcboost planning record
+*worktree-terminal-authority-fix-recommendation-2026-09-03*, section 3; not
+part of the published engine) forbids granting an unmeasured event
+destructive authority. The
+idle hook now records each payload's top-level key names and its identity,
+type and task fields — never a message value — so the first live firing is the
+fixture that decides it. If a field proves exact, the event is registered
+through the same compare-and-set claim as the other ingresses; until then the
+reconciler's native-disappearance backstop covers native workers.
 
 What a consumer may honestly do with `TeammateIdle`: treat it as a terminal
-signal for the current run (the worker is not executing), exactly like
-`run_ended`. What it must not do: render a *reason*.
+signal for the worker, exactly like `run_ended`. What it must not do: render a
+*reason*.
 
 ### interrupted — why nothing witnesses it
 

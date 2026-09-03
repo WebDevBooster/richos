@@ -59,7 +59,7 @@ mutant taskstop-scrapes-prose "R35" "$L" \
 mutant stop-acts-on-teammateidle "R25" "$H" \
     'if event in ("SubagentStop", ""):' \
     'if event in ("SubagentStop", "", "TeammateIdle", "TaskCompleted"):' \
-    "the two diagnostic-only events (never fired for a real agent; 580 fixture rows) would acquire destructive authority."
+    "an UNMEASURED event (TeammateIdle has never fired live on this machine: 1,171 rows on 2026-09-03, all fixtures) would acquire destructive authority before any field of it is proven to join to the ownership id — the CEO specification (section 3) forbids exactly that."
 
 L="scripts/lib/worktree-transactions.py"
 

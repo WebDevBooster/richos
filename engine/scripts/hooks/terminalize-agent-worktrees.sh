@@ -8,6 +8,16 @@
 # a name or a sentence (CEO specification 2026-09-03: femcboost docs/plans/
 # worktree-terminal-authority-fix-recommendation-2026-09-03.md).
 #
+# NOT (yet) registered: TeammateIdle. Idle IS done by the CEO's rule, but
+# the event's payload has never been observed live on this machine (every
+# idle-events row is a test fixture), so no field of it is proven to join
+# to the ownership id, and the specification (section 3) forbids granting
+# an unmeasured event destructive authority. teammate-idle-handoff.sh
+# records the first live payload's key names and identity fields as the
+# fixture; when one proves an exact join, this hook accepts it through the
+# same claim. Meanwhile the reconciler's native-disappearance backstop
+# covers native workers.
+#
 # ===========================================================================
 # THE RULING THIS IMPLEMENTS
 # ===========================================================================
