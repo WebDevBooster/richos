@@ -419,7 +419,7 @@ c6_case "a broken declaration is NOT announced on model:inherit" 0 "" \
 C6NOLIB="$(mktemp -d -t guard-c6-nolib.XXXXXX)"
 mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
 cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-transactions.py" "$C6NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-transactions.py" "$C6NOLIB/scripts/lib/"
 cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$C6NOLIB/scripts/hooks/"
 chmod +x "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
 c6_config "fable > opus > sonnet > haiku"
@@ -463,7 +463,7 @@ chmod +x "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh"
 # declaration. Without the library it refuses to start; without the declaration
 # it would write the log into the launching session's repository, which is the
 # very behavior under repair.
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SANDBOX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SANDBOX/scripts/lib/"
 printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$SANDBOX/orchestration.config"
 printf '%s' "$(json_agent 'worker' 'worker-sonnet-log1' '' $'Do the task.\nmain-checkout-run: needs main checkout for X.')" \
     | RICHOS_ENTITY_ROOT="$SANDBOX" "$SANDBOX/scripts/hooks/guard-worktree-isolation.sh" >/dev/null 2>&1
@@ -700,7 +700,7 @@ run_case "an ordinary prompt mentioning neither -> allowed (no false positive)" 
 NOLIB="$(mktemp -d -t guard-isolation-nolib.XXXXXX)"
 mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib" "$NOLIB/.claude"
 cp "$HOOK" "$NOLIB/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$NOLIB/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-transactions.py" "$NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-transactions.py" "$NOLIB/scripts/lib/"
 cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$NOLIB/scripts/hooks/"
 printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$NOLIB/orchestration.config"
 NOLIB_OUT="$(printf '%s' "$(json_cwd 'echo-opus-nolib1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" \
@@ -834,7 +834,7 @@ NOTX="$(cd "$(mktemp -d -t guard-isolation-notx.XXXXXX)" && pwd -P)"
 mkdir -p "$NOTX/scripts/hooks" "$NOTX/scripts/lib" "$NOTX/.claude/agents"
 cp "$HOOK" "$NOTX/scripts/hooks/"
 cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$NOTX/scripts/hooks/"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$NOTX/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$NOTX/scripts/lib/"
 cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$NOTX/"
 cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$NOTX/.claude/agents/" 2>/dev/null || true
 chmod +x "$NOTX/scripts/hooks/"*.sh
@@ -853,7 +853,7 @@ BRK="$(cd "$(mktemp -d -t guard-isolation-brk.XXXXXX)" && pwd -P)"
 mkdir -p "$BRK/scripts/hooks" "$BRK/scripts/lib" "$BRK/.claude/agents"
 cp "$HOOK" "$BRK/scripts/hooks/"
 cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$BRK/scripts/hooks/"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$BRK/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$BRK/scripts/lib/"
 printf 'def broken(:\n' >"$BRK/scripts/lib/worktree-transactions.py"
 cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$BRK/"
 cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$BRK/.claude/agents/" 2>/dev/null || true
@@ -1066,7 +1066,7 @@ run_case_msg "a roster-type refusal is the ISOLATION message, never the staffing
 M9="$(mktemp -d -t guard-isolation-clause5.XXXXXX)"
 mkdir -p "$M9/scripts/hooks" "$M9/scripts/lib" "$M9/.claude"
 cp "$HOOK" "$M9/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$M9/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$M9/scripts/lib/" 2>/dev/null || true
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-model.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$M9/scripts/lib/" 2>/dev/null || true
 {
     printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n'
     printf 'READONLY_ALLOWLIST="Explore Plan claude-code-guide statusline-setup housekeeping"\n'
