@@ -355,6 +355,31 @@ unregistered residue directories and reports orphaned PIDs with a kill command.
 
 ---
 
+## 14. A well-written file in a PUBLISHED repository is also a disclosure
+
+**Symptom:** a rule's file explains itself perfectly — and in doing so tells a
+stranger the date a private recording leaked, whose it was, who else was on it,
+how many quotes went in, and what the guard still cannot catch. Nobody was
+careless; the file is exactly as good as the doctrine asks it to be.
+
+**Why it happens:** "write the WHY into the file, including the failure that
+produced the rule" is correct, and it assumes the repository is a private
+workspace. That assumption is false the moment a repository is published, and
+nothing in the writing habit notices.
+
+**The rule:** it has two modes, and `.publication-boundary` at the repository
+root is the signal for which one you are in. Private: unchanged, write it all.
+Published: the file carries the rule and the general reasoning in full; the
+incident that caused it lives in the private record with a one-line pointer.
+The test is **identifying detail**, not "is it an incident" — and it applies to
+test fixtures and default config tables as much as to prose.
+
+**Stated in full, once, in `CLAUDE.md.template`, "Writing for a Repository That
+PUBLISHES — the same doctrine, in two modes".** Deliberately prose with no hook
+behind it: this is a rule to read before writing, not a refusal to meet after.
+
+---
+
 ## See also
 
 - `docs/orchestrator-memory.md` — the orchestrator's own persistent

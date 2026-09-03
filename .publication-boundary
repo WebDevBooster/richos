@@ -24,43 +24,19 @@
 # a third party, so it is not published; the rule and the reasoning are here,
 # which is what a reader of this file needs.
 #
-# WHAT MAY BE WRITTEN IN A FILE THIS REPOSITORY PUBLISHES
-# -------------------------------------------------------
-# This project's documentation habit is to write the WHY into the file,
-# including the failure that produced the rule, because a rule nobody
-# understands gets worked around. That habit is right, and in a repository that
-# gets published it needs one amendment. Without it, every well-written file
-# here is also a disclosure — this file was, until 2026-09-03.
+# THIS FILE'S PRESENCE ALSO TELLS A WRITER WHICH MODE TO WRITE IN
+# ---------------------------------------------------------------
+# The guards read this file to decide whether a tree gets published. So does a
+# person: everything this project writes carries its own WHY, including the
+# failure that produced the rule, and in a repository that publishes, the
+# INCIDENT half of that WHY is a disclosure. The public file carries the rule
+# and the general reasoning; the identifying detail lives in the private record
+# with a one-line pointer.
 #
-#   THE PUBLIC FILE CARRIES THE RULE AND THE GENERAL REASONING.
-#   THE IDENTIFYING DETAIL LIVES IN THE PRIVATE RECORD, WITH A ONE-LINE
-#   POINTER TO THE PAGE THAT HOLDS IT.
-#
-# IDENTIFYING DETAIL IS THE TEST — not "is it an incident". A dated failure with
-# nobody in it (a guard that shipped with no switch; a claim derived from the
-# wrong source) is engineering rationale, it is useful to a stranger, and it
-# stays. What moves is anything that names or identifies:
-#
-#   * A PERSON WHO IS NOT THIS PROJECT — a speaker, a guest, a customer, a
-#     prospect, a partner. They did not agree to appear in a public repository.
-#   * PRIVATE MATERIAL BY WHAT IT IS rather than by what it says — somebody's
-#     recording, calendar, private repository, notes.
-#   * PRIVATE BUSINESS CONTENT — commercial terms, pipeline, a quoted private
-#     conversation, an internal decision that is nobody else's business.
-#   * THE OWNER PERSONALLY — home-directory layout, machine names, the list of
-#     other ventures they run.
-#
-# THE POINTER IS PART OF THE RULE. Deleting the detail without saying where it
-# went is how the reasoning dies, and a rule whose reasoning has died is the
-# thing this whole file exists to prevent. One line, naming the private page.
-#
-# AND IT IS NOT ONLY PROSE. The same test applies to test fixtures, example
-# data, default configuration tables, refusal messages and committed evidence.
-# A real person's name in a test fixture is the same disclosure as a real name
-# in a paragraph, and it is easier to miss.
-#
-# This is the canonical statement of that rule. The engine's
-# docs/failures-playbook.md points here rather than restating it.
+# THE RULE IS STATED ONCE, and not here, because a mode signal in two places is
+# one that drifts: engine/CLAUDE.md.template, "Writing for a Repository That
+# PUBLISHES — the same doctrine, in two modes". This file is the SIGNAL; that
+# section is the RULE. Read it before writing the next paragraph into this tree.
 #
 # RELATIONSHIP TO THE PRIVATE RECORD'S open-source-strategy.md
 # ------------------------------------------------------------

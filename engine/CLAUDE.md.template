@@ -242,6 +242,42 @@ doctrine and role templates reference — no orphan paths, nothing to invent.
 
 **Hooks register in exactly ONE settings file — the committed `.claude/settings.local.json`.** Claude Code reads it directly, so enforcement is live on clone with no wiring step. It must NOT also be copied into a generated `.claude/settings.json`: Claude Code reads BOTH files and MERGES their hook arrays additively, so a second copy fires every hook TWICE per matching tool event (silent for the idempotent guards; visible only as byte-identical duplicate lines in the append-loggers). `scripts/hooks/install.sh` no longer writes hook stanzas — it only mints the gitignored `.sha256` sidecars and migrates away any stale hook-duplicating `settings.json`; the probe's Layer M asserts single-registration uniqueness and fails the double-fire.
 
+### Writing for a Repository That PUBLISHES — the same doctrine, in two modes
+
+**Everything this engine writes carries its own WHY, including the failure that produced the rule, because a rule nobody understands gets worked around.** That is not decoration and it is not up for debate: it is why these rules survive contact with people who never heard them stated. **Keep it.**
+
+It has one blind spot, and it is structural rather than careless: **it assumes every repository is a private workspace one operator and his agents work in.** The moment a repository is published, every well-written file in it is also a disclosure — the incident that justifies a rule names dates, quantities, people and material that were never anyone else's business. This is not hypothetical; it is how this engine's own publication-boundary declaration came to publish a detailed account of its owner's private recordings leaking, in the file whose entire job is to stop exactly that.
+
+So the doctrine has **two modes**, and the repository tells you which one you are in.
+
+**THE MODE SIGNAL IS `.publication-boundary` AT THE REPOSITORY ROOT.** Its presence is already the declaration that this tree gets published — it is what switches on `guard-publication-writes.sh` and `guard-publication-commits.sh`. It is the same signal, read by a person instead of a hook. There is deliberately **no second declaration**: a writer asking "which mode am I in?" has one file to look at, and a mode signal in two places is one that drifts.
+
+| | **PRIVATE repository** (no `.publication-boundary`) | **PUBLISHED repository** (`.publication-boundary` present) |
+|---|---|---|
+| The rule | in the file | in the file |
+| The general reasoning | in the file | in the file — **in full**, enough that a stranger understands why it exists and does not work around it |
+| The incident that caused it | in the file, in full | **in the private record**, with a ONE-LINE POINTER from the public file |
+
+**THE TEST IS IDENTIFYING DETAIL, NOT "IS IT AN INCIDENT".** A dated failure with nobody in it — a guard that shipped with no switch, a claim derived from the wrong source, a count that was one glob's size and not the inventory — is engineering rationale. It is exactly what a stranger deciding whether to trust this project is entitled to read, and it **stays public**. What moves to the private record is anything that names or identifies:
+
+- **a person who is not this project** — a speaker, a guest, a customer, a prospect, a partner. They did not agree to appear in a public repository;
+- **private material by what it IS** rather than by what it says — somebody's recording, calendar, private repository, notes;
+- **private business content** — commercial terms, pipeline, a quoted private conversation, an internal decision that is nobody else's business;
+- **the operator personally** — home-directory layout, machine names, the list of other ventures they run.
+
+**THE POINTER IS PART OF THE RULE.** Deleting the detail without saying where it went is how the reasoning dies, and a rule whose reasoning has died is the thing this doctrine exists to prevent. One line, naming the private page, in the public file.
+
+**AND IT IS NOT ONLY PROSE.** The same test applies to **test fixtures, example data, default configuration tables, refusal messages and committed evidence**. A real person's name in a test fixture is the same disclosure as a real name in a paragraph, and it is easier to miss — this engine shipped a real third-party guest's name as a worked example inside its own privacy scanner.
+
+**One narrow exception, stated because the honest version is easy to over-apply: a published file MAY state what a control does not cover.** "This cannot see paraphrase" is a coverage limit and it belongs in the open — a guard nobody trusts gets switched off. "Do X and Y together and it will not notice" is an evasion recipe and it belongs in the private record. The difference is whether a reader finishes the sentence knowing the limits or knowing the steps.
+
+**This is prose, deliberately, and there is no hook behind it.** A mode rule that fires at the write would need its own suite, and machinery is not what makes people write well — this is a rule to be read before writing, not a refusal to be met after. If it turns out to need a chokepoint, that is a case to be made and costed, not assumed.
+
+<!-- TODO (adopter): if this repository is published, name your private record
+     here (the repo or page where moved incident detail lives), so the pointer
+     rule above has a destination and nobody has to ask where. If it is private,
+     delete this block: mode one is the default and needs no configuration. -->
+
 ### Surfaces — WHO USES WHAT
 
 <!-- TODO (adopter): if your product has more than one user-facing surface (e.g.
