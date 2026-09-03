@@ -109,6 +109,16 @@ mutant repair-result-ignored "T53" "$F" \
     '    if False:' \
     "a failed worktree repair would be recorded as a successful quarantine; the next prune deletes the admin directory the quarantine points at and the reconciler loses the index it claims to preserve (review 2026-09-03, blocker 6)."
 
+mutant terminal-index-is-truth "T55" "$F" \
+    '        if tx and tx.get("record") == "transaction" and tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return True' \
+    '        if False:{NL}            _repair_terminal_indexes(tx){NL}            return True' \
+    "a crash between the transaction's terminal write and the index write would leave a terminal worker that every guard reads as live — it could write into a quarantine (review 2026-09-03, blocker 5)."
+
+mutant loser-does-not-repair "T56" "$F" \
+    '        if tx.get("terminal"):{NL}            _repair_terminal_indexes(tx){NL}            return False, tx' \
+    '        if tx.get("terminal"):{NL}            return False, tx' \
+    "the losing ingress would see the transaction terminal and return without healing a missing index; the O(1) guards would stay wrong until a reconciler pass happened to run."
+
 mutant ref-not-saved "T33" "$F" \
     '    rc, _, err = _git(m["repo"], "update-ref", ref, head)' \
     '    rc, _, err = 0, "", ""' \

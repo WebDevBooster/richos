@@ -254,7 +254,7 @@ if to.startswith("agent-"):
     to_id = to[len("agent-"):]
 else:
     to_id = to
-if tx.is_terminal_agent(to_id):
+if tx.is_terminal_agent(to_id, sid or None):
     out("TERMINAL", "agent id %s is terminal" % to_id)
 if sid and tx.is_terminal_name(sid, to):
     out("TERMINAL", "teammate %s is terminal in session %s" % (to, sid[:8]))
@@ -265,7 +265,7 @@ if os.path.isfile(ti_path):
         ti = load("ti", ti_path)
         index = ti.identity_index(os.environ.get("RESUME_TEAM_DIR", ""), os.environ.get("RESUME_TRANSCRIPT", ""), sid)
         aid, _how = ti.agent_id_for_name(to, index)
-        if aid and tx.is_terminal_agent(aid):
+        if aid and tx.is_terminal_agent(aid, sid or None):
             out("TERMINAL", "teammate %s resolves exactly to agent id %s, which is terminal" % (to, aid))
     except Exception:
         pass

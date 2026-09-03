@@ -412,6 +412,55 @@ else
     bad "T54  state=$STATE registered=$(git -C "$ENTITY" worktree list --porcelain | grep -c "$Q16")"
 fi
 
+# --- 9d. TERMINAL REVOCATION SURVIVES A CRASH AFTER ANY OF ITS THREE WRITES -----
+# (review 2026-09-03, blocker 5). claim_terminal writes the transaction's
+# terminal record, then the agent-id index, then the name index. A crash
+# after any one of them must still read as terminal — from the transaction,
+# not the marker — and the next claim must repair whatever is missing.
+for point in tx index name; do
+    case "$point" in tx) A=aaaaaa000017; N=17 ;; index) A=aaaaaa000018; N=18 ;; name) A=aaaaaa000019; N=19 ;; esac
+    add_native "$ENTITY" "$A"
+    intent "$SID" "tu-$N" "{\"kind\":\"native\",\"teammate\":\"dev-opus-crash$N\",\"externals\":[]}"
+    T bind --session-id "$SID" --tool-use-id "tu-$N" --agent-id "$A" >/dev/null
+    T start --session-id "$SID" --agent-id "$A" --cwd "$ENTITY/.claude/worktrees/agent-$A" >/dev/null
+    T seal --session-id "$SID" --agent-id "$A" >/dev/null
+    RICHOS_TX_CRASH_AFTER="$point" T claim --session-id "$SID" --agent-id "$A" --ingress SubagentStop >/dev/null 2>&1; CRC=$?
+    IDX_BEFORE="$([ -f "$SANDBOX/tx/terminal/$A" ] && echo present || echo absent)"
+    NAME_BEFORE="$([ -f "$SANDBOX/tx/terminal-names/$SID/dev-opus-crash$N" ] && echo present || echo absent)"
+    TERM_BY_SID="$(T terminal-agent --agent-id "$A" --session-id "$SID" >/dev/null 2>&1 && echo yes || echo no)"
+    case "$point" in
+        tx)    WANT_IDX=absent;  WANT_NAME=absent ;;
+        index) WANT_IDX=present; WANT_NAME=absent ;;
+        name)  WANT_IDX=present; WANT_NAME=present ;;
+    esac
+    if [ "$CRC" -ne 0 ] && [ "$IDX_BEFORE" = "$WANT_IDX" ] && [ "$NAME_BEFORE" = "$WANT_NAME" ] && [ "$TERM_BY_SID" = "yes" ]; then
+        ok "T55-$point  crash after the '$point' write (rc $CRC; index $IDX_BEFORE, name index $NAME_BEFORE): the agent STILL reads as terminal from the transaction"
+    else
+        bad "T55-$point  rc=$CRC index=$IDX_BEFORE(want $WANT_IDX) name=$NAME_BEFORE(want $WANT_NAME) terminal=$TERM_BY_SID"
+    fi
+    # the exact lookup repaired the agent-id index on its way out; a later
+    # ingress (the losing claim) repairs the name index too
+    T claim --session-id "$SID" --agent-id "$A" --ingress WorktreeRemove >/dev/null 2>&1
+    if [ -f "$SANDBOX/tx/terminal/$A" ] && [ -f "$SANDBOX/tx/terminal-names/$SID/dev-opus-crash$N" ]; then
+        ok "T56-$point  ...and the next ingress repaired both indexes idempotently"
+    else
+        bad "T56-$point  index=$([ -f "$SANDBOX/tx/terminal/$A" ] && echo present || echo absent) name=$([ -f "$SANDBOX/tx/terminal-names/$SID/dev-opus-crash$N" ] && echo present || echo absent)"
+    fi
+done
+# without a session id the lookup consults every session's record for this EXACT agent id
+add_native "$ENTITY" aaaaaa000020
+intent "$SID" tu-20 '{"kind":"native","teammate":"dev-opus-crash20","externals":[]}'
+T bind --session-id "$SID" --tool-use-id tu-20 --agent-id aaaaaa000020 >/dev/null
+T start --session-id "$SID" --agent-id aaaaaa000020 --cwd "$ENTITY/.claude/worktrees/agent-aaaaaa000020" >/dev/null
+T seal --session-id "$SID" --agent-id aaaaaa000020 >/dev/null
+RICHOS_TX_CRASH_AFTER=tx T claim --session-id "$SID" --agent-id aaaaaa000020 --ingress SubagentStop >/dev/null 2>&1
+if [ ! -f "$SANDBOX/tx/terminal/aaaaaa000020" ] && T terminal-agent --agent-id aaaaaa000020 >/dev/null 2>&1 && [ -f "$SANDBOX/tx/terminal/aaaaaa000020" ]; then
+    ok "T57  with NO session id, a crash-orphaned terminal transaction is found by exact agent id and its index repaired"
+else
+    bad "T57  index=$([ -f "$SANDBOX/tx/terminal/aaaaaa000020" ] && echo present || echo absent)"
+fi
+T terminal-agent --agent-id aaaaaa000021 >/dev/null 2>&1 && bad "T58  an unknown agent id reads as terminal" || ok "T58  ...and an agent id with no record anywhere is NOT terminal (negative control)"
+
 # --- 10. reused teammate + branch names in a LATER session match nothing ------------
 SID2="22222222-0000-4000-8000-000000000002"
 EXT5="$SANDBOX/other-wt/echo-opus-e2-again"

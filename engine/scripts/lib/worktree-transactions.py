@@ -505,34 +505,112 @@ def try_seal(session_id, agent_id):
 # terminalization — the compare-and-set claim
 # --------------------------------------------------------------------------
 
+def _crash_point(name):
+    """TEST-ONLY crash injection (review 2026-09-03, blocker 5): with
+    RICHOS_TX_CRASH_AFTER=<name> the process dies — no cleanup, no further
+    writes — immediately after the named write. The three points in
+    claim_terminal are `tx`, `index` and `name`; worktree-transactions.test.sh
+    T55–T57 crash at each and prove the agent still reads as terminal and the
+    indexes are repaired by the next ingress or reconciler pass."""
+    if (os.environ.get("RICHOS_TX_CRASH_AFTER") or "") == name:
+        os._exit(137)
+
+
+def _repair_terminal_indexes(tx):
+    """The TRANSACTION is the source of truth for terminal state; the two
+    marker files are derived indexes the guards read in O(1). Any caller that
+    holds a terminal transaction repairs them, idempotently — a crash between
+    the transaction write and either index write (blocker 5) is healed by the
+    next claim, the next ingress, the next barrier evaluation that reaches the
+    transaction, or the next reconciler pass, whichever comes first."""
+    if not tx or not tx.get("terminal"):
+        return
+    sid = tx.get("session_id") or ""
+    aid = tx.get("agent_id") or ""
+    try:
+        p = terminal_index_path(aid)
+        if not os.path.isfile(p):
+            touch_marker(p, sid + "\n")
+    except ValueError:
+        pass
+    if tx.get("teammate") and sid:
+        try:
+            p = terminal_name_path(sid, tx["teammate"])
+            if not os.path.isfile(p):
+                touch_marker(p, aid + "\n")
+        except ValueError:
+            pass
+
+
 def claim_terminal(session_id, agent_id, ingress, detail=""):
     """(won, tx). Exactly one caller wins the claim on a sealed transaction;
     every later caller gets (False, tx) and resumes idempotently. An unsealed
-    or unknown agent is (False, None): nothing bound, nothing to terminalize."""
+    or unknown agent is (False, None): nothing bound, nothing to terminalize.
+
+    ORDER OF WRITES, AND WHY EACH IS SURVIVABLE: the transaction's terminal
+    record is written first and is the source of truth; the agent-id index and
+    the session-scoped name index follow. A crash after any of the three
+    leaves a transaction that reads as terminal from the transaction itself
+    (is_terminal_agent consults it when the index is absent), and every later
+    claim — including the losing ingress — repairs whichever index is missing."""
     with tx_lock(session_id, agent_id):
         tx = load_tx(session_id, agent_id)
         if not tx or not tx.get("sealed"):
             return False, None
         if tx.get("terminal"):
+            _repair_terminal_indexes(tx)
             return False, tx
         tx["terminal"] = {"ingress": ingress, "detail": detail, "ts": now_iso()}
         tx["state"] = "terminal"
         atomic_write_json(tx_path(session_id, agent_id), tx)
+        _crash_point("tx")
         # The two indexes the resume guard and the barrier read in O(1).
         touch_marker(terminal_index_path(agent_id), session_id + "\n")
+        _crash_point("index")
         if tx.get("teammate"):
             try:
                 touch_marker(terminal_name_path(session_id, tx["teammate"]), agent_id + "\n")
             except ValueError:
                 pass
+        _crash_point("name")
         return True, tx
 
 
-def is_terminal_agent(agent_id):
+def is_terminal_agent(agent_id, session_id=None):
+    """Terminal by the index (O(1)), OR by the transaction itself when the
+    index is absent or was never written (blocker 5). With a session id the
+    lookup is exact; without one, every session's record for this EXACT agent
+    id is consulted — an agent id is the platform's own identity, never a name.
+    A transaction found terminal repairs its indexes on the way out."""
     try:
-        return os.path.isfile(terminal_index_path(agent_id))
+        if os.path.isfile(terminal_index_path(agent_id)):
+            return True
     except ValueError:
         return False
+    candidates = []
+    if session_id:
+        try:
+            candidates.append(tx_path(session_id, agent_id))
+        except ValueError:
+            return False
+    else:
+        try:
+            sessions = os.listdir(tx_root())
+        except OSError:
+            sessions = []
+        for s in sessions:
+            if s in ("terminal", "terminal-names"):
+                continue
+            try:
+                candidates.append(tx_path(s, agent_id))
+            except ValueError:
+                continue
+    for p in candidates:
+        tx = read_json(p)
+        if tx and tx.get("record") == "transaction" and tx.get("terminal"):
+            _repair_terminal_indexes(tx)
+            return True
+    return False
 
 
 def is_terminal_name(session_id, teammate):
@@ -712,6 +790,7 @@ def terminalize(session_id, agent_id, first_path=None):
     tx = load_tx(session_id, agent_id)
     if not tx or not tx.get("terminal"):
         return tx
+    _repair_terminal_indexes(tx)
     order = list(range(len(tx["members"])))
     first = norm_path(first_path) if first_path else ""
 
@@ -832,6 +911,7 @@ def _main(argv):
 
     p = sub.add_parser("terminal-agent")
     p.add_argument("--agent-id", required=True)
+    p.add_argument("--session-id", default="")
 
     p = sub.add_parser("terminal-name")
     p.add_argument("--session-id", required=True)
@@ -878,7 +958,7 @@ def _main(argv):
         print(json.dumps({"claimed": won, "transaction": tx}, sort_keys=True))
         return 0 if won else 2
     if a.cmd == "terminal-agent":
-        return 0 if is_terminal_agent(a.agent_id) else 1
+        return 0 if is_terminal_agent(a.agent_id, a.session_id or None) else 1
     if a.cmd == "terminal-name":
         return 0 if is_terminal_name(a.session_id, a.teammate) else 1
     if a.cmd == "by-native-path":

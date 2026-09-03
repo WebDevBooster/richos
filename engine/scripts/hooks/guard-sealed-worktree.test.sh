@@ -176,6 +176,17 @@ rm -rf "$NOLIB"
 run "$(payload Write "$UNSEALED_AID")"
 [ "$RC" -eq 2 ] && ok "G19  ...while an UNSEALED manifest with the guard healthy is still REFUSED (fail-closed) — different failure, different exit" || bad "G19  rc=$RC"
 
+# G22 a crash after the transaction's terminal write but BEFORE the index
+# write (blocker 5): the barrier must read terminal from the transaction.
+CRASH_AID="a00000000000cra1"
+seal_agent "$CRASH_AID" dev-opus-crash
+RICHOS_TX_CRASH_AFTER=tx T claim --session-id "$SID" --agent-id "$CRASH_AID" --ingress SubagentStop >/dev/null 2>&1
+[ ! -f "$SANDBOX/tx/terminal/$CRASH_AID" ] || bad "G22-setup  the crash point did not fire (index present)"
+run "$(payload Write "$CRASH_AID")"
+[ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q 'REFUSED (terminal agent)' \
+    && ok "G22  a terminal transaction whose index write never happened is still REFUSED as terminal (the transaction is the truth)" || bad "G22  crash-orphaned terminal rc=$RC: ${OUT:0:160}"
+[ -f "$SANDBOX/tx/terminal/$CRASH_AID" ] && ok "G23  ...and the barrier's exact lookup repaired the index on its way out" || bad "G23  index not repaired"
+
 # G20 not-adopted repository: stand down
 NOADOPT="$(mktemp -d -t sealed-noadopt.XXXXXX)"
 OUT="$(cd "$NOADOPT" && printf '%s' "$(payload Write "$UNSEALED_AID")" | RICHOS_ENTITY_ROOT="" CLAUDE_PROJECT_DIR="$NOADOPT" "$HOOK" 2>&1)"; RC=$?

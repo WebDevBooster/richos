@@ -307,6 +307,25 @@ version heading with Added / Changed / Fixed groupings.
   written on the member, and the step retried by the next run (reported
   once after the soft-attempt ceiling, like any other retryable failure).
 
+- **Terminal revocation was not crash-consistent: the transaction and its
+  two derived indexes were three writes, and only the indexes were read**
+  (`scripts/lib/worktree-transactions.py` `claim_terminal`,
+  `is_terminal_agent`, `_repair_terminal_indexes`, `RICHOS_TX_CRASH_AFTER`;
+  `guard-sealed-worktree.sh`, `guard-resume-isolation.sh`,
+  `reconcile-terminal-worktrees.py`; `worktree-transactions.test.sh`
+  T55–T58, `guard-sealed-worktree.test.sh` G22–G23, mutants
+  `terminal-index-is-truth`, `loser-does-not-repair`,
+  `terminal-from-index-only`) — PATCH, review 2026-09-03 blocker 5. A crash
+  after the transaction's terminal write but before either index left a
+  terminal worker that every guard read as live. The transaction is now the
+  source of truth: `is_terminal_agent(agent_id, session_id)` consults it
+  when the index is absent (exact session, or every session's record for the
+  exact agent id when no session is known) and repairs the index on the way
+  out; every claim (winner and loser), every terminalize, the barrier's
+  sealed path and every reconciler pass repair the derived indexes
+  idempotently; and a test-only crash point after each of the three writes
+  proves each is survivable.
+
 - **Native evidence could be deleted before quarantine: the terminal ingress
   saved every repository's backup ref before renaming anything**
   (`scripts/lib/worktree-transactions.py` `terminalize`;

@@ -55,6 +55,11 @@ mutant terminal-not-refused "G15" "$G" \
     'if False:{NL}    out("TERMINAL",' \
     "a resumed terminal agent whose manifest is still sealed would write into a quarantine or a removed path."
 
+mutant terminal-from-index-only "G22" "$G" \
+    'if tx.is_terminal_agent(aid, sid):' \
+    'if os.path.isfile(tx.terminal_index_path(aid)):' \
+    "the barrier would trust the marker file alone; a crash between the transaction's terminal write and the index write leaves a terminal worker able to write (review 2026-09-03, blocker 5)."
+
 mutant no-wait "G10" "$G" \
     '    if time.time() >= deadline:{NL}        break{NL}    time.sleep(0.25)' \
     '    break' \

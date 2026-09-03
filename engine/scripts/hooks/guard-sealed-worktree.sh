@@ -150,7 +150,12 @@ if bare and bare in exempt:
 spec = importlib.util.spec_from_file_location("tx", os.environ["TX_PY"])
 tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
 
-if tx.is_terminal_agent(aid):
+# Terminal by the index OR by the transaction itself: a crash between the
+# terminal write of the transaction and the index write (blocker 5) must
+# still read as terminal here, and the exact (session, agent) lookup repairs
+# the index on the way. (No apostrophes in these comments: they sit inside
+# a command substitution, and bash pairs quotes across a heredoc there.)
+if tx.is_terminal_agent(aid, sid):
     out("TERMINAL", "agent %s is terminal: its worktrees are quarantined or removed and it is forbidden to return" % aid)
 
 readonly_tools = set((os.environ.get("SEAL_READONLY_TOOLS") or "").split())
@@ -162,6 +167,11 @@ while True:
     except Exception as e:
         out("ERROR", "try_seal raised: %s" % e)
     if sealed:
+        # The sealed transaction is re-read for a terminal record: sealing
+        # may itself have terminalized it (a pending terminal event), or the
+        # claim may have landed between the check above and this seal.
+        if isinstance(res, dict) and res.get("terminal"):
+            out("TERMINAL", "agent %s is terminal (from the transaction record): forbidden to return" % aid)
         out("SEALED", "")
     reason = res
     if time.time() >= deadline:

@@ -560,7 +560,14 @@ def run(max_seconds=None, only=None):
     deadline = time.time() + max_seconds if max_seconds else None
     n = 0
     for t in list(tx.iter_transactions()):
-        if not t.get("terminal") or t.get("state") == "removed":
+        if not t.get("terminal"):
+            continue
+        # The derived terminal indexes are repaired on EVERY pass, for every
+        # terminal transaction including removed ones: a crash between the
+        # transaction write and an index write (blocker 5) must not leave a
+        # guard reading "live" from a marker that was never written.
+        tx._repair_terminal_indexes(t)
+        if t.get("state") == "removed":
             continue
         if only and "%s/%s" % (t["session_id"], t["agent_id"]) != only:
             continue
