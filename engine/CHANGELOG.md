@@ -12,6 +12,35 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Terminal authority is exact, every failure retries or closes on its own,
+  and nothing is called live unexamined** (`terminalize-agent-worktrees.sh`,
+  `scripts/lib/worktree-transactions.py`, `scripts/reconcile-terminal-worktrees.py`,
+  `guard-sealed-worktree.sh`, `guard-worktree-isolation.sh` clause 7f,
+  `teammate-idle-handoff.sh`; `docs/worktree-lifecycle-transactions.md`) —
+  MINOR, closing the six blockers of the 2026-09-03 landed review and the
+  terminal-authority defect measured the same day.
+
+  A successful `TaskStop` is a terminal ingress joined on the task id its
+  RESULT returned (the request carried a reusable name); `SubagentStop`
+  claims only when its own agent id is the ownership id — nested and helper
+  agents stop inside a live parent's cwd, so a cwd is never promoted to
+  ownership; the reconciler claims a sealed transaction whose exact native
+  member the platform tore down (`NativeMemberGone`) and retires its
+  hand-rolled members; `TeammateIdle` is measured before it is armed (the idle
+  hook records each payload's shape; no authority until a field proves an
+  exact join). A start-only exact native worktree is retired after the grace
+  period and a terminal event with no member becomes a tombstone, never
+  nothing. No member state waits for a person: transient failures retry with
+  persistent backoff (`RECONCILE_RETRY_BACKOFF_SECONDS` /
+  `RECONCILE_RETRY_BACKOFF_MAX_SECONDS`), and both-present, vanished, drifted
+  HEAD, unreadable git, lost backup ref and legacy `failed` records each have
+  an automatic archive-and-close policy. A backup ref is expired only after
+  the exact ref is verified gone; the write barrier decides terminal before
+  the agent-type exemption; a failed directory fsync raises (EINVAL on a
+  directory is the one named exception); `sealed_live` is split into what was
+  verified and `--status` is not done over a missing native member; a cwd-only
+  file-writing spawn is refused until its terminal signal is measured.
+
 - **Teammate worktrees are bound to the platform agent id at spawn and
   terminalized at the first terminal event; no sweep decides liveness any
   more** (`scripts/lib/worktree-transactions.py`,
