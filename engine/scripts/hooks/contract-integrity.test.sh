@@ -316,6 +316,20 @@ ALL_ROOT_SCRIPTS=(
     # capability tier is checked by nobody. Layer MT fails loudly when it is
     # absent, which is how a sandbox missing it stops looking healthy.
     scripts/lib/model-tiers.sh
+    # The worktree transaction store and the ledger it sits beside. Carried
+    # for the DECIDING reason: guard-worktree-isolation.sh REFUSES every
+    # file-capable spawn without the transaction library (clause 7c), and the
+    # binder in detect-nonnative-worktree.sh announces a binding failure
+    # without it. A sandbox missing them models an engine in which no spawn
+    # can be bound — every spawn-shaped canary would go red for a reason that
+    # has nothing to do with the property it tests.
+    scripts/lib/worktree-transactions.py
+    scripts/lib/worktree-ledger.py
+    scripts/lib/agent-liveness.py
+    # The reconciler: Layer Q's recovery arm runs it through the wrapper, and
+    # install.sh mints its sidecar. A sandbox without it models an engine whose
+    # session start recovers nothing.
+    scripts/reconcile-terminal-worktrees.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
@@ -1508,7 +1522,7 @@ emit_case "40.definition-drift-guard-suite-passes" 0 "$rc"
 ROOT="$(make_sandbox)"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "41.reaper-chain-intact-probe-rc-0" 0 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. worktree-reaper chain wired exactly once'; then
+if printf '%s' "$PROBE_OUT" | grep -qF 'Q. worktree lifecycle at session start'; then
     PASS=$((PASS+1)); printf '  PASS  41b.layer-Q-pass-line-present\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("41b.layer-Q-pass-line-present"); printf '  FAIL  41b.layer-Q-pass-line-present  (got: %s)\n' "$PROBE_OUT"
@@ -1559,16 +1573,17 @@ ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/reap-stale-worktrees.sh.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "44b.reaper-sidecar-missing-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. reaper manifest missing'; then
+if printf '%s' "$PROBE_OUT" | grep -qF 'Q. inventory manifest missing'; then
     PASS=$((PASS+1)); printf '  PASS  44c.layer-Q-names-the-missing-manifest\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("44c.layer-Q-names-the-missing-manifest"); printf '  FAIL  44c.layer-Q-names-the-missing-manifest\n'
 fi
 rm -rf "$ROOT"
 
-# Case 45 — reaper GUTTED into a no-op that still prints a plausible summary,
-# with its sidecar refreshed to match: only the sweep canary can catch it. This
-# is the silent regression that recreates the stale-worktree backlog.
+# Case 45 — the inventory GUTTED into a no-op that still prints a plausible
+# summary, with its sidecar refreshed to match. It removes nothing (correct now)
+# but reports no denominator: the session would open blind to every worktree
+# nothing owns, which is the "reaped=1 residue=0" false green again.
 ROOT="$(make_sandbox)"
 cat > "$ROOT/scripts/reap-stale-worktrees.sh" <<'GUTTED'
 #!/usr/bin/env bash
@@ -1579,17 +1594,17 @@ chmod +x "$ROOT/scripts/reap-stale-worktrees.sh"
 shasum -a 256 "$ROOT/scripts/reap-stale-worktrees.sh" | awk '{print $1}' > "$ROOT/scripts/reap-stale-worktrees.sh.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "45.reaper-gutted-fails-layerQ-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'did NOT remove a merged, clean, unlocked sandbox worktree'; then
+if printf '%s' "$PROBE_OUT" | grep -qF 'the inventory reported no coverage line'; then
     PASS=$((PASS+1)); printf '  PASS  45b.layer-Q-names-the-gutted-sweep\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("45b.layer-Q-names-the-gutted-sweep"); printf '  FAIL  45b.layer-Q-names-the-gutted-sweep\n'
 fi
 rm -rf "$ROOT"
 
-# Case 45c — reaper turned into an OVER-REACHING remover that force-removes
-# every agent worktree (sidecar refreshed) and reports a plausible summary. The
-# sweep canary alone would pass it; only the protective canary catches the data
-# loss. ("Negative tests need a positive probe" — and vice versa.)
+# Case 45c — the inventory turned into an OVER-REACHING remover that
+# force-removes every agent worktree whatever its arguments (sidecar
+# refreshed). The wrapper never passes --execute, and Q3's first arm is what
+# catches a script that deletes anyway.
 ROOT="$(make_sandbox)"
 cat > "$ROOT/scripts/reap-stale-worktrees.sh" <<'OVERREACH'
 #!/usr/bin/env bash
@@ -1605,7 +1620,7 @@ chmod +x "$ROOT/scripts/reap-stale-worktrees.sh"
 shasum -a 256 "$ROOT/scripts/reap-stale-worktrees.sh" | awk '{print $1}' > "$ROOT/scripts/reap-stale-worktrees.sh.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
 emit_case "45c.reaper-overreaches-fails-layerQ-canary" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'REMOVED a sandbox worktree carrying uncommitted work'; then
+if printf '%s' "$PROBE_OUT" | grep -qF 'REMOVED a merged, clean, unlocked native worktree'; then
     PASS=$((PASS+1)); printf '  PASS  45d.layer-Q-names-the-destroyed-work\n'
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("45d.layer-Q-names-the-destroyed-work"); printf '  FAIL  45d.layer-Q-names-the-destroyed-work\n'
@@ -1633,12 +1648,12 @@ rm -rf "$ROOT"
 # the one managed script that does not live under scripts/hooks/.
 ROOT="$(make_sandbox)"
 rm -f "$ROOT/scripts/hooks/session-start-reap-worktrees.sh.sha256" \
-      "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh.sha256" \
+      "$ROOT/scripts/reconcile-terminal-worktrees.py.sha256" \
       "$ROOT/scripts/reap-stale-worktrees.sh.sha256"
 "$ROOT/scripts/hooks/install.sh" >/dev/null
 MINTED=1
 for f in "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" \
-         "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh" \
+         "$ROOT/scripts/reconcile-terminal-worktrees.py" \
          "$ROOT/scripts/reap-stale-worktrees.sh"; do
     [ -f "$f.sha256" ] || MINTED=0
     [ "$(shasum -a 256 "$f" | awk '{print $1}')" = "$(awk 'NR==1{print $1}' "$f.sha256" 2>/dev/null)" ] || MINTED=0
@@ -1654,7 +1669,7 @@ rm -rf "$ROOT"
 
 # Case 48 — the wrapper's OWN behavioral suite (reap/skip gates, fail-open,
 # JSON shape, idempotence) passes against the live scripts.
-set +e; "$SCRIPT_DIR/session-start-reap-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/session-start-reap-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "48.reaper-wrapper-suite-passes" 0 "$rc"
 
 # ---------------------------------------------------------------------------
@@ -1672,50 +1687,77 @@ emit_case "48.reaper-wrapper-suite-passes" 0 "$rc"
 # trigger becomes a corpse, and when it stops sparing a live agent's worktree.
 # ---------------------------------------------------------------------------
 
-# Case 49 — the agent-finish trigger unregistered from BOTH its events. Nothing
-# else looks at those stanzas. Without it the chain still runs and still
-# reports, and can never decide a hand-rolled worktree at all, because the
-# owner's isolation worktree — the only liveness evidence a lockless tree has —
-# is gone by the time a session start comes around.
+# Case 49 — the RETIRED agent-finish trigger wired back onto its two events.
+# Until 2026-09-03 this case asserted the opposite (unregistered -> fail). The
+# sweep it triggered decided liveness from evidence that was never per-agent,
+# and the ruling retired it: TeammateIdle and TaskCompleted are diagnostic
+# only. A stanza that brings the sweep back is the defect now, and Q1b names it.
 ROOT="$(make_sandbox)"
+cat > "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh" <<'REVIVED'
+#!/usr/bin/env bash
+exit 0
+REVIVED
+chmod +x "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh"
 python3 - "$ROOT/hooks/hooks.json" <<'PY'
 import json, sys
 p = sys.argv[1]
 with open(p) as f: d = json.load(f)
 for ev in ("TeammateIdle", "TaskCompleted"):
-    for entry in d["hooks"].get(ev, []):
-        entry["hooks"] = [h for h in entry.get("hooks", [])
-                          if "agent-finished-reap-worktrees" not in h.get("command", "")]
+    d["hooks"].setdefault(ev, []).append({"hooks": [{"type": "command",
+        "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/agent-finished-reap-worktrees.sh", "timeout": 60}]})
 with open(p, "w") as f: json.dump(d, f, indent=2)
 PY
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
-emit_case "49.agent-finish-trigger-unregistered-fails-layerQ" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'wired 0x on TeammateIdle and 0x on TaskCompleted'; then
-    PASS=$((PASS+1)); printf '  PASS  49b.layer-Q-names-the-missing-agent-finish-trigger\n'
+emit_case "49.agent-finish-trigger-revived-fails-layerQ" 2 "$rc"
+if printf '%s' "$PROBE_OUT" | grep -qF 'wired 1x on TeammateIdle and 1x on TaskCompleted'; then
+    PASS=$((PASS+1)); printf '  PASS  49b.layer-Q-names-the-revived-agent-finish-trigger\n'
 else
-    FAIL=$((FAIL+1)); FAIL_NAMES+=("49b.layer-Q-names-the-missing-agent-finish-trigger"); printf '  FAIL  49b.layer-Q-names-the-missing-agent-finish-trigger\n'
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("49b.layer-Q-names-the-revived-agent-finish-trigger"); printf '  FAIL  49b.layer-Q-names-the-revived-agent-finish-trigger\n'
 fi
 rm -rf "$ROOT"
 
-# Case 50 — the agent-finish wrapper GUTTED into a registered no-op, sidecar
-# refreshed. Case 49 proves the registration is checked; a registration is not
-# a sweep, and "wired, hashed and doing nothing" is the exact shape that kept
-# Layer K green over a scanner that never ran.
+# Case 50 — the session-start wrapper passes --execute again (the old sweep,
+# back). Q3's first arm must go red: a merged, clean, unlocked native worktree
+# was removed at session start.
 ROOT="$(make_sandbox)"
-cat > "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh" <<'GUTTEDFINISH'
-#!/usr/bin/env bash
-# gutted: resolves everything, sweeps nothing, exits 0 forever
-exit 0
-GUTTEDFINISH
-chmod +x "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh"
-shasum -a 256 "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh" | awk '{print $1}' \
-    > "$ROOT/scripts/hooks/agent-finished-reap-worktrees.sh.sha256"
+python3 - "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" <<'PY'
+import sys
+p = sys.argv[1]
+src = open(p).read()
+old = 'RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" $DISCOVER_ARGS 2>&1)" || true'
+assert old in src, "wrapper source drifted"
+open(p, "w").write(src.replace(old, 'RAW_OUTPUT="$("$REAPER" "$SWEEP_ROOT" --execute --unlock-stale $DISCOVER_ARGS 2>&1)" || true'))
+PY
+shasum -a 256 "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" | awk '{print $1}' \
+    > "$ROOT/scripts/hooks/session-start-reap-worktrees.sh.sha256"
 set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
-emit_case "50.agent-finish-trigger-gutted-fails-layerQ5" 2 "$rc"
-if printf '%s' "$PROBE_OUT" | grep -qF 'it is registered and sweeps nothing'; then
-    PASS=$((PASS+1)); printf '  PASS  50b.layer-Q5-names-the-registered-corpse\n'
+emit_case "50.wrapper-with-execute-fails-layerQ" 2 "$rc"
+if printf '%s' "$PROBE_OUT" | grep -qF 'REMOVED a merged, clean, unlocked native worktree'; then
+    PASS=$((PASS+1)); printf '  PASS  50b.layer-Q-names-the-revived-sweep\n'
 else
-    FAIL=$((FAIL+1)); FAIL_NAMES+=("50b.layer-Q5-names-the-registered-corpse"); printf '  FAIL  50b.layer-Q5-names-the-registered-corpse\n'
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("50b.layer-Q-names-the-revived-sweep"); printf '  FAIL  50b.layer-Q-names-the-revived-sweep\n'
+fi
+rm -rf "$ROOT"
+
+# Case 50c — the wrapper runs NO reconciler (crash recovery gutted). Q3's
+# second arm must go red: the quarantined transaction is not completed.
+ROOT="$(make_sandbox)"
+python3 - "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" <<'PY'
+import sys
+p = sys.argv[1]
+src = open(p).read()
+old = 'RECONCILE_RAW="$(python3 "$RECONCILER" --max-seconds "$SESSION_START_RECONCILE_BUDGET" 2>&1)" || true'
+assert old in src, "wrapper source drifted"
+open(p, "w").write(src.replace(old, 'RECONCILE_RAW="{\"reconciled\": 0, \"status\": {\"done\": true, \"definition_of_done\": {}}}"'))
+PY
+shasum -a 256 "$ROOT/scripts/hooks/session-start-reap-worktrees.sh" | awk '{print $1}' \
+    > "$ROOT/scripts/hooks/session-start-reap-worktrees.sh.sha256"
+set +e; PROBE_OUT="$(run_probe_in "$ROOT")"; rc=$?; set -e
+emit_case "50c.wrapper-without-reconciler-fails-layerQ" 2 "$rc"
+if printf '%s' "$PROBE_OUT" | grep -qF 'did NOT recover a terminal transaction'; then
+    PASS=$((PASS+1)); printf '  PASS  50d.layer-Q-names-the-gutted-recovery\n'
+else
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("50d.layer-Q-names-the-gutted-recovery"); printf '  FAIL  50d.layer-Q-names-the-gutted-recovery\n'
 fi
 rm -rf "$ROOT"
 
@@ -1741,10 +1783,58 @@ if printf '%s' "$PROBE_OUT" | grep -qF "a LIVE agent's hand-rolled worktree was 
 else
     FAIL=$((FAIL+1)); FAIL_NAMES+=("51b.layer-Q4-names-the-live-worktree-selected"); printf '  FAIL  51b.layer-Q4-names-the-live-worktree-selected\n'
 fi
-if printf '%s' "$PROBE_OUT" | grep -qF 'Q. worktree-reaper chain wired exactly once'; then
-    PASS=$((PASS+1)); printf '  PASS  51c.original-layer-Q-canary-stays-GREEN-over-the-same-defect\n'
+# 51c — the blindness canary, REBUILT rather than retargeted. The reasoning is
+# here rather than in a handoff, because "the canary went red so I changed the
+# canary" is precisely the move that makes a rewrite look clean while losing
+# coverage.
+#
+# WHAT 51c ASSERTS, AND ALWAYS HAS: this mutation is invisible to every arm of
+# the probe EXCEPT Q4. It is a BLINDNESS canary, not a detection canary — its
+# entire point is that the top-level Layer Q arm stays GREEN over a defect only
+# the scope/safety canary can see. Q4 exists because Layer Q alone could not
+# see it. Nothing about that property is obsolete.
+#
+# WHY THE OLD NEEDLE CANNOT MATCH ANY MORE. It quoted the original pass label
+# verbatim:
+#
+#   contract-integrity-probe.sh:3066 @ main (b284013)
+#     "Q. worktree-reaper chain wired exactly once (SessionStart wrapper +
+#      reap-stale-worktrees.sh) + reaps a merged/clean tree (reaped=1) +
+#      REFUSES a dirty one (skipped=1) - path-confined, manifest-matched"
+#
+# That label certifies a session-start sweep that REMOVES worktrees. The
+# 2026-09-03 design revokes that authority outright ("Remove from destructive
+# authority", "SessionStart is not the normal scheduler"), so the behavior the
+# old label certified is now itself a probe FAILURE:
+#
+#   contract-integrity-probe.sh:3086 (this branch)
+#     "the session-start wrapper REMOVED a merged, clean, unlocked native
+#      worktree - the old liveness-inferring sweep is back with --execute"
+#
+# The needle's SUBJECT is eliminated by design, so that string can never be
+# emitted again by a correct engine. The PROPERTY is re-expressed below against
+# what the arm is now called (contract-integrity-probe.sh:3104).
+#
+# AND IT IS RE-EXPRESSED STRICTLY STRONGER, so a rename can never satisfy it
+# again: the top arm must be GREEN *and* Q4 must be the ONLY red line in the
+# whole probe output. A future relabel that quietly drops the arm turns this
+# red, and so does any second layer starting to fire on this mutation.
+# Measured over this mutation on this branch: 23 green, exactly 1 red, Q4's.
+Q_TOP_GREEN=0
+if printf '%s\n' "$PROBE_OUT" | grep -F $'\xe2\x9c\x93' | grep -qF 'Q. worktree lifecycle at session start'; then
+    Q_TOP_GREEN=1
+fi
+Q_REDS="$(printf '%s\n' "$PROBE_OUT" | grep -cF $'\xe2\x9c\x97' || true)"
+Q_ONLY_Q4=0
+if [ "$Q_REDS" = "1" ] && printf '%s\n' "$PROBE_OUT" | grep -F $'\xe2\x9c\x97' | grep -qF 'Q4. reaper SCOPE/SAFETY canary FAILED'; then
+    Q_ONLY_Q4=1
+fi
+if [ "$Q_TOP_GREEN" = "1" ] && [ "$Q_ONLY_Q4" = "1" ]; then
+    PASS=$((PASS+1)); printf '  PASS  51c.layer-Q-top-arm-stays-GREEN-and-Q4-is-the-ONLY-red\n'
 else
-    FAIL=$((FAIL+1)); FAIL_NAMES+=("51c.original-layer-Q-canary-stays-GREEN-over-the-same-defect"); printf '  FAIL  51c.original-layer-Q-canary-stays-GREEN-over-the-same-defect\n'
+    FAIL=$((FAIL+1)); FAIL_NAMES+=("51c.layer-Q-top-arm-stays-GREEN-and-Q4-is-the-ONLY-red")
+    printf '  FAIL  51c.layer-Q-top-arm-stays-GREEN-and-Q4-is-the-ONLY-red  (top-arm-green=%s red-lines=%s only-red-is-Q4=%s)\n' \
+        "$Q_TOP_GREEN" "$Q_REDS" "$Q_ONLY_Q4"
 fi
 rm -rf "$ROOT"
 
@@ -1773,12 +1863,12 @@ rm -rf "$ROOT"
 # Case 53 — the reaper's OWN scope/safety suite (discovery, the owner-liveness
 # rule including the absence case, report-only repositories, the ledger, the
 # container rule) passes against the live scripts.
-set +e; "$SCRIPT_DIR/../reap-stale-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../reap-stale-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
 emit_case "53.reaper-scope-and-safety-suite-passes" 0 "$rc"
 
-# Case 54 — the agent-finish wrapper's OWN behavioral suite passes.
-set +e; "$SCRIPT_DIR/agent-finished-reap-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
-emit_case "54.agent-finish-wrapper-suite-passes" 0 "$rc"
+# Case 54 — the reconciler's OWN behavioral suite passes against the live scripts.
+set +e; RICHOS_MUTATION_INNER=1 "$SCRIPT_DIR/../reconcile-terminal-worktrees.test.sh" >/dev/null 2>&1; rc=$?; set -e
+emit_case "54.reconciler-suite-passes" 0 "$rc"
 
 # ---------------------------------------------------------------------------
 # Layer S — the worktree-removal PAIR (guard + sanctioned helper)

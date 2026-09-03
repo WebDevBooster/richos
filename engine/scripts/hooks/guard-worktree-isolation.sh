@@ -887,4 +887,201 @@ PY
   # unchanged and still runs first, at spawn time.
 fi
 
+# ---------------------------------------------------------------------------
+# CLAUSE 7 — THE SPAWN-INTENT (2026-09-03). Every clause above is satisfied;
+# before this call may run, its EXACT proposed member set is written durably,
+# keyed by (session_id, tool_use_id), for the PostToolUse binder to bind to the
+# agent id the harness returns. Specification: docs/plans/worktree-real-fix-
+# 2026-09-03.md, phase 2. What is recorded, and what is refused:
+#   7a. every external path (a `cwd`, every `cross-repo-worktree:` line) must
+#       have a PREPARED record for THIS session and THIS teammate, written by
+#       scripts/create-teammate-worktree.sh — clause 4 asked "is it a
+#       registered worktree?"; this asks "was it prepared for exactly this
+#       spawn?" — and the repository and branch must STILL match that record;
+#   7b. a file-capable Agent call with run_in_background: false is refused: a
+#       synchronous run's PostToolUse arrives after the worker has finished,
+#       too late to establish ownership of anything it wrote;
+#   7c. the lifecycle components the intent depends on must be present — the
+#       transaction library, the binder's start-fact recorder and the write
+#       barrier — or the spawn is refused: an intent nothing can bind or
+#       enforce is the best-effort registration this replaces;
+#   7d. the intent write itself must succeed (temp file, fsync, rename).
+# The intent authorizes nothing. It may remain on disk if a later hook in this
+# chain vetoes the call; nothing reads it until an Agent result binds it.
+# ---------------------------------------------------------------------------
+if [ "$MAIN_CHECKOUT_MARKER" != "" ] && [ -z "$SPAWN_CWD" ] && [ "$ISOLATION" != "worktree" ] && [ "$ISOLATION" != "remote" ]; then
+  INTENT_KIND="main-checkout-run"
+elif [ "$ISOLATION" = "remote" ]; then
+  INTENT_KIND="remote"
+elif [ -n "$SPAWN_CWD" ]; then
+  INTENT_KIND="cwd"
+else
+  INTENT_KIND="native"
+fi
+INTENT_EXTERNALS=""
+if [ -n "$SPAWN_CWD" ]; then
+  INTENT_EXTERNALS="$SPAWN_CWD"
+fi
+while IFS= read -r _marker_path; do
+  [ -n "$_marker_path" ] || continue
+  INTENT_EXTERNALS="${INTENT_EXTERNALS}${INTENT_EXTERNALS:+
+}$_marker_path"
+done <<MARKERS_EOF
+$(printf '%s' "$PROMPT" | sed -n -E 's/^[[:space:]]*cross-repo-worktree:[[:space:]]*([^[:space:]]+).*$/\1/p')
+MARKERS_EOF
+if [ "$INTENT_KIND" = "native" ] && [ -n "$INTENT_EXTERNALS" ]; then
+  INTENT_KIND="native+external"
+fi
+
+C7_PROBLEMS=()
+for _c in "scripts/lib/worktree-transactions.py" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
+  [ -f "$SCRIPT_DIR/../../$_c" ] || C7_PROBLEMS+=("lifecycle component MISSING: $_c — without it this spawn's worktrees could be recorded but never bound, sealed, barred or cleaned up. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+done
+# 7c, continued (review 2026-09-03, blocker 3): PRESENT is not ENOUGH. The
+# write barrier now fails CLOSED on its own error — a library that does not
+# load, a barrier that cannot run — so a worker spawned into a broken engine
+# would be refused every write from its first call. The spawn is refused at
+# the door instead, naming the dependency, which is the safe degradation the
+# review asked for: a broken engine stops new workers rather than leaking
+# unowned writes or bricking running ones.
+_c7_lib_loads() { # <path>
+  python3 - "$1" <<'PY' >/dev/null 2>&1
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+for fn in ("write_intent", "bind", "record_start", "try_seal", "claim_terminal", "terminalize", "is_terminal_agent", "record_pending_terminal"):
+    getattr(m, fn)
+PY
+}
+if [ -f "$SCRIPT_DIR/../lib/worktree-transactions.py" ] && ! _c7_lib_loads "$SCRIPT_DIR/../lib/worktree-transactions.py"; then
+  C7_PROBLEMS+=("lifecycle component BROKEN: scripts/lib/worktree-transactions.py does not load or lacks a required function. The write barrier (guard-sealed-worktree.sh) fails CLOSED on it, so a worker spawned now could never write. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+fi
+for _c in "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
+  if [ -f "$SCRIPT_DIR/../../$_c" ] && [ ! -x "$SCRIPT_DIR/../../$_c" ]; then
+    C7_PROBLEMS+=("lifecycle component NOT EXECUTABLE: $_c — the harness cannot run it, so this spawn could never be sealed, barred or terminalized. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+  fi
+done
+# 7e. THE PERSISTENT RECONCILER CONTRACT MUST BE HEALTHY (review 2026-09-03,
+#     blocker 7). A worker's worktrees are removed by the reconciler under
+#     launchd, and by nothing else; a machine where that job is not loaded
+#     leaks every terminal worktree until somebody notices. So on macOS a
+#     file-writing spawn is refused unless `launchctl print` shows the job
+#     loaded and naming a reconciler that exists on disk — and the refusal
+#     names the one command that fixes it. The check is skipped when the
+#     transaction store is redirected (RICHOS_WORKTREE_TX_DIR: a sandboxed
+#     store has no machine-wide contract to be healthy — every suite and probe
+#     canary sets it) unless RICHOS_RECONCILER_CONTRACT_CHECK=1 asks for it
+#     with a shimmed launchctl. Non-macOS hosts have no launchd and stand down
+#     with a note: the contract there is the host scheduler, which this guard
+#     cannot see.
+if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHECK:-}" = "1" ]; } && [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+  _C7E_LABEL="com.richos.worktree-reconciler"
+  _C7E_FIX="run $ENGINE_ROOT/scripts/hooks/install.sh from the engine's MAIN checkout (it bootstraps and verifies the job; it exits 1 if it cannot)"
+  if ! command -v launchctl >/dev/null 2>&1; then
+    C7_PROBLEMS+=("the persistent reconciler contract cannot be checked: launchctl is not on PATH — $_C7E_FIX.")
+  elif ! _C7E_PRINT="$(launchctl print "gui/$(id -u)/$_C7E_LABEL" 2>&1)"; then
+    C7_PROBLEMS+=("the persistent reconciler is NOT LOADED under launchd (gui/$(id -u)/$_C7E_LABEL): $(printf '%s' "$_C7E_PRINT" | tr '\n' ' ' | cut -c1-120). Every terminal worktree would leak until a session start happened to recover it — $_C7E_FIX.")
+  else
+    _C7E_PROG="$(printf '%s\n' "$_C7E_PRINT" | grep -o '[^[:space:]"]*reconcile-terminal-worktrees\.py' | head -1 || true)"
+    if [ -z "$_C7E_PROG" ]; then
+      C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL does not name a reconciler (no reconcile-terminal-worktrees.py in its arguments) — $_C7E_FIX.")
+    elif [ ! -f "$_C7E_PROG" ]; then
+      C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL points at $_C7E_PROG, which does not exist — the engine it was installed from is gone (a removed worktree or an old checkout) — $_C7E_FIX.")
+    fi
+  fi
+fi
+RUN_IN_BG="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("tool_input") or {}).get("run_in_background"); print("false" if v is False else ("true" if v is True else ""))' 2>/dev/null || true)"
+if [ "$RUN_IN_BG" = "false" ]; then
+  C7_PROBLEMS+=("run_in_background: false on a file-capable spawn — a SYNCHRONOUS Agent call's PostToolUse arrives after the worker has finished, too late to bind its worktrees to its agent id, so nothing it wrote would be owned by anyone. Spawn it as a background teammate (omit run_in_background, or set it true).")
+fi
+
+if [ "${#C7_PROBLEMS[@]}" -eq 0 ]; then
+  C7_OUT="$(SESSION_ID="$SESSION_ID" TOOL_USE_ID="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_use_id",""))' 2>/dev/null || true)" \
+    NAME="$NAME" SUBAGENT_TYPE="$SUBAGENT_TYPE" ISOLATION="$ISOLATION" INTENT_KIND="$INTENT_KIND" EXTERNALS="$INTENT_EXTERNALS" \
+    TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py" LEDGER_PY="$LEDGER_PY" \
+    python3 - <<'PY' 2>&1
+import importlib.util, json, os, subprocess, sys
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+def problem(msg):
+    print("PROBLEM\t" + msg.replace("\n", " "))
+
+sid = os.environ.get("SESSION_ID", "")
+tuid = os.environ.get("TOOL_USE_ID", "")
+name = os.environ.get("NAME", "")
+kind = os.environ.get("INTENT_KIND", "")
+if not sid or not tuid:
+    problem("the PreToolUse payload carries no session_id/tool_use_id (session=%r tool_use=%r); a spawn-intent cannot be keyed and the spawn cannot be bound later." % (sid, tuid))
+    raise SystemExit(0)
+tx = load("tx", os.environ["TX_PY"])
+externals = []
+paths = [x for x in os.environ.get("EXTERNALS", "").split("\n") if x.strip()]
+# The ledger is consulted only when there is an external member to check;
+# a native-only spawn owes it nothing (clause 4 is inert for it too).
+wl = load("wl", os.environ["LEDGER_PY"]) if paths else None
+records = wl.read_all() if wl else []
+for p in paths:
+    real = wl.norm_path(p)
+    prepared = wl.prepared_records(records, session_id=sid, teammate=name, worktree=real)
+    if not prepared:
+        others = wl.prepared_records(records, worktree=real)
+        who = ", ".join("session %s teammate %s" % ((r.get("session_id") or "?")[:8], r.get("teammate") or "?") for r in others[-3:])
+        problem("no PREPARED record for %s in THIS session (%s) for teammate %s%s. A cross-repository worktree is spawned into only by the teammate it was prepared for, in the session that prepared it: create it with scripts/create-teammate-worktree.sh <repo> %s from inside this session." % (real, sid[:8], name, (" — it was prepared for: " + who) if who else " (it was never prepared at all)", name))
+        continue
+    rec = prepared[-1]
+    repo_now = tx.main_checkout_of(real)
+    branch_now = tx.branch_of(real)
+    if wl.norm_path(rec.get("repo")) != repo_now:
+        problem("%s no longer belongs to the repository it was prepared in (prepared: %s, now: %s)." % (real, rec.get("repo"), repo_now or "?"))
+        continue
+    if (rec.get("branch") or "") != branch_now:
+        problem("%s is on branch %r, not the branch it was prepared on (%r); the worktree drifted between preparation and spawn." % (real, branch_now, rec.get("branch")))
+        continue
+    externals.append({"repo": repo_now, "path": real, "branch": branch_now,
+                      "prepared_ts": rec.get("ts"), "class": "hand-rolled"})
+if kind == "cwd" and not externals:
+    problem("a cwd spawn with no bindable external member cannot be recorded.")
+    raise SystemExit(0)
+try:
+    tx.write_intent(sid, tuid, {"kind": kind, "teammate": name,
+                                "subagent_type": os.environ.get("SUBAGENT_TYPE", ""),
+                                "isolation": os.environ.get("ISOLATION", ""),
+                                "externals": externals})
+except Exception as e:
+    problem("the spawn-intent could not be written durably (%s: %s) — a spawn whose member set is not on disk cannot be bound." % (tx.tx_root(), e))
+    raise SystemExit(0)
+print("INTENT\t%s\t%s\t%d" % (tuid, kind, len(externals)))
+PY
+)" || C7_OUT="PROBLEM	the spawn-intent writer could not run (python3 failed)"
+  while IFS= read -r _line; do
+    case "$_line" in
+      PROBLEM*) C7_PROBLEMS+=("${_line#PROBLEM	}") ;;
+      INTENT*|"") : ;;
+      *) C7_PROBLEMS+=("the spawn-intent writer failed: ${_line}") ;;
+    esac
+  done <<C7_EOF
+$C7_OUT
+C7_EOF
+fi
+
+if [ "${#C7_PROBLEMS[@]}" -gt 0 ]; then
+  {
+    echo "=== Teammate-spawn guard: BLOCKED (clause 7 — spawn-intent) ==="
+    echo "  The spawn is well-formed, but its worktree membership could not be recorded"
+    echo "  for binding, so it is refused rather than run unowned:"
+    for p in "${C7_PROBLEMS[@]}"; do
+      echo "    - $p"
+    done
+    echo "  A worker whose worktrees are not bound to its agent id can never be sealed,"
+    echo "  and guard-sealed-worktree.sh refuses every write from an unsealed worker."
+    echo "  (specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 2)"
+    echo "(hook: scripts/hooks/guard-worktree-isolation.sh)"
+  } >&2
+  exit 2
+fi
+
 exit 0

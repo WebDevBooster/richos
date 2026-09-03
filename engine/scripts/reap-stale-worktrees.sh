@@ -81,10 +81,12 @@
 #    and the two classes get different LIVENESS RULES, below, because they
 #    carry different evidence.
 #
-# C. IT RUNS WHEN AN AGENT FINISHES, not only at session start.
-#    scripts/hooks/agent-finished-reap-worktrees.sh is wired to TeammateIdle
-#    and TaskCompleted. That timing is not a convenience — it is when the
-#    evidence still EXISTS. See the liveness rule.
+# C. (RETIRED 2026-09-03) It used to run with --execute when an agent
+#    finished and at every session start. Both triggers are gone: no sweep
+#    decides an agent's liveness any more (docs/plans/worktree-real-fix-
+#    2026-09-03.md). This script is now an INVENTORY, run in DRY-RUN by
+#    session-start-reap-worktrees.sh; `--execute` remains an operator's
+#    by-hand act and is reached by no hook.
 #
 # ===========================================================================
 # THE SAFETY RULE — ABSOLUTE
@@ -305,9 +307,9 @@
 # against the tree if the swept repository has one — mirrors land-time
 # practice. Never run in DRY-RUN (it writes artifact dirs).
 #
-# Wired by scripts/hooks/session-start-reap-worktrees.sh (SessionStart) and
-# scripts/hooks/agent-finished-reap-worktrees.sh (TeammateIdle, TaskCompleted),
-# and covered by the integrity probe's Layer Q.
+# Run in DRY-RUN by scripts/hooks/session-start-reap-worktrees.sh (SessionStart)
+# as the session's worktree inventory; no hook passes --execute. Covered by
+# the integrity probe's Layer Q, which asserts exactly that.
 #
 # Exit codes:
 #   0  clean run (a SKIP is not an error; verdict CLEAN or PENDING)

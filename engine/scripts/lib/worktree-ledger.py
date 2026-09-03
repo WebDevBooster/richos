@@ -57,9 +57,17 @@ entire job.
 ===========================================================================
 THE JUDGMENT — and what is deliberately NOT a death signal
 ===========================================================================
-For a hand-rolled worktree, the owner is resolved from the ledger first
-(exact worktree path, then teammate name = branch or directory name), and
-from a session transcript only as a fallback. Then, per registration:
+For a hand-rolled worktree, the owner is resolved from the ledger by EXACT
+WORKTREE PATH and by nothing else. Until 2026-09-03 a tree with no path record
+was matched by teammate name (= branch or directory name) and then by a
+transcript's name join; both keys are reusable across sessions, so a verdict
+that deleted on them could delete a later, unrelated tree. Both are removed
+from destructive authority (docs/plans/worktree-real-fix-2026-09-03.md). The
+transcript index survives for repository ELIGIBILITY reporting only. And for
+a worker spawned under the transaction lifecycle, the authoritative member
+set is `bound_members(session_id, agent_id)` — the sealed transaction in
+scripts/lib/worktree-transactions.py — with no fallback of any kind. Then,
+per exact-path registration:
 
     a `terminated` record exists for the agent ........... NOT-ALIVE (witnessed)
     native isolation worktree LOCKED by a running pid ..... ALIVE
@@ -187,14 +195,31 @@ def now_iso():
 
 
 def append(record, path=None):
-    """Append one record. Returns True on success; never raises."""
+    """Append one record DURABLY: the line is fsynced before this returns
+    True, and the containing directory is fsynced so a fresh file's entry
+    survives a crash. Returns True on success; never raises. A `prepared`
+    record that is not on disk when the worker is spawned is a spawn that
+    cannot be bound, so "written" here has to mean written."""
     path = path or ledger_path()
     rec = dict(record)
     rec.setdefault("ts", now_iso())
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        d = os.path.dirname(path)
+        os.makedirs(d, exist_ok=True)
+        existed = os.path.exists(path)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        if not existed:
+            try:
+                dfd = os.open(d, os.O_RDONLY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except OSError:
+                pass
         return True
     except Exception:
         return False
@@ -547,12 +572,26 @@ def _liveness_module():
 # queries
 # --------------------------------------------------------------------------
 
-def registrations(records, worktree=None, names=(), repo=None):
+OWNERSHIP_EVENTS = ("registered", "prepared")
+
+
+def registrations(records, worktree=None, names=(), repo=None, match_names=False):
+    """Ownership records for ONE exact worktree path.
+
+    NAME MATCHING IS OFF BY DEFAULT AND OFF FOR EVERY DESTRUCTIVE CALLER.
+    Teammate names and branch names are reusable across sessions; a record
+    that matched on one could hand an old owner's verdict to a new tree. The
+    archiver review (finding 4) called this tombstone poisoning, and the
+    specification removes it from destructive authority outright: a
+    destructive caller gets exact-path records or nothing. `match_names=True`
+    exists for REPORTING only (the `registrations --name` CLI), never for a
+    verdict that deletes.
+    """
     wt = norm_path(worktree) if worktree else ""
-    names = {n for n in names if n}
+    names = {n for n in names if n} if match_names else set()
     out = []
     for r in records:
-        if r.get("event") != "registered":
+        if r.get("event") not in OWNERSHIP_EVENTS:
             continue
         if wt and norm_path(r.get("worktree")) == wt:
             out.append(r)
@@ -560,12 +599,59 @@ def registrations(records, worktree=None, names=(), repo=None):
         if names and (r.get("teammate") or "") in names:
             if repo and r.get("repo") and norm_path(r.get("repo")) != norm_path(repo) \
                     and r.get("class") == "hand-rolled":
-                # A hand-rolled registration names the repository it lives in;
-                # a same-name registration in a DIFFERENT repository is a
-                # different worktree, not this one's owner.
                 continue
             out.append(r)
     return out
+
+
+def prepared_records(records, session_id=None, teammate=None, worktree=None, repo=None):
+    """`prepared` records — the authoritative creation-time membership written
+    by scripts/create-teammate-worktree.sh. Every filter given must match
+    EXACTLY; nothing here is a prefix, a basename or a convention."""
+    wt = norm_path(worktree) if worktree else ""
+    rp = norm_path(repo) if repo else ""
+    out = []
+    for r in records:
+        if r.get("event") != "prepared":
+            continue
+        if session_id and (r.get("session_id") or "") != session_id:
+            continue
+        if teammate and (r.get("teammate") or "") != teammate:
+            continue
+        if wt and norm_path(r.get("worktree")) != wt:
+            continue
+        if rp and norm_path(r.get("repo")) != rp:
+            continue
+        out.append(r)
+    return out
+
+
+def bound_members(session_id, agent_id):
+    """The AUTHORITATIVE member set for a destructive caller: the SEALED
+    transaction's exact members (scripts/lib/worktree-transactions.py), or
+    nothing. There is deliberately no fallback to a registration, a name, a
+    branch or a transcript — a caller that would delete on any of those is
+    the caller this function exists to refuse."""
+    mod = _transactions_module()
+    if mod is None:
+        return []
+    try:
+        return mod.bound_members(session_id, agent_id)
+    except Exception:
+        return []
+
+
+def _transactions_module():
+    try:
+        import importlib.util as ilu
+        here = os.path.dirname(os.path.abspath(__file__))
+        spec = ilu.spec_from_file_location(
+            "worktree_transactions_for_ledger", os.path.join(here, "worktree-transactions.py"))
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
 
 
 def terminations(records, agent_id):
@@ -590,20 +676,21 @@ def finished_signals(records, agent_id="", worktree=""):
 
 def registered_names(records):
     return sorted({r.get("teammate") for r in records
-                   if r.get("event") == "registered" and r.get("teammate")})
+                   if r.get("event") in OWNERSHIP_EVENTS and r.get("teammate")})
 
 
 def registered_paths(records):
-    """Every worktree path the ledger has ever registered, realpath-normalized."""
+    """Every worktree path the ledger has ever registered or prepared,
+    realpath-normalized."""
     return sorted({norm_path(r.get("worktree")) for r in records
-                   if r.get("event") == "registered" and r.get("worktree")})
+                   if r.get("event") in OWNERSHIP_EVENTS and r.get("worktree")})
 
 
 def registered_branches(records, repo):
     rp = norm_path(repo)
     out = set()
     for r in records:
-        if r.get("event") != "registered":
+        if r.get("event") not in OWNERSHIP_EVENTS:
             continue
         if norm_path(r.get("repo")) == rp and r.get("branch"):
             out.add(r["branch"])
@@ -692,26 +779,31 @@ def _judge_registration(reg, entity, records, mod, write, ledger):
 
 def judge(entity, worktree, names, records, transcript_names=None, mod=None,
           write=True, ledger=None, repo=None):
-    """The owner verdict for one hand-rolled worktree."""
+    """The owner verdict for one hand-rolled worktree — from an EXACT PATH
+    record only.
+
+    The `names` argument and the transcript index are accepted for the reason
+    line and for nothing else. Until 2026-09-03 a tree with no path record was
+    judged by its branch or directory name, then by a transcript's name join;
+    both are reusable keys, and a verdict that deletes on a reusable key can
+    delete a later, unrelated tree. Removed from destructive authority per
+    docs/plans/worktree-real-fix-2026-09-03.md. A tree with no exact-path
+    record is UNRESOLVED, and it stays that way.
+    """
     transcript_names = transcript_names or {}
-    # branch name and directory name are usually the same string; one lookup.
     seen = set()
     names = [n for n in names if n and not (n in seen or seen.add(n))]
-    regs = registrations(records, worktree=worktree, names=names, repo=repo)
+    regs = registrations(records, worktree=worktree, repo=repo)
     source = "ledger" if regs else ""
     if not regs:
-        for n in names:
-            for hit in transcript_names.get(n) or []:
-                regs.append({"event": "registered", "teammate": n, "agent_id": hit.get("agent_id"),
-                             "session_id": hit.get("session_id") or "",
-                             "last_write": hit.get("last_write"),
-                             "class": "native", "repo": entity, "source": "transcript"})
-                source = "transcript"
-    if not regs:
+        hint = ""
+        if names and any(transcript_names.get(n) for n in names):
+            hint = (" (a transcript joins the name '%s' to an agent, and that is NOT accepted as "
+                    "ownership: names are reusable)" % "/".join(n for n in names if transcript_names.get(n)))
         return {"verdict": UNRESOLVED, "agent_ids": [], "source": "",
-                "reason": ("no ownership record: no ledger registration for this path or for "
-                           "'%s', and no transcript joins that name to an agent"
-                           % "/".join(n for n in names if n))}
+                "reason": ("no ownership record: no ledger registration for the exact path %s; "
+                           "name-based and transcript-based matching are not ownership%s"
+                           % (worktree or "<none>", hint))}
 
     verdicts = []
     for reg in regs:
@@ -839,11 +931,30 @@ def _cmd_judge(args):
 
 def _cmd_registrations(args):
     records = read_all(args.ledger)
+    # `--name` is a REPORTING affordance. The exit code a destructive caller
+    # would read is driven by the exact path only.
     regs = registrations(records, worktree=args.worktree,
-                         names=[n for n in [args.name] if n])
+                         names=[n for n in [args.name] if n], match_names=bool(args.name))
     for r in regs:
         print(json.dumps(r, sort_keys=True))
     return 0 if regs else 1
+
+
+def _cmd_prepared(args):
+    records = read_all(args.ledger)
+    regs = prepared_records(records, session_id=args.session_id or None,
+                            teammate=args.teammate or None, worktree=args.worktree or None,
+                            repo=args.repo or None)
+    for r in regs:
+        print(json.dumps(r, sort_keys=True))
+    return 0 if regs else 1
+
+
+def _cmd_bound_members(args):
+    for m in bound_members(args.session_id, args.agent_id):
+        print("%s\t%s\t%s\t%s\t%s" % (m.get("class"), m.get("repo"), m.get("path"),
+                                      m.get("branch"), m.get("state")))
+    return 0
 
 
 def _cmd_session_status(args):
@@ -904,7 +1015,7 @@ def main(argv=None):
     p = sub.add_parser("path")
 
     p = sub.add_parser("record")
-    p.add_argument("event", choices=("registered", "terminated", "finished"))
+    p.add_argument("event", choices=("registered", "prepared", "terminated", "finished"))
     for key in ("teammate", "agent-id", "session-id", "session-pid", "pid-start", "repo",
                 "worktree", "branch", "source", "signal", "reason", "witness", "cwd",
                 "task-id", "lock-line"):
@@ -938,6 +1049,16 @@ def main(argv=None):
     p.add_argument("--worktree", default="")
     p.add_argument("--name", default="")
 
+    p = sub.add_parser("prepared")
+    p.add_argument("--session-id", default="")
+    p.add_argument("--teammate", default="")
+    p.add_argument("--worktree", default="")
+    p.add_argument("--repo", default="")
+
+    p = sub.add_parser("bound-members")
+    p.add_argument("--session-id", required=True)
+    p.add_argument("--agent-id", required=True)
+
     p = sub.add_parser("branches")
     p.add_argument("--repo", required=True)
 
@@ -965,6 +1086,8 @@ def main(argv=None):
         "judge": _cmd_judge,
         "judge-batch": _cmd_judge_batch,
         "registrations": _cmd_registrations,
+        "prepared": _cmd_prepared,
+        "bound-members": _cmd_bound_members,
         "branches": _cmd_branches,
         "names": _cmd_names,
         "paths": _cmd_paths,

@@ -28,11 +28,17 @@
 #   3. Seeds every gitignored file matching a `.worktreeinclude` pattern from
 #      the main checkout into the new tree — the same contract native
 #      isolation honors — and reports how many.
-#   4. Registers the tree in the ownership ledger (scripts/lib/
-#      worktree-ledger.py): teammate, session id (from the harness's own
-#      ~/.claude/sessions/<pid>.json registry), session pid + start time,
-#      repository, worktree path, branch, class hand-rolled. This is the
-#      record the reaper judges the tree by after the session is gone.
+#   4. Verifies the path in the repository's own `git worktree list`, then
+#      appends a durable (fsynced) PREPARED record to the ownership ledger
+#      (scripts/lib/worktree-ledger.py): teammate, session id (from the
+#      harness's own ~/.claude/sessions/<pid>.json registry, REQUIRED), session
+#      pid + start time, repository, canonical worktree path, branch. This is
+#      the authoritative creation-time membership: guard-worktree-isolation.sh
+#      refuses a spawn into a path with no prepared record for this session
+#      and teammate, and the seal binds exactly this record to the platform's
+#      agent id (docs/plans/worktree-real-fix-2026-09-03.md, phase 1). If the
+#      record cannot be written and read back, the worktree and branch are
+#      ROLLED BACK — a tree without its record is worse than no tree.
 #   5. Prints the path and the two spawn shapes that carry it.
 #
 # USAGE
@@ -50,11 +56,12 @@
 #
 # Environment (test affordances): RICHOS_WORKTREE_LEDGER, RICHOS_SESSIONS_DIR.
 #
-# Exit codes: 0 created + registered; 2 usage; 3 refused (name / exists);
-#             4 git failed; 5 created but NOT registered (the ledger write
-#             failed — the tree is reported so it can be registered by hand,
-#             and the exit is non-zero because an unregistered cross-repo
-#             worktree is exactly the object this helper exists to prevent).
+# Exit codes: 0 created + prepared; 2 usage; 3 refused (name / exists);
+#             4 git failed; 5 created and then ROLLED BACK because the
+#             prepared record could not be written (no session id, ledger
+#             unwritable, or the record did not read back). Nothing is left
+#             on disk in that case: an unrecorded cross-repository worktree
+#             is exactly the object this helper exists to prevent.
 
 set -uo pipefail
 
@@ -174,7 +181,39 @@ PY
 )"
 fi
 
-# --- 4. register ------------------------------------------------------------
+# --- 4. the PREPARED record — authoritative creation-time membership --------
+#
+# This record is not bookkeeping. After creation there is no safe way to
+# rediscover who owns this tree: names and branch shapes are reusable, and
+# process absence says nothing. The spawn guard (guard-worktree-isolation.sh)
+# refuses to spawn into a path with no `prepared` record for THIS session and
+# THIS teammate, and the seal (worktree-transactions.py) binds exactly this
+# record to the platform's agent id. So:
+#   - the path must appear in git's own worktree list (verified, not assumed);
+#   - the session id is REQUIRED — a prepared record with no session can never
+#     match a spawn-intent, so the tree could never be bound, never sealed, and
+#     never cleaned up; that is the object this helper exists to prevent;
+#   - the append is durable (fsync) and, if it fails, the just-created
+#     worktree and branch are ROLLED BACK. A tree that exists without its
+#     record is worse than no tree.
+rollback() { # <why>
+    git -C "$MAIN" worktree remove --force "$DIR" >/dev/null 2>&1 || rm -rf "$DIR"
+    git -C "$MAIN" worktree prune >/dev/null 2>&1 || true
+    git -C "$MAIN" branch -D "$NAME" >/dev/null 2>&1 || true
+    {
+        echo "create-teammate-worktree.sh: created $DIR on branch $NAME but $1"
+        echo "  ROLLED BACK: the worktree and the branch were removed again. A cross-repository"
+        echo "  worktree without its prepared record can never be bound to the teammate that"
+        echo "  works in it, never sealed, and never cleaned up — so it is not left behind."
+    } >&2
+    exit 5
+}
+
+if ! git -C "$MAIN" worktree list --porcelain 2>/dev/null | sed -n 's|^worktree ||p' \
+     | while IFS= read -r _p; do [ "$(cd "$_p" 2>/dev/null && pwd -P)" = "$DIR" ] && exit 0; done; then
+    rollback "git does not list it as a worktree of $MAIN"
+fi
+
 SESSION_PID="$PID_ARG"
 [ -n "$SESSION_PID" ] || SESSION_PID="$(python3 "$LEDGER_PY" session-pid 2>/dev/null || true)"
 if [ -z "$SESSION" ] && [ -n "$SESSION_PID" ]; then
@@ -183,26 +222,25 @@ if [ -z "$SESSION" ] && [ -n "$SESSION_PID" ]; then
         SESSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("sessionId",""))' "$_sdir/$SESSION_PID.json" 2>/dev/null || true)"
     fi
 fi
-REG_ARGS=(record registered --teammate "$NAME" --repo "$MAIN" --worktree "$DIR" --branch "$NAME" \
-          --class hand-rolled --source create-teammate-worktree.sh)
-[ -n "$SESSION" ] && REG_ARGS+=(--session-id "$SESSION")
+[ -n "$SESSION" ] || rollback "no session id could be resolved (pass --session <id>, or run this from inside the session whose ~/.claude/sessions/<pid>.json names it)"
+
+REG_ARGS=(record prepared --teammate "$NAME" --session-id "$SESSION" --repo "$MAIN" --worktree "$DIR" \
+          --branch "$NAME" --class hand-rolled --source create-teammate-worktree.sh)
 [ -n "$SESSION_PID" ] && REG_ARGS+=(--session-pid "$SESSION_PID" --pid-start-of-session)
 if ! python3 "$LEDGER_PY" "${REG_ARGS[@]}" >/dev/null 2>&1; then
-    {
-        echo "create-teammate-worktree.sh: created $DIR on branch $NAME but could NOT register it in the ownership ledger"
-        echo "  ($(python3 "$LEDGER_PY" path 2>/dev/null || echo '<ledger path unknown>'))."
-        echo "  An unregistered cross-repository worktree is the object this helper exists to prevent:"
-        echo "  the reaper will report it owner-unresolved and FAIL until it is registered. Register it by hand:"
-        echo "    python3 $LEDGER_PY ${REG_ARGS[*]}"
-    } >&2
-    exit 5
+    rollback "could NOT write its prepared record to the ownership ledger ($(python3 "$LEDGER_PY" path 2>/dev/null || echo '<ledger path unknown>'))"
+fi
+# Read it back through a fresh process: the record is authoritative only if it
+# is on disk, not if a write call returned.
+if ! python3 "$LEDGER_PY" prepared --session-id "$SESSION" --teammate "$NAME" --worktree "$DIR" >/dev/null 2>&1; then
+    rollback "its prepared record could not be read back from the ownership ledger"
 fi
 
 # --- 5. report --------------------------------------------------------------
 echo "created:    $DIR"
 echo "branch:     $NAME  (from $BASE in $MAIN)"
 echo "seeded:     $SEEDED file(s) from .worktreeinclude"
-echo "registered: teammate=$NAME session=${SESSION:-<unknown>} pid=${SESSION_PID:-<unknown>} ($(python3 "$LEDGER_PY" path 2>/dev/null))"
+echo "prepared:   teammate=$NAME session=$SESSION pid=${SESSION_PID:-<unknown>} ($(python3 "$LEDGER_PY" path 2>/dev/null))"
 echo ""
 echo "Spawn it one of two ways (guard-worktree-isolation.sh refuses any other):"
 echo "  cwd: \"$DIR\"                       -- no isolation: the teammate works here directly"

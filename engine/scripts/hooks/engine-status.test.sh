@@ -366,7 +366,21 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # messages from the CEO, and guard-idle-land's own log showing it stood down on
 # every one of them because the backlog had no free row. This paragraph is a
 # human having looked.
-if [ "$REGISTERED_N" -eq 48 ]; then
+# 48 -> 50 on 2026-09-03: the worktree lifecycle's two new hooks
+# (docs/plans/worktree-real-fix-2026-09-03.md) — record-subagent-start.sh on
+# SubagentStart (the nonblocking start-fact writer the seal needs) and
+# guard-sealed-worktree.sh, matcherless and FIRST under PreToolUse (the write
+# barrier: a worker whose worktree manifest is not sealed can read and cannot
+# write). Both are on the probe's managed set and both surfaces.
+# 50 -> 51 on 2026-09-03: terminalize-agent-worktrees.sh, the terminal ingress,
+# wired on SubagentStop and on WorktreeRemove (one script, two events, one
+# compare-and-set claim between them).
+# 51 -> 50 on 2026-09-03: agent-finished-reap-worktrees.sh REMOVED. TeammateIdle
+# and TaskCompleted are diagnostic only (every one of their 580 ledger rows is
+# a test fixture; never fired for a real agent) and hold no destructive
+# authority any more; the only removal path is the terminal ingress plus the
+# reconciler.
+if [ "$REGISTERED_N" -eq 50 ]; then
     ok "1b  sanity: the shipped hooks.json registers $REGISTERED_N scripts, so the banner reads ${EXPECT_N}/${EXPECT_N}"
 else
     bad "1b  sanity" "hooks.json registers $REGISTERED_N scripts — if that is a deliberate change, the banner should now read $EXPECT_N/$EXPECT_N and this line is the only thing to update"

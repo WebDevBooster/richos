@@ -2,16 +2,17 @@
 #
 # detect-nonnative-worktree.sh — PostToolUse (Agent) DETECTOR.
 #
-# THIRD JOB (2026-09-02) — the OWNERSHIP LEDGER REGISTRATION. Beside the
-# spawned-names append below, this hook writes the durable record that lets a
-# worktree's owner be judged AFTER the harness's lock is gone:
-# scripts/lib/worktree-ledger.py, ~/.claude/state/worktree-ledger.jsonl. It
-# records teammate, agent id (from the async-launch acknowledgement), session
-# id, session pid + start time (from the native worktree's lock line, else
-# CLAUDE_PID), the native worktree path, a `cwd` spawn's hand-rolled path, and
-# every `cross-repo-worktree: <path>` line in the prompt. Same reason it lives
-# HERE and not in the PreToolUse guard: PostToolUse fires only for a spawn that
-# ran. Best-effort, never changes this hook's verdict.
+# THIRD JOB (2026-09-03) — THE BINDER. PreToolUse[Agent] wrote a spawn-intent
+# keyed by (session_id, tool_use_id) with the exact member set; this hook
+# receives the same tool_use_id and the Agent result, resolves the platform's
+# agent id (the async-launch acknowledgement, else the parent transcript's
+# exact call/result join in scripts/lib/agent-liveness.py), and BINDS the
+# intent to it in scripts/lib/worktree-transactions.py, then attempts the
+# seal. Same reason it lives HERE and not in the PreToolUse guard: PostToolUse
+# fires only for a spawn that ran, and only here is the agent id known. NOT
+# best-effort: a file-capable spawn that cannot be bound is announced loudly
+# (exit 2), because guard-sealed-worktree.sh will refuse its writes. The
+# ledger's inventory rows are still written beside the binding.
 #
 # SECOND JOB — the spawned-names ledger APPEND. This hook is also the ONLY
 # place a spawned teammate's name is written to the session-scoped
@@ -191,118 +192,196 @@ if [ "$is_readonly" -eq 0 ] && [ -n "$NAME" ] && [ -n "$SESSION_ID" ]; then
   printf '%s\n' "$NAME" >>"$GI_TEAM_DIR/spawned-names.log" 2>/dev/null || true
 fi
 
-# --- THIRD JOB — the OWNERSHIP LEDGER registration -------------------------
+# --- THIRD JOB — THE BINDER: bound(session_id, tool_use_id, agent_id, members) --
 #
-# The spawned-names.log above is names only: no path, no session, no pid, no
-# repository. That is why a hand-rolled worktree became permanently
-# undecidable the moment its owner's native worktree was landed — nothing
-# durable said who owned it. This block writes what the reaper needs LATER,
-# at the one moment all of it is in hand: the spawn that actually ran.
+# Until 2026-09-03 this block was a BEST-EFFORT registration: it wrote what it
+# could, swallowed every failure, and recorded `agent_id=""` on every one of
+# the 50 spawns of one measured session. That record could never bind a
+# worktree to the agent that works in it.
 #
-#   agent_id     from the async-launch acknowledgement in tool_response (the
-#                same witness worker-created-handoff.sh reads). A synchronous
-#                subagent run carries none; the name + session identity are
-#                still recorded so a name-owned tree can be judged by session.
-#   session pid  the native worktree's lock line names the host session pid
-#                (measured identical for every agent of a session); CLAUDE_PID
-#                is the fallback. The start time comes from `ps`, never from
-#                the lock's own start string (different format and zone).
-#   worktrees    the native isolation tree (<entity>/.claude/worktrees/agent-
-#                <id>), a `cwd` spawn's hand-rolled tree, and every
-#                `cross-repo-worktree: <path>` line in the prompt — the exact
-#                path joins that need no name convention at all.
+# Now it is the binder the specification names (docs/plans/worktree-real-fix-
+# 2026-09-03.md, phase 3). PreToolUse[Agent] wrote a spawn-intent keyed by
+# (session_id, tool_use_id) with the complete exact member set. This hook
+# receives the SAME tool_use_id, resolves the platform's agent id from the
+# Agent result, and binds the intent to it:
 #
-# Best-effort: never fails this detector. RICHOS_WORKTREE_LEDGER redirects the
-# record for tests; a sandbox that lacks the library records nothing.
+#   agent_id   FIRST from the async-launch acknowledgement in tool_response
+#              ("Async agent launched successfully ... agentId: <id>");
+#              ELSE from the parent transcript's exact call/result join on
+#              this tool_use_id — scripts/lib/agent-liveness.py
+#              tool_use_ids_to_agent_ids(), the ONE parser of that join,
+#              shared with every other consumer and never reimplemented here.
+#
+# Then try_seal: if the worker's SubagentStart fact is already on disk the
+# manifest seals now; otherwise the start hook seals it when it fires. Either
+# order works and neither side waits.
+#
+# FAIL LOUD, never best-effort. This is PostToolUse, so nothing can be
+# blocked — but a spawn that ran and could NOT be bound is a worker whose
+# writes guard-sealed-worktree.sh will refuse, and the lead must hear that
+# now rather than discover it from a blocked teammate. So:
+#   - a file-capable spawn with NO spawn-intent on disk        -> LOUD
+#   - a file-capable spawn that returned SYNCHRONOUSLY (no id) -> LOUD: it
+#     ran unbound, its PostToolUse arrived after it finished, and nothing it
+#     wrote is owned by anyone
+#   - an intent that will not bind (library missing, write failed) -> LOUD
+# The ledger's `registered` rows are still written beside the binding — now
+# with the real agent id — for the inventory readers that predate it.
+#
+# RICHOS_WORKTREE_TX_DIR / RICHOS_WORKTREE_LEDGER redirect both stores for
+# tests.
 _LEDGER_PY="$SCRIPT_DIR/../lib/worktree-ledger.py"
-if [ "$is_readonly" -eq 0 ] && [ -n "$NAME" ] && [ -f "$_LEDGER_PY" ]; then
-  INPUT="$INPUT" NAME="$NAME" SESSION_ID="$SESSION_ID" SPAWN_CWD="$SPAWN_CWD" ISOLATION="$ISOLATION" \
-  ENTITY_ROOT="$ENTITY_ROOT" LEDGER_PY="$_LEDGER_PY" PROMPT_TEXT="$PROMPT" \
-  python3 - <<'PY' 2>/dev/null || true
-import importlib.util, json, os, re, subprocess
-spec = importlib.util.spec_from_file_location("wl", os.environ["LEDGER_PY"])
-wl = importlib.util.module_from_spec(spec); spec.loader.exec_module(wl)
+_TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
+_AL_PY="$SCRIPT_DIR/../lib/agent-liveness.py"
+BIND_PROBLEMS=()
+if [ "$is_readonly" -eq 0 ]; then
+  if [ ! -f "$_TX_PY" ]; then
+    BIND_PROBLEMS+=("scripts/lib/worktree-transactions.py is MISSING at $_TX_PY — this spawn cannot be bound to its agent id, its manifest will never seal, and every potentially writing tool call it makes will be refused by guard-sealed-worktree.sh. Restore the engine before spawning again.")
+  else
+    BIND_OUT="$(INPUT="$INPUT" NAME="$NAME" SESSION_ID="$SESSION_ID" SPAWN_CWD="$SPAWN_CWD" ISOLATION="$ISOLATION" \
+      ENTITY_ROOT="$ENTITY_ROOT" LEDGER_PY="$_LEDGER_PY" TX_PY="$_TX_PY" AL_PY="$_AL_PY" PROMPT_TEXT="$PROMPT" \
+      python3 - <<'PY' 2>&1
+import importlib.util, json, os, re, subprocess, sys
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+def problem(msg):
+    print("PROBLEM\t" + msg.replace("\n", " "))
+
+tx = load("tx", os.environ["TX_PY"])
+wl = load("wl", os.environ["LEDGER_PY"]) if os.path.isfile(os.environ["LEDGER_PY"]) else None
+al = load("al", os.environ["AL_PY"]) if os.path.isfile(os.environ["AL_PY"]) else None
 
 try:
     payload = json.loads(os.environ["INPUT"])
 except Exception:
     payload = {}
+sid = os.environ.get("SESSION_ID", "")
+tuid = str(payload.get("tool_use_id") or "")
 resp = payload.get("tool_response")
 try:
     resp_text = resp if isinstance(resp, str) else json.dumps(resp)
 except Exception:
     resp_text = str(resp)
-agent_id = wl.agent_id_from_response(resp_text) if "Async agent launched" in (resp_text or "") else ""
+resp_text = resp_text or ""
 
-entity = os.environ.get("ENTITY_ROOT", "")
-name = os.environ["NAME"]
-sid = os.environ.get("SESSION_ID", "")
-base = {"teammate": name, "session_id": sid, "agent_id": agent_id,
-        "source": "detect-nonnative-worktree.sh", "isolation": os.environ.get("ISOLATION", "")}
-
-# session identity: the native lock line first, CLAUDE_PID second
-entries = wl.worktree_entries(entity) if entity else None
-native_path = os.path.join(entity, ".claude", "worktrees", "agent-" + agent_id) if (entity and agent_id) else ""
-lock_pid = None
-native_branch = ""
-native_registered = False
-if entries and native_path:
-    for path, branch, lock in entries:
-        if wl.norm_path(path) == wl.norm_path(native_path):
-            native_registered = True
-            native_branch = branch
-            lock_pid, _start = wl.lock_identity(lock)
-            break
-pid = lock_pid or wl.session_pid_from_env()
-if pid:
-    base["session_pid"] = int(pid)
-    st = wl.pid_start(pid)
-    if st:
-        base["pid_start"] = st
-
-def repo_of(path):
+# 1. the agent id — the acknowledgement first, the shared transcript join second
+agent_id = ""
+source = ""
+m = re.search(r"agentId:\s*([A-Za-z0-9_-]+)", resp_text) if "Async agent launched" in resp_text else None
+if m:
+    agent_id, source = m.group(1), "tool_response"
+elif al is not None and tuid:
+    tp = str(payload.get("transcript_path") or "")
     try:
-        r = subprocess.run(["git", "-C", path, "worktree", "list", "--porcelain"],
-                           capture_output=True, text=True, timeout=10)
-        first = next((l[len("worktree "):] for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
-        return os.path.realpath(first) if first else ""
+        agent_id = (al.tool_use_ids_to_agent_ids(tp) or {}).get(tuid, "")
     except Exception:
-        return ""
+        agent_id = ""
+    if agent_id:
+        source = "transcript"
 
-def branch_of(path):
+# 2. the intent this call was made under
+intent = None
+if sid and tuid:
     try:
-        r = subprocess.run(["git", "-C", path, "symbolic-ref", "-q", "--short", "HEAD"],
-                           capture_output=True, text=True, timeout=10)
-        return r.stdout.strip()
-    except Exception:
-        return ""
+        intent = tx.read_intent(sid, tuid)
+    except Exception as e:
+        problem("the spawn-intent for tool_use %s could not be read: %s" % (tuid, e))
+if not tuid:
+    problem("the PostToolUse payload carries no tool_use_id, so this spawn cannot be joined to its spawn-intent and cannot be bound.")
+elif intent is None:
+    problem("NO spawn-intent is on disk for tool_use %s (session %s). guard-worktree-isolation.sh writes it before every file-capable spawn it allows; either that guard is not wired, failed to write, or this spawn reached the harness by a route the guard never saw. The worker is UNBOUND: guard-sealed-worktree.sh will refuse every potentially writing tool call it makes." % (tuid, sid[:8] or "?"))
+elif not agent_id:
+    problem("this file-capable spawn (teammate %s) returned with NO agent id — a SYNCHRONOUS run, whose PostToolUse arrives after the work is over. It ran unbound: no manifest was sealed for it and nothing it wrote is owned by any transaction. A file-writing Agent call must be asynchronous; re-issue it as a background teammate." % (os.environ.get("NAME") or "?"))
+else:
+    try:
+        tx.bind(sid, tuid, agent_id, source)
+    except Exception as e:
+        problem("binding tool_use %s to agent %s FAILED: %s. The worker is unbound and its writes will be refused." % (tuid, agent_id, e))
+    else:
+        try:
+            sealed, res = tx.try_seal(sid, agent_id)
+        except Exception as e:
+            sealed, res = False, "try_seal raised: %s" % e
+        print("BOUND\t%s\t%s\t%s" % (agent_id, source, "sealed" if sealed else "unsealed: %s" % res))
 
-wrote = 0
-if agent_id or not os.environ.get("SPAWN_CWD"):
-    rec = dict(base)
-    rec.update({"event": "registered", "class": "native", "repo": entity,
-                "worktree": native_path, "branch": native_branch or ("worktree-agent-" + agent_id if agent_id else ""),
-                "native_registered": native_registered})
-    wl.append(rec); wrote += 1
-
-paths = []
-cwd = os.environ.get("SPAWN_CWD", "").strip()
-if cwd:
-    paths.append(cwd)
-for m in re.finditer(r"^[ \t]*cross-repo-worktree:[ \t]*(\S+)", os.environ.get("PROMPT_TEXT", ""), re.M):
-    paths.append(m.group(1).strip())
-seen = set()
-for p in paths:
-    p = os.path.realpath(p)
-    if p in seen:
-        continue
-    seen.add(p)
-    rec = dict(base)
-    rec.update({"event": "registered", "class": "hand-rolled", "repo": repo_of(p),
-                "worktree": p, "branch": branch_of(p)})
-    wl.append(rec); wrote += 1
+# 3. the inventory rows (best-effort, never a verdict) — with the real agent id
+if wl is not None:
+    entity = os.environ.get("ENTITY_ROOT", "")
+    base = {"teammate": os.environ["NAME"], "session_id": sid, "agent_id": agent_id,
+            "source": "detect-nonnative-worktree.sh", "isolation": os.environ.get("ISOLATION", "")}
+    # session identity: the native lock line first (it names the host session
+    # pid, measured identical for every agent of a session), CLAUDE_PID second
+    entries = wl.worktree_entries(entity) if entity else None
+    native_path = os.path.join(entity, ".claude", "worktrees", "agent-" + agent_id) if (entity and agent_id) else ""
+    lock_pid = None
+    native_branch = ""
+    native_registered = False
+    if entries and native_path:
+        for path, branch, lock in entries:
+            if wl.norm_path(path) == wl.norm_path(native_path):
+                native_registered = True
+                native_branch = branch
+                lock_pid, _start = wl.lock_identity(lock)
+                break
+    pid = lock_pid or wl.session_pid_from_env()
+    if pid:
+        base["session_pid"] = int(pid)
+        st = wl.pid_start(pid)
+        if st:
+            base["pid_start"] = st
+    def repo_of(path):
+        try:
+            r = subprocess.run(["git", "-C", path, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=10)
+            first = next((l[len("worktree "):] for l in r.stdout.splitlines() if l.startswith("worktree ")), "")
+            return os.path.realpath(first) if first else ""
+        except Exception:
+            return ""
+    def branch_of(path):
+        try:
+            r = subprocess.run(["git", "-C", path, "symbolic-ref", "-q", "--short", "HEAD"], capture_output=True, text=True, timeout=10)
+            return r.stdout.strip()
+        except Exception:
+            return ""
+    if agent_id or not os.environ.get("SPAWN_CWD"):
+        rec = dict(base); rec.update({"event": "registered", "class": "native", "repo": entity,
+                                      "worktree": native_path,
+                                      "branch": native_branch or ("worktree-agent-" + agent_id if agent_id else ""),
+                                      "native_registered": native_registered})
+        wl.append(rec)
+    paths = []
+    cwd = os.environ.get("SPAWN_CWD", "").strip()
+    if cwd:
+        paths.append(cwd)
+    for mm in re.finditer(r"^[ \t]*cross-repo-worktree:[ \t]*(\S+)", os.environ.get("PROMPT_TEXT", ""), re.M):
+        paths.append(mm.group(1).strip())
+    seen = set()
+    for p in paths:
+        p = os.path.realpath(p)
+        if p in seen:
+            continue
+        seen.add(p)
+        rec = dict(base); rec.update({"event": "registered", "class": "hand-rolled", "repo": repo_of(p),
+                                      "worktree": p, "branch": branch_of(p)})
+        wl.append(rec)
 PY
+)" || true
+    while IFS= read -r _line; do
+      case "$_line" in
+        PROBLEM*) BIND_PROBLEMS+=("${_line#PROBLEM	}") ;;
+        BOUND*) : ;;
+        "") : ;;
+        *) BIND_PROBLEMS+=("the binder itself failed: ${_line}") ;;
+      esac
+    done <<BIND_EOF
+$BIND_OUT
+BIND_EOF
+  fi
 fi
+
 
 # (b) Any non-native worktree on disk (name != agent-<hex>).
 while IFS= read -r wt; do
@@ -438,7 +517,28 @@ if [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
   } >&2
 fi
 
-if [ "${#WARN[@]}" -gt 0 ] || [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ]; then
+if [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
+  {
+    echo "============================================================"
+    echo "  WORKTREE BINDING FAILED — this spawn's worktrees are UNOWNED"
+    echo "============================================================"
+    echo ""
+    echo "The spawn ran, but it could not be bound to its agent id:"
+    for b in "${BIND_PROBLEMS[@]}"; do
+      echo "  ! $b"
+    done
+    echo ""
+    echo "Consequence: the worker's manifest is not sealed. guard-sealed-worktree.sh"
+    echo "REFUSES every potentially writing tool call from an unsealed worker, so this"
+    echo "teammate can read and can report, and cannot write. No cleanup will ever"
+    echo "run for a worktree that was never bound. Shut it down and re-spawn once the"
+    echo "cause above is fixed."
+    echo "(hook: scripts/hooks/detect-nonnative-worktree.sh — the binder;"
+    echo " specification: docs/plans/worktree-real-fix-2026-09-03.md, phase 3)"
+  } >&2
+fi
+
+if [ "${#WARN[@]}" -gt 0 ] || [ "${#REAPED[@]}" -gt 0 ] || [ "${#ZOMBIE_PROCS[@]}" -gt 0 ] || [ "${#BIND_PROBLEMS[@]}" -gt 0 ]; then
   exit 2
 fi
 

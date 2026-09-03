@@ -72,6 +72,12 @@ unset CLAUDE_PROJECT_DIR
 
 HOOK="$SCRIPT_DIR/guard-worktree-isolation.sh"
 
+# Clause 7 writes a spawn-intent for every allowed file-capable spawn; the
+# store is pinned into a sandbox so no case can touch the operator's record.
+TX_SANDBOX="$(cd "$(mktemp -d -t guard-isolation-tx.XXXXXX)" && pwd -P)"
+export RICHOS_WORKTREE_TX_DIR="$TX_SANDBOX/tx"
+TEST_SID="deadbeef-0000-4000-8000-000000000000"
+
 PASS=0
 FAIL=0
 
@@ -151,7 +157,7 @@ if name:
     ti["name"] = name
 if isolation:
     ti["isolation"] = isolation
-print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000"}))
+print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": "toolu_test_agent"}))
 PY
 }
 
@@ -167,7 +173,7 @@ if subagent: ti["subagent_type"] = subagent
 if name: ti["name"] = name
 if isolation: ti["isolation"] = isolation
 if model: ti["model"] = model
-print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000"}))
+print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": "toolu_test_model"}))
 PY
 }
 
@@ -413,7 +419,8 @@ c6_case "a broken declaration is NOT announced on model:inherit" 0 "" \
 C6NOLIB="$(mktemp -d -t guard-c6-nolib.XXXXXX)"
 mkdir -p "$C6NOLIB/scripts/hooks" "$C6NOLIB/scripts/lib"
 cp "$HOOK" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$C6NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-transactions.py" "$C6NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$C6NOLIB/scripts/hooks/"
 chmod +x "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh"
 c6_config "fable > opus > sonnet > haiku"
 C6NL_OUT="$(printf '%s' "$(json_agent_model 'judge' 'judge-haiku-fo6' 'worktree' 'haiku' 'Judge.')" | RICHOS_ENTITY_ROOT="$C6SB" "$C6NOLIB/scripts/hooks/guard-worktree-isolation.sh" 2>&1)"
@@ -518,7 +525,7 @@ ti = {"prompt": prompt}
 if subagent: ti["subagent_type"] = subagent
 if name: ti["name"] = name
 if isolation: ti["isolation"] = isolation
-print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": sid}))
+print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": sid, "tool_use_id": "toolu_test_sess"}))
 PY
 }
 
@@ -631,8 +638,10 @@ git -C "$CR_REPO" add -A
 git -C "$CR_REPO" commit -q -m seed
 # a REGISTERED linked worktree (what scripts/create-teammate-worktree.sh makes)
 git -C "$CR_REPO" worktree add -q -b echo-opus-reg1 "$CR/other-wt/echo-opus-reg1"
-python3 "$SCRIPT_DIR/../lib/worktree-ledger.py" record registered --teammate echo-opus-reg1 \
-    --repo "$CR_REPO" --worktree "$CR/other-wt/echo-opus-reg1" --branch echo-opus-reg1 --class hand-rolled >/dev/null
+for _tm in echo-opus-reg1 echo-opus-both1 echo-opus-mk1 echo-opus-nolib1; do
+    python3 "$SCRIPT_DIR/../lib/worktree-ledger.py" record prepared --teammate "$_tm" --session-id "$TEST_SID" \
+        --repo "$CR_REPO" --worktree "$CR/other-wt/echo-opus-reg1" --branch echo-opus-reg1 --class hand-rolled >/dev/null
+done
 # an UNREGISTERED linked worktree (improvised)
 git -C "$CR_REPO" worktree add -q -b echo-opus-imp1 "$CR/other-wt/echo-opus-imp1"
 
@@ -643,7 +652,7 @@ name, isolation, cwd, prompt = sys.argv[1:5]
 ti = {"subagent_type": "dev", "name": name, "prompt": prompt}
 if isolation: ti["isolation"] = isolation
 if cwd: ti["cwd"] = cwd
-print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000"}))
+print(json.dumps({"tool_name": "Agent", "tool_input": ti, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": "toolu_test_cwd"}))
 PY
 }
 
@@ -691,7 +700,8 @@ run_case "an ordinary prompt mentioning neither -> allowed (no false positive)" 
 NOLIB="$(mktemp -d -t guard-isolation-nolib.XXXXXX)"
 mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib" "$NOLIB/.claude"
 cp "$HOOK" "$NOLIB/scripts/hooks/guard-worktree-isolation.sh"; chmod +x "$NOLIB/scripts/hooks/guard-worktree-isolation.sh"
-cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/worktree-transactions.py" "$NOLIB/scripts/lib/"
+cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$NOLIB/scripts/hooks/"
 printf 'ALLOWED_MODELS="fable opus sonnet haiku"\n' >"$NOLIB/orchestration.config"
 NOLIB_OUT="$(printf '%s' "$(json_cwd 'echo-opus-nolib1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" \
     | RICHOS_ENTITY_ROOT="$NOLIB" "$NOLIB/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
@@ -709,6 +719,230 @@ if grep -qF 'echo-opus-hr2' "$RICHOS_ENTITY_ROOT/.claude/state/hand-roll-acks.lo
     PASS=$((PASS + 1)); printf '  PASS  hand-roll-ack use is logged to .claude/state/hand-roll-acks.log\n'
 else
     FAIL=$((FAIL + 1)); printf '  FAIL  hand-roll-ack use not logged\n'
+fi
+
+# ---------------------------------------------------------------------------
+# (q) CLAUSE 7 — THE SPAWN-INTENT. Every allowed file-capable spawn leaves an
+# intent keyed by (session_id, tool_use_id) carrying its EXACT member set, and
+# a spawn whose membership cannot be recorded for binding is refused. Each
+# refusal sits beside the pass that differs from it in one fact.
+# ---------------------------------------------------------------------------
+intent_file() { printf '%s/tx/%s/intents/%s.json' "$TX_SANDBOX" "$1" "$2"; }
+M_GOOD_Q='generic-agent: a read-only sweep across three repositories that no roster teammate has a seat for'
+rm -rf "$TX_SANDBOX/tx"
+
+# (q1) a native isolation spawn writes an intent of kind native, no externals
+printf '%s' "$(json_agent 'dev' 'dev-sonnet-q1' 'worktree' 'Do the thing.')" | "$HOOK" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["record"] == "spawn-intent" and d["kind"] == "native" and d["teammate"] == "dev-sonnet-q1"
+assert d["externals"] == [] and d["tool_use_id"] == "toolu_test_agent" and d["session_id"] == sys.argv[2]
+' "$(intent_file "$TEST_SID" toolu_test_agent)" "$TEST_SID" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  Q01  an allowed native spawn writes a spawn-intent (kind native, exact key, no externals)\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q01  native spawn-intent (rc=%s): %s\n' "$rc" "$(cat "$(intent_file "$TEST_SID" toolu_test_agent)" 2>/dev/null | tr '\n' ' ')"
+fi
+
+# (q2) a cwd spawn into a PREPARED tree writes kind cwd with the exact external member
+rm -rf "$TX_SANDBOX/tx"
+printf '%s' "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')" | "$HOOK" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && python3 -c '
+import json, os, sys
+d = json.load(open(sys.argv[1]))
+assert d["kind"] == "cwd" and len(d["externals"]) == 1, d
+e = d["externals"][0]
+assert os.path.realpath(e["path"]) == os.path.realpath(sys.argv[2]) and e["branch"] == "echo-opus-reg1", e
+assert os.path.realpath(e["repo"]) == os.path.realpath(sys.argv[3]), e
+' "$(intent_file "$TEST_SID" toolu_test_cwd)" "$CR/other-wt/echo-opus-reg1" "$CR_REPO" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  Q02  a cwd spawn writes kind cwd with the exact prepared external member (repo, path, branch)\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q02  cwd spawn-intent (rc=%s)\n' "$rc"
+fi
+
+# (q3) cross-repo-worktree: line with isolation -> kind native+external
+rm -rf "$TX_SANDBOX/tx"
+printf '%s' "$(json_cwd 'echo-opus-mk1' 'worktree' '' $'Do it.\ncross-repo-worktree: '"$CR/other-wt/echo-opus-reg1")" | "$HOOK" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '"kind": "native+external"' "$(intent_file "$TEST_SID" toolu_test_cwd)" 2>/dev/null; then
+    PASS=$((PASS + 1)); printf '  PASS  Q03  isolation plus a cross-repo-worktree: line writes kind native+external\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q03  native+external intent (rc=%s)\n' "$rc"
+fi
+
+# (q4) PREPARED FOR ANOTHER SESSION -> refused, naming the session it was prepared in
+python3 "$SCRIPT_DIR/../lib/worktree-ledger.py" record prepared --teammate echo-opus-other1 --session-id "feedface-1111-4000-8000-000000000001" \
+    --repo "$CR_REPO" --worktree "$CR/other-wt/echo-opus-reg1" --branch echo-opus-reg1 --class hand-rolled >/dev/null
+run_case "Q04  cwd into a tree prepared for ANOTHER session -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-other1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+run_case_msg "Q05  the refusal names the session it WAS prepared for" 'session feedface teammate echo-opus-other1' \
+    "$(json_cwd 'echo-opus-other1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+
+# (q6) PREPARED FOR ANOTHER TEAMMATE (same session) -> refused
+run_case "Q06  cwd into a tree prepared for a DIFFERENT teammate -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-stranger1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+run_case_msg "Q07  the refusal names the helper and the exact teammate to prepare for" 'create-teammate-worktree.sh <repo> echo-opus-stranger1' \
+    "$(json_cwd 'echo-opus-stranger1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+
+# (q8) the tree DRIFTED off its prepared branch -> refused; back on it -> allowed
+git -C "$CR/other-wt/echo-opus-reg1" checkout -q -b drifted-away
+run_case "Q08  prepared tree now on a DIFFERENT branch -> BLOCKED" 2 \
+    "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+run_case_msg "Q09  the refusal names both branches" "not the branch it was prepared on ('echo-opus-reg1')" \
+    "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+git -C "$CR/other-wt/echo-opus-reg1" checkout -q echo-opus-reg1
+run_case "Q10  ...and back on the prepared branch -> allowed (positive control for Q08)" 0 \
+    "$(json_cwd 'echo-opus-reg1' '' "$CR/other-wt/echo-opus-reg1" 'Work there.')"
+
+# (q11) SYNCHRONOUS file-writing spawn -> refused; async/unspecified -> allowed
+SYNC_JSON="$(python3 -c '
+import json
+print(json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "dev", "name": "dev-sonnet-sync1", "isolation": "worktree", "prompt": "Do it.", "run_in_background": False}, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": "toolu_test_sync"}))')"
+run_case "Q11  run_in_background: false on a file-capable spawn -> BLOCKED (synchronous runs cannot be bound)" 2 "$SYNC_JSON"
+run_case_msg "Q12  the refusal explains the PostToolUse-too-late reason" 'arrives after the worker has finished' "$SYNC_JSON"
+ASYNC_JSON="$(python3 -c '
+import json
+print(json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "dev", "name": "dev-sonnet-async1", "isolation": "worktree", "prompt": "Do it.", "run_in_background": True}, "session_id": "deadbeef-0000-4000-8000-000000000000", "tool_use_id": "toolu_test_async"}))')"
+run_case "Q13  run_in_background: true -> allowed (positive control for Q11)" 0 "$ASYNC_JSON"
+
+# (q14) a main-checkout-run spawn writes kind main-checkout-run with no members
+rm -rf "$TX_SANDBOX/tx"
+printf '%s' "$(json_agent 'worker' 'worker-sonnet-mcr1' '' $'Do the task.\nmain-checkout-run: needs main checkout HEAD.')" | "$HOOK" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '"kind": "main-checkout-run"' "$(intent_file "$TEST_SID" toolu_test_agent)" 2>/dev/null \
+   && grep -q '"externals": \[\]' "$(intent_file "$TEST_SID" toolu_test_agent)"; then
+    PASS=$((PASS + 1)); printf '  PASS  Q14  a main-checkout-run spawn writes kind main-checkout-run with no members\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q14  main-checkout-run intent (rc=%s)\n' "$rc"
+fi
+
+# (q15) NO tool_use_id in the payload -> refused (nothing to key the intent by)
+NOTU_JSON="$(python3 -c '
+import json
+print(json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "dev", "name": "dev-sonnet-notu1", "isolation": "worktree", "prompt": "Do it."}, "session_id": "deadbeef-0000-4000-8000-000000000000"}))')"
+run_case "Q15  a payload with NO tool_use_id -> BLOCKED (the intent cannot be keyed)" 2 "$NOTU_JSON"
+
+# (q16) a read-only type never reaches clause 7: no intent, no refusal
+rm -rf "$TX_SANDBOX/tx"
+run_case "Q16  a read-only type writes no intent and is not refused" 0 \
+    "$(json_agent 'Explore' '' '' "Find where the login button is defined.
+$M_GOOD_Q")"
+[ ! -e "$TX_SANDBOX/tx" ] && { PASS=$((PASS + 1)); printf '  PASS  Q17  ...and nothing was written to the transaction store for it\n'; } \
+                          || { FAIL=$((FAIL + 1)); printf '  FAIL  Q17  a read-only spawn wrote an intent\n'; }
+
+# (q18) LIFECYCLE COMPONENT MISSING -> refused, naming it (fail-closed): a
+#       sandbox copy of the engine without the transaction library.
+NOTX="$(cd "$(mktemp -d -t guard-isolation-notx.XXXXXX)" && pwd -P)"
+mkdir -p "$NOTX/scripts/hooks" "$NOTX/scripts/lib" "$NOTX/.claude/agents"
+cp "$HOOK" "$NOTX/scripts/hooks/"
+cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$NOTX/scripts/hooks/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$NOTX/scripts/lib/"
+cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$NOTX/"
+cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$NOTX/.claude/agents/" 2>/dev/null || true
+chmod +x "$NOTX/scripts/hooks/"*.sh
+NOTX_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-notx1' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$NOTX" "$NOTX/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$NOTX_OUT" | grep -qF 'lifecycle component MISSING: scripts/lib/worktree-transactions.py'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18  a file-capable spawn with the transaction library MISSING -> BLOCKED, naming it (fail-closed)\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18  missing lifecycle component (exit %s): %s\n' "$rc" "${NOTX_OUT:0:200}"
+fi
+rm -rf "$NOTX"
+
+# (q18b) LIFECYCLE COMPONENT PRESENT BUT BROKEN -> refused, naming it (review
+#        2026-09-03, blocker 3: the write barrier fails CLOSED on a library
+#        that does not load, so the spawn is refused at the door instead).
+BRK="$(cd "$(mktemp -d -t guard-isolation-brk.XXXXXX)" && pwd -P)"
+mkdir -p "$BRK/scripts/hooks" "$BRK/scripts/lib" "$BRK/.claude/agents"
+cp "$HOOK" "$BRK/scripts/hooks/"
+cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$BRK/scripts/hooks/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$BRK/scripts/lib/"
+printf 'def broken(:\n' >"$BRK/scripts/lib/worktree-transactions.py"
+cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$BRK/"
+cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$BRK/.claude/agents/" 2>/dev/null || true
+chmod +x "$BRK/scripts/hooks/"*.sh
+BRK_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk1' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$BRK" "$BRK/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$BRK_OUT" | grep -qF 'lifecycle component BROKEN: scripts/lib/worktree-transactions.py'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18b a file-capable spawn with the transaction library PRESENT BUT NOT LOADABLE -> BLOCKED, naming it\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18b broken lifecycle component (exit %s): %s\n' "$rc" "${BRK_OUT:0:200}"
+fi
+# (q18c) the barrier present but not executable -> refused, naming it
+cp "$SCRIPT_DIR/../lib/worktree-transactions.py" "$BRK/scripts/lib/worktree-transactions.py"
+chmod -x "$BRK/scripts/hooks/guard-sealed-worktree.sh"
+BRK_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk2' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$BRK" "$BRK/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$BRK_OUT" | grep -qF 'lifecycle component NOT EXECUTABLE: scripts/hooks/guard-sealed-worktree.sh'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18c a file-capable spawn with the write barrier NOT EXECUTABLE -> BLOCKED, naming it\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18c non-executable barrier (exit %s): %s\n' "$rc" "${BRK_OUT:0:200}"
+fi
+chmod +x "$BRK/scripts/hooks/guard-sealed-worktree.sh"
+BRK_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk3' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$BRK" "$BRK/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18d ...and the same sandbox with every component healthy ALLOWS the spawn (positive control)\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18d healthy sandbox refused (exit %s): %s\n' "$rc" "${BRK_OUT:0:200}"
+fi
+rm -rf "$BRK"
+
+# (q19) CLAUSE 7e — THE PERSISTENT RECONCILER CONTRACT (review 2026-09-03,
+#       blocker 7). On macOS a file-writing spawn is refused unless launchctl
+#       shows com.richos.worktree-reconciler loaded and naming a reconciler
+#       that exists. launchctl is SHIMMED (never the real one), and the clause
+#       is asked for explicitly (RICHOS_RECONCILER_CONTRACT_CHECK=1) because
+#       this suite pins the transaction store, which makes it inert otherwise.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    LSHIM="$(cd "$(mktemp -d -t guard-isolation-lshim.XXXXXX)" && pwd -P)"
+    lshim() { # <mode> — print-fails | names-existing | names-missing | no-reconciler
+        case "$1" in
+            print-fails)    printf '#!/usr/bin/env bash\necho "Could not find service" >&2; exit 113\n' >"$LSHIM/launchctl" ;;
+            names-existing) printf '#!/usr/bin/env bash\nprintf "%%s\\n" "gui/501/com.richos.worktree-reconciler = {" "\tprogram = /usr/bin/python3" "\targuments = {" "\t\t/usr/bin/python3" "\t\t%s" "\t\t--quiet" "\t}" "}"\n' "$SCRIPT_DIR/../reconcile-terminal-worktrees.py" >"$LSHIM/launchctl" ;;
+            names-missing)  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "\targuments = {" "\t\t/nonexistent/engine/scripts/reconcile-terminal-worktrees.py" "\t}"\n' >"$LSHIM/launchctl" ;;
+            no-reconciler)  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "\targuments = {" "\t\t/usr/bin/true" "\t}"\n' >"$LSHIM/launchctl" ;;
+        esac
+        chmod +x "$LSHIM/launchctl"
+    }
+    q19_run() { # -> Q19_OUT, rc
+        Q19_OUT="$(printf '%s' "$(json_agent 'dev' "$1" 'worktree' 'Do it.')" | PATH="$LSHIM:$PATH" RICHOS_RECONCILER_CONTRACT_CHECK=1 "$HOOK" 2>&1 >/dev/null)"; rc=$?
+    }
+    lshim print-fails; q19_run dev-sonnet-q19a
+    if [ "$rc" -eq 2 ] && printf '%s' "$Q19_OUT" | grep -qF 'persistent reconciler is NOT LOADED' && printf '%s' "$Q19_OUT" | grep -qF 'install.sh from the engine'; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19a reconciler job NOT loaded (launchctl print fails) -> file-writing spawn BLOCKED, naming install.sh from the main checkout as the fix\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19a not-loaded (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim names-existing; q19_run dev-sonnet-q19b
+    if [ "$rc" -eq 0 ]; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19b reconciler job loaded and naming an EXISTING reconciler -> spawn allowed (positive control)\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19b healthy job refused (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim names-missing; q19_run dev-sonnet-q19c
+    if [ "$rc" -eq 2 ] && printf '%s' "$Q19_OUT" | grep -qF 'which does not exist'; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19c reconciler job loaded but pointing at a reconciler that DOES NOT EXIST (a removed checkout) -> BLOCKED, naming the path\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19c dangling job (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim no-reconciler; q19_run dev-sonnet-q19d
+    if [ "$rc" -eq 2 ] && printf '%s' "$Q19_OUT" | grep -qF 'does not name a reconciler'; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19d a job under the label that runs something else -> BLOCKED\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19d wrong program (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim print-fails
+    Q19_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-q19e' 'worktree' 'Do it.')" | PATH="$LSHIM:$PATH" "$HOOK" 2>&1 >/dev/null)"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19e ...and with the transaction store redirected (a sandbox) and no explicit ask, the clause is inert: no machine-wide contract applies to a sandbox\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19e sandboxed store still checked (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    Q19_OUT="$(printf '%s' "$(json_agent 'Explore' '' '' "Find where the login button is defined.
+$M_GOOD_Q")" | PATH="$LSHIM:$PATH" RICHOS_RECONCILER_CONTRACT_CHECK=1 "$HOOK" 2>&1 >/dev/null)"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19f a read-only type is not held to the reconciler contract (it owns no worktree)\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19f read-only type refused (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    rm -rf "$LSHIM"
+else
+    printf '  SKIP  Q19  clause 7e (launchd) is macOS-only; this host is %s\n' "$(uname -s 2>/dev/null)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -879,11 +1113,18 @@ fi
 rm -rf "$NOLIB" "$CR"
 unset RICHOS_WORKTREE_LEDGER
 
+rm -rf "$TX_SANDBOX"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== guard-worktree-isolation tests: $FAIL FAILED, $PASS passed ==="
     exit 1
-else
-    echo "=== guard-worktree-isolation tests: all $PASS passed ==="
-    exit 0
 fi
+echo "=== guard-worktree-isolation tests: all $PASS passed ==="
+
+# The mutation harness is part of this suite's definition of green: a suite
+# nobody has watched go red proves nothing (open-items rows 3.22-3.29).
+if [ -f "$SCRIPT_DIR/worktree-spawn-intent.mutation.sh" ]; then
+    bash "$SCRIPT_DIR/worktree-spawn-intent.mutation.sh" || exit 1
+fi
+exit 0

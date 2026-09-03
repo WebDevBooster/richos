@@ -212,6 +212,90 @@ case "$TO_LC" in
   main|team-lead|lead|leader|user|"") exit 0 ;;
 esac
 
+# --- (0) A TERMINAL AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH (2026-09-03) --
+#
+# The first terminal ingress (SubagentStop or WorktreeRemove,
+# terminalize-agent-worktrees.sh) claimed this agent's worktree transaction:
+# its worktrees are quarantined for capture and removal, and it is forbidden
+# to return — the CEO's ruling, not a heuristic. So a message to it is refused
+# HERE, before the protocol exemption, before `resume-ack:`, before the roster
+# and the lock are even consulted. There is no escape hatch: a resumed
+# terminal agent would wake with no workspace and improvise, which is the
+# failure this whole guard exists to prevent, now made permanent by design.
+#
+# The lookup is EXACT: the terminal index keyed by agent id, the per-session
+# index keyed by teammate name (names are unique within a session by clause 3
+# of the spawn guard, and the index is per session so a reused name in a
+# later session matches nothing), and the identity index's exact name -> id
+# join. Nothing is matched by prefix or role.
+#
+# If the transaction library is absent the check cannot run, and the guard
+# carries on to its existing (still fail-closed) verdict rather than inventing
+# one — announced on stderr so the absence is not silent.
+_TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
+if [ -f "$_TX_PY" ]; then
+  TERMINAL_VERDICT="$(RESUME_TO="$TO" RESUME_SESSION_ID="$SESSION_ID" RESUME_TEAM_DIR="${RESUME_GUARD_TEAMS_DIR:-$SESSION_TEAMS_DIR}/session-$(printf '%s' "$SESSION_ID" | cut -c1-8)" \
+    RESUME_TRANSCRIPT="$TRANSCRIPT" RESUME_LIB_DIR="$SCRIPT_DIR/../lib" TX_PY="$_TX_PY" python3 - <<'PY' 2>/dev/null || printf 'UNKNOWN\tthe terminal check could not run'
+import importlib.util, os, sys
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+def out(kind, detail=""):
+    sys.stdout.write("%s\t%s\n" % (kind, detail.replace("\t", " ").replace("\n", " ")))
+    raise SystemExit(0)
+
+tx = load("tx", os.environ["TX_PY"])
+to = (os.environ.get("RESUME_TO") or "").strip()
+sid = os.environ.get("RESUME_SESSION_ID") or ""
+if to.startswith("agent-"):
+    to_id = to[len("agent-"):]
+else:
+    to_id = to
+if tx.is_terminal_agent(to_id, sid or None):
+    out("TERMINAL", "agent id %s is terminal" % to_id)
+if sid and tx.is_terminal_name(sid, to):
+    out("TERMINAL", "teammate %s is terminal in session %s" % (to, sid[:8]))
+# the exact name -> id join, so a name whose agent id is terminal is caught too
+ti_path = os.path.join(os.environ.get("RESUME_LIB_DIR", ""), "teammate-identity.py")
+if os.path.isfile(ti_path):
+    try:
+        ti = load("ti", ti_path)
+        index = ti.identity_index(os.environ.get("RESUME_TEAM_DIR", ""), os.environ.get("RESUME_TRANSCRIPT", ""), sid)
+        aid, _how = ti.agent_id_for_name(to, index)
+        if aid and tx.is_terminal_agent(aid, sid or None):
+            out("TERMINAL", "teammate %s resolves exactly to agent id %s, which is terminal" % (to, aid))
+    except Exception:
+        pass
+out("LIVE", "")
+PY
+)"
+  TKIND="$(printf '%s' "$TERMINAL_VERDICT" | head -1 | cut -f1)"
+  TDETAIL="$(printf '%s' "$TERMINAL_VERDICT" | head -1 | cut -f2-)"
+  if [ "$TKIND" = "TERMINAL" ]; then
+    {
+      echo "=== Resume-isolation guard: REFUSED (terminal agent) ==="
+      echo "  SendMessage to '${TO}': ${TDETAIL}."
+      echo ""
+      echo "  Its first terminal event claimed its worktree transaction; its worktrees"
+      echo "  are quarantined for capture and removal, and it is forbidden to return."
+      echo "  There is NO escape hatch — not resume-ack:, not a protocol message."
+      echo "  For a follow-up, spawn a FRESH teammate with the Agent tool and a new"
+      echo "  <role>-<model>-<identifier> name. Its committed work is on its branch"
+      echo "  and under refs/richos/handoffs/<session>/<agent-id>/<branch>."
+      echo "  (specification: docs/plans/worktree-real-fix-2026-09-03.md)"
+      echo "$HOOK_TAG"
+    } >&2
+    exit 2
+  elif [ "$TKIND" = "UNKNOWN" ]; then
+    echo "NOTICE: guard-resume-isolation.sh: the terminal-agent check could not run ($TDETAIL); continuing to the liveness verdict." >&2
+  fi
+else
+  echo "NOTICE: guard-resume-isolation.sh: scripts/lib/worktree-transactions.py is missing at $_TX_PY — a TERMINAL agent cannot be recognized here; continuing to the liveness verdict." >&2
+fi
+
 # --- (4b) protocol / control messages — NEVER blocked --------------------
 # Three independent tells, any of which marks control traffic:
 #   - a structured (non-string) message body,

@@ -8,6 +8,25 @@ One JSON object per line, appended, never rewritten. It lives outside every
 repository and outside every session team directory, because it has to outlive
 both — that is its entire job.
 
+## 2026-09-03: ownership is exact path only, and removal is a transaction
+
+Everything below about judging an owner's liveness is now REPORTING. No sweep
+removes a worktree on a liveness verdict any more; removal belongs to the
+transaction lifecycle in `docs/worktree-lifecycle-transactions.md`:
+a `prepared` record at creation, a spawn-intent bound to the platform's agent
+id, a sealed manifest, a compare-and-set terminal claim at the first
+SubagentStop or WorktreeRemove, and a persistent reconciler. In this ledger:
+
+- `prepared` (new) is the authoritative creation-time record
+  `create-teammate-worktree.sh` writes — exact repo, path, branch, session id —
+  and `prepared_records()` filters on every key exactly.
+- `registrations()` matches by EXACT worktree path or not at all. Teammate
+  names, branch names and transcript joins are reported in the reason line and
+  never returned to a destructive caller (`match_names` is a reporting flag).
+- `bound_members(session_id, agent_id)` delegates to the sealed transaction
+  and has no fallback.
+- `append()` fsyncs.
+
 ## Why this exists
 
 A hand-rolled worktree (cross-repository work, `richos-wt/<name>`) takes no git
@@ -47,10 +66,10 @@ never decide.
 ## The judgment
 
 `scripts/lib/worktree-ledger.py judge` / `judge-batch` — the ONE
-implementation; the reaper imports it and never paraphrases it. The owner of a
-hand-rolled worktree is resolved from the ledger first (exact worktree path,
-then teammate name = branch or directory name), and from the transcript index
-as a fallback. Then, per registration:
+implementation; the inventory imports it and never paraphrases it. The owner
+of a hand-rolled worktree is resolved from the ledger by EXACT worktree path
+and by nothing else (a tree with no path record is UNRESOLVED; the name and
+transcript fallbacks were removed on 2026-09-03). Then, per registration:
 
 ```
 witnessed termination on record ................ NOT-ALIVE
@@ -122,12 +141,11 @@ construction.
 ```
 
 `unresolved>0` is a **FAIL, exit 3**: a hand-rolled worktree with NO
-ownership record can never be judged by this tool; it accumulates until an
-operator clears it under an explicit amnesty. `indeterminate>0` is **PENDING,
-exit 0**: every one names a session pid and resolves itself when that session
-ends. Both wrappers (`session-start-reap-worktrees.sh`,
-`agent-finished-reap-worktrees.sh`) put the verdict FIRST in what they
-announce, and `reap-events.jsonl` carries `verdict` and `unresolved` as fields.
+ownership record can never be judged by this tool; it is the "unbound
+RichOS-created worktrees" figure of the definition of done, reported and never
+acted on. `indeterminate>0` is **PENDING, exit 0**. The session-start wrapper
+runs this inventory in DRY-RUN only and puts the verdict FIRST in what it
+announces; the agent-finish wrapper was retired on 2026-09-03.
 
 ## Orphan branches
 

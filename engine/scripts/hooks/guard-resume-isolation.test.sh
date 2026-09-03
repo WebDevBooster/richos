@@ -500,13 +500,67 @@ git -C "$BG_REPO" worktree unlock "$BG_REPO/.claude/worktrees/agent-$LIVE_ID"  >
 git -C "$BG_REPO" worktree unlock "$BG_REPO/.claude/worktrees/agent-$STALE_ID" >/dev/null 2>&1
 rm -rf "$BG"
 
+# =========================================================================
+# (t) A TERMINAL AGENT IS REFUSED BEFORE EVERY ESCAPE HATCH (2026-09-03).
+# The terminal indexes are written by terminalize-agent-worktrees.sh through
+# scripts/lib/worktree-transactions.py; here they are produced through the
+# same library so the refusal is exercised against the real record shape.
+# =========================================================================
+TX_PY="$SCRIPT_DIR/../lib/worktree-transactions.py"
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
+TX_ENTITY="$SANDBOX/tx-entity"
+mkdir -p "$TX_ENTITY/.claude/worktrees"
+git -C "$TX_ENTITY" init -q -b main; printf 'seed\n' >"$TX_ENTITY/seed.txt"; git -C "$TX_ENTITY" add -A; git -C "$TX_ENTITY" commit -q -m seed
+TERM_AID="a0000000000term1"
+git -C "$TX_ENTITY" worktree add -q -b "worktree-agent-$TERM_AID" "$TX_ENTITY/.claude/worktrees/agent-$TERM_AID"
+printf '{"kind":"native","teammate":"dev-live","externals":[]}' | python3 "$TX_PY" intent --session-id "$SESSION_ID" --tool-use-id tu-term >/dev/null
+python3 "$TX_PY" bind --session-id "$SESSION_ID" --tool-use-id tu-term --agent-id "$TERM_AID" >/dev/null
+python3 "$TX_PY" start --session-id "$SESSION_ID" --agent-id "$TERM_AID" --cwd "$TX_ENTITY/.claude/worktrees/agent-$TERM_AID" >/dev/null
+python3 "$TX_PY" seal --session-id "$SESSION_ID" --agent-id "$TERM_AID" >/dev/null
+# BEFORE the claim: dev-live is an active roster member and is allowed (control).
+run_case "T01  before terminalization the same recipient is allowed (control)" 0 \
+    "$(send_json 'dev-live' '"One more thing."')"
+python3 "$TX_PY" claim --session-id "$SESSION_ID" --agent-id "$TERM_AID" --ingress SubagentStop >/dev/null 2>&1
+# AFTER: refused by agent id, by name, with resume-ack:, and as a protocol message.
+run_case "T02  terminal agent addressed by AGENT ID -> REFUSED" 2 \
+    "$(send_json "$TERM_AID" '"Are you there?"')"
+run_case_msg "T03  ...with the terminal banner" 'REFUSED (terminal agent)' \
+    "$(send_json "$TERM_AID" '"Are you there?"')"
+run_case "T04  terminal agent addressed by TEAMMATE NAME (still an active roster member) -> REFUSED" 2 \
+    "$(send_json 'dev-live' '"One more thing."')"
+run_case "T05  terminal agent + resume-ack: -> STILL REFUSED (no escape hatch)" 2 \
+    "$(send_json 'dev-live' '"resume-ack: writes land nowhere, pure question"')"
+run_case "T06  terminal agent + shutdown_request protocol body -> STILL REFUSED" 2 \
+    "$(send_json "$TERM_AID" '{"type":"shutdown_request","reason":"done"}')"
+run_case_msg "T07  the refusal tells the lead where the work is (backup ref) and to spawn fresh" 'refs/richos/handoffs/' \
+    "$(send_json 'dev-live' '"One more thing."')"
+# a DIFFERENT active teammate is unaffected
+run_case "T08  another active recipient is unaffected by one agent being terminal" 0 \
+    "$(send_json 'dev-inproc' '"Continue."')"
+# the lead channel is never touched by the terminal check
+run_case "T09  the lead/reply channel passes regardless" 0 \
+    "$(send_json 'team-lead' '"Report: done."')"
+# the same name in ANOTHER session is not terminal: whatever the guard's
+# ordinary verdict for an unknown session is, it is NOT the terminal refusal.
+T10_OUT="$(python3 -c 'import json; print(json.dumps({"tool_name":"SendMessage","tool_input":{"to":"dev-live","message":"hi"},"session_id":"33333333-0000-4000-8000-000000000003"}))' | "$HOOK" 2>&1 >/dev/null)"
+if ! printf '%s' "$T10_OUT" | grep -q 'REFUSED (terminal agent)'; then
+    printf '  PASS  T10  the same teammate name under another session id is NOT refused as terminal (index is per session)\n'; PASS=$((PASS + 1))
+else
+    printf '  FAIL  T10  a reused name in another session inherited terminal state\n'; FAIL=$((FAIL + 1))
+fi
+
 rm -rf "$SANDBOX"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== guard-resume-isolation tests: $FAIL FAILED, $PASS passed ==="
     exit 1
-else
-    echo "=== guard-resume-isolation tests: all $PASS passed ==="
-    exit 0
 fi
+echo "=== guard-resume-isolation tests: all $PASS passed ==="
+
+# The mutation harness for the terminal refusal is part of this suite's
+# definition of green (open-items rows 3.22-3.29).
+if [ -f "$SCRIPT_DIR/worktree-terminal-refusal.mutation.sh" ]; then
+    bash "$SCRIPT_DIR/worktree-terminal-refusal.mutation.sh" || exit 1
+fi
+exit 0

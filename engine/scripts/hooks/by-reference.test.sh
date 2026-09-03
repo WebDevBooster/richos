@@ -374,7 +374,7 @@ run_probe "$SB"
 # The wording says "not exactly once on <event>" rather than "not on <event>"
 # because BR2's uniqueness invariant is now PER EVENT: a hook wired twice on
 # one event double-fires, while a hook wired once on each of two different
-# events (agent-finished-reap-worktrees.sh, on TeammateIdle and TaskCompleted)
+# events (terminalize-agent-worktrees.sh, on SubagentStop and WorktreeRemove)
 # does not, and the old per-script count called the second one a defect.
 expect_only_layer_failed "2e.BR2-guard-on-the-wrong-event" "BR2" "detect-nonnative-worktree.sh(registered, but not exactly once on PostToolUse)"
 rm -rf "$SB"

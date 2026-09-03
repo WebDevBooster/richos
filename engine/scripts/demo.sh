@@ -112,6 +112,14 @@ beat_fail() {
 # the X's directly. This form gives byte-for-byte identical, clean output on
 # both platforms. (See docs/ci-portability-notes.md.)
 SAMPLE_ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-demo.XXXXXX")" && pwd -P)"
+# THE WORKTREE TRANSACTION STORE IS PINNED INSIDE THE SAMPLE REPO, for the
+# reason CLAUDE_CONFIG_DIR is redirected below: since 2026-09-03 clause 7 of
+# guard-worktree-isolation.sh WRITES a spawn-intent for every allowed
+# file-capable spawn, and Beat 3 runs that guard for real. Unpinned, a
+# sixty-second demo would append demo0000's intents to the operator's own
+# ~/.claude/state/worktree-transactions and they would outlive the temp
+# directory this trap removes.
+export RICHOS_WORKTREE_TX_DIR="$SAMPLE_ROOT/.demo-state/worktree-transactions"
 
 cleanup() {
     rm -rf "$SAMPLE_ROOT" 2>/dev/null || true
@@ -270,13 +278,26 @@ DEMO_FILES+=(
     # the integrity probe Beat 7 runs.
     "scripts/hooks/install.sh"
     "scripts/hooks/contract-integrity-probe.sh"
-    # The half of the worktree-reaper chain that actually removes worktrees.
-    # install.sh mints its sidecar and probe Layer Q hashes + exercises it, so
-    # the sample repo needs it. Since 2026-09-01 it is reached by TWO triggers
-    # — the SessionStart wrapper and the TeammateIdle/TaskCompleted one — and
-    # both are derived from hooks.json above; this file is the one they share
-    # and the one no hook table names.
+    # The session's worktree INVENTORY. install.sh mints its sidecar and probe
+    # Layer Q hashes + exercises it, so the sample repo needs it. Since
+    # 2026-09-03 it removes nothing: one trigger (the SessionStart wrapper,
+    # derived from hooks.json above) runs it in DRY-RUN, and this is the file
+    # that trigger shares with no hook table.
     "scripts/reap-stale-worktrees.sh"
+    # THE WORKTREE LIFECYCLE'S TWO NON-HOOK HALVES (2026-09-03). Both are on
+    # this list for the refuse-to-start reason rather than the soft one, which
+    # is why a sample repo without them does not merely look thinner:
+    #   worktree-transactions.py is the transaction store itself. Clause 7c of
+    #   guard-worktree-isolation.sh REFUSES every file-capable spawn when it is
+    #   absent (fail-closed, deliberately: an intent nothing can bind is the
+    #   best-effort registration this replaced), so the demo's own spawn beat
+    #   would be blocked by the engine it is demonstrating.
+    #   reconcile-terminal-worktrees.py is the only code that deletes a
+    #   worktree directory. install.sh hashes it and probe Layer Q asserts the
+    #   SessionStart wrapper RECOVERS a quarantined transaction with it, so
+    #   Beat 7 fails without it for a reason that is not about the demo.
+    "scripts/lib/worktree-transactions.py"
+    "scripts/reconcile-terminal-worktrees.py"
     # The sanctioned worktree-removal helper. It ships as a PAIR with
     # guard-worktree-removal.sh — the guard blocks every raw removal and names
     # this as the only way through — so the probe's Layer S verifies both, and
@@ -669,7 +690,7 @@ narrate 'It should sail through the full PreToolUse[Agent]'
 narrate 'chain untouched:'
 label_real "guard-worktree-isolation.sh -> guard-definition-drift.sh -> reader-teammate-hint.sh -> verify-agent-prompt.sh (the real chain, in the real order)"
 
-GOOD_SPAWN_PAYLOAD='{"tool_name":"Agent","tool_input":{"subagent_type":"engineer","name":"engineer-sonnet-1","isolation":"worktree","prompt":"Fix the greeting bug in app/greeting.py. If I message you that main moved under you, acknowledge it durably with scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail \"...\" --paths \"...\" — I cannot rely on a reply reaching me."},"session_id":"demo0000-0000-4000-8000-000000000000"}'
+GOOD_SPAWN_PAYLOAD='{"tool_name":"Agent","tool_input":{"subagent_type":"engineer","name":"engineer-sonnet-1","isolation":"worktree","prompt":"Fix the greeting bug in app/greeting.py. If I message you that main moved under you, acknowledge it durably with scripts/inflight-ack.sh --sha <sha> --impact <kind> --detail \"...\" --paths \"...\" — I cannot rely on a reply reaching me."},"session_id":"demo0000-0000-4000-8000-000000000000","tool_use_id":"toolu_demo_beat3"}'
 BEAT3_OK=1
 for hook in guard-worktree-isolation.sh guard-definition-drift.sh reader-teammate-hint.sh verify-agent-prompt.sh; do
     set +e

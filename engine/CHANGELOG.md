@@ -12,6 +12,52 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Added
 
+- **Teammate worktrees are bound to the platform agent id at spawn and
+  terminalized at the first terminal event; no sweep decides liveness any
+  more** (`scripts/lib/worktree-transactions.py`,
+  `scripts/hooks/guard-sealed-worktree.sh`, `record-subagent-start.sh`,
+  `terminalize-agent-worktrees.sh`, `scripts/reconcile-terminal-worktrees.py`,
+  and the rewritten `create-teammate-worktree.sh`,
+  `guard-worktree-isolation.sh` clause 7, `detect-nonnative-worktree.sh`
+  binder, `guard-resume-isolation.sh` terminal refusal,
+  `session-start-reap-worktrees.sh`; `docs/worktree-lifecycle-transactions.md`)
+  — MINOR, implementing femcboost `docs/plans/worktree-real-fix-2026-09-03.md`.
+
+  Seven designs were rejected before this one, nine rounds failed in nine
+  shapes, and the CEO ruled: *"The system should stop trying to discover
+  whether the agent might return. It is forbidden to return."* So ownership is
+  recorded at the one moment it is certain — the spawn — keyed by the
+  platform's own `session_id`, `tool_use_id` and `agent_id`: a `prepared`
+  record when `create-teammate-worktree.sh` creates a cross-repository tree
+  (verified against git, fsynced, rolled back with the tree if it cannot be
+  written); a `spawn-intent` written by the isolation guard with the EXACT
+  member set before the Agent call may run; a `bound` record when the lead's
+  PostToolUse joins the acknowledged agent id to that intent (or the parent
+  transcript's exact call/result join, shared with every other consumer);
+  a start fact from the worker's own SubagentStart; and a `sealed` manifest
+  when both agree, in either order. Until sealed, a matcherless PreToolUse
+  barrier refuses every potentially writing tool (Bash, Agent, editors,
+  unknown and MCP tools) and permits only a read-only allowlist. The FIRST
+  SubagentStop or WorktreeRemove claims the transaction by compare-and-set
+  (exactly one wins; the loser resumes idempotently), writes a backup ref
+  `refs/richos/handoffs/<session>/<agent>/<branch>` in each repository BEFORE
+  anything moves, quarantines every member by atomic rename beside its path,
+  and re-points git at the quarantine so a prune cannot orphan it. A
+  persistent launchd job (installed by `install.sh`) then kills residual
+  writers, requires two identical manifests across a settle, archives raw
+  bytes plus index blobs plus provenance, verifies every digest, unregisters
+  and removes — each transition persisted so a crash at any boundary is
+  recovered from disk; SessionStart runs the same reconciler as crash
+  recovery with a budget. A terminal agent is refused every `SendMessage`
+  with no escape hatch. TeammateIdle and TaskCompleted hold no destructive
+  authority (the agent-finish reaper is gone); the session-start reaper is a
+  DRY-RUN inventory. Ownership in the ledger is exact-path only: names,
+  branches and transcript joins are reported and never authorize a removal.
+  Every piece is registered on both surfaces and the probe's managed set,
+  and every suite runs a mutation harness that turns a named case red per
+  property: 51 + 37 + 20 + 32 + 162 + 58 + 12 + 35 + 27 + 58 + 26 + 15 + 10
+  cases, 85 mutants.
+
 - **A turn whose report does not match its actions is refused**
   (`scripts/hooks/guard-stated-actions.sh` + `.py`, `stated-actions.corpus.md`,
   `guard-stated-actions.test.sh`, `stated-actions.mutation.sh`) — MINOR.
@@ -245,6 +291,185 @@ version heading with Added / Changed / Fixed groupings.
   list carry the two new files.
 
 ### Fixed
+
+- **A failed `git worktree repair` was recorded as a successful quarantine**
+  (`scripts/lib/worktree-transactions.py` `quarantine`;
+  `scripts/reconcile-terminal-worktrees.py` no-progress reporting;
+  `worktree-transactions.test.sh` T53–T54, mutant `repair-result-ignored`) —
+  PATCH, review 2026-09-03 blocker 6. The repair's return code, stdout and
+  stderr were ignored and the member advanced to `quarantined` regardless;
+  the main repository could still point at the vanished original, and the
+  next prune deleted the admin directory the quarantine's `.git` file points
+  at — the index the reconciler claims to preserve. The member now advances
+  only when the repair exits 0 AND git lists the quarantine as the exact
+  registered, non-prunable path; otherwise it stays `ref_saved` with the
+  quarantine recorded, the directory preserved, `attempts`/`last_error`
+  written on the member, and the step retried by the next run (reported
+  once after the soft-attempt ceiling, like any other retryable failure).
+
+- **Terminal revocation was not crash-consistent: the transaction and its
+  two derived indexes were three writes, and only the indexes were read**
+  (`scripts/lib/worktree-transactions.py` `claim_terminal`,
+  `is_terminal_agent`, `_repair_terminal_indexes`, `RICHOS_TX_CRASH_AFTER`;
+  `guard-sealed-worktree.sh`, `guard-resume-isolation.sh`,
+  `reconcile-terminal-worktrees.py`; `worktree-transactions.test.sh`
+  T55–T58, `guard-sealed-worktree.test.sh` G22–G23, mutants
+  `terminal-index-is-truth`, `loser-does-not-repair`,
+  `terminal-from-index-only`) — PATCH, review 2026-09-03 blocker 5. A crash
+  after the transaction's terminal write but before either index left a
+  terminal worker that every guard read as live. The transaction is now the
+  source of truth: `is_terminal_agent(agent_id, session_id)` consults it
+  when the index is absent (exact session, or every session's record for the
+  exact agent id when no session is known) and repairs the index on the way
+  out; every claim (winner and loser), every terminalize, the barrier's
+  sealed path and every reconciler pass repair the derived indexes
+  idempotently; and a test-only crash point after each of the three writes
+  proves each is survivable.
+
+- **An unsealed worker's only terminal event was discarded, and the suite
+  asserted it** (`scripts/lib/worktree-transactions.py`
+  `record_pending_terminal`, `claim_terminal`, `try_seal`,
+  `find_unsealed_by_native_path`, `iter_pending_terminals`;
+  `terminalize-agent-worktrees.sh`; `reconcile-terminal-worktrees.py`
+  `process_pending_terminals`; `orchestration.config`
+  `PENDING_TERMINAL_GRACE_SECONDS`; `terminalize-agent-worktrees.test.sh`
+  R21 INVERTED + R21b–R21e, `reconcile-terminal-worktrees.test.sh` C26–C28;
+  mutants `pending-not-recorded`, `seal-ignores-pending`,
+  `worktreeremove-unsealed-ignored`, `pending-for-nobody`, `grace-ignored`,
+  `fallback-never-built`) — PATCH, review 2026-09-03 blocker 4. R21 used to
+  assert that a bound-but-unstarted agent's `SubagentStop` left its worktree
+  present and created no terminal marker; that was the defect written as a
+  test, and it is inverted. Now every attributable terminal event (the
+  session holds a bound or a start record for the exact agent id) is
+  persisted at once as `pending-terminal/<agent_id>.json`, the agent is
+  terminal by policy from that moment, and `try_seal` consumes the pending
+  event the instant the manifest seals — claim, terminalize, quarantine.
+  `WorktreeRemove` for an unsealed native path resolves the platform's own
+  `agent-<id>` to an agent this session has a record for and records the
+  same fact. A pending event nothing can seal within the grace period is
+  routed by the reconciler through creation-time ownership: the bound
+  record's prepared external members, verified against git exactly as the
+  seal would have, plus the native member only if a start fact names one
+  that still verifies — never a name, never a guess. A pending event with no
+  bound record owned nothing and is dropped after grace.
+
+- **A failed index capture was accepted as a verified archive, and
+  verification skipped everything but regular-file bytes**
+  (`scripts/reconcile-terminal-worktrees.py` `capture_member`,
+  `_verify_archive`, `git_must`, `git_object_id`, `private_makedirs`,
+  `private_open`, `retention_pass`; `orchestration.config`
+  `CAPTURE_RETENTION_DAYS` / `BACKUP_REF_RETENTION_DAYS` /
+  `TRANSACTION_RETENTION_DAYS`; `docs/worktree-lifecycle-transactions.md`
+  verification, privacy/encryption policy and retention sections;
+  `reconcile-terminal-worktrees.test.sh` C29–C37; mutants
+  `index-failure-swallowed`, `missing-blob-accepted`,
+  `symlink-target-unchecked`, `mode-unchecked`, `artifacts-not-private`,
+  `retention-never-runs`, `record-expires-before-artifacts`, and
+  `staged-blob-not-archived` retargeted) — PATCH, review 2026-09-03 blockers
+  2 and 8. Blocker 2: a failed `git ls-files -s` was recorded as an empty
+  index and the member still advanced to `captured`; failures of `diff
+  --cached`, `cat-file`, `status` and a blob that was never written were all
+  swallowed, and a staged blob was verified only if its file happened to
+  exist. Now every git command the capture needs must succeed or the member
+  stays `quarantined` (attempt counted, error named, retryable, never a
+  permission to delete); `index.json` records which entries need a
+  standalone blob (`needs_blob`: object not in the HEAD tree the backup ref
+  preserves); each such blob is hashed under the repository's object format
+  at capture and again at verification, and a missing one voids the
+  capture. Blocker 8: verification now covers every manifest entry — file
+  size/mode/digest, symlink mode/target, directory mode, no extra entries;
+  capture directories are 0700 and archives 0600 by explicit mode and by a
+  0077 umask; the encryption policy is stated (permissions + retention +
+  the volume's encryption, no per-archive key, and the structural reason
+  why); and retention is automatic and persistent — captures 30 days,
+  backup refs 90, the transaction record 90 and only once every artifact it
+  names is gone — inside the reconciler run the launchd job performs.
+
+- **The write barrier deliberately failed open, and its suite asserted it**
+  (`scripts/hooks/guard-sealed-worktree.sh` rewritten;
+  `guard-worktree-isolation.sh` clause 7c hardened;
+  `contract-integrity-probe.sh` Layer Q6; `guard-sealed-worktree.test.sh`
+  G17/G18/G21 INVERTED + G17b–d, G18b–d, G21b, G24–G25;
+  `guard-worktree-isolation.test.sh` Q18b–d; mutants
+  `fail-open-without-python`, `fail-open-without-library`,
+  `unparseable-is-the-lead`, `fail-open-on-resolver-error`,
+  `broken-root-allows`, `lead-proof-is-raw-grep-only` replacing the two
+  that proved the opposite) — PATCH, review 2026-09-03 blocker 3. The
+  barrier ALLOWED a worker's tool call when python3 was missing, when the
+  transaction library was missing, when root resolution broke, when its
+  resolver raised, and when the payload did not parse (no `agent_id` could
+  be extracted, so it read as the lead); G17, G18 and G21 asserted exactly
+  that. Now a payload proven to be the lead's (it parses and carries no
+  `agent_id`) passes; a sealed worker passes; a worker tool proven read-only
+  passes under the read-only policy even when the guard cannot evaluate;
+  and EVERYTHING ELSE when the guard cannot evaluate is refused with a
+  banner naming the dependency. Without python3 the lead is proven only by
+  the absence of an unescaped `"agent_id"` key in the raw payload. The
+  "bricked within the hour" worry is answered one level up: the spawn gate
+  now refuses to start a file-writing teammate when the library does not
+  load or a lifecycle hook is not executable (not merely absent), and probe
+  Layer Q6 runs ten arms — healthy, library missing, no python3,
+  unparseable — each refusal beside its pass, so a barrier that fails open
+  OR refuses everything turns the probe red.
+
+- **Installation could succeed with no reconciler, and told the operator to
+  load it by hand** (`scripts/hooks/install.sh` launchd block rewritten:
+  `schedule_reconciler_job`, `RICHOS_LAUNCHD_LABEL` test labels,
+  `EnvironmentVariables` for redirected stores, exit 1 on any schedule
+  failure; `guard-worktree-isolation.sh` clause 7e;
+  `reconcile-terminal-worktrees.py` `last-run.json` heartbeat;
+  `install-reconciler-schedule.test.sh` S17–S26 including a LIVE launchd
+  installation; new `install-reconciler-schedule.mutation.sh` (5 mutants);
+  `guard-worktree-isolation.test.sh` Q19a–f and mutant M20) — PATCH,
+  review 2026-09-03 blocker 7. `install.sh` exited 0 when the plist could
+  not be written, when `launchctl` was unavailable and when `bootstrap`
+  failed — the last with "load it by hand", the babysitting this work exists
+  to remove — and its suite verified plist serialization only. A real macOS
+  install now FAILS (exit 1) unless the job is bootstrapped AND
+  `launchctl print` shows it loaded and naming this checkout's reconciler;
+  re-running from the landed main checkout is the whole upgrade path
+  (bootout, bootstrap, verify). Spawn-gate clause 7e refuses every
+  file-writing spawn on macOS while that job is not loaded or points at a
+  reconciler that no longer exists, naming the one command that fixes it
+  (inert on a redirected store, so suites and probe canaries are unaffected;
+  `RICHOS_RECONCILER_CONTRACT_CHECK=1` asks for it with a shimmed
+  `launchctl`). The live test loads a real job under a test label
+  (`com.richos.worktree-reconciler.test-<pid>`, the only label an override
+  may name) against a sandboxed store, proves `launchctl print` names the
+  reconciler, waits for the reconciler's heartbeat (the job RAN), reinstalls
+  from a second checkout and proves the job repointed, and boots it out.
+
+  **Landing note:** after this lands, run `engine/scripts/hooks/install.sh`
+  from the richos MAIN checkout once; from the next session on, file-writing
+  spawns on a Mac whose reconciler job is not loaded are refused until it is.
+
+- **Native evidence could be deleted before quarantine: the terminal ingress
+  saved every repository's backup ref before renaming anything**
+  (`scripts/lib/worktree-transactions.py` `terminalize`;
+  `worktree-transactions.test.sh` T51–T52, mutant `refs-before-any-rename`) —
+  PATCH, review 2026-09-03 blocker 1. The `WorktreeRemove` hook has a 20s
+  budget and any git subprocess may take 30s; with two passes (save every
+  ref, then quarantine every member) a stalled external repository exhausted
+  the budget while the native path — the one the platform was about to
+  delete — still stood at its original name. Members are now processed one
+  at a time, the named native path first: its ref is saved, it is renamed,
+  the transition is persisted, and only then is any other repository
+  touched. T51 stalls the external repository's git, kills terminalize at 6s
+  the way the harness kills an overrunning hook, and asserts the native
+  member is `quarantined` on disk and in the record while the external is
+  still `bound` and untouched; T52 finishes it on the next run.
+
+- **`install.sh --force-engine-pointer` scheduled the reconciler from a test
+  fixture** (`scripts/hooks/install.sh`; `install-reconciler-schedule.test.sh`
+  S11–S16) — PATCH. The ephemeral/worktree facts were computed only when the
+  flag was off, and the launchd step read them; a forced run from a temp
+  checkout with a redirected HOME (`global-state-witness.test.sh` c4) passed
+  every withholding branch and bootstrapped `gui/<uid>/com.richos.worktree-
+  reconciler` at a directory deleted a second later. The facts are now
+  computed unconditionally and the flag governs the pointer alone; a HOME that
+  is not the account's passwd home withholds the schedule outright, because
+  `gui/<uid>` is per-account and cannot see a redirected HOME; the suite shims
+  `launchctl` so it can never re-create the leak it catches.
 
 - **The evidence collector read the wrong repository's directory list and
   mirrored into the wrong checkout** (`scripts/collect-worktree-artifacts.sh`;

@@ -45,6 +45,12 @@ BAK="$(mktemp)"
 cp "$GUARD" "$BAK"
 restore() { cp "$BAK" "$GUARD"; }
 trap 'restore; rm -f "$BAK"' EXIT
+# Clause 7 (2026-09-03) writes a spawn-intent for every allowed file-capable
+# spawn; the control payload carries a tool_use_id as a real one does, and the
+# transaction store is pinned to a scratch directory so this harness never
+# touches the operator's record.
+MUT_TX="$(mktemp -d)"
+export RICHOS_WORKTREE_TX_DIR="$MUT_TX/tx"
 
 PROVEN=0; UNPROVEN=0
 BASE_MD5="$(md5 -q "$GUARD" 2>/dev/null || md5sum "$GUARD" | cut -d' ' -f1)"
@@ -69,7 +75,7 @@ alive() {
         printf 'UNPROVEN  %-4s %s  <- mutant does not PARSE; a syntax error is not a mutation\n' "$id" "$desc"
         UNPROVEN=$((UNPROVEN+1)); return 1
     fi
-    printf '{"tool_name":"Agent","session_id":"mut00000-0000-4000-8000-000000000000","tool_input":{"subagent_type":"dev","name":"dev-sonnet-alive","isolation":"worktree","prompt":"control payload"}}' \
+    printf '{"tool_name":"Agent","session_id":"mut00000-0000-4000-8000-000000000000","tool_use_id":"toolu_mut_control","tool_input":{"subagent_type":"dev","name":"dev-sonnet-alive","isolation":"worktree","prompt":"control payload"}}' \
         | RICHOS_ENTITY_ROOT="$ENG" "$GUARD" >/dev/null 2>&1
     rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -420,8 +426,11 @@ open(p, "w", encoding="utf-8").write(s.replace(old, 'elif [ "$C6_RANK_REQUESTED"
 PY
 if applied M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refused)" \
    && alive M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refused)"; then
+    # The "frank (opus default) on fable" case is no longer a SAME-tier spawn:
+    # b284013 ("Fable is above Opus, not level with it") put fable in its own
+    # tier, so -ge cannot tax it and that needle was stale from that commit on.
+    # The two explicit same-default spawns are the cases -ge taxes.
     check M14 "same tier taxed (over-blocking; the CEO's own Fable spawns refused)" \
-        "frank \(opus default\) on fable, no reason -> allowed, SILENT \(same tier; the CEO's own spawn shape\)" \
         "frank on opus, its own default, explicit -> SILENT" \
         "reed on sonnet, its own default, explicit -> SILENT"
 fi
@@ -524,6 +533,32 @@ if applied M19 "the fail-open skip silenced" \
     check M19 "the fail-open skip silenced" \
         "the fail-open skip is announced, naming the unranked alias" \
         "parser library missing -> allowed \(fail-open\), announced"
+fi
+
+# --- M20: CLAUSE 7e deleted — the persistent reconciler contract unchecked
+# (review 2026-09-03, blocker 7). A machine with no loaded reconciler would
+# spawn file-writing teammates whose terminal worktrees nothing removes.
+# macOS only: the clause stands down elsewhere and the case is a SKIP there.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHECK:-}" = "1" ]; } && [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then'
+assert old in s, "clause 7e anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, "if false; then", 1))
+PY
+if applied M20 "the reconciler contract unchecked (clause 7e deleted)" \
+   && alive M20 "the reconciler contract unchecked (clause 7e deleted)"; then
+    # `check` matches the suite's FAIL lines, whose wording differs from the
+    # PASS lines (the harness run of 2026-09-03 went red at exactly Q19a, Q19c
+    # and Q19d and was scored unproven only because these named the PASS text).
+    check M20 "the reconciler contract unchecked (clause 7e deleted)" \
+        "Q19a not-loaded" \
+        "Q19c dangling job" \
+        "Q19d wrong program"
+fi
 fi
 
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
