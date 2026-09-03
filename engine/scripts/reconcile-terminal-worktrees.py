@@ -835,10 +835,19 @@ def retention_pass():
                     expired["captures"] += 1
                 ref = m.get("backup_ref")
                 if ref and not m.get("backup_ref_expired_ts") and age >= ref_days:
-                    if os.path.isdir(m.get("repo") or ""):
-                        git_out(m["repo"], "update-ref", "-d", ref)
-                    tx.update_member(sid, aid, i, backup_ref_expired_ts=tx.now_iso())
-                    expired["backup_refs"] += 1
+                    gone, why = _expire_backup_ref(m.get("repo"), ref)
+                    if gone:
+                        tx.update_member(sid, aid, i, backup_ref_expired_ts=tx.now_iso())
+                        expired["backup_refs"] += 1
+                    else:
+                        # STILL TRACKED (landed review 2026-09-03, blocker 4):
+                        # no expiry timestamp, so artifacts_gone below stays
+                        # false and the record that names the ref outlives it.
+                        n = int(m.get("backup_ref_expire_attempts") or 0) + 1
+                        tx.update_member(sid, aid, i, backup_ref_expire_attempts=n,
+                                         backup_ref_expire_error=why[:300], backup_ref_expire_last_attempt=tx.now_iso())
+                        log("retention: backup ref %s of %s/%s NOT expired (attempt %d): %s — the ref and its record stay tracked; retried next run"
+                            % (ref, sid[:8], aid, n, why))
             t = tx.load_tx(sid, aid)
             artifacts_gone = all(
                 (not m.get("capture_dir") or m.get("capture_expired_ts") or not os.path.isdir(m["capture_dir"]))
@@ -860,6 +869,31 @@ def retention_pass():
     if any(expired.values()):
         log("retention: expired %d capture(s), %d backup ref(s), %d transaction record(s)" % (expired["captures"], expired["backup_refs"], expired["transactions"]))
     return expired
+
+
+def _expire_backup_ref(repo, ref):
+    """(gone, why). A backup ref is `gone` only when the EXACT ref no longer
+    resolves in its repository — verified by rev-parse after `update-ref -d`,
+    never assumed from the deletion's exit code, and never assumed at all
+    (landed review 2026-09-03, blocker 4). Until this revision the deletion's
+    result was ignored and the member marked expired regardless; if git had
+    rejected it, the ref lived on forever while the only record saying it
+    existed was deleted by the transaction retention that trusted the stamp.
+
+    A repository that is not present is NOT `gone`: an unmounted volume
+    would otherwise drop the record while the ref survives on it. The
+    record is kept and retried; a repository deleted for good keeps a tiny
+    record forever, which is the right side of that trade."""
+    if not repo or not os.path.isdir(repo):
+        return False, "repository %s is not present, so the ref cannot be verified gone" % (repo or "?")
+    if not _ref_exists(repo, ref):
+        return True, "already absent"
+    rc, _, err = git_out(repo, "update-ref", "-d", ref)
+    if rc != 0:
+        return False, "git update-ref -d %s exited %d: %s" % (ref, rc, err.strip()[:200])
+    if _ref_exists(repo, ref):
+        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref
+    return True, "deleted and verified absent"
 
 
 def _expire_transaction_record(t):

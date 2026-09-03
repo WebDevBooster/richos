@@ -110,6 +110,16 @@ mutant record-expires-before-artifacts "C36" "$R" \
     '            if age >= tx_days:' \
     "a transaction record would be deleted while its backup ref still existed — an artifact orphaned from the record that explains it."
 
+mutant backup-ref-expiry-assumed "C38" "$R" \
+    '                    gone, why = _expire_backup_ref(m.get("repo"), ref)' \
+    '                    gone, why = True, "assumed"' \
+    "a rejected `git update-ref -d` would still stamp the member expired; transaction retention trusts the stamp and deletes the only record saying the ref exists, and the ref lives on forever, untracked (landed review 2026-09-03, blocker 4)."
+
+mutant backup-ref-exit-code-trusted "C38b" "$R" \
+    '    if _ref_exists(repo, ref):{NL}        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref' \
+    '    if False:{NL}        return False, "git update-ref -d %s exited 0 but the ref still resolves" % ref' \
+    "a deletion that exited 0 without removing the ref would be believed — the exact ref is what must be verified absent, not the exit code."
+
 mutant budget-ignored "C23" "$R" \
     '        if deadline and time.time() > deadline:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \
     '        if False:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \

@@ -419,6 +419,56 @@ else
     bad "C37  ref=$(git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/a00000000000rc16/dev-opus-a00000000000rc16" >/dev/null && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id a00000000000rc16 >/dev/null 2>&1 && echo present || echo gone) out=${OUT:0:200}"
 fi
 
+# --- 15. a FAILED backup-ref deletion cannot be marked expired, and cannot let
+# the record go (landed review 2026-09-03, blocker 4). Until this revision
+# `git update-ref -d` ran with its result ignored, the member was stamped
+# expired regardless, and transaction retention — which trusts the stamp —
+# then deleted the only record saying the ref existed. Fault injection: a
+# git shim rejects `update-ref -d`; the ref, the member's tracking and the
+# transaction record must all remain, and the next (unshimmed) run expires
+# them properly.
+A17="a00000000000rc17"
+EXT17="$SANDBOX/other-wt/dev-opus-r17"
+seal "$A17" dev-opus-r17 "$OTHER:$EXT17:dev-opus-r17"
+T claim --session-id "$SID" --agent-id "$A17" --ingress SubagentStop >/dev/null
+R --agent "$SID/$A17" >/dev/null 2>&1
+[ "$(states "$A17")" = "removed removed " ] || bad "C38-setup  states=$(states "$A17")"
+REF17="refs/richos/handoffs/$SID/$A17/dev-opus-r17"
+NODEL="$SANDBOX/nodelbin"; mkdir -p "$NODEL"
+cat >"$NODEL/git" <<SH
+#!/usr/bin/env bash
+if [ "\$3" = "update-ref" ] && [ "\$4" = "-d" ]; then echo "fatal: simulated refusal to delete \$5" >&2; exit 128; fi
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$NODEL/git"
+OUT="$(PATH="$NODEL:$PATH" RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+M17="$(T show --session-id "$SID" --agent-id "$A17" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print("expired" if m.get("backup_ref_expired_ts") else "tracked", m.get("backup_ref_expire_attempts"), "named" if (m.get("backup_ref_expire_error") or "").startswith("git update-ref -d ") else "unnamed")')"
+if git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && [ "$M17" = "tracked 1 named" ] \
+   && T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && printf '%s' "$OUT" | grep -q 'NOT expired (attempt 1)'; then
+    ok "C38  git REJECTS the backup-ref deletion: the ref remains, the member is NOT stamped expired (attempt + error recorded), and the transaction record is NOT deleted"
+else
+    bad "C38  ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo GONE) member=[$M17] tx=$(T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && echo present || echo GONE) out=${OUT:0:200}"
+fi
+# a shim whose deletion "succeeds" but leaves the ref in place is caught by the verification, not the exit code
+cat >"$NODEL/git" <<SH
+#!/usr/bin/env bash
+if [ "\$3" = "update-ref" ] && [ "\$4" = "-d" ]; then exit 0; fi
+exec "$REAL_GIT" "\$@"
+SH
+OUT="$(PATH="$NODEL:$PATH" RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+if git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 \
+   && printf '%s' "$OUT" | grep -q 'exited 0 but the ref still resolves'; then
+    ok "C38b a deletion that exits 0 but leaves the ref resolving is NOT expired either: the exact ref is verified absent, the exit code is not trusted"
+else
+    bad "C38b ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo GONE) out=${OUT:0:200}"
+fi
+OUT="$(RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+if ! git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && ! T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1; then
+    ok "C38c ...and the next run with git working deletes the ref, verifies it gone, and only then expires the record"
+else
+    bad "C38c ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && echo present || echo gone)"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="
