@@ -256,7 +256,7 @@ export function lexicalText(text) {
  * PER SENTENCE, AND THE UNIT IS NOT A DETAIL. `lexicalText` tests the whole string against the
  * pattern, so `"Thank you. Thank you."` — two copies of whisper's canonical silence filler — does
  * not match the pattern for ONE `"Thank you."` and reads as lexical. That exact bug invalidated a
- * 24-span adjudication run in the 2026-08-29 podcast measurement, in the direction that turns the
+ * 24-span adjudication run in the six-track private measurement, in the direction that turns the
  * finding into its opposite (every confirmed fabrication came back "REAL-QUIET"). Splitting into
  * sentence units first makes the number of repeats irrelevant.
  *

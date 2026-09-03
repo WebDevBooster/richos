@@ -433,7 +433,7 @@ export function whisperArgs(opts = {}) {
 /**
  * The Workspace evidence zone (§4.2): the immutable raw-evidence store, one dir per SourceItem version,
  * laid out `<zone>/<vendor>/<source>/<sourceItemId>/`. Overridable for tests / alternate corpora.
- * Lives in the CEO's own CORPUS — not under a RichOS server (§1), and not in the product repo.
+ * Lives in the user's own CORPUS — not under a RichOS server (§1), and not in the product repo.
  * @returns {string}
  * @throws {Error} if the resolved zone is inside the product repo
  */

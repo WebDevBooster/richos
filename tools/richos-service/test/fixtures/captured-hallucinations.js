@@ -2,10 +2,17 @@
  * REAL captured hallucination artifacts — the fixtures behind the hallucination-guard tests.
  *
  * GENERATED, not hand-written: every segment below is verbatim whisper.cpp output from the
- * 2026-08-26 call-length benchmark (`docs/briefs/norm-brief-q5-call-transcription-2026-08-26.md`
- * in the richos-hq record), copied from its JSON segment timeline with the original millisecond
+ * 2026-08-26 call-length benchmark (`norm-brief-q5-call-transcription-2026-08-26.md` in the
+ * private record), copied from its JSON segment timeline with the original millisecond
  * offsets intact. Nothing here is a synthetic approximation of a failure — a fixture invented to
  * imitate an artifact proves nothing about the artifact.
+ *
+ * NOBODY REAL IS IN HERE, and that is worth stating because the text reads exactly like a real
+ * customer call. The AUDIO these were decoded from is macOS `say` TTS of a WRITTEN script: every
+ * person, company, account id and sentence in it was invented for the benchmark (brief §3.2).
+ * What is real is the DECODER'S BEHAVIOR over that audio, which is the only thing these fixtures
+ * assert. A fixture built from a real recording would be private speech in a public repository —
+ * see `.publication-boundary`.
  *
  * Provenance, sha256 of each source `whisper-cli -oj` JSON:
  *   C_turbo_rep1.json  648b8e28072d09a96d0bf4bad22a32ba8a461d66f0ec5ac1fec12e27721f7720
