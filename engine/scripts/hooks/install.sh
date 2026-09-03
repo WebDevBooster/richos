@@ -738,13 +738,19 @@ schedule_reconciler_job() {
     return 0
 }
 RECONCILER_SCHEDULE_FAILED=""
-if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
-    RECONCILER_SCHEDULE_FAILED="python3 or scripts/reconcile-terminal-worktrees.py is missing"
-elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ] && [ "$LAUNCHD_TEST_LABEL" -eq 1 ]; then
+# The walls come FIRST: a withheld schedule (a test, a worktree, an ephemeral
+# or sandboxed checkout, a foreign HOME, a non-macOS host) is a NOTE and never
+# a failed install, whatever the checkout lacks — locate-engine.test.sh 6d
+# runs the installer from a fixture with no reconciler. Only a run that would
+# actually schedule (the real install, or a live test-label load) requires
+# python3 and the reconciler to exist, and fails when they do not.
+if [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ] && [ "$LAUNCHD_TEST_LABEL" -eq 1 ]; then
     # A redirected plist directory AND a test label: a LIVE load under a name
     # that says what it is (install-reconciler-schedule.test.sh S17+). This is
     # the one way through the withholding walls below, bounded by the label.
-    if ! write_reconciler_plist; then
+    if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
+        RECONCILER_SCHEDULE_FAILED="python3 or scripts/reconcile-terminal-worktrees.py is missing"
+    elif ! write_reconciler_plist; then
         RECONCILER_SCHEDULE_FAILED="could not write the reconciler plist at $LAUNCHD_PLIST"
     elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
         RECONCILER_SCHEDULE_FAILED="a live launchd load was requested (test label) but this host is not macOS"
@@ -779,7 +785,9 @@ else
     # job is healthy, guard-worktree-isolation.sh clause 7e refuses every
     # file-writing spawn on this machine, naming this script as the fix.
     mkdir -p "$ENGINE_CONFIG_DIR/state" 2>/dev/null || true
-    if ! write_reconciler_plist; then
+    if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
+        RECONCILER_SCHEDULE_FAILED="python3 or scripts/reconcile-terminal-worktrees.py is missing"
+    elif ! write_reconciler_plist; then
         RECONCILER_SCHEDULE_FAILED="could not write the reconciler plist at $LAUNCHD_PLIST"
     elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
         RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"

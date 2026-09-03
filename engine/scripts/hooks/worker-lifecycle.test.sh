@@ -44,6 +44,12 @@ SANDBOX="$(mktemp -d -t worker-lifecycle-test.XXXXXX)"
 TOP_SHELL="${BASHPID:-$$}"
 trap '[ "${BASHPID:-$$}" = "$TOP_SHELL" ] && rm -rf "$SANDBOX"' EXIT
 
+# The isolation guard's clause 7 writes a spawn-intent for every allowed
+# file-capable spawn, and clause 7e holds a production store to the machine's
+# reconciler contract (launchd). The store is pinned into the sandbox so this
+# suite never writes the operator's record and never depends on whether the
+# reconciler job is loaded on the machine running it.
+export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 TEAMS_DIR="$SANDBOX/teams"
 SESSION_ID="abcd1234-0000-0000-0000-00000000beef"
 SESSION_DIR="$TEAMS_DIR/session-abcd1234"

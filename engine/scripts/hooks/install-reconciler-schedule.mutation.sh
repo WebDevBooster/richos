@@ -5,6 +5,13 @@
 # install-reconciler-schedule.test.sh; the loop is scripts/lib/mutation-harness.sh.
 # Case ids (S17 etc.) are the ones that suite prints on both PASS and FAIL.
 # Review 2026-09-03, blocker 7.
+#
+# WHAT PROTECTS THE OPERATOR'S MACHINE (global-state-witness.test.sh d2 lists
+# this file as an installer runner): this harness never runs install.sh
+# itself. It names the file as a mutation target and runs the SUITE, which
+# exports CLAUDE_CONFIG_DIR into a sandbox and redirects
+# RICHOS_LAUNCH_AGENTS_DIR, so no mutant can reach ~/.claude or the
+# production launchd label.
 
 set -uo pipefail
 [ -n "${RICHOS_MUTATION_INNER:-}" ] && exit 0

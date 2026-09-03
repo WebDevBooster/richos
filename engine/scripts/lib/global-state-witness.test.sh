@@ -220,6 +220,7 @@ RUNNERS=(
     scripts/hooks/by-reference.test.sh       # sandboxes CLAUDE_CONFIG_DIR at the call
     scripts/lib/global-state-witness.test.sh # this file: fake HOME and a sandbox
     scripts/hooks/install-reconciler-schedule.test.sh # exports a sandbox config dir + redirects RICHOS_LAUNCH_AGENTS_DIR
+    scripts/hooks/install-reconciler-schedule.mutation.sh # names install.sh only as its mutation target; every run goes through the suite above, under its sandbox
 )
 UNPROTECTED=""
 for f in "${RUNNERS[@]}"; do
