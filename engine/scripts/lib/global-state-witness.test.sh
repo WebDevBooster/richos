@@ -171,11 +171,29 @@ else
     bad "c3. only the pointer step is withheld" "rc=$IRC sidecars=$([ -f "$EPH/scripts/hooks/scan-secrets.sh.sha256" ] && echo minted || echo absent)"
 fi
 
-env -u CLAUDE_CONFIG_DIR HOME="$FAKEHOME" bash "$EPH/scripts/hooks/install.sh" --force-engine-pointer >/dev/null 2>&1
+# launchctl is SHIMMED for this call. On 2026-09-03 this exact line — forced,
+# temp checkout, fake HOME — ran a REAL `launchctl bootstrap gui/501` on a
+# plist under $FAKEHOME, and the job outlived $SCRATCH. install.sh now
+# withholds the schedule from a redirected HOME whatever the flag says
+# (install-reconciler-schedule.test.sh S11–S16 prove it), and this suite
+# stops borrowing the real launchctl regardless, for the reason it borrows
+# nothing else real: a red run must not be able to leave anything moved.
+GSW_SHIM="$SCRATCH/shim"; mkdir -p "$GSW_SHIM"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"${LAUNCHCTL_SHIM_LOG:?}"\nexit 0\n' >"$GSW_SHIM/launchctl"
+chmod +x "$GSW_SHIM/launchctl"
+GSW_SHIMLOG="$SCRATCH/launchctl.log"
+env -u CLAUDE_CONFIG_DIR HOME="$FAKEHOME" PATH="$GSW_SHIM:$PATH" LAUNCHCTL_SHIM_LOG="$GSW_SHIMLOG" \
+    bash "$EPH/scripts/hooks/install.sh" --force-engine-pointer >/dev/null 2>&1
 if [ -L "$FAKEHOME/.claude/richos-engine" ]; then
     ok "c4. --force-engine-pointer is the deliberate way through, and it still works"
 else
     bad "c4. the escape hatch must still mint the pointer"
+fi
+if [ "$(env PATH="$GSW_SHIM:$PATH" bash -c 'command -v launchctl')" = "$GSW_SHIM/launchctl" ] && [ ! -s "$GSW_SHIMLOG" ] \
+   && [ ! -e "$FAKEHOME/Library/LaunchAgents/com.richos.worktree-reconciler.plist" ]; then
+    ok "c4b. ...and the forced run touched NO launchd job and wrote NO plist under the fake home (the shim resolves; its log is empty)"
+else
+    bad "c4b. the forced run reached launchd" "log=$(tr '\n' ';' <"$GSW_SHIMLOG" 2>/dev/null) plist=$([ -e "$FAKEHOME/Library/LaunchAgents/com.richos.worktree-reconciler.plist" ] && echo written || echo absent)"
 fi
 
 # THE PRECISION FLOOR. The rule must not fire when the config dir is sandboxed —
