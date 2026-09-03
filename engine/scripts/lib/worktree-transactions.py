@@ -921,9 +921,53 @@ def backup_ref(session_id, agent_id, branch):
 # the two transitions the terminal ingress performs synchronously
 # --------------------------------------------------------------------------
 
+def close_absent(session_id, agent_id, index, reason):
+    """A member whose original AND quarantine are both gone is closed
+    AUTOMATICALLY — never parked in a manual `missing` state (landed review
+    2026-09-03, blocker 3; CEO specification section 4). What is preserved
+    is exactly what remains, and nothing is searched for:
+      - the backup ref is (re)created from the recorded head (the HEAD
+        save_ref read, else head_at_seal) when that commit object still
+        exists in the repository — the platform can delete a native
+        worktree and its branch, but the objects outlive both;
+      - a registration git still holds for the vanished path is pruned
+        (`git worktree prune` drops only registrations whose directory is
+        gone);
+      - the absence, its reason and what was preserved are recorded on the
+        member, and it is `removed`.
+    A backup-ref write that FAILS while the object exists is a transient
+    failure and raises, so the caller retries; the member is not closed on
+    a lost ref that could still be saved."""
+    tx = load_tx(session_id, agent_id)
+    m = tx["members"][index]
+    repo = m.get("repo") or ""
+    ref = m.get("backup_ref") or backup_ref(session_id, agent_id, m.get("branch"))
+    head = m.get("head") or m.get("head_at_seal") or ""
+    preserved = "no-head-recorded"
+    repo_present = bool(repo) and os.path.isdir(repo)
+    if repo_present and head:
+        rc, _, _ = _git(repo, "cat-file", "-e", head + "^{commit}")
+        if rc == 0:
+            rc2, _, err = _git(repo, "update-ref", ref, head)
+            if rc2 != 0:
+                raise RuntimeError("closing absent member %s: update-ref %s failed: %s" % (m["path"], ref, err.strip()[:200]))
+            preserved = "backup-ref"
+        else:
+            preserved = "commit-object-gone"
+    elif head and not repo_present:
+        preserved = "repository-not-present"
+    if repo_present:
+        _git(repo, "worktree", "prune")
+    return update_member(session_id, agent_id, index, state="removed", closed="absent",
+                         absence_reason=reason, absence_recorded_ts=now_iso(), removed_ts=now_iso(),
+                         head=head or m.get("head") or "", head_preserved=preserved,
+                         backup_ref=(ref if preserved == "backup-ref" else m.get("backup_ref")))
+
+
 def save_ref(session_id, agent_id, index):
     """bound -> ref_saved. Idempotent: the HEAD is read from whichever of the
-    original or the quarantine exists."""
+    original or the quarantine exists; neither present closes the member
+    absent (close_absent)."""
     tx = load_tx(session_id, agent_id)
     m = tx["members"][index]
     if m.get("state") != "bound":
@@ -932,8 +976,7 @@ def save_ref(session_id, agent_id, index):
     quar = m.get("quarantine") or quarantine_name(orig, session_id, agent_id)
     src = orig if os.path.isdir(orig) else (quar if os.path.isdir(quar) else "")
     if not src:
-        return update_member(session_id, agent_id, index, state="missing",
-                             error="neither %s nor %s exists" % (orig, quar))
+        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at ref_saved" % (orig, quar))
     head = head_of(src)
     if not head:
         return update_member(session_id, agent_id, index, state="failed",
@@ -961,8 +1004,7 @@ def quarantine(session_id, agent_id, index):
         return update_member(session_id, agent_id, index, state="failed",
                              error="both %s and %s exist; refusing to choose" % (orig, quar))
     if not o and not q:
-        return update_member(session_id, agent_id, index, state="missing",
-                             error="neither %s nor %s exists" % (orig, quar))
+        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))
     if o:
         try:
             os.rename(orig, quar)

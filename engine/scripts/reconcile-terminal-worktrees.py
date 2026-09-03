@@ -639,7 +639,86 @@ STEPS = {
     "captured": verify_member,
     "verified": unregister_member,
     "unregistered": remove_member,
+    # A `missing` member written by an earlier revision is closed absent by
+    # the same policy the library now applies at the moment of discovery.
+    "missing": lambda t, i: tx.close_absent(t["session_id"], t["agent_id"], i,
+                                            "recorded missing by an earlier revision: %s" % (t["members"][i].get("error") or "?")),
 }
+
+
+def native_member_gone(m):
+    """(gone, why) for a SEALED, non-terminal transaction's native member.
+    Verified against the RECORDED repository and path, nothing else: the
+    directory no longer exists, or git no longer lists it as a worktree of
+    that repository, or lists it prunable. When git itself cannot be read
+    nothing is decided."""
+    path = m.get("path") or ""
+    repo = m.get("repo") or ""
+    if not path:
+        return False, ""
+    if not os.path.isdir(path):
+        return True, "native member %s no longer exists on disk" % path
+    if not repo or not os.path.isdir(repo):
+        return False, ""
+    reg = tx.registered_worktrees(repo)
+    if reg is None:
+        return False, ""
+    entry = reg.get(tx.norm_path(path))
+    if entry is None:
+        return True, "git no longer lists %s as a worktree of %s" % (path, repo)
+    if entry.get("prunable"):
+        return True, "git lists %s as PRUNABLE (its administrative directory is gone)" % path
+    return False, ""
+
+
+def orphan_backstop_pass(only=None):
+    """NATIVE DISAPPEARANCE IS A TERMINAL INGRESS (CEO specification
+    2026-09-03, worktree-terminal-authority-fix-recommendation section 4).
+
+    Every sealed, non-terminal transaction with a native member carries an
+    exact durable assertion: this agent owns this exact registered native
+    worktree. The platform tears that worktree down when the worker ends —
+    and on 2026-09-03 it did so for a worker killed by TaskStop while no
+    hook delivered the worker's id: the native member vanished, the
+    transaction stayed `sealed`, --status said done, and the worker's
+    hand-rolled richos worktree leaked. A worker whose native workspace is
+    gone has lost the workspace the write barrier requires; it cannot
+    safely continue. So on every pass the native member is verified against
+    its recorded repository and path, and if it is absent or unregistered
+    the transaction is claimed — ingress NativeMemberGone, through the same
+    compare-and-set every other ingress uses — and terminalized: the native
+    member closes absent (backup ref from head_at_seal when the object
+    survives, absence recorded), and every surviving hand-rolled member is
+    quarantined, captured, verified, unregistered and removed by the normal
+    state machine. Exact transaction, exact member, no name, no orchestrator
+    decision. This is what retires the preserved zach-opus-b1 reproduction."""
+    claimed = 0
+    for t in list(tx.iter_transactions()):
+        if t.get("terminal") or not t.get("sealed"):
+            continue
+        sid, aid = t["session_id"], t["agent_id"]
+        if only and "%s/%s" % (sid, aid) != only:
+            continue
+        nat = next((m for m in t.get("members") or [] if m.get("class") == "native"), None)
+        if nat is None:
+            continue
+        gone, why = native_member_gone(nat)
+        if not gone:
+            continue
+        try:
+            won, t2 = tx.claim_terminal(sid, aid, "NativeMemberGone", detail=why)
+            if t2 is None:
+                continue
+            t2 = tx.terminalize(sid, aid, nat.get("path"))
+        except Exception as e:
+            log("native-gone backstop for %s/%s: %s — retried next run" % (sid[:8], aid, e))
+            continue
+        members = t2.get("members") or []
+        log("NATIVE MEMBER GONE for %s/%s (%s): %s — transaction claimed (%s); %d member(s): %s"
+            % (sid[:8], aid, t2.get("teammate") or "?", why, "won" if won else "resumed", len(members),
+               ", ".join("%s:%s" % (os.path.basename(m.get("path") or "?"), m.get("state")) for m in members)))
+        claimed += 1
+    return claimed
 
 
 def reconcile_transaction(t, deadline=None):
@@ -990,6 +1069,10 @@ def run(max_seconds=None, only=None):
         n += process_pending_terminals(only)
     except Exception as e:
         log("pending terminal pass: %s" % e)
+    try:
+        n += orphan_backstop_pass(only)
+    except Exception as e:
+        log("native-gone backstop pass: %s" % e)
     for t in list(tx.iter_transactions()):
         if not t.get("terminal"):
             continue

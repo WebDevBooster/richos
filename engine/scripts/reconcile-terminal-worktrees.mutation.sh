@@ -85,6 +85,16 @@ mutant tombstone-dropped "C28a" "$R" \
     '        members = _creation_time_members(sid, aid, bound, start, p){NL}        if not members:{NL}            _unlink(ppath); continue' \
     "a recorded terminal event for an agent with no verifiable member would be reinterpreted as if it never happened — no transaction, no tombstone — which is the certification C28 used to carry (landed review 2026-09-03, blocker 2)."
 
+mutant native-gone-backstop-blind "C39" "$R" \
+    '        gone, why = native_member_gone(nat)' \
+    '        gone, why = False, ""' \
+    "a worker whose native worktree the platform tore down with no hook delivered (the measured TaskStop kill) would stay sealed-live forever and its hand-rolled worktree would leak — the reproduction of 2026-09-03 (CEO specification, section 4)."
+
+mutant native-gone-backstop-trigger-happy "C40" "$R" \
+    '        gone, why = native_member_gone(nat)' \
+    '        gone, why = True, "always"' \
+    "every sealed LIVE worker would be terminalized on the next reconciler pass — the old sweep, back, deleting a live agent's worktrees with every guard reporting green."
+
 mutant index-failure-swallowed "C29" "$R" \
     '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
     '    for rec in git_out(quar, "ls-files", "-s", "-z")[1].split("\0"):' \

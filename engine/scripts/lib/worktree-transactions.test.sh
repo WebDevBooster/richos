@@ -281,10 +281,19 @@ intent "$SID" tu-12 '{"kind":"native","teammate":"dev-opus-c3","externals":[]}'
 T bind --session-id "$SID" --tool-use-id tu-12 --agent-id aaaaaa000012 >/dev/null
 T start --session-id "$SID" --agent-id aaaaaa000012 --cwd "$ENTITY/.claude/worktrees/agent-aaaaaa000012" >/dev/null
 T seal --session-id "$SID" --agent-id aaaaaa000012 >/dev/null
+HEAD12="$(git -C "$ENTITY/.claude/worktrees/agent-aaaaaa000012" rev-parse HEAD)"
 git -C "$ENTITY" worktree remove --force "$ENTITY/.claude/worktrees/agent-aaaaaa000012" >/dev/null 2>&1
+git -C "$ENTITY" branch -D worktree-agent-aaaaaa000012 >/dev/null 2>&1   # the harness deletes the branch too (PF11)
 py "tx.claim_terminal('$SID', 'aaaaaa000012', 'WorktreeRemove'); tx.terminalize('$SID', 'aaaaaa000012')"
-STATE="$(T members --session-id "$SID" --agent-id aaaaaa000012 | cut -f5)"
-[ "$STATE" = "missing" ] && ok "T40  recovery: neither original nor quarantine -> member MISSING (reported, never fabricated)" || bad "T40  8c: $STATE"
+# INVERTED (landed review 2026-09-03, blocker 3; CEO specification section 4):
+# until this revision a vanished member was recorded `missing` — a manual
+# state that waited for a person. Now it is CLOSED ABSENT: the backup ref is
+# re-created from the recorded head while the commit object survives, the
+# absence is recorded, and the member is removed. Nothing is fabricated.
+M12="$(T show --session-id "$SID" --agent-id aaaaaa000012 | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("closed"), m.get("head_preserved"))')"
+REF12="$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/aaaaaa000012/worktree-agent-aaaaaa000012")"
+[ "$M12" = "removed absent backup-ref" ] && [ "$REF12" = "$HEAD12" ] \
+    && ok "T40  recovery: neither original nor quarantine -> member CLOSED ABSENT: removed, absence recorded, backup ref re-created from the recorded head even though the harness deleted worktree AND branch (INVERTED: it used to park as MISSING)" || bad "T40  8c: member=[$M12] ref=[$REF12] want=[$HEAD12]"
 
 # 8d. multi-repository: crash after ONE of two members is quarantined; the
 #     next run quarantines the remaining member and touches the first only
@@ -480,7 +489,7 @@ python3 - "$M" <<'PY' && ok "T49  metrics count terminal members present (incl. 
 import json, sys
 m = json.loads(sys.argv[1])
 assert m["terminal"] >= 6, m
-assert m["failed"] >= 2, m           # 8b failed + 8c missing
+assert m["failed"] >= 1, m           # 8b failed (8c is now closed absent, not missing)
 assert m["failed_present"] >= 1, m   # 8b's original is still on disk and COUNTED
 assert m["terminal_members_present"] >= 5, m
 assert m["pending_retry"] >= 5, m

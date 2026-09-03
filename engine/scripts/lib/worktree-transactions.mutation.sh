@@ -124,12 +124,18 @@ mutant ref-not-saved "T33" "$F" \
     '    rc, _, err = 0, "", ""' \
     "the terminal path would quarantine a tree whose unlanded commits are held by nothing but a branch the harness deletes on cleanup (PF11)."
 
-# Two places record MISSING — save_ref (first to look) and quarantine (second).
-# Either alone catches a vanished member, so both are removed in one mutant.
-mutant missing-not-counted "T40" "$F" \
-    '    if not src:{NL}        return update_member(session_id, agent_id, index, state="missing",{NL}                             error="neither %s nor %s exists" % (orig, quar)){NL}    head = head_of(src){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing",{NL}                             error="neither %s nor %s exists" % (orig, quar)){NL}    if o:' \
-    '    if not src:{NL}        return update_member(session_id, agent_id, index, state="ref_saved", quarantine=quar){NL}    head = head_of(src){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar){NL}    if o:' \
-    "a vanished member would be recorded as quarantined — a success-shaped state over a directory nobody can find."
+# Two places see a vanished member — save_ref (first to look) and quarantine
+# (second). Either alone closes it, so both are mutated in one mutant: back to
+# the manual MISSING state this revision retired.
+mutant absent-parked-as-missing "T40" "$F" \
+    '    if not src:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at ref_saved" % (orig, quar)){AND}    if not o and not q:{NL}        return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))' \
+    '    if not src:{NL}        return update_member(session_id, agent_id, index, state="missing", error="neither %s nor %s exists" % (orig, quar)){AND}    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing", error="neither %s nor %s exists" % (orig, quar))' \
+    "a vanished member would park in a manual MISSING state with no backup ref and wait for a person — the babysitting state the landed review (blocker 3) and the CEO specification (section 4) both forbid."
+
+mutant absent-loses-the-head "T40" "$F" \
+    '            rc2, _, err = _git(repo, "update-ref", ref, head)' \
+    '            rc2, _, err = 0, "", ""' \
+    "closing an absent member would claim the head was preserved under a backup ref it never wrote; the harness deletes the branch, and the unlanded commits would be unreachable."
 
 mutant dir-fsync-swallowed "T61" "$F" \
     '            if e.errno in _DIR_FSYNC_UNSUPPORTED:{NL}                if path not in _dir_fsync_unsupported_noted:' \

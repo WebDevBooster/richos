@@ -513,6 +513,43 @@ else
     bad "C38c ref=$(git -C "$OTHER" rev-parse -q --verify "$REF17" >/dev/null && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id "$A17" >/dev/null 2>&1 && echo present || echo gone)"
 fi
 
+# --- 16. NATIVE DISAPPEARANCE is a terminal ingress (CEO specification
+# 2026-09-03, section 4). Measured on this machine: a worker killed by
+# TaskStop had its native worktree torn down by the platform while no hook
+# delivered its id; the transaction stayed sealed, --status said done, and
+# the hand-rolled richos member leaked. The reconciler now verifies every
+# sealed live transaction's native member against its recorded repository
+# and path, claims the transaction when it is gone or unregistered, closes
+# the native member absent (backup ref from head_at_seal) and retires the
+# surviving hand-rolled member through the normal state machine.
+A20="a00000000000rc20"
+EXT20="$SANDBOX/other-wt/dev-opus-r20"
+seal "$A20" dev-opus-r20 "$OTHER:$EXT20:dev-opus-r20"
+NAT20="$ENTITY/.claude/worktrees/agent-$A20"
+HEAD20="$(git -C "$NAT20" rev-parse HEAD)"
+printf 'survives the kill\n' >"$EXT20/evidence.txt"
+# the platform's teardown: worktree AND branch, no hook (PF11)
+git -C "$ENTITY" worktree remove --force "$NAT20" >/dev/null 2>&1
+git -C "$ENTITY" branch -D "worktree-agent-$A20" >/dev/null 2>&1
+OUT="$(R 2>&1)"
+T20="$(T show --session-id "$SID" --agent-id "$A20" | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print((d.get("terminal") or {}).get("ingress"), d.get("state"), m[0]["state"], m[0].get("closed"), m[0].get("head_preserved"), m[1]["state"])')"
+if [ "$T20" = "NativeMemberGone removed removed absent backup-ref removed" ] && [ ! -e "$EXT20" ] && [ ! -e "$(q "$EXT20" "$A20")" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A20/worktree-agent-$A20")" = "$HEAD20" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A20/member-1/tree.tar" evidence.txt)" = "survives the kill" ] \
+   && printf '%s' "$OUT" | grep -q "NATIVE MEMBER GONE for deadbeef/$A20"; then
+    ok "C39  a sealed LIVE transaction whose native member the platform tore down (worktree + branch, no hook) is claimed with ingress NativeMemberGone: the native member closes absent with its backup ref re-created, and the hand-rolled member is captured and removed"
+else
+    bad "C39  tx=[$T20] ext=$([ -e "$EXT20" ] && echo present || echo gone) out=${OUT:0:240}"
+fi
+# NEGATIVE CONTROL: a sealed live transaction whose native member is present and registered is untouched
+A22="a00000000000rc22"
+EXT22="$SANDBOX/other-wt/dev-opus-r22"
+seal "$A22" dev-opus-r22 "$OTHER:$EXT22:dev-opus-r22"
+R >/dev/null 2>&1
+T22="$(T show --session-id "$SID" --agent-id "$A22" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("terminal"), d.get("state"))')"
+[ "$T22" = "None sealed" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A22" ] && [ -d "$EXT22" ] \
+    && ok "C40  a sealed live transaction whose native member is present and registered is NOT claimed by the backstop (negative control)" || bad "C40  tx=[$T22]"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="
