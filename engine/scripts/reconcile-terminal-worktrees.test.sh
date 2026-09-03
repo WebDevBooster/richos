@@ -315,6 +315,110 @@ RICHOS_PENDING_TERMINAL_GRACE=0 R >/dev/null 2>&1
 [ ! -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && ! T show --session-id "$SID" --agent-id "$A12" >/dev/null 2>&1 && [ -d "$ENTITY" ] \
     && ok "C28  a pending event for an agent that was never bound is dropped after grace: no transaction, nothing owned, nothing touched" || bad "C28  pending=$([ -f "$SANDBOX/tx/$SID/pending-terminal/$A12.json" ] && echo kept || echo gone)"
 
+# --- 12. index capture must SUCCEED, or the member is not captured -------------
+# (review 2026-09-03, blocker 2). A failed `git ls-files -s` used to be
+# recorded as an empty index and the member still advanced to captured.
+A13="a00000000000rc13"
+EXT13="$SANDBOX/other-wt/dev-opus-r13"
+seal "$A13" dev-opus-r13 "$OTHER:$EXT13:dev-opus-r13"
+printf 'staged only\n' >"$EXT13/only-in-index.txt"; git -C "$EXT13" add only-in-index.txt
+T claim --session-id "$SID" --agent-id "$A13" --ingress SubagentStop >/dev/null
+Q13="$(q "$EXT13" "$A13")"
+REAL_GIT="$(command -v git)"
+NOLS="$SANDBOX/nolsbin"; mkdir -p "$NOLS"
+cat >"$NOLS/git" <<SH
+#!/usr/bin/env bash
+if [ "\$3" = "ls-files" ]; then echo "fatal: simulated index read failure" >&2; exit 128; fi
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$NOLS/git"
+OUT="$(PATH="$NOLS:$PATH" R --agent "$SID/$A13" 2>&1)"
+M13="$(T show --session-id "$SID" --agent-id "$A13" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], m.get("attempts"), m.get("last_error","")[:60])')"
+if [ "$(states "$A13")" = "quarantined quarantined " ] && [ -d "$Q13" ] && printf '%s' "$M13" | grep -q '^quarantined 1 git ls-files' \
+   && [ ! -f "$SANDBOX/captures/$SID/$A13/member-1/index.json" ]; then
+    ok "C29  a failed \`git ls-files\` keeps the member QUARANTINED (attempt counted, error named, no index.json written) — nothing is captured, nothing deleted"
+else
+    bad "C29  states=$(states "$A13") member=[$M13] quar=$([ -d "$Q13" ] && echo present || echo GONE) out=${OUT:0:200}"
+fi
+R --agent "$SID/$A13" >/dev/null 2>&1
+IDX13="$SANDBOX/captures/$SID/$A13/member-1/index.json"
+python3 - "$IDX13" "$SANDBOX/captures/$SID/$A13/member-1/blobs" <<'PY' && [ "$(states "$A13")" = "removed removed " ] \
+    && ok "C30  ...the retry captures the index exactly: the staged-only entry is marked needs_blob and its blob is archived; the seed entry (in HEAD) is not" || bad "C30  states=$(states "$A13")"
+import json, os, sys
+idx = json.load(open(sys.argv[1]))
+e = next(x for x in idx if x["path"] == "only-in-index.txt")
+s = next(x for x in idx if x["path"] == "seed.txt")
+assert e["needs_blob"] is True and s["needs_blob"] is False, idx
+assert open(os.path.join(sys.argv[2], e["sha"])).read() == "staged only\n"
+assert not os.path.exists(os.path.join(sys.argv[2], s["sha"]))
+PY
+
+# --- 13. verification requires EVERY expected blob and EVERY manifest entry ------
+# (blockers 2 and 8): a missing staged blob, a wrong symlink target and a
+# wrong mode each VOID the capture; the quarantine is kept.
+verify_void() { # <aid> <ext-path> <damage-python> <needle> <case-id> <label>
+    local aid="$1" ext="$2" damage="$3" needle="$4" cid="$5" label="$6"
+    seal "$aid" "dev-opus-$aid" "$OTHER:$ext:dev-opus-$aid"
+    printf 'staged\n' >"$ext/staged.txt"; git -C "$ext" add staged.txt
+    ln -s seed.txt "$ext/link"; chmod 0755 "$ext/seed.txt"
+    T claim --session-id "$SID" --agent-id "$aid" --ingress SubagentStop >/dev/null
+    python3 - "$REC" "$SID" "$aid" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("rec", sys.argv[1]); rec = importlib.util.module_from_spec(spec); spec.loader.exec_module(rec)
+t = rec.tx.load_tx(sys.argv[2], sys.argv[3]); rec.capture_member(t, 1)
+PY
+    python3 - "$SANDBOX/captures/$SID/$aid/member-1" <<PY
+import json, os, sys
+d = sys.argv[1]
+$damage
+PY
+    local out; out="$(R --agent "$SID/$aid" 2>&1)"
+    if [ -d "$(q "$ext" "$aid")" ] && printf '%s' "$out" | grep -q "$needle" && printf '%s' "$out" | grep -q 'the capture is void'; then
+        ok "$cid  $label -> capture VOID ('$needle'), quarantine kept"
+    else
+        bad "$cid  states=$(states "$aid") out=${out:0:200}"
+    fi
+    R --agent "$SID/$aid" >/dev/null 2>&1
+    [ "$(states "$aid")" = "removed removed " ] && ok "$cid-r ...and the re-capture from the untouched quarantine verifies and completes" || bad "$cid-r states=$(states "$aid")"
+}
+verify_void a00000000000rc14 "$SANDBOX/other-wt/dev-opus-r14" \
+    'idx = json.load(open(os.path.join(d, "index.json"))); e = next(x for x in idx if x["path"] == "staged.txt"); os.unlink(os.path.join(d, "blobs", e["sha"]))' \
+    'is missing from the archive' C31 "a staged blob that should exist but does not"
+verify_void a00000000000rc15 "$SANDBOX/other-wt/dev-opus-r15" \
+    'm = json.load(open(os.path.join(d, "manifest.json"))); m["link"]["target"] = "elsewhere.txt"; json.dump(m, open(os.path.join(d, "manifest.json"), "w"))' \
+    'symlink target mismatch' C32 "a symlink whose archived target is not the manifest target"
+verify_void a00000000000rc16 "$SANDBOX/other-wt/dev-opus-r16" \
+    'm = json.load(open(os.path.join(d, "manifest.json"))); m["seed.txt"]["mode"] = 0o600; json.dump(m, open(os.path.join(d, "manifest.json"), "w"))' \
+    'mode mismatch' C33 "a file whose archived mode is not the manifest mode"
+
+# --- 14. artifacts are PRIVATE, and retention is automatic --------------------------
+CAP14="$SANDBOX/captures/$SID/a00000000000rc16/member-1"
+MODES="$(python3 -c 'import os,sys; print(" ".join(oct(os.stat(p).st_mode & 0o777) for p in sys.argv[1:]))' "$CAP14" "$CAP14/tree.tar" "$CAP14/blobs" "$SANDBOX/captures/$SID/a00000000000rc16")"
+[ "$MODES" = "0o700 0o600 0o700 0o700" ] && ok "C34  capture directories are 0700 and archives 0600 (explicit modes, not the ambient umask)" || bad "C34  modes=[$MODES]"
+# retention: nothing expires at the defaults; everything expires at 0 days
+R >/dev/null 2>&1
+[ -f "$CAP14/tree.tar" ] && git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/a00000000000rc16/dev-opus-a00000000000rc16" >/dev/null \
+    && ok "C35  at the default retention (30/90/90 days) a just-removed transaction keeps its capture and backup ref" || bad "C35  expired too early"
+# a transaction whose capture has expired but whose backup ref has not is NOT deleted (the record outlives every artifact it names)
+OUT="$(RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=1000 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+if [ ! -e "$CAP14" ] && T show --session-id "$SID" --agent-id a00000000000rc16 >/dev/null 2>&1 \
+   && git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/a00000000000rc16/dev-opus-a00000000000rc16" >/dev/null \
+   && printf '%s' "$OUT" | grep -q 'retention: expired'; then
+    ok "C36  capture retention at 0 days expires the capture; the record whose backup ref is still within retention is KEPT (no artifact is ever orphaned from its record)"
+else
+    bad "C36  cap=$([ -e "$CAP14" ] && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id a00000000000rc16 >/dev/null 2>&1 && echo present || echo gone) out=${OUT:0:200}"
+fi
+OUT="$(RICHOS_CAPTURE_RETENTION_DAYS=0 RICHOS_BACKUP_REF_RETENTION_DAYS=0 RICHOS_TRANSACTION_RETENTION_DAYS=0 R 2>&1)"
+if [ ! -e "$SANDBOX/captures/$SID/a00000000000rc16" ] \
+   && ! git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/a00000000000rc16/dev-opus-a00000000000rc16" >/dev/null \
+   && ! T show --session-id "$SID" --agent-id a00000000000rc16 >/dev/null 2>&1 \
+   && [ ! -f "$SANDBOX/tx/$SID/bound/a00000000000rc16.json" ] && [ ! -f "$SANDBOX/tx/terminal-names/$SID/dev-opus-a00000000000rc16" ] \
+   && [ -f "$SANDBOX/tx/terminal/a00000000000rc16" ] && printf '%s' "$OUT" | grep -q 'retention: expired'; then
+    ok "C37  at 0 days for all three, the backup ref, the transaction record and its facts are expired by the run itself; the agent-id terminal index is kept"
+else
+    bad "C37  ref=$(git -C "$OTHER" rev-parse -q --verify "refs/richos/handoffs/$SID/a00000000000rc16/dev-opus-a00000000000rc16" >/dev/null && echo present || echo gone) tx=$(T show --session-id "$SID" --agent-id a00000000000rc16 >/dev/null 2>&1 && echo present || echo gone) out=${OUT:0:200}"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="

@@ -64,6 +64,68 @@ untracked, ignored) is in `worktree-captures/.../member-N/tree.tar`, with
 staged blobs under `blobs/<sha>` and `provenance.json` naming repo, path,
 branch and HEAD. The member's branch is left alone.
 
+## What the archive is verified against
+
+Every manifest entry, not only regular files: a file's size, mode and
+SHA-256; a symlink's mode and target; a directory's mode; no entry in the
+archive that the manifest does not name; and the live quarantine's manifest
+unchanged since capture. Every index entry whose object is not in the HEAD
+tree (`needs_blob` in `index.json`) must have a standalone blob under
+`blobs/<sha>` that hashes to it under the repository's object format
+(`provenance.json` `object_format`). Any failure voids the capture: the
+member goes back to `quarantined`, the quarantine is untouched, and the next
+run captures again. Nothing is deleted on the strength of a capture that did
+not verify, and every git command the capture needs (`rev-parse`,
+`ls-files`, `ls-tree`, `cat-file`, `status`) must succeed or the member is
+not `captured` at all.
+
+## Capture privacy, and the encryption policy
+
+A capture holds ignored evidence, and ignored is where secrets live
+(`.env.local`, tokens in a log). The policy, stated so it can be argued with:
+
+1. **Private by construction.** Every capture directory is 0700 and every
+   archive and blob 0600, by explicit mode at creation and by a 0077 umask
+   over the whole reconciler process; `reconcile-terminal-worktrees.test.sh`
+   C34 asserts the modes and the mutation harness proves both layers
+   load-bearing. Nothing on the machine but this account can read a capture.
+2. **Bounded in time.** `CAPTURE_RETENTION_DAYS` (30) deletes the archive
+   automatically, inside the launchd job — see Retention below. The window in
+   which a captured secret exists at all is that long and no longer.
+3. **At rest, the volume's encryption.** `~/.claude/state` lives on the
+   operator's home volume; on macOS that is FileVault. The engine does NOT add
+   a second, per-archive encryption layer, and the reason is structural: an
+   unattended reconciler that must decrypt to verify needs a key it can read
+   without a person present, and a key stored where the reconciler can read
+   it is the secret again, one directory over. A key held elsewhere (Keychain
+   with a user-presence requirement, an agent, a hardware token) turns
+   verification into something a person has to be there for, which is the
+   babysitting this lifecycle exists to remove.
+4. **What changes the answer.** If captures ever leave the account boundary
+   — synced, backed up off the volume, or read by another user — item 3 stops
+   holding and per-archive encryption with an externally held key becomes
+   the requirement. Until then, permissions plus retention plus volume
+   encryption is the policy, and it is a decision, not an omission.
+
+## Retention
+
+Automatic, persistent (it runs at the end of every reconciler run, so the
+launchd job does it), no user action. Ages count from the transaction's
+`removed_ts`:
+
+| What | Key (`orchestration.config`) | Default |
+|---|---|---|
+| capture directory (`tree.tar`, `blobs/`, `residue-*.tar`, manifests) | `CAPTURE_RETENTION_DAYS` | 30 |
+| backup ref `refs/richos/handoffs/<session>/<agent>/<branch>` | `BACKUP_REF_RETENTION_DAYS` | 90 |
+| the transaction record and its facts (intent, bound, start, pending, name index) | `TRANSACTION_RETENTION_DAYS` | 90 |
+
+A transaction record is deleted only after every artifact it names is gone,
+so nothing on disk is ever orphaned from the record that explains it. The
+agent-id terminal index (`terminal/<agent_id>`, ~50 bytes) is kept forever:
+an agent id is terminal forever and the resume guard reads it. Hard failures
+(`failed`/`missing` members) never reach `removed` and are never expired;
+they wait for a person, as they should.
+
 ## What a hard failure looks like, and what to do
 
 `reconcile-terminal-worktrees.py --status` reports
@@ -81,5 +143,8 @@ supposed to look.
 
 `RICHOS_WORKTREE_TX_DIR`, `RICHOS_WORKTREE_CAPTURE_DIR`,
 `RICHOS_RECONCILE_SETTLE`, `RICHOS_RECONCILE_NO_KILL=1`, `SEAL_WAIT_SECONDS`,
-`SESSION_START_RECONCILE_BUDGET`, `RICHOS_LAUNCH_AGENTS_DIR`. Every suite pins
-the first two; nothing they do reaches `~/.claude/state`.
+`SESSION_START_RECONCILE_BUDGET`, `RICHOS_LAUNCH_AGENTS_DIR`,
+`RICHOS_PENDING_TERMINAL_GRACE`, `RICHOS_CAPTURE_RETENTION_DAYS`,
+`RICHOS_BACKUP_REF_RETENTION_DAYS`, `RICHOS_TRANSACTION_RETENTION_DAYS`,
+`RICHOS_TX_CRASH_AFTER=tx|index|name` (crash injection in `claim_terminal`).
+Every suite pins the first two; nothing they do reaches `~/.claude/state`.

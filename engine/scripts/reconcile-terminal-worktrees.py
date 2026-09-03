@@ -48,6 +48,23 @@ CAPTURE_DISPOSABLE_PATHS in the engine, overridable per entity): build
 outputs and dependency caches are the only things not captured, and the
 list is data a reviewer can read.
 
+VERIFICATION covers every manifest entry — file size/mode/digest, symlink
+mode/target, directory mode, no extra entries — and every index entry that
+needs a standalone blob (`needs_blob`: its object is not in the HEAD tree
+the backup ref preserves) must have one that hashes to it under the
+repository's object format. Any failure voids the capture and the member
+returns to `quarantined`. Every git command the capture needs must succeed
+or the member is not `captured` (review 2026-09-03, blockers 2 and 8).
+
+PRIVACY AND RETENTION: capture directories are 0700 and files 0600, by
+explicit mode and by a 0077 umask over this process; the archive is deleted
+after CAPTURE_RETENTION_DAYS, the backup ref after BACKUP_REF_RETENTION_DAYS,
+the transaction record after TRANSACTION_RETENTION_DAYS and only once every
+artifact it names is gone — all of it in retention_pass(), run at the end of
+every run, so the launchd job does it and nobody is asked to. The encryption
+policy (permissions + retention + the volume's encryption; no per-archive
+key, and why) is in docs/worktree-lifecycle-transactions.md.
+
 ===========================================================================
 PROCESS RESIDUE — what is handled and what is honestly not
 ===========================================================================
@@ -292,9 +309,39 @@ def capture_dir(t, index):
                         tx._seg(t["agent_id"], "agent_id"), "member-%d" % index)
 
 
+def private_makedirs(path):
+    """Create every missing component and pin EVERY component from the
+    capture root down to 0700, whether or not it already existed (blocker 8:
+    the archive holds ignored evidence). os.makedirs applies `mode` to the
+    leaf only; intermediate directories take the ambient umask."""
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    root = os.path.realpath(tx.capture_root())
+    p = os.path.realpath(path)
+    while p.startswith(root):
+        os.chmod(p, 0o700)
+        if p == root:
+            break
+        p = os.path.dirname(p)
+
+
+def private_open(path):
+    """A NEW file, 0600 from its first byte, whatever the ambient umask."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    return os.fdopen(fd, "wb")
+
+
 def git_out(cwd, *args):
     r = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=True, timeout=120)
     return r.returncode, r.stdout, r.stderr
+
+
+def git_must(cwd, *args):
+    """stdout of a git command that MUST succeed; a nonzero exit raises a
+    normal (retryable) failure naming the command (blocker 2)."""
+    rc, out, err = git_out(cwd, *args)
+    if rc != 0:
+        raise RuntimeError("git %s failed in %s (rc %d): %s" % (" ".join(args[:2]), cwd, rc, err.strip()[:200]))
+    return out
 
 
 def capture_member(t, index):
@@ -316,10 +363,10 @@ def capture_member(t, index):
             raise RuntimeError("processes still using the recreated original %s: %s" % (orig, left))
         residue_n += 1
         cdir = capture_dir(t, index)
-        os.makedirs(cdir, exist_ok=True)
+        private_makedirs(cdir)
         rpath = os.path.join(cdir, "residue-%d.tar" % residue_n)
         if os.path.isdir(orig) and not os.path.islink(orig):
-            with tarfile.open(rpath, "w") as tar:
+            with private_open(rpath) as raw, tarfile.open(fileobj=raw, mode="w") as tar:
                 tar.add(orig, arcname="residue")
             shutil.rmtree(orig)
         else:
@@ -340,12 +387,16 @@ def capture_member(t, index):
     if man_a != man_b:
         raise RuntimeError("the quarantine changed during the settle interval; something is still writing to %s" % quar)
 
-    # 4. archive: raw tree, index entries + staged blobs, provenance
+    # 4. archive: raw tree, index entries + staged blobs, provenance. Every
+    #    directory and file is created PRIVATE (0700 / 0600): the archive holds
+    #    ignored evidence, which is where secrets live (blocker 8).
     cdir = capture_dir(t, index)
-    os.makedirs(cdir, exist_ok=True)
+    private_makedirs(cdir)
     tree_tar = os.path.join(cdir, "tree.tar")
     tmp_tar = tree_tar + ".tmp"
-    with tarfile.open(tmp_tar, "w") as tar:
+    if os.path.exists(tmp_tar):
+        os.unlink(tmp_tar)
+    with private_open(tmp_tar) as raw, tarfile.open(fileobj=raw, mode="w") as tar:
         for rel in sorted(man_a):
             full = os.path.join(quar, rel)
             info = man_a[rel]
@@ -357,40 +408,67 @@ def capture_member(t, index):
             elif info["kind"] == "dir":
                 ti = tarfile.TarInfo(rel); ti.type = tarfile.DIRTYPE; ti.mode = info["mode"]
                 tar.addfile(ti)
-    with open(tmp_tar, "rb") as f:
-        os.fsync(f.fileno())
+        raw.flush(); os.fsync(raw.fileno())
     os.replace(tmp_tar, tree_tar)
 
-    rc, index_txt, err = git_out(quar, "ls-files", "-s")
-    blobs_dir = os.path.join(cdir, "blobs")
-    os.makedirs(blobs_dir, exist_ok=True)
+    # THE INDEX, EXACTLY, OR NOT `captured` AT ALL (review 2026-09-03,
+    # blocker 2). Every git command needed for provenance or index capture
+    # must succeed; a failure raises, which keeps the member `quarantined`
+    # with the quarantine on disk and the attempt counted — retryable, and
+    # never a permission to delete. A failed `ls-files` used to be recorded
+    # as an empty index with the return code tucked into provenance, and the
+    # member still advanced: staged-only state would then have been deleted
+    # on the strength of an archive that never held it.
+    object_format = git_must(quar, "rev-parse", "--show-object-format").strip() or "sha1"
     index_entries = []
-    if rc == 0:
-        for line in index_txt.splitlines():
-            parts = line.split("\t", 1)
-            meta = parts[0].split()
-            if len(meta) >= 3 and len(parts) == 2:
-                mode, sha, stage = meta[0], meta[1], meta[2]
-                index_entries.append({"mode": mode, "sha": sha, "stage": stage, "path": parts[1]})
-        # staged blobs whose bytes differ from HEAD are the ones only the index holds
-        rc2, diff_out, _ = git_out(quar, "diff", "--cached", "--name-only")
-        staged = set(diff_out.split("\n")) if rc2 == 0 else set()
-        for e in index_entries:
-            if e["path"] in staged:
-                bpath = os.path.join(blobs_dir, e["sha"])
-                if not os.path.exists(bpath):
-                    r = subprocess.run(["git", "-C", quar, "cat-file", "blob", e["sha"]], capture_output=True, timeout=120)
-                    if r.returncode == 0:
-                        with open(bpath + ".tmp", "wb") as f:
-                            f.write(r.stdout); f.flush(); os.fsync(f.fileno())
-                        os.replace(bpath + ".tmp", bpath)
-    _, status_txt, _ = git_out(quar, "status", "--porcelain", "--ignored")
+    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):
+        if not rec:
+            continue
+        meta, _tab, path = rec.partition("\t")
+        parts = meta.split()
+        if len(parts) < 3 or not _tab:
+            raise RuntimeError("unparseable ls-files -s record %r" % rec[:80])
+        index_entries.append({"mode": parts[0], "sha": parts[1], "stage": parts[2], "path": path})
+    # Which entries need a STANDALONE blob: every one whose object is not in
+    # the HEAD tree the backup ref already preserves. Recorded on the entry,
+    # so verification can require exactly those files and no fewer.
     head = tx.head_of(quar)
+    if not head:
+        raise RuntimeError("HEAD of %s is unreadable" % quar)
+    head_objects = set()
+    for rec in git_must(quar, "ls-tree", "-r", "-z", head).split("\0"):
+        if rec:
+            meta = rec.partition("\t")[0].split()
+            if len(meta) >= 3:
+                head_objects.add(meta[2])
+    blobs_dir = os.path.join(cdir, "blobs")
+    private_makedirs(blobs_dir)
+    for e in index_entries:
+        e["needs_blob"] = e["mode"] != "160000" and e["sha"] not in head_objects
+        if not e["needs_blob"]:
+            continue
+        bpath = os.path.join(blobs_dir, e["sha"])
+        if os.path.exists(bpath) and git_object_id(bpath, object_format) == e["sha"]:
+            continue
+        r = subprocess.run(["git", "-C", quar, "cat-file", "blob", e["sha"]], capture_output=True, timeout=120)
+        if r.returncode != 0:
+            raise RuntimeError("git cat-file blob %s failed in %s: %s" % (e["sha"], quar, r.stderr.decode("utf-8", "replace").strip()[:200]))
+        if os.path.exists(bpath + ".tmp"):
+            os.unlink(bpath + ".tmp")
+        with private_open(bpath + ".tmp") as f:
+            f.write(r.stdout); f.flush(); os.fsync(f.fileno())
+        os.replace(bpath + ".tmp", bpath)
+        if git_object_id(bpath, object_format) != e["sha"]:
+            raise RuntimeError("captured blob %s does not hash to its index entry (%s)" % (bpath, object_format))
+    status_txt = git_must(quar, "status", "--porcelain", "--ignored", "-z")
     prov = {"repo": m.get("repo"), "original_path": orig, "quarantine": quar, "branch": m.get("branch"),
             "head": head, "head_at_seal": m.get("head_at_seal"), "backup_ref": m.get("backup_ref"),
             "session_id": t["session_id"], "agent_id": t["agent_id"], "teammate": t.get("teammate"),
             "captured_ts": tx.now_iso(), "disposable_paths": sorted(disposable),
-            "git_index_rc": rc, "git_status_porcelain_ignored": status_txt}
+            "object_format": object_format, "index_entries": len(index_entries),
+            "standalone_blobs": sum(1 for e in index_entries if e["needs_blob"]),
+            "unarchivable_entries": sorted(k for k, v in man_a.items() if v["kind"] == "other"),
+            "git_status_porcelain_ignored_z": status_txt}
     tx.atomic_write_json(os.path.join(cdir, "manifest.json"), man_a)
     tx.atomic_write_json(os.path.join(cdir, "index.json"), index_entries)
     tx.atomic_write_json(os.path.join(cdir, "provenance.json"), prov)
@@ -427,45 +505,87 @@ def verify_member(t, index):
 
 
 def _verify_archive(m, cdir):
-    manifest = tx.read_json(os.path.join(cdir, "manifest.json")) or {}
-    want_files = {k: v for k, v in manifest.items() if v.get("kind") == "file"}
-    seen = 0
+    """EVERY manifest entry against the archive — type, mode, symlink target,
+    size and digest — and every index entry that needs a standalone blob
+    against a blob that exists and hashes to it (review 2026-09-03, blockers
+    2 and 8). Until this revision only regular-file bytes were compared:
+    symlink targets, file and directory modes and entry completeness were
+    never checked, and a staged blob was verified only if its file happened
+    to exist."""
+    manifest = tx.read_json(os.path.join(cdir, "manifest.json"))
+    index = tx.read_json(os.path.join(cdir, "index.json"))
+    prov = tx.read_json(os.path.join(cdir, "provenance.json"))
+    if not isinstance(manifest, dict) or not isinstance(index, list) or not isinstance(prov, dict):
+        raise ArchiveMismatch("manifest.json, index.json or provenance.json is missing or unreadable")
+    object_format = prov.get("object_format") or "sha1"
     try:
         tar = tarfile.open(os.path.join(cdir, "tree.tar"), "r")
     except Exception as e:
         raise ArchiveMismatch("tree.tar unreadable: %s" % e)
     with tar:
+        entries = {}
         for ti in tar:
-            if not ti.isreg():
-                continue
-            info = want_files.get(ti.name)
-            if info is None:
-                raise ArchiveMismatch("archive holds %s which the manifest does not name" % ti.name)
-            h = hashlib.sha256()
-            f = tar.extractfile(ti)
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                h.update(chunk)
-            if h.hexdigest() != info["sha256"] or ti.size != info["size"]:
-                raise ArchiveMismatch("digest mismatch for %s" % ti.name)
-            seen += 1
-    if seen != len(want_files):
-        raise ArchiveMismatch("archive holds %d files, manifest names %d" % (seen, len(want_files)))
+            name = ti.name.rstrip("/")
+            if name in entries:
+                raise ArchiveMismatch("archive holds %s twice" % name)
+            entries[name] = ti
+        for rel, info in manifest.items():
+            kind = info.get("kind")
+            if kind == "other":
+                continue   # declared unarchivable (fifo, socket, device) and listed in provenance
+            ti = entries.pop(rel, None)
+            if ti is None:
+                raise ArchiveMismatch("manifest names %s (%s) which the archive lacks" % (rel, kind))
+            if (ti.mode & 0o7777) != info.get("mode"):
+                raise ArchiveMismatch("mode mismatch for %s: archive %o, manifest %o" % (rel, ti.mode & 0o7777, info.get("mode") or 0))
+            if kind == "file":
+                if not ti.isreg():
+                    raise ArchiveMismatch("type mismatch for %s: manifest file, archive %s" % (rel, _tar_kind(ti)))
+                h = hashlib.sha256()
+                f = tar.extractfile(ti)
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    h.update(chunk)
+                if h.hexdigest() != info.get("sha256") or ti.size != info.get("size"):
+                    raise ArchiveMismatch("digest mismatch for %s" % rel)
+            elif kind == "symlink":
+                if not ti.issym():
+                    raise ArchiveMismatch("type mismatch for %s: manifest symlink, archive %s" % (rel, _tar_kind(ti)))
+                if ti.linkname != info.get("target"):
+                    raise ArchiveMismatch("symlink target mismatch for %s: archive %r, manifest %r" % (rel, ti.linkname, info.get("target")))
+            elif kind == "dir":
+                if not ti.isdir():
+                    raise ArchiveMismatch("type mismatch for %s: manifest dir, archive %s" % (rel, _tar_kind(ti)))
+            else:
+                raise ArchiveMismatch("manifest entry %s has unknown kind %r" % (rel, kind))
+        if entries:
+            raise ArchiveMismatch("archive holds %s which the manifest does not name" % sorted(entries)[0])
     # the quarantine's live digests must STILL match: nothing wrote since capture
     disposable = disposable_paths(m.get("repo"))
     live = build_manifest(m["quarantine"], disposable)
     if live != manifest:
         raise ArchiveMismatch("the quarantine changed after capture")
-    for e in tx.read_json(os.path.join(cdir, "index.json")) or []:
+    # every index entry that needs a standalone blob has one, and it hashes
+    # to the entry under the repository's object format
+    for e in index:
+        if not e.get("needs_blob"):
+            continue
         bpath = os.path.join(cdir, "blobs", e["sha"])
-        if os.path.exists(bpath) and sha256_git_blob(bpath) != e["sha"]:
+        if not os.path.isfile(bpath):
+            raise ArchiveMismatch("staged blob %s for %s is missing from the archive" % (e["sha"], e.get("path")))
+        if git_object_id(bpath, object_format) != e["sha"]:
             raise ArchiveMismatch("staged blob %s does not hash to its index entry" % e["sha"])
 
 
-def sha256_git_blob(path):
-    """The git object id of a blob file (sha1 header form) — what `ls-files
-    -s` recorded, so a captured blob can be checked against the index."""
+def _tar_kind(ti):
+    return "file" if ti.isreg() else "symlink" if ti.issym() else "dir" if ti.isdir() else "other"
+
+
+def git_object_id(path, object_format="sha1"):
+    """The git object id of a blob file under the repository's object format
+    — what `ls-files -s` recorded, so a captured blob can be checked against
+    the index."""
     data = open(path, "rb").read()
-    h = hashlib.sha1()
+    h = hashlib.sha256() if object_format == "sha256" else hashlib.sha1()
     h.update(b"blob %d\0" % len(data))
     h.update(data)
     return h.hexdigest()
@@ -658,6 +778,134 @@ def _unlink(path):
         pass
 
 
+# --------------------------------------------------------------------------
+# retention — automatic, persistent (it runs inside the launchd job), no user action
+# --------------------------------------------------------------------------
+
+def retention_days(key, default):
+    """Days, from orchestration.config (engine) with an env override for
+    tests (RICHOS_<KEY>). Data a reviewer can read."""
+    v = os.environ.get("RICHOS_" + key)
+    if v is None or v == "":
+        v = config_value(key, default)
+    try:
+        return float(v)
+    except ValueError:
+        return float(default)
+
+
+def _epoch(iso):
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(iso).timestamp()
+    except Exception:
+        return None
+
+
+def retention_pass():
+    """Bounded lifetimes for the three things that otherwise accumulate
+    forever (review 2026-09-03, blocker 8): captures (they hold ignored
+    evidence, which is where secrets live), backup refs (they keep unlanded
+    commits reachable after the harness deletes the branch) and the terminal
+    transaction records themselves. Ages are counted from the transaction's
+    `removed_ts`; a record is deleted only after every artifact it names is
+    gone, so nothing on disk is ever orphaned from the record that explains
+    it. The agent-id terminal index (`terminal/<agent_id>`, ~50 bytes) is
+    kept: an agent id is terminal forever, and the resume guard reads it."""
+    cap_days = retention_days("CAPTURE_RETENTION_DAYS", "30")
+    ref_days = retention_days("BACKUP_REF_RETENTION_DAYS", "90")
+    tx_days = retention_days("TRANSACTION_RETENTION_DAYS", "90")
+    now = time.time()
+    expired = {"captures": 0, "backup_refs": 0, "transactions": 0}
+    for t in list(tx.iter_transactions()):
+        if t.get("state") != "removed":
+            continue
+        removed = _epoch(t.get("removed_ts") or "")
+        if removed is None:
+            continue
+        age = (now - removed) / 86400.0
+        sid, aid = t["session_id"], t["agent_id"]
+        with tx.tx_lock(sid, aid, timeout=5):
+            for i, m in enumerate(t.get("members") or []):
+                cdir = m.get("capture_dir")
+                if cdir and not m.get("capture_expired_ts") and age >= cap_days:
+                    if os.path.isdir(cdir):
+                        shutil.rmtree(cdir)
+                    tx.update_member(sid, aid, i, capture_expired_ts=tx.now_iso())
+                    expired["captures"] += 1
+                ref = m.get("backup_ref")
+                if ref and not m.get("backup_ref_expired_ts") and age >= ref_days:
+                    if os.path.isdir(m.get("repo") or ""):
+                        git_out(m["repo"], "update-ref", "-d", ref)
+                    tx.update_member(sid, aid, i, backup_ref_expired_ts=tx.now_iso())
+                    expired["backup_refs"] += 1
+            t = tx.load_tx(sid, aid)
+            artifacts_gone = all(
+                (not m.get("capture_dir") or m.get("capture_expired_ts") or not os.path.isdir(m["capture_dir"]))
+                and (not m.get("backup_ref") or m.get("backup_ref_expired_ts"))
+                for m in t.get("members") or [])
+            if age >= tx_days and artifacts_gone:
+                _expire_transaction_record(t)
+                expired["transactions"] += 1
+    # empty capture parents left behind
+    root = tx.capture_root()
+    for sdir in _listdir(root):
+        sp = os.path.join(root, sdir)
+        for adir in _listdir(sp):
+            ap = os.path.join(sp, adir)
+            if os.path.isdir(ap) and not _listdir(ap):
+                _rmdir(ap)
+        if os.path.isdir(sp) and not _listdir(sp):
+            _rmdir(sp)
+    if any(expired.values()):
+        log("retention: expired %d capture(s), %d backup ref(s), %d transaction record(s)" % (expired["captures"], expired["backup_refs"], expired["transactions"]))
+    return expired
+
+
+def _expire_transaction_record(t):
+    sid, aid = t["session_id"], t["agent_id"]
+    sd = tx.session_dir(sid)
+    for p in (tx.tx_path(sid, aid), tx.lock_path(sid, aid), tx.bound_path(sid, aid), tx.start_path(sid, aid),
+              tx.pending_terminal_path(sid, aid)):
+        _unlink(p)
+    if t.get("tool_use_id"):
+        try:
+            _unlink(tx.intent_path(sid, t["tool_use_id"]))
+        except ValueError:
+            pass
+    for n in _listdir(sd):
+        if n.startswith(aid + ".json.member-") and n.endswith(".notice"):
+            _unlink(os.path.join(sd, n))
+    if t.get("teammate"):
+        try:
+            _unlink(tx.terminal_name_path(sid, t["teammate"]))
+        except ValueError:
+            pass
+    for sub in ("intents", "bound", "starts", "pending-terminal"):
+        p = os.path.join(sd, sub)
+        if os.path.isdir(p) and not _listdir(p):
+            _rmdir(p)
+    if os.path.isdir(sd) and not _listdir(sd):
+        _rmdir(sd)
+    tn = os.path.join(tx.tx_root(), "terminal-names", sid)
+    if os.path.isdir(tn) and not _listdir(tn):
+        _rmdir(tn)
+
+
+def _listdir(p):
+    try:
+        return os.listdir(p)
+    except OSError:
+        return []
+
+
+def _rmdir(p):
+    try:
+        os.rmdir(p)
+    except OSError:
+        pass
+
+
 def run(max_seconds=None, only=None):
     deadline = time.time() + max_seconds if max_seconds else None
     n = 0
@@ -685,6 +933,10 @@ def run(max_seconds=None, only=None):
         except Exception as e:
             log("transaction %s/%s: %s" % (t["session_id"][:8], t["agent_id"], e))
         n += 1
+    try:
+        retention_pass()
+    except Exception as e:
+        log("retention pass: %s" % e)
     return n
 
 
@@ -700,6 +952,11 @@ def status():
 
 
 def main(argv):
+    # Nothing this process creates is readable by anyone but the account:
+    # captures hold ignored evidence (blocker 8). The explicit 0700/0600
+    # modes in private_makedirs/private_open are the first layer; the umask
+    # is the second, and it covers every write this file did not think of.
+    os.umask(0o077)
     ap = argparse.ArgumentParser(prog="reconcile-terminal-worktrees.py")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--max-seconds", type=float, default=None)

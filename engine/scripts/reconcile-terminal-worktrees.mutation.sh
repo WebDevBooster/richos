@@ -26,8 +26,8 @@ mutant disposable-policy-ignored "C08" "$R" \
     "node_modules would be archived on every removal — the committed policy would be prose."
 
 mutant staged-blob-not-archived "C09" "$R" \
-    '            if e["path"] in staged:' \
-    '            if False:' \
+    '        e["needs_blob"] = e["mode"] != "160000" and e["sha"] not in head_objects' \
+    '        e["needs_blob"] = False' \
     "a staged-but-uncommitted blob would exist only in an index that git worktree remove is about to delete."
 
 mutant verification-skipped "C18" "$R" \
@@ -74,6 +74,41 @@ mutant fallback-never-built "C27" "$R" \
     '        with tx.tx_lock(sid, aid):{NL}            if tx.load_tx(sid, aid) is None:{NL}                tx.atomic_write_json(tx.tx_path(sid, aid), fallback)' \
     '        with tx.tx_lock(sid, aid):{NL}            pass' \
     "a permanently unbindable agent's prepared worktrees would never be cleaned: the pending event would sit forever and the trees with it."
+
+mutant index-failure-swallowed "C29" "$R" \
+    '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
+    '    for rec in git_out(quar, "ls-files", "-s", "-z")[1].split("\0"):' \
+    "a failed ls-files would be an empty index and the member would advance to captured; staged-only state would be deleted on the strength of an archive that never held it (review 2026-09-03, blocker 2)."
+
+mutant missing-blob-accepted "C31" "$R" \
+    '        if not os.path.isfile(bpath):{NL}            raise ArchiveMismatch("staged blob %s for %s is missing from the archive" % (e["sha"], e.get("path")))' \
+    '        if not os.path.isfile(bpath):{NL}            continue' \
+    "a staged blob that should exist but was never written would verify by its absence."
+
+mutant symlink-target-unchecked "C32" "$R" \
+    '                if ti.linkname != info.get("target"):' \
+    '                if False:' \
+    "an archived symlink pointing anywhere would verify (review 2026-09-03, blocker 8)."
+
+mutant mode-unchecked "C33" "$R" \
+    '            if (ti.mode & 0o7777) != info.get("mode"):' \
+    '            if False:' \
+    "an executable restored as non-executable, or the reverse, would verify."
+
+mutant artifacts-not-private "C34" "$R" \
+    '    os.umask(0o077){AND}    os.makedirs(path, mode=0o700, exist_ok=True){NL}    os.chmod(path, 0o700){AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)' \
+    '    pass{AND}    os.makedirs(path, exist_ok=True){AND}    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)' \
+    "captures holding ignored secrets would be created at the ambient umask, readable by every account on the machine."
+
+mutant retention-never-runs "C37" "$R" \
+    '    try:{NL}        retention_pass(){NL}    except Exception as e:' \
+    '    try:{NL}        pass{NL}    except Exception as e:' \
+    "captures, backup refs and transaction records would accumulate forever; the secret-retention window would be unbounded."
+
+mutant record-expires-before-artifacts "C36" "$R" \
+    '            if age >= tx_days and artifacts_gone:' \
+    '            if age >= tx_days:' \
+    "a transaction record would be deleted while its backup ref still existed — an artifact orphaned from the record that explains it."
 
 mutant budget-ignored "C23" "$R" \
     '        if deadline and time.time() > deadline:{NL}            log("time budget reached; the rest waits for the next run"){NL}            break' \

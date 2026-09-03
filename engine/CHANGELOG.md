@@ -353,6 +353,38 @@ version heading with Added / Changed / Fixed groupings.
   that still verifies — never a name, never a guess. A pending event with no
   bound record owned nothing and is dropped after grace.
 
+- **A failed index capture was accepted as a verified archive, and
+  verification skipped everything but regular-file bytes**
+  (`scripts/reconcile-terminal-worktrees.py` `capture_member`,
+  `_verify_archive`, `git_must`, `git_object_id`, `private_makedirs`,
+  `private_open`, `retention_pass`; `orchestration.config`
+  `CAPTURE_RETENTION_DAYS` / `BACKUP_REF_RETENTION_DAYS` /
+  `TRANSACTION_RETENTION_DAYS`; `docs/worktree-lifecycle-transactions.md`
+  verification, privacy/encryption policy and retention sections;
+  `reconcile-terminal-worktrees.test.sh` C29–C37; mutants
+  `index-failure-swallowed`, `missing-blob-accepted`,
+  `symlink-target-unchecked`, `mode-unchecked`, `artifacts-not-private`,
+  `retention-never-runs`, `record-expires-before-artifacts`, and
+  `staged-blob-not-archived` retargeted) — PATCH, review 2026-09-03 blockers
+  2 and 8. Blocker 2: a failed `git ls-files -s` was recorded as an empty
+  index and the member still advanced to `captured`; failures of `diff
+  --cached`, `cat-file`, `status` and a blob that was never written were all
+  swallowed, and a staged blob was verified only if its file happened to
+  exist. Now every git command the capture needs must succeed or the member
+  stays `quarantined` (attempt counted, error named, retryable, never a
+  permission to delete); `index.json` records which entries need a
+  standalone blob (`needs_blob`: object not in the HEAD tree the backup ref
+  preserves); each such blob is hashed under the repository's object format
+  at capture and again at verification, and a missing one voids the
+  capture. Blocker 8: verification now covers every manifest entry — file
+  size/mode/digest, symlink mode/target, directory mode, no extra entries;
+  capture directories are 0700 and archives 0600 by explicit mode and by a
+  0077 umask; the encryption policy is stated (permissions + retention +
+  the volume's encryption, no per-archive key, and the structural reason
+  why); and retention is automatic and persistent — captures 30 days,
+  backup refs 90, the transaction record 90 and only once every artifact it
+  names is gone — inside the reconciler run the launchd job performs.
+
 - **Native evidence could be deleted before quarantine: the terminal ingress
   saved every repository's backup ref before renaming anything**
   (`scripts/lib/worktree-transactions.py` `terminalize`;
