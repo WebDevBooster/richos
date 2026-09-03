@@ -846,6 +846,105 @@ else
 fi
 rm -rf "$NOTX"
 
+# (q18b) LIFECYCLE COMPONENT PRESENT BUT BROKEN -> refused, naming it (review
+#        2026-09-03, blocker 3: the write barrier fails CLOSED on a library
+#        that does not load, so the spawn is refused at the door instead).
+BRK="$(cd "$(mktemp -d -t guard-isolation-brk.XXXXXX)" && pwd -P)"
+mkdir -p "$BRK/scripts/hooks" "$BRK/scripts/lib" "$BRK/.claude/agents"
+cp "$HOOK" "$BRK/scripts/hooks/"
+cp "$SCRIPT_DIR/record-subagent-start.sh" "$SCRIPT_DIR/guard-sealed-worktree.sh" "$SCRIPT_DIR/terminalize-agent-worktrees.sh" "$BRK/scripts/hooks/"
+cp "$SCRIPT_DIR/../lib/resolve-roots.sh" "$SCRIPT_DIR/../lib/resolve-main-checkout.sh" "$SCRIPT_DIR/../lib/model-tiers.sh" "$SCRIPT_DIR/../lib/worktree-ledger.py" "$BRK/scripts/lib/"
+printf 'def broken(:\n' >"$BRK/scripts/lib/worktree-transactions.py"
+cp "$RICHOS_ENTITY_ROOT/orchestration.config" "$BRK/"
+cp "$RICHOS_ENTITY_ROOT/.claude/agents/"*.md "$BRK/.claude/agents/" 2>/dev/null || true
+chmod +x "$BRK/scripts/hooks/"*.sh
+BRK_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk1' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$BRK" "$BRK/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$BRK_OUT" | grep -qF 'lifecycle component BROKEN: scripts/lib/worktree-transactions.py'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18b a file-capable spawn with the transaction library PRESENT BUT NOT LOADABLE -> BLOCKED, naming it\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18b broken lifecycle component (exit %s): %s\n' "$rc" "${BRK_OUT:0:200}"
+fi
+# (q18c) the barrier present but not executable -> refused, naming it
+cp "$SCRIPT_DIR/../lib/worktree-transactions.py" "$BRK/scripts/lib/worktree-transactions.py"
+chmod -x "$BRK/scripts/hooks/guard-sealed-worktree.sh"
+BRK_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk2' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$BRK" "$BRK/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$BRK_OUT" | grep -qF 'lifecycle component NOT EXECUTABLE: scripts/hooks/guard-sealed-worktree.sh'; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18c a file-capable spawn with the write barrier NOT EXECUTABLE -> BLOCKED, naming it\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18c non-executable barrier (exit %s): %s\n' "$rc" "${BRK_OUT:0:200}"
+fi
+chmod +x "$BRK/scripts/hooks/guard-sealed-worktree.sh"
+BRK_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-brk3' 'worktree' 'Do it.')" | RICHOS_ENTITY_ROOT="$BRK" "$BRK/scripts/hooks/guard-worktree-isolation.sh" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1)); printf '  PASS  Q18d ...and the same sandbox with every component healthy ALLOWS the spawn (positive control)\n'
+else
+    FAIL=$((FAIL + 1)); printf '  FAIL  Q18d healthy sandbox refused (exit %s): %s\n' "$rc" "${BRK_OUT:0:200}"
+fi
+rm -rf "$BRK"
+
+# (q19) CLAUSE 7e — THE PERSISTENT RECONCILER CONTRACT (review 2026-09-03,
+#       blocker 7). On macOS a file-writing spawn is refused unless launchctl
+#       shows com.richos.worktree-reconciler loaded and naming a reconciler
+#       that exists. launchctl is SHIMMED (never the real one), and the clause
+#       is asked for explicitly (RICHOS_RECONCILER_CONTRACT_CHECK=1) because
+#       this suite pins the transaction store, which makes it inert otherwise.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    LSHIM="$(cd "$(mktemp -d -t guard-isolation-lshim.XXXXXX)" && pwd -P)"
+    lshim() { # <mode> — print-fails | names-existing | names-missing | no-reconciler
+        case "$1" in
+            print-fails)    printf '#!/usr/bin/env bash\necho "Could not find service" >&2; exit 113\n' >"$LSHIM/launchctl" ;;
+            names-existing) printf '#!/usr/bin/env bash\nprintf "%%s\\n" "gui/501/com.richos.worktree-reconciler = {" "\tprogram = /usr/bin/python3" "\targuments = {" "\t\t/usr/bin/python3" "\t\t%s" "\t\t--quiet" "\t}" "}"\n' "$SCRIPT_DIR/../reconcile-terminal-worktrees.py" >"$LSHIM/launchctl" ;;
+            names-missing)  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "\targuments = {" "\t\t/nonexistent/engine/scripts/reconcile-terminal-worktrees.py" "\t}"\n' >"$LSHIM/launchctl" ;;
+            no-reconciler)  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "\targuments = {" "\t\t/usr/bin/true" "\t}"\n' >"$LSHIM/launchctl" ;;
+        esac
+        chmod +x "$LSHIM/launchctl"
+    }
+    q19_run() { # -> Q19_OUT, rc
+        Q19_OUT="$(printf '%s' "$(json_agent 'dev' "$1" 'worktree' 'Do it.')" | PATH="$LSHIM:$PATH" RICHOS_RECONCILER_CONTRACT_CHECK=1 "$HOOK" 2>&1 >/dev/null)"; rc=$?
+    }
+    lshim print-fails; q19_run dev-sonnet-q19a
+    if [ "$rc" -eq 2 ] && printf '%s' "$Q19_OUT" | grep -qF 'persistent reconciler is NOT LOADED' && printf '%s' "$Q19_OUT" | grep -qF 'install.sh from the engine'; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19a reconciler job NOT loaded (launchctl print fails) -> file-writing spawn BLOCKED, naming install.sh from the main checkout as the fix\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19a not-loaded (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim names-existing; q19_run dev-sonnet-q19b
+    if [ "$rc" -eq 0 ]; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19b reconciler job loaded and naming an EXISTING reconciler -> spawn allowed (positive control)\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19b healthy job refused (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim names-missing; q19_run dev-sonnet-q19c
+    if [ "$rc" -eq 2 ] && printf '%s' "$Q19_OUT" | grep -qF 'which does not exist'; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19c reconciler job loaded but pointing at a reconciler that DOES NOT EXIST (a removed checkout) -> BLOCKED, naming the path\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19c dangling job (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim no-reconciler; q19_run dev-sonnet-q19d
+    if [ "$rc" -eq 2 ] && printf '%s' "$Q19_OUT" | grep -qF 'does not name a reconciler'; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19d a job under the label that runs something else -> BLOCKED\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19d wrong program (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    lshim print-fails
+    Q19_OUT="$(printf '%s' "$(json_agent 'dev' 'dev-sonnet-q19e' 'worktree' 'Do it.')" | PATH="$LSHIM:$PATH" "$HOOK" 2>&1 >/dev/null)"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19e ...and with the transaction store redirected (a sandbox) and no explicit ask, the clause is inert: no machine-wide contract applies to a sandbox\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19e sandboxed store still checked (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    Q19_OUT="$(printf '%s' "$(json_agent 'Explore' '' '' "Find where the login button is defined.
+$M_GOOD_Q")" | PATH="$LSHIM:$PATH" RICHOS_RECONCILER_CONTRACT_CHECK=1 "$HOOK" 2>&1 >/dev/null)"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+        PASS=$((PASS + 1)); printf '  PASS  Q19f a read-only type is not held to the reconciler contract (it owns no worktree)\n'
+    else
+        FAIL=$((FAIL + 1)); printf '  FAIL  Q19f read-only type refused (exit %s): %s\n' "$rc" "${Q19_OUT:0:240}"
+    fi
+    rm -rf "$LSHIM"
+else
+    printf '  SKIP  Q19  clause 7e (launchd) is macOS-only; this host is %s\n' "$(uname -s 2>/dev/null)"
+fi
+
 # ---------------------------------------------------------------------------
 # (m) CLAUSE 5 — THE STAFFING GATE.
 # ---------------------------------------------------------------------------

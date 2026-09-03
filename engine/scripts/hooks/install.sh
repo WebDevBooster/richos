@@ -656,14 +656,41 @@ fi
 # never a failed install.
 RECONCILE_INTERVAL="$(sed -n 's/^RECONCILE_INTERVAL_SECONDS=\([0-9][0-9]*\).*$/\1/p' "$REPO_ROOT/orchestration.config" 2>/dev/null | head -1 || true)"
 [ -n "$RECONCILE_INTERVAL" ] || RECONCILE_INTERVAL=300
-LAUNCHD_LABEL="com.richos.worktree-reconciler"
+LAUNCHD_PROD_LABEL="com.richos.worktree-reconciler"
+LAUNCHD_LABEL="${RICHOS_LAUNCHD_LABEL:-$LAUNCHD_PROD_LABEL}"
+# A custom label is a TEST label, and only a test label: it must carry the
+# production label as a prefix plus `.test-`, so the worst a misused override
+# can do is load a job under a name that says what it is. Anything else is
+# refused outright — a job under an arbitrary name is a machine-wide
+# registration nobody would find.
+LAUNCHD_TEST_LABEL=0
+if [ "$LAUNCHD_LABEL" != "$LAUNCHD_PROD_LABEL" ]; then
+    case "$LAUNCHD_LABEL" in
+        "$LAUNCHD_PROD_LABEL".test-*) LAUNCHD_TEST_LABEL=1 ;;
+        *) echo "ERROR: install.sh: RICHOS_LAUNCHD_LABEL='$LAUNCHD_LABEL' is not the production label and not a test label ($LAUNCHD_PROD_LABEL.test-<id>) — refusing to register a launchd job under it." >&2; exit 1 ;;
+    esac
+fi
 LAUNCHD_DIR="${RICHOS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 LAUNCHD_PLIST="$LAUNCHD_DIR/$LAUNCHD_LABEL.plist"
 RECONCILER="$REPO_ROOT/scripts/reconcile-terminal-worktrees.py"
 PYTHON_BIN="$(command -v python3 || true)"
 write_reconciler_plist() {
     mkdir -p "$LAUNCHD_DIR" || return 1
-    cat >"$LAUNCHD_PLIST.tmp" <<PLIST
+    # EnvironmentVariables: only when a caller redirected the stores — a test
+    # loading a live job must reconcile a sandbox, never ~/.claude/state. A
+    # production install sets neither and the block is omitted.
+    _ENV_BLOCK=""
+    if [ -n "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ -n "${RICHOS_WORKTREE_CAPTURE_DIR:-}" ]; then
+        _ENV_BLOCK="    <key>EnvironmentVariables</key>
+    <dict>"
+        [ -n "${RICHOS_WORKTREE_TX_DIR:-}" ] && _ENV_BLOCK="$_ENV_BLOCK
+        <key>RICHOS_WORKTREE_TX_DIR</key><string>$RICHOS_WORKTREE_TX_DIR</string>"
+        [ -n "${RICHOS_WORKTREE_CAPTURE_DIR:-}" ] && _ENV_BLOCK="$_ENV_BLOCK
+        <key>RICHOS_WORKTREE_CAPTURE_DIR</key><string>$RICHOS_WORKTREE_CAPTURE_DIR</string>"
+        _ENV_BLOCK="$_ENV_BLOCK
+    </dict>"
+    fi
+    cat >"$LAUNCHD_PLIST.tmp" <<PLIST || return 1
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -680,17 +707,55 @@ write_reconciler_plist() {
     <key>StartInterval</key><integer>$RECONCILE_INTERVAL</integer>
     <key>RunAtLoad</key><true/>
     <key>ProcessType</key><string>Background</string>
-    <key>StandardOutPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
+${_ENV_BLOCK:+$_ENV_BLOCK
+}    <key>StandardOutPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
     <key>StandardErrorPath</key><string>$ENGINE_CONFIG_DIR/state/worktree-reconciler.log</string>
 </dict>
 </plist>
 PLIST
-    mv "$LAUNCHD_PLIST.tmp" "$LAUNCHD_PLIST"
+    mv "$LAUNCHD_PLIST.tmp" "$LAUNCHD_PLIST" || return 1
 }
+# schedule_reconciler_job — bootout, bootstrap, then VERIFY with launchctl print
+# that the job is loaded and names THIS checkout's reconciler. Returns nonzero
+# with the reason on stderr; never tells anybody to load anything by hand.
+schedule_reconciler_job() {
+    local domain="gui/$(id -u)" printed
+    if ! command -v launchctl >/dev/null 2>&1; then
+        echo "launchctl is not on PATH" >&2; return 1
+    fi
+    launchctl bootout "$domain/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
+    if ! launchctl bootstrap "$domain" "$LAUNCHD_PLIST" 2>"$LAUNCHD_PLIST.bootstrap.err"; then
+        echo "launchctl bootstrap $domain $LAUNCHD_PLIST failed: $(tr '\n' ' ' <"$LAUNCHD_PLIST.bootstrap.err" 2>/dev/null)" >&2
+        rm -f "$LAUNCHD_PLIST.bootstrap.err"; return 1
+    fi
+    rm -f "$LAUNCHD_PLIST.bootstrap.err"
+    if ! printed="$(launchctl print "$domain/$LAUNCHD_LABEL" 2>&1)"; then
+        echo "launchctl print $domain/$LAUNCHD_LABEL failed after bootstrap: $(printf '%s' "$printed" | tr '\n' ' ' | cut -c1-200)" >&2; return 1
+    fi
+    if ! printf '%s' "$printed" | grep -qF "$RECONCILER"; then
+        echo "launchctl print $domain/$LAUNCHD_LABEL does not name this checkout's reconciler ($RECONCILER) — the loaded job points elsewhere" >&2; return 1
+    fi
+    return 0
+}
+RECONCILER_SCHEDULE_FAILED=""
 if [ -z "$PYTHON_BIN" ] || [ ! -f "$RECONCILER" ]; then
-    echo "NOTE: reconciler NOT scheduled — python3 or scripts/reconcile-terminal-worktrees.py is missing. (install.sh)" >&2
+    RECONCILER_SCHEDULE_FAILED="python3 or scripts/reconcile-terminal-worktrees.py is missing"
+elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ] && [ "$LAUNCHD_TEST_LABEL" -eq 1 ]; then
+    # A redirected plist directory AND a test label: a LIVE load under a name
+    # that says what it is (install-reconciler-schedule.test.sh S17+). This is
+    # the one way through the withholding walls below, bounded by the label.
+    if ! write_reconciler_plist; then
+        RECONCILER_SCHEDULE_FAILED="could not write the reconciler plist at $LAUNCHD_PLIST"
+    elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
+        RECONCILER_SCHEDULE_FAILED="a live launchd load was requested (test label) but this host is not macOS"
+    elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
+        RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"
+    else
+        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL — a TEST label, every ${RECONCILE_INTERVAL}s) -> $LAUNCHD_PLIST; verified with launchctl print"
+    fi
 elif [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
-    # A redirected plist directory is a test: write the definition, never load it.
+    # A redirected plist directory with the production label is a test of the
+    # definition: write it, never load it.
     write_reconciler_plist && echo "✓ reconciler plist written (not loaded: RICHOS_LAUNCH_AGENTS_DIR is set) -> $LAUNCHD_PLIST"
 elif LAUNCHD_ACCOUNT_HOME="$("$PYTHON_BIN" -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"; \
      [ -z "$LAUNCHD_ACCOUNT_HOME" ] \
@@ -702,19 +767,38 @@ elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
     echo "NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '$PYTHON_BIN $RECONCILER --quiet' every $RECONCILE_INTERVAL seconds with your host's scheduler. (install.sh)" >&2
 elif [ "$(cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P)" != "$(cd "$HOME/.claude" 2>/dev/null && pwd -P)" ]; then
     echo "NOTE: reconciler NOT scheduled — CLAUDE_CONFIG_DIR is not the operator's real ~/.claude, so this is a sandboxed install. (install.sh)" >&2
-elif write_reconciler_plist; then
-    mkdir -p "$ENGINE_CONFIG_DIR/state" 2>/dev/null || true
-    if command -v launchctl >/dev/null 2>&1; then
-        launchctl bootout "gui/$(id -u)/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
-        if launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_PLIST" >/dev/null 2>&1; then
-            echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL, every ${RECONCILE_INTERVAL}s) -> $LAUNCHD_PLIST"
-        else
-            echo "NOTE: reconciler plist written but launchctl bootstrap FAILED — load it by hand: launchctl bootstrap gui/$(id -u) $LAUNCHD_PLIST (install.sh)" >&2
-        fi
-    else
-        echo "NOTE: reconciler plist written but launchctl is unavailable; nothing was loaded. (install.sh)" >&2
-    fi
 else
-    echo "NOTE: could not write the reconciler plist at $LAUNCHD_PLIST. (install.sh)" >&2
+    # THE REAL INSTALLATION (review 2026-09-03, blocker 7). Until this revision
+    # a plist that could not be written, a launchctl that was not there, and a
+    # bootstrap that failed all exited 0 — the last one telling the operator to
+    # load the job by hand, which is the babysitting this lifecycle exists to
+    # remove. A real macOS install now FAILS (exit 1) unless the job is loaded
+    # AND verified with `launchctl print` to name this checkout's reconciler.
+    # Re-running install.sh from the landed main checkout is the whole
+    # upgrade path: bootout, bootstrap, verify — no manual command. Until the
+    # job is healthy, guard-worktree-isolation.sh clause 7e refuses every
+    # file-writing spawn on this machine, naming this script as the fix.
+    mkdir -p "$ENGINE_CONFIG_DIR/state" 2>/dev/null || true
+    if ! write_reconciler_plist; then
+        RECONCILER_SCHEDULE_FAILED="could not write the reconciler plist at $LAUNCHD_PLIST"
+    elif ! _SCHED_ERR="$(schedule_reconciler_job 2>&1)"; then
+        RECONCILER_SCHEDULE_FAILED="$_SCHED_ERR"
+    else
+        echo "✓ reconciler scheduled under launchd ($LAUNCHD_LABEL, every ${RECONCILE_INTERVAL}s) -> $LAUNCHD_PLIST; verified with launchctl print"
+    fi
+fi
+if [ -n "$RECONCILER_SCHEDULE_FAILED" ]; then
+    {
+        echo "=== install.sh: FAILED — the persistent reconciler is NOT scheduled ==="
+        echo "  $RECONCILER_SCHEDULE_FAILED"
+        echo "  A RichOS installation without its reconciler leaks every terminal worktree"
+        echo "  until somebody notices, which is the babysitting this lifecycle removes. This"
+        echo "  install is therefore NOT complete: file-writing spawns stay refused on this"
+        echo "  machine (guard-worktree-isolation.sh clause 7e) until it is."
+        echo "  Fix the cause above, then run this script again from the main checkout:"
+        echo "    $REPO_ROOT/scripts/hooks/install.sh"
+        echo "  (review 2026-09-03 blocker 7; specification: docs/plans/worktree-real-fix-2026-09-03.md, 'Capture and removal')"
+    } >&2
+    exit 1
 fi
 exit 0

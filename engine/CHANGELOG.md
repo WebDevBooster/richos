@@ -412,6 +412,37 @@ version heading with Added / Changed / Fixed groupings.
   unparseable — each refusal beside its pass, so a barrier that fails open
   OR refuses everything turns the probe red.
 
+- **Installation could succeed with no reconciler, and told the operator to
+  load it by hand** (`scripts/hooks/install.sh` launchd block rewritten:
+  `schedule_reconciler_job`, `RICHOS_LAUNCHD_LABEL` test labels,
+  `EnvironmentVariables` for redirected stores, exit 1 on any schedule
+  failure; `guard-worktree-isolation.sh` clause 7e;
+  `reconcile-terminal-worktrees.py` `last-run.json` heartbeat;
+  `install-reconciler-schedule.test.sh` S17–S26 including a LIVE launchd
+  installation; new `install-reconciler-schedule.mutation.sh` (5 mutants);
+  `guard-worktree-isolation.test.sh` Q19a–f and mutant M20) — PATCH,
+  review 2026-09-03 blocker 7. `install.sh` exited 0 when the plist could
+  not be written, when `launchctl` was unavailable and when `bootstrap`
+  failed — the last with "load it by hand", the babysitting this work exists
+  to remove — and its suite verified plist serialization only. A real macOS
+  install now FAILS (exit 1) unless the job is bootstrapped AND
+  `launchctl print` shows it loaded and naming this checkout's reconciler;
+  re-running from the landed main checkout is the whole upgrade path
+  (bootout, bootstrap, verify). Spawn-gate clause 7e refuses every
+  file-writing spawn on macOS while that job is not loaded or points at a
+  reconciler that no longer exists, naming the one command that fixes it
+  (inert on a redirected store, so suites and probe canaries are unaffected;
+  `RICHOS_RECONCILER_CONTRACT_CHECK=1` asks for it with a shimmed
+  `launchctl`). The live test loads a real job under a test label
+  (`com.richos.worktree-reconciler.test-<pid>`, the only label an override
+  may name) against a sandboxed store, proves `launchctl print` names the
+  reconciler, waits for the reconciler's heartbeat (the job RAN), reinstalls
+  from a second checkout and proves the job repointed, and boots it out.
+
+  **Landing note:** after this lands, run `engine/scripts/hooks/install.sh`
+  from the richos MAIN checkout once; from the next session on, file-writing
+  spawns on a Mac whose reconciler job is not loaded are refused until it is.
+
 - **Native evidence could be deleted before quarantine: the terminal ingress
   saved every repository's backup ref before renaming anything**
   (`scripts/lib/worktree-transactions.py` `terminalize`;

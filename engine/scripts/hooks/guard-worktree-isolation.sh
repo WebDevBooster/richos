@@ -937,6 +937,59 @@ C7_PROBLEMS=()
 for _c in "scripts/lib/worktree-transactions.py" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
   [ -f "$SCRIPT_DIR/../../$_c" ] || C7_PROBLEMS+=("lifecycle component MISSING: $_c — without it this spawn's worktrees could be recorded but never bound, sealed, barred or cleaned up. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
 done
+# 7c, continued (review 2026-09-03, blocker 3): PRESENT is not ENOUGH. The
+# write barrier now fails CLOSED on its own error — a library that does not
+# load, a barrier that cannot run — so a worker spawned into a broken engine
+# would be refused every write from its first call. The spawn is refused at
+# the door instead, naming the dependency, which is the safe degradation the
+# review asked for: a broken engine stops new workers rather than leaking
+# unowned writes or bricking running ones.
+_c7_lib_loads() { # <path>
+  python3 - "$1" <<'PY' >/dev/null 2>&1
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+for fn in ("write_intent", "bind", "record_start", "try_seal", "claim_terminal", "terminalize", "is_terminal_agent", "record_pending_terminal"):
+    getattr(m, fn)
+PY
+}
+if [ -f "$SCRIPT_DIR/../lib/worktree-transactions.py" ] && ! _c7_lib_loads "$SCRIPT_DIR/../lib/worktree-transactions.py"; then
+  C7_PROBLEMS+=("lifecycle component BROKEN: scripts/lib/worktree-transactions.py does not load or lacks a required function. The write barrier (guard-sealed-worktree.sh) fails CLOSED on it, so a worker spawned now could never write. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+fi
+for _c in "scripts/hooks/guard-sealed-worktree.sh" "scripts/hooks/record-subagent-start.sh" "scripts/hooks/terminalize-agent-worktrees.sh"; do
+  if [ -f "$SCRIPT_DIR/../../$_c" ] && [ ! -x "$SCRIPT_DIR/../../$_c" ]; then
+    C7_PROBLEMS+=("lifecycle component NOT EXECUTABLE: $_c — the harness cannot run it, so this spawn could never be sealed, barred or terminalized. Restore the engine (scripts/hooks/install.sh) before spawning a file-capable teammate.")
+  fi
+done
+# 7e. THE PERSISTENT RECONCILER CONTRACT MUST BE HEALTHY (review 2026-09-03,
+#     blocker 7). A worker's worktrees are removed by the reconciler under
+#     launchd, and by nothing else; a machine where that job is not loaded
+#     leaks every terminal worktree until somebody notices. So on macOS a
+#     file-writing spawn is refused unless `launchctl print` shows the job
+#     loaded and naming a reconciler that exists on disk — and the refusal
+#     names the one command that fixes it. The check is skipped when the
+#     transaction store is redirected (RICHOS_WORKTREE_TX_DIR: a sandboxed
+#     store has no machine-wide contract to be healthy — every suite and probe
+#     canary sets it) unless RICHOS_RECONCILER_CONTRACT_CHECK=1 asks for it
+#     with a shimmed launchctl. Non-macOS hosts have no launchd and stand down
+#     with a note: the contract there is the host scheduler, which this guard
+#     cannot see.
+if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHECK:-}" = "1" ]; } && [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+  _C7E_LABEL="com.richos.worktree-reconciler"
+  _C7E_FIX="run $ENGINE_ROOT/scripts/hooks/install.sh from the engine's MAIN checkout (it bootstraps and verifies the job; it exits 1 if it cannot)"
+  if ! command -v launchctl >/dev/null 2>&1; then
+    C7_PROBLEMS+=("the persistent reconciler contract cannot be checked: launchctl is not on PATH — $_C7E_FIX.")
+  elif ! _C7E_PRINT="$(launchctl print "gui/$(id -u)/$_C7E_LABEL" 2>&1)"; then
+    C7_PROBLEMS+=("the persistent reconciler is NOT LOADED under launchd (gui/$(id -u)/$_C7E_LABEL): $(printf '%s' "$_C7E_PRINT" | tr '\n' ' ' | cut -c1-120). Every terminal worktree would leak until a session start happened to recover it — $_C7E_FIX.")
+  else
+    _C7E_PROG="$(printf '%s\n' "$_C7E_PRINT" | grep -o '[^[:space:]"]*reconcile-terminal-worktrees\.py' | head -1 || true)"
+    if [ -z "$_C7E_PROG" ]; then
+      C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL does not name a reconciler (no reconcile-terminal-worktrees.py in its arguments) — $_C7E_FIX.")
+    elif [ ! -f "$_C7E_PROG" ]; then
+      C7_PROBLEMS+=("the loaded launchd job $_C7E_LABEL points at $_C7E_PROG, which does not exist — the engine it was installed from is gone (a removed worktree or an old checkout) — $_C7E_FIX.")
+    fi
+  fi
+fi
 RUN_IN_BG="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("tool_input") or {}).get("run_in_background"); print("false" if v is False else ("true" if v is True else ""))' 2>/dev/null || true)"
 if [ "$RUN_IN_BG" = "false" ]; then
   C7_PROBLEMS+=("run_in_background: false on a file-capable spawn — a SYNCHRONOUS Agent call's PostToolUse arrives after the worker has finished, too late to bind its worktrees to its agent id, so nothing it wrote would be owned by anyone. Spawn it as a background teammate (omit run_in_background, or set it true).")

@@ -535,6 +535,28 @@ if applied M19 "the fail-open skip silenced" \
         "parser library missing -> allowed \(fail-open\), announced"
 fi
 
+# --- M20: CLAUSE 7e deleted — the persistent reconciler contract unchecked
+# (review 2026-09-03, blocker 7). A machine with no loaded reconciler would
+# spawn file-writing teammates whose terminal worktrees nothing removes.
+# macOS only: the clause stands down elsewhere and the case is a SKIP there.
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+restore
+python3 - "$GUARD" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = 'if { [ -z "${RICHOS_WORKTREE_TX_DIR:-}" ] || [ "${RICHOS_RECONCILER_CONTRACT_CHECK:-}" = "1" ]; } && [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then'
+assert old in s, "clause 7e anchor not found"
+open(p, "w", encoding="utf-8").write(s.replace(old, "if false; then", 1))
+PY
+if applied M20 "the reconciler contract unchecked (clause 7e deleted)" \
+   && alive M20 "the reconciler contract unchecked (clause 7e deleted)"; then
+    check M20 "the reconciler contract unchecked (clause 7e deleted)" \
+        "Q19a reconciler job NOT loaded" \
+        "Q19c reconciler job loaded but pointing at a reconciler that DOES NOT EXIST"
+fi
+fi
+
 # --- DELIBERATE PINS (no mutant, and that is the honest answer). Three cases
 # hold under every mutation above because they assert that the NORMAL path is
 # still normal, and every mutant here changes an ABNORMAL path:

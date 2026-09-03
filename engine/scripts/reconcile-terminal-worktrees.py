@@ -937,6 +937,15 @@ def run(max_seconds=None, only=None):
         retention_pass()
     except Exception as e:
         log("retention pass: %s" % e)
+    # HEARTBEAT: proof that a run happened, written by the run itself. The
+    # live installation test waits for it after a launchd bootstrap (the job
+    # ran, not merely loaded), and the spawn gate reports its age.
+    try:
+        tx.atomic_write_json(os.path.join(tx.tx_root(), "last-run.json"),
+                             {"ts": tx.now_iso(), "epoch": time.time(), "pid": os.getpid(),
+                              "reconciled": n, "argv": sys.argv[1:]})
+    except Exception as e:
+        log("heartbeat: %s" % e)
     return n
 
 
