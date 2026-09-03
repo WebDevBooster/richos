@@ -263,17 +263,32 @@ py "tx.terminalize('$SID', 'aaaaaa000010')"
 STATE="$(T members --session-id "$SID" --agent-id aaaaaa000010 | cut -f5)"
 [ "$STATE" = "quarantined" ] && ok "T38  recovery: rename done but unrecorded -> the record is completed, nothing is renamed twice" || bad "T38  8a: $STATE"
 
-# 8b. BOTH original and quarantine present -> failed, never a choice.
+# 8b. BOTH original and quarantine present -> the quarantine (this member's
+#     own, by its exact name) advances; the original is recorded present and
+#     left EXACTLY where it is for the reconciler to archive, verify and
+#     reclaim. INVERTED (landed review 2026-09-03, blocker 3): this used to
+#     be a FAILED state that waited for a person. Nothing is renamed over
+#     anything and nothing is chosen by name.
 add_native "$ENTITY" aaaaaa000011
 intent "$SID" tu-11 '{"kind":"native","teammate":"dev-opus-c2","externals":[]}'
 T bind --session-id "$SID" --tool-use-id tu-11 --agent-id aaaaaa000011 >/dev/null
 T start --session-id "$SID" --agent-id aaaaaa000011 --cwd "$ENTITY/.claude/worktrees/agent-aaaaaa000011" >/dev/null
 T seal --session-id "$SID" --agent-id aaaaaa000011 >/dev/null
-mkdir -p "$ENTITY/.claude/worktrees/agent-aaaaaa000011.richos-terminal-11111111-aaaaaa000011"
-py "tx.claim_terminal('$SID', 'aaaaaa000011', 'SubagentStop'); tx.terminalize('$SID', 'aaaaaa000011')"
-STATE="$(T members --session-id "$SID" --agent-id aaaaaa000011 | cut -f5)"
-[ "$STATE" = "failed" ] && [ -d "$ENTITY/.claude/worktrees/agent-aaaaaa000011" ] \
-    && ok "T39  recovery: original AND quarantine both present -> member FAILED, original untouched (no search, no choice)" || bad "T39  8b: $STATE"
+Q11="$ENTITY/.claude/worktrees/agent-aaaaaa000011.richos-terminal-11111111-aaaaaa000011"
+py "
+tx.claim_terminal('$SID', 'aaaaaa000011', 'SubagentStop')
+tx.save_ref('$SID', 'aaaaaa000011', 0)
+os.rename('$ENTITY/.claude/worktrees/agent-aaaaaa000011', '$Q11')   # the crash: renamed, never recorded
+"
+mkdir -p "$ENTITY/.claude/worktrees/agent-aaaaaa000011"; printf 'ghost\n' >"$ENTITY/.claude/worktrees/agent-aaaaaa000011/ghost.txt"   # residue reappears
+py "tx.terminalize('$SID', 'aaaaaa000011')"
+M11="$(T show --session-id "$SID" --agent-id aaaaaa000011 | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("original_present_at_quarantine"))')"
+if [ "$M11" = "quarantined True" ] && [ -f "$ENTITY/.claude/worktrees/agent-aaaaaa000011/ghost.txt" ] && [ -d "$Q11" ] \
+   && git -C "$ENTITY" worktree list --porcelain | grep -qx "worktree $Q11"; then
+    ok "T39  recovery: original AND quarantine both present -> the quarantine advances (registered, ours by exact name), the original is recorded present and left untouched for the reconciler (INVERTED: it used to park as FAILED)"
+else
+    bad "T39  8b: member=[$M11] orig=$([ -f "$ENTITY/.claude/worktrees/agent-aaaaaa000011/ghost.txt" ] && echo present || echo GONE) quar=$([ -d "$Q11" ] && echo present || echo absent)"
+fi
 
 # 8c. NEITHER present -> missing (counted, never invented).
 add_native "$ENTITY" aaaaaa000012
@@ -484,6 +499,12 @@ T terminal-name --session-id "$SID2" --teammate echo-opus-e2 2>/dev/null \
 [ -d "$EXT5" ] && ok "T48  the reused-name tree still exists after the old transaction's terminalization" || bad "T48  reused-name tree gone"
 
 # --- 11. metrics: the definition of done, with nothing omitted ----------------------
+# A `failed` member written by an EARLIER revision (this one writes none) must
+# still be counted while it stands: metrics never hide a directory on disk.
+py "
+with tx.tx_lock('$SID', 'aaaaaa000019'):
+    tx.update_member('$SID', 'aaaaaa000019', 0, state='failed', error='legacy record written by an earlier revision')
+"
 M="$(T metrics)"
 python3 - "$M" <<'PY' && ok "T49  metrics count terminal members present (incl. FAILED and MISSING) and pending retries" || bad "T49  metrics: $M"
 import json, sys

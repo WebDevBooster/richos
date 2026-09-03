@@ -62,8 +62,10 @@
 #
 # NEVER BLOCKS. Exit 0 always: a terminal event must never be prevented, and
 # a worker must never be kept alive by this hook's own failure. Every failure
-# is written into the transaction (a member state of `failed` or `missing`,
-# COUNTED as dead-present by the metrics) and announced on stderr.
+# is written into the transaction (an attempt and its reason on the member,
+# retried by the reconciler with backoff; a vanished member is closed absent
+# with its backup ref re-created) and announced on stderr. No member state
+# waits for a person (landed review 2026-09-03, blocker 3).
 #
 # NOTHING HERE IS NAME-BASED. An agent with no sealed transaction — a helper
 # subagent, a read-only type, a spawn that never bound — produces no claim
@@ -184,7 +186,7 @@ bad = [m for m in members if m.get("state") in ("failed", "missing")]
 sys.stderr.write("%s ingress %s the claim for agent %s (%s); members: %s\n"
                  % (ingress, "WON" if won else "resumed", aid, t.get("teammate") or "?", summary or "none"))
 for m in bad:
-    sys.stderr.write("  member %s is %s: %s — counted as dead-present until an operator resolves it\n"
+    sys.stderr.write("  member %s is %s (recorded by an earlier revision): %s — the reconciler re-derives it from disk and closes it by policy; nothing waits for a person\n"
                      % (m.get("path"), m.get("state"), m.get("error") or "?"))
 PY
 

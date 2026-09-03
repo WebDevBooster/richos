@@ -37,6 +37,7 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 export RICHOS_WORKTREE_TX_DIR="$SANDBOX/tx"
 export RICHOS_WORKTREE_CAPTURE_DIR="$SANDBOX/captures"
 export RICHOS_RECONCILE_SETTLE=0.2
+export RICHOS_RECONCILE_BACKOFF_BASE=0   # C42 proves the backoff; every other case retries at once
 SID="deadbeef-0000-4000-8000-000000000000"
 T() { python3 "$TX_PY" "$@"; }
 R() { python3 "$REC" "$@"; }
@@ -221,14 +222,20 @@ fi
 R --agent "$SID/$A6" >/dev/null 2>&1
 [ "$(states "$A6")" = "removed removed " ] && ok "C18b ...and the next run re-captures from the untouched quarantine and completes" || bad "C18b states=$(states "$A6")"
 
-# --- 8. a hard failure is counted as dead-present, reported once, never retried ---
+# --- 8. BOTH PRESENT is resolved AUTOMATICALLY (landed review 2026-09-03,
+# blocker 3). Until this revision C19/C20 certified the opposite: original AND
+# quarantine present -> FAILED, both kept, reported once, never retried,
+# counted as dead-present "until an operator resolves it". That certification
+# is replaced. The quarantine name embeds the session prefix and the agent id,
+# so a directory at that exact name is this member's own quarantine; whatever
+# reappeared at the original path is residue — archived, VERIFIED against its
+# manifest, then removed — unless git registers it as another worktree (C45).
 A7="a00000000000rc07"
 seal "$A7" dev-opus-r7
 NAT7="$ENTITY/.claude/worktrees/agent-$A7"
 T claim --session-id "$SID" --agent-id "$A7" --ingress SubagentStop >/dev/null
 Q7="$(q "$NAT7" "$A7")"
-mkdir -p "$NAT7"    # both present now: the reconciler must refuse to choose
-mv "$Q7" "$Q7.hold"; mv "$Q7.hold" "$Q7"
+mkdir -p "$NAT7"; printf 'ghost\n' >"$NAT7/ghost.txt"    # residue reappears at the original path
 python3 - "$TX_PY" "$SID" "$A7" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
@@ -237,15 +244,16 @@ with tx.tx_lock(sys.argv[2], sys.argv[3]):
     tx.update_member(sys.argv[2], sys.argv[3], 0, state="ref_saved")
 PY
 OUT="$(R 2>&1)"
-S="$(R --status)"; SRC=$?
-if [ "$(states "$A7")" = "failed " ] && [ -d "$NAT7" ] && [ -d "$Q7" ] && printf '%s' "$OUT" | grep -q 'HARD FAILURE (reported once)' \
-   && [ "$SRC" -ne 0 ] && printf '%s' "$S" | grep -q '"hard_failures_counted_as_dead_present": 1'; then
-    ok "C19  original AND quarantine present -> FAILED, both kept, reported once, --status counts it as dead-present (exit 1)"
+M7="$(T show --session-id "$SID" --agent-id "$A7" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("original_present_at_quarantine"), m.get("residue_count"), m.get("residue_verified"))')"
+RES7="$SANDBOX/captures/$SID/$A7/member-0/residue-1.tar"
+if [ "$M7" = "removed True 1 True" ] && [ ! -e "$NAT7" ] && [ ! -e "$Q7" ] && [ -f "$RES7" ] && [ -f "${RES7%.tar}.manifest.json" ] \
+   && [ "$(tar -xOf "$RES7" ghost.txt)" = "ghost" ] && ! printf '%s' "$OUT" | grep -q 'FAILURE'; then
+    ok "C19  original AND quarantine present -> resolved AUTOMATICALLY: the residue at the original path is archived and VERIFIED (residue-1.tar + manifest) then removed, the quarantine is captured and removed, nothing is reported as a failure and nobody is asked (INVERTED: it used to park as FAILED for an operator)"
 else
-    bad "C19  states=$(states "$A7") status_rc=$SRC out=${OUT:0:160}"
+    bad "C19  member=[$M7] orig=$([ -e "$NAT7" ] && echo present || echo gone) quar=$([ -e "$Q7" ] && echo present || echo gone) residue=$([ -f "$RES7" ] && echo yes || echo no) out=${OUT:0:200}"
 fi
-OUT2="$(R 2>&1)"
-! printf '%s' "$OUT2" | grep -q 'HARD FAILURE' && ok "C20  ...and a second run does not report it again" || bad "C20  reported twice"
+S="$(R --status)"
+printf '%s' "$S" | grep -q '"hard_failures_counted_as_dead_present": 0' && ok "C20  ...and --status counts no hard failure: there is no manual queue" || bad "C20  status: ${S:0:200}"
 
 # --- 9. nothing is matched by name; only terminal transactions are touched ---------
 A8="a00000000000rc08"
@@ -549,6 +557,101 @@ R >/dev/null 2>&1
 T22="$(T show --session-id "$SID" --agent-id "$A22" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("terminal"), d.get("state"))')"
 [ "$T22" = "None sealed" ] && [ -d "$ENTITY/.claude/worktrees/agent-$A22" ] && [ -d "$EXT22" ] \
     && ok "C40  a sealed live transaction whose native member is present and registered is NOT claimed by the backstop (negative control)" || bad "C40  tx=[$T22]"
+
+# --- 17. PERSISTENT BACKOFF: a transient failure is retried, later, forever;
+# never abandoned, never handed to a person (landed review 2026-09-03, blocker 3)
+A23="a00000000000rc23"
+EXT23="$SANDBOX/other-wt/dev-opus-r23"
+seal "$A23" dev-opus-r23 "$OTHER:$EXT23:dev-opus-r23"
+T claim --session-id "$SID" --agent-id "$A23" --ingress SubagentStop >/dev/null
+Q23="$(q "$EXT23" "$A23")"
+OUT="$(PATH="$NOLS:$PATH" RICHOS_RECONCILE_BACKOFF_BASE=1000 R --agent "$SID/$A23" 2>&1)"
+B23="$(T show --session-id "$SID" --agent-id "$A23" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], m.get("attempts"), bool(m.get("retry_after_epoch")))')"
+OUT2="$(RICHOS_RECONCILE_BACKOFF_BASE=1000 R --agent "$SID/$A23" 2>&1)"
+B23b="$(T show --session-id "$SID" --agent-id "$A23" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], m.get("attempts"))')"
+S="$(RICHOS_RECONCILE_BACKOFF_BASE=1000 R --status)"; SRC=$?
+if [ "$B23" = "quarantined 1 True" ] && [ "$B23b" = "quarantined 1" ] && printf '%s' "$OUT2" | grep -q 'in backoff until' && [ -d "$Q23" ] && [ "$SRC" -ne 0 ]; then
+    ok "C42  a transient failure (git ls-files rejected) records attempt 1 and a retry time; the next run within the backoff SKIPS the member (quarantine kept, --status not done), no operator named"
+else
+    bad "C42  first=[$B23] second=[$B23b] status_rc=$SRC out2=${OUT2:0:160}"
+fi
+R --agent "$SID/$A23" >/dev/null 2>&1
+[ "$(states "$A23")" = "removed removed " ] && ok "C42b ...and once the backoff has elapsed (base 0 here) the retry runs and the member completes" || bad "C42b states=$(states "$A23")"
+
+# --- 18. git cannot read the native directory and no longer registers it: the
+# native-gone backstop claims it and the RAW bytes are captured, verified and
+# closed; the backup ref comes from head_at_seal (blocker 3, spec section 4)
+A21="a00000000000rc21"
+EXT21="$SANDBOX/other-wt/dev-opus-r21"
+seal "$A21" dev-opus-r21 "$OTHER:$EXT21:dev-opus-r21"
+NAT21="$ENTITY/.claude/worktrees/agent-$A21"
+HEAD21="$(git -C "$NAT21" rev-parse HEAD)"
+printf 'bytes git can no longer read\n' >"$NAT21/orphaned.txt"
+rm -rf "$ENTITY/.git/worktrees/agent-$A21"      # the administrative directory is gone: git neither lists nor reads it
+OUT="$(R 2>&1)"
+T21="$(T show --session-id "$SID" --agent-id "$A21" | python3 -c 'import json,sys; d=json.load(sys.stdin); m=d["members"]; print((d.get("terminal") or {}).get("ingress"), d.get("state"), m[0]["state"], m[0].get("git_unreadable"), m[0].get("capture_kind"), m[0].get("head_preserved"), m[1]["state"])')"
+if [ "$T21" = "NativeMemberGone removed removed True raw-bytes backup-ref removed" ] && [ ! -e "$NAT21" ] && [ ! -e "$(q "$NAT21" "$A21")" ] && [ ! -e "$EXT21" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "refs/richos/handoffs/$SID/$A21/worktree-agent-$A21")" = "$HEAD21" ] \
+   && [ "$(tar -xOf "$SANDBOX/captures/$SID/$A21/member-0/tree.tar" orphaned.txt)" = "bytes git can no longer read" ]; then
+    ok "C43  a native directory git can neither list nor read is claimed by the backstop, its RAW bytes captured and verified, the backup ref taken from head_at_seal, and it is removed; the hand-rolled member is retired too"
+else
+    bad "C43  tx=[$T21] native=$([ -e "$NAT21" ] && echo present || echo gone) out=${OUT:0:240}"
+fi
+
+# --- 19. the quarantine's HEAD moved after the backup ref was saved: the moved
+# HEAD is preserved under <ref>@drift-1 and the member proceeds (blocker 3)
+A24="a00000000000rc24"
+seal "$A24" dev-opus-r24
+NAT24="$ENTITY/.claude/worktrees/agent-$A24"
+HEAD24="$(git -C "$NAT24" rev-parse HEAD)"
+T claim --session-id "$SID" --agent-id "$A24" --ingress SubagentStop >/dev/null
+Q24="$(q "$NAT24" "$A24")"
+git -C "$Q24" commit -q --allow-empty -m 'moved after the ref was saved'
+NEW24="$(git -C "$Q24" rev-parse HEAD)"
+OUT="$(R --agent "$SID/$A24" 2>&1)"
+REF24="refs/richos/handoffs/$SID/$A24/worktree-agent-$A24"
+D24="$(T show --session-id "$SID" --agent-id "$A24" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; d=m.get("head_drift") or {}; print(m["state"], d.get("found"), d.get("ref"))')"
+if [ "$D24" = "removed $NEW24 $REF24@drift-1" ] && [ "$(git -C "$ENTITY" rev-parse -q --verify "$REF24@drift-1")" = "$NEW24" ] \
+   && [ "$(git -C "$ENTITY" rev-parse -q --verify "$REF24")" = "$HEAD24" ] && printf '%s' "$OUT" | grep -q 'moved from'; then
+    ok "C44  a quarantine whose HEAD moved after the backup ref was saved: the moved HEAD is preserved under the drift ref, the original ref is untouched, the drift is recorded and the member is removed (INVERTED: provenance-contradicts-git used to park as FAILED)"
+else
+    bad "C44  member=[$D24] drift_ref=$(git -C "$ENTITY" rev-parse -q --verify "$REF24@drift-1" 2>/dev/null || echo none) out=${OUT:0:200}"
+fi
+
+# --- 20. something ELSE is registered at the original path: not ours, never
+# touched; this member's quarantine still completes (blocker 3)
+A25="a00000000000rc25"
+EXT25="$SANDBOX/other-wt/dev-opus-r25"
+seal "$A25" dev-opus-r25 "$OTHER:$EXT25:dev-opus-r25"
+T claim --session-id "$SID" --agent-id "$A25" --ingress SubagentStop >/dev/null
+Q25="$(q "$EXT25" "$A25")"
+git -C "$OTHER" worktree add -q -b someone-else-later "$EXT25"     # a NEW worktree, prepared later, at the same path
+printf 'a live worker lives here now\n' >"$EXT25/live.txt"
+OUT="$(R --agent "$SID/$A25" 2>&1)"
+F25="$(T show --session-id "$SID" --agent-id "$A25" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][1]; print(m["state"], bool(m.get("foreign_worktree_at_original")))')"
+if [ "$F25" = "removed True" ] && [ -f "$EXT25/live.txt" ] && git -C "$OTHER" worktree list --porcelain | grep -qx "worktree $EXT25" && [ ! -e "$Q25" ] \
+   && printf '%s' "$OUT" | grep -q 'ANOTHER worktree'; then
+    ok "C45  a worktree git registers at the original path is NOT this member's: recorded, never touched (its bytes intact, still registered); the member's own quarantine is captured and removed"
+else
+    bad "C45  member=[$F25] foreign=$([ -f "$EXT25/live.txt" ] && echo intact || echo DAMAGED) quar=$([ -e "$Q25" ] && echo present || echo gone) out=${OUT:0:200}"
+fi
+rm -rf "$EXT25"; git -C "$OTHER" worktree prune    # sandbox cleanup of the later worktree
+
+# --- 21. a member an EARLIER revision left `failed` is re-derived from disk and
+# completes; nothing waits for a person (blocker 3)
+A26="a00000000000rc26"
+seal "$A26" dev-opus-r26
+T claim --session-id "$SID" --agent-id "$A26" --ingress SubagentStop >/dev/null
+Q26="$(q "$ENTITY/.claude/worktrees/agent-$A26" "$A26")"
+python3 - "$TX_PY" "$SID" "$A26" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+with tx.tx_lock(sys.argv[2], sys.argv[3]):
+    tx.update_member(sys.argv[2], sys.argv[3], 0, state="failed", error="both present (written by an earlier revision)")
+PY
+R --agent "$SID/$A26" >/dev/null 2>&1
+L26="$(T show --session-id "$SID" --agent-id "$A26" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("rederived_from"))')"
+[ "$L26" = "removed failed" ] && [ ! -e "$Q26" ] && ok "C46  a legacy FAILED member is re-derived from what exists on disk, re-enters the state machine and is removed" || bad "C46  member=[$L26] quar=$([ -e "$Q26" ] && echo present || echo gone)"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

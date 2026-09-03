@@ -59,10 +59,10 @@ mutant rebind-allowed "T06" "$F" \
     '    if False:{NL}        raise RuntimeError(' \
     "one agent id could be bound to two intents; the later one silently replaces the member set the first one owns."
 
-mutant both-present-chooses "T39" "$F" \
-    '    if o and q:{NL}        return update_member(session_id, agent_id, index, state="failed",' \
-    '    if False:{NL}        return update_member(session_id, agent_id, index, state="failed",' \
-    "with both directories present the code would rename over an existing quarantine — choosing, which recovery must never do."
+mutant both-present-renames-over "T39" "$F" \
+    '    if o and not q:{NL}        try:{NL}            os.rename(orig, quar)' \
+    '    if o:{NL}        try:{NL}            os.rename(orig, quar)' \
+    "with both directories present the code would rename the original over the existing quarantine — choosing, which recovery must never do; the failed rename parks the member instead of advancing the quarantine that is already ours."
 
 mutant rename-not-idempotent "T38" "$F" \
     '    if not o and not q:{NL}        return update_member(session_id, agent_id, index, state="missing",' \

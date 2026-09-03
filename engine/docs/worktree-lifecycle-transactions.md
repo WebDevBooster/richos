@@ -29,7 +29,7 @@ agent might return. It is forbidden to return."*
 | terminal claim | `terminalize-agent-worktrees.sh` (SubagentStop, WorktreeRemove) | `terminal` on the transaction; backup refs; quarantines; the terminal indexes — the named native path first, one member at a time | never blocks; an agent with no sealed transaction produces no claim — its event is persisted as `pending-terminal/<agent_id>.json` instead (below) |
 | pending terminal | `worktree-transactions.py claim_terminal` (unsealed) → `try_seal` (consumes) → `reconcile-terminal-worktrees.py process_pending_terminals` (fallback) | `pending-terminal/<agent_id>.json`; the agent-id index (terminal by policy at once) | recorded only for an agent this session has a bound or start record for; consumed the moment the manifest seals; after `PENDING_TERMINAL_GRACE_SECONDS` with no seal, the bound record's prepared members are verified and cleaned as a `pending-terminal-fallback` transaction — no bound record means nothing was owned and the record is dropped |
 | resume refusal | `guard-resume-isolation.sh` (PreToolUse[SendMessage]) | nothing | the recipient's agent id or session-scoped name is terminal — before `resume-ack:`, before protocol bodies |
-| capture → removal | `scripts/reconcile-terminal-worktrees.py` (launchd every `RECONCILE_INTERVAL_SECONDS`; SessionStart with a budget) | member states `captured → verified → unregistered → removed`; the archive | a member has both its original and its quarantine present, or provenance contradicts git: `failed`, reported once, counted as dead-present |
+| capture → removal | `scripts/reconcile-terminal-worktrees.py` (launchd every `RECONCILE_INTERVAL_SECONDS`; SessionStart with a budget) | member states `captured → verified → unregistered → removed`; the archive | never permanently: a transient failure is recorded on the member and retried with persistent backoff (`RECONCILE_RETRY_BACKOFF_SECONDS`, doubling to `RECONCILE_RETRY_BACKOFF_MAX_SECONDS`), reported once after repeated failures and retried on; both-present, a vanished path, a drifted HEAD, a lost backup ref, an unreadable git state and a legacy `failed` record each have an automatic close (below) |
 
 ## What to run
 
@@ -137,29 +137,51 @@ launchd job does it), no user action. Ages count from the transaction's
 A transaction record is deleted only after every artifact it names is gone,
 so nothing on disk is ever orphaned from the record that explains it. The
 agent-id terminal index (`terminal/<agent_id>`, ~50 bytes) is kept forever:
-an agent id is terminal forever and the resume guard reads it. Hard failures
-(`failed`/`missing` members) never reach `removed` and are never expired;
-they wait for a person, as they should.
+an agent id is terminal forever and the resume guard reads it. No member
+waits for a person: every condition retries or closes automatically (next
+section), so every transaction reaches `removed` and expires.
 
-## What a hard failure looks like, and what to do
+## What a persistent failure looks like, and why nobody has to act
 
-`reconcile-terminal-worktrees.py --status` reports
-`hard_failures_counted_as_dead_present > 0`; a `<agent_id>.json.member-N.notice`
-file sits beside the transaction with the reason. The two causes: both the
-original path and the quarantine exist (something recreated the original
-after the rename and the reconciler refused to choose), or the quarantine's
-HEAD no longer matches the backup ref. Resolve by hand — inspect both, keep
-what matters, remove the one that is residue — then set the member's state
-back to the last good one in the JSON (`ref_saved` or `quarantined`) and run
-`--agent`. Nothing automated will do this; it is the one place a person is
-supposed to look.
+Landed review 2026-09-03, blocker 3: until that revision `failed` and
+`missing` were permanent member states that "remain until an operator
+resolves them" — babysitting as a lifecycle state. Now every condition has one
+of two automatic policies, and `--status` reports trouble without ever
+transferring cleanup to a user.
+
+**Retry, with persistent backoff.** Anything transient — disk full, a git
+command that failed, an archive that did not verify, a manifest that would
+not settle, a process that would not die — keeps the quarantine exactly where
+it is and records the attempt, the reason and a `retry_after` time on the
+member (base `RECONCILE_RETRY_BACKOFF_SECONDS`, doubling per attempt up to
+`RECONCILE_RETRY_BACKOFF_MAX_SECONDS`, persisted so the schedule survives a
+restart). After `MAX_SOFT_ATTEMPTS_BEFORE_NOTICE` attempts it is reported once
+(`<agent_id>.json.member-N.notice` beside the transaction) and the retries
+continue. When the external condition clears, the next run finishes it.
+
+**Archive-and-close, deterministically.** Anything that will never change by
+waiting:
+
+| Condition | Automatic outcome |
+|---|---|
+| both the original and the quarantine exist | the quarantine (its name embeds the session prefix and the agent id, so it is this member's own) proceeds; the original is archived as `residue-<n>.tar`, verified against `residue-<n>.manifest.json`, then removed — unless git registers it as ANOTHER worktree, in which case it is recorded (`foreign_worktree_at_original`) and never touched |
+| the path vanished | closed absent: the backup ref re-created from the recorded head while the commit object survives, the absence recorded (`closed: absent`, `head_preserved`), the member removed |
+| the quarantine's HEAD moved after the ref was saved | the exact bytes are already captured; the moved HEAD is saved under `<backup-ref>@drift-<n>`, the drift recorded (`head_drift`), the member proceeds |
+| git can neither read the directory nor list it | the raw bytes are captured and verified (`capture_kind: raw-bytes`); the backup ref comes from `head_at_seal` |
+| the backup ref is gone | re-created from the recorded head while the object survives, else recorded lost (`backup_ref_lost`; the verified archive holds the tree) |
+| no repository is recorded | read from the quarantine; if neither, there is no registration to remove |
+| a state this revision does not drive (`failed` from an earlier revision, or unknown) | re-derived from what exists on disk (`rederived_from`): bound, ref_saved, or closed absent |
+
+Nothing here searches for something with a similar name, and nothing here
+asks a person to look.
 
 ## Test affordances
 
 `RICHOS_WORKTREE_TX_DIR`, `RICHOS_WORKTREE_CAPTURE_DIR`,
 `RICHOS_RECONCILE_SETTLE`, `RICHOS_RECONCILE_NO_KILL=1`, `SEAL_WAIT_SECONDS`,
 `SESSION_START_RECONCILE_BUDGET`, `RICHOS_LAUNCH_AGENTS_DIR`,
-`RICHOS_PENDING_TERMINAL_GRACE`, `RICHOS_CAPTURE_RETENTION_DAYS`,
+`RICHOS_PENDING_TERMINAL_GRACE`, `RICHOS_RECONCILE_BACKOFF_BASE` (0 disables
+backoff), `RICHOS_RECONCILE_BACKOFF_MAX`, `RICHOS_CAPTURE_RETENTION_DAYS`,
 `RICHOS_BACKUP_REF_RETENTION_DAYS`, `RICHOS_TRANSACTION_RETENTION_DAYS`,
 `RICHOS_TX_CRASH_AFTER=tx|index|name` (crash injection in `claim_terminal`).
 Every suite pins the first two; nothing they do reaches `~/.claude/state`.

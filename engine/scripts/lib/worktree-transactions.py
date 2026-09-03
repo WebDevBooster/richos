@@ -52,20 +52,29 @@ THE STATE MACHINE, PER MEMBER
     unregistered  git no longer lists the worktree
     removed       the quarantine directory is gone
 
-Two terminal ingresses — SubagentStop (by agent id) and WorktreeRemove (by the
-exact native path) — race for ONE compare-and-set claim on the transaction.
-Exactly one wins; the loser resumes the already-started transaction
-idempotently. Neither waits for the other and no ordering is assumed.
+The terminal ingresses — SubagentStop (by its OWN agent id, never a cwd),
+WorktreeRemove (by the exact native path), a successful TaskStop (by the
+task id its RESULT returned) and the reconciler's NativeMemberGone (the
+sealed native member verified absent or unregistered) — race for ONE
+compare-and-set claim on the transaction. Exactly one wins; every later
+one resumes the already-started transaction idempotently. None waits for
+another and no ordering is assumed.
 
-A member whose recovery finds BOTH the original and the quarantine present,
-or whose provenance disagrees with git, is `failed`: refused, reported, and
-COUNTED as dead-present. It is never resolved by looking for a similar name.
+NO MEMBER STATE WAITS FOR A PERSON (landed review 2026-09-03, blocker 3).
+Both original and quarantine present: the quarantine (its name embeds the
+session prefix and the agent id) advances, and the original is left for the
+reconciler to archive, verify and reclaim as residue — or to leave alone
+when git registers it as another worktree. Neither present: closed absent,
+the backup ref re-created from the recorded head while the commit object
+survives. A transient git failure: recorded on the member and retried with
+persistent backoff. Nothing is ever resolved by looking for a similar name.
 
 ===========================================================================
 WHAT IS NOT HERE, DELIBERATELY
 ===========================================================================
 No liveness inference. No name lookup. No lead acceptance. No feature flag
-that turns cleanup off. `TeammateIdle` and `TaskCompleted` are not read.
+that turns cleanup off. `TeammateIdle` (its payload unmeasured on this
+platform) and `TaskCompleted` hold no authority here.
 """
 
 import errno
@@ -974,20 +983,61 @@ def save_ref(session_id, agent_id, index):
         return tx
     orig = m["path"]
     quar = m.get("quarantine") or quarantine_name(orig, session_id, agent_id)
-    src = orig if os.path.isdir(orig) else (quar if os.path.isdir(quar) else "")
+    # The quarantine is preferred as the source when it exists: its name
+    # embeds this session prefix and this agent id, so it is this member's
+    # own tree; whatever stands at the original path after a rename is
+    # residue or somebody else's registration, never the HEAD to save.
+    src = quar if os.path.isdir(quar) else (orig if os.path.isdir(orig) else "")
     if not src:
         return close_absent(session_id, agent_id, index, "neither %s nor %s exists at ref_saved" % (orig, quar))
     head = head_of(src)
-    if not head:
-        return update_member(session_id, agent_id, index, state="failed",
-                             error="could not read HEAD of %s" % src)
     ref = backup_ref(session_id, agent_id, m.get("branch"))
+    if not head:
+        # git cannot read the directory (landed review 2026-09-03, blocker 3
+        # — no `failed` state waits for a person). If git still REGISTERS it,
+        # the failure is transient (a lock, a busy index): recorded on the
+        # member and retried with backoff by the reconciler. If git no longer
+        # registers it, the directory is orphaned from its repository — its
+        # administrative directory is gone — and no git command will ever
+        # succeed inside it: the backup ref is taken from head_at_seal while
+        # that commit object survives, the member is marked git_unreadable,
+        # and it advances so the reconciler captures its RAW bytes, verifies
+        # them and closes it.
+        reg = registered_worktrees(m["repo"]) if os.path.isdir(m.get("repo") or "") else None
+        if reg is not None and norm_path(src) in reg and not reg[norm_path(src)].get("prunable"):
+            return _soft_failure(session_id, agent_id, index,
+                                 "could not read HEAD of %s (git still registers it; retried with backoff)" % src)
+        sealed_head = m.get("head_at_seal") or ""
+        preserved = "no-head-at-seal"
+        if sealed_head and os.path.isdir(m.get("repo") or ""):
+            rc, _, _ = _git(m["repo"], "cat-file", "-e", sealed_head + "^{commit}")
+            if rc == 0:
+                rc2, _, err = _git(m["repo"], "update-ref", ref, sealed_head)
+                if rc2 != 0:
+                    return _soft_failure(session_id, agent_id, index, "update-ref %s failed: %s" % (ref, err.strip()[:200]))
+                preserved = "backup-ref"
+            else:
+                preserved = "commit-object-gone"
+        return update_member(session_id, agent_id, index, state="ref_saved", git_unreadable=True,
+                             git_unreadable_reason="git cannot read %s and no longer registers it" % src,
+                             head=sealed_head, head_preserved=preserved,
+                             backup_ref=(ref if preserved == "backup-ref" else None), quarantine=quar)
     rc, _, err = _git(m["repo"], "update-ref", ref, head)
     if rc != 0:
-        return update_member(session_id, agent_id, index, state="failed",
-                             error="update-ref %s failed: %s" % (ref, err.strip()[:200]))
+        return _soft_failure(session_id, agent_id, index, "update-ref %s failed: %s" % (ref, err.strip()[:200]))
     return update_member(session_id, agent_id, index, state="ref_saved",
                          backup_ref=ref, head=head, quarantine=quar)
+
+
+def _soft_failure(session_id, agent_id, index, why):
+    """A TRANSIENT failure: the member keeps its state, the attempt and the
+    reason are recorded, and the reconciler retries it with persistent
+    backoff (landed review 2026-09-03, blocker 3). Nothing here is a queue
+    for a person."""
+    tx = load_tx(session_id, agent_id)
+    m = tx["members"][index]
+    return update_member(session_id, agent_id, index, attempts=int(m.get("attempts") or 0) + 1,
+                         last_error=why[:300], last_attempt=now_iso())
 
 
 def quarantine(session_id, agent_id, index):
@@ -1000,18 +1050,31 @@ def quarantine(session_id, agent_id, index):
     orig = m["path"]
     quar = m.get("quarantine") or quarantine_name(orig, session_id, agent_id)
     o, q = os.path.isdir(orig), os.path.isdir(quar)
-    if o and q:
-        return update_member(session_id, agent_id, index, state="failed",
-                             error="both %s and %s exist; refusing to choose" % (orig, quar))
     if not o and not q:
         return close_absent(session_id, agent_id, index, "neither %s nor %s exists at quarantine" % (orig, quar))
-    if o:
+    # BOTH PRESENT IS A POLICY, NOT A HARD FAILURE (landed review 2026-09-03,
+    # blocker 3). The quarantine name embeds this session prefix and this
+    # agent id, so a directory at that exact name is this member's own
+    # quarantine, produced by this member's own rename (a crash between the
+    # rename and its record, or a re-run); whatever stands at the original
+    # path afterwards is residue, or a registration somebody else made.
+    # Nothing is chosen between them and nothing is renamed over anything:
+    # the quarantine is ours and advances; the original is recorded present
+    # and left EXACTLY where it is for the reconciler, which archives and
+    # verifies residue before removing it and never touches a path git
+    # registers as another worktree.
+    both = o and q
+    if o and not q:
         try:
             os.rename(orig, quar)
         except OSError as e:
-            return update_member(session_id, agent_id, index, state="failed",
-                                 error="rename %s -> %s failed: %s" % (orig, quar, e))
+            return _soft_failure(session_id, agent_id, index, "rename %s -> %s failed: %s" % (orig, quar, e))
         _fsync_dir(os.path.dirname(orig))
+    both_fields = {"original_present_at_quarantine": True, "original_present_ts": now_iso()} if both else {}
+    if m.get("git_unreadable"):
+        # No administrative directory to repair and nothing for git to list:
+        # the raw bytes are what the reconciler captures.
+        return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar, **both_fields)
     # RE-POINT GIT AT THE QUARANTINE. After a raw rename the repository's
     # registration still names the ORIGINAL path and is "prunable"; the
     # harness's own cleanup (or anyone's `git worktree prune`) would then
@@ -1042,7 +1105,7 @@ def quarantine(session_id, agent_id, index):
         return update_member(session_id, agent_id, index, quarantine=quar,
                              attempts=int(m.get("attempts") or 0) + 1,
                              last_error="quarantine not advanced: " + why, last_attempt=now_iso())
-    return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar)
+    return update_member(session_id, agent_id, index, state="quarantined", quarantine=quar, **both_fields)
 
 
 def terminalize(session_id, agent_id, first_path=None):

@@ -51,16 +51,16 @@ mutant residue-not-reclaimed "C15" "$R" \
     "a recreated original path would sit beside a removed quarantine forever, uncounted."
 
 mutant backup-ref-not-protected "C04" "$R" \
-    '    if ref and not _ref_exists(repo, ref):{NL}        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed",{NL}                                error="backup ref %s vanished during unregistering" % ref){NL}    return tx.update_member(t["session_id"], t["agent_id"], index, state="unregistered")' \
-    '    git_out(repo, "update-ref", "-d", ref){NL}    return tx.update_member(t["session_id"], t["agent_id"], index, state="unregistered")' \
+    '    if "re-created" in outcomes:{NL}        fields["backup_ref_recreated"] = True{NL}    return tx.update_member(sid, aid, index, **fields)' \
+    '    if "re-created" in outcomes:{NL}        fields["backup_ref_recreated"] = True{NL}    git_out(repo, "update-ref", "-d", ref) if ref else None{NL}    return tx.update_member(sid, aid, index, **fields)' \
     "unregistering would delete the backup ref — the only thing that keeps unlanded commits reachable once the harness deletes the branch (PF11)."
 
-mutant hard-failure-hidden "C19" "$R" \
-    '    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0)' \
-    '    m["done"] = (m["pending_retry"] == 0)' \
-    "a failed member with its directory still on disk would read as done — the reporting exemption finding 10 of the archiver review names."
+# (retired 2026-09-03: hard-failure-hidden mutated `done` to ignore present
+# directories. No member state parks a directory any more — every condition
+# retries or closes — so the mutant has no case to turn red here; the
+# denominator property lives in worktree-transactions.mutation.sh metrics-hide-failed / T49.)
 
-mutant status-exit-always-zero "C19" "$R" \
+mutant status-exit-always-zero "C42" "$R" \
     '        return 0 if s["done"] else 1' \
     '        return 0' \
     "every caller that checks the exit code would read a dead-present machine as clean."
@@ -94,6 +94,38 @@ mutant native-gone-backstop-trigger-happy "C40" "$R" \
     '        gone, why = native_member_gone(nat)' \
     '        gone, why = True, "always"' \
     "every sealed LIVE worker would be terminalized on the next reconciler pass — the old sweep, back, deleting a live agent's worktrees with every guard reporting green."
+
+L="scripts/lib/worktree-transactions.py"
+
+mutant residue-unverified "C19" "$R" \
+    '                _verify_tar(rpath, rman){NL}                residue_verified = True' \
+    '                residue_verified = False' \
+    "the residue at an original path would be deleted on the strength of an archive nobody verified — the both-present policy requires both exact paths archived AND verified before anything is removed (landed review 2026-09-03, blocker 3)."
+
+mutant foreign-original-deleted "C45" "$R" \
+    '        foreign = _foreign_registration(m, orig)' \
+    '        foreign = ""' \
+    "a worktree git registers at the original path — somebody else's, prepared later at the same path — would be archived as residue and DELETED: a live worker's tree destroyed by name resemblance."
+
+mutant drift-parked-as-failed "C44" "$R" \
+    '    if m.get("head") and head and head != m.get("head"):{NL}        n = int(m.get("head_drift_count") or 0) + 1' \
+    '    if m.get("head") and head and head != m.get("head"):{NL}        return tx.update_member(t["session_id"], t["agent_id"], index, state="failed", error="drift"){NL}        n = int(m.get("head_drift_count") or 0) + 1' \
+    "a quarantine whose HEAD moved would park as FAILED for an operator instead of preserving the moved HEAD under a drift ref and proceeding (landed review 2026-09-03, blocker 3)."
+
+mutant backoff-ignored "C42" "$R" \
+    '                if base > 0 and float(m.get("retry_after_epoch") or 0) > time.time():' \
+    '                if False:' \
+    "a failing member would be hammered on every pass with no backoff — the persistent schedule the landed review requires (blocker 3) would be prose."
+
+mutant legacy-failed-parked "C46" "$R" \
+    '                if st == "removed":{NL}                    break' \
+    '                if st in ("removed", "failed", "missing"):{NL}                    break' \
+    "a member an earlier revision left FAILED or MISSING would never be re-derived: the permanent manual queue, back."
+
+mutant unregistered-native-parked "C43" "$L" \
+    '        if reg is not None and norm_path(src) in reg and not reg[norm_path(src)].get("prunable"):' \
+    '        if True:' \
+    "a directory git can neither read nor list would be retried forever as a transient failure instead of having its raw bytes captured and closed (landed review 2026-09-03, blocker 3)."
 
 mutant index-failure-swallowed "C29" "$R" \
     '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
