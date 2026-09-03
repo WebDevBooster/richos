@@ -328,6 +328,56 @@ R="$(T claim --session-id "$SID" --agent-id aaaaaa000014 --ingress WorktreeRemov
 [ "$rc" -eq 0 ] && [ ! -d "$ENTITY/.claude/worktrees/agent-aaaaaa000014" ] && [ ! -d "$EXT4" ] \
     && ok "T46  WorktreeRemove-first: the claim quarantines the named native path AND the external member" || bad "T46  wr-first rc=$rc"
 
+# --- 9b. THE NATIVE PATH IS RENAMED BEFORE ANY OTHER REPOSITORY IS TOUCHED ------
+# (review 2026-09-03, blocker 1). The WorktreeRemove hook has a 20s budget and
+# any git subprocess may take 30s. The external repository's git is made to
+# STALL, and the terminalize call is KILLED after 6s the way the harness kills
+# a hook that overran its budget. The native member — the path the platform is
+# about to delete — must already be renamed AND recorded; the external member
+# must be untouched and still `bound`; and a later run must finish it.
+add_native "$ENTITY" aaaaaa000015
+EXT6="$SANDBOX/other-wt/echo-opus-e15"; add_external "$OTHER" "$EXT6" echo-opus-e15
+intent "$SID" tu-15 "{\"kind\":\"native+external\",\"teammate\":\"echo-opus-e15\",\"externals\":[{\"repo\":\"$OTHER\",\"path\":\"$EXT6\",\"branch\":\"echo-opus-e15\"}]}"
+T bind --session-id "$SID" --tool-use-id tu-15 --agent-id aaaaaa000015 >/dev/null
+T start --session-id "$SID" --agent-id aaaaaa000015 --cwd "$ENTITY/.claude/worktrees/agent-aaaaaa000015" >/dev/null
+T seal --session-id "$SID" --agent-id aaaaaa000015 >/dev/null
+NAT15="$ENTITY/.claude/worktrees/agent-aaaaaa000015"
+REAL_GIT="$(command -v git)"
+STALLBIN="$SANDBOX/stallbin"; mkdir -p "$STALLBIN"
+# Every git invocation that names the OTHER repository (or a worktree of it)
+# stalls for 20s and fails; every other invocation is the real git.
+cat >"$STALLBIN/git" <<SH
+#!/usr/bin/env bash
+for a in "\$@"; do case "\$a" in "$SANDBOX/other"*) sleep 20; exit 1 ;; esac; done
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$STALLBIN/git"
+T51_RESULT="$(py "
+import subprocess, sys, os
+env = dict(os.environ); env['PATH'] = '$STALLBIN:' + env['PATH']
+code = '''
+import importlib.util, os
+spec = importlib.util.spec_from_file_location('tx', os.environ['TXPY']); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
+tx.claim_terminal('$SID', 'aaaaaa000015', 'WorktreeRemove', detail='$NAT15')
+tx.terminalize('$SID', 'aaaaaa000015', '$NAT15')
+'''
+try:
+    subprocess.run([sys.executable, '-c', code], env=env, timeout=6)
+    print('FINISHED')
+except subprocess.TimeoutExpired:
+    print('KILLED')
+")"
+STATES="$(T members --session-id "$SID" --agent-id aaaaaa000015 | cut -f5 | tr '\n' ' ')"
+if [ "$T51_RESULT" = "KILLED" ] && [ "$STATES" = "quarantined bound " ] && [ ! -d "$NAT15" ] \
+   && [ -d "$NAT15.richos-terminal-11111111-aaaaaa000015" ] && [ -d "$EXT6" ]; then
+    ok "T51  a stalled external repository exhausts the hook budget AFTER the native path is quarantined and recorded (native: quarantined; external: bound, untouched)"
+else
+    bad "T51  result=$T51_RESULT states=[$STATES] native=$([ -d "$NAT15" ] && echo present || echo gone) quarantine=$([ -d "$NAT15.richos-terminal-11111111-aaaaaa000015" ] && echo present || echo absent) external=$([ -d "$EXT6" ] && echo present || echo gone)"
+fi
+py "tx.terminalize('$SID', 'aaaaaa000015', '$NAT15')"
+STATES="$(T members --session-id "$SID" --agent-id aaaaaa000015 | cut -f5 | tr '\n' ' ')"
+[ "$STATES" = "quarantined quarantined " ] && [ ! -d "$EXT6" ] && ok "T52  ...and the next run, with the repository responsive again, finishes the external member" || bad "T52  states=[$STATES]"
+
 # --- 10. reused teammate + branch names in a LATER session match nothing ------------
 SID2="22222222-0000-4000-8000-000000000002"
 EXT5="$SANDBOX/other-wt/echo-opus-e2-again"

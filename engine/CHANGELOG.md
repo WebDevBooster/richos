@@ -292,6 +292,22 @@ version heading with Added / Changed / Fixed groupings.
 
 ### Fixed
 
+- **Native evidence could be deleted before quarantine: the terminal ingress
+  saved every repository's backup ref before renaming anything**
+  (`scripts/lib/worktree-transactions.py` `terminalize`;
+  `worktree-transactions.test.sh` T51–T52, mutant `refs-before-any-rename`) —
+  PATCH, review 2026-09-03 blocker 1. The `WorktreeRemove` hook has a 20s
+  budget and any git subprocess may take 30s; with two passes (save every
+  ref, then quarantine every member) a stalled external repository exhausted
+  the budget while the native path — the one the platform was about to
+  delete — still stood at its original name. Members are now processed one
+  at a time, the named native path first: its ref is saved, it is renamed,
+  the transition is persisted, and only then is any other repository
+  touched. T51 stalls the external repository's git, kills terminalize at 6s
+  the way the harness kills an overrunning hook, and asserts the native
+  member is `quarantined` on disk and in the record while the external is
+  still `bound` and untouched; T52 finishes it on the next run.
+
 - **`install.sh --force-engine-pointer` scheduled the reconciler from a test
   fixture** (`scripts/hooks/install.sh`; `install-reconciler-schedule.test.sh`
   S11–S16) — PATCH. The ephemeral/worktree facts were computed only when the

@@ -670,10 +670,25 @@ def quarantine(session_id, agent_id, index):
 
 
 def terminalize(session_id, agent_id, first_path=None):
-    """Save every member's ref, then quarantine — the path the ingress named
-    first (a WorktreeRemove's exact native path), else the native member
-    first, then every external member. Called by the winner AND the loser:
-    every step is idempotent on the persisted state."""
+    """ONE MEMBER AT A TIME, the named native path first: save its ref,
+    quarantine it, persist — and only then touch the next member.
+
+    The path the ingress named (a WorktreeRemove's exact native path) ranks
+    first, else the native member, then every external member. Called by the
+    winner AND the loser: every step is idempotent on the persisted state.
+
+    WHY PER-MEMBER AND NOT TWO PASSES (review 2026-09-03, blocker 1): the
+    WorktreeRemove hook has a 20-second budget and any git subprocess may take
+    up to its 30-second timeout. Two passes — save every ref, THEN quarantine
+    every member — put an external repository's `rev-parse`/`update-ref`
+    BEFORE the native rename. A stalled external repository then exhausted
+    the hook budget with the native path still at its original name, and
+    Claude Code deleted that path, with every unstaged and untracked byte in
+    it, on the strength of a hook that had merely run out of time. The
+    native member is the one the platform is about to destroy, so nothing
+    from any other repository runs until it is renamed and its transition is
+    on disk. worktree-transactions.test.sh T51 stalls an external repository
+    past a simulated hook kill and asserts the native quarantine survived."""
     tx = load_tx(session_id, agent_id)
     if not tx or not tx.get("terminal"):
         return tx
@@ -690,7 +705,6 @@ def terminalize(session_id, agent_id, first_path=None):
     with tx_lock(session_id, agent_id):
         for i in order:
             save_ref(session_id, agent_id, i)
-        for i in order:
             quarantine(session_id, agent_id, i)
         return load_tx(session_id, agent_id)
 
