@@ -114,7 +114,12 @@ tar -xOf "$SANDBOX/captures/$SID/$AID/member-0/tree.tar" evidence.txt | grep -q 
     && ok "W08  ...and the evidence survived byte-for-byte in the archive" || bad "W08  archive"
 printf '%s' "$CTX" | grep -q 'transactions touched=1' && ok "W09  the context line says how many transactions were touched" || bad "W09  ctx=$CTX"
 
-# W10 a hard failure is reported as PENDING with the dead-present count, never hidden
+# W10 both present at session start is RESOLVED by the recovery run, never
+# reported as a hard failure for a person. INVERTED (landed review 2026-09-03,
+# blocker 3): this case used to certify PENDING with dead-present=1 — the
+# manual queue as a session-context line. The residue at the original path is
+# archived, verified and removed; the quarantine is captured and removed; the
+# context reads DONE.
 REPO="$(make_repo hardfail)"
 AID2="a0000000000ssr02"
 add_tree "$REPO" "$AID2"
@@ -123,7 +128,7 @@ T bind --session-id "$SID" --tool-use-id tu-ssr2 --agent-id "$AID2" >/dev/null
 T start --session-id "$SID" --agent-id "$AID2" --cwd "$REPO/.claude/worktrees/agent-$AID2" >/dev/null
 T seal --session-id "$SID" --agent-id "$AID2" >/dev/null
 T claim --session-id "$SID" --agent-id "$AID2" --ingress SubagentStop >/dev/null
-mkdir -p "$REPO/.claude/worktrees/agent-$AID2"          # both present: refused, counted
+mkdir -p "$REPO/.claude/worktrees/agent-$AID2"; printf 'ghost\n' >"$REPO/.claude/worktrees/agent-$AID2/ghost.txt"   # both present: residue reappeared
 python3 - "$TX_PY" "$SID" "$AID2" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("tx", sys.argv[1]); tx = importlib.util.module_from_spec(spec); spec.loader.exec_module(tx)
@@ -131,8 +136,14 @@ with tx.tx_lock(sys.argv[2], sys.argv[3]):
     tx.update_member(sys.argv[2], sys.argv[3], 0, state="ref_saved")
 PY
 run_hook "$REPO"; CTX="$(json_context "$OUT_HOOK")"
-[ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: PENDING' && printf '%s' "$CTX" | grep -q 'hard failures (dead-present)=1' \
-    && ok "W10  a hard failure reads PENDING with dead-present=1 in the session context (never hidden)" || bad "W10  rc=$RC ctx=$CTX"
+STATE2="$(T members --session-id "$SID" --agent-id "$AID2" | cut -f5)"
+RES2="$SANDBOX/captures/$SID/$AID2/member-0/residue-1.tar"
+if [ "$RC" -eq 0 ] && printf '%s' "$CTX" | grep -q 'worktree reconciler: DONE' && printf '%s' "$CTX" | grep -q 'hard failures (dead-present)=0' \
+   && [ "$STATE2" = "removed" ] && [ -f "$RES2" ] && [ "$(tar -xOf "$RES2" ghost.txt)" = "ghost" ] && [ ! -e "$REPO/.claude/worktrees/agent-$AID2" ]; then
+    ok "W10  both present at session start is RESOLVED by the recovery run: residue archived and verified, member removed, context reads DONE with dead-present=0 (INVERTED: it used to certify PENDING with dead-present=1)"
+else
+    bad "W10  rc=$RC state=$STATE2 residue=$([ -f "$RES2" ] && echo yes || echo no) ctx=$CTX"
+fi
 
 # W11 the budget is honored (the hook must never hold a session start)
 REPO="$(make_repo budget)"
