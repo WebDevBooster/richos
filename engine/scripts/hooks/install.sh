@@ -380,6 +380,13 @@ HOOK_FILES+=(
     # The helper is hashed because it WRITES that record.
     "$REPO_ROOT/scripts/lib/worktree-ledger.py"
     "$REPO_ROOT/scripts/create-teammate-worktree.sh"
+    # The worktree TRANSACTION store — the file that now decides the exact
+    # member set a terminal ingress quarantines and the reconciler removes.
+    # Hashed for the ledger's reason turned all the way up: it is the only
+    # destructive authority left in the lifecycle. A quietly edited copy that
+    # sealed a wrong path, or matched by prefix, would be wired, executable and
+    # deleting the wrong tree with every guard reporting green.
+    "$REPO_ROOT/scripts/lib/worktree-transactions.py"
     # The dialect vocabulary. Not a hook, and hashed for the cold-open prompt's
     # reason rather than the reaper's: it is not documentation, it IS the
     # decision. guard-dialect.sh blocks a write on nothing but what this file

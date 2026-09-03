@@ -107,10 +107,25 @@ add_native() { # <entity> <agent-id> [lock-pid]
     fi
 }
 
-add_handrolled() { # <repo> <container> <name>
-    local repo="$1" container="$2" name="$3"
+# add_handrolled <repo> <container> <name> [owner-agent-id] [session-pid]
+# SINCE 2026-09-03 ownership is EXACT PATH ONLY (docs/plans/worktree-real-fix-
+# 2026-09-03.md): a hand-rolled tree is judged from a ledger record naming its
+# exact path, never from its branch or directory name and never from a
+# transcript's name join. So a tree that is meant to have a KNOWN owner is
+# registered here by path, the way scripts/create-teammate-worktree.sh
+# writes it; a tree created without an owner is exactly the unrecorded shape
+# the reaper must report as owner-unresolved.
+add_handrolled() {
+    local repo="$1" container="$2" name="$3" aid="${4:-}" pid="${5:-}"
     mkdir -p "$container"
     git -C "$repo" worktree add -q -b "$name" "$container/$name"
+    if [ -n "$aid" ]; then
+        local dir; dir="$(cd "$container/.." && pwd -P)"
+        local args=(registered --teammate "$name" --agent-id "$aid" --session-id sess-now \
+                    --repo "$repo" --worktree "$container/$name" --branch "$name" --class hand-rolled)
+        [ -n "$pid" ] && args+=(--session-pid "$pid" --pid-start "$MY_START")
+        python3 "$LEDGER_PY" --ledger "$dir/wt-ledger.jsonl" record "${args[@]}" >/dev/null
+    fi
 }
 
 # write_transcript <file> <name>=<agentid> ...
@@ -218,7 +233,7 @@ echo "=== reap-stale-worktrees (scope + safety) tests ==="
 #    #1, and it is the one that let 25 worktrees accumulate in repositories the
 #    reaper had never been pointed at.
 DIR="$(make_world discovery)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q -- "--- repo: $DIR/other "; then
     ok "a sibling repository, named by nothing, is discovered and swept"
@@ -243,7 +258,7 @@ fi
 #    selected — not merged-and-clean, not anything. This is the case that
 #    destroys a live agent's uncommitted work if it regresses.
 DIR="$(make_world live-owner)"
-add_handrolled "$DIR/other" "$DIR/other-wt" live-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/live-owner" ] \
    && printf '%s' "$OUT" | grep -q '^SKIP live-owner owner-alive'; then
@@ -256,7 +271,7 @@ fi
 #    reaped. Without this the suite would pass against a reaper that refuses
 #    everything, which is the "satisfied by a corpse" failure.
 DIR="$(make_world done-owner)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 BRANCH_GONE=1
 git -C "$DIR/other" rev-parse --verify --quiet refs/heads/done-owner >/dev/null && BRANCH_GONE=0
@@ -269,7 +284,7 @@ fi
 # 4. UNMERGED IS NEVER REAPED — even with a positive termination signal. The
 #    commits are the handoff.
 DIR="$(make_world unmerged)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 printf 'committed but never landed\n' >"$DIR/other-wt/done-owner/work.txt"
 git -C "$DIR/other-wt/done-owner" add work.txt
 git -C "$DIR/other-wt/done-owner" commit -q -m "unlanded handoff"
@@ -283,7 +298,7 @@ fi
 
 # 5. DIRTY IS NEVER REAPED — uncommitted work outranks every other signal.
 DIR="$(make_world dirty)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 printf 'uncommitted\n' >"$DIR/other-wt/done-owner/scratch.txt"
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -f "$DIR/other-wt/done-owner/scratch.txt" ] \
@@ -300,7 +315,7 @@ DIR="$(make_world unknown-owner)"
 # done-owner is what makes the sibling reap-eligible at all; without it the
 # repository would be report-only and this case would pass for the wrong
 # reason — a stranger's tree skipped by gate 0 rather than by gate 2.
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 # The tree is TEAMMATE-SHAPED (<role>-<model>-<identifier>) and nothing
 # records it: that is a hole in the record, and the case that must FAIL.
 add_handrolled "$DIR/other" "$DIR/other-wt" nobody-opus-x9
@@ -320,7 +335,7 @@ fi
 #    termination signal. So the tree survives, and it survives even though it is
 #    merged, clean, unlocked and has no live process — every OTHER gate open.
 DIR="$(make_world absent-native)"
-add_handrolled "$DIR/other" "$DIR/other-wt" ghost-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" ghost-owner ghost
 write_transcript "$DIR/transcript.jsonl" "live-owner=live" "done-owner=done" "ghost-owner=ghost"
 spawned_names "$DIR" live-owner done-owner ghost-owner
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
@@ -329,11 +344,11 @@ OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 # different findings. `ghost-owner` DOES resolve to a real agent — the agent's
 # isolation worktree is simply not there. Matching the generic prefix would let
 # a regression that collapses the two read as a pass.
-# The owner IS known (the transcript joins the name to agent `ghost`), so this
-# is INDETERMINATE — a PENDING verdict, exit 0 — not UNRESOLVED. The two are
+# The owner IS known (a path registration names agent `ghost`), so this is
+# INDETERMINATE — a PENDING verdict, exit 0 — not UNRESOLVED. The two are
 # counted apart precisely because only one of them grows forever.
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/ghost-owner" ] \
-   && printf '%s' "$OUT" | grep -q "^SKIP ghost-owner owner-indeterminate(ghost-owner — no session identity on record for agent ghost (ghost-owner), its isolation worktree is absent, and exhaustion could not decide: running claude pid(s) $$ started before" \
+   && printf '%s' "$OUT" | grep -q "^SKIP ghost-owner owner-indeterminate(ghost-owner — no session identity on record for agent ghost (ghost-owner) and its isolation worktree is absent; absence is not a termination signal" \
    && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING — indeterminate=1 '; then
     ok "owner whose isolation worktree is ABSENT (and no session identity recorded) is INDETERMINATE, never reaped, verdict PENDING"
 else
@@ -347,8 +362,10 @@ fi
 #    Left unowned it would be skipped as owner-unresolved and this case would
 #    prove nothing about the branch gate at all.
 DIR="$(make_world detached)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 git -C "$DIR/other" worktree add -q --detach "$DIR/other-wt/detached-tree"
+ledger_record "$DIR" registered --teammate detached-tree --agent-id done --session-id sess-now \
+    --repo "$DIR/other" --worktree "$DIR/other-wt/detached-tree" --class hand-rolled
 write_transcript "$DIR/transcript.jsonl" "live-owner=live" "done-owner=done" "detached-tree=done"
 spawned_names "$DIR" live-owner done-owner detached-tree
 OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
@@ -396,8 +413,8 @@ fi
 # 11. THE DENOMINATOR IS REPORTED. `reaped=1 residue=0` was true and useless on
 #     2026-09-01 because nothing said what it was a fraction of.
 DIR="$(make_world coverage)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
-add_handrolled "$DIR/other" "$DIR/other-wt" live-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
 if printf '%s' "$OUT" | grep -q '^=== coverage (DRY-RUN): repos=2 ' \
    && printf '%s' "$OUT" | grep -q 'worktrees=4 native=2 hand-rolled=2' \
@@ -430,7 +447,7 @@ fi
 #     the first run of this rewrite made /private/tmp one and reported 39
 #     launchd sockets as residue. A signal buried in noise is a signal ignored.
 DIR="$(make_world containers)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 mkdir -p "$DIR/other-wt/leftover-junk"
 for i in 1 2 3 4 5 6; do mkdir -p "$DIR/scattered/not-a-worktree-$i"; done
 git -C "$DIR/other" worktree add -q -b lonely "$DIR/scattered/lonely"
@@ -446,7 +463,7 @@ fi
 # 14. IDEMPOTENCE. A second sweep of an already-swept world is a clean no-op,
 #     not a second round of errors.
 DIR="$(make_world idempotent)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 run_reaper "$DIR" "$DIR/entity" --execute >/dev/null
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'reaped=0 ' \
@@ -465,7 +482,8 @@ fi
 DIR="$(make_world prior-session)"
 add_handrolled "$DIR/other" "$DIR/other-wt" zach-opus-old1
 ledger_record "$DIR" registered --teammate zach-opus-old1 --agent-id old1 --session-id sess-old \
-    --session-pid "$DEAD_PID" --pid-start "$DEAD_START" --repo "$DIR/entity" --class native
+    --session-pid "$DEAD_PID" --pid-start "$DEAD_START" --repo "$DIR/entity" \
+    --worktree "$DIR/other-wt/zach-opus-old1" --class native
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 BRANCH_GONE=1
 git -C "$DIR/other" rev-parse --verify --quiet refs/heads/zach-opus-old1 >/dev/null && BRANCH_GONE=0
@@ -482,7 +500,8 @@ fi
 DIR="$(make_world live-session)"
 add_handrolled "$DIR/other" "$DIR/other-wt" zach-opus-now1
 ledger_record "$DIR" registered --teammate zach-opus-now1 --agent-id now1 --session-id sess-now \
-    --session-pid "$$" --pid-start "$MY_START" --repo "$DIR/entity" --class native
+    --session-pid "$$" --pid-start "$MY_START" --repo "$DIR/entity" \
+    --worktree "$DIR/other-wt/zach-opus-now1" --class native
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/zach-opus-now1" ] \
    && printf '%s' "$OUT" | grep -q "^SKIP zach-opus-now1 owner-indeterminate(zach-opus-now1 — no native isolation worktree is registered for agent now1 (zach-opus-now1) while its session pid $$ is still running" \
@@ -497,7 +516,8 @@ fi
 DIR="$(make_world pid-reuse)"
 add_handrolled "$DIR/other" "$DIR/other-wt" zach-opus-reuse1
 ledger_record "$DIR" registered --teammate zach-opus-reuse1 --agent-id reuse1 --session-id sess-x \
-    --session-pid "$$" --pid-start "Mon 1 Jan 00:00:00 1990" --repo "$DIR/entity" --class native
+    --session-pid "$$" --pid-start "Mon 1 Jan 00:00:00 1990" --repo "$DIR/entity" \
+    --worktree "$DIR/other-wt/zach-opus-reuse1" --class native
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/zach-opus-reuse1" ] \
    && printf '%s' "$OUT" | grep -q 'terminated — its host session pid .* is reused'; then
@@ -512,10 +532,7 @@ fi
 #     hand-rolled tree, from the record. The negative half: with the ledger
 #     wiped between the sweeps, the same tree is INDETERMINATE (session alive).
 DIR="$(make_world witness)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
-ledger_record "$DIR" registered --teammate done-owner --agent-id done --session-id sess-now \
-    --session-pid "$$" --pid-start "$MY_START" --repo "$DIR/entity" \
-    --worktree "$DIR/entity/.claude/worktrees/agent-done" --class native
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done
 run_reaper "$DIR" "$DIR/entity" >/dev/null
 if grep -q '"event": "terminated"' "$DIR/wt-ledger.jsonl" 2>/dev/null \
    && grep -q '"agent_id": "done"' "$DIR/wt-ledger.jsonl"; then
@@ -603,8 +620,8 @@ fi
 # 19. VERDICT CLEAN: every candidate decided (live owner skipped, dead owner
 #     reaped) -> CLEAN, exit 0. The positive half of the verdict contract.
 DIR="$(make_world clean-verdict)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
-add_handrolled "$DIR/other" "$DIR/other-wt" live-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
+add_handrolled "$DIR/other" "$DIR/other-wt" live-owner live "$$"
 OUT="$(run_reaper "$DIR" "$DIR/entity")"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN' \
    && printf '%s' "$OUT" | grep -q 'undecidable=0 unresolved=0 indeterminate=0'; then
@@ -613,11 +630,14 @@ else
     bad "clean verdict (rc=$RC): $(printf '%s' "$OUT" | grep -E '^=== (verdict|coverage)' | tr '\n' ' ')"
 fi
 
-# 20. THE TRANSCRIPT INDEX SPANS SESSIONS. No --transcript given; the projects
-#     directory holds TWO transcripts, and the owner's name appears only in the
-#     OLDER one (the newest-file lookup could never see it). The old session is
-#     over by exhaustion (the one running process is registered to a different
-#     session), so the tree is reaped. This is acceptance item 2 at the reaper.
+# 20. A TRANSCRIPT IS NOT OWNERSHIP. No --transcript given; the projects
+#     directory holds TWO transcripts, and the tree's name appears in the
+#     OLDER one, joined to an agent whose session is provably over by
+#     exhaustion. Until 2026-09-03 that reaped the tree. A name join is a
+#     reusable key, so it is no longer ownership: the tree is owner-unresolved,
+#     kept, and the run FAILS — the hole in the record is reported, not filled
+#     by a guess. 20b is the same world with an exact-path record, and THAT is
+#     reaped; 20c is 20b with the session unaccounted for.
 DIR="$(make_world older-transcript)"
 add_handrolled "$DIR/other" "$DIR/other-wt" art-opus-old1
 mkdir -p "$DIR/projects/-some-project" "$DIR/sessions"
@@ -631,23 +651,44 @@ printf '{"pid":%s,"sessionId":"%s","startedAt":%s000}
 ' "$$" "$NEW_SID" $((NOW - 1800)) >"$DIR/sessions/$$.json"
 OUT="$(REAP_TEST_PROCS="$$:$((NOW - 1800))" REAP_DISCOVERY_SOURCES="primary,neighborhood" REAP_TEAM_DIR="$DIR/teams"        REAP_LEDGER="$DIR/ledger.txt" REAP_WORKTREE_LEDGER="$DIR/wt-ledger.jsonl" REAP_PROJECTS_DIR="$DIR/projects"        RICHOS_CLAUDE_PROCESSES="$$:$((NOW - 1800))" RICHOS_SESSIONS_DIR="$DIR/sessions" CLAUDE_PID="$$"        "$REAPER" "$DIR/entity" --discover --entity "$DIR/entity" --execute 2>&1)"
 RC=$?
-if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/art-opus-old1" ]    && printf '%s' "$OUT" | grep -q '(owner art-opus-old1 terminated — its session aaaaaaaa is over by exhaustion'; then
-    ok "OLDER TRANSCRIPT ONLY: the index finds the owner in a prior session's transcript and exhaustion proves that session over — reaped"
+if [ "$RC" -eq 3 ] && [ -d "$DIR/other-wt/art-opus-old1" ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP art-opus-old1 owner-unresolved(.*a transcript joins the name .art-opus-old1. to an agent, and that is NOT accepted as ownership'; then
+    ok "TRANSCRIPT ONLY: a name joined to an agent in an older transcript is NOT ownership — kept, owner-unresolved, run FAILS"
 else
-    bad "older-transcript index (rc=$RC dir=$([ -d "$DIR/other-wt/art-opus-old1" ] && echo present || echo gone)): $(printf '%s' "$OUT" | grep -E 'art-opus-old1|blind: owner' | tr '
-' ' ')"
+    bad "older-transcript refusal (rc=$RC dir=$([ -d "$DIR/other-wt/art-opus-old1" ] && echo present || echo gone)): $(printf '%s' "$OUT" | grep -E 'art-opus-old1|blind: owner' | tr '\n' ' ')"
 fi
 
-# 20b. NEGATIVE: same world, but the running process is UNACCOUNTED (no
+# 20b. POSITIVE CONTROL: the same tree with an EXACT-PATH record naming the old
+#      session (no pid, the prior-session shape) — exhaustion proves that
+#      session over and the tree is reaped.
+ledger_record "$DIR" registered --teammate art-opus-old1 --agent-id oldart1 --session-id "$OLD_SID" \
+    --repo "$DIR/other" --worktree "$DIR/other-wt/art-opus-old1" --branch art-opus-old1 --class hand-rolled
+OUT="$(REAP_TEST_PROCS="$$:$((NOW - 1800))" REAP_DISCOVERY_SOURCES="primary,neighborhood" REAP_TEAM_DIR="$DIR/teams" \
+       REAP_LEDGER="$DIR/ledger.txt" REAP_WORKTREE_LEDGER="$DIR/wt-ledger.jsonl" REAP_PROJECTS_DIR="$DIR/projects" \
+       RICHOS_CLAUDE_PROCESSES="$$:$((NOW - 1800))" RICHOS_SESSIONS_DIR="$DIR/sessions" CLAUDE_PID="$$" \
+       "$REAPER" "$DIR/entity" --discover --entity "$DIR/entity" --execute 2>&1)"
+RC=$?
+if [ "$RC" -eq 0 ] && [ ! -d "$DIR/other-wt/art-opus-old1" ] \
+   && printf '%s' "$OUT" | grep -q '(owner art-opus-old1 terminated — its session aaaaaaaa is over by exhaustion'; then
+    ok "PATH-REGISTERED to a prior session: exhaustion proves that session over — reaped (positive control for 20)"
+else
+    bad "older-session path record (rc=$RC dir=$([ -d "$DIR/other-wt/art-opus-old1" ] && echo present || echo gone)): $(printf '%s' "$OUT" | grep -E 'art-opus-old1|blind: owner' | tr '\n' ' ')"
+fi
+
+# 20c. NEGATIVE: same record, but the running process is UNACCOUNTED (no
 #      registry row) -> INDETERMINATE, PENDING, tree kept.
 rm -f "$DIR/sessions/$$.json"
-add_handrolled "$DIR/other" "$DIR/other-wt" art-opus-old1
-OUT="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" REAP_TEAM_DIR="$DIR/teams"        REAP_LEDGER="$DIR/ledger.txt" REAP_WORKTREE_LEDGER="$DIR/wt-ledger.jsonl" REAP_PROJECTS_DIR="$DIR/projects"        RICHOS_CLAUDE_PROCESSES="$$:$((NOW - 9000))" RICHOS_SESSIONS_DIR="$DIR/sessions" CLAUDE_PID="$$"        "$REAPER" "$DIR/entity" --discover --entity "$DIR/entity" --execute 2>&1)"
-if [ -d "$DIR/other-wt/art-opus-old1" ]    && printf '%s' "$OUT" | grep -q '^SKIP art-opus-old1 owner-indeterminate(.*not accounted for'; then
-    ok "OLDER TRANSCRIPT, unaccounted running process: INDETERMINATE, kept"
+git -C "$DIR/other" worktree add -q "$DIR/other-wt/art-opus-old1" art-opus-old1 2>/dev/null \
+    || git -C "$DIR/other" worktree add -q -b art-opus-old1 "$DIR/other-wt/art-opus-old1"
+OUT="$(REAP_DISCOVERY_SOURCES="primary,neighborhood" REAP_TEAM_DIR="$DIR/teams" \
+       REAP_LEDGER="$DIR/ledger.txt" REAP_WORKTREE_LEDGER="$DIR/wt-ledger.jsonl" REAP_PROJECTS_DIR="$DIR/projects" \
+       RICHOS_CLAUDE_PROCESSES="$$:$((NOW - 9000))" RICHOS_SESSIONS_DIR="$DIR/sessions" CLAUDE_PID="$$" \
+       "$REAPER" "$DIR/entity" --discover --entity "$DIR/entity" --execute 2>&1)"
+if [ -d "$DIR/other-wt/art-opus-old1" ] \
+   && printf '%s' "$OUT" | grep -q '^SKIP art-opus-old1 owner-indeterminate(.*not accounted for'; then
+    ok "PATH-REGISTERED, unaccounted running process: INDETERMINATE, kept"
 else
-    bad "older-transcript negative: $(printf '%s' "$OUT" | grep 'art-opus-old1' | tr '
-' ' ')"
+    bad "older-session negative: $(printf '%s' "$OUT" | grep 'art-opus-old1' | tr '\n' ' ')"
 fi
 
 # 21. NEVER WRITES THE OPERATOR'S REAL LEDGER FROM A SANDBOX: REAP_WORKTREE_LEDGER
@@ -663,7 +704,7 @@ fi
 #     another tool's worktree — /private/tmp/ci-base and a Codex worktree in
 #     richos, measured) is inventoried, never mutated, and never a verdict.
 DIR="$(make_world operator)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" ci-base
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -d "$DIR/other-wt/ci-base" ] \
@@ -678,7 +719,7 @@ fi
 # 22b. NEGATIVE: the SAME unshaped name, once it is a name this machine
 #      recorded spawning, is a teammate's tree with no record -> unresolved, FAIL.
 DIR="$(make_world operator-neg)"
-add_handrolled "$DIR/other" "$DIR/other-wt" done-owner
+add_handrolled "$DIR/other" "$DIR/other-wt" done-owner done "$$"
 add_handrolled "$DIR/other" "$DIR/other-wt" ci-base
 spawned_names "$DIR" live-owner done-owner ci-base
 OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?

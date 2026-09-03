@@ -316,6 +316,16 @@ ALL_ROOT_SCRIPTS=(
     # capability tier is checked by nobody. Layer MT fails loudly when it is
     # absent, which is how a sandbox missing it stops looking healthy.
     scripts/lib/model-tiers.sh
+    # The worktree transaction store and the ledger it sits beside. Carried
+    # for the DECIDING reason: guard-worktree-isolation.sh REFUSES every
+    # file-capable spawn without the transaction library (clause 7c), and the
+    # binder in detect-nonnative-worktree.sh announces a binding failure
+    # without it. A sandbox missing them models an engine in which no spawn
+    # can be bound — every spawn-shaped canary would go red for a reason that
+    # has nothing to do with the property it tests.
+    scripts/lib/worktree-transactions.py
+    scripts/lib/worktree-ledger.py
+    scripts/lib/agent-liveness.py
 )
 
 # Sandbox orchestration.config: protected trees for the write-guard + canary.
