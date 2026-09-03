@@ -120,10 +120,11 @@ else:
     s = d.get("status", {})
     done = s.get("done")
     dd = s.get("definition_of_done", {})
-    print("worktree reconciler: %s — terminal members with a directory present=%s, pending retry=%s, hard failures (dead-present)=%s, transactions touched=%s%s"
+    print("worktree reconciler: %s — terminal members with a directory present=%s, pending retry=%s, hard failures (dead-present)=%s, sealed transactions whose native member is gone=%s, overdue pending terminal events=%s, live workers positively present=%s, transactions touched=%s%s"
           % ("DONE (zero dead worktrees)" if done else "PENDING",
              dd.get("terminal_members_with_a_directory_present"), dd.get("terminal_transactions_pending_normal_retry"),
-             dd.get("hard_failures_counted_as_dead_present"), d.get("reconciled"),
+             dd.get("hard_failures_counted_as_dead_present"), dd.get("sealed_transactions_whose_native_member_is_gone"),
+             dd.get("pending_terminal_events_overdue"), s.get("live_workers_positively_present"), d.get("reconciled"),
              ("; " + "; ".join(notes)[:300]) if notes else ""))
 ' 2>/dev/null || printf 'worktree reconciler: ran; status unreadable')"
 fi

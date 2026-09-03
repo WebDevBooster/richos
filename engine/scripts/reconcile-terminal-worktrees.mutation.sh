@@ -127,6 +127,16 @@ mutant unregistered-native-parked "C43" "$L" \
     '        if True:' \
     "a directory git can neither read nor list would be retried forever as a transient failure instead of having its raw bytes captured and closed (landed review 2026-09-03, blocker 3)."
 
+mutant native-missing-not-in-done "C47b" "$R" \
+    '                 and m["sealed_native_missing"] == 0 and overdue == 0' \
+    '                 and overdue == 0' \
+    "--status would report done: true over a sealed transaction whose native member the platform tore down — the measured defect: a leaked hand-rolled worktree behind a clean status (CEO specification, section 5)."
+
+mutant native-presence-unexamined "C47b" "$L" \
+    '            elif native_member_gone(nat)[0]:{NL}                out["sealed_native_missing"] += 1' \
+    '            elif False:{NL}                out["sealed_native_missing"] += 1' \
+    "every sealed non-terminal transaction would be called present without examining its native member — `sealed_live` under a new name."
+
 mutant index-failure-swallowed "C29" "$R" \
     '    for rec in git_must(quar, "ls-files", "-s", "-z").split("\0"):' \
     '    for rec in git_out(quar, "ls-files", "-s", "-z")[1].split("\0"):' \

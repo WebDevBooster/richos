@@ -1199,10 +1199,53 @@ def member_present(m):
     return os.path.isdir(m.get("path") or "") or os.path.isdir(m.get("quarantine") or "")
 
 
+def native_member_gone(m):
+    """(gone, why) for a sealed transaction's native member, verified against
+    the RECORDED repository and path and nothing else: the directory no
+    longer exists, or git no longer lists it as a worktree of that
+    repository, or lists it prunable. When git itself cannot be read nothing
+    is decided (not gone). ONE definition, shared by the reconciler's
+    native-disappearance backstop and by the metrics, so what `--status`
+    calls missing is exactly what the backstop retires."""
+    path = m.get("path") or ""
+    repo = m.get("repo") or ""
+    if not path:
+        return False, ""
+    if not os.path.isdir(path):
+        return True, "native member %s no longer exists on disk" % path
+    if not repo or not os.path.isdir(repo):
+        return False, ""
+    reg = registered_worktrees(repo)
+    if reg is None:
+        return False, ""
+    entry = reg.get(norm_path(path))
+    if entry is None:
+        return True, "git no longer lists %s as a worktree of %s" % (path, repo)
+    if entry.get("prunable"):
+        return True, "git lists %s as PRUNABLE (its administrative directory is gone)" % path
+    return False, ""
+
+
 def metrics():
-    """The definition of done. No dead directory is omitted from the
-    denominator: a failed member with a directory present is counted."""
-    out = {"transactions": 0, "sealed_live": 0, "terminal": 0, "removed": 0,
+    """The definition of done, with nothing omitted and NOTHING CALLED LIVE
+    THAT WAS NOT EXAMINED (CEO specification 2026-09-03, section 5).
+    `sealed_live` used to mean only "sealed and not terminal", and on this
+    machine it counted a killed worker whose native worktree the platform
+    had torn down as live while --status said done. Now every sealed
+    non-terminal transaction is examined: its native member is PRESENT
+    (directory exists and git registers it, non-prunable, in the recorded
+    repository) or MISSING (cleanup debt: the backstop retires it); a
+    transaction with no native member is external-only (its termination has
+    no platform witness) or member-less (a main-checkout-run or remote
+    spawn; nothing to clean). Terminal members are counted present only
+    while they are not `removed`: a directory that reappears at a removed
+    member's old path is somebody else's, never dead-present. A failed
+    member with a directory present is always counted."""
+    out = {"transactions": 0,
+           "sealed_native_present": 0, "sealed_native_missing": 0,
+           "sealed_external_only_unclaimed": 0, "sealed_no_member": 0,
+           "terminal": 0, "removed": 0,
+           "terminal_pending_cleanup": 0, "terminal_cleanup_failed": 0,
            "terminal_members": 0, "terminal_members_present": 0,
            "pending_retry": 0, "failed": 0, "failed_present": 0,
            "pending_terminals": 0, "pending_terminals_unbindable": 0}
@@ -1212,24 +1255,35 @@ def metrics():
             out["pending_terminals_unbindable"] += 1
     for tx in iter_transactions():
         out["transactions"] += 1
+        members = tx.get("members") or []
         if not tx.get("terminal"):
-            out["sealed_live"] += 1
+            nat = next((m for m in members if m.get("class") == "native"), None)
+            if nat is None:
+                out["sealed_external_only_unclaimed" if members else "sealed_no_member"] += 1
+            elif native_member_gone(nat)[0]:
+                out["sealed_native_missing"] += 1
+            else:
+                out["sealed_native_present"] += 1
             continue
         out["terminal"] += 1
         if tx.get("state") == "removed":
             out["removed"] += 1
-        for m in tx.get("members") or []:
+        for m in members:
             out["terminal_members"] += 1
-            present = member_present(m)
             st = m.get("state")
+            if st == "removed":
+                continue
+            present = member_present(m)
             if present:
                 out["terminal_members_present"] += 1
             if st in TERMINAL_STATES:
                 out["failed"] += 1
                 if present:
                     out["failed_present"] += 1
-            elif st != "removed":
+            else:
                 out["pending_retry"] += 1
+    out["terminal_pending_cleanup"] = out["pending_retry"]
+    out["terminal_cleanup_failed"] = out["failed"]
     return out
 
 

@@ -653,6 +653,27 @@ R --agent "$SID/$A26" >/dev/null 2>&1
 L26="$(T show --session-id "$SID" --agent-id "$A26" | python3 -c 'import json,sys; m=json.load(sys.stdin)["members"][0]; print(m["state"], m.get("rederived_from"))')"
 [ "$L26" = "removed failed" ] && [ ! -e "$Q26" ] && ok "C46  a legacy FAILED member is re-derived from what exists on disk, re-enters the state machine and is removed" || bad "C46  member=[$L26] quar=$([ -e "$Q26" ] && echo present || echo gone)"
 
+# --- 22. --status never calls an unexamined transaction live, and is NOT done
+# over a sealed transaction whose native member is gone (CEO specification
+# 2026-09-03, section 5). Measured: `sealed_live: 2, done: true` over a killed
+# worker's leaked hand-rolled worktree.
+A27="a00000000000rc27"
+EXT27="$SANDBOX/other-wt/dev-opus-r27"
+seal "$A27" dev-opus-r27 "$OTHER:$EXT27:dev-opus-r27"
+NAT27="$ENTITY/.claude/worktrees/agent-$A27"
+S="$(R --status)"; SRC=$?
+V="$(printf '%s' "$S" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("sealed_live" in d, d["sealed_native_present"] >= 1, d["sealed_native_missing"], d["done"])')"
+[ "$V" = "False True 0 True" ] && [ "$SRC" -eq 0 ] && ok "C47  a sealed transaction whose native member is present and registered is reported POSITIVELY present (there is no sealed_live key any more); status is done" || bad "C47  status=[$V] rc=$SRC"
+git -C "$ENTITY" worktree remove --force "$NAT27" >/dev/null 2>&1     # the platform's teardown, no hook delivered
+git -C "$ENTITY" branch -D "worktree-agent-$A27" >/dev/null 2>&1
+S="$(R --status)"; SRC=$?
+V="$(printf '%s' "$S" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["sealed_native_missing"], d["definition_of_done"]["sealed_transactions_whose_native_member_is_gone"], d["done"])')"
+[ "$V" = "1 1 False" ] && [ "$SRC" -ne 0 ] && [ -d "$EXT27" ] \
+    && ok "C47b ...with the native member torn down, --status (no run) reports sealed_native_missing=1, is NOT done, exits 1 — the orphan is named, not called live (INVERTED: it used to say done: true over exactly this)" || bad "C47b status=[$V] rc=$SRC"
+R >/dev/null 2>&1
+S="$(R --status)"; SRC=$?
+[ "$SRC" -eq 0 ] && [ ! -e "$EXT27" ] && [ "$(states "$A27")" = "removed removed " ] && ok "C47c ...and after one reconciler run the backstop has retired it and status is done again" || bad "C47c rc=$SRC states=$(states "$A27")"
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reconcile-terminal-worktrees tests: $FAIL FAILED, $PASS passed ==="

@@ -860,28 +860,9 @@ STEPS = {
 
 
 def native_member_gone(m):
-    """(gone, why) for a SEALED, non-terminal transaction's native member.
-    Verified against the RECORDED repository and path, nothing else: the
-    directory no longer exists, or git no longer lists it as a worktree of
-    that repository, or lists it prunable. When git itself cannot be read
-    nothing is decided."""
-    path = m.get("path") or ""
-    repo = m.get("repo") or ""
-    if not path:
-        return False, ""
-    if not os.path.isdir(path):
-        return True, "native member %s no longer exists on disk" % path
-    if not repo or not os.path.isdir(repo):
-        return False, ""
-    reg = tx.registered_worktrees(repo)
-    if reg is None:
-        return False, ""
-    entry = reg.get(tx.norm_path(path))
-    if entry is None:
-        return True, "git no longer lists %s as a worktree of %s" % (path, repo)
-    if entry.get("prunable"):
-        return True, "git lists %s as PRUNABLE (its administrative directory is gone)" % path
-    return False, ""
+    """(gone, why) — ONE definition, the library's, shared with the metrics
+    so what --status calls missing is exactly what this backstop retires."""
+    return tx.native_member_gone(m)
 
 
 def orphan_backstop_pass(only=None):
@@ -1340,13 +1321,32 @@ def run(max_seconds=None, only=None):
 
 
 def status():
+    """The definition of done (CEO specification 2026-09-03, section 5).
+    `done` may stay true while positively live workers exist — they are not
+    cleanup debt — and MUST be false over any orphan witness: a terminal
+    member with a directory present, a terminal member pending retry, a
+    sealed transaction whose native member is missing or unregistered, a
+    pending terminal event past its grace period, or one recorded
+    unbindable. No unexamined non-terminal transaction is called live."""
     m = tx.metrics()
+    grace = pending_terminal_grace()
+    overdue = 0
+    for _sid, _aid, rec in tx.iter_pending_terminals():
+        if time.time() - float(rec.get("epoch") or 0) > grace:
+            overdue += 1
+    m["pending_terminals_overdue"] = overdue
     m["definition_of_done"] = {
         "terminal_members_with_a_directory_present": m["terminal_members_present"],
         "terminal_transactions_pending_normal_retry": m["pending_retry"],
         "hard_failures_counted_as_dead_present": m["failed_present"],
+        "sealed_transactions_whose_native_member_is_gone": m["sealed_native_missing"],
+        "pending_terminal_events_overdue": overdue,
+        "pending_terminal_events_unbindable": m["pending_terminals_unbindable"],
     }
-    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0)
+    m["live_workers_positively_present"] = m["sealed_native_present"]
+    m["done"] = (m["terminal_members_present"] == 0 and m["pending_retry"] == 0
+                 and m["sealed_native_missing"] == 0 and overdue == 0
+                 and m["pending_terminals_unbindable"] == 0)
     return m
 
 

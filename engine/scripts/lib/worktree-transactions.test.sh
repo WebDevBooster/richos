@@ -514,6 +514,11 @@ assert m["failed"] >= 1, m           # 8b failed (8c is now closed absent, not m
 assert m["failed_present"] >= 1, m   # 8b's original is still on disk and COUNTED
 assert m["terminal_members_present"] >= 5, m
 assert m["pending_retry"] >= 5, m
+# CEO specification 2026-09-03 section 5: nothing is called live unexamined
+assert "sealed_live" not in m, m
+assert m["sealed_native_present"] >= 2, m            # aaaaaa000001 / 000002: native, present, registered
+assert m["sealed_external_only_unclaimed"] >= 1, m   # aaaaaa000005: a cwd-only worker has no platform witness
+assert m["sealed_native_missing"] == 0, m
 PY
 
 # --- 12. the lock is real: a holder blocks a second writer until release -------------
