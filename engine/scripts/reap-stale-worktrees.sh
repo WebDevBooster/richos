@@ -896,6 +896,7 @@ SKIP_COUNT=0
 ERROR_COUNT=0
 SKIP_LOCKED=0
 SKIP_LOCKED_LIVE=0
+SKIP_QUARANTINED=0
 SKIP_UNMERGED=0
 SKIP_DIRTY=0
 SKIP_LIVE_PROCESS=0
@@ -964,6 +965,29 @@ if [ "${#WT_PATH[@]}" -gt 0 ]; then
             SKIP_REPORT_ONLY=$((SKIP_REPORT_ONLY + 1))
             continue
         fi
+
+        # --- Gate 0b: a QUARANTINE belongs to the reconciler, not to this ---
+        # `<path>.richos-terminal-<session8>-<agentid>` is the name a terminal
+        # ingress gives a worktree it has claimed (lib/worktree-transactions.py
+        # quarantine_name). Only a terminal ingress creates it, and only
+        # reconcile-terminal-worktrees.py ever removes it.
+        #
+        # WHY IT GETS ITS OWN LINE INSTEAD OF `locked(native)`. On 2026-09-04
+        # thirty of these stood in femcboost, and this inventory reported
+        # `reaped=2 skipped=34 errors=0` with `verdict: CLEAN — every candidate
+        # was decided`. Every word of that was true by the reaper's own
+        # definitions and it described the exact pile the CEO had opened his
+        # IDE to find. A quarantine is not a routine skip: it is a worktree the
+        # system has already decided to destroy and has not finished
+        # destroying, so it is counted by itself and it is not allowed to sit
+        # inside a CLEAN verdict.
+        case "$(basename "$path")" in
+            *.richos-terminal-*)
+                skip "$id" "quarantined($class) — claimed by a terminal transaction; reconcile-terminal-worktrees.py owns its removal and this inventory never touches it. Its state (and whether it is BLOCKED) is that tool's --status, not this line"
+                SKIP_QUARANTINED=$((SKIP_QUARANTINED + 1))
+                continue
+                ;;
+        esac
 
         # Directory gone but still registered -> report + let `worktree prune`
         # (execute-only, end of run) clear the registration. No further gate.
@@ -1349,7 +1373,7 @@ done
 echo "=== summary ($MODE_LABEL): reaped=$REAP_COUNT skipped=$SKIP_COUNT errors=$ERROR_COUNT residue=$RESIDUE_COUNT orphan-processes=$ORPHAN_COUNT branches-swept=$BR_SWEPT branches-skipped=$BR_SKIPPED ==="
 echo "=== coverage ($MODE_LABEL): repos=$N_REPOS reap-eligible=$N_ELIGIBLE report-only=$N_REPORT_ONLY unreachable=$N_UNREACHABLE worktrees=$N_WORKTREES native=$N_NATIVE hand-rolled=$N_HANDROLLED undecidable=$N_UNDECIDABLE unresolved=$SKIP_OWNER_UNRESOLVED indeterminate=$SKIP_OWNER_INDETERMINATE operator=$SKIP_OPERATOR ==="
 echo "=== sources:$SRC_SUMMARY ==="
-echo "    skip breakdown: locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY"
+echo "    skip breakdown: quarantined=$SKIP_QUARANTINED locked=$SKIP_LOCKED locked-possibly-live=$SKIP_LOCKED_LIVE unmerged=$SKIP_UNMERGED dirty=$SKIP_DIRTY live-process=$SKIP_LIVE_PROCESS missing-dir=$SKIP_MISSING_DIR no-branch=$SKIP_NO_BRANCH owner-alive=$SKIP_OWNER_ALIVE owner-indeterminate=$SKIP_OWNER_INDETERMINATE owner-unresolved=$SKIP_OWNER_UNRESOLVED operator-worktree=$SKIP_OPERATOR report-only-repo=$SKIP_REPORT_ONLY"
 if [ "${#BLIND[@]}" -gt 0 ]; then
     for _b in "${BLIND[@]}"; do
         echo "=== blind: $_b ==="
@@ -1369,6 +1393,18 @@ if [ "$SKIP_OWNER_UNRESOLVED" -gt 0 ]; then
 fi
 if [ "$SKIP_OWNER_INDETERMINATE" -gt 0 ]; then
     echo "=== verdict: PENDING — indeterminate=$SKIP_OWNER_INDETERMINATE hand-rolled worktree(s) have a KNOWN owner whose session is still running (or whose identity was not recorded); each names its session pid above and becomes decidable when that session ends ==="
+    exit 0
+fi
+# A QUARANTINE IS NOT A CLEAN RESULT. It is a worktree the system has already
+# decided to destroy and has not finished destroying, and on 2026-09-04 thirty
+# of them sat under a line that read `verdict: CLEAN — every candidate was
+# decided`. They WERE all decided; the decision was simply not carried out,
+# and CLEAN is the one word that stops a reader looking further. This run does
+# not own them and cannot say why they are outstanding — the reconciler's
+# --status does, and the session banner prints it — so the verdict names the
+# count and points at the tool that knows.
+if [ "$SKIP_QUARANTINED" -gt 0 ]; then
+    echo "=== verdict: PENDING — quarantined=$SKIP_QUARANTINED worktree(s) are claimed by a terminal transaction and not yet removed. This inventory does not own them and never touches them; run 'reconcile-terminal-worktrees.py --status' for WHY (a BLOCKED count there is a condition waiting cannot clear) ==="
     exit 0
 fi
 echo "=== verdict: CLEAN — every candidate was decided ==="

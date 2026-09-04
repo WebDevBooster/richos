@@ -32,6 +32,10 @@ mutant budget-not-passed "W11" "$W" \
 mutant missing-reconciler-silent "W12" "$W" \
     '    RECONCILE_SUMMARY="ENGINE INSTALL FAILURE — scripts/reconcile-terminal-worktrees.py is missing at $RECONCILER; no terminal worktree transaction was recovered."' \
     '    RECONCILE_SUMMARY="worktree reconciler: DONE (zero dead worktrees)"' \
-    "a broken engine install would report a clean lifecycle at every session start."
+    "a broken engine install would report a clean lifecycle at every session start."\n
+mutant blocked-word-suppressed "W10b" "$W" \
+    '    verdict = "DONE (zero dead worktrees)" if done else ("BLOCKED (%s member(s) cannot proceed by waiting)" % blocked if blocked else "PENDING")' \
+    '    verdict = "DONE (zero dead worktrees)" if done else "PENDING"' \
+    "a deadlock would lead the session banner with the word PENDING again — the shape of a queue draining, printed over thirty members that no amount of waiting would free (2026-09-04)."
 
 mutation_end

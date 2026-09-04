@@ -745,6 +745,28 @@ else
     bad "path registration (rc=$RC): $(printf '%s' "$OUT" | grep -E 'feature-topic' | tr '\n' ' ' | cut -c1-300)"
 fi
 
+# 24. A QUARANTINE IS NOT A CLEAN RESULT, AND IT IS NOT A ROUTINE SKIP.
+#     Measured 2026-09-04: thirty quarantines stood in femcboost and this
+#     inventory reported `reaped=2 skipped=34 errors=0` under
+#     `verdict: CLEAN — every candidate was decided`. Every word was true by
+#     the reaper's own definitions and it described the exact pile the CEO had
+#     opened his IDE to find. The quarantine is counted by itself, it is never
+#     touched, and CLEAN cannot be printed over it.
+DIR="$(make_world quarantined)"
+QP="$DIR/entity/.claude/worktrees/agent-done.richos-terminal-deadbeef-adone"
+mv "$DIR/entity/.claude/worktrees/agent-done" "$QP"
+git -C "$DIR/entity" worktree repair "$QP" >/dev/null 2>&1
+OUT="$(run_reaper "$DIR" "$DIR/entity" --execute)"; RC=$?
+if [ "$RC" -eq 0 ] && [ -d "$QP" ] \
+   && printf '%s' "$OUT" | grep -q 'quarantined(native) — claimed by a terminal transaction' \
+   && printf '%s' "$OUT" | grep -q 'skip breakdown: quarantined=1' \
+   && printf '%s' "$OUT" | grep -q '^=== verdict: PENDING — quarantined=1' \
+   && ! printf '%s' "$OUT" | grep -q '^=== verdict: CLEAN'; then
+    ok "a quarantined worktree is counted apart, survives --execute untouched, and the verdict is PENDING — never CLEAN (INVERTED: 30 of them read as CLEAN on 2026-09-04)"
+else
+    bad "quarantine verdict (rc=$RC present=$([ -d "$QP" ] && echo yes || echo NO): $(printf '%s' "$OUT" | grep -E '^=== verdict|skip breakdown' | tr '\n' ' ' | cut -c1-300))"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== reap-stale-worktrees (scope + safety) tests: $FAIL FAILED, $PASS passed ==="
