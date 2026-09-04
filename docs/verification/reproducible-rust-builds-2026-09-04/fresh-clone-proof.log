@@ -1,0 +1,87 @@
+
+=== toolchain ===
+cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+rustc 1.95.0 (59807616e 2026-04-14)
+
+=== fresh clone of branch zach-opus-p2 ===
+HEAD: 51b1d1b44ee00a9b256f556b3e9df59c2bfcd2d4
+branch: zach-opus-p2
+
+=== 1. git ls-files lists both application lockfiles ===
+app/Cargo.lock
+app/src-tauri/Cargo.lock
+tools/native-claude-stdio/Cargo.lock
+
+=== 2. no ignore rule hides them (git check-ignore, exit 1 = nothing ignored) ===
+check-ignore exit: 1  (1 means neither path is ignored)
+
+=== 3. lockfile digests ===
+93d7edb37c10b4efc06e9cb224833d27bdf545ea87b482d091efbb7d7ad1f550  app/Cargo.lock
+176f59add1a4c05ef9f6a04700d46ed2b15b40746c4c65b978dd6fe269cdaf36  app/src-tauri/Cargo.lock
+3f99c5fc84319ab96697e7c2086644362f6d472ebd7825425753e52e0a43380e  tools/native-claude-stdio/Cargo.lock
+
+=== 4. app workspace: cargo metadata --locked --offline ===
+OK - graph fully determined by the lockfile, no index access
+
+=== 5. tauri workspace: cargo metadata --locked --offline ===
+OK - graph fully determined by the lockfile, no index access
+
+=== 6. package counts resolved from the lockfiles ===
+app workspace: 108 third-party packages
+tauri workspace: 498 third-party packages
+
+=== 7. cargo test --locked -p richos-core (fresh target dir) ===
+test result: ok. 395 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.96s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.91s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+test result: ok. 13 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+-- no Updating/Locking/Adding line above means nothing was resolved dynamically --
+
+=== 8. cargo build --locked --release -p richos-core ===
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v1.0.69
+    Finished `release` profile [optimized] target(s) in 8.88s
+
+=== 9. cargo check --locked --all-targets in the detached tauri workspace ===
+   Compiling tauri-macros v2.6.3
+   Compiling richos-tauri v0.1.0 (/private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proofclone/app/src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.00s
+
+=== 10. the generated dependency inventory still matches the lockfiles ===
+dependency-license-inventory.sh: /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proofclone/docs/legal/THIRD-PARTY-RUST-DEPENDENCIES.md matches the tracked lockfiles.
+
+=== 11. publication completeness ===
+    the path it names has moved and the exemption is now silently licensing something else.
+
+[31m✗ publication-completeness: 1 finding(s). The public tree claims capabilities it
+  does not deliver. Fix each, or add a reviewed entry to
+  /private/tmp/claude-501/-Users-alex-ab-femcboost/9befc211-b0af-4e74-b96a-8fcafc7d45ba/scratchpad/proofclone/.richos/publication-completeness (an entry that suppresses nothing FAILS,
+  so an exemption cannot outlive its reason).[0m
+
+=== done ===
