@@ -23,6 +23,16 @@ available: cargo 1.95.0 refuses it with "the package requires the Cargo feature 
 `trim-paths`, but that feature is not stabilized in this version of Cargo". That was
 established by running it, not by reading about it.
 
+AND ONE THING THE REMAP CANNOT FIX, which is why the check is on the artifact rather than
+on the flags. `--remap-path-prefix` rewrites the compiler's path metadata; a path a MACRO
+produced as a string literal is program data, and the flag does not touch it. Exactly one
+such path survived the remap: `tauri::generate_context!()` emits
+`context.with_config_parent("<CARGO_MANIFEST_DIR>")` when the `tauri` crate's
+`custom-protocol` feature is off. That feature is now a default of `richos-tauri`
+(`app/src-tauri/Cargo.toml`), so the literal is no longer generated at all. If someone
+removes that default, no flag and no script notices — THIS check does, on the built
+artifact, exactly as it did on 2026-09-04.
+
 WHAT THIS SCRIPT IS FOR. The remap is the fix; this is the proof. A flag that silently
 stops applying — a new dependency shape, a vendored C library baking in `__FILE__`, a
 future toolchain — would put the paths straight back with nothing to notice it. So the
