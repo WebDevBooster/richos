@@ -151,14 +151,27 @@ impl MachineryObserver for TauriMachineryEmitter {
 /// a context watermark or recover from a mid-turn crash without knowing anything about the
 /// wire — richos-core stays IO-agnostic (continuity §3.3 step 4).
 ///
-/// **`engine_dir` MOVES, and that is deliberate.** Until 2026-09-01 it was a `PathBuf` fixed at
-/// boot, which was correct while nothing could put an engine on the machine. `setup_view::run`
-/// now can (`setup.rs`, Option D), so the directory a lease is started in has to be able to
-/// change without a relaunch — the same property `provision_memory` already establishes for
-/// the corpus, and for the same reason: a customer who has just watched something be installed
-/// must not be told to quit and reopen before it works.
+/// **BOTH FIELDS MOVE, and that is deliberate.** Until 2026-09-01 `engine_dir` was a `PathBuf`
+/// fixed at boot, which was correct while nothing could put an engine on the machine.
+/// `setup_view::run` now can (`setup.rs`, Option D), so the directory a lease is started in has
+/// to be able to change without a relaunch — the same property `provision_memory` already
+/// establishes for the corpus, and for the same reason: a customer who has just watched
+/// something be installed must not be told to quit and reopen before it works.
+///
+/// **`claude_bin` JOINED IT ON 2026-09-04, and the reason is the same defect one layer down.**
+/// It was resolved once in `setup` and frozen here. On a fresh install that resolution happens
+/// BEFORE first-run setup, when `~/.local/bin/claude` does not exist yet, so
+/// [`resolve_claude_bin`] falls through to the bare name `claude` and this factory keeps it for
+/// the life of the process. A Finder launch's `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin` — it
+/// does not contain `~/.local/bin` and never will — so every rotation and every crash recovery
+/// in that customer's whole first session would have failed to spawn, on a machine whose
+/// `claude` was installed, working, and being driven successfully by the lease `run_setup`
+/// attached with a freshly resolved path.
+///
+/// That is the same shape as the `lease_ready` snapshot fixed earlier the same day: an answer
+/// cached before the thing it describes existed. `run_setup` writes both cells.
 struct EngineLeaseFactory {
-    claude_bin: PathBuf,
+    claude_bin: Arc<Mutex<PathBuf>>,
     engine_dir: Arc<Mutex<PathBuf>>,
 }
 
@@ -172,7 +185,16 @@ impl LeaseFactory for EngineLeaseFactory {
             // same sentinel the boot uses, and `native.rs::preflight` reports it as exactly
             // what it is: a working directory that does not exist, NOT a missing binary.
             .unwrap_or_else(|_| PathBuf::from("/nonexistent/richos-engine"));
-        let cog = NativeCognition::start(&self.claude_bin, &dir)?;
+        // Same rule for the binary: a poisoned lock falls back to the bare name, which is
+        // exactly what an unresolvable machine gets at boot, and `native.rs::preflight`
+        // leaves a bare name to the spawn where `ENOENT` is unambiguous because the working
+        // directory above has already been cleared.
+        let bin = self
+            .claude_bin
+            .lock()
+            .map(|b| b.clone())
+            .unwrap_or_else(|_| PathBuf::from("claude"));
+        let cog = NativeCognition::start(&bin, &dir)?;
         Ok(Box::new(cog))
     }
 }
@@ -341,6 +363,11 @@ struct AppState {
     /// meant an app that downloaded, verified and installed an engine and then kept starting
     /// `claude` in the directory it had already failed to find.
     engine_dir: Arc<Mutex<PathBuf>>,
+    /// THE SAME CELL THE LEASE FACTORY HOLDS for the `claude` binary, and held here for the
+    /// one reason `engine_dir` is: `run_setup` can put Claude Code on a machine that had
+    /// none, and the factory must start driving the binary that was just installed rather
+    /// than the bare name a pre-install boot fell back to.
+    claude_bin: Arc<Mutex<PathBuf>>,
     /// The engine the BOOT resolved, when it resolved a real one. Held so `setup_view::detect`
     /// asks the same question the boot asked and gets the same answer — including the
     /// repo-ancestor candidates `engine.rs` searches and `setup.rs` deliberately does not
@@ -1128,6 +1155,9 @@ fn main() {
             // re-point it without a relaunch (`setup_view::run`).
             let engine_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(engine.clone()));
             let claude_bin = resolve_claude_bin();
+            // THE CELL THE LEASE FACTORY READS, beside `engine_cell` and for the same reason
+            // (see `EngineLeaseFactory`). A successful first-run install rewrites it.
+            let claude_bin_cell: Arc<Mutex<PathBuf>> = Arc::new(Mutex::new(claude_bin.clone()));
             match NativeCognition::start(&claude_bin, &engine) {
                 Ok(cog) => {
                     // The POSITIVE half, and it is here because its absence is not evidence:
@@ -1162,7 +1192,7 @@ fn main() {
             // if Claude wasn't signed in at launch, wiring the factory means a later sign-in
             // + retry (or a crash recovery attempt) has a real respawn path rather than none.
             spine.set_lease_factory(Box::new(EngineLeaseFactory {
-                claude_bin,
+                claude_bin: Arc::clone(&claude_bin_cell),
                 engine_dir: Arc::clone(&engine_cell),
             }));
 
@@ -1420,6 +1450,7 @@ fn main() {
                 // would let `run_setup` update one and leave the other pointing at the
                 // directory the boot failed to find.
                 engine_dir: engine_cell,
+                claude_bin: claude_bin_cell,
                 boot_engine,
             });
 
@@ -2522,6 +2553,14 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
     if !spine.has_lease() {
         let engine = state.engine_dir.lock().map(|d| d.clone()).unwrap_or_default();
         let claude_bin = resolve_claude_bin();
+        // RE-POINT THE FACTORY TOO, not just this attach. Before 2026-09-04 the re-resolved
+        // path was used here and thrown away, and every later rotation and crash recovery
+        // went on spawning the boot's answer — the bare name `claude`, which a Finder
+        // launch's `PATH` cannot resolve. Written before the attach so a failed attach still
+        // leaves the factory pointing at the binary that was actually installed.
+        if let Ok(mut cell) = state.claude_bin.lock() {
+            *cell = claude_bin.clone();
+        }
         match NativeCognition::start(&claude_bin, &engine) {
             Ok(cog) => {
                 eprintln!(
