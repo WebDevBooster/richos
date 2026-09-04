@@ -226,7 +226,7 @@ upgrade; the only reason to review a diff is curiosity about what changed.
   you edited them** for your domain (then treat as adopter-owned).
 - `reference/**`, `tools/**` — the advanced-tier reference and vendored tooling.
 - `VERSION`, `VERSIONING.md`, `CHANGELOG.md`, `UPGRADING.md`, `WALKTHROUGH.md`,
-  `ONBOARDING-RUNBOOK.md`, `LICENSE-TODO.md`, and the reference docs under
+  `ONBOARDING-RUNBOOK.md`, `LICENSING.md`, and the reference docs under
   `docs/` (`cost-governance.md`, `failures-playbook.md`, `orchestrator-memory.md`,
   `ci-portability-notes.md`).
 - `.github/workflows/engine-self-verify.yml` and `scripts/ci-verify.sh` — take

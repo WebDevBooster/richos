@@ -360,7 +360,7 @@ def derive_declarations(tree):
 # do". Counting the first as the second is how a capability comes to look
 # documented while being undiscoverable, which is failure #1 wearing a
 # reassuring green tick.
-NOT_ONBOARDING = {"CHANGELOG.md", "LICENSE", "LICENSE.md", "LICENSE-TODO.md"}
+NOT_ONBOARDING = {"CHANGELOG.md", "LICENSE", "LICENSE.md", "LICENSING.md"}
 
 
 def onboarding_set(tree):
