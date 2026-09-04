@@ -75,6 +75,28 @@ customer downloads it from the GitHub release (`ceo-decisions.md` §19: the engi
 bundled in the app, it ships as a release asset). It is not inside RichOS.app, but it lands on
 the same stranger's machine, so it is in scope.
 
+> **AMENDED 2026-09-04, LATER THE SAME DAY — "all of `engine/`" was itself the defect.**
+> This pass took the packaging rule as given and swept the set it produced. The rule was
+> wrong: copying the working tree put every gitignored file in `engine/` into the download —
+> measured on main, **119 of them**, including fifteen
+> `.claude/state/agent-definitions-*.snapshot` files each carrying a **session UUID**, a
+> generation timestamp and the operator's absolute home path, plus 57 `scripts/hooks/*.sha256`
+> sidecars and `__pycache__` bytecode. Same category as Finding 1 below — an operator's home
+> directory reaching a stranger — arriving through a different door into a different artifact.
+> It also moved the digest that gets compiled into the app, so a new session on the build
+> machine would have shown up on a customer's Mac as a `DigestMismatch`.
+>
+> **Nothing published carried it: `WebDevBooster/richos` has zero releases and zero tags, so
+> this is a defect and not an incident.** The script now builds from `git ls-files`, refuses
+> outside a checkout rather than falling back, and reads the finished archive back through
+> `app/scripts/verify-engine-asset-members.sh`, which refuses any member git does not track.
+> `sweep.sh` has been changed to derive Set 3 the same way, so the numbers below (436 files)
+> describe the OLD set; the tracked set is 440 files plus the two packaging adds.
+>
+> **The lesson for this document, not just for that script:** the sweep asked *what is in the
+> set?* and never asked *is the set right?* `make-engine-asset.test.sh` L14–L18 now ask the
+> second question every run.
+
 ## Result, per category, per set
 
 An empty cell means searched and nothing found.

@@ -21,9 +21,18 @@
 #      code that survives comment-stripping and `#[cfg(test)]` removal can reach a release
 #      binary, which is what `rust-shipped-strings.py` next to this file computes.
 #
-#   3. ENGINE ASSET — `app/scripts/make-engine-asset.sh` archives ALL of `engine/`, with no
-#      exclusions, and the customer downloads it from the GitHub release. It is not inside
-#      RichOS.app, but it lands on the same stranger's machine, so it is in scope.
+#   3. ENGINE ASSET — what `app/scripts/make-engine-asset.sh` packages, which the customer
+#      downloads from the GitHub release. It is not inside RichOS.app, but it lands on the
+#      same stranger's machine, so it is in scope.
+#
+#      THE RULE CHANGED ON 2026-09-04, AND THIS FOLLOWED IT. The script used to archive ALL
+#      of `engine/` with no exclusions, and that was a finding in its own right: on main, 119
+#      gitignored files went into the download, among them fifteen
+#      `.claude/state/agent-definitions-*.snapshot` carrying a session UUID and the operator's
+#      absolute home path. The script now builds from `git ls-files`, so the shipped set is
+#      the TRACKED set and this derives it the same way. Sweeping `find engine -type f` would
+#      now report on files no customer ever receives, and a privacy sweep that describes the
+#      wrong set is a sweep whose empty cells mean nothing.
 #
 # Exit status is always 0: this reports, it does not gate. The gate on the built bundle is
 # `app/scripts/lib/no_host_paths.py`, run by `package-app.sh` before it signs.
@@ -76,9 +85,16 @@ echo "  lines after stripping comments and #[cfg(test)] : $(wc -l < "$TMP/rust-s
 # ---------------------------------------------------------------------------
 # Set 3 — the engine release asset
 # ---------------------------------------------------------------------------
-find engine -type f | LC_ALL=C sort > "$TMP/engine.txt"
+# Derived the way the packaging script derives it: `git ls-files`, not the working tree. The
+# LICENSE and third-party notices packaging copies in are tracked files of this repository and
+# are covered as part of the repository's own text, so they are not added here twice.
+git -C "$REPO" ls-files engine | LC_ALL=C sort > "$TMP/engine.txt"
 rule "SET 3 — engine release asset"
-echo "  files : $(wc -l < "$TMP/engine.txt" | tr -d ' ')   (all of engine/, no exclusions)"
+if [ ! -s "$TMP/engine.txt" ]; then
+  echo "  REFUSING: git tracks nothing under engine/ — an empty set would report an empty sweep." >&2
+  exit 2
+fi
+echo "  files : $(wc -l < "$TMP/engine.txt" | tr -d ' ')   (what git tracks under engine/, which is what ships)"
 
 # ---------------------------------------------------------------------------
 # The categories
