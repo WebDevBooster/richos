@@ -74,8 +74,8 @@ adapter uses today. This is not a product change.**
 With `ANTHROPIC_API_KEY` removed from the environment, the binary reported, unprompted:
 
 - `system/init` → `"apiKeySource": "none"` (`raw/run3-tool-permission-manual.jsonl:1`)
-- control `initialize` → `"account": {"email": "abbooster@gmail.com", "organization":
-  "abbooster@gmail.com's Organization", "subscriptionType": "Claude Max", "apiProvider":
+- control `initialize` → `"account": {"email": "redacted@example.invalid", "organization":
+  "redacted@example.invalid's Organization", "subscriptionType": "Claude Max", "apiProvider":
   "firstParty"}` (`raw/run9-rust-driven.jsonl`, the `req_init` response)
 
 and then completed every run of real turns below. `acp.rs`'s header claim — *"Auth = the
@@ -242,3 +242,25 @@ from the `modelUsage` map, so its stderr shows `ctxWindow=200000` — that is
 committed raw JSONL has both, and the session model `claude-sonnet-5` reports
 **`contextWindow: 1000000`** (`run9:31`). The table above uses the correct figure. The
 probe's display was left as it ran rather than tidied after the fact.
+
+---
+
+## Redaction notice, 2026-09-04
+
+The account email in these captures was replaced with `redacted@example.invalid` on 2026-09-04,
+after the repository went public and a post-publication audit found it in nine tracked files.
+**The captures are otherwise byte-unchanged** and every JSONL line still parses.
+
+**What was replaced:** the `email` field, and the same address where it appears inside
+`"organization": "…'s Organization"`. Eighteen occurrences across nine files.
+
+**What was deliberately NOT replaced:** `subscriptionType`, which names a plan tier rather than a
+person, and every other field of the protocol these captures exist to document. A capture edited
+beyond the one identifier stops being evidence of what the protocol actually emits, which is the
+only reason these files are committed.
+
+**What this does not do, stated plainly:** the address remains in the git history. Removing it from
+there would mean rewriting a public repository's history — invalidating every commit SHA cited by
+the audits, verification directories and TODO rows, over an address that already appears in public
+commit metadata. The CEO weighed that and chose redaction of the current tree
+(`wiki/ceo-decisions.md`, post-publication audit follow-up).
