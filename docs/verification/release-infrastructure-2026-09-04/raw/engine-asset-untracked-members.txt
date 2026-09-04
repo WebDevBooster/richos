@@ -1,0 +1,185 @@
+=== The engine asset was built from the operator's disk, 2026-09-04 (defect 3) ===
+
+Measured in the worktree /Users/alex/ab/richos-wt/zach-opus-p15, branched from main at
+370f49e. A fresh worktree carries none of the ignored state a working checkout accumulates,
+which is why L12 and L13 passed where they were written and failed once merged. So the state
+was REPRODUCED first, by planting the same classes main carries:
+
+  205 gitignored files planted under engine/
+      4 x .claude/state/agent-definitions-*.snapshot  (session UUID, generated timestamp,
+                                                       absolute engine path)
+      1 x .claude/state/generic-agent-dispatches.log
+    198 x *.sha256 sidecars under scripts/, scripts/hooks/, scripts/lib/
+      2 x __pycache__/*.pyc
+
+  git status --porcelain engine            -> empty (the tree is CLEAN; none of this is a
+                                              modification, which is the whole problem)
+  git status --porcelain --ignored engine  -> 201 entries
+
+
+--- 1. WHAT THE OLD SCRIPT SHIPPED -------------------------------------------------------
+
+  bash app/scripts/make-engine-asset.sh --out /tmp/p15-before     exit 0
+
+  tar -tzf richos-engine-1.0.0.tar.gz | wc -l                     739 entries
+  ...matching '.claude/state/|\.sha256$|__pycache__'              208
+
+  tar -xzOf richos-engine-1.0.0.tar.gz \
+      engine/.claude/state/agent-definitions-02199db8.snapshot | head -2
+
+    # agent-definition snapshot - written by scripts/hooks/snapshot-agent-definitions.sh
+    # session=02199db8-8e71-46f3-92d9-925de910870e generated=2026-08-28T22:21:16Z root=/Users/alex/ab/richos-wt/zach-opus-p15/engine
+
+  That is the file a stranger downloads. It names a session and an operator's home directory.
+
+
+--- 2. THE DIGEST MOVED, WHICH IS WHAT L12/L13 SAW --------------------------------------
+
+  One build, then ONE new session snapshot file, then a second build. Nothing else changed:
+
+    before the new snapshot   4fcb8b46f24fba1faa5175097c0e67d7554248edf7c0523e91fb603297d4d69a
+    after  the new snapshot   e30083c539f70c05b60e565dbda46cbd67504ff107b79da3db6afe327cbd2548
+
+  The pin compiled into the app was a property of when the build ran. On a customer's Mac
+  that surfaces as a DigestMismatch.
+
+
+--- 3. THE BLIND SPOT: DETERMINISM CANNOT SEE THIS ---------------------------------------
+
+  With all 205 ignored files planted and then LEFT ALONE — no session start between builds —
+  the suite as it stood reported:
+
+    === make-engine-asset tests: all 13 passed ===
+
+  ...over an archive with 208 untracked members in it. An ignored file that never changes
+  passes a determinism check forever. This is the measurement L14-L18 exist for.
+
+
+--- 4. THE NEW CHECK, RUN RED FIRST ------------------------------------------------------
+
+  Against the archive the OLD script had just produced, with the plant in place:
+
+    bash app/scripts/verify-engine-asset-members.sh \
+         /tmp/p15-before/richos-engine-1.0.0.tar.gz . \
+         LICENSE=LICENSE THIRD-PARTY-NOTICES.md=docs/legal/THIRD-PARTY-NOTICES.md
+
+    EXIT=1
+    REFUSING - the archive carries 205 member(s) that git does not track. This is the
+               file a stranger downloads, so an untracked member here is an operator's own
+               disk being published. Every one of them, by name:
+                 engine/.claude/state/agent-definitions-02199db8.snapshot
+                 engine/.claude/state/agent-definitions-1ea2e393.snapshot
+                 engine/.claude/state/agent-definitions-55c79b81.snapshot
+                 engine/.claude/state/agent-definitions-latest.snapshot
+                 engine/.claude/state/generic-agent-dispatches.log
+                 ... 205 lines in total
+
+  (205 named members against 208 tar entries: the other three are the directory entries
+  .claude/state/, scripts/__pycache__/ and scripts/lib/__pycache__/, which the check counts
+  as directories rather than as members.)
+
+
+--- 5. AFTER THE FIX, SAME PLANT STILL ON DISK -------------------------------------------
+
+  bash app/scripts/make-engine-asset.sh --out /tmp/p15-after --check   exit 0
+
+    bytes : 2021895
+    sha256: bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96
+    --check second build, umask 077 / TZ=UTC / LC_ALL=C / other TMPDIR: IDENTICAL
+
+    members             442 file(s)/symlink(s) in 89 director(ies)
+    tracked by git      440, all present, none extra
+    packaged in         LICENSE=LICENSE THIRD-PARTY-NOTICES.md=docs/legal/THIRD-PARTY-NOTICES.md,
+                        byte-identical to their tracked sources
+    untracked members   0
+
+  THE PIN DID NOT CHANGE. bdb82559... at 2021895 bytes is byte for byte the archive the
+  independent clone in raw/engine-asset-determinism.txt produced — because a fresh clone
+  never had the ignored files in the first place.
+
+  Members, by the classes that leaked (tar -tzf | grep -c):
+
+    .claude/state/    0
+    *.sha256          0
+    __pycache__       0
+    *.pyc             0
+    total entries     531   (442 members + 89 directories)
+
+  And the case that actually failed on main — a session start between two builds:
+
+    build, then mint agent-definitions-aaaaaaaa.snapshot AND rewrite install.sh.sha256,
+    then build again:
+
+      bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96   first
+      bdb82559bce916dc8945142a1f85d02a2d831609fc91bf10c24d1ac280289d96   second
+
+
+--- 6. MUTATION TESTING: every new case proven able to go red ----------------------------
+
+  A negative case that cannot fail proves nothing, so each was run against a deliberate
+  mutation of the thing it guards.
+
+  (a) build_into restored to `tar -cf - .` (the working-tree copy):
+
+        FAIL  L3  a complete fixture builds an archive
+                  engine/scripts/hooks/guard-demo.sh.sha256
+        FAIL  L12 the real archive builds deterministically and carries the canonical LICENSE
+        FAIL  L14 every member of the real archive is a file git tracks
+                  207 untracked member(s), starting with:
+                  .claude/state/agent-definitions-02199db8.snapshot ...
+        FAIL  L15 gitignored files in the source engine do not reach the archive
+        PASS  L13 the digest survives a different umask and a different timezone
+        === make-engine-asset tests: 4 FAILED, 14 passed ===
+
+      L13 PASSING in that run is the point of the whole exercise: the determinism case is
+      green over an archive with 207 untracked members in it.
+
+  (b) the members check's untracked-member refusal disabled (`if false && ...`),
+      the "no members check" refusal deleted, and the "not a git checkout" refusal
+      replaced by a fallback:
+
+        FAIL  L16 an archive carrying an untracked member is REFUSED, and the member is named
+                  exit 0:   untracked members   0
+        FAIL  L17 a missing members check REFUSES the build rather than skipping the check
+        FAIL  L18 building outside a git checkout is REFUSED, not silently fallen back from
+                  exit 1: REFUSING - the archive could not be built
+        === make-engine-asset tests: 3 FAILED, 15 passed ===
+
+      L18's mutated run is worth reading twice. Without the named refusal the build still
+      failed, but with "the archive could not be built" — an unnamed error arrived at by
+      luck, because `git ls-files` returned nothing outside a checkout. That is why L18
+      requires the NAMED refusal and not merely a non-zero exit.
+
+  Both mutations were reverted from copies taken before them, and the suite returned to
+  18/18 on the restored files.
+
+
+--- 7. AND THE STATE OF THE PUBLISHED RELEASES -------------------------------------------
+
+  gh api repos/WebDevBooster/richos --jq '"public=\(.private|not) created=\(.created_at)"'
+    public=true created=2026-08-28T09:40:07Z
+
+  gh api repos/WebDevBooster/richos/releases     []
+  gh api repos/WebDevBooster/richos/tags         (empty)
+
+  Zero releases, zero tags. NOTHING WAS EVER PUBLISHED CARRYING THIS. It is a defect, and
+  not an incident.
+
+
+--- 8. THE SUITES, CLEAN TREE, AFTER THE FIX ---------------------------------------------
+
+  WITH the 205 planted files still on disk:
+
+    bash app/scripts/make-engine-asset.test.sh   === all 18 passed ===
+    bash app/scripts/run-tests.sh                === app/scripts: all 8 suites passed - 159 checks ===
+
+  Then the plant was removed (`git clean -X -d -f engine`; ignored files only, and the
+  worktree carried none of its own before it was planted) and both were run again:
+
+    bash app/scripts/make-engine-asset.test.sh   === all 18 passed ===
+    bash app/scripts/run-tests.sh                === app/scripts: all 8 suites passed - 161 checks ===
+
+  The two extra checks are frontend-payload's P9/P10, which read a staged `app/ui-dist` only
+  if one exists on the machine and print a skip line otherwise. One had been built in
+  between. Nothing to do with this change; recorded because an unexplained count is worth
+  less than an explained one.
