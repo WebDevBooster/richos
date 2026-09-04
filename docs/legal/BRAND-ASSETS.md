@@ -52,6 +52,9 @@ here, and third-party work under its own terms.
 | `app/src-tauri/icons/128x128.png` | Generated icon |
 | `app/src-tauri/icons/128x128@2x.png` | Generated icon |
 | `app/ui/assets/rich-hand.png` | The Rich Hand avatar artwork |
+| `tools/richos-extension/icons/icon16.png` | The RichOS mark, browser-extension icon |
+| `tools/richos-extension/icons/icon48.png` | The RichOS mark, browser-extension icon |
+| `tools/richos-extension/icons/icon128.png` | The RichOS mark, browser-extension icon |
 
 `app/icon-source/README.md` is **not** excluded. It is documentation about how
 the icons are produced and it stays under the AGPL like every other document
