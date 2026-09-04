@@ -20,6 +20,16 @@ Using RichOS is as easy as talking to a person.
 
 ---
 
+## Project status
+
+**RichOS is an early public source snapshot. There is no downloadable release yet.**
+
+The desktop application and its release pipeline are under active development. You can read the
+source, but you cannot install RichOS from this page today. When there is something to download,
+it will appear here.
+
+---
+
 
 ## License
 
