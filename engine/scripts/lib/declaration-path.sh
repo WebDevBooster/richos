@@ -99,7 +99,7 @@ _DECLARATION_PATH_SH_SOURCED=1
 # The declarations that RESOLVE through this file, by stem (the name without
 # its leading dot). A declaration adopting the directory adds its stem here in
 # the same edit that makes it call decl_find.
-DECL_ADOPTED_STEMS="publication-boundary publication-completeness row-currency"
+DECL_ADOPTED_STEMS="publication-boundary publication-completeness row-currency vendored-material"
 
 # The declarations this engine ships that do NOT resolve from the directory.
 # One of them appearing in `.richos/` is a contract somebody believes is live

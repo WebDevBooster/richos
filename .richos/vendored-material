@@ -1,0 +1,188 @@
+# WHERE EVERY PIECE OF OTHER PEOPLE'S WORK IN THIS TREE CAME FROM.
+#
+# The presence of this file is the declaration. It switches on the RichOS
+# engine's guard-vendoring-commits.sh, which refuses a commit that adds files
+# under a redistributable path with no entry here; and it is read by
+# guard-dialect.sh, which leaves third-party bytes alone because of it. Delete
+# it and both stand down — which is a visible, reviewable diff, and is meant
+# to be.
+#
+# WHY IT EXISTS
+# -------------
+# On 2026-09-04 a publication audit asked a question nothing in this repository
+# could answer: for each of the 27 skills under `engine/skills/`, did RichOS
+# write it? Fifteen had not been written by RichOS. Exactly ONE of the fifteen
+# had ever been written down as vendored, and it was written down in a COMMIT
+# MESSAGE. Establishing the other fourteen took a full agent doing byte
+# comparisons against upstream repositories, and two of them came back "high
+# confidence" rather than certain, because by then the evidence had decayed.
+#
+#   THE FACT WAS KNOWN AT THE MOMENT OF VENDORING, BY THE PERSON DOING IT, AND
+#   IT WAS NOT WRITTEN DOWN. EVERYTHING AFTER THAT WAS RECONSTRUCTION.
+#
+# The same missing fact caused a second failure, in a completely different
+# mechanism. On 2026-08-30, commit 06f4a8221a61, this project's dialect sweep
+# Americanized FOURTEEN lines across TWO vendored, MIT-licensed skills — four in
+# `engine/skills/copywriting/references/natural-transitions.md` (Corey Haines's
+# prose) and ten in `engine/skills/landing-page-taste/SKILL.md`. Neither is ours
+# to edit. guard-dialect.sh was working exactly as designed; it simply had no way
+# to know those files were somebody else's, because nothing in this repository
+# knew.
+#
+# And the damage was a ONE-WAY DOOR, which is the sharper half. The same guard
+# REFUSES a write carrying a non-American word, so re-vendoring either file
+# verbatim from upstream was also blocked — and so was the attempt to QUOTE the
+# two spellings into a notice explaining the difference, which was refused twice
+# before somebody phrased the prose around it. The guard caused the divergence,
+# forbade the repair, and forbade documenting it.
+#
+# So the fact stops being something a person remembers. It is data, here, in
+# one place, and two mechanisms read it.
+#
+# WHY A REGISTRY AND NOT A DOCUMENT
+# ---------------------------------
+# `docs/legal/THIRD-PARTY-NOTICES.md` is the human-facing inventory and stays
+# exactly that: prose, tables, the argument for each row. It is the right shape
+# for a reader deciding what they may reuse, and the wrong shape for a guard —
+# a guard that parsed a markdown table would be reading a document written for
+# a person, and the first reformatting would silently turn enforcement off.
+#
+# A ledger a human is trusted to update becomes the next thing an audit
+# reconstructs. So this one is not maintained by trust: a commit that adds
+# material under a redistributable path with no entry here is REFUSED, and the
+# refusal names the path and the line to add.
+#
+# WHAT THIS FILE DOES NOT DO
+# --------------------------
+# It never GUESSES provenance. It records what somebody wrote down. The guard
+# asks one question and only one — "was this fact recorded?" — because a guard
+# that infers origin is a guard that is confidently wrong some of the time, and
+# a confidently wrong provenance claim is worse than an absent one.
+#
+# It is also not a license-compliance checker. Whether the bundled copy carries
+# its upstream LICENSE file, and whether a modified copy says how it differs,
+# are questions `docs/legal/THIRD-PARTY-NOTICES.md` answers and a human decides.
+
+# ---------------------------------------------------------------------------
+# REDISTRIBUTABLE_PATHS — the paths this contract governs
+# ---------------------------------------------------------------------------
+# Space-separated, repository-root-relative directory prefixes that hold
+# material RichOS REDISTRIBUTES: bytes that leave this repository inside a
+# published artifact and that could therefore be somebody else's work under
+# somebody else's terms. A commit adding a file under one of these needs an
+# entry below.
+#
+# DERIVED FROM WHERE THIRD-PARTY MATERIAL ACTUALLY LIVES, not from a guess at
+# where it might. Every path named here holds third-party work today, evidenced
+# in `docs/legal/THIRD-PARTY-NOTICES.md` and
+# `docs/legal/SKILL-PROVENANCE-2026-09-04.md`:
+#
+#   engine/skills    15 of 27 skills are third-party (the whole 2026-09-04
+#                    finding). This is the surface the defect happened on.
+#   engine/tools     `gpt-exporter`, vendored from WebDevBooster/gpt-exporter.
+#   app/ui/fonts     four font families under the SIL Open Font License,
+#                    redistributed inside the application bundle.
+#
+# CONSIDERED AND DELIBERATELY EXCLUDED, because a guard that fires where no
+# third-party material has ever lived is the cries-wolf failure that gets a
+# guard switched off within a day:
+#
+#   app/crates, app/src-tauri   Rust dependencies arrive through Cargo and are
+#                    inventoried by app/scripts/dependency-license-inventory.sh
+#                    from the committed lockfiles. Nothing is vendored by hand.
+#   app/ui/assets    brand material, governed by docs/legal/BRAND-ASSETS.md.
+#   tools/           four RichOS-authored components. No third-party work has
+#                    ever been vendored there. WIDEN THIS LIST the day that
+#                    changes — it is one edit, in the file the vendoring
+#                    happens next to.
+#   engine/scripts, engine/reference, docs/   engine source and record. Not a
+#                    redistribution surface for other people's work.
+REDISTRIBUTABLE_PATHS="engine/skills engine/tools app/ui/fonts"
+
+# ---------------------------------------------------------------------------
+# THE ENTRIES
+# ---------------------------------------------------------------------------
+# TAB-SEPARATED, one line per thing, ten columns, in this order:
+#
+#   1  path        repository-root-relative path this entry covers. A directory
+#                  covers everything beneath it. Several paths for ONE thing
+#                  (a font family is two files and a license) are separated by
+#                  COMMAS — one line still describes one thing.
+#   2  origin      `third-party` or `richos`. RichOS-authored material under a
+#                  redistributable path is recorded too, and that is not
+#                  bookkeeping: without it, writing a new skill of our own
+#                  would be refused by a guard that cannot tell "not recorded"
+#                  from "not ours". Recording authorship IS the fact.
+#   3  license     SPDX identifier. RichOS-authored material is AGPL-3.0-only,
+#                  the license of the repository around it.
+#   4  holder      copyright holder, as the upstream states it.
+#   5  upstream    where it came from. `-` for RichOS-authored.
+#   6  revision    the pinned revision, or the version the copy declares.
+#                  `unpinned` when neither was recorded at acquisition — an
+#                  honest gap, not a dash that could be read as "n/a".
+#   7  arrived     ISO date the bytes first landed in a RichOS repository, with
+#                  the commit that did it. `history-floor:` marks a date that
+#                  is only the oldest surviving commit rather than the real
+#                  arrival — richos history was rewritten on 2026-08-29 and
+#                  cannot answer for anything before 2026-08-20.
+#   8  confidence  `certain`, `high`, or `medium-high`. NEVER rounded up. The
+#                  provenance audit qualified two verdicts and both keep their
+#                  qualification here; an entry that reads `certain` means a
+#                  byte comparison against a named revision settled it.
+#   9  modified    `verbatim`, or what differs from upstream. Apache-2.0 4(b)
+#                  makes this an obligation for one row; everywhere else it is
+#                  the thing that stops a future byte comparison looking like a
+#                  mystery.
+#  10  evidence    where the proof lives.
+#
+# WHY TAB-SEPARATED. One line is one entry, so a diff shows a whole fact
+# changing rather than a key moving; `cut -f1` answers the guard's only
+# question with no parser and no dependency; a missing field is an empty column
+# a reader can SEE, where a missing key in a block format is invisible; and the
+# engine already keeps data this way in scripts/lib/dialect-en-US.dict.
+#
+# Comment lines and blank lines are ignored. Fields must not contain tabs.
+
+# --- engine/skills — third-party, license file present before 2026-09-04 ----
+engine/skills/frontend-design	third-party	Apache-2.0	Anthropic	anthropics/skills, skills/frontend-design	00756142ab04c82a447693cf373c4e0c554d1005	2026-03-28 femcboost 2d7355b51	certain	one word absent from SKILL.md line 15; see engine/skills/frontend-design/MODIFICATIONS.md	docs/legal/THIRD-PARTY-NOTICES.md
+engine/skills/android-emulator-qa	third-party	MIT	OpenAI	openai/plugins, plugins/test-android-apps/skills/android-emulator-qa	42e54808e826d2002f73d85d6538c144dd805059 (plugin v0.1.2)	2026-04-15 femcboost a40015065	certain	verbatim	docs/legal/THIRD-PARTY-NOTICES.md
+engine/skills/landing-page-taste	third-party	MIT	2026 Leonxlnx	Leonxlnx/taste-skill, skills/taste-skill	72e299530e2eb31ed8da06181bc19f6c18a00821	2026-08-23 femcboost f3fad6fb5	certain	a scope pin added at the top of SKILL.md; and SKILL.md has TEN British spellings Americanized by this project's own dialect sweep at 06f4a8221a61 (2026-08-30) - the second of the two vendored files that sweep rewrote, alongside copywriting's natural-transitions.md	docs/legal/THIRD-PARTY-NOTICES.md
+engine/skills/landing-page-redesign	third-party	MIT	2026 Leonxlnx	Leonxlnx/taste-skill, skills/redesign-skill	72e299530e2eb31ed8da06181bc19f6c18a00821	2026-08-23 femcboost f3fad6fb5	certain	a scope pin added at the top of SKILL.md	docs/legal/THIRD-PARTY-NOTICES.md
+engine/skills/marketing-strategy-pmm	third-party	MIT	2025 Alireza Rezvani	alirezarezvani/claude-skills, marketing-skill/skills/marketing-strategy-pmm	version 1.0.0 (frontmatter, updated 2025-10-20)	2026-03-28 femcboost 2d7355b51	high	unknown — identified by declared version, not by byte comparison	docs/legal/SKILL-PROVENANCE-2026-09-04.md — upstream re-badges other authors' work, so the attribution rests on dates rather than on bytes; it survived re-examination on 2026-09-04
+engine/skills/resend	third-party	MIT	2026 Resend	resend/resend-skills, skills/resend	version 3.5.0 (frontmatter)	2026-03-28 femcboost 2d7355b51	certain	unknown — identified by declared version; the skill's own frontmatter declares its source	docs/legal/THIRD-PARTY-NOTICES.md
+
+# --- engine/skills — third-party, established by the 2026-09-04 audit -------
+engine/skills/copywriting	third-party	MIT	2025 Corey Haines	coreyhaines31/marketingskills, skills/copywriting	68f5eaf64e85	2026-03-28 femcboost 2d7355b51	certain	references/natural-transitions.md has four British spellings Americanized by this project's own dialect sweep on 2026-08-30 — the incident this registry exists to stop recurring	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/customer-research	third-party	MIT	2025 Corey Haines	coreyhaines31/marketingskills, skills/customer-research	cc1a9c106b10	2026-03-28 femcboost 2d7355b51	certain	eight lines re-indented from three spaces to four; word for word identical otherwise	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/marketing-psychology	third-party	MIT	2025 Corey Haines	coreyhaines31/marketingskills, skills/marketing-psychology	68f5eaf64e85	2026-03-28 femcboost 2d7355b51	certain	verbatim — byte-identical, 21739 bytes	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/product-marketing-context	third-party	MIT	2025 Corey Haines	coreyhaines31/marketingskills, skills/product-marketing-context	68f5eaf64e85	2026-03-28 femcboost 2d7355b51	certain	verbatim — byte-identical, 7561 bytes; upstream has since renamed the skill to product-marketing	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/playwright-cli	third-party	Apache-2.0	Microsoft	microsoft/playwright-cli, skills/playwright-cli	unpinned — matched against upstream's 2026-02 revision	2026-03-27 femcboost cf43ddd10	certain	a "Headed browser requirement" section added in femcboost 88ee99d4c (2026-04-01) that encodes RichOS doctrine, not Playwright's — Apache-2.0 section 4(b) applies	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/playwright-e2e-testing	third-party	MIT	2025 Claude MPM Contributors	bobmatnyc/claude-mpm-skills, toolchains/javascript/testing/playwright	unpinned	2026-03-27 femcboost cf43ddd10	certain	four lines — renamed from playwright to playwright-e2e-testing, two frontmatter keys dropped, one code line changed	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/svelte-code-writer	third-party	MIT	2026 Svelte Contributors	sveltejs/ai-tools, plugins/claude/svelte/skills/svelte-code-writer	unpinned	2026-03-26 femcboost f07b1aa52	certain	heading capitalization, and one added H1	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/svelte-core-bestpractices	third-party	MIT	2026 Svelte Contributors	sveltejs/ai-tools, plugins/claude/svelte/skills/svelte-core-bestpractices	0e55ee792d3d	2026-03-26 femcboost f07b1aa52	certain	verbatim — byte-identical, 7195 bytes; reference filenames preserve upstream's older spelling	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/use-railway	third-party	MIT	2026 Railway Corporation	railwayapp/railway-skills, plugins/railway/skills/use-railway	unpinned	2026-03-27 femcboost 68e03efa9	certain	substantially extended in-house; upstream additions merged back in femcboost 16b9bc310 (2026-07-14) as a superset, 32 lines of roughly 600 now differ	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+
+# --- engine/skills — RichOS-authored ---------------------------------------
+engine/skills/android-native-dev	richos	AGPL-3.0-only	RichOS	-	-	2026-04-11 femcboost ba305f55b	high	ship-scrubbed at export: product-name literals mapped to ${APP_ROOT} and orchestration.config	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/appium-vision-mobile-testing	richos	AGPL-3.0-only	RichOS	-	-	2026-04-11 femcboost ba305f55b	high	ship-scrubbed at export	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/bootstrap-interview	richos	AGPL-3.0-only	RichOS	-	-	2026-07-14 orchestration-kit 172f8ee	high	verbatim — written in the kit repository, never in the product repository	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/health-data-sync-contracts	richos	AGPL-3.0-only	RichOS	-	-	2026-04-11 femcboost ba305f55b	high	genericized at export — carried source-product role vocabulary	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/ios-native-dev	richos	AGPL-3.0-only	RichOS	-	-	2026-04-11 femcboost ba305f55b	high	ship-scrubbed at export	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/live-app-assessment	richos	AGPL-3.0-only	RichOS	-	-	2026-03-31 femcboost 0e400875d	high	genericized at export — carried source-product role vocabulary	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/mobile-qa-reporting-and-device-matrix	richos	AGPL-3.0-only	RichOS	-	-	2026-04-11 femcboost ba305f55b	high	ship-scrubbed at export — one product-name literal	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/mobile-release-and-build-ops	richos	AGPL-3.0-only	RichOS	-	-	2026-04-11 femcboost ba305f55b	high	its product-specific Repo Rules section was collapsed into an adopter stub at export	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/native-client-visual-qa	richos	AGPL-3.0-only	RichOS	-	-	2026-04-24 femcboost 27606ad51	high	verbatim	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/rich-lander	richos	AGPL-3.0-only	RichOS	-	-	2026-04-12 femcboost 99a9ccc76	high	verbatim	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/ui-ux-design	richos	AGPL-3.0-only	RichOS	-	-	2026-03-29 femcboost 665f8969f	medium-high	verbatim	docs/legal/SKILL-PROVENANCE-2026-09-04.md — THE ONE ROW NOT CLOSED BY A BYTE COMPARISON. Its own comment block says a sibling project instantiated "this exact same base skill", a sentence consistent with both an external base and a RichOS-authored scaffold. No external base was found and the balance favors RichOS authorship, but the doubt is real and is carried here rather than rounded up
+engine/skills/using-git-worktrees	richos	AGPL-3.0-only	RichOS	-	-	2026-07-07 femcboost 15c11e86e	high	verbatim	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+engine/skills/README.md	richos	AGPL-3.0-only	RichOS	-	-	2026-08-20 history-floor: richos 2e82948	high	verbatim — the engine's own index of the directory	docs/legal/SKILL-PROVENANCE-2026-09-04.md
+
+# --- engine/tools ----------------------------------------------------------
+engine/tools/gpt-exporter	third-party	MIT	2026 Alex Booster	WebDevBooster/gpt-exporter	unpinned	2026-08-20 history-floor: richos 2e82948	certain	unknown — vendored copy, no pinned revision recorded at acquisition	docs/legal/THIRD-PARTY-NOTICES.md — the repository owner's own separately published project, listed because a reader deciding what they may reuse needs the same answer either way
+
+# --- app/ui/fonts ----------------------------------------------------------
+app/ui/fonts/Inter-Variable.woff2,app/ui/fonts/Inter-Italic.woff2,app/ui/fonts/LICENSE-Inter.txt	third-party	OFL-1.1	2016 The Inter Project Authors	https://github.com/rsms/inter	unpinned	2026-09-01 richos f4b6678	certain	verbatim	docs/legal/THIRD-PARTY-NOTICES.md
+app/ui/fonts/Newsreader-Regular.woff2,app/ui/fonts/Newsreader-Italic.woff2,app/ui/fonts/LICENSE-Newsreader.txt	third-party	OFL-1.1	2020 The Newsreader Project Authors	http://github.com/productiontype/Newsreader	unpinned	2026-09-01 richos 3d22efb	certain	verbatim	docs/legal/THIRD-PARTY-NOTICES.md
+app/ui/fonts/NotoSansMath-subset.woff2,app/ui/fonts/LICENSE-NotoSansMath.txt	third-party	OFL-1.1	2022 The Noto Project Authors	https://github.com/notofonts/math	unpinned	2026-09-01 richos f4b6678	certain	subset — permitted by the OFL; the reserved-font-name clause is not engaged because the subset keeps the original name	docs/legal/THIRD-PARTY-NOTICES.md
+app/ui/fonts/NotoSansSymbols-subset.woff2,app/ui/fonts/NotoSansSymbols2-subset.woff2,app/ui/fonts/LICENSE-NotoSansSymbols.txt	third-party	OFL-1.1	2022 The Noto Project Authors	https://github.com/notofonts/symbols	unpinned	2026-09-01 richos f4b6678	certain	subset — permitted by the OFL; the reserved-font-name clause is not engaged because the subset keeps the original name	docs/legal/THIRD-PARTY-NOTICES.md
+app/ui/fonts/fonts.css	richos	AGPL-3.0-only	RichOS	-	-	2026-09-01 richos f4b6678	high	verbatim — the @font-face declarations that load the families above	docs/legal/THIRD-PARTY-NOTICES.md
