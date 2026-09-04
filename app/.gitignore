@@ -1,6 +1,25 @@
 # Rust build output
 target/
-Cargo.lock
+
+# `Cargo.lock` IS TRACKED — do not add an ignore rule for it.
+#
+# This file ignored every lockfile until 2026-09-04, which meant nobody could
+# reproduce a build of RichOS: a fresh clone resolved 108 packages in the app
+# workspace and 500 in the Tauri workspace to whatever compatible versions
+# happened to be current that day. That is a nuisance for a library and a
+# defect for an application, because an application is the thing whose exact
+# dependency graph gets shipped.
+#
+# It also blocked the legal work. `docs/legal/THIRD-PARTY-NOTICES.md` makes a
+# per-package dependency-license inventory a GATE on distributing a binary,
+# and an inventory keyed to versions nobody can reproduce is not evidence — it
+# is a document that looks like evidence. The lockfiles are what the inventory
+# is keyed to.
+#
+# Both are committed: `app/Cargo.lock` and `app/src-tauri/Cargo.lock`. They are
+# separate files because `src-tauri/` is a deliberately detached workspace (see
+# the comment at the top of `app/Cargo.toml`), so Cargo resolves the two trees
+# independently and there is no single lockfile that could cover both.
 
 # The ACP adapter is GONE (wiki/ceo-decisions.md §16, 2026-08-31). This rule is kept for one
 # release so a stale checkout that still has the directory does not commit its node_modules;
