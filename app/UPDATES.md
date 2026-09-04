@@ -194,8 +194,19 @@ and whether a release can be staged.
 
 ## What the CEO sees
 
-The universal settings button — the one that is on every screen — carries a **mark** when an
-update is waiting or installed. Opening it shows an Updates row with, in every case, a sentence:
+**When an update is waiting, a small pill appears beside the universal settings button reading
+*RichOS 0.1.2 is available*.** It is not there the rest of the time — not dimmed, not saying "up
+to date", not there at all — so what the CEO notices is a thing arriving in chrome he is already
+looking at rather than a control he has learned to skip. Pressing it opens the Updates row below
+and puts his hand on that row's own button. It never installs anything itself.
+
+That placement is CEO ruling §26's placement paragraph, given 2026-09-04 in these words: *"the
+user can't be bothered to hunt for some update button somewhere."* Until then the row below was
+the whole surface, and the row lives inside a menu — so an available update was discoverable only
+by someone who happened to open that menu, and nothing gave them a reason to.
+
+The settings button also carries a **mark** when an update is waiting or installed. Opening it
+shows an Updates row with, in every case, a sentence:
 
 * *RichOS 0.1.0 is up to date.* / *Checked 8 minutes ago.*
 * *RichOS 0.1.1 is available.* + the release notes + **Download and install**
@@ -235,6 +246,18 @@ the wrong control.
 * **Rollback does not exist.** A bad release is fixed by publishing a newer one. The updater
   compares semver and will not install a lower version.
 * **There is no staged rollout and no channel.** One manifest, everyone gets it.
+* **A FAILURE IS STILL QUIET IF THE MENU IS SHUT.** The cue announces the two states that are
+  waiting on the CEO — available and installed — and deliberately not `failed`. The failure
+  headlines above are whole sentences, and a pill wide enough to carry one is the banner §26
+  asks for the opposite of. So a refused signature or a dropped connection is stated in full in
+  the Updates row, exactly as it was before the cue existed, and says nothing in the chrome.
+  Nothing regressed; nothing improved either. **What a failure should look like in chrome is
+  one of the things the CEO's own reference does not answer** — that capture is a success path
+  only.
+* **Mode 1 does not exist.** §26 makes fully automatic updating the default and the CEO ruled
+  on 2026-09-04 that it waits for a design session of its own. What ships is mode 2 — confirm
+  each time — with the confirmation now reachable in one press from chrome rather than from
+  inside a menu. Nothing in the cue presupposes mode 1.
 
 ---
 

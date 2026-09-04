@@ -26,6 +26,13 @@
 //     is a lie that looks like a measurement.
 //   * THE BUTTONS DO WHAT THEY SAY. Asserted on the commands actually issued
 //     (`__RICHOS_MOCK__.updateCalls()`), not on the button looking pressed.
+//   * IT ANNOUNCES ITSELF WITHOUT BEING OPENED, and only when there is something to say
+//     (checks 12-14, added 2026-09-04 for §26's placement ruling). Everything above this
+//     line was green on the day the CEO said *"the user can't be bothered to hunt for some
+//     update button somewhere"* — which is the point: the row was correct and it was inside
+//     a menu, so nobody met it. The half that carries the ruling is the ABSENCE half: with
+//     nothing to install there is no element at all, proven by count, by the wrapper's own
+//     geometry, and by driving the state back after the element has once existed.
 //
 // Contrast for this surface is NOT here: it is in `contrast.js`'s three `updates-*`
 // surfaces, walked in both themes against the same 4.5 / 3.0 floors as everything else.
@@ -86,6 +93,18 @@ async function openApp(browser) {
   return page;
 }
 
+/// Wait for the opening curtain to yield before taking EVIDENCE of the chrome.
+///
+/// `openApp` above deliberately does not wait — the checks it serves are about the DOM, and
+/// the curtain is `pointer-events: none`, so it changes nothing they assert. A screenshot is
+/// the one place it matters: the cue sits above the curtain (correctly — so does the settings
+/// button, §15), and a shot taken through it is a picture of the opening screen with a pill on
+/// it rather than a picture of the cue in the app it announces into.
+async function settled(page) {
+  await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(150);
+}
+
 async function setState(page, v, script) {
   await page.evaluate(
     ([vv, ss]) => window.__RICHOS_MOCK__.updateSet(vv, ss),
@@ -140,6 +159,61 @@ async function readRow(page) {
       })(),
       mark: btn ? btn.getAttribute("data-update-mark") : null,
     };
+  });
+}
+
+/// THE CUE, read the way a person meets it: is there an element at all, what does it say, and
+/// is the thing at its own center actually it.
+///
+/// `count` is asked FIRST and everything else is conditional on it, because the property under
+/// test is existence. A helper that returned `visible: false` for a hidden placeholder and for
+/// a removed element alike would make the two indistinguishable, and telling them apart is the
+/// entire point of the ruling.
+async function readCue(page) {
+  return page.evaluate(() => {
+    const n = document.getElementById("update-cue");
+    // THE GEOMETRY IS MEASURED ON BOTH BRANCHES, and that is not tidiness. It was measured
+    // only on the absent branch first, so `wrapWidth` and `btnWidth` were both `undefined`
+    // whenever a cue existed — and check 13's footprint assertion then compared undefined
+    // with undefined and passed. The `always-present` mutation, which is precisely the defect
+    // that check exists to catch, went red on check 12 alone and left 13 green. A negative
+    // assertion that cannot fail is not a check.
+    const wrap = document.getElementById("settings");
+    const btn = document.getElementById("set-btn");
+    const w = wrap ? wrap.getBoundingClientRect() : null;
+    const b = btn ? btn.getBoundingClientRect() : null;
+    const box = {
+      // The wrapper's own footprint, so "absent" can be proven to mean "costs no layout"
+      // rather than "present and painted like the background".
+      wrapWidth: w ? Math.round(w.width) : null,
+      btnWidth: b ? Math.round(b.width) : null,
+      wrapLeft: w ? Math.round(w.left) : null,
+      btnLeft: b ? Math.round(b.left) : null,
+    };
+    if (!n) {
+      return Object.assign({ count: document.querySelectorAll("#update-cue, .update-cue").length }, box);
+    }
+    const r = n.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const menu = document.getElementById("set-menu");
+    return Object.assign({}, box, {
+      count: document.querySelectorAll("#update-cue, .update-cue").length,
+      cueState: n.getAttribute("data-update-cue"),
+      text: n.textContent.trim(),
+      hidden: n.hidden,
+      disabled: n.disabled,
+      // Is it actually the thing under the pointer at its own center — "in view", not merely
+      // in the document.
+      onTop: !!(hit && hit.closest && hit.closest("#update-cue")),
+      inViewport: r.top >= 0 && r.left >= 0 && r.bottom <= window.innerHeight && r.right <= window.innerWidth,
+      menuOpen: !!(menu && !menu.hidden),
+      glyphs: n.querySelectorAll("svg.update-cue-glyph").length,
+      ariaLabel: n.getAttribute("aria-label"),
+      rowLine: (() => {
+        const l = document.getElementById("update-line");
+        return l ? l.textContent.trim() : null;
+      })(),
+    });
   });
 }
 
@@ -433,6 +507,162 @@ async function main() {
     return "0 uncaught errors across all nine states";
   });
 
+  // =======================================================================================
+  // THE CUE — CEO ruling §26, the placement paragraph added 2026-09-04.
+  //
+  // *"The user can't be bothered to hunt for some update button somewhere."* Everything above
+  // proves the ROW, and the row is inside a menu. Checks 1 to 11 would all have passed on the
+  // day the ruling was written, which is exactly the point: a surface can be complete,
+  // correct, tested, and still announce nothing to anybody.
+  //
+  // THE ABSENCE HALF IS THE ONE THAT MATTERS. An affordance that is always present passes a
+  // naive "is it there when there is an update" test perfectly and fails the ruling, because
+  // the property being asked for is not visibility — it is that a NEW element arrives in
+  // chrome the user is already looking at. A control that is always there and occasionally
+  // changes color is one an eye has already learned to skip. So the absence is asserted three
+  // ways that a hidden placeholder cannot satisfy: element count zero, no layout footprint,
+  // and the state driven BACK to absent after the cue has once existed.
+  // =======================================================================================
+
+  // ---- 12. it appears when there is something, and does not EXIST when there is not -----
+  await run.check("12. the cue APPEARS for a waiting update and does not EXIST otherwise", async () => {
+    const page = await openApp(browser);
+
+    // Nothing has been opened, and nothing will be: this is the whole claim.
+    await setState(page, view({ state: "upToDate", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }));
+    let cue = await readCue(page);
+    assertEqual(cue.count, 0, "with nothing to install there is NO element — not a dimmed one, not an 'up to date' one");
+
+    await setState(page, view({ state: "available", availableVersion: "0.1.2", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }));
+    cue = await readCue(page);
+    assertEqual(cue.count, 1, "one element arrived, and exactly one");
+    assertEqual(cue.menuOpen, false, "and NOTHING was opened to see it — that is the defect this closes");
+    assertEqual(cue.hidden, false, "present means present");
+    assertEqual(cue.disabled, false, "and live, not a disabled state");
+    assertEqual(cue.onTop, true, "it is the thing under the pointer at its own middle, not covered");
+    assertEqual(cue.inViewport, true, "and inside the window, with no scrolling to reach it");
+    assertEqual(cue.cueState, "available", "carrying its state for a stylesheet and for this suite");
+    assertEqual(cue.glyphs, 1, "one glyph");
+    assert(/RichOS 0\.1\.2 is available/.test(cue.text), "and it NAMES THE VERSION: " + cue.text);
+    // WCAG 2.5.3 "Label in Name": the accessible name STARTS with the visible words, so
+    // someone driving this by voice can say what is on the screen and be understood.
+    assert(
+      cue.ariaLabel && cue.ariaLabel.indexOf(cue.text) === 0 && cue.ariaLabel.length > cue.text.length,
+      "the accessible name carries the visible label verbatim and then says what pressing it does: " + cue.ariaLabel
+    );
+    await settled(page);
+    await shot(page, SHOTS + "/updates-cue-available");
+
+    await setState(page, view({ state: "ready", availableVersion: "0.1.2", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" }));
+    cue = await readCue(page);
+    assertEqual(cue.count, 1, "still one for the other waiting state");
+    assertEqual(cue.cueState, "ready", "and it changed meaning");
+    assert(/RichOS 0\.1\.2 is installed/.test(cue.text), "naming the version again: " + cue.text);
+    await settled(page);
+    await shot(page, SHOTS + "/updates-cue-ready");
+
+    // AND BACK. A build that only ever ADDS the element passes the half above and is the
+    // exact failure the ruling names, so the return trip is asserted rather than assumed.
+    for (const s of ["idle", "checking", "upToDate", "downloading", "installing", "failed", "unconfigured", "a-state-nobody-shipped"]) {
+      await setState(
+        page,
+        view({
+          state: s,
+          availableVersion: "0.1.2",
+          failure: s === "failed" ? { kind: "signature", headline: "This download was not signed by RichOS, so it was not installed.", detail: "d" } : null,
+        })
+      );
+      const gone = await readCue(page);
+      assertEqual(gone.count, 0, s + " must leave NO element behind — a placeholder is the defect, not the fix");
+    }
+    await settled(page);
+    await shot(page, SHOTS + "/updates-cue-absent");
+    await page.close();
+    return "available and ready raise exactly one element with the menu shut; the other eight states raise none";
+  });
+
+  // ---- 13. absent costs NOTHING, and present is in chrome that is on every screen --------
+  await run.check("13. absence reserves no space, and the cue reaches every surface", async () => {
+    const page = await openApp(browser);
+    await setState(page, view({ state: "upToDate", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }));
+    const empty = await readCue(page);
+    // THE CHECK A HIDDEN PLACEHOLDER CANNOT PASS. `visibility: hidden`, `opacity: 0` and a
+    // zero-content pill all leave the wrapper wider than its button; a removed element does
+    // not. Geometry, not intent.
+    assertEqual(empty.wrapWidth, empty.btnWidth, "with no update the settings wrapper is exactly its button, " + empty.wrapWidth + " vs " + empty.btnWidth);
+    assertEqual(empty.wrapLeft, empty.btnLeft, "and starts where the button starts — nothing is held open to its left");
+
+    // ...and when it does arrive it grows LEFTWARD: the button the CEO already aims at must
+    // not move under his pointer.
+    const btnRightBefore = await page.evaluate(() => Math.round(document.getElementById("set-btn").getBoundingClientRect().right));
+    await setState(page, view({ state: "available", availableVersion: "0.1.2", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }));
+    const btnRightAfter = await page.evaluate(() => Math.round(document.getElementById("set-btn").getBoundingClientRect().right));
+    assertEqual(btnRightAfter, btnRightBefore, "the settings button did not move when the cue arrived");
+
+    // It is mounted in the chrome §15 puts on EVERY screen, so prove it from a second surface
+    // rather than from the one it happened to be built on.
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    await page.waitForTimeout(300);
+    const inThread = await readCue(page);
+    assertEqual(inThread.count, 1, "still there inside a conversation");
+    assertEqual(inThread.onTop, true, "and still the thing under the pointer, over the conversation");
+    await page.close();
+    return "absent: wrapper " + empty.wrapWidth + "px = button " + empty.btnWidth + "px; present: the button's right edge never moves, and the cue is on a second surface";
+  });
+
+  // ---- 14. it LEADS to the existing flow, and decides nothing itself ---------------------
+  await run.check("14. the cue opens the existing row and issues no command of its own", async () => {
+    const page = await openApp(browser);
+    // THE CURTAIN IS LET GO OF BEFORE ANYTHING IS PRESSED, and this is a focus test so that
+    // ordering is load-bearing rather than cosmetic. `main.js` puts focus in the composer the
+    // moment the opening screen yields; a check that clicked first and waited afterwards
+    // would watch its own assertion be overwritten by the app booting.
+    await settled(page);
+    await setState(
+      page,
+      view({ state: "available", availableVersion: "0.1.2", notes: "Faster launch.", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }),
+      [view({ state: "ready", availableVersion: "0.1.2", percent: 100, endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" })]
+    );
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls().length);
+
+    await page.click("#update-cue");
+    await page.waitForSelector("#set-menu", { state: "visible" });
+    await page.waitForTimeout(150);
+
+    // THE ROW IS THE AUTHORITY, and the cue speaks with its voice rather than a second one.
+    const cue = await readCue(page);
+    const row = await readRow(page);
+    assert(row.present, "the row the cue leads to is the row this suite has been testing all along");
+    // Read in the SAME `evaluate` as the cue's own text, so this is one snapshot rather than
+    // two reads a repaint could sit between.
+    assertEqual(cue.text, cue.rowLine, "the cue's words ARE the row's words — one sentence, not two that agree today");
+    assertEqual(row.headline, cue.text, "and the row agrees when read on its own terms");
+    assertEqual(row.install, "Download and install", "and the row's own control is the offer");
+    await shot(page, SHOTS + "/updates-cue-opened-the-row");
+
+    // NOTHING WAS INSTALLED BY PRESSING THE ANNOUNCEMENT. §26's mode 1 — install with no
+    // click at all — was ruled a separate design session on 2026-09-04, and an announcement
+    // that quietly starts an install is that decision taken by an engineer.
+    const afterOpen = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
+    assertEqual(afterOpen.indexOf("update_install"), -1, "the cue installed nothing: " + afterOpen.slice(before).join(","));
+    assertEqual(afterOpen.indexOf("update_relaunch"), -1, "and restarted nothing");
+
+    // The hand is put on the control, so the click that announced the update lands one
+    // keystroke from the act rather than one hunt from it.
+    assertEqual(
+      await page.evaluate(() => document.activeElement && document.activeElement.id),
+      "update-install",
+      "focus is on the row's own control"
+    );
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(150);
+    const calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
+    assert(calls.indexOf("update_install") >= 0, "and pressing it reaches the SAME command the row has always issued: " + calls.join(","));
+    assertEqual((await readRow(page)).state, "ready", "the scripted install landed, through the existing flow");
+    await page.close();
+    return "cue -> menu -> the row's own control -> update_install; the cue itself issues nothing";
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);
@@ -470,6 +700,40 @@ async function main() {
 //
 // Check 11 (no page errors) is the one that catches #11, and #11 also reddens 2 and 8
 // because both drive the `installing` state on their way through.
+//
+// THE CUE (checks 12-14), run 2026-09-04, same rule: every mutation below was applied to the
+// SHIPPED source, the suite run, the file restored and compared byte for byte against its
+// backup. The reddened set is the one that was OBSERVED, not the one expected.
+//
+//   12  updates.js: `cue()`'s `want` can never be empty — the pill is built for       12,13
+//       every state and merely changes its label. THE defect the ruling names: a
+//       permanent control that occasionally changes color is one an eye stops seeing
+//   13  updates.js: `cue()`'s host lookup returns null, so the element is never       12,13,14
+//       built at all — the state this surface was in before the placement ruling
+//   14  updates.js: `openTheRow` calls `update_install` instead of opening the        14
+//       menu — the announcement quietly becomes §26's mode 1, which the CEO ruled
+//       on 2026-09-04 is a design session of its own
+//   15  updates.js: the cue writes its own label, `"Update"`, instead of              12,14
+//       `sentences(v).headline` — the version stops being named and the chrome and
+//       the row become two vocabularies that agree until one of them is edited
+//   16  updates.js: the cue is appended AFTER the settings button instead of          13
+//       inserted before it, so the button the CEO already aims at moves out from
+//       under his pointer the moment an update arrives
+//
+// MUTATION 12 IS THE ONE THAT PAID FOR ITSELF, and it is recorded here rather than tidied
+// away. On its first run it reddened check 12 and left check 13 GREEN — because `readCue`
+// measured the wrapper's geometry only on the branch where no cue existed, so check 13's
+// footprint assertion was comparing `undefined` with `undefined` and could not fail. The
+// geometry is measured on both branches now. A negative assertion that cannot fail is not a
+// check, and only running the mutation says which is which.
+//
+// AND THE POSITIVE PROBE FOR THE CONTRAST HALF, because a green walk over an element nobody
+// looked at is the same as no walk: `.update-cue-label`'s ink was repainted `#b09a6a` and
+// `contrast.js` was run. It failed `9.updates-available` by name, in BOTH themes — 1.13:1 on
+// the dark fill and 1.44:1 on the light one — which is the evidence that the 7.68 / 4.72 the
+// shipped pair computes to is a measurement of this element and not of an assumption about
+// it. The backgrounds WebKit resolved (`#c2a35c` and `#9c7c34`) are the two tokens the
+// stylesheet's ledger says they are.
 // =========================================================================================
 
 main().catch((e) => {

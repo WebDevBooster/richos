@@ -3611,6 +3611,16 @@ body.bp-narrow .tl-user-bubble {
   right: 18px;
   z-index: 300;
   font-family: var(--font);
+  /* A ROW, so the update cue can sit beside the button rather than under it — see
+     `.update-cue` at the foot of this file. With no cue present there is one child and a
+     `gap` between nothing, so the wrapper is exactly the 40px button it has always been:
+     this costs the resting layout zero pixels, which is the whole reason the cue can afford
+     to be the only saturated thing on the screen when it does arrive. `.setmenu` is
+     absolutely positioned and so takes no part in this row; it still hangs from the
+     wrapper's right edge, which is still the button's right edge. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .setbtn {
@@ -4040,6 +4050,8 @@ body.bp-narrow .tl-user-bubble {
      ...and on the HOVERED button, which is a different background:
      .update-mark              --attention on --tint-gold-strong  4.61 / 4.90
      .update-mark[ready]       --success on --tint-gold-strong    4.75 / 5.44
+     ...and the CUE — the announcement that lives in the chrome rather than in this row —
+     carries its own ledger at the foot of this file, over `.update-cue`.
 
    TYPE: the status line, its second line and every button are 1rem = 16px, the floor for
    text meant to be read. `.update-detail` and `.update-endpoint` are 0.875rem = 14px — the
@@ -4245,4 +4257,113 @@ body.bp-narrow .tl-user-bubble {
 }
 .setbtn[data-update-mark="ready"] .update-mark {
   background: var(--success);
+}
+
+/* =========================================================================================
+   THE UPDATE CUE — the announcement, in chrome the CEO is already looking at.
+
+   CEO ruling §26, the placement paragraph added 2026-09-04: *"the user can't be bothered to
+   hunt for some update button somewhere."* `updates.js` builds and destroys this element;
+   the reasoning for WHERE it sits and WHICH states it exists for is in the block above
+   `cue()` there, and is not repeated here.
+
+   WHAT THIS STYLESHEET HAS TO GET RIGHT is that the element costs NOTHING when it is absent.
+   There is no rule below that reserves space, no `visibility`, no zero-width placeholder and
+   no disabled variant — with no update the selector matches no element, because there is no
+   element. A permanent control that changes color is easy to stop seeing; one that was not
+   there a moment ago is not, and that property is destroyed the moment something here holds
+   a slot open for it.
+
+   CONTRAST — computed with `tests/lib/contrast.js`, the same arithmetic `contrast.js` runs
+   inside WebKit, never eyeballed. Floors: 4.5:1 for text, 3:1 for a non-text indicator.
+   Format is `dark / light`. Nothing here is exempt and nothing here claims to be.
+
+     .update-cue-label      --on-gold on --gold               7.68 /  4.72
+     .update-cue-label      ...hovered, --gold x 1.06         8.64 /  5.21
+     .update-cue-glyph      --on-gold on --gold (non-text)    7.68 /  4.72
+     .update-cue border     --chrome-edge, worst ground       3.79 /  3.22
+     .update-cue focus ring --ink, worst ground              12.06 /  6.83
+
+   THE BORDER IS NOT DECORATION, and it is `--chrome-edge` rather than `--line-control` for
+   exactly the reason `.setbtn`'s is: this element floats ABOVE the overlay scrim, so its
+   boundary has to be measured against the scrim as well as against every surface. The two
+   worst grounds are the ones quoted above — the dark card (3.79) and the LIGHT SCRIMMED
+   ground (3.22), which is the one place a mid-grey edge has nothing to be lighter or darker
+   than. Measuring only the resting page ground would have reported 4.57 / 7.02 and missed
+   both.
+
+   THE FOCUS RING IS `--ink`, NOT `--gold`, and that is a correction rather than a
+   preference. `.setbtn` rings itself in `--gold`, which is 7.68:1 dark and 3.15:1 light on
+   the page ground — but over the light scrim, which is where this element also lives, light
+   gold computes 1.45:1 against its own surroundings and the ring effectively disappears.
+   `--ink` is 6.83:1 at its worst. `outline-offset: 2px` puts the ring in the background
+   rather than against the pill's own fill, so the ground is the pairing that binds.
+
+   TYPE: the label is 1rem = 16px, the floor for text meant to be easily read, in rem so the
+   Text size knob moves it with everything else. `max-width` is in rem for the same reason.
+   ========================================================================================= */
+.update-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 22rem;
+  padding: 5px 13px 5px 11px;
+  border: 1px solid var(--chrome-edge);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-gold);
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 10px 26px -18px var(--shadow-strong);
+  /* THE ARRIVAL IS THE SIGNAL. Short, once, and never a pulse: a thing that keeps moving is
+     a notification, and §26 asks for the opposite of a notification. */
+  animation: update-cue-arrive 0.22s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.update-cue-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sized in rem so it scales with the label it sits beside rather than staying put while the
+   words around it grow. */
+.update-cue-glyph {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  flex: none;
+  display: block;
+}
+
+/* Brightening the fill can only RAISE the ratio against dark ink, so the hovered pair is
+   bounded below by the resting one — 8.64 / 5.21 as computed, against 7.68 / 4.72 at rest.
+   Same treatment as `.update-btn--go`, which is the row's own primary control. */
+.update-cue:hover {
+  filter: brightness(1.06);
+}
+
+.update-cue:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+@keyframes update-cue-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-cue {
+    animation: none;
+  }
 }
