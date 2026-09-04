@@ -1,3 +1,14 @@
+# gui-boot.test.sh case B2 — red at fc56c20, GREEN at 3de8e1f.
+#
+# Both runs use the operator's real $HOME, which is the only condition in which this
+# suite gets past machine construction at all: it needs the loro compiler, and that
+# lives in the private record repository. On a runner it exits 2 before any B case.
+#
+# The second run is here because the first was committed as a live finding, and a
+# finding that has been fixed should say so beside itself rather than be quietly
+# dropped.
+
+===== fc56c20 — 17 passed, B2 FAILED, 154 s =====
 === gui-boot.test.sh, real HOME=/Users/alex, clone of fc56c20 ===
   PASS  S1 every operator line in src-tauri carries the [richos] prefix
   PASS  A0 the hand-written healthy log is accepted (the fixture the next four vary)
@@ -83,3 +94,38 @@
 
 === gui-boot.test.sh: 1 FAILED, 17 passed ===
 === gui-boot.test.sh rc=1 elapsed=154s ===
+
+===== 3de8e1f — all 20 passed, exit 0, 62 s =====
+clone3 HEAD: 3de8e1f
+=== gui-boot.test.sh, real HOME, current main ===
+           UNACCOUNTED  [richos]   looked in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B3/Applications/RichOS.app/Contents/Resources/engine (app bundle resources)
+           UNACCOUNTED  [richos]   looked in /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B3/Applications/RichOS.app/Contents/MacOS (repo layout above the executable)
+           UNACCOUNTED  [richos]   looked in / (repo layout above the working directory)
+  PASS  B4 the corpus pointer is removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: no corpus configured — re-primes carry no company memory
+           UNACCOUNTED  [richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B4/Library/Application Support/RichOS/corpus — not present
+           UNACCOUNTED  [richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B4/Library/Application Support/RichOS/loro-root — not present
+           UNACCOUNTED  [richos] loro Tier C: tried /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B4/RichOS/corpus — not present
+  PASS  B5 the loro tools are removed -> caught
+           UNACCOUNTED  [richos] loro Tier C: corpus at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B5/Library/Application Support/RichOS/corpus — but the memory compiler is not installed, so re-primes carry no company memory. Looked in: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B5/Library/Application Support/RichOS/corpus/loro (the corpus root's own loro/ directory) — loro tools not found: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B5/Library/Application Support/RichOS/corpus/loro/bin/loro-context.mjs is not a file; /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B5/Library/Application Support/RichOS/loro-tools (the loro-tools install in Application Support) — loro tools not found: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B5/Library/Application Support/RichOS/loro-tools/bin/loro-context.mjs is not a file
+           UNACCOUNTED  [richos] loro Tier C: the correction desk is unavailable for the same reason — loro-write.mjs is in the same directory that was not found.
+           UNACCOUNTED  [richos] loro correction desk: CLOSED — a corpus resolved but loro-write.mjs is not installed. Confirming a correction will refuse and say so rather than appearing to write.
+  PASS  B6 the claude stand-in is removed -> caught
+           UNACCOUNTED  [richos] NO COMPUTE LEASE — RichOS cannot talk to Rich.
+           UNACCOUNTED  [richos]   binary: claude
+           UNACCOUNTED  [richos]   engine: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B6/.claude/richos-engine
+           UNACCOUNTED  [richos]   cause : the claude binary was not found at claude — RichOS drives Claude Code directly and cannot run without it
+  PASS  B7 the saved company is removed -> caught
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+           UNACCOUNTED  [richos] no company resolved — RichOS will ask in the window and remember the answer.
+           UNACCOUNTED  [richos] operator: RICHOS_ENTITY (one of northwind) still overrides, as does launching from that entity's repository root.
+  PASS  B8 the company registry is corrupt -> caught
+           UNACCOUNTED  [richos] company registry at /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B8/Library/Application Support/com.richos.app/entities.json is not valid: key must be a string at line 1 column 3. Nothing was loaded from it — no company is registered until it parses.
+           UNACCOUNTED  [richos] company registry: 0 compan(ies), /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/gui-boot-test.XXXXXX.iCagZ0wesQ/broken-B8/Library/Application Support/com.richos.app/entities.json (unreadable)
+           UNACCOUNTED  [richos] the saved company "northwind" is not a registered entity any more — ignoring it and asking again rather than filing work under a guess
+           UNACCOUNTED  [richos] entity not resolved from /: unknown root /: no registered entity owns this path — refusing to guess
+  PASS  Y1 gui_kill ends an ordinary process and the pid is gone when it returns
+  PASS  Y2 gui_kill escalates to KILL for a process that ignores TERM
+  PASS  Z this run launched 7 app(s) and 0 are still running
+=== gui-boot.test.sh: all 20 passed ===
+=== rc=0 elapsed=62s ===

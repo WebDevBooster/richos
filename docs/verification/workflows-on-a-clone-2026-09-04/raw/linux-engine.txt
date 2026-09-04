@@ -3,23 +3,28 @@
 # HOST: ubuntu:24.04 in a container — bash 5.2.21, git 2.43.0, python3 3.12.3, aarch64,
 # 10 CPUs — run as an UNPRIVILEGED user (uid 1001 'runner'), because a GitHub job is not
 # root and the difference is not cosmetic: the first attempt ran as root and
-# create-teammate-worktree.test.sh case C17 failed in it, since `mkdir -p /nonexistent-dir`
+# create-teammate-worktree.test.sh case C17 failed in it, since 'mkdir -p /nonexistent-dir'
 # succeeds for root and the refusal C17 asserts therefore never came. That was a verdict
 # about the container. Re-seated as a normal user, C17 passes.
 #
-# The machine was HEAVILY LOADED throughout — eleven agents share it, and the load average
-# was measured between 9 and 58 on ten cores during these runs. Every duration below is
-# therefore an UPPER bound, and the timeout chosen from them is headroom over an inflated
-# number rather than over an ideal one. That errs in the safe direction and is stated
-# rather than banked.
+# THERE ARE THREE RUNS HERE AND THE ORDER IS THE ARGUMENT.
 #
-# The run is split in two only for wall-clock reasons. Phase A is everything ci-verify.sh
-# does except the one 18-minute suite; Phase B is that suite, invoked the way
-# run-all-tests.sh invokes it — `bash <suite>`, no arguments, so it is the FULL pass and
-# not a scoped run (a scoped run exits 3 by design and could not be mistaken for it).
+#   RUN 1  Phase A + Phase B, on a machine carrying eleven agents at a load average
+#          between 9 and 58. Phase B aborted at the MT section on 'sed -i ''.'
+#   RUN 2  Phase B again with the _sed_inplace fix. It completes: 163 passed, 2 failed.
+#   RUN 3  the WHOLE of ci-verify.sh, unmodified, on a quiet machine. This is the run
+#          the timeout and the red list are taken from. The earlier two are kept
+#          because the abort is only visible in run 1 and the fix is only meaningful
+#          beside it — and because a red list taken under load cannot tell a defect
+#          from a flake, which is why it was taken twice.
+#
+# The split into phases in runs 1 and 2 was for wall clock only. Phase B invokes the
+# suite the way run-all-tests.sh invokes it — 'bash <suite>', no arguments — so it is
+# the FULL pass and never a scoped run, which exits 3 by design and could not be
+# mistaken for it. Run 3 needs no such caveat: it is ci-verify.sh itself.
 
 ############################################################################
-# PHASE A — steps 2 to 7, and 59 of the 60 suites
+# RUN 1 — PHASE A: steps 2 to 7, and 59 of the 60 suites. Loaded host.
 ############################################################################
 clean above means the subject is pristine
 === host ===
@@ -658,10 +663,10 @@ publication-completeness rc=0  0s
 === PHASE A total 3060s ===
 
 ############################################################################
-# PHASE B, FIRST ATTEMPT — aborted at the MT section on `sed -i ''`
+# RUN 1 — PHASE B: aborted at the MT section on `sed -i ''`
 #
-# 139 cases, then exit 2 with MT and MC never reached. This is the transcript of
-# the portability defect, kept because the fix is only meaningful beside it.
+# 139 cases, then exit 2 with MT and MC never reached. This is the transcript of the
+# portability defect.
 ############################################################################
 === contract-integrity.test.sh, full pass, Linux, uid 1001 ===
 start 2026-09-04T09:51:44Z
@@ -825,9 +830,9 @@ end   2026-09-04T10:05:10Z
 === contract-integrity.test.sh rc=2 elapsed=806s (13m26s) ===
 
 ############################################################################
-# PHASE B, WITH _sed_inplace — the run completes
+# RUN 2 — PHASE B with _sed_inplace: the run completes.
 #
-# 163 passed, 2 failed, 1089s (18m9s). MT1-MT5 and MC1-MC6 now run, and pass.
+# 163 passed, 2 failed, 1089 s (18m9s). MT1-MT5 and MC1-MC6 now run, and pass.
 ############################################################################
 === contract-integrity.test.sh, full pass, Linux, uid 1001 ===
 start 2026-09-04T10:15:40Z
@@ -1018,3 +1023,652 @@ failing cases:
   - IN2.inflight-notify-mutations-all-load-bearing
 end   2026-09-04T10:33:49Z
 === contract-integrity.test.sh rc=1 elapsed=1089s (18m9s) ===
+
+############################################################################
+# RUN 3 — the whole of ci-verify.sh, quiet host. THE NUMBERS COME FROM HERE.
+#
+# exit 1, 55 of 60 suites, 3940 s (65m40s) — against 4149 s on the loaded host, which
+# is a 5% difference and the reason the figure is trusted: a serial spawn-bound suite
+# barely notices a busy machine.
+############################################################################
+=== ci-verify.sh, whole, Linux, uid 1001, quiet machine ===
+ 11:14:06 up 15 days, 18:17,  0 user,  load average: 1.15, 0.63, 0.56
+start 2026-09-04T11:14:06Z
+
+[1m=== [1/7] preconditions (tool versions + git identity) ===[0m
+GNU bash, version 5.2.21(1)-release (aarch64-unknown-linux-gnu)
+git version 2.43.0
+Python 3.12.3
+git identity: engine-self-verify <engine-self-verify@users.noreply.github.com>
+
+[1m=== [2/7] bash -n every shipped shell script ===[0m
+[32m✓[0m bash -n: 197 script(s) OK
+
+[1m=== [3/7] every engine test suite (scripts/run-all-tests.sh) ===[0m
+[1m=== engine self-test: 60 suite(s) discovered under /home/runner/richos/engine ===[0m
+  [ 1/60] scripts/cold-open.test.sh                                  [32mPASS[0m
+  [ 2/60] scripts/collect-worktree-artifacts.test.sh                 [32mPASS[0m
+  [ 3/60] scripts/create-teammate-worktree.test.sh                   [32mPASS[0m
+  [ 4/60] scripts/demo.test.sh                                       [32mPASS[0m
+  [ 5/60] scripts/hooks/agent-state-claims.test.sh                   [32mPASS[0m
+  [ 6/60] scripts/hooks/by-reference.test.sh                         [32mPASS[0m
+  [ 7/60] scripts/hooks/ceo-asks.test.sh                             [32mPASS[0m
+  [ 8/60] scripts/hooks/ceo-ruled.test.sh                            [32mPASS[0m
+  [ 9/60] scripts/hooks/ceo-todos.test.sh                            [32mPASS[0m
+  [10/60] scripts/hooks/completeness-commits.test.sh                 [32mPASS[0m
+  [11/60] scripts/hooks/contract-integrity.test.sh                   [31mFAIL[0m (rc=1)
+        note: copy-on-write clones are unavailable under /tmp — using a plain recursive copy. Identical sandboxes, slower run.
+        === contract-integrity.test.sh ===
+        
+          PASS  1.committed-source-passes
+          PASS  SC1.every-registered-hook-starts-in-a-sandbox
+          PASS  SC2.NEGATIVE-CONTROL-deleted-lib-is-named-by-SC1
+          PASS  2.install-noop-rc-0
+          PASS  2.post-install-probe-rc-0
+          PASS  3.hook-removed-fails
+          PASS  4.wrong-path-fails
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.hLPSpY/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.hLPSpY/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  5.double-install-idempotent
+          PASS  5.double-install-probe-still-rc-0
+          PASS  6.install-source-missing-rc-2
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.GqDcZb/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  7.canonical-source-untouched-by-install
+          PASS  M1.duplicated-registration-fails
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.r3mcTp/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  M2.migration-removes-duplicate-settings-json
+          PASS  M2.post-migration-probe-passes
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.r3mcTp/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  M2b.migration-second-run-noop
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.3kJxjB/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  M3.machine-specific-settings-json-hooks-stripped-config-kept
+          PASS  M3.machine-specific-probe-passes
+          PASS  M4.intra-file-duplication-fails
+          PASS  8.shim-at-wrong-path-fails
+          PASS  9.canonical-path-wrong-hash-fails
+          PASS  10.symlink-to-outside-fails
+          PASS  11.canonical-with-trailing-args-passes
+          PASS  11b.shim-with-trailing-args-fails
+          PASS  12.canonical-fresh-clone-passes
+          PASS  13.tamper-canonical-guard-fails
+          PASS  14.tamper-canonical-agent-fails
+          PASS  14a.tamper-guard-worktree-isolation-fails
+          PASS  14b.tamper-reader-teammate-hint-fails
+          PASS  14c.chain-entry-missing-fails
+          PASS  14d.chain-out-of-order-fails
+          PASS  15.inline-shim-replace-fails
+          PASS  16.manifest-missing-fails
+          PASS  17.manifest-wrong-hash-fails
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.BgcTJQ/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.BgcTJQ/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  18.install-idempotent-manifests
+          PASS  19.git-main-checkout-passes
+          PASS  19b.layer-N-tracked-pass-line-present
+          PASS  20.git-worktree-invocation-passes
+          PASS  21.worktree-probe-targets-main-settings
+          PASS  32.git-untracked-ignored-settings-local-fails
+          PASS  32b.layer-N-names-the-git-add-f-fix
+          PASS  33.git-untracked-not-ignored-warns-rc-0
+          PASS  33b.layer-N-warns-when-not-yet-committed
+          PASS  22.install-no-python3-refuses
+          PASS  22b.install-no-python3-stderr-names-python3
+          PASS  23.probe-no-python3-refuses
+          PASS  23b.probe-no-python3-stderr-names-python3
+          PASS  24.install-missing-env-flag-refuses
+          PASS  24b.install-missing-env-flag-names-the-key
+          PASS  24c.install-missing-env-flag-must-not-write-settings-json
+          PASS  25.install-missing-baseref-refuses
+          PASS  25b.install-missing-baseref-names-the-key
+          PASS  26.probe-catches-env-flag-removed-post-install
+          PASS  26b.probe-names-the-missing-env-flag
+          PASS  27.probe-catches-baseref-removed-post-install
+          PASS  27b.probe-names-the-missing-baseref
+          PASS  28.both-keys-correct-probe-passes
+          PASS  28b.layer-I-explicit-pass-line-present
+          PASS  28c.layer-J-explicit-pass-line-present
+          PASS  28d.layer-K-explicit-pass-line-present
+          PASS  28e.layer-M-explicit-pass-line-present
+          PASS  29.secrets-scanner-not-wired-fails
+          PASS  29b.probe-names-the-missing-secrets-scanner
+          PASS  30.secrets-scanner-tampered-fails
+          PASS  30b.probe-names-the-hash-mismatch
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.TX4Fds/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  31.secrets-scanner-broken-then-reinstalled-fails
+          PASS  31b.functional-canary-catches-broken-scanner-despite-matching-hash
+          PASS  31c.dead-secrets-scanner-fails-layer-K
+          PASS  31d.layer-K-says-failing-to-start-not-failing-to-catch
+          PASS  34.definition-drift-pair-intact-probe-rc-0
+          PASS  34b.layer-P-pass-line-present
+          PASS  35.definition-snapshotter-unwired-fails-layerP
+          PASS  35b.layer-P-names-the-missing-snapshotter
+          PASS  36.definition-drift-guard-unwired-fails
+          PASS  37.definition-drift-guard-tampered-fails
+          PASS  37b.definition-snapshotter-tampered-fails-layerP
+          PASS  38.definition-drift-guard-gutted-fails-layerP-canary
+          PASS  38b.definition-drift-guard-overblocks-fails-layerP-canary
+          PASS  38c.layer-P-names-the-over-block
+          PASS  39.definition-snapshotter-duplicated-fails
+          PASS  40.definition-drift-guard-suite-passes
+          PASS  41.reaper-chain-intact-probe-rc-0
+          PASS  41b.layer-Q-pass-line-present
+          PASS  42.reaper-wrapper-unwired-fails-layerQ
+          PASS  42b.layer-Q-names-the-missing-wrapper
+          PASS  43.reaper-wrapper-tampered-fails-layerQ
+          PASS  44.reaper-script-tampered-fails-layerQ
+          PASS  44b.reaper-sidecar-missing-fails-layerQ
+          PASS  44c.layer-Q-names-the-missing-manifest
+          PASS  45.reaper-gutted-fails-layerQ-canary
+          PASS  45b.layer-Q-names-the-gutted-sweep
+          PASS  45c.reaper-overreaches-fails-layerQ-canary
+          PASS  45d.layer-Q-names-the-destroyed-work
+          PASS  46.reaper-wrapper-duplicated-fails
+        NOTE: reconciler NOT scheduled — launchd is macOS only. Schedule '/usr/bin/python3 /tmp/contract-integrity.PUDfzV/scripts/reconcile-terminal-worktrees.py --quiet' every 300 seconds with your host's scheduler. (install.sh)
+          PASS  47.install-mints-reaper-chain-sidecars
+          PASS  47b.post-install-probe-passes
+          PASS  48.reaper-wrapper-suite-passes
+          PASS  49.agent-finish-trigger-revived-fails-layerQ
+          PASS  49b.layer-Q-names-the-revived-agent-finish-trigger
+          PASS  50.wrapper-with-execute-fails-layerQ
+          PASS  50b.layer-Q-names-the-revived-sweep
+          PASS  50c.wrapper-without-reconciler-fails-layerQ
+          PASS  50d.layer-Q-names-the-gutted-recovery
+          PASS  51.owner-liveness-gate-removed-fails-layerQ4
+          PASS  51b.layer-Q4-names-the-live-worktree-selected
+          PASS  51c.layer-Q-top-arm-stays-GREEN-and-Q4-is-the-ONLY-red
+          PASS  52.discovery-removed-fails-layerQ4
+          PASS  52b.layer-Q4-names-the-blind-sweep
+          PASS  53.reaper-scope-and-safety-suite-passes
+          FAIL  54.reconciler-suite-passes  (expected exit=0 got=1)
+          PASS  S1.worktree-removal-guard-not-wired-fails
+          PASS  S1b.layer-S-is-the-layer-that-caught-it
+          PASS  S2.worktree-removal-guard-wired-twice-fails
+          PASS  S3.gutted-worktree-removal-guard-fails
+          PASS  S4.sanctioned-helper-missing-fails
+          PASS  S4b.layer-S-names-the-missing-helper
+          PASS  IP1.interactive-prompt-guard-not-wired-fails
+          PASS  IP1b.layer-IP-is-the-layer-that-caught-it
+          PASS  IP2.interactive-prompt-guard-wired-twice-fails
+          PASS  IP3.gutted-interactive-prompt-guard-fails
+          PASS  IP4.shape-table-missing-fails
+          PASS  IP4b.layer-IP-names-the-missing-shape-table
+          PASS  IP5.dead-guard-that-refuses-everything-fails-despite-matching-hash
+          PASS  IP5b.layer-IP-says-failing-to-start-not-failing-to-catch
+          PASS  IP6.interactive-prompt-guard-suite-passes
+          PASS  IP7.interactive-prompt-mutations-all-load-bearing
+          PASS  IL1.idle-land-gate-not-wired-fails
+          PASS  IL1b.layer-IL-is-the-layer-that-caught-it
+          PASS  IL2.missing-analyzer-fails
+          PASS  IL2b.layer-IL-names-the-missing-analyzer
+          PASS  IL3.replaced-analyzer-fails-on-the-hash
+          PASS  IL4.gutted-gate-fails-despite-matching-hash
+          PASS  IL4b.layer-IL-says-it-is-registered-but-not-enforcing
+          PASS  IL5.gate-that-refuses-everything-fails-despite-matching-hash
+          PASS  IL5b.layer-IL-says-refusing-everything-not-deciding
+          PASS  IL6.idle-land-gate-suite-passes
+          PASS  IL7.idle-land-mutations-all-load-bearing
+          PASS  CL1.claim-gate-suite-passes
+          PASS  CL2.claim-gate-mutations-all-load-bearing
+          PASS  RI1.resume-isolation-suite-passes
+          PASS  RI2.resume-isolation-mutations-all-load-bearing
+          FAIL  IN2.inflight-notify-mutations-all-load-bearing  (expected exit=0 got=1)
+          PASS  WTR1.worktree-removal-mutations-all-load-bearing
+          PASS  MT1.model-tiers-undeclared-fails
+          PASS  MT1b.the-refusal-names-the-blank-declaration
+          PASS  MT2.model-tiers-alias-set-drifts-from-allowed-models-fails
+          PASS  MT2b.the-refusal-names-the-unranked-alias
+          PASS  MT3.doctrine-quotes-a-different-order-fails
+          PASS  MT3b.the-refusal-names-both-orders
+          PASS  MT4.doctrine-says-downgrade-without-quoting-the-data-fails
+          PASS  MT4b.the-refusal-names-the-missing-quotation
+          PASS  MT5.control-declared-and-quoted-passes-the-layer
+          PASS  MC1.no-ceiling-declared-warns-and-does-not-fail
+          PASS  MC1b.the-warning-names-the-missing-declaration
+          PASS  MC2.unrankable-ceiling-fails
+          PASS  MC2b.the-refusal-names-the-unrankable-ceiling
+          PASS  MC3.doctrine-quotes-a-different-ceiling-fails
+          PASS  MC3b.the-refusal-names-both-ceilings
+          PASS  MC4.dead-ceiling-guard-is-caught
+          PASS  MC4b.the-refusal-says-the-guard-did-not-refuse
+          PASS  MC5.control-declared-and-quoted-passes-the-layer
+          PASS  MC6.model-ceiling-mutations-all-load-bearing
+          PASS  WTI1.staffing-gate-mutations-all-load-bearing
+          PASS  MF1.mechanical-findings-mutations-all-load-bearing
+          PASS  SA1.stated-actions-gate-suite-passes
+          PASS  SA2.stated-actions-mutations-all-load-bearing
+        
+        === summary ===
+        passed: 163
+        failed: 2
+        failing cases:
+          - 54.reconciler-suite-passes
+          - IN2.inflight-notify-mutations-all-load-bearing
+  [12/60] scripts/hooks/detect-nonnative-worktree.test.sh            [32mPASS[0m
+  [13/60] scripts/hooks/engine-status.test.sh                        [32mPASS[0m
+  [14/60] scripts/hooks/guard-bash-main-writes.test.sh               [32mPASS[0m
+  [15/60] scripts/hooks/guard-definition-drift.test.sh               [32mPASS[0m
+  [16/60] scripts/hooks/guard-dialect.test.sh                        [32mPASS[0m
+  [17/60] scripts/hooks/guard-idle-land.test.sh                      [32mPASS[0m
+  [18/60] scripts/hooks/guard-interactive-prompt.test.sh             [32mPASS[0m
+  [19/60] scripts/hooks/guard-main-checkout-writes.test.sh           [32mPASS[0m
+  [20/60] scripts/hooks/guard-model-ceiling.test.sh                  [32mPASS[0m
+  [21/60] scripts/hooks/guard-resume-isolation.test.sh               [32mPASS[0m
+  [22/60] scripts/hooks/guard-sealed-worktree.test.sh                [32mPASS[0m
+  [23/60] scripts/hooks/guard-stated-actions.test.sh                 [32mPASS[0m
+  [24/60] scripts/hooks/guard-unresolved-claims.test.sh              [32mPASS[0m
+  [25/60] scripts/hooks/guard-worktree-isolation.test.sh             [31mFAIL[0m (rc=1)
+        === guard-worktree-isolation tests ===
+          PASS  non-Agent tool (Bash)
+          PASS  non-Agent tool (Read)
+          PASS  no isolation, no marker, well-formed name, dev
+          PASS  block message is self-documenting: names isolation flag
+          PASS  block message is self-documenting: names main-checkout-run fallback
+          PASS  isolation worktree, well-formed name
+          PASS  isolation remote, well-formed name
+          PASS  read-only type Explore, no isolation/name (isolation exemption holds)
+          PASS  read-only type Plan, no isolation/name (isolation exemption holds)
+          PASS  read-only type claude-code-guide
+          PASS  read-only type statusline-setup
+          PASS  deviceqa: no isolation, no marker -> BLOCKED
+          PASS  visualqa: no isolation, no marker -> BLOCKED
+          PASS  funcqa: no isolation, no marker -> BLOCKED
+          PASS  deviceqa: isolation worktree -> exit 0
+          PASS  visualqa: isolation worktree -> exit 0
+          PASS  funcqa: isolation worktree -> exit 0
+          PASS  deviceqa: main-checkout-run marker, no isolation -> exit 0
+          PASS  main-checkout-run marker, well-formed name, no isolation
+          PASS  marker mid-prompt on its own line still matches
+          PASS  bare name with isolation set
+          PASS  run-together name with isolation set
+          PASS  bare name with marker present (not relaxed)
+          PASS  bare name for deviceqa, isolation set (not relaxed)
+          PASS  malformed-name message present
+          PASS  old 2-part name (missing model token), isolation set -> BLOCKED
+          PASS  missing-model-token message names the 3-part form
+          PASS  garbage model token 'gpt' -> BLOCKED
+          PASS  garbage-token message says 'not an allowed model'
+          PASS  correct token via override (fable is an allowed alias, dev-fable-*)
+          PASS  correct token via live frontmatter default (frank->opus)
+          PASS  wrong token vs frontmatter (frank is opus, name says sonnet) -> BLOCKED
+          PASS  frontmatter-mismatch message names BOTH models
+          PASS  frontmatter-mismatch message is labelled 'untruthful model token'
+          PASS  template-named type does NOT resolve from templates/ (undeterminable)
+          PASS  correct token via override (override sonnet beats frontmatter opus)
+          PASS  wrong token vs override (override sonnet, name says opus) -> BLOCKED
+          PASS  override-mismatch message cites the override source
+          PASS  verbose override id 'claude-opus-4-8' normalizes to opus
+          PASS  undeterminable (no live def, no override) accepts valid alias token
+          PASS  undeterminable via model:inherit accepts valid alias token
+          PASS  undeterminable but garbage token still BLOCKED (2a floor holds)
+          PASS  reed (sonnet default) on fable, no reason -> allowed, SILENT (an upgrade)
+          PASS  frank (opus default) on fable, no reason -> allowed, SILENT (same tier; the CEO's own spawn shape)
+          PASS  frank on opus, its own default, explicit -> SILENT
+          PASS  reed upgraded to opus -> SILENT
+          PASS  reed on sonnet, its own default, explicit -> SILENT
+          PASS  frank with NO override -> clause 6 never fires
+          PASS  frank (opus default) on sonnet, no reason -> BLOCKED
+          PASS  the tier refusal names the teammate
+          PASS  the tier refusal names the definition default
+          PASS  the tier refusal names the requested model
+          PASS  the tier refusal names the declaration it read
+          PASS  the tier refusal names the exact line to add
+          PASS  the tier refusal says equal-or-higher never needs it
+          PASS  frank on haiku, no reason -> BLOCKED
+          PASS  reed (sonnet default) on haiku, no reason -> BLOCKED
+          PASS  frank on sonnet WITH a reasoned model-downgrade-ack: -> allowed
+          PASS  a BARE model-downgrade-ack: exempts nothing -> BLOCKED
+          PASS  model-downgrade-ack: tolerates leading whitespace
+          PASS  model-downgrade-ack: does NOT relax clause 2b (untruthful name still BLOCKED)
+          PASS  a verbose lower-tier override id is normalized before ranking -> BLOCKED
+          PASS  an accepted model-downgrade-ack: is logged to .claude/state/model-downgrade-acks.log with both models
+          PASS  a REFUSED downgrade is not logged (a refusal is not a waiver)
+          PASS  an alias MODEL_TIERS does not rank -> allowed (fail-open)
+          PASS  the fail-open skip is announced, naming the unranked alias
+          PASS  the fail-open skip reaches the orchestrator as a systemMessage
+          PASS  a BLANK MODEL_TIERS -> allowed (fail-open), announced as blank
+          PASS  a MALFORMED MODEL_TIERS -> allowed (fail-open), announced as malformed
+          PASS  a broken declaration is NOT announced on a spawn that never needed it (no override)
+          PASS  a broken declaration is NOT announced on model:inherit
+          PASS  parser library missing -> allowed (fail-open), announced
+          PASS  the declared order is obeyed even when it contradicts the alias names: opus-default on haiku -> SILENT
+          PASS  the declared order is obeyed even when it contradicts the alias names: opus-default on fable (same tier) -> SILENT
+          PASS  the declared order is obeyed even when it contradicts the alias names: opus-default on sonnet -> BLOCKED
+          PASS  tool_input is not a dict (tool_name IS Agent)
+          PASS  tool_input is null (tool_name IS Agent)
+          PASS  totally invalid JSON body (no Agent tool_name resolvable)
+          PASS  marker use logged to .claude/state/main-checkout-runs.log
+          PASS  blocked spawn (no marker) must NOT be logged as a marker use
+          PASS  python3 missing from PATH -> BLOCKS (exit 2)
+          PASS  python3-missing stderr names the missing interpreter
+          PASS  reuse: fresh name allowed, and NOT burned into the ledger by this PreToolUse guard
+          PASS  reuse: a name this guard approved but never executed is re-issuable
+          PASS  reuse: ledger-recorded name reused -> block
+          PASS  reuse: active roster name -> block
+          PASS  reuse: completed name (event-log only) -> block
+          PASS  reuse: completed name (idle-log only) -> block
+          PASS  reuse: block message self-documenting (collision + fresh-id fix)
+          PASS  reuse: unrelated fresh name still allowed alongside roster
+          PASS  reuse: clause inert without a resolvable team dir
+          PASS  cwd into a REGISTERED cross-repo worktree, no isolation -> BLOCKED (external-only: no platform lifecycle witness)
+          PASS  external-only refusal names the witness it lacks and the form to use
+          PASS  external-only refusal names the cross-repo-worktree line
+          PASS  cwd into an UNREGISTERED linked worktree -> BLOCKED
+          PASS  unregistered-cwd message names the helper
+          PASS  unregistered-cwd message says the ledger holds no registration
+          PASS  cwd = a main checkout -> BLOCKED
+          PASS  cwd = nonexistent path -> BLOCKED
+          PASS  cwd together with isolation:worktree -> BLOCKED (mutually exclusive)
+          PASS  cwd+isolation message says mutually exclusive
+          PASS  cwd spawn with a bare name -> BLOCKED (name contract not relaxed)
+          PASS  cross-repo-worktree: REGISTERED path + isolation -> allowed
+          PASS  cross-repo-worktree: UNREGISTERED path + isolation -> BLOCKED
+          PASS  prompt instructing 'git -C <repo> worktree add' -> BLOCKED
+          PASS  hand-roll refusal names the helper and the ack
+          PASS  prompt instructing 'git worktree add' with a hand-roll-ack: line -> allowed
+          PASS  an ordinary prompt mentioning neither -> allowed (no false positive)
+          PASS  cwd spawn with the ledger library MISSING -> BLOCKED, naming the missing file (fail-closed)
+          PASS  an isolated spawn without the ledger library still passes (clause 4 is inert for it)
+          PASS  hand-roll-ack use is logged to .claude/state/hand-roll-acks.log
+          PASS  Q01  an allowed native spawn writes a spawn-intent (kind native, exact key, no externals)
+          PASS  Q02  a cwd-only spawn into a prepared tree is REFUSED at clause 7f and writes no spawn-intent (INVERTED: it used to write kind cwd)
+          PASS  Q03  isolation plus a cross-repo-worktree: line writes kind native+external
+          PASS  Q04  cwd into a tree prepared for ANOTHER session -> BLOCKED
+          PASS  Q05  the refusal names the session it WAS prepared for
+          PASS  Q06  cwd into a tree prepared for a DIFFERENT teammate -> BLOCKED
+          PASS  Q07  the refusal names the helper and the exact teammate to prepare for
+          PASS  Q08  prepared tree now on a DIFFERENT branch -> BLOCKED
+          PASS  Q09  the refusal names both branches
+          PASS  Q10  ...and back on the prepared branch -> still BLOCKED, by the external-only rule alone (positive control for Q08)
+          PASS  Q10b ...the branch finding is gone and the external-only refusal is the only one left
+          PASS  Q11  run_in_background: false on a file-capable spawn -> BLOCKED (synchronous runs cannot be bound)
+          PASS  Q12  the refusal explains the PostToolUse-too-late reason
+          PASS  Q13  run_in_background: true -> allowed (positive control for Q11)
+          PASS  Q14  a main-checkout-run spawn writes kind main-checkout-run with no members
+          PASS  Q15  a payload with NO tool_use_id -> BLOCKED (the intent cannot be keyed)
+          PASS  Q16  a read-only type writes no intent and is not refused
+          PASS  Q17  ...and nothing was written to the transaction store for it
+          PASS  Q18  a file-capable spawn with the transaction library MISSING -> BLOCKED, naming it (fail-closed)
+          PASS  Q18b a file-capable spawn with the transaction library PRESENT BUT NOT LOADABLE -> BLOCKED, naming it
+          PASS  Q18c a file-capable spawn with the write barrier NOT EXECUTABLE -> BLOCKED, naming it
+          PASS  Q18d ...and the same sandbox with every component healthy ALLOWS the spawn (positive control)
+          SKIP  Q19  clause 7e (launchd) is macOS-only; this host is Linux
+          PASS  Explore with NO generic-agent: line -> BLOCKED
+          PASS  Plan with NO generic-agent: line -> BLOCKED
+          PASS  refusal names the roster teammate as the fix
+          PASS  refusal says a generic agent is invisible in the team display
+          PASS  refusal says a generic agent leaves no commit
+          PASS  refusal names the hatch line by its exact shape
+          PASS  refusal separates the isolation exemption from the staffing question
+          PASS  Explore WITH a well-formed generic-agent: reason -> allowed
+          PASS  the hatch is recognized anywhere in the prompt, not only on line 1
+          PASS  the hatch tolerates leading whitespace
+          PASS  bare 'generic-agent:' with no reason -> BLOCKED
+          PASS  'generic-agent: because' -> BLOCKED
+          PASS  'generic-agent: n/a' -> BLOCKED
+          PASS  'generic-agent: -' -> BLOCKED
+          PASS  a too-short reason is refused BY LENGTH, named
+          PASS  a long-but-empty reason (stopwords only) -> BLOCKED
+          PASS  the filler refusal says so in those terms
+          PASS  reason 'faster to dispatch' -> BLOCKED
+          PASS  reason 'saves time' -> BLOCKED
+          PASS  reason 'more convenient' -> BLOCKED
+          PASS  the speed refusal names create-teammate-worktree.sh as the answer
+          PASS  a genuine reason mentioning worktrees is NOT read as a speed excuse
+          PASS  statusline-setup needs NO hatch (harness utility)
+          PASS  claude-code-guide needs NO hatch (harness utility)
+          PASS  general-purpose, isolated + well-named, NO hatch -> BLOCKED
+          PASS  general-purpose, isolated + well-named, WITH hatch -> allowed
+          PASS  general-purpose WITH hatch but NO isolation -> still BLOCKED (clauses 1-2 hold)
+          PASS  roster-style type, isolated, no hatch -> allowed (clause 5 inert)
+          PASS  roster-style type, isolated, no hatch, second name -> allowed
+          PASS  roster-style type WITHOUT isolation is still blocked by clause 1, not 5
+          PASS  a roster-type refusal is the ISOLATION message, never the staffing one
+          PASS  a type DECLARED in HARNESS_UTILITY_TYPES needs no hatch
+          PASS  a type merely ADDED to READONLY_ALLOWLIST still needs the hatch (default is deny)
+          PASS  an accepted generic-agent: hatch is logged to .claude/state/generic-agent-dispatches.log
+          PASS  a REFUSED generic-agent dispatch is not logged (a refusal is not a waiver)
+        
+        === guard-worktree-isolation tests: all 168 passed ===
+        === guard-worktree-isolation clause 7 (spawn-intent): every property, proven load-bearing by removing it ===
+          PASS  intent-not-written — removing it turns "Q01" red
+          FAIL  externals-dropped — the suite still PASSED without this property.
+                  a cwd spawn's external member would be missing from the intent; the tree the worker writes in would never be bound or cleaned up.
+          FAIL  prepared-not-required — the suite went red, but NOT at "Q04" (so the red is unrelated).
+                    FAIL  Q05  the refusal names the session it WAS prepared for (stderr did not mention "session feedface teammate echo-opus-other1")
+                    FAIL  Q07  the refusal names the helper and the exact teammate to prepare for (stderr did not mention "create-teammate-worktree.sh <repo> echo-opus-stranger1")
+          FAIL  branch-drift-ignored — the suite went red, but NOT at "Q08" (so the red is unrelated).
+                    FAIL  Q09  the refusal names both branches (stderr did not mention "not the branch it was prepared on ('echo-opus-reg1')")
+          PASS  sync-spawn-allowed — removing it turns "Q11" red
+          PASS  lifecycle-check-removed — removing it turns "Q18" red
+          PASS  refusal-does-not-refuse — removing it turns "Q04" red
+        
+        === mutation: 3 property(ies) NOT proven load-bearing, 4 proven ===
+  [26/60] scripts/hooks/guard-worktree-removal.test.sh               [32mPASS[0m
+  [27/60] scripts/hooks/hook-staleness.test.sh                       [32mPASS[0m
+  [28/60] scripts/hooks/inflight-notify.test.sh                      [32mPASS[0m
+  [29/60] scripts/hooks/install-reconciler-schedule.test.sh          [31mFAIL[0m (rc=1)
+        === install.sh schedules the reconciler ===
+          PASS  S01  install.sh exits 0 and writes the plist into RICHOS_LAUNCH_AGENTS_DIR
+          PASS  S02  ...and says it was NOT loaded (a redirected directory is a test)
+          PASS  S03  the plist names THIS engine's reconciler
+          PASS  S04  the plist passes --quiet and a --max-seconds budget
+          PASS  S05  StartInterval is RECONCILE_INTERVAL_SECONDS from orchestration.config (300)
+          PASS  S06  RunAtLoad is set (a reboot resumes cleanup without a session)
+          PASS  S07  the plist parses (plistlib)
+          PASS  S08  Label is com.richos.worktree-reconciler
+          PASS  S09  a changed RECONCILE_INTERVAL_SECONDS is written on re-install (idempotent, converges)
+          PASS  S10  from an ephemeral checkout with no redirect: exit 0, NOT scheduled, nothing written
+          PASS  S11  --force-engine-pointer from a temp checkout with a faked HOME: exit 0, NOT scheduled, no plist under the fake home
+          PASS  S12  ...and launchctl was never invoked (the shim at /tmp/install-sched.x6aGQN/shim/launchctl is the one that resolves, and its log is empty)
+          PASS  S13  ...and the refusal names the faked HOME as the reason
+          PASS  S14  ...while the forced POINTER was still minted — the flag governs the pointer and nothing else
+          PASS  S15  --force-engine-pointer from a LINKED WORKTREE with the real HOME: the worktree fact is still computed, NOT scheduled, launchctl untouched
+          PASS  S16  ...and the forced pointer was minted into the sandboxed config dir (positive control: the force did its own job)
+          FAIL  S17  rc=1 log= out=✓ no settings.json to migrate — settings.local.json is the sole settings file
+        ✓ refreshed hook sha256 manifests
+        ✓ engine pointer -> /tmp/install-sched.x6aGQN/config/richos-engine -> /tmp/install-sched.x6aGQN/engine
+        === install.sh: FAILED — the persistent reconciler is NOT scheduled ===
+          a
+          FAIL  S18  rc=1 out=✓ no settings.json to migrate — settings.local.json is the sole settings file
+        ✓ refreshed hook sha256 manifests
+        ✓ engine pointer -> /tmp/install-sched.x6aGQN/config/richos-engine -> /tmp/install-sched.x6aGQN/engine
+        === install.sh: FAILED — the persistent reconciler is NOT scheduled ===
+          a
+          FAIL  S19  rc=1 out=✓ no settings.json to migrate — settings.local.json is the sole settings file
+        ✓ refreshed hook sha256 manifests
+        ✓ engine pointer -> /tmp/install-sched.x6aGQN/config/richos-engine -> /tmp/install-sched.x6aGQN/engine
+        === install.sh: FAILED — the persistent reconciler is NOT scheduled ===
+          a
+          FAIL  S20  rc=1 out=✓ no settings.json to migrate — settings.local.json is the sole settings file
+        ✓ refreshed hook sha256 manifests
+        ✓ engine pointer -> /tmp/install-sched.x6aGQN/config/richos-engine -> /tmp/install-sched.x6aGQN/engine
+        === install.sh: FAILED — the persistent reconciler is NOT scheduled ===
+          a
+          PASS  S21  a custom label that is not a test label is refused outright (exit 1)
+          SKIP  S22-S26 live launchd installation: macOS + launchctl required (host: Linux)
+        
+        === install-reconciler-schedule tests: 4 FAILED, 17 passed ===
+  [30/60] scripts/hooks/mechanical-findings.test.sh                  [32mPASS[0m
+  [31/60] scripts/hooks/publication-boundary.test.sh                 [32mPASS[0m
+  [32/60] scripts/hooks/reader-teammate-hint.test.sh                 [32mPASS[0m
+  [33/60] scripts/hooks/record-subagent-start.test.sh                [32mPASS[0m
+  [34/60] scripts/hooks/root-contract.test.sh                        [32mPASS[0m
+  [35/60] scripts/hooks/row-currency.test.sh                         [32mPASS[0m
+  [36/60] scripts/hooks/scan-secrets.test.sh                         [32mPASS[0m
+  [37/60] scripts/hooks/session-start-reap-worktrees.test.sh         [32mPASS[0m
+  [38/60] scripts/hooks/stop-hook-visibility.test.sh                 [32mPASS[0m
+  [39/60] scripts/hooks/task-completed-handoff.test.sh               [32mPASS[0m
+  [40/60] scripts/hooks/teammate-idle-handoff.test.sh                [32mPASS[0m
+  [41/60] scripts/hooks/terminalize-agent-worktrees.test.sh          [32mPASS[0m
+  [42/60] scripts/hooks/turn-manifest.test.sh                        [32mPASS[0m
+  [43/60] scripts/hooks/unasked-deferral.test.sh                     [32mPASS[0m
+  [44/60] scripts/hooks/unstarted-rows.test.sh                       [32mPASS[0m
+  [45/60] scripts/hooks/verify-agent-prompt.test.sh                  [32mPASS[0m
+  [46/60] scripts/hooks/waiver-repetition.test.sh                    [32mPASS[0m
+  [47/60] scripts/hooks/worker-lifecycle.test.sh                     [32mPASS[0m
+  [48/60] scripts/install-ack-protocol.test.sh                       [32mPASS[0m
+  [49/60] scripts/lib/assert-own-worktree-registered.test.sh         [32mPASS[0m
+  [50/60] scripts/lib/git-jurisdiction.test.sh                       [32mPASS[0m
+  [51/60] scripts/lib/global-state-witness.test.sh                   [32mPASS[0m
+  [52/60] scripts/lib/resolve-roots.test.sh                          [32mPASS[0m
+  [53/60] scripts/lib/seat-jurisdiction.test.sh                      [32mPASS[0m
+  [54/60] scripts/lib/worktree-ledger.test.sh                        [32mPASS[0m
+  [55/60] scripts/lib/worktree-transactions.test.sh                  [32mPASS[0m
+  [56/60] scripts/locate-engine.test.sh                              [32mPASS[0m
+  [57/60] scripts/provision-claude-md.test.sh                        [31mFAIL[0m (rc=1)
+        
+        == required values ==
+          PASS  provisioning: a blank COMPANY_NAME is REFUSED, never written as a TODO placeholder
+          PASS  provisioning: a refused run writes nothing
+          PASS  provisioning: a missing identity.config is REFUSED with a usage error
+        
+        == first run ==
+          FAIL  provisioning: a first run generates CLAUDE.md and exits 0
+              expected exit 0, got 2
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: the generated file names the CEO, so a bare boot knows who it serves
+              expected to find: Dana Whitlock
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: the generated file names the company
+              expected to find: Meridian Robotics
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: the generated file IS the Rich persona, not generic Claude
+              expected to find: You are **Rich Hand**
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          PASS  provisioning: no adopter TODO block survives into live doctrine
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          PASS  provisioning: the adopter-facing template header is stripped
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          PASS  provisioning: the sample pagination rule never ships as this company's doctrine
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: an unconfigured section says NOT CONFIGURED and forbids inventing a value
+              expected to find: never invent a value to fill this gap
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: the file carries an engine-version provenance stamp
+              expected to find: <!-- richos-provisioned: engine=
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: Rich is pointed at loro for company memory
+              expected to find: loro-context.mjs compile
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: Rich is told to scope a teammate slice with --audience worker
+              expected to find: --audience worker
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: an unconfigured locale refuses to pick a dialect rather than defaulting to one
+              expected to find: No locale is recorded
+        grep: /tmp/tmp.ygwE98okNz/locale.md: No such file or directory
+          FAIL  provisioning: a configured locale reaches live doctrine verbatim, where an implementer reads it
+              expected to find: **American English.** Dates M/D/YYYY, USD.
+        
+        == idempotency and no-clobber ==
+        shasum: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+        shasum: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          PASS  provisioning: re-running with unchanged inputs leaves the file byte-identical
+          FAIL  provisioning: an unchanged re-run reports up-to-date, not a rewrite
+              ERROR: provision-claude-md.sh: unrecognized TODO block in the template — refusing to render.
+               Block text: if this repository is published, name your private record here (the repo or page where moved incident detail lives), so the pointer rule above has a destination
+               The template changed; teach this script the new block before provisioning.
+          FAIL  provisioning: changed identity values REFRESH an unedited file
+              ERROR: provision-claude-md.sh: unrecognized TODO block in the template — refusing to render.
+               Block text: if this repository is published, name your private record here (the repo or page where moved incident detail lives), so the pointer rule above has a destination
+               The template changed; teach this script the new block before provisioning.
+        grep: /tmp/tmp.ygwE98okNz/CLAUDE.md: No such file or directory
+          FAIL  provisioning: a refresh carries the new CEO name
+              expected to find: Robin Alvarez
+        
+        == the CEO edited it ==
+          PASS  provisioning: a CEO-edited CLAUDE.md is NEVER clobbered
+          FAIL  provisioning: the edited case reports preserved, loudly
+              ERROR: provision-claude-md.sh: unrecognized TODO block in the template — refusing to render.
+               Block text: if this repository is published, name your private record here (the repo or page where moved incident detail lives), so the pointer rule above has a destination
+               The template changed; teach this script the new block before provisioning.
+          FAIL  provisioning: --upgrade writes the new render BESIDE the edited file for hand-merge
+              no CLAUDE.md.new
+          PASS  provisioning: --upgrade still does not touch the edited file
+          FAIL  provisioning: --force overwrites an edited file ONLY when explicitly asked
+              nothing changed
+          PASS  provisioning: a hand-authored CLAUDE.md with no stamp is never overwritten
+        
+        == --check and template drift ==
+          FAIL  provisioning: --check exits 1 when CLAUDE.md has not been provisioned
+              expected exit 1, got 2
+          FAIL  provisioning: --check exits 0 when the generated file is current
+              expected exit 0, got 2
+          PASS  provisioning: an UNRECOGNIZED template block fails loud rather than leaking adopter instructions
+        
+        == the identity seam other components read ==
+          PASS  provisioning: --identity-json exposes company_name/ceo_name as the ONE source of truth
+        
+        12 passed, 18 failed
+  [58/60] scripts/publication-completeness.test.sh                   [32mPASS[0m
+  [59/60] scripts/reap-stale-worktrees.test.sh                       [32mPASS[0m
+  [60/60] scripts/reconcile-terminal-worktrees.test.sh               [31mFAIL[0m (rc=1)
+        === reconcile-terminal-worktrees tests ===
+          PASS  C01  one run drives both members quarantined -> removed
+          PASS  C02  both quarantine directories are gone and neither original was recreated
+          PASS  C03  git no longer lists either worktree
+          PASS  C04  the backup refs survive in both repositories (unlanded commits stay reachable)
+          PASS  C05  the member's branch itself is left alone
+          PASS  C06  the archive holds tree.tar, manifest.json, index.json and provenance.json
+          PASS  C07  unstaged, staged, untracked, IGNORED evidence and a symlink survive byte-for-byte in the archive
+          PASS  C08  the declared disposable path (node_modules) is not captured
+          PASS  C09  the staged blob's bytes are archived under its index sha
+          PASS  C10  provenance names the repo, original path, branch, HEAD and backup ref
+          PASS  C11  --status: zero dead-present, zero pending -> done (exit 0)
+          PASS  C12  each transition of the external member can be taken alone and persists (crash after every step)
+          PASS  C13  the next run finishes the OTHER member from wherever it was
+          FAIL  C14  holder alive=yes states=removed removed 
+          PASS  C15  a recreated original path is detected, its bytes kept as residue-1.tar, and it is removed
+          PASS  C16  a quarantine that changes during the settle is NOT captured: retried later, the quarantine kept, no torn archive
+          PASS  C17  ...and the next run captures the settled bytes completely
+          PASS  C18  a damaged archive does not verify: the capture is VOID, the quarantine is kept, nothing is deleted on its strength
+          PASS  C18b ...and the next run re-captures from the untouched quarantine and completes
+          PASS  C19  original AND quarantine present -> resolved AUTOMATICALLY: the residue at the original path is archived and VERIFIED (residue-1.tar + manifest) then removed, the quarantine is captured and removed, nothing is reported as a failure and nobody is asked (INVERTED: it used to park as FAILED for an operator)
+          PASS  C20  ...and --status counts no hard failure: there is no manual queue
+          PASS  C21  a LIVE agent reusing a terminal agent's name is untouched (nothing is matched by name)
+          PASS  C22  a stranger directory at a REMOVED member's old path is not reclaimed (the member is done; no search)
+          PASS  C23  --max-seconds stops cleanly, says so, and leaves the rest for the next run
+          PASS  C24  --agent reconciles exactly one transaction
+          PASS  C25  an unbudgeted run finishes what the budgeted one left
+          PASS  C26  within the grace period a pending event waits: no transaction is built, nothing moves
+          PASS  C27  after the grace period the BOUND record's prepared external member is verified, terminalized and removed with its evidence captured; the never-started native tree is not invented
+          PASS  C28a a start-only helper in the MAIN checkout: no filesystem mutation, but the terminal event is KEPT as a zero-member terminal transaction (removed, no-members) and the agent stays terminal (INVERTED: the record used to be dropped)
+          PASS  C28b a start-only EXACT native worktree (no bound record) is verified from the start fact, terminalized as a one-member fallback and RETIRED: backup ref saved, evidence captured, worktree removed (INVERTED: it used to leak forever)
+          PASS  C28c the exact native path a WorktreeRemove named (first_path) is verified and retired even though the start fact named the main checkout
+          PASS  C29  a failed `git ls-files` keeps the member QUARANTINED (attempt counted, error named, no index.json written) — nothing is captured, nothing deleted
+          PASS  C30  ...the retry captures the index exactly: the staged-only entry is marked needs_blob and its blob is archived; the seed entry (in HEAD) is not
+          PASS  C31  a staged blob that should exist but does not -> capture VOID ('is missing from the archive'), quarantine kept
+          PASS  C31-r ...and the re-capture from the untouched quarantine verifies and completes
+          PASS  C32  a symlink whose archived target is not the manifest target -> capture VOID ('symlink target mismatch'), quarantine kept
+          PASS  C32-r ...and the re-capture from the untouched quarantine verifies and completes
+          PASS  C33  a file whose archived mode is not the manifest mode -> capture VOID ('mode mismatch'), quarantine kept
+          PASS  C33-r ...and the re-capture from the untouched quarantine verifies and completes
+          PASS  C34  capture directories are 0700 and archives 0600 (explicit modes, not the ambient umask)
+          PASS  C35  at the default retention (30/90/90 days) a just-removed transaction keeps its capture and backup ref
+          PASS  C36  capture retention at 0 days expires the capture; the record whose backup ref is still within retention is KEPT (no artifact is ever orphaned from its record)
+          PASS  C37  at 0 days for all three, the backup ref, the transaction record and its facts are expired by the run itself; the agent-id terminal index is kept
+          PASS  C38  git REJECTS the backup-ref deletion: the ref remains, the member is NOT stamped expired (attempt + error recorded), and the transaction record is NOT deleted
+          PASS  C38b a deletion that exits 0 but leaves the ref resolving is NOT expired either: the exact ref is verified absent, the exit code is not trusted
+          PASS  C38c ...and the next run with git working deletes the ref, verifies it gone, and only then expires the record
+          PASS  C39  a sealed LIVE transaction whose native member the platform tore down (worktree + branch, no hook) is claimed with ingress NativeMemberGone: the native member closes absent with its backup ref re-created, and the hand-rolled member is captured and removed
+          PASS  C40  a sealed live transaction whose native member is present and registered is NOT claimed by the backstop (negative control)
+          PASS  C42  a transient failure (git ls-files rejected) records attempt 1 and a retry time; the next run within the backoff SKIPS the member (quarantine kept, --status not done), no operator named
+          PASS  C42b ...and once the backoff has elapsed (base 0 here) the retry runs and the member completes
+          PASS  C43  a native directory git can neither list nor read is claimed by the backstop, its RAW bytes captured and verified, the backup ref taken from head_at_seal, and it is removed; the hand-rolled member is retired too
+          PASS  C44  a quarantine whose HEAD moved after the backup ref was saved: the moved HEAD is preserved under the drift ref, the original ref is untouched, the drift is recorded and the member is removed (INVERTED: provenance-contradicts-git used to park as FAILED)
+          PASS  C45  a worktree git registers at the original path is NOT this member's: recorded, never touched (its bytes intact, still registered); the member's own quarantine is captured and removed
+          PASS  C46  a legacy FAILED member is re-derived from what exists on disk, re-enters the state machine and is removed
+          PASS  C47  a sealed transaction whose native member is present and registered is reported POSITIVELY present (there is no sealed_live key any more); status is done
+          PASS  C47b ...with the native member torn down, --status (no run) reports sealed_native_missing=1, is NOT done, exits 1 — the orphan is named, not called live (INVERTED: it used to say done: true over exactly this)
+          PASS  C47c ...and after one reconciler run the backstop has retired it and status is done again
+        
+        === reconcile-terminal-worktrees tests: 1 FAILED, 56 passed ===
+
+[31m✗ 55/60 engine test suites passed — 5 FAILED:[0m
+    - scripts/hooks/contract-integrity.test.sh (rc=1)
+    - scripts/hooks/guard-worktree-isolation.test.sh (rc=1)
+    - scripts/hooks/install-reconciler-schedule.test.sh (rc=1)
+    - scripts/provision-claude-md.test.sh (rc=1)
+    - scripts/reconcile-terminal-worktrees.test.sh (rc=1)
+
+[31m✗ ci-verify: run-all-tests.sh failed — see the named suite(s) above.[0m
+end   2026-09-04T12:19:46Z
+=== ci-verify.sh rc=1 elapsed=3940s (65m40s) ===

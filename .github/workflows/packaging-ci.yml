@@ -68,27 +68,28 @@ name: packaging-ci
 #   3. `package-app.test.sh` case B2 — same cause: `package-app.sh` exits 3 on the missing
 #      Tauri CLI before it can reach the refusal the case is about.
 #
-# AND A FOURTH, WHICH IS NOT ABOUT RUNNERS AT ALL AND IS THE ONE SOMEBODY HAS TO FIX.
-# `gui-boot.test.sh` case B2 is RED on main, on the machine that has everything. Run with the
-# operator's real `$HOME` against a clone of `fc56c20`: 17 passed, B2 failed, 154 s
-# (`docs/verification/workflows-on-a-clone-2026-09-04/raw/gui-boot-real-home.txt`).
+# A FOURTH WAS FOUND HERE AND IS ALREADY FIXED, and it is recorded because the fix is the
+# best argument in this file for why the suite is worth re-enabling one day.
 #
-# It was called environmental twice today. It is not. B2 asserts that every `[richos]` line a
-# Finder-condition boot prints is either a proof that something resolved, a routine fact, or
-# a DECLARED gap — and its header states the design plainly: a new resolver that cannot find
+# `gui-boot.test.sh` case B2 was RED on `fc56c20`, on the machine that has everything: 17
+# passed, B2 failed, 154 s
+# (`docs/verification/workflows-on-a-clone-2026-09-04/raw/gui-boot-real-home.txt`). It had
+# been called environmental twice that day. It was not. B2 asserts that every `[richos]` line
+# a Finder-condition boot prints is a proof that something resolved, a routine fact, or a
+# DECLARED gap — and its header states the design plainly: a new resolver that cannot find
 # its configuration prints a sentence, that sentence matches no rule, and the check goes red
 # without anyone having remembered to extend it. Drift makes the unaccounted list LONGER.
 #
-# That is exactly what happened. The entity-registry land (`fc56c20`) added seven boot lines
-# in `app/src-tauri/src/main.rs` — the company registry's absence, its count, a saved company
-# that no longer resolves, an unresolved entity root, the operator hint pointing at
-# `docs/entity-registry.md`, and the first-run summary. Not one of them existed at `07ed1d4`;
-# none has an accounting rule. **The check is working. The rule set is behind the product.**
+# Which is exactly what happened. The entity-registry land added seven boot lines in
+# `app/src-tauri/src/main.rs` — the company registry's absence, its count, a saved company
+# that no longer resolves, an unresolved entity root, the operator hint, and the first-run
+# summary. Not one existed at `07ed1d4`; none had an accounting rule. **The check was
+# working; the rule set was behind the product.** It was left with the author of those lines
+# rather than guessed at here, because classifying a line means saying what it MEANS, and a
+# wrong classification is how a check silently stops checking.
 #
-# WHOSE FIX IT IS, and why it is not taken here: classifying those seven lines means saying
-# what each one MEANS — proof, routine, or declared gap — and that is a claim only the author
-# of the lines can make truthfully. Guessing it is how a check that no longer checks anything
-# goes green. It belongs with whoever owns the registry's boot path.
+# RE-CHECKED AT `3de8e1f`, against the artifact rather than against the report: **all 20
+# passed, exit 0, 62 s.** The accounting is level with the boot log again.
 #
 # WHY DISABLED RATHER THAN PATCHED, argued rather than assumed. (2) and (3) are one fix —
 # install a pinned Tauri CLI in a step here. (1) is not fixable from this file at all: no
@@ -100,7 +101,6 @@ name: packaging-ci
 # worse than both.
 #
 # WHAT WOULD RE-ENABLE IT, so this is a state with an exit and not a shrug:
-#   * B2's rule set brought level with the boot log the entity registry now prints; AND
 #   * the loro compiler reachable from a public checkout (vendored here, or published), or
 #     a public stand-in `gui-boot.test.sh` accepts and still holds its boot log to account;
 #     AND
