@@ -701,16 +701,27 @@ here rather than there:
   `docs/verification/workflows-on-a-clone-2026-09-04/` — which answers a narrower
   question: that they do not depend on the author's machine.
 
-## App icon — pipeline built and proven, source art does not exist (BLOCKED ON ARTWORK ONLY)
+## App icon — generated from real source art, verified, and shipping
 
-**CEO handover sheet: [`app/APP-ICON.md`](APP-ICON.md)** — what to supply, the one
-command, and how he knows it worked. That file is the deliverable for open-items 3.12;
+**CEO handover sheet: [`app/APP-ICON.md`](APP-ICON.md)** — what the icon is, where to
+look at it, and the one command that replaces it. Nothing is asked of him there any more;
 this section is the engineering detail behind it.
 
-`src-tauri/icons/` holds four **placeholder** files (`32x32.png`, `128x128.png`,
-`128x128@2x.png`, `icon.png`) — all four byte-identical, all four internally a 512x512
-PNG regardless of what their filename claims. `icon.icns` and `icon.ico` do not exist at
-all. So the app currently has **no icon at any size**.
+`src-tauri/icons/` holds all six files `tauri.conf.json`'s `bundle.icon` declares, each a
+distinct real image: `32x32.png` (32x32), `128x128.png` (128x128), `128x128@2x.png`
+(256x256), `icon.png` (512x512), `icon.icns`, and `icon.ico` carrying six layers from 16px
+to 256px. They were produced by the pipeline below from
+`app/icon-source/richos-icon-1024.png` (1024x1024 RGBA, with the vector original beside
+it), landed 2026-08-31. The verifier agrees:
+
+```
+$ python3 app/scripts/lib/app_icons.py verify
+OK: every artefact declared in tauri.conf.json bundle.icon is present, correctly sized, and distinct.
+```
+
+That set is what customers have. `Contents/Resources/icon.icns` inside the published
+`RichOS.app` of 1.0.2 is byte-identical to the file in this tree — SHA-256
+`e4f98a1f58e18514cb4521523df2f278a16fa96255bc7931d21fd460abe9f2f0` on both.
 
 ### Generating the real set
 
@@ -769,9 +780,10 @@ convenience rather than the guarantee. Proven by deleting the pre-flight from th
 script and resizing `icons/32x32.png` to 16x16: the run still stopped at `build.rs`'s
 panic and exited 4 with nothing packaged.
 
-Verified on the committed placeholder set: 12 warnings and `Finished dev profile` in the
-first mode, a hard panic in the second, and — after a real generation run — strict mode
-compiling clean with zero icon warnings.
+Both modes were measured while the committed set was still placeholders: 12 warnings and
+`Finished dev profile` in the first mode, a hard panic in the second. The committed set is
+now the real one, so strict mode compiles clean with zero icon warnings — which is the mode
+every released build is compiled in.
 
 ### Tooling and license
 
