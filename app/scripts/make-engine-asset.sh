@@ -11,6 +11,37 @@
 # as a release asset. This script is the thing that makes that asset, and the digest that makes
 # it verifiable.
 #
+# WHAT GOES IN: WHAT GIT TRACKS, NOT WHAT IS ON THE OPERATOR'S DISK
+#
+# Until 2026-09-04 this copied the engine WORKING TREE — `tar -cf - .` — so every gitignored
+# artifact in `engine/` went into the customer's download. Measured on main that day: 119
+# ignored files. Fifteen `.claude/state/agent-definitions-*.snapshot`, each carrying a SESSION
+# UUID, a generation timestamp and the operator's absolute home path. 57
+# `scripts/hooks/*.sha256` sidecars that `install.sh` re-mints on every run. `__pycache__`
+# bytecode. Two defects wearing one coat:
+#
+#   * THE DIGEST MOVED, because a new session mints a new snapshot. The sha256 compiled into
+#     the app was a property of WHEN the build ran, and a customer discovers that as a
+#     DigestMismatch. Reproduced: build, one new snapshot file, build — 4fcb8b46... became
+#     e30083c5....
+#   * SESSION IDENTIFIERS AND A HOME DIRECTORY WERE PUBLISHED. The same class the 2026-09-04
+#     shipped-artifact privacy pass removed from the executable, arriving through a different
+#     door into a different artifact, with nothing watching that door.
+#
+# So the source of truth is `git ls-files`, and a file that is not tracked is not in the asset.
+# There is deliberately NO exclusion list: an allowlist of harmless ignored files drifts from
+# the ignored files that exist, and the next ignored artifact somebody invents has to be
+# excluded by construction rather than by having been thought of. Two consequences worth
+# stating out loud:
+#
+#   * OUTSIDE A GIT CHECKOUT THIS REFUSES rather than falling back to copying everything. A
+#     silent fallback would be a fallback into the leak, which is the wrong failure direction.
+#   * The archive is checked AFTER it is built, against git, by
+#     `verify-engine-asset-members.sh` — because determinism catches this only by accident.
+#     `--check` caught the snapshot only because the snapshot changed; AN IGNORED FILE THAT
+#     NEVER CHANGES PASSES A DETERMINISM CHECK FOREVER. Proven: 205 ignored files planted and
+#     left alone, all thirteen cases green, 208 leaked members in the archive.
+#
 # DETERMINISTIC, AND THAT IS THE WHOLE POINT
 #
 # The digest is compiled into the app (`RICHOS_ENGINE_SHA256`) and covered by the app's own
@@ -86,6 +117,33 @@ VERSION="$(tr -d '[:space:]' < "$ENGINE_DIR/VERSION")"
 [ -n "$VERSION" ] || die "$ENGINE_DIR/VERSION is empty"
 
 # ---------------------------------------------------------------------------------------
+# THE TRACKED SET, WHICH IS THE ONLY THING THAT MAY BE PACKAGED
+# ---------------------------------------------------------------------------------------
+# A checkout is a precondition, not a nice-to-have: outside one there is no tracked set, and
+# the alternative — packaging whatever is on disk — is exactly the defect this refuses.
+git -C "$ENGINE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "$ENGINE_DIR is not inside a git checkout. The asset is built from what git TRACKS, and outside a checkout there is no such thing — refusing rather than falling back to packaging the working tree"
+
+# A tracked file that is missing from disk would make bsdtar fail somewhere down the pipe with
+# nothing named. Say which one, here.
+MISSING_ON_DISK=""
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -e "$ENGINE_DIR/$rel" ] || [ -L "$ENGINE_DIR/$rel" ] || MISSING_ON_DISK="$MISSING_ON_DISK engine/$rel"
+done <<EOF
+$(git -C "$ENGINE_DIR" ls-files)
+EOF
+[ -z "$MISSING_ON_DISK" ] \
+    || die "git tracks file(s) that are not on disk, so the checkout is incomplete:$MISSING_ON_DISK"
+
+# The check that reads the FINISHED archive back and refuses any member git does not track.
+# Its absence is a refusal rather than a skip — a check that can be removed by deleting a file
+# is not a check.
+MEMBERS_CHECK="$SELF_DIR/verify-engine-asset-members.sh"
+[ -f "$MEMBERS_CHECK" ] \
+    || die "no $MEMBERS_CHECK — refusing to build an asset nothing will check the contents of"
+
+# ---------------------------------------------------------------------------------------
 # THE LICENSE, WHICH LIVES OUTSIDE THE DIRECTORY BEING PACKAGED
 # ---------------------------------------------------------------------------------------
 #
@@ -121,10 +179,18 @@ build_into() {
     # shellcheck disable=SC2064
     trap "rm -rf '$staging'" RETURN
 
-    # A COPY, so nothing here can touch the engine in the checkout. `-R` preserves symlinks
-    # rather than following them into a loop.
+    # A COPY OF THE TRACKED FILES, so nothing here can touch the engine in the checkout and
+    # nothing gitignored can reach the customer. `-z` on both `ls-files` and `tar --null`, so
+    # a path with a space or a non-ASCII character is copied as itself rather than as git's
+    # quoted rendering of it. bsdtar creates the intermediate directories on extraction and
+    # the chmod pass below normalizes their modes, so listing files rather than directories
+    # loses nothing — and an empty directory cannot be tracked in the first place.
+    local tracked="$staging/tracked.z"
+    git -C "$ENGINE_DIR" ls-files -z > "$tracked" || return 1
+    [ -s "$tracked" ] || return 1
     mkdir -p "$staging/engine"
-    ( cd "$ENGINE_DIR" && /usr/bin/tar -cf - . ) | ( cd "$staging/engine" && /usr/bin/tar -xf - ) || return 1
+    ( cd "$ENGINE_DIR" && /usr/bin/tar -cf - --null -T "$tracked" ) \
+        | ( cd "$staging/engine" && /usr/bin/tar -xf - ) || return 1
 
     # THE TERMS, COPIED IN. Before the manifest is built, so these files are ordered,
     # timestamped and owned exactly like every other member and the archive stays
@@ -275,6 +341,22 @@ EOF
 TP_COUNT="$(license_files_under "$VERIFY/engine" | wc -l | tr -d ' ')"
 FILES="$(find "$VERIFY/engine" -type f | wc -l | tr -d ' ')"
 rm -rf "$VERIFY"
+
+# ---------------------------------------------------------------------------------------
+# EVERY MEMBER ACCOUNTED FOR, AGAINST GIT
+# ---------------------------------------------------------------------------------------
+# Building from `git ls-files` is the fix; this is the check that the fix held. They are
+# separate on purpose — the build could grow a filter, a transform or a second copy step, and
+# this reads the FINISHED archive back and compares its members to the tracked set in both
+# directions. The two files packaging adds are declared as pairs, and each pair's repo half
+# must itself be tracked, so a pair cannot become a way to smuggle something in.
+echo "=== every member accounted for, against git ==="
+bash "$MEMBERS_CHECK" "$TARBALL" "$REPO_ROOT" \
+    "LICENSE=${LICENSE_SRC#"$REPO_ROOT"/}" \
+    "THIRD-PARTY-NOTICES.md=${NOTICES_SRC#"$REPO_ROOT"/}" \
+    || die "the archive's contents are not what git tracks (above)"
+echo
+
 echo "=== it opens, and it is an engine ==="
 echo "  engine/scripts/hooks  present"
 echo "  engine/VERSION        $VERSION"
