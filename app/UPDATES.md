@@ -12,6 +12,60 @@ This is what replaced it, what is proven, and what is not.
 
 ## What is proven, and how
 
+Five different things are proven here, and they are kept apart on purpose. A signing
+identity, notarization, a stapled ticket, an installable public release and an update that
+actually applied itself are five separate claims. Collapsing them into one cheerful sentence
+is how a document of this kind starts being wrong.
+
+### An installed RichOS updated itself over the internet — 2026-09-04
+
+**This was the first time any copy of RichOS applied an update from a real endpoint.** Until
+that afternoon the honest position, stated in this file, was that no update had ever crossed a
+network.
+
+A **v1.0.1 bundle downloaded from its own public release URL** was run with no endpoint
+override in the environment, so it used the HTTPS endpoint compiled into it. It found 1.0.2,
+downloaded the archive, **verified the minisign signature**, and installed it:
+
+```
+RICHOS-UPDATE-SELFTEST state=available current=1.0.1 available=1.0.2 percent=- failure=- detail=-
+RICHOS-UPDATE-SELFTEST state=ready current=1.0.1 available=1.0.2 percent=100 failure=- detail=-
+RICHOS-UPDATE-SELFTEST exit=0
+```
+
+`ready` is reached only after the plugin verifies the downloaded bytes against the public key
+compiled into the running build; a tampered or wrongly signed archive stops at the first
+transition with `failure=signature`.
+
+The bundle it left on disk then reported `CFBundleShortVersionString` **1.0.2**, `spctl`
+**accepted / source=Notarized Developer ID**, `codesign --verify --deep --strict` valid, and
+its notarization ticket still stapled. Its code hash, `6afdf4b804ffef3a7cbb1568b2309ebfc130747f`,
+is **identical to the independently downloaded 1.0.2 zip's** — which is what proves the
+installed bytes are the published, notarized artifact rather than anything assembled locally.
+
+A published 1.0.0 also sees 1.0.2. A published 1.0.2 reports `upToDate`. Raw output, exact
+commands and the re-run recipe: `docs/verification/live-update-2026-09-04/`.
+
+**What that run did not do is relaunch.** It exits at `ready`. Relaunch is proven by case D
+below, on the local harness.
+
+### The certificate, and the three published releases
+
+`security find-identity -v -p codesigning` reports **1 valid identity** —
+`Developer ID Application: Alex Booster (TZ33A4QCZJ)`. Each of **v1.0.0, v1.0.1 and v1.0.2**,
+downloaded from its public URL and assessed here, is signed by that identity with the hardened
+runtime, **notarized**, **stapled**, and `accepted` by Gatekeeper as
+`source=Notarized Developer ID`. A quarantined 1.0.0 opened from Finder with no Gatekeeper
+prompt of any kind (`docs/verification/first-run-as-a-stranger-2026-09-04/`).
+
+`app/scripts/make-release.sh` is the path that produces those: it signs `developer-id` and
+notarizes by default, and `--sign` and `--no-notarize` are the flags that turn either off, so
+doing without them is a deliberate act. A bare `app/scripts/package-app.sh` still signs
+**ad-hoc**, which is correct for
+a local build and is not what gets published.
+
+### Six named cases on the local harness — 2026-08-31
+
 **An update was applied end to end on this machine on 2026-08-31.** `app/scripts/updater-e2e.sh`
 builds RichOS 0.1.0 and 0.1.1, serves a manifest from a local HTTP server, and makes the first
 become the second — then flips one byte of the served archive and requires the install to
@@ -33,7 +87,7 @@ requires the install to **fail**.
 
 The run's numbers are in `docs/verification/updater-e2e-2026-08-31/`.
 
-### What that run differs from a shipping build by, exactly
+#### What that harness run differs from a shipping build by, exactly
 
 Two `--config` keys, both echoed by `package-app.sh` when it builds:
 
@@ -53,8 +107,11 @@ whole of the delta.
 
 Updates are signed with **minisign**, through `cargo tauri signer`. This has nothing to do
 with Apple: Tauri verifies every downloaded byte against `plugins.updater.pubkey` before it
-installs anything, and that check is independent of codesigning — which is why the whole
-update path is provable today, on an ad-hoc bundle, with no certificate.
+installs anything, and that check is independent of codesigning. The two are separate
+defenses and stay separate — minisign decides whether the archive is the one this project
+signed, Apple's signature and notarization decide whether macOS will run the result. The
+update path was provable before any certificate existed, and it is the same path now that one
+does; the certificate did not replace that check and does not weaken it.
 
 **The public key is committed** (`app/src-tauri/tauri.conf.json`, `plugins.updater.pubkey`).
 It is compiled into every installed copy.
@@ -238,6 +295,18 @@ reads the body with `Response::json`, and that deserializes the bytes without ev
 the content type (`reqwest-0.13.4/src/async_impl/response.rs:269-273`). Both of those are the
 kind of thing a copied blog pattern gets right by luck.
 
+That measurement borrowed another project's file because RichOS had published nothing yet.
+**It has since been repeated against RichOS's own endpoint**, which now answers:
+
+```
+$ curl -sSL -o /dev/null -w '%{http_code} %{num_redirects} %{content_type}\n' \
+       https://github.com/WebDevBooster/richos/releases/latest/download/latest.json
+200 2 application/octet-stream
+```
+
+Two redirects rather than three, the same content type, and the document that comes back names
+version 1.0.2. The endpoint compiled into every installed copy resolves.
+
 **The failure mode this shape has, stated plainly.** `latest/download/<asset>` resolves
 against whatever GitHub currently calls the latest release, and it 404s when that release
 does not carry the asset. The same measurement found two live projects in exactly that
@@ -251,11 +320,13 @@ every installed copy. So:
 
 `app/RELEASING.md` enforces both in the script rather than in a person's memory.
 
-**A 404 is not `unconfigured`.** Until a release exists, a check reports a `manifest`
-failure, because that is what the plugin returns (`Error::ReleaseNotFound`, classified in
-`updates.rs`). The `unconfigured` state now only appears when a build is deliberately pointed
-at the `.invalid` host through `RICHOS_UPDATE_ENDPOINT`. Publish the first release and the
-build that carries this endpoint in the same step and nobody ever sees it.
+**A 404 is not `unconfigured`.** When no release carries the manifest, a check reports a
+`manifest` failure, because that is what the plugin returns (`Error::ReleaseNotFound`,
+classified in `updates.rs`). The `unconfigured` state only appears when a build is
+deliberately pointed at the `.invalid` host through `RICHOS_UPDATE_ENDPOINT`. Releases now
+exist and the endpoint answers 200, so neither state is what anybody sees today — which is
+exactly why the two bullets above are printed as ordered commands by `make-release.sh` and
+re-checked afterwards by its `verify-release` subcommand, rather than remembered.
 
 **What was NOT chosen, and why it may still be right later.** A CDN bucket or a small
 endpoint on existing infrastructure both buy things GitHub Releases cannot: a `204 No Content`
