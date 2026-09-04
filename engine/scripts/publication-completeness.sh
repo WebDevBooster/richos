@@ -193,14 +193,16 @@ ROOT="$(pb_repo_root "$START_DIR" 2>/dev/null || true)"
 [ -n "$ROOT" ] || { echo "ERROR: publication-completeness.sh: $START_DIR is not inside a git repository." >&2; exit 2; }
 
 # Walk up: a worktree, or engine/ inside a repo that carries a product too, must
-# find the declaration wherever it actually lives.
+# find the declaration wherever it actually lives — and "wherever it lives" is
+# scripts/lib/declaration-path.sh's answer, so this script and the two leak
+# guards can never disagree about which file the repository declared.
 DECL_ROOT=""
-d="$ROOT"
-while :; do
-    if [ -f "$d/$PUBLICATION_DECLARATION" ]; then DECL_ROOT="$d"; break; fi
-    [ "$d" = "/" ] && break
-    nd="$(dirname "$d")"; [ "$nd" = "$d" ] && break; d="$nd"
-done
+DECL_UP_RC=0
+decl_find_upward "$ROOT" "$PUBLICATION_DECLARATION" || DECL_UP_RC=$?
+if [ "$DECL_UP_RC" -eq 2 ]; then
+    echo "ERROR: publication-completeness.sh: $DECL_ROOT declares $PUBLICATION_DECLARATION unusably — $DECL_BROKEN_REASON" >&2
+    exit 2
+fi
 
 if [ -z "$DECL_ROOT" ]; then
     cat >&2 <<EOF
@@ -212,7 +214,9 @@ ${C_YELLOW}publication-completeness: NOT APPLICABLE${C_RESET}
   guard-publication-writes.sh holds.
 
   If this tree does get published, create ${PUBLICATION_DECLARATION} at its
-  root; that one file switches on the leak guards AND this check.
+  root — or ${DECLARATION_DIR}/${PUBLICATION_DECLARATION#.}, which is the same
+  declaration in the grouped form; either one switches on the leak guards AND
+  this check.
 EOF
     exit 2
 fi
@@ -225,10 +229,10 @@ pb_load_declaration "$DECL_ROOT"
 PB_RC=$?
 if [ "$PB_RC" -ne 0 ]; then
     if [ "$PB_RC" -eq 2 ]; then
-        echo "ERROR: publication-completeness.sh: $DECL_ROOT/$PUBLICATION_DECLARATION is malformed — $PB_BROKEN_REASON" >&2
+        echo "ERROR: publication-completeness.sh: ${PB_DECLARATION_FILE:-$DECL_ROOT/$PUBLICATION_DECLARATION} is malformed — $PB_BROKEN_REASON" >&2
         exit 2
     fi
-    echo "ERROR: publication-completeness.sh: could not read $DECL_ROOT/$PUBLICATION_DECLARATION." >&2
+    echo "ERROR: publication-completeness.sh: could not read ${PB_DECLARATION_FILE:-$DECL_ROOT/$PUBLICATION_DECLARATION}." >&2
     exit 2
 fi
 
@@ -263,8 +267,18 @@ fi
 COMPLETENESS_DECLARATION=".publication-completeness"
 KNOWN_KEYS="CITATION_EXEMPT DECLARATION_EXEMPT WORKFLOW_EXEMPT INSTANCE_MECHANISMS"
 EX_CITATION=""; EX_DECLARATION=""; EX_WORKFLOW=""; EX_INSTANCE=""
-CFILE="$DECL_ROOT/$COMPLETENESS_DECLARATION"
-if [ -f "$CFILE" ]; then
+# Resolved the same way as the boundary declaration beside it: the grouped form
+# first, the root form second, both at once refused. An exemption file the
+# checker cannot find is an exemption file that silently stops exempting, and
+# the symptom of that is a wall of findings nobody trusts.
+CFILE_RC=0
+decl_find "$DECL_ROOT" "$COMPLETENESS_DECLARATION" || CFILE_RC=$?
+if [ "$CFILE_RC" -eq 2 ]; then
+    echo "ERROR: publication-completeness.sh: $COMPLETENESS_DECLARATION is unusable — $DECL_BROKEN_REASON" >&2
+    exit 2
+fi
+CFILE="$DECL_PATH"
+if [ -n "$CFILE" ] && [ -f "$CFILE" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line#"${line%%[![:space:]]*}"}"
         case "$line" in ''|'#'*) continue ;; esac
@@ -299,13 +313,16 @@ ANALYSER="$SCRIPT_DIR/publication-completeness.py"
 printf '%s=== publication completeness: %s ===%s\n' "$C_BOLD" "$DECL_ROOT" "$C_RESET"
 
 OUT="$(
-    ROOT="$DECL_ROOT" EXPLAIN="$EXPLAIN" \
+    ROOT="$DECL_ROOT" EXPLAIN="$EXPLAIN" DECLDIR="$DECLARATION_DIR" \
     EXC="$EX_CITATION" EXD="$EX_DECLARATION" EXW="$EX_WORKFLOW" EXI="$EX_INSTANCE" \
     PRIV="$PRIVATE_JSON" python3 -c '
 import json, os, sys
 cfg = {
     "root": os.environ["ROOT"],
     "explain": os.environ["EXPLAIN"] == "1",
+    # Where a grouped declaration lives, passed in rather than re-declared:
+    # scripts/lib/declaration-path.sh is the one place that name is written.
+    "declaration_dir": os.environ["DECLDIR"],
     "private_roots": json.loads(os.environ["PRIV"]),
     "exempt": {k: os.environ[v].split() for k, v in
                (("CITATION_EXEMPT","EXC"),("DECLARATION_EXEMPT","EXD"),
@@ -341,6 +358,6 @@ EOF
 
 printf '\n%s✗ publication-completeness: %d finding(s). The public tree claims capabilities it\n' "$C_RED" "$N" >&2
 printf '  does not deliver. Fix each, or add a reviewed entry to\n' >&2
-printf '  %s (an entry that suppresses nothing FAILS,\n' "$DECL_ROOT/$COMPLETENESS_DECLARATION" >&2
+printf '  %s (an entry that suppresses nothing FAILS,\n' "${CFILE:-$DECL_ROOT/$DECLARATION_DIR/${COMPLETENESS_DECLARATION#.}}" >&2
 printf '  so an exemption cannot outlive its reason).%s\n' "$C_RESET" >&2
 exit 1

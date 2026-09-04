@@ -228,6 +228,28 @@ _PUBLICATION_BOUNDARY_SH_SOURCED=1
 
 _PB_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# WHERE the declaration lives is one question with one answer, and it is not
+# answered here — scripts/lib/declaration-path.sh answers it for every guard,
+# so `.richos/publication-boundary` and a root `.publication-boundary` can
+# never be resolved two different ways by two different callers.
+#
+# IF THE RESOLVER IS MISSING, EVERY LOOKUP IS BROKEN AND NOTHING STANDS DOWN.
+# The alternative — quietly falling back to the root form — is the precise
+# shape of the failure this whole file exists to refuse: a repository that
+# declares itself publication-bound in `.richos/` would be waved through by a
+# guard reporting itself healthy.
+_PB_DECL_LIB="$_PB_LIB_DIR/declaration-path.sh"
+if [ -f "$_PB_DECL_LIB" ]; then
+    # shellcheck source=./declaration-path.sh
+    . "$_PB_DECL_LIB"
+else
+    decl_find() {
+        DECL_PATH=""
+        DECL_BROKEN_REASON="scripts/lib/declaration-path.sh is missing at: $_PB_DECL_LIB — It is the only thing that knows where a declaration lives, and guessing the root form would stand this guard down over a repository that declares itself publication-bound in a grouped declaration directory."
+        return 2
+    }
+fi
+
 # Every key the declaration may carry. A key outside this set is a typo, and a
 # typo that silently does nothing is the defect class this whole file exists to
 # remove — so it is refused, loudly, by name.
@@ -293,11 +315,16 @@ pb_repo_root() {
 # ---------------------------------------------------------------------------
 # pb_load_declaration <repo_root>
 # ---------------------------------------------------------------------------
-# Strict-parses <repo_root>/.publication-boundary into PB_* variables.
+# Strict-parses this repository's `.publication-boundary` into PB_* variables.
+# WHERE that file is — `.richos/publication-boundary` or the root form — is
+# decl_find's answer, never this function's; PB_DECLARATION_FILE is the path
+# actually read, and every message that tells an operator which file to edit
+# uses it rather than the name.
 #
 #   rc 0  a well-formed declaration was loaded  -> enforce
 #   rc 1  no declaration                        -> stand down (nothing to enforce)
-#   rc 2  BROKEN: present but malformed         -> caller must BLOCK
+#   rc 2  BROKEN: present but malformed, in two
+#         places at once, or unresolvable       -> caller must BLOCK
 #
 # The file is PARSED, never sourced. Sourcing a file to read four settings out
 # of it hands arbitrary code execution to anything that can write a config, and
@@ -326,10 +353,19 @@ pb_load_declaration() {
     # ALLOWLIST and pointedly not an in-the-moment override.
     PB_CORPUS_MAY_BE_EMPTY="0"
     PB_BROKEN_REASON=""
+    PB_DECLARATION_FILE=""
 
     [ -n "$root" ] || return 1
-    f="$root/$PUBLICATION_DECLARATION"
+    local _pb_drc=0
+    decl_find "$root" "$PUBLICATION_DECLARATION" || _pb_drc=$?
+    case "$_pb_drc" in
+        0) ;;
+        2) PB_BROKEN_REASON="$DECL_BROKEN_REASON"; return 2 ;;
+        *) return 1 ;;
+    esac
+    f="$DECL_PATH"
     [ -f "$f" ] || return 1
+    PB_DECLARATION_FILE="$f"
 
     local _seen=" "
 
@@ -606,7 +642,7 @@ pb_refusal() {
     echo "=== Publication boundary BLOCKED ==="
     echo "  $what"
     echo ""
-    echo "  This repository declares itself PUBLICATION-BOUND ($root/$PUBLICATION_DECLARATION),"
+    echo "  This repository declares itself PUBLICATION-BOUND (${PB_DECLARATION_FILE:-$root/$PUBLICATION_DECLARATION}),"
     echo "  and the content below is private material. The privacy question is what the"
     echo "  bytes SAY, not what format they are in — a transcript committed as text is the"
     echo "  same disclosure as the audio it came from."
@@ -679,7 +715,7 @@ pb_broken_banner() {
     local hook="$1" reason="$2"
     echo "=== RICHOS ENGINE: PUBLICATION BOUNDARY BROKEN — REFUSING TO GUESS ==="
     echo "  hook   : scripts/hooks/$hook"
-    echo "  file   : $PUBLICATION_DECLARATION"
+    echo "  file   : ${PB_DECLARATION_FILE:-$PUBLICATION_DECLARATION}"
     echo "  reason : $reason"
     echo "  This guard decides whether private material may enter a repository that"
     echo "  gets published. It cannot answer that from a declaration it does not"
