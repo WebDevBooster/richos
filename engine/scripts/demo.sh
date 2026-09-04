@@ -223,6 +223,14 @@ DEMO_FILES+=(
     # Layer T fails loudly when it is absent — which is how this omission was
     # found, by the probe rather than by a reader.
     "scripts/lib/dialect-en-US.dict"
+    # The vendored-material predicate — who wrote this text, and is it ours to
+    # judge? guard-vendoring-commits.sh and guard-dialect.sh both REFUSE TO
+    # START without it, exactly as they refuse without resolve-roots.sh, so the
+    # whole demo died during setup naming two hooks and no cause. It landed on
+    # 2026-09-04 with the vendoring guard and this list was not grown with it,
+    # which is the standing failure mode this block exists to catch: a new
+    # dependency has no registration surface to be derived from.
+    "scripts/lib/vendored-material.sh"
     # The model-tier parser. guard-worktree-isolation.sh decides clause 6 (is
     # this explicit model: override a move DOWN the declared capability order?)
     # with it and fails OPEN without it — announced per spawn, into a channel

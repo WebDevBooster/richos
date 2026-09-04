@@ -503,11 +503,75 @@ def try_seal(session_id, agent_id):
     if the agent's only terminal event arrived before the manifest could seal,
     the seal is immediately followed by the claim and the terminalization it
     would have triggered, and the returned transaction is terminal. The
-    caller that sealed a dead agent's manifest learns it is dead."""
+    caller that sealed a dead agent's manifest learns it is dead.
+
+    A NEVER-READ NATIVE SHELL IS DE-MATERIALIZED HERE, and only here, because
+    the seal is the first moment the member set is known and bound to an
+    agent id. It runs AFTER the pending-terminal consumption so a shell the
+    platform is already tearing down is never raced. It is advisory in the
+    strongest sense: scripts/lib/shell-worktree-sparse.py records its own
+    refusals, this call cannot raise, and a missing module simply means no
+    shell is shrunk. Nothing about the lifecycle depends on it."""
     sealed, res = _try_seal_locked(session_id, agent_id)
     if sealed:
         res = _consume_pending_terminal(session_id, agent_id, res)
+        res = _sparsify_shell(session_id, agent_id, res)
     return sealed, res
+
+
+_SHELL_SPARSE_MOD = "unloaded"    # sentinel: None is a real, cached answer
+
+
+def _load_shell_sparse():
+    """The sparsifier, loaded by path like every other sibling here. Returns
+    None if it is absent or unimportable — a seal never depends on it.
+
+    CACHED PER PROCESS, and the reason is the write barrier: it calls
+    try_seal in a poll loop every 0.25s for up to SEAL_WAIT_SECONDS, so one
+    hook process can reach here twenty times. An absent module is cached as
+    None too; re-deciding that on every poll is the same waste."""
+    global _SHELL_SPARSE_MOD
+    if _SHELL_SPARSE_MOD != "unloaded":
+        return _SHELL_SPARSE_MOD
+    _SHELL_SPARSE_MOD = None
+    try:
+        import importlib.util
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shell-worktree-sparse.py")
+        if not os.path.isfile(p):
+            return None
+        spec = importlib.util.spec_from_file_location("shell_worktree_sparse", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SHELL_SPARSE_MOD = mod
+    except Exception:
+        _SHELL_SPARSE_MOD = None
+    return _SHELL_SPARSE_MOD
+
+
+def _sparsify_shell(session_id, agent_id, tx):
+    """Best-effort. The `sparse` block it writes is advisory data on the
+    member; no member state changes and no other field is touched.
+
+    ELIGIBILITY IS NOT DECIDED HERE. Every condition — the spawn kind, the
+    member state, a transaction that is already terminal — belongs to
+    shell-worktree-sparse.eligible(), in one place, where the mutation
+    harness can prove each one load-bearing. A second copy of a rule in the
+    caller is not defense in depth; it is a rule that can be removed from its
+    own module without any test noticing."""
+    if not isinstance(tx, dict):
+        return tx
+    mod = _load_shell_sparse()
+    if mod is None:
+        return tx
+
+    def persist(index, **fields):
+        with tx_lock(session_id, agent_id):
+            return update_member(session_id, agent_id, index, **fields)
+
+    try:
+        return mod.maybe_sparsify(tx, persist) or tx
+    except Exception:
+        return tx
 
 
 def _consume_pending_terminal(session_id, agent_id, tx):
@@ -1257,7 +1321,12 @@ def metrics():
            "terminal_pending_cleanup": 0, "terminal_cleanup_failed": 0,
            "terminal_members": 0, "terminal_members_present": 0,
            "pending_retry": 0, "blocked": 0, "failed": 0, "failed_present": 0,
-           "pending_terminals": 0, "pending_terminals_unbindable": 0}
+           "pending_terminals": 0, "pending_terminals_unbindable": 0,
+           # The never-read shell, counted rather than believed. `refused` is
+           # not a fault and it is not hidden either: a shell somebody wrote
+           # into is left at full size on purpose, and a number that only ever
+           # went up would say the policy always applies when it does not.
+           "shells_sparsified": 0, "shells_sparse_refused": 0, "shell_bytes_freed": 0}
     for _s, _a, rec in iter_pending_terminals():
         out["pending_terminals"] += 1
         if rec.get("unbindable"):
@@ -1265,6 +1334,18 @@ def metrics():
     for tx in iter_transactions():
         out["transactions"] += 1
         members = tx.get("members") or []
+        for m in members:
+            sp = m.get("sparse")
+            if not isinstance(sp, dict):
+                continue
+            if sp.get("applied"):
+                out["shells_sparsified"] += 1
+                try:
+                    out["shell_bytes_freed"] += int(sp.get("bytes_freed") or 0)
+                except (TypeError, ValueError):
+                    pass
+            else:
+                out["shells_sparse_refused"] += 1
         if not tx.get("terminal"):
             nat = next((m for m in members if m.get("class") == "native"), None)
             if nat is None:
