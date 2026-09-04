@@ -416,6 +416,96 @@ async function main() {
     return "◉ present and the greeting invites it";
   });
 
+  // =======================================================================================
+  // THE ENGINE STEP CANNOT BE GOT PAST BY ACCIDENT
+  // =======================================================================================
+  //
+  // MEASURED ON PUBLISHED v1.0.1 (ray-opus-a2, 2026-09-04). A walk from a fresh state ended
+  // with `~/Library/Application Support/RichOS/engine` holding zero files, the first-run
+  // sheet ADVANCED to the corpus question, and four sends in a row refused with
+  // LEASE_UNAVAILABLE_MESSAGE. The click that started it was aimed at "Set it up" and landed
+  // in empty space below the panel.
+  //
+  // It landed on the backdrop. `#setup-sheet` is the full-screen overlay and the sheet the
+  // customer sees is `.overlay-panel` inside it, and main.js closed the whole thing on
+  // `e.target === setupSheetEl`. Re-measured here before the fix, on both presets: sheet
+  // hidden=true, run_setup called=false, memory question showing=true.
+  //
+  // The bar is not "warn him". It is that a mis-aimed click, and a stranger's habit of
+  // clicking beside a dialog to be rid of it, cannot produce an app that looks set up and is
+  // not. So: the backdrop does nothing, Escape does nothing, the panel body does nothing, and
+  // the only ways out are the two buttons that say what they do.
+  await run.check("14  a mis-aimed click cannot skip the engine", async () => {
+    for (const preset of ["missing-engine", "missing-both"]) {
+      const page = await openApp(browser, { setup: preset, memory: "none", chosenEntity: null });
+      await page.waitForSelector("#setup-sheet:not([hidden])");
+      const panel = await page.evaluate(() => {
+        const r = document.querySelector("#setup-sheet .overlay-panel").getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+      });
+      const midX = (panel.left + panel.right) / 2;
+      const midY = (panel.top + panel.bottom) / 2;
+      // The exact miss ray-opus-a2 made: aimed at the button, landed below the panel.
+      const misses = [
+        [midX, Math.min(panel.bottom + 60, 940)], // below
+        [Math.max(panel.left - 80, 10), midY], // beside
+        [midX, Math.max(panel.top - 60, 10)], // above
+      ];
+      for (const [x, y] of misses) {
+        await page.mouse.click(x, y);
+        await page.waitForTimeout(120);
+        assert(
+          await page.isVisible("#setup-sheet"),
+          preset + ": a click at " + x + "," + y + " dismissed the engine step"
+        );
+        assert(
+          await page.isHidden("#memory-setup"),
+          preset + ": a backdrop click advanced to the corpus question with no engine installed"
+        );
+      }
+      // AND ESCAPE IS INERT. It has never closed this sheet — the global handler names the
+      // overlays it closes and this is deliberately not one — and this is what keeps it that
+      // way, because "nobody added it to the list" is not a guarantee.
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(120);
+      assert(await page.isVisible("#setup-sheet"), preset + ": Escape dismissed the engine step");
+      // Nor does a click inside the panel that hits no control.
+      await page.click("#setup-title");
+      await page.waitForTimeout(120);
+      assert(
+        await page.isVisible("#setup-sheet"),
+        preset + ": a click on the panel body dismissed the engine step"
+      );
+      // NOTHING WAS INSTALLED AND NOTHING WAS CLAIMED — five dismissal attempts, zero runs.
+      const ran = await page.evaluate(() =>
+        window.__calls.filter((c) => c.cmd === "run_setup").length
+      );
+      assertEqual(ran, 0, preset + ": run_setup should not have been reached by any of that");
+      // THE NAMED WAY OUT STILL WORKS, and still hands off. Refusing the backdrop must not
+      // turn the first screen a customer ever sees into a trap.
+      await page.click("#setup-later");
+      await page.waitForSelector("#memory-setup:not([hidden])");
+      assert(await page.isHidden("#setup-sheet"), preset + ": \"Not now\" must still close it");
+      bump(12);
+      assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+      await page.close();
+    }
+    // AND IN THE SOURCE, so a later slice that re-adds the one-line convenience fails here
+    // rather than on a customer's Mac.
+    // COMMENTS STRIPPED FIRST. The note above the (absent) listener quotes the line it
+    // replaced, so a naive grep matches the explanation and calls it the defect.
+    const code = MAIN_JS.split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join(" ")
+      .replace(/\s+/g, " ");
+    assert(
+      !/setupSheetEl\)\s*closeSetupSheet/.test(code),
+      "main.js closes the setup sheet on a backdrop click again"
+    );
+    bump(1);
+    return "backdrop, Escape and the panel body are all inert; only the two buttons dismiss it";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
@@ -468,6 +558,12 @@ main().catch((e) => {
 //        -> the sheet sits silent for the whole run
 //  7b  main.js `runSetup`: hard-code the finished sentence to "ready"
 //        -> a run that left something missing claims it did not
+// 14   main.js: restore setupSheetEl.addEventListener("click", e => { if (e.target ===
+//        setupSheetEl) closeSetupSheet(); })
+//        -> a click beside the panel skips the engine install and advances to the corpus
+//           question, which is published v1.0.1's behavior and ray-opus-a2's dead app
+// 14b  main.js: add setupSheetEl to the global Escape handler'''s list
+//        -> Escape skips the engine install the same way
 //  8   main.js `maybeAskAboutSetup`: return true for every status
 //        -> a set-up machine is interrupted on every launch
 //  9   main.js `runSetup`: drop `setupGoEl.disabled = true`
