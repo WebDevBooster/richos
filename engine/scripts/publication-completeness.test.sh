@@ -579,6 +579,55 @@ assert_rc "a declaring repository with NOTHING tracked → exit 2, not '0 findin
     "$EMPTY" 2 "broken checkout"
 
 # ---------------------------------------------------------------------------
+echo "--- (h) the grouped declaration directory"
+# ---------------------------------------------------------------------------
+# The declaration may live at `.richos/publication-boundary`. Everything above
+# proves the root form; these prove the move does not quietly turn a governed
+# tree into a NOT-APPLICABLE one, which is the failure that reads as a pass.
+
+T="$(mktree grouped_found)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+commit_all "$T"
+assert_clean "a boundary declared in .richos/ is FOUND and the tree is checked" "$T"
+
+# ...and the check is still capable of failing over it. A NOT-APPLICABLE tree
+# and a clean tree are different exit codes; a tree with a real defect must
+# still report it under the grouped declaration.
+T="$(mktree grouped_still_fails)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+printf '\nThe entry point is `src/missing.js`.\n' >> "$T/README.md"
+commit_all "$T"
+assert_rc "a dangling citation is still reported under a grouped declaration" \
+    "$T" 1 "src/missing.js"
+
+# The exemption file is resolved the same way, and an exemption the checker
+# cannot find is one that silently stops exempting.
+T="$(mktree grouped_exempt)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+mkdir -p "$T/reference"; printf 'See `reference/nope.md`.\n' > "$T/reference/README.md"
+commit_all "$T"
+assert_rc "without the exemption, the reference tree's dangling citation FAILS" \
+    "$T" 1 "reference/nope.md"
+printf 'CITATION_EXEMPT="reference/"\n' > "$T/.richos/publication-completeness"
+commit_all "$T"
+assert_clean "an exemption file at .richos/publication-completeness is honored" "$T"
+
+# Two copies of one declaration is BROKEN, never a choice between them.
+T="$(mktree grouped_both)"
+mkdir -p "$T/.richos"; cp "$T/.publication-boundary" "$T/.richos/publication-boundary"
+commit_all "$T"
+assert_rc "declared in BOTH places → exit 2, never a quiet choice" \
+    "$T" 2 "carries BOTH"
+
+# A file in .richos/ that nothing resolves is BROKEN too.
+T="$(mktree grouped_stray)"
+mkdir -p "$T/.richos"; mv "$T/.publication-boundary" "$T/.richos/publication-boundary"
+printf 'TODO_RECORD="x"\n' > "$T/.richos/ceo-todos"
+commit_all "$T"
+assert_rc "an unresolved file in .richos/ → exit 2, naming the file nothing reads" \
+    "$T" 2 "not a declaration anything reads from there"
+
+# ---------------------------------------------------------------------------
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     printf '✓ publication-completeness.test.sh: %s/%s cases passed.\n' "$PASS" "$((PASS + FAIL))"
