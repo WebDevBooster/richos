@@ -52,6 +52,38 @@
 # material under a redistributable path with no entry here is REFUSED, and the
 # refusal names the path and the line to add.
 #
+# THREE DOCUMENTS, ONE SUBJECT — AND THE PRECEDENCE, STATED
+# ---------------------------------------------------------
+# `docs/legal/BRAND-ASSETS.md` names three categories rather than two: RichOS-
+# authored software under the AGPL, RichOS brand material listed there, and
+# third-party work under its own terms. This file is the machine-readable form
+# of that third category, and three overlapping lists with no stated precedence
+# is exactly the failure that page was just corrected for — two shipping legal
+# documents disagreeing being worse than either being vague. So:
+#
+#   THE DOCUMENTS ARE FOR A PERSON. THIS FILE IS FOR A GUARD.
+#
+#   `docs/legal/BRAND-ASSETS.md`      what is neither AGPL nor third-party.
+#   `docs/legal/THIRD-PARTY-NOTICES.md`  the argument for each bundled work:
+#                                     its terms, what was verified and how,
+#                                     what a reader may reuse. AUTHORITATIVE
+#                                     ON MEANING — if a license or a
+#                                     modification note here disagrees with
+#                                     that page, that page is right and this
+#                                     row is a transcription error to fix.
+#   this file                         one narrow question per path — WHOSE IS
+#                                     THIS — answered for two mechanisms that
+#                                     cannot read prose. AUTHORITATIVE ON
+#                                     COVERAGE: if something under a governed
+#                                     path is missing from here, the guard says
+#                                     so and no document can vouch for it.
+#
+# It deliberately holds no license TEXT and makes no compliance claim. Whether
+# the bundled copy carries its upstream LICENSE, and whether a modified copy
+# says how it differs, are the notices document's questions and a human's call.
+# Every row carries an `evidence` field pointing back at the page that argues
+# it, so the two are linked rather than duplicated.
+#
 # WHAT THIS FILE DOES NOT DO
 # --------------------------
 # It never GUESSES provenance. It records what somebody wrote down. The guard
@@ -59,9 +91,12 @@
 # that infers origin is a guard that is confidently wrong some of the time, and
 # a confidently wrong provenance claim is worse than an absent one.
 #
-# It is also not a license-compliance checker. Whether the bundled copy carries
-# its upstream LICENSE file, and whether a modified copy says how it differs,
-# are questions `docs/legal/THIRD-PARTY-NOTICES.md` answers and a human decides.
+# It is also not a license-compliance checker, and not a build-exclusion
+# checker. It answers whose a file is; it says nothing about whether some
+# exclusion elsewhere reaches it. A vendored directory nested under a governed
+# path would need an entry here — but that is a consequence of where it sits,
+# not coverage of the question "does the packaging exclude it", which is
+# `app/scripts/`'s to answer and not this file's.
 
 # ---------------------------------------------------------------------------
 # REDISTRIBUTABLE_PATHS — the paths this contract governs
