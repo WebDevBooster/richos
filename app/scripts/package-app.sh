@@ -864,6 +864,24 @@ export RICHOS_REQUIRE_REAL_ICONS=1
 # This is exported HERE and not in a committed `.cargo/config.toml` on purpose: an
 # ordinary `cargo build` during development keeps real paths, so a compiler diagnostic
 # still points at a file the engineer can open. Only the release path is sanitized.
+#
+# AND THE REMAP IS NOT THE WHOLE FIX — MEASURED 2026-09-04. It rewrites the compiler's
+# path metadata, so a path a MACRO already produced as a string literal is program data it
+# cannot reach. Exactly one survived: `tauri::generate_context!()` emits
+# `context.with_config_parent("<CARGO_MANIFEST_DIR>")` whenever the `tauri` crate's
+# `custom-protocol` feature is off (tauri-codegen-2.6.3/src/context.rs:439-445). A release
+# build with this remap in full force still carried it — one host path out of 657, and the
+# only one left.
+#
+# `cargo tauri build`, which is what runs below, was never affected: the CLI turns that
+# feature on itself (tauri-cli-2.11.4/src/interface/rust.rs:485). A plain
+# `cargo build --release` was. Both now produce the same program, because
+# `app/src-tauri/Cargo.toml` declares `custom-protocol` as a DEFAULT feature — read the
+# comment there before removing it; the leak is the smaller half of what it prevents.
+#
+# If that default is ever removed, nothing here changes and no build fails for it. The
+# check below is what catches it, on the artifact, which is the entire reason the check
+# exists on the artifact rather than on the flags.
 richos_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$HOME=/build --remap-path-prefix=$richos_cargo_home=/build/cargo --remap-path-prefix=$app_dir=/build/app"
 

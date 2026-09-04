@@ -10,6 +10,42 @@ license = "AGPL-3.0-only"
 # path dependency below, so the shell always builds against the same spine.
 [workspace]
 
+# THE PRODUCTION CONTEXT, ON BY DEFAULT — THIS IS NOT COSMETIC.
+#
+# `tauri::generate_context!()` expands into one of two different programs, and which one
+# it expands into is decided by a single feature on the `tauri` crate:
+# `tauri-macros-2.6.3/src/context.rs:155` sets `dev: cfg!(not(feature = "custom-protocol"))`.
+#
+# With `dev` true, `tauri-codegen-2.6.3/src/context.rs:439-445` emits
+#
+#     context.with_config_parent("<CARGO_MANIFEST_DIR>");
+#
+# as a STRING LITERAL in generated code. `--remap-path-prefix`, which package-app.sh
+# exports and which removes the other 656 occurrences of the builder's home directory,
+# cannot touch it: that flag rewrites the compiler's own path metadata, not program data a
+# macro already produced. MEASURED at 9a7799e — a release build with the full remap in
+# force still carried exactly one host path, and it was this one.
+#
+# The literal is the visible half. The larger half is that a `dev` binary is not the
+# shipping configuration at all: `tauri-2.11.5/src/app.rs:348-360` falls back to READING
+# FRONTEND FILES OFF DISK from that same path when an embedded asset is missing, and
+# `manager/mod.rs:369-380` serves `devCsp` instead of `csp`. On a stranger's machine that
+# path does not exist.
+#
+# `cargo tauri build` was never affected, because the CLI pushes the feature itself
+# (`tauri-cli-2.11.4/src/interface/rust.rs:485`). A plain `cargo build --release` was —
+# and this repository tells people to run exactly that
+# (`app/scripts/frontend-payload.test.sh:159`). Declaring it as a DEFAULT feature makes
+# every invocation produce the same program, which is the whole point of environment
+# parity: two build paths that disagree is a defect waiting for the one day it matters.
+#
+# `cargo tauri dev` is unaffected and still gets a dev build: the CLI's dev path filters
+# default features that enable `tauri/custom-protocol` and passes `--no-default-features`
+# (`rust.rs:435-451`). A deliberate dev build by hand is `--no-default-features`.
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 # build.rs derives the required icon set from tauri.conf.json's own bundle.icon array
