@@ -634,7 +634,7 @@ fn resolve_boot_entity(
             // NAMED, NOT DROPPED. A saved choice that no longer resolves is the one state
             // in which the CEO believes he has answered this question and has not.
             _ => notes.push(format!(
-                "the saved company {raw:?} is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess"
+                "the saved company {raw:?} is not a registered entity any more — ignoring it and asking again rather than filing work under a guess"
             )),
         }
     }

@@ -337,7 +337,7 @@ declare_rules() {
        the product and must fail red here.'
 
   refused 'entity saved choice stale' \
-    '[richos] the saved company "northwind" is not a registered entity any more — ignoring it                  and asking again rather than filing work under a guess' \
+    '[richos] the saved company "northwind" is not a registered entity any more — ignoring it and asking again rather than filing work under a guess' \
     'The one state in which the CEO believes he has answered this question and has not.
        (The run of spaces is verbatim from main.rs:637 — this file quotes the boot, it does
        not tidy it.)'
