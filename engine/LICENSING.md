@@ -60,9 +60,12 @@ other authors, and each piece stays under the license it arrived with.
 
 `LICENSE-TODO.md` used to say there was exactly **one** documented exception,
 the vendored GPT Exporter. That was true when it was written and false by the
-time the publication audit read it: the engine now bundles seven separately
-licensed items, and an undercount in the file that exists to prevent an
-undercount is the worst place for one.
+time the publication audit read it. It said **seven** until 2026-09-04, and that
+was an undercount too: nine more skills were established as third-party by
+`docs/legal/SKILL-PROVENANCE-2026-09-04.md` and licensed on the CEO's express
+exception the same day. The engine bundles **sixteen** separately licensed
+items, and an undercount in the file that exists to prevent an undercount is the
+worst place for one.
 
 | Path (from this directory) | Upstream | License |
 |---|---|---|
@@ -73,6 +76,15 @@ undercount is the worst place for one.
 | `skills/landing-page-redesign/` | Leonxlnx/taste-skill | MIT |
 | `skills/marketing-strategy-pmm/` | alirezarezvani/claude-skills | MIT |
 | `skills/resend/` | resend/resend-skills | MIT |
+| `skills/copywriting/` | coreyhaines31/marketingskills | MIT |
+| `skills/customer-research/` | coreyhaines31/marketingskills | MIT |
+| `skills/marketing-psychology/` | coreyhaines31/marketingskills | MIT |
+| `skills/product-marketing-context/` | coreyhaines31/marketingskills | MIT |
+| `skills/playwright-cli/` | microsoft/playwright-cli | Apache-2.0 |
+| `skills/playwright-e2e-testing/` | bobmatnyc/claude-mpm-skills | MIT |
+| `skills/svelte-code-writer/` | sveltejs/ai-tools | MIT |
+| `skills/svelte-core-bestpractices/` | sveltejs/ai-tools | MIT |
+| `skills/use-railway/` | railwayapp/railway-skills | MIT |
 
 Every one of those directories carries its own full license text alongside the
 work. The authoritative inventory — versions, pinned commits, copyright lines
