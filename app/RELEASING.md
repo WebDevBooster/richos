@@ -152,6 +152,8 @@ with the paths filled in, and the only two things it does over the network are d
 | the engine asset is not deterministic | the digest compiled into the app would be a property of the machine that built it, and a customer would discover that as a `DigestMismatch` |
 | the published engine asset differs from the pin | the failure would ship inside a signed binary |
 | `app` runs with no `verify-engine` receipt | the digest would be a claim about a local file |
+| the working tree has uncommitted changes | the binary would not correspond to the source published beside it, and nobody can reconstruct what shipped from a tree that was never committed |
+| the tag exists locally and points somewhere other than `HEAD` | GitHub publishes the tag's tree as the source beside the release |
 | the digest is not found inside the built executable | the pin never reached the compiler, so the app would install whatever the URL returns |
 | the built bundle's version is not the release version | the tag, the manifest and the binary would disagree |
 | the extracted first-install archive fails `codesign` or has no stapled ticket | a machine that is offline treats it as un-notarized, which for that person is the same as not being notarized |
@@ -182,6 +184,22 @@ password.
 other users of the Mac.
 
 ---
+
+## The source corresponding to the binary
+
+RichOS is AGPL-3.0-only, and the release page is where a stranger goes looking for the source
+that made the download. GitHub attaches the tag's tree to every release as `Source code (zip)`
+and `Source code (tar.gz)` automatically, so nothing has to be uploaded for it — but it is only
+*corresponding* source if the build came from that exact tree.
+
+`make-release.sh app` therefore refuses a dirty working tree outright, and refuses to build when
+the tag already exists locally and points at a different commit than `HEAD`. It prints the SHA it
+is building, and says so plainly when the tag does not exist yet: create it on that commit, or
+the source published beside the release is a different tree from the one that shipped.
+
+`SHA256SUMS` covers the assets this project uploads. It does not cover GitHub's two generated
+source archives, which GitHub creates on demand and which are not byte-stable over time — the
+tag is their identity, and it is a stronger one than a checksum of a file regenerated on request.
 
 ## After publishing
 

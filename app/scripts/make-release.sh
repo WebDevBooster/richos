@@ -295,6 +295,41 @@ cmd_app() {
     || die "no updater signing key. Export TAURI_SIGNING_PRIVATE_KEY_PATH — app/RELEASING.md
   says which key ships and why. Without a signature there is no publishable release."
 
+  # ---- THE SOURCE CORRESPONDING TO THE BINARY -----------------------------------------
+  #
+  # RichOS is AGPL-3.0-only and the release page is where a stranger goes looking for the
+  # source that made the binary. GitHub attaches the tag's tree to every release as
+  # `Source code (zip/tar.gz)` automatically, so the corresponding source is published for
+  # free — and it is only CORRESPONDING if this build came from that exact tree.
+  #
+  # A dirty tree is therefore refused rather than warned about: an uncommitted line is a
+  # difference between what was shipped and what was published, and nobody can see it later.
+  local head_sha tag_sha dirty
+  head_sha="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+  if [ -n "$head_sha" ]; then
+    dirty="$(git -C "$repo_root" status --porcelain 2>/dev/null)"
+    [ -z "$dirty" ] || die "the working tree has uncommitted changes, so the binary would not
+  correspond to the source published beside it. AGPL aside, nobody can reconstruct what
+  shipped from a tree that was never committed.
+
+$(printf '%s' "$dirty" | sed 's/^/    /')" 1
+    tag_sha="$(git -C "$repo_root" rev-parse "$TAG^{commit}" 2>/dev/null || true)"
+    if [ -n "$tag_sha" ] && [ "$tag_sha" != "$head_sha" ]; then
+      die "HEAD is $head_sha and $TAG is $tag_sha. GitHub publishes the TAG's tree as the
+  source beside this release, so it would not be the source this binary was built from." 1
+    fi
+    say ""
+    if [ -n "$tag_sha" ]; then
+      say "  source     : $head_sha, which is $TAG. The release page publishes this tree."
+    else
+      say "  source     : $head_sha. $TAG does not exist locally yet — create it on THIS"
+      say "               commit, or the source published beside the release is a different tree."
+    fi
+  else
+    say ""
+    say "  source     : not a git checkout, so nothing here can say which tree this is."
+  fi
+
   mkdir -p "$OUT"
 
   rule
