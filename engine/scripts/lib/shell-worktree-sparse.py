@@ -144,7 +144,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # the protection does not depend on this name.
 DEFAULT_KEEP = ".claude .githooks"
 
-GIT_TIMEOUT = 300
+# EVERY GIT CALL HERE IS BOUNDED, AND THE BOUND IS DELIBERATELY SMALL.
+# try_seal is reached from the write barrier (guard-sealed-worktree.sh) on a
+# worker's own first tool call, so this code can sit in the path of a hook the
+# platform is timing. A repository too large to de-materialize inside the
+# bound simply is not de-materialized: the timeout is a git failure like any
+# other, which means the rollback runs and the shell is left whole. What must
+# never happen is the platform killing the hook mid-checkout with nobody left
+# to restore the tree, so this bound stays well under any plausible hook
+# budget. Measured on this machine: a 266 MB, 4247-entry shell took under two
+# seconds end to end.
+GIT_TIMEOUT = 60
 
 
 def now_iso():
