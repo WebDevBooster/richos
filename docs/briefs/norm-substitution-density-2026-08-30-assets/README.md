@@ -2,7 +2,7 @@
 
 Everything needed to re-run and audit `../norm-brief-substitution-density-2026-08-30.md`.
 
-**No audio is here, no transcript is here, and no line of anybody's speech is here.** This directory
+**No audio is here, no transcript is here, no line of anybody's speech is here, and nobody's name is here.** The last clause was added 2026-09-04, because it was not true: `tools/normalize.sh` named the second speaker in a source filename, and he found it himself after the repository went public. A filename is personal data even when the audio it names never ships. The script now takes both names as environment variables. This directory
 is in `richos`, which gets published. The two source mp3s live in `docs/reference/local/`, which is
 gitignored; neither they, nor the normalized `me.wav` / `others.wav`, nor any probe clip, nor any
 whisper JSON is committed anywhere. Every file in `results/` was written through `tools/redact.mjs`,
