@@ -173,7 +173,9 @@ DEFAULT_KEEP = ".claude .githooks"
 # never happen is the platform killing the hook mid-checkout with nobody left
 # to restore the tree, so this bound stays well under any plausible hook
 # budget. Measured on this machine: a 266 MB, 4247-entry shell took under two
-# seconds end to end.
+# seconds end to end, and guard-sealed-worktree.test.sh — 53 cases whose whole
+# subject is that barrier — ran 121.23s with this on and 121.10s with
+# SHELL_SPARSE=off. The barrier pays nothing.
 GIT_TIMEOUT = 60
 
 
