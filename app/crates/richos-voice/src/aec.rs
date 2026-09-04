@@ -21,8 +21,10 @@
 //! AEC3, re-derived rather than vendored.
 //!
 //! - *License.* Nothing is vendored, so there is nothing to name in the open-source audit.
-//!   This file is Apache-2.0 with the rest of the crate. `webrtc-audio-processing` would have
-//!   brought BSD-3-Clause C++ plus a meson/autotools build into a signed, notarized bundle;
+//!   This file is AGPL-3.0-only with the rest of the crate, and the audit is the reason to
+//!   say so here: a header that names a license the tree does not use is the one place a
+//!   reader will trust over the manifest. `webrtc-audio-processing` would have brought
+//!   BSD-3-Clause C++ plus a meson/autotools build into a signed, notarized bundle;
 //!   `speexdsp` would have brought BSD-3-Clause C. Both are perfectly usable licenses — the
 //!   cost is not the license text, it is the build system and the audit surface.
 //! - *Testability.* Every line here runs under `cargo test -p richos-voice` with no device,
