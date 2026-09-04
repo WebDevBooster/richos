@@ -33,6 +33,7 @@
 #   B4  the webview is granted NO updater permission, and the capability says why
 #   B5  the build always passes --no-sign (the bundler would otherwise sign a tarball of an
 #       unsigned app, and a keyless build would fail outright)
+#   B6  ...and carries no `version`, so src-tauri/Cargo.toml is the one place it is written
 #   B7  package-app.sh creates the staged frontend directory, so a clean checkout can build
 #   G1  a well-formed manifest VERIFIES with the plugin's own RemoteRelease type
 #   G2  ...a manifest with no entry for this platform is REFUSED
@@ -196,6 +197,24 @@ if grep -q 'build_args=(tauri build --no-sign' "$SCRIPT"; then
 else
   bad "B5 the build always passes --no-sign" \
       "without it, tauri-cli signs the tarball it made BEFORE package-app.sh signed the bundle — and a keyless build fails outright"
+fi
+
+# THE VERSION IS WRITTEN ONCE. `tauri.conf.json`'s `version` overrides the Cargo manifest
+# when it is present, so with both filled in there are two places to edit and one of them
+# silently wins. Removing it makes `src-tauri/Cargo.toml` the source — tauri-utils 2.9.3
+# `config.rs:3612`: "If removed the version number from Cargo.toml is used." Everything
+# downstream already derives: the bundle's CFBundleShortVersionString comes from the build,
+# and package-app.sh reads the manifest's version back off the produced Info.plist.
+if python3 -c 'import json,sys;sys.exit(0 if "version" not in json.load(open(sys.argv[1])) else 1)' "$CONF"; then
+  CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$APP/src-tauri/Cargo.toml" | head -1)"
+  if printf '%s' "$CARGO_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+    ok "B6 tauri.conf.json carries no version, so src-tauri/Cargo.toml ($CARGO_VERSION) is the only place it is written"
+  else
+    bad "B6 src-tauri/Cargo.toml carries a semver version" "it reads '$CARGO_VERSION'"
+  fi
+else
+  bad "B6 tauri.conf.json carries no version" \
+      "it does, and it OVERRIDES Cargo.toml — two places to edit, one of which wins silently"
 fi
 
 # A CLEAN CHECKOUT MUST BUILD. tauri-cli bails on `!frontendDist.exists()` before cargo runs,
