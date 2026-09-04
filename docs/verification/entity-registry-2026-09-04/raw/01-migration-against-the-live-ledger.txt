@@ -1,0 +1,19 @@
+ledger         : /Users/alex/Library/Application Support/com.richos.app/conversation-ledger.jsonl
+threads        : 3 (1 with no entity home)
+entity ids used: richos, femcboost
+
+--- without the migration ---
+shipped default: 0 compan(ies)
+would be unreachable: richos, femcboost
+
+--- the migration, and a reload from disk ---
+[richos] company registry: 2 companies from /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-migration-check-45024-1788512192388/entities.json
+  OK     richos               display_name="Richos" roots=0
+  OK     femcboost            display_name="Femcboost" roots=0
+
+--- what he has to do next ---
+nothing, to keep his threads. To have RichOS pick a company automatically again,
+add its folder — in the window, or as a `roots` line in
+<app-data>/entities.json (docs/entity-registry.md).
+
+OK — no thread is orphaned.
