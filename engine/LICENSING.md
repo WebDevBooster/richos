@@ -67,8 +67,8 @@ undercount is the worst place for one.
 | Path (from this directory) | Upstream | License |
 |---|---|---|
 | `tools/gpt-exporter/` | WebDevBooster/gpt-exporter | MIT |
-| `skills/frontend-design/` | Anthropic, official Claude Code plugin marketplace | Apache-2.0 |
-| `skills/android-emulator-qa/` | third-party emulator-QA skill | Apache-2.0 |
+| `skills/frontend-design/` | anthropics/skills | Apache-2.0 |
+| `skills/android-emulator-qa/` | openai/plugins, `test-android-apps` v0.1.2 | MIT |
 | `skills/landing-page-taste/` | Leonxlnx/taste-skill | MIT |
 | `skills/landing-page-redesign/` | Leonxlnx/taste-skill | MIT |
 | `skills/marketing-strategy-pmm/` | alirezarezvani/claude-skills | MIT |
