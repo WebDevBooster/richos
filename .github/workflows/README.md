@@ -122,3 +122,32 @@ Dependabot's `github-actions` ecosystem, which opens a pull request that bumps
 the SHA and the comment together; until that is switched on, moving these is a
 manual job with a real cost — which is the honest price of the tag not being able
 to move underneath us.
+
+### The repository policy that would ENFORCE this is off, on purpose
+
+GitHub can refuse to run any workflow whose actions are not pinned, rather than
+trusting everyone to remember. On **2026-09-04** the repository reports:
+
+```
+$ gh api repos/WebDevBooster/richos/actions/permissions
+{"enabled":true,"allowed_actions":"all","sha_pinning_required":false}
+```
+
+**It is off, and turning it on is the CEO's call, not an engineer's**, because it
+does not only judge the seven references pinned today — it judges every workflow
+this repository ever gains. A new one added with `actions/checkout@v5` in it does
+not warn; per GitHub's documentation, "workflows referencing actions this way will
+be blocked and unable to run", which on a bad day looks like CI silently not
+starting. Reusable workflows are exempt and may still be referenced by tag.
+
+If it is decided, it is one call — `Settings > Actions > General > Actions
+permissions` in the web interface, or:
+
+```
+gh api -X PUT repos/WebDevBooster/richos/actions/permissions \
+  -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
+```
+
+Nothing in the tree needs to change first: as of the commit that added this
+section, every action reference under `.github/workflows/` is already a
+full-length SHA, so the policy would be satisfied on the day it is switched on.
