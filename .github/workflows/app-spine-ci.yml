@@ -3,12 +3,14 @@ name: app-spine-ci
 # THE PRODUCT'S OWN TESTS HAVE NEVER BEEN RUN BY ANY TOOLING.
 #
 # `app/README.md` has documented `cargo test -p richos-core` as the spine's gate
-# since the crate existed, and it is real — 375 tests plus 5 doctests, no
-# network, no native dependencies, a couple of seconds. (That number was 342
-# when this file was written and 375 by the end of the same day; it is checked
-# against the tree in app/ui/tests/docs-claims.js wherever a DOCUMENT states
-# it, which is why the authoritative copy lives in app/README.md and this
-# comment defers to it.) But `grep -rn "cargo test"` across this
+# since the crate existed, and it is real — no network, no native dependencies, a
+# couple of seconds. THE COUNT IS DELIBERATELY NOT WRITTEN HERE ANY MORE. It was
+# 342 when this file was written, 375 by the end of that day, and 696 on
+# 2026-09-04 after the entity registry stopped being compiled in; three numbers
+# in a week, in a comment nothing checks. `app/ui/tests/docs-claims.js` holds the
+# count to the tree wherever a DOCUMENT states it, so the authoritative copy
+# lives in `app/README.md` and this file names the command instead of the
+# arithmetic. But `grep -rn "cargo test"` across this
 # repository's scripts and workflows returns README prose and nothing else. The
 # two workflows that existed verified the ENGINE and the Windows companion. The
 # runtime spine — ledger, entity scope, timeline visibility, ACP, and now the
@@ -34,6 +36,16 @@ name: app-spine-ci
 # not be described as "CI-verified" until a run of this workflow is green on a
 # SHA somebody can name.
 #
+# WHAT HAS SINCE BEEN PROVEN, AND EXACTLY HOW FAR IT REACHES. On 2026-09-04 both
+# steps below were run verbatim inside a real `git clone` of `fc56c20`, in a
+# directory holding nothing but that clone — no private `richos-hq` sibling — and
+# under a throwaway `$HOME`: 696 tests across 30 binaries plus the doctests,
+# green, with `--locked` accepted rather than merely passed. The transcript is
+# `docs/verification/workflows-on-a-clone-2026-09-04/raw/spine.txt`.
+# That answers "does this tree depend on the author's machine". It does NOT
+# answer "does this build on Linux", which is the runner's question and stays
+# open until a real run.
+#
 # WHAT IT DELIBERATELY DOES NOT COVER:
 #   - richos-voice. It pulls cpal and a local whisper.cpp build; a runner has no
 #     audio endpoint and the native build is minutes, not seconds. Its pure logic
@@ -49,11 +61,20 @@ on:
     paths:
       - "app/crates/richos-core/**"
       - "app/Cargo.toml"
+      # THE LOCKFILE IS AN INPUT, so a change to it has to be able to start the
+      # only job that judges it. `--locked` below turns `app/Cargo.lock` into a
+      # thing this job can REFUSE, and a `cargo update` touches the lock and
+      # nothing else — without this line that commit passes CI by never
+      # reaching it. Tracked since 2026-09-04; added here the same day, because
+      # a gate you can walk around is the shape of defect this repository keeps
+      # paying for.
+      - "app/Cargo.lock"
       - ".github/workflows/app-spine-ci.yml"
   pull_request:
     paths:
       - "app/crates/richos-core/**"
       - "app/Cargo.toml"
+      - "app/Cargo.lock"
       - ".github/workflows/app-spine-ci.yml"
   # So the gate can be demanded on a SHA without touching the tree — the first
   # green run has to be attributable to a commit somebody names.
