@@ -826,9 +826,27 @@ fn main() {
             let window_configs = app.config().app.windows.clone();
             for window_config in &window_configs {
                 let kind = launch_store.next_window_kind();
-                tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                let window = tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
                     .initialization_script(launch_init_script(kind, start_ordinal))
                     .build()?;
+                // COME TO THE FRONT. Measured by ray-opus-a1 on published v1.0.0,
+                // 2026-09-04: the window opened BEHIND other windows, twice, on a first
+                // launch from Finder — an app a stranger has just double-clicked and cannot
+                // see is an app that did not start, as far as he is concerned.
+                //
+                // `set_focus` is `makeKeyAndOrderFront:` plus
+                // `activateIgnoringOtherApps: YES` on macOS
+                // (tao-0.35.3/src/platform_impl/macos/util/async.rs:231-238), which is the
+                // pair that raises the whole application and not just this window. tao
+                // guards it on the window being visible and not miniaturized, and
+                // `tauri.conf.json` declares `"visible": true`, so it runs.
+                //
+                // A FAILURE HERE IS NOT FATAL, and that is deliberate: `?` would turn "the
+                // window did not come forward" into "the app refused to start", which is
+                // strictly worse than the defect being fixed.
+                if let Err(e) = window.set_focus() {
+                    eprintln!("[richos] window did not come to the front: {e}");
+                }
             }
             eprintln!(
                 "[richos] launch: {} (start {}, {} window(s))",
