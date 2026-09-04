@@ -1308,7 +1308,12 @@ def metrics():
            "terminal_pending_cleanup": 0, "terminal_cleanup_failed": 0,
            "terminal_members": 0, "terminal_members_present": 0,
            "pending_retry": 0, "blocked": 0, "failed": 0, "failed_present": 0,
-           "pending_terminals": 0, "pending_terminals_unbindable": 0}
+           "pending_terminals": 0, "pending_terminals_unbindable": 0,
+           # The never-read shell, counted rather than believed. `refused` is
+           # not a fault and it is not hidden either: a shell somebody wrote
+           # into is left at full size on purpose, and a number that only ever
+           # went up would say the policy always applies when it does not.
+           "shells_sparsified": 0, "shells_sparse_refused": 0, "shell_bytes_freed": 0}
     for _s, _a, rec in iter_pending_terminals():
         out["pending_terminals"] += 1
         if rec.get("unbindable"):
@@ -1316,6 +1321,18 @@ def metrics():
     for tx in iter_transactions():
         out["transactions"] += 1
         members = tx.get("members") or []
+        for m in members:
+            sp = m.get("sparse")
+            if not isinstance(sp, dict):
+                continue
+            if sp.get("applied"):
+                out["shells_sparsified"] += 1
+                try:
+                    out["shell_bytes_freed"] += int(sp.get("bytes_freed") or 0)
+                except (TypeError, ValueError):
+                    pass
+            else:
+                out["shells_sparse_refused"] += 1
         if not tx.get("terminal"):
             nat = next((m for m in members if m.get("class") == "native"), None)
             if nat is None:

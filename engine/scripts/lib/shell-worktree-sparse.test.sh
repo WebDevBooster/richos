@@ -390,6 +390,21 @@ else
     bad "S17  state=$SPARSE17 quarantine=$(ls "$Q17" 2>/dev/null | tr '\n' ' ')"
 fi
 
+# --- S18: the saving is counted, and so is every refusal ----------------------
+# A number that only ever went up would report the policy as always applying.
+# S01 applied and S04 refused, so both counters must be non-zero here.
+M18="$(T metrics)"
+V18="$(printf '%s' "$M18" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(d['shells_sparsified'] >= 1, d['shells_sparse_refused'] >= 1, d['shell_bytes_freed'] > 100000)
+")"
+if [ "$V18" = "True True True" ]; then
+    ok "S18  --status counts the shells sparsified, the shells REFUSED, and the bytes actually freed ($(printf '%s' "$M18" | python3 -c "import json,sys; print(json.load(sys.stdin)['shell_bytes_freed'])") bytes so far)"
+else
+    bad "S18  [$V18] $(printf '%s' "$M18" | tr '\n' ' ' | cut -c1-200)"
+fi
+
 echo
 if [ "$FAIL" -eq 0 ]; then
     echo "=== shell-worktree-sparse tests: all $PASS passed ==="

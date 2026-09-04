@@ -72,4 +72,9 @@ mutant policy-switch-ignored "S13" "$F" \
     '    if False:{NL}        return _refused("SHELL_SPARSE is off")' \
     "the committed policy would be decoration: turning it off would change nothing, so nobody could turn it off."
 
+mutant refusals-not-counted "S18" "scripts/lib/worktree-transactions.py" \
+    '            else:{NL}                out["shells_sparse_refused"] += 1' \
+    '            elif False:{NL}                out["shells_sparse_refused"] += 1' \
+    "the status line would count only the shells that shrank, reporting a policy that sometimes declines as one that always applies."
+
 mutation_end
