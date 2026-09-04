@@ -503,11 +503,62 @@ def try_seal(session_id, agent_id):
     if the agent's only terminal event arrived before the manifest could seal,
     the seal is immediately followed by the claim and the terminalization it
     would have triggered, and the returned transaction is terminal. The
-    caller that sealed a dead agent's manifest learns it is dead."""
+    caller that sealed a dead agent's manifest learns it is dead.
+
+    A NEVER-READ NATIVE SHELL IS DE-MATERIALIZED HERE, and only here, because
+    the seal is the first moment the member set is known and bound to an
+    agent id. It runs AFTER the pending-terminal consumption so a shell the
+    platform is already tearing down is never raced. It is advisory in the
+    strongest sense: scripts/lib/shell-worktree-sparse.py records its own
+    refusals, this call cannot raise, and a missing module simply means no
+    shell is shrunk. Nothing about the lifecycle depends on it."""
     sealed, res = _try_seal_locked(session_id, agent_id)
     if sealed:
         res = _consume_pending_terminal(session_id, agent_id, res)
+        res = _sparsify_shell(session_id, agent_id, res)
     return sealed, res
+
+
+def _load_shell_sparse():
+    """The sparsifier, loaded by path like every other sibling here. Returns
+    None if it is absent or unimportable — a seal never depends on it."""
+    try:
+        import importlib.util
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shell-worktree-sparse.py")
+        if not os.path.isfile(p):
+            return None
+        spec = importlib.util.spec_from_file_location("shell_worktree_sparse", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _sparsify_shell(session_id, agent_id, tx):
+    """Best-effort. The `sparse` block it writes is advisory data on the
+    member; no member state changes and no other field is touched.
+
+    ELIGIBILITY IS NOT DECIDED HERE. Every condition — the spawn kind, the
+    member state, a transaction that is already terminal — belongs to
+    shell-worktree-sparse.eligible(), in one place, where the mutation
+    harness can prove each one load-bearing. A second copy of a rule in the
+    caller is not defense in depth; it is a rule that can be removed from its
+    own module without any test noticing."""
+    if not isinstance(tx, dict):
+        return tx
+    mod = _load_shell_sparse()
+    if mod is None:
+        return tx
+
+    def persist(index, **fields):
+        with tx_lock(session_id, agent_id):
+            return update_member(session_id, agent_id, index, **fields)
+
+    try:
+        return mod.maybe_sparsify(tx, persist) or tx
+    except Exception:
+        return tx
 
 
 def _consume_pending_terminal(session_id, agent_id, tx):
